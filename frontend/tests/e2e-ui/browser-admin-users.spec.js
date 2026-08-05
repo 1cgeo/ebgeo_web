@@ -42,9 +42,12 @@ async function loginThroughUi(page, baseUrl, creds) {
     await page.locator('[data-testid="login-username"]').fill(creds.username);
     await page.locator('[data-testid="login-password"]').fill(creds.password);
     await page.locator('[data-testid="login-submit"]').click();
-    // The project picker opens after login (no atlas needed for admin work) — dismiss it.
+    // Login lands on the project chooser PAGE (no atlas needed for admin work). A page has no
+    // close button, so the way back to the map is its "Mapa local" action.
+    await page.waitForURL('**/projetos.html', { timeout: 20000 });
     await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 15000 });
-    await page.locator('[data-testid="project-picker-cancel"]').click();
+    await page.locator('[data-testid="projects-local-map"]').click();
+    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
 }
 
 describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', () => {
@@ -65,9 +68,12 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await page.locator('[data-testid="account-control"] .account-control__identity').click();
         await expect(page.locator('[data-testid="account-admin-btn"]')).toBeVisible({ timeout: 5000 });
 
-        // Open the panel; the Users tab loads the table.
+        // Open the page; the Users tab loads the table. Administração is a PAGE now: the menu item
+        // navigates to /admin.html, which re-boots (config + session) before the shell exists —
+        // so wait for the navigation, not just the element.
         await page.locator('[data-testid="account-admin-btn"]').click();
-        await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 5000 });
+        await page.waitForURL('**/admin.html', { timeout: 20000 });
+        await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 20000 });
         await expect(page.locator('[data-testid="admin-users-table"]')).toContainText(admin.username, { timeout: 10000 });
 
         // Create a new user through the form.
@@ -104,5 +110,17 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await expect(page.locator('[data-testid="account-logout-btn"]')).toBeVisible({ timeout: 5000 });
         // The admin item exists in the DOM but stays hidden for a non-admin.
         await expect(page.locator('[data-testid="account-admin-btn"]')).toBeHidden();
+    });
+
+    test('a non-admin who types /admin.html is sent back to the map', async ({ page }) => {
+        await page.goto('/');
+        const user = await registerUser(page, state.baseUrl); // stays role='user'
+        await loginThroughUi(page, state.baseUrl, user);
+
+        // Hiding the menu item is not a gate — the page is reachable by URL. It must re-check the
+        // global role on arrival and bounce, instead of rendering a shell whose every request 403s.
+        await page.goto('/admin.html');
+        await page.waitForURL((url) => !url.pathname.endsWith('/admin.html'), { timeout: 20000 });
+        await expect(page.locator('[data-testid="admin-panel"]')).toHaveCount(0);
     });
 });

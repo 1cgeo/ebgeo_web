@@ -1,0 +1,148 @@
+/* Path: src/css/app-bar.css */
+
+/*
+ * Shared top bar of the map-less PAGES (admin.html, projetos.html). Brand on the left; page
+ * actions, identity and "Sair" on the right. BEM block: .app-bar.
+ * Built by src/js/ui/app-bar.js — the two pages must not grow separate headers.
+ */
+
+.app-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-6);
+    background: linear-gradient(120deg, var(--primary-800), var(--primary-700));
+    color: #fff;
+    box-shadow: var(--shadow-md);
+    z-index: 1;
+}
+
+.app-bar__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.app-bar__brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-md);
+    background: rgb(255 255 255 / 15%);
+    color: #fff;
+}
+
+.app-bar__title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-tight);
+}
+
+.app-bar__subtitle {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: rgb(255 255 255 / 75%);
+}
+
+/* ----- Actions ----- */
+
+.app-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.app-bar__action {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target-min);
+    padding: 0 var(--space-3);
+    background: rgb(255 255 255 / 10%);
+    border: var(--border-width) solid rgb(255 255 255 / 20%);
+    border-radius: var(--radius-md);
+    color: #fff;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.app-bar__action:hover {
+    background: rgb(255 255 255 / 22%);
+    border-color: rgb(255 255 255 / 35%);
+}
+
+.app-bar__action:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.app-bar__action-icon {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* ----- Identity ----- */
+
+.app-bar__identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 220px;
+    margin: 0 var(--space-1);
+    padding-left: var(--space-3);
+    border-left: var(--border-width) solid rgb(255 255 255 / 25%);
+}
+
+.app-bar__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    box-shadow: 0 0 0 2px rgb(255 255 255 / 35%);
+    color: #fff;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.02em;
+}
+
+.app-bar__username {
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Narrow viewports: shed the text, keep the affordances. */
+@media (width <= 900px) {
+    .app-bar__username {
+        display: none;
+    }
+}
+
+@media (width <= 640px) {
+    .app-bar__action-label {
+        display: none;
+    }
+
+    .app-bar__action {
+        padding: 0 var(--space-2);
+    }
+
+    .app-bar__subtitle {
+        display: none;
+    }
+}

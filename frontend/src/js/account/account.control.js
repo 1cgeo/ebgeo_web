@@ -1,10 +1,9 @@
 // Path: js/account/account.control.js
 import { showLoginModal } from '@modals/login.modal.js';
 import { showSignupModal } from '@modals/signup.modal.js';
-import { openAdminPanel } from '@js/admin/index.js';
 import config from '@js/config.js';
-import { showProjectPickerModal } from '@modals/project-picker.modal.js';
 import { showConfirm } from '@modals/index.js';
+import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
@@ -38,6 +37,7 @@ const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
 const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="10" r="2.5"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>';
+const ICON_PROJECTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>';
 
 /**
  * Fills a dropdown menu button with a leading icon + a text label. The icon is a trusted static
@@ -90,6 +90,8 @@ export class AccountControl {
         this._logoutBtn = null;
         /** @type {HTMLButtonElement|null} The "Compartilhar" menu item (owner/admin only). */
         this._shareBtn = null;
+        /** @type {HTMLButtonElement|null} The "Seus projetos" menu item (any signed-in user). */
+        this._projectsBtn = null;
         /** @type {HTMLButtonElement|null} The "Salvar no servidor" menu item (logged-in + local store). */
         this._saveToServerBtn = null;
         /** @type {HTMLButtonElement|null} The "Excluir projeto" menu item (owner/admin + connected). */
@@ -165,6 +167,18 @@ export class AccountControl {
         this._atlasLabel.appendChild(this._atlasNameEl);
         this._menu.appendChild(this._atlasLabel);
 
+        // "Seus projetos" — back to the chooser page. Shown to anyone signed in: it is the way
+        // OUT of the current atlas (and out of the local map) without logging out, which the menu
+        // previously offered no route to at all.
+        this._projectsBtn = document.createElement('button');
+        this._projectsBtn.type = 'button';
+        this._projectsBtn.className = 'account-control__btn account-control__btn--projects';
+        this._projectsBtn.setAttribute('role', 'menuitem');
+        this._projectsBtn.setAttribute('data-testid', 'account-projects-btn');
+        setMenuButtonContent(this._projectsBtn, ICON_PROJECTS, 'Seus projetos');
+        this._projectsBtn.hidden = true;
+        this._menu.appendChild(this._projectsBtn);
+
         // "Salvar no servidor" — package the LOCAL store as a new server atlas (§item2). Shown only
         // when logged in and NOT connected to a server atlas (i.e. still working on the local store).
         this._saveToServerBtn = document.createElement('button');
@@ -237,7 +251,8 @@ export class AccountControl {
         addDomListener(this, this._avatarBtn, 'click', () => this._toggleMenu());
         addDomListener(this, this._shareBtn, 'click', () => this._handleShareAtlas());
         addDomListener(this, this._settingsBtn, 'click', () => this._handleAtlasSettings());
-        addDomListener(this, this._saveToServerBtn, 'click', () => this._handleSaveLocalToServer());
+        addDomListener(this, this._projectsBtn, 'click', () => this._handleOpenProjects());
+        addDomListener(this, this._saveToServerBtn, 'click', () => this.saveLocalToServer());
         addDomListener(this, this._deleteAtlasBtn, 'click', () => this._handleDeleteAtlas());
         addDomListener(this, this._adminBtn, 'click', () => this._handleOpenAdmin());
         addDomListener(this, this._logoutBtn, 'click', () => this._handleLogout());
@@ -262,7 +277,9 @@ export class AccountControl {
         subscribe(this, getEventBus(), EventTypes.SESSION_CHANGED, () => this._render());
         subscribe(this, getEventBus(), EventTypes.CONNECTION_STATE_CHANGED, () => {
             this._updateShareVisibility();
-            this._updateSaveToServerVisibility();
+            this._updateProjectsVisibility();
+            this._updateProjectsVisibility();
+        this._updateSaveToServerVisibility();
             this._updateDeleteAtlasVisibility();
             this._updateSettingsVisibility();
         });
@@ -320,6 +337,7 @@ export class AccountControl {
             this._avatarBtn.setAttribute('title', loggedIn ? name : '');
         }
         this._updateShareVisibility();
+        this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateSettingsVisibility();
@@ -350,6 +368,7 @@ export class AccountControl {
         this._container?.setAttribute('data-menu-open', 'true');
         this._avatarBtn?.setAttribute('aria-expanded', 'true');
         this._updateShareVisibility();
+        this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateSettingsVisibility();
@@ -417,6 +436,22 @@ export class AccountControl {
     }
 
     /**
+     * Shows "Seus projetos" to anyone signed in — connected or on the local map. It is the only
+     * route from the map back to the chooser that is not "log out".
+     * @private
+     */
+    _updateProjectsVisibility() {
+        if (!this._projectsBtn) return;
+        this._projectsBtn.hidden = !sessionContext.isAuthenticated();
+    }
+
+    /** @private Closes the menu and leaves for the chooser page. */
+    _handleOpenProjects() {
+        this._closeMenu();
+        this.openProjectPicker();
+    }
+
+    /**
      * Shows "Salvar no servidor" only when the user is logged in AND not connected to a server
      * atlas — i.e. still working on the LOCAL store, which is what this action packages and uploads.
      * @private
@@ -464,12 +499,14 @@ export class AccountControl {
     }
 
     /**
-     * Closes the account menu and opens the global admin panel (gate re-checked in openAdminPanel).
+     * Leaves the map for the Administração PAGE (`admin.html`). It is a real navigation, not an
+     * overlay: the admin page boots without MapLibre or the store, and re-checks the global-admin
+     * gate on arrival (a non-admin who lands there is sent back to the map).
      * @private
      */
     _handleOpenAdmin() {
         this._closeMenu();
-        openAdminPanel();
+        window.location.assign('./admin.html');
     }
 
     /**
@@ -544,12 +581,15 @@ export class AccountControl {
     }
 
     /**
-     * "Salvar atlas local no servidor" (§item2): packages the current LOCAL store as a NEW server
-     * atlas, then switches the app to that atlas live. The upload READS the local store, so it runs
-     * BEFORE `clearAllDataStore`. Sharing chosen in the create dialog is applied to the new atlas.
-     * @private
+     * "Salvar atlas local no servidor": packages the current LOCAL store as a NEW server atlas,
+     * then switches the app to that atlas live. The upload READS the local store, so it runs BEFORE
+     * `clearAllDataStore`. Sharing chosen in the create dialog is applied to the new atlas.
+     *
+     * PUBLIC because the Maps tab offers the same action (the menu item alone was too well hidden
+     * to be found). One flow, two entry points — never two implementations.
+     * @returns {Promise<void>}
      */
-    async _handleSaveLocalToServer() {
+    async saveLocalToServer() {
         if (!(await hasAnyMapFeatures())) {
             showError('Não há dados locais para salvar no servidor.');
             return;
@@ -622,7 +662,7 @@ export class AccountControl {
             await apiClient.deleteAtlas(atlasId);
             // The broadcast tears down every peer; tear ourselves down directly so we don't depend on
             // receiving our own `atlas_deleted` before the socket closes.
-            await this._handleRemoteAtlasDeleted('Projeto excluído.');
+            await this._handleRemoteAtlasDeleted('excluido');
         } catch (error) {
             showError('Falha ao excluir o projeto');
             console.error('[AccountControl] deleteAtlas failed:', error);
@@ -633,10 +673,10 @@ export class AccountControl {
      * Tears down after the connected atlas was deleted (by this user or another owner): stop
      * flushing, disconnect, wipe the remote store, return to a blank LOCAL atlas, and reopen the
      * picker. Idempotent — both the direct delete and the WS `atlas_deleted` broadcast can call it.
-     * @param {string} [message]
+     * @param {'excluido'|'excluido-por-outro'} [notice] - Which explanation the chooser should show.
      * @private
      */
-    async _handleRemoteAtlasDeleted(message = 'Este projeto foi excluído pelo proprietário.') {
+    async _handleRemoteAtlasDeleted(notice = 'excluido-por-outro') {
         // The deleter triggers this DIRECTLY and ALSO receives the WS `atlas_deleted` broadcast — the
         // two race. A synchronous re-entry flag (set before the first await) blocks the concurrent
         // double teardown / double picker; the store-state check catches a LATER broadcast.
@@ -649,8 +689,9 @@ export class AccountControl {
             await clearAllDataStore();
             await markStoreLocal();
             this._render();
-            showWarning(message);
-            await this.openProjectPicker();
+            // The explanation travels in the URL instead of a toast: the chooser is another PAGE
+            // now, and a toast raised here would be destroyed by the navigation a line later.
+            await this.openProjectPicker({ notice });
         } finally {
             this._tearingDownDeletedAtlas = false;
         }
@@ -755,90 +796,27 @@ export class AccountControl {
     }
 
     /**
-     * List the user's atlases and let them open an existing one or create a new
-     * project. Opening clears the local store, connects, and starts auto-flush.
+     * Leaves the map for the "Seus projetos" PAGE (`projetos.html`).
+     *
+     * This used to build the chooser as an overlay AND own the whole open pipeline (disconnect →
+     * wipe → markRemote → connect → activate → switchMap → auto-flush) in two duplicated branches.
+     * All of that now lives in exactly one place: the page navigates to `./?atlas=<uuid>` and the
+     * map's boot router calls `openRemoteAtlas`. The unsaved-local-work question moved there too —
+     * it fires when a project is actually opened, not when the list is merely shown.
+     *
+     * Clears the "Mapa local" intent: asking for the project list is the opposite of that choice,
+     * and leaving it set would make the chooser page bounce straight back to the map.
+     *
+     * @param {Object} [options]
+     * @param {string} [options.notice] - Key of a message for the chooser to show on arrival (a
+     *   toast raised here would not survive the navigation).
      * @returns {Promise<void>}
      */
-    async openProjectPicker() {
-        // inv 6: opening OR creating a server atlas replaces the local store. If the current
-        // store is a LOCAL atlas with work, warn and point at .ebgeo before continuing — this
-        // covers every entry path (login, "Abrir do servidor"); onCreate runs after the picker.
-        if (!isRemoteStoreSync() && await hasAnyMapFeatures()) {
-            const proceed = await showConfirm(
-                'Abrir ou criar um projeto do servidor vai substituir os dados locais atuais. Se quiser guardá-los, baixe um arquivo .ebgeo antes. Deseja continuar?',
-                { destructive: true, confirmText: 'Continuar' }
-            );
-            if (!proceed) return;
-        }
-
-        let projects = [];
-        try {
-            projects = await apiClient.listAtlas();
-        } catch (error) {
-            showError('Não foi possível carregar a lista de projetos');
-            console.error('[AccountControl] listAtlas failed:', error);
-            return;
-        }
-
-        showProjectPickerModal({
-            projects,
-            onPick: async (atlasId) => {
-                try {
-                    // Switching atlases: close any previous server connection first (one socket
-                    // per atlas — the server has no "switch"). Then wipe local + connect new.
-                    if (syncEngine.atlasId) {
-                        stopAutoFlush();
-                        syncEngine.disconnect();
-                    }
-                    await clearAllDataStore();
-                    // Mark REMOTE *before* connecting (durable intent): if the tab dies during
-                    // the snapshot pull, the boot guard still sees 'remote' and discards the
-                    // partial data instead of mislabeling it as a permanent local atlas. The
-                    // store is then editable-offline only via a downloaded .ebgeo.
-                    await markStoreRemote(atlasId);
-                    await syncEngine.connect(atlasId, { initialPull: true });
-                    // Land on the atlas's map, not the local default — opening pulls
-                    // the maps but leaves the app on "Principal" otherwise.
-                    await activateAtlasInitialMap();
-                    // Render the now-current atlas map (base layer + feature sources + client-generated
-                    // rasters). The open path sets the current map but, unlike a UI map switch, never ran
-                    // setupMapFeatures for it — so military-symbol/coordination/declination rasters (rebuilt
-                    // from props, never uploaded) intermittently stayed missing (404 → error icon) on open.
-                    // switchMap(false) does that setup deterministically without moving the camera.
-                    await getControl('BaseLayerControl')?.switchMap?.(false);
-                    startAutoFlush();
-                    showSuccess('Projeto carregado do servidor');
-                } catch (error) {
-                    showError('Falha ao abrir o projeto do servidor');
-                    console.error('[AccountControl] connect failed:', error);
-                    throw error;
-                }
-            },
-            onCreate: async (name, sharing) => {
-                try {
-                    if (syncEngine.atlasId) {
-                        stopAutoFlush();
-                        syncEngine.disconnect();
-                    }
-                    const atlas = await apiClient.createAtlas({ name });
-                    // Apply the sharing chosen in the create dialog before opening (§item5).
-                    await this._applyAtlasSharing(atlas.id, sharing);
-                    await clearAllDataStore();
-                    // Mark REMOTE before connecting (durable intent) — see onPick above.
-                    await markStoreRemote(atlas.id);
-                    await syncEngine.connect(atlas.id, { initialPull: true });
-                    await activateAtlasInitialMap();
-                    // Render the now-current atlas map (see onPick) — the open path skips setupMapFeatures.
-                    await getControl('BaseLayerControl')?.switchMap?.(false);
-                    startAutoFlush();
-                    showSuccess('Projeto criado no servidor');
-                } catch (error) {
-                    showError('Falha ao criar o projeto no servidor');
-                    console.error('[AccountControl] createAtlas failed:', error);
-                    throw error;
-                }
-            }
-        });
+    async openProjectPicker({ notice } = {}) {
+        clearLocalMapIntent();
+        window.location.assign(notice
+            ? `./projetos.html?aviso=${encodeURIComponent(notice)}`
+            : './projetos.html');
     }
 
     /**
@@ -857,6 +835,9 @@ export class AccountControl {
             presenceStore.clear();
             this._atlasCache = null;
             await clearAllDataStore();
+            // The "Mapa local" choice belonged to the session that just ended; leaving it set would
+            // silently opt the NEXT identity out of the project chooser on this tab.
+            clearLocalMapIntent();
             this._username = null;
             this._render();
         } catch (error) {
@@ -899,6 +880,7 @@ export class AccountControl {
         this._userLabel = null;
         this._logoutBtn = null;
         this._shareBtn = null;
+        this._projectsBtn = null;
         this._settingsBtn = null;
         this._deleteAtlasBtn = null;
         this._adminBtn = null;

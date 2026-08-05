@@ -1,0 +1,28 @@
+/* =========================================================================
+   EBGeo Web — Seus projetos (projetos.html)
+   Import manifest for the STANDALONE project chooser page.
+
+   Deliberately NOT style.css: that manifest chains 45 stylesheets for the map,
+   its panels and its tools, none of which exist on this page.
+   ========================================================================= */
+
+/* ===== Foundation ===== */
+@import url('./design-tokens.css');
+@import url('./base.css');
+
+/* ===== Shared page chrome ===== */
+@import url('./app-bar.css');
+
+/* ===== Shared feedback surfaces ===== */
+@import url('./toast.css');
+@import url('./unavailable.css');
+@import url('./idle-timeout.css');
+
+/* Dialog primitives: renomear (prompt), mover para lixeira (confirm) and the
+   create-atlas dialog all reuse the shared .modal-* rules. The create dialog
+   also stages sharing, whose .sharing-* rules live in sharing.css. */
+@import url('./modals-redesign.css');
+@import url('./sharing.css');
+
+/* ===== The page itself ===== */
+@import url('./atlas-drive.css');

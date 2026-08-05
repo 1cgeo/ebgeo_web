@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administração — EBGeo</title>
+    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+
+    <!-- CSS da página de administração (manifesto próprio, sem o mapa) -->
+    <link rel="stylesheet" href="/src/css/admin-page.css">
+
+    <style>
+        /* Splash de boot: duplicado do CSS para aparecer antes da folha de estilo resolver
+           (mesma abordagem do index.html). Removido por admin-page.js quando a página monta. */
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .loading-background {
+            position: fixed;
+            background-color: #508D4E;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            top: 0;
+            left: 0;
+        }
+    </style>
+
+    <meta name="theme-color" content="#508D4E">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex, nofollow">
+</head>
+
+<body>
+    <!-- Splash de boot: o gate de admin decide entre montar a página e redirecionar para o mapa,
+         então nada do conteúdo aparece antes de a sessão ser validada. -->
+    <div class="loading-background" id="initial-loader">
+        <img src="/images/logo_ebgeo.webp" alt="EBGeo" width="240" fetchpriority="high">
+    </div>
+
+    <!-- Sem vendors: esta página não carrega MapLibre, Turf, milsymbol, Cesium nem GDAL. -->
+    <script type="module" src="/src/js/admin/admin-page.js"></script>
+
+    <script nomodule>
+        var loader = document.querySelector('.loading-background');
+        if (loader) {
+            loader.innerHTML = '<div style="color:white;text-align:center;padding:20px;">' +
+                '<h2>Browser não suportado</h2>' +
+                '<p>Por favor, use um browser mais recente.</p></div>';
+        }
+    </script>
+</body>
+
+</html>

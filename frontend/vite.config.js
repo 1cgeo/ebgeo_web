@@ -35,8 +35,13 @@ export default defineConfig(({ mode: _mode }) => ({
 
     // Code splitting
     rollupOptions: {
+      // Multi-page: the map is `index.html`; "Seus projetos" (`projetos.html`) and Administração
+      // (`admin.html`) are pages of their own, each with its own entry module and CSS manifest.
+      // Neither loads the map bundle — see the codeSplitting note below for what enforces that.
       input: {
-        main: resolve(__dirname, 'index.html')
+        main: resolve(__dirname, 'index.html'),
+        projetos: resolve(__dirname, 'projetos.html'),
+        admin: resolve(__dirname, 'admin.html')
       },
       output: {
         // Chunks by functionality (path-based matching)
@@ -50,7 +55,29 @@ export default defineConfig(({ mode: _mode }) => ({
         //   -> tools (draw, military, analysis, selection)
         //   -> lazy (cesium-integration, street-view, import-export)
         // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate
-        manualChunks(id) {
+        //
+        // `codeSplitting.groups`, NOT the deprecated `manualChunks`. The two are NOT equivalent
+        // once there is more than one html entry: under the Rollup-compat shim a group becomes one
+        // chunk regardless of who imports it, so `admin.html` — which shares ~50 kB of leaves with
+        // the map (api-client, config, session-context, toast, event-cleanup…) — preloaded the
+        // whole 829 kB chunk those leaves happened to land in. Measured, not theorised.
+        //
+        // `entriesAware: true` subdivides every group by WHICH ENTRIES reach each module, so the
+        // part shared by both pages becomes its own chunk and the map-only remainder stays behind.
+        // Measured on this tree: admin eager payload 900 kB → 78 kB, and the MAP's eager payload
+        // dropped 3.96 MB → 3.30 MB as well (code reachable only through dynamic imports stopped
+        // riding along in eagerly-preloaded chunks).
+        //
+        // This also removed the need for an explicit "shared leaves" list: entry-awareness derives
+        // the same split from the real import graph, which cannot drift out of date.
+        //
+        // Naming caveat: a subdivided chunk keeps the name of ONE of the groups merged into it, so
+        // the admin page loads files named `analysis-tools-*` / `cesium-integration-*` that contain
+        // neither. The names are labels, not contents — check the sourcemap before believing one.
+        codeSplitting: {
+          groups: [{
+            entriesAware: true,
+            name(id) {
           // ===== STATICALLY-IMPORTED SERVICES (must resolve before lazy chunks) =====
 
           // keyboard-service-3d is statically imported by sig.js (entry point)
@@ -285,10 +312,15 @@ export default defineConfig(({ mode: _mode }) => ({
               id.includes('src/js/coordinates/')) {
             return 'core';
           }
+            }
+          }]
         },
         // Output file names
         entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
+        // `entriesAware` names a subdivided chunk after the group PLUS every entry that reaches it
+        // (`analysis-tools~main~admin~map_3d~…`), which produces unreadable 120-char filenames.
+        // Keep the group name only — the content hash still keeps each subgroup a distinct file.
+        chunkFileNames: (chunk) => `assets/${String(chunk.name || 'chunk').split('~')[0]}-[hash].js`,
         assetFileNames: 'assets/[name]-[hash].[ext]'
       },
       // External vendors (not bundled)

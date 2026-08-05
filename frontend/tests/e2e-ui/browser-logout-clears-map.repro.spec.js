@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, drawPointUI } from './helpers/collab-helpers.js';
+import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -57,7 +57,7 @@ describeOrSkip('Logout clears the workspace — no traces of the old map', () =>
         await page.goto('/');
 
         await loginUI(page, username, password);
-        await page.locator('[data-testid="project-picker-cancel"]').click();
+        await goToLocalMapUI(page);
         await page.waitForFunction(
             () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.loaded === 'function' && globalThis.__ebgeoMap.loaded(),
             { timeout: 20000 });

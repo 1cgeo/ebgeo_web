@@ -107,7 +107,13 @@ export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permis
     }, { base: baseUrl, c: ownerCreds, id: atlasId, perm: permission, lbl: label });
 }
 
-/** Logs in through the real account UI and waits for the project-picker. */
+/**
+ * Logs in through the real account UI and lands on the project chooser.
+ *
+ * Since 2026-08-05 the chooser is a PAGE (`projetos.html`), so login is followed by a real
+ * navigation — waiting only for the element would race the document swap and fail unreadably.
+ * The `project-picker-*` testids are unchanged (kept verbatim through the move).
+ */
 export async function loginUI(page, username, password) {
     await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
     await page.locator('[data-testid="account-login-btn"]').click();
@@ -115,12 +121,25 @@ export async function loginUI(page, username, password) {
     await page.locator('[data-testid="login-username"]').fill(username);
     await page.locator('[data-testid="login-password"]').fill(password);
     await page.locator('[data-testid="login-submit"]').click();
+    await page.waitForURL('**/projetos.html', { timeout: 20000 });
     await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 10000 });
+}
+
+/**
+ * Leaves the chooser for the LOCAL map — the replacement for the old picker's close button, which
+ * a page does not have. Also records the tab-scoped "Mapa local" intent, so a reload stays put
+ * instead of bouncing back to the chooser.
+ */
+export async function goToLocalMapUI(page) {
+    await page.locator('[data-testid="projects-local-map"]').click();
+    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
 }
 
 /** Picks the atlas by id and waits for online + the live map. */
 export async function openAtlasUI(page, atlasId) {
     await page.locator(`[data-testid="project-picker-item"][data-atlas-id="${atlasId}"]`).click();
+    // Picking navigates to `/?atlas=<uuid>`; the map page's boot router opens it.
+    await page.waitForURL(/[?&]atlas=/, { timeout: 20000 });
     await expect(page.locator('[data-testid="sync-status-badge"]')).toHaveAttribute('data-state', 'online', { timeout: 20000 });
     await page.waitForFunction(
         () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.getZoom === 'function' && globalThis.__ebgeoMap.loaded(),

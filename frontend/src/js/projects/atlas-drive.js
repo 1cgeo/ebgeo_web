@@ -1,32 +1,37 @@
-// Path: js/modals/project-picker.modal.js
+// Path: js/projects/atlas-drive.js
 
 /**
- * @fileoverview Atlas "Drive" — the full-screen project chooser (the "Google Drive of maps"). Lists
- * the user's server atlases as a card grid with tabs (Recentes / Meus / Compartilhados / Públicos)
- * and a name search; opening one runs the same onPick pipeline the modal used. Kept under the
- * `project-picker.modal.js` filename + `showProjectPickerModal` export + the original testids
- * (`project-picker-modal` / `-item` / `-cancel` / `-create`) so every call site and e2e stays valid.
+ * @fileoverview Atlas Drive — the project chooser ("Google Drive of maps"). Lists the user's server
+ * atlases as a card grid with tabs (Recentes / Meus / Compartilhados / Públicos / Lixeira) and a name
+ * search, plus per-card actions (renomear / duplicar / lixeira / restaurar).
  *
- * Dynamic text via textContent (never innerHTML with atlas data); icons are static SVG.
+ * It is the BODY of `projetos.html`, not a modal: it used to be a full-screen overlay stacked on the
+ * booted map (`modals/project-picker.modal.js`), which meant choosing a project happened on top of a
+ * map you had not chosen yet, and closing it dropped you on a blank local workspace nobody asked for.
+ * As a page it has its own URL, its own back/forward, and no map behind it. The `project-picker-*`
+ * testids are kept verbatim so the existing e2e specs stay valid.
+ *
+ * Opening is a NAVIGATION (`./?atlas=<uuid>`), so this component never touches the store or the sync
+ * engine — the map page owns those, and its `openRemoteAtlas` already handles wipe/connect plus the
+ * unsaved-local-work question. Dynamic text goes through textContent; icons are static SVG.
  */
 
-import { showCreateAtlasModal } from './create-atlas.modal.js';
-import { showConfirm } from './confirm.modal.js';
-import { showPrompt } from './prompt.modal.js';
+import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showPrompt } from '@modals/prompt.modal.js';
 import { apiClient } from '@store/sync/api-client.js';
-import { syncEngine } from '@store/sync/sync-engine.js';
 import {
     setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
 } from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
-import { showSuccess, showError } from '@utils';
+import { showSuccess, showError } from '@utils/toast_service.js';
 
 const ICONS = {
     plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
     dots: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`,
     globe: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-    close: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     search: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    upload: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>`,
 };
 
 const PERMISSION_LABELS = Object.freeze({ owner: 'Proprietário', write: 'Edição', read: 'Leitura' });
@@ -56,91 +61,80 @@ function formatRelativeTime(value) {
 }
 
 /**
- * Full-screen atlas Drive.
+ * The project chooser, as a mountable page section.
  */
 export class AtlasDrive {
     /**
      * @param {Object} options
      * @param {Array<Object>} [options.projects] - Atlas records from `apiClient.listAtlas()`.
-     * @param {Function} options.onPick - Called with the picked atlas id (Promise; resolve closes).
+     * @param {Function} options.onPick - Called with the picked atlas id.
      * @param {Function} [options.onCreate] - Called with (name, sharing) for "Novo projeto".
+     * @param {Function} [options.onImport] - Called with the chosen `.ebgeo` File.
      */
     constructor(options = {}) {
         this._projects = Array.isArray(options.projects) ? options.projects : [];
         this._onPick = options.onPick || (() => Promise.resolve());
         this._onCreate = typeof options.onCreate === 'function' ? options.onCreate : null;
+        this._onImport = typeof options.onImport === 'function' ? options.onImport : null;
+        this._importBtn = null;
         this._busy = false;
         this._filter = 'recentes';
         this._query = '';
         this._trashed = [];
         this._trashedLoaded = false;
-        this._overlay = null;
+        this._root = null;
         this._gridEl = null;
         this._tabButtons = new Map();
         setupCleanup(this);
     }
 
-    /** Builds + shows the Drive. */
-    show() {
-        if (this._overlay) return;
-        this._previousFocus = document.activeElement; // restore focus to the opener on close (a11y)
+    /**
+     * Builds the Drive into `host` and focuses the search box.
+     * @param {HTMLElement} [host]
+     */
+    mount(host = document.body) {
+        if (this._root) return;
         this._build();
-        document.body.appendChild(this._overlay);
-        document.body.style.overflow = 'hidden';
-        const search = this._overlay.querySelector('.atlas-drive__search-input');
+        host.appendChild(this._root);
+        const search = this._root.querySelector('.atlas-drive__search-input');
         if (search) requestAnimationFrame(() => search.focus());
     }
 
-    /** Removes the Drive + listeners, returning focus to the control that opened it. */
-    hide() {
-        if (!this._overlay) return;
+    /** Removes the Drive + its listeners. */
+    destroy() {
+        if (!this._root) return;
         this._closeCardMenu();
         clearScopedListeners(this, 'grid');
         cleanup(this);
-        removeElement(this._overlay);
-        this._overlay = null;
+        removeElement(this._root);
+        this._root = null;
         this._gridEl = null;
         this._tabButtons.clear();
-        document.body.style.overflow = '';
-        if (this._previousFocus && typeof this._previousFocus.focus === 'function') {
-            this._previousFocus.focus();
-        }
-        this._previousFocus = null;
     }
 
     /** @private */
     _build() {
-        const overlay = document.createElement('div');
-        overlay.className = 'atlas-drive';
-        overlay.dataset.testid = 'project-picker-modal';
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-label', 'Seus projetos');
+        const root = document.createElement('div');
+        root.className = 'atlas-drive';
+        // Kept from the modal era so every existing e2e locator still resolves.
+        root.dataset.testid = 'project-picker-modal';
 
-        overlay.appendChild(this._buildTopbar());
-        overlay.appendChild(this._buildTabs());
+        root.appendChild(this._buildTopbar());
+        root.appendChild(this._buildTabs());
 
         const grid = document.createElement('div');
         grid.className = 'atlas-drive__grid';
         grid.dataset.testid = 'project-picker-list';
         grid.setAttribute('role', 'listbox');
         grid.setAttribute('aria-label', 'Projetos do servidor');
-        overlay.appendChild(grid);
+        root.appendChild(grid);
 
-        addDomListener(this, document, 'keydown', (e) => {
-            // Don't close the Drive when a dialog is layered on top (it owns Escape): generic modals,
-            // confirm/prompt, or the idle-timeout warning.
-            if (e.key === 'Escape' && this._overlay && !document.querySelector('.modal-overlay, .confirm-modal-overlay, .prompt-modal-overlay, .idle-warning__overlay')) {
-                this.hide();
-            }
-        });
-
-        this._overlay = overlay;
+        this._root = root;
         this._gridEl = grid;
         this._renderGrid();
     }
 
-    /** @private Top bar: title + search + new + close. */
+    /** @private Content toolbar: title + search + "Novo projeto" (no close — this is a page). */
     _buildTopbar() {
         const bar = document.createElement('header');
         bar.className = 'atlas-drive__topbar';
@@ -168,9 +162,40 @@ export class AtlasDrive {
         search.className = 'atlas-drive__search-input';
         search.placeholder = 'Buscar projeto…';
         search.dataset.testid = 'project-picker-search';
-        search.addEventListener('input', () => { this._query = search.value; this._renderGrid(); });
+        addDomListener(this, search, 'input', () => { this._query = search.value; this._renderGrid(); });
         searchWrap.append(sIcon, search);
         tools.appendChild(searchWrap);
+
+        if (this._onImport) {
+            // A hidden file input, driven by a real button — the native control cannot be styled
+            // and would be the only unstyled thing on the page.
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.ebgeo';
+            fileInput.hidden = true;
+            fileInput.dataset.testid = 'project-picker-import-input';
+            addDomListener(this, fileInput, 'change', () => {
+                const file = fileInput.files?.[0];
+                // Reset first: picking the SAME file twice must fire `change` again (it would not
+                // if the value stayed), which is exactly what a retry after a failure needs.
+                fileInput.value = '';
+                if (file) this._handleImport(file);
+            });
+
+            const importBtn = document.createElement('button');
+            importBtn.type = 'button';
+            importBtn.className = 'atlas-drive__btn atlas-drive__btn--ghost';
+            importBtn.dataset.testid = 'project-picker-import';
+            importBtn.title = 'Criar um projeto a partir de um arquivo .ebgeo';
+            importBtn.innerHTML = ICONS.upload; // static icon
+            const importLabel = document.createElement('span');
+            importLabel.textContent = 'Importar .ebgeo';
+            importBtn.appendChild(importLabel);
+            addDomListener(this, importBtn, 'click', () => fileInput.click());
+
+            this._importBtn = importBtn;
+            tools.append(importBtn, fileInput);
+        }
 
         if (this._onCreate) {
             const newBtn = document.createElement('button');
@@ -185,17 +210,32 @@ export class AtlasDrive {
             tools.appendChild(newBtn);
         }
 
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'atlas-drive__close';
-        closeBtn.dataset.testid = 'project-picker-cancel';
-        closeBtn.setAttribute('aria-label', 'Fechar');
-        closeBtn.innerHTML = ICONS.close; // static icon
-        addDomListener(this, closeBtn, 'click', () => this.hide());
-        tools.appendChild(closeBtn);
-
         bar.appendChild(tools);
         return bar;
+    }
+
+    /**
+     * @private Runs the caller's import with the chosen file, showing progress on the button —
+     * unzipping + uploading a real project takes seconds, and a dead-looking button invites a
+     * second click that would import twice.
+     * @param {File} file
+     */
+    async _handleImport(file) {
+        if (this._busy) return;
+        this._busy = true;
+        const label = this._importBtn?.querySelector('span');
+        const original = label?.textContent;
+        if (label) label.textContent = 'Importando…';
+        if (this._importBtn) this._importBtn.disabled = true;
+        try {
+            await this._onImport(file);
+        } finally {
+            // On success the page navigates away and this never matters; on failure the button
+            // must come back, or the only way to retry is a reload.
+            this._busy = false;
+            if (label && original) label.textContent = original;
+            if (this._importBtn) this._importBtn.disabled = false;
+        }
     }
 
     /** @private Filter tabs. */
@@ -396,7 +436,7 @@ export class AtlasDrive {
         addItem('Fazer uma cópia', 'project-picker-duplicate', false, () => this._duplicate(project));
         if (canOwn) addItem('Mover para lixeira', 'project-picker-trash', true, () => this._trash(project));
 
-        this._overlay.appendChild(menu);
+        this._root.appendChild(menu);
         this._cardMenu = menu;
         this._cardMenuAnchor = anchorBtn;
         this._menuOutside = (e) => {
@@ -456,23 +496,19 @@ export class AtlasDrive {
         }
     }
 
-    /** @private Move to trash (soft-delete) → DELETE /atlas/:id. */
+    /**
+     * @private Move to trash (soft-delete) → DELETE /atlas/:id.
+     * No "is this the connected atlas?" special case: this page holds no connection. A peer with the
+     * atlas open receives the server's `atlas_deleted` broadcast and tears itself down.
+     */
     async _trash(project) {
         const ok = await showConfirm(
             `Mover "${project?.name ?? ''}" para a lixeira? Você poderá restaurá-lo depois.`,
             { destructive: true, confirmText: 'Mover para lixeira' },
         );
         if (!ok) return;
-        // Trashing the CURRENTLY-CONNECTED atlas: the server broadcasts `atlas_deleted`, which the
-        // client handles by tearing down the session and reopening the picker. Close THIS Drive first
-        // so a second one isn't stacked on top, and skip the local success/refresh (the teardown owns it).
-        const isConnected = syncEngine.atlasId && String(syncEngine.atlasId) === String(project?.id);
         try {
             await apiClient.deleteAtlas(project.id);
-            if (isConnected) {
-                this.hide();
-                return;
-            }
             showSuccess('Projeto movido para a lixeira.');
             this._trashedLoaded = false; // re-fetch the trash next time it is opened
             await this._refresh();
@@ -548,32 +584,15 @@ export class AtlasDrive {
         this._busy = true;
         try {
             await this._onPick(atlasId);
-            this.hide();
         } catch {
             this._busy = false;
         }
     }
 
-    /** @private Opens the create-atlas dialog; forwards name + sharing to onCreate, then closes. */
+    /** @private Opens the create-atlas dialog; forwards name + sharing to onCreate. */
     _handleCreate() {
         if (!this._onCreate) return;
         const onCreate = this._onCreate;
-        showCreateAtlasModal({
-            onCreate: async (name, sharing) => {
-                await onCreate(name, sharing);
-                this.hide();
-            },
-        });
+        showCreateAtlasModal({ onCreate: (name, sharing) => onCreate(name, sharing) });
     }
-}
-
-/**
- * Shows the atlas Drive (full-screen project chooser).
- * @param {Object} options - See {@link AtlasDrive}.
- * @returns {AtlasDrive}
- */
-export function showProjectPickerModal(options = {}) {
-    const drive = new AtlasDrive(options);
-    drive.show();
-    return drive;
 }

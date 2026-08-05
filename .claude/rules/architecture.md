@@ -7,7 +7,8 @@ Um `ls frontend/src/js/` conta a estrutura melhor que qualquer árvore aqui, e a
 - **Entrada**: `index.js` (boot, fail-fast em `GET /api/config`) e `map_sig.js` (init do mapa e registro de controles). Toda ferramenta nova passa por `map_sig.js` em **três** registries distintos, não um: ver a skill `new-tool`.
 - **`store/`** é o núcleo. `store.js` é fachada que reexporta as `*.operations.js`; `services.js` é o container de DI e precisa de `initServices()` antes de qualquer componente. Dois arquivos que a árvore antiga omitia e são load-bearing: `store.constants.js` (`SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`, editado a cada ferramenta nova) e `store-origin.js` (o marcador que separa local de remoto, base de quase todo comportamento de sync).
 - **Barrel por pasta**: cada pasta de módulo expõe `index.js`, e é por ele que os aliases resolvem.
-- **Colocações que surpreendem** (a pasta não sugere o chunk): `measurement_tool` e `keyboard-service-3d` caem em `core`, não nos seus chunks óbvios. A ordem das regras em `vite.config.js:38-46` existe para evitar ciclo e está comentada lá, que é onde a explicação pertence.
+- **Colocações que surpreendem** (a pasta não sugere o chunk): `measurement_tool` e `keyboard-service-3d` caem em `core`, não nos seus chunks óbvios. A ordem das regras dentro de `codeSplitting.groups[0].name` (`vite.config.js`) existe para evitar ciclo e está comentada lá, que é onde a explicação pertence.
+- **Páginas sem mapa**: `projects/` e `admin/` são entries HTML próprios (`projetos.html`, `admin.html`), não telas do mapa — ver §Páginas e chunks antes de importar qualquer coisa delas.
 - **Lazy**: `3d_models_viewer_tool/` (Cesium), `street_view_tool/` (Three.js) e `import_export/` só carregam sob demanda.
 
 ## UI Architecture
@@ -71,7 +72,7 @@ The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backe
 - `event-bridges.js` — bridges both singletons to `SESSION_CHANGED` / `CONNECTION_STATE_CHANGED`.
 - `permission-guard.js` — role gate (permissive offline). `sync-gateway.js` — inbound relay (early-returns when offline). `sync-scheduler.js` — **now a no-op shell** kept for call-site stability (outbound owned by `sync-flush.js`).
 
-**Entry points & UI** — `account/account.control.js` (login modal → `openProjectPicker` → `clearAllDataStore` → `connect` → `startAutoFlush`; logout → `logoutAndDisconnect`), `account/sync-status.control.js` (connection light, hidden when anonymous), `presence/` (online-users roster + remote cursors + presence store), `modals/{login,project-picker,sharing}.modal.js`, `sidebar/tabs/maps.tab.js` ("Abrir do servidor" + share button).
+**Entry points & UI** — `account/account.control.js` (login modal; `openProjectPicker` NAVEGA para `projetos.html`; logout → `logoutAndDisconnect`), `account/open-atlas.service.js` (**o único** pipeline de abertura: pergunta o que fazer com trabalho local → `clearAllDataStore` → `markStoreRemote` → `connect` → `startAutoFlush`), `account/sync-status.control.js` (connection light, hidden when anonymous), `presence/` (online-users roster + remote cursors + presence store), `projects/atlas-drive.js` (seletor, corpo de `projetos.html`), `modals/{login,sharing}.modal.js`, `sidebar/tabs/maps.tab.js` ("Abrir do servidor" + share button).
 
 **Conflict model** — LWW by **server arrival order** (not timestamp); idempotency by `op_id`. Backend entity writes are **sync-only** (no REST write routes for feature/map/layer/group/briefing/slide). Operating model & principles (offline-first, local-vs-remote separation, atlas isolation, network resilience): `docs/wiki/index.md`. Full multi-user action map: `docs/wiki/index.md`.
 
@@ -85,13 +86,27 @@ The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backe
 
 **SyncLedger (sync observability — test/dev only, never prod)** — an additive, env-gated tracing layer that makes the multi-user pipeline visible end-to-end. A `traceId` is minted per user gesture in `runTransaction` (`store-transaction.js`) and stamped onto the op envelope (`operation-factory.js`); typed **spans** are recorded to a ring buffer keyed by `op.id` (the always-works join key). Lives in `store/sync/diag/`: `trace-stages.js` (shared FE/BE stage/outcome/reason contract), `trace-core.js` (`record()` — zero-cost when off — + ring `window.__ebgeoSyncTrace`, Node-safe), `bus-tap.js` (a first-class `EventEmitter.onAny()` tap → `remote.applied` + a `render.source` UI-effect probe). Spans come from `operation-dispatcher.js` (`preflush.drop`/`enqueue`), `sync-engine.js` (`flush.push` + `push.ack` — the previously-dropped ack response is now consumed), `ws-client.js` (`ws.inbound`/`ws.self-echo`/`conn.transition`) and `sync-gateway.js` (`gateway.gate`); installed from `store/services.js` + `index.js`. The backend mirrors the contract (`utils/sync-trace.js` + `GET/DELETE /api/v1/debug/trace`) so Playwright `collectLedger` merges both rings by `op.id`/`traceId`. Gated by `?trace=sync`/`localStorage`/test init script (FE) and `EBGEO_TRACE=1`/`NODE_ENV=test` (BE) — production is a dead branch. Test helpers in `tests/e2e-ui/helpers/{trace-helpers,ledger}.js`. End-to-end sync architecture (transport, op envelope, flows, backend) + SyncLedger as-built: `docs/wiki/index.md`.
 
-## Vite Chunks
+## Páginas e chunks (Vite)
 
-Defined in `vite.config.js` `manualChunks`. The composite chunks below list only the headline modules — each pulls in many more (e.g. `core` also includes state, terrain, baselayers, catalog, tool_manager, mode, briefing, snapping, grid, coordinates, measurement_tool):
+**Três páginas HTML**, três entries em `vite.config.js` → `rollupOptions.input`:
+
+| página | entry | CSS | conteúdo |
+|---|---|---|---|
+| `index.html` | `src/js/index.js` | `style.css` | o mapa |
+| `projetos.html` | `src/js/projects/projects-page.js` | `projects-page.css` | seletor de atlas (`projects/atlas-drive.js`) |
+| `admin.html` | `src/js/admin/admin-page.js` | `admin-page.css` | Administração |
+
+As duas páginas sem mapa **não carregam o mapa**: nada de MapLibre/Turf/Cesium/GDAL, nada de `@store` nem `initServices()` — só `api-client`, `session-context`, config e os primitivos de dialog/toast. Importar o barrel `@utils` ou `@modals` delas arrasta a store de volta pelo caminho transitivo (`@utils` → `feature_navigation_utils` → `@store`); importe o módulo direto. Payload eager medido: ~140 kB cada, contra ~3,3 MB do mapa.
+
+Elas compartilham a barra superior (`ui/app-bar.js` + `css/app-bar.css`) porque `AccountControl` é `IControl` do MapLibre e só existe dentro de um mapa. Página nova = usar `createAppBar`, não crescer um header próprio.
+
+Os grupos de chunk são definidos em `codeSplitting.groups` (API do Rolldown), **não** no `manualChunks` depreciado, e com `entriesAware: true` — sem isso as páginas sem mapa baixam o chunk inteiro em que suas folhas compartilhadas caíram. Detalhe medido no comentário do próprio `vite.config.js`. Os nomes dos arquivos gerados são rótulos do grupo, não do conteúdo: um chunk subdividido herda o nome de um dos grupos fundidos, então a página do admin carrega arquivos chamados `analysis-tools-*`/`cesium-integration-*` que não contêm nem um nem outro — confira o sourcemap antes de acreditar no nome.
+
+Grupos (só os módulos-cabeçalho; cada um puxa muitos outros — `core` inclui também state, terrain, baselayers, catalog, tool_manager, mode, briefing, snapping, grid, coordinates, measurement_tool):
 
 `core` (store, events, utilities, layers, toolbar, modals, …) | `ui-components` (sidebar, features_tab, search, …) | `draw-tools` (+ azimuth_distance_tool) | `military-tools` | `analysis-tools` | `selection-tools` | `phone-ui` | `cesium-integration` (lazy) | `import-export` (lazy) | `street-view` (lazy).
 
-Unmapped paths (e.g. `keyboard`, `map/map.manager`) fall into the entry bundle.
+Caminhos não mapeados (ex. `keyboard`, `map/map.manager`) caem no bundle do entry.
 
 ## Event Types Reference
 

@@ -48,6 +48,8 @@ describeOrSkip('F5 on a connected atlas keeps the map active BY NAME (not a UUID
         // UI login → pick the seeded atlas → land on the named synced map.
         await loginUI(page, seed.username, seed.password);
         await page.locator(`[data-testid="project-picker-item"][data-atlas-id="${seed.atlasId}"]`).click();
+        // Picking navigates to `/?atlas=<uuid>`; the map page's boot router opens it.
+        await page.waitForURL(/[?&]atlas=/, { timeout: 20000 });
         await expect(page.locator('[data-testid="sync-status-badge"]'))
             .toHaveAttribute('data-state', 'online', { timeout: 20000 });
         await expect.poll(() => currentMapName(page), { timeout: 10000 }).toBe(MAP_NAME);

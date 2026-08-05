@@ -1,0 +1,27 @@
+/* =========================================================================
+   EBGeo Web — Administração (admin.html)
+   Import manifest for the STANDALONE admin page.
+
+   Deliberately NOT style.css: that manifest chains 45 stylesheets for the map,
+   its panels and its tools, none of which exist on this page. Only the layers
+   the admin shell actually renders are listed here.
+   ========================================================================= */
+
+/* ===== Foundation ===== */
+@import url('./design-tokens.css');
+@import url('./base.css');
+
+/* ===== Shared page chrome ===== */
+@import url('./app-bar.css');
+
+/* ===== Shared feedback surfaces ===== */
+@import url('./toast.css');
+@import url('./unavailable.css');
+@import url('./idle-timeout.css');
+
+/* Dialog primitives: the admin tabs confirm destructive actions via showConfirm,
+   which reuses the shared .modal-overlay/.modal-container/.confirm-modal-* rules. */
+@import url('./modals-redesign.css');
+
+/* ===== The page itself ===== */
+@import url('./admin.css');

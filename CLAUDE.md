@@ -65,6 +65,8 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 ## Padrões estruturais
 
+**O app tem TRÊS páginas, não uma:** `index.html` (mapa), `projetos.html` (seletor de atlas) e `admin.html` (Administração). As duas sem mapa bootam sem MapLibre, sem `@store` e sem `initServices()` — importar o barrel `@utils` ou `@modals` delas arrasta a store inteira de volta pelo caminho transitivo. Elas compartilham a barra superior via `createAppBar` (`ui/app-bar.js`), porque `AccountControl` é `IControl` e só existe dentro de um mapa. Detalhe e medições em [`.claude/rules/architecture.md`](.claude/rules/architecture.md) §Páginas e chunks.
+
 **Ferramenta de desenho = 3 arquivos:** `add_*_control.js` (IControl do MapLibre) + `add_*_geometry.js` (geometria pura, testável em node) + `*_attributes_panel.js`. Use a skill `new-tool`.
 
 **Transação do store é persistence-first**: efeito colateral só roda depois que o IndexedDB confirma. Se a persistência lança, nada mais acontece:

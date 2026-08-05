@@ -22,6 +22,7 @@ import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, acti
 import { sessionContext } from '@store/sync/session-context.js';
 import { openRemoteAtlas } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
+import { hasLocalMapIntent } from './deep-link/local-intent.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
@@ -47,6 +48,20 @@ async function initApp() {
     // Reading here, before the first await, is the only point guaranteed to still see the original URL.
     const bootPublicLink = new URLSearchParams(window.location.search).get('atlasPublico');
     const bootAtlasLink = parseAtlasLink();
+
+    // Phase -1: page routing. A signed-in visitor arriving at a bare `/` is here to CHOOSE a
+    // project, so send them to the chooser page BEFORE building a map they did not ask for — that
+    // is the whole point of `projetos.html` being a page. Everything else stays on the map: a deep
+    // link (`?atlas`/`?atlasPublico`), a one-shot `?verify`, an explicit "Mapa local", or nobody
+    // signed in at all.
+    //
+    // Reads the token WITHOUT validating it: validation costs a round trip, and `projetos.html`
+    // validates on arrival anyway — a token the server rejects is cleared there and the page sends
+    // the user back here, now anonymous. That is what keeps the two redirects from ping-ponging.
+    if (shouldRouteToProjects(bootAtlasLink, bootPublicLink)) {
+        window.location.replace('./projetos.html');
+        return;
+    }
 
     // Phase 0: SyncLedger observability — install the window.__ebgeoSyncTrace bridge and
     // enable capture only if a trace flag is present (?trace=sync / localStorage['ebgeo_trace']
@@ -146,6 +161,9 @@ async function initApp() {
     // An e-mail-confirmation link (?verify=<token>) is handled first (anonymous, one-shot).
     await handleEmailVerificationFromUrl();
 
+    // A session that ended on the admin PAGE lands back here with `?sessao=` — say why.
+    explainEndedSessionFromUrl();
+
     // Boot routing precedence (see docs/ui-ux-ebgeo.md §1): a public viewer link wins for an
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
     // open the atlas CHOOSER — the boot does NOT reconnect the last remote atlas on its own.
@@ -164,7 +182,31 @@ async function initApp() {
     await statePromise.catch(() => {});
     if (await openPublicAtlasFromUrl(bootPublicLink)) return;
     if (await openAtlasFromUrl(bootAtlasLink)) return;
+    if (await enterLocalMapOnBoot()) return;
     openAtlasChooserOnBoot();
+}
+
+/**
+ * Honours the "Mapa local" choice by landing on a REAL local workspace.
+ *
+ * The intent flag alone only stopped the redirect — the IndexedDB store still held the atlas that
+ * was open when the user left, so "Mapa local" reopened that atlas's maps and merely looked local.
+ * Discarding remote-origin data here is what makes the choice mean what it says; `clearAllDataStore`
+ * lands on a blank default map and emits `ALL_DATA_CLEARED`, which repopulates the live sources from
+ * it (no features left drawn on the canvas).
+ *
+ * A store that is ALREADY local is left untouched: that is the offline user's own work.
+ * @returns {Promise<boolean>} true when this boot is a local-map boot (the chooser must not run).
+ */
+async function enterLocalMapOnBoot() {
+    if (!hasLocalMapIntent()) return false;
+    try {
+        const origin = await loadStoreOrigin();
+        if (origin.kind === 'remote') await clearAllDataStore();
+    } catch (error) {
+        console.warn('[boot] local map entry failed:', error);
+    }
+    return true;
 }
 
 /**
@@ -205,6 +247,49 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         clearAtlasUrl();
         return false; // origin reverted to local in openRemoteAtlas → reconnect is a no-op; land local
     }
+}
+
+/**
+ * Whether this boot should hand over to the project chooser page instead of building a map.
+ *
+ * True only for a signed-in visitor at a bare `/`. Every other case belongs on the map:
+ *   - `?atlas=` / `?atlasPublico=` — the URL already names what to open;
+ *   - `?verify=` — a one-shot e-mail confirmation that must be consumed here;
+ *   - "Mapa local" — an explicit, tab-scoped choice to work without a server project;
+ *   - anonymous — the map IS the product for someone not signed in.
+ *
+ * @param {{atlasId: string}|null} atlasLink - The parsed `?atlas=` deep link, if any.
+ * @param {string|null} publicLink - The `?atlasPublico=` link, if any.
+ * @returns {boolean}
+ */
+function shouldRouteToProjects(atlasLink, publicLink) {
+    if (atlasLink || publicLink) return false;
+    if (new URLSearchParams(window.location.search).has('verify')) return false;
+    if (hasLocalMapIntent()) return false;
+    return apiClient.hasStoredTokens();
+}
+
+/** Why a session ended on another page, and how to say it here. */
+const ENDED_SESSION_MESSAGES = Object.freeze({
+    inatividade: 'Sua sessão expirou por inatividade. Entre novamente.',
+    encerrada: 'Sua sessão foi encerrada. Entre novamente.',
+});
+
+/**
+ * Explains a session that ended on the Administração page. That page has no login UI of its own, so
+ * it revokes the token and sends the user here with `?sessao=<motivo>`; without this the user would
+ * simply find themselves on an anonymous map with no idea why. One-shot: the param is stripped so a
+ * reload does not repeat the message. Unknown values are ignored rather than echoed.
+ */
+function explainEndedSessionFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get('sessao');
+    if (!reason) return;
+    const message = ENDED_SESSION_MESSAGES[reason];
+    if (message) showToast(message, 'warning');
+    params.delete('sessao');
+    const qs = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
 }
 
 /**
@@ -276,19 +361,19 @@ async function restoreSessionFromStorage() {
 }
 
 /**
- * Logged-in boot with NO atlas deep link: present the atlas chooser (project picker) instead of
- * auto-loading the last atlas. The address bar is the source of truth — `/?atlas=<uuid>` loads that
- * atlas (handled earlier), a bare `/` lets the user choose. Best-effort; does nothing for the
- * offline/local (anonymous) user.
+ * Signed in but nothing to open: hand over to the chooser PAGE.
+ *
+ * Normally Phase -1 already routed this boot away, so the only way here is a fallthrough — an
+ * `?atlas=` deep link that failed to open, or a "Mapa local" tab whose session outlived the intent.
+ * Discards any remote-atlas data left over from a previous session first, so the user does not
+ * leave a disconnected atlas sitting in IndexedDB (clearAllDataStore re-marks LOCAL).
+ *
+ * The boot deliberately does NOT reconnect the last atlas: the address bar is the source of truth.
  * @returns {Promise<void>}
  */
 async function openAtlasChooserOnBoot() {
     try {
         if (!sessionContext.isAuthenticated()) return;
-        // The address bar is the source of truth: `/?atlas=<uuid>` loads that atlas (handled above);
-        // a bare `/` must let the user CHOOSE, not silently re-open the last atlas. Discard any
-        // remote-atlas data left in the store from a previous session so the chooser opens over a
-        // blank local workspace instead of a disconnected atlas (clearAllDataStore re-marks LOCAL).
         const origin = await loadStoreOrigin();
         if (origin.kind === 'remote') await clearAllDataStore();
         getControl('account')?.openProjectPicker?.();

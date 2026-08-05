@@ -222,6 +222,27 @@ export class ApiClient {
         }
     }
 
+    /**
+     * Whether a persisted session EXISTS, without loading it or contacting the server.
+     *
+     * For boot-time page routing only (`index.js#shouldRouteToProjects`): a signed-in visitor is
+     * sent to the chooser page before any map is built, and that decision cannot wait on a round
+     * trip. It answers "was someone signed in here", NOT "is the token still valid" — the
+     * destination page validates and clears a dead token, which is what stops a redirect loop.
+     * @returns {boolean}
+     */
+    hasStoredTokens() {
+        try {
+            if (typeof localStorage === 'undefined') return false;
+            const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
+            if (!raw) return false;
+            const parsed = JSON.parse(raw) || {};
+            return !!(parsed.accessToken || parsed.refreshToken);
+        } catch {
+            return false;
+        }
+    }
+
     // ===== CORE REQUEST =====
 
     /**

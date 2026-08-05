@@ -9,8 +9,8 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
-import { showConfirm } from '@modals/index.js';
-import { showSuccess, showError } from '@utils';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, card, ICON_PERSONNEL } from './admin-dom.js';
 
 /** The two controlled lists, each backed by its own table/endpoints + field set. */

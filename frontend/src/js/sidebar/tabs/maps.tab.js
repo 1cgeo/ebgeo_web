@@ -33,6 +33,7 @@ import {
     toggleMapTemporal,
     getControl,
     getOrderedMapBadgeColors,
+    isRemoteStoreSync,
 } from '@store/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
@@ -92,6 +93,7 @@ const MAPS_ICONS = {
     gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 
     cloudDownload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
+    cloudUpload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
 
     users: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
 };
@@ -196,6 +198,7 @@ export class MapsTab {
         const actions = [
             { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Abrir projeto (substitui atual)' },
             { id: 'open-backend', icon: MAPS_ICONS.cloudDownload, label: 'Abrir do servidor', handler: () => this._handleOpenBackendProject(), title: 'Abrir projeto do servidor (substitui atual)', testid: 'maps-open-backend' },
+            { id: 'save-server', icon: MAPS_ICONS.cloudUpload, label: 'Salvar no servidor', handler: () => this._handleSaveToServer(), title: 'Salvar este projeto local como um projeto do servidor', testid: 'maps-save-server' },
             { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao projeto atual' },
             { id: 'save', icon: MAPS_ICONS.save, label: 'Salvar', handler: () => this._handleSaveProject(), title: 'Salvar projeto' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar Tudo', handler: () => this._handleClearAll(), title: 'Limpar todos os dados' },
@@ -214,8 +217,9 @@ export class MapsTab {
             addDomListener(this, button, 'click', action.handler);
             grid.appendChild(button);
 
-            // §item1: keep refs to the two session-gated actions.
+            // Refs to the actions gated by session + store origin (see _updateActionsVisibility).
             if (action.id === 'open-backend') this._openBackendBtn = button;
+            if (action.id === 'save-server') this._saveToServerBtn = button;
             if (action.id === 'clear') this._clearAllBtn = button;
         });
 
@@ -224,15 +228,45 @@ export class MapsTab {
     }
 
     /**
-     * Session-gates the two actions (§item1): "Abrir do servidor" is shown only when logged
-     * in (the picker requires auth); "Limpar Tudo" is hidden when logged in (a server atlas
-     * is left/closed via logout, not wiped through the local "clear all").
+     * Gates the server-related actions on the session AND the store ORIGIN:
+     *
+     * - "Abrir do servidor" — needs a session (the chooser requires auth).
+     * - "Salvar no servidor" — needs a session AND a LOCAL store: it packages this workspace as a
+     *   new server project, which is meaningless while already connected to one. It duplicates the
+     *   account menu deliberately; buried in a dropdown, nobody found it.
+     * - "Limpar Tudo" — gated on the ORIGIN, not on being logged in. It used to disappear the
+     *   moment you signed in, which stranded a signed-in user working locally with no way to wipe.
+     *   A CONNECTED atlas still hides it: a server project is left via the chooser or logout, never
+     *   wiped through a local "clear all" (that would only clear this client's copy).
      * @private
      */
     _updateActionsVisibility() {
         const loggedIn = sessionContext.isAuthenticated();
+        const onRemote = isRemoteStoreSync();
         if (this._openBackendBtn) this._openBackendBtn.hidden = !loggedIn;
-        if (this._clearAllBtn) this._clearAllBtn.hidden = loggedIn;
+        if (this._saveToServerBtn) this._saveToServerBtn.hidden = !loggedIn || onRemote;
+        if (this._clearAllBtn) this._clearAllBtn.hidden = onRemote;
+    }
+
+    /**
+     * "Salvar no servidor" — delegates to the AccountControl orchestrator, which owns the whole
+     * flow (name + sharing dialog, upload, swap the store for the new remote atlas). Same
+     * delegation shape as `_handleOpenBackendProject`; the logic must not exist twice.
+     * @private
+     */
+    async _handleSaveToServer() {
+        const accountControl = getControl('account');
+        if (!accountControl || typeof accountControl.saveLocalToServer !== 'function') {
+            showError('Integração com o servidor indisponível');
+            return;
+        }
+        try {
+            await accountControl.saveLocalToServer();
+        } catch (error) {
+            console.error('Failed to save local project to the server:', error);
+        } finally {
+            this._loadMaps();
+        }
     }
 
     /**
@@ -380,6 +414,10 @@ export class MapsTab {
             this._updateActionsVisibility();
             if (this._currentMapCard) this._updateCurrentMapCard();
         });
+        // A full wipe re-marks the store LOCAL, which changes what the origin-gated actions should
+        // show. Connection events do NOT cover this: clearing while already disconnected (logout,
+        // "Mapa local") flips the origin without any connection transition.
+        subscribe(this, this._eventBus, EventTypes.ALL_DATA_CLEARED, () => this._updateActionsVisibility());
     }
 
     /**

@@ -32,7 +32,7 @@ describeOrSkip('Delete server atlas (owner) → all clients redirected', () => {
             await A.locator('.confirm-modal-btn-confirm').click();
             await A.locator('.confirm-modal-btn-confirm', { hasText: 'definitivamente' }).click();
 
-            // The PEER (B) is redirected to the project picker by the `atlas_deleted` broadcast.
+            // The PEER (B) is redirected to the project chooser PAGE by the `atlas_deleted` broadcast.
             await expect(B.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 20000 });
             // The owner (A) is redirected too.
             await expect(A.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 20000 });

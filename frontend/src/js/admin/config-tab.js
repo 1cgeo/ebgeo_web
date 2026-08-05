@@ -11,8 +11,8 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
-import { showConfirm } from '@modals/index.js';
-import { showSuccess, showError } from '@utils';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 import { sectionHeader, ICON_CONFIG } from './admin-dom.js';
 
 /**

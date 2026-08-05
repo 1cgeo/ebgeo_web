@@ -14,8 +14,8 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
-import { showConfirm } from '@modals/index.js';
-import { showSuccess, showError } from '@utils';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
 import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';

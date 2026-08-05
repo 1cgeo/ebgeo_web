@@ -15,7 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, openClient, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
+import { loginUI, goToLocalMapUI, openClient, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
 
 /**
  * Enables the per-map temporal config through the REAL Maps-tab clock toggle
@@ -87,7 +87,7 @@ describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)'
         await pageA.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
         await pageA.goto('/');
         await loginUI(pageA, users.a.username, users.a.password);
-        await pageA.locator('[data-testid="project-picker-cancel"]').click();
+        await goToLocalMapUI(pageA);
         await pageA.waitForFunction(
             () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.loaded === 'function' && globalThis.__ebgeoMap.loaded(),
             { timeout: 20000 },

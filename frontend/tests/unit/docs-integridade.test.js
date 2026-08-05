@@ -220,6 +220,8 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['UPPER_SNAKE', 'marcador de convenção de nomenclatura, não um símbolo'],
     ['WIDGET_CREATED', 'evento ilustrativo do exemplo da skill store-op'],
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],
+    ['manualChunks', 'opção depreciada do Rollup que o vite.config.js DEIXOU de usar em 2026-08-05 (trocada por codeSplitting.groups + entriesAware quando admin.html virou um segundo entry); a doc a nomeia justamente para dizer que não está mais lá'],
+    ['showProjectPickerModal', 'export que sumiu em 2026-08-05, quando o seletor de projetos deixou de ser modal e virou projetos.html; a doc o nomeia para dizer o que deixou de existir na mudança'],
 ]);
 
 describe('integridade da documentação', () => {

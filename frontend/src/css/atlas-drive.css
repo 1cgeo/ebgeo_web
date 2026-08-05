@@ -1,14 +1,18 @@
 /* Path: src/css/atlas-drive.css */
 
 /*
- * Atlas Drive — the full-screen project chooser ("Google Drive of maps"). Top bar (title + search +
- * new + close) + filter tabs + a responsive card grid. BEM block: .atlas-drive.
+ * Atlas Drive — the project chooser ("Google Drive of maps"), the BODY of projetos.html. Content
+ * toolbar (title + search + new) + filter tabs + a responsive card grid. BEM block: .atlas-drive.
+ * The page's green top bar is .app-bar (app-bar.css), shared with admin.html.
+ *
+ * Loaded only by `projects-page.css` — the map stylesheet no longer imports it.
  */
 
+/* Fills what the app bar leaves, as a flex child of <body> (base.css makes body a full-height flex
+   column). NOT `position: fixed` — this is the page itself, so it must scroll and size like one. */
 .atlas-drive {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-modal);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--gray-50);
@@ -108,25 +112,6 @@
 
 .atlas-drive__btn--ghost:hover {
     background: var(--gray-100);
-}
-
-.atlas-drive__close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--touch-target-min);
-    height: var(--touch-target-min);
-    background: none;
-    border: none;
-    color: var(--gray-500);
-    cursor: pointer;
-    border-radius: var(--radius-md);
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.atlas-drive__close:hover {
-    background: var(--gray-100);
-    color: var(--gray-800);
 }
 
 .atlas-drive__tabs {

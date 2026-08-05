@@ -12,8 +12,8 @@
 
 import { apiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { showConfirm } from '@modals/index.js';
-import { showSuccess, showError } from '@utils';
+import { showConfirm } from '@modals/confirm.modal.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
 

@@ -79,12 +79,6 @@ export const EventTypes = Object.freeze({
     /** Closes all popups and panels. */
     UI_CLOSE_ALL_POPUPS: 'ui:closeAllPopups',
 
-    // ===== ADMIN PANEL (global system admin only) =====
-    /** The admin panel was opened. Payload: {} */
-    ADMIN_PANEL_OPENED: 'admin:panelOpened',
-    /** The admin panel was closed. Payload: {} */
-    ADMIN_PANEL_CLOSED: 'admin:panelClosed',
-
     // ===== MAP NOTES =====
     /** Payload: { mapName } */
     MAP_NOTES_REQUESTED: 'mapNotes:requested',

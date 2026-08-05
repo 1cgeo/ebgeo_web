@@ -1,21 +1,25 @@
 /* Path: src/css/admin.css */
 
 /*
- * Admin panel (global system admin only). App-shell layout: top bar + LEFT navigation rail +
- * scrolling content area. Each tab renders a section header + cards (table / forms / grid).
+ * Admin PAGE (global system admin only) — the whole of `admin.html`, not an overlay over the map.
+ * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
+ * section header + cards (table / forms / grid).
  * BEM blocks:
  *   .admin-panel    shell (header + rail + content)
  *   .admin-section  section header (title + actions)
  *   .admin-card     surface card
  *   .admin-users / .admin-catalog / .admin-form / .admin-btn / .admin-chip / .admin-avatar
+ *
+ * Loaded only by `admin-page.css` — the map stylesheet no longer imports it.
  */
 
 /* ===== Shell ===== */
 
+/* Fills the viewport as a flex child of <body> (base.css makes body a full-height flex column).
+   NOT `position: fixed` — this is the page itself, so it must scroll and size like one. */
 .admin-panel {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-modal);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--gray-50);
@@ -23,64 +27,7 @@
     color: var(--gray-800);
 }
 
-.admin-panel__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-6);
-    background: linear-gradient(120deg, var(--primary-800), var(--primary-700));
-    color: #fff;
-    box-shadow: var(--shadow-md);
-    z-index: 1;
-}
-
-.admin-panel__brand {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-}
-
-.admin-panel__brand-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    border-radius: var(--radius-md);
-    background: rgb(255 255 255 / 15%);
-    color: #fff;
-}
-
-.admin-panel__title {
-    margin: 0;
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-bold);
-    line-height: var(--line-height-tight);
-}
-
-.admin-panel__subtitle {
-    margin: 0;
-    font-size: var(--font-size-xs);
-    color: rgb(255 255 255 / 75%);
-}
-
-.admin-panel__close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--touch-target-min);
-    height: var(--touch-target-min);
-    background: none;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    border-radius: var(--radius-md);
-    transition: background var(--transition-fast);
-}
-
-.admin-panel__close:hover {
-    background: rgb(255 255 255 / 18%);
-}
+/* O cabeçalho da página vive em app-bar.css (.app-bar), compartilhado com projetos.html. */
 
 .admin-panel__main {
     flex: 1;

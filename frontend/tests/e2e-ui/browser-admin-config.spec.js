@@ -38,7 +38,11 @@ async function loginThroughUi(page, baseUrl, creds) {
     await page.locator('[data-testid="login-username"]').fill(creds.username);
     await page.locator('[data-testid="login-password"]').fill(creds.password);
     await page.locator('[data-testid="login-submit"]').click();
-    await page.locator('[data-testid="project-picker-cancel"]').click();
+    // Login lands on the project chooser PAGE; "Mapa local" is a page's replacement for the old
+    // picker close button.
+    await page.waitForURL('**/projetos.html', { timeout: 20000 });
+    await page.locator('[data-testid="projects-local-map"]').click();
+    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
 }
 
 describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backend)', () => {
@@ -50,7 +54,10 @@ describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backen
 
         await page.locator('[data-testid="account-control"] .account-control__identity').click();
         await page.locator('[data-testid="account-admin-btn"]').click();
-        await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 5000 });
+        // Administração is a PAGE now: the menu item navigates to /admin.html, which re-boots
+        // (config + session) before the shell exists. Wait for the navigation, not just the element.
+        await page.waitForURL('**/admin.html', { timeout: 20000 });
+        await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 20000 });
 
         // Switch to the Sistema tab and wait for the form to load.
         await page.locator('[data-testid="admin-tab-config"]').click();

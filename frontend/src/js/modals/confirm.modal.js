@@ -3,6 +3,11 @@
 /**
  * @fileoverview Confirm modal to replace browser's native confirm().
  * Provides a customizable confirmation dialog with confirm/cancel actions.
+ *
+ * Also serves the N-way variant (`showChoice`): the same dialog with an arbitrary set of labelled
+ * actions instead of yes/no. It exists because a two-button confirm forces a false dilemma whenever
+ * the safe third option is "do the thing, but keep my data" — the shape of the local-work guard in
+ * `open-atlas.service.js` (Cancelar / Salvar e continuar / Descartar e abrir).
  */
 
 import {
@@ -11,6 +16,13 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
+
+/** Maps an N-way choice variant onto the existing confirm-button styles (no new CSS). */
+const CHOICE_VARIANT_CLASS = Object.freeze({
+    ghost: 'confirm-modal-btn-cancel',
+    primary: 'confirm-modal-btn-confirm',
+    danger: 'confirm-modal-btn-confirm confirm-modal-btn-destructive',
+});
 
 /**
  * Confirm modal class.
@@ -24,6 +36,9 @@ export class ConfirmModal {
      * @param {string} [config.confirmText] - Confirm button text
      * @param {string} [config.cancelText] - Cancel button text
      * @param {boolean} [config.destructive] - If true, shows confirm button in red
+     * @param {Array<{id: string, label: string, variant?: 'ghost'|'primary'|'danger'}>} [config.choices]
+     *   N-way mode: renders these buttons instead of cancel/confirm and resolves with the chosen
+     *   `id` (or `null` when dismissed). `confirmText`/`cancelText`/`destructive` are ignored.
      */
     constructor(config = {}) {
         this._config = {
@@ -31,7 +46,8 @@ export class ConfirmModal {
             message: config.message || '',
             confirmText: config.confirmText || 'Confirmar',
             cancelText: config.cancelText || 'Cancelar',
-            destructive: config.destructive || false
+            destructive: config.destructive || false,
+            choices: Array.isArray(config.choices) && config.choices.length ? config.choices : null
         };
         this._overlay = null;
         this._container = null;
@@ -43,7 +59,8 @@ export class ConfirmModal {
 
     /**
      * Shows the confirm modal and returns a promise with the result.
-     * @returns {Promise<boolean>} True if confirmed, false if cancelled
+     * @returns {Promise<boolean|string|null>} `true`/`false` in confirm mode; the chosen `id`
+     *   (or `null` when dismissed) in N-way mode.
      */
     show() {
         return new Promise((resolve) => {
@@ -115,17 +132,28 @@ export class ConfirmModal {
         const actions = document.createElement('div');
         actions.className = 'confirm-modal-actions';
 
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'confirm-modal-btn confirm-modal-btn-cancel';
-        cancelBtn.textContent = this._config.cancelText;
-        addDomListener(this, cancelBtn, 'click', () => this._cancel());
-        actions.appendChild(cancelBtn);
+        if (this._config.choices) {
+            for (const choice of this._config.choices) {
+                const btn = document.createElement('button');
+                btn.className = `confirm-modal-btn ${CHOICE_VARIANT_CLASS[choice.variant] || CHOICE_VARIANT_CLASS.primary}`;
+                btn.dataset.testid = `confirm-choice-${choice.id}`;
+                btn.textContent = choice.label;
+                addDomListener(this, btn, 'click', () => this._close(choice.id));
+                actions.appendChild(btn);
+            }
+        } else {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'confirm-modal-btn confirm-modal-btn-cancel';
+            cancelBtn.textContent = this._config.cancelText;
+            addDomListener(this, cancelBtn, 'click', () => this._cancel());
+            actions.appendChild(cancelBtn);
 
-        const confirmBtn = document.createElement('button');
-        confirmBtn.className = `confirm-modal-btn confirm-modal-btn-confirm${this._config.destructive ? ' confirm-modal-btn-destructive' : ''}`;
-        confirmBtn.textContent = this._config.confirmText;
-        addDomListener(this, confirmBtn, 'click', () => this._confirm());
-        actions.appendChild(confirmBtn);
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = `confirm-modal-btn confirm-modal-btn-confirm${this._config.destructive ? ' confirm-modal-btn-destructive' : ''}`;
+            confirmBtn.textContent = this._config.confirmText;
+            addDomListener(this, confirmBtn, 'click', () => this._confirm());
+            actions.appendChild(confirmBtn);
+        }
 
         body.appendChild(actions);
         this._container.appendChild(body);
@@ -148,11 +176,12 @@ export class ConfirmModal {
             }
         });
 
-        // Handle keyboard
+        // Handle keyboard. In N-way mode Enter is deliberately inert: with three labelled actions
+        // there is no "the" confirm, and guessing one would let a blind Enter discard local work.
         addDomListener(this, document, 'keydown', (e) => {
             if (e.key === 'Escape') {
                 this._cancel();
-            } else if (e.key === 'Enter') {
+            } else if (e.key === 'Enter' && !this._config.choices) {
                 this._confirm();
             }
         });
@@ -167,17 +196,17 @@ export class ConfirmModal {
     }
 
     /**
-     * Cancels the action.
+     * Cancels the action (Esc / overlay click / the cancel button).
      * @private
      */
     _cancel() {
-        this._close(false);
+        this._close(this._config.choices ? null : false);
     }
 
     /**
      * Closes the modal.
      * @private
-     * @param {boolean} result - The result value
+     * @param {boolean|string|null} result - The result value
      */
     _close(result) {
         this._overlay.dataset.visible = 'false';
@@ -242,5 +271,34 @@ export async function showConfirm(title, options = {}) {
         cancelText: options.cancelText,
         destructive: options.destructive
     });
+    return modal.show();
+}
+
+/**
+ * Shows an N-way dialog: the same surface as {@link showConfirm}, but with an arbitrary set of
+ * labelled actions instead of yes/no. Use it when the honest answer set has more than two members —
+ * forcing such a decision through a confirm hides the option the user actually wants.
+ *
+ * Dismissing (Esc or clicking the backdrop) resolves `null`, never a choice: dismissal must always
+ * be the inert outcome. Enter is inert too — see `_setupListeners`.
+ *
+ * @param {string} title - The question.
+ * @param {Object} options
+ * @param {string} [options.message] - Supporting text (supports `\n`).
+ * @param {Array<{id: string, label: string, variant?: 'ghost'|'primary'|'danger'}>} options.choices
+ *   Rendered left to right. Put the reversible option first and the destructive one last.
+ * @returns {Promise<string|null>} The chosen `id`, or `null` if dismissed.
+ *
+ * @example
+ * const choice = await showChoice('Você tem trabalho local não salvo', {
+ *     choices: [
+ *         { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
+ *         { id: 'save', label: 'Salvar e continuar' },
+ *         { id: 'discard', label: 'Descartar e abrir', variant: 'danger' },
+ *     ],
+ * });
+ */
+export async function showChoice(title, { message, choices } = {}) {
+    const modal = new ConfirmModal({ title, message, choices });
     return modal.show();
 }

@@ -10,7 +10,7 @@ Uma regra de manutenção que a leitura casual não protege: rota literal nova s
 
 `read(1) < comment(2) < write(3) < manage(4) < owner(5)` (`backend/src/middleware/permissions.js:12-18`). O ponto que quebra implementação: **`manage` está ACIMA de `write`**. Qualquer gate escrito por igualdade (`perm === 'write' || perm === 'owner'`) exclui o co-Gestor em silêncio. Compare por nível. Ver [[permissoes-atlas]].
 
-> **Nota histórica.** O próprio frontend cai nessa armadilha: `frontend/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, então o co-Gestor não vê "Renomear" no card embora o backend aceite o `PUT` dele (`backend/src/modules/atlas/atlas.routes.js:27`). O guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
+> **Nota histórica.** O próprio frontend caiu nessa armadilha: o card do seletor de projetos fazia `perm === 'owner' || perm === 'write'`, então o co-Gestor não via "Renomear" embora o backend aceitasse o `PUT` dele (`backend/src/modules/atlas/atlas.routes.js:27`). Já corrigido — o gate hoje inclui `manage` (`frontend/src/js/projects/atlas-drive.js`, `_openCardMenu`), com o porquê comentado no ponto de uso. O guia *ui-ux-ebgeo* (absorvido) §2 descrevia a ação como "gated por papel (renomear = Editor+)", que era a intenção, não o efeito.
 
 Outras duas saídas não óbvias de `resolvePermission` (`backend/src/middleware/permissions.js:30-48`, `:82-92`):
 
@@ -127,9 +127,9 @@ Acoplamento a vigiar: o enum de `feature_type` do schema (`backend/src/modules/a
 
 ## Atlas Drive (project-picker)
 
-O seletor de projetos (`frontend/src/js/modals/project-picker.modal.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
+O seletor de projetos (`frontend/src/js/projects/atlas-drive.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
 
-- Apesar de virar tela cheia, **preserva deliberadamente o contrato antigo do modal** (nome do arquivo, export `showProjectPickerModal`, testids, API `onPick`/`onCreate`) para não quebrar os specs e2e existentes. Os `data-testid` `project-picker-*` são **contrato de teste**: renomear qualquer um quebra e2e.
+- Em 2026-08-05 deixou de ser modal e virou o **corpo de `projetos.html`** (entry `frontend/src/js/projects/projects-page.js`). Os `data-testid` `project-picker-*` — incluindo o raiz, `project-picker-modal`, cujo nome ficou mentindo de propósito — foram **preservados verbatim**: são contrato de teste, e renomear qualquer um quebra e2e. O que sumiu na mudança: `showProjectPickerModal`, o botão de fechar e o Esc-para-fechar (página não fecha). O componente **não toca no store nem no sync engine**: abrir é navegar para `./?atlas=<uuid>` e deixar o roteador de boot do mapa (`openRemoteAtlas`) fazer o resto — inclusive perguntar o que fazer com trabalho local não salvo.
 - As abas são filtros client-side sobre a **mesma** resposta de `GET /atlas` (exceto a Lixeira, com endpoint próprio e carga lazy). Três dos cinco filtros dependem de `user_permission`, que só existe em `LIST_USER_ATLAS`, daí a aba "Públicos" mostrar apenas atlas públicos aos quais você já tem acesso, nunca os demais.
 - **Não há thumbnail nem snapshot do mapa** nos cards; a identidade visual é faixa colorida determinística do nome. Decisão de escopo, ver [[sintese-decisoes-arquiteturais]].
 
@@ -137,4 +137,4 @@ Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-
 
 ## Fontes
 
-Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `backend/src/modules/{atlas,sharing,maps}/`, `backend/src/middleware/permissions.js`, `backend/src/database/migrations/002_atlas.sql`; `frontend/src/js/store/sync/api-client.js` e `src/js/modals/{atlas-settings,project-picker}.modal.js`.
+Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `backend/src/modules/{atlas,sharing,maps}/`, `backend/src/middleware/permissions.js`, `backend/src/database/migrations/002_atlas.sql`; `frontend/src/js/store/sync/api-client.js`, `frontend/src/js/modals/atlas-settings.modal.js` e `frontend/src/js/projects/atlas-drive.js`.

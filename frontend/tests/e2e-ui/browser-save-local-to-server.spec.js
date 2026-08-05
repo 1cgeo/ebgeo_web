@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, drawPointUI } from './helpers/collab-helpers.js';
+import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -35,8 +35,9 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
         }, state.baseUrl);
 
         await loginUI(page, creds.username, creds.password);
-        // Cancel the project picker — we want to work on the LOCAL store, not open a server atlas.
-        await page.locator('[data-testid="project-picker-cancel"]').click();
+        // Leave the chooser for the LOCAL map — we want to work on the local store here, not open
+        // a server atlas.
+        await goToLocalMapUI(page);
 
         // Wait for the live map, then draw a point into the LOCAL store with the REAL point tool
         // (logged in, NOT connected).

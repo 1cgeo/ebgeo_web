@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, drawPointUI } from './helpers/collab-helpers.js';
+import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -62,7 +62,7 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         expect(url.searchParams.get('map')).toBe(seed.mapIds['Mapa Dois']);
     });
 
-    test('logged in WITH unsaved local work: the deep link WARNS before replacing local data', async ({ page }) => {
+    test('logged in WITH unsaved local work: the deep link OFFERS save/discard before replacing it', async ({ page }) => {
         await page.goto('/');
         const seed = await seedUserAtlas(page, state.baseUrl, ['Servidor']);
 
@@ -70,16 +70,25 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
         await page.goto('/');
         await loginUI(page, seed.username, seed.password);
-        await page.locator('[data-testid="project-picker-cancel"]').click(); // logged in, local store
+        await goToLocalMapUI(page); // logged in, local store
 
         // Create unsaved local work, then hit the deep link via a reload.
         await drawPointUI(page, [-43.2, -22.9]);
         await page.goto(`/?atlas=${seed.atlasId}`);
 
-        // The boot must show the "replace local data — baixe um .ebgeo antes" confirm, NOT wipe silently.
-        const confirm = page.locator('.confirm-modal-overlay');
-        await expect(confirm).toBeVisible({ timeout: 20000 });
-        await expect(confirm).toContainText('.ebgeo');
+        // The boot must ASK, not wipe silently — and the answer set has three members. Until
+        // 2026-08-05 this was a two-button confirm that only told the user to go download a .ebgeo
+        // first; "Salvar e continuar" is what makes keeping the work an option inside the flow.
+        const dialog = page.locator('.confirm-modal-overlay');
+        await expect(dialog).toBeVisible({ timeout: 20000 });
+        await expect(dialog.locator('[data-testid="confirm-choice-cancel"]')).toBeVisible();
+        await expect(dialog.locator('[data-testid="confirm-choice-save"]')).toBeVisible();
+        await expect(dialog.locator('[data-testid="confirm-choice-discard"]')).toBeVisible();
+
+        // Cancelling leaves the local work alone: no connection, and the point is still on the map.
+        await dialog.locator('[data-testid="confirm-choice-cancel"]').click();
+        await expect(page.locator('[data-testid="sync-status-badge"]'))
+            .not.toHaveAttribute('data-state', 'online', { timeout: 10000 });
     });
 
     test('logged out: prompts login, then resumes straight to the atlas', async ({ page }) => {

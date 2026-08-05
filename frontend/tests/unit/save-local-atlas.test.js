@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 // transport test doesn't pull the whole store graph.
 vi.mock('@store', () => ({ getImage: vi.fn(), getAllMapNamesStore: vi.fn() }));
 
-import { uploadImagesInChunks } from '../../src/js/import_export/save-local-atlas.service.js';
+import { uploadImagesInChunks } from '../../src/js/import_export/atlas-image-upload.js';
 
 describe('uploadImagesInChunks', () => {
     it('chunks uploads into batches of <=50 and merges the mappings', async () => {
