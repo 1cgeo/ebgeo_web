@@ -21,19 +21,27 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY src ./src
 
-# Operational scripts. `npm run sv360:import` is declared in package.json and is
-# the documented way to re-import the 360 acervo, so it has to exist INSIDE the
+# Operational scripts. Every `sv360:*` script declared in package.json is a
+# documented way to operate the 360 acervo, so each has to exist INSIDE the
 # image: without this COPY the script resolved to nothing and the run died with
 # ERR_MODULE_NOT_FOUND before touching the database.
 #
-# Only sv360-import.js is copied, ON PURPOSE. The other four scripts/ files are
-# development or test tooling (dev-db.js, test-db.js, run-tests.js) or an import
-# with no npm script and no production caller (assets3d-import.js); `run-tests.js`
-# and `test-db.js` DROP and recreate a database, which is not something a runtime
-# image should be able to do by accident. sv360-import.js pulls only from ../src
-# (config, database, streetview360/{merge,floors}, utils/sqlite-blob-pool) plus
-# `better-sqlite3`, all of which are already in this stage.
-COPY scripts/sv360-import.js ./scripts/
+# The list is EXPLICIT rather than `COPY scripts ./scripts`, on purpose. The
+# remaining scripts/ files are development or test tooling (dev-db.js, test-db.js,
+# run-tests.js) or an import with no npm script and no production caller
+# (assets3d-import.js); `run-tests.js` and `test-db.js` DROP and recreate a
+# database, which is not something a runtime image should be able to do by
+# accident. Keep this list in step with the `sv360:*` scripts in package.json:
+# adding one there without adding it here reproduces the very defect above.
+#
+# sv360-survey-clock.js carries no npm script of its own; it is the shared
+# constant table (per-project timezone, source clock skew) that the two ETLs
+# import in opposite directions, so it travels with them.
+COPY scripts/sv360-import.js \
+     scripts/sv360-import-captured-at.js \
+     scripts/sv360-derive-runs.js \
+     scripts/sv360-survey-clock.js \
+     ./scripts/
 
 # Image storage dir (mount a volume here in production)
 RUN mkdir -p /app/data/images && chown -R ebgeo:ebgeo /app/data
