@@ -15,7 +15,7 @@ import { getEventBus, registerControl } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import StreetviewMarkers from './streetview_markers.js';
 import SavedPhotosMarkers from './saved_photos_markers.js';
-import { withAbsoluteTiles } from './streetview-api.service.js';
+import { withAbsoluteTiles, fetchNearestPhoto } from './streetview-api.service.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 
 // Property carrying the photo id on the 360 photo features.
@@ -57,9 +57,8 @@ class AddStreetViewControl {
         this._floorPlanPendente = null;
         this._floorPlanAguardando = false;
 
-        // PMTiles nearby features cache
+        // Cache da foto mais proxima, por coordenada de clique arredondada.
         this.nearbyFeaturesCache = new Map();
-        this.cacheRadius = 1000;
 
         // Streetview markers manager (initialized in onAdd)
         this.streetviewMarkers = null;
@@ -71,20 +70,20 @@ class AddStreetViewControl {
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._unsubBaseLayerChanged = null;
 
-        // Layer definitions for PMTiles
+        // Layer definitions
         if (config.features.imagens_panoramicas) {
-            this.streetViewPointsLayer = {
-                'id': 'street-view',
-                'type': 'circle',
-                'source': 'streetViewPointsSource',
-                'source-layer': config.streetView360.pointsSourceLayer,
-                'visibility': 'none',
-                'paint': {
-                    'circle-radius': 0,
-                    'circle-color': '#0d6efd',
-                    'circle-stroke-width': 0,
-                    'circle-stroke-color': '#0d6efd'
-                }
+            // A FONTE DE PONTOS SO EXISTE NO MINIMAPA. O mapa principal carregava
+            // os mesmos tiles numa camada `street-view` de circle-radius 0, isto
+            // e, invisivel. Ela nao era decorativa: o clique na linha descobria a
+            // foto mais proxima por querySourceFeatures sobre ela. Esse caminho
+            // passou a perguntar ao servico (/photos/nearest), e a camada ficou
+            // sem um unico leitor, ainda baixando tile para desenhar nada.
+            //
+            // O que sobrou e a referencia da fonte, que o minimapa usa para
+            // desenhar os pontos, o realce de selecionado e o de hover.
+            this.pointsSourceRef = {
+                id: 'streetViewPointsSource',
+                sourceLayer: config.streetView360.pointsSourceLayer
             };
 
             this.streetViewLinesLayer = {
@@ -196,7 +195,7 @@ class AddStreetViewControl {
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                this.miniMap.addSource(this.streetViewPointsLayer['source'], withAbsoluteTiles(config.streetView360.pointsSource));
+                this.miniMap.addSource(this.pointsSourceRef.id, withAbsoluteTiles(config.streetView360.pointsSource));
 
                 const pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
@@ -207,7 +206,7 @@ class AddStreetViewControl {
                 this.miniMap.addLayer({
                     'id': 'points',
                     'type': 'symbol',
-                    'source': this.streetViewPointsLayer['source'],
+                    'source': this.pointsSourceRef.id,
                     'source-layer': config.streetView360.pointsSourceLayer,
                     'layout': {
                         'icon-image': 'point',
@@ -286,32 +285,32 @@ class AddStreetViewControl {
     }
 
     /**
-     * Esconde de AMBOS os mapas as fotos que nao sao do andar em exibicao.
+     * Esconde do minimapa as fotos que nao sao do andar em exibicao.
      *
      * O filtro roda sobre `floor_level`, atributo que a camada `fotos` do tile
      * MVT emite por foto. Nivel null tira o filtro, que e o estado de todo
      * projeto externo, e tambem o estado correto depois de fechar um projeto
      * indoor: senao o filtro do levantamento anterior apagaria o proximo mapa
      * inteiro.
+     *
+     * SO O MINIMAPA, porque so ele desenha foto. O mapa principal mostra a linha
+     * de tracado, que nao tem andar, e os marcadores de projeto, que sao um por
+     * levantamento.
      * @private
      */
     _applyFloorFilter() {
+        if (!this.miniMap) return;
+
         const filtro = this._floorLevel === null
             ? null
             : ['==', ['get', 'floor_level'], this._floorLevel];
 
-        for (const [mapa, camada] of [
-            [this.miniMap, 'points'],
-            [this.map, this.streetViewPointsLayer?.id]
-        ]) {
-            if (!mapa || !camada) continue;
-            // getLayer antes de setFilter: a camada do mapa principal so entra
-            // quando a fonte de tiles termina de carregar (ver loadData).
-            try {
-                if (mapa.getLayer(camada)) mapa.setFilter(camada, filtro);
-            } catch (error) {
-                console.warn(`[street-view] could not filter "${camada}" by floor:`, error);
-            }
+        // getLayer antes de setFilter: a camada so entra quando o minimapa
+        // termina de carregar (ver setupMiniMapWithPMTiles).
+        try {
+            if (this.miniMap.getLayer('points')) this.miniMap.setFilter('points', filtro);
+        } catch (error) {
+            console.warn('[street-view] could not filter "points" by floor:', error);
         }
     }
 
@@ -338,7 +337,12 @@ class AddStreetViewControl {
             // redesenha e o proprio setupMiniMapWithPMTiles, ao terminar.
             if (this.miniMap && !this._floorPlanAguardando) {
                 this._floorPlanAguardando = true;
-                this.miniMap.once('styledata', () => {
+                // 'idle', e nao 'styledata'. O styledata dispara varias vezes
+                // DURANTE a carga, com isStyleLoaded() ainda falso, e cada
+                // disparo so reagendava. O 'idle' do MapLibre significa "estilo
+                // pronto e nada mais em voo", que e exatamente a condicao que
+                // faltava para desenhar.
+                this.miniMap.once('idle', () => {
                     this._floorPlanAguardando = false;
                     this._renderFloorPlan(this._floorPlanPendente);
                 });
@@ -383,24 +387,11 @@ class AddStreetViewControl {
         }
     }
 
+    // O mapa principal carrega SO a linha de tracado. A fonte de pontos, que
+    // antes vinha junto, era lida apenas pelo clique na linha, e esse caminho
+    // passou a perguntar ao servico (ver getNearestPhoto).
     loadData = async () => {
         try {
-            if (!this.map.getSource(this.streetViewPointsLayer['source'])) {
-                this.map.addSource(this.streetViewPointsLayer['source'], withAbsoluteTiles(config.streetView360.pointsSource));
-                const onPhotosSourceData = (e) => {
-                    if (e.sourceId === this.streetViewPointsLayer['source'] && this.map.isSourceLoaded(this.streetViewPointsLayer['source'])) {
-                        if (!this.map.getLayer(this.streetViewPointsLayer['id'])) {
-                            this.map.addLayer(this.streetViewPointsLayer);
-                        }
-                        this.showLayers();
-                        this.map.off('sourcedata', onPhotosSourceData);
-                    }
-                };
-                this.map.on('sourcedata', onPhotosSourceData);
-            } else {
-                this.showLayers();
-            }
-
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
                 this.map.addSource(this.streetViewLinesLayer['source'], withAbsoluteTiles(config.streetView360.linesSource));
 
@@ -505,7 +496,7 @@ class AddStreetViewControl {
         this.miniMap.addLayer({
             'id': 'selected',
             'type': 'symbol',
-            'source': this.streetViewPointsLayer['source'],
+            'source': this.pointsSourceRef.id,
             'source-layer': config.streetView360.pointsSourceLayer,
             "filter": ["==", PHOTO_PROPERTY, ""],
             'layout': {
@@ -515,78 +506,35 @@ class AddStreetViewControl {
     }
 
     /**
-     * Finds the nearest photo point to a given coordinate.
-     * Uses querySourceFeatures (vector tile data) since the points layer
-     * has circle-radius: 0 and queryRenderedFeatures would return nothing.
+     * Finds the nearest photo to a given coordinate.
+     *
+     * PERGUNTA-SE AO SERVICO, e nao ao mapa. Antes isto era um
+     * querySourceFeatures sobre os tiles JA CARREGADOS, o que amarrava a
+     * resposta ao que estava desenhado: abaixo do zoom minimo da fonte de pontos
+     * nao existe tile, entao clicar na linha de tracado nao abria nada. O
+     * servico responde pelo indice espacial, entao a resposta vale em qualquer
+     * zoom e e a foto REALMENTE mais proxima.
+     *
+     * O cache por coordenada arredondada continua, agora poupando requisicao em
+     * vez de varredura: cliques repetidos no mesmo trecho nao voltam ao servico.
+     *
      * @param {Object} point - {lng, lat} coordinate
-     * @returns {Promise<Object|null>} Nearest feature or null
+     * @returns {Promise<Object|null>} Photo with at least an id, or null
      */
     getNearestPhoto = async (point) => {
-        try {
-            const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
+        const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
 
-            if (this.nearbyFeaturesCache.has(cacheKey)) {
-                return this.nearbyFeaturesCache.get(cacheKey);
-            }
-
-            // ~33m buffer — tight enough to avoid adjacent tracks
-            const bufferDistance = 0.0003;
-            const bbox = [
-                point.lng - bufferDistance,
-                point.lat - bufferDistance,
-                point.lng + bufferDistance,
-                point.lat + bufferDistance
-            ];
-
-            let features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
-                bbox,
-                sourceLayer: config.streetView360.pointsSourceLayer
-            });
-
-            // Widen search if nothing found nearby
-            if (features.length === 0) {
-                const widerBuffer = 0.001;
-                const widerBbox = [
-                    point.lng - widerBuffer,
-                    point.lat - widerBuffer,
-                    point.lng + widerBuffer,
-                    point.lat + widerBuffer
-                ];
-                features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
-                    bbox: widerBbox,
-                    sourceLayer: config.streetView360.pointsSourceLayer
-                });
-            }
-
-            if (features.length === 0) {
-                return null;
-            }
-
-            const from = turf.point([point.lng, point.lat]);
-            let minDistance = Infinity;
-            let target = null;
-
-            for (const feature of features) {
-                const coords = feature.geometry.coordinates;
-                const to = turf.point(coords);
-                const distance = turf.distance(from, to);
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    target = feature;
-                }
-            }
-
-            if (target) {
-                this.nearbyFeaturesCache.set(cacheKey, target);
-            }
-
-            return target;
-
-        } catch (error) {
-            console.error('Error finding nearest photo:', error);
-            return null;
+        if (this.nearbyFeaturesCache.has(cacheKey)) {
+            return this.nearbyFeaturesCache.get(cacheKey);
         }
+
+        const photo = await fetchNearestPhoto(point.lng, point.lat);
+
+        if (photo) {
+            this.nearbyFeaturesCache.set(cacheKey, photo);
+        }
+
+        return photo;
     }
 
     /**
@@ -609,9 +557,9 @@ class AddStreetViewControl {
         }
 
         try {
-            const feature = await this.getNearestPhoto(e.lngLat);
+            const photo = await this.getNearestPhoto(e.lngLat);
 
-            if (feature && feature.properties && feature.properties[PHOTO_PROPERTY]) {
+            if (photo?.[PHOTO_PROPERTY]) {
                 this.isOpen = true;
 
                 // Import and open viewer dynamically
@@ -620,9 +568,9 @@ class AddStreetViewControl {
                 // If already open, just navigate to new photo
                 if (isStreetView360Open()) {
                     const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(feature.properties[PHOTO_PROPERTY]);
+                    await navigateToTarget(photo[PHOTO_PROPERTY]);
                 } else {
-                    await openViewer360WithPhoto(feature.properties[PHOTO_PROPERTY], {
+                    await openViewer360WithPhoto(photo[PHOTO_PROPERTY], {
                         miniMap: this.miniMap,
                         controlInstance: this
                     });
@@ -703,9 +651,6 @@ class AddStreetViewControl {
         this.map.off('mouseenter', hitLayerId, this.showHoverCursor);
         this.map.off('mouseleave', hitLayerId, this.hideHoverCursor);
 
-        if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
-            this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'none');
-        }
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'none');
         }
@@ -746,8 +691,7 @@ class AddStreetViewControl {
         // Move line layers below the first marker layer
         const lineLayers = [
             this.streetViewLinesLayer?.['id'],
-            this.streetViewLinesHitLayer?.['id'],
-            this.streetViewPointsLayer?.['id']
+            this.streetViewLinesHitLayer?.['id']
         ];
 
         for (const layerId of lineLayers) {
@@ -760,10 +704,6 @@ class AddStreetViewControl {
     showLayers = () => {
         // Find first marker layer so lines are inserted below markers
         const beforeId = this._getFirstMarkerLayerId();
-
-        if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
-            this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'visible');
-        }
 
         // Add line layers before marker layers so markers render above them
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {

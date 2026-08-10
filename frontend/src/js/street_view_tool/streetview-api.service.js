@@ -104,6 +104,37 @@ export async function fetchPhotoMetadata(photoIdOrName) {
 }
 
 /**
+ * Fetches the photo closest to a coordinate, anywhere in the archive.
+ *
+ * WHY THIS IS AN API CALL AND NOT A MAP QUERY. The map used to answer this with
+ * querySourceFeatures over the vector tiles it had already loaded, which tied
+ * the answer to what happened to be drawn: below the source's minimum zoom no
+ * tile exists, so clicking a trajectory line simply opened nothing. The service
+ * answers from the spatial index, so it works at every zoom and returns the
+ * photo that is really closest, not the closest among the survivors of tile
+ * thinning.
+ *
+ * NOTHING NEARBY IS A 404, not a fault, and it lands on the same null as a
+ * network error: the caller only decides whether to open the viewer.
+ *
+ * @param {number} lon - Longitude of the clicked point
+ * @param {number} lat - Latitude of the clicked point
+ * @returns {Promise<Object|null>} Photo with id, img, lon, lat, projectSlug,
+ *   floor_level and distance, or null when there is none
+ */
+export async function fetchNearestPhoto(lon, lat) {
+  try {
+    const response = await fetch(`${getServiceUrl()}/photos/nearest?lon=${lon}&lat=${lat}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.photo ?? null;
+  } catch (error) {
+    console.error('[streetview-api] fetchNearestPhoto failed:', error);
+    return null;
+  }
+}
+
+/**
  * Fetches the floors of a project, top floor first.
  *
  * AN EMPTY ARRAY IS THE NORMAL ANSWER, not a failure: it means the project has
