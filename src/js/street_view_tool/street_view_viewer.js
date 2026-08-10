@@ -29,6 +29,11 @@ import {
     resetFloorSelector
 } from './components/floor-selector-360.js';
 import {
+    initCompass360,
+    updateCompass360,
+    destroyCompass360
+} from './components/compass-360.js';
+import {
     activateKeyboardService360,
     deactivateKeyboardService360,
     setKeyboardCallbacks
@@ -262,6 +267,10 @@ async function initThreeJS() {
 
     // Initialize navigator (lazy load)
     await initNavigator(container);
+
+    // A faixa de bussola entra com o visualizador e sai com ele. Ela nao depende
+    // da foto, so do rumo, entao nao ha o que refazer ao navegar.
+    initCompass360(container);
 
     streetViewState.isLoaded = true;
 }
@@ -907,6 +916,7 @@ function updateCurrentHeading() {
     const worldHeading = (imageHeading + lon + 360) % 360;
 
     setIconDirection(worldHeading);
+    updateCompass360(worldHeading);
 }
 
 // ===== EVENT HANDLERS =====
@@ -1739,6 +1749,12 @@ export async function closeViewer360() {
     // barra com andares que a nova nao tem.
     resetFloorSelector();
 
+    // A faixa de bussola NAO sai aqui, ao contrario do seletor de andar. Fechar
+    // o visualizador so pausa a cena: o initThreeJS roda uma vez so, e reabrir
+    // cai no ramo "resume". Destruir a faixa no fechamento a apagaria a partir da
+    // segunda abertura, sem erro nenhum. Ela sai no dispose, com a cena.
+    // O container fica display:none enquanto fechado, entao ela nao aparece.
+
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});
 }
@@ -2022,6 +2038,10 @@ export function cleanupStreetViewFeatures() {
         }
     });
     streetViewState.metadataCache = new LRUCache(METADATA_CACHE_MAX_SIZE);
+
+    // A faixa de bussola sai com a cena, e nao com o fechamento: e aqui que o
+    // initThreeJS volta a poder rodar, entao e aqui que a faixa pode ser refeita.
+    destroyCompass360();
 
     // Reset state
     streetViewState.scene = null;
