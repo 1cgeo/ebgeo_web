@@ -15,6 +15,7 @@ src_total
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+.playwright/
 
 # Testes e qualidade
 coverage/

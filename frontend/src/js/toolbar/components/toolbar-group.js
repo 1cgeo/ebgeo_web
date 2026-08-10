@@ -13,6 +13,7 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 import { EventTypes } from '@events/event_types.js';
+import config from '@js/config.js';
 import { showWarning } from '@utils/toast_service.js';
 
 /**
@@ -281,9 +282,15 @@ export class ToolbarGroup {
         }
 
         // Check terrain requirement
-        if (toolConfig.requiresTerrain && this._map && !this._map.getTerrain()) {
-            showWarning('Ative o terreno 3D para usar esta ferramenta');
-            return;
+        if (toolConfig.requiresTerrain) {
+            if (config.map2d?.terrainSource == null) {
+                showWarning('Sem terreno disponível');
+                return;
+            }
+            if (this._map && !this._map.getTerrain()) {
+                showWarning('Ative o terreno 3D para usar esta ferramenta');
+                return;
+            }
         }
 
         // Activate tool
@@ -350,8 +357,11 @@ export class ToolbarGroup {
      * @private
      */
     _updateTerrainTools() {
-        const hasTerrain = this._map?.getTerrain() != null;
-        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
+        const terrainConfigured = config.map2d?.terrainSource != null;
+        const hasTerrain = terrainConfigured && this._map?.getTerrain() != null;
+        const reason = !terrainConfigured
+            ? 'Sem terreno disponível'
+            : (hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta');
 
         this._config.tools.forEach(toolConfig => {
             if (toolConfig.requiresTerrain) {
@@ -369,8 +379,11 @@ export class ToolbarGroup {
      * @param {ToolButton} toolButton - Tool button to update
      */
     _updateToolTerrainState(toolButton) {
-        const hasTerrain = this._map?.getTerrain() != null;
-        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
+        const terrainConfigured = config.map2d?.terrainSource != null;
+        const hasTerrain = terrainConfigured && this._map?.getTerrain() != null;
+        const reason = !terrainConfigured
+            ? 'Sem terreno disponível'
+            : (hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta');
         toolButton.setDisabled(!hasTerrain, reason);
     }
 

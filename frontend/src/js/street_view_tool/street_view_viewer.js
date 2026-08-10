@@ -25,6 +25,11 @@ import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import {
+    initCompass360,
+    updateCompass360,
+    destroyCompass360
+} from './components/compass-360.js';
+import {
     activateKeyboardService360,
     deactivateKeyboardService360,
     setKeyboardCallbacks
@@ -260,6 +265,10 @@ async function initThreeJS() {
 
     // Initialize navigator (lazy load)
     await initNavigator(container);
+
+    // A faixa de bussola entra com o visualizador e sai com ele. Ela nao depende
+    // da foto, so do rumo, entao nao ha o que refazer ao navegar.
+    initCompass360(container);
 
     streetViewState.isLoaded = true;
 }
@@ -858,6 +867,7 @@ function updateCurrentHeading() {
     const worldHeading = (imageHeading + lon + 360) % 360;
 
     setIconDirection(worldHeading);
+    updateCompass360(worldHeading);
 }
 
 // ===== EVENT HANDLERS =====
@@ -1728,6 +1738,12 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.PRESENCE_SELECTIONS_CHANGED, updateRemoteSelections360);
     eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
 
+    // A faixa de bussola NAO sai aqui. Fechar o visualizador so pausa a cena: o
+    // initThreeJS roda uma vez so, e reabrir cai no ramo "resume". Destruir a
+    // faixa no fechamento a apagaria a partir da segunda abertura, sem erro
+    // nenhum. Ela sai no dispose, com a cena. O container fica display:none
+    // enquanto fechado, entao ela nao aparece.
+
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});
 }
@@ -2011,6 +2027,10 @@ export function cleanupStreetViewFeatures() {
         }
     });
     streetViewState.metadataCache = new LRUCache(METADATA_CACHE_MAX_SIZE);
+
+    // A faixa de bussola sai com a cena, e nao com o fechamento: e aqui que o
+    // initThreeJS volta a poder rodar, entao e aqui que a faixa pode ser refeita.
+    destroyCompass360();
 
     // Reset state
     streetViewState.scene = null;

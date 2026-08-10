@@ -228,10 +228,32 @@ body.streetview-active .modal-overlay {
     line-height: 1;
 }
 
-/* ===== ACTIVE TOOL CHIP 360 ===== */
-.active-tool-chip-360 {
+/* ===== FAIXA DE BUSSOLA (compass-360.js) ===== */
+
+/* Centrada sobre o PANORAMA, e nao sobre a janela: o visualizador comeca depois
+   da barra lateral, e centrar em 50vw jogaria a faixa para a esquerda do quadro.
+   O ponto medio de [barra, 100vw] e 50vw + barra/2. */
+.sv360-compass {
     position: fixed;
     top: var(--space-4);
+    left: calc(50% + var(--sidebar-collapsed-width) / 2);
+    transform: translateX(-50%);
+    z-index: var(--z-3d-controls);
+
+    /* A faixa informa, nao recebe clique: sem isto ela roubaria o arrasto do
+       panorama numa fatia de 232 por 34 px bem no meio do topo. */
+    pointer-events: none;
+    filter: drop-shadow(0 4px 16px rgb(0 0 0 / 30%));
+}
+
+/* ===== ACTIVE TOOL CHIP 360 ===== */
+
+/* Abaixo da faixa, e nao em cima dela. Os dois moravam no mesmo ponto do topo,
+   e o chip so aparece com ferramenta ativa, entao a colisao passaria despercebida
+   ate alguem ligar uma. O chip e exclusivo do 360, onde a faixa sempre existe. */
+.active-tool-chip-360 {
+    position: fixed;
+    top: calc(var(--space-4) * 2 + 34px);
     left: 50%;
     transform: translateX(-50%);
     z-index: var(--z-3d-controls);

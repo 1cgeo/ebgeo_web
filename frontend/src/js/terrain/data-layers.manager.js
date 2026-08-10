@@ -2,6 +2,7 @@
 // Manages vector data layers (molduras, etc.) from config.dataLayers
 import config from '../config.js';
 import { LAYOUT_PROPS } from '@layers/layer-style/layer-style.schema.js';
+import { generatePointImage, needsPerFeatureImage, getSymbolIds } from '@js/draw_tools/point_tool/point-marker-symbols.js';
 
 /**
  * Manages vector data layers in the system.
@@ -81,6 +82,8 @@ class DataLayersManager {
                 this._addSourceSafe(labelSourceId, layerConfig.labelSource);
             }
 
+            this._registerMarkerImage(layerConfig);
+
             this._addFillLayer(layerConfig, sourceId, beforeId);
             this._addBorderLayer(layerConfig, sourceId, beforeId);
             this._addLabelLayer(layerConfig, labelSourceId, beforeId);
@@ -152,6 +155,8 @@ class DataLayersManager {
 
             this._removeSourceSafe(`data-${layerId}-label-source`);
             this._removeSourceSafe(`data-${layerId}`);
+
+            this._removeImageSafe(this._markerImageId(layerId));
 
             this._initializedLayers.delete(layerId);
         } catch (error) {
@@ -311,6 +316,55 @@ class DataLayersManager {
         if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
     }
 
+    /** Safely removes a registered map image if it exists */
+    _removeImageSafe(imageId) {
+        if (this.map.hasImage(imageId)) this.map.removeImage(imageId);
+    }
+
+    /**
+     * Stable map-image id for a layer's marker.
+     * @param {string} layerId - Layer ID (without 'data-' prefix)
+     * @returns {string}
+     */
+    _markerImageId(layerId) {
+        return `data-${layerId}-marker`;
+    }
+
+    /**
+     * Registers `style.marker` as a map image, reusing the point tool's symbol
+     * generator so no external asset is needed. Called from addDataLayer, which
+     * setupDataLayers re-runs on every style load — that is what restores the
+     * image after a basemap switch wipes it.
+     * @param {Object} layerConfig
+     */
+    _registerMarkerImage(layerConfig) {
+        const marker = layerConfig.style?.marker;
+        if (!marker) return;
+
+        const imageId = this._markerImageId(layerConfig.id);
+        if (this.map.hasImage(imageId)) return;
+
+        // 'circle' is excluded: points render it as a native circle layer, so
+        // the generator has no drawer for it and would emit a blank image.
+        if (!needsPerFeatureImage(marker.symbol) || !getSymbolIds().includes(marker.symbol)) {
+            console.warn(`Unsupported marker symbol "${marker.symbol}" on data layer ${layerConfig.id}`);
+            return;
+        }
+
+        try {
+            const imageData = generatePointImage(
+                marker.symbol,
+                marker.color || '#3f4fb5',
+                marker.borderColor || '#000000',
+                // ?? not || so a valid borderWidth of 0 ("no border") is preserved.
+                marker.borderWidth ?? 0
+            );
+            this.map.addImage(imageId, imageData, { pixelRatio: 2 });
+        } catch (error) {
+            console.warn(`Error registering marker image for ${layerConfig.id}:`, error);
+        }
+    }
+
     _addFillLayer(layerConfig, sourceId, beforeId) {
         const fillLayerId = `data-${layerConfig.id}-fill`;
         if (this.map.getLayer(fillLayerId) || !layerConfig.style?.fill) return;
@@ -358,17 +412,28 @@ class DataLayersManager {
 
     _addLabelLayer(layerConfig, labelSourceId, beforeId) {
         const labelLayerId = `data-${layerConfig.id}-label`;
-        if (this.map.getLayer(labelLayerId) || !layerConfig.style?.label) return;
+        const label = layerConfig.style?.label;
+        const marker = layerConfig.style?.marker;
+
+        // The symbol sub-layer carries the label, the marker, or both — a marker
+        // alone is enough to justify creating it.
+        if (this.map.getLayer(labelLayerId) || (!label && !marker)) return;
 
         // Honor any author-specified layout (text-size, text-font, anchor, …) —
         // text-field/visibility are forced afterwards so the layer starts hidden.
         const layout = {
-            ...(layerConfig.style.label.layout || {}),
-            'text-field': layerConfig.style.label.textField || ['get', 'name'],
+            ...(label?.layout || {}),
+            'text-field': label ? (label.textField || ['get', 'name']) : '',
             visibility: 'none'
         };
 
-        if (layerConfig.style.label.textAllowOverlap) {
+        // Symbols on polygons are placed at the centroid, so this renders one
+        // marker per feature. Gate it by zoom with icon-opacity / icon-size.
+        if (marker && !layout['icon-image']) {
+            layout['icon-image'] = this._markerImageId(layerConfig.id);
+        }
+
+        if (label?.textAllowOverlap) {
             layout['text-allow-overlap'] = true;
         }
 
@@ -378,7 +443,7 @@ class DataLayersManager {
             source: labelSourceId,
             'source-layer': layerConfig.labelSourceLayer || layerConfig.sourceLayer,
             layout,
-            paint: layerConfig.style.label.paint || {},
+            paint: label?.paint || {},
             minzoom: layerConfig.labelMinzoom || layerConfig.minzoom || 0,
             maxzoom: layerConfig.maxzoom || 22
         }, beforeId);

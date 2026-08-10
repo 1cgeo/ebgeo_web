@@ -39,8 +39,6 @@ class AddStreetViewControl {
         // Mini-map for street view navigation (lazy — created in setupMiniMapWithPMTiles)
         this.miniMap = null;
 
-        this.photosSourceId = 'pmtiles-photos';
-
         // Ultimo ponto do minimapa sob o mouse, para so avisar o 360 na mudanca
         this._minimapHoveredUuid = null;
 

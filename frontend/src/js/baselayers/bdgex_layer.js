@@ -15,6 +15,7 @@ export default {
         }
     },
     layers: [
+        { id: 'bdgex-background', type: 'background', paint: { 'background-color': '#ffffff' } },
         { id: 'bdgex', type: 'raster', source: 'bdgex' }
     ]
 };
