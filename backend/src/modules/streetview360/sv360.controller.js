@@ -75,6 +75,17 @@ export const getProject = asyncHandler(async (req, res) => {
   res.json(await svc.getProject(req.params.slug, req.user));
 });
 
+// GET /sv360/projects/:slug/floors: the project's floor list, WRAPPED in
+// { floors: [...] } (this one key is the frozen contract; the bare-array shape of
+// the neighbouring reads does not apply here). A project without floors answers
+// { floors: [] } with 200, never 404, which is reserved for a slug that does not
+// exist or that the caller may not see (svc.listProjectFloors enforces the same
+// read rule as getProject).
+export const getProjectFloors = asyncHandler(async (req, res) => {
+  const floors = await svc.listProjectFloors(req.params.slug, req.user);
+  res.json({ floors });
+});
+
 // GET /sv360/photos/:uuid — bare frozen photoMetadataShape.
 export const getPhoto = asyncHandler(async (req, res) => {
   res.json(await svc.getPhoto(req.params.uuid, req.user));

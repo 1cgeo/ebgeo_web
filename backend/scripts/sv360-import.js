@@ -3,7 +3,8 @@
 // Fase 9, STAGE 3a — OFFLINE ETL for the StreetView 360 module (Tarefa 2).
 //
 // Imports the legacy SQLite `index.db` (organizations/projects/photos/targets/
-// deleted_photos — §4.3) into the Postgres `sv360` schema and COPIES each
+// deleted_photos, §4.3, plus project_tracks and project_floors) into the
+// Postgres `sv360` schema and COPIES each
 // per-project `{slug}.db` (the WebP BLOB store) into config.sv360.dbDir.
 //
 // It is the offline twin of the admin multipart upload: BOTH reuse the SHARED
@@ -68,6 +69,10 @@ import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { tx } from '../src/database/index.js';
 import { mergeProject, resolveOrgIdBySlug } from '../src/modules/streetview360/sv360.merge.js';
+// The floor-label rule, ported verbatim from ebgeo_360 scripts/lib/floors.js. It
+// is imported rather than re-typed here: two copies of "what a level is called"
+// diverge silently, and the symptom is a wrong name on screen, never an error.
+import { defaultFloorLabel } from '../src/modules/streetview360/sv360.floors.js';
 import { blobPool } from '../src/utils/sqlite-blob-pool.js';
 import config from '../src/config.js';
 
@@ -111,12 +116,112 @@ function readProjects(idb) {
 // read looked like it carried the date over; it carried nothing, silently. The
 // project-level date is read from the `projects` row in buildManifest and lands
 // in sv360.projects.capture_date (migration 014). The per-photo instant the
-// origin does have is `photos.captured_at`, which is NOT this column: it is
-// still unwritten pending the capture_date/captured_at naming decision recorded
-// in migration 013.
-function readPhotos(idb, projectId) {
+// origin carries as `photos.captured_at` maps onto sv360.photos.capture_date,
+// which already exists since 005: one measurement, one column (see the note at
+// the end of migration 013). Wiring that mapping belongs to the capture-runs
+// port, not here.
+// `floor_level` in the legacy index.db comes from `INTEGER DEFAULT 1` (ebgeo_360
+// src/db/schema.sql). In a FLAT project nobody ever chose that 1: the column was
+// simply never written. The current model, the one the viewer and the floor
+// selector speak, counts the GROUND floor as 0 (ebgeo_360 scripts/lib/floors.js,
+// `defaultFloorLabel`: 0 -> 'Térreo', 1 -> '1º andar'). Importing the raw 1 would
+// label ~98.6k street-level photos as "1º andar", which is not what the capture
+// says; measured on the real corpus, 27 of 29 projects sat entirely on that
+// untouched default.
+//
+// The normalization is deliberately NARROW: it fires only when the WHOLE project
+// sits on a single level AND that level is the default 1, i.e. exactly when the
+// value carries no information. A project with more than one distinct level was
+// calibrated by a human and passes through untouched, so beira_rio (7 levels) and
+// museu_cms (2) keep their level-1 photos, where 1 does mean the first indoor
+// floor. Idempotent: rerunning finds the project already on 0 and does nothing.
+//
+// `hasFloors` NARROWS it further, and only in the safe direction: a project that
+// DECLARES its floors in project_floors has had every level chosen by a human, so
+// the "nobody ever wrote this column" premise no longer holds and the value must
+// pass through untouched. Rewriting a declared level 1 to 0 would move every photo
+// off the floor the floor list names, and the selector would show a floor with
+// zero photos next to a level nothing declares. No project in the current corpus
+// hits this branch (the two with floors both span several levels), so it changes
+// no imported row today. It keeps the two sources of floor truth from diverging.
+function normalizeFloorLevels(photos, hasFloors = false) {
+  if (hasFloors) return photos;
+  const niveis = new Set(photos.map((p) => p.floor_level ?? 1));
+  if (niveis.size !== 1 || !niveis.has(1)) return photos;
+  return photos.map((p) => ({ ...p, floor_level: 0 }));
+}
+
+/**
+ * The FLOORS of a project (`project_floors` in the legacy index.db).
+ *
+ * This table is what DECLARES a project has floors: the interface draws the floor
+ * selector because rows exist here, never because some photo carries a level
+ * (migration 012). So a project absent from it is a street-level survey and gets
+ * an empty list, which is the shape 27 of the 29 corpus projects have.
+ *
+ * `plan_coords` is TEXT-with-JSON in SQLite (it has no better type) and JSONB in
+ * Postgres, so it is PARSED here and handed on as a real array; the merge
+ * serializes it once for the `::jsonb` cast. A row whose plan is unparseable keeps
+ * the floor and loses only the drawing: the level still has to appear in the
+ * selector, and losing the whole floor over a broken polyline would hide photos
+ * that are perfectly fine. Older dumps have no such table at all.
+ * @param {Object} idb - the open better-sqlite3 index.db handle
+ * @param {string|number} projectId - the legacy project id
+ * @param {Object} [logger]
+ * @param {string} [slug] - project slug, for the warning message
+ * @returns {Array<{level:number, label:string, plan_coords:Array|null}>}
+ */
+function readFloors(idb, projectId, logger, slug) {
+  let rows;
+  try {
+    rows = idb
+      .prepare('SELECT level, label, plan_coords FROM project_floors WHERE project_id = ? ORDER BY level')
+      .all(projectId);
+  } catch (error) {
+    // An OLD dump simply has no `project_floors` table, and that is the normal,
+    // expected path: a flat survey has no floors. But this same catch would also
+    // bury a real SQL error, so say which one happened. A silent [] here reads
+    // downstream as "this project has no floors", and the floor selector then
+    // never appears, with nothing anywhere pointing at the cause.
+    const semTabela = /no such table/i.test(error?.message ?? '');
+    if (!semTabela) {
+      logger?.warn?.(
+        `[sv360-import] project '${slug}': reading project_floors failed (${error.message}); importing it with NO floors`
+      );
+    }
+    return [];
+  }
+  const floors = [];
+  let bad = 0;
+  for (const r of rows) {
+    const level = Number(r.level);
+    if (!Number.isInteger(level)) {
+      bad++;
+      continue;
+    }
+    let plan = null;
+    if (r.plan_coords !== null && r.plan_coords !== undefined && String(r.plan_coords).trim() !== '') {
+      try {
+        const parsed = JSON.parse(r.plan_coords);
+        plan = Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+      } catch {
+        bad++;
+      }
+    }
+    const label = typeof r.label === 'string' && r.label.trim() !== '' ? r.label.trim() : defaultFloorLabel(level);
+    floors.push({ level, label, plan_coords: plan });
+  }
+  if (bad > 0) {
+    logger?.warn?.(
+      `[sv360-import] project '${slug}': ${bad} floor row(s) with an unusable level or plan`
+    );
+  }
+  return floors;
+}
+
+function readPhotos(idb, projectId, hasFloors) {
   const rows = idb.prepare('SELECT * FROM photos WHERE project_id = ?').all(projectId);
-  return rows.map((p) => ({
+  const photos = rows.map((p) => ({
     id: p.id,
     original_name: p.original_name,
     display_name: p.display_name ?? null,
@@ -132,10 +237,17 @@ function readPhotos(idb, projectId) {
     distance_scale: p.distance_scale,
     marker_scale: p.marker_scale,
     floor_level: p.floor_level,
+    // The floor's LABEL for this photo (`photos.floor_label` in the origin, a
+    // column here since migration 012). NOT derivable from the level: in
+    // beira_rio level 0 carries 'Externo' on 86 photos and 'Campo' on 8: two
+    // spaces of the SAME floor with different names on screen. A flat project
+    // yields NULL, which is correct: there is no floor to name.
+    floor_label: p.floor_label ?? null,
     full_size_bytes: p.full_size_bytes,
     preview_size_bytes: p.preview_size_bytes,
     calibration_reviewed: toBool(p.calibration_reviewed),
   }));
+  return normalizeFloorLevels(photos, hasFloors);
 }
 
 // Targets scoped to a project (by its photo ids). SQLite has no schema-level
@@ -219,7 +331,10 @@ function readTracks(idb, projectId, logger, slug) {
 
 // Build the full in-memory manifest for one project row.
 function buildManifest(idb, project, orgSlug, logger) {
-  const photos = readPhotos(idb, project.id);
+  // Floors FIRST: their existence decides whether the legacy floor_level default
+  // may be normalized away (see normalizeFloorLevels).
+  const floors = readFloors(idb, project.id, logger, project.slug);
+  const photos = readPhotos(idb, project.id, floors.length > 0);
   const photoIds = photos.map((p) => p.id);
   const targets = readTargets(idb, photoIds);
   const deleted_photos = readTombstones(idb, photoIds);
@@ -245,6 +360,7 @@ function buildManifest(idb, project, orgSlug, logger) {
     targets,
     deleted_photos,
     tracks,
+    floors,
   };
 }
 
@@ -457,6 +573,7 @@ const SET_PROJECT_CAPTURE_DATE = `
  *                                      (default: `<dir of index.db>/thumbnails`)
  * @param {Object} [opts.logger]      - { info, warn, error } (default: console)
  * @returns {Promise<{imported: Array<{slug:string, photos:number, targets:number,
+ *                                     tracks:number, floors:number,
  *                                     thumbnail:boolean}>,
  *                    skipped: Array<{slug:string, error:string}>}>}
  */
@@ -495,7 +612,7 @@ export async function importIndexDb(indexDbPath, opts = {}) {
         logger.info?.(
           `[sv360-import] project '${slug}': ` +
             `${manifest.photos.length} photo(s), ${manifest.targets.length} target(s), ` +
-            `${manifest.tracks.length} track(s), ` +
+            `${manifest.tracks.length} track(s), ${manifest.floors.length} floor(s), ` +
             `${manifest.deleted_photos.length} tombstone(s) — merging...`
         );
 
@@ -546,6 +663,7 @@ export async function importIndexDb(indexDbPath, opts = {}) {
           photos: manifest.photos.length,
           targets: manifest.targets.length,
           tracks: manifest.tracks.length,
+          floors: manifest.floors.length,
           thumbnail: thumb.transferred,
         });
         logger.info?.(`[sv360-import] project '${slug}': OK`);

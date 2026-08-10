@@ -41,7 +41,7 @@ export const GET_PHOTO_BY_ID = `
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
          p.heading, p.camera_height,
          p.mesh_rotation_x, p.mesh_rotation_y, p.mesh_rotation_z,
-         p.distance_scale, p.marker_scale, p.floor_level,
+         p.distance_scale, p.marker_scale, p.floor_level, p.floor_label,
          p.full_size_bytes, p.preview_size_bytes,
          p.calibration_reviewed, p.capture_date,
          pr.slug AS project_slug, pr.db_filename, pr.organization_id,
@@ -65,7 +65,7 @@ export const GET_PHOTO_BY_NAME = `
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
          p.heading, p.camera_height,
          p.mesh_rotation_x, p.mesh_rotation_y, p.mesh_rotation_z,
-         p.distance_scale, p.marker_scale, p.floor_level,
+         p.distance_scale, p.marker_scale, p.floor_level, p.floor_label,
          p.full_size_bytes, p.preview_size_bytes,
          p.calibration_reviewed, p.capture_date,
          pr.slug AS project_slug, pr.db_filename, pr.organization_id,
@@ -96,12 +96,20 @@ export const GET_PHOTO_SIZES = `
 // distance_m are mapped to bearing / distance in the JSON contract by the
 // service. Excludes links pointing at tombstoned photos. `is_next` first, then
 // nearest.
+//
+// The TARGET's floor (floor_level + floor_label) travels with the link because
+// the viewer decides on the LINK, not on the photo: a marker that leaves the
+// current floor is drawn differently (a staircase, not an arrow). Without the
+// target's level the client has nothing to compare the current one against and
+// falls back to "same floor", so the floor-change marker silently never appears
+// The failure mode is a missing pixel, never an error.
 //   $1 = source photo id (TEXT uuid v5)
 export const GET_TARGETS_FOR_PHOTO = `
   SELECT t.target_id, t.distance_m, t.bearing_deg, t.is_next, t.is_original,
          t.override_bearing, t.override_distance, t.override_height,
          tp.original_name AS target_name, tp.display_name AS target_display_name,
-         ST_X(tp.geom) AS target_lon, ST_Y(tp.geom) AS target_lat, tp.ele AS target_ele
+         ST_X(tp.geom) AS target_lon, ST_Y(tp.geom) AS target_lat, tp.ele AS target_ele,
+         tp.floor_level AS target_floor_level, tp.floor_label AS target_floor_label
   FROM sv360.targets t
   JOIN sv360.photos tp ON tp.id = t.target_id
   WHERE t.source_id = $1
@@ -163,6 +171,37 @@ export const TILES_PHOTOS = `
     )
   ORDER BY pr.slug, p.sequence_number
   LIMIT $7::int
+`;
+
+// The ANDARES of a project, one row per level, with the number of VISIBLE photos
+// standing on each. Feeds GET /projects/:slug/floors (the floor selector).
+//
+// The LEFT JOIN is deliberate: `sv360.project_floors` is what DECIDES a project
+// has floors (migration 012), so a declared level with zero photos must still be
+// listed: it is a real floor of the building whose panoramas have not been
+// captured (or were all tombstoned). An INNER JOIN would make the selector lose
+// entries as photos are deleted, which reads as data loss on screen.
+//
+// The count runs over `photos.floor_level`, NOT over the label: the Beira-Rio's
+// level 0 carries two labels in the field vocabulary ('Externo', 'Campo') and
+// they are ONE floor. Counting by label would split level 0 in two.
+//
+// NO access filter here: the caller is the service, which already resolved the
+// project through GET_PROJECT_BY_SLUG (access embedded in SQL) and ran
+// enforceProjectReadable. The parameter is the project's UUID, never the slug.
+//   $1 = project id (uuid)
+export const LIST_PROJECT_FLOORS = `
+  SELECT f.level, f.label, f.plan_coords, COALESCE(pc.n, 0)::int AS photo_count
+  FROM sv360.project_floors f
+  LEFT JOIN (
+    SELECT p.floor_level AS level, count(*) AS n
+    FROM sv360.photos p
+    WHERE p.project_id = $1::uuid
+      AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    GROUP BY p.floor_level
+  ) pc ON pc.level = f.level
+  WHERE f.project_id = $1::uuid
+  ORDER BY f.level ASC
 `;
 
 // All photos of a project (ordered by sequence). lon/lat from geom; excludes

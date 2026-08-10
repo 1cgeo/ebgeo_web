@@ -78,6 +78,74 @@ export async function getProject(slug, user) {
 }
 
 /**
+ * Converts a stored `project_floors.plan_coords` (JSONB: an array of LineStrings,
+ * `[[[lon,lat],...],...]`) into the GeoJSON FeatureCollection the client draws,
+ * or null when the level has no plan.
+ *
+ * WHY A FEATURECOLLECTION AND NOT THE RAW ARRAY: the plan is drawn as a MapLibre
+ * GeoJSON source, and every feature carries `properties.level` so a single source
+ * holding several floors can be filtered by the selector without re-fetching. The
+ * storage shape stays the compact array (migration 012) because that is what the
+ * origin exports; the API shape is the one the map consumes.
+ *
+ * A level that EXISTS but has no plan drawn (the Beira-Rio's level 0, outdoors)
+ * yields null, never an empty FeatureCollection: null says "there is nothing to
+ * draw here", while an empty collection reads as "the plan failed to load".
+ * @param {*} planCoords - the JSONB value (array of LineStrings) or null
+ * @param {number} level - the floor level, stamped on every feature
+ * @returns {Object|null} GeoJSON FeatureCollection of LineString, or null
+ */
+function floorPlanToGeoJson(planCoords, level) {
+  if (!Array.isArray(planCoords)) return null;
+  const features = planCoords
+    .filter((line) => Array.isArray(line) && line.length >= 2)
+    .map((line) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: line },
+      properties: { level },
+    }));
+  if (features.length === 0) return null;
+  return { type: 'FeatureCollection', features };
+}
+
+/**
+ * Lists the floors of a project, in ascending `level` order.
+ *
+ * Access is the SAME rule as every other project read: the project is resolved by
+ * GET_PROJECT_BY_SLUG (filter embedded in the SQL) and then re-checked by
+ * enforceProjectReadable, so a hidden project answers 404 exactly like
+ * `getProject` does, with no separate, looser path to the same data.
+ *
+ * A project with NO floors answers `[]`, never 404: "this project has no floor
+ * selector" is a legitimate, successful answer for the 27 flat projects of the
+ * corpus, and 404 would make the client unable to tell an unknown slug from a
+ * street-level survey.
+ * @param {string} slug
+ * @param {Object} [user]
+ * @returns {Promise<Array<{level:number, label:string, photoCount:number, plan:Object|null}>>}
+ * @throws {NotFoundError} if the project is missing or hidden from the caller
+ */
+export async function listProjectFloors(slug, user) {
+  const isAdmin = user?.role === 'admin';
+  const { rows: projectRows } = await query(Q.GET_PROJECT_BY_SLUG, [
+    slug,
+    isAdmin,
+    user?.organization_id ?? null,
+  ]);
+  const project = projectRows[0];
+  if (!project) throw new NotFoundError('Project');
+  enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
+
+  const { rows } = await query(Q.LIST_PROJECT_FLOORS, [project.id]);
+  return rows.map((r) => ({
+    level: r.level,
+    label: r.label,
+    photoCount: r.photo_count,
+    plan: floorPlanToGeoJson(r.plan_coords, r.level),
+  }));
+}
+
+/**
  * Path segment of the static thumbnails, RELATIVE to the API base — the client
  * concatenates it with `streetView360.serviceUrl` (which already ends in the
  * module mount), so it must NOT carry the `/api/v1` prefix. Same rule as the
@@ -393,6 +461,10 @@ export function buildPhotoMetadata(photo, targets) {
       distance_scale: photo.distance_scale,
       marker_scale: photo.marker_scale,
       floor_level: photo.floor_level,
+      // The NAME this photo's floor carries on screen. Nullable by construction:
+      // a flat project has no floor to name (`?? null` normalizes the undefined a
+      // query that did not SELECT the column yields, so the key is never missing).
+      floor_label: photo.floor_label ?? null,
       calibration_reviewed: photo.calibration_reviewed,
     },
     projectSlug: photo.project_slug,
@@ -414,6 +486,14 @@ export function buildPhotoMetadata(photo, targets) {
       icon: 'next',
       next: t.is_next,
       is_original: t.is_original,
+      // The TARGET's floor, and the reason the floor-change marker exists at all:
+      // the client compares this level with the current photo's and draws the
+      // staircase instead of the arrow when they differ. Without the field it
+      // falls back to `return 0` and the marker never draws, with nothing on
+      // screen saying so. `?? null` keeps the key present when the query did not
+      // bring the column.
+      floor_level: t.target_floor_level ?? null,
+      floor_label: t.target_floor_label ?? null,
       distance: t.distance_m,
       bearing: t.bearing_deg,
       override_bearing: t.override_bearing,

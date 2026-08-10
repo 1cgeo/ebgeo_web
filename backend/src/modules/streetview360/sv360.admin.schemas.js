@@ -95,6 +95,11 @@ const photoSchema = Joi.object({
   distance_scale: finiteNumber.allow(null),
   marker_scale: finiteNumber.allow(null),
   floor_level: Joi.number().integer().allow(null),
+  // The floor's NAME on screen. A separate column from floor_level because two
+  // spaces on the SAME level can be named differently ('Externo' and 'Campo' are
+  // both level 0 in the Beira-Rio survey), so the label is not derivable from the
+  // number. Null for a flat project, which has no floor to name.
+  floor_label: Joi.string().trim().max(255).allow(null, ''),
   // The O(1) ETag source — MUST be a non-negative integer (matches the images.db
   // BLOB byte length; the cross-check against the actual BLOB is done by the
   // service's validateImagesDb, not here).
@@ -144,6 +149,40 @@ const trackSchema = Joi.object({
   source: Joi.string().trim().max(64).allow(null),
 }).unknown(true);
 
+// --- floor -----------------------------------------------------------------
+
+// One floor of a project (sv360.project_floors, migration 012). The LIST of these
+// rows is what declares "this project has floors" and makes the interface draw the
+// floor selector, so an empty floors[] is the normal shape of a street-level
+// survey, never a defect.
+//
+// `level` is an ordered INTEGER, negative allowed: 0 is the ground, 1 the first
+// indoor floor above it, -1 the first basement (migration 012, and
+// ebgeo_360 scripts/lib/floors.js). `label` is REQUIRED and not derived from the
+// level, because two spaces at the same level can carry different names.
+//
+// `plan_coords` is the floor plan: a list of LineStrings, [[[lon,lat],...],...],
+// the same shape project_tracks.coords uses. Null for a level that exists but has
+// no plan drawn. >= 2 points per line, like a track: a 1-point line is not a line.
+const floorSchema = Joi.object({
+  level: Joi.number().integer().required(),
+  label: Joi.string().trim().min(1).max(255).required(),
+  plan_coords: Joi.array()
+    .items(
+      Joi.array()
+        .items(
+          Joi.array()
+            .ordered(
+              finiteNumber.min(-180).max(180).required(),
+              finiteNumber.min(-90).max(90).required()
+            )
+            .length(2)
+        )
+        .min(2)
+    )
+    .allow(null),
+}).unknown(true);
+
 // --- aggregate manifest ----------------------------------------------------
 
 // .custom() enforces the two cross-array invariants Joi cannot express
@@ -158,6 +197,10 @@ export const manifestSchema = Joi.object({
   // Optional: a bundle without tracks leaves the project with none, and the tile
   // falls back to synthesizing the line from the photo sequence.
   tracks: Joi.array().items(trackSchema).default([]),
+  // Optional: a bundle without floors leaves the project with none, which is what
+  // a street-level survey is. The merge PURGES and reinserts the whole list, so an
+  // EXPLICIT empty array is how a project drops its floors.
+  floors: Joi.array().items(floorSchema).default([]),
 })
   .unknown(true)
   .custom((value, helpers) => {
@@ -179,6 +222,16 @@ export const manifestSchema = Joi.object({
       if (!photoIds.has(tg.target_id)) {
         return helpers.message(`Target target_id ${tg.target_id} not present in photos[]`);
       }
+    }
+    // sv360.project_floors is keyed PK(project_id, level), so a repeated level
+    // would abort the whole merge on a constraint violation, an opaque 500 for
+    // what is a plain malformed bundle. Caught here as a 422 naming the level.
+    const levels = new Set();
+    for (const fl of value.floors || []) {
+      if (levels.has(fl.level)) {
+        return helpers.message(`Duplicate floor level ${fl.level} within floors[]`);
+      }
+      levels.add(fl.level);
     }
     return value;
   }, 'manifest referential integrity');

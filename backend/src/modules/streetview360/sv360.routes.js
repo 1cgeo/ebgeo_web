@@ -127,6 +127,17 @@ router.get('/projects', ctrl.listProjects);
 
 router.get('/projects/:slug', validate({ params: schemas.slugParamSchema }), ctrl.getProject);
 
+// Floors of a project (the floor selector). Same flexibleAuth read policy as
+// '/projects/:slug'. The service resolves the project through the access-filtered
+// GET_PROJECT_BY_SLUG and 404s a hidden one, so this route adds no new way in. The
+// path has one more segment than '/projects/:slug', so declaration order is not
+// load-bearing here; it sits next to its sibling for readability.
+router.get(
+  '/projects/:slug/floors',
+  validate({ params: schemas.slugParamSchema }),
+  ctrl.getProjectFloors
+);
+
 // Declared before '/photos/:uuid' so 'by-name' is not matched as a uuid.
 router.get(
   '/photos/by-name/:nome',

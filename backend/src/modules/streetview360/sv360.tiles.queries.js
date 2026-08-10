@@ -38,6 +38,7 @@ export const MVT_TILE = `
   ),
   visible AS (
     SELECT p.id, p.project_id, p.geom, p.original_name, p.sequence_number,
+           p.floor_level, p.floor_label,
            pr.slug AS project_slug
     FROM sv360.photos p
     JOIN sv360.projects pr ON pr.id = p.project_id
@@ -55,7 +56,19 @@ export const MVT_TILE = `
         v.id,
         v.project_slug AS "projectSlug",
         v.original_name AS img,
-        v.sequence_number
+        v.sequence_number,
+        -- The photo's FLOOR. Both are ADDITIVE: id, projectSlug, img and
+        -- sequence_number above are what the current client reads, and renaming
+        -- or dropping any of them breaks the 2D layer. (No backticks in here:
+        -- this SQL is a JS template literal.)
+        --
+        -- floor_level is NOT NULL in sv360.photos, so every point carries it and a
+        -- MapLibre filter on the floor selector is always decidable. floor_label
+        -- IS nullable (a flat project has no floor to name), and ST_AsMVT simply
+        -- OMITS a null attribute from that feature: the client must treat an
+        -- absent floor_label as null, never as an error.
+        v.floor_level,
+        v.floor_label
       FROM visible v, bounds b
       WHERE v.geom && b.env4326
     ) t

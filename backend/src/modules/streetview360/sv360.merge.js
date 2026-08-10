@@ -123,11 +123,12 @@ function bool(v, dflt = false) {
  *   4. REINSERT photos[] (geom via trigger), then targets[] (FKs now satisfied),
  *      then deleted_photos[] tombstones;
  *   5. PURGE + REINSERT tracks[] (the capture trajectory segments);
- *   6. return { projectId, dbFilename, photoCount }.
+ *   6. PURGE + REINSERT floors[] (sv360.project_floors, the floor selector list);
+ *   7. return { projectId, dbFilename, photoCount }.
  * Does NOT commit/rollback and does NOT touch the filesystem.
  *
  * @param {Object} t - pg-promise transaction task (REQUIRED)
- * @param {Object} manifest - { project, photos[], targets[], deleted_photos[], tracks[] }
+ * @param {Object} manifest - { project, photos[], targets[], deleted_photos[], tracks[], floors[] }
  * @param {Object} opts
  * @param {string} opts.orgId - the resolved target organization_id (uuid)
  * @param {string} [opts.source] - free-form provenance tag ('upload' | 'etl'), informational
@@ -220,6 +221,7 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
       num(p.preview_size_bytes),
       bool(p.calibration_reviewed),
       p.capture_date ?? null,
+      p.floor_label ?? null,
     ]);
   }
 
@@ -296,6 +298,46 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
     logger.warn(
       { orgId, slug: project.slug, skippedTracks },
       'sv360 merge: descartando track(s) com menos de 2 pontos válidos'
+    );
+  }
+
+  // 7) ANDARES: purge + reinsert, o mesmo "último upload manda" dos outros
+  // filhos, e idempotente pela mesma razão: a lista inteira é reescrita.
+  //
+  // O purge NÃO pode virar UPSERT. É a EXISTÊNCIA de linha em
+  // sv360.project_floors que declara "este projeto tem andares" (migração 012), e
+  // é ela que a interface consulta para decidir se desenha o seletor. Um nível
+  // retirado na origem que sobrevivesse aqui deixaria um andar fantasma no
+  // seletor, apontando para um andar que ninguém levantou.
+  //
+  // `plan_coords` sai daqui como TEXTO JSON e o `$4::jsonb` da query valida a
+  // forma na escrita; nível sem planta desenhada grava NULL, que é o caso do
+  // nível 0 do beira_rio e do museu_cms (área externa).
+  //
+  // Nível sem `level` inteiro ou sem `label` é descartado, nunca fatal: a PK é
+  // (project_id, level) e um label vazio não tem o que imprimir na tela.
+  await t.none(AQ.PURGE_PROJECT_FLOORS, [projectId]);
+  const floors = manifest.floors ?? [];
+  let skippedFloors = 0;
+  for (const fl of floors) {
+    const level = Number(fl?.level);
+    const label = typeof fl?.label === 'string' ? fl.label.trim() : '';
+    if (!Number.isInteger(level) || label === '') {
+      skippedFloors++;
+      continue;
+    }
+    const plan = Array.isArray(fl?.plan_coords) && fl.plan_coords.length > 0 ? fl.plan_coords : null;
+    await t.none(AQ.INSERT_FLOOR, [
+      projectId,
+      level,
+      label,
+      plan === null ? null : JSON.stringify(plan),
+    ]);
+  }
+  if (skippedFloors > 0) {
+    logger.warn(
+      { orgId, slug: project.slug, skippedFloors },
+      'sv360 merge: descartando andar(es) sem level inteiro ou sem label'
     );
   }
 

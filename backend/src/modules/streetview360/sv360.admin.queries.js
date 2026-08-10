@@ -17,8 +17,11 @@
 //   sv360.photos   (id TEXT PK, project_id, original_name, display_name,
 //                   sequence_number, lat, lon, ele, heading, camera_height,
 //                   mesh_rotation_x/y/z, distance_scale, marker_scale,
-//                   floor_level, full_size_bytes, preview_size_bytes,
+//                   floor_level, floor_label, full_size_bytes,
+//                   preview_size_bytes,
 //                   calibration_reviewed, capture_date, geom (trigger), ...)
+//   sv360.project_floors (project_id, level, label, plan_coords JSONB)
+//                   PK(project_id, level), migration 012_sv360_floors.sql
 //   sv360.targets  (source_id, target_id, distance_m, bearing_deg, is_next,
 //                   is_original, override_bearing, override_distance,
 //                   override_height, hidden)  PK(source_id, target_id)
@@ -149,17 +152,27 @@ export const PURGE_PROJECT_TOMBSTONES = `
 //   $15 = marker_scale             $16 = floor_level
 //   $17 = full_size_bytes          $18 = preview_size_bytes
 //   $19 = calibration_reviewed     $20 = capture_date
+//   $21 = floor_label
+//
+// $21 (floor_label, migration 012) was MISSING from this list until the floors
+// port. The column exists in sv360.photos and the origin carries a label on every
+// photo of a project with floors, so the ingestion accepted the field, dropped it
+// and answered 201: a Beira-Rio photo landed with `floor_label` NULL and the
+// viewer had no name to print for the floor it was standing on. Nothing failed:
+// the write simply ignored a column nobody had listed.
 export const INSERT_PHOTO = `
   INSERT INTO sv360.photos
     (id, project_id, original_name, display_name, sequence_number,
      lat, lon, ele, heading, camera_height,
      mesh_rotation_x, mesh_rotation_y, mesh_rotation_z, distance_scale, marker_scale,
-     floor_level, full_size_bytes, preview_size_bytes, calibration_reviewed, capture_date)
+     floor_level, full_size_bytes, preview_size_bytes, calibration_reviewed, capture_date,
+     floor_label)
   VALUES
     ($1, $2::uuid, $3, $4, $5,
      $6, $7, $8, $9, $10,
      $11, $12, $13, $14, $15,
-     $16, $17, $18, $19, $20)
+     $16, $17, $18, $19, $20,
+     $21)
 `;
 
 // Insert one directed adjacency link. Same column order/semantics as the stage-2
@@ -190,6 +203,27 @@ export const PURGE_PROJECT_TRACKS = `
 export const INSERT_TRACK = `
   INSERT INTO sv360.tracks (project_id, geom, source)
   VALUES ($1::uuid, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326), $3)
+`;
+
+// Drop the project's floors before reinserting the manifest's (same purge-then-
+// reinsert shape as photos/targets/tracks, "último upload manda"). The rows keyed
+// (project_id, level) are the LIST the floor selector reads, so a level removed
+// upstream has to disappear here too; an UPSERT alone would leave it behind
+// forever.
+//   $1 = project_id (uuid)
+export const PURGE_PROJECT_FLOORS = `
+  DELETE FROM sv360.project_floors WHERE project_id = $1::uuid
+`;
+
+// Insert one floor of a project. `plan_coords` is JSONB here and TEXT-with-JSON in
+// the origin (SQLite has no better type), so the caller passes an already
+// serialized JSON string and the cast validates the FORM on write: a malformed
+// plan fails the merge instead of reaching the client as a broken layer.
+//   $1 = project_id (uuid), $2 = level (int), $3 = label (text),
+//   $4 = plan_coords (json text, nullable)
+export const INSERT_FLOOR = `
+  INSERT INTO sv360.project_floors (project_id, level, label, plan_coords)
+  VALUES ($1::uuid, $2, $3, $4::jsonb)
 `;
 
 // Re-insert a carried-over photo tombstone. Idempotent on the PK.
