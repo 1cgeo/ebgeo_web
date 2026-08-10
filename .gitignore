@@ -40,6 +40,14 @@ pids/
 # ==============================================================================
 coverage/
 .eslintcache
+# Artefatos de corrida do Playwright: cada teste que falha grava aqui um
+# error-context.md com o DOM inteiro da pagina. Fora do ignore eles entram no
+# `eslint .` como se fossem codigo, e uma corrida ruim rende centenas de
+# milhares de "erros" de lint em arquivo que ninguem escreveu.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
 
 # ==============================================================================
 # Assets pesados (3D, Street View, catálogo)
