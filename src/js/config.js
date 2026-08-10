@@ -2,9 +2,17 @@
 
 // ===== MAPSIG SYSTEM CONFIGURATION =====
 
-// Host do servico de imagens panoramicas (ebgeo_360). Um lugar so a trocar por
-// ambiente: metadado, imagem, tile de ponto e tracado saem todos daqui.
-const STREETVIEW_360_BASE = 'http://localhost:8081';
+// Base PUBLICA da API do servico de imagens panoramicas (ebgeo_360). Um lugar
+// so a trocar por ambiente: metadado, imagem, tile de ponto e tracado saem
+// todos daqui.
+//
+// INCLUI O /api/v1 DE PROPOSITO. Em producao o servico e publicado num prefixo
+// que OCUPA o lugar dele: o proxy recebe `/ebgeo_360/...` e repassa
+// `/api/v1/...`, entao la o valor inteiro e
+// 'https://<host>/ebgeo_360'. Com o /api/v1 espalhado pelas URLs de baixo,
+// trocar de ambiente exigiria editar cada uma, e basta esquecer uma para o
+// sintoma virar 404 numa camada so.
+const STREETVIEW_360_BASE = 'http://localhost:8081/api/v1';
 
 const config = {
   // ===== APPLICATION SETTINGS =====
@@ -410,13 +418,32 @@ const config = {
   // tiles e redeployar. Agora ha um endereco so a trocar, e nao ha defasagem.
   streetView360: {
     // API service URL for UUID-based access + progressive loading
-    serviceUrl: `${STREETVIEW_360_BASE}/api/v1`,
+    serviceUrl: STREETVIEW_360_BASE,
 
     // Pontos: tile vetorial gerado sob demanda a partir do indice espacial.
-    // O TileJSON declara a faixa de zoom (11 a 12) e a URL absoluta dos tiles.
+    //
+    // `tiles` EM VEZ DE `url`, e nao e questao de gosto. Com `url` o MapLibre
+    // busca o TileJSON e usa a URL de tile que vem DENTRO dele, escrita pelo
+    // servico. O servico nao tem como escreve-la certo: em producao ele esta
+    // publicado num prefixo (`/ebgeo_360/`) que o proxy reescreve para
+    // `/api/v1/` antes de repassar, entao o pedido chega la sem qualquer
+    // vestigio do prefixo. Esquema e host viajam em cabecalho, o pedaco do
+    // caminho nao viaja. O resultado era 404 no tile, que o MapLibre trata como
+    // tile vazio: minimapa sem ponto e console limpo.
+    //
+    // Declarando aqui, o endereco do tile nasce da MESMA base que ja endereca a
+    // foto, a planta e os andares, e que so este arquivo conhece. Nenhum
+    // endereco nasce no servidor.
+    //
+    // O PRECO e a faixa de zoom, que o TileJSON declarava e agora se repete
+    // aqui. Ela espelha ZOOM_MIN e ZOOM_MAX de src/routes/tiles.js no ebgeo_360:
+    // mexeu la, mexa aqui. Fora da faixa o MapLibre sobrepassa o tile de z12, que
+    // e o que o minimapa ja fazia ate 17,9.
     pointsSource: {
       type: 'vector',
-      url: `${STREETVIEW_360_BASE}/api/v1/tiles/fotos.json`
+      tiles: [`${STREETVIEW_360_BASE}/tiles/fotos/{z}/{x}/{y}.pbf`],
+      minzoom: 11,
+      maxzoom: 12
     },
     pointsSourceLayer: 'fotos',
 
@@ -425,7 +452,7 @@ const config = {
     // sem a perda de vertice que a simplificacao do tippecanoe impunha.
     linesSource: {
       type: 'geojson',
-      data: `${STREETVIEW_360_BASE}/api/v1/tracks`
+      data: `${STREETVIEW_360_BASE}/tracks`
     },
     linesSourceLayer: 'fotos_linha',
   }
