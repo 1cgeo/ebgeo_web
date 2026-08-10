@@ -165,12 +165,6 @@ router.put(
   wctrl.updateCalibration
 );
 router.put(
-  '/photos/:uuid/height',
-  auth,
-  validate({ params: schemas.uuidParamSchema, body: wschemas.heightBodySchema }),
-  wctrl.updateHeight
-);
-router.put(
   '/photos/:uuid/rotation-x',
   auth,
   validate({ params: schemas.uuidParamSchema, body: wschemas.rotationXBodySchema }),
@@ -183,32 +177,14 @@ router.put(
   wctrl.updateRotationZ
 );
 router.put(
-  '/photos/:uuid/distance-scale',
-  auth,
-  validate({ params: schemas.uuidParamSchema, body: wschemas.distanceScaleBodySchema }),
-  wctrl.updateDistanceScale
-);
-router.put(
-  '/photos/:uuid/marker-scale',
-  auth,
-  validate({ params: schemas.uuidParamSchema, body: wschemas.markerScaleBodySchema }),
-  wctrl.updateMarkerScale
-);
-router.put(
   '/photos/:uuid/reviewed',
   auth,
   validate({ params: schemas.uuidParamSchema, body: wschemas.reviewedBodySchema }),
   wctrl.updateReviewed
 );
 
-// Targets — override / visibility (param :uuid + :targetId). Declared before the
+// Targets — visibility (param :uuid + :targetId). Declared before the
 // less-specific create/delete so the targetId param schema validates both ids.
-router.put(
-  '/photos/:uuid/targets/:targetId/override',
-  auth,
-  validate({ params: wschemas.targetIdParamSchema, body: wschemas.targetOverrideBodySchema }),
-  wctrl.setTargetOverride
-);
 router.put(
   '/photos/:uuid/targets/:targetId/visibility',
   auth,

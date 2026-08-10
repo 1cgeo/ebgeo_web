@@ -49,32 +49,6 @@ export const GET_PHOTO_FOR_WRITE = `
 // callers don't reinvent the WHERE/updated_at handling.
 export const UPDATE_PHOTO_CALIBRATION_TAIL = `updated_at = now() WHERE id = $1`;
 
-// Per-link override update on a directed (source -> target) adjacency row.
-// override_* are nullable and carry THREE meanings, not two: a number SETS the
-// override, an explicit null CLEARS it, and an ABSENT key leaves it alone. This
-// used to be a straight `SET override_bearing = $3` fed by `overrides.x ?? null`,
-// which has only two: every field the caller did not send arrived as NULL and was
-// WIPED, so a PUT sending only override_bearing silently erased the distance and
-// height overrides of that link. (COALESCE is not the fix either — it collapses
-// the other pair, making an explicit null un-clearable, and it would also eat the
-// legitimate falsy 0.)
-//
-// So each nullable column takes a "provided" FLAG, the same shape UPDATE_ATLAS /
-// UPDATE_ORGANIZATION / UPDATE_RANK use (whose comments trace it back to
-// UPDATE_USER_PROFILE, where the problem was solved first). No version/updated_at
-// on sv360.targets — the write just mutates the row.
-//   $1 = source_id, $2 = target_id,
-//   $3 = override_bearing,  $6 = bearing provided?
-//   $4 = override_distance, $7 = distance provided?
-//   $5 = override_height,   $8 = height provided?
-export const UPDATE_TARGET_OVERRIDE = `
-  UPDATE sv360.targets
-     SET override_bearing  = CASE WHEN $6 THEN $3::double precision ELSE override_bearing  END,
-         override_distance = CASE WHEN $7 THEN $4::double precision ELSE override_distance END,
-         override_height   = CASE WHEN $8 THEN $5::double precision ELSE override_height   END
-   WHERE source_id = $1 AND target_id = $2
-`;
-
 // Per-link visibility toggle. hidden = true REMOVES the link from the read
 // GET_TARGETS_FOR_PHOTO result (which filters hidden = false).
 //   $1 = source_id, $2 = target_id, $3 = hidden

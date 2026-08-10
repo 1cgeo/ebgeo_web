@@ -22,11 +22,6 @@ export const updateCalibration = asyncHandler(async (req, res) => {
 // Each forwards exactly the one validated field to the same whitelist-driven
 // UPDATE path in the service. 200, bare frozen shape.
 
-// PUT /sv360/photos/:uuid/height — { height } (→ camera_height).
-export const updateHeight = asyncHandler(async (req, res) => {
-  res.json(await wsvc.updateCalibration(req.params.uuid, { height: req.body.height }, req.user));
-});
-
 // PUT /sv360/photos/:uuid/rotation-x — { mesh_rotation_x }.
 export const updateRotationX = asyncHandler(async (req, res) => {
   res.json(
@@ -49,24 +44,6 @@ export const updateRotationZ = asyncHandler(async (req, res) => {
   );
 });
 
-// PUT /sv360/photos/:uuid/distance-scale — { distance_scale }.
-export const updateDistanceScale = asyncHandler(async (req, res) => {
-  res.json(
-    await wsvc.updateCalibration(
-      req.params.uuid,
-      { distance_scale: req.body.distance_scale },
-      req.user
-    )
-  );
-});
-
-// PUT /sv360/photos/:uuid/marker-scale — { marker_scale }.
-export const updateMarkerScale = asyncHandler(async (req, res) => {
-  res.json(
-    await wsvc.updateCalibration(req.params.uuid, { marker_scale: req.body.marker_scale }, req.user)
-  );
-});
-
 // PUT /sv360/photos/:uuid/reviewed — { calibration_reviewed }.
 export const updateReviewed = asyncHandler(async (req, res) => {
   res.json(
@@ -79,14 +56,6 @@ export const updateReviewed = asyncHandler(async (req, res) => {
 });
 
 // --- target (adjacency) writes ---------------------------------------------
-
-// PUT /sv360/photos/:uuid/targets/:targetId/override — set/clear per-link
-// overrides. 200, frozen shape for the SOURCE photo. 404 if the link is missing.
-export const setTargetOverride = asyncHandler(async (req, res) => {
-  res.json(
-    await wsvc.updateTargetOverride(req.params.uuid, req.params.targetId, req.body, req.user)
-  );
-});
 
 // PUT /sv360/photos/:uuid/targets/:targetId/visibility — toggle hidden. 200,
 // frozen shape for the SOURCE photo (a hidden target drops out of `targets`).

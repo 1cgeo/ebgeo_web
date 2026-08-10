@@ -1,7 +1,7 @@
 // Path: tests/integration/sv360-write-tombstone-tx.repro.test.js
-// Repro/regressão do achado 68: três escritas do sv360 persistiam FORA de transação
+// Repro/regressão do achado 68: escritas do sv360 persistiam FORA de transação
 // e só depois respondiam 404 — a mesma falha que a lição L8 corrigiu em
-// updateCalibration ficou nas três funções irmãs.
+// updateCalibration ficou nas funções irmãs (visibilidade e criação de link).
 //
 // Mecânica: loadWritablePhoto usa GET_PHOTO_FOR_WRITE, que DELIBERADAMENTE não exclui
 // tombstones (é o que faz o re-delete ser idempotente e a escada 404→403 funcionar);
@@ -109,32 +109,13 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
       [src, dst]
     );
 
-  it('updateTargetOverride: 404 e os overrides permanecem intactos', async () => {
-    const res = await supertest(app)
-      .put(url(`/photos/${src}/targets/${dst}/override`))
-      .set('Authorization', `Bearer ${token}`)
-      .send({ override_bearing: 42 })
-      .expect(404);
-    assert.equal(typeof res.body.error, 'string'); // envelope plano do módulo
-
-    const { rows } = await link();
-    assert.deepEqual(
-      {
-        b: Number(rows[0].override_bearing),
-        d: Number(rows[0].override_distance),
-        h: Number(rows[0].override_height),
-      },
-      { b: 7, d: 8, h: 9 },
-      'a escrita não pode persistir quando a resposta foi 404'
-    );
-  });
-
   it('updateTargetVisibility: 404 e hidden permanece false', async () => {
-    await supertest(app)
+    const res = await supertest(app)
       .put(url(`/photos/${src}/targets/${dst}/visibility`))
       .set('Authorization', `Bearer ${token}`)
       .send({ hidden: true })
       .expect(404);
+    assert.equal(typeof res.body.error, 'string'); // envelope plano do módulo
 
     const { rows } = await link();
     assert.equal(rows[0].hidden, false, 'a visibilidade não pode ter sido mutada');
@@ -170,10 +151,8 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
   // whitelist de colunas (CALIBRATION_COLUMN_WHITELIST) mapeia nomes de rota para
   // COLUNAS DIFERENTES: um caso só sobre `heading` deixa o resto do mapa sem prova.
   const GRANULARES = [
-    { rota: 'height', corpo: { height: 9.9 }, coluna: 'camera_height' },
     { rota: 'rotation-x', corpo: { mesh_rotation_x: 45 }, coluna: 'mesh_rotation_x' },
-    { rota: 'distance-scale', corpo: { distance_scale: 3 }, coluna: 'distance_scale' },
-    { rota: 'marker-scale', corpo: { marker_scale: 4 }, coluna: 'marker_scale' },
+    { rota: 'rotation-z', corpo: { mesh_rotation_z: 30 }, coluna: 'mesh_rotation_z' },
   ];
 
   for (const g of GRANULARES) {
@@ -212,13 +191,13 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
   // (um 404 de rota inexistente é indistinguível de um 404 de tombstone).
   it('controle positivo: a mesma PUT numa foto VIVA responde 200 e persiste', async () => {
     const res = await supertest(app)
-      .put(url(`/photos/${dst}/height`))
+      .put(url(`/photos/${dst}/rotation-x`))
       .set('Authorization', `Bearer ${token}`)
-      .send({ height: 9.9 })
+      .send({ mesh_rotation_x: 12.5 })
       .expect(200);
     assert.equal(res.body.camera?.id, dst, 'a resposta é o shape congelado da foto');
 
-    const { rows } = await db.query(`SELECT camera_height FROM sv360.photos WHERE id = $1`, [dst]);
-    assert.equal(Number(rows[0].camera_height), 9.9, 'a escrita legítima precisa persistir');
+    const { rows } = await db.query(`SELECT mesh_rotation_x FROM sv360.photos WHERE id = $1`, [dst]);
+    assert.equal(Number(rows[0].mesh_rotation_x), 12.5, 'a escrita legítima precisa persistir');
   });
 });

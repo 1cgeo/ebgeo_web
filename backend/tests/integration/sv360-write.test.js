@@ -7,8 +7,8 @@
 //   - ownership ladder: owner/editor writes (200); cross-org user → 403 on an
 //     enabled (readable) project, 404 on a disabled (hidden) one; same-org viewer
 //     → 403 (read OK, write denied); anonymous → 401 (strict auth);
-//   - targets: override/visibility reflect in DB + frozen shape; create + delete;
-//     delete of a nonexistent target → idempotent 204; override of a missing link
+//   - targets: visibility reflects in DB + frozen shape; create + delete;
+//     delete of a nonexistent target → idempotent 204; write on a missing link
 //     → 404;
 //   - photo soft-delete: writes a tombstone in deleted_photos; the photo then 404s
 //     on read; first delete 204, re-delete 404 (read gate excludes tombstoned);
@@ -283,7 +283,7 @@ describe('StreetView 360 — write/calibration contract', () => {
 
   it('global admin can write calibration (200)', async () => {
     await supertest(app)
-      .put(url(`/photos/${photoId}/height`))
+      .put(url(`/photos/${photoId}/calibration`))
       .set(...auth(adminToken))
       .send({ height: 9.9 })
       .expect(200);
@@ -346,51 +346,16 @@ describe('StreetView 360 — write/calibration contract', () => {
 
   // --- targets ---------------------------------------------------------------
 
-  it('sets a target override; DB + frozen shape reflect it', async () => {
+  // As escritas de override por coluna saíram junto com o modelo de marcador
+  // ABSOLUTO: os campos `override_*` seguem SERVIDOS na leitura, mas não há mais
+  // rota que os escreva. Só o INSERT_TARGET os grava, na criação do link.
+  // O 404 de link inexistente continua coberto abaixo, pela rota de visibilidade.
+
+  it('write on a missing link → 404', async () => {
     const res = await supertest(app)
-      .put(url(`/photos/${photoId}/targets/${targetId}/override`))
+      .put(url(`/photos/${photoId}/targets/${thirdId}/visibility`))
       .set(...auth(ownerToken))
-      .send({ override_bearing: 123, override_distance: 7, override_height: 1.1 })
-      .expect(200);
-
-    const t = res.body.targets.find((x) => x.id === targetId);
-    assert.equal(t.override_bearing, 123);
-    assert.equal(t.override_distance, 7);
-    assert.equal(t.override_height, 1.1);
-
-    const { rows } = await db.query(
-      `SELECT override_bearing, override_distance, override_height
-       FROM sv360.targets WHERE source_id = $1 AND target_id = $2`,
-      [photoId, targetId]
-    );
-    assert.equal(Number(rows[0].override_bearing), 123);
-    assert.equal(Number(rows[0].override_distance), 7);
-    assert.equal(Number(rows[0].override_height), 1.1);
-  });
-
-  it('clears a target override with null', async () => {
-    await supertest(app)
-      .put(url(`/photos/${photoId}/targets/${targetId}/override`))
-      .set(...auth(ownerToken))
-      .send({ override_bearing: 50 })
-      .expect(200);
-    await supertest(app)
-      .put(url(`/photos/${photoId}/targets/${targetId}/override`))
-      .set(...auth(ownerToken))
-      .send({ override_bearing: null })
-      .expect(200);
-    const { rows } = await db.query(
-      `SELECT override_bearing FROM sv360.targets WHERE source_id = $1 AND target_id = $2`,
-      [photoId, targetId]
-    );
-    assert.equal(rows[0].override_bearing, null);
-  });
-
-  it('override on a missing link → 404', async () => {
-    const res = await supertest(app)
-      .put(url(`/photos/${photoId}/targets/${thirdId}/override`))
-      .set(...auth(ownerToken))
-      .send({ override_bearing: 1 })
+      .send({ hidden: true })
       .expect(404);
     assert.equal(typeof res.body.error, 'string');
   });

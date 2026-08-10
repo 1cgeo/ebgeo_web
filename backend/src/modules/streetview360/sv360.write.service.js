@@ -133,46 +133,6 @@ export async function updateCalibration(uuid, fields, user) {
 }
 
 /**
- * PATCHES the per-link overrides of a directed link: a number SETS, an explicit
- * null CLEARS, an ABSENT key is LEFT UNTOUCHED. The three are distinguished by a
- * per-column "provided" flag (`!== undefined`), exactly like updateAtlas /
- * updateOrganization / updateRank — `??`/`||`/COALESCE all collapse two of the
- * three, and `||` would additionally eat a legitimate 0.
- * @param {string} uuid - source photo id
- * @param {string} targetId - destination photo id
- * @param {Object} overrides - { override_bearing?, override_distance?, override_height? } (number|null)
- * @param {Object} user
- * @returns {Promise<Object>} frozen photoMetadataShape for the SOURCE photo
- */
-export async function updateTargetOverride(uuid, targetId, overrides, user) {
-  // L8 (achado 68) — one transaction, exactly like updateCalibration: the write gate
-  // (GET_PHOTO_FOR_WRITE) deliberately KEEPS tombstoned rows, while the rebuild
-  // (GET_PHOTO_BY_ID) excludes them and throws 404. With loose query() calls each
-  // statement committed on its own, so a tombstoned source persisted the UPDATE and
-  // only THEN 404'd — a write the caller was told never happened.
-  return tx(async (t) => {
-    const exec = txExecutor(t);
-    await loadWritablePhoto(uuid, user, exec);
-    const { rows: link } = await exec(WQ.GET_TARGET_LINK, [uuid, targetId]);
-    if (!link[0]) throw new NotFoundError('Target');
-    await exec(WQ.UPDATE_TARGET_OVERRIDE, [
-      uuid,
-      targetId,
-      // [value, provided?] per column: an explicit null CLEARS, an omitted field
-      // leaves the column alone. `?? null` alone could not tell those apart and
-      // wiped every field the caller did not send.
-      overrides.override_bearing ?? null,
-      overrides.override_distance ?? null,
-      overrides.override_height ?? null,
-      overrides.override_bearing !== undefined,
-      overrides.override_distance !== undefined,
-      overrides.override_height !== undefined,
-    ]);
-    return rebuildPhotoShape(uuid, exec);
-  });
-}
-
-/**
  * Toggles a directed link's visibility. hidden=true makes it disappear from the
  * read targets array (which filters hidden=false).
  * @param {string} uuid - source photo id
@@ -182,7 +142,7 @@ export async function updateTargetOverride(uuid, targetId, overrides, user) {
  * @returns {Promise<Object>} frozen photoMetadataShape for the SOURCE photo
  */
 export async function updateTargetVisibility(uuid, targetId, hidden, user) {
-  // Same L8 transaction envelope as updateTargetOverride (achado 68).
+  // Same L8 transaction envelope as updateCalibration (achado 68).
   return tx(async (t) => {
     const exec = txExecutor(t);
     await loadWritablePhoto(uuid, user, exec);

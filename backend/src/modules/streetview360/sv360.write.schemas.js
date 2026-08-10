@@ -58,24 +58,12 @@ export const calibrationBodySchema = Joi.object({
 
 // --- granular single-field bodies ------------------------------------------
 
-export const heightBodySchema = Joi.object({
-  height: finiteNumber.required(),
-}).unknown(false);
-
 export const rotationXBodySchema = Joi.object({
   mesh_rotation_x: finiteNumber.required(),
 }).unknown(false);
 
 export const rotationZBodySchema = Joi.object({
   mesh_rotation_z: finiteNumber.required(),
-}).unknown(false);
-
-export const distanceScaleBodySchema = Joi.object({
-  distance_scale: finiteNumber.required(),
-}).unknown(false);
-
-export const markerScaleBodySchema = Joi.object({
-  marker_scale: finiteNumber.required(),
 }).unknown(false);
 
 export const reviewedBodySchema = Joi.object({
@@ -90,16 +78,6 @@ export const targetIdParamSchema = Joi.object({
   uuid: photoId.required(),
   targetId: photoId.required(),
 }).unknown(false);
-
-// PUT /photos/:uuid/targets/:targetId/override — each override is a number (SET)
-// or null (CLEAR); at least one key required.
-export const targetOverrideBodySchema = Joi.object({
-  override_bearing: finiteNumber.allow(null),
-  override_distance: finiteNumber.allow(null),
-  override_height: finiteNumber.allow(null),
-})
-  .min(1)
-  .unknown(false);
 
 // PUT /photos/:uuid/targets/:targetId/visibility
 export const targetVisibilityBodySchema = Joi.object({

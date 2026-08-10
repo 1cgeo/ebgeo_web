@@ -22,19 +22,13 @@ Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(fals
 
 > **Nota histórica.** guia *16-streetview-360* (absorvido) diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; `backend/src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são coeridos e aceitos.
 
-## Override de link tem TRÊS estados, não dois
+## Override de link: leitura viva, escrita aposentada
 
-O `PUT .../targets/:targetId/override` é patch por coluna, e cada uma das três decide sozinha:
+Os campos `override_bearing`, `override_distance` e `override_height` continuam **servidos** em `targets[]` pela leitura do metadado, e continuam sendo gravados na criação do link (`INSERT_TARGET`). O que não existe mais é rota que os edite depois: o `PUT .../targets/:targetId/override` saiu junto com o modelo de marcador **absoluto**, substituído pelo **relativo**.
 
-- número enviado: **define**;
-- `null` explícito: **limpa**;
-- chave **ausente** do corpo: **mantém** o valor que já estava lá.
+Por que a leitura importa no cliente: `override_bearing` é o **gatilho** de todo o caminho manual de projeção (`frontend/src/js/street_view_tool/navigation/navigator.js`), que só projeta por override se ele for não-nulo, e então usa `override_distance ?? 5` e `override_height ?? 0`. Um `override_height` igual a 0 é valor legítimo, não ausência: 0 é o solo.
 
-Quem separa "ausente" de "null" é uma flag de presença por coluna (`campo !== undefined` no service, `CASE WHEN $N THEN $M ELSE coluna END` no SQL, `backend/src/modules/streetview360/sv360.write.queries.js`). É a mesma forma de `UPDATE_ATLAS`, `UPDATE_ORGANIZATION` e `UPDATE_RANK`, e ela existe porque `??`, `||` e `COALESCE` colapsam dois dos três estados (e `||` ainda comeria um `0` legítimo, que é override válido: `override_height` 0 é o solo). Provas em `backend/tests/integration/sv360-target-override-patch.repro.test.js`.
-
-Por que a distinção importa no cliente: `override_bearing` é o **gatilho** de todo o caminho manual de projeção (`frontend/src/js/street_view_tool/navigation/navigator.js`), que só projeta por override se ele for não-nulo, e então usa `override_distance ?? 5` e `override_height ?? 0`. Um `null` mandado por engano onde se queria "não mexer" desativa em silêncio distância e altura ajustadas, ou derruba a projeção para os 5 metros default.
-
-> **Nota histórica.** Até 2026-07-25 o service gravava as três colunas em toda chamada com `overrides.override_X ?? null`, e um `PUT` com apenas `{"override_bearing": 90}` **zerava** `override_distance` e `override_height`; a orientação aqui era "envie sempre os três". O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js`) sempre prometeu patch parcial, e agora o código cumpre a promessa, alinhando-se também ao guia *16-streetview-360* (absorvido), que já descrevia o override como "define (número) ou limpa (`null`)". Cliente que mandava os três campos por precaução continua correto (corpo completo segue valendo como substituição completa), só ficou redundante.
+> **Nota histórica.** A rota existiu como patch por coluna de três estados (número define, `null` limpa, chave ausente mantém), separados por flag de presença (`campo !== undefined` no service, `CASE WHEN $N THEN $M ELSE coluna END` no SQL). Esse desenho continua vivo e testado em `UPDATE_ATLAS`, `UPDATE_ORGANIZATION` e `UPDATE_RANK`, que é onde estudá-lo hoje. Ele existe porque `??`, `||` e `COALESCE` colapsam dois dos três estados, e `||` ainda comeria o `0` legítimo. A rota do 360 e o teste dela (`sv360-target-override-patch.repro.test.js`) foram removidos com o modelo absoluto; o histórico está no git.
 
 ## Armadilha: `mesh_rotation_y` tem dois defaults incompatíveis
 
@@ -46,7 +40,7 @@ Ao mexer em rotação, lembre que a malha usa ordem Euler **ZXY** (`frontend/src
 
 ## Por que a posse ignora o tombstone
 
-`GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que **toda** escrita que termina em rebuild roda dentro de `tx()`: `updateCalibration`, `updateTargetOverride`, `updateTargetVisibility` e `createTarget` (`backend/src/modules/streetview360/sv360.write.service.js:117-221`). Sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu, e o caminho é alcançável porque o tombstone não apaga linhas de `sv360.targets`. As quatro só ficaram simétricas em 2026-07-24; até ali só a calibração estava protegida. `deleteTarget` fica de fora porque não relê nada.
+`GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que **toda** escrita que termina em rebuild roda dentro de `tx()`: `updateCalibration`, `updateTargetVisibility` e `createTarget` (`backend/src/modules/streetview360/sv360.write.service.js`). Sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu, e o caminho é alcançável porque o tombstone não apaga linhas de `sv360.targets`. Elas só ficaram simétricas em 2026-07-24; até ali só a calibração estava protegida. A quarta, a escrita de override por coluna, saiu com o modelo de marcador absoluto. `deleteTarget` fica de fora porque não relê nada.
 
 > **Nota histórica.** guia *16-streetview-360* (absorvido) diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `softDeletePhoto` (`backend/src/modules/streetview360/sv360.write.service.js`, tombstone com `ON CONFLICT DO NOTHING`) e o teste `backend/tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
 

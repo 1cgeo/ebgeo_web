@@ -448,7 +448,7 @@ Detalhes e internals (ingestão swap-then-commit, `db_filename` derivado, MVT) e
 | GET | `/api/v1/sv360/projects` · `/projects/:slug` | Opcional |
 | GET | `/api/v1/sv360/photos/by-name/:nome` · `/photos/:uuid` (shape congelado) | Opcional |
 | GET | `/api/v1/sv360/photos/:uuid/image?quality=full\|preview` (ETag O(1)/304/Range/semáforo) | Opcional |
-| PUT | `/api/v1/sv360/photos/:uuid/calibration` (+ aliases granulares height/rotation-x/z/distance-scale/marker-scale/reviewed) | Escrita (posse) |
+| PUT | `/api/v1/sv360/photos/:uuid/calibration` (+ aliases granulares rotation-x/z/reviewed) | Escrita (posse) |
 | PUT/POST/DELETE | `/photos/:uuid/targets[...]` (override/visibility/criar/deletar link) | Escrita (posse) |
 | DELETE | `/api/v1/sv360/photos/:uuid` (soft-delete tombstone) · POST `/photos/batch-calibration` | Escrita (posse) |
 | POST | `/api/v1/sv360/admin/projects/upload` (ingestão de bundle) | Admin OM |
