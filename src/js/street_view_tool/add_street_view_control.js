@@ -46,9 +46,13 @@ class AddStreetViewControl {
         this.floorPlanSourceId = 'sv360-floor-plan';
         this.floorPlanLayerId = 'sv360-floor-plan-line';
 
-        // PMTiles nearby features cache
+        // Planta do andar em exibicao, e a marca de que o desenho dela espera o
+        // minimapa assentar. Ver _renderFloorPlan.
+        this._floorPlan = null;
+        this._floorPlanPendente = false;
+
+        // Cache da foto mais proxima, por coordenada de clique arredondada.
         this.nearbyFeaturesCache = new Map();
-        this.cacheRadius = 1000;
 
         // Streetview markers manager (initialized in onAdd)
         this.streetviewMarkers = null;
@@ -76,11 +80,14 @@ class AddStreetViewControl {
                 }
             };
 
+            // SEM 'source-layer': o tracado deixou de ser tile vetorial e passou
+            // a ser um GeoJSON unico servido pelo ebgeo_360. `source-layer` so
+            // existe em fonte vetorial, e deixa-lo aqui faz o MapLibre descartar
+            // a camada inteira em silencio, sem desenhar nem reclamar.
             this.streetViewLinesLayer = {
                 'id': 'street-view-lines',
                 'type': 'line',
                 'source': config.streetView360.linesSourceLayer,
-                'source-layer': config.streetView360.linesSourceLayer,
                 'paint': {
                     'line-color': '#0d6efd',
                     'line-width': 3
@@ -92,7 +99,6 @@ class AddStreetViewControl {
                 'id': 'street-view-lines-hit',
                 'type': 'line',
                 'source': config.streetView360.linesSourceLayer,
-                'source-layer': config.streetView360.linesSourceLayer,
                 'paint': {
                     'line-color': 'transparent',
                     'line-width': 10
@@ -298,6 +304,46 @@ class AddStreetViewControl {
     }
 
     /**
+     * Guarda a planta do andar corrente e a desenha assim que der.
+     *
+     * O ADIAMENTO NAO E ZELO, e conserto de um defeito medido. Antes isto era
+     * uma guarda seca (`if (!isStyleLoaded()) return;`) e a planta caia num
+     * buraco: ao abrir uma foto o minimapa ainda esta montando o estilo e
+     * buscando os tiles de ponto, entao `isStyleLoaded()` responde false
+     * justamente no instante em que o evento de andar chega. Medido no Beira-Rio:
+     * a chamada trazia as 34 linhas do 5o andar, a guarda descartava, o estilo
+     * terminava de carregar um segundo depois e nada redesenhava. A planta
+     * simplesmente nunca aparecia, sem erro nenhum no console.
+     *
+     * @param {Object|null} plan - FeatureCollection de linhas, ou null
+     * @private
+     */
+    _renderFloorPlan(plan) {
+        // O estado corrente vive no controle, e nao so no argumento: quem
+        // redesenha depois precisa saber QUAL andar esta em exibicao agora, que
+        // pode ja ser outro.
+        this._floorPlan = plan ?? null;
+
+        if (!this.miniMap) return;
+
+        if (!this.miniMap.isStyleLoaded()) {
+            // Um unico agendamento por espera. O 'idle' do MapLibre significa
+            // "estilo pronto e nada mais em voo", que e exatamente a condicao
+            // que faltava.
+            if (!this._floorPlanPendente) {
+                this._floorPlanPendente = true;
+                this.miniMap.once('idle', () => {
+                    this._floorPlanPendente = false;
+                    this._drawFloorPlan(this._floorPlan);
+                });
+            }
+            return;
+        }
+
+        this._drawFloorPlan(plan);
+    }
+
+    /**
      * Desenha a planta baixa do andar no minimapa, como linha simples.
      *
      * A planta ENTRA E SAI com o andar, fonte junto: guardar uma fonte vazia
@@ -306,8 +352,8 @@ class AddStreetViewControl {
      * @param {Object|null} plan - FeatureCollection de linhas, ou null
      * @private
      */
-    _renderFloorPlan(plan) {
-        if (!this.miniMap || !this.miniMap.isStyleLoaded()) return;
+    _drawFloorPlan(plan) {
+        if (!this.miniMap) return;
 
         try {
             if (!plan || !Array.isArray(plan.features) || plan.features.length === 0) {
@@ -478,78 +524,36 @@ class AddStreetViewControl {
     }
 
     /**
-     * Finds the nearest photo point to a given coordinate.
-     * Uses querySourceFeatures (vector tile data) since the points layer
-     * has circle-radius: 0 and queryRenderedFeatures would return nothing.
+     * Finds the nearest photo to a given coordinate.
+     *
+     * PERGUNTA-SE AO SERVICO, e nao ao mapa. Antes isto era um
+     * querySourceFeatures sobre os tiles JA CARREGADOS, o que amarrava a
+     * resposta ao que estava desenhado: abaixo do zoom minimo da fonte de pontos
+     * nao existe tile, entao clicar na linha de tracado nao abria nada. O
+     * ebgeo_360 responde pelo indice espacial, entao a resposta vale em qualquer
+     * zoom e e a foto REALMENTE mais proxima.
+     *
+     * O cache por coordenada arredondada continua, agora poupando requisicao em
+     * vez de varredura: cliques repetidos no mesmo trecho nao voltam ao servico.
+     *
      * @param {Object} point - {lng, lat} coordinate
-     * @returns {Promise<Object|null>} Nearest feature or null
+     * @returns {Promise<Object|null>} Photo with at least an id, or null
      */
     getNearestPhoto = async (point) => {
-        try {
-            const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
+        const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
 
-            if (this.nearbyFeaturesCache.has(cacheKey)) {
-                return this.nearbyFeaturesCache.get(cacheKey);
-            }
-
-            // ~33m buffer — tight enough to avoid adjacent tracks
-            const bufferDistance = 0.0003;
-            const bbox = [
-                point.lng - bufferDistance,
-                point.lat - bufferDistance,
-                point.lng + bufferDistance,
-                point.lat + bufferDistance
-            ];
-
-            let features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
-                bbox,
-                sourceLayer: config.streetView360.pointsSourceLayer
-            });
-
-            // Widen search if nothing found nearby
-            if (features.length === 0) {
-                const widerBuffer = 0.001;
-                const widerBbox = [
-                    point.lng - widerBuffer,
-                    point.lat - widerBuffer,
-                    point.lng + widerBuffer,
-                    point.lat + widerBuffer
-                ];
-                features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
-                    bbox: widerBbox,
-                    sourceLayer: config.streetView360.pointsSourceLayer
-                });
-            }
-
-            if (features.length === 0) {
-                return null;
-            }
-
-            const from = turf.point([point.lng, point.lat]);
-            let minDistance = Infinity;
-            let target = null;
-
-            for (const feature of features) {
-                const coords = feature.geometry.coordinates;
-                const to = turf.point(coords);
-                const distance = turf.distance(from, to);
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    target = feature;
-                }
-            }
-
-            if (target) {
-                this.nearbyFeaturesCache.set(cacheKey, target);
-            }
-
-            return target;
-
-        } catch (error) {
-            console.error('Error finding nearest photo:', error);
-            return null;
+        if (this.nearbyFeaturesCache.has(cacheKey)) {
+            return this.nearbyFeaturesCache.get(cacheKey);
         }
+
+        const { fetchNearestPhoto } = await import('./streetview-api.service.js');
+        const photo = await fetchNearestPhoto(point.lng, point.lat);
+
+        if (photo) {
+            this.nearbyFeaturesCache.set(cacheKey, photo);
+        }
+
+        return photo;
     }
 
     /**
@@ -572,9 +576,9 @@ class AddStreetViewControl {
         }
 
         try {
-            const feature = await this.getNearestPhoto(e.lngLat);
+            const photo = await this.getNearestPhoto(e.lngLat);
 
-            if (feature && feature.properties && feature.properties[PHOTO_PROPERTY]) {
+            if (photo?.id) {
                 this.isOpen = true;
 
                 // Import and open viewer dynamically
@@ -583,9 +587,9 @@ class AddStreetViewControl {
                 // If already open, just navigate to new photo
                 if (isStreetView360Open()) {
                     const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(feature.properties[PHOTO_PROPERTY]);
+                    await navigateToTarget(photo.id);
                 } else {
-                    await openViewer360WithPhoto(feature.properties[PHOTO_PROPERTY], {
+                    await openViewer360WithPhoto(photo.id, {
                         miniMap: this.miniMap,
                         controlInstance: this
                     });

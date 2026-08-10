@@ -2,6 +2,10 @@
 
 // ===== MAPSIG SYSTEM CONFIGURATION =====
 
+// Host do servico de imagens panoramicas (ebgeo_360). Um lugar so a trocar por
+// ambiente: metadado, imagem, tile de ponto e tracado saem todos daqui.
+const STREETVIEW_360_BASE = 'http://localhost:8081';
+
 const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
@@ -398,19 +402,30 @@ const config = {
   ],
 
   // ===== STREETVIEW 360 SETTINGS =====
+  //
+  // As tres camadas do 360 (pontos, linhas e planta baixa) saem do MESMO
+  // servico, o ebgeo_360, que le direto do index.db. Antes os pontos e as linhas
+  // vinham de dois arquivos PMTiles servidos pelo Martin, e so a planta vinha da
+  // API: o mapa so enxergava uma calibracao nova depois de alguem regerar os
+  // tiles e redeployar. Agora ha um endereco so a trocar, e nao ha defasagem.
   streetView360: {
     // API service URL for UUID-based access + progressive loading
-    serviceUrl: 'http://localhost:8081/api/v1',
+    serviceUrl: `${STREETVIEW_360_BASE}/api/v1`,
 
-    // PMTiles sources for photo-level navigation (minimap + main map line click)
+    // Pontos: tile vetorial gerado sob demanda a partir do indice espacial.
+    // O TileJSON declara a faixa de zoom (11 a 12) e a URL absoluta dos tiles.
     pointsSource: {
       type: 'vector',
-      url: 'http://localhost:3000/fotos'
+      url: `${STREETVIEW_360_BASE}/api/v1/tiles/fotos.json`
     },
     pointsSourceLayer: 'fotos',
+
+    // Linhas: GeoJSON unico, e nao tile. O acervo inteiro de tracado sao 3.236
+    // feicoes, 0,3 MB comprimido, MENOS que os 712 KB do fotos_linha.pmtiles, e
+    // sem a perda de vertice que a simplificacao do tippecanoe impunha.
     linesSource: {
-      type: 'vector',
-      url: 'http://localhost:3000/fotos_linha'
+      type: 'geojson',
+      data: `${STREETVIEW_360_BASE}/api/v1/tracks`
     },
     linesSourceLayer: 'fotos_linha',
   }
