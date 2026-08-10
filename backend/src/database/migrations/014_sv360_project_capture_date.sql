@@ -1,0 +1,32 @@
+-- Path: src/database/migrations/014_sv360_project_capture_date.sql
+-- sv360.projects.capture_date — a DATA DA CAMPANHA do projeto.
+--
+-- O DEFEITO QUE ESTA COLUNA FECHA: a resposta pública do módulo já promete
+-- `captureDate` (sv360.service.js, publicProjectView), e o próprio comentário de
+-- lá admite que o campo sai sempre null porque não existe coluna. A origem
+-- (ebgeo_360 src/db/schema.sql) tem `projects.capture_date TEXT`, preenchida
+-- projeto a projeto em scripts/migrate.js ('2026-05-20' para o beira_rio,
+-- '2025-11-06' para a aman). O dado existe no acervo e se perdia na ingestão.
+--
+-- ATENÇÃO: é a data do PROJETO, não da foto. A origem NÃO tem capture_date na
+-- tabela photos, e scripts/sv360-import.js lia `p.capture_date` das fotos do
+-- index.db legado, o que devolvia undefined e gravava NULL sempre. A correção do
+-- leitor acompanha esta migração.
+--
+-- TEXT, e não DATE nem TIMESTAMPTZ, por três razões:
+--   1. é o tipo da origem, e a coluna existe para transportar aquele valor sem
+--      reinterpretá-lo;
+--   2. o valor é uma data de CAMPANHA, e a campanha nem sempre é um dia: a
+--      migração da AMAN registra a campanha mais recente entre várias, e a do
+--      DCMun registra a data de PROCESSAMENTO dos metadados, porque as imagens
+--      não têm data própria. Um tipo de instante daria precisão que o dado não
+--      tem;
+--   3. TIMESTAMPTZ faria '2026-05-20' virar um instante e mudar de dia conforme
+--      o fuso da sessão, trocando a data que a tela mostra.
+-- O contrato público já emite `captureDate` como string, então o TEXT chega ao
+-- cliente sem conversão.
+--
+-- Aditiva e forward-only: entra NULA em todo projeto já ingerido, e só uma
+-- reimportação do index.db a preenche. Nenhum UPDATE de backfill aqui.
+
+ALTER TABLE sv360.projects ADD COLUMN capture_date TEXT;

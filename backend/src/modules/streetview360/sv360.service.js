@@ -108,9 +108,17 @@ const THUMBNAILS_SEGMENT = '/thumbnails';
  * admin is also an ordinary user of the 2D map, and returning the raw row to them
  * meant the 360 layer broke for admins ONLY — the worst kind of role-dependent bug.
  *
- * `description` / `captureDate` / `location` have no column in `sv360.projects`
- * (the legacy SQLite carried them); they are emitted as null to keep the shape
- * stable for consumers that read them.
+ * `captureDate` IS a real column now: `sv360.projects.capture_date` (TEXT,
+ * migration 014), carrying the legacy campaign date the ETL used to drop. It
+ * reaches this view only when the query SELECTS it, and it is read here by its
+ * real name, never synthesized. A row from a query that did not select the
+ * column yields undefined, which `?? null` normalizes to the same null the
+ * frozen shape has always promised, so no consumer sees a missing key.
+ *
+ * `description` / `location` still have no column in `sv360.projects` (the
+ * legacy SQLite carried them, this schema never adopted them); they remain
+ * emitted as null. That is a KNOWN GAP, not a shape decision: only the date was
+ * authorized for this pass.
  * @param {Object} project - a sv360.projects row
  * @param {Object} [user]
  * @returns {Object} the public project view
@@ -120,9 +128,12 @@ function publicProjectView(project, user) {
     id: project.id,
     slug: project.slug,
     name: project.name,
-    description: project.description ?? null,
+    description: project.description ?? null, // no column: always null
+    // Real column since migration 014, SELECTed by both LIST_PROJECTS and
+    // GET_PROJECT_BY_SLUG. A query that omits it yields undefined, which `?? null`
+    // normalizes to the null the frozen shape has always promised.
     captureDate: project.capture_date ?? null,
-    location: project.location ?? null,
+    location: project.location ?? null, // no column: always null
     center: { lat: project.center_lat, lon: project.center_long },
     entryPhotoId: project.entry_photo_id ?? null,
     previewThumbnail: `${THUMBNAILS_SEGMENT}/${project.slug}.webp`,

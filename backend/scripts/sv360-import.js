@@ -102,6 +102,18 @@ function readProjects(idb) {
 // Build the photos[] slice of the manifest for one project, mapped 1:1 to the
 // sv360.photos columns. better-sqlite3 returns the SQLite column names verbatim;
 // we normalize lon/lat aliases defensively.
+//
+// NO capture_date HERE, deliberately. This function used to read
+// `p.capture_date ?? null` off the photos row. The legacy schema
+// (ebgeo_360 src/db/schema.sql) declares capture_date on `projects` and NEVER on
+// `photos`, so better-sqlite3 handed back `undefined` on every single row and
+// mergeProject wrote NULL into sv360.photos.capture_date every single time. The
+// read looked like it carried the date over; it carried nothing, silently. The
+// project-level date is read from the `projects` row in buildManifest and lands
+// in sv360.projects.capture_date (migration 014). The per-photo instant the
+// origin does have is `photos.captured_at`, which is NOT this column: it is
+// still unwritten pending the capture_date/captured_at naming decision recorded
+// in migration 013.
 function readPhotos(idb, projectId) {
   const rows = idb.prepare('SELECT * FROM photos WHERE project_id = ?').all(projectId);
   return rows.map((p) => ({
@@ -123,7 +135,6 @@ function readPhotos(idb, projectId) {
     full_size_bytes: p.full_size_bytes,
     preview_size_bytes: p.preview_size_bytes,
     calibration_reviewed: toBool(p.calibration_reviewed),
-    capture_date: p.capture_date ?? null,
   }));
 }
 
@@ -224,6 +235,10 @@ function buildManifest(idb, project, orgSlug, logger) {
       center_lat: project.center_lat ?? null,
       center_long: project.center_long ?? project.center_lng ?? project.center_lon ?? null,
       entry_photo_id: project.entry_photo_id ?? null,
+      // The campaign date, read from the LEGACY `projects` row where it actually
+      // lives (TEXT 'YYYY-MM-DD'). Older dumps without the column yield undefined
+      // -> null, which is the same value the field had before this existed.
+      capture_date: project.capture_date ?? null,
       db_filename: path.basename(dbFilename),
     },
     photos,
@@ -397,6 +412,26 @@ function transferThumbnail(thumbDirSource, destDir, slug, destDbFilename, transf
 }
 
 // ---------------------------------------------------------------------------
+// Project capture_date (migration 014)
+// ---------------------------------------------------------------------------
+
+// Apply the legacy campaign date to the merged project, INSIDE the caller's tx.
+//
+// WHY A SEPARATE STATEMENT and not a column in UPSERT_PROJECT: that upsert lives
+// in sv360.admin.queries.js and is shared with the online admin upload, whose
+// manifest has no such field. Widening it is a change to the shared ingestion
+// core; this script only owns the offline ETL. The UPDATE runs in the SAME tx as
+// mergeProject, so a failure still rolls the whole project back.
+//
+// Unconditional (no `WHERE capture_date IS NULL`, no skip on null): the ETL is
+// "last upload wins" for every other project field, and a conditional write
+// would make a corrected/cleared date in the index.db unable to reach Postgres.
+//   $1 = project id (uuid), $2 = capture_date (text, nullable)
+const SET_PROJECT_CAPTURE_DATE = `
+  UPDATE sv360.projects SET capture_date = $2, updated_at = now() WHERE id = $1
+`;
+
+// ---------------------------------------------------------------------------
 // Public ETL entry point (testable)
 // ---------------------------------------------------------------------------
 
@@ -472,8 +507,13 @@ export async function importIndexDb(indexDbPath, opts = {}) {
           // mergeProject returns the SERVER-DERIVED db_filename (org-scoped). Copy
           // the legacy source {slug}.db (manifest.project.db_filename) to that
           // DERIVED dest name so disk matches Postgres (FIX-1).
-          const { dbFilename } = await mergeProject(t, manifest, { orgId, source: 'etl' });
+          const { dbFilename, projectId } = await mergeProject(t, manifest, {
+            orgId,
+            source: 'etl',
+          });
           derivedDbFilename = dbFilename;
+          // The campaign date the shared upsert does not carry (see above).
+          await t.none(SET_PROJECT_CAPTURE_DATE, [projectId, manifest.project.capture_date]);
           const srcDbFilename = manifest.project.db_filename || `${manifest.project.slug}.db`;
           copyDbWithSizeCheck(
             dbDirSource,

@@ -9,7 +9,8 @@
 // to a global admin or to a member of the owning organization.
 //   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
 export const LIST_PROJECTS = `
-  SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status
+  SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
+         capture_date
   FROM sv360.projects
   WHERE ($1::boolean OR status = 'enabled' OR organization_id = $2::uuid)
   ORDER BY name
@@ -23,7 +24,7 @@ export const LIST_PROJECTS = `
 //   $1 = slug, $2 = isAdmin (boolean), $3 = userOrgId (uuid, nullable)
 export const GET_PROJECT_BY_SLUG = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status
+         entry_photo_id, photo_count, db_filename, status, capture_date
   FROM sv360.projects
   WHERE slug = $1
     AND ($2::boolean OR status = 'enabled' OR organization_id = $3::uuid)
