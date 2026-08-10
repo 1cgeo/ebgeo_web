@@ -18,7 +18,24 @@
  * MapLibre GL vem do vendor da casa (/vendors/maplibre-gl.js) e esta em window.maplibregl.
  */
 
+import config from '@js/config.js';
 import { fetchProjectMap, getPhotoImageUrl } from './api.js';
+
+/**
+ * Estilo de fundo do mapa do projeto, vindo do `/api/config`.
+ *
+ * Prefere o `osm` publicado pelo backend. O ultimo recurso e um estilo VAZIO, e
+ * nao um endereco publico cravado: sem fundo o operador ainda ve os pontos, a
+ * planta e os controles, enquanto um endereco morto enche o console de erro de
+ * rede e nao desenha nada assim mesmo.
+ * @returns {Object} estilo MapLibre
+ */
+function estiloDeFundo() {
+    const estilos = config.basemapStyles || {};
+    return estilos.osm
+        || estilos[Object.keys(estilos)[0]]
+        || { version: 8, sources: {}, layers: [] };
+}
 
 // ============================================================================
 // ESTADO DO MODULO
@@ -89,18 +106,13 @@ function criarMapa() {
 
     map = new maplibregl.Map({
         container: mapEl,
-        style: {
-            version: 8,
-            sources: {
-                osm: {
-                    type: 'raster',
-                    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                    tileSize: 256,
-                    attribution: '&copy; OpenStreetMap contributors',
-                },
-            },
-            layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-        },
+        // O estilo vem do `/api/config`, e nao cravado aqui. Na origem este mapa
+        // era um servico solto e o endereco da OSM ficava no codigo; aqui o
+        // backend ja publica `basemapStyles`, montado a partir da chave
+        // `OSM_TILE_URL`. Cravar o endereco publico deixa este mapa sem fundo em
+        // rede que nao alcanca a internet, e obriga a editar codigo para apontar
+        // um servidor interno, enquanto o resto da app so troca a chave.
+        style: estiloDeFundo(),
         center: [-54, -29],
         zoom: 14,
     });
@@ -402,7 +414,16 @@ function derivarAndares(lista) {
     if (porNivel.size < 2) return [];
     return [...porNivel.entries()]
         .sort((a, b) => b[0] - a[0])
-        .map(([level, count]) => ({ level, label: rotulos.get(level) ?? rotuloDeAndar(level), count }));
+        // DOIS rotulos, de proposito. O do banco ("1o andar", "Externo") e o que
+        // o operador reconhece, mas nao cabe num botao de 34 px: preferi-lo
+        // deixava o texto estourar a barra. O curto vai no botao e o longo na
+        // dica, entao nada se perde.
+        .map(([level, count]) => ({
+            level,
+            label: rotuloDeAndar(level),
+            labelCompleto: rotulos.get(level) ?? rotuloDeAndar(level),
+            count,
+        }));
 }
 
 /** Rotulo curto do andar, para caber no botao do seletor. */
@@ -586,7 +607,7 @@ function renderSeletorDeAndar() {
 
     el.innerHTML = andares.map(a => `
         <button class="pmap__floor${a.level === andarAtual ? ' pmap__floor--on' : ''}"
-                data-level="${a.level}" title="${a.count} fotos">${a.label}</button>
+                data-level="${a.level}" title="${a.labelCompleto}: ${a.count} fotos">${a.label}</button>
     `).join('');
 }
 

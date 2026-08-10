@@ -173,15 +173,16 @@ export class ToolbarGroup {
 
         // Listen for terrain changes
         if (this._map) {
+            // O mapa do MapLibre NAO e um EventTarget: ele fala `on`/`off`, e nao
+            // addEventListener/removeEventListener. Guardar este par no balde de
+            // listeners de DOM fazia o `cleanup` chamar `removeEventListener` num
+            // objeto que nao a tem, e o destroy morria com
+            // "element?.removeEventListener is not a function", derrubando o
+            // desmonte da barra inteira no meio. Guardamos o desinscritor, que e o
+            // que o `cleanup` ja sabe executar.
             const terrainHandler = () => this._updateTerrainTools();
             this._map.on('terrain', terrainHandler);
-            // Track for cleanup
-            this._domListeners.push({
-                element: this._map,
-                event: 'terrain',
-                handler: terrainHandler,
-                options: {}
-            });
+            this._unsubscribers.push(() => this._map.off('terrain', terrainHandler));
         }
 
         // Listen for active tool changes

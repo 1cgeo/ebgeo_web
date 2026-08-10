@@ -101,6 +101,15 @@ html, body {
 .pmap__canvas {
     position: absolute;
     inset: 0;
+
+    /* Largura e altura EXPLICITAS, e nao so o `inset`. O MapLibre poe a classe
+       `maplibregl-map` neste mesmo elemento, e `.maplibregl-map{position:relative}`
+       vem do `maplibre-gl.css`, carregado DEPOIS desta folha: mesma
+       especificidade, a ultima vence, o `position` volta a `relative` e o `inset`
+       deixa de posicionar. A altura colapsava para 0 e o MapLibre caia no canvas
+       padrao de 300 px, com o mapa do projeto preto, sem controle e sem ponto. */
+    width: 100%;
+    height: 100%;
 }
 
 .pmap--carregando::after {
