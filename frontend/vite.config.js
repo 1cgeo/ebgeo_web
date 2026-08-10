@@ -35,13 +35,19 @@ export default defineConfig(({ mode: _mode }) => ({
 
     // Code splitting
     rollupOptions: {
-      // Multi-page: the map is `index.html`; "Seus projetos" (`projetos.html`) and Administração
-      // (`admin.html`) are pages of their own, each with its own entry module and CSS manifest.
-      // Neither loads the map bundle — see the codeSplitting note below for what enforces that.
+      // Multi-page: the map is `index.html`; "Seus projetos" (`projetos.html`), Administração
+      // (`admin.html`) and Calibração 360 (`calibracao.html`) are pages of their own, each with its
+      // own entry module and CSS manifest. None loads the map bundle — see the codeSplitting note
+      // below for what enforces that.
+      //
+      // `calibracao.html` veio do ebgeo_360, onde era estático solto servido pelo próprio Fastify.
+      // Aqui ela é a QUARTA entrada do bundler: passa pelo chunking declarado abaixo e vira alvo do
+      // ESLint e do Stylelint da casa, como qualquer outra página.
       input: {
         main: resolve(__dirname, 'index.html'),
         projetos: resolve(__dirname, 'projetos.html'),
-        admin: resolve(__dirname, 'admin.html')
+        admin: resolve(__dirname, 'admin.html'),
+        calibracao: resolve(__dirname, 'calibracao.html')
       },
       output: {
         // Chunks by functionality (path-based matching)
@@ -88,6 +94,18 @@ export default defineConfig(({ mode: _mode }) => ({
           // Placing it in core follows the same pattern as keyboard-service-briefing.
           if (id.includes('3d_models_viewer_tool/services/keyboard-service-3d')) {
             return 'core';
+          }
+
+          // ===== CALIBRAÇÃO 360 (calibracao.html) =====
+          // Só esta página alcança estes módulos, e ela não alcança nada do mapa. Sem o grupo
+          // próprio eles cairiam no bundle da entrada e se misturariam com o que `entriesAware`
+          // já separa por outro critério; com ele, o payload da calibração tem um nome.
+          //
+          // `src/vendor/three/` NÃO entra aqui de propósito: o Three.js também é importado pelo
+          // `street_view_tool` do mapa, e reivindicá-lo para este grupo o tiraria de onde ele está
+          // hoje — mexer no chunking do mapa não é trabalho desta página.
+          if (id.includes('src/js/calibration/')) {
+            return 'calibration';
           }
 
           // ===== LAZY LOADED CHUNKS (independentes) =====

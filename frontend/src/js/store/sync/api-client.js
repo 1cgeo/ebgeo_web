@@ -184,6 +184,25 @@ export class ApiClient {
     }
 
     /**
+     * Renews the access token if it is about to expire and returns the `Authorization` header
+     * for a request this client will NOT be issuing itself.
+     *
+     * Exists for the 360 calibration READS (`js/calibration/api.js`), which need `AbortSignal`
+     * and `cache: 'no-cache'` and therefore build their own `fetch`. Those routes are
+     * `flexibleAuth`: an expired token there does NOT answer 401 — it is silently treated as
+     * ANONYMOUS, and an anonymous caller cannot see a DISABLED project. So the failure mode is
+     * a project that vanishes from the operator's list rather than an error, which is exactly
+     * the kind of silent demotion `_ensureFreshAccessToken` was written for.
+     *
+     * Empty object when there is no session, so the caller stays anonymous-capable.
+     * @returns {Promise<Object>} Headers to spread into a fetch init.
+     */
+    async authHeader() {
+        await this._ensureFreshAccessToken();
+        return this._accessToken ? { Authorization: `Bearer ${this._accessToken}` } : {};
+    }
+
+    /**
      * @private Persists the current tokens to localStorage so the session survives a reload.
      * Degrades silently to in-memory only when localStorage is unavailable.
      */
@@ -669,6 +688,153 @@ export class ApiClient {
      */
     async deleteSv360Project(slug) {
         return this._request('DELETE', `/sv360/admin/projects/${encodeURIComponent(slug)}`);
+    }
+
+    // ===== CALIBRAÇÃO 360 — ESCRITAS (calibracao.html) =====
+    //
+    // Todas as ESCRITAS da página de calibração passam por aqui, e por um motivo só: este é o
+    // único lugar do cliente que renova o access token ANTES de usá-lo (`_ensureFreshAccessToken`)
+    // e que reage a um 401 com refresh + retry transparente. As LEITURAS da calibração não estão
+    // aqui — elas são anônimas por contrato (`flexibleAuth`) e precisam de AbortSignal e de
+    // `cache: 'no-cache'`, que `_request` não oferece; ficam em `js/calibration/api.js`.
+    //
+    // O `_request` também é o que traduz o envelope PLANO `{ error: '...' }` do sv360 num
+    // `ApiError` com `.status`, que é como a página distingue 401 (sessão morreu) de 403 (não é
+    // admin). A origem no ebgeo_360 não tinha autenticação nenhuma nestas rotas.
+
+    /**
+     * Grava o mesh_rotation_y de uma foto.
+     * @param {string} photoId - UUID da foto.
+     * @param {number} meshRotationY - Ângulo em graus.
+     * @returns {Promise<Object>}
+     */
+    async setSv360Calibration(photoId, meshRotationY) {
+        return this._request('PUT', `/sv360/photos/${encodeURIComponent(photoId)}/calibration`, {
+            body: { mesh_rotation_y: meshRotationY },
+        });
+    }
+
+    /**
+     * Grava o mesh_rotation_x de uma foto.
+     * @param {string} photoId - UUID da foto.
+     * @param {number} meshRotationX - Ângulo em graus.
+     * @returns {Promise<Object>}
+     */
+    async setSv360RotationX(photoId, meshRotationX) {
+        return this._request('PUT', `/sv360/photos/${encodeURIComponent(photoId)}/rotation-x`, {
+            body: { mesh_rotation_x: meshRotationX },
+        });
+    }
+
+    /**
+     * Grava o mesh_rotation_z de uma foto.
+     * @param {string} photoId - UUID da foto.
+     * @param {number} meshRotationZ - Ângulo em graus.
+     * @returns {Promise<Object>}
+     */
+    async setSv360RotationZ(photoId, meshRotationZ) {
+        return this._request('PUT', `/sv360/photos/${encodeURIComponent(photoId)}/rotation-z`, {
+            body: { mesh_rotation_z: meshRotationZ },
+        });
+    }
+
+    /**
+     * Marca ou desmarca uma foto como revisada.
+     *
+     * O corpo é `{ calibration_reviewed }`, e NÃO o `{ reviewed }` que a origem enviava:
+     * `reviewedBodySchema` daqui recusa chave desconhecida (`.unknown(false)`), então o nome da
+     * origem devolveria 422 em vez de gravar.
+     * @param {string} photoId - UUID da foto.
+     * @param {boolean} reviewed
+     * @returns {Promise<Object>}
+     */
+    async setSv360Reviewed(photoId, reviewed) {
+        return this._request('PUT', `/sv360/photos/${encodeURIComponent(photoId)}/reviewed`, {
+            body: { calibration_reviewed: reviewed },
+        });
+    }
+
+    /**
+     * Oculta ou reexibe uma ligação entre duas fotos.
+     *
+     * A rota daqui é `/photos/:uuid/targets/:targetId/visibility`; a da origem era
+     * `/targets/:sourceId/:targetId/visibility`, sem o prefixo da foto de origem.
+     * @param {string} photoId - UUID da foto de origem.
+     * @param {string} targetId - UUID da foto de destino.
+     * @param {boolean} hidden
+     * @returns {Promise<Object>}
+     */
+    async setSv360TargetVisibility(photoId, targetId, hidden) {
+        const path = `/sv360/photos/${encodeURIComponent(photoId)}/targets/${encodeURIComponent(targetId)}/visibility`;
+        return this._request('PUT', path, { body: { hidden } });
+    }
+
+    /**
+     * Cria uma ligação manual entre duas fotos.
+     *
+     * A rota daqui é `POST /photos/:uuid/targets` com `{ target_id }` no corpo; a da origem era
+     * `POST /targets` com `{ source_id, target_id }`.
+     * @param {string} photoId - UUID da foto de origem.
+     * @param {string} targetId - UUID da foto de destino.
+     * @returns {Promise<Object>}
+     */
+    async createSv360Target(photoId, targetId) {
+        return this._request('POST', `/sv360/photos/${encodeURIComponent(photoId)}/targets`, {
+            body: { target_id: targetId },
+        });
+    }
+
+    /**
+     * Remove uma ligação manual entre duas fotos.
+     * @param {string} photoId - UUID da foto de origem.
+     * @param {string} targetId - UUID da foto de destino.
+     * @returns {Promise<Object>}
+     */
+    async deleteSv360Target(photoId, targetId) {
+        const path = `/sv360/photos/${encodeURIComponent(photoId)}/targets/${encodeURIComponent(targetId)}`;
+        return this._request('DELETE', path);
+    }
+
+    /**
+     * Exclui uma foto (tombstone: sai da navegação, o dado fica).
+     * @param {string} photoId - UUID da foto.
+     * @returns {Promise<Object>}
+     */
+    async deleteSv360Photo(photoId) {
+        return this._request('DELETE', `/sv360/photos/${encodeURIComponent(photoId)}`);
+    }
+
+    /**
+     * Aplica ângulos padrão a todas as fotos vivas de um projeto.
+     * @param {string} slug - Slug do projeto.
+     * @param {Object} values - Campos mesh_rotation_y/x/z a aplicar.
+     * @returns {Promise<Object>}
+     */
+    async batchSv360Project(slug, values) {
+        return this._request('PUT', `/sv360/projects/${encodeURIComponent(slug)}/batch-calibration`, {
+            body: values,
+        });
+    }
+
+    /**
+     * Limpa a marca de revisão de todas as fotos vivas de um projeto.
+     * @param {string} slug - Slug do projeto.
+     * @returns {Promise<Object>}
+     */
+    async resetSv360ProjectReviewed(slug) {
+        return this._request('POST', `/sv360/projects/${encodeURIComponent(slug)}/reset-reviewed`);
+    }
+
+    /**
+     * Aplica ângulos padrão a todas as fotos vivas de uma faixa de coleta.
+     * @param {string} runId - UUID da faixa.
+     * @param {Object} values - Campos mesh_rotation_y/x/z a aplicar.
+     * @returns {Promise<Object>}
+     */
+    async batchSv360Run(runId, values) {
+        return this._request('PUT', `/sv360/runs/${encodeURIComponent(runId)}/batch-calibration`, {
+            body: values,
+        });
     }
 
     // ===== ATLAS =====

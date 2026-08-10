@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibração 360 — EBGeo</title>
+    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+
+    <!-- CSS da página de calibração (manifesto próprio, sem o mapa) -->
+    <link rel="stylesheet" href="/src/css/calibracao.css">
+
+    <!-- MapLibre GL: CSS não-bloqueante, porque o minimapa e o modo mapa só montam sob demanda.
+         media=print + onload aplica a folha depois do download; <noscript> garante o estilo sem JS. -->
+    <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <noscript>
+        <link rel="stylesheet" href="/vendors/maplibre-gl.css">
+    </noscript>
+
+    <style>
+        /* Splash de boot: duplicado do CSS para aparecer antes da folha de estilo resolver
+           (mesma abordagem do admin.html). Removido por calibracao-page.js quando a página monta. */
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .loading-background {
+            position: fixed;
+            background-color: #508D4E;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            top: 0;
+            left: 0;
+        }
+    </style>
+
+    <meta name="theme-color" content="#1e1e2e">
+    <meta name="color-scheme" content="dark">
+    <meta name="robots" content="noindex, nofollow">
+</head>
+
+<body>
+    <!-- Splash de boot: o gate de admin decide entre montar a página e redirecionar para o mapa,
+         então nada da calibração aparece antes de a sessão ser validada. -->
+    <div class="loading-background" id="initial-loader">
+        <img src="/images/logo_ebgeo.webp" alt="EBGeo" width="240" fetchpriority="high">
+    </div>
+
+    <div class="app-layout">
+        <!-- Viewer area -->
+        <div id="viewer-container">
+            <!-- Three.js canvas and navigation overlay are injected here -->
+            <div id="minimap-container"></div>
+            <div id="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+        </div>
+
+        <!-- Modo mapa do projeto (sobrepoe o viewer; oculto por padrao) -->
+        <div id="project-map" hidden></div>
+
+        <!-- Calibration sidebar -->
+        <div id="calibration-panel">
+            <div class="cal-panel__empty">
+                <p>Carregando...</p>
+            </div>
+        </div>
+
+        <!-- Project selector (shown when no ?photo= param) -->
+        <div id="project-selector"></div>
+    </div>
+
+    <!-- Único vendor desta página: o minimapa e o modo mapa desenham com MapLibre. Nada de Turf,
+         milsymbol, Cesium ou GDAL aqui. Script CLASSIC: executa antes de qualquer módulo, então
+         `window.maplibregl` já existe quando o primeiro mapa é instanciado. -->
+    <script src="/vendors/maplibre-gl.js"></script>
+    <script type="module" src="/src/js/calibration/calibracao-page.js"></script>
+
+    <script nomodule>
+        var loader = document.querySelector('.loading-background');
+        if (loader) {
+            loader.innerHTML = '<div style="color:white;text-align:center;padding:20px;">' +
+                '<h2>Browser não suportado</h2>' +
+                '<p>Por favor, use um browser mais recente.</p></div>';
+        }
+    </script>
+</body>
+
+</html>

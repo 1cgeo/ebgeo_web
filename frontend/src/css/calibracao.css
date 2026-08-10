@@ -1,0 +1,1434 @@
+/* =========================================================================
+   EBGeo Web — Calibração 360 (calibracao.html)
+   Folha ÚNICA da página autônoma de calibração.
+
+   Não é um manifesto de @import como admin-page.css: a calibração veio do
+   ebgeo_360 com o estilo inteiro embutido no <head>, num tema próprio
+   (Catppuccin) que não compartilha um único token com o resto do EBGeo.
+   Fatiá-la em camadas importadas inventaria uma dependência que o código
+   portado não tem. Ela é servida só por calibracao.html.
+   ========================================================================= */
+
+/* As TRES superficies compartilhadas que a pagina herda do resto do EBGeo, porque o boot delas e
+   o mesmo do admin.html: os tokens, a tela de "EBGeo indisponivel" e o aviso de inatividade.
+   Nao entra base.css (o reset proprio da calibracao ja esta abaixo) nem toast.css (o painel de
+   calibracao traz o seu). */
+@import url('./design-tokens.css');
+@import url('./unavailable.css');
+@import url('./idle-timeout.css');
+
+/* ================================================================
+   RESET & BASE
+   ================================================================ */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    color: #cdd6f4;
+    background: #1e1e2e;
+}
+
+/* ================================================================
+   LAYOUT — viewer is full-window, panel overlays on top.
+   This ensures the WebGL canvas + navigation overlay canvas
+   match the exact aspect ratio of EBGeo (full viewport),
+   producing identical projection / marker placement.
+   ================================================================ */
+.app-layout {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#viewer-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #11111b;
+}
+
+#calibration-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 360px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    background: rgba(24, 24, 37, 0.92);
+    border-left: 1px solid #313244;
+    padding: 16px;
+    gap: 12px;
+    z-index: 20;
+
+    /* backdrop-filter: blur removido: o painel sobrepõe o canvas WebGL
+       re-renderizado em loop (rAF), e o compositor reamostraria/desfocaria a
+       região atrás do painel a cada frame — um dos efeitos mais caros de GPU.
+       O background rgba(24,24,37,0.92) já é quase opaco, então o ganho visual
+       do blur era marginal. Mantemos o fundo semi-opaco sólido existente. */
+}
+
+/* ================================================================
+   MODO MAPA DO PROJETO — cobre o viewer inteiro, com o painel de
+   calibracao continuando visivel a direita.
+   ================================================================ */
+#project-map {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 360px;
+    bottom: 0;
+    z-index: 30;
+    background: #11111b;
+}
+
+#project-map[hidden] {
+    display: none;
+}
+
+.pmap__canvas {
+    position: absolute;
+    inset: 0;
+}
+
+.pmap--carregando::after {
+    content: 'Carregando o projeto...';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 17, 27, 0.75);
+    color: #cdd6f4;
+    font-size: 14px;
+    z-index: 3;
+}
+
+.pmap__legend {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    background: rgba(24, 24, 37, 0.94);
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #cdd6f4;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 190px;
+}
+
+.pmap__legend-close {
+    background: #313244;
+    color: #cdd6f4;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.pmap__legend-close:hover {
+    background: #45475a;
+}
+
+.pmap__legend-stat {
+    font-weight: 600;
+}
+
+.pmap__legend-keys {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    color: #a6adc8;
+}
+
+.pmap__legend-keys i {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* O trajeto e linha, nao ponto: a amostra na legenda acompanha. */
+.pmap__legend-keys i.pmap__legend-linha {
+    width: 14px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+/* Seletor de andar: coluna a esquerda, do mais alto para o terreo, na
+   mesma ordem em que os andares estao no predio. */
+.pmap__floors {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: rgba(24, 24, 37, 0.94);
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.pmap__floor {
+    width: 34px;
+    height: 30px;
+    background: transparent;
+    color: #a6adc8;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pmap__floor:hover {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.pmap__floor--on {
+    background: #89b4fa;
+    color: #11111b;
+}
+
+.pmap__card {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 2;
+    width: 300px;
+    background: rgba(24, 24, 37, 0.96);
+    border: 1px solid #313244;
+    border-radius: 10px;
+    padding: 12px;
+    color: #cdd6f4;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pmap__card[hidden] {
+    display: none;
+}
+
+.pmap__card-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: #a6adc8;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.pmap__card-close:hover {
+    color: #f38ba8;
+}
+
+.pmap__card-img {
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    object-fit: cover;
+    border-radius: 6px;
+    background: #11111b;
+    display: block;
+}
+
+.pmap__card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pmap__card-name {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.pmap__card-sub {
+    font-size: 11px;
+    color: #a6adc8;
+}
+
+.pmap__badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.pmap__badge--ok {
+    background: #a6e3a1;
+    color: #11111b;
+}
+
+.pmap__angles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.pmap__angle {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 5px 4px;
+    text-align: center;
+}
+
+.pmap__angle span {
+    display: block;
+    font-size: 10px;
+    color: #a6adc8;
+}
+
+.pmap__angle strong {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pmap__card-btn {
+    background: #89b4fa;
+    color: #11111b;
+    border: none;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pmap__card-btn:hover:not(:disabled) {
+    background: #b4befe;
+}
+
+.pmap__card-btn:disabled {
+    background: #313244;
+    color: #6c7086;
+    cursor: default;
+}
+
+/* ================================================================
+   MINIMAP
+   ================================================================ */
+#minimap-container {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    width: 343px;
+    height: 281px;
+    border-radius: 8px;
+    border: 2px solid rgba(205, 214, 244, 0.2);
+    overflow: hidden;
+    z-index: 10;
+}
+
+.minimap-camera-marker {
+    width: 24px;
+    height: 24px;
+    position: relative;
+
+    /* O cone extrapola a caixa de proposito; sem isto ele seria cortado */
+    overflow: visible;
+}
+
+.minimap-camera-marker__body {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #89b4fa;
+    border: 2px solid #fff;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+}
+
+.minimap-camera-marker__cone {
+    width: 0;
+    height: 0;
+
+    /* Lanterna: a PONTA fica no ponto e o cone ABRE na direcao do
+       olhar. Antes era o contrario (base no ponto, ponta para fora), que
+       le como seta apontando para longe em vez de campo de visao.
+       border-top faz o triangulo apontar para BAIXO, ou seja, com o
+       vertice na aresta inferior da caixa. */
+    border-left: 22px solid transparent;
+    border-right: 22px solid transparent;
+    border-top: 34px solid rgba(137, 180, 250, 0.55);
+    position: absolute;
+
+    /* Vertice ancorado EXATAMENTE no centro do marcador, que e tambem o
+       ponto em torno do qual ele gira. */
+    top: 50%;
+    left: 50%;
+    transform-origin: 50% 100%;
+    transform: translate(-50%, -100%) rotate(0deg);
+    z-index: 1;
+}
+
+/* ================================================================
+   LOADING OVERLAY
+   ================================================================ */
+#loading-overlay {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(17, 17, 27, 0.85);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #313244;
+    border-top-color: #89b4fa;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ================================================================
+   PROJECT SELECTOR
+   ================================================================ */
+#project-selector {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: 48px;
+    z-index: 30;
+    background: #1e1e2e;
+    overflow-y: auto;
+}
+
+.project-selector__title {
+    font-size: 28px;
+    font-weight: 600;
+    color: #cdd6f4;
+}
+
+.project-selector__subtitle {
+    color: #a6adc8;
+    font-size: 15px;
+}
+
+.project-selector__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    width: 100%;
+    max-width: 900px;
+}
+
+.project-selector__card {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s;
+}
+
+.project-selector__card:hover {
+    border-color: #89b4fa;
+    transform: translateY(-2px);
+}
+
+.project-selector__card-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.project-selector__card-info {
+    color: #89b4fa;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+
+.project-selector__card-location {
+    color: #a6adc8;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.project-selector__error {
+    color: #f38ba8;
+    font-size: 15px;
+}
+
+/* ================================================================
+   CALIBRATION PANEL
+   ================================================================ */
+.cal-panel__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 100%;
+    color: #a6adc8;
+}
+
+.cal-panel__hint {
+    font-size: 11px;
+    color: #6c7086;
+}
+
+.cal-panel__section {
+    background: #1e1e2e;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+
+.cal-panel__title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #a6adc8;
+    margin-bottom: 10px;
+}
+
+
+
+
+
+
+
+/* ================================================================
+   GRID TOGGLE
+   ================================================================ */
+.cal-panel__section--grid {
+    padding: 8px 12px;
+}
+
+.cal-panel__grid-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #a6adc8;
+    cursor: pointer;
+}
+
+.cal-panel__grid-toggle input[type="checkbox"] {
+    accent-color: #89b4fa;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+/* ================================================================
+   INPUTS & SLIDERS
+   ================================================================ */
+.cal-panel__input {
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    color: #cdd6f4;
+    padding: 4px 8px;
+    font-size: 12px;
+    outline: none;
+    flex: 1;
+}
+
+.cal-panel__input:focus {
+    border-color: #89b4fa;
+}
+
+.cal-panel__input--narrow {
+    width: 70px;
+    flex: none;
+    text-align: right;
+}
+
+.cal-panel__slider-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.cal-panel__slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: #45475a;
+    border-radius: 2px;
+    outline: none;
+}
+
+.cal-panel__slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #89b4fa;
+    cursor: pointer;
+}
+
+.cal-panel__slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #89b4fa;
+    cursor: pointer;
+    border: none;
+}
+
+/* ================================================================
+   DELTA INDICATOR
+   ================================================================ */
+.cal-panel__delta {
+    font-size: 11px;
+    margin-bottom: 6px;
+}
+
+.cal-panel__delta--zero {
+    color: #6c7086;
+}
+
+.cal-panel__delta--changed {
+    color: #fab387;
+    font-weight: 600;
+}
+
+/* ================================================================
+   BUTTONS
+   ================================================================ */
+.cal-panel__btn {
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+.cal-panel__btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.cal-panel__btn--save {
+    background: #a6e3a1;
+    color: #1e1e2e;
+}
+
+.cal-panel__btn--save:hover:not(:disabled) {
+    background: #94e291;
+}
+
+.cal-panel__btn--discard {
+    background: #f38ba8;
+    color: #1e1e2e;
+}
+
+.cal-panel__btn--discard:hover:not(:disabled) {
+    background: #f07a9a;
+}
+
+.cal-panel__btn--small {
+    padding: 4px 10px;
+    font-size: 11px;
+}
+
+.cal-panel__btn--icon {
+    background: transparent;
+    border: 1px solid #45475a;
+    color: #a6adc8;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: monospace;
+    border-radius: 4px;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+
+.cal-panel__btn--icon:hover {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.cal-panel__btn--ghost {
+    background: transparent;
+    border: 1px solid #45475a;
+    color: #a6adc8;
+}
+
+.cal-panel__btn--ghost:hover:not(:disabled) {
+    border-color: #89b4fa;
+    color: #cdd6f4;
+}
+
+.cal-panel__btn--active {
+    background: #fab387 !important;
+    color: #1e1e2e !important;
+    border-color: #fab387 !important;
+}
+
+/* ================================================================
+   ACTIONS (moved near top, below photo + grid)
+   ================================================================ */
+.cal-panel__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.cal-panel__actions .cal-panel__btn {
+    flex: 1;
+}
+
+/* ================================================================
+   COLLAPSIBLE SECTIONS
+   ================================================================ */
+.cal-panel__collapsible-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.cal-panel__collapsible-header .cal-panel__title {
+    margin-bottom: 0;
+}
+
+.cal-panel__section-body .cal-panel__collapsible-header + & {
+    margin-top: 10px;
+}
+
+.cal-panel__title--collapsible {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.cal-panel__title--collapsible:hover {
+    color: #cdd6f4;
+}
+
+.cal-panel__chevron {
+    font-size: 10px;
+    width: 10px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.cal-panel__section-body {
+    margin-top: 10px;
+}
+
+.cal-panel__subtitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a6adc8;
+    margin-bottom: 6px;
+}
+
+.cal-panel__slider-section {
+    margin-bottom: 12px;
+}
+
+.cal-panel__slider-section:last-child {
+    margin-bottom: 0;
+}
+
+/* ================================================================
+   TARGET LIST
+   ================================================================ */
+.cal-panel__target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.cal-panel__target-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.cal-panel__target-item:hover {
+    background: #313244;
+}
+
+.cal-panel__target-item--selected {
+    background: rgba(250, 179, 135, 0.15);
+    border: 1px solid rgba(250, 179, 135, 0.3);
+}
+
+.cal-panel__target-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cal-panel__target-name {
+    font-size: 12px;
+    color: #cdd6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-panel__target-dist {
+    font-size: 11px;
+    color: #6c7086;
+    flex-shrink: 0;
+}
+
+.cal-panel__next-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: #89b4fa;
+    color: #1e1e2e;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+
+
+
+
+.cal-panel__btn--hidden-active {
+    background: rgba(166, 227, 161, 0.15);
+    border: 1px solid #a6e3a1;
+    color: #a6e3a1;
+}
+
+.cal-panel__target-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+/* ================================================================
+   HIDDEN TARGET STYLING
+   ================================================================ */
+.cal-panel__target-item--hidden {
+    opacity: 0.5;
+}
+
+.cal-panel__target-item--hidden .cal-panel__target-name {
+    text-decoration: line-through;
+}
+
+.cal-panel__hidden-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(243, 139, 168, 0.25);
+    color: #f38ba8;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+
+.cal-panel__btn--hidden-active:hover:not(:disabled) {
+    background: rgba(166, 227, 161, 0.25);
+}
+
+.cal-panel__btn--danger {
+    background: transparent;
+    border: 1px solid #f38ba8;
+    color: #f38ba8;
+}
+
+.cal-panel__btn--danger:hover:not(:disabled) {
+    background: rgba(243, 139, 168, 0.15);
+}
+
+/* ================================================================
+   NEARBY PHOTOS SECTION
+   ================================================================ */
+
+/* Escopo de andar da busca. So aparece em projeto COM andar declarado. */
+.cal-panel__select {
+    width: 100%;
+    margin: 2px 0 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    color: #e8e8e8;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+}
+
+/* Marca do andar, quando a vizinha esta em outro nivel. Ela existe para
+   o operador NAO ligar sem saber que atravessou o predio. */
+.cal-panel__nearby-floor {
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #ffd479;
+    background: rgba(255, 212, 121, 0.12);
+    border: 1px solid rgba(255, 212, 121, 0.35);
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.cal-panel__nearby-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cal-panel__nearby-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.cal-panel__nearby-item:hover {
+    background: #313244;
+}
+
+.cal-panel__nearby-item--previewing {
+    background: rgba(250, 179, 135, 0.15);
+    border: 1px solid rgba(250, 179, 135, 0.3);
+}
+
+.cal-panel__nearby-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.cal-panel__nearby-name {
+    font-size: 12px;
+    color: #a6adc8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-panel__nearby-dist {
+    font-size: 11px;
+    color: #6c7086;
+    flex-shrink: 0;
+}
+
+/* ================================================================
+   TOAST NOTIFICATIONS
+   ================================================================ */
+.cal-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+
+.cal-toast--visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.cal-toast--success {
+    background: #a6e3a1;
+    color: #1e1e2e;
+}
+
+.cal-toast--error {
+    background: #f38ba8;
+    color: #1e1e2e;
+}
+
+.cal-toast--info {
+    background: #89b4fa;
+    color: #1e1e2e;
+}
+
+/* ================================================================
+   DIRTY DIALOG
+   ================================================================ */
+.cal-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(17, 17, 27, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.cal-dialog {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+}
+
+.cal-dialog__title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.cal-dialog__text {
+    color: #a6adc8;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+.cal-dialog__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.cal-dialog__actions .cal-panel__btn {
+    flex: 1;
+}
+
+.cal-dialog__actions .cal-panel__btn--destructive {
+    background: #f38ba8;
+    color: #1e1e2e;
+    font-weight: 600;
+}
+
+.cal-dialog__actions .cal-panel__btn--destructive:hover {
+    background: #eba0ac;
+}
+
+/* ================================================================
+   REVIEW WORKFLOW — Navigation bar
+   ================================================================ */
+.cal-panel__review-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 4px;
+}
+
+.cal-panel__review-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    flex: 1;
+}
+
+.cal-panel__review-counter {
+    font-size: 11px;
+    color: #a6adc8;
+}
+
+.cal-panel__progress-bar,
+.project-selector__progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #313244;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.cal-panel__progress-fill,
+.project-selector__progress-fill {
+    height: 100%;
+    background: #a6e3a1;
+    border-radius: 2px;
+    transition: width 0.3s;
+}
+
+.cal-panel__photo-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.cal-panel__photo-counter {
+    font-size: 12px;
+    color: #cdd6f4;
+    font-weight: 500;
+}
+
+/* ================================================================
+   REVIEW WORKFLOW — Reviewed badge & actions
+   ================================================================ */
+.cal-panel__reviewed-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(166, 227, 161, 0.3);
+    color: #a6e3a1;
+    font-weight: 600;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.cal-panel__review-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #313244;
+}
+
+.cal-panel__review-actions .cal-panel__btn {
+    flex: 1;
+}
+
+.cal-panel__btn--reviewed {
+    background: #a6e3a1;
+    color: #1e1e2e;
+}
+
+.cal-panel__btn--reviewed:hover:not(:disabled) {
+    background: #94e291;
+}
+
+.cal-panel__btn--review-next {
+    background: #89b4fa;
+    color: #1e1e2e;
+    font-weight: 600;
+}
+
+.cal-panel__btn--review-next:hover:not(:disabled) {
+    background: #7ba8f0;
+}
+
+/* ================================================================
+   FAIXAS DE COLETA — uma sessao de gravacao por linha
+   ================================================================ */
+.cal-panel__run-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 6px;
+}
+
+.cal-panel__run-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    border: 1px solid transparent;
+}
+
+.cal-panel__run-item:hover { background: #313244; }
+
+.cal-panel__run-item--current {
+    background: rgba(137, 180, 250, 0.15);
+    border-color: rgba(137, 180, 250, 0.35);
+}
+
+.cal-panel__run-ord {
+    min-width: 20px;
+    text-align: right;
+    color: #6c7086;
+    flex-shrink: 0;
+}
+
+.cal-panel__run-label {
+    color: #cdd6f4;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.cal-panel__run-progress {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-end;
+}
+
+.cal-panel__run-bar {
+    flex: 1;
+    min-width: 24px;
+    height: 3px;
+    background: #45475a;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.cal-panel__run-fill {
+    display: block;
+    height: 100%;
+    background: #a6e3a1;
+}
+
+.cal-panel__run-count {
+    color: #6c7086;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* Faixa concluida: o rotulo verde deixa o operador varrer a lista e ver
+   de relance o que ainda falta, sem ler contador por contador. */
+.cal-panel__run-item--done .cal-panel__run-label { color: #a6e3a1; }
+
+.cal-panel__run-applied {
+    color: #89b4fa;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* ================================================================
+   ORIGEM DA CALIBRACAO e HORA DE CAPTURA
+   Ver calibration_source no schema.sql. "sem medida" nao e falha:
+   e foto cujo angulo veio do bloco da faixa, sem nada medido nela.
+   ================================================================ */
+.cal-panel__photo-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 3px;
+    font-size: 11px;
+    color: #9aa4b0;
+}
+
+.cal-panel__fonte {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    line-height: 15px;
+    white-space: nowrap;
+}
+
+.cal-panel__fonte--sol     { background: #6b5300; color: #ffd83b; }
+.cal-panel__fonte--imu     { background: #14405c; color: #63c7ff; }
+.cal-panel__fonte--manual  { background: #1c5230; color: #6ee79b; }
+.cal-panel__fonte--nenhuma { background: #33383f; color: #8b939c; }
+
+/* ================================================================
+   REVIEW WORKFLOW — Faixas colapsaveis
+   A faixa e a unidade real da calibracao: o angulo e praticamente
+   constante dentro dela, entao rever uma foto vale pela faixa.
+   ================================================================ */
+.cal-panel__faixa {
+    border-bottom: 1px solid #2a2f36;
+}
+
+.cal-panel__faixa-cab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: #c9d1d9;
+    background: #21262d;
+    list-style: none;
+    user-select: none;
+}
+
+.cal-panel__faixa-cab::-webkit-details-marker { display: none; }
+
+.cal-panel__faixa-cab::before {
+    content: '\25B8';
+    flex: none;
+    color: #7d868f;
+    transition: transform 0.12s;
+}
+
+.cal-panel__faixa[open] > .cal-panel__faixa-cab::before {
+    transform: rotate(90deg);
+}
+
+.cal-panel__faixa-cab:hover { background: #2b3138; }
+
+.cal-panel__faixa-nome {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cal-panel__faixa-num { flex: none; color: #8b939c; font-weight: 400; }
+.cal-panel__faixa-sol { flex: none; color: #ffd83b; font-weight: 400; }
+
+.cal-panel__faixa-fotos {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 0 4px;
+}
+
+/* ================================================================
+   REVIEW WORKFLOW — Photo list
+   ================================================================ */
+.cal-panel__photo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.cal-panel__photo-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background 0.15s;
+
+    /* A lista tem uma linha por foto do projeto — 17.590 no maior deles.
+       content-visibility deixa o navegador pular layout e pintura dos
+       itens fora da janela de 300px; contain-intrinsic-size reserva a
+       altura de uma linha para que a barra de rolagem continue com o
+       tamanho e a posicao corretos. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 21px;
+}
+
+.cal-panel__photo-item:hover {
+    background: #313244;
+}
+
+.cal-panel__photo-item--current {
+    background: rgba(137, 180, 250, 0.15);
+    border: 1px solid rgba(137, 180, 250, 0.3);
+}
+
+.cal-panel__photo-item--reviewed .cal-panel__photo-status {
+    color: #a6e3a1;
+}
+
+.cal-panel__photo-status {
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+    color: #585b70;
+}
+
+.cal-panel__photo-name {
+    flex: 1;
+    color: #cdd6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-panel__photo-seq {
+    color: #6c7086;
+    flex-shrink: 0;
+}
+
+/* ================================================================
+   PROJECT SELECTOR — Review stats
+   ================================================================ */
+.project-selector__review-stats {
+    margin-top: 8px;
+}
+
+.project-selector__review-text {
+    font-size: 11px;
+    color: #a6adc8;
+    display: block;
+    margin-top: 4px;
+}
+
+/* ================================================================
+   SCROLLBAR
+   ================================================================ */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #585b70;
+}
