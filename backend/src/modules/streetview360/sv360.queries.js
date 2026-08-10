@@ -120,9 +120,17 @@ export const GET_TARGETS_FOR_PHOTO = `
 
 // Nearby photos within a radius (true meters via ::geography). Excludes
 // tombstoned photos. lon/lat exposed from geom; distance returned in meters.
+//
+// floor_level / floor_label travel with the row because the CALLER decides on the
+// floor: GET /photos/nearest opens the photo the user clicked, and in an indoor
+// survey the photos stack vertically (91 of the Beira-Rio's 350 have a photo of
+// ANOTHER floor closer than 5 m in plan). Without the level the answer is "the
+// nearest point on the map", which is not the same thing as "the nearest photo the
+// user can be standing in", and nothing on screen says which floor was opened.
 //   $1 = lon, $2 = lat, $3 = radiusMeters, $4 = limit
 export const NEARBY_PHOTOS = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
+         p.floor_level, p.floor_label,
          ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
          ST_Distance(
            p.geom::geography,
@@ -216,4 +224,191 @@ export const LIST_PHOTOS_BY_PROJECT = `
   WHERE p.project_id = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
   ORDER BY p.sequence_number ASC
+`;
+
+// --- calibration reads (stage 2b) ------------------------------------------
+// The queries below feed the calibration workspace. They are READS, so they live
+// here next to their siblings; the access rule is applied by the service, which
+// resolves the project through GET_PROJECT_BY_SLUG first (the one exception is
+// REVIEW_STATS_ALL_PROJECTS, which has no slug to resolve and therefore carries
+// the filter itself).
+
+// Same directed adjacency as GET_TARGETS_FOR_PHOTO, but WITHOUT the
+// `hidden = false` filter and WITH the flag itself — the source of
+// `GET /photos/:uuid?include_hidden=true`.
+//
+// A SEPARATE constant rather than a parameter on the other one: the visible read
+// is the hot path of the viewer and it is served by
+// idx_sv360_targets_source, a PARTIAL index on `hidden = false`. A
+// `($2 OR t.hidden = false)` predicate cannot use a partial index, so folding the
+// two together would slow every panorama in the archive to spare one SQL constant.
+// Tombstoned destinations stay excluded here too: a link to a deleted photo is
+// unusable whether it is hidden or not.
+//   $1 = source photo id (TEXT uuid v5)
+export const GET_ALL_TARGETS_FOR_PHOTO = `
+  SELECT t.target_id, t.distance_m, t.bearing_deg, t.is_next, t.is_original,
+         t.override_bearing, t.override_distance, t.override_height, t.hidden,
+         tp.original_name AS target_name, tp.display_name AS target_display_name,
+         ST_X(tp.geom) AS target_lon, ST_Y(tp.geom) AS target_lat, tp.ele AS target_ele,
+         tp.floor_level AS target_floor_level, tp.floor_label AS target_floor_label
+  FROM sv360.targets t
+  JOIN sv360.photos tp ON tp.id = t.target_id
+  WHERE t.source_id = $1
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = t.target_id)
+  ORDER BY t.is_next DESC, t.distance_m ASC
+`;
+
+// Photos of the SAME project near a source photo and NOT yet linked to it — the
+// candidate list of the "connect this photo to that one" tool.
+//
+// Distance and bearing come from PostGIS (::geography = true meters, ST_Azimuth =
+// true forward azimuth), NOT from a hand-written haversine: the origin computes
+// both in JavaScript because SQLite has no geography type, and this house does.
+// ST_Azimuth is NULL for two coincident points (an exactly duplicated position),
+// where a bearing has no meaning; COALESCE keeps the column a number so the caller
+// never has to special-case it, exactly like the origin's atan2(0, 0) = 0.
+//
+// The floor filter is NOT cosmetic. The GiST index is 2D and an indoor survey
+// stacks photos vertically: in the Beira-Rio, 91 of 350 photos have a photo of
+// ANOTHER floor closer than 5 m in plan, the nearest at 0.7 m, against an 8 to 13 m
+// step inside the floor itself. Without it the tool offers the 5th floor to an
+// operator standing on the ground, and the link created from there crosses the
+// building. `$3 IS NULL` disables it, which is what a flat project wants.
+//   $1 = source photo id, $2 = radius meters, $3 = floor level (int, nullable)
+export const NEARBY_UNLINKED_PHOTOS = `
+  SELECT p.id, p.original_name, p.display_name, p.sequence_number,
+         ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
+         p.floor_level, p.floor_label,
+         ST_Distance(p.geom::geography, src.geom::geography) AS distance_m,
+         COALESCE(degrees(ST_Azimuth(src.geom, p.geom)), 0) AS bearing_deg
+  FROM sv360.photos src
+  JOIN sv360.photos p
+    ON p.project_id = src.project_id
+   AND p.id <> src.id
+  WHERE src.id = $1
+    AND ST_DWithin(p.geom::geography, src.geom::geography, $2)
+    AND ($3::int IS NULL OR p.floor_level = $3::int)
+    AND NOT EXISTS (
+      SELECT 1 FROM sv360.targets t WHERE t.source_id = src.id AND t.target_id = p.id
+    )
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+  ORDER BY distance_m ASC
+`;
+
+// Every photo of a project as the calibration LIST sees it: what to review, in
+// what order, and how far the review got.
+//
+// run_id / run_position travel with each photo so the client can build the
+// per-run navigation in memory instead of one request per run. They are NULL for
+// the whole archive today (nothing derives runs yet); a NULL there means "this
+// project has no runs", which is the pre-run behaviour, not an error.
+//   $1 = project id (uuid)
+export const PROJECT_CALIBRATION_PHOTOS = `
+  SELECT p.id, p.original_name, p.display_name, p.sequence_number,
+         p.calibration_reviewed, p.run_id, p.run_position,
+         p.calibration_source, p.capture_date,
+         p.floor_level, p.floor_label
+  FROM sv360.photos p
+  WHERE p.project_id = $1::uuid
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+  ORDER BY p.sequence_number ASC
+`;
+
+// Review counters of ONE project (the progress bar of the calibration header).
+//   $1 = project id (uuid)
+export const REVIEW_STATS_BY_PROJECT = `
+  SELECT COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE p.calibration_reviewed)::int AS reviewed
+  FROM sv360.photos p
+  WHERE p.project_id = $1::uuid
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+`;
+
+// Review counters of EVERY readable project, in ONE scan.
+//
+// The project picker draws a progress bar per project and nothing else. Getting
+// those two numbers from /projects/:slug/photos, one call per project, pulled the
+// whole archive (99.040 photos) across the wire to add up 29 pairs of integers.
+//
+// The access rule is EMBEDDED HERE (defense in depth) because there is no slug for
+// the service to resolve first: an `enabled` project is public, a `disabled` one
+// only reaches its owning org or a global admin.
+//
+// GROUPED BY SLUG, not by project id: the response is an object keyed by slug, and
+// a slug is UNIQUE ONLY PER ORGANIZATION. Two orgs sharing a slug would otherwise
+// produce two rows for one key and the second would silently overwrite the first.
+// Adding them keeps the number honest about everything the caller can see; it is
+// also the only case where this endpoint and GET /projects/:slug (which prefers the
+// caller's own org) describe different sets, and there is no cross-org slug
+// collision in the current corpus.
+//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+export const REVIEW_STATS_ALL_PROJECTS = `
+  SELECT pr.slug,
+         COUNT(p.id)::int AS total,
+         COUNT(p.id) FILTER (WHERE p.calibration_reviewed)::int AS reviewed
+  FROM sv360.projects pr
+  LEFT JOIN sv360.photos p
+    ON p.project_id = pr.id
+   AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+  WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
+  GROUP BY pr.slug
+  ORDER BY pr.slug
+`;
+
+// Everything the calibration MAP draws, one row per photo: position, review state
+// and the three angles, so the operator sees the parameters without opening the
+// photo.
+//
+// floor_level travels along because without it the Beira-Rio map draws 6 floors
+// stacked on the same point and the operator cannot tell which one is being
+// clicked.
+//   $1 = project id (uuid)
+export const MAP_PHOTOS_BY_PROJECT = `
+  SELECT p.id, p.display_name, p.sequence_number,
+         ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat,
+         p.heading, p.mesh_rotation_y, p.mesh_rotation_x, p.mesh_rotation_z,
+         p.calibration_reviewed, p.floor_level, p.floor_label
+  FROM sv360.photos p
+  WHERE p.project_id = $1::uuid
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+  ORDER BY p.sequence_number ASC
+`;
+
+// The capture TRACK of a project, one array of [lon, lat] per LineString.
+//
+// `sv360.tracks` holds the SEPARATE stretches the survey actually drove (3.236 of
+// them in the archive; the `1pef` project alone has 34). They are returned as
+// separate arrays and never joined: a single polyline jumps from the end of one
+// stretch to the start of the next and draws a path nobody travelled.
+//   $1 = project id (uuid)
+export const TRACKS_BY_PROJECT = `
+  SELECT ST_AsGeoJSON(t.geom)::json -> 'coordinates' AS coords
+  FROM sv360.tracks t
+  WHERE t.project_id = $1::uuid
+  ORDER BY t.id
+`;
+
+// The capture RUNS of a project, with per-run review progress in one scan.
+//
+// The LEFT JOIN is deliberate: a run whose photos were all soft-deleted still has
+// to appear, otherwise the ordinals show a hole the interface cannot explain.
+//
+// TODAY THIS ANSWERS EMPTY FOR EVERY PROJECT. `sv360.capture_runs` exists
+// (migration 013) but nothing populates it yet: the derivation from original_name
+// (sv360.capture-runs.js) has no ETL calling it, and sv360.photos.run_id is NULL
+// across the whole archive. An empty list is the honest answer for "this project
+// has no runs" and is exactly what the pre-run interface expects.
+//   $1 = project id (uuid)
+export const RUNS_BY_PROJECT = `
+  SELECT cr.id, cr.session_key, cr.label, cr.started_at, cr.ordinal,
+         cr.applied_rotation_y, cr.applied_rotation_x, cr.applied_rotation_z,
+         COUNT(p.id)::int AS total,
+         COUNT(p.id) FILTER (WHERE p.calibration_reviewed)::int AS reviewed
+  FROM sv360.capture_runs cr
+  LEFT JOIN sv360.photos p
+    ON p.run_id = cr.id
+   AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+  WHERE cr.project_id = $1::uuid
+  GROUP BY cr.id
+  ORDER BY cr.ordinal ASC
 `;

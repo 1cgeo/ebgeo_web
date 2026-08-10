@@ -108,3 +108,65 @@ export const SOFT_DELETE_PHOTO = `
   VALUES ($1)
   ON CONFLICT (photo_id) DO NOTHING
 `;
+
+// --- batch calibration by PROJECT / by RUN (stage 2b) -----------------------
+// These two apply ONE default to MANY photos at once. Both write straight into
+// sv360.photos, which stays the single truth of a photo's calibration.
+
+// Contract field name -> real column for the batch routes. DELIBERATELY smaller
+// than CALIBRATION_COLUMN_WHITELIST above: applying one default to a whole project
+// only makes sense for the three MOUNTING angles, which are constant while the
+// camera rig does not move. Everything else in the per-photo whitelist is
+// per-photo by nature (heading, scales, floor_level) or is the review flag, which
+// has its own endpoint. Same rule as the per-photo path: column names come ONLY
+// from this map, never from input keys.
+export const ROTATION_COLUMN_WHITELIST = {
+  mesh_rotation_y: 'mesh_rotation_y',
+  mesh_rotation_x: 'mesh_rotation_x',
+  mesh_rotation_z: 'mesh_rotation_z',
+};
+
+// The WHERE clause of the two batch UPDATEs, as a marker of the invariant the
+// service always appends. The SET list is assembled from the whitelist above.
+// Tombstoned photos are excluded: a deleted photo is not part of the project any
+// more, and counting it in `photosUpdated` would report work that nobody sees.
+export const BATCH_ROTATION_SCOPE = {
+  project: 'project_id = $1::uuid',
+  run: 'run_id = $1::uuid',
+};
+
+// Clears the review flag of every live photo of a project.
+//   $1 = project id (uuid)
+export const BATCH_RESET_REVIEWED = `
+  UPDATE sv360.photos
+     SET calibration_reviewed = false, updated_at = now()
+   WHERE project_id = $1::uuid
+     AND id NOT IN (SELECT photo_id FROM sv360.deleted_photos)
+`;
+
+// One capture run plus its project context, for the ownership ladder of
+// PUT /runs/:runId/batch-calibration. The run has no slug, so this is the only
+// way the write path can resolve which organization owns it.
+//   $1 = capture run id (uuid)
+export const GET_RUN_FOR_WRITE = `
+  SELECT cr.id, cr.label, cr.ordinal, cr.project_id,
+         pr.organization_id, pr.status AS project_status, pr.slug AS project_slug
+  FROM sv360.capture_runs cr
+  JOIN sv360.projects pr ON pr.id = cr.project_id
+  WHERE cr.id = $1::uuid
+`;
+
+// Records the last default applied to a run, so the interface can say "run
+// calibrated at 337 degrees". It is a RECORD, never inheritance: the truth of the
+// calibration stays in sv360.photos.
+//
+// COALESCE preserves the axes this batch did not touch — applying only the roll
+// must not erase the memory of the heading applied before.
+//   $1 = run id (uuid), $2 = y, $3 = x, $4 = z (each nullable)
+export const UPDATE_RUN_APPLIED = `
+  UPDATE sv360.capture_runs SET
+    applied_rotation_y = COALESCE($2::double precision, applied_rotation_y),
+    applied_rotation_x = COALESCE($3::double precision, applied_rotation_x),
+    applied_rotation_z = COALESCE($4::double precision, applied_rotation_z)
+  WHERE id = $1::uuid
+`;

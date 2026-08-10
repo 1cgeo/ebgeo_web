@@ -113,3 +113,42 @@ export const nearbyQuerySchema = Joi.object({
   lon: Joi.number().min(-180).max(180).required(),
   radius: Joi.number().positive().max(50000),
 }).unknown(true);
+
+// --- stage 2b ---------------------------------------------------------------
+
+// ?include_hidden=true on GET /photos/:uuid — ask for the HIDDEN links too.
+//
+// Default false, so every existing caller keeps the visible-only array it has
+// always received and the frozen shape does not move. Only the calibration
+// workspace asks for the hidden ones, because hiding a link is reversible and an
+// operator cannot un-hide what the API refuses to show.
+export const photoQuerySchema = Joi.object({
+  include_hidden: Joi.boolean().default(false),
+}).unknown(true);
+
+// ?lon=&lat= on GET /photos/nearest — the point the user clicked.
+//
+// Both REQUIRED and range-checked, so a malformed coordinate is a clean 422 that
+// never reaches PostGIS. 404 is reserved for a well-formed point with no photo
+// near it, which is a different answer and the client treats it differently.
+export const nearestQuerySchema = Joi.object({
+  lon: Joi.number().min(-180).max(180).required(),
+  lat: Joi.number().min(-90).max(90).required(),
+}).unknown(true);
+
+// ?radius=&floor= on GET /photos/:uuid/nearby.
+//
+// NEITHER IS BOUNDED HERE, on purpose. The origin CLAMPS the radius into
+// [1, 1000] m instead of rejecting it (ebgeo_360 src/routes/calibration.js), so a
+// schema bound would 422 a value the endpoint has always accepted — the exact
+// contract break the header of sv360.write.schemas.js warns about. The clamp
+// lives in the service, where the origin put it. Joi only asserts the TYPE, which
+// is what keeps a non-numeric string out of the SQL.
+//
+// `floor` is either the literal 'all' (drop the floor filter) or an integer level
+// (fix one level). Absent means "the source photo's own floor", which is the
+// pre-floors behaviour and cannot be expressed as a value here.
+export const nearbyPhotosQuerySchema = Joi.object({
+  radius: Joi.number(),
+  floor: Joi.alternatives().try(Joi.string().valid('all'), Joi.number().integer()),
+}).unknown(true);

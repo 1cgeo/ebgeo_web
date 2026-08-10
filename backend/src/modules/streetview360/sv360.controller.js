@@ -86,9 +86,61 @@ export const getProjectFloors = asyncHandler(async (req, res) => {
   res.json({ floors });
 });
 
-// GET /sv360/photos/:uuid — bare frozen photoMetadataShape.
+// GET /sv360/photos/:uuid[?include_hidden=true] — bare frozen photoMetadataShape.
+// Without the flag the targets array is the visible-only one it has always been.
 export const getPhoto = asyncHandler(async (req, res) => {
-  res.json(await svc.getPhoto(req.params.uuid, req.user));
+  res.json(
+    await svc.getPhoto(req.params.uuid, req.user, {
+      includeHidden: req.query?.include_hidden === true,
+    })
+  );
+});
+
+// GET /sv360/photos/nearest?lon=&lat= — the photo nearest to a point, WRAPPED in
+// { photo } (this one key is the contract the map client reads; the bare-object
+// shape of the neighbouring reads does not apply here). 404 when nothing is near.
+//
+// THE ROUTE ORDER IS LOAD-BEARING, see sv360.routes.js: declared AFTER
+// '/photos/:uuid' this handler would never run, 'nearest' would be validated as a
+// uuid and the answer would be 422 instead of 404. The client does
+// `if (!response.ok) return null`, so the defect would be completely silent.
+export const nearestPhoto = asyncHandler(async (req, res, next) => {
+  const photo = await svc.nearestPhoto(req.query.lon, req.query.lat, req.user);
+  if (!photo) return next(new NotFoundError('Photo'));
+  return res.json({ photo });
+});
+
+// GET /sv360/photos/:uuid/nearby?radius=&floor= — same-project photos not yet
+// linked to :uuid, nearest first, WRAPPED in { photos }.
+export const nearbyPhotos = asyncHandler(async (req, res) => {
+  const photos = await svc.nearbyUnlinkedPhotos(
+    req.params.uuid,
+    { radius: req.query?.radius, floor: req.query?.floor },
+    req.user
+  );
+  res.json({ photos });
+});
+
+// GET /sv360/projects/review-stats — { stats: { <slug>: { total, reviewed } } }.
+// STATIC path, declared BEFORE '/projects/:slug' (see sv360.routes.js).
+export const reviewStats = asyncHandler(async (req, res) => {
+  res.json({ stats: await svc.reviewStatsAllProjects(req.user) });
+});
+
+// GET /sv360/projects/:slug/photos — the calibration list + its review counters.
+export const getProjectPhotos = asyncHandler(async (req, res) => {
+  res.json(await svc.projectCalibrationPhotos(req.params.slug, req.user));
+});
+
+// GET /sv360/projects/:slug/map — everything the calibration map draws.
+export const getProjectMap = asyncHandler(async (req, res) => {
+  res.json(await svc.projectMap(req.params.slug, req.user));
+});
+
+// GET /sv360/projects/:slug/runs — the capture runs, WRAPPED in { runs }. Empty
+// for every project until the run derivation exists.
+export const getProjectRuns = asyncHandler(async (req, res) => {
+  res.json({ runs: await svc.projectRuns(req.params.slug, req.user) });
 });
 
 // GET /sv360/photos/by-name/:nome — bare frozen photoMetadataShape.

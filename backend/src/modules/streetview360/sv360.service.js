@@ -109,6 +109,28 @@ function floorPlanToGeoJson(planCoords, level) {
 }
 
 /**
+ * Resolves a project by slug for a READ, applying the module's single access
+ * rule, and returns the row.
+ *
+ * Extracted because every stage-2b calibration read starts the same way and the
+ * pattern is load-bearing: the SQL already filters, and enforceProjectReadable
+ * re-checks, so a hidden project answers 404 exactly like `getProject` does. A
+ * second, looser way in is how a hidden project leaks.
+ * @param {string} slug
+ * @param {Object} [user]
+ * @returns {Promise<Object>} the sv360.projects row (NOT the public view)
+ * @throws {NotFoundError} if missing or hidden from the caller
+ */
+async function resolveReadableProject(slug, user) {
+  const isAdmin = user?.role === 'admin';
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, isAdmin, user?.organization_id ?? null]);
+  const project = rows[0];
+  if (!project) throw new NotFoundError('Project');
+  enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
+  return project;
+}
+
+/**
  * Lists the floors of a project, in ascending `level` order.
  *
  * Access is the SAME rule as every other project read: the project is resolved by
@@ -126,15 +148,7 @@ function floorPlanToGeoJson(planCoords, level) {
  * @throws {NotFoundError} if the project is missing or hidden from the caller
  */
 export async function listProjectFloors(slug, user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows: projectRows } = await query(Q.GET_PROJECT_BY_SLUG, [
-    slug,
-    isAdmin,
-    user?.organization_id ?? null,
-  ]);
-  const project = projectRows[0];
-  if (!project) throw new NotFoundError('Project');
-  enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
+  const project = await resolveReadableProject(slug, user);
 
   const { rows } = await query(Q.LIST_PROJECT_FLOORS, [project.id]);
   return rows.map((r) => ({
@@ -219,19 +233,30 @@ function publicProjectView(project, user) {
 
 /**
  * Gets a photo by id and returns the FROZEN photoMetadataShape (camera + targets).
+ *
+ * `includeHidden` adds the links an operator has hidden, each carrying `hidden:
+ * true|false`. It is OPT-IN and defaults to off, so the viewer keeps receiving
+ * exactly the array it always did. The calibration workspace needs it because
+ * hiding a link is REVERSIBLE and an operator cannot un-hide what the API refuses
+ * to show: without this flag a mistaken hide is permanent through the API.
  * @param {string} uuid - photo id (TEXT uuid v5)
  * @param {Object} [user]
+ * @param {Object} [opts]
+ * @param {boolean} [opts.includeHidden=false] - also return hidden links
  * @returns {Promise<Object>} frozen photo metadata
  * @throws {NotFoundError} if missing/tombstoned or its project is hidden
  */
-export async function getPhoto(uuid, user) {
+export async function getPhoto(uuid, user, { includeHidden = false } = {}) {
   const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid]);
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(photo), user, 'Photo');
 
-  const { rows: targets } = await query(Q.GET_TARGETS_FOR_PHOTO, [photo.id]);
-  return buildPhotoMetadata(photo, targets);
+  const { rows: targets } = await query(
+    includeHidden ? Q.GET_ALL_TARGETS_FOR_PHOTO : Q.GET_TARGETS_FOR_PHOTO,
+    [photo.id]
+  );
+  return buildPhotoMetadata(photo, targets, { includeHidden });
 }
 
 /**
@@ -313,7 +338,276 @@ export async function nearby(lon, lat, radius, user) {
       projectSlug: r.project_slug,
       sequence_number: r.sequence_number,
       distance: r.distance_m,
+      // ADDITIVE (stage 2b): the floor this photo stands on. `distance` is the
+      // distance IN PLAN and it MISLEADS indoors — the photo directly overhead
+      // shows up at 0.7 m. The level is what tells the caller which of the stacked
+      // photos it just got. Null-safe: a flat project has no label to give.
+      floor_level: r.floor_level,
+      floor_label: r.floor_label ?? null,
     }));
+}
+
+// --- calibration reads (stage 2b) ------------------------------------------
+
+/**
+ * Search radii of GET /photos/nearest, in METERS, tried smallest first.
+ *
+ * Ported from the origin's RAIOS_BUSCA (degrees of latitude: 0.003, 0.02, 0.15, 1)
+ * and converted at 111.320 m per degree. 330 m covers a click straight on the
+ * line; 111 km covers a click on a 1-pixel trace seen from above the state.
+ * Without the last step, clicking a line with the map zoomed out opens nothing.
+ * @constant {number[]}
+ */
+const NEAREST_SEARCH_RADII_M = [330, 2200, 16700, 111000];
+
+/**
+ * The photo closest to an arbitrary point, or null.
+ *
+ * WHY THIS EXISTS: the map used to find the photo nearest to a click with
+ * querySourceFeatures over the tiles ALREADY DRAWN, which tied the answer to what
+ * was painted — below the source's minimum zoom there is no tile, so the click did
+ * nothing. Here the answer comes from the database, so it holds at any zoom and
+ * returns the photo REALLY nearest, not the nearest among those that survived the
+ * tile's thinning.
+ *
+ * It REUSES `nearby()`, which already carries the per-project access filter, so
+ * there is no second path to a hidden project's photos. That reuse has one bound
+ * worth naming: `nearby()` caps at the 100 nearest rows BEFORE the readability
+ * filter, so a caller surrounded by 100 unreadable photos would be told there is
+ * nothing near. Every project in the corpus is `enabled`, so the cap has no effect
+ * today; the alternative is a second query with the filter inlined in SQL.
+ * @param {number} lon
+ * @param {number} lat
+ * @param {Object} [user]
+ * @returns {Promise<Object|null>} the nearest readable photo, or null
+ */
+export async function nearestPhoto(lon, lat, user) {
+  for (const radius of NEAREST_SEARCH_RADII_M) {
+    const rows = await nearby(lon, lat, radius, user);
+    // `nearby` orders by distance ascending, so the head IS the nearest one.
+    if (rows.length > 0) return rows[0];
+  }
+  return null;
+}
+
+/**
+ * Photos of the same project near a source photo and not yet linked to it.
+ *
+ * FLOOR: absent `floor` keeps the SOURCE photo's own level, which is the safe
+ * default (the index is 2D and indoor photos stack). `'all'` drops the filter,
+ * which is what the stairwells and the tunnels need: of the Beira-Rio's 894 links,
+ * 84 do cross a level. An explicit integer pins one level.
+ *
+ * RADIUS: CLAMPED into [1, 1000] m, never rejected — the origin clamps, and a
+ * negative radius would otherwise return an empty list that reads as "no
+ * neighbours" instead of "bad input", while a huge one would scan the project.
+ * @param {string} uuid - source photo id
+ * @param {Object} [opts]
+ * @param {number} [opts.radius=100] - meters, clamped to [1, 1000]
+ * @param {string|number} [opts.floor] - 'all', a level, or undefined
+ * @param {Object} [user]
+ * @returns {Promise<Array>} candidate photos, nearest first
+ * @throws {NotFoundError} if the source photo is missing/tombstoned or hidden
+ */
+export async function nearbyUnlinkedPhotos(uuid, { radius, floor } = {}, user) {
+  const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid]);
+  const source = rows[0];
+  if (!source) throw new NotFoundError('Photo');
+  enforceProjectReadable(photoProject(source), user, 'Photo');
+
+  const parsed = Number(radius);
+  const radiusMeters = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 1000) : 100;
+
+  let floorFilter;
+  if (floor === 'all') floorFilter = null;
+  else if (floor === undefined) floorFilter = source.floor_level;
+  else floorFilter = Number(floor);
+
+  const { rows: candidates } = await query(Q.NEARBY_UNLINKED_PHOTOS, [
+    uuid,
+    radiusMeters,
+    floorFilter,
+  ]);
+
+  return candidates.map((c) => ({
+    id: c.id,
+    img: c.original_name,
+    display_name: c.display_name,
+    sequence_number: c.sequence_number,
+    lon: c.lon,
+    lat: c.lat,
+    ele: c.ele,
+    // The floor goes out so the filter is AUDITABLE from outside: a floor leak
+    // would otherwise be invisible without opening the database, and under
+    // `floor=all` this is the only thing stopping an operator from linking across
+    // the building without noticing.
+    floor_level: c.floor_level,
+    floor_label: c.floor_label ?? null,
+    // Distance IN PLAN, the same measure as the radius, rounded to the centimeter.
+    distance: Math.round(c.distance_m * 100) / 100,
+    // Adds the height difference. It only means something where `ele` is
+    // populated: measured on the Beira-Rio, 207 of 350 photos carry ele = 0 and
+    // what exists does not follow the floor. Where the data is poor the two
+    // distances simply coincide, and the LABEL is what separates the floors.
+    distance3d:
+      Math.round(Math.hypot(c.distance_m, (c.ele ?? 0) - (source.ele ?? 0)) * 100) / 100,
+    bearing: Math.round(c.bearing_deg * 100) / 100,
+  }));
+}
+
+/**
+ * Every photo of a project as the calibration LIST needs it, plus the review
+ * counters.
+ *
+ * A project with NO photos answers an EMPTY list, never 404 — same rule as
+ * `listProjectFloors`. 404 here is reserved for a slug that does not exist or that
+ * the caller may not see. The origin 404s an empty project because it had no
+ * concept of a hidden one, so there the two cases were indistinguishable anyway.
+ * @param {string} slug
+ * @param {Object} [user]
+ * @returns {Promise<{photos: Array, reviewStats: {total: number, reviewed: number}}>}
+ * @throws {NotFoundError} if the project is missing or hidden from the caller
+ */
+export async function projectCalibrationPhotos(slug, user) {
+  const project = await resolveReadableProject(slug, user);
+
+  const { rows } = await query(Q.PROJECT_CALIBRATION_PHOTOS, [project.id]);
+  const { rows: stats } = await query(Q.REVIEW_STATS_BY_PROJECT, [project.id]);
+
+  return {
+    photos: rows.map((p) => ({
+      id: p.id,
+      img: p.original_name,
+      display_name: p.display_name,
+      sequence_number: p.sequence_number,
+      reviewed: Boolean(p.calibration_reviewed),
+      // NULL across the whole archive until the run derivation exists. The client
+      // reads a null runId as "this project has no runs" and falls back to the
+      // flat list, which is the pre-run behaviour.
+      runId: p.run_id,
+      runPosition: p.run_position,
+      // 'sol', 'imu', 'manual' or null (no measurement over this photo).
+      calibrationSource: p.calibration_source ?? null,
+      // The origin calls this column `captured_at`; this house stores the SAME
+      // parameter in sv360.photos.capture_date (migration 013 says so explicitly).
+      capturedAt: p.capture_date ?? null,
+      floor_level: p.floor_level,
+      floor_label: p.floor_label ?? null,
+    })),
+    reviewStats: { total: stats[0].total, reviewed: stats[0].reviewed },
+  };
+}
+
+/**
+ * Review counters of every project the caller can see, keyed by slug.
+ * @param {Object} [user]
+ * @returns {Promise<Object>} { <slug>: { total, reviewed } }
+ */
+export async function reviewStatsAllProjects(user) {
+  const isAdmin = user?.role === 'admin';
+  const { rows } = await query(Q.REVIEW_STATS_ALL_PROJECTS, [
+    isAdmin,
+    user?.organization_id ?? null,
+  ]);
+  const stats = {};
+  for (const row of rows) {
+    stats[row.slug] = { total: row.total, reviewed: row.reviewed };
+  }
+  return stats;
+}
+
+/**
+ * Everything the calibration MAP draws for ONE project: the photos with their
+ * three angles, the driven track, the bounding box and the review counters.
+ *
+ * ONE project, always: the map exists to review ONE survey, and merging projects
+ * would only inflate the payload without serving anyone.
+ * @param {string} slug
+ * @param {Object} [user]
+ * @returns {Promise<Object>} { slug, photos, track, bounds, reviewStats }
+ * @throws {NotFoundError} if the project is missing or hidden from the caller
+ */
+export async function projectMap(slug, user) {
+  const project = await resolveReadableProject(slug, user);
+
+  const { rows } = await query(Q.MAP_PHOTOS_BY_PROJECT, [project.id]);
+  const { rows: trackRows } = await query(Q.TRACKS_BY_PROJECT, [project.id]);
+  const { rows: stats } = await query(Q.REVIEW_STATS_BY_PROJECT, [project.id]);
+
+  const photos = rows.map((p) => ({
+    id: p.id,
+    display_name: p.display_name,
+    sequence_number: p.sequence_number,
+    lon: p.lon,
+    lat: p.lat,
+    heading: p.heading,
+    mesh_rotation_y: p.mesh_rotation_y,
+    mesh_rotation_x: p.mesh_rotation_x,
+    mesh_rotation_z: p.mesh_rotation_z,
+    reviewed: Boolean(p.calibration_reviewed),
+    floor_level: p.floor_level,
+    floor_label: p.floor_label ?? null,
+  }));
+
+  // Accumulated in ONE pass instead of Math.min(...lons): the biggest project has
+  // 17.590 photos, and spreading an array that long into a call is what blows the
+  // argument limit — a crash that only appears on the largest survey.
+  let bounds = null;
+  for (const p of rows) {
+    if (p.lon === null || p.lat === null) continue;
+    if (!bounds) bounds = [p.lon, p.lat, p.lon, p.lat];
+    else {
+      if (p.lon < bounds[0]) bounds[0] = p.lon;
+      if (p.lat < bounds[1]) bounds[1] = p.lat;
+      if (p.lon > bounds[2]) bounds[2] = p.lon;
+      if (p.lat > bounds[3]) bounds[3] = p.lat;
+    }
+  }
+
+  return {
+    slug: project.slug,
+    photos,
+    // One array of [lon, lat] per stretch. Empty for a project whose track was
+    // never imported, which is most of them: 3.236 stretches cover 17 of the 29
+    // projects. An empty array draws no line; it does not break the map.
+    track: trackRows.map((t) => t.coords),
+    bounds,
+    reviewStats: { total: stats[0].total, reviewed: stats[0].reviewed },
+  };
+}
+
+/**
+ * The capture runs of a project, with per-run review progress.
+ *
+ * Answers an EMPTY list (never 404) for a project that exists but has no runs: the
+ * interface treats "no runs" as the pre-run mode, and a 404 here would make the
+ * panel look broken. That is the answer for EVERY project today — sv360.capture_runs
+ * exists (migration 013) but nothing derives runs yet.
+ * @param {string} slug
+ * @param {Object} [user]
+ * @returns {Promise<Array>} runs in ordinal order
+ * @throws {NotFoundError} if the project is missing or hidden from the caller
+ */
+export async function projectRuns(slug, user) {
+  const project = await resolveReadableProject(slug, user);
+
+  const { rows } = await query(Q.RUNS_BY_PROJECT, [project.id]);
+  return rows.map((r) => ({
+    id: r.id,
+    sessionKey: r.session_key,
+    label: r.label,
+    ordinal: r.ordinal,
+    startedAt: r.started_at,
+    total: r.total,
+    reviewed: r.reviewed,
+    // RECORD of the last default applied, so the interface can say "run calibrated
+    // at 337 degrees". Never inheritance: sv360.photos stays the only truth.
+    applied: {
+      mesh_rotation_y: r.applied_rotation_y,
+      mesh_rotation_x: r.applied_rotation_x,
+      mesh_rotation_z: r.applied_rotation_z,
+    },
+  }));
 }
 
 /**
@@ -444,7 +738,7 @@ function photoProject(photo) {
  * @param {Array}  targets - rows from GET_TARGETS_FOR_PHOTO
  * @returns {Object} frozen photoMetadataShape (bare object, not wrapped in {data})
  */
-export function buildPhotoMetadata(photo, targets) {
+export function buildPhotoMetadata(photo, targets, { includeHidden = false } = {}) {
   return {
     camera: {
       id: photo.id,
@@ -499,6 +793,10 @@ export function buildPhotoMetadata(photo, targets) {
       override_bearing: t.override_bearing,
       override_distance: t.override_distance,
       override_height: t.override_height,
+      // Present ONLY under include_hidden. The default read never carries the key,
+      // because there the array is hidden-free by construction and a constant
+      // `hidden: false` on every target would be noise the viewer has to ignore.
+      ...(includeHidden ? { hidden: Boolean(t.hidden) } : {}),
     })),
   };
 }

@@ -99,3 +99,27 @@ export const softDeletePhoto = asyncHandler(async (req, res) => {
 export const batchCalibration = asyncHandler(async (req, res) => {
   res.json(await wsvc.batchCalibration(req.body.photos, req.user));
 });
+
+// --- batch by PROJECT / by RUN (stage 2b) ----------------------------------
+// These write ONE default onto MANY photos and are therefore all-or-nothing (one
+// transaction), unlike POST /photos/batch-calibration, which is per-item with
+// partial failure because its items may span different projects.
+
+// PUT /sv360/projects/:slug/batch-calibration — one rotation default for every
+// live photo of the project. 200, bare { ok, slug, updated }.
+export const batchCalibrateProject = asyncHandler(async (req, res) => {
+  res.json(await wsvc.batchCalibrateProject(req.params.slug, req.body, req.user));
+});
+
+// POST /sv360/projects/:slug/reset-reviewed — clears the review flag of every
+// live photo of the project. 200, bare { ok, slug, photosReset }.
+export const resetProjectReviewed = asyncHandler(async (req, res) => {
+  res.json(await wsvc.resetProjectReviewed(req.params.slug, req.user));
+});
+
+// PUT /sv360/runs/:runId/batch-calibration — one rotation default for every live
+// photo of the capture run. 200, bare { ok, runId, label, updated }. 404 for every
+// runId today: nothing derives runs yet, so sv360.capture_runs is empty.
+export const batchCalibrateRun = asyncHandler(async (req, res) => {
+  res.json(await wsvc.batchCalibrateRun(req.params.runId, req.body, req.user));
+});

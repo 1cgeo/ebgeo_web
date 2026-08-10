@@ -269,3 +269,155 @@ export async function batchCalibration(items, user) {
 
   return { updated, failed };
 }
+
+// --- batch by PROJECT / by RUN (stage 2b) ----------------------------------
+
+// Loads the project row for a WRITE by slug and applies the ownership ladder.
+//
+// Resolution goes through the READ query GET_PROJECT_BY_SLUG on purpose: a slug is
+// unique only per organization, and that query is the one place that resolves the
+// collision deterministically (own org first, then enabled). Resolving it any other
+// way would let a writer address another org's project by slug.
+async function loadWritableProject(slug, user, executor = query) {
+  const isAdmin = user?.role === 'admin';
+  const { rows } = await executor(Q.GET_PROJECT_BY_SLUG, [
+    slug,
+    isAdmin,
+    user?.organization_id ?? null,
+  ]);
+  const project = rows[0];
+  if (!project) throw new NotFoundError('Project');
+  enforceProjectWritable(project, user, 'Project');
+  return project;
+}
+
+/**
+ * Builds ONE parametrized batch UPDATE over sv360.photos from the rotation
+ * whitelist. Column names come ONLY from ROTATION_COLUMN_WHITELIST (never from
+ * input keys); values bind as $2..$N and $1 is the scope id (project or run).
+ *
+ * `calibration_source = 'manual'` travels with every batch, as in the origin: a
+ * value a human typed OVERRIDES whatever automatic origin ('sol', 'imu') the
+ * photo carried, and the review interface uses exactly that column to know which
+ * photos still have nothing checked against the world.
+ * @param {'project'|'run'} scope - which WHERE clause to use
+ * @param {string} scopeId - project id or run id (uuid)
+ * @param {Object} values - already validated subset of the three angles
+ * @returns {{sql: string, params: Array}|null} null when no field is present
+ */
+function buildBatchRotationUpdate(scope, scopeId, values) {
+  const sets = [];
+  const params = [scopeId];
+  for (const [field, column] of Object.entries(WQ.ROTATION_COLUMN_WHITELIST)) {
+    if (values[field] !== undefined) {
+      params.push(values[field]);
+      sets.push(`${column} = $${params.length}`);
+    }
+  }
+  if (sets.length === 0) return null;
+  const sql = `
+    UPDATE sv360.photos
+       SET ${sets.join(', ')}, calibration_source = 'manual', updated_at = now()
+     WHERE ${WQ.BATCH_ROTATION_SCOPE[scope]}
+       AND id NOT IN (SELECT photo_id FROM sv360.deleted_photos)
+  `;
+  return { sql, params };
+}
+
+/**
+ * Applies one rotation default to EVERY live photo of a project.
+ *
+ * One statement per axis would be up to three commits over the same rows; this is
+ * one UPDATE inside one transaction, so the project never sits in a half-applied
+ * state and the count reported is the count actually written.
+ * @param {string} slug
+ * @param {Object} values - validated subset of mesh_rotation_y/x/z
+ * @param {Object} user
+ * @returns {Promise<{ok: true, slug: string, updated: Object}>}
+ * @throws {NotFoundError|ForbiddenError} via the ownership ladder
+ */
+export async function batchCalibrateProject(slug, values, user) {
+  return tx(async (t) => {
+    const project = await loadWritableProject(slug, user, txExecutor(t));
+    const update = buildBatchRotationUpdate('project', project.id, values);
+    const result = await t.result(update.sql, update.params);
+
+    const updated = {};
+    for (const field of Object.keys(WQ.ROTATION_COLUMN_WHITELIST)) {
+      if (values[field] !== undefined) {
+        updated[field] = { value: values[field], photosUpdated: result.rowCount };
+      }
+    }
+    return { ok: true, slug: project.slug, updated };
+  });
+}
+
+/**
+ * Clears the review flag of every live photo of a project.
+ * @param {string} slug
+ * @param {Object} user
+ * @returns {Promise<{ok: true, slug: string, photosReset: number}>}
+ * @throws {NotFoundError|ForbiddenError} via the ownership ladder
+ */
+export async function resetProjectReviewed(slug, user) {
+  return tx(async (t) => {
+    const project = await loadWritableProject(slug, user, txExecutor(t));
+    const result = await t.result(WQ.BATCH_RESET_REVIEWED, [project.id]);
+    return { ok: true, slug: project.slug, photosReset: result.rowCount };
+  });
+}
+
+/**
+ * Applies one rotation default to EVERY live photo of a capture run.
+ *
+ * A run is a RECORDING SESSION, which is the granularity at which the camera
+ * mounting does not change and therefore the granularity at which one calibration
+ * value is right: measured in the origin's `faxinal`, the spread of
+ * mesh_rotation_y INSIDE a run is 0,60 degree against 8,40 between run averages.
+ * Applying to the whole project is therefore too coarse, off by around 20 degrees
+ * at the far end.
+ *
+ * `applied_rotation_*` on the run is written as a RECORD of what was applied, so
+ * the interface can label the run. It is not inheritance: the photo columns stay
+ * the only truth, which is why they are written first and in the same transaction.
+ *
+ * TODAY THIS ALWAYS 404s. sv360.capture_runs is empty across the archive, because
+ * nothing derives runs yet — so no runId resolves. That is the honest answer for
+ * "this run does not exist", and it is not a defect of this endpoint.
+ * @param {string} runId
+ * @param {Object} values - validated subset of mesh_rotation_y/x/z
+ * @param {Object} user
+ * @returns {Promise<{ok: true, runId: string, label: string, updated: Object}>}
+ * @throws {NotFoundError|ForbiddenError} via the ownership ladder
+ */
+export async function batchCalibrateRun(runId, values, user) {
+  return tx(async (t) => {
+    const exec = txExecutor(t);
+    const { rows } = await exec(WQ.GET_RUN_FOR_WRITE, [runId]);
+    const run = rows[0];
+    if (!run) throw new NotFoundError('Capture run');
+    enforceProjectWritable(
+      { status: run.project_status, organization_id: run.organization_id },
+      user,
+      'Capture run'
+    );
+
+    const update = buildBatchRotationUpdate('run', runId, values);
+    const result = await t.result(update.sql, update.params);
+
+    await t.none(WQ.UPDATE_RUN_APPLIED, [
+      runId,
+      values.mesh_rotation_y ?? null,
+      values.mesh_rotation_x ?? null,
+      values.mesh_rotation_z ?? null,
+    ]);
+
+    const updated = {};
+    for (const field of Object.keys(WQ.ROTATION_COLUMN_WHITELIST)) {
+      if (values[field] !== undefined) {
+        updated[field] = { value: values[field], photosUpdated: result.rowCount };
+      }
+    }
+    return { ok: true, runId, label: run.label, updated };
+  });
+}

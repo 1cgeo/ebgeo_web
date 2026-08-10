@@ -121,3 +121,52 @@ const batchItemSchema = Joi.object({
 export const batchCalibrationBodySchema = Joi.object({
   photos: Joi.array().items(batchItemSchema).min(1).max(500).required(),
 }).unknown(false);
+
+// --- batch by PROJECT / by RUN (stage 2b) ----------------------------------
+
+// THE RANGES THE HEADER SAID TO CONFIRM FIRST, NOW CONFIRMED.
+//
+// The header above forbids GUESSING a range. These three are not guessed: they
+// are read from the origin's own source, `LIMITES_ROTACAO` in
+// ebgeo_360 `src/routes/calibration.js` (branch master), which is the code that
+// serves these two endpoints today:
+//   mesh_rotation_y [0, 360]   heading, the full turn
+//   mesh_rotation_x [-30, 30]  pitch of the rig
+//   mesh_rotation_z [-30, 30]  roll of the rig
+//
+// They are applied ONLY to the two new batch endpoints, never retrofitted onto
+// the per-photo routes: those have shipped without bounds, and adding one now
+// would reject values the archive already holds. The asymmetry is deliberate and
+// narrow — a batch writes one value onto thousands of photos, so an out-of-range
+// value there is a mass error, while the per-photo route is one photo an operator
+// is looking at.
+export const ROTATION_LIMITS = {
+  mesh_rotation_y: [0, 360],
+  mesh_rotation_x: [-30, 30],
+  mesh_rotation_z: [-30, 30],
+};
+
+// PUT /projects/:slug/batch-calibration and PUT /runs/:runId/batch-calibration —
+// any subset of the three mounting angles, at least one (.min(1)). One schema for
+// both endpoints, exactly as the origin extracted one validator for both: keeping
+// two copies makes them diverge the first time a limit moves.
+export const batchRotationBodySchema = Joi.object({
+  mesh_rotation_y: finiteNumber
+    .min(ROTATION_LIMITS.mesh_rotation_y[0])
+    .max(ROTATION_LIMITS.mesh_rotation_y[1]),
+  mesh_rotation_x: finiteNumber
+    .min(ROTATION_LIMITS.mesh_rotation_x[0])
+    .max(ROTATION_LIMITS.mesh_rotation_x[1]),
+  mesh_rotation_z: finiteNumber
+    .min(ROTATION_LIMITS.mesh_rotation_z[0])
+    .max(ROTATION_LIMITS.mesh_rotation_z[1]),
+})
+  .min(1)
+  .unknown(false);
+
+// :runId path param — a capture run id. gen_random_uuid() mints v4 here, unlike
+// the photo ids (which are DATA carried in from the studio); the run row is born
+// in this database, so v4 is the only version it can have.
+export const runIdParamSchema = Joi.object({
+  runId: Joi.string().trim().guid({ version: ['uuidv4'] }).required(),
+}).unknown(false);

@@ -125,6 +125,13 @@ router.get(
 
 router.get('/projects', ctrl.listProjects);
 
+// STATIC path, and it MUST stay above '/projects/:slug'. Express matches routes in
+// DECLARATION ORDER and has no preference for a literal segment over a parametric
+// one — unlike the origin's Fastify (find-my-way), whose comment on this same route
+// says order does not matter. Declared after, 'review-stats' would be captured as a
+// :slug and answer 404 'Project not found' for a slug nobody asked about.
+router.get('/projects/review-stats', ctrl.reviewStats);
+
 router.get('/projects/:slug', validate({ params: schemas.slugParamSchema }), ctrl.getProject);
 
 // Floors of a project (the floor selector). Same flexibleAuth read policy as
@@ -138,6 +145,47 @@ router.get(
   ctrl.getProjectFloors
 );
 
+// --- calibration reads (stage 2b) ------------------------------------------
+// Same flexibleAuth read policy as their siblings: each one resolves the project
+// through the access-filtered GET_PROJECT_BY_SLUG and 404s a hidden one, so none
+// of them opens a new way in. All have one more path segment than
+// '/projects/:slug', so declaration order is not load-bearing among them.
+
+// The calibration list of a project + its review counters.
+router.get(
+  '/projects/:slug/photos',
+  validate({ params: schemas.slugParamSchema }),
+  ctrl.getProjectPhotos
+);
+
+// Everything the calibration map draws for one project.
+router.get(
+  '/projects/:slug/map',
+  validate({ params: schemas.slugParamSchema }),
+  ctrl.getProjectMap
+);
+
+// The capture runs of a project. Empty for every project until the derivation
+// from original_name has an ETL behind it.
+router.get(
+  '/projects/:slug/runs',
+  validate({ params: schemas.slugParamSchema }),
+  ctrl.getProjectRuns
+);
+
+// STATIC path, and it MUST stay above '/photos/:uuid'. THIS IS THE TRAP: Express
+// matches in declaration order, so declared after, 'nearest' is captured as :uuid
+// and validated by uuidParamSchema, which answers 422 — NOT the 404 this route
+// promises for "no photo near this point". The map client does
+// `if (!response.ok) return null`, so it swallows both codes identically and the
+// broken clicks would look exactly like empty ones. The regression test pins the
+// 404, not merely "not 200".
+router.get(
+  '/photos/nearest',
+  validate({ query: schemas.nearestQuerySchema }),
+  ctrl.nearestPhoto
+);
+
 // Declared before '/photos/:uuid' so 'by-name' is not matched as a uuid.
 router.get(
   '/photos/by-name/:nome',
@@ -145,7 +193,18 @@ router.get(
   ctrl.getPhotoByName
 );
 
-router.get('/photos/:uuid', validate({ params: schemas.uuidParamSchema }), ctrl.getPhoto);
+router.get(
+  '/photos/:uuid',
+  validate({ params: schemas.uuidParamSchema, query: schemas.photoQuerySchema }),
+  ctrl.getPhoto
+);
+
+// Same-project photos not yet linked to :uuid (the "connect these two" tool).
+router.get(
+  '/photos/:uuid/nearby',
+  validate({ params: schemas.uuidParamSchema, query: schemas.nearbyPhotosQuerySchema }),
+  ctrl.nearbyPhotos
+);
 
 router.get(
   '/photos/:uuid/image',
@@ -221,6 +280,38 @@ router.delete(
   auth,
   validate({ params: schemas.uuidParamSchema }),
   wctrl.softDeletePhoto
+);
+
+// --- batch writes by PROJECT / by RUN (stage 2b) ---------------------------
+// STRICT `auth`, like every other write here: the ORIGIN has no authentication at
+// all on these endpoints, so the authorization is NEW work, not a port. Ownership
+// runs in the SERVICE (404 if the project is not even readable, then 403 if
+// readable but not writable), so a hidden project stays indistinguishable from a
+// nonexistent one. The paths below are method-disjoint from the GET reads on the
+// same '/projects/:slug/...' prefix, so they add no ordering hazard.
+
+// One rotation default for every live photo of a project.
+router.put(
+  '/projects/:slug/batch-calibration',
+  auth,
+  validate({ params: schemas.slugParamSchema, body: wschemas.batchRotationBodySchema }),
+  wctrl.batchCalibrateProject
+);
+
+// Clears the review flag of every live photo of a project.
+router.post(
+  '/projects/:slug/reset-reviewed',
+  auth,
+  validate({ params: schemas.slugParamSchema }),
+  wctrl.resetProjectReviewed
+);
+
+// One rotation default for every live photo of a capture run.
+router.put(
+  '/runs/:runId/batch-calibration',
+  auth,
+  validate({ params: wschemas.runIdParamSchema, body: wschemas.batchRotationBodySchema }),
+  wctrl.batchCalibrateRun
 );
 
 // --- admin / ingestion (stage 3a) ------------------------------------------
