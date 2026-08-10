@@ -56,7 +56,21 @@ export function createApp() {
   }));
   app.use(cors({ origin: config.cors.origin, credentials: true }));
   app.use(cookieParser());
-  app.use(compression());
+  // The default filter asks `compressible`, whose mime-db has NO entry for
+  // `application/vnd.mapbox-vector-tile`, so every 360 tile went out raw while the
+  // sibling `.geojson` route was compressed. Measured on the real corpus: the z11
+  // tile of alegrete is 697.171 bytes raw and 289.009 gzipped (41,5%), z12 253.568
+  // against 108.092. A protobuf tile is as compressible as the JSON next to it; the
+  // mime table simply never learned the type.
+  app.use(compression({
+    filter: (req, res) => {
+      const type = res.getHeader('Content-Type');
+      if (typeof type === 'string' && type.startsWith('application/vnd.mapbox-vector-tile')) {
+        return true;
+      }
+      return compression.filter(req, res);
+    },
+  }));
 
   // Non-blocking global auth: populates req.user when a credential is present
   // (api key / cookie / Bearer); the anonymous path is preserved. It reads only

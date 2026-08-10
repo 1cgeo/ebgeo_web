@@ -28,6 +28,31 @@
 // sv360.photos(geom) is used to prune rows BEFORE ST_AsMVTGeom transforms the
 // survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=isAdmin, $5=orgId.
 //
+// ZOOM FLOOR for the 'fotos' layer only. Below this zoom the tile still carries
+// 'fotos_linha' and simply omits the points.
+//
+// MEASURED on the live acervo (29 projects, 99.040 photos), tile over Alegrete,
+// bytes on the wire from GET /sv360/tiles/:z/:x/:y.pbf:
+//
+//   z0  10.352.008 B (~420 ms)   z6  6.372.081 B     z10 1.144.264 B
+//   z11    697.171 B (~195 ms)   z12   253.568 B     z14    23.770 B
+//
+// Of the 10,3 MB at z0, 10.350.579 B are the 'fotos' layer (99.035 points) and
+// 1.429 B are 'fotos_linha' (68 lines). The whole low-zoom cost IS the points
+// layer, so gating the points is the entire fix: the same z0 tile drops to 1.429
+// bytes and ~122 ms, and every tile at z >= 11 is byte-identical to before.
+//
+// WHY 11, and why NOT a 400 like the origin (ebgeo_360 refuses z outside 11..12):
+// a 400 rejects the WHOLE tile, and this frontend asks for the same tile at low
+// zoom for the LINES. The main map (map_sig.js, map2d.minZoom = 1) mounts
+// 'street-view-lines' and 'street-view-lines-hit' over the trajectory layer with
+// NO layer minzoom, so it legitimately requests z1..z10 tiles; rejecting them
+// would erase the trajectory from the main map. The points layer has exactly ONE
+// consumer, the minimap (add_street_view_control.js), and that map is built with
+// minZoom: 11, so 11 is the lowest zoom at which anything ever draws a point.
+// A floor of 12 would blank the minimap at its own minimum zoom.
+export const FOTOS_MIN_ZOOM = 11;
+
 // Returns a single row with one `tile` column (bytea = the concatenated MVT). An
 // empty tile (no features) is still a valid, returnable buffer.
 export const MVT_TILE = `
@@ -70,7 +95,10 @@ export const MVT_TILE = `
         v.floor_level,
         v.floor_label
       FROM visible v, bounds b
-      WHERE v.geom && b.env4326
+      -- The floor comes FIRST so the predicate is decided before any row is
+      -- transformed: at z < FOTOS_MIN_ZOOM the inner select yields nothing,
+      -- ST_AsMVT returns NULL and the COALESCE below leaves only the line layer.
+      WHERE $1 >= ${FOTOS_MIN_ZOOM} AND v.geom && b.env4326
     ) t
   ),
   -- The project's REAL capture segments (sv360.tracks), one row per run. Only for

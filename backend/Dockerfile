@@ -21,6 +21,20 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY src ./src
 
+# Operational scripts. `npm run sv360:import` is declared in package.json and is
+# the documented way to re-import the 360 acervo, so it has to exist INSIDE the
+# image: without this COPY the script resolved to nothing and the run died with
+# ERR_MODULE_NOT_FOUND before touching the database.
+#
+# Only sv360-import.js is copied, ON PURPOSE. The other four scripts/ files are
+# development or test tooling (dev-db.js, test-db.js, run-tests.js) or an import
+# with no npm script and no production caller (assets3d-import.js); `run-tests.js`
+# and `test-db.js` DROP and recreate a database, which is not something a runtime
+# image should be able to do by accident. sv360-import.js pulls only from ../src
+# (config, database, streetview360/{merge,floors}, utils/sqlite-blob-pool) plus
+# `better-sqlite3`, all of which are already in this stage.
+COPY scripts/sv360-import.js ./scripts/
+
 # Image storage dir (mount a volume here in production)
 RUN mkdir -p /app/data/images && chown -R ebgeo:ebgeo /app/data
 

@@ -6,8 +6,12 @@ npm-debug.log
 .env
 .env.local
 .env.test
-data/images
-data/test-images
+# The WHOLE data/ tree, not just the two image dirs it used to name. The runtime
+# creates /app/data itself (see the Dockerfile mkdir) and COPYs nothing from here,
+# so every byte under data/ was context uploaded to the daemon for nothing. On a
+# machine with the 360 acervo loaded that is data/sv360, measured at 65 GB, which
+# turned `docker build` into a multi-minute copy before the first instruction ran.
+data
 coverage
 tests
 docs
