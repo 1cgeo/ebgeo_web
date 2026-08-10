@@ -8,11 +8,28 @@
 //
 // INCLUI O /api/v1 DE PROPOSITO. Em producao o servico e publicado num prefixo
 // que OCUPA o lugar dele: o proxy recebe `/ebgeo_360/...` e repassa
-// `/api/v1/...`, entao la o valor inteiro e
-// 'https://<host>/ebgeo_360'. Com o /api/v1 espalhado pelas URLs de baixo,
-// trocar de ambiente exigiria editar cada uma, e basta esquecer uma para o
-// sintoma virar 404 numa camada so.
-const STREETVIEW_360_BASE = 'http://localhost:8081/api/v1';
+// `/api/v1/...`, entao la o valor e '/ebgeo_360'. Com o /api/v1 espalhado pelas
+// URLs de baixo, trocar de ambiente exigiria editar cada uma, e basta esquecer
+// uma para o sintoma virar 404 numa camada so.
+//
+// PODE SER RELATIVA ('/ebgeo_360'), porque a linha de baixo a torna absoluta
+// contra a origem da pagina. Absoluta ela TEM de ficar, e a razao nao e estilo:
+// o MapLibre pede o tile de dentro de um worker que ele cria de um blob
+// (`setWorkerUrl(URL.createObjectURL(new Blob([...])))` no bundle). La dentro a
+// base e a URL `blob:`, contra a qual nao se resolve caminho relativo, e o
+// pedido morre em "Failed to construct 'Request': Failed to parse URL from
+// /ebgeo_360/...". Foto, planta e tracado nao passam por isso porque saem da
+// thread principal, que tem a base do documento: caminho relativo funcionaria
+// para eles e quebraria so o tile, que e o pior modo de falhar.
+const STREETVIEW_360_BASE_BRUTA = 'http://localhost:8081/api/v1';
+
+// `globalThis.location` nao existe sob o vitest, que roda em ambiente node
+// (vitest.config.js). Sem a origem, fica o valor cru, que no desenvolvimento ja
+// e absoluto.
+const STREETVIEW_360_BASE = (globalThis.location?.origin
+  ? new URL(STREETVIEW_360_BASE_BRUTA, globalThis.location.origin).toString()
+  : STREETVIEW_360_BASE_BRUTA
+).replace(/\/+$/, '');
 
 const config = {
   // ===== APPLICATION SETTINGS =====
