@@ -371,6 +371,23 @@ export class StreetViewNavigator {
     }
 
     /**
+     * Quantos andares o alvo sobe (positivo) ou desce (negativo).
+     *
+     * Zero quando os dois estao no mesmo nivel E quando o projeto nao declara
+     * andar: nos projetos externos o `floor_level` e 1 em tudo, entao o calculo
+     * da zero e o marcador continua identico ao de sempre.
+     *
+     * @param {Object} target - Alvo, com `floor_level` vindo da API
+     * @returns {number} Diferenca de nivel, 0 quando nao ha o que distinguir
+     */
+    deltaDeAndar(target) {
+        const aqui = this.cameraConfig?.floor_level;
+        const la = target?.floor_level;
+        if (typeof aqui !== 'number' || typeof la !== 'number') return 0;
+        return la - aqui;
+    }
+
+    /**
      * Projects a navigation target: horizontal from its true bearing, vertical
      * from its place in the queue.
      *
@@ -410,7 +427,8 @@ export class StreetViewNavigator {
                 offscreenSide: projected.azimuthRelDeg > 0 ? 'right' : 'left',
                 // Kept so a click on the edge arrow can TURN to the target: the
                 // arrow's whole message is "it is that many degrees away".
-                azimuthRelDeg: projected.azimuthRelDeg
+                azimuthRelDeg: projected.azimuthRelDeg,
+                floorDelta: this.deltaDeAndar(target)
             };
         }
 
@@ -426,7 +444,11 @@ export class StreetViewNavigator {
             radius: placement.radius,
             rank: placement.rank,
             offscreen: false,
-            sphere: true
+            sphere: true,
+            // Quantos andares o alvo sobe (positivo) ou desce (negativo). Zero
+            // para o mesmo andar E para todo projeto SEM andar declarado, entao
+            // o acervo externo desenha exatamente como antes.
+            floorDelta: this.deltaDeAndar(target)
         };
     }
 

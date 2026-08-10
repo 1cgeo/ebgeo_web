@@ -22,6 +22,13 @@ import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
 import {
+    initFloorSelector,
+    setActiveFloor,
+    getActiveFloor,
+    getActiveFloorPlan,
+    resetFloorSelector
+} from './components/floor-selector-360.js';
+import {
     activateKeyboardService360,
     deactivateKeyboardService360,
     setKeyboardCallbacks
@@ -331,11 +338,65 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     // Update orientation button state
     updateOrientationButtonState(savedOrientation !== null);
 
+    // Andar da foto que acabou de abrir. Depois do texto e do navigator, para
+    // uma falha aqui nao impedir a foto de aparecer.
+    await syncFloorSelector(data);
+
     // Emit photo changed event
     getEventBus().emit(EventTypes.STREETVIEW_360_PHOTO_CHANGED, {
         previousPhoto: previousPhotoName,
         currentPhoto: photoName
     });
+}
+
+/**
+ * Keeps the floor picker in step with the photo now open.
+ *
+ * Handles both directions in one place. A click on the strip switches floor and
+ * the map layers follow; walking through a cross-floor target switches the
+ * photo and THE STRIP follows. Without the second direction the user would take
+ * the stairs and the map would stay on the floor they left.
+ *
+ * @param {Object} data - Photo metadata from the API
+ */
+async function syncFloorSelector(data) {
+    const container = document.getElementById('street-view-container');
+    if (!container) return;
+
+    const nivel = data.camera?.floor_level ?? null;
+
+    const temAndares = await initFloorSelector(container, data.projectSlug, {
+        initialLevel: nivel,
+        onChange: (level, floor) => {
+            getEventBus().emit(EventTypes.STREETVIEW_360_FLOOR_CHANGED, {
+                level,
+                plan: floor?.plan ?? null,
+                hasFloors: true
+            });
+        }
+    });
+
+    if (!temAndares) {
+        // Projeto externo: manda os mapas voltarem a mostrar tudo, senao um
+        // filtro do projeto anterior sobreviveria a troca de levantamento.
+        getEventBus().emit(EventTypes.STREETVIEW_360_FLOOR_CHANGED, {
+            level: null,
+            plan: null,
+            hasFloors: false
+        });
+        return;
+    }
+
+    // Atravessou uma escada: o setActiveFloor dispara o onChange sozinho.
+    // Quando o andar ja era o mesmo ele devolve false, e ai o emit abaixo cobre
+    // a PRIMEIRA montagem, que nao passa pelo onChange.
+    if (!setActiveFloor(nivel)) {
+        getEventBus().emit(EventTypes.STREETVIEW_360_FLOOR_CHANGED, {
+            level: getActiveFloor(),
+            plan: getActiveFloorPlan(),
+            hasFloors: true
+        });
+    }
 }
 
 /**
@@ -1672,6 +1733,11 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
     eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
     eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+
+    // O seletor sai junto com o visualizador, cache de projeto incluido: manter
+    // os andares do levantamento anterior faria a proxima abertura mostrar uma
+    // barra com andares que a nova nao tem.
+    resetFloorSelector();
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});

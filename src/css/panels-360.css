@@ -68,6 +68,48 @@ body.streetview-active .modal-overlay {
     height: 240px;
 }
 
+/* ===== SELETOR DE ANDAR (projetos indoor) =====
+   A esquerda, no meio da altura: a barra de ferramentas ocupa a direita e o
+   minimapa o canto inferior esquerdo. Do andar mais alto para o terreo, na
+   mesma ordem em que os andares estao no predio. */
+.sv360-floors {
+    position: fixed;
+    top: 50%;
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-1);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: var(--z-3d-controls);
+}
+
+.sv360-floors__btn {
+    width: 38px;
+    height: 34px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sv360-floors__btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.sv360-floors__btn--active {
+    background: #fff;
+    color: #111;
+}
+
 /* ===== 360 TOOLBAR - VERTICAL SIDEBAR ===== */
 #toolbar-360 {
     position: fixed;

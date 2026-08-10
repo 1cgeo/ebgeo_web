@@ -126,6 +126,13 @@ export const EventTypes = Object.freeze({
     STREETVIEW_360_CLOSED: 'streetview360:closed',
     /** Payload: { previousPhoto, currentPhoto } */
     STREETVIEW_360_PHOTO_CHANGED: 'streetview360:photoChanged',
+    /**
+     * O andar em exibicao mudou, por clique no seletor ou por o usuario ter
+     * atravessado uma escada. Payload: { level, plan, hasFloors }
+     * `level` e null e `hasFloors` false em projeto sem andares, o que manda os
+     * mapas voltarem a mostrar tudo.
+     */
+    STREETVIEW_360_FLOOR_CHANGED: 'streetview360:floorChanged',
 
     // ===== ORIENTATION 360 =====
     /** Payload: { photoName, mapName } */
