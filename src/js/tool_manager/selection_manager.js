@@ -443,8 +443,10 @@ class SelectionManager {
         const viewerLayers = [
             // 3D Models Viewer layers
             '3d-models-clusters', '3d-models-markers',
-            // Street View PMTiles layers
-            'street-view', 'street-view-lines',
+            // Street View: a linha de tracado. A camada de pontos `street-view`
+            // saiu daqui junto com a fonte invisivel que o mapa principal
+            // carregava e ninguem lia.
+            'street-view-lines',
             // Streetview Markers clustering layers
             'streetview-markers-clusters', 'streetview-markers-pins'
         ];

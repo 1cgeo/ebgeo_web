@@ -125,6 +125,11 @@ export default [
     },
 
     // Ignore patterns
+    //
+    // O ESLint 9 NAO le o .gitignore: esta lista e a unica que ele obedece. Sem
+    // as duas ultimas linhas o `npm run lint` varria arvore gerada e acusava
+    // 465.719 erros em arquivo que ninguem escreveu, o que na pratica desliga o
+    // proprio lint (o script tem --max-warnings 0, entao ele nunca passava).
     {
         ignores: [
             'dist/**',
@@ -133,7 +138,15 @@ export default [
             'public/**',
             '*.min.js',
             'server/**',
-            '*/vendor/'
+            '*/vendor/',
+            // Arvore da administracao (build, dependencias e artefato de teste
+            // do Playwright). Nao tem fonte: so dist/, node_modules/ e
+            // test-results/, e cada teste que falha grava ali um error-context.md
+            // com o DOM inteiro da pagina.
+            'frontend/**',
+            // Copia de trabalho do Claude Code, que duplica o src/ inteiro e
+            // dobraria todo achado do lint.
+            '.claude/**'
         ]
     }
 ];

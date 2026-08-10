@@ -738,13 +738,13 @@ function ensureSelectedLayer() {
 
     // Need the source to be ready; it's added in setupMiniMapWithPMTiles
     const control = streetViewState.controlInstance;
-    const sourceId = control?.streetViewPointsLayer?.['source'];
+    const sourceId = control?.pointsSourceRef?.id;
     if (!sourceId || !miniMap.getSource(sourceId)) return;
 
     // Need the icon image
     if (!miniMap.hasImage('point-selected')) return;
 
-    const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
+    const sourceLayer = control?.pointsSourceRef?.sourceLayer
         || config.streetView360?.pointsSourceLayer
         || 'fotos';
 
@@ -781,10 +781,10 @@ function ensureHoveredLayer() {
     if (!miniMap || miniMap.getLayer('hovered')) return;
 
     const control = streetViewState.controlInstance;
-    const sourceId = control?.streetViewPointsLayer?.['source'];
+    const sourceId = control?.pointsSourceRef?.id;
     if (!sourceId || !miniMap.getSource(sourceId)) return;
 
-    const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
+    const sourceLayer = control?.pointsSourceRef?.sourceLayer
         || config.streetView360?.pointsSourceLayer
         || 'fotos';
 
