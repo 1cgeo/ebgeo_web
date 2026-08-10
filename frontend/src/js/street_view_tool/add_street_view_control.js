@@ -42,6 +42,21 @@ class AddStreetViewControl {
         // Ultimo ponto do minimapa sob o mouse, para so avisar o 360 na mudanca
         this._minimapHoveredUuid = null;
 
+        // Andar em exibicao nos dois mapas, ou null para "mostrar tudo".
+        this._floorLevel = null;
+        this._handleFloorChanged = this._handleFloorChanged.bind(this);
+        this._unsubFloorChanged = null;
+
+        // Camada de planta baixa do minimapa. Ids proprios porque ela e criada
+        // e destruida a cada troca de andar, junto com a fonte.
+        this.floorPlanSourceId = 'sv360-floor-plan';
+        this.floorPlanLayerId = 'sv360-floor-plan-line';
+
+        // Planta que chegou antes de o estilo do minimapa carregar, e a trava
+        // que impede empilhar um listener por troca de andar.
+        this._floorPlanPendente = null;
+        this._floorPlanAguardando = false;
+
         // PMTiles nearby features cache
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000;
@@ -126,6 +141,7 @@ class AddStreetViewControl {
 
         // Listen for base layer changes to reload layers if active
         this._unsubBaseLayerChanged = getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+        this._unsubFloorChanged = getEventBus().on(EventTypes.STREETVIEW_360_FLOOR_CHANGED, this._handleFloorChanged);
 
         return this.container;
     }
@@ -242,10 +258,129 @@ class AddStreetViewControl {
                     setHoveredFromMinimap(null);
                 });
 
+                // O andar pode ter sido escolhido antes do minimapa carregar:
+                // reaplica o estado corrente em vez de esperar o proximo evento.
+                this._applyFloorFilter();
+
+                // O andar pode ter sido escolhido enquanto este minimapa ainda
+                // nascia (este callback e assincrono). Redesenha o que ficou
+                // guardado, senao a planta do primeiro andar aberto nunca
+                // apareceria, sem erro nenhum no console.
+                if (this._floorPlanPendente) this._renderFloorPlan(this._floorPlanPendente);
+
             } catch (error) {
                 console.error('Error setting up minimap:', error);
             }
         });
+    }
+
+    /**
+     * Reage a troca de andar, vinda do seletor do visualizador.
+     * @param {Object} payload - { level, plan, hasFloors }
+     * @private
+     */
+    _handleFloorChanged(payload) {
+        this._floorLevel = payload?.hasFloors ? (payload.level ?? null) : null;
+        this._applyFloorFilter();
+        this._renderFloorPlan(payload?.hasFloors ? payload.plan : null);
+    }
+
+    /**
+     * Esconde de AMBOS os mapas as fotos que nao sao do andar em exibicao.
+     *
+     * O filtro roda sobre `floor_level`, atributo que a camada `fotos` do tile
+     * MVT emite por foto. Nivel null tira o filtro, que e o estado de todo
+     * projeto externo, e tambem o estado correto depois de fechar um projeto
+     * indoor: senao o filtro do levantamento anterior apagaria o proximo mapa
+     * inteiro.
+     * @private
+     */
+    _applyFloorFilter() {
+        const filtro = this._floorLevel === null
+            ? null
+            : ['==', ['get', 'floor_level'], this._floorLevel];
+
+        for (const [mapa, camada] of [
+            [this.miniMap, 'points'],
+            [this.map, this.streetViewPointsLayer?.id]
+        ]) {
+            if (!mapa || !camada) continue;
+            // getLayer antes de setFilter: a camada do mapa principal so entra
+            // quando a fonte de tiles termina de carregar (ver loadData).
+            try {
+                if (mapa.getLayer(camada)) mapa.setFilter(camada, filtro);
+            } catch (error) {
+                console.warn(`[street-view] could not filter "${camada}" by floor:`, error);
+            }
+        }
+    }
+
+    /**
+     * Desenha a planta baixa do andar no minimapa, como linha simples.
+     *
+     * A planta ENTRA E SAI com o andar, fonte junto: guardar uma fonte vazia
+     * entre trocas economizaria pouco e deixaria o minimapa de um projeto
+     * externo carregando uma camada que nunca desenha nada.
+     * @param {Object|null} plan - FeatureCollection de linhas, ou null
+     * @private
+     */
+    _renderFloorPlan(plan) {
+        // Guarda SEMPRE o ultimo pedido, antes de qualquer desistencia. A
+        // primeira troca de andar chega cedo demais por dois caminhos: o
+        // minimapa e criado em setupMiniMapWithPMTiles, que e assincrona, e
+        // mesmo depois de criado o estilo dele ainda leva um tempo para
+        // carregar. Desistir sem guardar perdia a planta para sempre, porque o
+        // evento de andar nao se repete e nada reagendava o desenho.
+        this._floorPlanPendente = plan;
+
+        if (!this.miniMap || !this.miniMap.isStyleLoaded()) {
+            // Sem minimapa ainda nao ha em que pendurar o listener: quem
+            // redesenha e o proprio setupMiniMapWithPMTiles, ao terminar.
+            if (this.miniMap && !this._floorPlanAguardando) {
+                this._floorPlanAguardando = true;
+                this.miniMap.once('styledata', () => {
+                    this._floorPlanAguardando = false;
+                    this._renderFloorPlan(this._floorPlanPendente);
+                });
+            }
+            return;
+        }
+
+        try {
+            if (!plan || !Array.isArray(plan.features) || plan.features.length === 0) {
+                if (this.miniMap.getLayer(this.floorPlanLayerId)) {
+                    this.miniMap.removeLayer(this.floorPlanLayerId);
+                }
+                if (this.miniMap.getSource(this.floorPlanSourceId)) {
+                    this.miniMap.removeSource(this.floorPlanSourceId);
+                }
+                return;
+            }
+
+            if (this.miniMap.getSource(this.floorPlanSourceId)) {
+                this.miniMap.getSource(this.floorPlanSourceId).setData(plan);
+            } else {
+                this.miniMap.addSource(this.floorPlanSourceId, { type: 'geojson', data: plan });
+            }
+
+            if (!this.miniMap.getLayer(this.floorPlanLayerId)) {
+                // Abaixo de 'points': a planta e fundo, e cobrir os pontos
+                // tiraria do operador o alvo de clique.
+                const abaixoDe = this.miniMap.getLayer('points') ? 'points' : undefined;
+                this.miniMap.addLayer({
+                    id: this.floorPlanLayerId,
+                    type: 'line',
+                    source: this.floorPlanSourceId,
+                    paint: {
+                        'line-color': '#5b6b7f',
+                        'line-width': 1.5,
+                        'line-opacity': 0.9
+                    }
+                }, abaixoDe);
+            }
+        } catch (error) {
+            console.warn('[street-view] could not draw the floor plan:', error);
+        }
     }
 
     loadData = async () => {
@@ -301,6 +436,10 @@ class AddStreetViewControl {
         if (this._unsubBaseLayerChanged) {
             this._unsubBaseLayerChanged();
             this._unsubBaseLayerChanged = null;
+        }
+        if (this._unsubFloorChanged) {
+            this._unsubFloorChanged();
+            this._unsubFloorChanged = null;
         }
 
         // Cleanup streetview viewer if open

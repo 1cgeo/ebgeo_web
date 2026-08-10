@@ -104,6 +104,37 @@ export async function fetchPhotoMetadata(photoIdOrName) {
 }
 
 /**
+ * Fetches the floors of a project, top floor first.
+ *
+ * AN EMPTY ARRAY IS THE NORMAL ANSWER, not a failure: it means the project has
+ * no floors, which is the case for every outdoor survey in the archive. The
+ * route answers HTTP 200 with `{ floors: [] }` in that case, never 404, so a
+ * non-ok response here really is a fault and also lands on the empty array.
+ * The caller uses the empty array to draw no floor selector at all.
+ *
+ * Each floor carries `level` (ordered, 0 = ground), `label`, `photoCount` and
+ * `plan`, a GeoJSON FeatureCollection of lines, or null where no plan was
+ * drawn for that level.
+ *
+ * @param {string} slug - Project slug
+ * @returns {Promise<Array<Object>>} Floors, or [] when the project has none
+ */
+export async function fetchProjectFloors(slug) {
+  if (!slug) return [];
+  try {
+    const response = await fetch(`${getServiceUrl()}/projects/${encodeURIComponent(slug)}/floors`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data.floors) ? data.floors : [];
+  } catch (error) {
+    // Sem andares a interface fica igual ao que era. Falhar aqui nao pode
+    // derrubar a abertura do 360, que funciona sem o seletor.
+    console.error(`[streetview-api] fetchProjectFloors failed for "${slug}":`, error);
+    return [];
+  }
+}
+
+/**
  * Validates that a photo exists (HEAD request, no body).
  * @param {string} photoId - Photo UUID
  * @returns {Promise<boolean>}

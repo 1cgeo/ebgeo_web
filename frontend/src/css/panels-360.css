@@ -68,6 +68,59 @@ body.streetview-active .modal-overlay {
     height: 240px;
 }
 
+/* ===== SELETOR DE ANDAR (projetos indoor) =====
+   A esquerda, no meio da altura: a barra de ferramentas ocupa a direita e o
+   minimapa o canto inferior esquerdo. Do andar mais alto para o terreo, na
+   mesma ordem em que os andares estao no predio. */
+.sv360-floors {
+    position: fixed;
+    top: 50%;
+
+    /* Afastado da sidebar recolhida por --space-8, e nao --space-4: a seta
+       lateral dela avanca sobre a faixa e cobria o primeiro botao. */
+    left: calc(var(--sidebar-collapsed-width) + var(--space-8));
+    transform: translateY(-50%);
+    display: flex;
+
+    /* column-reverse, nao column: a rota entrega os andares em ordem CRESCENTE
+       de nivel, e um predio se le de baixo para cima. O terreo fica embaixo e
+       os andares sobem, como no elevador. Invertendo aqui, e nao no JS, a ordem
+       do DOM continua crescente, que e a ordem de tabulacao natural. */
+    flex-direction: column-reverse;
+    gap: 2px;
+    padding: var(--space-1);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+
+    /* Acima da sidebar, que em modo street view sobe para 300 neste mesmo
+       arquivo, e abaixo do overlay de modal, que esta em 400. */
+    z-index: 320;
+}
+
+.sv360-floors__btn {
+    width: 38px;
+    height: 34px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sv360-floors__btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.sv360-floors__btn--active {
+    background: #fff;
+    color: #111;
+}
+
 /* ===== 360 TOOLBAR - VERTICAL SIDEBAR ===== */
 #toolbar-360 {
     position: fixed;
