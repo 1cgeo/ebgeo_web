@@ -101,11 +101,11 @@ body.streetview-active .modal-overlay {
        Somar so os 240, como se fazia, punha a base do seletor 12px DENTRO do
        cabecalho, e os dois se encostavam.
 
-       A esquerda recua --space-4 alem da borda do minimapa, que comeca em
-       calc(sidebar + --space-4): o seletor fica levemente para dentro, em vez
-       de rente a ele. */
+       A esquerda recua --space-8 alem da borda do minimapa, que comeca em
+       calc(sidebar + --space-4): o seletor fica para dentro, em vez de rente
+       a ele. */
     bottom: calc(var(--space-4) + var(--sv360-minimap-h) + var(--space-3));
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4) + var(--space-4));
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4) + var(--space-8));
     display: flex;
 
     /* column-reverse, nao column: a rota entrega os andares em ordem CRESCENTE
