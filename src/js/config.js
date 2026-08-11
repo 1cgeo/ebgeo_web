@@ -21,7 +21,22 @@
 // /ebgeo_360/...". Foto, planta e tracado nao passam por isso porque saem da
 // thread principal, que tem a base do documento: caminho relativo funcionaria
 // para eles e quebraria so o tile, que e o pior modo de falhar.
-const STREETVIEW_360_BASE_BRUTA = 'http://localhost:8081/api/v1';
+//
+// O PADRAO E PRODUCAO, e o desenvolvimento e que e a excecao. A inversao e
+// deliberada. Antes a linha trazia `localhost` fixo, e o valor de producao vivia
+// numa edicao a mao que nunca entrou no git: nenhum commit deste arquivo jamais
+// teve o prefixo publico, e o `deploy/deploy.sh` chama `vite build` puro, sem
+// substituir nada. Bastava alguem construir de um checkout limpo para a EBNET
+// inteira receber `http://localhost:8081`, e o 360 morrer sem um erro no
+// console. Com o padrao invertido, esquecer a edicao passa a ser inofensivo, e
+// so o servidor de desenvolvimento pega a excecao.
+//
+// `import.meta.env.DEV` e do Vite, e ja e idioma da casa (ver
+// src/js/import_export/pdf-export.tab.js). Ele e substituido em tempo de
+// construcao, entao o ramo nao usado nem entra no pacote.
+const STREETVIEW_360_BASE_BRUTA = import.meta.env.DEV
+  ? 'http://localhost:8081/api/v1'
+  : '/ebgeo_360';
 
 // `globalThis.location` nao existe sob o vitest, que roda em ambiente node
 // (vitest.config.js). Sem a origem, fica o valor cru, que no desenvolvimento ja
