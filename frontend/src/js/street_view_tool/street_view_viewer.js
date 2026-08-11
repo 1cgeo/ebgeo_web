@@ -10,6 +10,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import config from '../config.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { formatarDataCaptura } from '@utils/data-captura.js';
 import {
     getOrientation,
     saveOrientation,
@@ -690,19 +691,8 @@ function applyTargetOrientation(orientation) {
 
 // ===== PHOTO INFO OVERLAY =====
 
-/**
- * Formats an ISO date string (YYYY-MM-DD) to Brazilian format (DD/MM/AAAA).
- * Returns the original string if parsing fails.
- * @param {string} isoDate - Date in ISO format
- * @returns {string} Formatted date
- */
-function formatDateBR(isoDate) {
-    const parts = isoDate.split('-');
-    if (parts.length === 3) {
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    return isoDate;
-}
+// A formatacao mora em utilities/data-captura.js: a mesma medida aparece aqui e
+// no popup do marcador do mapa 2D, e as duas copias ja tinham divergido.
 
 /**
  * Updates the photo info overlay above the minimap with capture date.
@@ -718,7 +708,7 @@ function updatePhotoInfo(data) {
         return;
     }
 
-    el.textContent = `Captura: ${formatDateBR(captureDate)}`;
+    el.textContent = `Captura: ${formatarDataCaptura(captureDate)}`;
     el.style.display = 'block';
 }
 

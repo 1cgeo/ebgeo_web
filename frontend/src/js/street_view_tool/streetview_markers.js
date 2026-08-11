@@ -1,6 +1,7 @@
 // Path: js/street_view_tool/streetview_markers.js
 
 import config from '../config.js';
+import { formatarDataCaptura } from '@utils/data-captura.js';
 
 // Flag to prevent click propagation to line layer when marker is clicked
 // Shared between streetview markers and 3D viewer markers via window object
@@ -394,7 +395,9 @@ class StreetviewMarkers {
      * @param {number[]} coordinates - [lng, lat] position
      * @param {string} markerId - ID of the marker
      * @param {string} name - Display name
-     * @param {string|null} dataCaptura - Capture date in DD/MM/YYYY format or null
+     * @param {string|null} dataCaptura - Capture date AS THE API SENDS IT (ISO instant or
+     *   bare AAAA-MM-DD), or null. The doc used to claim DD/MM/YYYY and the code printed the
+     *   raw value, so the popup showed the American order; formatting happens here now.
      * @param {string|null} previewThumbnail - URL to preview thumbnail or null
      * @param {string} photoName - Photo name for loadImageByName
      */
@@ -445,7 +448,7 @@ class StreetviewMarkers {
         if (dataCaptura) {
             const dateDiv = document.createElement('div');
             dateDiv.className = 'streetview-preview-date';
-            dateDiv.textContent = `Captura: ${dataCaptura}`;
+            dateDiv.textContent = `Captura: ${formatarDataCaptura(dataCaptura)}`;
             infoDiv.appendChild(dateDiv);
         }
 

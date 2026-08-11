@@ -69,17 +69,25 @@ body.streetview-active .modal-overlay {
 }
 
 /* ===== SELETOR DE ANDAR (projetos indoor) =====
-   A esquerda, no meio da altura: a barra de ferramentas ocupa a direita e o
-   minimapa o canto inferior esquerdo. Do andar mais alto para o terreo, na
-   mesma ordem em que os andares estao no predio. */
+   EMPILHADO SOBRE O MINIMAPA, alinhado a borda esquerda dele, crescendo para
+   cima. A posicao anterior era o meio da altura, e ali ele COLIDIA com a seta
+   de borda que o navegador pinta em `nav-canvas-360`: a seta aponta um marcador
+   fora do campo de visao, sai na borda esquerda e tambem no meio da altura, e
+   as duas disputavam o mesmo espaco. A seta e desenhada em CANVAS, entao nao ha
+   z-index nem margem que a afaste; quem tem de sair da frente e o seletor.
+
+   Encostar no minimapa tambem junta o que se le junto: o andar em exibicao e a
+   planta daquele andar. */
 .sv360-floors {
     position: fixed;
-    top: 50%;
 
-    /* Afastado da sidebar recolhida por --space-8, e nao --space-4: a seta
-       lateral dela avanca sobre a faixa e cobria o primeiro botao. */
-    left: calc(var(--sidebar-collapsed-width) + var(--space-8));
-    transform: translateY(-50%);
+    /* Ancorado por BAIXO, logo acima do minimapa, com a mesma esquerda dele. Os
+       320px de largura e os 240px de altura do minimapa estao neste arquivo, e
+       `bottom` soma a altura dele, o cabecalho de captura e as duas folgas. Com
+       o ancoramento embaixo, um predio de 7 andares cresce para CIMA, para
+       dentro da tela, em vez de descer sobre o minimapa. */
+    bottom: calc(var(--space-4) + 240px + 2 * var(--space-2));
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
     display: flex;
 
     /* column-reverse, nao column: a rota entrega os andares em ordem CRESCENTE
