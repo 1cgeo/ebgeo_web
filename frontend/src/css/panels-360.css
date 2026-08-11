@@ -39,6 +39,17 @@ body.streetview-active .modal-overlay {
 }
 
 /* ===== MINIMAP WRAPPER (card with info + map) ===== */
+
+/* Altura do CONJUNTO do minimapa: os 240px do mapa, os 24 do cabecalho de
+   captura e os 4 das duas bordas. Vive numa variavel porque o seletor de andar
+   se ancora acima dele e precisa do mesmo numero; duas constantes soltas
+   divergem em silencio, e a base do seletor cai dentro do cabecalho.
+   MEDIDA no navegador, nao deduzida. Mexer na altura do mapa ou no cabecalho
+   pede refazer a medida. */
+:root {
+    --sv360-minimap-h: 268px;
+}
+
 #streetview-minimap-wrapper {
     display: none;
     position: fixed;
@@ -81,13 +92,20 @@ body.streetview-active .modal-overlay {
 .sv360-floors {
     position: fixed;
 
-    /* Ancorado por BAIXO, logo acima do minimapa, com a mesma esquerda dele. Os
-       320px de largura e os 240px de altura do minimapa estao neste arquivo, e
-       `bottom` soma a altura dele, o cabecalho de captura e as duas folgas. Com
-       o ancoramento embaixo, um predio de 7 andares cresce para CIMA, para
-       dentro da tela, em vez de descer sobre o minimapa. */
-    bottom: calc(var(--space-4) + 240px + 2 * var(--space-2));
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    /* Ancorado por BAIXO, acima do minimapa. Com o ancoramento embaixo, um
+       predio de 7 andares cresce para CIMA, para dentro da tela, em vez de
+       descer sobre o mapa.
+
+       A altura do conjunto do minimapa foi MEDIDA no navegador, e nao deduzida:
+       268px, sendo 240 de mapa, 24 do cabecalho de captura e 4 das duas bordas.
+       Somar so os 240, como se fazia, punha a base do seletor 12px DENTRO do
+       cabecalho, e os dois se encostavam.
+
+       A esquerda recua --space-4 alem da borda do minimapa, que comeca em
+       calc(sidebar + --space-4): o seletor fica levemente para dentro, em vez
+       de rente a ele. */
+    bottom: calc(var(--space-4) + var(--sv360-minimap-h) + var(--space-3));
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4) + var(--space-4));
     display: flex;
 
     /* column-reverse, nao column: a rota entrega os andares em ordem CRESCENTE
