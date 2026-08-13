@@ -428,7 +428,9 @@ export class StreetViewNavigator {
                 // Kept so a click on the edge arrow can TURN to the target: the
                 // arrow's whole message is "it is that many degrees away".
                 azimuthRelDeg: projected.azimuthRelDeg,
-                floorDelta: this.deltaDeAndar(target)
+                floorDelta: this.deltaDeAndar(target),
+                floorLevel: target?.floor_level ?? null,
+                floorLabel: target?.floor_label ?? null
             };
         }
 
@@ -448,7 +450,11 @@ export class StreetViewNavigator {
             // Quantos andares o alvo sobe (positivo) ou desce (negativo). Zero
             // para o mesmo andar E para todo projeto SEM andar declarado, entao
             // o acervo externo desenha exatamente como antes.
-            floorDelta: this.deltaDeAndar(target)
+            floorDelta: this.deltaDeAndar(target),
+            // O andar de DESTINO, que vira o texto ao lado da seta. O rotulo
+            // manda, e o nivel so vale quando o banco nao nomeou o andar.
+            floorLevel: target?.floor_level ?? null,
+            floorLabel: target?.floor_label ?? null
         };
     }
 
