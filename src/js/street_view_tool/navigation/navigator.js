@@ -316,7 +316,13 @@ export class StreetViewNavigator {
      */
     layoutDirections(targets, fov) {
         const vectors = targets
-            .map(t => ({ id: t.id, ...this.resolveTargetVector(t) }))
+            .map(t => ({
+                id: t.id,
+                // O degrau entra AQUI, e nao so na hora de desenhar, porque ele
+                // decide de que lado do horizonte o icone fica.
+                floorDelta: this.deltaDeAndar(t),
+                ...this.resolveTargetVector(t),
+            }))
             .sort((a, b) => a.distance - b.distance);
 
         // Place in the distance order of the whole photo, 0 = nearest of all.
@@ -362,7 +368,7 @@ export class StreetViewNavigator {
                 layout.set(member.id, {
                     rank: member.rank,
                     radius: this.projector.angularMarkerRadius(member.rank, fov),
-                    elevationDeg: this.projector.elevationDeg(member.rank),
+                    elevationDeg: this.projector.elevacaoComAndar(member.rank, member.floorDelta),
                 });
             }
         }

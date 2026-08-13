@@ -31,6 +31,9 @@ function navigatorStub(cameraConfig = { lon: 0, lat: 0 }) {
         resolveTargetVector: StreetViewNavigator.prototype.resolveTargetVector,
         layoutDirections: StreetViewNavigator.prototype.layoutDirections,
         assignHitRadii: StreetViewNavigator.prototype.assignHitRadii,
+        // O arranjo mede o degrau de andar, entao o stub precisa dele. Faltando,
+        // o layout estoura em vez de responder.
+        deltaDeAndar: StreetViewNavigator.prototype.deltaDeAndar,
     };
 }
 
@@ -219,6 +222,169 @@ describe('elevationDeg', () => {
         for (let i = 1; i < alturas.length; i++) {
             expect(alturas[i]).toBeGreaterThan(alturas[i - 1]);
         }
+    });
+});
+
+describe('elevacaoComAndar', () => {
+    // POR QUE ESTE BLOCO EXISTE. A altura era funcao SO da posicao na fila, e
+    // a fila cruza o horizonte no rank 1: um alvo que descia dois andares
+    // aparecia ACIMA da linha por estar em segundo na direcao. Altura o olho
+    // le antes da seta, entao o lado tem de vir do degrau, nao da fila.
+    const RANKS = [0, 1, 2, 3, 5, 20];
+
+    it('a fila sozinha CRUZA o horizonte, que e o defeito de origem', () => {
+        // Sem esta medida os testes abaixo nao provam nada: se a fila nunca
+        // subisse acima da linha, garantir que quem desce fica abaixo seria de
+        // graca. Ela cruza ja no rank 1.
+        const { projector } = projectorLookingAt(0);
+
+        expect(projector.elevationDeg(0)).toBeLessThan(0);
+        expect(projector.elevationDeg(1)).toBeGreaterThan(0);
+    });
+
+    it('quem DESCE fica abaixo do horizonte em qualquer posicao da fila', () => {
+        const { projector } = projectorLookingAt(0);
+
+        for (const rank of RANKS) {
+            for (const delta of [-1, -2, -6]) {
+                expect(projector.elevacaoComAndar(rank, delta)).toBeLessThan(0);
+            }
+        }
+    });
+
+    it('quem SOBE fica acima do horizonte em qualquer posicao da fila', () => {
+        const { projector } = projectorLookingAt(0);
+
+        for (const rank of RANKS) {
+            for (const delta of [1, 2, 6]) {
+                expect(projector.elevacaoComAndar(rank, delta)).toBeGreaterThan(0);
+            }
+        }
+    });
+
+    it('mesmo andar nao muda nada, que e o acervo externo inteiro', () => {
+        const { projector } = projectorLookingAt(0);
+
+        for (const rank of RANKS) {
+            for (const delta of [0, null, undefined, NaN]) {
+                expect(projector.elevacaoComAndar(rank, delta))
+                    .toBeCloseTo(projector.elevationDeg(rank), 12);
+            }
+        }
+    });
+
+    it('sobe e desce sao espelhos exatos, entao a escada e a MESMA', () => {
+        // E o que preserva a garantia do arranjo: o centro de um icone nunca
+        // cai dentro do disco do icone da frente. Refletir mantem distancias,
+        // inventar uma segunda escada nao manteria.
+        const { projector } = projectorLookingAt(0);
+
+        for (const rank of RANKS) {
+            expect(projector.elevacaoComAndar(rank, 1))
+                .toBeCloseTo(-projector.elevacaoComAndar(rank, -1), 12);
+        }
+    });
+
+    it('o DISCO nao encosta na linha, e nao so o centro dele', () => {
+        // A regra que o olho cobra: o icone tem de ficar inteiro de um lado.
+        // Comparar o centro com zero passaria com o disco cruzando a linha, que
+        // foi exatamente a primeira versao desta regra.
+        const { projector } = projectorLookingAt(0);
+
+        for (const rank of RANKS) {
+            const raio = projector.angularRadiusDeg(rank);
+            for (const delta of [1, -1]) {
+                expect(Math.abs(projector.elevacaoComAndar(rank, delta)))
+                    .toBeGreaterThan(raio);
+            }
+        }
+    });
+
+    it('a folga do primeiro icone vale meio raio dele', () => {
+        // O numero sai do tamanho do icone, e nao de um grau escolhido a dedo.
+        const { projector } = projectorLookingAt(0);
+        const raio = projector.angularRadiusDeg(0);
+        const folga = Math.abs(projector.elevacaoComAndar(0, -1)) - raio;
+
+        expect(folga).toBeCloseTo(raio * 0.5, 6);
+    });
+
+    it('a fila afunda e sobe monotonicamente, cada uma para o seu lado', () => {
+        const { projector } = projectorLookingAt(0);
+        const descendo = [0, 1, 2, 3].map(r => projector.elevacaoComAndar(r, -1));
+        const subindo = [0, 1, 2, 3].map(r => projector.elevacaoComAndar(r, 1));
+
+        for (let i = 1; i < descendo.length; i++) {
+            expect(descendo[i]).toBeLessThan(descendo[i - 1]);
+            expect(subindo[i]).toBeGreaterThan(subindo[i - 1]);
+        }
+    });
+});
+
+describe('layoutDirections e o lado do horizonte', () => {
+    // DUAS filas de dois, e nao uma de tres: no terceiro posto o icone ja cai
+    // abaixo de HORIZON_MIN_ANGULAR_DRAW e a fila termina, entao o alvo nem
+    // entra no arranjo. O que interessa e o SEGUNDO posto, porque e onde a
+    // fila comum ja passou para cima da linha.
+    const camera = { lon: 0, lat: 0, floor_level: 3 };
+    const fila = [
+        { id: 'perto', bearing: 340.0, distance: 2, floor_level: 3 },
+        { id: 'desce', bearing: 340.2, distance: 5, floor_level: 1 },
+        { id: 'base', bearing: 90.0, distance: 3, floor_level: 3 },
+        { id: 'sobe', bearing: 90.2, distance: 6, floor_level: 5 },
+        // Sozinho na direcao dele, ou seja, PRIMEIRO da fila. E o caso que
+        // separa de verdade: a regra antiga punha todo primeiro icone abaixo
+        // da linha, entao um alvo que sobe nascia do lado errado.
+        { id: 'sobe_so', bearing: 200.0, distance: 4, floor_level: 6 },
+    ];
+
+    it('poe o alvo que desce abaixo do horizonte, mesmo no meio da fila', () => {
+        const nav = navigatorStub(camera);
+        const layout = nav.layoutDirections(fila, FOV);
+
+        expect(layout.get('desce').rank).toBeGreaterThan(0);
+        expect(layout.get('desce').elevationDeg).toBeLessThan(0);
+    });
+
+    it('poe o alvo que sobe acima do horizonte, mesmo no meio da fila', () => {
+        const nav = navigatorStub(camera);
+        const layout = nav.layoutDirections(fila, FOV);
+
+        expect(layout.get('sobe').rank).toBeGreaterThan(0);
+        expect(layout.get('sobe').elevationDeg).toBeGreaterThan(0);
+    });
+
+    it('poe o alvo que sobe acima do horizonte tambem no PRIMEIRO posto', () => {
+        // Aqui a regra antiga reprova: o primeiro icone de uma direcao nascia
+        // abaixo da linha, subisse ele ou nao.
+        const nav = navigatorStub(camera);
+        const layout = nav.layoutDirections(fila, FOV);
+
+        expect(layout.get('sobe_so').rank).toBeLessThan(1);
+        expect(layout.get('sobe_so').elevationDeg).toBeGreaterThan(0);
+    });
+
+    it('nao mexe no alvo do mesmo andar', () => {
+        const nav = navigatorStub(camera);
+        const layout = nav.layoutDirections(fila, FOV);
+
+        expect(layout.get('perto').elevationDeg)
+            .toBeCloseTo(nav.projector.elevationDeg(layout.get('perto').rank), 12);
+    });
+
+    it('mede o degrau contra a camera do proprio navegador', () => {
+        const doTerceiro = navigatorStub(camera).layoutDirections(fila, FOV);
+        const doQuinto = navigatorStub({ lon: 0, lat: 0, floor_level: 5 })
+            .layoutDirections(fila, FOV);
+
+        // O MESMO alvo, olhado de dois andares diferentes, nao pode cair na
+        // mesma altura: do 3o ele sobe, do 5o ele esta no proprio andar.
+        expect(doTerceiro.get('sobe').elevationDeg).toBeGreaterThan(0);
+        expect(doQuinto.get('sobe').elevationDeg)
+            .not.toBe(doTerceiro.get('sobe').elevationDeg);
+
+        // E o que descia continua descendo, agora dois andares mais fundo.
+        expect(doQuinto.get('desce').elevationDeg).toBeLessThan(0);
     });
 });
 
