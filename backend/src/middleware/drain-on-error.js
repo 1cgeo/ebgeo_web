@@ -1,4 +1,5 @@
 // Path: src/middleware/drain-on-error.js
+import config from '../config.js';
 
 /**
  * How long to keep reading a rejected request's body before giving up on a clean
@@ -6,6 +7,19 @@
  * hostage; after this we answer anyway and let the socket end however it ends.
  */
 const DRAIN_TIMEOUT_MS = 5000;
+
+/**
+ * Ceiling on how much of a rejected body we are willing to read. Sized to the
+ * single-image upload limit plus slack for the multipart envelope, because that
+ * route (`POST /atlas/:atlasId/images`) is the one whose gate rejects mid-upload.
+ * A body larger than this stops being drained and the socket ends as it will —
+ * losing the status on a caller that big is cheaper than reading it out.
+ *
+ * @returns {number}
+ */
+function tetoDeBytes() {
+  return (config.images.maxSizeMb + 2) * 1024 * 1024;
+}
 
 /**
  * Holds an error response back until the unread request body has been drained.
@@ -29,6 +43,25 @@ const DRAIN_TIMEOUT_MS = 5000;
  * BEFORE the status is written, which is why this is a separate middleware that
  * defers `next(err)` rather than a line inside the handler.
  *
+ * TWO GUARDS, BOTH LOAD-BEARING, AND WHY. Draining was considered and REJECTED
+ * once before (livro-razao, 2026-07-25, while fixing the 413 that /images/bulk
+ * returned to an expired token): reading the body out lets an anonymous caller
+ * push 50 MB through, which is the amplification the bulk-parser guard exists to
+ * prevent. That objection is correct and still stands, so this middleware is
+ * bounded by exactly the criterion `app.js` already uses for the enlarged bulk
+ * parser:
+ *
+ *  - a VERIFIED principal must be attached (`req.user`, which flexibleAuth sets
+ *    only after jwt.verify / a valid api key — never the mere presence of an
+ *    Authorization header). An anonymous caller is never drained, so the 401 path
+ *    that the earlier decision was about behaves exactly as it did before.
+ *  - the read is capped (`tetoDeBytes`). A principal cannot buy an unbounded sink
+ *    by being logged in.
+ *
+ * The narrow case that remains — an authenticated caller inside the image-size
+ * limit — is precisely the one that was losing its 403, and it costs at most what
+ * that route already accepts from an authorized upload.
+ *
  * Mount it immediately before `errorHandler` — it must see the error first.
  *
  * @param {Error} err
@@ -38,8 +71,12 @@ const DRAIN_TIMEOUT_MS = 5000;
  */
 export function drainOnError(err, req, res, next) {
   if (req.complete || req.readableEnded || res.headersSent) return next(err);
+  if (!req.user) return next(err);   // anonymous: never read out, see above
 
+  const teto = tetoDeBytes();
+  let lidos = 0;
   let done = false;
+
   const finish = () => {
     if (done) return;
     done = true;
@@ -54,6 +91,10 @@ export function drainOnError(err, req, res, next) {
   // and resuming a piped stream would keep writing that orphan blob.
   req.unpipe?.();
   req.on('error', finish);   // a client that hangs up mid-drain is not our fault
+  req.on('data', (chunk) => {
+    lidos += chunk.length;
+    if (lidos > teto) finish();
+  });
   req.once('end', finish);
   req.once('close', finish);
   req.resume();

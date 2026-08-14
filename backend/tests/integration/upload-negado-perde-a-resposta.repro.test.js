@@ -133,6 +133,25 @@ describe('upload negado nao pode perder a propria resposta', () => {
     assert.equal(r.status, 403);
   });
 
+  it('o chamador ANONIMO nao e drenado, porque isso seria amplificacao', async () => {
+    // Drenar o corpo ja foi considerado e RECUSADO uma vez (livro-razao,
+    // 2026-07-25, ao consertar o 413 do /images/bulk para token expirado): ler o
+    // corpo de quem nao se identificou deixa um anonimo empurrar dezenas de MB
+    // pelo servidor, que e a amplificacao que o parser do bulk existe para
+    // impedir. A objecao continua valendo, entao o drain exige principal
+    // verificado, o mesmo criterio que o `app.js` usa para o parser ampliado.
+    //
+    // O que este caso prende e a ESCOLHA, nao um acidente: sem principal
+    // verificado o corpo nao e lido, entao o status se perde e a conexao cai.
+    // Medido, deterministico. Trocar o `if (!req.user)` por um drain
+    // incondicional faz este caso virar 401 e passar a ler os megabytes de
+    // qualquer um, que e a decisao recusada voltando pela porta dos fundos.
+    const r = await tentaUpload(null, pngGrande);
+    assert.equal(r.status, null,
+      `o anonimo recebeu status ${r.status}, ou seja, o corpo dele foi lido`);
+    assert.notEqual(r.erro, null);
+  });
+
   it('e o upload legitimo nao foi drenado junto', async () => {
     // O `drainOnError` so roda no caminho de ERRO. Se ele vazasse para o
     // caminho feliz, o multer receberia um stream ja consumido e o 201 viraria
