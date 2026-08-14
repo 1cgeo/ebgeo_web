@@ -32,14 +32,30 @@
 -- coluna e não uma expressão derivada do nível: dois espaços no MESMO nível
 -- podem ter nomes diferentes na tela.
 --
--- DIVERGÊNCIA CONHECIDA COM A ORIGEM, registrada e NÃO resolvida aqui:
---   aqui  (005_sv360.sql:50) sv360.photos.floor_level INTEGER NOT NULL DEFAULT 0
+-- DIVERGÊNCIA DE DEFAULT COM A ORIGEM, e ela se resolve na INGESTÃO, não aqui:
+--   aqui  (005_sv360.sql) sv360.photos.floor_level INTEGER NOT NULL DEFAULT 0
 --   lá    (ebgeo_360 src/db/schema.sql) photos.floor_level INTEGER DEFAULT 1
--- Os dois defaults nomeiam o MESMO andar com números diferentes, e o acervo já
--- carregado por scripts/sv360-import.js pode estar todo num nível só. Esta
--- migração NÃO escreve nenhum UPDATE de backfill: corrigir o dado exige medir o
--- acervo real de produção antes, e é passo separado. A migração é aditiva e
--- forward-only, então nada existente muda de valor.
+--
+-- Os dois repositórios declaram a MESMA régua (a origem escreve, no comentário
+-- da própria coluna, "Nivel 0 e o chao (externo, patio, campo), 1..N sobem"),
+-- então os dois defaults nomeiam andares DIFERENTES. Esta linha já afirmou o
+-- contrário, que eles nomeavam o mesmo andar, e isso era falso: sob a régua
+-- comum, importar o 1 cru rotularia foto de chão como "1º andar".
+--
+-- O default DAQUI é o correto e é decisão do dono, reafirmada em 2026-08-14:
+-- 0 é o térreo, o térreo é o padrão, e só levantamento interno usa os demais
+-- números. O DEFAULT 1 da origem é legado: lá ele nunca aparece na tela, porque
+-- quem decide se um projeto tem andares é a existência de linhas em
+-- project_floors, e os 28 projetos antigos (98.690 fotos em nível 1) não as têm.
+--
+-- Quem fecha a divergência é `normalizeFloorLevels` (scripts/sv360-import.js),
+-- que reescreve 1 para 0 SÓ quando o valor não carrega informação: projeto
+-- inteiro num nível só, esse nível sendo o default 1, e sem andares declarados.
+-- Projeto calibrado por humano passa intacto, e o guarda é
+-- tests/integration/sv360-floors-etl.test.js.
+--
+-- Esta migração continua sem UPDATE de backfill, de propósito: ela é aditiva e
+-- forward-only, e corrigir dado já gravado exige medir o acervo real antes.
 --
 -- `plan_coords` é JSONB por decisão do chefe. A origem guarda TEXT com JSON
 -- dentro, porque o SQLite não tem tipo melhor; o Postgres tem, e JSONB valida a
