@@ -46,6 +46,7 @@ import {
     updateNearbyPhotos, disposeMinimap,
 } from './minimap.js';
 import { initPanel, showToast, setSphericalGridToggleState, clearNearbyPreview, getNearbyPreviewState, getNearbyFloorScope } from './calibration-panel.js';
+import { descreverAlvo } from './descricao.js';
 import {
     initPreviewViewer, showPreview, hidePreview, showAddButton,
     showRearView, updateRearViewRotation, showTargetActions, updateHideButtonState,
@@ -532,7 +533,7 @@ function initializeSubsystems() {
                     if (state.selectedTargetId === target.id) {
                         showPreview(
                             target.id,
-                            target.display_name || target.id.slice(0, 8),
+                            rotuloDoAlvo(target),
                             meta.camera?.mesh_rotation_y ?? 180,
                             meta.camera?.mesh_rotation_x ?? 0,
                             meta.camera?.mesh_rotation_z ?? 0,
@@ -549,7 +550,7 @@ function initializeSubsystems() {
                 }).catch(() => {
                     // Still show without correct mesh rotation
                     if (state.selectedTargetId === target.id) {
-                        showPreview(target.id, target.display_name || target.id.slice(0, 8));
+                        showPreview(target.id, rotuloDoAlvo(target));
                         showTargetActions(true, {
                             onHide: () => {
                                 const hidden = isTargetHidden(state.selectedTargetId);
@@ -1015,8 +1016,11 @@ async function refreshTargetsAndNearby() {
         setRearViewTargets(metadata.targets, metadata.camera);
         updateTargets(metadata.targets);
 
-        // Re-fetch nearby photos
-        fetchNearbyPhotos(state.currentPhotoId).then(data => {
+        // Re-fetch nearby photos. O escopo de andar vem do painel: sem ele o
+        // servidor filtra pelo andar da foto e a lista contradiz o seletor.
+        fetchNearbyPhotos(state.currentPhotoId, 100, {
+            floor: getNearbyFloorScope() ?? undefined,
+        }).then(data => {
             const photos = data.photos || [];
             setNearbyPhotos(photos);
             updateNearbyPhotos(photos);
@@ -1070,6 +1074,27 @@ function handleNearbyFloorScope(escopo) {
         console.warn('Failed to reload nearby photos:', err);
         showToast('Nao consegui buscar as fotos proximas nesse andar', 'error');
     });
+}
+
+/**
+ * O rotulo do preview de um alvo: nome, distancia e, so quando muda de andar,
+ * qual andar.
+ *
+ * Usa a MESMA descricao da lista de alvos. Escrever a segunda aqui deixaria as
+ * duas telas dizendo coisas diferentes do mesmo alvo.
+ *
+ * @param {Object} target - Alvo selecionado
+ * @returns {string} Texto do rotulo
+ */
+function rotuloDoAlvo(target) {
+    const nome = target.display_name || target.id.slice(0, 8);
+    const { distancia, andar } = descreverAlvo(target, state.currentMetadata?.camera);
+
+    const partes = [nome];
+    if (distancia) partes.push(distancia);
+    if (andar) partes.push(andar);
+
+    return partes.join(' - ');
 }
 
 /**

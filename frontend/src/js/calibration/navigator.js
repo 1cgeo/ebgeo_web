@@ -1,3 +1,4 @@
+// Path: js/calibration/navigator.js
 /**
  * @fileoverview Navigation orchestrator for the Street View 360 calibration interface.
  * Projects targets to screen coordinates and handles click/hover.
@@ -12,6 +13,7 @@ import { StreetViewRenderer } from './renderer.js';
 import { StreetViewHitTester } from './hit-tester.js';
 import { state, isTargetHidden, onChange } from './state.js';
 import { setHoveredTarget as setMinimapHoveredTarget } from './minimap.js';
+import { descreverAlvo } from './descricao.js';
 
 // ============================================================================
 // MODULE STATE
@@ -402,7 +404,13 @@ export function resolveTargetVector(target, proj = projector, camera = cameraCon
  */
 export function layoutDirections(targets, fov, proj = projector, camera = cameraConfig) {
     const vectors = targets
-        .map(t => ({ id: t.id, ...resolveTargetVector(t, proj, camera) }))
+        .map(t => ({
+            id: t.id,
+            // O degrau entra AQUI, e nao so na hora de desenhar, porque ele
+            // decide de que lado do horizonte o icone fica.
+            floorDelta: deltaDeAndar(t, camera),
+            ...resolveTargetVector(t, proj, camera),
+        }))
         .sort((a, b) => a.distance - b.distance);
 
     // Place in the distance order of the whole photo, 0 = nearest of all.
@@ -446,7 +454,7 @@ export function layoutDirections(targets, fov, proj = projector, camera = camera
             layout.set(member.id, {
                 rank: member.rank,
                 radius: proj.angularMarkerRadius(member.rank, fov),
-                elevationDeg: proj.elevationDeg(member.rank),
+                elevationDeg: proj.elevacaoComAndar(member.rank, member.floorDelta),
             });
         }
     }
@@ -476,10 +484,12 @@ function calibrationMeta(target) {
  * da zero e o marcador continua identico ao de sempre.
  *
  * @param {Object} target - Alvo, com `floor_level` vindo da API
+ * @param {Object} [camera] - A foto de ONDE se olha. A vista de tras passa a
+ *   propria, e sem isso ela mediria o degrau contra a foto errada.
  * @returns {number} Diferenca de nivel, 0 quando nao ha o que distinguir
  */
-function deltaDeAndar(target) {
-    const aqui = cameraConfig?.floor_level;
+function deltaDeAndar(target, camera = cameraConfig) {
+    const aqui = camera?.floor_level;
     const la = target?.floor_level;
     if (typeof aqui !== 'number' || typeof la !== 'number') return 0;
     return la - aqui;
@@ -514,6 +524,8 @@ function projectTargetOnHorizon(target, yaw, pitch, fov) {
             offscreen: true,
             offscreenSide: projected.azimuthRelDeg > 0 ? 'right' : 'left',
             floorDelta: deltaDeAndar(target),
+            floorLevel: target?.floor_level ?? null,
+            floorLabel: target?.floor_label ?? null,
         };
     }
 
@@ -533,6 +545,10 @@ function projectTargetOnHorizon(target, yaw, pitch, fov) {
         // o mesmo andar E para todo projeto SEM andar declarado, entao o acervo
         // externo desenha exatamente como antes.
         floorDelta: deltaDeAndar(target),
+        // O andar de DESTINO, que vira o texto desenhado ao lado da seta. O
+        // rotulo manda, e o nivel so vale quando o banco nao nomeou o andar.
+        floorLevel: target?.floor_level ?? null,
+        floorLabel: target?.floor_label ?? null,
         ...calibrationMeta(target),
     };
 }
@@ -572,34 +588,49 @@ export function assignHitRadii(markers, height = overlayCanvas?.height ?? 0) {
  * @param {number} yaw - Yaw da camera em radianos
  * @param {number} pitch - Pitch da camera em radianos
  * @param {number} fov - Campo de visao em graus
+ * @param {Object} [proj] - Projector, injectable so the floor-step wiring is testable in node
+ * @param {Object} [camera] - Camera config, injectable for the same reason
  * @returns {Object|null} Marcador projetado, ou null se fora da vista
  */
-function projectNearbyPhoto(photo, yaw, pitch, fov) {
-    if (!cameraConfig) return null;
+export function projectNearbyPhoto(photo, yaw, pitch, fov, proj = projector, camera = cameraConfig) {
+    if (!camera) return null;
 
-    const { x, z } = projector.lonLatToMeters(
+    const { x, z } = proj.lonLatToMeters(
         photo.lon, photo.lat,
-        cameraConfig.lon, cameraConfig.lat
+        camera.lon, camera.lat
     );
     const bearing = ((((Math.atan2(x, -z) * 180) / Math.PI) + 360) % 360);
 
-    // Desenhada na mesma faixa dos alvos, na altura de quem seria o primeiro da
-    // fila: e uma candidata a virar alvo, nao um alvo atras de outro.
-    const projected = projector.projectOnHorizon(
-        bearing, yaw, pitch, fov, projector.elevationDeg(0)
+    // A altura diz de que andar ela e: mesmo nivel na faixa dos alvos, e cada
+    // andar de diferenca mais acima ou mais abaixo. Com a busca em todos os
+    // andares, e o que impede sete niveis de virarem uma pilha.
+    const degrau = deltaDeAndar(photo, camera);
+    const projected = proj.projectOnHorizon(
+        bearing, yaw, pitch, fov, proj.elevacaoDeVizinha(degrau)
     );
     if (!projected.visible) return null;
+
+    const distance = Math.hypot(x, z);
 
     return {
         id: photo.id,
         screenX: projected.screenX,
         screenY: projected.screenY,
-        distance: Math.hypot(x, z),
-        radius: projector.angularMarkerRadius(1, fov),
+        distance,
+        radius: proj.angularMarkerRadius(1, fov),
         rank: 1,
         offscreen: false,
         type: 'nearby',
         displayName: photo.display_name || photo.id.slice(0, 8),
+        // O que o marcador ESCREVE: a distancia sempre, e o andar so quando a
+        // foto esta noutro nivel. A distancia vai daqui, medida do lat/long da
+        // camera, e nao a do payload, que foi calculada de outra foto.
+        descricao: descreverAlvo({ ...photo, distance }, camera),
+        // O andar vai como DADO, e o desenho decide o glifo. O mesmo
+        // `rotuloDeAndar` que serve a esfera serve a bola verde.
+        floorDelta: degrau,
+        floorLevel: photo.floor_level ?? null,
+        floorLabel: photo.floor_label ?? null,
         data: photo,
     };
 }

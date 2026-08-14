@@ -1,3 +1,4 @@
+// Path: js/calibration/renderer.js
 /**
  * @fileoverview Canvas 2D renderer for Street View 360 calibration navigation elements.
  *
@@ -31,6 +32,10 @@ import { NAV_CONSTANTS } from './constants.js';
  * @param {number} [state.floorDelta] - Andares que o alvo sobe (+) ou desce (-).
  *   Zero desenha o marcador de sempre, e e o que vale para todo projeto sem
  *   andar declarado.
+ * @param {number|null} [state.floorLevel] - `floor_level` do ALVO, o andar a
+ *   que o clique leva.
+ * @param {string|null} [state.floorLabel] - `floor_label` do ALVO. Manda no
+ *   texto desenhado ao lado da seta, e o nivel so vale quando ele falta.
  */
 /**
  * Pontos da seta de troca de andar, no referencial JA transladado do marcador.
@@ -60,10 +65,114 @@ export function pontosDaSeta(radius, sobe) {
     };
 }
 
+/**
+ * O texto que o marcador escreve para o andar de DESTINO.
+ *
+ * Funcao pura, e separada do desenho, porque o rotulo e decisao de DADO, nao de
+ * pincel: o canvas so sabe desenhar texto.
+ *
+ * A regra le o NOME do andar, em vez de mapear numero para letra. Nivel 0 no
+ * Beira-Rio nao e "terreo": sao 86 fotos "Externo", o anel de fora, e 8 fotos
+ * "Campo", o gramado. Sao lugares distintos no mesmo nivel, e um mapa fixo
+ * 0 -> "E" apagaria essa diferenca. Quem nomeia o andar e o dado.
+ *
+ * Rotulo que comeca por algarismo entrega o algarismo ("6o andar" -> "6"), e o
+ * resto entrega a inicial ("Externo" -> "E", "Campo" -> "C"). Sem rotulo, cai
+ * no numero do nivel, que e o que sobra quando o banco nao nomeou nada.
+ *
+ * NAO confundir com o `rotuloDeAndar` de `project-map.js`, que e outra regra
+ * (nivel 0 vira "Ext" la) e serve ao botao do seletor de andar. Os dois nomes
+ * coincidem, os dois contratos nao.
+ *
+ * @param {number|null|undefined} nivel - `floor_level` do alvo
+ * @param {string|null|undefined} [rotulo] - `floor_label` do alvo
+ * @returns {string|null} O texto a desenhar, ou null quando nao ha o que dizer
+ */
+export function rotuloDeAndar(nivel, rotulo = null) {
+    if (typeof rotulo === 'string') {
+        const limpo = rotulo.trim();
+        if (limpo.length > 0) {
+            const digitos = limpo.match(/^\d+/);
+            return digitos ? digitos[0] : limpo[0].toUpperCase();
+        }
+    }
+    if (!Number.isFinite(nivel)) return null;
+    return String(nivel);
+}
+
+/**
+ * Escreve, sob o marcador, a que distancia ele esta.
+ *
+ * Cai sobre a fotografia, entao a placa vem antes do numero: sobre a lona
+ * branca do estadio um texto claro sem fundo desaparece, e com dois marcadores
+ * sobrepostos os dois numeros se misturam num borrao.
+ *
+ * @param {CanvasRenderingContext2D} ctx - Contexto, ja transladado para o centro
+ * @param {number} radius - Raio do marcador em pixels
+ * @param {{distancia: string|null, distanciaCurta: string|null, andar: string|null}} [descricao] - O que dizer
+ */
+export function desenharDescricao(ctx, radius, descricao) {
+    if (!descricao?.distanciaCurta) return;
+
+    // A forma CURTA: numero redondo, sem decimal e sem unidade. Sobre a
+    // fotografia o texto disputa espaco com a imagem, e o decimal nao decide
+    // nada. A lista do painel continua com a forma precisa.
+    const texto = descricao.distanciaCurta;
+
+    // Piso no corpo da fonte: o marcador da vizinha e pequeno por desenho, e um
+    // texto proporcional a ele seria ilegivel em qualquer tela.
+    const corpo = Math.max(9, radius * 0.85);
+
+    ctx.save();
+    ctx.font = `600 ${corpo.toFixed(2)}px system-ui, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // A PLACA, opaca. Contorno de texto nao basta quando dois marcadores se
+    // sobrepoem: os dois numeros ficam legiveis um sobre o outro e viram um
+    // borrao. Uma placa sem transparencia esconde o que esta atras, entao o
+    // numero de cima se le inteiro.
+    const largura = medirTexto(ctx, texto, corpo);
+    const alturaPlaca = corpo * 1.34;
+    const larguraPlaca = largura + corpo * 0.7;
+    const centroY = radius + alturaPlaca * 0.72;
+
+    ctx.fillStyle = '#11111b';
+    ctx.fillRect(-larguraPlaca / 2, centroY - alturaPlaca / 2, larguraPlaca, alturaPlaca);
+    ctx.strokeStyle = '#a6e3a1';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-larguraPlaca / 2, centroY - alturaPlaca / 2, larguraPlaca, alturaPlaca);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(texto, 0, centroY);
+
+    ctx.restore();
+}
+
+/**
+ * Largura do texto, com uma conta de reserva.
+ *
+ * O `measureText` existe em todo canvas de navegador, mas nao no contexto falso
+ * de um teste. Sem a reserva a placa sairia com largura NaN, e um `fillRect` de
+ * NaN nao desenha nada: o numero ficaria sem fundo justamente onde o teste diz
+ * que ele tem fundo.
+ *
+ * @param {CanvasRenderingContext2D} ctx - Contexto
+ * @param {string} texto - O que sera escrito
+ * @param {number} corpo - Corpo da fonte em pixels
+ * @returns {number} Largura em pixels
+ */
+function medirTexto(ctx, texto, corpo) {
+    const medida = typeof ctx.measureText === 'function'
+        ? ctx.measureText(texto)?.width
+        : null;
+    return Number.isFinite(medida) ? medida : texto.length * corpo * 0.6;
+}
+
 export function drawArmillarySphere(ctx, radius, state = {}) {
     const {
         highlighted = false, selected = false, hidden = false, opacity = 1,
-        floorDelta = 0,
+        floorDelta = 0, floorLevel = null, floorLabel = null,
     } = state;
     const r = Math.max(1, radius);
     const TILT = 0.30;
@@ -165,23 +274,47 @@ export function drawArmillarySphere(ctx, radius, state = {}) {
     // A SETA DE ANDAR, por cima da esfera. Ela cresce com o icone e some junto,
     // entao nao vira sujeira no marcador distante da fila.
     if (troca && !hidden) {
-        const p = pontosDaSeta(r, sobe);
+        // A seta diz o SENTIDO, e o texto diz ONDE se chega. Um sem o outro
+        // deixa a pergunta pela metade: no Beira-Rio o vomitorio sobe, mas sobe
+        // para o 4o ou para o 5o? Cabendo os dois, a seta encolhe e sai da
+        // frente; nao cabendo, ela volta inteira ao centro, como sempre foi.
+        const rotulo = rotuloDeAndar(floorLevel, floorLabel);
+        const comNumero = rotulo !== null && r >= NAV_CONSTANTS.ANDAR_NUMERO_RAIO_MIN;
+
+        const rSeta = comNumero ? r * 0.60 : r;
+        const xSeta = comNumero ? -r * 0.42 : 0;
+
+        const p = pontosDaSeta(rSeta, sobe);
         ctx.save();
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         // Contorno escuro primeiro: a seta tem de ler tanto sobre a lona branca
         // do estadio quanto sobre o corredor escuro.
-        for (const [cor, larg] of [['rgba(0, 0, 0, 0.75)', r * 0.30],
-                                   ['rgba(255, 236, 190, 0.98)', r * 0.16]]) {
+        for (const [cor, larg] of [['rgba(0, 0, 0, 0.75)', rSeta * 0.30],
+                                   ['rgba(255, 236, 190, 0.98)', rSeta * 0.16]]) {
             ctx.strokeStyle = cor;
             ctx.lineWidth = Math.max(1, larg);
             ctx.beginPath();
-            ctx.moveTo(p.cauda.x, p.cauda.y);
-            ctx.lineTo(p.ponta.x, p.ponta.y);
-            ctx.moveTo(p.asaEsq.x, p.asaEsq.y);
-            ctx.lineTo(p.ponta.x, p.ponta.y);
-            ctx.lineTo(p.asaDir.x, p.asaDir.y);
+            ctx.moveTo(xSeta + p.cauda.x, p.cauda.y);
+            ctx.lineTo(xSeta + p.ponta.x, p.ponta.y);
+            ctx.moveTo(xSeta + p.asaEsq.x, p.asaEsq.y);
+            ctx.lineTo(xSeta + p.ponta.x, p.ponta.y);
+            ctx.lineTo(xSeta + p.asaDir.x, p.asaDir.y);
             ctx.stroke();
+        }
+
+        if (comNumero) {
+            // Mesmo contorno e mesma cor da seta, porque os dois sao UMA marca
+            // ("sobe para o 5"), nao dois enfeites soltos sobre a esfera.
+            const corpo = r * (rotulo.length > 1 ? 0.86 : 1.12);
+            ctx.font = `700 ${corpo.toFixed(2)}px system-ui, "Segoe UI", Roboto, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.lineWidth = Math.max(1, r * 0.24);
+            ctx.strokeText(rotulo, r * 0.34, 0);
+            ctx.fillStyle = 'rgba(255, 236, 190, 0.98)';
+            ctx.fillText(rotulo, r * 0.34, 0);
         }
         ctx.restore();
     }
@@ -424,6 +557,8 @@ export class StreetViewRenderer {
                 selected: isCalibrationSelected,
                 hidden: isHidden,
                 floorDelta: marker.floorDelta ?? 0,
+                floorLevel: marker.floorLevel ?? null,
+                floorLabel: marker.floorLabel ?? null,
                 opacity: rankOpacity(marker.rank ?? 0, isHovered || isCursorNearest || isCalibrationSelected),
             });
         }
@@ -467,8 +602,12 @@ export class StreetViewRenderer {
     // ====================================================================
 
     /**
-     * Renders a nearby (unconnected) photo marker as a grey circle.
-     * Smaller and more transparent than navigation markers to visually distinguish.
+     * Desenha uma foto proxima (nao conectada) como uma bola verde que DIZ a
+     * que distancia esta e, quando o nivel difere, de que andar e.
+     *
+     * A bola sozinha deixava o operador ligar conexao no escuro: em planta a
+     * foto do andar de cima aparece colada na do andar de baixo.
+     *
      * @param {Object} marker - Nearby marker data
      */
     renderNearbyMarker(marker) {
@@ -478,22 +617,42 @@ export class StreetViewRenderer {
         ctx.save();
         ctx.translate(screenX, screenY);
 
-        // Outer circle - green fill (Catppuccin green #a6e3a1)
+        // Disco OPACO (Catppuccin green #a6e3a1). Com transparencia, duas
+        // vizinhas sobrepostas somavam os verdes e viravam uma mancha so, sem
+        // borda visivel entre elas: nenhuma das duas se lia.
         ctx.beginPath();
         ctx.arc(0, 0, radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(166, 227, 161, 0.45)';
+        ctx.fillStyle = '#a6e3a1';
         ctx.fill();
 
-        // Outer circle - border
-        ctx.strokeStyle = 'rgba(166, 227, 161, 0.6)';
+        ctx.strokeStyle = '#11111b';
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Inner dot
-        ctx.beginPath();
-        ctx.arc(0, 0, radius * 0.35, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(166, 227, 161, 0.5)';
-        ctx.fill();
+        // O ANDAR vai no centro da bola, e nao escrito por extenso ao lado: o
+        // glifo cabe onde ja ha lugar, e "4o andar" ao lado de cada marcador
+        // enche a tela de texto repetido. Mesma regra da esfera de navegacao,
+        // entao "6o andar" da 6, "Externo" da E e "Campo" da C.
+        const glifo = marker.floorDelta ? rotuloDeAndar(marker.floorLevel, marker.floorLabel) : null;
+        if (glifo) {
+            ctx.save();
+            ctx.font = `700 ${(radius * 1.25).toFixed(2)}px system-ui, "Segoe UI", Roboto, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Tinta escura sobre o verde, o mesmo par usado nas etiquetas do
+            // mapa de projeto.
+            ctx.fillStyle = '#11111b';
+            ctx.fillText(glifo, 0, 0);
+            ctx.restore();
+        } else {
+            // Sem glifo, o ponto interno de sempre.
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 0.35, 0, Math.PI * 2);
+            ctx.fillStyle = '#11111b';
+            ctx.fill();
+        }
+
+        desenharDescricao(ctx, radius, marker.descricao);
 
         ctx.restore();
     }
