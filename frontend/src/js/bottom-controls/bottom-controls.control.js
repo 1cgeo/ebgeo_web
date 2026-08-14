@@ -20,6 +20,25 @@ import {
 import { registerControl } from '@store/control.registry.js';
 
 /**
+ * Decides whether the terrain toggle should EXIST in the bottom bar.
+ *
+ * Two independent gates, both required, and they are NOT interchangeable:
+ *  - `features.terrain_3d` is the per-atlas restriction overlay (a Gestor forbidding terrain in
+ *    this atlas). Undefined means enabled. Dropping this gate would reopen the tool in an atlas
+ *    that forbids it.
+ *  - `map2d.terrainSource` is the deployment capability: `GET /api/config` omits the raster-dem
+ *    source entirely when no TERRAIN_URL is configured, and a toggle that can never do anything
+ *    is noise, so it is not rendered at all (matches the toolbar terrain gate in
+ *    `toolbar/components/toolbar-group.js`).
+ *
+ * @param {Object} cfg - Runtime config object (the `@js/config.js` singleton).
+ * @returns {boolean} True when the toggle should be rendered.
+ */
+export function isTerrainToggleEnabled(cfg) {
+    return cfg?.features?.terrain_3d !== false && cfg?.map2d?.terrainSource != null;
+}
+
+/**
  * Main bottom controls controller.
  */
 export class BottomControlsControl {
@@ -138,8 +157,8 @@ export class BottomControlsControl {
             case 'panorama':
                 return config.features?.imagens_panoramicas !== false;
             case 'terrain':
-                // Per-atlas config can hide terrain (features.terrain_3d); undefined = enabled.
-                return config.features?.terrain_3d !== false;
+                // TWO independent gates, both required (see isTerrainToggleEnabled).
+                return isTerrainToggleEnabled(config);
             default:
                 return true;
         }
