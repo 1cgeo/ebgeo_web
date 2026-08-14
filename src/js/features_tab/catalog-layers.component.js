@@ -14,7 +14,8 @@ import {
     updateCatalogLayerStatus,
     addCatalogLayer,
     hasCatalogLayer,
-    revalidateCatalogLayers
+    revalidateCatalogLayers,
+    getControl
 } from '@store';
 import { EventTypes } from '@events';
 import {
@@ -428,9 +429,7 @@ function getLayerIcon(type) {
 function applyLayerVisibility(map, layer, visible, analysisLayersManager, dataLayersManager) {
     if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
         // Use terrain control for hillshade
-        const terrainControl = map._controls?.find(
-            (control) => control.constructor.name === 'TerrainControl'
-        );
+        const terrainControl = getControl('TerrainControl');
         if (terrainControl?.setHillshadeVisibility) {
             terrainControl.setHillshadeVisibility(visible);
         }
@@ -544,9 +543,7 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
 
             // Apply to map
             if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
-                const terrainControl = map._controls?.find(
-                    (control) => control.constructor.name === 'TerrainControl'
-                );
+                const terrainControl = getControl('TerrainControl');
                 if (terrainControl?.setHillshadeVisibility) {
                     terrainControl.setHillshadeVisibility(true);
                 }
@@ -718,9 +715,7 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
 
     // Apply to map
     if (type === CATALOG_ITEM_TYPES.HILLSHADE) {
-        const terrainControl = map._controls?.find(
-            (control) => control.constructor.name === 'TerrainControl'
-        );
+        const terrainControl = getControl('TerrainControl');
         if (terrainControl?.setHillshadeVisibility) {
             terrainControl.setHillshadeVisibility(true);
         }
