@@ -13,6 +13,13 @@
  *
  * Pure + injectable (eventBus via services, refresh + scheduler via params) so it is
  * unit-testable without a real map.
+ *
+ * NOT a diff-dispatcher call site, and deliberately so: this module writes nothing itself, and the
+ * `refresh` it debounces (`setupMapFeatures`) rebuilds every feature source FROM THE STORE, where
+ * the delta is the whole collection. One interaction is worth knowing before migrating a source:
+ * that rebuild writes with a raw `setData`, which discards any diff a dispatcher had queued. It is
+ * benign because the store is written before the source in every migrated path (persistence-first),
+ * so the collection the rebuild produces already contains whatever the discarded diff carried.
  */
 
 import { EventTypes } from '../events/event_types.js';

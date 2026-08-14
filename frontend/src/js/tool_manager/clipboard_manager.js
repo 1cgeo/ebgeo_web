@@ -18,6 +18,7 @@ import {
     buildLayerMappingForMove
 } from '../store';
 import { IDUtils, ToastService } from '../utilities';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 
@@ -453,12 +454,11 @@ class ClipboardManager {
      */
     async updateMapSources(newFeaturesByType) {
         for (const [storageType, features] of Object.entries(newFeaturesByType)) {
-            const mapSource = this.map.getSource(storageType);
-
-            if (mapSource) {
-                const data = await mapSource.getData();
-                data.features.push(...features);
-                mapSource.setData(data);
+            if (this.map.getSource(storageType)) {
+                // Queued as one batch: the paste targets are dispatcher-owned sources, and a raw
+                // `setData` replaces MapLibre's pending-update slot, dropping a queued diff with
+                // no error. A paste is a pure append, so there is nothing to read back first.
+                getGeoJsonDispatcher(this.map, storageType).add(features);
 
                 const sourceType = this.getSourceTypeFromStorage(storageType);
                 this.updateSpecialFeaturesToolCentric(sourceType, features);

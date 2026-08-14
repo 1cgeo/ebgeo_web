@@ -12,6 +12,7 @@ import { getStorageTypeFromSource } from '@store/store.constants.js';
 import { isCurrentMapLockedSync } from '@store/map.operations.js';
 import { getControl } from '@store/control.registry.js';
 import { EventTypes } from '@events/event_types.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils } from '@utils/id_utils.js';
 
 // ============================================================================
@@ -142,14 +143,11 @@ async function _updateMapSources(featuresMap) {
     for (const [storageType, features] of Object.entries(featuresMap)) {
         if (features.length === 0) continue;
 
-        const source = map.getSource(storageType);
-        if (source) {
-            const data = await source.getData();
-            for (const feature of features) {
-                _stripInternalProperties(feature);
-                data.features.push(feature);
-            }
-            source.setData(data);
+        if (map.getSource(storageType)) {
+            for (const feature of features) _stripInternalProperties(feature);
+            // Queued as one batch: these sources are dispatcher-owned, and a raw `setData` would
+            // replace MapLibre's pending-update slot and drop a queued diff without any error.
+            getGeoJsonDispatcher(map, storageType).add(features);
         }
     }
 }

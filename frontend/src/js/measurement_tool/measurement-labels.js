@@ -4,6 +4,19 @@
  * @module measurement_tool/measurement-labels
  * @description Manages MapLibre GeoJSON sources for ephemeral measurement labels.
  * Labels are rendered as symbol layers for performance (no DOM markers).
+ *
+ * EVERY write here stays a whole-collection `setData`, and that is a decision, not an omission.
+ * These six sources are NOT candidates for the diff dispatcher (`layers/geojson-dispatcher.js`),
+ * for three independent reasons:
+ * - the collections hold a handful of features, where `setData` already costs about nothing (the
+ *   measured diff win starts in the thousands);
+ * - they are rebuilt on every mousemove of a measurement, with no gap between writes, which is
+ *   the exact regime where back-to-back `updateData` calls were measured applying 2 of 10, and a
+ *   dropped frame in a rubber band is visible dragging;
+ * - the features carry no stable identity at all: the id is the ARRAY INDEX, so a vertex inserted
+ *   mid-line renumbers every one after it and the diff would have to remove and re-add the whole
+ *   collection each frame, which is strictly more work than replacing it.
+ * Their sources are created below without `promoteId` for the same reason.
  */
 
 import { MEASUREMENT_SOURCES, MEASUREMENT_LAYERS, MEASUREMENT_STYLE } from './measurement.constants.js';

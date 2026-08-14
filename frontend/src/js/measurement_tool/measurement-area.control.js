@@ -26,6 +26,7 @@ import {
 } from './measurement-labels.js';
 import { createAreaResultsPanel } from './measurement-results-panel.js';
 import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
 
 export class MeasurementAreaControl {
@@ -309,9 +310,11 @@ export class MeasurementAreaControl {
 
         await addFeature('polygons', feature);
 
-        const data = await this.map.getSource('polygons').getData();
-        data.features.push(feature);
-        this.map.getSource('polygons').setData(data);
+        // Through the dispatcher, not a read-modify-write on `polygons`: the source is
+        // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
+        // silently drop whatever the polygon or azimuth tool had queued. A single append also has
+        // nothing to read back for.
+        getGeoJsonDispatcher(this.map, 'polygons').add(feature);
 
         this.deactivate();
         this.toolManager.deactivateCurrentTool();

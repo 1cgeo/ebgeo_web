@@ -289,6 +289,10 @@ export class RemoteSelectionsLayer {
     }
 
     /**
+     * Writes the overlay whole, with `setData`, and stays out of the geojson dispatcher: the
+     * boxes are DERIVED (rebuilt from scratch from presence + live geometry on every render),
+     * they carry no `properties.id` for a diff to key on, and `remote-selection-boxes` is
+     * declared through `ensureSource` without `promoteId`, so `updateData` would throw here.
      * @param {Object[]} boxes
      * @private
      */

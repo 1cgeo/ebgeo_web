@@ -17,6 +17,7 @@ import { EventTypes } from '@events';
 import AddLineGeometry from './add_line_geometry.js';
 import { removeMeasurement, updateFeatureMeasurement } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 /** Minimum distance (meters) from endpoints to allow a split */
 const MIN_ENDPOINT_DISTANCE = 1;
@@ -151,14 +152,13 @@ export async function splitLineAtPoint(lineFeature, clickLngLat, map, selectionM
         // Remove original from store
         await removeFeature('lines', originalId);
 
-        // Update map source
-        const source = map.getSource('lines');
-        if (source) {
-            const data = await source.getData();
-            data.features = data.features.filter(f => f.properties.id !== originalId);
-            data.features.push(feature1, feature2);
-            source.setData(data);
-        }
+        // Update map source. One remove plus two adds is the diff a split IS, and it needs no
+        // collection read: `lines` has no derived label source. Same dispatcher instance the line
+        // control uses, since the registry is keyed by (map, sourceId).
+        const dispatcher = getGeoJsonDispatcher(map, 'lines');
+        dispatcher.remove(originalId);
+        dispatcher.add([feature1, feature2]);
+        await dispatcher.flush();
 
         // Add new features to store
         await addFeature('lines', feature1);
@@ -180,19 +180,11 @@ export async function splitLineAtPoint(lineFeature, clickLngLat, map, selectionM
                 feature1.properties.profileData = JSON.stringify(profileData1);
                 feature2.properties.profileData = JSON.stringify(profileData2);
 
-                // Update source with recalculated profile data
-                const updatedSource = map.getSource('lines');
-                if (updatedSource) {
-                    const updatedData = await updatedSource.getData();
-                    for (const f of updatedData.features) {
-                        if (f.properties.id === featureId1) {
-                            f.properties.profileData = feature1.properties.profileData;
-                        } else if (f.properties.id === featureId2) {
-                            f.properties.profileData = feature2.properties.profileData;
-                        }
-                    }
-                    updatedSource.setData(updatedData);
-                }
+                // Update source with recalculated profile data: one property on two known ids,
+                // which is a patch, not a rewrite of the collection.
+                dispatcher.patch(featureId1, { setProps: { profileData: feature1.properties.profileData } });
+                dispatcher.patch(featureId2, { setProps: { profileData: feature2.properties.profileData } });
+                await dispatcher.flush();
             } catch (err) {
                 console.error('Error recalculating profile after split:', err);
             }

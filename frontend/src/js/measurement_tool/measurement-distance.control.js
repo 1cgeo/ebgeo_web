@@ -23,6 +23,7 @@ import {
 } from './measurement-labels.js';
 import { createDistanceResultsPanel } from './measurement-results-panel.js';
 import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils, showToast } from '@utils';
 
 export class MeasurementDistanceControl {
@@ -287,9 +288,10 @@ export class MeasurementDistanceControl {
 
         await addFeature('lines', feature);
 
-        const data = await this.map.getSource('lines').getData();
-        data.features.push(feature);
-        this.map.getSource('lines').setData(data);
+        // Through the dispatcher, not a read-modify-write on `lines`: the source is
+        // dispatcher-owned, so a raw `setData` would replace MapLibre's pending-update slot and
+        // silently drop whatever the line or azimuth tool had queued.
+        getGeoJsonDispatcher(this.map, 'lines').add(feature);
 
         this.deactivate();
         this.toolManager.deactivateCurrentTool();

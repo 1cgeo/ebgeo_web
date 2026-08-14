@@ -2,10 +2,22 @@
 
 /**
  * @fileoverview Feature header components for attribute panels.
+ *
+ * SOURCE WRITES. The conversions below are the cross-source case of the diff dispatcher
+ * (`layers/geojson-dispatcher.js`): every one of them ADDS a feature to one source and REMOVES
+ * one from another, which is exactly the shape a `{ add }` / `{ remove }` diff carries. They used
+ * to read both collections back, mutate them and write both whole, so converting one point in a
+ * map holding thousands paid twice the whole-collection cost for a two-feature change.
+ *
+ * This file does NOT own any source: it borrows the dispatcher each drawing tool owns, through the
+ * shared per-map registry, so it must never `destroy()` one. It also never writes a source with a
+ * raw `setData`, because that would replace MapLibre's pending-update slot and drop whatever diff
+ * the owning tool had queued, with no error at all.
  */
 
 import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
 // These inline checks avoid a static import from military_tools (which would
@@ -973,23 +985,24 @@ async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
 
         const lineId = lineFeature.properties.id;
 
+        const arrows = getGeoJsonDispatcher(map, 'arrows');
+        const lines = getGeoJsonDispatcher(map, 'lines');
+
         // Batch the add+remove so a single Ctrl+Z undoes the whole conversion
         // as one unit (avoids the partial-undo inconsistency of two records).
         startBatchUndo();
         try {
             // Add the arrow FIRST so a persist failure cannot lose the source line.
             await addFeature('arrows', arrowFeature);
-
-            const arrowData = await map.getSource('arrows').getData();
-            arrowData.features.push(arrowFeature);
-            map.getSource('arrows').setData(arrowData);
+            arrows.add(arrowFeature);
 
             // Only after the add succeeded do we remove the line.
             await removeFeature('lines', lineId);
+            lines.remove(lineId);
 
-            const lineData = await map.getSource('lines').getData();
-            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-            map.getSource('lines').setData(lineData);
+            // Both queues are drained before the batch closes, so the two sources reach the
+            // canvas together and neither can be read half-converted by the panel refresh below.
+            await Promise.all([arrows.flush(), lines.flush()]);
         } finally {
             commitBatchUndo();
         }
@@ -1073,25 +1086,26 @@ async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
 
         const lineId = lineFeature.properties.id;
 
+        const boundarys = getGeoJsonDispatcher(map, 'boundarys');
+        const lines = getGeoJsonDispatcher(map, 'lines');
+
         // Batch the add+remove so a single Ctrl+Z undoes the whole conversion.
         startBatchUndo();
         try {
             // Add the boundary FIRST so a persist failure cannot lose the source line.
             await addFeature('boundarys', boundaryFeature);
+            boundarys.add(boundaryFeature);
 
-            const boundaryData = await map.getSource('boundarys').getData();
-            boundaryData.features.push(boundaryFeature);
-            map.getSource('boundarys').setData(boundaryData);
-
-            // Update dependent features (circles and texts)
+            // Update dependent features (circles and texts). Those two sources are derived and
+            // carry no `properties.id`, so they are blocked from the diff and keep their own
+            // whole-collection writes inside the boundary control; they do not read `boundarys`.
             await boundaryControl.updateDependentFeatures(boundaryFeature);
 
             // Only after the add succeeded do we remove the line.
             await removeFeature('lines', lineId);
+            lines.remove(lineId);
 
-            const lineData = await map.getSource('lines').getData();
-            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-            map.getSource('lines').setData(lineData);
+            await Promise.all([boundarys.flush(), lines.flush()]);
         } finally {
             commitBatchUndo();
         }
@@ -1152,15 +1166,23 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
             geometry: newGeometry
         };
 
-        // Update in map source
+        // Update in map source. The collection read survives HERE and nowhere else in this file,
+        // because it is an existence test: `add` on a key the source does not hold CREATES the
+        // feature instead of skipping it, and the store write below runs either way. Draining
+        // first keeps the copy read back from missing whatever the arrow tool has queued.
+        const arrows = getGeoJsonDispatcher(map, 'arrows');
+        await arrows.flush();
+
         const arrowData = await map.getSource('arrows').getData();
         const featureIndex = arrowData.features.findIndex(
             f => f.properties.id === arrowFeature.properties.id
         );
 
         if (featureIndex !== -1) {
-            arrowData.features[featureIndex] = updatedFeature;
-            map.getSource('arrows').setData(arrowData);
+            // Full-feature upsert: the reversal rewrites both geometry and baseCoordinates, and
+            // `add` is a TOTAL replacement, so no stale property survives it.
+            arrows.add(updatedFeature);
+            await arrows.flush();
         }
 
         // Update in store
@@ -1277,25 +1299,26 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
 
         const pointId = pointFeature.properties.id;
 
+        const milSymbols = getGeoJsonDispatcher(map, 'military_symbols');
+        const points = getGeoJsonDispatcher(map, 'points');
+
         // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
         startBatchUndo();
         try {
             // Add the military symbol FIRST so a persist failure cannot lose the point.
             await addFeature('military_symbols', feature);
             symbolAdded = true;
+            milSymbols.add(feature);
 
-            const milSymData = await map.getSource('military_symbols').getData();
-            milSymData.features.push(feature);
-            map.getSource('military_symbols').setData(milSymData);
-
+            // The queued add only leaves at flush time, so the symbol image is now guaranteed to
+            // be registered BEFORE the feature reaches the source, instead of racing it.
             await milSymControl.loadSymbolToMap(featureId, result.blob);
 
             // Only after the add succeeded do we remove the source point.
             await removeFeature('points', pointId);
+            points.remove(pointId);
 
-            const pointData = await map.getSource('points').getData();
-            pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
-            map.getSource('points').setData(pointData);
+            await Promise.all([milSymbols.flush(), points.flush()]);
         } finally {
             commitBatchUndo();
         }
@@ -1410,25 +1433,26 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
 
         const pointId = pointFeature.properties.id;
 
+        const measures = getGeoJsonDispatcher(map, 'coordination_measures');
+        const points = getGeoJsonDispatcher(map, 'points');
+
         // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
         startBatchUndo();
         try {
             // Add the coordination measure FIRST so a persist failure cannot lose the point.
             await addFeature('coordination_measures', feature);
             symbolAdded = true;
+            measures.add(feature);
 
-            const coordData = await map.getSource('coordination_measures').getData();
-            coordData.features.push(feature);
-            map.getSource('coordination_measures').setData(coordData);
-
+            // Same ordering guarantee as the military symbol above: the image is registered
+            // before the queued add reaches the source.
             await coordControl.loadSymbolToMap(featureId, result.blob);
 
             // Only after the add succeeded do we remove the source point.
             await removeFeature('points', pointId);
+            points.remove(pointId);
 
-            const pointData = await map.getSource('points').getData();
-            pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
-            map.getSource('points').setData(pointData);
+            await Promise.all([measures.flush(), points.flush()]);
         } finally {
             commitBatchUndo();
         }

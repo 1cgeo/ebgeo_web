@@ -13,6 +13,7 @@ import {
     createSectionDivider,
 } from './index.js';
 import { formatAreaAuto } from '../../measurement_tool/measurement-geometry.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 export const LABEL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>`;
 
@@ -152,6 +153,14 @@ export function createLabelZoomHandler(getMap, sourceName, labelSourceName) {
         const source = map?.getSource(sourceName);
         if (!source) { pendingUpdate = false; return; }
 
+        // `sourceName` is always one of the dispatcher-owned shape sources (circles, ellipses,
+        // polygons, rectangles, setores), so this read-modify-write has to bracket itself with the
+        // queue: drain before reading, or the copy is missing whatever is queued, and write back
+        // through the dispatcher, or the whole-collection `setData` replaces MapLibre's
+        // pending-update slot and the queued diff disappears with no error.
+        const dispatcher = getGeoJsonDispatcher(map, sourceName);
+        await dispatcher.flush();
+
         const currentZoom = map.getZoom();
         const data = await source.getData();
         let hasChanges = false;
@@ -181,7 +190,7 @@ export function createLabelZoomHandler(getMap, sourceName, labelSourceName) {
         }
 
         if (hasChanges) {
-            source.setData(data);
+            dispatcher.setData(data);
             if (labelSourceName) syncLabelSource(map, labelSourceName, data);
         }
         pendingUpdate = false;

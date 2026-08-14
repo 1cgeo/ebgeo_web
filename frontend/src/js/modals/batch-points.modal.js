@@ -14,6 +14,7 @@ import {
     getPlaceholderForFormat,
 } from '@utils/coordinate_converter.js';
 import { addFeature, getActiveLayerIdSync, getControl } from '@store/index.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 /**
  * Creates a batch points panel for the sidebar tool panel area.
@@ -206,7 +207,6 @@ export function createBatchPointsPanel(options = {}) {
                 return;
             }
 
-            const data = await source.getData();
             const created = [];
 
             for (const entry of validEntries) {
@@ -239,13 +239,13 @@ export function createBatchPointsPanel(options = {}) {
                 // Persist to IndexedDB (per-feature undo + operation logging)
                 await addFeature('points', feature);
 
-                // Accumulate in memory for MapLibre source update
-                data.features.push(feature);
                 created.push(feature);
             }
 
-            // Flush MapLibre source update once after all features
-            source.setData(data);
+            // One queued batch instead of a read-modify-write: `points` is dispatcher-owned, and a
+            // raw `setData` would replace MapLibre's pending-update slot, dropping whatever the
+            // point tool had queued. The dispatcher coalesces the whole batch into a single diff.
+            getGeoJsonDispatcher(map, 'points').add(created);
 
             const word = created.length === 1 ? 'ponto criado' : 'pontos criados';
             showSuccess(`${created.length} ${word} com sucesso`);

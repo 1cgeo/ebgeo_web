@@ -18,6 +18,30 @@ import {
     syncZoomCorrectedProperty,
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `military_symbols` source.
+ *
+ * EVERY write to `military_symbols` made in this file goes through it. The reason is not style:
+ * a raw `source.setData()` issued while a diff is queued replaces MapLibre's pending-update slot
+ * and the diff disappears with no error at all.
+ *
+ * Each public method here also awaits `flush()` before it returns. Two reasons, and the second
+ * is the one that matters:
+ * - the deferred write would otherwise land one animation frame after the caller resumed;
+ * - `military_symbols` still has co-writers outside this file (the point-to-symbol conversion in
+ *   `tool_manager/helpers/feature-header.helpers.js`, plus the generic by-storageType writers:
+ *   attribute table, features tab, import, clipboard, multi-selection actions, context menu,
+ *   phone layout), and they all do read-modify-write with a raw `setData`. Draining inside the
+ *   awaited method keeps the queue empty between gestures, so no co-writer can read a collection
+ *   that is missing what this tool just wrote.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `military_symbols` source
+ */
+function militarySymbolsSource(map) {
+    return getGeoJsonDispatcher(map, 'military_symbols');
+}
 
 /**
  * Properties that feed the SIDC builder.
@@ -185,6 +209,11 @@ class AddMilitarySymbolControl extends BaseControl {
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+    // dispatch. Dropping a batch here cannot lose a symbol: the store write always precedes the
+    // source write, so the redraw that follows a style switch repopulates `military_symbols`
+    // from persistence.
+    destroyGeoJsonDispatcher(this.map, "military_symbols");
     this._unsubscribeRemoteImageRegen();
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
@@ -399,46 +428,38 @@ class AddMilitarySymbolControl extends BaseControl {
   updateSelectionBoxesForFeatures = async (features) => {
     if (!features || features.length === 0) return;
 
-    const data = await this.map.getSource("military_symbols").getData();
+    const dispatcher = militarySymbolsSource(this.map);
     let hasChanges = false;
 
-    features.forEach((inputFeature) => {
-      if (inputFeature.properties.source === "military_symbol") {
-        // Find the current feature in the map source (this has the latest coordinates)
-        const currentSourceFeature = data.features.find(
-          (f) => f.properties.id === inputFeature.properties.id
-        );
+    // The moved feature already carries the post-drag state: `updateFeatureForMove` built it and
+    // `updateFeatures` (called by `selectionManager.updateSelectedFeatures()` just before this)
+    // pushed that same object into the source. So the box is recomputed from it and shipped as a
+    // one-property patch, instead of reading the whole collection back only to find the copy of
+    // what the caller already handed us.
+    for (const inputFeature of features) {
+      if (inputFeature.properties.source !== "military_symbol") continue;
 
-        if (currentSourceFeature) {
-          const effectiveZoom = currentSourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
-          const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-            currentSourceFeature.geometry.coordinates,
-            currentSourceFeature.properties.width,
-            currentSourceFeature.properties.height,
-            currentSourceFeature.properties.size,
-            currentSourceFeature.properties.rotation,
-            currentSourceFeature.properties.createdAtZoom,
-            this.selectionManager.uiManager,
-            effectiveZoom
-          );
+      const effectiveZoom = inputFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
+      const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+        inputFeature.geometry.coordinates,
+        inputFeature.properties.width,
+        inputFeature.properties.height,
+        inputFeature.properties.size,
+        inputFeature.properties.rotation,
+        inputFeature.properties.createdAtZoom,
+        this.selectionManager.uiManager,
+        effectiveZoom
+      );
 
-          currentSourceFeature.properties.selectionBox = newSelectionBox;
-          hasChanges = true;
-        }
-      }
-    });
+      inputFeature.properties.selectionBox = newSelectionBox;
+      dispatcher.patch(inputFeature.properties.id, { setProps: { selectionBox: newSelectionBox } });
+      hasChanges = true;
+    }
 
     if (hasChanges) {
-      this.map.getSource("military_symbols").setData(data);
+      await dispatcher.flush();
 
-      const freshFeatures = features.map((inputFeature) => {
-        const sourceFeature = data.features.find(
-          (f) => f.properties.id === inputFeature.properties.id
-        );
-        return sourceFeature || inputFeature;
-      });
-
-      this.updateSelectionManagerFeatures(freshFeatures);
+      this.updateSelectionManagerFeatures(features);
 
       requestAnimationFrame(() => {
         if (this.selectionManager.uiManager.updateSelectionHighlight) {
@@ -553,9 +574,9 @@ class AddMilitarySymbolControl extends BaseControl {
 
       await addFeature("military_symbols", feature);
 
-      const data = await this.map.getSource("military_symbols").getData();
-      data.features.push(feature);
-      this.map.getSource("military_symbols").setData(data);
+      const dispatcher = militarySymbolsSource(this.map);
+      dispatcher.add(feature);
+      await dispatcher.flush();
 
       await this.selectionManager.toggleFeatureSelection(
         "military_symbol",
@@ -614,16 +635,18 @@ class AddMilitarySymbolControl extends BaseControl {
         this.selectionManager.uiManager
       );
 
-      const data = await this.map.getSource("military_symbols").getData();
-      const sourceFeature = data.features.find(
-        f => f.properties.id === feature.properties.id
-      );
-      if (sourceFeature) {
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
-        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
-      }
-      this.map.getSource("military_symbols").setData(data);
+      // Three properties on one feature. The `if (sourceFeature)` guard the read used to provide
+      // is what a patch of an absent key already does by itself (documented silent no-op), so the
+      // collection read buys nothing here.
+      const dispatcher = militarySymbolsSource(this.map);
+      dispatcher.patch(symbolId, {
+        setProps: {
+          width: result.width,
+          height: result.height,
+          selectionBox: feature.properties.selectionBox,
+        },
+      });
+      await dispatcher.flush();
 
       await storeImage(symbolId, result.blob);
       await this.loadSymbolToMap(symbolId, result.blob);
@@ -661,16 +684,18 @@ class AddMilitarySymbolControl extends BaseControl {
         this.selectionManager.uiManager
       );
 
-      const data = await this.map.getSource("military_symbols").getData();
-      const sourceFeature = data.features.find(
-        f => f.properties.id === feature.properties.id
-      );
-      if (sourceFeature) {
-        sourceFeature.properties.width = result.width;
-        sourceFeature.properties.height = result.height;
-        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
-      }
-      this.map.getSource("military_symbols").setData(data);
+      // Three properties on one feature. The `if (sourceFeature)` guard the read used to provide
+      // is what a patch of an absent key already does by itself (documented silent no-op), so the
+      // collection read buys nothing here.
+      const dispatcher = militarySymbolsSource(this.map);
+      dispatcher.patch(symbolId, {
+        setProps: {
+          width: result.width,
+          height: result.height,
+          selectionBox: feature.properties.selectionBox,
+        },
+      });
+      await dispatcher.flush();
 
       await storeImage(symbolId, result.blob);
       await this.loadSymbolToMap(symbolId, result.blob);
@@ -732,6 +757,18 @@ class AddMilitarySymbolControl extends BaseControl {
       return;
     }
 
+    // NOT a diff, on purpose: every zoom-corrected symbol changes size on every zoom step, so
+    // the delta IS the collection and a diff would carry one update entry per feature for the
+    // same O(N) cost. The read-modify-write still has to start from a drained queue, or the copy
+    // read back would be missing whatever is queued and the whole-collection write would then
+    // erase it.
+    const dispatcher = militarySymbolsSource(this.map);
+    await dispatcher.flush();
+    if (!this.map) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
     const currentZoom = this.map.getZoom();
     const data = await this.map.getSource("military_symbols").getData();
     let hasChanges = false;
@@ -770,7 +807,8 @@ class AddMilitarySymbolControl extends BaseControl {
     });
 
     if (hasChanges) {
-      this.map.getSource("military_symbols").setData(data);
+      dispatcher.setData(data);
+      await dispatcher.flush();
 
       const selectedFeatures = this.getSelectedFeatures();
       const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
@@ -828,6 +866,8 @@ class AddMilitarySymbolControl extends BaseControl {
       return [];
     }
 
+    // Reads only. The queue is drained first so a symbol created moments ago is counted.
+    await militarySymbolsSource(this.map).flush();
     const data = await this.map.getSource("military_symbols").getData();
     const symbolCounts = new Map(); // Map<sidc, {feature, count}>
 
@@ -847,13 +887,22 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   updateFeaturesProperty = async (features, property, value) => {
+    // The collection read survives here on purpose. Three things below need the PREVIOUS source
+    // feature and no diff hands it back: whether the feature exists at all (an unknown id must be
+    // skipped, not created), the old SIDC/fillColor the regeneration test compares against, and
+    // the raster size (`width`/`height`) the selection box is measured from. Draining first keeps
+    // that read from being stale.
+    const dispatcher = militarySymbolsSource(this.map);
+    await dispatcher.flush();
     const data = await this.map.getSource("military_symbols").getData();
+    const patches = [];
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
         (f) => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
+        const setProps = { [property]: value };
         const oldSIDC = sourceFeature.properties.sidc;
         const oldFillColor = sourceFeature.properties.fillColor;
 
@@ -900,6 +949,13 @@ class AddMilitarySymbolControl extends BaseControl {
           { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 10 }
         );
 
+        // Read back rather than recompute: `syncZoomCorrectedProperty` always writes
+        // `calculatedSize` and rounds `createdAtZoom`, so the source object is the authority on
+        // what the patch has to carry.
+        setProps.sidc = sourceFeature.properties.sidc;
+        setProps.createdAtZoom = sourceFeature.properties.createdAtZoom;
+        setProps.calculatedSize = sourceFeature.properties.calculatedSize;
+
         if (
           this.geometry.affectsVisuals(property) ||
           property === "createdAtZoom" ||
@@ -920,11 +976,22 @@ class AddMilitarySymbolControl extends BaseControl {
 
           sourceFeature.properties.selectionBox = newSelectionBox;
           feature.properties.selectionBox = newSelectionBox;
+          setProps.selectionBox = newSelectionBox;
         }
+
+        patches.push({ id: sourceFeature.properties.id, setProps });
       }
     }
 
-    this.forceUpdateMainSource(data);
+    // Same drag guard the whole-collection write carried: while the UI owns the on-screen
+    // position, a source write would fight it, so the batch is dropped exactly as before.
+    if (!this.isSourceUpdateBlocked()) {
+      for (const patch of patches) {
+        dispatcher.patch(patch.id, { setProps: patch.setProps });
+      }
+      await dispatcher.flush();
+    }
+
     const freshFeatures = features.map((feature) => {
       const sourceFeature = data.features.find(
         (f) => f.properties.id === feature.properties.id
@@ -943,20 +1010,6 @@ class AddMilitarySymbolControl extends BaseControl {
         }
       });
     }
-  };
-
-  /**
-   * Force update main source with drag protection
-   */
-  forceUpdateMainSource = (data) => {
-    if (
-      this.selectionManager.uiManager &&
-      this.selectionManager.uiManager.isDragging
-    ) {
-      return;
-    }
-
-    this.map.getSource("military_symbols").setData(data);
   };
 
   ensureFeatureConsistency = (
@@ -1006,6 +1059,9 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   saveFeatures = async (features, initialPropertiesMap) => {
+    // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+    // one, so the queue has to be drained before the collection comes back.
+    await militarySymbolsSource(this.map).flush();
     const currentData = await this.map.getSource("military_symbols").getData();
 
     for (const selectedFeature of features) {
@@ -1048,21 +1104,9 @@ class AddMilitarySymbolControl extends BaseControl {
 
     for (const feature of features) {
       try {
-        const featureId = feature.properties.id;
-
         // Remove from storage (the rasterized PNG blob is released later, on
         // undo-history eviction, so an Undo can still restore the symbol image).
-        await removeFeature("military_symbols", featureId);
-
-        // Update map source
-        const data = await this.map.getSource("military_symbols").getData();
-        const idsToDelete = new Set(
-          features.map((f) => String(f.properties.id))
-        );
-        data.features = data.features.filter(
-          (f) => !idsToDelete.has(String(f.properties.id))
-        );
-        this.map.getSource("military_symbols").setData(data);
+        await removeFeature("military_symbols", feature.properties.id);
       } catch (error) {
         console.error(
           `Error removing military symbol ${feature.properties.id}:`,
@@ -1070,6 +1114,14 @@ class AddMilitarySymbolControl extends BaseControl {
         );
       }
     }
+
+    // Removal by promoted key, with no collection read, and once for the whole batch instead of
+    // once per feature. The keys go in raw, never coerced: MapLibre keyed the feature by the very
+    // value that sits in `properties.id`, so a `String()` around it would miss a numeric key
+    // instead of protecting anything.
+    const dispatcher = militarySymbolsSource(this.map);
+    dispatcher.remove(features.map((f) => f.properties.id));
+    await dispatcher.flush();
   };
 
   setDefaultProperties = (properties) => {
@@ -1089,8 +1141,14 @@ class AddMilitarySymbolControl extends BaseControl {
     onlyUpdateProperties = false
   ) => {
     if (features.length > 0) {
+      // The collection read survives here too: an unknown id must be skipped rather than created,
+      // and the merge branch (`onlyUpdateProperties`) needs the previous source properties to
+      // merge ONTO. Draining first keeps that read from being stale.
+      const dispatcher = militarySymbolsSource(this.map);
+      await dispatcher.flush();
       const data = await this.map.getSource("military_symbols").getData();
       const currentZoom = this.map.getZoom();
+      const upserts = [];
 
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
@@ -1112,6 +1170,11 @@ class AddMilitarySymbolControl extends BaseControl {
             !onlyUpdateProperties
           );
 
+          // The merged/replaced entry is a COMPLETE feature, so it ships as an upsert (`add` is a
+          // total replacement in MapLibre) rather than as a property patch: the same result the
+          // whole-collection write produced, without the other N-1 features riding along.
+          upserts.push(data.features[featureIndex]);
+
           if (save) {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
@@ -1121,7 +1184,11 @@ class AddMilitarySymbolControl extends BaseControl {
         }
       }
 
-      this.forceUpdateMainSource(data);
+      if (!this.isSourceUpdateBlocked()) {
+        dispatcher.add(upserts);
+        await dispatcher.flush();
+      }
+
       this.updateSelectionManagerFeatures(features);
     }
   };

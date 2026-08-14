@@ -47,13 +47,19 @@ function collection(...features) {
  * Fake GeoJSONSource: `_data.geojson` is the identity token MapLibre keeps for the
  * last object handed to setData, and `_worker` stands for what the worker holds
  * (getData returns a clone of it, as the real round-trip does).
+ *
+ * `updateData` mirrors two behaviours measured on the vendored MapLibre 5.18 bundle:
+ * an update entry merges properties into the feature carrying that promoted key, and
+ * `_data` is swapped for the internal updateable map, so the identity token above
+ * disappears until the next whole-collection setData restores it.
  */
-function makeSource(data) {
+function makeSource(data, { emit } = {}) {
     return {
         _data: { geojson: data },
         _worker: data,
         getDataCalls: 0,
         setDataCalls: 0,
+        updateDataCalls: 0,
         async getData() {
             this.getDataCalls++;
             return structuredClone(this._worker);
@@ -62,6 +68,21 @@ function makeSource(data) {
             this.setDataCalls++;
             this._data = { geojson: obj };
             this._worker = obj;
+            emit?.();
+        },
+        updateData(diff) {
+            this.updateDataCalls++;
+            const features = this._worker.features.slice();
+            for (const patch of diff.update || []) {
+                const i = features.findIndex((f) => f.properties?.id === patch.id);
+                if (i === -1) continue;
+                const properties = { ...features[i].properties };
+                for (const { key, value } of patch.addOrUpdateProperties || []) properties[key] = value;
+                features[i] = { ...features[i], properties };
+            }
+            this._data = { updateable: new Map() };
+            this._worker = { type: 'FeatureCollection', features };
+            emit?.();
         },
         /** Another module (a draw tool, the attribute table) replacing the collection. */
         foreignWrite(obj) {
@@ -71,8 +92,37 @@ function makeSource(data) {
     };
 }
 
+/**
+ * Fake map with the listener pair the dispatcher needs to know a write settled.
+ * `makeSource` is handed an emitter so a write reports back synchronously, which is
+ * what keeps these tests off the dispatcher's settle timeout.
+ */
 function makeMap(sources) {
-    return { getSource: (id) => sources[id] || null };
+    const listeners = new Map();
+    return {
+        getSource: (id) => sources[id] || null,
+        on(type, fn) {
+            if (!listeners.has(type)) listeners.set(type, new Set());
+            listeners.get(type).add(fn);
+        },
+        off(type, fn) {
+            listeners.get(type)?.delete(fn);
+        },
+        emit(type, event) {
+            for (const fn of [...(listeners.get(type) || [])]) fn(event);
+        },
+    };
+}
+
+/** A source plus the map that owns it, wired so writes emit the settle signal. */
+function makeMapWithSource(sourceId, data) {
+    const sources = {};
+    const map = makeMap(sources);
+    const source = makeSource(data, {
+        emit: () => map.emit('sourcedata', { sourceId, sourceDataType: 'content' }),
+    });
+    sources[sourceId] = source;
+    return { map, source };
 }
 
 /** Longitude the map currently shows for a feature. */
@@ -131,8 +181,7 @@ describe('updateTrajectoryPositions — retained source data', () => {
     });
 
     it('re-reads after updateSourceFeatureProperty rewrites the trajectory', async () => {
-        const source = makeSource(collection(movingFeature('a', 0, 1)));
-        const map = makeMap({ points: source });
+        const { map, source } = makeMapWithSource('points', collection(movingFeature('a', 0, 1)));
 
         await updateTrajectoryPositions(map, T0 + 500);
         expect(lngOf(source, 'a')).toBeCloseTo(0.5, 10);
@@ -141,6 +190,45 @@ describe('updateTrajectoryPositions — retained source data', () => {
         await updateTrajectoryPositions(map, T0 + 500);
 
         expect(lngOf(source, 'a')).toBeCloseTo(2, 10);
+    });
+
+    it('updateSourceFeatureProperty ships a diff and never reads the collection', async () => {
+        const { map, source } = makeMapWithSource(
+            'points',
+            collection(movingFeature('a', 0, 1), staticFeature('outro', [5, 5])),
+        );
+        const readsBefore = source.getDataCalls;
+
+        await updateSourceFeatureProperty(map, 'points', 'a', 'trajetoria', traj(0, 4));
+
+        // One diff, no read-modify-write of the whole collection: this is the O(N) travel
+        // the migration exists to remove, so a regression to the old shape shows up here.
+        expect(source.updateDataCalls).toBe(1);
+        expect(source.setDataCalls).toBe(0);
+        expect(source.getDataCalls).toBe(readsBefore);
+        // The patched feature carries the new value and the untouched one is intact.
+        expect(source._worker.features[0].properties.trajetoria).toEqual(traj(0, 4));
+        expect(source._worker.features[1].geometry.coordinates).toEqual([5, 5]);
+    });
+
+    it('updateSourceFeatureProperty on an unknown id changes nothing', async () => {
+        const { map, source } = makeMapWithSource('points', collection(staticFeature('parado', [3, 4])));
+
+        await updateSourceFeatureProperty(map, 'points', 'inexistente', 'trajetoria', traj(0, 4));
+
+        // MapLibre no-ops an update on an absent key, which is what the old early return did.
+        expect(source._worker.features).toHaveLength(1);
+        expect(source._worker.features[0].properties.trajetoria).toBeUndefined();
+    });
+
+    it('updateSourceFeatureProperty ignores a null feature id', async () => {
+        const { map, source } = makeMapWithSource('points', collection(staticFeature('parado', [3, 4])));
+
+        await updateSourceFeatureProperty(map, 'points', null, 'trajetoria', traj(0, 4));
+
+        // A keyless patch would make the dispatcher fall back to rewriting the collection.
+        expect(source.updateDataCalls).toBe(0);
+        expect(source.setDataCalls).toBe(0);
     });
 
     it('re-reads every frame when the source exposes no identity token', async () => {

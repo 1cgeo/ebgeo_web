@@ -38,6 +38,7 @@ import {
     setLayerVisibility,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
 
@@ -60,6 +61,19 @@ const MOVE_MIN_DELTA_DEG = 1e-9;
  * @type {number}
  */
 const MOVE_CONFIRM_TOLERANCE_DEG = 1e-9;
+
+/**
+ * Source ids whose writes are MIRRORED by a `setData` wrapper installed in
+ * `layers/styles/content.layers.js`: every write to `texts` is echoed into
+ * `text-backgrounds`. A diff reaches the worker through `updateData` and never
+ * runs that wrapper, so a moved text would leave its background frozen at the
+ * old position, with no error. These sources still go through the dispatcher
+ * (one owner per source), but always as a whole collection, which does call
+ * `setData` and therefore keeps the mirror alive. Drop the entry once that
+ * mirror stops being a monkeypatch.
+ * @type {Set<string>}
+ */
+const MIRRORED_SOURCES = new Set(['texts']);
 
 /**
  * MapLibre ids for the move-mode ghost: the feature drawn where it WOULD land,
@@ -599,33 +613,62 @@ export class PhoneLayout {
      * Mirror the persisted move onto the live MapLibre source, which is what the
      * canvas actually draws. The store write alone does not repaint: each tool
      * owns a GeoJSON source named after the storage type and every desktop tool
-     * setData()s it after writing.
+     * writes it after persisting.
+     *
+     * The write goes through the diff dispatcher (`layers/geojson-dispatcher.js`), which is what
+     * turns "one feature moved" into a diff of one entry instead of a full read plus a full
+     * rewrite of the source. This is the only call site in this file parameterised BY SOURCE ID,
+     * so it carries two guards a single-source tool does not need: mirrored sources fall back to
+     * the whole collection (see MIRRORED_SOURCES), and the dispatcher is borrowed from the owning
+     * tool through the shared per-map registry, never destroyed here.
+     *
+     * A raw `setData` is not an option even as a shortcut: it replaces MapLibre's pending-update
+     * slot, so it would silently drop a diff the owning tool had queued.
      * @param {string} storageType - Storage type, which is also the source id
      * @param {Object} feature - The feature as persisted
      * @private
      */
     async _applyMoveToMapSource(storageType, feature) {
         try {
-            const source = this._map?.getSource?.(storageType);
+            const map = this._map;
+            const source = map?.getSource?.(storageType);
             if (!source || typeof source.getData !== 'function') return;
 
-            const data = await source.getData();
             const featureId = feature?.properties?.id;
-            const target = data?.features?.find(f => f.properties?.id === featureId);
-            if (!target) return;
+            if (!featureId) return;
 
-            target.geometry = feature.geometry;
             // Only the position-bearing properties are copied: the rendered
             // feature carries generated fields (calculated sizes, selection
             // boxes) that the stored one does not, and a wholesale replace
             // would drop them.
+            const setProps = {};
             for (const key of POSITION_PROPERTIES) {
                 if (feature.properties[key] !== undefined) {
-                    target.properties[key] = feature.properties[key];
+                    setProps[key] = feature.properties[key];
                 }
             }
 
-            source.setData(data);
+            const dispatcher = getGeoJsonDispatcher(map, storageType);
+
+            if (MIRRORED_SOURCES.has(storageType)) {
+                // Read-modify-write, but from a DRAINED queue: the copy read back would
+                // otherwise be missing whatever is queued, and writing it whole would erase it.
+                await dispatcher.flush();
+                const data = await source.getData();
+                const target = data?.features?.find(f => f.properties?.id === featureId);
+                if (!target) return;
+
+                target.geometry = feature.geometry;
+                Object.assign(target.properties, setProps);
+                dispatcher.setData(data);
+            } else {
+                // A patch of an id the source does not hold is a documented silent no-op, which
+                // is the same outcome as the collection read this replaced (it returned early
+                // when the feature was missing).
+                dispatcher.patch(featureId, { geometry: feature.geometry, setProps });
+            }
+
+            await dispatcher.flush();
         } catch (err) {
             console.error('PhoneLayout: error refreshing moved feature source:', err);
         }
@@ -714,6 +757,11 @@ export class PhoneLayout {
 
     /**
      * Redraw the ghost at the current pan offset.
+     *
+     * Deliberately a raw `setData`, not a diff: this is a single transient feature rebuilt on
+     * every map `move` event, so there is nothing for a diff to save, the ghost has no stable
+     * `properties.id` to key one on, and back-to-back diffs issued at pan cadence are the exact
+     * measured regime where MapLibre drops all but the first and the last.
      * @private
      */
     _refreshMovePreview() {

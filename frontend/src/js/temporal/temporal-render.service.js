@@ -17,6 +17,7 @@ import {
     updateAllLayerFilters,
 } from '../layers/visibility-filter.js';
 import { FEATURE_LAYER_IDS, FEATURE_SOURCES } from '../layers/layer.constants.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { getStateManager } from '../store';
 import { TRAJECTORY_SOURCE_IDS } from './temporal.constants.js';
 import { normalizeTrajectory, resolveTrajectoryTargetNormalized } from './temporal-model.js';
@@ -145,6 +146,13 @@ const retainedSources = new Map();
  * purpose: there is no public equivalent, and it is read ONLY as an identity token
  * (never mutated), so an internal rename can only make it `undefined`, which fails
  * safe into a re-read.
+ *
+ * MEASURED, and it is the reason the playback frame below still writes with `setData`:
+ * a single `GeoJSONSource.updateData` call swaps `_data` for an internal
+ * `{ updateable: Map }`, so this token reads `undefined` from then on and stays that
+ * way until the next whole-collection `setData` restores it. That degrades to a
+ * re-read per frame, never to a stale frame, but it also means a diff-per-frame
+ * playback loop would pay the full `getData` structured clone it exists to avoid.
  * @param {Object} source - MapLibre GeoJSON source.
  * @returns {*} Identity token, or undefined when unavailable.
  */
@@ -280,6 +288,12 @@ export async function updateTrajectoryPositions(map, cursor) {
 
         if (rescan && hasTrajectory) nextActive.push(sourceId);
         if (changed) {
+            // NOT a diff, on purpose, and this is the one write in the module that must stay
+            // whole-collection: the frame already holds the retained copy, so `setData` costs a
+            // single hand-off with no read, while a diff would blank the identity token above and
+            // put the `getData` round-trip back on EVERY later frame. Frames also arrive with no
+            // gap between them (~16 ms), which is inside the interval where back-to-back
+            // `updateData` calls were measured to drop each other.
             source.setData(state.data);
             // We are the source's last writer again, so the retained copy stays
             // valid for the next frame.
@@ -321,35 +335,50 @@ function syncSelectionGeometry(displaced) {
 
 /**
  * Updates a single property on a feature inside a GeoJSON source (live only,
- * no persistence). Used when keypoint times are retimed from the timeline bar.
+ * no persistence). Used when a trajectory is committed from the editor and when
+ * keypoint times are retimed from the attribute panel.
+ *
+ * One property of one feature is the smallest possible delta, so this goes through the
+ * dispatcher as a `patch` instead of the read-modify-write of the whole collection it used
+ * to be. Two things follow from that, both deliberate:
+ *  - the collection is never read, so an unknown `featureId` is no longer detected. MapLibre
+ *    no-ops an update on an absent key, which is the same outcome the old early return had;
+ *  - `featureId` goes in RAW. It is the promoted key (`promoteId: 'id'` on the declaration),
+ *    so the value that keyed the feature is the value that sits in `properties.id`; the old
+ *    `String()` comparison would now MISS a numeric key rather than protect anything.
+ *
+ * The flush is awaited for the same reason the point tool awaits it: every other writer of
+ * these sources (the playback frame below included) does read-modify-write with a raw
+ * `setData`, and a raw `setData` discards a diff still queued in MapLibre. Draining here
+ * keeps the queue empty between gestures.
  *
  * @param {Object} map - MapLibre map instance.
  * @param {string} sourceId - Source ID.
- * @param {string} featureId - Target feature id.
+ * @param {string} featureId - Target feature id (the promoted key).
  * @param {string} key - Property key to set.
  * @param {*} value - New value.
  * @returns {Promise<void>}
  */
 export async function updateSourceFeatureProperty(map, sourceId, featureId, key, value) {
-    if (!map) return;
+    if (!map || featureId === null || featureId === undefined) return;
     let source;
     try {
         source = map.getSource(sourceId);
     } catch {
         source = null;
     }
+    // `getData` is what distinguishes a GeoJSON source: without it the dispatcher has no
+    // whole-collection path to fall back to when a diff fails.
     if (!source || typeof source.getData !== 'function') return;
 
-    const data = await source.getData();
-    const feature = data?.features?.find(
-        (f) => f.properties && String(f.properties.id) === String(featureId)
-    );
-    if (!feature) return;
-    feature.properties[key] = value;
-    source.setData(data);
-    // This collection is a different object from the one a playback frame may be
-    // holding, so drop the retained copy: the next frame re-reads (and re-normalizes
-    // the trajectory it just changed) instead of pushing the pre-edit coordinates back.
+    const dispatcher = getGeoJsonDispatcher(map, sourceId);
+    dispatcher.patch(featureId, { setProps: { [key]: value } });
+    await dispatcher.flush();
+
+    // The retained copy predates this write, so drop it: the next frame re-reads (and
+    // re-normalizes the trajectory just changed) instead of pushing the pre-edit state back.
+    // Dropping it AFTER the flush is what makes the invalidation honest — a frame that ran
+    // during the await cannot leave a copy behind that is missing this change.
     retainedSources.delete(sourceId);
 }
 
@@ -357,6 +386,10 @@ export async function updateSourceFeatureProperty(map, sourceId, featureId, key,
  * Shifts every temporal timestamp on the live feature sources by `deltaMs`
  * (`temporalInicio`, `temporalFim`, trajectory keypoint `t`), mirroring the store
  * shift so the map reflects a changed relative origin without a full reload.
+ *
+ * Stays on `setData` because the delta IS the collection: every timed feature in every
+ * source moves, so a diff would carry one update entry per feature for the same O(N) cost
+ * plus a per-feature key lookup.
  * @param {Object} map - MapLibre map instance.
  * @param {number} deltaMs - Amount to add to each temporal timestamp.
  * @returns {Promise<void>}

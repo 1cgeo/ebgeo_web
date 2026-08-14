@@ -574,6 +574,15 @@ export class TrajectoryEditControl {
         this._map?.getSource(HANDLE_SOURCE)?.setData(buildHandleCollection(traj));
     }
 
+    /**
+     * Declares the three editor sources. They stay OUT of the geojson dispatcher and keep
+     * writing with `setData`, on purpose: no `promoteId` (path/handle features carry an
+     * `index`, never a stable `properties.id`, so every diff key would be null), the whole
+     * collection is rebuilt from the keypoint array on each render anyway, and `_performPreview`
+     * rewrites them once per animation frame during a drag, which is exactly the no-gap cadence
+     * where back-to-back `updateData` calls were measured to drop each other. They are also
+     * removed outright in `_removeLayers`, so there is no source to own between sessions.
+     */
     _ensureLayers() {
         const map = this._map;
         if (!map.getSource(PATH_SOURCE)) {

@@ -5,6 +5,7 @@
  */
 
 import { getControl } from '../../store';
+import { writeWholeCollection } from '../geojson-dispatcher.js';
 
 const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 
@@ -19,6 +20,30 @@ function featureCollection(features) {
 
 /**
  * Adds a new source or updates an existing one with the given features.
+ *
+ * `promoteId: 'id'` is declared HERE, not at the call sites: `setStyle()` (base-layer switch)
+ * destroys and recreates every custom source, and a promoteId set anywhere else would be gone
+ * after the first base-layer change, making every later `updateData` throw. It is also the
+ * precondition for diffing at all: without a resolvable, unique key per feature MapLibre refuses
+ * the diff with "Cannot update existing geojson data in <source>".
+ *
+ * Sources created here (texts, text-backgrounds, images, arrows) all carry a unique
+ * `properties.id`: a UUID for the first three, `<idDoTexto>_bg` for text-backgrounds.
+ *
+ * Measured risk, and why it is not a risk: promoteId changes what MapLibre reports as
+ * `feature.id`, from the integer `geoJsonId` to the UUID. Nothing in `src/` reads `feature.id`
+ * off one of our GeoJSON sources (the single read, `vector-info.control.js`, is filtered down to
+ * `edgv_` vector tiles). `setFeatureState` has one caller on these sources
+ * (`attribute_table/attribute-table.control.js`, `{ tableHover }`) which today either throws into
+ * a swallowed `console.debug` or writes state nobody reads, since no paint expression reads
+ * `['feature-state','tableHover']`; with promoteId it starts matching and stays unread. Visible
+ * change: none. Precedent in this repository: `calibration/project-map.js` (pmap-photos).
+ *
+ * The update branch goes through `writeWholeCollection` because two of the four sources it serves
+ * (`images` and `arrows`) are owned by a dispatcher: a raw `setData` here would drop a queued diff
+ * without any error. The other two (`texts`, `text-backgrounds`) have no dispatcher, and the helper
+ * writes them raw, which keeps this redraw from claiming ownership of a source the text tool still
+ * writes directly.
  * @param {Object} map - MapLibre map instance
  * @param {string} name - Source name
  * @param {Array} features - GeoJSON features
@@ -27,14 +52,21 @@ function setSourceData(map, name, features) {
     const data = featureCollection(features);
     const source = map.getSource(name);
     if (source) {
-        source.setData(data);
+        writeWholeCollection(map, name, data);
     } else {
-        map.addSource(name, { type: 'geojson', data });
+        map.addSource(name, { type: 'geojson', data, promoteId: 'id' });
     }
 }
 
 /**
  * Adds an empty GeoJSON source if it does not already exist.
+ *
+ * DELIBERATELY WITHOUT `promoteId`. Every source created here is ephemeral (text-edit-handles,
+ * arrow-feedback, arrow-edit-handles): drawing preview and drag handles, rebuilt on mousemove,
+ * whose features carry `handleType`/`role` and no `properties.id`. With promoteId their key would
+ * resolve to null, which makes the source permanently non-diffable anyway, and they are not
+ * candidates for the diff dispatcher: a handful of features per frame, where `setData` is already
+ * cheap and a lost frame is a visibly stuck rubber band.
  * @param {Object} map - MapLibre map instance
  * @param {string} name - Source name
  */

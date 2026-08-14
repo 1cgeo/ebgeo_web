@@ -17,6 +17,7 @@ import {
     isMapLocked
 } from '@store';
 import { EventTypes } from '@events';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
 import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '@js/military_tools/arrow_tool/arrow-merge.js';
 
@@ -409,18 +410,12 @@ class ContextMenuControl {
 
             for (const feature of features) {
                 const storageType = feature.properties.source + 's';
-                const source = this._map.getSource(storageType);
-                if (source) {
-                    try {
-                        const data = await source.getData();
-                        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-                        if (sourceFeature) {
-                            sourceFeature.properties.layerId = targetLayerId;
-                        }
-                        source.setData(data);
-                    } catch (_e) {
-                    }
-                }
+                if (!this._map.getSource(storageType)) continue;
+                // A single-property change on one feature, queued: these sources are
+                // dispatcher-owned, so the read-modify-write that used to live here replaced
+                // MapLibre's pending-update slot and dropped whatever diff a tool had queued.
+                getGeoJsonDispatcher(this._map, storageType)
+                    .patch(feature.properties.id, { setProps: { layerId: targetLayerId } });
             }
 
             showSuccess(`${features.length} feição(ões) movida(s) para "${targetLayerName}"`);

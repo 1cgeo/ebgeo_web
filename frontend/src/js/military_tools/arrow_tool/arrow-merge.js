@@ -2,6 +2,7 @@
 
 import { addFeature, removeFeature, getActiveLayerIdSync, startBatchUndo, commitBatchUndo } from '@store';
 import { IDUtils, showSuccess, showWarning } from '@utils';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 
 /**
@@ -145,8 +146,9 @@ export async function mergeArrows(features, map, selectionManager) {
         // Deselect all before modifying
         selectionManager.deselectAllFeatures();
 
-        const data = await map.getSource('arrows').getData();
-        const idsToRemove = new Set(features.map(f => String(f.properties.id)));
+        // Same dispatcher instance `add_arrow_control.js` uses (the registry is keyed by map +
+        // source id), so this cannot wipe a diff the tool has queued.
+        const dispatcher = getGeoJsonDispatcher(map, 'arrows');
 
         // Batch so a single Ctrl+Z undoes the whole merge as one unit.
         startBatchUndo();
@@ -163,9 +165,11 @@ export async function mergeArrows(features, map, selectionManager) {
             commitBatchUndo();
         }
 
-        data.features = data.features.filter(f => !idsToRemove.has(String(f.properties.id)));
-        data.features.push(mergedFeature);
-        map.getSource('arrows').setData(data);
+        // The delta is exactly N removals plus one insertion, which is the diff format itself: no
+        // collection read, no rewrite of the arrows this merge never touched.
+        dispatcher.remove(features.map(f => f.properties.id));
+        dispatcher.add(mergedFeature);
+        await dispatcher.flush();
 
         // Select the new merged feature
         await selectionManager.toggleFeatureSelection('arrow', featureId, mergedFeature);
@@ -244,7 +248,9 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
             });
         }
 
-        const data = await map.getSource('arrows').getData();
+        // Same dispatcher instance `add_arrow_control.js` uses (the registry is keyed by map +
+        // source id), so this cannot wipe a diff the tool has queued.
+        const dispatcher = getGeoJsonDispatcher(map, 'arrows');
 
         // Batch so a single Ctrl+Z undoes the whole split as one unit. Add the branches FIRST
         // so a persist failure cannot lose the merged arrow (worst case is recoverable extras).
@@ -258,9 +264,11 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
             commitBatchUndo();
         }
 
-        data.features = data.features.filter(f => String(f.properties.id) !== String(props.id));
-        data.features.push(...createdFeatures);
-        map.getSource('arrows').setData(data);
+        // The delta is exactly one removal plus N insertions, which is the diff format itself: no
+        // collection read, no rewrite of the arrows this split never touched.
+        dispatcher.remove(props.id);
+        dispatcher.add(createdFeatures);
+        await dispatcher.flush();
 
         // Select first created feature
         if (createdFeatures.length > 0) {

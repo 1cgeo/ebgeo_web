@@ -6,6 +6,53 @@ import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel 
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '@tools';
 import { getSnappingService } from '@js/snapping';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The two dispatchers that own the persistent LOS sources.
+ *
+ * EVERY write this file makes to `los` and `processed-los` goes through them. The reason is not
+ * style: a raw `source.setData()` issued while a diff is queued replaces MapLibre's pending-update
+ * slot and the diff disappears with no error at all.
+ *
+ * Each awaited method here ends in `flush()`, for the same reason the point tool does: both sources
+ * still have co-writers outside this file (the generic by-storageType paths of the attribute table,
+ * the features tab, import, the clipboard and the context menu, plus `setOrCreateSource` on every
+ * redraw), and they all do read-modify-write with a raw `setData`. Draining inside the awaited
+ * method keeps the queue empty between gestures, so no co-writer reads a collection missing what
+ * this tool just wrote.
+ *
+ * The two ephemeral sources are deliberately NOT dispatched: `los-feedback` is rebuilt whole per
+ * mousemove, holds one transient geometry with no `properties.id` and is declared without
+ * `promoteId`, so a diff has nothing to key on and nothing to save.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `los` source
+ */
+function losSource(map) {
+    return getGeoJsonDispatcher(map, 'los');
+}
+
+/**
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `processed-los` source
+ */
+function processedLosSource(map) {
+    return getGeoJsonDispatcher(map, 'processed-los');
+}
+
+/**
+ * The two derived ids a LOS feature owns in `processed-los`.
+ *
+ * They are deterministic (`add_los_geometry.js` mints exactly these two suffixes), which is what
+ * lets the removals and the patches below skip the collection read entirely. A `remove` or an
+ * `update` of an id that is not in the source is a documented silent no-op in MapLibre, so naming
+ * the `-obstructed` half when a straight-line LOS never produced one costs nothing.
+ * @param {string} featureId - Parent LOS feature id
+ * @returns {Array<string>} derived ids
+ */
+function processedIdsOf(featureId) {
+    return [`${featureId}-visible`, `${featureId}-obstructed`];
+}
 
 class AddLOSControl extends BaseControl {
     featureType = 'los';
@@ -48,6 +95,14 @@ class AddLOSControl extends BaseControl {
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            // Releases both queues, their settle timers and the map listeners the dispatchers open
+            // per dispatch. Dropping a batch here cannot lose a LOS: the store write always
+            // precedes the source write, so the redraw that follows a style switch repopulates
+            // both sources from persistence.
+            destroyGeoJsonDispatcher(this.map, 'los');
+            destroyGeoJsonDispatcher(this.map, 'processed-los');
+        }
         this.map = undefined;
     }
 
@@ -380,20 +435,21 @@ class AddLOSControl extends BaseControl {
      * @param {Object} mainFeature - Updated main LOS feature
      */
     async updateProcessedFeaturesAfterMove(mainFeature) {
-        const processedData = await this.map.getSource('processed-los').getData();
-
-        processedData.features = processedData.features.filter(f =>
-            f.properties.id !== mainFeature.properties.id + '-visible' &&
-            f.properties.id !== mainFeature.properties.id + '-obstructed'
-        );
-
+        // Remove the old pair, then upsert the regenerated one. The read is gone: the ids are
+        // derived, and inside one batch `remove` followed by `add` on the same key coalesces into
+        // the `add` alone (a total replacement), while the half that is not regenerated keeps its
+        // removal. Both are enqueued only after persistence, which is where the whole-collection
+        // write sat.
         const newProcessedFeatures = this.geometry.generateProcessedFeatures(mainFeature);
         for (const processedFeature of newProcessedFeatures) {
             await updateFeature('processed_los', processedFeature);
-            processedData.features.push(processedFeature);
         }
 
-        this.map.getSource('processed-los').setData(processedData);
+        const dispatcher = processedLosSource(this.map);
+        dispatcher.remove(processedIdsOf(mainFeature.properties.id));
+        dispatcher.add(newProcessedFeatures);
+
+        await dispatcher.flush();
     }
 
     _onPreClickMouseMove = (e) => {
@@ -500,19 +556,19 @@ class AddLOSControl extends BaseControl {
             await addFeature('los', losFeature);
             this.updateFeatureMeasurement(losFeature);
 
-            const data = await this.map.getSource('los').getData();
-            data.features.push(losFeature);
-            this.map.getSource('los').setData(data);
+            const dispatcher = losSource(this.map);
+            dispatcher.add(losFeature);
+            await dispatcher.flush();
 
             const processedFeatures = this.geometry.generateProcessedFeatures(losFeature);
-            const processedData = await this.map.getSource('processed-los').getData();
+            const processedDispatcher = processedLosSource(this.map);
 
             for (const processedFeature of processedFeatures) {
                 await addFeature('processed_los', processedFeature);
-                processedData.features.push(processedFeature);
+                processedDispatcher.add(processedFeature);
             }
 
-            this.map.getSource('processed-los').setData(processedData);
+            await processedDispatcher.flush();
 
             await this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
             this.selectionManager.updateUI();
@@ -533,8 +589,15 @@ class AddLOSControl extends BaseControl {
             return;
         }
 
+        const dispatcher = losSource(this.map);
+        const processedDispatcher = processedLosSource(this.map);
+
+        // The `los` read survives: the guard below skips a feature the source does not hold, and
+        // the selection manager is handed the SOURCE copy afterwards, neither of which a diff
+        // returns. The `processed-los` read is gone: the derived ids are deterministic, so the
+        // property travels as a two-key patch instead of a whole-collection rewrite.
+        await dispatcher.flush();
         const data = await this.map.getSource('los').getData();
-        const processedData = await this.map.getSource('processed-los').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -546,20 +609,18 @@ class AddLOSControl extends BaseControl {
                     this.updateFeatureMeasurement(feature);
                 }
 
-                const processedFeatures = processedData.features.filter(f =>
-                    f.properties.id === feature.properties.id + '-visible' ||
-                    f.properties.id === feature.properties.id + '-obstructed'
-                );
-                processedFeatures.forEach(processedFeature => {
-                    if (property !== 'color') {
-                        processedFeature.properties[property] = value;
+                dispatcher.patch(feature.properties.id, { setProps: { [property]: value } });
+
+                if (property !== 'color') {
+                    for (const processedId of processedIdsOf(feature.properties.id)) {
+                        processedDispatcher.patch(processedId, { setProps: { [property]: value } });
                     }
-                });
+                }
             }
         }
 
-        this.map.getSource('los').setData(data);
-        this.map.getSource('processed-los').setData(processedData);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -605,8 +666,17 @@ class AddLOSControl extends BaseControl {
         this.showRecalculatingState();
 
         try {
+            // Acquired INSIDE the try: with no map (tool removed mid-recalculation) the registry
+            // lookup throws, and outside the try that throw would skip the `finally` that clears
+            // the recalculating cursor.
+            const dispatcher = losSource(this.map);
+            const processedDispatcher = processedLosSource(this.map);
+
+            // The `los` read survives: the recalculation starts from the SOURCE geometry, which is
+            // the one carrying the coordinates a diff cannot hand back. The `processed-los` read is
+            // gone, replaced by a removal of the derived pair plus an upsert of the regenerated one.
+            await dispatcher.flush();
             const data = await this.map.getSource('los').getData();
-            const processedData = await this.map.getSource('processed-los').getData();
 
             for (const feature of features) {
                 const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -637,13 +707,7 @@ class AddLOSControl extends BaseControl {
                         feature.properties.obstructedLength = result.obstructedLength;
                         feature.properties.totalLength = result.totalLength;
 
-                        processedData.features = processedData.features.filter(f =>
-                            f.properties.id !== feature.properties.id + '-visible' &&
-                            f.properties.id !== feature.properties.id + '-obstructed'
-                        );
-
                         const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
-                        processedData.features.push(...newProcessedFeatures);
 
                         if (sourceFeature.properties.measure) {
                             this.updateFeatureMeasurement(sourceFeature);
@@ -657,12 +721,20 @@ class AddLOSControl extends BaseControl {
                                 await updateFeature('processed_los', processedFeature);
                             }
                         }
+
+                        // Enqueued only after persistence, which is where the whole-collection
+                        // write sat: a store failure must not leave the recalculated geometry on
+                        // screen. Total replacement of this one feature, with the same object the
+                        // collection write used to carry, plus the derived pair swapped out.
+                        dispatcher.add(sourceFeature);
+                        processedDispatcher.remove(processedIdsOf(feature.properties.id));
+                        processedDispatcher.add(newProcessedFeatures);
                     }
                 }
             }
 
-            this.map.getSource('los').setData(data);
-            this.map.getSource('processed-los').setData(processedData);
+            await dispatcher.flush();
+            await processedDispatcher.flush();
 
             const freshFeatures = features.map(feature => {
                 const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -686,6 +758,10 @@ class AddLOSControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+        // one, so both queues have to be drained before the collections come back.
+        await losSource(this.map).flush();
+        await processedLosSource(this.map).flush();
         const currentData = await this.map.getSource('los').getData();
         const processedData = await this.map.getSource('processed-los').getData();
 
@@ -760,17 +836,20 @@ class AddLOSControl extends BaseControl {
             }
         }
 
+        // NOT a diff, on purpose, and the one place in this file where the whole collection is
+        // still written. The rebuild comes from the STORE, which is authoritative about the
+        // cascade: `removeFeature('los', id)` also drops every processed feature whose id starts
+        // with `<id>-`, and reading the survivors back resyncs the source with persistence instead
+        // of trusting this file's idea of which derived ids exist. It goes through the dispatchers
+        // only for ownership: a raw `setData` here would silently discard whatever is queued.
         const currentMapFeatures = await getCurrentMapFeatures();
 
-        this.map.getSource('los').setData({
-            type: 'FeatureCollection',
-            features: currentMapFeatures.los
-        });
-
-        this.map.getSource('processed-los').setData({
-            type: 'FeatureCollection',
-            features: currentMapFeatures.processed_los
-        });
+        const dispatcher = losSource(this.map);
+        const processedDispatcher = processedLosSource(this.map);
+        dispatcher.setData(currentMapFeatures.los);
+        processedDispatcher.setData(currentMapFeatures.processed_los);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -805,6 +884,15 @@ class AddLOSControl extends BaseControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length === 0) return;
 
+        const dispatcher = losSource(this.map);
+        const processedDispatcher = processedLosSource(this.map);
+
+        // BOTH reads survive here, and each for its own reason: `los` because an unknown id must be
+        // skipped rather than created (`add` would create it) and because the save path persists the
+        // merged SOURCE copy, `processed-los` because the save path persists the EXISTING derived
+        // features with the incoming properties folded in, and no diff hands those back.
+        await dispatcher.flush();
+        await processedDispatcher.flush();
         const data = await this.map.getSource('los').getData();
         const processedData = await this.map.getSource('processed-los').getData();
 
@@ -813,6 +901,7 @@ class AddLOSControl extends BaseControl {
             if (featureIndex !== -1) {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);
+                    dispatcher.patch(feature.properties.id, { setProps: feature.properties });
 
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id === feature.properties.id + '-visible' ||
@@ -824,9 +913,11 @@ class AddLOSControl extends BaseControl {
                                 processedFeature.properties[key] = feature.properties[key];
                             }
                         });
+                        processedDispatcher.add(processedFeature);
                     });
                 } else {
                     data.features[featureIndex] = feature;
+                    dispatcher.add(feature);
                 }
 
                 if (save) {
@@ -849,8 +940,8 @@ class AddLOSControl extends BaseControl {
             }
         }
 
-        this.map.getSource('los').setData(data);
-        this.map.getSource('processed-los').setData(processedData);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
         this.updateSelectionManagerFeatures(features);
     }
 

@@ -10,6 +10,7 @@ import { getSnappingService } from '../../snapping/snapping.service.js';
 import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-icons.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -43,6 +44,28 @@ function recalcPointSize(sourceFeature, selectedFeature, currentZoom) {
     }
     sourceFeature.properties.calculatedSize = newCalc;
     selectedFeature.properties.calculatedSize = newCalc;
+}
+
+/**
+ * The dispatcher that owns the `points` source.
+ *
+ * EVERY write to `points` made in this file goes through it. The reason is not style: a raw
+ * `source.setData()` issued while a diff is queued replaces MapLibre's pending-update slot
+ * (`_pendingWorkerUpdate`) and the diff disappears with no error at all.
+ *
+ * Each public method here also awaits `flush()` before it returns. Two reasons, and the second
+ * is the one that matters:
+ * - the deferred write would otherwise land one animation frame after the caller resumed;
+ * - `points` still has co-writers outside this file (the azimuth/distance tool, the batch-points
+ *   panel, the point-to-symbol conversions in `feature-header.helpers.js`, the temporal playback
+ *   service), and they all do read-modify-write with a raw `setData`. Draining inside the awaited
+ *   method keeps the queue empty between gestures, so no co-writer can read a collection that is
+ *   missing what this tool just wrote.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `points` source
+ */
+function pointsSource(map) {
+    return getGeoJsonDispatcher(map, 'points');
 }
 
 /**
@@ -117,6 +140,15 @@ class AddPointControl extends BaseControl {
             const source = this.map?.getSource('points');
             if (!source) { this.#zoomPending = false; return; }
 
+            // NOT a diff, on purpose: every zoom-corrected point changes size on every zoom
+            // step, so the delta IS the collection and a diff would carry one update entry per
+            // feature for the same O(N) cost. The read-modify-write still has to start from a
+            // drained queue, or the copy read back would be missing whatever is queued and the
+            // whole-collection write would then erase it.
+            const dispatcher = pointsSource(this.map);
+            await dispatcher.flush();
+            if (!this.map) { this.#zoomPending = false; return; }
+
             const currentZoom = this.map.getZoom();
             const data = await source.getData();
             let hasChanges = false;
@@ -171,7 +203,8 @@ class AddPointControl extends BaseControl {
             }
 
             if (hasChanges) {
-                source.setData(data);
+                dispatcher.setData(data);
+                await dispatcher.flush();
 
                 // Sync selected point features and refresh selection highlight
                 const selectedPoints = this.selectionManager?.getSelectedFeaturesByType?.('point');
@@ -206,6 +239,11 @@ class AddPointControl extends BaseControl {
     onRemove = () => {
         if (this.map) {
             this.map.off('zoom', this.#handleZoom);
+            // Releases the queue, its settle timers and the two map listeners the dispatcher
+            // opens per dispatch. Dropping a batch here cannot lose a point: the store write
+            // always precedes the source write, so the redraw that follows a style switch
+            // repopulates `points` from persistence.
+            destroyGeoJsonDispatcher(this.map, 'points');
         }
         if (this.#zoomRafId) {
             cancelAnimationFrame(this.#zoomRafId);
@@ -453,32 +491,32 @@ class AddPointControl extends BaseControl {
     syncEditHandlesAfterDrag = async (movedFeatures) => {
         if (!movedFeatures?.length) return;
 
-        const data = await this.map.getSource('points').getData();
+        const dispatcher = pointsSource(this.map);
         let hasChanges = false;
 
+        // The moved feature already carries the post-drag state: `updateFeatureForMove` built it
+        // and `updateFeatures` pushed that same object into the source moments ago. So the box is
+        // recomputed from it and shipped as a one-property patch, instead of reading the whole
+        // collection back only to find the copy of what the caller already handed us.
         for (const inputFeature of movedFeatures) {
             if (inputFeature.properties.source !== 'point') continue;
 
-            const sourceFeature = data.features.find(
-                f => f.properties.id === inputFeature.properties.id
-            );
-            if (!sourceFeature) continue;
-
-            const effectiveZoom = sourceFeature.properties.sizeZoomCorrectionEnabled === false
+            const effectiveZoom = inputFeature.properties.sizeZoomCorrectionEnabled === false
                 ? this.map.getZoom() : null;
             const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                sourceFeature.geometry.coordinates,
-                sourceFeature.properties.size || 10,
-                sourceFeature.properties.lineWidth || 0,
-                sourceFeature.properties.sizeCreatedAtZoom || 0,
+                inputFeature.geometry.coordinates,
+                inputFeature.properties.size || 10,
+                inputFeature.properties.lineWidth || 0,
+                inputFeature.properties.sizeCreatedAtZoom || 0,
                 effectiveZoom
             );
-            sourceFeature.properties.selectionBox = newSelectionBox;
+            inputFeature.properties.selectionBox = newSelectionBox;
+            dispatcher.patch(inputFeature.properties.id, { setProps: { selectionBox: newSelectionBox } });
             hasChanges = true;
         }
 
         if (hasChanges) {
-            this.map.getSource('points').setData(data);
+            await dispatcher.flush();
             this.updateSelectionManagerFeatures(movedFeatures);
             this.selectionManager.uiManager?.invalidateCache?.();
             this.selectionManager.uiManager?.updateSelectionHighlight?.();
@@ -570,9 +608,9 @@ class AddPointControl extends BaseControl {
         try {
             await addFeature('points', feature);
 
-            const data = await this.map.getSource('points').getData();
-            data.features.push(feature);
-            this.map.getSource('points').setData(data);
+            const dispatcher = pointsSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             this.toolManager.deactivateCurrentTool();
             await this.selectionManager.toggleFeatureSelection('point', featureId, feature);
@@ -611,55 +649,61 @@ class AddPointControl extends BaseControl {
     }
 
     updateFeaturesProperty = async (features, property, value) => {
-        const data = await this.map.getSource('points').getData();
+        const dispatcher = pointsSource(this.map);
+        const currentZoom = this.map.getZoom();
 
+        // One patch per feature carrying the edited property plus everything derived from it.
+        // The selected feature is the only copy consulted: it is kept in step with the source by
+        // `updateSelectionManagerFeatures` and by the zoom handler, and every value written below
+        // is derived from properties both copies share. The two `recalc*` helpers take the source
+        // and the selected feature separately and write the same result into both, so the same
+        // object is passed twice here.
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            if (sourceFeature) {
-                sourceFeature.properties[property] = value;
-                feature.properties[property] = value;
+            const props = feature.properties;
+            props[property] = value;
+            const setProps = { [property]: value };
 
-                if (LABEL_ZOOM_PROPERTIES.has(property)) {
-                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
-                }
-
-                if (SIZE_ZOOM_PROPERTIES.has(property)) {
-                    recalcPointSize(sourceFeature, feature, this.map.getZoom());
-                }
-
-                if (SELECTION_BOX_PROPERTIES.has(property)) {
-                    const effectiveZoom = sourceFeature.properties.sizeZoomCorrectionEnabled === false
-                        ? this.map.getZoom() : null;
-                    const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                        sourceFeature.geometry.coordinates,
-                        sourceFeature.properties.size || 10,
-                        sourceFeature.properties.lineWidth || 0,
-                        sourceFeature.properties.sizeCreatedAtZoom || 0,
-                        effectiveZoom
-                    );
-                    sourceFeature.properties.selectionBox = newSelectionBox;
-                    feature.properties.selectionBox = newSelectionBox;
-                }
-
-                // Regenerate per-feature image when visual properties change
-                if (IMAGE_REGEN_PROPERTIES.has(property)) {
-                    await this._applyMarkerImage(sourceFeature.properties);
-                }
+            if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                recalcLabelSize(feature, feature, currentZoom);
+                setProps.labelCreatedAtZoom = props.labelCreatedAtZoom;
+                setProps.labelCalculatedSize = props.labelCalculatedSize;
             }
+
+            if (SIZE_ZOOM_PROPERTIES.has(property)) {
+                recalcPointSize(feature, feature, currentZoom);
+                setProps.calculatedSize = props.calculatedSize;
+            }
+
+            if (SELECTION_BOX_PROPERTIES.has(property)) {
+                const effectiveZoom = props.sizeZoomCorrectionEnabled === false ? currentZoom : null;
+                props.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+                    feature.geometry.coordinates,
+                    props.size || 10,
+                    props.lineWidth || 0,
+                    props.sizeCreatedAtZoom || 0,
+                    effectiveZoom
+                );
+                setProps.selectionBox = props.selectionBox;
+            }
+
+            // Regenerate per-feature image when visual properties change
+            if (IMAGE_REGEN_PROPERTIES.has(property)) {
+                await this._applyMarkerImage(props);
+            }
+
+            dispatcher.patch(props.id, { setProps });
         }
 
-        this.map.getSource('points').setData(data);
+        await dispatcher.flush();
 
-        const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            return sourceFeature || feature;
-        });
-
-        this.updateSelectionManagerFeatures(freshFeatures);
+        this.updateSelectionManagerFeatures(features);
     }
 
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the
+        // selected one, so the queue has to be drained before the collection comes back.
+        await pointsSource(this.map).flush();
         const currentData = await this.map.getSource('points').getData();
 
         for (const selectedFeature of features) {
@@ -706,11 +750,12 @@ class AddPointControl extends BaseControl {
             }
         }
 
-        // Single source read/write
-        const data = await this.map.getSource('points').getData();
-        const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-        this.map.getSource('points').setData(data);
+        // Removal by promoted key, with no collection read. The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value that sits in `properties.id`, so a
+        // `String()` around it would miss a numeric key instead of protecting anything.
+        const dispatcher = pointsSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -747,12 +792,20 @@ class AddPointControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
+            const dispatcher = pointsSource(this.map);
+            // The collection read survives here on purpose, and it is the one call-site where it
+            // does. Two things below need the PREVIOUS source feature, and no diff can hand it
+            // back: whether the feature exists at all (an unknown id must be skipped, not
+            // created), and its derived sizes, which are carried over when the incoming feature
+            // arrives without them. Draining first keeps that read from being stale.
+            await dispatcher.flush();
             const data = await this.map.getSource('points').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
+                        dispatcher.patch(feature.properties.id, { setProps: feature.properties });
                     } else {
                         const prevLabelCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         const prevCalcSize = data.features[featureIndex].properties.calculatedSize;
@@ -763,6 +816,10 @@ class AddPointControl extends BaseControl {
                         if (prevCalcSize !== undefined && feature.properties.calculatedSize === undefined) {
                             feature.properties.calculatedSize = prevCalcSize;
                         }
+                        // Queued only after the carry-over above, because `add` is a TOTAL
+                        // replacement: whatever is missing from this object is missing from
+                        // the source too.
+                        dispatcher.add(feature);
                     }
 
                     if (save) {
@@ -773,7 +830,7 @@ class AddPointControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('points').setData(data);
+            await dispatcher.flush();
 
             this.updateSelectionManagerFeatures(features);
         }

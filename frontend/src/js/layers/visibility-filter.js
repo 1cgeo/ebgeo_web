@@ -2,6 +2,13 @@
 
 /**
  * @fileoverview Layer visibility filter system for MapLibre.
+ *
+ * This module writes NO data: it hides and reveals through `map.setFilter` on layer ids, so it is
+ * orthogonal to the diff dispatcher (`layers/geojson-dispatcher.js`) and has nothing to migrate.
+ * The consequence matters to whoever migrates a source, though: hiding a feature does NOT remove
+ * it from its source, so "ocultar" must never be implemented as a `{ remove }` diff. The filter
+ * owns visibility and the source has to keep every feature, or the next step boundary has nothing
+ * left to bring back.
  */
 
 import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, LAYER_ADDITIONAL_FILTERS } from './layer.constants.js';

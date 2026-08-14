@@ -19,6 +19,7 @@ import { createFiltersBar } from './components/table-filters.js';
 import { renderTable, updateRowSelections } from './components/table-renderer.js';
 import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
@@ -664,7 +665,7 @@ export class AttributeTableControl {
                 await updateFeatureProperty(storageType, featureId, columnKey, newValue);
 
                 // Update in MapLibre source
-                await this._updateMapLibreSource(storageType, featureId, columnKey, newValue);
+                this._updateMapLibreSource(storageType, featureId, columnKey, newValue);
 
                 // Update SelectionManager if this feature is selected
                 this._updateSelectionManagerFeature(featureId, featureType, columnKey, newValue);
@@ -689,25 +690,18 @@ export class AttributeTableControl {
      * @param {string} property - Property name
      * @param {*} value - New value
      */
-    async _updateMapLibreSource(sourceId, featureId, property, value) {
-        const source = this._map.getSource(sourceId);
-        if (!source) {
+    _updateMapLibreSource(sourceId, featureId, property, value) {
+        if (!this._map.getSource(sourceId)) {
             console.warn(`Source ${sourceId} not found`);
             return;
         }
 
-        try {
-            const data = await source.getData();
-            if (!data || !data.features) return;
-
-            const feature = data.features.find((f) => f.properties?.id === featureId);
-            if (feature) {
-                feature.properties[property] = value;
-                source.setData(data);
-            }
-        } catch (error) {
-            console.warn('Could not update MapLibre source:', error.message);
-        }
+        // A one-property change is exactly what the dispatcher's `patch` expresses, and going
+        // through it is mandatory rather than tidy: these sources are dispatcher-owned, so the
+        // read-modify-write that used to live here replaced MapLibre's pending-update slot and
+        // dropped whatever diff a tool had queued, with no error. The read is gone with it: the
+        // patch keys on the promoted id, so nothing needs to be located first.
+        getGeoJsonDispatcher(this._map, sourceId).patch(featureId, { setProps: { [property]: value } });
     }
 
     /**

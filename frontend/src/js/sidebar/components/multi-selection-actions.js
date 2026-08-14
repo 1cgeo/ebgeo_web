@@ -6,6 +6,7 @@
  */
 
 import { updateFeatureProperty, getStorageTypeFromSource } from '@store/index.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 // ============================================================================
 // SVG ICONS
@@ -29,23 +30,15 @@ const ICON_UNLOCK = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="
  * @param {string} property - Property name
  * @param {*} value - Property value
  */
-async function propagateToSource(map, sourceType, featureId, property, value) {
+function propagateToSource(map, sourceType, featureId, property, value) {
     const storageType = getStorageTypeFromSource(sourceType);
-    const source = map.getSource(storageType);
-    if (!source) return;
+    if (!map.getSource(storageType)) return;
 
-    try {
-        const data = await source.getData();
-        const feature = data.features.find(
-            f => f.properties.id === featureId || f.id === featureId
-        );
-        if (feature) {
-            feature.properties[property] = value;
-            source.setData(data);
-        }
-    } catch (error) {
-        console.error(`Error propagating ${property} to source ${storageType}:`, error);
-    }
+    // Through the dispatcher, because these sources are dispatcher-owned: the read-modify-write
+    // that used to live here replaced MapLibre's pending-update slot and dropped whatever diff a
+    // tool had queued, without any error. `patch` keys on the promoted id, so the read that
+    // located the feature is no longer needed either.
+    getGeoJsonDispatcher(map, storageType).patch(featureId, { setProps: { [property]: value } });
 }
 
 // ============================================================================
@@ -93,7 +86,7 @@ export function createMultiSelectionActions({ selectedFeatures, selectionManager
 
             const storageType = getStorageTypeFromSource(sourceType);
             await updateFeatureProperty(storageType, featureId, 'visivel', newVisibility);
-            await propagateToSource(map, sourceType, featureId, 'visivel', newVisibility);
+            propagateToSource(map, sourceType, featureId, 'visivel', newVisibility);
 
             // Update in-memory feature so the rebuilt panel sees the new state
             feature.properties.visivel = newVisibility;
@@ -127,7 +120,7 @@ export function createMultiSelectionActions({ selectedFeatures, selectionManager
 
             const storageType = getStorageTypeFromSource(sourceType);
             await updateFeatureProperty(storageType, featureId, 'bloqueado', newLockState);
-            await propagateToSource(map, sourceType, featureId, 'bloqueado', newLockState);
+            propagateToSource(map, sourceType, featureId, 'bloqueado', newLockState);
 
             // Update in-memory feature so the rebuilt panel sees the new state
             feature.properties.bloqueado = newLockState;

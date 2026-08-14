@@ -7,6 +7,52 @@ import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from '
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '@tools';
 import { getSnappingService } from '@js/snapping';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The two dispatchers that own the persistent viewshed sources.
+ *
+ * EVERY write this file makes to `visibility` and `processed-visibility` goes through them. The
+ * reason is not style: a raw `source.setData()` issued while a diff is queued replaces MapLibre's
+ * pending-update slot and the diff disappears with no error at all.
+ *
+ * Each awaited method ends in `flush()`, for the same reason the point tool does: both sources
+ * still have co-writers outside this file (the generic by-storageType paths of the attribute table,
+ * the features tab, import, the clipboard and the context menu, plus `setOrCreateSource` on every
+ * redraw), and they all do read-modify-write with a raw `setData`.
+ *
+ * The two ephemeral sources stay on raw `setData` on purpose: `visibility-feedback` and
+ * `visibility-edit-handles` are rebuilt whole per pointermove, hold at most three transient
+ * features with no `properties.id`, and are declared without `promoteId`, so a diff has nothing to
+ * key on and nothing to save.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `visibility` source
+ */
+function visibilitySource(map) {
+    return getGeoJsonDispatcher(map, 'visibility');
+}
+
+/**
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `processed-visibility` source
+ */
+function processedVisibilitySource(map) {
+    return getGeoJsonDispatcher(map, 'processed-visibility');
+}
+
+/**
+ * The two derived ids a viewshed owns in `processed-visibility`.
+ *
+ * They are deterministic (`add_visibility_geometry.js` mints exactly these two suffixes), which is
+ * what lets the removals and the patches below skip the collection read entirely. A `remove` or an
+ * `update` of an id that is not in the source is a documented silent no-op in MapLibre, so naming
+ * the half a fully visible viewshed never produced costs nothing.
+ * @param {string} featureId - Parent viewshed feature id
+ * @returns {Array<string>} derived ids
+ */
+function processedIdsOf(featureId) {
+    return [`${featureId}-visible`, `${featureId}-obstructed`];
+}
 
 /**
  * Visibility (Viewshed) analysis tool control.
@@ -79,6 +125,15 @@ class AddVisibilityControl extends BaseControl {
 
         if (this.progressModal && this.progressModal.parentNode) {
             this.progressModal.parentNode.removeChild(this.progressModal);
+        }
+
+        if (this.map) {
+            // Releases both queues, their settle timers and the map listeners the dispatchers open
+            // per dispatch. Dropping a batch here cannot lose a viewshed: the store write always
+            // precedes the source write, so the redraw that follows a style switch repopulates both
+            // sources from persistence.
+            destroyGeoJsonDispatcher(this.map, 'visibility');
+            destroyGeoJsonDispatcher(this.map, 'processed-visibility');
         }
 
         this.map = undefined;
@@ -662,13 +717,12 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(92, 'Atualizando mapa...');
             await this.geometry.delay(50);
 
-            const data = await this.map.getSource('visibility').getData();
-            data.features.push(visibilityFeature);
-            this.map.getSource('visibility').setData(data);
-
-            const processedData = await this.map.getSource('processed-visibility').getData();
-            processedFeatures.forEach(pf => processedData.features.push(pf));
-            this.map.getSource('processed-visibility').setData(processedData);
+            const dispatcher = visibilitySource(this.map);
+            const processedDispatcher = processedVisibilitySource(this.map);
+            dispatcher.add(visibilityFeature);
+            processedDispatcher.add(processedFeatures);
+            await dispatcher.flush();
+            await processedDispatcher.flush();
 
             this.updateProgress(100, 'Concluído!');
             await this.geometry.delay(300);
@@ -751,23 +805,40 @@ class AddVisibilityControl extends BaseControl {
 
     /**
      * Persist radius, bearing and aperture from a handle edit into the map source.
-     * Must be called synchronously after handle drag so recalculation reads fresh values.
+     * The queued patch is what the recalculation reads back, so the values reach it in order.
+     * @param {Object} feature - Selected viewshed feature
+     * @param {Object} result - Handle edit result carrying radius, bearing and aperture
      */
     updateHandlePropertiesToSource = async (feature, result) => {
-        const data = await this.map.getSource('visibility').getData();
-        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-        if (sourceFeature) {
-            sourceFeature.properties.radius = result.radius;
-            sourceFeature.properties.bearing = result.bearing;
-            sourceFeature.properties.aperture = result.aperture;
-        }
-        this.map.getSource('visibility').setData(data);
+        // The three values leave as a patch and the collection read is gone, which also closes a
+        // race this method used to lose. The caller does not await it: it fires this and then
+        // chains the recalculation, which reads the source back. The read-modify-write here landed
+        // one microtask later than the old header comment promised ("call it synchronously"), so
+        // the recalculation could still read the pre-drag radius. The patch is now enqueued
+        // SYNCHRONOUSLY, and the recalculation drains the queue before its own read, so the fresh
+        // values are guaranteed to be there.
+        const dispatcher = visibilitySource(this.map);
+        dispatcher.patch(feature.properties.id, {
+            setProps: {
+                radius: result.radius,
+                bearing: result.bearing,
+                aperture: result.aperture,
+            },
+        });
+        await dispatcher.flush();
         this.updateSelectionManagerFeature(feature);
     }
 
     updatePropertyImmediately = async (features, property, value) => {
+        const dispatcher = visibilitySource(this.map);
+        const processedDispatcher = processedVisibilitySource(this.map);
+
+        // The `visibility` read survives: the guard below skips a feature the source does not hold,
+        // and the selection manager is handed the SOURCE copy afterwards, neither of which a diff
+        // returns. The `processed-visibility` read is gone: the derived ids are deterministic, so
+        // the property travels as a two-key patch instead of a whole-collection rewrite.
+        await dispatcher.flush();
         const data = await this.map.getSource('visibility').getData();
-        const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -775,19 +846,18 @@ class AddVisibilityControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                const processedFeatures = processedData.features.filter(f =>
-                    f.properties.id.startsWith(feature.properties.id + '-')
-                );
-                processedFeatures.forEach(pf => {
-                    if (property !== 'color') {
-                        pf.properties[property] = value;
+                dispatcher.patch(feature.properties.id, { setProps: { [property]: value } });
+
+                if (property !== 'color') {
+                    for (const processedId of processedIdsOf(feature.properties.id)) {
+                        processedDispatcher.patch(processedId, { setProps: { [property]: value } });
                     }
-                });
+                }
             }
         }
 
-        this.map.getSource('visibility').setData(data);
-        this.map.getSource('processed-visibility').setData(processedData);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -806,8 +876,19 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(5, 'Preparando recálculo...');
             await this.geometry.delay(50);
 
+            // Acquired INSIDE the try: with no map (tool removed mid-recalculation) the registry
+            // lookup throws, and outside the try that throw would skip the `finally` that closes
+            // the progress modal and would escape a method whose contract is to bail quietly.
+            const dispatcher = visibilitySource(this.map);
+            const processedDispatcher = processedVisibilitySource(this.map);
+
+            // The `visibility` read survives: the recalculation starts from the SOURCE centre and
+            // geometry, which a diff cannot hand back, and draining first is what guarantees the
+            // radius/bearing/aperture a handle drag just patched are already in it. The
+            // `processed-visibility` read is gone, replaced by a removal of the derived pair plus an
+            // upsert of the regenerated one.
+            await dispatcher.flush();
             const data = await this.map.getSource('visibility').getData();
-            const processedData = await this.map.getSource('processed-visibility').getData();
 
             for (const feature of features) {
                 const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -841,10 +922,12 @@ class AddVisibilityControl extends BaseControl {
 
                     await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
 
-                            processedData.features = processedData.features.filter(f =>
-                        !f.properties.id.startsWith(feature.properties.id + '-')
-                    );
-                    newProcessedFeatures.forEach(pf => processedData.features.push(pf));
+                    // Total replacement of this one feature, with the same object the whole
+                    // collection write used to carry.
+                    dispatcher.add(sourceFeature);
+
+                    processedDispatcher.remove(processedIdsOf(feature.properties.id));
+                    processedDispatcher.add(newProcessedFeatures);
 
                 } catch (error) {
                     console.error('Error recalculating visibility:', error);
@@ -854,8 +937,8 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(95, 'Atualizando mapa...');
             await this.geometry.delay(50);
 
-            this.map.getSource('visibility').setData(data);
-            this.map.getSource('processed-visibility').setData(processedData);
+            await dispatcher.flush();
+            await processedDispatcher.flush();
 
             this.map.getSource('visibility-feedback').setData({
                 type: 'FeatureCollection',
@@ -944,20 +1027,25 @@ class AddVisibilityControl extends BaseControl {
     }
 
     async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
-        const processedData = await this.map.getSource('processed-visibility').getData();
-
-        processedData.features = processedData.features.filter(f =>
-            !f.properties.id.startsWith(mainFeature.properties.id + '-')
-        );
+        // Remove the old pair, then upsert the regenerated one. The read is gone: the ids are
+        // derived, and inside one batch `remove` followed by `add` on the same key coalesces into
+        // the `add` alone (a total replacement), while the half that is not regenerated keeps its
+        // removal.
+        const dispatcher = processedVisibilitySource(this.map);
+        dispatcher.remove(processedIdsOf(mainFeature.properties.id));
 
         const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
-        processedFeatures.forEach(pf => processedData.features.push(pf));
+        dispatcher.add(processedFeatures);
 
-        this.map.getSource('processed-visibility').setData(processedData);
+        await dispatcher.flush();
     }
 
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+        // one, so both queues have to be drained before the collections come back.
+        await visibilitySource(this.map).flush();
+        await processedVisibilitySource(this.map).flush();
         const currentData = await this.map.getSource('visibility').getData();
         const processedData = await this.map.getSource('processed-visibility').getData();
 
@@ -1015,17 +1103,21 @@ class AddVisibilityControl extends BaseControl {
             }
         }
 
+        // NOT a diff, on purpose, and the one place in this file where the whole collection is
+        // still written. The rebuild comes from the STORE, which is authoritative about the
+        // cascade: `removeFeature('visibility', id)` also drops every processed feature whose id
+        // starts with `<id>-`, and reading the survivors back resyncs the source with persistence
+        // instead of trusting this file's idea of which derived ids exist. It goes through the
+        // dispatchers only for ownership: a raw `setData` here would silently discard whatever is
+        // queued.
         const currentMapFeatures = await getCurrentMapFeatures();
 
-        this.map.getSource('visibility').setData({
-            type: 'FeatureCollection',
-            features: currentMapFeatures.visibility
-        });
-
-        this.map.getSource('processed-visibility').setData({
-            type: 'FeatureCollection',
-            features: currentMapFeatures.processed_visibility
-        });
+        const dispatcher = visibilitySource(this.map);
+        const processedDispatcher = processedVisibilitySource(this.map);
+        dispatcher.setData(currentMapFeatures.visibility);
+        processedDispatcher.setData(currentMapFeatures.processed_visibility);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -1055,6 +1147,16 @@ class AddVisibilityControl extends BaseControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length === 0) return;
 
+        const dispatcher = visibilitySource(this.map);
+        const processedDispatcher = processedVisibilitySource(this.map);
+
+        // BOTH reads survive here, and each for its own reason: `visibility` because an unknown id
+        // must be skipped rather than created (`add` would create it) and because the save path
+        // persists the merged SOURCE copy, `processed-visibility` because the save path persists the
+        // EXISTING derived features with the incoming properties folded in, and no diff hands those
+        // back.
+        await dispatcher.flush();
+        await processedDispatcher.flush();
         const data = await this.map.getSource('visibility').getData();
         const processedData = await this.map.getSource('processed-visibility').getData();
 
@@ -1063,6 +1165,7 @@ class AddVisibilityControl extends BaseControl {
             if (featureIndex !== -1) {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);
+                    dispatcher.patch(feature.properties.id, { setProps: feature.properties });
 
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id.startsWith(feature.properties.id + '-')
@@ -1073,9 +1176,11 @@ class AddVisibilityControl extends BaseControl {
                                 pf.properties[key] = feature.properties[key];
                             }
                         });
+                        processedDispatcher.add(pf);
                     });
                 } else {
                     data.features[featureIndex] = feature;
+                    dispatcher.add(feature);
                 }
 
                 if (save) {
@@ -1087,8 +1192,8 @@ class AddVisibilityControl extends BaseControl {
             }
         }
 
-        this.map.getSource('visibility').setData(data);
-        this.map.getSource('processed-visibility').setData(processedData);
+        await dispatcher.flush();
+        await processedDispatcher.flush();
         this.updateSelectionManagerFeatures(features);
     }
 

@@ -16,6 +16,7 @@ import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getCont
 import { IDUtils } from '@utils';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 /**
  * Azimuth/distance features store their origin geometry kind in properties.source
@@ -30,6 +31,26 @@ const SOURCE_TO_COLLECTION = { point: 'points', line: 'lines', polygon: 'polygon
 function resolveAzimuthCollection(feature) {
     const source = feature?.properties?.source;
     return SOURCE_TO_COLLECTION[source] || source || 'lines';
+}
+
+/**
+ * The dispatcher that owns one of the three persistent sources this tool writes.
+ *
+ * This tool does NOT own `points`, `lines` or `polygons`: each of them is also written by its own
+ * draw tool, and the dispatcher registry is keyed by (map, sourceId), so all writers share one
+ * queue per source. That is the point. A raw `source.setData()` issued while a diff is queued
+ * replaces MapLibre's pending-update slot and the diff disappears with no error, so every writer
+ * of a source has to arrive through the same dispatcher.
+ *
+ * Because ownership is shared, this file never destroys these dispatchers: each draw tool releases
+ * the one for its own source in its `onRemove`, and destroying one here would drop a batch that
+ * belongs to another writer.
+ * @param {Object} map - MapLibre map instance
+ * @param {string} sourceName - `points`, `lines` or `polygons`
+ * @returns {Object} dispatcher owning that source
+ */
+function collectionSource(map, sourceName) {
+    return getGeoJsonDispatcher(map, sourceName);
 }
 
 /**
@@ -487,14 +508,16 @@ class AddAzimuthDistanceControl extends BaseControl {
             return;
         }
 
-        const source = this.map.getSource('points');
-        if (source) {
-            const data = await source.getData();
+        // One upsert per waypoint instead of a read-modify-write of the whole `points`
+        // collection. The store write keeps its place before the source write, and the
+        // pre-existing guard on the source is kept as it was.
+        if (this.map.getSource('points')) {
+            const dispatcher = collectionSource(this.map, 'points');
             for (const feature of features) {
                 await addFeature('points', feature);
-                data.features.push(feature);
+                dispatcher.add(feature);
             }
-            source.setData(data);
+            await dispatcher.flush();
         }
 
         const lastFeature = features[features.length - 1];
@@ -543,11 +566,10 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         await addFeature(sourceName, feature);
 
-        const source = this.map.getSource(sourceName);
-        if (source) {
-            const data = await source.getData();
-            data.features.push(feature);
-            source.setData(data);
+        if (this.map.getSource(sourceName)) {
+            const dispatcher = collectionSource(this.map, sourceName);
+            dispatcher.add(feature);
+            await dispatcher.flush();
         }
 
         const featureType = this._getFeatureTypeFromSource(sourceName);
@@ -619,25 +641,40 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     async updateFeaturesProperty(features, property, value) {
+        const touched = new Set();
+
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
+            if (!source) continue;
 
-            if (source) {
-                const data = await source.getData();
-                const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+            const dispatcher = collectionSource(this.map, sourceName);
 
-                if (sourceFeature) {
-                    sourceFeature.properties[property] = value;
-                    feature.properties[property] = value;
+            // The collection read survives here: the polar recalculation rebuilds the geometry from
+            // the SOURCE copy of the feature (the one carrying `azimuthDistanceData`), which no diff
+            // can hand back. Draining first keeps that read from missing a queued write.
+            await dispatcher.flush();
+            const data = await source.getData();
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+            if (!sourceFeature) continue;
 
-                    if (['legs', 'referencePoint', 'magneticDeclination', 'northReference'].includes(property)) {
-                        this._recalculateGeometry(sourceFeature);
-                    }
-                }
+            sourceFeature.properties[property] = value;
+            feature.properties[property] = value;
 
-                source.setData(data);
+            if (['legs', 'referencePoint', 'magneticDeclination', 'northReference'].includes(property)) {
+                this._recalculateGeometry(sourceFeature);
+                // Total replacement: the recalculation rewrites the geometry plus the derived
+                // `baseCoordinates` and `calculatedWaypoints`, and the mutated source copy in hand
+                // already carries every one of them.
+                dispatcher.add(sourceFeature);
+            } else {
+                dispatcher.patch(sourceFeature.properties.id, { setProps: { [property]: value } });
             }
+            touched.add(dispatcher);
+        }
+
+        for (const dispatcher of touched) {
+            await dispatcher.flush();
         }
 
         this.updateSelectionManagerFeatures(features);
@@ -695,6 +732,9 @@ class AddAzimuthDistanceControl extends BaseControl {
             const source = this.map.getSource(sourceName);
 
             if (source) {
+                // Reads only, and it persists the SOURCE's version of the feature rather than the
+                // selected one, so the queue has to be drained before the collection comes back.
+                await collectionSource(this.map, sourceName).flush();
                 const data = await source.getData();
                 const currentFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 if (currentFeature) {
@@ -717,21 +757,28 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     async deleteFeatures(features) {
+        const touched = new Set();
+
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
 
             try {
                 await removeFeature(sourceName, feature.properties.id);
 
-                const source = this.map.getSource(sourceName);
-                if (source) {
-                    const data = await source.getData();
-                    data.features = data.features.filter(f => f.properties.id !== feature.properties.id);
-                    source.setData(data);
+                // Removal by promoted key, with no collection read. The key goes in raw, never
+                // coerced: MapLibre keyed the feature by the very value sitting in `properties.id`.
+                if (this.map.getSource(sourceName)) {
+                    const dispatcher = collectionSource(this.map, sourceName);
+                    dispatcher.remove(feature.properties.id);
+                    touched.add(dispatcher);
                 }
             } catch (error) {
                 console.error('Error removing azimuth distance feature:', error);
             }
+        }
+
+        for (const dispatcher of touched) {
+            await dispatcher.flush();
         }
     }
 
@@ -755,28 +802,39 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     async updateFeatures(features, save = false, onlyUpdateProperties = false) {
+        const touched = new Set();
+
         for (const feature of features) {
             const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
+            if (!source) continue;
 
-            if (source) {
-                const data = await source.getData();
-                const idx = data.features.findIndex(f => f.properties.id === feature.properties.id);
+            const dispatcher = collectionSource(this.map, sourceName);
+            // The collection read survives here, as it does in the point tool: an unknown id must
+            // be skipped rather than created (`add` would create it), and the merge branch persists
+            // the SOURCE copy with the incoming properties folded in, which no diff returns.
+            await dispatcher.flush();
+            const data = await source.getData();
+            const idx = data.features.findIndex(f => f.properties.id === feature.properties.id);
 
-                if (idx !== -1) {
-                    if (onlyUpdateProperties) {
-                        Object.assign(data.features[idx].properties, feature.properties);
-                    } else {
-                        data.features[idx] = feature;
-                    }
-
-                    if (save) {
-                        await updateFeature(sourceName, data.features[idx]);
-                    }
+            if (idx !== -1) {
+                if (onlyUpdateProperties) {
+                    Object.assign(data.features[idx].properties, feature.properties);
+                    dispatcher.patch(feature.properties.id, { setProps: feature.properties });
+                } else {
+                    data.features[idx] = feature;
+                    dispatcher.add(feature);
                 }
+                touched.add(dispatcher);
 
-                source.setData(data);
+                if (save) {
+                    await updateFeature(sourceName, data.features[idx]);
+                }
             }
+        }
+
+        for (const dispatcher of touched) {
+            await dispatcher.flush();
         }
 
         this.updateSelectionManagerFeatures(features);

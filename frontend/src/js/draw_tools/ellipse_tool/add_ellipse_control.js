@@ -8,6 +8,41 @@ import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `ellipses` source.
+ *
+ * EVERY write to `ellipses` made in this file goes through it, and every migrated method awaits
+ * `flush()` before returning. A raw `source.setData()` issued while a diff is queued replaces
+ * MapLibre's pending-update slot and the diff disappears with no error, so draining inside the
+ * awaited method keeps the queue empty between gestures and leaves the co-writers that still use
+ * `setData` (the shared label zoom handler in `tool_manager/helpers/label-tab.helpers.js`, and the
+ * generic `storageType` paths: attribute table, features tab, import, clipboard, processing)
+ * reading a collection that already carries what this tool wrote.
+ *
+ * WHY THE COLLECTION READ SURVIVES IN MOST METHODS, unlike the point pilot: `ellipse-labels` and
+ * the hatch pattern registry are both functions of the WHOLE collection, and `syncLabelSource`
+ * rebuilds the label source from it after every write. Only the write side becomes a diff here;
+ * the read is eliminated just where nothing whole-collection depends on it (creation and removal
+ * of features that carry no label).
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `ellipses` source
+ */
+function ellipsesSource(map) {
+    return getGeoJsonDispatcher(map, 'ellipses');
+}
+
+/**
+ * Whether a feature contributes a rendered entry to the derived label source.
+ * `syncLabelSource` skips anything without both flags, so adding or removing such a feature leaves
+ * the label collection identical and the whole-collection read can be skipped with it.
+ * @param {Object} feature - GeoJSON feature
+ * @returns {boolean}
+ */
+function affectsLabelSource(feature) {
+    return Boolean(feature?.properties?.showLabel && feature?.properties?.labelText);
+}
 
 class AddEllipseControl extends BaseControl {
     featureType = 'ellipse';
@@ -67,6 +102,11 @@ class AddEllipseControl extends BaseControl {
         this.removeAllEventListeners();
         if (this.map) {
             this.map.off('zoom', this._onZoomForLabels);
+            // Releases the queue, its settle timers and the two map listeners the dispatcher opens
+            // per dispatch. Dropping a batch here cannot lose an ellipse: the store write always
+            // precedes the source write, so the redraw that follows a style switch repopulates
+            // `ellipses` from persistence.
+            destroyGeoJsonDispatcher(this.map, 'ellipses');
         }
         this.#labelZoom.cleanup();
         this.map = undefined;
@@ -427,14 +467,22 @@ class AddEllipseControl extends BaseControl {
         try {
             await addFeature('ellipses', feature);
 
-            const data = await this.map.getSource('ellipses').getData();
-            data.features.push(feature);
-
+            // Only the new feature needs a pattern registered: every ellipse already in the source
+            // registered its own when it was drawn, edited or loaded, and the id is a pure function
+            // of the feature's own hatch properties.
             if (feature.properties.hatchEnabled) {
-                this.updateHatchPatterns(data);
+                this.updateHatchPatterns({ features: [feature] });
             }
-            this.map.getSource('ellipses').setData(data);
-            syncLabelSource(this.map, 'ellipse-labels', data);
+
+            const dispatcher = ellipsesSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
+
+            // The label source is a pure function of the collection, so an ellipse that carries no
+            // label leaves it identical and the whole-collection read is skipped with it.
+            if (affectsLabelSource(feature)) {
+                syncLabelSource(this.map, 'ellipse-labels', await this.map.getSource('ellipses').getData());
+            }
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -767,11 +815,17 @@ class AddEllipseControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
+        // The read stays: `syncLabelSource` and the hatch registry below both need the whole
+        // collection. Draining first keeps it from being stale. Only the WRITE becomes a diff.
+        const dispatcher = ellipsesSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('ellipses').getData();
+        const touched = [];
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
+                touched.push(sourceFeature);
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
@@ -798,7 +852,14 @@ class AddEllipseControl extends BaseControl {
             this.updateHatchPatterns(data);
         }
 
-        this.map.getSource('ellipses').setData(data);
+        // `add` is a TOTAL replacement, which is what "write the mutated source feature back"
+        // means, and it is also what drops `hatchPatternId` in the hatch-disable branch. The hatch
+        // call above runs FIRST because it stamps `hatchPatternId`, which has to travel with the
+        // feature; the stamps it also puts on untouched features no longer reach the source, and
+        // that loses nothing, since the id is a pure function of each feature's own hatch
+        // properties, unchanged for anyone outside `touched`.
+        dispatcher.add(touched);
+        await dispatcher.flush();
         syncLabelSource(this.map, 'ellipse-labels', data);
 
         const freshFeatures = features.map(feature => {
@@ -815,6 +876,9 @@ class AddEllipseControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+        // one, so the queue has to be drained before the collection comes back.
+        await ellipsesSource(this.map).flush();
         const currentData = await this.map.getSource('ellipses').getData();
 
         for (const selectedFeature of features) {
@@ -846,16 +910,24 @@ class AddEllipseControl extends BaseControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.properties.id;
-                await removeFeature('ellipses', featureId);
-                const data = await this.map.getSource('ellipses').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('ellipses').setData(data);
-                syncLabelSource(this.map, 'ellipse-labels', data);
+                await removeFeature('ellipses', feature.properties.id);
             } catch (error) {
                 console.error(`Error removing ellipse ${feature.properties.id}:`, error);
             }
+        }
+
+        // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
+        // so it cost one full round-trip per deleted feature). The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value in `properties.id`, so a `String()` around
+        // it would miss a numeric key instead of protecting anything.
+        const dispatcher = ellipsesSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
+
+        // Removing ellipses that carry no label leaves the derived label source identical, so the
+        // whole-collection read is only paid when at least one of them was labelled.
+        if (features.some(affectsLabelSource)) {
+            syncLabelSource(this.map, 'ellipse-labels', await this.map.getSource('ellipses').getData());
         }
     }
 
@@ -872,12 +944,18 @@ class AddEllipseControl extends BaseControl {
      * This ensures proper pattern generation when enabling/disabling hatch
      */
     updateHatchType = async (features, type) => {
+        // Same reason as `updateFeaturesProperty`: the hatch registry and the label source are
+        // functions of the whole collection, so the read stays and only the write becomes a diff.
+        const dispatcher = ellipsesSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('ellipses').getData();
         const isEnabled = type !== 'none';
+        const touched = [];
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
+                touched.push(sourceFeature);
                 // Update both properties together
                 sourceFeature.properties.hatchType = type;
                 sourceFeature.properties.hatchEnabled = isEnabled;
@@ -897,7 +975,14 @@ class AddEllipseControl extends BaseControl {
             this.updateHatchPatterns(data);
         }
 
-        this.map.getSource('ellipses').setData(data);
+        // `add` is a TOTAL replacement, which is what "write the mutated source feature back"
+        // means, and it is also what drops `hatchPatternId` in the hatch-disable branch. The hatch
+        // call above runs FIRST because it stamps `hatchPatternId`, which has to travel with the
+        // feature; the stamps it also puts on untouched features no longer reach the source, and
+        // that loses nothing, since the id is a pure function of each feature's own hatch
+        // properties, unchanged for anyone outside `touched`.
+        dispatcher.add(touched);
+        await dispatcher.flush();
         syncLabelSource(this.map, 'ellipse-labels', data);
 
         const freshFeatures = features.map(feature => {
@@ -946,18 +1031,29 @@ class AddEllipseControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
+            // The collection read survives here for three reasons, and no diff answers any of them:
+            // whether the feature exists at all (an unknown id must be skipped, not created), the
+            // previous `labelCalculatedSize` carried over when the incoming feature lacks it, and
+            // the whole collection `syncLabelSource` needs. Draining first keeps it from being stale.
+            const dispatcher = ellipsesSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('ellipses').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
+                        dispatcher.patch(feature.properties.id, { setProps: feature.properties });
                     } else {
                         const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
                         if (prevCalcSize !== undefined) {
                             feature.properties.labelCalculatedSize = prevCalcSize;
                         }
+                        // Queued only after the carry-over above, because `add` is a TOTAL
+                        // replacement: whatever is missing from this object is missing from the
+                        // source too.
+                        dispatcher.add(feature);
                     }
 
                     if (save) {
@@ -968,7 +1064,7 @@ class AddEllipseControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('ellipses').setData(data);
+            await dispatcher.flush();
             syncLabelSource(this.map, 'ellipse-labels', data);
             this.updateSelectionManagerFeatures(features);
         }
@@ -1015,12 +1111,18 @@ class AddEllipseControl extends BaseControl {
             return;
         }
 
+        // The read stays for the existence guard and for `syncLabelSource`: an id absent from the
+        // source must be left alone, and `add` would CREATE it. Draining first keeps it fresh.
+        const dispatcher = ellipsesSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('ellipses').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('ellipses').setData(data);
+            // `add` is a TOTAL replacement, which is exactly what the two lines above expressed.
+            dispatcher.add(sourceFeature);
+            await dispatcher.flush();
             syncLabelSource(this.map, 'ellipse-labels', data);
         }
     }

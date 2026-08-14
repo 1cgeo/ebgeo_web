@@ -6,6 +6,34 @@ import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
 import { BaseControl } from '@tools';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `occupied_fronts` source.
+ *
+ * EVERY write to `occupied_fronts` made in this file goes through it. The reason is not style: a
+ * raw `source.setData()` issued while a diff is queued replaces MapLibre's pending-update slot and
+ * the diff disappears with no error at all.
+ *
+ * Each public method here also awaits `flush()` before it returns. Two reasons, and the second is
+ * the one that matters:
+ * - the deferred write would otherwise land one animation frame after the caller resumed;
+ * - `occupied_fronts` still has co-writers outside this file (the generic by-storageType writers:
+ *   attribute table, features tab, import, clipboard, multi-selection actions, context menu, phone
+ *   layout), and they all do read-modify-write with a raw `setData`. Draining inside the awaited
+ *   method keeps the queue empty between gestures, so no co-writer can read a collection that is
+ *   missing what this tool just wrote.
+ *
+ * NOTE the sources this does NOT own: `occupied-front-feedback` and `occupied-front-edit-handles`
+ * keep their plain `setData`. They are rebuilt whole on every mousemove, hold a handful of features
+ * with no stable `properties.id` (so they are declared without `promoteId` and are not diffable),
+ * and a dropped frame there is a visibly stuttering rubber band.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `occupied_fronts` source
+ */
+function occupiedFrontsSource(map) {
+    return getGeoJsonDispatcher(map, 'occupied_fronts');
+}
 
 class AddOccupiedFrontControl extends BaseControl {
     featureType = 'occupied_front';
@@ -55,6 +83,11 @@ class AddOccupiedFrontControl extends BaseControl {
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+        // dispatch. Dropping a batch here cannot lose a front: the store write always precedes the
+        // source write, so the redraw that follows a style switch repopulates `occupied_fronts`
+        // from persistence.
+        destroyGeoJsonDispatcher(this.map, 'occupied_fronts');
         this.map = undefined;
     }
 
@@ -354,9 +387,9 @@ class AddOccupiedFrontControl extends BaseControl {
         try {
             await addFeature('occupied_fronts', feature);
 
-            const data = await this.map.getSource('occupied_fronts').getData();
-            data.features.push(feature);
-            this.map.getSource('occupied_fronts').setData(data);
+            const dispatcher = occupiedFrontsSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -635,11 +668,19 @@ class AddOccupiedFrontControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
+        // The collection read survives here on purpose. Two things below need the PREVIOUS source
+        // feature and no diff hands them back: whether the feature exists at all (an unknown id
+        // must be skipped, not created) and its `baseCoordinates`, which `geometry.generate`
+        // consumes to rebuild the shape. Draining first keeps that read from being stale.
+        const dispatcher = occupiedFrontsSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('occupied_fronts').getData();
+        const upserts = [];
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
+                upserts.push(sourceFeature);
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
@@ -651,7 +692,11 @@ class AddOccupiedFrontControl extends BaseControl {
             }
         }
 
-        this.map.getSource('occupied_fronts').setData(data);
+        // An upsert, not a property patch: a `baseCoordinates` change also rewrites the geometry,
+        // so the honest delta is the whole feature. `add` is a total replacement in MapLibre,
+        // which is what the whole-collection write did to this entry, minus the other N-1.
+        dispatcher.add(upserts);
+        await dispatcher.flush();
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -667,6 +712,9 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the
+        // selected one, so the queue has to be drained before the collection comes back.
+        await occupiedFrontsSource(this.map).flush();
         const currentData = await this.map.getSource('occupied_fronts').getData();
 
         for (const selectedFeature of features) {
@@ -697,16 +745,19 @@ class AddOccupiedFrontControl extends BaseControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.properties.id;
-                await removeFeature('occupied_fronts', featureId);
-                const data = await this.map.getSource('occupied_fronts').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('occupied_fronts').setData(data);
+                await removeFeature('occupied_fronts', feature.properties.id);
             } catch (error) {
                 console.error(`Error removing occupied front ${feature.properties.id}:`, error);
             }
         }
+
+        // Removal by promoted key, with no collection read, and once for the whole batch instead
+        // of once per feature. The keys go in raw, never coerced: MapLibre keyed the feature by
+        // the very value that sits in `properties.id`, so a `String()` around it would miss a
+        // numeric key instead of protecting anything.
+        const dispatcher = occupiedFrontsSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -730,7 +781,14 @@ class AddOccupiedFrontControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
+            // The collection read survives here too: an unknown id must be skipped rather than
+            // created, and the merge branch (`onlyUpdateProperties`) needs the previous source
+            // properties to merge ONTO. Draining first keeps that read from being stale.
+            const dispatcher = occupiedFrontsSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('occupied_fronts').getData();
+            const upserts = [];
+
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
@@ -740,6 +798,12 @@ class AddOccupiedFrontControl extends BaseControl {
                         data.features[featureIndex] = feature;
                     }
 
+                    // The merged/replaced entry is a COMPLETE feature, so it ships as an upsert
+                    // (`add` is a total replacement in MapLibre) rather than as a property patch:
+                    // the same result the whole-collection write produced, without the other N-1
+                    // features riding along.
+                    upserts.push(data.features[featureIndex]);
+
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
@@ -748,7 +812,8 @@ class AddOccupiedFrontControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('occupied_fronts').setData(data);
+            dispatcher.add(upserts);
+            await dispatcher.flush();
 
             this.updateSelectionManagerFeatures(features);
         }
@@ -791,17 +856,31 @@ class AddOccupiedFrontControl extends BaseControl {
         }
     }
 
+    /**
+     * Writes one edited front back into the source, unless a drag owns the screen.
+     *
+     * The read is kept, and only for the existence check: this is called from the handle-drag path
+     * with a feature derived from the SELECTION, and `add` would CREATE an id the source no longer
+     * has instead of the silent skip the old `if (sourceFeature)` produced. The write itself is
+     * now a one-feature upsert rather than the whole collection.
+     * @param {Object} feature - Edited occupied-front feature
+     */
     forceUpdateMainSource = async (feature) => {
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
+        const dispatcher = occupiedFrontsSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('occupied_fronts').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = { ...feature.properties };
-            sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('occupied_fronts').setData(data);
+            dispatcher.add({
+                ...sourceFeature,
+                properties: { ...feature.properties },
+                geometry: { ...feature.geometry },
+            });
+            await dispatcher.flush();
         }
     }
 

@@ -7,6 +7,7 @@ import { IDUtils } from '@utils/id_utils.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { getTerrainElevation } from '@js/terrain';
 import { EventTypes } from '@events';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { userDataManager } from '@js/user_data';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory } from '@js/temporal/temporal-import.js';
 
@@ -757,12 +758,12 @@ class AddImportControl {
             if (features.length === 0) continue;
 
             const sourceName = type;
-            const source = this.map.getSource(sourceName);
-
-            if (source) {
-                const currentData = await source.getData();
-                currentData.features.push(...features);
-                source.setData(currentData);
+            // Queued as one batch instead of a read-modify-write: every source named here is
+            // dispatcher-owned, and a raw `setData` replaces MapLibre's pending-update slot,
+            // dropping a queued diff with no error. An import is a pure append, so nothing has
+            // to be read back first.
+            if (this.map.getSource(sourceName)) {
+                getGeoJsonDispatcher(this.map, sourceName).add(features);
             }
         }
     }

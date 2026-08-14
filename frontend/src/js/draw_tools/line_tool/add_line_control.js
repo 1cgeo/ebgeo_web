@@ -23,6 +23,27 @@ import {
     setMeasurementLabelSelected
 } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `lines` source.
+ *
+ * EVERY write to `lines` made in this file goes through it, and every migrated method awaits
+ * `flush()` before returning. A raw `source.setData()` issued while a diff is queued replaces
+ * MapLibre's pending-update slot and the diff disappears with no error, so draining inside the
+ * awaited method keeps the queue empty between gestures and leaves the co-writers that still use
+ * `setData` (the point-to-line conversions in `feature-header.helpers.js` and the generic
+ * `storageType` paths: attribute table, features tab, import, clipboard, processing) reading a
+ * collection that already carries what this tool wrote.
+ *
+ * `line-split.js` writes the same source and goes through this same dispatcher: the registry is
+ * keyed by (map, sourceId), so both call sites share one queue.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `lines` source
+ */
+function linesSource(map) {
+    return getGeoJsonDispatcher(map, 'lines');
+}
 
 class AddLineControl extends BaseControl {
     featureType = 'line';
@@ -80,6 +101,11 @@ class AddLineControl extends BaseControl {
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+        // dispatch. Dropping a batch here cannot lose a line: the store write always precedes the
+        // source write, so the redraw that follows a style switch repopulates `lines` from
+        // persistence.
+        if (this.map) destroyGeoJsonDispatcher(this.map, 'lines');
         this.map = undefined;
     }
 
@@ -582,9 +608,11 @@ class AddLineControl extends BaseControl {
         try {
             await addFeature('lines', feature);
 
-            const data = await this.map.getSource('lines').getData();
-            data.features.push(feature);
-            this.map.getSource('lines').setData(data);
+            // No collection read: the diff carries the new feature alone. `lines` has no derived
+            // label source, so nothing here is a function of the whole collection.
+            const dispatcher = linesSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -1083,34 +1111,37 @@ class AddLineControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
-        const data = await this.map.getSource('lines').getData();
+        const dispatcher = linesSource(this.map);
 
+        // One patch per feature carrying the edited property plus everything derived from it. The
+        // selected feature is the only copy consulted: it is kept in step with the source by
+        // `updateSelectionManagerFeatures`, and both derivations below (the geometry rebuilt from
+        // `baseCoordinates` and the recalculated profile) read only properties the two copies share.
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            if (sourceFeature) {
-                sourceFeature.properties[property] = value;
-                feature.properties[property] = value;
+            feature.properties[property] = value;
+            const changes = { setProps: { [property]: value } };
 
-                if (property === 'baseCoordinates') {
-                    const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
-                    sourceFeature.geometry = newGeometry;
-                    feature.geometry = newGeometry;
-                }
+            if (property === 'baseCoordinates') {
+                const newGeometry = this.geometry.generate(feature.properties.baseCoordinates);
+                feature.geometry = newGeometry;
+                changes.geometry = newGeometry;
+            }
 
-                if (property === 'profile' && value === true) {
-                    try {
-                        const coordinates = this.geometry.normalizeBaseCoordinates(sourceFeature.properties.baseCoordinates);
-                        const newProfileData = await this.calculateProfile(coordinates);
-                        sourceFeature.properties.profileData = JSON.stringify(newProfileData);
-                        feature.properties.profileData = JSON.stringify(newProfileData);
-                    } catch (error) {
-                        console.error('Error recalculating profile for property change:', error);
-                    }
+            if (property === 'profile' && value === true) {
+                try {
+                    const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+                    const newProfileData = await this.calculateProfile(coordinates);
+                    feature.properties.profileData = JSON.stringify(newProfileData);
+                    changes.setProps.profileData = feature.properties.profileData;
+                } catch (error) {
+                    console.error('Error recalculating profile for property change:', error);
                 }
             }
+
+            dispatcher.patch(feature.properties.id, changes);
         }
 
-        this.map.getSource('lines').setData(data);
+        await dispatcher.flush();
 
         if (property === 'measure') {
             features.forEach(f => {
@@ -1128,11 +1159,7 @@ class AddLineControl extends BaseControl {
             }, 100);
         }
 
-        const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            return sourceFeature || feature;
-        });
-        this.updateSelectionManagerFeatures(freshFeatures);
+        this.updateSelectionManagerFeatures(features);
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
@@ -1141,6 +1168,9 @@ class AddLineControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+        // one, so the queue has to be drained before the collection comes back.
+        await linesSource(this.map).flush();
         const currentData = await this.map.getSource('lines').getData();
         let _hasChanges = false;
 
@@ -1178,14 +1208,18 @@ class AddLineControl extends BaseControl {
                 this.removeFeatureMeasurement(featureId);
 
                 await removeFeature('lines', featureId);
-                const data = await this.map.getSource('lines').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('lines').setData(data);
             } catch (error) {
                 console.error(`Error removing line ${feature.properties.id}:`, error);
             }
         }
+
+        // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
+        // so it cost one full round-trip per deleted feature). The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value in `properties.id`, so a `String()` around
+        // it would miss a numeric key instead of protecting anything.
+        const dispatcher = linesSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -1213,14 +1247,21 @@ class AddLineControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
+            // The collection read survives here on purpose. An unknown id must be SKIPPED, not
+            // created, and no diff hands back whether the feature exists; the merge branch also
+            // needs the previous source properties. Draining first keeps that read from being stale.
+            const dispatcher = linesSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('lines').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
+                        dispatcher.patch(feature.properties.id, { setProps: feature.properties });
                     } else {
                         data.features[featureIndex] = feature;
+                        dispatcher.add(feature);
                     }
 
                     if (save) {
@@ -1231,7 +1272,7 @@ class AddLineControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('lines').setData(data);
+            await dispatcher.flush();
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -1281,6 +1322,10 @@ class AddLineControl extends BaseControl {
             return;
         }
 
+        // The read stays for the existence guard alone: an id absent from the source must be left
+        // alone, and `add` would CREATE it. Draining first keeps the read from being stale.
+        const dispatcher = linesSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('lines').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
@@ -1289,7 +1334,9 @@ class AddLineControl extends BaseControl {
                 baseCoordinates: feature.properties.baseCoordinates
             };
             sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('lines').setData(data);
+            // `add` is a TOTAL replacement, which is exactly what the two lines above expressed.
+            dispatcher.add(sourceFeature);
+            await dispatcher.flush();
         }
     }
 

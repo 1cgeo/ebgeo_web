@@ -8,6 +8,41 @@ import AddBoundaryGeometry from './add_boundary_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `boundarys` source.
+ *
+ * EVERY write to `boundarys` made in this file goes through it. The reason is not style: a raw
+ * `source.setData()` issued while a diff is queued replaces MapLibre's pending-update slot and the
+ * diff disappears with no error at all.
+ *
+ * Each public method here also awaits `flush()` before it returns. Two reasons, and the second is
+ * the one that matters:
+ * - the deferred write would otherwise land one animation frame after the caller resumed;
+ * - `boundarys` still has co-writers outside this file (the line-to-boundary conversion in
+ *   `tool_manager/helpers/feature-header.helpers.js`, plus the generic by-storageType writers:
+ *   attribute table, features tab, import, clipboard, multi-selection actions, context menu, phone
+ *   layout), and they all do read-modify-write with a raw `setData`. Draining inside the awaited
+ *   method keeps the queue empty between gestures, so no co-writer can read a collection that is
+ *   missing what this tool just wrote.
+ *
+ * THE THREE SOURCES THIS DOES NOT OWN, and why each one keeps its plain `setData`:
+ * - `boundary-feedback` and `boundary-edit-handles` are ephemeral: rebuilt whole on every
+ *   mousemove, a handful of features with no stable `properties.id`, so they are declared without
+ *   `promoteId` and are not diffable at all. A dropped frame there is a stuttering rubber band.
+ * - `boundary-circles` and `boundary-texts` are BLOCKED, not merely skipped. Their derived features
+ *   carry a stable TOP-LEVEL id (`<paiId>-circle-<i>-<j>`) but `properties` WITHOUT any `id`, so a
+ *   `promoteId: 'id'` would resolve every key to null and leave the source permanently
+ *   non-diffable. Enabling them means writing `properties.id` in `add_boundary_geometry.js` first,
+ *   which is a separate change. The declaration side of this is recorded in
+ *   `layers/styles/layer.helpers.js`.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `boundarys` source
+ */
+function boundarysSource(map) {
+    return getGeoJsonDispatcher(map, 'boundarys');
+}
 
 /**
  * Boundary Tool Control
@@ -100,6 +135,11 @@ class AddBoundaryControl extends BaseControl {
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+        // dispatch. Dropping a batch here cannot lose a boundary: the store write always precedes
+        // the source write, so the redraw that follows a style switch repopulates `boundarys` from
+        // persistence.
+        destroyGeoJsonDispatcher(this.map, 'boundarys');
         this.map = undefined;
     }
 
@@ -534,9 +574,9 @@ class AddBoundaryControl extends BaseControl {
         try {
             await addFeature('boundarys', feature);
 
-            const data = await this.map.getSource('boundarys').getData();
-            data.features.push(feature);
-            this.map.getSource('boundarys').setData(data);
+            const dispatcher = boundarysSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             await this.updateDependentFeatures(feature);
 
@@ -967,11 +1007,19 @@ class AddBoundaryControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
+        // The collection read survives here on purpose. Two things below need the PREVIOUS source
+        // feature and no diff hands them back: whether the feature exists at all (an unknown id
+        // must be skipped, not created) and its full property set, which `geometry.generate` and
+        // `updateDependentFeatures` both consume. Draining first keeps that read from being stale.
+        const dispatcher = boundarysSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('boundarys').getData();
+        const upserts = [];
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
+                upserts.push(sourceFeature);
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
@@ -993,7 +1041,13 @@ class AddBoundaryControl extends BaseControl {
             }
         }
 
-        this.map.getSource('boundarys').setData(data);
+        // An upsert, not a property patch. Two reasons: a change to `baseCoordinates` and friends
+        // also rewrites the geometry, and the `symbol_instances` branch DELETES the legacy
+        // `symbol_position_ratio`, which a property patch would have to spell out as an unset.
+        // `add` is a total replacement in MapLibre, which is what the whole-collection write did
+        // to this entry, minus the other N-1.
+        dispatcher.add(upserts);
+        await dispatcher.flush();
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -1009,6 +1063,9 @@ class AddBoundaryControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the
+        // selected one, so the queue has to be drained before the collection comes back.
+        await boundarysSource(this.map).flush();
         const currentData = await this.map.getSource('boundarys').getData();
 
         for (const selectedFeature of features) {
@@ -1034,7 +1091,9 @@ class AddBoundaryControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        const mainData = await this.map.getSource('boundarys').getData();
+        // The two derived sources still go through a read-filter-write: they are NOT diffable (see
+        // the note on `boundarysSource`), and their features are keyed by `parent`, not by an id
+        // the diff format could address.
         const textData = await this.map.getSource('boundary-texts').getData();
         const circleData = await this.map.getSource('boundary-circles').getData();
 
@@ -1043,8 +1102,6 @@ class AddBoundaryControl extends BaseControl {
                 const featureId = feature.properties.id;
                 await removeFeature('boundarys', featureId);
 
-                const idString = String(featureId);
-                mainData.features = mainData.features.filter(f => String(f.properties.id) !== idString);
                 textData.features = textData.features.filter(f => f.properties.parent !== featureId);
                 circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
 
@@ -1053,7 +1110,13 @@ class AddBoundaryControl extends BaseControl {
             }
         }
 
-        this.map.getSource('boundarys').setData(mainData);
+        // Removal by promoted key, with no collection read. The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value that sits in `properties.id`, so a
+        // `String()` around it would miss a numeric key instead of protecting anything.
+        const dispatcher = boundarysSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
+
         this.map.getSource('boundary-texts').setData(textData);
         this.map.getSource('boundary-circles').setData(circleData);
     }
@@ -1092,11 +1155,21 @@ class AddBoundaryControl extends BaseControl {
 
     updateFeatures = async (features, save = false) => {
         if (features.length > 0) {
+            // The collection read survives here too, and only for the existence check: an unknown
+            // id must be skipped rather than created, which is what `add` would do. Draining first
+            // keeps that read from being stale.
+            const dispatcher = boundarysSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('boundarys').getData();
+            const upserts = [];
+
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
-                    data.features[featureIndex] = feature;
+                    // The incoming feature is COMPLETE, so it ships as an upsert (`add` is a total
+                    // replacement in MapLibre): the same result the whole-collection write
+                    // produced, without the other N-1 features riding along.
+                    upserts.push(feature);
                     await this.updateDependentFeatures(feature);
 
                     if (save) {
@@ -1105,7 +1178,8 @@ class AddBoundaryControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('boundarys').setData(data);
+            dispatcher.add(upserts);
+            await dispatcher.flush();
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -1148,17 +1222,31 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
+    /**
+     * Writes one edited boundary back into the source, unless a drag owns the screen.
+     *
+     * The read is kept, and only for the existence check: this is called from the handle-drag and
+     * vertex-removal paths with a feature derived from the SELECTION, and `add` would CREATE an id
+     * the source no longer has instead of the silent skip the old `if (sourceFeature)` produced.
+     * The write itself is now a one-feature upsert rather than the whole collection.
+     * @param {Object} feature - Edited boundary feature
+     */
     forceUpdateMainSource = async (feature) => {
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
+        const dispatcher = boundarysSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('boundarys').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = { ...feature.properties };
-            sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('boundarys').setData(data);
+            dispatcher.add({
+                ...sourceFeature,
+                properties: { ...feature.properties },
+                geometry: { ...feature.geometry },
+            });
+            await dispatcher.flush();
         }
     }
 

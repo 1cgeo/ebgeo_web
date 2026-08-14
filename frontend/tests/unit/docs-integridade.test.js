@@ -243,6 +243,7 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],
     ['manualChunks', 'opção depreciada do Rollup que o vite.config.js DEIXOU de usar em 2026-08-05 (trocada por codeSplitting.groups + entriesAware quando admin.html virou um segundo entry); a doc a nomeia justamente para dizer que não está mais lá'],
     ['showProjectPickerModal', 'export que sumiu em 2026-08-05, quando o seletor de projetos deixou de ser modal e virou projetos.html; a doc o nomeia para dizer o que deixou de existir na mudança'],
+    ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
 ]);
 
 describe('integridade da documentação', () => {

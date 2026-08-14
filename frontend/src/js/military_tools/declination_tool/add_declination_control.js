@@ -24,6 +24,29 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '@tools/helpers/zoom-correction.helpers.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `magnetic_declinations` source.
+ *
+ * EVERY write to `magnetic_declinations` made in this file goes through it. The reason is not
+ * style: a raw `source.setData()` issued while a diff is queued replaces MapLibre's pending-update
+ * slot and the diff disappears with no error at all.
+ *
+ * Each public method here also awaits `flush()` before it returns. Two reasons, and the second is
+ * the one that matters:
+ * - the deferred write would otherwise land one animation frame after the caller resumed;
+ * - `magnetic_declinations` still has co-writers outside this file (the generic by-storageType
+ *   writers: attribute table, features tab, import, clipboard, multi-selection actions, context
+ *   menu, phone layout), and they all do read-modify-write with a raw `setData`. Draining inside
+ *   the awaited method keeps the queue empty between gestures, so no co-writer can read a
+ *   collection that is missing what this tool just wrote.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `magnetic_declinations` source
+ */
+function declinationsSource(map) {
+    return getGeoJsonDispatcher(map, 'magnetic_declinations');
+}
 
 /** SVG rasterization target dimensions */
 const ICON_WIDTH = 400;
@@ -88,6 +111,11 @@ class AddDeclinationControl extends BaseControl {
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
+        // Releases the queue, its settle timers and the two map listeners the dispatcher opens
+        // per dispatch. Dropping a batch here cannot lose a diagram: the store write always
+        // precedes the source write, so the redraw that follows a style switch repopulates
+        // `magnetic_declinations` from persistence.
+        destroyGeoJsonDispatcher(this.map, 'magnetic_declinations');
         this._unsubscribeRemoteImageRegen();
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
@@ -219,9 +247,9 @@ class AddDeclinationControl extends BaseControl {
 
             await addFeature('magnetic_declinations', feature);
 
-            const data = await this.map.getSource('magnetic_declinations').getData();
-            data.features.push(feature);
-            this.map.getSource('magnetic_declinations').setData(data);
+            const dispatcher = declinationsSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             await this.selectionManager.toggleFeatureSelection(
                 'magnetic_declination',
@@ -285,6 +313,18 @@ class AddDeclinationControl extends BaseControl {
             return;
         }
 
+        // NOT a diff, on purpose: every zoom-corrected diagram changes size on every zoom step, so
+        // the delta IS the collection and a diff would carry one update entry per feature for the
+        // same O(N) cost. The read-modify-write still has to start from a drained queue, or the
+        // copy read back would be missing whatever is queued and the whole-collection write would
+        // then erase it.
+        const dispatcher = declinationsSource(this.map);
+        await dispatcher.flush();
+        if (!this.map) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+
         const data = await this.map.getSource('magnetic_declinations').getData();
         if (data.features.length === 0) {
             this.pendingZoomUpdate = false;
@@ -328,7 +368,8 @@ class AddDeclinationControl extends BaseControl {
         });
 
         if (hasChanges) {
-            this.map.getSource('magnetic_declinations').setData(data);
+            dispatcher.setData(data);
+            await dispatcher.flush();
 
             const selectedFeatures = this.getSelectedFeatures();
             const featuresWithDisabledZoom = selectedFeatures.filter(
@@ -375,7 +416,14 @@ class AddDeclinationControl extends BaseControl {
      * @param {*} value - New value
      */
     updateFeaturesProperty = async (features, property, value) => {
+        // The collection read survives here on purpose. Two things below need the PREVIOUS source
+        // feature and no diff hands them back: whether the feature exists at all (an unknown id
+        // must be skipped, not created) and the raster size the selection box is measured from.
+        // Draining first keeps that read from being stale.
+        const dispatcher = declinationsSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('magnetic_declinations').getData();
+        const patches = [];
 
         for (const feature of features) {
             const sourceFeature = data.features.find(
@@ -383,6 +431,7 @@ class AddDeclinationControl extends BaseControl {
             );
             if (!sourceFeature) continue;
 
+            const setProps = { [property]: value };
             sourceFeature.properties[property] = value;
             feature.properties[property] = value;
 
@@ -390,6 +439,12 @@ class AddDeclinationControl extends BaseControl {
                 sourceFeature, feature, property, value, this.map.getZoom(),
                 { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 10 }
             );
+
+            // Read back rather than recompute: `syncZoomCorrectedProperty` always writes
+            // `calculatedSize` and rounds `createdAtZoom`, so the source object is the authority
+            // on what the patch has to carry.
+            setProps.createdAtZoom = sourceFeature.properties.createdAtZoom;
+            setProps.calculatedSize = sourceFeature.properties.calculatedSize;
 
             // Recalculate selection box when visual properties change
             if (property === 'size' || property === 'createdAtZoom' || property === 'zoomCorrectionEnabled') {
@@ -407,10 +462,21 @@ class AddDeclinationControl extends BaseControl {
 
                 sourceFeature.properties.selectionBox = newSelectionBox;
                 feature.properties.selectionBox = newSelectionBox;
+                setProps.selectionBox = newSelectionBox;
             }
+
+            patches.push({ id: sourceFeature.properties.id, setProps });
         }
 
-        this.forceUpdateMainSource(data);
+        // Same drag guard the whole-collection write carried: while the UI owns the on-screen
+        // position, a source write would fight it, so the batch is dropped exactly as before.
+        if (!this.isSourceUpdateBlocked()) {
+            for (const patch of patches) {
+                dispatcher.patch(patch.id, { setProps: patch.setProps });
+            }
+            await dispatcher.flush();
+        }
+
         const freshFeatures = features.map((feature) => {
             const sourceFeature = data.features.find(
                 (f) => f.properties.id === feature.properties.id
@@ -445,27 +511,36 @@ class AddDeclinationControl extends BaseControl {
         const convergence = calculateMeridianConvergence(lat, lng) ?? 0;
         const calculationDate = new Date().toISOString().split('T')[0];
 
+        // The read stays: `regenerateIcon` and the selection sync both want the SOURCE feature,
+        // and no diff hands it back. Only the write is a diff.
+        const dispatcher = declinationsSource(this.map);
+        await dispatcher.flush();
         const data = await this.map.getSource('magnetic_declinations').getData();
         const sourceFeature = data.features.find(
             (f) => f.properties.id === feature.properties.id
         );
 
         if (sourceFeature) {
-            const applyWmm = (props) => {
-                props.declination = wmmResult.declination;
-                props.convergence = convergence;
-                props.inclination = wmmResult.inclination;
-                props.intensity = wmmResult.intensity;
-                props.latitude = lat;
-                props.longitude = lng;
-                props.calculationDate = calculationDate;
-                props.wmmWarning = wmmResult.warning || null;
+            // Eight properties, spelled once and reused as the diff payload: this object IS the
+            // delta, so there is nothing to recompute when the patch is built.
+            const wmmProps = {
+                declination: wmmResult.declination,
+                convergence,
+                inclination: wmmResult.inclination,
+                intensity: wmmResult.intensity,
+                latitude: lat,
+                longitude: lng,
+                calculationDate,
+                wmmWarning: wmmResult.warning || null,
             };
-            applyWmm(sourceFeature.properties);
-            applyWmm(feature.properties);
+            Object.assign(sourceFeature.properties, wmmProps);
+            Object.assign(feature.properties, wmmProps);
 
             await this.regenerateIcon(sourceFeature);
-            this.forceUpdateMainSource(data);
+            if (!this.isSourceUpdateBlocked()) {
+                dispatcher.patch(sourceFeature.properties.id, { setProps: wmmProps });
+                await dispatcher.flush();
+            }
             this.updateSelectionManagerFeatures([sourceFeature]);
         }
     }
@@ -488,13 +563,20 @@ class AddDeclinationControl extends BaseControl {
 
             feature.properties.convergence = convergence;
 
+            // The read stays: `regenerateIcon` prefers the SOURCE feature (it carries the
+            // declination as persisted), and no diff hands it back.
+            const dispatcher = declinationsSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('magnetic_declinations').getData();
             const sourceFeature = data.features.find((f) => f.properties.id === id);
             if (sourceFeature) {
                 sourceFeature.properties.convergence = convergence;
             }
 
-            this.forceUpdateMainSource(data);
+            if (sourceFeature && !this.isSourceUpdateBlocked()) {
+                dispatcher.patch(id, { setProps: { convergence } });
+                await dispatcher.flush();
+            }
             const target = sourceFeature || feature;
             await this.regenerateIcon(target);
             this.updateSelectionManagerFeatures([target]);
@@ -540,20 +622,20 @@ class AddDeclinationControl extends BaseControl {
     }
 
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Update source geometries first, then recalculate declination
-        const data = await this.map.getSource('magnetic_declinations').getData();
-
-        for (const feature of movedFeatures) {
-            const sourceFeature = data.features.find(
-                f => f.properties.id === feature.properties.id
-            );
-            if (sourceFeature) {
-                sourceFeature.geometry = { ...feature.geometry };
-                sourceFeature.properties.selectionBox = feature.properties.selectionBox;
+        // Update source geometries first, then recalculate declination. The moved feature already
+        // carries the post-drag geometry and box, so a geometry patch per feature replaces the
+        // read-modify-write; a patch of an id that is not in the source is the same silent no-op
+        // the `if (sourceFeature)` guard used to produce.
+        const dispatcher = declinationsSource(this.map);
+        if (!this.isSourceUpdateBlocked()) {
+            for (const feature of movedFeatures) {
+                dispatcher.patch(feature.properties.id, {
+                    geometry: { ...feature.geometry },
+                    setProps: { selectionBox: feature.properties.selectionBox },
+                });
             }
+            await dispatcher.flush();
         }
-
-        this.forceUpdateMainSource(data);
 
         for (const feature of movedFeatures) {
             await this.recalculateDeclination(feature);
@@ -563,6 +645,9 @@ class AddDeclinationControl extends BaseControl {
     // ===== PERSISTENCE =====
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Reads only, and it persists the SOURCE's version of each feature rather than the
+        // selected one, so the queue has to be drained before the collection comes back.
+        await declinationsSource(this.map).flush();
         const currentData = await this.map.getSource('magnetic_declinations').getData();
 
         for (const selectedFeature of features) {
@@ -578,20 +663,18 @@ class AddDeclinationControl extends BaseControl {
     };
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
+        // The snapshot IS the delta: `Object.assign` over the source properties is exactly a
+        // property patch, so no collection read is needed to build it.
+        const dispatcher = declinationsSource(this.map);
         for (const f of features) {
             const initialProps = initialPropertiesMap.get(f.properties.id);
             Object.assign(f.properties, initialProps);
-        }
-
-        const data = await this.map.getSource('magnetic_declinations').getData();
-        for (const f of features) {
-            const sourceFeature = data.features.find(sf => sf.properties.id === f.properties.id);
-            if (sourceFeature) {
-                const initialProps = initialPropertiesMap.get(f.properties.id);
-                Object.assign(sourceFeature.properties, initialProps);
+            if (initialProps && !this.isSourceUpdateBlocked()) {
+                dispatcher.patch(f.properties.id, { setProps: initialProps });
             }
         }
-        this.forceUpdateMainSource(data);
+
+        await dispatcher.flush();
         this.updateSelectionManagerFeatures(features);
     };
 
@@ -611,18 +694,15 @@ class AddDeclinationControl extends BaseControl {
             }
         }
 
-        const data = await this.map.getSource('magnetic_declinations').getData();
-        const idsToDelete = new Set(features.map(f => f.properties.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id));
-        this.forceUpdateMainSource(data);
+        // Removal by promoted key, with no collection read. The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value that sits in `properties.id`, so a
+        // `String()` around it would miss a numeric key instead of protecting anything.
+        const dispatcher = declinationsSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
     };
 
     // ===== HELPERS =====
-
-    forceUpdateMainSource = (data) => {
-        if (this.selectionManager.uiManager?.isDragging) return;
-        this.map.getSource('magnetic_declinations').setData(data);
-    };
 
     isSourceUpdateBlocked = () => {
         return this.selectionManager.uiManager?.isDragging;

@@ -10,6 +10,23 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `brushes` source.
+ *
+ * EVERY write to `brushes` made in this file goes through it, and every migrated method awaits
+ * `flush()` before returning. A raw `source.setData()` issued while a diff is queued replaces
+ * MapLibre's pending-update slot and the diff disappears with no error, so draining inside the
+ * awaited method keeps the queue empty between gestures and leaves the co-writers that still use
+ * `setData` (the generic `storageType` paths: attribute table, features tab, import, clipboard,
+ * multi-selection actions) reading a collection that already carries what this tool wrote.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `brushes` source
+ */
+function brushesSource(map) {
+    return getGeoJsonDispatcher(map, 'brushes');
+}
 
 /**
  * Brush Tool Control
@@ -67,6 +84,11 @@ class AddBrushControl extends BaseControl {
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
+        // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+        // dispatch. Dropping a batch here cannot lose a brush: the store write always precedes the
+        // source write, so the redraw that follows a style switch repopulates `brushes` from
+        // persistence.
+        destroyGeoJsonDispatcher(this.map, 'brushes');
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;
@@ -435,9 +457,12 @@ class AddBrushControl extends BaseControl {
         try {
             await addFeature('brushes', feature);
 
-            const data = await this.map.getSource('brushes').getData();
-            data.features.push(feature);
-            this.map.getSource('brushes').setData(data);
+            // No collection read: the diff carries the new feature alone. `brushes` has no derived
+            // label source and no hatch registry, so nothing here is a function of the whole
+            // collection.
+            const dispatcher = brushesSource(this.map);
+            dispatcher.add(feature);
+            await dispatcher.flush();
 
             this.points = [];
             this.toolManager.deactivateCurrentTool();
@@ -470,16 +495,22 @@ class AddBrushControl extends BaseControl {
             return;
         }
         try {
+            // NOT a diff, on purpose: every brush stroke changes width on every zoom step, so the
+            // delta IS the collection and a diff would carry one update entry per feature for the
+            // same O(N) cost. The read-modify-write still has to start from a drained queue, or the
+            // copy read back would be missing whatever is queued and this write would then erase it.
+            const dispatcher = brushesSource(this.map);
+            await dispatcher.flush();
+            if (!this.map?.getSource('brushes')) return;
+
             const data = await this.map.getSource('brushes').getData();
             if (data && data.features) {
                 const updatedFeatures = data.features.map(feature =>
                     this.applyZoomCorrections([feature])[0]
                 );
 
-                this.map.getSource('brushes').setData({
-                    type: 'FeatureCollection',
-                    features: updatedFeatures
-                });
+                dispatcher.setData(updatedFeatures);
+                await dispatcher.flush();
             }
         } finally {
             this.pendingZoomUpdate = false;
@@ -496,34 +527,40 @@ class AddBrushControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
-        const data = await this.map.getSource('brushes').getData();
+        const dispatcher = brushesSource(this.map);
+        const currentZoom = this.map.getZoom();
 
+        // One patch per feature carrying the edited property plus what it derives. The selected
+        // feature is the only copy consulted: `syncZoomCorrectedProperty` takes the source and the
+        // selected feature separately and writes the same result into both, so the same object is
+        // passed twice, and every value below comes from properties the two copies share.
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            if (sourceFeature) {
-                sourceFeature.properties[property] = value;
-                feature.properties[property] = value;
+            feature.properties[property] = value;
 
-                syncZoomCorrectedProperty(
-                    sourceFeature, feature, property, value, this.map.getZoom(),
-                    { sourceProperty: 'lineWidth', calculatedProperty: 'calculatedLineWidth' }
-                );
-            }
+            syncZoomCorrectedProperty(
+                feature, feature, property, value, currentZoom,
+                { sourceProperty: 'lineWidth', calculatedProperty: 'calculatedLineWidth' }
+            );
+
+            dispatcher.patch(feature.properties.id, {
+                setProps: {
+                    [property]: feature.properties[property],
+                    calculatedLineWidth: feature.properties.calculatedLineWidth,
+                },
+            });
         }
 
-        this.map.getSource('brushes').setData(data);
+        await dispatcher.flush();
 
-        const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-            return sourceFeature || feature;
-        });
-
-        this.updateSelectionManagerFeatures(freshFeatures);
+        this.updateSelectionManagerFeatures(features);
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const correctedFeatures = this.applyZoomCorrections(features);
 
+        // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+        // one, so the queue has to be drained before the collection comes back.
+        await brushesSource(this.map).flush();
         const currentData = await this.map.getSource('brushes').getData();
         let _hasChanges = false;
 
@@ -552,16 +589,19 @@ class AddBrushControl extends BaseControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.properties.id;
-                await removeFeature('brushes', featureId);
-                const data = await this.map.getSource('brushes').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('brushes').setData(data);
+                await removeFeature('brushes', feature.properties.id);
             } catch (error) {
                 console.error(`Error removing brush ${feature.properties.id}:`, error);
             }
         }
+
+        // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop,
+        // so it cost one full round-trip per deleted feature). The keys go in raw, never coerced:
+        // MapLibre keyed the feature by the very value in `properties.id`, so a `String()` around
+        // it would miss a numeric key instead of protecting anything.
+        const dispatcher = brushesSource(this.map);
+        dispatcher.remove(features.map(f => f.properties.id));
+        await dispatcher.flush();
     }
 
     setDefaultProperties = (properties) => {
@@ -586,14 +626,21 @@ class AddBrushControl extends BaseControl {
         const features = this.applyZoomCorrections(featuresBeforeZoomFix);
 
         if (features.length > 0) {
+            // The collection read survives here on purpose. An unknown id must be SKIPPED, not
+            // created, and no diff hands back whether the feature exists; the merge branch also
+            // needs the previous source properties. Draining first keeps that read from being stale.
+            const dispatcher = brushesSource(this.map);
+            await dispatcher.flush();
             const data = await this.map.getSource('brushes').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
+                        dispatcher.patch(feature.properties.id, { setProps: feature.properties });
                     } else {
                         data.features[featureIndex] = feature;
+                        dispatcher.add(feature);
                     }
 
                     if (save) {
@@ -604,7 +651,7 @@ class AddBrushControl extends BaseControl {
                 }
             }
 
-            this.map.getSource('brushes').setData(data);
+            await dispatcher.flush();
 
             this.updateSelectionManagerFeatures(features);
         }

@@ -7,6 +7,7 @@
 
 import { ModalBase } from '@modals';
 import { addDomListener } from '@utils/event-cleanup.js';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 
 import {
     createDigitalComboBoxWithThumbnails,
@@ -398,7 +399,14 @@ export class PointSelectorModal extends ModalBase {
             'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
         ];
 
-        const data = await this._coordinationMeasureControl.map.getSource("coordination_measures").getData();
+        // Same dispatcher instance `add_coordination_measure_control.js` uses (the registry is
+        // keyed by map + source id), so this modal cannot wipe a diff the tool has queued. The
+        // read stays: an unknown id must be skipped rather than created.
+        const map = this._coordinationMeasureControl.map;
+        const dispatcher = getGeoJsonDispatcher(map, 'coordination_measures');
+        await dispatcher.flush();
+        const data = await map.getSource("coordination_measures").getData();
+        const touched = [];
         let needsRegeneration = false;
 
         for (const feat of this._selectedFeatures) {
@@ -407,6 +415,7 @@ export class PointSelectorModal extends ModalBase {
             );
 
             if (sourceFeature) {
+                touched.push(sourceFeature);
                 for (const key of propertiesToUpdate) {
                     if (Object.prototype.hasOwnProperty.call(this._tempProperties, key)) {
                         sourceFeature.properties[key] = this._tempProperties[key];
@@ -422,10 +431,13 @@ export class PointSelectorModal extends ModalBase {
             }
         }
 
-        this._coordinationMeasureControl.map.getSource("coordination_measures").setData(data);
+        // The mutated source features are complete, so they ship as upserts (`add` is a total
+        // replacement) instead of the whole collection.
+        dispatcher.add(touched);
+        await dispatcher.flush();
 
         if (needsRegeneration && this._selectedFeatures.length > 0) {
-            const updatedData = await this._coordinationMeasureControl.map.getSource("coordination_measures").getData();
+            const updatedData = await map.getSource("coordination_measures").getData();
             const updatedFeature = updatedData.features.find(
                 f => f.properties.id === this._selectedFeatures[0].properties.id
             );

@@ -68,6 +68,7 @@ import {
     moveFeaturesToLayer,
 } from '@store';
 import { EventTypes } from '@events';
+import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { showConfirm } from '@modals';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { showError } from '@utils';
@@ -753,18 +754,20 @@ export class FeaturesTab {
             if (!source) continue;
 
             try {
-                const data = await source.getData();
-                if (data && data.features && data.features.length > 0) {
-                    const initialCount = data.features.length;
-                    data.features = data.features.filter((f) => {
-                        const featureLayerId = f.properties?.layerId || 'default';
-                        return featureLayerId !== deletedLayerId;
-                    });
+                // Read from a DRAINED queue. Every source in FEATURE_SOURCES is dispatcher-owned,
+                // so a copy read before the flush would be missing whatever is queued, and the
+                // whole-collection write that used to happen here would erase it. Draining first
+                // and then removing by id keeps both sides of the queue intact.
+                const dispatcher = getGeoJsonDispatcher(this.map, sourceId);
+                await dispatcher.flush();
 
-                    if (data.features.length !== initialCount) {
-                        source.setData(data);
-                    }
-                }
+                const data = await source.getData();
+                const alvos = (data?.features || [])
+                    .filter((f) => (f.properties?.layerId || 'default') === deletedLayerId)
+                    .map((f) => f.properties?.id)
+                    .filter((id) => id !== undefined && id !== null);
+
+                if (alvos.length) dispatcher.remove(alvos);
             } catch (error) {
                 console.debug(`Error syncing source ${sourceId}:`, error.message);
             }
@@ -788,23 +791,17 @@ export class FeaturesTab {
         try {
             this._suppressRefresh = true;
 
-            const data = await source.getData();
+            // A one-property change expressed as a queued patch. These sources are
+            // dispatcher-owned, so the read-modify-write that used to live here replaced
+            // MapLibre's pending-update slot and dropped a queued diff with no error. The patch
+            // keys on the promoted id, so the lookup that located the feature is gone with it.
+            getGeoJsonDispatcher(this.map, featureType)
+                .patch(featureId, { setProps: { [property]: value } });
 
-            const featureIndex = data.features.findIndex(
-                (f) => f.properties.id === featureId || f.id === featureId
-            );
-
-            if (featureIndex !== -1) {
-                data.features[featureIndex].properties[property] = value;
-                source.setData(data);
-
-                // For LOS and visibility features, also update processed sources
-                if ((property === 'visivel' || property === 'bloqueado') &&
-                    (featureType === 'los' || featureType === 'visibility')) {
-                    await this._propagatePropertyToProcessedSource(featureType, featureId, property, value);
-                }
-            } else {
-                console.warn(`Feature ${featureId} not found in source ${featureType}`);
+            // For LOS and visibility features, also update processed sources
+            if ((property === 'visivel' || property === 'bloqueado') &&
+                (featureType === 'los' || featureType === 'visibility')) {
+                await this._propagatePropertyToProcessedSource(featureType, featureId, property, value);
             }
         } catch (error) {
             console.error(`Error propagating property to source ${featureType}:`, error);
@@ -832,22 +829,22 @@ export class FeaturesTab {
         }
 
         try {
+            // The ids of the derived features are not known ahead of time, so this one has to
+            // read; it reads from a DRAINED queue for the same reason the delete sync does, and
+            // then patches by id instead of rewriting the collection, which is what kept a queued
+            // diff from being replaced without any error.
+            const dispatcher = getGeoJsonDispatcher(this.map, processedSourceName);
+            await dispatcher.flush();
+
             const processedData = await processedSource.getData();
 
             // Update all processed features that belong to this main feature
             // Processed features have IDs like "featureId-visible" and "featureId-obstructed"
-            let updated = false;
-            for (const feature of processedData.features) {
-                if (feature.properties.id?.startsWith(featureId + '-') ||
-                    feature.properties.id === featureId + '-visible' ||
-                    feature.properties.id === featureId + '-obstructed') {
-                    feature.properties[property] = value;
-                    updated = true;
+            for (const feature of processedData?.features || []) {
+                const id = feature.properties?.id;
+                if (typeof id === 'string' && id.startsWith(featureId + '-')) {
+                    dispatcher.patch(id, { setProps: { [property]: value } });
                 }
-            }
-
-            if (updated) {
-                processedSource.setData(processedData);
             }
         } catch (error) {
             console.error(`Error propagating property to processed source ${processedSourceName}:`, error);

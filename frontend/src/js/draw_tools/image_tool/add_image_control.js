@@ -16,6 +16,23 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     calculateZoomCorrectedValue,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+import { getGeoJsonDispatcher, destroyGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+
+/**
+ * The dispatcher that owns the `images` source.
+ *
+ * EVERY write to `images` made in this file goes through it, and every migrated method awaits
+ * `flush()` before returning. A raw `source.setData()` issued while a diff is queued replaces
+ * MapLibre's pending-update slot and the diff disappears with no error, so draining inside the
+ * awaited method keeps the queue empty between gestures and leaves the co-writers that still use
+ * `setData` (the generic `storageType` paths: attribute table, features tab, import, clipboard,
+ * multi-selection actions) reading a collection that already carries what this tool wrote.
+ * @param {Object} map - MapLibre map instance
+ * @returns {Object} dispatcher owning the `images` source
+ */
+function imagesSource(map) {
+  return getGeoJsonDispatcher(map, "images");
+}
 
 class AddImageControl extends BaseControl {
     featureType = 'image';
@@ -58,6 +75,11 @@ class AddImageControl extends BaseControl {
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    // Releases the queue, its settle timers and the two map listeners the dispatcher opens per
+    // dispatch. Dropping a batch here cannot lose an image: the store write always precedes the
+    // source write, so the redraw that follows a style switch repopulates `images` from
+    // persistence.
+    destroyGeoJsonDispatcher(this.map, "images");
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
@@ -331,9 +353,11 @@ class AddImageControl extends BaseControl {
 
         await addFeature("images", feature);
 
-        const data = await this.map.getSource("images").getData();
-        data.features.push(feature);
-        this.map.getSource("images").setData(data);
+        // No collection read: the diff carries the new feature alone. `images` has no derived
+        // label source, so nothing here is a function of the whole collection.
+        const dispatcher = imagesSource(this.map);
+        dispatcher.add(feature);
+        await dispatcher.flush();
 
         await this.selectionManager.toggleFeatureSelection("image", imageId, feature);
         this.selectionManager.updateUI();
@@ -437,6 +461,17 @@ class AddImageControl extends BaseControl {
       return;
     }
 
+    // NOT a diff, on purpose: every zoom-corrected image changes size on every zoom step, so the
+    // delta IS the collection and a diff would carry one update entry per feature for the same
+    // O(N) cost. The read-modify-write still has to start from a drained queue, or the copy read
+    // back would be missing whatever is queued and this write would then erase it.
+    const dispatcher = imagesSource(this.map);
+    await dispatcher.flush();
+    if (!this.map?.getSource("images")) {
+      this.pendingZoomUpdate = false;
+      return;
+    }
+
     const currentZoom = this.map.getZoom();
     const data = await this.map.getSource("images").getData();
     let hasChanges = false;
@@ -476,7 +511,8 @@ class AddImageControl extends BaseControl {
     });
 
     if (hasChanges) {
-      this.map.getSource("images").setData(data);
+      dispatcher.setData(data);
+      await dispatcher.flush();
 
       // Update SelectionManager with fresh features that have updated selectionBox
       const selectedFeatures = this.getSelectedFeatures();
@@ -537,34 +573,34 @@ class AddImageControl extends BaseControl {
   // ===== FEATURE MANAGEMENT INTERFACE =====
 
   updateFeaturesProperty = async (features, property, value) => {
-    const data = await this.map.getSource("images").getData();
+    const dispatcher = imagesSource(this.map);
 
+    // One patch per feature carrying the edited property plus everything derived from it. The
+    // selected feature is the only copy consulted: `ensureFeatureConsistency` reads only geometry
+    // and properties the two copies share, and it used to write its result into both.
     for (const feature of features) {
-      const sourceFeature = data.features.find(
-        (f) => f.properties.id === feature.properties.id
-      );
-      if (sourceFeature) {
-        sourceFeature.properties[property] = value;
-        feature.properties[property] = value;
+      feature.properties[property] = value;
 
-        // Round createdAtZoom to 1 decimal
-        if (property === 'createdAtZoom') {
-          const roundedValue = Math.round(value * 10) / 10;
-          sourceFeature.properties[property] = roundedValue;
-          feature.properties[property] = roundedValue;
-        }
-
-        const shouldRecalculateSelectionBox =
-          ['size', 'rotation', 'zoomCorrectionEnabled', 'createdAtZoom'].includes(property);
-
-        this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
-
-        feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-        feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+      // Round createdAtZoom to 1 decimal
+      if (property === 'createdAtZoom') {
+        feature.properties[property] = Math.round(value * 10) / 10;
       }
+
+      const shouldRecalculateSelectionBox =
+        ['size', 'rotation', 'zoomCorrectionEnabled', 'createdAtZoom'].includes(property);
+
+      this.ensureFeatureConsistency(feature, null, shouldRecalculateSelectionBox);
+
+      dispatcher.patch(feature.properties.id, {
+        setProps: {
+          [property]: feature.properties[property],
+          calculatedSize: feature.properties.calculatedSize,
+          selectionBox: feature.properties.selectionBox,
+        },
+      });
     }
 
-    this.map.getSource("images").setData(data);
+    await dispatcher.flush();
     this.updateSelectionManagerFeatures(features);
   };
 
@@ -597,6 +633,9 @@ class AddImageControl extends BaseControl {
   };
 
   saveFeatures = async (features, initialPropertiesMap) => {
+    // Reads only, and it persists the SOURCE's version of each feature rather than the selected
+    // one, so the queue has to be drained before the collection comes back.
+    await imagesSource(this.map).flush();
     const currentData = await this.map.getSource("images").getData();
 
     for (const selectedFeature of features) {
@@ -641,19 +680,18 @@ class AddImageControl extends BaseControl {
         if (this.map.hasImage(featureId)) {
           this.map.removeImage(featureId);
         }
-
-        const data = await this.map.getSource("images").getData();
-        const idsToDelete = new Set(
-          features.map((f) => String(f.properties.id))
-        );
-        data.features = data.features.filter(
-          (f) => !idsToDelete.has(String(f.properties.id))
-        );
-        this.map.getSource("images").setData(data);
       } catch (error) {
         console.error(`Error removing image ${feature.properties.id}:`, error);
       }
     }
+
+    // Removal by promoted key, with no collection read (the read used to sit INSIDE the loop, so
+    // it cost one full round-trip per deleted feature). The keys go in raw, never coerced:
+    // MapLibre keyed the feature by the very value in `properties.id`, so a `String()` around it
+    // would miss a numeric key instead of protecting anything.
+    const dispatcher = imagesSource(this.map);
+    dispatcher.remove(features.map((f) => f.properties.id));
+    await dispatcher.flush();
   };
 
   setDefaultProperties = (properties) => {
@@ -687,6 +725,11 @@ class AddImageControl extends BaseControl {
     onlyUpdateProperties = false
   ) => {
     if (features.length > 0) {
+      // The collection read survives here on purpose. An unknown id must be SKIPPED, not created,
+      // and no diff hands back whether the feature exists; the merge branch also needs the
+      // previous source properties. Draining first keeps that read from being stale.
+      const dispatcher = imagesSource(this.map);
+      await dispatcher.flush();
       const data = await this.map.getSource("images").getData();
       const currentZoom = this.map.getZoom();
 
@@ -710,6 +753,11 @@ class AddImageControl extends BaseControl {
             !onlyUpdateProperties
           );
 
+          // `add` of the merged source feature, never `patch`: `ensureFeatureConsistency` runs
+          // AFTER the merge and writes onto the source copy, so that copy, not the incoming one,
+          // is the final state. Total replacement is exactly what the branches above expressed.
+          dispatcher.add(data.features[featureIndex]);
+
           if (save) {
             const featureToUpdate = onlyUpdateProperties
               ? data.features[featureIndex]
@@ -719,7 +767,7 @@ class AddImageControl extends BaseControl {
         }
       }
 
-      this.map.getSource("images").setData(data);
+      await dispatcher.flush();
       this.updateSelectionManagerFeatures(features);
     }
   };

@@ -6,6 +6,7 @@
 
 import { HatchPatternGenerator } from '../../tool_manager';
 import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
+import { writeWholeCollection } from '../geojson-dispatcher.js';
 
 /**
  * Sets up polygon layers on the map.
@@ -17,10 +18,17 @@ export function setupPolygonLayers(features, mapInstance) {
     const polygons = features.polygons || [];
     const data = { type: 'FeatureCollection', features: polygons };
 
+    // `polygons` is the only content family that bypasses `setOrCreateSource`, so it needs its own
+    // `promoteId: 'id'`: same precondition, same reason for living on the declaration (setStyle
+    // recreates every custom source). The three sources below stay without it on purpose:
+    // polygon-feedback and polygon-edit-handles hold transient geometry with no `properties.id`,
+    // and polygon-labels is rebuilt whole by `syncLabelSource`. See `layer.helpers.js`.
     if (!mapInstance.getSource('polygons')) {
-        mapInstance.addSource('polygons', { type: 'geojson', data });
+        mapInstance.addSource('polygons', { type: 'geojson', data, promoteId: 'id' });
     } else {
-        mapInstance.getSource('polygons').setData(data);
+        // `polygons` is dispatcher-owned (the polygon, azimuth and area-measurement tools all
+        // queue diffs on it), so the redraw has to arrive through the same queue.
+        writeWholeCollection(mapInstance, 'polygons', data);
     }
 
     if (!mapInstance.getSource('polygon-feedback')) {
