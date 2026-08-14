@@ -18,9 +18,18 @@
 //   - db_filename containing a path separator (basename only — traversal guard);
 //   - duplicate sequence_number within photos[] (UNIQUE(project_id, seq));
 //   - a target whose source_id/target_id is not a photo id present in photos[]
-//     (referential integrity INSIDE the bundle) — enforced by .custom() below.
+//     (referential integrity INSIDE the bundle) — enforced by .custom() below;
+//   - a capture_date without an explicit zone (see §capture_date below): the
+//     column is TIMESTAMPTZ, and a zoneless string resolves against the ambient
+//     zone, so the same bundle would land on two different instants on two hosts.
 import Joi from 'joi';
 import { slugParamSchema } from './sv360.schemas.js';
+import {
+  isZonedInstant,
+  isNaiveIso,
+  captureDateZoneMessage,
+  captureDateFormatMessage,
+} from './sv360.merge.js';
 
 // Re-export the shared :slug param schema so the admin routes/controller have a
 // single import surface (params validation for status/delete/get).
@@ -49,6 +58,29 @@ const dbFilename = Joi.string()
   .pattern(/[/\\]/, { invert: true })
   .messages({
     'string.pattern.invert.base': 'db_filename must be a basename (no path separator)',
+  });
+
+// capture_date — the photo's capture INSTANT (sv360.photos.capture_date is
+// TIMESTAMPTZ). The zone is REQUIRED, and this is deliberately NOT `isoDate()`:
+// Joi's isoDate coercion pipes the string through `new Date()`, which reads a
+// zoneless value in the Node process TZ, so `2025-03-17T09:58:14` became
+// `...T12:58:14Z` on a UTC-3 server and `...T09:58:14Z` on a UTC one — the same
+// manifest, two instants, no error either way. Rationale, and why rejecting beats
+// assuming, in sv360.merge.js (§capture instant); mergeProject re-checks it because
+// the ETL CLI never passes through Joi.
+//
+// The value is passed through VERBATIM (no normalization): once the zone is
+// explicit the string is already an unambiguous instant for TIMESTAMPTZ, and not
+// re-parsing it is what keeps any ambient zone out of the pipeline.
+const captureDate = Joi.string()
+  .trim()
+  .custom((value, helpers) => {
+    if (isZonedInstant(value)) return value;
+    return helpers.error(isNaiveIso(value) ? 'sv360.captureDateZone' : 'sv360.captureDateFormat');
+  })
+  .messages({
+    'sv360.captureDateZone': captureDateZoneMessage('{{#label}}'),
+    'sv360.captureDateFormat': captureDateFormatMessage('{{#label}}'),
   });
 
 // --- project ---------------------------------------------------------------
@@ -106,7 +138,7 @@ const photoSchema = Joi.object({
   full_size_bytes: Joi.number().integer().min(0).required(),
   preview_size_bytes: Joi.number().integer().min(0).required(),
   calibration_reviewed: Joi.boolean().allow(null),
-  capture_date: Joi.string().isoDate().allow(null),
+  capture_date: captureDate.allow(null),
 }).unknown(true);
 
 // --- target ----------------------------------------------------------------
@@ -126,6 +158,15 @@ const targetSchema = Joi.object({
 
 // --- tombstone -------------------------------------------------------------
 
+// `deleted_at` keeps `isoDate()` (zone optional) ON PURPOSE, unlike capture_date.
+// It is not an oversight of the same defect: the ETL carries this value verbatim
+// out of the legacy index.db, where the column is TEXT and zoneless, so demanding
+// a zone here would reject the very corpus the ETL already imports while the ETL
+// path itself (which never sees this schema) kept writing it. Nothing READS the
+// column either — every visibility query is `NOT EXISTS(deleted_photos)`, never a
+// comparison against the time — so a shifted tombstone instant costs nothing,
+// whereas a shifted capture instant reorders capture runs and rotates the solar
+// calibration. Revisit together with the ETL, not alone.
 const tombstoneSchema = Joi.object({
   photo_id: photoId.required(),
   deleted_at: Joi.string().isoDate().allow(null),

@@ -20,7 +20,7 @@
 // Real columns: see src/database/migrations/005_sv360.sql. The geom of a
 // photo is filled by trg_sv360_photos_geom from lon/lat — never written here.
 import * as AQ from './sv360.admin.queries.js';
-import { ConflictError } from '../../utils/errors.js';
+import { ConflictError, ValidationError } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
 
 // Deterministic default org id, semeado em `001_core.sql:27` (a citação aqui apontava para
@@ -58,6 +58,108 @@ export function sanitizeSlug(slug) {
  */
 export function deriveDbFilename(orgId, slug) {
   return `${orgId}__${sanitizeSlug(slug)}.db`;
+}
+
+// --- capture instant: the zone is not optional ------------------------------
+//
+// `photos[].capture_date` lands in sv360.photos.capture_date, which is
+// TIMESTAMPTZ: an INSTANT, not a wall clock. A zoneless ISO string is NOT an
+// instant, and every layer that could turn it into one does so using the
+// AMBIENT zone: `new Date('2025-03-17T09:58:14')` uses the Node process TZ (so
+// Joi's own `isoDate()` coercion does too), and a bare string handed to
+// TIMESTAMPTZ uses the Postgres session TimeZone. The same bundle uploaded on
+// two machines would then land on two different instants, with no error on
+// either.
+//
+// The ETL side of this house already refuses that: `scripts/sv360-survey-clock.js`
+// exists precisely because the origin stores LOCAL wall clock, and it converts
+// with an offset that is DATA (measured per project, `SURVEY_OFFSET_BY_SLUG`),
+// never an ambient default. At the upload door the server has no such datum for
+// an arbitrary project, so the coherent move is the same one, one step earlier:
+// whoever exports the bundle knows where the survey happened and states the zone.
+// Rejecting here is cheap; a silently shifted instant is not, and it is the
+// failure ebgeo_360 e2fb591 chased down through a solar fit (a wrong hour rotates
+// each session differently, so the sessions disagree with low residual).
+//
+// Accepted: `2025-03-17T09:58:14-03:00`, `2025-03-17T12:58:14Z`, seconds and
+// fraction optional. Rejected: zoneless, date-only, anything unparseable.
+export const ZONED_INSTANT_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+// An ISO date or date-time with NO zone: the shape that gets diagnosed as a
+// missing zone instead of as garbage, so the message names the real defect.
+const NAIVE_ISO_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?)?$/;
+
+/**
+ * True when the value is a complete ISO 8601 date-time with an EXPLICIT zone
+ * AND names a real instant (the regex alone would accept month 13).
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isZonedInstant(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim();
+  return ZONED_INSTANT_RE.test(s) && Number.isFinite(Date.parse(s));
+}
+
+/**
+ * True when the value looks like an ISO date/date-time that simply lacks the
+ * zone, as opposed to an unrecognizable string.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isNaiveIso(value) {
+  return typeof value === 'string' && NAIVE_ISO_RE.test(value.trim());
+}
+
+/**
+ * The two pt-BR rejection messages, shared with the Joi manifest schema so the
+ * upload door and this last guard cannot drift apart. `subject` is the Joi label
+ * template (`{{#label}}`) on the schema side and `capture_date da foto <id>` here.
+ * @param {string} subject
+ * @returns {string}
+ */
+export function captureDateZoneMessage(subject) {
+  return (
+    `${subject} sem fuso horário: informe o instante com fuso explícito, ` +
+    'como "2025-03-17T09:58:14-03:00" ou "2025-03-17T12:58:14Z".'
+  );
+}
+
+/**
+ * @param {string} subject
+ * @returns {string}
+ */
+export function captureDateFormatMessage(subject) {
+  return (
+    `${subject} em formato não reconhecido: use ISO 8601 com fuso explícito, ` +
+    'como "2025-03-17T09:58:14-03:00" ou "2025-03-17T12:58:14Z".'
+  );
+}
+
+/**
+ * LAST guard before a capture instant reaches TIMESTAMPTZ. The Joi manifest
+ * schema already rejects the same values at the upload door, but `mergeProject`
+ * is ALSO called by the ETL CLI (`scripts/sv360-import.js`), which never goes
+ * through Joi — so the rule lives here too, where the write happens.
+ *
+ * Absent/null/empty is legitimate (the corpus is full of photos with no known
+ * time, and the run derivation falls back to the PIC_ filename).
+ *
+ * @param {unknown} value - the manifest's photos[].capture_date
+ * @param {string} [photoId] - only used to name the offending photo
+ * @returns {string|null} the value verbatim (never re-parsed), or null
+ * @throws {ValidationError} 422 when the value carries no explicit zone
+ */
+export function captureInstantOrNull(value, photoId) {
+  if (value === undefined || value === null) return null;
+  const s = typeof value === 'string' ? value.trim() : value;
+  if (s === '') return null;
+  if (isZonedInstant(s)) return s;
+  const subject = `capture_date da foto ${photoId ?? '(sem id)'}`;
+  throw new ValidationError(
+    isNaiveIso(s) ? captureDateZoneMessage(subject) : captureDateFormatMessage(subject)
+  );
 }
 
 /**
@@ -143,6 +245,10 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
 
   // 1) Collision guard BEFORE any write (cross-OM AND same-org cross-project).
   const photoIds = photos.map((p) => p.id);
+  // Same "before any write" reasoning for the capture instants: a zoneless one
+  // is a malformed bundle, and finding out halfway through the reinsert would
+  // roll back a transaction that already did work for no reason.
+  const captureInstants = photos.map((p) => captureInstantOrNull(p.capture_date, p.id));
   await collisionGuard(t, photoIds, orgId, project.slug);
 
   // photo_count = number of photos in the manifest that are actually VISIBLE, i.e.
@@ -199,7 +305,7 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
 
   // 4) REINSERT manifest state: photos first (geom filled by trigger), then
   //    targets (FKs satisfied), then carried-over tombstones.
-  for (const p of photos) {
+  for (const [i, p] of photos.entries()) {
     await t.none(AQ.INSERT_PHOTO, [
       p.id,
       projectId,
@@ -220,7 +326,10 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
       num(p.full_size_bytes),
       num(p.preview_size_bytes),
       bool(p.calibration_reviewed),
-      p.capture_date ?? null,
+      // Checked at the top of this function, never here: by the time the row is
+      // written the instant is known to carry its own zone, so TIMESTAMPTZ cannot
+      // resolve it against the Postgres session TimeZone.
+      captureInstants[i],
       p.floor_label ?? null,
     ]);
   }
