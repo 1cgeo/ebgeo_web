@@ -76,10 +76,20 @@ describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)'
             const apiA = new ApiClient({ baseUrl: `${base}/api/v1` });
             await apiA.register({ ...a });
             const apiB = new ApiClient({ baseUrl: `${base}/api/v1` });
-            const rb = await apiB.register({ ...b });
-            return { a, b: { ...b, id: rb && (rb.id || rb.user?.id) } };
+            await apiB.register({ ...b });
+            // register() answers `{ success: true }` and NO account data — the response is
+            // identical whether it created the account or found the username taken
+            // (auth.controller.js register). So B's id comes from the LOGIN that follows,
+            // which is the only place the server hands the account back.
+            const loggedB = await apiB.login(b.username, b.password);
+            return { a, b: { ...b, id: loggedB?.id } };
         }, state.baseUrl);
         await seedPage.close();
+        // Without a real id the sharing POST below goes out with `userId: undefined` (the key
+        // vanishes in JSON.stringify) and B never gets access — a failure that would otherwise
+        // only show up as a UI timeout many steps later.
+        expect(typeof users.b.id, "B's id came back from the login response").toBe('string');
+        expect(users.b.id.length).toBeGreaterThan(0);
 
         // ---- User A: build a local map, snapshot its .ebgeo, then save to server. ----
         const ctxA = await browser.newContext();
@@ -137,16 +147,20 @@ describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)'
         expect(atlasId).toBeTruthy();
 
         // A shares the atlas WRITE with B (owner-only route, via A's session).
-        await pageA.evaluate(async ({ base, c, id, uid }) => {
+        const shareStatus = await pageA.evaluate(async ({ base, c, id, uid }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const api = new ApiClient({ baseUrl: `${base}/api/v1` });
             await api.login(c.username, c.password);
-            await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
+            const res = await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.getAccessToken()}` },
                 body: JSON.stringify({ userId: uid, permission: 'write' }),
             });
+            return res.status;
         }, { base: state.baseUrl, c: users.a, id: atlasId, uid: users.b.id });
+        // Sharing a user returns 201 Created. Asserting it HERE is what turns an authz/validation
+        // failure into a one-line diagnosis instead of a UI timeout inside openClient below.
+        expect(shareStatus, 'A shared the atlas WRITE with B').toBe(201);
 
         // ---- User B: open the shared atlas from the server, snapshot its .ebgeo. ----
         const pageB = await openClient(browser, state.baseUrl, atlasId, users.b);

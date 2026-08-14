@@ -57,10 +57,21 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 createOperation('map', 'create', mapId, null, { name: 'M1' }),
             ]);
 
-            const pullPoint = async (id) => {
+            // ONE pull, and BOTH the entity and the counts come out of that SAME read.
+            // A count taken from `find(...) || null` can only ever be 0 or 1, so it would
+            // restate "I found it" instead of counting: it could never see a duplicate.
+            // `total` is the whole points bucket of this freshly seeded map, which holds
+            // exactly one point — so an extra row under ANY id (an update applied as a
+            // second create, a snapshot that emits the entity twice) turns it red.
+            const pullPoints = async (id) => {
                 const pulled = await api.pullSync(atlas.id, 0);
                 const map = pulled.snapshot?.maps?.find((m) => m.id === mapId);
-                return (map?.features?.points || []).find((f) => f.properties.id === id) || null;
+                const points = map?.features?.points || [];
+                return {
+                    total: points.length,
+                    withId: points.filter((f) => f.properties.id === id).length,
+                    properties: points.find((f) => f.properties.id === id)?.properties || null,
+                };
             };
 
             const pointId = crypto.randomUUID();
@@ -73,7 +84,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                     properties: { source: 'point', layerId: null, nome: 'Símbolo' },
                 }),
             ]);
-            const created = await pullPoint(pointId);
+            const created = await pullPoints(pointId);
 
             // ---- UPDATE: apply the painel-de-edicao style bag -------------
             // §17.3 fill, §17.4 line/traço, §17.5 opacity, §17.6 width/size,
@@ -101,7 +112,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
             await api.pushOperations(atlas.id, [
                 createOperation('feature', 'update', pointId, mapId, { properties: styled }),
             ]);
-            const afterStyle = await pullPoint(pointId);
+            const afterStyle = await pullPoints(pointId);
 
             // ---- 2nd UPDATE: last-write-wins, omits `legado` --------------
             const restyled = {
@@ -125,21 +136,25 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
             await api.pushOperations(atlas.id, [
                 createOperation('feature', 'update', pointId, mapId, { properties: restyled }),
             ]);
-            const afterRestyle = await pullPoint(pointId);
+            const afterRestyle = await pullPoints(pointId);
 
             return {
                 hasToken: Boolean(api.getAccessToken()),
-                createdSource: created?.properties.source,
-                createdNoFill: created?.properties.fillColor === undefined,
-                styled: afterStyle?.properties || null,
-                restyled: afterRestyle?.properties || null,
-                pointCount: afterRestyle ? 1 : 0,
+                createdSource: created.properties?.source,
+                createdNoFill: Boolean(created.properties) && created.properties.fillColor === undefined,
+                createdTotal: created.total,
+                styled: afterStyle.properties,
+                styledTotal: afterStyle.total,
+                restyled: afterRestyle.properties,
+                restyledTotal: afterRestyle.total,
+                restyledWithId: afterRestyle.withId,
             };
         }, state.baseUrl);
 
         expect(result.hasToken).toBe(true);
 
-        // baseline: the bare create has no style yet.
+        // baseline: the create put exactly ONE point in the map, and it has no style yet.
+        expect(result.createdTotal).toBe(1);
         expect(result.createdSource).toBe('point');
         expect(result.createdNoFill).toBe(true);
 
@@ -163,6 +178,8 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
         // backend-managed fields survive the update.
         expect(s.source).toBe('point');
         expect(s.id).toBeTruthy();
+        // the update mutated the existing point instead of adding one.
+        expect(result.styledTotal).toBe(1);
 
         // ---- LWW: the 2nd update overwrites the whole properties bag ----
         const r = result.restyled;
@@ -178,8 +195,11 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
         expect(r.label.zoomCorrection).toBe(3);
         // whole-properties replacement: a key omitted from the later payload is GONE.
         expect(r).not.toHaveProperty('legado');
-        // update is not a second create — exactly one point survives.
-        expect(result.pointCount).toBe(1);
+        // update is not a second create — after TWO updates the map still holds exactly
+        // one point in total, and exactly one entity answers to this id. Both numbers are
+        // counted over the pulled bucket, not inferred from having found the entity.
+        expect(result.restyledTotal).toBe(1);
+        expect(result.restyledWithId).toBe(1);
     });
 
     test('§17.9 hatch pattern round-trips on a polygon update (and overwrites on a 2nd update)', async ({ page }) => {
@@ -201,10 +221,16 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 createOperation('map', 'create', mapId, null, { name: 'M1' }),
             ]);
 
-            const pullPolygon = async (id) => {
+            // Same single read → entity + real counts (see the point test above).
+            const pullPolygons = async (id) => {
                 const pulled = await api.pullSync(atlas.id, 0);
                 const map = pulled.snapshot?.maps?.find((m) => m.id === mapId);
-                return (map?.features?.polygons || []).find((f) => f.properties.id === id) || null;
+                const polygons = map?.features?.polygons || [];
+                return {
+                    total: polygons.length,
+                    withId: polygons.filter((f) => f.properties.id === id).length,
+                    properties: polygons.find((f) => f.properties.id === id)?.properties || null,
+                };
             };
 
             const polygonId = crypto.randomUUID();
@@ -240,7 +266,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                     },
                 }),
             ]);
-            const hatched = await pullPolygon(polygonId);
+            const hatched = await pullPolygons(polygonId);
 
             // 2nd update overwrites the hatch pattern (LWW).
             await api.pushOperations(atlas.id, [
@@ -254,13 +280,15 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                     },
                 }),
             ]);
-            const rehatched = await pullPolygon(polygonId);
+            const rehatched = await pullPolygons(polygonId);
 
             return {
-                inPolygons: Boolean(hatched),
-                hatched: hatched?.properties || null,
-                rehatched: rehatched?.properties || null,
-                polygonCount: rehatched ? 1 : 0,
+                inPolygons: Boolean(hatched.properties),
+                hatched: hatched.properties,
+                hatchedTotal: hatched.total,
+                rehatched: rehatched.properties,
+                rehatchedTotal: rehatched.total,
+                rehatchedWithId: rehatched.withId,
             };
         }, state.baseUrl);
 
@@ -273,12 +301,17 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
         expect(h.hatch).toEqual({ pattern: 'diagonal', color: '#778899', spacing: 8, angle: 45 });
         expect(h.fillColor).toBe('#445566');
         expect(h.opacity).toBe(0.6);
+        // the hatch update mutated the existing polygon instead of adding one.
+        expect(result.hatchedTotal).toBe(1);
 
         // LWW: the later hatch pattern wins.
         const r = result.rehatched;
         expect(r).toBeTruthy();
         expect(r.hatch).toEqual({ pattern: 'cross', color: '#000000', spacing: 4, angle: 0 });
         expect(r.hatch.pattern).toBe('cross');
-        expect(result.polygonCount).toBe(1);
+        // counted over the pulled bucket: two updates left ONE polygon in the map, and
+        // exactly one entity answering to this id.
+        expect(result.rehatchedTotal).toBe(1);
+        expect(result.rehatchedWithId).toBe(1);
     });
 });

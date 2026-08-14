@@ -10,6 +10,9 @@
  *   2. upgrade: the owner promotes B read→write; after B reconnects it CAN edit and the
  *      owner sees it.
  *   3. revoke: the owner removes B's share; B then loses access to the atlas (HTTP denied).
+ *   4. co-Gestor ('manage'): the level ABOVE write, which a closed `write || owner` list drops in
+ *      silence — the exact bug this repo has already shipped twice, on both sides. B EDITS (full
+ *      chain to the owner) and its UI is the Gestor's, not the read-only one.
  *
  * NEGATIVE-PATH SPEC — read this before touching an assertion. Cases 1 and 2 assert a write
  * must NOT propagate, so they use `expectNotSynced` (the negative DSL), never `expectFullSync`.
@@ -43,6 +46,18 @@ import { expectNotSynced } from './helpers/full-chain.js';
 import { readIdbEntity } from './helpers/idb.js';
 
 const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x) => x.id === id);
+
+/**
+ * The safe-view body class (view-mode.controller.js) — a no-edit role is locked into it.
+ *
+ * Read from the DOM, not from `sessionContext`, on purpose: a `page.evaluate` that
+ * `import()`s an app module can receive a SECOND instance of it (Vite serves a just-edited
+ * file with an HMR `?t=` query), whose singleton is untouched by the running app — the probe
+ * then reports `role: null` for a perfectly healthy session. That is exactly what happened
+ * while mutating `session-context.js` for this test's negative control: a red for the wrong
+ * reason. Every signal below is a surface the APP itself painted.
+ */
+const hasViewOnly = (page) => page.evaluate(() => document.body.classList.contains('is-view-only'));
 
 /** Spread-out line coords so each draw is unambiguous on the canvas. */
 const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
@@ -185,6 +200,44 @@ collabTest.describe('Permissions — peer somente leitura', () => {
         // Now B can DRAW through the real tool → the write traverses the whole chain to the owner.
         const idB = await drawLineUI(B, lineCoords());
         expect(await hasLine(B, idB), 'B can write after upgrade').toBe(true);
+        await collab.expectFullSyncFrom(B, { entityId: idB, type: 'lines', operationType: 'create' });
+    });
+});
+
+collabTest.describe('Permissions — co-Gestor (manage)', () => {
+    collabTest.use({ collabOptions: { peers: 1, permission: 'manage', mapName: 'Mapa Tático' } });
+
+    /**
+     * `manage` is the level between `write` and `owner`, and the ONE a closed list
+     * (`perm === 'write' || perm === 'owner'`) drops without a word — a bug this repo has already
+     * shipped twice, in both packages. No browser spec exercised it: the e2e suite covered read,
+     * comment and write only.
+     *
+     * Deliberately narrow — it does NOT re-run the write suite. It asserts the two things only a
+     * REAL browser can show: (b) its interface is the Gestor's, not the safe view a no-edit role is
+     * locked into, and (a) the co-Gestor authors through the actual draw tool, the write reaching
+     * the owner through all six links.
+     */
+    collabTest('co-Gestor edits and gets the Gestor UI (not the read-only one)', async ({ collab }) => {
+        const B = collab.peers[0];
+
+        // (b1) NOT the read-only interface: no safe view, so the create toolbars are on screen.
+        await expect.poll(() => hasViewOnly(B), { timeout: 15000 }).toBe(false);
+        await expect(B.locator('.toolbar-group[data-group-id="draw"]')).toBeVisible();
+
+        // (b2) And it is the GESTOR menu, not the Editor's: "Compartilhar" is offered (owner/manager/
+        // admin) while "Excluir projeto" is not (owner/admin) — the pair pins the role to `manager`
+        // through the app's OWN DOM, so a role silently widened to owner/admin also fails here.
+        await B.locator('[data-testid="account-control"] .account-control__identity').click();
+        await expect(B.locator('[data-testid="account-share-btn"]')).toBeVisible({ timeout: 10000 });
+        await expect(B.locator('[data-testid="account-delete-atlas-btn"]')).toBeHidden();
+        await B.keyboard.press('Escape'); // dismiss the menu before driving the canvas
+
+        // (a) It EDITS: a line drawn with the real tool traverses the whole chain to the owner.
+        // This is precisely what a `write || owner` gate would have blocked, on either side.
+        const idB = await drawLineUI(B, lineCoords());
+        expect(idB, 'the line tool created a feature on the co-Gestor').toBeTruthy();
+        expect(await hasLine(B, idB), 'co-Gestor write landed in its own store').toBe(true);
         await collab.expectFullSyncFrom(B, { entityId: idB, type: 'lines', operationType: 'create' });
     });
 });

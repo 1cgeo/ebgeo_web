@@ -265,13 +265,54 @@ describe('OperationQueue lifecycle', () => {
             expect(all).toHaveLength(3);
         });
 
-        it('compaction flag prevents re-entrancy', async () => {
-            queue._compacting = true;
+        it('compaction flag prevents re-entrancy (and releasing it lets compaction run)', async () => {
+            // MAX_QUEUE_SIZE is 10000 and is not exported, so the queue has to be filled
+            // past it for real: only above that threshold does _compact() do any work.
+            // 5001 entities x (CREATE + UPDATE) = 10002 ops.
+            const ENTITIES = 5001;
+            const TOTAL = ENTITIES * 2;
+            // Fixed-width (13-digit) timestamps so the lexicographic key sort
+            // `op_{timestamp}_{id}` matches chronological order for every op.
+            const BASE_TS = 1700000000000;
 
-            // Attempt compact should return immediately
+            // Fill with the guard already ON: enqueueAll's own auto-compact is suppressed,
+            // so the queue is deliberately left oversized and un-compacted.
+            queue._compacting = true;
+            const ops = [];
+            for (let i = 0; i < ENTITIES; i++) {
+                ops.push(createOp(`c-${i}`, EntityType.FEATURE, OperationType.CREATE, `feat-${i}`, 'map-1', { nome: `v1-${i}` }, BASE_TS + i * 2));
+                ops.push(createOp(`u-${i}`, EntityType.FEATURE, OperationType.UPDATE, `feat-${i}`, 'map-1', { nome: `v2-${i}` }, BASE_TS + i * 2 + 1));
+            }
+            await queue.enqueueAll(ops);
+
+            const before = await queue.getAll();
+            expect(before).toHaveLength(TOTAL);
+            expect(TOTAL).toBeGreaterThan(10000); // above the compaction threshold
+            const beforeIds = before.map(o => o.id);
+
+            // GUARD ON: _compact() must be a no-op even though the queue IS oversized.
+            // Nothing may be dropped, merged or rewritten.
             await queue._compact();
 
+            const during = await queue.getAll();
+            expect(during.map(o => o.id)).toEqual(beforeIds);
+            expect(during[0].data.nome).toBe('v1-0');
+            expect(during[1].data.nome).toBe('v2-0');
+            expect(await queue.count()).toBe(TOTAL);
+
+            // GUARD OFF: the very same call now compacts. Without this second half the
+            // test would also pass with a _compact() that never compacts anything.
             queue._compacting = false;
+            await queue._compact();
+
+            const after = await queue.getAll();
+            expect(after).toHaveLength(ENTITIES);                    // CREATE+UPDATE merged per entity
+            expect(after.every(op => op.operationType === OperationType.CREATE)).toBe(true);
+            expect(after[0].id).toBe('c-0');
+            expect(after[0].data.nome).toBe('v2-0');                 // merged CREATE carries latest data
+            expect(after.at(-1).data.nome).toBe(`v2-${ENTITIES - 1}`);
+            expect(await queue.count()).toBe(ENTITIES);              // index rebuilt to match storage
+            expect(queue._compacting).toBe(false);                   // flag released on the way out
         });
 
         it('enqueueAll with batch works correctly', async () => {

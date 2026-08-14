@@ -61,6 +61,12 @@ const h = vi.hoisted(() => {
                 queueState.ops = queueState.ops.filter(op => !ids.includes(op.id));
                 return ids.length;
             }),
+            // Required by the post-flush step `_reconcileConvergenceGuard`, which reads the
+            // WHOLE remaining queue. This mock lacked it until 2026-08-13, so every flush
+            // test threw `operationQueue.getAll is not a function` inside that step — and the
+            // SUT swallows it in a `catch`. The suite stayed green over a branch that never
+            // executed. It returns a COPY: the SUT must not be able to mutate the fixture.
+            getAll: vi.fn(async () => queueState.ops.slice()),
         },
         enableOperationLogging: vi.fn(),
         disableOperationLogging: vi.fn(),
@@ -68,6 +74,12 @@ const h = vi.hoisted(() => {
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
         setRemoteHandlerEventBus: vi.fn(),
+        // The other half of the convergence guard the engine drives: it seeds the author's
+        // own applied serverVersion from the push ack, and self-heals the pending-edit map
+        // after each flush. Both were MISSING from the mock, so `recordPushAcks` and
+        // `_reconcileConvergenceGuard` blew up on `undefined`.
+        recordLocalAppliedVersion: vi.fn(),
+        reconcilePendingLocalEdits: vi.fn(async () => {}),
         syncGatewayMock: {
             setRemoteOperationHandler: vi.fn(),
             applyRemoteOperation: vi.fn(async () => {}),
@@ -90,6 +102,8 @@ const {
     applyRemoteOperation,
     applyRemoteSnapshot,
     setRemoteHandlerEventBus,
+    recordLocalAppliedVersion,
+    reconcilePendingLocalEdits,
     syncGatewayMock,
     eventBusMock,
 } = h;
@@ -116,11 +130,24 @@ vi.mock('../../src/js/store/sync/session-context.js', () => ({
     sessionContext: h.sessionContextMock,
 }));
 
-vi.mock('../../src/js/store/sync/remote-operation-handler.js', () => ({
-    applyRemoteOperation: h.applyRemoteOperation,
-    applyRemoteSnapshot: h.applyRemoteSnapshot,
-    setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
-}));
+// The engine imports SIX names from this module. Stubbing only three left the other three
+// `undefined`, and the two code paths that use them (the push-ack version seeding and the
+// post-flush reconciliation) died on a TypeError the SUT catches — silently.
+// CONVERGENCE_GUARDED comes from the REAL module on purpose: it is the single source for both
+// halves of the guard (here and in operation-dispatcher.js), so a hand-copied Set here would
+// drift from production the next time an entity type joins it, and the drift would show up as a
+// test that keeps passing.
+vi.mock('../../src/js/store/sync/remote-operation-handler.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        applyRemoteOperation: h.applyRemoteOperation,
+        applyRemoteSnapshot: h.applyRemoteSnapshot,
+        setRemoteHandlerEventBus: h.setRemoteHandlerEventBus,
+        recordLocalAppliedVersion: h.recordLocalAppliedVersion,
+        reconcilePendingLocalEdits: h.reconcilePendingLocalEdits,
+        CONVERGENCE_GUARDED: actual.CONVERGENCE_GUARDED,
+    };
+});
 
 vi.mock('../../src/js/store/sync/sync-gateway.js', () => ({
     syncGateway: h.syncGatewayMock,
@@ -163,6 +190,15 @@ beforeEach(() => {
     syncEngine._lastVersion = 0;
     syncEngine._handlersWired = false;
     apiClientMock.pullSync.mockResolvedValue({ currentVersion: 0, isSnapshot: false });
+    // `vi.clearAllMocks()` clears CALLS, not implementations, so a `mockRejectedValue` /
+    // `mockImplementation` set by one test survives into every test that follows it. The
+    // poisoned-batch describe leaves a 400-rejecting push behind, and a later test that never
+    // touches `pushOperations` then silently runs the isolation path instead of a clean flush
+    // — passing, but proving something else. Restore the default explicitly.
+    // (`mockResolvedValueOnce` in individual tests still takes precedence over this.)
+    apiClientMock.pushOperations.mockImplementation(
+        async () => ({ results: [], acks: [], serverVersion: 1 })
+    );
 });
 
 // ============================================================================
@@ -442,9 +478,9 @@ describe('connect', () => {
 describe('rejected operations are surfaced to the user', () => {
     it('warns with the server reason when an op is refused', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // No entityType/entityId on purpose: the convergence-guard bookkeeping is a
-        // different concern and its module is not mocked here. This test is about
-        // whether the refusal reaches the user.
+        // No entityType/entityId on purpose: the convergence-guard bookkeeping is
+        // exercised in its own describe below. This test is about whether the refusal
+        // reaches the user.
         queueState.ops = [{ id: 'op-1' }];
         apiClientMock.pushOperations.mockResolvedValueOnce({
             results: [{
@@ -600,6 +636,141 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
 
         await expect(syncEngine.flush()).rejects.toThrow();
         expect(queueState.ops).toHaveLength(1);
+    });
+});
+
+// ============================================================================
+// Convergence guard: the two halves the engine drives
+// ============================================================================
+// The author filters its OWN WebSocket echo, so the push ack is the only place it can
+// learn the server arrival order of its own op — and a local edit stays "pending" (which
+// DEFERS every inbound op for that entity) until something resolves it. The engine owns
+// both halves: `recordPushAcks` seeds the version per acked op, and `_reconcileConvergenceGuard`
+// clears whatever leaked, comparing the pending set against what is STILL queued.
+//
+// Neither half ran under test until 2026-08-13: the queue mock had no `getAll` and the
+// handler mock had neither function, so `_reconcileConvergenceGuard` threw a TypeError that
+// the SUT's own `catch` swallowed. Thirty-five tests were green over a step that never
+// executed. These tests exist so that stays visible: if the reconciliation is dropped, or is
+// fed the wrong set, they go red instead of quietly printing to a console nobody reads.
+
+describe('post-flush convergence-guard reconciliation', () => {
+    it('reconciles with an EMPTY set after the queue drains completely', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [
+            { id: 'op-1', entityType: 'feature', entityId: 'f1' },
+            { id: 'op-2', entityType: 'feature', entityId: 'f2' },
+        ];
+
+        const result = await syncEngine.flush();
+
+        // Pinned so this case cannot silently degrade into the ISOLATION path (batch of 1,
+        // op discarded) and still assert an empty set for the wrong reason: mock
+        // implementations leak between tests here, and the poisoned-batch describe above
+        // leaves a rejecting `pushOperations` behind.
+        expect(result).toEqual({ pushed: 2 });
+        expect(apiClientMock.pushOperations).toHaveBeenCalledTimes(1);
+
+        // Everything was acked and dequeued, so NO local edit is still pending: both
+        // entities must be released. Passing the ids that were just pushed (instead of the
+        // ids that remain) would leave f1/f2 deferred forever — inbound ops for them would
+        // pile up unapplied and the peers would silently diverge.
+        expect(reconcilePendingLocalEdits).toHaveBeenCalledTimes(1);
+        const [remaining] = reconcilePendingLocalEdits.mock.calls[0];
+        expect(remaining).toBeInstanceOf(Set);
+        expect([...remaining]).toEqual([]);
+    });
+
+    it('reconciles with the ids STILL queued when the push fails transiently', async () => {
+        // A 503 dequeues nothing, so both edits are legitimately still un-acked and must
+        // STAY pending. Reconciling with an empty set here would release a pending edit
+        // whose op never reached the server — exactly the window the guard exists to cover.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [
+            { id: 'op-1', entityType: 'feature', entityId: 'f1' },
+            { id: 'op-2', entityType: 'layer', entityId: 'l1' },
+        ];
+        apiClientMock.pushOperations.mockRejectedValue(httpError(503));
+
+        await expect(syncEngine.flush()).rejects.toThrow();
+
+        expect(reconcilePendingLocalEdits).toHaveBeenCalledTimes(1);
+        const [remaining] = reconcilePendingLocalEdits.mock.calls[0];
+        expect([...remaining].sort()).toEqual(['f1', 'l1']);
+    });
+
+    it('reconciles once even when the flush isolates and discards a poisoned op', async () => {
+        // The isolation loop re-peeks several times; the reconciliation is a POST-drain step
+        // and must not fire per batch (each call replays deferred ops, so N calls would be N
+        // replays of the same backlog).
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [
+            { id: 'op-boa', entityType: 'feature', entityId: 'f1' },
+            { id: 'op-ruim', entityType: 'feature', entityId: 'f2' },
+        ];
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.some((o) => o.id === 'op-ruim')) throw httpError(400);
+            return { results: [], serverVersion: 1 };
+        });
+
+        await syncEngine.flush();
+
+        expect(reconcilePendingLocalEdits).toHaveBeenCalledTimes(1);
+        expect([...reconcilePendingLocalEdits.mock.calls[0][0]]).toEqual([]);
+    });
+
+    it('reconciles BEFORE re-throwing when the queue refuses to advance', async () => {
+        // The stalled-queue escape hatch (dequeue removed 0) throws to avoid an infinite
+        // loop. Throwing without reconciling would strand the pending edits of every op it
+        // did manage to push earlier in the same flush.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-unica', entityType: 'feature', entityId: 'f9' }];
+        apiClientMock.pushOperations.mockRejectedValue(httpError(400));
+        operationQueueMock.dequeue.mockResolvedValueOnce(0);
+
+        await expect(syncEngine.flush()).rejects.toThrow();
+
+        expect(reconcilePendingLocalEdits).toHaveBeenCalledTimes(1);
+        expect([...reconcilePendingLocalEdits.mock.calls[0][0]]).toEqual(['f9']);
+    });
+
+    it('seeds the applied serverVersion ONLY for convergence-guarded entity types', async () => {
+        // The seed is what lets a later concurrent op from a peer lose to the author's newer
+        // value (LWW by server arrival). Seeding an UNGUARDED type would be worse than
+        // useless: nothing reads it, and the map grows per op forever.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [
+            { id: 'op-1', entityType: 'feature', entityId: 'f1' },
+            { id: 'op-2', entityType: 'map', entityId: 'm1' },        // not guarded
+            { id: 'op-3', entityType: 'briefing', entityId: 'b1' },   // guarded since 2026-07-25
+            { id: 'op-4', entityType: 'feature' },                    // no entityId → nothing to key on
+        ];
+        apiClientMock.pushOperations.mockResolvedValueOnce({ results: [], serverVersion: 11 });
+
+        await syncEngine.flush();
+
+        expect(recordLocalAppliedVersion.mock.calls).toEqual([['f1', 11], ['b1', 11]]);
+    });
+
+    it('prefers the per-op version from the ack over the batch serverVersion', async () => {
+        // Two ops in one batch land at DIFFERENT server versions; collapsing both onto the
+        // batch-level number would record an arrival order the server never assigned.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [
+            { id: 'op-1', entityType: 'feature', entityId: 'f1' },
+            { id: 'op-2', entityType: 'feature', entityId: 'f2' },
+        ];
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [
+                { operationId: 'op-1', success: true, currentVersion: 20 },
+                { operationId: 'op-2', success: true, currentVersion: 21 },
+            ],
+            serverVersion: 21,
+        });
+
+        await syncEngine.flush();
+
+        expect(recordLocalAppliedVersion.mock.calls).toEqual([['f1', 20], ['f2', 21]]);
     });
 });
 

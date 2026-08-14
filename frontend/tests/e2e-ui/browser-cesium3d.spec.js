@@ -16,8 +16,11 @@
  *     emits) merges into the entity's JSONB `data` in the snapshot;
  *   - a `delete` op soft-deletes the entity so it vanishes from the snapshot
  *     (negative/edge assertion);
- *   - LWW-by-arrival: two creates with the SAME id collapse to one entry whose
- *     payload reflects the LAST arrival (idempotency + last-writer-wins).
+ *   - LWW-by-arrival: a `create` followed by an `update` on the SAME id keeps ONE
+ *     entry whose payload reflects the LAST arrival (last-writer-wins);
+ *   - create idempotency: a REPEATED `create` for a still-live id is a no-op
+ *     (`INSERT ... ON CONFLICT (id) DO NOTHING`), so the FIRST payload survives and a
+ *     replayed/stale create can never clobber live data.
  *
  * Each test seeds its OWN user + atlas + map for full isolation.
  *
@@ -239,7 +242,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
         expect(result.count).toBe(1);
     });
 
-    test('LWW by arrival + idempotency: two creates with the SAME id collapse to one (last wins)', async ({ page }) => {
+    test('LWW by arrival: create then update on the SAME id keeps ONE entry with the last payload', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_lww');
 
@@ -250,9 +253,12 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                 const id = crypto.randomUUID();
 
                 // no-UI: viewer-only viewshed3d (Cesium viewer self-skips headless) —
-                // LWW/idempotency is exercised on the real transport.
-                // Same entity id, two arrivals. Last arrival is the survivor; the entity
-                // is never duplicated (INSERT ... ON CONFLICT DO NOTHING + LWW update).
+                // LWW is exercised on the real transport.
+                // Same entity id, two arrivals: a create then an update. The update is the
+                // LAST arrival and is the survivor; the entity is never duplicated (the id
+                // is the PK, so the update merges into the row the create made).
+                // (Duplicate CREATE idempotency is a different rule and has its own test
+                // below — this one never sends two creates.)
                 await api.pushOperations(aid, [
                     createOperation('viewshed3d', 'create', id, mid, { id, tilesetId, radius: 100 }),
                 ]);
@@ -272,5 +278,49 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
         expect(result.matches).toBe(1);
         expect(result.radius).toBe(999);
         expect(result.viewshedTileset).toBe(result.tilesetId);
+    });
+
+    test('idempotency: a REPEATED create for a live id is a no-op (the FIRST payload survives)', async ({ page }) => {
+        await page.goto('/');
+        const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_idem');
+
+        const result = await page.evaluate(
+            async ({ atlasId: aid, mapId: mid }) => {
+                const { api, createOperation } = window.__c3d;
+                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
+                const id = crypto.randomUUID();
+
+                // no-UI: viewer-only viewshed3d (Cesium viewer self-skips headless) —
+                // create idempotency is exercised on the real transport.
+                // TWO real creates, same entity id, DIFFERENT payloads: the replay of a
+                // queued op after a reconnect. The insert is `ON CONFLICT (id) DO NOTHING`
+                // while the row is alive, so the second create must be a no-op — one entry,
+                // still carrying the FIRST payload. If that ever became a plain upsert, a
+                // stale replayed create would silently clobber newer data.
+                await api.pushOperations(aid, [
+                    createOperation('viewshed3d', 'create', id, mid, { id, tilesetId, radius: 100 }),
+                ]);
+                await api.pushOperations(aid, [
+                    createOperation('viewshed3d', 'create', id, mid, { id, tilesetId, radius: 999 }),
+                ]);
+
+                const pulled = await api.pullSync(aid, 0);
+                const map = pulled.snapshot?.maps?.find((m) => m.id === mid);
+                const viewsheds = map?.cesium3d?.viewsheds || [];
+                return {
+                    matches: viewsheds.filter((v) => v.id === id).length,
+                    // the map is freshly seeded and holds this viewshed only, so a second
+                    // row under ANY id (e.g. the replay inserting a sibling) shows up here.
+                    total: viewsheds.length,
+                    radius: viewsheds.find((v) => v.id === id)?.radius,
+                };
+            },
+            { atlasId, mapId },
+        );
+
+        expect(result.matches).toBe(1);
+        expect(result.total).toBe(1);
+        // The duplicate create did NOT overwrite the live row: radius is still the first one.
+        expect(result.radius).toBe(100);
     });
 });

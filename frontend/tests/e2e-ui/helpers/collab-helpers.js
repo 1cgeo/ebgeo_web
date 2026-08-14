@@ -160,8 +160,18 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
     // Escape hatch: set EBGEO_E2E_NO_TRACE=1 to run the collab specs with the tracer fully
     // inert (the pollPeer* helpers fall back to their store poll), e.g. to isolate whether
     // a failure is tracer-related.
+    //
+    // __EBGEO_TRACE_RENDER__ turns on the entity-render probe (bus-tap.js), which is what
+    // emits the `render.source` spans. Without it, full-chain LINK 6 ("appeared in the peer
+    // browser") silently degraded to `remote.applied` only: `renderProbeOn(page)` was always
+    // false, so the render assertion never ran — the README/docblock advertised six verified
+    // links while five were checked. The flag had ZERO writers in the whole repo (only the
+    // two reads in bus-tap.js and the helper), i.e. cobertura vazia by construction.
     if (process.env.EBGEO_E2E_NO_TRACE !== '1') {
-        await page.addInitScript(() => { window.__EBGEO_TRACE__ = true; });
+        await page.addInitScript(() => {
+            window.__EBGEO_TRACE__ = true;
+            window.__EBGEO_TRACE_RENDER__ = true;
+        });
     }
     await page.goto('/');
     await loginUI(page, creds.username, creds.password);

@@ -185,7 +185,23 @@ export async function addMap(mapName, mapData = null, colorUsageData = null, not
     const newMapData = await createMapData(mapName, mapData, { uuidKeyed: syncActive });
 
     const mapId = newMapData.id || mapName;
-    if (mapId !== mapName) {
+    // Register the name -> id mapping ONLY when the map is actually UUID-keyed.
+    // `createMapData` always mints a UUID (the map needs one to travel as a CRDT
+    // op), but with sync OFF that id is inert and the storage key is the NAME.
+    // Registering it anyway pointed the resolver at a key that holds nothing:
+    // later writes resolved through the resolver and landed under the UUID, while
+    // `getMap(name)` kept reading the stale name-keyed entry. Features drawn on a
+    // freshly created local map were written to one key and read back from
+    // another — they simply vanished.
+    // Pinned by tests/integration/import-phantom-map.repro.test.js, which now
+    // exercises the real addMap instead of a copy of it.
+    //
+    // Worth knowing before touching this again: with sync ON the mapping is ALSO
+    // registered by LocalRepository.saveMap (local.repository.js:270), so this
+    // line is redundant on the happy path. It is kept for the callers that reach
+    // the resolver before the save completes; measured by mutation, removing it
+    // does not turn any test red today.
+    if (syncActive && mapId !== mapName) {
         mapResolver.registerMap(mapName, mapId);
     }
 
