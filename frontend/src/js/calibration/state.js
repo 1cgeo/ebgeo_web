@@ -1,3 +1,4 @@
+// Path: js/calibration/state.js
 /**
  * @fileoverview Central state management for the Street View 360 calibration interface.
  * Simple event emitter pattern for tracking calibration edits, dirty state, and target overrides.

@@ -1,3 +1,4 @@
+// Path: js/calibration/minimap.js
 /**
  * @fileoverview MapLibre GL JS minimap for the Street View 360 calibration interface.
  * Shows camera position with heading indicator and target markers.

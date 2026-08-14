@@ -1,3 +1,4 @@
+// Path: js/calibration/hit-tester.js
 /**
  * @fileoverview Hit testing for Street View 360 navigation markers.
  * Detects mouse hover and click interactions with markers.

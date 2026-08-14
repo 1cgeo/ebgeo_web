@@ -1,3 +1,4 @@
+// Path: js/calibration/viewer.js
 /**
  * @fileoverview Three.js 360 panorama viewer for the calibration interface.
  * Renders an equirectangular photo on an inverted sphere with orbit-style controls.

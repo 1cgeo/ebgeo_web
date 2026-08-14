@@ -1,3 +1,4 @@
+// Path: js/calibration/project-map.js
 /**
  * @fileoverview Modo mapa da calibracao: o projeto inteiro numa planta MapLibre.
  *
