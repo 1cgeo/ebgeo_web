@@ -235,9 +235,23 @@
     color: var(--primary-700);
 }
 
+/* The permission ladder has FIVE levels (read < comment < write < manage <
+   owner); the two middle ones are grantable from the sharing modal, so every
+   level needs a chip of its own. */
+.atlas-drive__chip--manage {
+    background: var(--primary-50);
+    color: var(--primary-800);
+}
+
 .atlas-drive__chip--write {
     background: rgb(59 130 246 / 12%);
     color: #1d4ed8;
+}
+
+.atlas-drive__chip--comment {
+    background: var(--gray-50);
+    color: var(--gray-700);
+    border: var(--border-width) solid var(--gray-300);
 }
 
 .atlas-drive__chip--read {

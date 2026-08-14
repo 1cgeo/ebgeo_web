@@ -22,6 +22,11 @@ const h = vi.hoisted(() => {
         // deterministic UUID generator
         generateUUID: vi.fn(() => `generated-uuid-${++uuidCounter}`),
         resetUuid: () => { uuidCounter = 0; },
+        // Permission gate toggle (checkPermission is allow-all offline / local-only).
+        permissionAllowed: true,
+        permissionReason: 'Permissão insuficiente (teste)',
+        // Map-lock toggle (isCurrentMapLockedSync).
+        mapLocked: false,
         // sync metadata stubs (simple, deterministic)
         createSyncMetadata: vi.fn(() => ({ version: 1, dirty: true, stub: 'created' })),
         touchSyncMetadata: vi.fn((sync) => ({
@@ -66,6 +71,31 @@ vi.mock('../../src/js/config.js', () => ({
     default: h.config
 }));
 
+// Permission guard: drive allow/deny from hoisted state.
+vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
+    checkPermission: vi.fn(() => (
+        h.permissionAllowed
+            ? { allowed: true }
+            : { allowed: false, reason: h.permissionReason }
+    )),
+    GuardAction: {
+        CREATE_LAYER: 'CREATE_LAYER',
+        UPDATE_LAYER: 'UPDATE_LAYER',
+        DELETE_LAYER: 'DELETE_LAYER'
+    }
+}));
+
+// Map lock: only isCurrentMapLockedSync is consumed here.
+vi.mock('../../src/js/store/map.operations.js', () => ({
+    isCurrentMapLockedSync: vi.fn(() => h.mapLocked)
+}));
+
+// Store error emitter: just a spy.
+vi.mock('../../src/js/store/store-errors.js', () => ({
+    emitStoreError: vi.fn(),
+    StoreErrorEvents: { STORE_OPERATION_BLOCKED: 'store:operationBlocked' }
+}));
+
 // ============================================================================
 // Imports (after mocks)
 // ============================================================================
@@ -87,6 +117,8 @@ import {
 import { CATALOG_ITEM_TYPES } from '../../src/js/catalog/catalog.constants.js';
 import { getMapDataCompat, updateMapDataCompat } from '../../src/js/store/repositories/index.js';
 import { logCatalogLayerOperation, OperationType } from '../../src/js/store/sync/index.js';
+import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
+import { emitStoreError } from '../../src/js/store/store-errors.js';
 
 // ============================================================================
 // Helpers
@@ -120,6 +152,8 @@ beforeEach(() => {
     h.mockMapData.value = emptyMapData();
     h.mockMapManager.getCurrentMapName.mockReturnValue('TestMap');
     h.mockMapManager.getCurrentMapId.mockReturnValue('map-uuid-123');
+    h.permissionAllowed = true;
+    h.mapLocked = false;
 
     // reset config to "everything disabled / empty" defaults each test
     h.config.map2d = { hillshade: { enabled: false } };
@@ -632,5 +666,85 @@ describe('revalidateCatalogLayers', () => {
 
         expect(result).toEqual({ reactivated: [], stillUnavailable: [] });
         expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// PERMISSION / MAP-LOCK GATE — a denied write must never persist NOR enqueue an op
+// ============================================================================
+
+describe('permission and map-lock gate on catalog writes', () => {
+    /** Drives every write entry once (the two toggles delegate to updateCatalogLayer). */
+    async function runAllWrites() {
+        await addCatalogLayer(makeLayer('cl-new'));
+        await updateCatalogLayer('cl-1', { opacity: 0.5 });
+        await removeCatalogLayer('cl-1');
+        await toggleCatalogLayerVisibility('cl-1', false);
+        await updateCatalogLayerStatus('cl-1', 'unavailable');
+    }
+
+    it('permission denied: no persistence, no sync op, STORE_OPERATION_BLOCKED emitted', async () => {
+        h.mockMapData.value = emptyMapData([makeLayer('cl-1')]);
+        h.permissionAllowed = false;
+
+        await runAllWrites();
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logCatalogLayerOperation).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledTimes(5);
+        expect(emitStoreError.mock.calls.every(([type, payload]) => (
+            type === 'store:operationBlocked' && payload.reason === h.permissionReason
+        ))).toBe(true);
+    });
+
+    it('map locked: same blocking, with reason "map_locked"', async () => {
+        h.mockMapData.value = emptyMapData([makeLayer('cl-1')]);
+        h.permissionAllowed = true;
+        h.mapLocked = true;
+
+        await runAllWrites();
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logCatalogLayerOperation).not.toHaveBeenCalled();
+        expect(emitStoreError).toHaveBeenCalledTimes(5);
+        expect(emitStoreError.mock.calls.every(([, payload]) => payload.reason === 'map_locked')).toBe(true);
+    });
+
+    it('gates through checkPermission (hierarchical), never a closed role list', async () => {
+        h.mockMapData.value = emptyMapData([makeLayer('cl-1')]);
+        h.permissionAllowed = false;
+
+        await runAllWrites();
+
+        const actions = [...new Set(checkPermission.mock.calls.map(([action]) => action))].sort();
+        // CREATE/UPDATE/DELETE_LAYER resolve to canEdit/canDelete, so a co-Gestor
+        // (manage) passes — which a closed `perm === 'write' || 'owner'` list would break.
+        expect(actions).toEqual(['CREATE_LAYER', 'DELETE_LAYER', 'UPDATE_LAYER']);
+        expect(checkPermission).toHaveBeenCalledTimes(5);
+    });
+
+    it('allowed + unlocked: the existing behavior is preserved (no false blocking)', async () => {
+        h.mockMapData.value = emptyMapData([makeLayer('cl-1')]);
+
+        await toggleCatalogLayerVisibility('cl-1', false);
+
+        expect(updateMapDataCompat).toHaveBeenCalledTimes(1);
+        expect(logCatalogLayerOperation).toHaveBeenCalledTimes(1);
+        expect(logCatalogLayerOperation.mock.calls[0][0]).toBe(OperationType.UPDATE);
+        expect(emitStoreError).not.toHaveBeenCalled();
+    });
+
+    it('revalidateCatalogLayers stays UNGATED (availability must refresh for everyone)', async () => {
+        // Read-only users still need the "unavailable" badge to be accurate; this path
+        // recomputes status and logs no op, so gating it would break the UI for them.
+        h.mockMapData.value = emptyMapData([makeLayer('cl-1', CATALOG_ITEM_TYPES.HILLSHADE, { status: 'active' })]);
+        h.permissionAllowed = false;
+        h.mapLocked = true;
+
+        const result = await revalidateCatalogLayers();
+
+        expect(result.stillUnavailable).toEqual(['cl-1']);
+        expect(updateMapDataCompat).toHaveBeenCalledTimes(1);
+        expect(logCatalogLayerOperation).not.toHaveBeenCalled();
     });
 });

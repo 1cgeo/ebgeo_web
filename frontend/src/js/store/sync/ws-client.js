@@ -448,6 +448,23 @@ export class WsClient {
             this._conn.isOnline() ? ConnectionStates.RECONNECTING : ConnectionStates.RECONNECTING
         );
         this._emit('error', { kind: 'closed', code: event?.code, reason: event?.reason });
+
+        // Settle a handshake that never completed. A rejected UPGRADE (403: account or org
+        // disabled, revoked session, no atlas permission) closes the socket WITHOUT a
+        // `connected` frame, so nothing ever resolved the promise `syncEngine.connect` is
+        // awaiting — the atlas-opening flow hung forever with no timeout anywhere.
+        // The reconnect loop is deliberately left running: `_open()` reinstalls a fresh
+        // resolve/reject pair, and `_scheduleReconnect` swallows its rejection, so a drop
+        // after an established session still reconnects.
+        if (this._connectReject) {
+            const rejectHandshake = this._connectReject;
+            this._connectResolve = null;
+            this._connectReject = null;
+            rejectHandshake(new Error(
+                `Conexão encerrada antes do handshake (code ${event?.code ?? 'n/d'})`
+            ));
+        }
+
         this._scheduleReconnect();
     }
 

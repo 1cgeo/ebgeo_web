@@ -54,8 +54,10 @@ export class MapLockController {
     }
 
     /**
-     * Whether the given map (default: active map) is locked.
-     * Reads the store's synchronous lock flag for the active map.
+     * Whether the ACTIVE map is locked.
+     * Reads the store's synchronous lock flag. There is deliberately no map
+     * argument: the store flag is active-map only, and an accepted-but-ignored
+     * parameter is an API that lies.
      * @returns {boolean} True if locked.
      */
     isMapLocked() {
@@ -98,23 +100,27 @@ export class MapLockController {
     }
 
     /**
-     * Toggles the lock on the given map (default: active map).
+     * Toggles the lock on the ACTIVE map.
      * Gated by {@link canToggleLock}: a blocked user gets an error toast and the
      * current state is returned unchanged. On success the new state is persisted
      * locally (store op), logged for sync (`map` update `{ locked }`), and a
      * MAP_MODIFIED signal is emitted so the local UI re-reads.
-     * @param {string} [mapId] - Map id (default: active map id).
+     *
+     * The sync id comes from `getCurrentMapIdSync()`, which resolves through the
+     * map resolver: the op must carry the map UUID. A map NAME here reaches the
+     * backend as an entity id it cannot match, and the lock never lands on the
+     * server nor on the peers.
      * @returns {Promise<boolean>} The resulting lock state.
      */
-    async toggleMapLock(mapId) {
-        const current = this.isMapLocked(mapId);
+    async toggleMapLock() {
+        const current = this.isMapLocked();
 
         if (!this.canToggleLock()) {
             showError(NO_PERMISSION_MESSAGE);
             return current;
         }
 
-        const targetId = mapId || getCurrentMapIdSync();
+        const targetId = getCurrentMapIdSync();
         const next = !current;
 
         // Persist + flip the in-memory lock set via the store op (it also emits
@@ -168,7 +174,7 @@ export class MapLockController {
         const mapId = (payload && payload.mapId) || getCurrentMapIdSync();
         getEventBus().emit(EventTypes.MAP_LOCK_CHANGED, {
             mapName: mapId,
-            locked: this.isMapLocked(mapId),
+            locked: this.isMapLocked(),
         });
     }
 }

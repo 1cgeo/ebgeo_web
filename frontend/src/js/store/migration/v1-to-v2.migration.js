@@ -16,7 +16,17 @@
 import localforage from 'localforage';
 import { generateUUID } from '../../utilities/uuid.js';
 import { createSyncMetadata } from '../sync/sync-metadata.js';
-import { createAtlas, ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
+import { createAtlas } from '../atlas/atlas.entity.js';
+
+/**
+ * The version THIS step reaches — not the chain's final version.
+ *
+ * Stamping ATLAS_SCHEMA_VERSION here marked the database as fully migrated while the
+ * later steps (v2.1, v2.2) had not run yet. If the browser closed, or a later step threw
+ * (initializeRepository swallows the error), `detectMigrationNeeded` compared 2.2 against
+ * 2.2 and reported `needed: false` forever: the remaining backfills never ran, silently.
+ */
+const TARGET_VERSION = '2.0';
 
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
@@ -243,6 +253,10 @@ export async function migrateToV2() {
     }
 
     const atlas = createAtlas('Meu Atlas');
+    // createAtlas() stamps the CHAIN's final version; this step only reaches 2.0, and
+    // migration.service checks the atlas marker too (`atlasCurrent`), so leaving 2.2 here
+    // would short-circuit the remaining steps exactly like the appStore marker did.
+    atlas.schemaVersion = TARGET_VERSION;
     atlas.mapOrder = mapOrder.length > 0 ? mapOrder : mapNames;
 
     if (lastActiveMap && mapNames.includes(lastActiveMap)) {
@@ -252,7 +266,7 @@ export async function migrateToV2() {
     }
 
     await atlasStore.setItem('current_atlas', atlas);
-    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+    await appStore.setItem('schemaVersion', TARGET_VERSION);
 
     console.log('Migration to v2.0 complete');
     return { success: true };

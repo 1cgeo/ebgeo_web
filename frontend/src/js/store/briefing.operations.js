@@ -297,7 +297,11 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
         briefing.slides.push(slide);
     }
 
-    await updateBriefing(briefingId, { slides: briefing.slides });
+    // updateBriefing is the single write point AND the permission gate: when it denies
+    // (or the briefing vanished) nothing was persisted, so logging the slide op here
+    // would enqueue an op the server refuses — and a 403 freezes the whole push queue.
+    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
+    if (!saved) return null;
 
     logOperation(EntityType.SLIDE, OperationType.CREATE, slide.id, briefingId, slide);
 
@@ -332,7 +336,8 @@ export async function updateSlide(briefingId, slideId, slideData) {
         sync: touchSyncMetadata(briefing.slides[slideIndex].sync || createSyncMetadata(null))
     };
 
-    await updateBriefing(briefingId, { slides: briefing.slides });
+    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
+    if (!saved) return null;
 
     logOperation(EntityType.SLIDE, OperationType.UPDATE, slideId, briefingId, briefing.slides[slideIndex], previousSlide);
 
@@ -362,7 +367,8 @@ export async function removeSlide(briefingId, slideId) {
     briefing.slides.splice(slideIndex, 1);
     reindexSlides(briefing.slides);
 
-    await updateBriefing(briefingId, { slides: briefing.slides });
+    const saved = await updateBriefing(briefingId, { slides: briefing.slides });
+    if (!saved) return false;
 
     logOperation(EntityType.SLIDE, OperationType.DELETE, slideId, briefingId, null, removedSlide);
 
@@ -401,8 +407,8 @@ export async function reorderSlides(briefingId, slideIds) {
     }
 
     reindexSlides(reorderedSlides);
-    await updateBriefing(briefingId, { slides: reorderedSlides });
-    return true;
+    const saved = await updateBriefing(briefingId, { slides: reorderedSlides });
+    return Boolean(saved);
 }
 
 // ============================================================================

@@ -37,7 +37,12 @@ const h = vi.hoisted(() => ({
     store: new Map(),
     currentMapName: 'TestMap',
     currentMapId: 'map-uuid-123',
-    uuidCounter: 0
+    uuidCounter: 0,
+    // Name → UUID registry backing the mocked mapResolver (getMapId).
+    mapIds: { TestMap: 'map-uuid-123', OtherMap: 'map-uuid-999' },
+    // Permission gate toggle (checkPermission is allow-all offline / local-only).
+    permissionAllowed: true,
+    permissionReason: 'Permissão insuficiente (teste)'
 }));
 
 // ============================================================================
@@ -62,8 +67,30 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
 vi.mock('../../src/js/store/store-state-manager.js', () => ({
     default: {
         getCurrentMapName: vi.fn(() => h.currentMapName),
-        getCurrentMapId: vi.fn(() => h.currentMapId)
+        getCurrentMapId: vi.fn(() => h.currentMapId),
+        // Mirrors the real resolver: a known map name resolves to its UUID; anything
+        // else comes back unchanged (unresolved names stay names).
+        getMapId: vi.fn((name) => h.mapIds[name] ?? name)
     }
+}));
+
+// Permission guard: drive allow/deny from hoisted state.
+vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
+    checkPermission: vi.fn(() => (
+        h.permissionAllowed
+            ? { allowed: true }
+            : { allowed: false, reason: h.permissionReason }
+    )),
+    GuardAction: {
+        CREATE_MARKER_360: 'CREATE_MARKER_360',
+        DELETE_MARKER_360: 'DELETE_MARKER_360'
+    }
+}));
+
+// Store error emitter: just a spy.
+vi.mock('../../src/js/store/store-errors.js', () => ({
+    emitStoreError: vi.fn(),
+    StoreErrorEvents: { STORE_OPERATION_BLOCKED: 'store:operationBlocked' }
 }));
 
 vi.mock('../../src/js/events', () => ({
@@ -120,6 +147,8 @@ import {
 import { setStreetview360Compat } from '../../src/js/store/repositories/index.js';
 import { validateImageFile } from '../../src/js/utilities/image_utils.js';
 import { logOrientation360Operation, logMarker360Operation, OperationType } from '../../src/js/store/sync/index.js';
+import { emitStoreError } from '../../src/js/store/store-errors.js';
+import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
 
 // ============================================================================
@@ -156,6 +185,7 @@ beforeEach(() => {
     h.currentMapName = 'TestMap';
     h.currentMapId = 'map-uuid-123';
     h.uuidCounter = 0;
+    h.permissionAllowed = true;
     localStorageMock._reset();
 
     // Reset the shared memory cache to "no map cached" between tests.
@@ -573,10 +603,12 @@ describe('updateMarker360', () => {
         await updateMarker360(marker.id, { properties: { nome: 'Renamed' } });
 
         expect(logMarker360Operation).toHaveBeenCalledTimes(1);
-        const [op, id, mapName, current, previous] = logMarker360Operation.mock.calls[0];
+        const [op, id, mapId, current, previous] = logMarker360Operation.mock.calls[0];
         expect(op).toBe(OperationType.UPDATE);
         expect(id).toBe(marker.id);
-        expect(mapName).toBe('TestMap'); // NOTE: marker ops use mapName, orientation ops use mapId
+        // Marker ops carry the map UUID, exactly like the orientation ops: the pre-flush
+        // guard drops non-UUID mapIds, so a map NAME here means the op never syncs.
+        expect(mapId).toBe('map-uuid-123');
         expect(current.properties.nome).toBe('Renamed');
         expect(previous.properties.nome).toBe('Ponto A'); // deep-cloned pre-update snapshot
     });
@@ -614,10 +646,10 @@ describe('removeMarker360', () => {
         const stored = h.store.get('TestMap').markers[0];
         expect(stored.sync.deleted).toBe(true);
 
-        const [op, id, mapName, newArg, previous] = logMarker360Operation.mock.calls[0];
+        const [op, id, mapId, newArg, previous] = logMarker360Operation.mock.calls[0];
         expect(op).toBe(OperationType.DELETE);
         expect(id).toBe(marker.id);
-        expect(mapName).toBe('TestMap');
+        expect(mapId).toBe('map-uuid-123');
         expect(newArg).toBeNull();
         expect(previous.sync.deleted).toBe(false); // snapshot before deletion
     });
@@ -883,5 +915,195 @@ describe('loadStreetview360DataToMemory / clearStreetview360Cache', () => {
         expect(memoryStore.streetview360.orientations['a.jpg'].lon).toBe(88);
         // And getOrientation reads the cached value.
         expect((await getOrientation('a.jpg')).lon).toBe(88);
+    });
+});
+
+// ============================================================================
+// Sync mapId contract: every write entry must tag the op with the map UUID
+// ============================================================================
+
+describe('sync mapId contract', () => {
+    /** Seeds one active marker (with one image) directly into a map's store. */
+    function seedMarker(mapName) {
+        seedMap(mapName, {
+            orientations: {},
+            markers: [{
+                id: 'm1', photoName: 'photo-1.jpg', position: { heading: 0, pitch: 0, distance: 5 },
+                properties: { nome: 'Seed' }, style: {}, images: [{ id: 'img-1' }],
+                createdAt: 1, updatedAt: 1, sync: { version: 1, deleted: false }
+            }]
+        });
+    }
+
+    /**
+     * Drives every 360 write entry that resolves its own map key, and returns the mapId
+     * argument each one passed. A NEW write entry must be added here too — that is the
+     * point of sweeping instead of asserting a single call site.
+     * @param {string} mapName - Target map name
+     * @returns {Promise<string[]>} The mapId argument of each logged marker op
+     */
+    async function collectMarkerOpMapIds(mapName) {
+        seedMarker(mapName);
+        logMarker360Operation.mockClear();
+
+        expect(await updateMarker360('m1', { properties: { nome: 'X' } }, mapName)).not.toBeNull();
+        expect(await removeMarker360Image('m1', 'img-1', mapName)).toBe(true);
+        expect(await removeMarker360('m1', mapName)).toBe(true);
+
+        seedMarker(mapName);
+        expect(await removeMarkers360ByPhoto('photo-1.jpg', mapName)).toBe(1);
+
+        return logMarker360Operation.mock.calls.map(call => call[2]);
+    }
+
+    it('tags update/remove/image ops with the map UUID, never the map name', async () => {
+        const mapIds = await collectMarkerOpMapIds('TestMap');
+
+        // update + image detach + remove + bulk DELETE
+        expect(mapIds).toHaveLength(4);
+        expect(mapIds.every(id => id === 'map-uuid-123')).toBe(true);
+        expect(mapIds).not.toContain('TestMap');
+    });
+
+    it('resolves the EXPLICIT target map, not the current one (cross-map edge case)', async () => {
+        const mapIds = await collectMarkerOpMapIds('OtherMap');
+
+        expect(mapIds).toHaveLength(4);
+        // getCurrentMapId() would have produced 'map-uuid-123'; the raw name, 'OtherMap'.
+        expect(mapIds.every(id => id === 'map-uuid-999')).toBe(true);
+    });
+
+    it('falls back to the raw key for an unresolved map name (no silent undefined)', async () => {
+        const mapIds = await collectMarkerOpMapIds('UnknownMap');
+
+        expect(mapIds).toHaveLength(4);
+        expect(mapIds.every(id => id === 'UnknownMap')).toBe(true);
+    });
+});
+
+// ============================================================================
+// removeMarkers360ByPhoto — bulk delete must emit one DELETE op per marker
+// ============================================================================
+
+describe('removeMarkers360ByPhoto sync ops', () => {
+    it('logs one DELETE per removed marker, with the pre-delete snapshot', async () => {
+        const a = await addMarker360('photo-1.jpg', makeMarkerData());
+        const b = await addMarker360('photo-1.jpg', makeMarkerData());
+        const other = await addMarker360('photo-2.jpg', makeMarkerData());
+        logMarker360Operation.mockClear();
+
+        const removed = await removeMarkers360ByPhoto('photo-1.jpg');
+        expect(removed).toBe(2);
+
+        expect(logMarker360Operation).toHaveBeenCalledTimes(2);
+        const calls = logMarker360Operation.mock.calls;
+        expect(calls.map(c => c[0])).toEqual([OperationType.DELETE, OperationType.DELETE]);
+        expect(calls.map(c => c[1]).sort()).toEqual([a.id, b.id].sort());
+        expect(calls.every(c => c[2] === 'map-uuid-123')).toBe(true);
+        expect(calls.every(c => c[3] === null)).toBe(true);
+        // oldData is the state BEFORE the soft delete (snapshot, not the live object).
+        expect(calls.every(c => c[4].sync.deleted === false)).toBe(true);
+        // The other photo's marker is untouched.
+        expect(calls.map(c => c[1])).not.toContain(other.id);
+    });
+
+    it('logs nothing when no marker matches (edge: empty selection)', async () => {
+        await addMarker360('photo-1.jpg', makeMarkerData());
+        logMarker360Operation.mockClear();
+
+        expect(await removeMarkers360ByPhoto('photo-X.jpg')).toBe(0);
+        expect(logMarker360Operation).not.toHaveBeenCalled();
+    });
+
+    it('logs nothing on a second pass over already-deleted markers (no duplicate DELETEs)', async () => {
+        await addMarker360('photo-1.jpg', makeMarkerData());
+        await removeMarkers360ByPhoto('photo-1.jpg');
+        logMarker360Operation.mockClear();
+
+        expect(await removeMarkers360ByPhoto('photo-1.jpg')).toBe(0);
+        expect(logMarker360Operation).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// Permission gate — a denied write must NEVER reach persistence or the op queue
+// ============================================================================
+
+describe('permission gate on 360 writes', () => {
+    const fakeFile = () => ({ name: 'shot.png', type: 'image/png', size: 1234 });
+
+    /** Drives every write entry once; returns each one's value. */
+    async function runAllWrites() {
+        return {
+            saveOrientation: await saveOrientation('photo-1.jpg', makeOrientation()),
+            clearOrientation: await clearOrientation('photo-1.jpg'),
+            addMarker360: await addMarker360('photo-1.jpg', makeMarkerData()),
+            updateMarker360: await updateMarker360('m1', { properties: { nome: 'x' } }),
+            removeMarker360: await removeMarker360('m1'),
+            removeMarkers360ByPhoto: await removeMarkers360ByPhoto('photo-1.jpg'),
+            addMarker360Image: await addMarker360Image('m1', fakeFile()),
+            removeMarker360Image: await removeMarker360Image('m1', 'img-1')
+        };
+    }
+
+    it('blocks every write: no persistence, no sync op, STORE_OPERATION_BLOCKED emitted', async () => {
+        // Seed directly so a blocked write has real data it COULD have touched.
+        seedMap('TestMap', {
+            orientations: {
+                'photo-1.jpg': { id: 'o1', photoName: 'photo-1.jpg', lon: 1, lat: 2, fov: 3, sync: { version: 1, deleted: false } }
+            },
+            markers: [{
+                id: 'm1', photoName: 'photo-1.jpg', position: {}, properties: {}, style: {},
+                images: [{ id: 'img-1' }], sync: { version: 1, deleted: false }
+            }]
+        });
+        h.permissionAllowed = false;
+
+        const results = await runAllWrites();
+
+        expect(setStreetview360Compat).not.toHaveBeenCalled();
+        expect(logOrientation360Operation).not.toHaveBeenCalled();
+        expect(logMarker360Operation).not.toHaveBeenCalled();
+
+        // One blocked event per write entry, all carrying the guard's reason.
+        expect(emitStoreError).toHaveBeenCalledTimes(8);
+        expect(emitStoreError.mock.calls.every(([type, payload]) => (
+            type === 'store:operationBlocked' && payload.reason === h.permissionReason
+        ))).toBe(true);
+        expect(emitStoreError.mock.calls.map(([, p]) => p.operation).sort()).toEqual([
+            'addMarker360', 'addMarker360Image', 'clearOrientation', 'removeMarker360',
+            'removeMarker360Image', 'removeMarkers360ByPhoto', 'saveOrientation', 'updateMarker360'
+        ]);
+
+        // Neutral returns match each signature (a truthy return would make the UI lie).
+        expect(results.saveOrientation).toBeUndefined();
+        expect(results.clearOrientation).toBe(false);
+        expect(results.addMarker360).toBeNull();
+        expect(results.updateMarker360).toBeNull();
+        expect(results.removeMarker360).toBe(false);
+        expect(results.removeMarkers360ByPhoto).toBe(0);
+        expect(results.addMarker360Image).toBeNull();
+        expect(results.removeMarker360Image).toBe(false);
+    });
+
+    it('gates through checkPermission (hierarchical), never a closed role list', async () => {
+        h.permissionAllowed = false;
+        await runAllWrites();
+
+        const actions = [...new Set(checkPermission.mock.calls.map(([action]) => action))].sort();
+        // Only the two capability keys: Manager/Owner/Admin pass via canEdit/canDelete,
+        // which is exactly what a closed `role === 'editor'` list would have broken.
+        expect(actions).toEqual(['CREATE_MARKER_360', 'DELETE_MARKER_360']);
+        expect(checkPermission).toHaveBeenCalledTimes(8);
+    });
+
+    it('allows every write when the guard permits (no false blocking)', async () => {
+        h.permissionAllowed = true;
+
+        const marker = await addMarker360('photo-1.jpg', makeMarkerData());
+        expect(marker).not.toBeNull();
+        expect(await updateMarker360(marker.id, { properties: { nome: 'ok' } })).not.toBeNull();
+        expect(await removeMarker360(marker.id)).toBe(true);
+        expect(emitStoreError).not.toHaveBeenCalled();
     });
 });

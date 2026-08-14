@@ -279,25 +279,43 @@ export class LocalRepository {
     async deleteMap(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
 
-        const removals = [
-            mapStore.removeItem(resolvedKey),
-            groupStore.removeItem(resolvedKey),
-            layerStore.removeItem(`layers_${resolvedKey}`),
-            layerStore.removeItem(`activeLayer_${resolvedKey}`),
-            cesium3dStore.removeItem(`cesium3d_${resolvedKey}`),
-            streetview360Store.removeItem(`streetview360_${resolvedKey}`)
+        // Two of the side stores are keyed by map NAME, not by map key: `mapLocked_<nome>`
+        // and `temporal_<nome>` (setCurrentMap reads them by name). On the remote path the
+        // caller passes a UUID, so the name has to come from the record itself — otherwise
+        // those two survive and a NEW map with the same name is born locked and with the
+        // dead map's timeline. renameMap already transfers these side stores; only the
+        // delete was missing them.
+        const record = await mapStore.getItem(resolvedKey);
+        const mapName = record?.name || mapIdOrName;
+
+        /** Side stores keyed by the map KEY. */
+        const removeByKey = (key) => [
+            mapStore.removeItem(key),
+            groupStore.removeItem(key),
+            layerStore.removeItem(`layers_${key}`),
+            layerStore.removeItem(`activeLayer_${key}`),
+            cesium3dStore.removeItem(`cesium3d_${key}`),
+            streetview360Store.removeItem(`streetview360_${key}`),
+            commentStore.removeItem(`comments_${key}`),
+            appStore.removeItem(`map_notes_${key}`),
+            appStore.removeItem(`gridStyle_${key}`),
+            appStore.removeItem(`color_usage_${key}`)
         ];
+
+        /** Side stores keyed by the map NAME. */
+        const removeByName = (name) => [
+            appStore.removeItem(`temporal_${name}`),
+            appStore.removeItem(`mapLocked_${name}`)
+        ];
+
+        const removals = [...removeByKey(resolvedKey), ...removeByName(mapName)];
 
         // Also remove with original key if different (legacy cleanup)
         if (resolvedKey !== mapIdOrName) {
-            removals.push(
-                mapStore.removeItem(mapIdOrName),
-                groupStore.removeItem(mapIdOrName),
-                layerStore.removeItem(`layers_${mapIdOrName}`),
-                layerStore.removeItem(`activeLayer_${mapIdOrName}`),
-                cesium3dStore.removeItem(`cesium3d_${mapIdOrName}`),
-                streetview360Store.removeItem(`streetview360_${mapIdOrName}`)
-            );
+            removals.push(...removeByKey(mapIdOrName));
+        }
+        if (mapIdOrName !== mapName) {
+            removals.push(...removeByName(mapIdOrName));
         }
 
         await Promise.all(removals);

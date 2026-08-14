@@ -813,3 +813,63 @@ describe('read passthroughs', () => {
         expect(await getBriefingById('ghost')).toBeNull();
     });
 });
+
+// ============================================================================
+// Slide ops must honour the briefing write result
+// ============================================================================
+
+describe('slide ops when the briefing write is refused', () => {
+    beforeEach(() => {
+        seedBriefing({ id: 'b1', slides: [makeSlide('s1', 0), makeSlide('s2', 1)] });
+        // The gate lives in updateBriefing; the slide ops must observe its refusal.
+        h.permissionAllowed = false;
+        vi.clearAllMocks();
+    });
+
+    it('addSlide returns null, persists nothing and enqueues NO slide op', async () => {
+        const result = await addSlide('b1', { title: 'Novo slide' });
+
+        expect(result).toBeNull();
+        expect(localRepository.saveBriefing).not.toHaveBeenCalled();
+        expect(logOperation).not.toHaveBeenCalled();
+    });
+
+    it('updateSlide returns null and enqueues NO slide op', async () => {
+        const result = await updateSlide('b1', 's1', { title: 'X' });
+
+        expect(result).toBeNull();
+        expect(localRepository.saveBriefing).not.toHaveBeenCalled();
+        expect(logOperation).not.toHaveBeenCalled();
+    });
+
+    it('removeSlide returns false and enqueues NO slide op', async () => {
+        const result = await removeSlide('b1', 's1');
+
+        expect(result).toBe(false);
+        expect(localRepository.saveBriefing).not.toHaveBeenCalled();
+        expect(logOperation).not.toHaveBeenCalled();
+    });
+
+    it('reorderSlides returns false (it used to return true unconditionally)', async () => {
+        const result = await reorderSlides('b1', ['s2', 's1']);
+
+        expect(result).toBe(false);
+        expect(localRepository.saveBriefing).not.toHaveBeenCalled();
+    });
+
+    it('edge: a VANISHED briefing is refused the same way (updateBriefing → null)', async () => {
+        // Permission is fine, but the briefing is deleted between the read and the write.
+        h.permissionAllowed = true;
+        h.briefings.delete('b1');
+        // getBriefingById must still resolve, so re-seed under a different id and
+        // delete only the one updateBriefing will look for.
+        h.briefings.set('b1', { id: 'b1', name: 'b', slides: [makeSlide('s1', 0)], settings: {}, sync: {} });
+        localRepository.getBriefing.mockImplementationOnce(async (id) => h.briefings.get(id) || null)
+            .mockImplementationOnce(async () => null); // the read INSIDE updateBriefing
+
+        const result = await addSlide('b1', { title: 'Novo slide' });
+
+        expect(result).toBeNull();
+        expect(logOperation).not.toHaveBeenCalled();
+    });
+});

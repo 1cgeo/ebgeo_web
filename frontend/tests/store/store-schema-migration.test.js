@@ -344,6 +344,54 @@ describe('safelyMigrate orchestration', () => {
         expect(uuidCounter.value).toBe(0);
     });
 
+    it('leaves the DB at 2.0 (still migratable) when the chain breaks AFTER v1->v2', async () => {
+        // The expensive failure this pins: v1->v2 used to stamp the CHAIN's final version,
+        // so an interruption between steps marked the DB fully migrated and the remaining
+        // backfills never ran again — silently, since initializeRepository swallows the error.
+        await mapStore().setItem('MapaAlfa', { features: { points: [v1Point('p1')] } });
+        await appStore().setItem('schemaVersion', '1.3');
+
+        const maps = mapStore();
+        const realKeys = maps.keys.getMockImplementation();
+        // 1st keys() belongs to migrateToV2, 2nd to migrateToV2_1 → break the second step.
+        maps.keys
+            .mockImplementationOnce(realKeys)
+            .mockRejectedValueOnce(new Error('quota exceeded'));
+
+        await expect(safelyMigrate()).rejects.toThrow('quota exceeded');
+
+        // Both markers stop at the version actually reached...
+        expect(await appStore().getItem('schemaVersion')).toBe('2.0');
+        expect((await atlasStore().getItem('current_atlas')).schemaVersion).toBe('2.0');
+        // ...so the next boot still knows there is work to do.
+        const detected = await detectMigrationNeeded();
+        expect(detected.needed).toBe(true);
+        expect(detected.currentVersion).toBe('2.0');
+    });
+
+    it('completes the interrupted chain on the next run (backfill actually applied)', async () => {
+        await mapStore().setItem('MapaAlfa', { features: { points: [v1Point('p1')] } });
+        await appStore().setItem('schemaVersion', '1.3');
+
+        const maps = mapStore();
+        const realKeys = maps.keys.getMockImplementation();
+        maps.keys
+            .mockImplementationOnce(realKeys)
+            .mockRejectedValueOnce(new Error('quota exceeded'));
+        await expect(safelyMigrate()).rejects.toThrow('quota exceeded');
+
+        // Second boot: storage is healthy again.
+        maps.keys.mockImplementation(realKeys);
+        await expect(safelyMigrate()).resolves.toEqual({ success: true });
+
+        const map = await mapStore().getItem('MapaAlfa');
+        // The v2.1 backfill this whole defect was hiding: without it the point renders at
+        // MAX_POINT_RADIUS because sizeCreatedAtZoom || 0 makes the zoom diff enormous.
+        expect(map.features.points[0].properties.sizeCreatedAtZoom).toBe(10);
+        expect(await appStore().getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+        expect((await detectMigrationNeeded()).needed).toBe(false);
+    });
+
     it('rejects with the wrapped Portuguese message when a migration step throws', async () => {
         await appStore().setItem('schemaVersion', '1.3');
         // Force the v2 step to throw by making the maps store reject on keys().
@@ -476,7 +524,9 @@ describe('migrateToV2 (deep)', () => {
         const atlas = await atlasStore().getItem('current_atlas');
         expect(atlas).toBeTruthy();
         expect(atlas.name).toBe('Meu Atlas');
-        expect(atlas.schemaVersion).toBe(ATLAS_SCHEMA_VERSION);
+        // This step reaches 2.0, NOT the chain's final version: stamping the final one
+        // here made an interrupted chain look complete and skip the remaining steps.
+        expect(atlas.schemaVersion).toBe('2.0');
         // mapOrder comes from appStore.mapOrder (still keyed by map NAME at this stage).
         expect(atlas.mapOrder).toEqual(['Cidade']);
         // lastActiveMap matched a real map name -> kept.
@@ -490,9 +540,9 @@ describe('migrateToV2 (deep)', () => {
         expectFreshSync(map.sync);
     });
 
-    it('stamps the schemaVersion on the appStore', async () => {
+    it('stamps its OWN target version (2.0) on the appStore, not the chain final', async () => {
         await migrateToV2();
-        expect(await appStore().getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+        expect(await appStore().getItem('schemaVersion')).toBe('2.0');
     });
 
     it('falls back to map names for mapOrder and first map for lastActiveMapId when appStore lacks them', async () => {

@@ -18,6 +18,8 @@ import {
     logMarker360Operation,
     OperationType
 } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { deepClone } from '../utilities/deep-utils.js';
 
 // Alias for backward compatibility during migration
@@ -50,6 +52,32 @@ export function setStreetview360Dependencies({ eventBus }) {
  */
 function resolveMapName(mapName) {
     return mapName || mapManager.getCurrentMapName();
+}
+
+/**
+ * Permission gate for a 360 write. Emits STORE_OPERATION_BLOCKED when denied so the
+ * UI shows the read-only toast, and — critically — stops the caller BEFORE the op is
+ * queued: an op the server refuses (403) aborts the whole push batch and, since 403 is
+ * not a permanent rejection, the batch is retried forever, freezing outbound sync.
+ *
+ * The gate is hierarchical by construction (GuardAction → PermissionAction →
+ * sessionContext.canPerformAction), so Manager/Owner/Admin pass without any closed
+ * role list. Offline / local-only stores are always allowed (checkPermission, P1).
+ *
+ * @param {string} guardAction - Key from GuardAction
+ * @param {string} operationName - Operation label carried in the error payload
+ * @returns {boolean} True when the write may proceed
+ */
+function guardStreetview360Write(guardAction, operationName) {
+    const perm = checkPermission(guardAction);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: operationName,
+            reason: perm.reason
+        });
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -115,6 +143,11 @@ export const DEFAULT_MARKER_360_STYLE = {
  * @returns {Promise<void>}
  */
 export async function saveOrientation(photoName, orientation, mapName = null) {
+    // Orientation is a distinct entity from a marker, but it rides the same EDIT
+    // capability; a dedicated GuardAction key would need permission-guard.js, which is
+    // outside this change.
+    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'saveOrientation')) return;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -190,6 +223,8 @@ export async function hasOrientation(photoName, mapName = null) {
  * @returns {Promise<boolean>} True if orientation was removed
  */
 export async function clearOrientation(photoName, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'clearOrientation')) return false;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -244,6 +279,8 @@ export async function getAllOrientations(mapName = null) {
  * @returns {Promise<Object>} Created marker
  */
 export async function addMarker360(photoName, markerData, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'addMarker360')) return null;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -348,6 +385,8 @@ export async function getMarker360ById(markerId, mapName = null) {
  * @returns {Promise<Object|null>} Updated marker or null if not found
  */
 export async function updateMarker360(markerId, updates, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'updateMarker360')) return null;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -380,7 +419,9 @@ export async function updateMarker360(markerId, updates, mapName = null) {
         }
     }
 
-    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
+    // getMapId(targetMap), NOT the map NAME: the pre-flush guard drops any op whose
+    // mapId is not a UUID, so passing the name silently discarded every update.
+    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return marker;
@@ -393,6 +434,8 @@ export async function updateMarker360(markerId, updates, mapName = null) {
  * @returns {Promise<boolean>} True if marker was removed
  */
 export async function removeMarker360(markerId, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarker360')) return false;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -412,7 +455,7 @@ export async function removeMarker360(markerId, mapName = null) {
         }
     }
 
-    await logMarker360Operation(OperationType.DELETE, markerId, targetMap, null, previousData);
+    await logMarker360Operation(OperationType.DELETE, markerId, mapManager.getMapId(targetMap), null, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return true;
@@ -425,18 +468,22 @@ export async function removeMarker360(markerId, mapName = null) {
  * @returns {Promise<number>} Number of markers removed
  */
 export async function removeMarkers360ByPhoto(photoName, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarkers360ByPhoto')) return 0;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    let removedCount = 0;
+    /** @type {Array<{id: string, previous: Object}>} Pre-delete snapshots for the sync ops. */
+    const removed = [];
     for (const marker of data.markers) {
         if (marker.photoName === photoName && isActive(marker.sync)) {
+            const previous = deepClone(marker);
             marker.sync = markDeleted(marker.sync);
-            removedCount++;
+            removed.push({ id: marker.id, previous });
         }
     }
 
-    if (removedCount === 0) {
+    if (removed.length === 0) {
         return 0;
     }
 
@@ -450,8 +497,15 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
         }
     }
 
+    // Bulk removal is still a removal per entity: without one DELETE op each, wiping a
+    // photo's markers stayed local and peers kept showing them.
+    const mapId = mapManager.getMapId(targetMap);
+    for (const entry of removed) {
+        await logMarker360Operation(OperationType.DELETE, entry.id, mapId, null, entry.previous);
+    }
+
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return removedCount;
+    return removed.length;
 }
 
 // ===== MARKER IMAGE OPERATIONS =====
@@ -464,6 +518,8 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
  * @returns {Promise<Object|null>} Image data or null if failed
  */
 export async function addMarker360Image(markerId, file, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'addMarker360Image')) return null;
+
     const validation = validateImageFile(file);
     if (!validation.valid) {
         console.warn('Invalid image file:', validation.error);
@@ -506,7 +562,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
     }
 
     // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync to peers.
-    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
+    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return image;
@@ -531,6 +587,8 @@ export async function getMarker360Images(markerId, mapName = null) {
  * @returns {Promise<boolean>} True if image was removed
  */
 export async function removeMarker360Image(markerId, imageId, mapName = null) {
+    if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarker360Image')) return false;
+
     const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
@@ -561,7 +619,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
     }
 
     // Removing an inline image is a marker UPDATE that must sync to peers.
-    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
+    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return true;

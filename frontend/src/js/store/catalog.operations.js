@@ -11,7 +11,10 @@ import { generateUUID } from '../utilities/uuid.js';
 import { getMapDataCompat, updateMapDataCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { logCatalogLayerOperation, OperationType } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { isCurrentMapLockedSync } from './map.operations.js';
 
 /**
  * Catalog layer status.
@@ -45,6 +48,32 @@ import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
  */
 function resolveMapName(mapName) {
     return mapName || mapManager.getCurrentMapName();
+}
+
+/**
+ * Permission + map-lock gate for a catalog-layer write.
+ *
+ * A catalog-layer op the server refuses (403 for a Visualizador/Comentarista) aborts the
+ * WHOLE push batch, and 403 is deliberately not a permanent rejection, so the batch is
+ * re-sent every 1.5 s forever: never enqueue an op the user has no right to write.
+ * The gate is hierarchical by construction (GuardAction → PermissionAction →
+ * sessionContext.canPerformAction), so a co-Gestor passes without any closed role list.
+ *
+ * @param {string} operation - Operation label carried in the error payload
+ * @param {string} action - Key from GuardAction
+ * @returns {boolean} True when the write may proceed
+ */
+function guardCatalogWrite(operation, action) {
+    const perm = checkPermission(action);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation, reason: perm.reason });
+        return false;
+    }
+    if (isCurrentMapLockedSync()) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation, reason: 'map_locked' });
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -82,6 +111,8 @@ export async function getCatalogLayers(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function addCatalogLayer(layer, mapName = null) {
+    if (!guardCatalogWrite('addCatalogLayer', GuardAction.CREATE_LAYER)) return;
+
     const targetMap = resolveMapName(mapName);
     const mapData = await getMapDataCompat(targetMap);
 
@@ -113,6 +144,8 @@ export async function addCatalogLayer(layer, mapName = null) {
  * @returns {Promise<void>}
  */
 export async function removeCatalogLayer(layerId, mapName = null) {
+    if (!guardCatalogWrite('removeCatalogLayer', GuardAction.DELETE_LAYER)) return;
+
     const targetMap = resolveMapName(mapName);
     const mapData = await getMapDataCompat(targetMap);
 
@@ -137,6 +170,8 @@ export async function removeCatalogLayer(layerId, mapName = null) {
  * @returns {Promise<void>}
  */
 export async function updateCatalogLayer(layerId, updates, mapName = null) {
+    if (!guardCatalogWrite('updateCatalogLayer', GuardAction.UPDATE_LAYER)) return;
+
     const targetMap = resolveMapName(mapName);
     const mapData = await getMapDataCompat(targetMap);
 

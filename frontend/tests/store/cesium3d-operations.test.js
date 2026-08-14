@@ -17,8 +17,14 @@ const h = vi.hoisted(() => ({
     store: new Map(),
     mapManager: {
         getCurrentMapName: vi.fn(() => 'TestMap'),
-        getCurrentMapId: vi.fn(() => 'map-uuid-123')
+        getCurrentMapId: vi.fn(() => 'map-uuid-123'),
+        // Mirrors the real resolver: a known map name resolves to its UUID; anything
+        // else comes back unchanged (unresolved names stay names).
+        getMapId: vi.fn((name) => (name === 'TestMap' ? 'map-uuid-123' : name))
     },
+    // Permission gate toggle (checkPermission is allow-all offline / local-only).
+    permissionAllowed: true,
+    permissionReason: 'Permissão insuficiente (teste)',
     // memoryStore.cesium3d — null by default so getCesium3dDataWithCache always
     // loads through getCesium3dCompat (the backing store). Tests that exercise
     // the memory cache set this explicitly.
@@ -59,8 +65,24 @@ vi.mock('../../src/js/store/memory-store.js', () => ({
 }));
 
 vi.mock('../../src/js/store/store-errors.js', () => ({
-    StoreErrorEvents: { STORE_PERSIST_ERROR: 'store:persistError' },
+    StoreErrorEvents: {
+        STORE_PERSIST_ERROR: 'store:persistError',
+        STORE_OPERATION_BLOCKED: 'store:operationBlocked'
+    },
     emitStoreError: vi.fn()
+}));
+
+// Permission guard: drive allow/deny from hoisted state.
+vi.mock('../../src/js/store/sync/permission-guard.js', () => ({
+    checkPermission: vi.fn(() => (
+        h.permissionAllowed
+            ? { allowed: true }
+            : { allowed: false, reason: h.permissionReason }
+    )),
+    GuardAction: {
+        CREATE_MARKER_3D: 'CREATE_MARKER_3D',
+        DELETE_MARKER_3D: 'DELETE_MARKER_3D'
+    }
 }));
 
 vi.mock('../../src/js/utilities/image_utils.js', () => ({
@@ -139,6 +161,8 @@ import {
     logCameraPosition3dOperation
 } from '../../src/js/store/sync/index.js';
 import { isActive } from '../../src/js/store/sync/sync-metadata.js';
+import { emitStoreError } from '../../src/js/store/store-errors.js';
+import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 
 // ============================================================================
 // Helpers
@@ -174,6 +198,8 @@ beforeEach(() => {
     h.memory.cesium3d = null;
     h.mapManager.getCurrentMapName.mockReturnValue('TestMap');
     h.mapManager.getCurrentMapId.mockReturnValue('map-uuid-123');
+    h.mapManager.getMapId.mockImplementation((name) => (name === 'TestMap' ? 'map-uuid-123' : name));
+    h.permissionAllowed = true;
     eventBus.emit.mockClear();
 
     // localStorage stub (getUserDefaultStyle reads marker3d/measurement3d styles)
@@ -979,5 +1005,202 @@ describe('atomicity (persist-first, then log)', () => {
         await expect(updateViewshed(id, { observerHeight: 5 })).rejects.toThrow('write fail');
 
         expect(logViewshed3dOperation).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// BULK REMOVAL MUST SYNC — one DELETE op per removed entity
+// ============================================================================
+
+describe('bulk removal sync ops', () => {
+    it('removeAllFeaturesByTileset logs one DELETE per entity in every family', async () => {
+        const m1 = await addMarker('tsA', { position: {} });
+        const m2 = await addMarker('tsA', { position: {} });
+        const keepMarker = await addMarker('tsB', { position: {} });
+        const me1 = await addMeasurement('tsA', {});
+        const keepMeasurement = await addMeasurement('tsB', {});
+        const v1 = await addViewshed('tsA', {});
+        const v2 = await addViewshed('tsA', {});
+        const v3 = await addViewshed('tsA', {});
+        const keepViewshed = await addViewshed('tsB', {});
+        logMarker3dOperation.mockClear();
+        logMeasurement3dOperation.mockClear();
+        logViewshed3dOperation.mockClear();
+
+        await removeAllFeaturesByTileset('tsA');
+
+        expect(logMarker3dOperation).toHaveBeenCalledTimes(2);
+        expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
+        expect(logViewshed3dOperation).toHaveBeenCalledTimes(3);
+
+        const allCalls = [
+            ...logMarker3dOperation.mock.calls,
+            ...logMeasurement3dOperation.mock.calls,
+            ...logViewshed3dOperation.mock.calls
+        ];
+        // Every op is a DELETE tagged with the resolved map UUID, new=null, old=entity.
+        expect(allCalls.every(c => c[0] === 'DELETE')).toBe(true);
+        expect(allCalls.every(c => c[2] === 'map-uuid-123')).toBe(true);
+        expect(allCalls.every(c => c[3] === null)).toBe(true);
+        expect(allCalls.every(c => c[4] && c[4].id === c[1])).toBe(true);
+
+        const loggedIds = allCalls.map(c => c[1]).sort();
+        expect(loggedIds).toEqual([m1.id, m2.id, me1.id, v1.id, v2.id, v3.id].sort());
+        // Nothing from the OTHER tileset leaks into the op stream.
+        expect(loggedIds).not.toContain(keepMarker.id);
+        expect(loggedIds).not.toContain(keepMeasurement.id);
+        expect(loggedIds).not.toContain(keepViewshed.id);
+    });
+
+    it('removeAllFeaturesByTileset logs nothing when nothing matches (edge: empty)', async () => {
+        seed({ markers: [{ id: 'm1', tilesetId: 'tsB', sync: { version: 1, deleted: false } }] });
+        logMarker3dOperation.mockClear();
+
+        const result = await removeAllFeaturesByTileset('tsA');
+
+        expect(result.total).toBe(0);
+        expect(logMarker3dOperation).not.toHaveBeenCalled();
+    });
+
+    it('removeMarkersByTileset logs a DELETE per marker with the removed entity as oldData', async () => {
+        const a = await addMarker('tsA', { position: {}, properties: { nome: 'A' } });
+        const b = await addMarker('tsA', { position: {} });
+        const keep = await addMarker('tsB', { position: {} });
+        logMarker3dOperation.mockClear();
+
+        expect(await removeMarkersByTileset('tsA')).toBe(2);
+
+        expect(logMarker3dOperation).toHaveBeenCalledTimes(2);
+        const calls = logMarker3dOperation.mock.calls;
+        expect(calls.map(c => c[1]).sort()).toEqual([a.id, b.id].sort());
+        expect(calls.map(c => c[1])).not.toContain(keep.id);
+        const aCall = calls.find(c => c[1] === a.id);
+        expect(aCall[0]).toBe('DELETE');
+        expect(aCall[2]).toBe('map-uuid-123');
+        expect(aCall[4].properties.nome).toBe('A');
+    });
+
+    it('removeMeasurementsByTileset / removeViewshedsByTileset log their own family', async () => {
+        await addMeasurement('tsA', {});
+        await addViewshed('tsA', {});
+        logMeasurement3dOperation.mockClear();
+        logViewshed3dOperation.mockClear();
+
+        await removeMeasurementsByTileset('tsA');
+        expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
+        expect(logViewshed3dOperation).not.toHaveBeenCalled();
+
+        await removeViewshedsByTileset('tsA');
+        expect(logViewshed3dOperation).toHaveBeenCalledTimes(1);
+        expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves the EXPLICIT target map, not the current one (cross-map edge case)', async () => {
+        // Seed a NON-current map directly and wipe it by name.
+        h.store.set('OtherMap', {
+            cameraPositions: {}, measurements: [], viewsheds: [],
+            markers: [{ id: 'm-other', tilesetId: 'tsA', sync: { version: 1, deleted: false } }]
+        });
+        logMarker3dOperation.mockClear();
+
+        expect(await removeMarkersByTileset('tsA', 'OtherMap')).toBe(1);
+
+        // getCurrentMapId() would have produced 'map-uuid-123' — the wrong map.
+        expect(logMarker3dOperation.mock.calls[0][2]).toBe('OtherMap');
+        expect(h.mapManager.getMapId).toHaveBeenCalledWith('OtherMap');
+    });
+});
+
+// ============================================================================
+// PERMISSION GATE — a denied write must NEVER reach persistence or the op queue
+// ============================================================================
+
+describe('permission gate on 3D writes', () => {
+    /** Drives every write entry once; returns each one's value. */
+    async function runAllWrites() {
+        return {
+            saveCameraPosition: await saveCameraPosition('tsA', { longitude: 1 }, { heading: 0 }),
+            clearCameraPosition: await clearCameraPosition('tsA'),
+            addMarker: await addMarker('tsA', { position: {} }),
+            updateMarker: await updateMarker('m1', { properties: { nome: 'x' } }),
+            removeMarker: await removeMarker('m1'),
+            removeMarkersByTileset: await removeMarkersByTileset('tsA'),
+            addMarkerImage: await addMarkerImage('m1', fakeImageFile()),
+            removeMarkerImage: await removeMarkerImage('m1', 'img-1'),
+            addMeasurement: await addMeasurement('tsA', {}),
+            updateMeasurement: await updateMeasurement('me1', { properties: {} }),
+            removeMeasurement: await removeMeasurement('me1'),
+            removeMeasurementsByTileset: await removeMeasurementsByTileset('tsA'),
+            addViewshed: await addViewshed('tsA', {}),
+            updateViewshed: await updateViewshed('v1', { observerHeight: 2 }),
+            removeViewshed: await removeViewshed('v1'),
+            removeViewshedsByTileset: await removeViewshedsByTileset('tsA'),
+            removeAllFeaturesByTileset: await removeAllFeaturesByTileset('tsA')
+        };
+    }
+
+    it('blocks every write: no persistence, no sync op, STORE_OPERATION_BLOCKED emitted', async () => {
+        // Seed real data so a blocked write has something it COULD have destroyed.
+        seed({
+            markers: [{ id: 'm1', tilesetId: 'tsA', images: [{ id: 'img-1' }], sync: { version: 1, deleted: false } }],
+            measurements: [{ id: 'me1', tilesetId: 'tsA', sync: { version: 1, deleted: false } }],
+            viewsheds: [{ id: 'v1', tilesetId: 'tsA', sync: { version: 1, deleted: false } }],
+            cameraPositions: { tsA: { id: 'c1', tilesetId: 'tsA' } }
+        });
+        h.permissionAllowed = false;
+
+        const results = await runAllWrites();
+
+        expect(setCesium3dCompat).not.toHaveBeenCalled();
+        expect(logMarker3dOperation).not.toHaveBeenCalled();
+        expect(logMeasurement3dOperation).not.toHaveBeenCalled();
+        expect(logViewshed3dOperation).not.toHaveBeenCalled();
+        expect(logCameraPosition3dOperation).not.toHaveBeenCalled();
+
+        // One blocked event per write entry, all carrying the guard's reason.
+        expect(emitStoreError).toHaveBeenCalledTimes(17);
+        expect(emitStoreError.mock.calls.every(([type, payload]) => (
+            type === 'store:operationBlocked' && payload.reason === h.permissionReason
+        ))).toBe(true);
+
+        // Neutral returns match each signature (a truthy return would make the UI lie).
+        expect(results.saveCameraPosition).toBeUndefined();
+        expect(results.clearCameraPosition).toBe(false);
+        expect(results.addMarker).toBeNull();
+        expect(results.updateMarker).toBeNull();
+        expect(results.removeMarker).toBe(false);
+        expect(results.removeMarkersByTileset).toBe(0);
+        expect(results.addMarkerImage).toBeNull();
+        expect(results.removeMarkerImage).toBe(false);
+        expect(results.addMeasurement).toBeNull();
+        expect(results.updateMeasurement).toBeNull();
+        expect(results.removeMeasurement).toBe(false);
+        expect(results.removeMeasurementsByTileset).toBe(0);
+        expect(results.addViewshed).toBeNull();
+        expect(results.updateViewshed).toBeNull();
+        expect(results.removeViewshed).toBe(false);
+        expect(results.removeViewshedsByTileset).toBe(0);
+        expect(results.removeAllFeaturesByTileset).toEqual({ markers: 0, measurements: 0, viewsheds: 0, total: 0 });
+    });
+
+    it('gates through checkPermission (hierarchical), never a closed role list', async () => {
+        h.permissionAllowed = false;
+        await runAllWrites();
+
+        const actions = [...new Set(checkPermission.mock.calls.map(([action]) => action))].sort();
+        // Only the two capability keys: Manager/Owner/Admin pass via canEdit/canDelete,
+        // which is exactly what a closed `role === 'editor'` list would have broken.
+        expect(actions).toEqual(['CREATE_MARKER_3D', 'DELETE_MARKER_3D']);
+        expect(checkPermission).toHaveBeenCalledTimes(17);
+    });
+
+    it('allows every write when the guard permits (no false blocking)', async () => {
+        h.permissionAllowed = true;
+
+        const marker = await addMarker('tsA', { position: {} });
+        expect(marker).not.toBeNull();
+        expect(await updateMarker(marker.id, { properties: { nome: 'ok' } })).not.toBeNull();
+        expect(await removeMarker(marker.id)).toBe(true);
+        expect(emitStoreError).not.toHaveBeenCalled();
     });
 });

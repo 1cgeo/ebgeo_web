@@ -14,6 +14,7 @@ import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-met
 import { generateUUID } from '../utilities/uuid.js';
 import { deepClone } from '../utilities/deep-utils.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import {
     logMarker3dOperation,
     logMeasurement3dOperation,
@@ -42,6 +43,33 @@ export function setCesium3dDependencies(dependencies) {
  */
 function getTargetMapName(mapName) {
     return mapName || mapManager.getCurrentMapName();
+}
+
+/**
+ * Permission gate for a 3D write. Emits STORE_OPERATION_BLOCKED when denied so the UI
+ * shows the read-only toast, and — critically — stops the caller BEFORE the op is
+ * queued: an op the server refuses (403) aborts the whole push batch and, since 403 is
+ * not a permanent rejection, that batch is retried forever, freezing outbound sync
+ * (including the comments a Comentarista IS allowed to write).
+ *
+ * The gate is hierarchical by construction (GuardAction → PermissionAction →
+ * sessionContext.canPerformAction), so Manager/Owner/Admin pass without any closed
+ * role list. Offline / local-only stores are always allowed (checkPermission, P1).
+ *
+ * @param {string} guardAction - Key from GuardAction
+ * @param {string} operationName - Operation label carried in the error payload
+ * @returns {boolean} True when the write may proceed
+ */
+function guardCesium3dWrite(guardAction, operationName) {
+    const perm = checkPermission(guardAction);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: operationName,
+            reason: perm.reason
+        });
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -141,6 +169,8 @@ function getUserDefaultStyle(storageKey) {
  * @returns {Promise<Object|null>}
  */
 async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, logUpdate) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, `addImage:${collectionKey}`)) return null;
+
     const validation = validateImageFile(file);
     if (!validation.valid) {
         console.warn(`Invalid image: ${validation.reason}`);
@@ -219,6 +249,8 @@ async function getEntityImages(entityId, collectionKey, mapName) {
  * @returns {Promise<boolean>}
  */
 async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, mapName, logUpdate) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, `removeImage:${collectionKey}`)) return false;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -253,23 +285,35 @@ async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, 
  * @param {string} collectionKey
  * @param {string} changeEvent
  * @param {string|null} mapName
+ * @param {Function} [logDelete] - The entity family's DELETE sync logger (e.g.
+ *   logMarker3dOperation). A bulk removal is still a removal per entity: without one
+ *   DELETE op each, wiping a tileset's entities stayed local and peers kept showing them.
  * @returns {Promise<number>}
  */
-async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName) {
+async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName, logDelete) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, `removeByTileset:${collectionKey}`)) return 0;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
     if (!data[collectionKey]) return 0;
 
-    const initialLength = data[collectionKey].length;
+    // Snapshot the entities being dropped so each one can carry its own oldData.
+    const removed = data[collectionKey].filter(item => item.tilesetId === tilesetId);
     data[collectionKey] = data[collectionKey].filter(item => item.tilesetId !== tilesetId);
-    const removedCount = initialLength - data[collectionKey].length;
 
-    if (removedCount > 0) {
+    if (removed.length > 0) {
         await saveCesium3dData(targetMap, data);
         emit(changeEvent, { mapName: targetMap });
+
+        // getMapId(targetMap), NOT getCurrentMapId(): this function accepts an explicit
+        // mapName and may operate on a map that is not the active one.
+        const mapId = mapManager.getMapId(targetMap);
+        for (const entity of removed) {
+            logDelete?.(OperationType.DELETE, entity.id, mapId, null, entity);
+        }
     }
-    return removedCount;
+    return removed.length;
 }
 
 // ===== CAMERA POSITION OPERATIONS =====
@@ -284,6 +328,8 @@ async function removeByTileset(tilesetId, collectionKey, changeEvent, mapName) {
  * @returns {Promise<void>}
  */
 export async function saveCameraPosition(tilesetId, position, orientation, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'saveCameraPosition')) return;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -349,6 +395,8 @@ export async function hasSavedCameraPosition(tilesetId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function clearCameraPosition(tilesetId, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'clearCameraPosition')) return false;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -408,6 +456,8 @@ export const DEFAULT_MARKER_STYLE = {
  * @returns {Promise<Object>} Created marker
  */
 export async function addMarker(tilesetId, markerData, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMarker')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -493,6 +543,8 @@ export async function getMarkerById(markerId, mapName = null) {
  * @returns {Promise<Object|null>} Updated marker or null if not found
  */
 export async function updateMarker(markerId, updates, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMarker')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -531,6 +583,8 @@ export async function updateMarker(markerId, updates, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeMarker(markerId, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMarker')) return false;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -555,7 +609,7 @@ export async function removeMarker(markerId, mapName = null) {
  * @returns {Promise<number>} Number of markers removed
  */
 export async function removeMarkersByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName);
+    return removeByTileset(tilesetId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
 }
 
 // ===== MEMORY OPERATIONS =====
@@ -700,6 +754,8 @@ export const DEFAULT_MEASUREMENT_STYLE = {
  * @returns {Promise<Object>} Created measurement
  */
 export async function addMeasurement(tilesetId, measurementData, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMeasurement')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -791,6 +847,8 @@ export async function getMeasurementById(measurementId, mapName = null) {
  * @returns {Promise<Object|null>} Updated measurement or null if not found
  */
 export async function updateMeasurement(measurementId, updates, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMeasurement')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -828,6 +886,8 @@ export async function updateMeasurement(measurementId, updates, mapName = null) 
  * @returns {Promise<boolean>}
  */
 export async function removeMeasurement(measurementId, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMeasurement')) return false;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -892,6 +952,8 @@ export async function removeMeasurementImage(measurementId, imageId, mapName = n
  * @returns {Promise<Object>} Created viewshed
  */
 export async function addViewshed(tilesetId, viewshedData, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addViewshed')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -974,6 +1036,8 @@ export async function getViewshedById(viewshedId, mapName = null) {
  * @returns {Promise<Object|null>} Updated viewshed or null if not found
  */
 export async function updateViewshed(viewshedId, updates, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateViewshed')) return null;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -1011,6 +1075,8 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeViewshed(viewshedId, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeViewshed')) return false;
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -1074,7 +1140,7 @@ export async function removeViewshedImage(viewshedId, imageId, mapName = null) {
  * @returns {Promise<number>}
  */
 export async function removeMeasurementsByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName);
+    return removeByTileset(tilesetId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
 }
 
 /**
@@ -1085,7 +1151,7 @@ export async function removeMeasurementsByTileset(tilesetId, mapName = null) {
  * @returns {Promise<number>}
  */
 export async function removeViewshedsByTileset(tilesetId, mapName = null) {
-    return removeByTileset(tilesetId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName);
+    return removeByTileset(tilesetId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
 }
 
 /**
@@ -1096,39 +1162,57 @@ export async function removeViewshedsByTileset(tilesetId, mapName = null) {
  * @returns {Promise<{markers: number, measurements: number, viewsheds: number, total: number}>}
  */
 export async function removeAllFeaturesByTileset(tilesetId, mapName = null) {
+    if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeAllFeaturesByTileset')) {
+        return { markers: 0, measurements: 0, viewsheds: 0, total: 0 };
+    }
+
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
-    const initialMarkers = data.markers.length;
-    data.markers = data.markers.filter(m => m.tilesetId !== tilesetId);
-    const markersRemoved = initialMarkers - data.markers.length;
+    const belongs = (item) => item.tilesetId === tilesetId;
 
-    const initialMeasurements = data.measurements?.length || 0;
+    // Snapshot each family's dropped entities so every one can carry its own oldData.
+    const removedMarkers = data.markers.filter(belongs);
+    data.markers = data.markers.filter(m => !belongs(m));
+
+    const removedMeasurements = (data.measurements || []).filter(belongs);
     if (data.measurements) {
-        data.measurements = data.measurements.filter(m => m.tilesetId !== tilesetId);
+        data.measurements = data.measurements.filter(m => !belongs(m));
     }
-    const measurementsRemoved = initialMeasurements - (data.measurements?.length || 0);
 
-    const initialViewsheds = data.viewsheds?.length || 0;
+    const removedViewsheds = (data.viewsheds || []).filter(belongs);
     if (data.viewsheds) {
-        data.viewsheds = data.viewsheds.filter(v => v.tilesetId !== tilesetId);
+        data.viewsheds = data.viewsheds.filter(v => !belongs(v));
     }
-    const viewshedsRemoved = initialViewsheds - (data.viewsheds?.length || 0);
 
-    const totalRemoved = markersRemoved + measurementsRemoved + viewshedsRemoved;
+    const totalRemoved = removedMarkers.length + removedMeasurements.length + removedViewsheds.length;
 
     if (totalRemoved > 0) {
         await saveCesium3dData(targetMap, data);
 
-        if (markersRemoved > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
-        if (measurementsRemoved > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
-        if (viewshedsRemoved > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        if (removedMarkers.length > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+        if (removedMeasurements.length > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        if (removedViewsheds.length > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+
+        // Persistence → emit → log, as in removeMarker. Without a DELETE op per entity
+        // the bulk wipe stayed local and peers kept rendering the removed features.
+        const mapId = mapManager.getMapId(targetMap);
+        const families = [
+            [removedMarkers, logMarker3dOperation],
+            [removedMeasurements, logMeasurement3dOperation],
+            [removedViewsheds, logViewshed3dOperation]
+        ];
+        for (const [entities, logDelete] of families) {
+            for (const entity of entities) {
+                logDelete(OperationType.DELETE, entity.id, mapId, null, entity);
+            }
+        }
     }
 
     return {
-        markers: markersRemoved,
-        measurements: measurementsRemoved,
-        viewsheds: viewshedsRemoved,
+        markers: removedMarkers.length,
+        measurements: removedMeasurements.length,
+        viewsheds: removedViewsheds.length,
         total: totalRemoved
     };
 }
