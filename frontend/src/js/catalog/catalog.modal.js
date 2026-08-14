@@ -150,7 +150,8 @@ export class CatalogModal extends ModalBase {
 
     /**
      * Computes item counts per filter type.
-     * Includes hillshade count in analysis filter.
+     * Includes hillshade count in the analysis filter and first-person scenes in
+     * the 3D models filter, matching what each filter actually shows.
      * @private
      * @returns {Object<string, number>}
      */
@@ -163,6 +164,13 @@ export class CatalogModal extends ModalBase {
             // Include hillshade in analysis count
             if (CATALOG_TYPE_CONFIG[type]?.includesHillshade) {
                 count += this._allItems.filter(item => item.type === CATALOG_ITEM_TYPES.HILLSHADE).length;
+            }
+
+            // Include first-person scenes in the 3D models count
+            if (CATALOG_TYPE_CONFIG[type]?.includesFirstPerson) {
+                count += this._allItems.filter(
+                    item => item.type === CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE
+                ).length;
             }
 
             counts[type] = count;
@@ -213,6 +221,11 @@ export class CatalogModal extends ModalBase {
                     this._activeFilters.has(CATALOG_ITEM_TYPES.ANALYSIS_LAYER)) {
                     return true;
                 }
+                // Include first-person scenes when the 3D models filter is active
+                if (item.type === CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE &&
+                    this._activeFilters.has(CATALOG_ITEM_TYPES.MODEL_3D)) {
+                    return true;
+                }
                 return false;
             });
 
@@ -257,6 +270,9 @@ export class CatalogModal extends ModalBase {
             case CATALOG_ITEM_TYPES.MODEL_3D:
                 await this._openModel3D(item);
                 break;
+            case CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE:
+                await this._openFirstPersonScene(item);
+                break;
             case CATALOG_ITEM_TYPES.PANORAMIC_360:
                 await this._openPanoramic360(item);
                 break;
@@ -288,6 +304,29 @@ export class CatalogModal extends ModalBase {
             if (modelsViewerControl.openViewer) {
                 await modelsViewerControl.openViewer(item.originalData.id);
             }
+        }
+    }
+
+    /**
+     * Opens a first-person scene in the walk-through viewer.
+     *
+     * The viewer module carries the Gaussian-splatting runtime, so it is only
+     * pulled in on demand, the same lazy pattern the 360 viewer uses here. It
+     * needs no map control and no tool toggle: the scene replaces the map view
+     * and persists nothing.
+     * @private
+     * @param {CatalogItem} item
+     */
+    async _openFirstPersonScene(item) {
+        this.hide();
+
+        try {
+            const { openFirstPersonViewer } = await import(
+                '@js/first_person_3d_tool/first_person_viewer.js'
+            );
+            await openFirstPersonViewer(item.originalData.id);
+        } catch (error) {
+            console.error('Error opening first-person viewer from catalog:', error);
         }
     }
 

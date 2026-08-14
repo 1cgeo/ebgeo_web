@@ -1,0 +1,571 @@
+/* Path: css/first-person-3d.css */
+
+/* =========================================================================
+   FIRST PERSON 3D (GAUSSIAN SPLATTING) — "fp3d" BLOCK
+
+   Dark full-screen viewer, same footprint as the 360 and the Cesium 3D
+   viewers: it starts after the collapsed sidebar and owns the rest of the
+   window. Every visual here comes from the museu-gs prototype, where it
+   lived as inline style.cssText; the numbers were kept, the mechanism was
+   not.
+
+   Colours come from the house palette (--primary and friends). The purple
+   that identifies this module lives on the 2D map pin only; see the note in
+   the token block below.
+   ========================================================================= */
+
+:root {
+    /* NO MODULE ACCENT COLOUR, on purpose.
+     *
+     * The purple #7B52D3 belongs to the PIN on the 2D map and nowhere else.
+     * There it does a job: it separates a walkable scene from a Cesium tileset
+     * and from a 360 photo at a glance. Inside the viewer it has no job, and
+     * paying the chrome a second brand colour is how an app stops looking like
+     * one app. The 360 and Cesium viewers make the same choice — their
+     * toolbars, close buttons and focus rings are all --primary — so this one
+     * follows, and every control below reads from the house palette. */
+
+    /* Scene background. Slightly warm near-black: pure #000 makes the splat
+       edges look cut out, this reads as unlit room. */
+    --fp3d-scene-bg: #101012;
+    --fp3d-text: #e8e8ea;
+
+    /* Measurement overlay (amber), kept from the prototype: it must not be
+       confused with the marker labels drawn in the same frame. */
+    --fp3d-measure-color: #ffcf4d;
+    --fp3d-measure-text: #ffe6a8;
+
+    /* Stacking inside the viewer's own isolated context. Small, local and
+       independent from the global --z-* scale. */
+    --fp3d-layer-overlay: 1;
+    --fp3d-layer-labels: 2;
+    --fp3d-layer-loading: 6;
+}
+
+/* =========================================================================
+   CONTAINER
+   ========================================================================= */
+
+/* Everything below keys off CLASSES only, never off the #ids in index.html.
+   An id beats any modifier class, so `#first-person-container { display:none }`
+   would make `.fp3d-container--open` unable to ever show the viewer. The ids
+   stay for JS to find the nodes; the classes carry the paint. */
+
+/* Hidden until the viewer is opened; the opener adds --open. */
+.fp3d-container {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-collapsed-width);
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--fp3d-scene-bg);
+    color: var(--fp3d-text);
+    font-family: var(--font-family-base);
+    z-index: var(--z-3d-viewer);
+
+    /* Own stacking context: the overlays below use tiny z-index values and
+       must never leak over the sidebar or the modals. */
+    isolation: isolate;
+}
+
+.fp3d-container--open {
+    display: block;
+}
+
+/* Sidebar and modals stay reachable over the viewer, exactly as in 2D. */
+body.first-person-active .sidebar-container {
+    z-index: 300;
+}
+
+body.first-person-active .modal-overlay {
+    z-index: 400;
+}
+
+/* =========================================================================
+   CANVAS
+   ========================================================================= */
+
+.fp3d-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* The measuring cursor. Turning the view is a drag, so the scene always has a
+   real cursor and this is the only thing that changes it. */
+.fp3d-container--measuring .fp3d-canvas {
+    cursor: crosshair;
+}
+
+/* =========================================================================
+   LOADING SCREEN
+
+   The app's standard loading, not one of this module's own: green ground, the
+   EBGeo mark and the progress bar, exactly like the boot screen and the Cesium
+   viewer. The inner chrome reuses the `loading-3d-*` classes from panels-3d.css
+   — despite the name they are the shared viewer-loading blocks, and a fourth
+   copy of a 200px bar is not worth owning.
+
+   Opaque, not translucent: the splat pops in half-sorted for the first few
+   frames and the visitor should not watch that happen.
+   ========================================================================= */
+
+.fp3d-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--primary-color);
+    color: #fff;
+    padding: var(--space-6);
+    z-index: var(--fp3d-layer-loading);
+}
+
+/* The stage line ("Carregando o modelo 3D…"). The boot screen has none because
+   it has one stage; here the splat, the octree and the scene setup are three
+   waits, and the largest is a 20 MB download. */
+.fp3d-loading__message {
+    margin-top: var(--space-4);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    opacity: 0.9;
+}
+
+/* =========================================================================
+   MARKER LABELS
+
+   HTML projected over the canvas, not 3D geometry: it costs nothing in the
+   render and the text stays legible at any distance. The layer never takes
+   a click; each label opts in with --interactive.
+
+   left/top and opacity are written per frame by JS (projected position and
+   fade by distance) — those are the runtime-computed exception.
+   ========================================================================= */
+
+.fp3d-labels {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: var(--fp3d-layer-labels);
+}
+
+.fp3d-label {
+    position: absolute;
+    display: block;
+    transform: translate(-50%, -50%);
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--primary);
+    color: #fff;
+    font: inherit;
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+
+    /* No transition on transform: the label is repositioned every frame and
+       any easing would turn the walk into a smear. */
+    transition: background var(--transition-fast);
+}
+
+/* Clicking is switched off while the measuring tape owns the cursor. */
+.fp3d-label--interactive {
+    pointer-events: auto;
+}
+
+.fp3d-label--interactive:hover {
+    background: var(--primary-dark);
+}
+
+.fp3d-label--interactive:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+/* Off-screen, too far, occluded by a wall, or covered by a nearer label. */
+.fp3d-label--hidden {
+    display: none;
+}
+
+/* =========================================================================
+   MARKER CARD — NOT DEFINED HERE, ON PURPOSE
+
+   A scene marker opens the APPLICATION feature panel, the same one 2D, Cesium
+   and 360 open, in the same place and with the same chrome. Its styles live in
+   sidebar.css (.feature-identification, .feature-photo-gallery,
+   .feature-location-section) and design-tokens.css; the content that fills it
+   is built by components/marker-panel-fp.js.
+
+   An earlier version drew a dark card of its own, floating in the top-right of
+   the viewer. It was replaced because a second panel geometry teaches the user
+   nothing they can reuse anywhere else in the app.
+
+   The only rule this module still needs is the read-only override below: the
+   borrowed classes carry editing affordances (a name that looks clickable, a
+   description that highlights on hover) and this content cannot be edited. An
+   edit cue for something uneditable is worse than none. */
+.marker-fp-panel-content .marker-fp-name,
+.marker-fp-panel-content .marker-fp-text {
+    cursor: default;
+}
+
+.marker-fp-panel-content .marker-fp-name:hover {
+    background: transparent;
+}
+
+.marker-fp-panel-content .marker-fp-text:hover,
+.marker-fp-panel-content .feature-location-text:hover {
+    color: var(--gray-600);
+}
+
+/* ONE photo, not a gallery of attachments, so the house 3-column grid collapses
+   to a single centred column. */
+.marker-fp-panel-content .marker-fp-photo-grid {
+    grid-template-columns: 1fr;
+    justify-items: center;
+}
+
+/* Tall enough to actually look at the piece. The house card is a square
+   thumbnail because it shows several attachments side by side; here the photo is
+   the reason the card exists. */
+.marker-fp-panel-content .marker-fp-photo-card {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: var(--gray-50);
+}
+
+/* `contain`, not the gallery's `cover`: cropping the only photo of an instrument
+   to fill a box cuts the instrument. Letterboxing against the panel background
+   is the lesser cost. */
+.marker-fp-panel-content .marker-fp-photo-card img {
+    object-fit: contain;
+}
+
+/* =========================================================================
+   MEASUREMENT OVERLAY
+
+   SVG for the lines and the discs, HTML for the distance pills. Drawn over
+   the canvas so the measurement never enters the splat render and the text
+   stays sharp. Geometry attributes (x1/y1/cx/cy/r) stay in JS; everything
+   that is paint lives here.
+   ========================================================================= */
+
+.fp3d-measure {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: var(--fp3d-layer-overlay);
+}
+
+.fp3d-measure__line {
+    stroke: var(--fp3d-measure-color);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    opacity: 0.95;
+}
+
+/* The segment still following the cursor. */
+.fp3d-measure__line--pending {
+    stroke-dasharray: 7 5;
+}
+
+.fp3d-measure__point {
+    fill: var(--fp3d-scene-bg);
+    stroke: var(--fp3d-measure-color);
+    stroke-width: 2.5;
+}
+
+/* The point under the cursor is a ring, not a disc: it is a preview, not a
+   fixed vertex yet. */
+.fp3d-measure__point--preview {
+    fill: none;
+    opacity: 0.9;
+}
+
+/* Behind a wall — still drawn, so the polyline does not break, but faded. */
+.fp3d-measure__point--occluded {
+    opacity: 0.45;
+}
+
+.fp3d-measure-labels {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: var(--fp3d-layer-labels);
+}
+
+.fp3d-measure__pill {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: rgba(12, 12, 14, 0.92);
+    color: var(--fp3d-measure-text);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* The running total of a polyline with three points or more. It sits above the
+   last vertex, among the per-leg pills, so it has to read as the sum rather
+   than as one more leg: brighter, heavier, and outlined in the measure colour. */
+.fp3d-measure__pill--total {
+    border: var(--border-width) solid var(--fp3d-measure-color);
+    background: rgba(12, 12, 14, 0.98);
+    color: #fff;
+    font-weight: var(--font-weight-semibold);
+}
+
+/* =========================================================================
+   MODULE UTILITY
+   ========================================================================= */
+
+.fp3d-hidden {
+    display: none !important;
+}
+
+/* =========================================================================
+   TOOLBAR — VERTICAL, RIGHT SIDE
+
+   Same shape and rhythm as the 360 and 3D toolbars, so the three viewers
+   feel like one product.
+   ========================================================================= */
+
+.toolbar-fp {
+    position: fixed;
+    top: 80px;
+    right: var(--space-4);
+    display: none;
+    flex-direction: column;
+    gap: var(--space-2);
+    z-index: var(--z-3d-controls);
+}
+
+.toolbar-fp--visible {
+    display: flex;
+}
+
+.button-tool-fp {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    border: none;
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--gray-600);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    transition:
+        background var(--transition-normal),
+        box-shadow var(--transition-normal),
+        transform var(--transition-normal),
+        color var(--transition-normal);
+}
+
+.button-tool-fp:hover {
+    background: var(--gray-50);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.button-tool-fp:active {
+    transform: scale(0.95);
+}
+
+.button-tool-fp:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.button-tool-fp--active {
+    background: var(--primary);
+    color: #fff;
+}
+
+.button-tool-fp svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentcolor;
+    fill: none;
+    transition: stroke var(--transition-normal);
+}
+
+.button-tool-fp--active svg {
+    stroke: #fff;
+}
+
+.button-tool-fp:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Tooltip on the left, away from the window edge. */
+.button-tool-fp::after {
+    content: attr(aria-label);
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 10px);
+    transform: translateY(-50%);
+    padding: var(--space-1) 10px;
+    border-radius: 6px;
+    background: var(--gray-900);
+    color: #fff;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transition: opacity var(--transition-normal);
+}
+
+.button-tool-fp:hover::after {
+    opacity: 1;
+}
+
+.toolbar-fp-separator {
+    width: var(--space-8);
+    height: 1px;
+    margin: var(--space-1) auto;
+    background: var(--gray-300);
+}
+
+/* =========================================================================
+   CLOSE BUTTON
+   ========================================================================= */
+
+.close-first-person-button {
+    position: fixed;
+    top: var(--space-4);
+    right: var(--space-4);
+    display: none;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-4);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: #fff;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    z-index: var(--z-3d-controls);
+    transition:
+        background var(--transition-normal),
+        box-shadow var(--transition-normal),
+        transform var(--transition-normal);
+}
+
+.close-first-person-button--visible {
+    display: flex;
+}
+
+.close-first-person-button:hover {
+    background: var(--primary-dark);
+    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    transform: translateY(-1px);
+}
+
+.close-first-person-button:active {
+    transform: translateY(0) scale(0.98);
+}
+
+.close-first-person-button:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+}
+
+.close-first-person-button svg {
+    width: var(--space-4);
+    height: var(--space-4);
+    stroke: currentcolor;
+    flex-shrink: 0;
+}
+
+.close-first-person-button span {
+    line-height: 1;
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 768px) {
+    .fp3d-container {
+        left: 0;
+    }
+
+    .toolbar-fp {
+        top: auto;
+        right: var(--space-4);
+        bottom: var(--space-4);
+        flex-direction: row;
+    }
+
+    .toolbar-fp-separator {
+        width: 1px;
+        height: var(--space-8);
+        margin: 0 var(--space-1);
+    }
+
+    .button-tool-fp::after {
+        top: auto;
+        right: 50%;
+        bottom: calc(100% + 10px);
+        transform: translateX(50%);
+    }
+
+    .close-first-person-button {
+        padding: var(--space-2) var(--space-3);
+        font-size: 13px;
+    }
+
+    .close-first-person-button span {
+        display: none;
+    }
+}
+
+/* =========================================================================
+   ACCESSIBILITY
+   ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+    .fp3d-label,
+    .button-tool-fp,
+    .close-first-person-button {
+        transition: none;
+    }
+}
+
+@media (prefers-contrast: more) {
+    .button-tool-fp {
+        border: 2px solid currentcolor;
+    }
+
+    .fp3d-label {
+        border: 1px solid #fff;
+    }
+
+    .fp3d-measure__pill {
+        background: #000;
+    }
+}

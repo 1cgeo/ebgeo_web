@@ -6,6 +6,10 @@
  */
 
 import config from '@js/config.js';
+import {
+    FIRST_PERSON_VIEWER,
+    getFirstPersonScenes
+} from '@js/first_person_3d_tool/scene-config.service.js';
 import { getCurrentMapFeatures } from '@store/feature.operations.js';
 import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operations.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
@@ -203,18 +207,44 @@ export async function searchLocalFeatures(query) {
 }
 
 /**
- * Searches 3D models from config.
+ * Searches 3D products from config: Cesium tilesets plus first-person (Gaussian
+ * splatting) scenes. Both come back as `'3d-model'` so they keep the same icon
+ * and the same `data-type` styling in the dropdown; the `viewer` field is the
+ * discriminator that tells the click handler which viewer to open —
+ * 'cesium' carries `tilesetId`, 'firstPerson' carries `sceneId`.
+ *
+ * The two halves PARTITION a single list. Scenes are catalog rows inside
+ * `config.tilesets` carrying `viewer: 'firstPerson'`, so the tileset half has to
+ * exclude them explicitly: otherwise every scene appears twice, and the copy
+ * that reaches the Cesium viewer hands it an id with no tileset behind it.
+ *
+ * Each source is capped at MAX_RESULTS.models3d on its own, so a long tileset
+ * list can never crowd the scenes out of the dropdown (and vice versa).
+ *
  * @param {string} query - Search query
  * @returns {Array} Search results
  */
 export function search3DModels(query) {
-    if (!config.tilesets || config.tilesets.length === 0) {
+    const normalizedQuery = query.toLowerCase();
+
+    return [
+        ...searchTilesets3D(normalizedQuery),
+        ...searchFirstPersonScenes(normalizedQuery)
+    ];
+}
+
+/**
+ * Searches Cesium 3D tilesets from config, first-person scenes excluded.
+ * @param {string} normalizedQuery - Lowercase search query
+ * @returns {Array} Search results
+ */
+function searchTilesets3D(normalizedQuery) {
+    if (!Array.isArray(config.tilesets) || config.tilesets.length === 0) {
         return [];
     }
 
-    const normalizedQuery = query.toLowerCase();
-
     return config.tilesets
+        .filter(tileset => tileset?.viewer !== FIRST_PERSON_VIEWER)
         .filter(tileset =>
             tileset.name?.toLowerCase().includes(normalizedQuery) ||
             tileset.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
@@ -222,10 +252,34 @@ export function search3DModels(query) {
         .slice(0, MAX_RESULTS.models3d)
         .map(tileset => ({
             type: '3d-model',
+            viewer: 'cesium',
             name: tileset.name,
             tilesetId: tileset.id,
             coordinates: tileset.locate ? [tileset.locate.lon, tileset.locate.lat] : null,
             dataCaptura: tileset.data_captura,
+        }));
+}
+
+/**
+ * Searches first-person (Gaussian splatting) scenes from config.
+ * Returns an empty array when no usable scene is configured.
+ * @param {string} normalizedQuery - Lowercase search query
+ * @returns {Array} Search results
+ */
+function searchFirstPersonScenes(normalizedQuery) {
+    return getFirstPersonScenes()
+        .filter(scene =>
+            scene.name?.toLowerCase().includes(normalizedQuery) ||
+            scene.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
+        )
+        .slice(0, MAX_RESULTS.models3d)
+        .map(scene => ({
+            type: '3d-model',
+            viewer: 'firstPerson',
+            name: scene.name,
+            sceneId: scene.id,
+            coordinates: scene.locate ? [scene.locate.lon, scene.locate.lat] : null,
+            dataCaptura: scene.data_captura || null,
         }));
 }
 

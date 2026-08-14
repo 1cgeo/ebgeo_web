@@ -252,10 +252,19 @@ function createAddCard(fileInput) {
 
 /**
  * Opens full-screen image viewer with navigation and download.
+ *
+ * Exported because it is the app's ONE lightbox: download button, styled close,
+ * arrow-key navigation and a counter. Read-only callers outside this gallery
+ * (the first-person marker card, for one) reuse it rather than growing a fourth
+ * hand-rolled overlay: the repo already carries two simpler copies.
+ *
+ * `imageData` needs only `data` (anything `img.src` and `<a download>` accept,
+ * including a plain same-origin URL) and `name` (the download filename).
+ *
  * @param {Object} imageData - Image data object
  * @param {Array<Object>} [allImages=[]] - All images for navigation
  */
-function openImageViewer(imageData, allImages = []) {
+export function openImageViewer(imageData, allImages = []) {
     _viewerImages = allImages.length > 1 ? allImages : null;
     let currentIndex = _viewerImages
         ? _viewerImages.findIndex(i => i.id === imageData.id)

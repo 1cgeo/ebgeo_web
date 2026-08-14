@@ -18,11 +18,13 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
+import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
 import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl } from './store';
 import { sessionContext } from '@store/sync/session-context.js';
 import { openRemoteAtlas } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
+import { shouldRouteToProjects } from './deep-link/route-decision.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
@@ -52,13 +54,14 @@ async function initApp() {
     // Phase -1: page routing. A signed-in visitor arriving at a bare `/` is here to CHOOSE a
     // project, so send them to the chooser page BEFORE building a map they did not ask for — that
     // is the whole point of `projetos.html` being a page. Everything else stays on the map: a deep
-    // link (`?atlas`/`?atlasPublico`), a one-shot `?verify`, an explicit "Mapa local", or nobody
-    // signed in at all.
+    // link (`?atlas`/`?atlasPublico`, or a `#view=` viewer link), a one-shot `?verify`, an explicit
+    // "Mapa local", or nobody signed in at all. The rule itself lives in `route-decision.js`, where
+    // a test can reach it.
     //
     // Reads the token WITHOUT validating it: validation costs a round trip, and `projetos.html`
     // validates on arrival anyway — a token the server rejects is cleared there and the page sends
     // the user back here, now anonymous. That is what keeps the two redirects from ping-ponging.
-    if (shouldRouteToProjects(bootAtlasLink, bootPublicLink)) {
+    if (shouldRouteToProjects(bootAtlasLink, bootPublicLink, apiClient.hasStoredTokens())) {
         window.location.replace('./projetos.html');
         return;
     }
@@ -249,26 +252,6 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
     }
 }
 
-/**
- * Whether this boot should hand over to the project chooser page instead of building a map.
- *
- * True only for a signed-in visitor at a bare `/`. Every other case belongs on the map:
- *   - `?atlas=` / `?atlasPublico=` — the URL already names what to open;
- *   - `?verify=` — a one-shot e-mail confirmation that must be consumed here;
- *   - "Mapa local" — an explicit, tab-scoped choice to work without a server project;
- *   - anonymous — the map IS the product for someone not signed in.
- *
- * @param {{atlasId: string}|null} atlasLink - The parsed `?atlas=` deep link, if any.
- * @param {string|null} publicLink - The `?atlasPublico=` link, if any.
- * @returns {boolean}
- */
-function shouldRouteToProjects(atlasLink, publicLink) {
-    if (atlasLink || publicLink) return false;
-    if (new URLSearchParams(window.location.search).has('verify')) return false;
-    if (hasLocalMapIntent()) return false;
-    return apiClient.hasStoredTokens();
-}
-
 /** Why a session ended on another page, and how to say it here. */
 const ENDED_SESSION_MESSAGES = Object.freeze({
     inatividade: 'Sua sessão expirou por inatividade. Entre novamente.',
@@ -433,6 +416,17 @@ window.addEventListener('beforeunload', () => {
         cleanup3DFeatures();
     } catch (error) {
         console.warn('Cesium cleanup error:', error);
+    }
+
+    // First-person scene. The barrel wrapper is async (it dynamically imports the
+    // viewer), so a failure surfaces as a rejected promise, not as a throw: the
+    // try/catch alone would let it escape as an unhandled rejection.
+    try {
+        Promise.resolve(cleanupFirstPersonFeatures()).catch(error => {
+            console.warn('First-person cleanup error:', error);
+        });
+    } catch (error) {
+        console.warn('First-person cleanup error:', error);
     }
 });
 

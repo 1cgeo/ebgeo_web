@@ -14,6 +14,7 @@
     "sv360:import": "node --env-file-if-exists=.env scripts/sv360-import.js",
     "sv360:captured-at": "node --env-file-if-exists=.env scripts/sv360-import-captured-at.js",
     "sv360:derive-runs": "node --env-file-if-exists=.env scripts/sv360-derive-runs.js",
+    "fp:register": "node --env-file-if-exists=.env scripts/fp-scene-register.js",
     "db:test:create": "node scripts/test-db.js create",
     "db:test:drop": "node scripts/test-db.js drop",
     "db:test:reset": "node scripts/test-db.js reset",

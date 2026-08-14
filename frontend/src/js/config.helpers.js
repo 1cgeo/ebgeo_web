@@ -6,6 +6,7 @@
  */
 
 import config from './config.js';
+import { hasFirstPersonScenes } from '@js/first_person_3d_tool/scene-config.service.js';
 
 // ===== TILESETS & STREETVIEW =====
 
@@ -16,6 +17,15 @@ import config from './config.js';
 export function hasTilesets() {
     return config.tilesets && config.tilesets.length > 0;
 }
+
+// `hasFirstPersonScenes` is NOT defined here on purpose. First-person scenes are
+// `config.tilesets` rows carrying `viewer: 'firstPerson'`, and the partition that
+// decides which rows qualify lives in `first_person_3d_tool/scene-config.service.js`.
+// Writing a second rule here would be free to disagree with it — and it would
+// disagree precisely on the entries the partition discards (no `id`, no `basePath`),
+// so the UI would show up and then fail. It is re-exported so callers may reach it
+// from either module, and attached to the singleton below like every other helper.
+export { hasFirstPersonScenes };
 
 // ===== BASEMAPS =====
 
@@ -165,6 +175,7 @@ export function createTerrainProvider() {
  */
 export function initConfigHelpers() {
     config.hasTilesets = hasTilesets;
+    config.hasFirstPersonScenes = hasFirstPersonScenes;
     config.validateBasemapsConfig = validateBasemapsConfig;
     config.getEnabledBasemaps = getEnabledBasemaps;
     config.getBasemapLayoutClass = getBasemapLayoutClass;

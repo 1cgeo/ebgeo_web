@@ -116,9 +116,13 @@ Os grupos de chunk são definidos em `codeSplitting.groups` (API do Rolldown), *
 
 Grupos (só os módulos-cabeçalho; cada um puxa muitos outros, e `core` inclui também state, terrain, baselayers, catalog, tool_manager, mode, briefing, snapping, grid, coordinates, measurement_tool):
 
-`core` | `ui-components` | `draw-tools` | `military-tools` | `analysis-tools` | `selection-tools` | `phone-ui` | `calibration` | `cesium-integration` (lazy) | `import-export` (lazy) | `street-view` (lazy).
+`core` | `ui-components` | `draw-tools` | `military-tools` | `analysis-tools` | `selection-tools` | `phone-ui` | `calibration` | `cesium-integration` (lazy) | `import-export` (lazy) | `street-view` (lazy) | `first-person-3d` (lazy).
 
 Dois casos que a pasta não prediz e o `vite.config.js` explica no comentário: `keyboard-service-3d` mora sob `3d_models_viewer_tool/services/` e vai para `core` (é import estático, e mandá-lo para `cesium-integration` cria ciclo de chunk no Linux), e `import_export/export-utils` também vai para `core` pelo mesmo motivo. O `src/vendor/three/` fica FORA do grupo `calibration` de propósito: o Three.js também serve o `street_view_tool` do mapa.
+
+Terceiro caso, pela mesma razão e com quatro arquivos: de `first_person_3d_tool/` só o viewer, `components/`, `tools/` e `walk/walk-mode` vão para o grupo lazy. `scene-config.service`, `walk/voxel-collision`, `walk/constants` e `services/keyboard-service-fp` são fixados em `core`, porque o primeiro é import estático do controle de modelos 3D (entry), do catálogo (core) e da busca (ui-components), os dois seguintes vêm atrás dele, e o último é importado por `map_sig.js` como o `keyboard-service-3d`. O barrel `first_person_3d_tool/index.js` fica DE FORA de qualquer regra, no bundle do entry, que é onde os wrappers de `import()` pertencem. Duas notas medidas no comentário do `vite.config.js` e que contrariam a intuição: casar a pasta inteira NÃO vazaria o motor para o payload eager (com `entriesAware` o grupo se subdivide), e o `first-person-3d` **estoura o `chunkSizeWarningLimit` de propósito**, então `npm run build` passa a emitir um aviso esperado, e só um.
+
+Sobre a dependência do grupo, `@manycore/aholo-viewer` (pinada em versão EXATA, não com acento circunflexo): ela **vendoriza `semver` e `fflate` dentro do bundle publicado**, sem declará-las como transitivas. Um CVE em qualquer das duas deixa o `npm audit` verde com o código vulnerável embarcado, e não há guarda aqui para isso.
 
 Caminhos não mapeados (ex. `keyboard`, `map/map.manager`) caem no bundle do entry.
 

@@ -333,6 +333,17 @@
         </svg>
         <span>Fechar</span>
     </button>
+    <!-- Não recebe style="display:none" inline: .close-first-person-button já nasce
+         oculta em first-person-3d.css, e o visualizador a revela pela classe
+         --visible. Um display inline aqui venceria a classe e o botão nunca
+         apareceria. -->
+    <button id="close-first-person-button" class="close-first-person-button" type="button"
+        aria-label="Sair da cena em primeira pessoa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+        <span>Fechar</span>
+    </button>
 
     <!-- LAZY LOADED CONTAINERS -->
     <div id="streetview-minimap-wrapper" style="display: none;">
@@ -342,6 +353,26 @@
     <div id="street-view-container" style="display: none;" role="application" aria-label="Street view">
         <!-- Canvas overlay for navigation markers - managed by navigator.js -->
         <canvas id="nav-canvas-360" style="display: none;"></canvas>
+    </div>
+
+    <!-- Cena 3D em primeira pessoa (Gaussian splatting) - conteúdo montado pelo viewer lazy.
+         Toda a pintura vem das classes fp3d-*; os ids existem só para o getElementById. -->
+    <div id="first-person-container" class="fp3d-container" role="application"
+        aria-label="Cena 3D em primeira pessoa">
+        <div id="first-person-canvas" class="fp3d-canvas"></div>
+        <!-- Loading padrão do EBGeo: fundo verde, logo e barra de progresso, o
+             mesmo do carregamento inicial e do visualizador 3D. As classes
+             loading-3d-* vêm de panels-3d.css e são a moldura compartilhada de
+             carga dos visualizadores, apesar do nome. -->
+        <div id="first-person-loading" class="fp3d-loading" role="status" aria-live="polite">
+            <div class="loading-3d-content">
+                <img src="/images/logo_ebgeo.webp" alt="EBGeo" class="loading-3d-logo" fetchpriority="high">
+                <div class="loading-3d-bar">
+                    <div class="loading-3d-bar-fill"></div>
+                </div>
+                <div id="first-person-loading-message" class="fp3d-loading__message">Carregando cena...</div>
+            </div>
+        </div>
     </div>
 
     <!-- STREET VIEW 360 TOOLBAR AND UI -->
@@ -519,6 +550,39 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- PRIMEIRA PESSOA - BARRA DE FERRAMENTAS -->
+    <!-- Barra vertical à direita, no mesmo lugar das barras do 3D e do 360.
+         Não há botão de ajuda: os atalhos da cena vivem na modal de atalhos. -->
+    <div id="toolbar-fp" class="toolbar-fp" role="toolbar" aria-label="Ferramentas da cena em primeira pessoa">
+        <button id="measure-fp" class="button-tool-fp" type="button" aria-pressed="false"
+            aria-label="Trena (T)">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"/>
+                <path d="m7.5 10.5 2 2"/>
+                <path d="m10.5 7.5 2 2"/>
+                <path d="m13.5 4.5 2 2"/>
+                <path d="m4.5 13.5 2 2"/>
+            </svg>
+        </button>
+        <button id="labels-fp" class="button-tool-fp" type="button" aria-pressed="true"
+            aria-label="Rótulos dos itens (L)">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12.6 2.6a2 2 0 0 0-1.4-.6H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.2 8.2a2 2 0 0 0 2.8 0l7.2-7.2a2 2 0 0 0 0-2.8z"/>
+                <circle cx="7" cy="7" r="1.2" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
+        <div class="toolbar-fp-separator"></div>
+        <button id="share-fp" class="button-tool-fp" type="button" aria-label="Compartilhar esta posição">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="18" cy="5" r="3"/>
+                <circle cx="6" cy="12" r="3"/>
+                <circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+        </button>
     </div>
 
     <!-- ========================================

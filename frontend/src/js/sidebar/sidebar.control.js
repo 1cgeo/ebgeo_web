@@ -46,6 +46,8 @@ import {
     handleViewshed3dDeselect,
     handleMarker360Click,
     handleMarker360Deselect,
+    handleMarkerFpClick,
+    handleMarkerFpDeselect,
     closeAny3dPanel,
     deselect3dFeature
 } from './handlers/feature-3d-handlers.js';
@@ -329,6 +331,18 @@ export class SidebarControl {
         // Listen for 360 marker deselection
         subscribe(this, this._eventBus, EventTypes.MARKER_360_DESELECTED,
             () => this._onMarker360Deselected());
+
+        // Listen for first-person scene marker clicks
+        subscribe(this, this._eventBus, EventTypes.MARKER_FP_CLICKED,
+            (payload) => this._onMarkerFpClicked(payload));
+
+        // Listen for first-person marker deselection
+        subscribe(this, this._eventBus, EventTypes.MARKER_FP_DESELECTED,
+            () => this._onMarkerFpDeselected());
+
+        // Closing the first-person viewer must not leave its card behind
+        subscribe(this, this._eventBus, EventTypes.FIRST_PERSON_CLOSED,
+            () => this._onMarkerFpDeselected());
 
         // Listen for 360 viewer closed to close any open 360 panels
         subscribe(this, this._eventBus, EventTypes.STREETVIEW_360_CLOSED,
@@ -686,6 +700,39 @@ export class SidebarControl {
             this._currentFeaturePanelCleanup = result.cleanup;
             this._featurePanel.show(result.element, result.title);
         }
+    }
+
+    /**
+     * Called when a first-person scene marker is clicked.
+     * @private
+     * @param {Object} payload - Event payload with marker, sceneName and photoUrl
+     */
+    async _onMarkerFpClicked(payload) {
+        const result = await handleMarkerFpClick({
+            marker: payload.marker,
+            sceneName: payload.sceneName,
+            photoUrl: payload.photoUrl,
+            stateManager: this._stateManager,
+            cleanupPrevious: () => this._cleanupFeaturePanelContent()
+        });
+
+        if (result) {
+            this._currentFeaturePanelCleanup = result.cleanup;
+            this._featurePanel.show(result.element, result.title);
+        }
+    }
+
+    /**
+     * Called when a first-person scene marker is deselected, and when the
+     * first-person viewer closes with a card still open.
+     * @private
+     */
+    _onMarkerFpDeselected() {
+        handleMarkerFpDeselect({
+            stateManager: this._stateManager,
+            hidePanel: (save) => this._featurePanel.hide(save),
+            cleanupContent: () => this._cleanupFeaturePanelContent()
+        });
     }
 
     /**

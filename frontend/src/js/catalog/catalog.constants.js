@@ -12,6 +12,11 @@
  */
 export const CATALOG_ITEM_TYPES = Object.freeze({
     MODEL_3D: 'model_3d',
+    // Walk-through (Gaussian splatting) scene. A `tilesets` row carrying the
+    // discriminator `viewer: 'firstPerson'`, so it is 3D collection for every
+    // gate that matters (the "Mapa 3D" switch, the per-atlas allowlist) while
+    // getting its own card badge and its own viewer.
+    FIRST_PERSON_SCENE: 'first_person_scene',
     PANORAMIC_360: 'panoramic_360',
     HILLSHADE: 'hillshade',
     ANALYSIS_LAYER: 'analysis_layer',
@@ -25,6 +30,9 @@ export const CATALOG_ITEM_TYPES = Object.freeze({
 export const CATALOG_ICONS = Object.freeze({
     // 3D Model - cube icon
     [CATALOG_ITEM_TYPES.MODEL_3D]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+
+    // First-person scene - walking figure, the same glyph the purple map pin carries
+    [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11.5" cy="4" r="2.5"/><path d="M11.5 7.5 13.5 13 17 21"/><path d="M13.5 13 7 20"/><path d="M12 8.5 6.5 14"/><path d="M12 8.5 17.5 7"/></svg>`,
 
     // Panoramic 360 - aperture icon
     [CATALOG_ITEM_TYPES.PANORAMIC_360]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="14.31" y1="8" x2="20.05" y2="17.94"/><line x1="9.69" y1="8" x2="21.17" y2="8"/><line x1="7.38" y1="12" x2="13.12" y2="2.06"/><line x1="9.69" y1="16" x2="3.95" y2="6.06"/><line x1="14.31" y1="16" x2="2.83" y2="16"/><line x1="16.62" y1="12" x2="10.88" y2="21.94"/></svg>`,
@@ -49,7 +57,20 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
         icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.MODEL_3D],
         color: '#508D4E',
         hasDate: true,
-        hasLocation: true
+        hasLocation: true,
+        // This filter includes both Cesium tilesets AND first-person scenes
+        includesFirstPerson: true
+    },
+    [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: {
+        label: 'Cenas 3D',
+        icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE],
+        color: '#508D4E',
+        hasDate: true,
+        hasLocation: true,
+        // Scenes are shown under the "Modelos 3D" filter (same reasoning as
+        // hillshade under "Análise"): a scene is 3D collection, and the Gestor's
+        // "Mapa 3D" switch already governs the whole of it.
+        showInFilter: false
     },
     [CATALOG_ITEM_TYPES.PANORAMIC_360]: {
         label: 'Imagens 360°',
@@ -87,7 +108,13 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
 
 /**
  * Filter types shown in the modal sidebar.
- * Hillshade is hidden but grouped with Analysis.
+ * Hillshade is hidden but grouped with Analysis; first-person scenes are hidden
+ * but grouped with 3D models.
+ *
+ * The list is also read by the atlas-config "Catálogo" tab
+ * (`modals/atlas-settings.modal.js`), which builds one tab per entry from the
+ * four `available_*` allowlists. A type added here with no allowlist behind it
+ * shows up there as an empty tab, which is why the two grouped types stay out.
  * @readonly
  */
 export const CATALOG_MODAL_FILTERS = Object.freeze([
@@ -109,6 +136,16 @@ export const DEFAULT_THUMBNAILS = Object.freeze({
             <path d="M100 30 L100 60 L70 50" fill="none" stroke="#508D4E" stroke-width="2"/>
             <path d="M100 60 L130 50" fill="none" stroke="#508D4E" stroke-width="2"/>
             <path d="M100 60 L100 100" fill="none" stroke="#508D4E" stroke-width="2"/>
+        </svg>
+    `),
+    [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: 'data:image/svg+xml,' + encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
+            <rect fill="#f3f4f6" width="200" height="120"/>
+            <rect x="40" y="20" width="120" height="80" fill="none" stroke="#508D4E" stroke-width="2"/>
+            <rect x="80" y="45" width="40" height="35" fill="none" stroke="#508D4E" stroke-width="2"/>
+            <path d="M40 20 L80 45 M160 20 L120 45 M40 100 L80 80 M160 100 L120 80" fill="none" stroke="#508D4E" stroke-width="1.5"/>
+            <circle cx="100" cy="57" r="4" fill="none" stroke="#508D4E" stroke-width="2"/>
+            <path d="M100 61 L100 69 L104 77 M100 69 L96 77 M96 65 L104 65" fill="none" stroke="#508D4E" stroke-width="2"/>
         </svg>
     `),
     [CATALOG_ITEM_TYPES.PANORAMIC_360]: 'data:image/svg+xml,' + encodeURIComponent(`

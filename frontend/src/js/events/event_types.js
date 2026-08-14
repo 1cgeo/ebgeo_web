@@ -150,6 +150,15 @@ export const EventTypes = Object.freeze({
     /** Payload: { position: { heading, pitch, distance }, photoName } */
     MARKER_360_POSITION_CLICKED: 'marker360:positionClicked',
 
+    // ===== FIRST PERSON 3D (GAUSSIAN SPLATTING) =====
+    /** Payload: { sceneId } */
+    FIRST_PERSON_OPENED: 'firstPerson:opened',
+    FIRST_PERSON_CLOSED: 'firstPerson:closed',
+    /** Payload: { marker: FpMarker, sceneId, sceneName, photoUrl } */
+    MARKER_FP_CLICKED: 'markerFp:clicked',
+    /** Payload: { sceneId } */
+    MARKER_FP_DESELECTED: 'markerFp:deselected',
+
     // ===== MAP LIFECYCLE =====
     /** Payload: { mapId, map } */
     MAP_CREATED: 'map:created',

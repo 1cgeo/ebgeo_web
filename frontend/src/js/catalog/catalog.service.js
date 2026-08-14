@@ -7,6 +7,11 @@
  */
 
 import config from '@js/config.js';
+import {
+    FIRST_PERSON_VIEWER,
+    getFirstPersonScenes,
+    resolveSceneAssets
+} from '@js/first_person_3d_tool/scene-config.service.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
 import { getAtlas360Allowlist } from '@store/sync/atlas-settings.service.js';
 
@@ -198,7 +203,16 @@ export class CatalogService {
     }
 
     /**
-     * Gets 3D models from config.
+     * Gets the whole 3D collection from config: Cesium tilesets and first-person
+     * (Gaussian splatting) scenes, which share the `config.tilesets` list and are
+     * told apart by the `viewer` discriminator.
+     *
+     * The partition is EXCLUSIVE on both sides: a scene left inside the tileset
+     * half would produce a second card that hands the Cesium viewer an id with no
+     * tileset behind it.
+     *
+     * The gate covers both halves on purpose: a scene is 3D collection, so the
+     * Gestor's "Mapa 3D" switch governs it exactly like a tileset.
      * @private
      * @returns {CatalogItem[]}
      */
@@ -207,17 +221,54 @@ export class CatalogService {
         // atlas-config "Mapa 3D" toggle removes them from the catalog too.
         if (config.features?.map_3d === false || !config.hasTilesets()) return [];
 
-        return config.tilesets.map(tileset => ({
-            id: `3d-${tileset.id}`,
-            type: CATALOG_ITEM_TYPES.MODEL_3D,
-            name: tileset.name,
-            description: tileset.description || null,
-            keywords: tileset.keywords || null,
-            thumbnail: tileset.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
-            date: tileset.data_captura || null,
-            local: tileset.local || null,
-            location: tileset.locate,
-            originalData: tileset
+        return [...this._getTilesets3D(), ...this._getFirstPersonScenes()];
+    }
+
+    /**
+     * Gets Cesium 3D tilesets from config, first-person scenes excluded.
+     * @private
+     * @returns {CatalogItem[]}
+     */
+    static _getTilesets3D() {
+        return config.tilesets
+            .filter(tileset => tileset?.viewer !== FIRST_PERSON_VIEWER)
+            .map(tileset => ({
+                id: `3d-${tileset.id}`,
+                type: CATALOG_ITEM_TYPES.MODEL_3D,
+                name: tileset.name,
+                description: tileset.description || null,
+                keywords: tileset.keywords || null,
+                thumbnail: tileset.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
+                date: tileset.data_captura || null,
+                local: tileset.local || null,
+                location: tileset.locate,
+                originalData: tileset
+            }));
+    }
+
+    /**
+     * Gets first-person (Gaussian splatting) scenes from config.
+     *
+     * `getFirstPersonScenes()` already drops entries that cannot be addressed or
+     * resolved, so every scene reaching here is safe for `resolveSceneAssets`.
+     * The preview thumbnail is derived from the scene folder and may legitimately
+     * be missing (the card then falls back to the generic drawing).
+     * @private
+     * @returns {CatalogItem[]}
+     */
+    static _getFirstPersonScenes() {
+        return getFirstPersonScenes().map(scene => ({
+            id: `fp-${scene.id}`,
+            type: CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE,
+            name: scene.name,
+            description: scene.description || null,
+            keywords: scene.keywords || null,
+            thumbnail: resolveSceneAssets(scene).previewThumbnail
+                || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE],
+            date: scene.data_captura || null,
+            local: scene.local || null,
+            location: scene.locate || null,
+            originalData: scene
         }));
     }
 

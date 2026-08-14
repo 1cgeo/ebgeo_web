@@ -4,6 +4,10 @@ O que prende uma biblioteca no payload inicial de `index.html`, e por que a alav
 
 Estrutura dos grupos de chunk e a armadilha dos nomes gerados ficam em `.claude/rules/architecture.md`; publicação em [[deploy-web]]. Aqui fica só o que a leitura do `vite.config.js` não conta.
 
+## O aviso de tamanho de chunk deixou de ser sinal limpo, de propósito
+
+Desde 2026-08-14 o `npm run build` emite o aviso de "chunks are larger than" para o grupo `first-person-3d`, que tem cerca de 1,9 MB minificados contra um `chunkSizeWarningLimit` de 1200 ([[primeira-pessoa-3d]]). Metade daquilo é WASM em base64 dentro do motor de splatting, que não minifica nem se divide. Subir o limite silenciaria o alarme para todo chunk presente e futuro, então o aviso ficou. **Consequência para quem usa "build limpo" como verificação: esse é o único aviso esperado, e mais de um significa chunk novo passando do teto.**
+
 ## O que decide o payload é o import estático, não o grupo de chunk
 
 `frontend/src/js/map_sig.js` importa o stack de import/export por módulo, e não pelo barril, com um comentário no próprio arquivo explicando o porquê (o barril arrasta o exportador de KMZ que já é carregado por `await import()`). O efeito colateral não está no comentário: como esses cinco imports são **estáticos**, tudo que eles alcançam entra no payload eager da página do mapa, inclusive o `shpjs` (importador de shapefile, usado só quando alguém arrasta um arquivo) e `frontend/src/js/import_export/pdf-cartographic-elements.js` (usado só na aba de exportação em PDF).

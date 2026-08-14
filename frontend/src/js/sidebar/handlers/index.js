@@ -7,7 +7,7 @@
  * @module sidebar/handlers
  */
 
-// 3D/360 feature handlers
+// 3D / 360 / first-person feature handlers
 export {
     handleMarker3dClick,
     handleMarker3dDeselect,
@@ -17,6 +17,8 @@ export {
     handleViewshed3dDeselect,
     handleMarker360Click,
     handleMarker360Deselect,
+    handleMarkerFpClick,
+    handleMarkerFpDeselect,
     closeAny3dPanel,
     deselect3dFeature
 } from './feature-3d-handlers.js';

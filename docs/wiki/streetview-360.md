@@ -7,6 +7,8 @@ Repositório de panoramas em `/api/v1/sv360`: é a exceção do backend em envel
 - O módulo `sv360` (backend, `src/modules/streetview360/`) é o acervo de panoramas do servidor: projetos, fotos, grafo de navegação, imagem WebP.
 - A entidade de sync `streetview360` é outra coisa: marcadores e orientações que o usuário salva **por mapa do atlas**, que trafegam pelo [[canal-collab-websocket]] e vivem no side-store do cliente.
 
+Cuidado adicional desde 2026-08-14: **existem agora três superfícies imersivas**, não duas. A cena de primeira pessoa ([[primeira-pessoa-3d]]) é a terceira, e ela não segue o desenho do 360 em dois pontos que costumam ser copiados por analogia: ela não tem minimapa (a posição do observador é local, em metros, e não há como saber onde aquele metro cai no mundo) e **nada do que acontece dentro dela persiste**, nem local nem por sync. Antes de estender um comportamento "das duas superfícies" para as três, confira qual das duas premissas ele usa.
+
 O módulo `sv360` está **fora** do sync: nenhuma escrita 360 vira operação, nenhum peer recebe broadcast. Depois de um `PUT .../calibration` o cliente **recarrega** `GET /sv360/photos/:uuid`; quem esperar evento espera para sempre. Ver [[sintese-modulos-fora-do-sync]]. Consequência de esquema: `sv360.photos` tem `updated_at` mas nenhuma coluna `version`, e `sv360.targets` não tem nenhuma das duas; não há como enxertar LWW aqui sem migração.
 
 ## Envelope: por que o módulo destoa do resto da API

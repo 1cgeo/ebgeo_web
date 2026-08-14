@@ -6,6 +6,8 @@
 
 Esta rota **não** é a fonte de descoberta do web app, ao contrário do que o nome sugere. Não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `frontend/src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`frontend/src/js/3d_models_viewer_tool/map_3d.js`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
 
+E `config.tilesets` deixou de ser homogênea: desde 2026-08-14 a mesma lista carrega **dois tipos de linha**, separados pelo discriminador `viewer` ([[primeira-pessoa-3d]]). Quem consumir a lista precisa particionar antes de usar, porque uma cena entregue ao visualizador Cesium é um id sem tileset atrás. A escolha de reusar a tabela foi deliberada, e o que ela comprou de graça (allowlist por atlas, gate do botão "Modelos 3D") está registrado lá.
+
 A divergência não é só de origem, é de vocabulário: o cliente discrimina por `type === 'glb'` (`frontend/src/js/3d_models_viewer_tool/map_3d.js`), enquanto `ng.catalogo_3d` tem CHECK em `'Tiles 3D' | 'Modelos 3D' | 'Nuvem de Pontos'` (`backend/src/database/migrations/004_ng.sql`). Quem integrar precisa decidir qual manda e mapear os dois vocabulários, não apenas trocar a URL do fetch. E `config.tilesets` não tem controle de acesso por modelo; `ng.catalogo_3d` tem. Migrar o cliente para o catálogo `ng` é um endurecimento de segurança, não uma refatoração cosmética.
 
 ## Predicado de acesso duplicado entre SELECT e COUNT

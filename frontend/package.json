@@ -22,6 +22,7 @@
     "test:e2e:mega": "playwright test browser-collab-mega --headed"
   },
   "dependencies": {
+    "@manycore/aholo-viewer": "1.8.1",
     "@tmcw/togeojson": "^7.1.2",
     "chart.js": "^4.5.1",
     "dompurify": "3.4.13",

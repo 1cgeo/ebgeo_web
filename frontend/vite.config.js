@@ -59,8 +59,9 @@ export default defineConfig(({ mode: _mode }) => ({
         //   -> ui-components (sidebar, features_tab, user_data, attribute_table, search,
         //                     bottom-controls, base-layer-selector, context-menu, vector_info, processing)
         //   -> tools (draw, military, analysis, selection)
-        //   -> lazy (cesium-integration, street-view, import-export)
-        // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate
+        //   -> lazy (cesium-integration, street-view, first-person-3d, import-export)
+        // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate,
+        //   first_person_3d_tool/index.js (the barrel, on purpose - see its rule below)
         //
         // `codeSplitting.groups`, NOT the deprecated `manualChunks`. The two are NOT equivalent
         // once there is more than one html entry: under the Rollup-compat shim a group becomes one
@@ -96,6 +97,29 @@ export default defineConfig(({ mode: _mode }) => ({
             return 'core';
           }
 
+          // Same rationale as keyboard-service-3d above, for the first-person 3D tool.
+          // These four modules live under first_person_3d_tool/ but are NOT lazy:
+          //   - scene-config.service.js is statically imported by
+          //     add_3d_models_viewer_control.js (reached from the entry),
+          //     catalog/catalog.service.js and config.helpers.js (both core), and
+          //     search/feature-search.control.js + search/search-bar.search-providers.js
+          //     (ui-components). Letting it fall into the lazy first-person-3d chunk
+          //     makes core/ui-components statically depend on a lazy chunk, which is the
+          //     circular pair that produces the TDZ "Cannot access X before
+          //     initialization" at runtime.
+          //   - walk/voxel-collision.js and walk/constants.js are pulled in statically BY
+          //     scene-config.service.js, so they have to sit wherever it sits.
+          //   - services/keyboard-service-fp.js is statically imported by map_sig.js
+          //     (entry), exactly like keyboard-service-3d.
+          // None of them touches @manycore/aholo-viewer: the engine is imported only by
+          // first_person_viewer.js and walk/walk-mode.js, both of which stay lazy below.
+          if (id.includes('first_person_3d_tool/scene-config.service') ||
+              id.includes('first_person_3d_tool/walk/voxel-collision') ||
+              id.includes('first_person_3d_tool/walk/constants') ||
+              id.includes('first_person_3d_tool/services/keyboard-service-fp')) {
+            return 'core';
+          }
+
           // ===== CALIBRAÇÃO 360 (calibracao.html) =====
           // Só esta página alcança estes módulos, e ela não alcança nada do mapa. Sem o grupo
           // próprio eles cairiam no bundle da entrada e se misturariam com o que `entriesAware`
@@ -124,6 +148,37 @@ export default defineConfig(({ mode: _mode }) => ({
           // Street view (Three.js - lazy load)
           if (id.includes('street_view_tool')) {
             return 'street-view';
+          }
+          // First-person 3D viewer (@manycore/aholo-viewer Gaussian splatting - lazy load).
+          //
+          // MATCHED BY EXPLICIT SUBPATH, never by the folder, so `first_person_3d_tool/index.js`
+          // stays out. That barrel is a STATIC import of src/js/index.js (cleanupFirstPersonFeatures
+          // on beforeunload); left unmapped it falls into the entry bundle, where its
+          // `await import()` wrappers belong, and everything matched HERE is then reachable only
+          // through a dynamic import.
+          //
+          // Honest note on the hazard, because it was measured instead of assumed: matching the
+          // whole folder does NOT leak the engine into the eager payload of this tree.
+          // `entriesAware` subdivides the group, so the barrel comes out as its own ~20 kB
+          // preloaded subchunk while the ~1.9 MB engine subchunk stays lazy (index.html eager
+          // payload 2486.2 kB with the folder match, 2485.3 kB with these subpaths). The claim
+          // that a folder match drags 1.9 MB into the initial bundle holds for a SINGLE-entry
+          // build, not for this one. The subpaths are kept anyway: they state what belongs here,
+          // instead of relying on a subdivision heuristic to undo a wrong match.
+          //
+          // The four statically-imported modules of this tool are pinned to core further up.
+          //
+          // SIZE WARNING IS EXPECTED AND ACCEPTED. This chunk is ~1.9 MB minified against a
+          // chunkSizeWarningLimit of 1200, so `npm run build` emits the "chunks are larger
+          // than" notice for it. Roughly half of that is base64 WASM inside the engine (zstd,
+          // Draco, Basis transcoder) which does not minify and cannot be split. Raising the
+          // limit to silence it would disarm the alarm for every other chunk, present and
+          // future, so the warning stays and this comment is the record of why.
+          if (id.includes('first_person_3d_tool/first_person_viewer') ||
+              id.includes('first_person_3d_tool/components/') ||
+              id.includes('first_person_3d_tool/tools/') ||
+              id.includes('first_person_3d_tool/walk/walk-mode')) {
+            return 'first-person-3d';
           }
           // Import/export tools
           // export-utils.js is shared between import_export (import-export chunk)
@@ -366,6 +421,10 @@ export default defineConfig(({ mode: _mode }) => ({
     // module lives here because it is mutually entangled with the store layer
     // (store/feature.operations + store/temporal.operations import temporal helpers),
     // so it cannot be hoisted to a separate chunk without a core <-> temporal cycle.
+    //
+    // `first-person-3d` sits ~1.9 MB minified and DOES trip this warning, deliberately: see
+    // the note on its rule above. It is loaded only by dynamic import, so it never touches
+    // the eager payload of any page. Do not raise the limit to hide it.
     chunkSizeWarningLimit: 1200
   },
 
