@@ -481,9 +481,9 @@ export async function projectCalibrationPhotos(slug, user) {
       display_name: p.display_name,
       sequence_number: p.sequence_number,
       reviewed: Boolean(p.calibration_reviewed),
-      // NULL across the whole archive until the run derivation exists. The client
-      // reads a null runId as "this project has no runs" and falls back to the
-      // flat list, which is the pre-run behaviour.
+      // NULL until scripts/sv360-derive-runs.js has run over this project, which
+      // ingestion does not do. The client reads a null runId as "this project has
+      // no runs" and falls back to the flat list, which is the pre-run behaviour.
       runId: p.run_id,
       runPosition: p.run_position,
       // 'sol', 'imu', 'manual' or null (no measurement over this photo).
@@ -581,8 +581,9 @@ export async function projectMap(slug, user) {
  *
  * Answers an EMPTY list (never 404) for a project that exists but has no runs: the
  * interface treats "no runs" as the pre-run mode, and a 404 here would make the
- * panel look broken. That is the answer for EVERY project today — sv360.capture_runs
- * exists (migration 013) but nothing derives runs yet.
+ * panel look broken. That is the answer until scripts/sv360-derive-runs.js is run
+ * over the project: the derivation is an offline ETL (`npm run sv360:derive-runs`)
+ * and is not part of ingestion.
  * @param {string} slug
  * @param {Object} [user]
  * @returns {Promise<Array>} runs in ordinal order

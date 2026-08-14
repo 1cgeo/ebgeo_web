@@ -381,9 +381,11 @@ export async function resetProjectReviewed(slug, user) {
  * the interface can label the run. It is not inheritance: the photo columns stay
  * the only truth, which is why they are written first and in the same transaction.
  *
- * TODAY THIS ALWAYS 404s. sv360.capture_runs is empty across the archive, because
- * nothing derives runs yet — so no runId resolves. That is the honest answer for
- * "this run does not exist", and it is not a defect of this endpoint.
+ * A runId only resolves after scripts/sv360-derive-runs.js has run over the
+ * project (`npm run sv360:derive-runs`). That derivation is an offline ETL and is
+ * not part of ingestion, so a project it never touched has no rows in
+ * sv360.capture_runs and every runId 404s. That is the honest answer for "this run
+ * does not exist", and it is not a defect of this endpoint.
  * @param {string} runId
  * @param {Object} values - validated subset of mesh_rotation_y/x/z
  * @param {Object} user

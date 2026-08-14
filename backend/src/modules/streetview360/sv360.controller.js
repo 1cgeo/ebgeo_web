@@ -138,7 +138,7 @@ export const getProjectMap = asyncHandler(async (req, res) => {
 });
 
 // GET /sv360/projects/:slug/runs — the capture runs, WRAPPED in { runs }. Empty
-// for every project until the run derivation exists.
+// until the run derivation ETL (scripts/sv360-derive-runs.js) runs over the project.
 export const getProjectRuns = asyncHandler(async (req, res) => {
   res.json({ runs: await svc.projectRuns(req.params.slug, req.user) });
 });

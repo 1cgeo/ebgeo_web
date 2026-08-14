@@ -118,8 +118,9 @@ export const resetProjectReviewed = asyncHandler(async (req, res) => {
 });
 
 // PUT /sv360/runs/:runId/batch-calibration — one rotation default for every live
-// photo of the capture run. 200, bare { ok, runId, label, updated }. 404 for every
-// runId today: nothing derives runs yet, so sv360.capture_runs is empty.
+// photo of the capture run. 200, bare { ok, runId, label, updated }. 404 while the
+// project has no derived runs: sv360.capture_runs is filled by the offline ETL
+// scripts/sv360-derive-runs.js, which ingestion does not call.
 export const batchCalibrateRun = asyncHandler(async (req, res) => {
   res.json(await wsvc.batchCalibrateRun(req.params.runId, req.body, req.user));
 });

@@ -299,9 +299,11 @@ export const NEARBY_UNLINKED_PHOTOS = `
 // what order, and how far the review got.
 //
 // run_id / run_position travel with each photo so the client can build the
-// per-run navigation in memory instead of one request per run. They are NULL for
-// the whole archive today (nothing derives runs yet); a NULL there means "this
-// project has no runs", which is the pre-run behaviour, not an error.
+// per-run navigation in memory instead of one request per run. They are filled by
+// the run derivation ETL (scripts/sv360-derive-runs.js, `npm run
+// sv360:derive-runs`), which is run per project and is NOT part of ingestion, so
+// they stay NULL until it runs over that project; a NULL there means "this project
+// has no runs", which is the pre-run behaviour, not an error.
 //   $1 = project id (uuid)
 export const PROJECT_CALIBRATION_PHOTOS = `
   SELECT p.id, p.original_name, p.display_name, p.sequence_number,
@@ -393,10 +395,12 @@ export const TRACKS_BY_PROJECT = `
 // The LEFT JOIN is deliberate: a run whose photos were all soft-deleted still has
 // to appear, otherwise the ordinals show a hole the interface cannot explain.
 //
-// TODAY THIS ANSWERS EMPTY FOR EVERY PROJECT. `sv360.capture_runs` exists
-// (migration 013) but nothing populates it yet: the derivation from original_name
-// (sv360.capture-runs.js) has no ETL calling it, and sv360.photos.run_id is NULL
-// across the whole archive. An empty list is the honest answer for "this project
+// A PROJECT ANSWERS EMPTY UNTIL THE DERIVATION RUNS OVER IT. `sv360.capture_runs`
+// (migration 013) is populated by scripts/sv360-derive-runs.js (`npm run
+// sv360:derive-runs`, one project with --slug or every project), which groups the
+// photos by the session id in original_name (sv360.capture-runs.js) and links
+// sv360.photos.run_id / run_position. Ingestion does not call it, so a project it
+// never touched has no runs. An empty list is the honest answer for "this project
 // has no runs" and is exactly what the pre-run interface expects.
 //   $1 = project id (uuid)
 export const RUNS_BY_PROJECT = `
