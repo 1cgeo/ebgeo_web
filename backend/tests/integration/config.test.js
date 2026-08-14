@@ -126,13 +126,35 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     });
   });
 
-  it('tilesets is an array including the seeded PCL tileset', async () => {
+  it('tilesets é um array, e o catálogo NÃO nasce prometendo tileset nenhum', async () => {
+    // O contrato congelado exige o campo `tilesets` como ARRAY: o cliente itera
+    // sobre ele no boot, e trocar array vazio por ausente quebraria a página do
+    // mapa. Vazio é resposta legítima; ausente não é.
+    //
+    // Este caso já afirmou o OPOSTO: que o catálogo trazia um `PCL` semeado pela
+    // migração 003, com url `/3d/PCL/tileset.json`. O asset nunca esteve no
+    // repositório (`public/3d/` é ignorado pelo versionamento), então toda
+    // instalação limpa prometia um modelo que o servidor não serve, e abrir o
+    // visualizador 3D nele dava 404 que o cliente engolia de volta para o 2D.
+    // A migração 015 removeu o registro, por decisão de produto: o catálogo é
+    // ponto de CONFIGURAÇÃO, e conteúdo entra pelo Painel do Administrador ou
+    // pelo import de acervo 3D, apontando para uma URL que existe.
+    //
+    // A expectativa mudou porque o comportamento anterior era o defeito, e não
+    // para acomodar regressão.
     const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
-    assert.ok(Array.isArray(cfg.tilesets));
-    const pcl = cfg.tilesets.find((t) => t.id === 'PCL');
-    assert.ok(pcl);
-    assert.equal(pcl.heightOffset, 35);
-    assert.equal(pcl.url, '/3d/PCL/tileset.json');
+    assert.ok(Array.isArray(cfg.tilesets), 'tilesets precisa existir como array');
+
+    // Repare que a asserção é sobre o REGISTRO SEMEADO, e não sobre o tamanho da
+    // coleção. Contagem absoluta aqui seria coberta vazia ao contrário: a tabela
+    // é COMPARTILHADA com outros testes da suíte, e `catalog-tables.test.js` cria
+    // um tileset por HTTP sem removê-lo. Um `length === 0` passa isolado e
+    // reprova em conjunto, que foi exatamente o que aconteceu na primeira versão
+    // deste caso, e é a armadilha que o livro-razão registra como "contagem
+    // absoluta de tabela que outro teste escreve".
+    const semeado = cfg.tilesets.find((t) => t.id === 'PCL');
+    assert.equal(semeado, undefined,
+      'migração não pode voltar a semear tileset: o catálogo é ponto de configuração');
   });
 
   it('analysisLayers only exposes layers with valid bounds; the placeholder hillshade is excluded', async () => {
