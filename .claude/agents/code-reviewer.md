@@ -12,12 +12,24 @@ Architecture-aware code reviewer for the EBGeo Web GIS application.
 
 Review code changes against project conventions defined in CLAUDE.md and .claude/rules/. Focus on violations that cause bugs, data loss, or maintenance debt.
 
+**Why this checklist is worth running at all.** In `frontend/` the ESLint config carries
+`js.configs.recommended` plus style rules and **not one project rule**: no guard on
+`innerHTML`, on inline styles, on literal event strings, on `JSON.parse(JSON.stringify())`.
+So for the web package this review is the ONLY thing standing between a convention and its
+violation. (The backend is the opposite: `backend/eslint-rules/` enforces its own rules
+mechanically, with a probe. Don't spend review budget re-checking by eye what the backend
+linter already fails on.)
+
 ## Review Checklist
 
 ### Store & Data Integrity
 - All mutations use `runTransaction()` from `store-transaction.js`
 - Error conventions: `throw` for bugs, `return + emit STORE_OPERATION_BLOCKED` for expected failures, `throw + emit STORE_PERSIST_ERROR` for data loss risk
-- Timestamps managed via `addCreatedTimestamp()` / `touchUpdatedTimestamp()`
+- Feature mutations carry `createdAt` / `updatedAt` / `version`. The helpers that set them
+  (`addCreatedTimestamp` / `touchUpdatedTimestamp`) are **module-private to
+  `feature.operations.js` and exported nowhere**. Do not ask for them to be imported: for a
+  new entity type the fields get set in that entity's own operation file. Asking for the
+  import produces code that cannot compile.
 - New operations exported from `store.js` facade and `store/index.js` barrel
 
 ### Event & Resource Cleanup

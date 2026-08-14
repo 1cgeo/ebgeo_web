@@ -32,16 +32,15 @@ Na prática o `syncEngine` re-gateia a sessão pelo **`payload.role`** (`fronten
 
 `usersOnline` inclui **você mesmo** e inclui quem está `away` (`getRoomUsers`, `backend/src/modules/collab/collab.rooms.js:163`). Nada de presença é persistido: vive em memória no objeto `ws`. **Desde 2026-07-25 isso vale sem exceção**: nenhum socket, autenticado ou público, escreve em `active_sessions`. Até então o handshake gravava uma linha por conexão e pulava o visitante público, cujo `sub` é `public-<uuid>` e quebraria a FK para `users`; os dois escritores foram removidos porque a tabela nunca teve um `SELECT` em `backend/src`, e aquela FK era o último papel que ela cumpria. A tabela ficou, reservada e sem escritor: ver [[presenca-colaborativa]] §"O que não existe".
 
-## Máquina de estados: duas armadilhas reais
+## Máquina de estados: a armadilha que sobrou
 
-1. **A promessa de `connect()` pode nunca liquidar.** `_connectReject` é armazenado (`frontend/src/js/store/sync/ws-client.js:249`) e **nunca chamado em lugar nenhum**. Se o socket fechar antes do frame `connected` (401/403 no upgrade), o `await wsClient.connect(...)` do `syncEngine` fica pendurado para sempre enquanto o backoff tenta de novo, sem erro para quem chamou.
-2. **Fechar durante `CONNECTING` prende o estado.** `_onClose` sempre transiciona para `RECONNECTING` (`frontend/src/js/store/sync/ws-client.js:447-449`, com um ternário cujos dois ramos são idênticos), mas `CONNECTING → RECONNECTING` é inválido (`frontend/src/js/store/sync/connection-state.js:33`) e a transição é engolida por `_safeTransition`. O estado não vira `OFFLINE`, `isOnline()` continua falso e o flush fica travado ([[fila-operacoes-outbound]]).
+O handshake que nunca liquidava já foi corrigido: uma rejeição no upgrade fecha o socket **sem** frame `connected`, e por isso `_onClose` liquida a promessa pendente (`frontend/src/js/store/sync/ws-client.js:459-466`) em vez de deixar o `await syncEngine.connect(...)` pendurado sem timeout. O laço de reconexão fica de pé de propósito: `_open()` reinstala um par resolve/reject novo, e `_scheduleReconnect` engole a rejeição, de modo que uma queda depois de sessão estabelecida ainda reconecta.
+
+O que **permanece**: fechar durante `CONNECTING` prende o estado. `_onClose` sempre transiciona para `RECONNECTING` (com um ternário cujos dois ramos são idênticos), mas `CONNECTING → RECONNECTING` não está em `VALID_TRANSITIONS` (`frontend/src/js/store/sync/connection-state.js`) e a transição é engolida por `_safeTransition`. O estado não vira `OFFLINE`, `isOnline()` continua falso e o flush fica travado ([[fila-operacoes-outbound]]).
 
 ## Close codes: contrato de reconexão que o cliente não cumpre
 
-Por contrato, `4001` (atlas deletado, `closeRoom`, `backend/src/modules/collab/collab.rooms.js:153`) e `4003` (acesso revogado) **não devem disparar reconexão**. **O cliente não cumpre isso:** `_onClose` não inspeciona `event.code` e agenda reconexão para qualquer fechamento, com backoff exponencial **sem limite de tentativas**. A parada só acontece pela mensagem `atlas_deleted`, que dispara `syncEngine.disconnect()` (`frontend/src/js/store/sync/sync-engine.js:429`). Se o close chegar sem ela ou antes dela, e sempre no caso do `4003`, o cliente entra em laço de reconexão que o servidor rejeita no upgrade.
-
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.1 diz "ping a cada ~30 segundos" e §7 mostra `maxReconnectAttempts = 5`; o código usa 25 s (`frontend/src/js/store/sync/ws-client.js:31`) e reconecta indefinidamente.
+Por contrato, `4001` (atlas deletado, `closeRoom`, `backend/src/modules/collab/collab.rooms.js:153`) e `4003` (acesso revogado) **não devem disparar reconexão**. **O cliente não cumpre isso:** `_onClose` não decide nada por `event.code` (ele só o reporta no evento de erro) e agenda reconexão para qualquer fechamento, com backoff exponencial **sem limite de tentativas**. A parada só acontece pela mensagem `atlas_deleted`, que dispara `syncEngine.disconnect()`. Se o close chegar sem ela ou antes dela, e sempre no caso do `4003`, o cliente entra em laço de reconexão que o servidor rejeita no upgrade.
 
 ## away vs saída: só `1006` ganha graça
 
@@ -62,15 +61,11 @@ O broadcast **não é a op crua**: o servidor carimba `serverVersion` (`backend/
 
 Os applies inbound são **serializados numa cadeia de promessas** (`frontend/src/js/store/sync/ws-client.js:409`) porque o handler faz read-modify-write assíncrono da entrada do mapa no IndexedDB; aplicar em paralelo faz escritas concorrentes se sobrescreverem e perde todas menos uma.
 
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 diz que o broadcast leva "mesma operacao recebida"; o código em `backend/src/modules/collab/collab.handlers.js:198` envia `{...data.op, serverVersion}`.
-
 ## Gates de visibilidade que o nome do frame não denuncia
 
 - **Comentário nunca chega a conexão `read`** (`skipReadOnly`, `backend/src/modules/collab/collab.rooms.js:56`). Lote misto é *dividido*, para que o `read` ainda receba as ops não-comentário (`broadcastOperations`, `backend/src/modules/collab/collab.rooms.js:84`). Ver [[comentario-espacial]].
 - **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js:122-125`). `cursor` e `temporal` são livres. Comentarista e visualizador só recebem seleção alheia.
 - Erros do WS são planos (`{type, code, message}`), diferente do envelope REST `{error:{code,message}}` de [[erros-api]].
-
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3 e §3.3 apresentam `selection` como broadcast incondicional e omitem `surface`; o código em `backend/src/modules/collab/collab.handlers.js:122-125` descarta frames de `read`/`comment` e propaga `surface`/`tilesetId`/`photoName`/`featureMeta`.
 
 ## Backpressure: op durável nunca é descartada
 
@@ -84,9 +79,7 @@ Dois gates defensivos: `syncResponse` (`frontend/src/js/store/sync/sync-engine.j
 
 ## Qualidade adaptativa: contrato existe, cliente não usa
 
-O servidor classifica banda de RTT e responde `adaptive-settings` **apenas na transição de banda** (`handleConnectionQuality`, `backend/src/modules/collab/collab.handlers.js:273-283`).
-
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.8 e o checklist descrevem o cliente reportando `connection-quality` e aplicando `adaptive-settings`; no repositório **não existe nenhum envio de `connection-quality`** nem handler para `adaptiveSettings` (só as linhas do próprio `frontend/src/js/store/sync/ws-client.js:99` e `:341`). O ramo é morto no frontend hoje.
+O servidor classifica banda de RTT e responde `adaptive-settings` **apenas na transição de banda** (`handleConnectionQuality`, `backend/src/modules/collab/collab.handlers.js:273-283`). O ramo é **morto no frontend**: não existe envio de `connection-quality` nem handler para `adaptiveSettings` fora das próprias linhas de `frontend/src/js/store/sync/ws-client.js`. Contrato publicado sem consumidor.
 
 Se for implementar: `geometryPrecision` é sugestão de **transporte**, nunca trunque coordenada antes de persistir. O Postgres guarda geometria em precisão cheia (`truncateCoords` é utilitário de saída, deliberadamente sem call site). Ver [[qualidade-conexao-adaptativa]].
 
@@ -98,10 +91,4 @@ Se for implementar: `geometryPrecision` é sugestão de **transporte**, nunca tr
 - Lock de **mapa** é imposto pelo servidor; lock de camada, grupo e feição é advisory e depende do cliente. Ver [[sintese-limites-collab]].
 - Ao escrever um cliente novo: trate `idempotent: true` como sucesso no dequeue ([[ack-idempotencia]], [[idempotencia-e-convergence-guard]]); envelope e tipos em [[envelope-operacao]] e [[tipos-entidade-sync]]; o token é o mesmo JWT do REST ([[jwt-emissor-unico]]), exceto o `publicToken` efêmero de [[link-publico]], que desabilita o logging de operações para não orfanizar a fila (`frontend/src/js/store/sync/sync-engine.js:227`). Presença temporal em [[modulo-temporal]]. Divisão REST/WS em [[sintese-rest-vs-websocket]].
 
-## Fontes
-- guia *04-websocket-collab* (absorvido): contrato do canal, semântica away vs saída, bandas de qualidade adaptativa e limites de escala (fonte das contradições marcadas).
-- guia *arquitetura-sync* (absorvido) §4.2 e §5; guias *03-sync-inicial* e *05-sync-crdt* (absorvidos).
-- `backend/src/modules/collab/{collab.gateway,collab.handlers,collab.rooms,collab.quality}.js` e `backend/src/config.js`.
-- `backend/src/modules/{atlas,maps,sharing}/*.controller.js`: frames de mutação REST broadcast.
-- `frontend/src/js/store/sync/{ws-client,sync-engine,connection-state,api-client}.js` (fonte da verdade sobre as divergências cliente/contrato).
-- `frontend/src/js/presence/presence-bridge.js`: quais frames de presença o app realmente envia e assina.
+Quais frames de presença o app **realmente** envia e assina se lê em `frontend/src/js/presence/presence-bridge.js`, que costuma ser menos do que o servidor aceita.

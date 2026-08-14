@@ -2,15 +2,15 @@
 
 Dois vocabulários ortogonais convivem: o tier `permission` por atlas (backend, `read < comment < write < manage < owner`), que é quem realmente autoriza, e o `role` de identidade (frontend, `owner/admin/manager/editor/commenter/viewer`), que só rotula e alimenta flags de UI. Um terceiro eixo, o papel global da conta, corta os dois.
 
-Tabelas de níveis e capacidades: `backend/src/middleware/permissions.js:12-18` e `frontend/src/js/store/sync/session-context.js:60-85`. Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
+Tabelas de níveis e capacidades: `PERMISSION_LEVELS` (`backend/src/middleware/permissions.js`) e `ROLE_PERMISSIONS` (`frontend/src/js/store/sync/session-context.js`). Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
 
 ## Por que dois vocabulários
 
 **`permission` decide, `role` rotula.** O eixo `role` existe porque a UI precisa de rótulos que misturam duas dimensões que o backend guarda separadas: a permissão naquele atlas e o papel global do usuário. Um admin global não tem linha em `atlas_shares`, mas precisa ver "Admin do sistema" e ganhar acesso total. `owner` também nunca aparece em `atlas_shares`, é sintetizado de `atlas.owner_id`.
 
-Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`backend/src/utils/roles.js:12-19`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
+Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`backend/src/utils/roles.js`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
 
-**O frontend não guarda `connected.permission`.** Lê só `payload.role` (`frontend/src/js/store/sync/sync-engine.js:192-198`) e deriva as flags booleanas dali. Um guia anterior mandava gatear o cliente por `permission !== 'read'`; o cliente real ignora `permission` por completo. Os dois caminhos concordam no caso comum, e o gate por `role` é até mais fino (distingue `commenter`, separa `editor` de `manager`), mas para qualquer cliente novo o campo congelado e canônico é `permission`; `role` é aditivo e diverge se alguém mexer em `toFrontendRole` sem atualizar as duas pontas.
+**O frontend não guarda `connected.permission`.** Lê só `payload.role` (`frontend/src/js/store/sync/sync-engine.js`) e deriva as flags booleanas dali. Um guia anterior mandava gatear o cliente por `permission !== 'read'`; o cliente real ignora `permission` por completo. Os dois caminhos concordam no caso comum, e o gate por `role` é até mais fino (distingue `commenter`, separa `editor` de `manager`), mas para qualquer cliente novo o campo congelado e canônico é `permission`; `role` é aditivo e diverge se alguém mexer em `toFrontendRole` sem atualizar as duas pontas.
 
 `toFrontendRole` é fail-closed: entrada não reconhecida vira `viewer`. Bom padrão, mas um tier novo degrada silenciosamente em vez de estourar.
 
@@ -18,26 +18,26 @@ Não invente um terceiro vocabulário nem traduza um no outro fora de `toFronten
 
 Quatro camadas independentes, nenhuma substitui a outra:
 
-1. **Rota / handshake** (`backend/src/middleware/permissions.js:57-132`, `backend/src/modules/collab/collab.gateway.js:52-107`). Cascata dono → share → público → **404** (nada resolveu, ou seja, nenhuma relação com o atlas). O **403** fica um degrau adiante, para quem resolveu algum nível e ele é insuficiente. Detalhe da escada em [[sintese-contrato-erros-http]].
-2. **Handler grosso** (`backend/src/modules/collab/collab.handlers.js:83-85`, `:115-121`). `read` não escreve; `read` **e** `comment` não emitem seleção.
+1. **Rota / handshake** (`requireAtlasPermission`, `backend/src/middleware/permissions.js`; `resolvePermission`, `backend/src/modules/collab/collab.gateway.js`). Cascata dono → share → público → **404** (nada resolveu, ou seja, nenhuma relação com o atlas). O **403** fica um degrau adiante, para quem resolveu algum nível e ele é insuficiente. Detalhe da escada em [[sintese-contrato-erros-http]].
+2. **Handler grosso** (`backend/src/modules/collab/collab.handlers.js`). `read` não escreve; `read` **e** `comment` não emitem seleção.
 3. **Checagem fina por op** (`assertOperationAllowed` e `operationDenialReason`, `backend/src/modules/sync/sync.service.js`), dentro do loop de push, valendo igual para WS e REST. As duas não falham igual, e a separação é deliberada: violação de tier lança e derruba o lote (o principal inteiro é suspeito), enquanto negativa de política devolve motivo e deixa o lote seguir, porque lançar ali rolava a transação inteira e um único delete recusado congelava o sync daquele cliente para sempre.
 4. **Guard de papel no cliente** (`frontend/src/js/store/sync/permission-guard.js`). Puramente UX.
 
 **O ponto não-óbvio:** a rota de push exige apenas `comment`, não `write`, para que Comentaristas cheguem lá. Ela é permissiva de propósito, e quem impede o vazamento de escrita é a camada 3. Mexer no gate de rota para "endurecer" não adiciona segurança e quebra comentário; mexer em `assertOperationAllowed` sim é mudança de segurança. Ver [[envelope-operacao]] e [[tabela-operations]].
 
-Na saída o eixo também vale: `broadcastOperations` nunca entrega ops de `comment` a conexões `read`, e **divide um lote misto** para que o cliente `read` ainda receba as ops não-comentário (`backend/src/modules/collab/collab.rooms.js:83-115`). Um lote 100% comentário resulta em nada enviado, o que é correto mas parece um drop silencioso quando se lê o log.
+Na saída o eixo também vale: `broadcastOperations` nunca entrega ops de `comment` a conexões `read`, e **divide um lote misto** para que o cliente `read` ainda receba as ops não-comentário (`backend/src/modules/collab/collab.rooms.js`). Um lote 100% comentário resulta em nada enviado, o que é correto mas parece um drop silencioso quando se lê o log.
 
 ## Revalidação em socket vivo
 
-`permission` é resolvido no handshake, mas um socket vive horas. `reconcileAuthorization` roda a cada heartbeat (`backend/src/modules/collab/collab.gateway.js:115-140`): revogação, despublicação ou org desativada fecham com `4003` (close limpo, o peer some na hora em vez de ficar `away`); um rebaixamento apenas atualiza `ws.permission`, e a próxima escrita é recusada.
+`permission` é resolvido no handshake, mas um socket vive horas. `reconcileAuthorization` roda a cada heartbeat (`backend/src/modules/collab/collab.gateway.js`): revogação, despublicação ou org desativada fecham com `4003` (close limpo, o peer some na hora em vez de ficar `away`); um rebaixamento apenas atualiza `ws.permission`, e a próxima escrita é recusada.
 
-**Não existe frame de "sua permissão mudou" no eixo `permission`.** Quem avisa a UI é `sharing_updated`, no eixo `role`. No cliente, aplique-o com `updateRole()` (`frontend/src/js/store/sync/session-context.js:297-302`), nunca `setSession`, que zeraria `userId`/`username` e apagaria o avatar. Ver [[canal-collab-websocket]].
+**Não existe frame de "sua permissão mudou" no eixo `permission`.** Quem avisa a UI é `sharing_updated`, no eixo `role`. No cliente, aplique-o com `updateRole()` (`frontend/src/js/store/sync/session-context.js`), nunca `setSession`, que zeraria `userId`/`username` e apagaria o avatar. Ver [[canal-collab-websocket]].
 
 ## O guard do cliente só vale para atlas remoto conectado
 
-`frontend/src/js/store/sync/permission-guard.js:71-73` retorna `allowed` quando `isOffline() || !isRemoteStoreSync()`. É a linha mais importante do arquivo: o papel **não** gateia o store local, mesmo logado. Sem ela, um usuário autenticado com `org_role` `viewer` não conseguiria desenhar no próprio espaço local. O discriminante é o marcador de origem do store, não namespacing por atlas. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
+`checkPermission` (`frontend/src/js/store/sync/permission-guard.js`) retorna `allowed` quando `isOffline() || !isRemoteStoreSync()`. É a linha mais importante do arquivo: o papel **não** gateia o store local, mesmo logado. Sem ela, um usuário autenticado com `org_role` `viewer` não conseguiria desenhar no próprio espaço local. O discriminante é o marcador de origem do store, não namespacing por atlas. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 
-O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OPERATION_BLOCKED` e retornam. `assertPermission` existe mas não tem call site fora do barrel `frontend/src/js/store/sync/index.js:131`. Antes de usá-la, saiba que ela lança onde o resto do sistema apenas bloqueia.
+O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OPERATION_BLOCKED` e retornam. `assertPermission` existe mas não tem call site fora do barrel `frontend/src/js/store/sync/index.js`. Antes de usá-la, saiba que ela lança onde o resto do sistema apenas bloqueia.
 
 ## Armadilhas
 
@@ -46,10 +46,10 @@ O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OP
 
   Sobra a mesma **forma** aritmética em `operationDenialReason` (`backend/src/modules/sync/sync.service.js`), e ali ela é inalcançável hoje por outro motivo: o lado exigido é uma propriedade literal (`PERMISSION_LEVELS.manage`, sem risco de digitação) e o lado resolvido é garantido pelo middleware, que agora só deixa passar tier conhecido. É garantia do middleware, não daquele arquivo. Já o gate de tier vizinho, `assertOperationAllowed`, compara por **igualdade** a `'read'` e `'comment'`: é lista fechada de verdade, e um tier novo passa por ela sem ser visto. Ao acrescentar nível, é o primeiro lugar a mexer.
 - **Três respostas divergentes para "quem trava mapa".** O backend exige estritamente `owner` (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`); `ROLE_PERMISSIONS` dá `canLockMaps` a owner, manager e admin; e a UI (`LOCK_CAPABLE_ROLES`, `frontend/src/js/locking/map-lock.controller.js:39`) só libera owner e admin. Um `manager` passa no guard do cliente, é barrado pela UI, e seria barrado pelo servidor de qualquer forma. Alinhe as três ao mexer em qualquer uma.
-- **Admin global nunca chega com permissão baixa.** Tanto o gateway WS (`backend/src/modules/collab/collab.gateway.js:83-85`) quanto o middleware REST (`backend/src/middleware/permissions.js:82-87`) curto-circuitam admin para `owner` antes de consultar shares. Não escreva código que dependa de ver `permission: "read"` junto com `role: "admin"`.
-- **`sharing_updated` deriva role sem o papel global.** `backend/src/modules/sharing/sharing.controller.js:38,57` chama `toFrontendRole(permission)` **sem o segundo argumento**; um admin global com share explícito de `read` se auto-rebaixaria ao aplicar esse `role`. A proteção é inteiramente do lado do cliente (ignora o frame se `isAdmin()`, e filtra por `userId` próprio, `frontend/src/js/store/sync/sync-engine.js:466-471`). Qualquer novo consumidor precisa repetir as duas guardas.
+- **Admin global nunca chega com permissão baixa.** Tanto o gateway WS (`resolvePermission`) quanto o middleware REST (`requireAtlasPermission`) curto-circuitam admin para `owner` antes de consultar shares. Não escreva código que dependa de ver `permission: "read"` junto com `role: "admin"`.
+- **`sharing_updated` deriva role sem o papel global.** `backend/src/modules/sharing/sharing.controller.js` chama `toFrontendRole(permission)` **sem o segundo argumento**; um admin global com share explícito de `read` se auto-rebaixaria ao aplicar esse `role`. A proteção é inteiramente do lado do cliente (ignora o frame se `isAdmin()`, e filtra por `userId` próprio, `frontend/src/js/store/sync/sync-engine.js`). Qualquer novo consumidor precisa repetir as duas guardas.
 - **Dois "admin" diferentes.** `sessionContext.isAdmin()` lê `_globalRole`; `frontend/src/js/account/account.control.js` e `frontend/src/js/locking/map-lock.controller.js` comparam `sessionContext.role === 'admin'`, que é o papel por atlas. Podem discordar.
-- **`sessionContext.role` logo após o login é o `org_role`**, não o papel do atlas; só vira o papel real depois do `connected`. `globalRole` é preservado quando `setSession` roda sem ele (`frontend/src/js/store/sync/session-context.js:247-249`) justamente para o `connect` não apagar o bit de admin. Ver [[organizacoes-om]] e [[gestao-usuarios]].
+- **`sessionContext.role` logo após o login é o `org_role`**, não o papel do atlas; só vira o papel real depois do `connected`. `globalRole` é preservado quando `setSession` roda sem ele (`frontend/src/js/store/sync/session-context.js`) justamente para o `connect` não apagar o bit de admin. Ver [[organizacoes-om]] e [[gestao-usuarios]].
 - **Visitante de link público é ONLINE mas `isAuthenticated()` é `false`**, então nunca comenta (`frontend/src/js/store/comment.operations.js:33-37`). `connectPublic` também chama `disableOperationLogging()`: sem isso as ops ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior. Ver [[link-publico]] e [[fila-operacoes-outbound]].
 - **Visualizador não recebe comentários**, é filtro de transmissão no snapshot e no broadcast, não esconde-UI. Ver [[comentario-espacial]].
 - **Offline = permissões plenas.** `clearSession()` volta a OFFLINE com `FULL_PERMISSIONS`. Não confunda "sem papel" com "sem acesso".
@@ -58,17 +58,21 @@ O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OP
 
 O cadeado do mapa segue o mesmo princípio P1: `canToggleLock` (`frontend/src/js/locking/map-lock.controller.js:71-90`) gateia pelo **store**, não pela sessão. Store local (`!isRemoteStoreSync()`) é sempre destravável, esteja o usuário logado ou não; só o atlas remoto conectado restringe a OWNER/ADMIN, e o backend também exige OWNER ali.
 
-> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] `canToggleLock` gateava por papel assim que a sessão ficava ONLINE, sem consultar `isRemoteStoreSync()` como o `isReadOnly()` logo abaixo já fazia: um `editor` logado recebia "Apenas o dono pode bloquear o mapa" no próprio mapa **local**. Os testes que existiam congelavam esse comportamento (afirmavam `false` para editor/viewer online com o store local), então foram reescritos junto do fix. Controle negativo em `frontend/tests/integration/map-lock.test.js`: 28/28 com o fix, 3 falham sem ele.
+> [!CONTRADICAO 2026-07-18, RESOLVIDO 2026-07-24] `canToggleLock` gateava por papel assim que a sessão ficava ONLINE, sem consultar `isRemoteStoreSync()` como o `isReadOnly()` logo abaixo já fazia: um `editor` logado recebia "Apenas o dono pode bloquear o mapa" no próprio mapa **local**. Os testes que existiam congelavam esse comportamento (afirmavam `false` para editor/viewer online com o store local), então foram reescritos junto do fix. Controle negativo em `frontend/tests/integration/map-lock.test.js`: 28/28 com o fix, 3 falham sem ele.
 
 ## Adicionou um nível de permissão?
 
 Seis lugares: `PERMISSION_LEVELS`, `assertOperationAllowed`, `applyCommentOp`, `toFrontendRole`, `UserRole`, `ROLE_PERMISSIONS`. **Eles não falham do mesmo jeito, e a diferença é a coisa mais importante desta página.**
 
-Os três primeiros são do backend e falham **abertos**. Os três últimos são derivação de rótulo e falham fechados, degradando para `viewer`. Ou seja: esquecer o lado que só rotula é cosmético; esquecer o lado que autoriza libera.
+**Só um falha ABERTO, e é `assertOperationAllowed`** (`backend/src/modules/sync/sync.service.js`): ele barra por igualdade a `'read'` e a `'comment'`, então um tier novo cai fora dos dois `if` e recebe escrita plena, sem ser visto. É o primeiro lugar a mexer, e o único onde esquecer libera.
 
-O terceiro é o que menos se acha, porque é o padrão que a constituição proíbe, vivo dentro do sync: `applyCommentOp` decide a moderação de comentário alheio com `permission === 'write' || permission === 'manage' || permission === 'owner'` (`backend/src/modules/sync/sync.service.js`), lista fechada por igualdade, e é ela que alimenta as queries de update e delete. Hoje está completa por sorte, já que `read` nunca chega ali e `comment` cai no ramo do autor. Um nível novo acima de `comment` nasce sem poder moderar, em silêncio, que é exatamente o sintoma dos dois bugs reais já registrados. É um eixo separado do `assertOperationAllowed` documentado acima, e a armadilha logo abaixo (comparar por nível, nunca por igualdade) só tem esta ocorrência viva no módulo de sync.
+Os outros cinco falham **fechados**, por motivos diferentes, e nenhum é cosmético:
 
-Até 2026-07-18 esta seção dizia que os cinco "degradam para `viewer` sem erro". Era falso para os dois que decidem, e a frase logo acima (`toFrontendRole` é fail-closed) reforçava a leitura errada de que o conjunto se comporta igual.
+- `PERMISSION_LEVELS` deixou de ser fail-open em 2026-07-25 (ver armadilha acima): nível desconhecido derruba o boot no `requireAtlasPermission`.
+- `applyCommentOp` decide a moderação de comentário alheio com `permission === 'write' || permission === 'manage' || permission === 'owner'`, lista fechada por igualdade que alimenta as queries de update e delete. Hoje está completa por sorte, já que `read` nunca chega ali e `comment` cai no ramo do autor. Um nível novo acima de `comment` nasce **sem poder moderar**, em silêncio: nega em vez de liberar, mas é o mesmo padrão de lista fechada que a constituição proíbe e que já custou dois bugs reais. É um eixo separado do `assertOperationAllowed`, e a única ocorrência viva do padrão no módulo de sync.
+- `toFrontendRole`, `UserRole` e `ROLE_PERMISSIONS` são derivação de rótulo e degradam para `viewer`.
+
+Duas versões anteriores desta seção erraram aqui, nas duas direções: até 2026-07-18 ela dizia que os cinco "degradam para `viewer` sem erro" (falso para os que decidem), e depois disso passou a dizer que "os três primeiros falham abertos", o que contradizia o parágrafo do `applyCommentOp` logo abaixo dela e já não valia para `PERMISSION_LEVELS`. Corrigido em 2026-08-14 contra o código.
 
 ## Toast de bloqueio: o set que decide a mensagem
 

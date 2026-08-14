@@ -33,7 +33,7 @@ A resposta `{ apiKey }` é a **única** vez que a chave nova aparece. Não há r
 
 `API_KEY_ROTATE` está na lista fechada do CHECK de `audit_trail` (`backend/src/database/migrations/001_core.sql`): é **contrato congelado**, adicionar ou renomear ação de auditoria exige migração. Ver [[auditoria]].
 
-Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `404` para UUID bem formado sem usuário correspondente existe e é intencional (`rotateApiKey`, `backend/src/modules/users/users.service.js`), embora o guia 12 liste apenas 403 e 422 para essa rota.
+Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `404` para UUID bem formado sem usuário correspondente é intencional (`rotateApiKey`, `backend/src/modules/users/users.service.js`), e não uma lacuna de validação.
 
 ## Armadilhas
 
@@ -44,9 +44,3 @@ Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `4
 - **Chave não é para browser.** Não expira e não tem proteção própria contra CSRF (não sendo cookie, ao menos não é auto-enviada). Na SPA use `Authorization: Bearer`.
 - **`mapDbUser` descarta campos que a query traz.** `FIND_USER_BY_API_KEY` seleciona `organizacao_militar` e `rank_id`, mas `mapDbUser` (`backend/src/middleware/flexible-auth.js`) não os copia para `req.user`. Um handler que dependa desses campos funciona no caminho JWT e quebra no caminho API key.
 - **Nenhum rate limit na rotação.** As rotas levam só `auth`/`requireAdmin`. Rotação em loop é barata para o cliente e cresce `api_key_history` sem teto.
-
-## Fontes
-
-- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 3 (precedência do `flexibleAuth`, sliding session, chave inválida = anônimo) e Parte 4 (contrato dos dois endpoints de rotação, resposta irrecuperável, auditoria, histórico).
-- guia *09-admin* (absorvido): posicionamento das duas rotas de rotação no inventário administrativo.
-- Código do `ebgeo_backend` (manda sobre a prosa): `src/middleware/{flexible-auth,auth,error-handler}.js`, `src/modules/users/{users.queries,users.service,users.controller,users.routes}.js`, `backend/src/database/migrations/001_core.sql`, `backend/src/utils/redact-url.js`, `backend/tests/integration/identity.test.js`.

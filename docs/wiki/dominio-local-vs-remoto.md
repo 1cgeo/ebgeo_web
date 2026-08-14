@@ -50,12 +50,12 @@ Remoto → local é "Salvar projeto" (exporta `.ebgeo`), a única forma suportad
 
 Contrato de fidelidade (P11): toda adição ao transform local→servidor precisa de contrapartida no `applyRemoteSnapshot`, senão o dado vai e não volta. Ver [[snapshot-e-pull-incremental]] e [[aplicacao-operacoes-remotas]].
 
-## Divergências entre documentação e código
+## O boot NÃO reconecta o último atlas
 
-> **Nota histórica.** Guias absorvidos (*visao-e-principios* §4, *arquitetura-sync* §7.4) descrevem um `reconnectLastAtlas()` que reconectaria ao atlas do marcador no boot. **Essa função não existe.** A precedência real é link público → deep link `?atlas=<uuid>` → `openAtlasChooserOnBoot()` (`frontend/src/js/index.js:157-160`), que descarta o resíduo remoto e **abre o seletor**. A URL é a fonte de verdade do que reabrir; o marcador só decide o que descartar. Não há reconexão silenciosa.
+O modelo mental errado mais persistente sobre esta página é o de uma função que reconectaria ao atlas do marcador no boot. **Ela não existe** (zero ocorrências de reconnectLastAtlas em `frontend/src/`), e planejar a partir dela produz código que duplica o Atlas Drive.
 
-> **Nota histórica.** Guia *ui-ux-ebgeo* §2 diz "o boot não passa pelo Drive: F5 reconecta o último atlas". Um boot autenticado em URL nua (`/`) **abre** o Atlas Drive (`frontend/src/js/index.js:272-283`). O F5 só reabre o atlas porque `deep-link/atlas-url-sync.js:31-35` mantém `?atlas=<uuid>` na barra de endereços enquanto há conexão.
+A precedência real é link público, depois deep link `?atlas=<uuid>`, depois `openAtlasChooserOnBoot` (`frontend/src/js/index.js:186`), que descarta o resíduo remoto e **abre o seletor**. A URL é a fonte de verdade do que reabrir; o marcador só decide o que descartar. O F5 reabre o atlas apenas porque `syncAtlasUrl` (`frontend/src/js/deep-link/atlas-url-sync.js`) mantém `?atlas=<uuid>` na barra de endereços enquanto há conexão, e a limpa assim que a sessão deixa de estar autenticada.
 
-> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O comentário de boot em `frontend/src/js/index.js:148` descrevia "otherwise reconnect the last remote atlas for a restored authenticated session", mas o código chama `openAtlasChooserOnBoot()`. O comentário passou a dizer que o boot **não** reconecta sozinho e que o caminho é o seletor.
+> [!CONTRADICAO 2026-07-18] RESOLVIDO 2026-07-24: o comentário de boot em `frontend/src/js/index.js` descrevia "otherwise reconnect the last remote atlas for a restored authenticated session", mas o código chama `openAtlasChooserOnBoot`. O comentário passou a dizer que o boot **não** reconecta sozinho e que o caminho é o seletor.
 
 Ver [[sessao-boot-e-ciclo-de-vida]] e [[autenticacao-jwt]].

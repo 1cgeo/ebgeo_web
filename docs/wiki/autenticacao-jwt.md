@@ -4,12 +4,12 @@ Par de tokens do EBGeo: access JWT HS256 stateless (15 min, sem revogação **po
 
 ## A assimetria que governa tudo: o access token não se revoga sozinho
 
-O access token não tem estado no servidor, só assinatura, e não carrega `jti` nem versão: **não há o que invalidar dentro dele**. Desativar um usuário não altera o JWT que ele já tem. Toda a arquitetura em volta existe para compensar isso, sempre da mesma forma — a decisão não sai do token, sai de uma leitura viva do banco:
+O access token não tem estado no servidor, só assinatura, e não carrega `jti` nem versão: **não há o que invalidar dentro dele**. Desativar um usuário não altera o JWT que ele já tem. Toda a arquitetura em volta existe para compensar isso, sempre da mesma forma: a decisão não sai do token, sai de uma leitura viva do banco:
 
 - o middleware estrito reconcilia o token contra o banco a cada requisição (`auth`, `backend/src/middleware/auth.js`, via `getLiveAuthState`);
 - o `role` **global** é sobrescrito pelo valor vivo, para que um admin rebaixado não continue admin durante a janela do token;
 - `org_role` e `organization_id` **não** são sobrescritos de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`;
-- desde 2026-07-25 essa mesma leitura traz `users.sessions_valid_from`, um corte por CONTA (não por token): a revogação em massa carimba a hora, e todo token com `iat` anterior a ela é recusado. É o que dá efeito real a "trocar a senha derruba as outras sessões" e a "reuso de refresh detectado encerra a sessão roubada" — antes disso as duas frases eram falsas. Mecanismo, fronteira de um segundo e limites em [[refresh-token-rotacao]].
+- desde 2026-07-25 essa mesma leitura traz `users.sessions_valid_from`, um corte por CONTA (não por token): a revogação em massa carimba a hora, e todo token com `iat` anterior a ela é recusado. É o que dá efeito real a "trocar a senha derruba as outras sessões" e a "reuso de refresh detectado encerra a sessão roubada", porque antes disso as duas frases eram falsas. Mecanismo, fronteira de um segundo e limites em [[refresh-token-rotacao]].
 
 Consequência que morde: **mudança de papel global vale na hora; mudança de OM ou de papel org-scoped leva até 15 minutos para valer.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
@@ -87,11 +87,6 @@ Um socket já aberto **não** revalida o token depois do handshake: a sessão do
 - `401`, `403` e `429` são coisas distintas: `401` aciona refresh (uma vez) e depois login; `403` de OM inativa **não** se resolve com refresh ([[organizacoes-om]]); `429` é só espera.
 - Não use `GET /health` para decidir online/offline no boot; o boot é fail-fast em `GET /api/config` ([[config-runtime-urls-relativas]]).
 - Login e logout **não** aparecem hoje na trilha de auditoria, apesar de constarem no CHECK da tabela ([[auditoria]]).
+- **Nunca case por string de mensagem, use o `code` do envelope.** O idioma varia por camada e sem regra: o serviço de auth emite português (`Usuário ou senha inválidos`, `Conta desativada`, `Sessão inválida. Entre novamente.`), o middleware de JWT emite inglês (`Token expired`, `Account is inactive`). Uma UI que casa texto quebra ao atravessar essa fronteira.
 
 Ver [[erros-api]] e [[sintese-contrato-erros-http]].
-
-> **Nota histórica.** guia *11-seguranca-hardening* (absorvido) §2 e §3.2 documentam as mensagens em inglês (`Invalid credentials`, `Account is deactivated`, `Invalid refresh token`, `Refresh token expired`); o código emite português: `Usuário ou senha inválidos`, `Conta desativada`, `Sessão inválida. Entre novamente.` e `Sessão expirada. Entre novamente.` (`backend/src/modules/auth/auth.service.js`). Não faça matching por string de mensagem; use o `code` do envelope. As mensagens **em inglês** que existem de fato são as do middleware de JWT: `Token expired` / `Invalid token` e `Account is inactive` / `Organization is inactive` (`backend/src/middleware/auth.js`).
-
-> **Nota histórica.** guia *01-autenticacao* (absorvido) §9 mostra o corpo de `POST /auth/register` com `posto_graduacao` e `organizacao_militar` como texto livre; o schema real aceita `rank_id` e `organization_id` como **UUIDs** (`registerSchema`, `backend/src/modules/auth/auth.schemas.js`). O Joi é estrito quanto a campos desconhecidos: enviar o formato do doc é rejeitado.
-
-> **Nota histórica.** guia *01-autenticacao* (absorvido) §3 recomenda access token em memória/`sessionStorage` e apenas o refresh em `localStorage`; o cliente real persiste **os dois** em `localStorage` (ver acima). Escolha deliberada, não descuido.

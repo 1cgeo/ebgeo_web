@@ -31,7 +31,7 @@ Ou seja: 360 concatena, 3D embute. Ver [[resources-catalogo]].
 
 O campo existe do lado do servidor: `getAppConfig` emite `assets3dBaseUrl` (`backend/src/modules/config/config.service.js:217`) e o schema admin o valida (`backend/src/modules/config/config.admin.schemas.js:58`). Do lado do cliente, `grep` em `frontend/src/` não retorna uma única ocorrência, e o `url` de `config.tilesets` vai sem prefixo algum ao Cesium (`frontend/src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`).
 
-É contrato publicado sem consumidor, e o engano tem duas direções: quem audita só o backend acha que o cliente concatena, quem audita só o frontend acha que o campo não existe. A documentação de origem manda concatenar `assets3dBaseUrl + m.url`; ninguém faz isso aqui.
+É contrato publicado sem consumidor, e o engano tem duas direções: quem audita só o backend acha que o cliente concatena, quem audita só o frontend acha que o campo não existe. A regra "concatene `assets3dBaseUrl + url`" é verdadeira para quem consome `/nomes/catalogo3d`, e ninguém a executa neste repositório.
 
 Como interpretar sem errar: `assets3dBaseUrl` é o contrato de quem consome `GET /nomes/catalogo3d` (fluxo de descoberta + `/assets3d/*`), rota que o web app hoje **não** consome; ele recebe os modelos já em `config.tilesets`, hidratado da tabela `resources`, e o backend não reescreve a `url`. Se você editar o catálogo pelo painel admin, grave a `url` já servível a partir da origem (ex.: `/api/v1/assets3d/aman/tileset.json`) ou absoluta, porque ninguém vai prefixá-la. Se um dia o app migrar para `/nomes/catalogo3d`, a concatenação passa a ser obrigatória. Ver [[catalogo-3d]] e [[assets3d-distribuicao]].
 

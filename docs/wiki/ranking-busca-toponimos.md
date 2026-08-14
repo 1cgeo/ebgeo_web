@@ -49,13 +49,13 @@ O normalizador é derivado da própria largura de faixa, não é literal. Mudar 
 
 ## A armadilha central: o score não decide quem entra
 
-`candidatos` pré-filtra por similaridade ≥ 0.25, ordena por `sim DESC, dist ASC` e corta em `LIMIT 500` (`backend/src/modules/nomes/nomes.queries.js:39`, `:52-53`). Os 7 critérios só pontuam o que sobreviveu.
+A CTE `candidatos` (`backend/src/modules/nomes/nomes.queries.js`) pré-filtra por similaridade ≥ 0.25, ordena por `sim DESC, dist ASC` e corta em `LIMIT 500`. Os critérios só pontuam o que sobreviveu.
 
 Três consequências que não se leem em nenhum arquivo isoladamente:
 
 - **`dist` decide o corte, não só o desempate.** `similarity()` devolve razões de contagens de trigramas, então empates são frequentes, não raros. Na faixa marginal de similaridade (a que fica na borda dos 500), quem entra é escolhido por proximidade. O parâmetro `lat`/`lon` já está agindo antes do critério 7.
-- **A dedup vem depois do corte e não repõe orçamento.** `DISTINCT ON (nome, tipo, cluster_id)` roda sobre os 500 (`backend/src/modules/nomes/nomes.queries.js:56`). Um termo genérico ("rio", "santa") queima o orçamento em quase-duplicatas e pode chegar ao score com pouquíssimas linhas distintas. É aqui que a busca fica ruim em termos comuns, não nos pesos.
-- **Usuários diferentes veem rankings diferentes para o mesmo termo.** O filtro de acesso está dentro do `WHERE` de `candidatos` (`backend/src/modules/nomes/nomes.queries.js:47-51`), logo antes do `LIMIT 500`. Para um admin, linhas privadas competem pelas 500 vagas e podem expulsar públicas que o anônimo veria. Não é bug, é consequência de embutir autorização na query. Ver [[zonas-acesso-geografico]].
+- **A dedup vem depois do corte e não repõe orçamento.** `DISTINCT ON (nome, tipo, cluster_id)` roda sobre os 500. Um termo genérico ("rio", "santa") queima o orçamento em quase-duplicatas e pode chegar ao score com pouquíssimas linhas distintas. É aqui que a busca fica ruim em termos comuns, não nos pesos.
+- **Usuários diferentes veem rankings diferentes para o mesmo termo.** O filtro de acesso está dentro do `WHERE` de `candidatos`, logo antes do `LIMIT 500`. Para um admin, linhas privadas competem pelas 500 vagas e podem expulsar públicas que o anônimo veria. Não é bug, é consequência de embutir autorização na query. Ver [[zonas-acesso-geografico]].
 
 ## As consequências que se paga, medidas
 
@@ -81,7 +81,7 @@ A armadilha simétrica mora do outro lado e quase entrou junto: `com` como abrev
 
 ## Custo escondido: o operador e o limiar são um par
 
-> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/004_ng.sql:43-44`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24 (`backend/src/modules/nomes/nomes.queries.js:39`). O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js:9-22`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
+> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/004_ng.sql:43-44`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24. O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js:9-22`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
 
 Fica o contrato que a troca criou: **operador e `SET LOCAL` andam juntos.** O default da extensão é 0.3, então remover o `SET LOCAL`, ou tirar a busca da transação que o carrega (`SET LOCAL` morre com ela), aperta a busca em silêncio e descarta os candidatos entre 0.25 e 0.3. O sintoma é resultado faltando, não erro, e nenhum teste o pega.
 
@@ -89,20 +89,14 @@ Detalhe do mesmo nó que parece cosmético e não é: o termo no predicado vem d
 
 Isso importa além da latência porque `/busca` é a única rota anônima do backend: o custo por requisição é pago por qualquer um, e o teto que sobra é o balde por endereço descrito em [[hardening-borda-api]].
 
-`f_unaccent` é aplicado dos dois lados (`backend/src/modules/nomes/nomes.queries.js:11`, `:17`), então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/004_ng.sql:21-23`), e é ele que o índice GIN cobre.
+`f_unaccent` é aplicado dos dois lados da comparação, então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/004_ng.sql:21-23`), e é ele que o índice GIN cobre.
 
 ## Integração: a busca de 2 letras que falha calada
 
-A barra dispara com 2 caracteres (`frontend/src/js/search/search-bar.component.js:168` só ignora `value.length < 2`), o backend exige 3 (`backend/src/modules/nomes/nomes.schemas.js:8`). O 422 vira `throw` em `frontend/src/js/search/search-bar.search-providers.js:283-285` e morre como `console.warn` em `frontend/src/js/search/search-bar.component.js:266-271`. Toda busca de 2 letras é uma requisição inútil que falha em silêncio. Ver [[erros-api]] e [[auth-flexivel]].
+A barra dispara com 2 caracteres (só ignora `value.length < 2`, `frontend/src/js/search/search-bar.component.js`), o backend exige 3 (`backend/src/modules/nomes/nomes.schemas.js`). O 422 vira `throw` no provider e morre como `console.warn` no componente. Toda busca de 2 letras é uma requisição inútil que falha em silêncio. Ver [[erros-api]] e [[auth-flexivel]].
 
 Módulo read-only, fora do sync do atlas: sem `version`, sem operação, sem broadcast. Ver [[sintese-modulos-fora-do-sync]] e [[deploy-backend]].
 
 ## Fontes
-- `backend/src/modules/nomes/nomes.queries.js`: as três chaves, corte de 500, filtro de acesso pré-corte.
-- `backend/tests/integration/nomes-busca-doutrina.test.js`: os guardas de posição da doutrina.
-- [[calibracao-busca-toponimos]]: o conjunto dourado, a ablação e como se chegou a estes números.
-- `backend/src/database/migrations/004_ng.sql`: `f_unaccent`, índice GIN trigram, hierarquia `tipo_peso` original.
-- `backend/src/database/migrations/009_ng_tipo_peso_palavra.sql`: a hierarquia vigente (casamento por palavra) e a medição dos 658 falsos positivos.
-- `backend/tests/integration/nomes-tipo-peso.test.js`: os tipos do acervo real amarrados peso a peso.
-- `frontend/src/js/search/search-bar.search-providers.js`, `frontend/src/js/search/search-bar.component.js`: ausência de `zoom`, gatilho em 2 chars.
-- guia *13-nomes-geograficos* (absorvido): pesos e contrato do endpoint; divergência sobre `zoom` registrada acima.
+
+Os guardas da doutrina são `backend/tests/integration/nomes-busca-doutrina.test.js` (posição esperada por família) e `backend/tests/integration/nomes-tipo-peso.test.js` (os tipos do acervo real amarrados peso a peso): quem mexer nas chaves quebra estes dois primeiro. O conjunto dourado, a ablação e como se chegou a cada número estão em [[calibracao-busca-toponimos]].

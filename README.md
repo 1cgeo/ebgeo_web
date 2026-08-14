@@ -1,9 +1,9 @@
 # EBGeo
 
-GIS web para o Exército Brasileiro — visualização e edição de dados geoespaciais e símbolos
+GIS web para o Exército Brasileiro: visualização e edição de dados geoespaciais e símbolos
 militares (APP-6 / milsymbol), briefings (Story Map), análise de terreno, 3D e StreetView 360.
 
-**Monorepo — um repositório, dois pacotes:**
+**Monorepo, um repositório e dois pacotes:**
 
 | Pacote | Onde | Stack |
 |--------|------|-------|
@@ -12,91 +12,69 @@ militares (APP-6 / milsymbol), briefings (Story Map), análise de terreno, 3D e 
 
 Cada pacote é autocontido, com seu próprio `package.json`, `node_modules` e `.gitignore`. A raiz só
 orquestra: os scripts dela delegam com `--prefix`, e o único lugar onde os dois se encontram é o
-E2E do Playwright, que sobe o backend real.
-
-A referência completa do servidor (rotas, env, migrações, permissões, protocolo WS) está em
-[`backend/README.md`](backend/README.md); o porquê das decisões, na
-[wiki](docs/wiki/index.md). Os guias numerados de integração foram absorvidos pela wiki e o
-diretório que os continha não existe mais.
+E2E, que sobe o backend real.
 
 ## Modos de operação
 
-1. **Anônimo (padrão)** — sem login: todos os dados ficam no IndexedDB local e projetos são
-   exportados/importados como arquivos `.ebgeo`. **O servidor precisa estar alcançável no boot** —
-   ver a nota abaixo.
-2. **Autenticado** — login JWT, atlas hospedados no servidor, **colaboração multiusuário em tempo real**
-   (sync de feições/mapas/camadas via REST + WebSocket), presença e compartilhamento.
-3. **Público** — abertura de um atlas por link público, somente leitura.
+1. **Anônimo (padrão)**, sem login: os dados ficam no IndexedDB local e o projeto é exportado e
+   importado como arquivo `.ebgeo`.
+2. **Autenticado**, com login JWT: atlas hospedados no servidor, colaboração multiusuário em tempo
+   real (feições, mapas e camadas via REST + WebSocket), presença e compartilhamento.
+3. **Público**: abertura de um atlas por link, somente leitura.
 
-> **Login opcional, servidor obrigatório no boot.** O backend é **aditivo** no sentido de que a app
-> é idêntica para quem não faz login, e nenhuma mudança pode quebrar esse caminho anônimo. Ele **não**
-> é opcional para subir: `GET /api/config` é a fonte única de config/catálogo e o boot é **fail-fast**
-> (`frontend/src/js/index.js` — 3 tentativas, depois a tela "EBGeo indisponível"). O `frontend/src/js/config.js`
-> empacotado é apenas o *shape* que o servidor hidrata; **não há fallback estático**. Passado o boot,
-> a edição permanece local-first: escreve no IndexedDB e sincroniza depois.
+> **Login é opcional, servidor não é.** O backend é aditivo no sentido de que o app é idêntico para
+> quem não faz login, e nenhuma mudança pode quebrar esse caminho. Ele não é opcional para subir:
+> `GET /api/config` é a fonte única de config e catálogo, e o boot faz 3 tentativas antes da tela
+> "EBGeo indisponível" (`frontend/src/js/index.js`). O `frontend/src/js/config.js` empacotado é só o
+> *shape* que o servidor hidrata, e não existe fallback estático. Passado o boot, a edição continua
+> local-first: escreve no IndexedDB e sincroniza depois.
 
-## Comandos
+## Subir o ambiente
 
-### Os dois modos
-
-Login é opcional, **servidor não é**: o boot é fail-fast em `GET /api/config` e não há
-fallback estático, então subir só o Vite dá a tela "EBGeo indisponível". Trabalhar aqui
-exige o backend de pé, e ele exige **PostgreSQL com PostGIS**.
+Requisitos: **Node >= 20.19** (o boot do backend usa `--env-file-if-exists`, que não existe antes
+disso) e **PostgreSQL com PostGIS**.
 
 ```bash
-npm run install:all  # instala os dois pacotes
-npm run dev          # DEV: backend :8080 + Vite :3000, juntos
-npm run build        # PROD: compila para dist/
-npm run deploy       # PROD: publica (deploy/deploy.sh, troca de symlink)
+npm run install:all                    # instala os dois pacotes
+cp backend/.env.example backend/.env   # portas: backend :8080, Vite :3000 (inverter derruba o boot)
+npm run db:setup --prefix backend      # cria o banco com o dono certo + extensões; ver o script
+npm run db:migrate --prefix backend
+npm run db:seed --prefix backend       # usuários de teste: admin/admin123 e cap.silva/test123
+npm run dev                            # backend :8080 + Vite :3000, juntos
 ```
 
-Peças soltas, quando você quer só uma delas:
+Peças soltas: `npm run dev:web` (só o Vite, que sozinho não boota) e `npm run dev:backend`.
+Para publicar: `npm run build` compila para `dist/` e `npm run deploy` troca o symlink.
 
-```bash
-npm run dev:web      # só o Vite (não boota sozinho; é o que o Playwright usa)
-npm run dev:backend  # só o backend (node --watch)
-```
-
-### Verificação
+## Verificação
 
 ```bash
 npm run lint         # OS DOIS pacotes: ESLint (--max-warnings 0) + Stylelint no frontend,
                      #   ESLint + o probe das regras de teste no backend
-npm test             # OS DOIS pacotes. No backend a suíte completa se auto-eleva para c8
-                     #   e verifica o piso de cobertura do .c8rc.json
-npm run lint:frontend | lint:backend | test:frontend | test:backend   # um pacote só
-npm run test:watch   # Vitest em watch (frontend)
-npm run test:coverage# cobertura dos DOIS pacotes; no backend o piso do .c8rc.json reprova
+npm test             # OS DOIS pacotes + o E2E full-chain; exige o mesmo PostgreSQL do backend.
+                     #   A suíte completa do backend se auto-eleva para c8 e verifica o piso de
+                     #   cobertura do .c8rc.json
 npm run test:e2e:ui  # Playwright: sobe o backend REAL de backend/ e dirige o browser
 npm run knip         # detecção de código morto
 ```
 
-O E2E resolve o backend a partir de `backend/` no próprio repositório — `EBGEO_BACKEND_DIR`
+Um pacote só: `lint:frontend`, `lint:backend`, `test:frontend`, `test:backend`. Também há
+`test:watch` (Vitest do frontend) e `test:coverage` (os dois pacotes).
+
+O E2E resolve o backend a partir de `backend/` no próprio repositório; `EBGEO_BACKEND_DIR`
 sobrescreve se o seu checkout mantiver o servidor em outro lugar.
 
-> Testes são executados manualmente (não há CI de testes nem git hooks). Lógica se verifica com
-> `npm run lint` e `npm test`; **UI se verifica com `npm run test:e2e:ui`**, que sobe o backend real
-> e é o guarda da fronteira entre os dois pacotes. O que não se usa é ferramenta de preview ou
-> browser interativo. Ver [`.claude/rules/testing.md`](.claude/rules/testing.md).
+> Não há CI nem git hooks: tudo roda à mão. Lógica se verifica com `npm run lint` e `npm test`, em
+> comandos separados e antes do commit. **UI se verifica com Playwright**, nunca com ferramenta de
+> preview ou browser interativo. Ver [`.claude/rules/testing.md`](.claude/rules/testing.md).
 
-## Arquitetura & convenções
+## Onde ficam as coisas
 
-A documentação detalhada para contribuir (estrutura de pastas, padrões de store/eventos, sync, tarefas
-comuns e regras de teste) vive em:
-
-- **`CLAUDE.md`** — contrato de comportamento e padrões não-negociáveis.
-- **`.claude/rules/`** — `architecture.md` (estrutura + módulos + sync/colaboração),
-  `common-tasks.md` (receitas), `testing.md` (regras de teste).
-- **`.claude/skills/`** — `new-tool` (scaffold de ferramenta), `store-op` (operação de store).
-- **`docs/`** — especificações, incluindo `docs/wiki/index.md` (multiusuário).
-
-### Modelo de dados (resumo)
-
-**Atlas** (contêiner do projeto) → **Mapas** (workspaces) → **Camadas** (visibilidade + bloqueio) →
-**Feições** (elementos geográficos). Dados temporais opcionais por feição (janela de validade +
-trajetória).
-
-O metadado de sync **não é uniforme entre as entidades**, e tratá-lo como uniforme é erro fácil:
-Atlas, Mapa e Grupo carregam os seis campos (`createdAt`, `updatedAt`, `version`, `ownerId`,
-`dirty`, `deleted`), enquanto **feição carrega só três** — `createdAt`, `updatedAt` e `version`,
-postos por `addCreatedTimestamp` (`frontend/src/js/store/feature.operations.js:29-41`).
+- **[`docs/wiki/index.md`](docs/wiki/index.md)** é a documentação do projeto: o porquê das decisões,
+  as armadilhas e os contratos congelados, incluindo o modelo de dados (Atlas → Mapas → Camadas →
+  Feições) e o multiusuário. Comece pelo índice.
+- **[`backend/README.md`](backend/README.md)**: subir, migrar e testar o servidor.
+- **`CLAUDE.md`** (na raiz e em `backend/`) é o contrato de comportamento para quem trabalha aqui,
+  com `.claude/rules/` para o detalhe de arquitetura e `.claude/skills/` para os procedimentos.
+- **[`docs/MEMORY.md`](docs/MEMORY.md)** (fatos duráveis), [`docs/livro-razao.md`](docs/livro-razao.md)
+  (lições de correções) e [`docs/decisions/`](docs/decisions/DECISIONS.md) (ADRs leves).

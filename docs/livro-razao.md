@@ -45,6 +45,48 @@ Classes resolvidas e sem reincidência posterior, condensadas dos eventos crus. 
 - **`risco-aceito` (1 evento, 2026-07-19).** O furo de autodeclaração de OM no cadastro ficou aberto por decisão explícita. Em vez de deixar sem teste, o caso `KNOWN GAP` AFIRMA o comportamento inseguro atual, então o dia em que alguém fechar o furo o teste cai e obriga a decisão a ser revista. Risco aceito sem teste é risco esquecido.
 - **`assimetria-entre-superficies` (1 evento, 2026-07-25).** `requireAtlasPermission` e o `enforceProjectReadable` do sv360 respondiam 403/404 em ordens opostas para o mesmo caso. O defeito não era o vazamento, que é pequeno, era a INCONSISTÊNCIA entre dois módulos do mesmo backend: é ela que faz o próximo módulo copiar o padrão errado. Escada única implementada, com `atlas-404-vs-403-escada.test.js`.
 
+## Recorrências vivas (índice dos eventos crus)
+
+Classes que **recorreram** e por isso continuam cruas abaixo, ao contrário das sínteses. Este índice
+existe porque a recorrência é o produto deste arquivo e ela estava ilegível: para vê-la era preciso
+ler 79 linhas e contar à mão. Cada bloco diz quantas vezes, em que datas, e qual foi a mudança de
+ABORDAGEM (não a re-anotação), como manda a regra de PODAR.
+
+- **Conferir um subconjunto e tratar como o conjunto (7 eventos: 2026-07-18, 07-24, 07-25 ×3, 08-14 ×2).**
+  `grep` em dois arquivos da raiz, `grep -v` que excluía o próprio alvo, `lint`/`test`/`test:coverage`
+  da raiz delegando só para o frontend, `npm test -- <a> <b>` rodando só o primeiro padrão, o E2E que
+  não estava no comando prescrito, e o inventário de cobertura montado a partir de uma lista de
+  diretórios escrita à mão. Abordagem atual, depois da terceira recorrência: parar de consertar o
+  caso e afirmar a PROPRIEDADE em teste (`frontend/tests/unit/scripts-da-raiz.test.js`), e derivar
+  todo inventário do versionamento (`git ls-files`), nunca de enumeração.
+- **Medir enquanto a coisa medida se move (6 eventos: 2026-07-18, 07-19 ×2, 07-25 ×3).** Processo
+  velho ainda servindo, arquivo pela metade, banco `ebgeo_test` compartilhado entre duas execuções,
+  produção mutada por outro agente para o controle negativo dele, cobertura medida com seis agentes
+  escrevendo. Abordagem atual: árvore parada antes de medir; banco por EXECUÇÃO e não por agente;
+  mutação de produção para controle negativo só em cópia ou em janela declarada; afirmação de um
+  agente sobre arquivo fora da sua lista é hipótese, não evidência.
+- **O verificador quebra calado (8 eventos: 2026-07-18, 07-19, 07-24, 07-25 ×4, 08-14).** Hooks que
+  liam variável inexistente, âncora de script de manutenção que nem sempre existe, `git rev-parse`
+  ecoando no stdout ao falhar, reversão por regex que não reverteu, `git checkout` apagando a edição
+  de outro autor, substituição multilinha que não casou em arquivo CRLF, e a lista de alvos do
+  guarda de doc montada com `filter` em vez de asserção. Abordagem atual: toda operação de mutação e
+  de reversão precisa DIZER se aconteceu (contar ocorrências antes e depois), e a conferência final
+  vem por caminho independente do que produziu o resultado.
+- **Cobertura vazia: verde que não prova nada (7 eventos, de 2026-07-18 a 07-26).** Regra que não
+  casa com nada, teste cujo sítio nunca é alcançado, guarda com `skip` em ambiente de teste,
+  igualdade entre dois `undefined`, sinal que não distingue o caminho certo do caminho nenhum.
+  Abordagem atual: a pergunta "o que este verde estaria provando se o código estivesse errado?" a
+  cada teste, controle negativo obrigatório, e três regras de lint próprias no backend
+  (`backend/eslint-rules/`) que pegam a forma estrutural.
+- **Comportamento observado registrado como esperado (5 eventos: 2026-07-19 ×3, 07-24, 07-25).**
+  Teste de caracterização cujo nome ou comentário descreve o defeito com precisão e o AFIRMA, o que
+  transforma verde em cimento. Abordagem atual: para risco aceito de propósito, marcador `KNOWN GAP`
+  que QUEBRA quando alguém fechar o buraco, em vez de asserção que o congela.
+
+A lista de eventos abaixo é append-only e **não está em ordem estritamente cronológica**: agentes em
+paralelo acrescentaram no fim ao mesmo tempo. Conte recorrência por este índice, não pela vizinhança
+das linhas.
+
 ## Eventos
 
 <!-- Formato: - AAAA-MM-DD `classe` [fonte] sintoma -> causa -> onde foi codificada -->

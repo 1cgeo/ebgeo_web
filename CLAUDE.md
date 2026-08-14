@@ -15,25 +15,26 @@ Este arquivo carrega **método, armadilha e convenção que diverge do default**
 
 ## Verificação: a lição que mais custou
 
-`verificacao-fantasma` é a classe mais recorrente do [`docs/livro-razao.md`](docs/livro-razao.md) (9 eventos), e junto com `teste-que-nao-prende` tem sempre a mesma raiz: **uma checagem que não checa**. As quatro formas:
+`verificacao-fantasma` é a classe mais recorrente do [`docs/livro-razao.md`](docs/livro-razao.md), com o dobro da segunda colocada, e junto com `teste-que-nao-prende` tem sempre a mesma raiz: **uma checagem que não checa**. As formas já pagas (esta linha já trouxe uma contagem, que envelhecia a cada evento novo):
 
 - **Verificação que chega depois da ação não é verificação.** Rodar lint na mesma linha de comando do `git commit` faz a saída aparecer depois do commit já ter passado. Comando separado, antes.
 - **Conferir um subconjunto e tratar como o conjunto.** `grep` em dois arquivos da raiz deu por completa uma busca que tinha alvos em `backend/`. Onde existe teste que varre tudo, não confira à mão.
 - **Cobertura vazia passa verde.** Teste cuja regra não casa com nada reporta sucesso sem verificar nada. Pergunte sempre *o que este verde estaria provando se o código estivesse errado*.
 - **O verificador também quebra, e quebra calado.** Três episódios: hooks que liam variável inexistente, script de manutenção ancorado num separador que nem sempre existe, e `git rev-parse` que ecoa no stdout ao falhar, fazendo `|| echo AUSENTE` capturar as duas saídas. Nenhum deu erro; os três deram resposta errada com cara de resposta. Quando a checagem é você que escreveu, confirme por um **caminho independente** daquele que produziu o resultado.
-- **Uma medição de algo probabilístico não é medição.** Corrida, flake e qualquer coisa dependente de tempo passam numa fração das execuções: um verde único é indistinguível do determinístico e não prova nada. Meça **em série** e relate a taxa (um fix de corrida do 360 deu verde na primeira rodada e continuava quebrado para o usuário: 3/8 antes, 20/20 depois). E prefira tornar a interleaving perdedora **determinística** num teste — estatística de browser não converge, teste com o evento disparando no instante errado converge.
+- **Uma medição de algo probabilístico não é medição.** Corrida, flake e qualquer coisa dependente de tempo passam numa fração das execuções: um verde único é indistinguível do determinístico e não prova nada. Meça **em série** e relate a taxa (um fix de corrida do 360 deu verde na primeira rodada e continuava quebrado para o usuário: 3/8 antes, 20/20 depois). E prefira tornar a interleaving perdedora **determinística** num teste: estatística de browser não converge, teste com o evento disparando no instante errado converge.
 - **O instrumento pode estar medindo outra cópia do sujeito.** Sonda que faz `import()` no dev server recebe outra instância do módulo quando o Vite serve o arquivo recém-editado com `?t=` de HMR, então o estado lido não é o do app. Meça por sinais que não dependem de identidade de módulo (rede, DOM, pixel) ou confirme que instrumento e app compartilham a instância.
 
 Não chancele a própria saída: rodar o teste não é a mudança funcionar; escrever a doc não é a doc estar certa.
 
 ## Não negociável
 
-- **Não use ferramenta de preview ou browser.** Verificação de lógica é `npm run lint` + `npm test` **na raiz**, que cobrem os DOIS pacotes; de UI, o Playwright (`npm run test:e2e:ui`). Até 2026-07-25 esses dois scripts da raiz delegavam só para `frontend/`: uma mudança só de backend, verificada exatamente como esta linha mandava, rodava zero teste de backend e voltava verde. O guarda estava errado, não o código.
+- **Verificação de lógica é `npm run lint` + `npm test` na RAIZ**, em dois comandos separados, antes do commit. O `npm test` da raiz encadeia três camadas (frontend hermético, backend, e2e de contrato), então **exige PostgreSQL + PostGIS com superusuário**; sem banco o backend reprova e o e2e **pula**, que é verde sem verificação, então confira a contagem de skips. A propriedade "script da raiz alcança os dois pacotes" é asserida por [`frontend/tests/unit/scripts-da-raiz.test.js`](frontend/tests/unit/scripts-da-raiz.test.js), porque essa mesma correção recorreu três vezes: prosa não segurava.
+- **UI não se valida por preview nem por browser interativo.** O laço aprovado é uma captura do Playwright dirigindo app e backend reais e depois **ler a imagem** produzida; apague o spec temporário. O Playwright fica FORA do `npm test` e é a única camada que exercita a UI.
 - **Trate como frágil, sem hook para segurar:** `deploy/` (roda contra produção), `.env`, lockfile e `frontend/public/vendors/`. O bloqueio automático foi removido em 2026-07-18 a pedido; agora é julgamento, então confirme antes de escrever nesses caminhos.
 - **Trabalhe no branch atual.** `main` é outra linha do produto; não sincronize sem pedir.
 - **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `frontend/src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.
-- **Permissão por atlas tem CINCO níveis:** `read < comment < write < manage < owner`. Sempre gate pela hierarquia. Lista fechada tipo `perm === 'write' || perm === 'owner'` exclui o `manage` em silêncio e já causou bug real, duas vezes, nos dois pacotes.
-- **Escrita INCREMENTAL de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide. Três exceções estruturais já existem e são deliberadas (merge de mapas, import de atlas, duplicação de mapa): são operações de entidade INTEIRA, cujo efeito não se expressa como sequência de ops. Detalhe e armadilhas em [`backend/CLAUDE.md`](backend/CLAUDE.md).
+- **Permissão por atlas tem CINCO níveis:** `read < comment < write < manage < owner`. Sempre gate pela hierarquia: no cliente por `checkPermission(GuardAction.X)`, no servidor por `requireAtlasPermission`. Lista fechada tipo `perm === 'write' || perm === 'owner'` exclui o `manage` em silêncio e já causou bug real, duas vezes, nos dois pacotes. Operação de store que escreve em atlas remoto sem consultar o guard enfileira trabalho que morre do outro lado, sem erro para o usuário.
+- **Escrita INCREMENTAL de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide/3D/360. Três exceções estruturais já existem e são deliberadas (merge de mapas, import de atlas, duplicação de mapa): são operações de entidade INTEIRA, cujo efeito não se expressa como sequência de ops. Detalhe e armadilhas em [`backend/CLAUDE.md`](backend/CLAUDE.md).
 - **Mudança que cruza os dois pacotes** (envelope de sync, `/api/config`, permissões, contrato congelado) é verificada **dos dois lados no mesmo commit**. O E2E sobe o backend real e é o guarda dessa fronteira.
 
 ## Comandos
@@ -43,9 +44,10 @@ Os scripts estão em `package.json`; os que não se adivinham:
 ```bash
 npm run dev           # stack completo: backend :8080 + Vite :3000 (dev:web sobe só o Vite,
                       #   que sozinho não boota: fail-fast em GET /api/config)
+npm test              # raiz: test:frontend + test:backend + test:e2e (contrato, vitest contra
+                      #   o backend real). Os dois últimos criam e dropam banco.
+npm run test:e2e:ui   # Playwright com o backend REAL de backend/; fora do npm test
 npm run build         # compila para dist/ ;  npm run deploy publica (symlink swap)
-npm run test:backend  # exige PostgreSQL + PostGIS + superusuário; cria e dropa ebgeo_test
-npm run test:e2e:ui   # Playwright com o backend REAL de backend/
 npm run knip          # dead-code
 ```
 
@@ -53,11 +55,11 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 ## Convenções que divergem do default
 
-- **Imports por alias em código novo** (não há regra de lint; 64 dos 567 arquivos de `frontend/src/js/` ainda usam `../../`, e migrá-los é decisão pendente, não dívida silenciosa): `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
+- **Imports por alias em código novo** (não há regra de lint, e cerca de um décimo dos arquivos de `frontend/src/js/` ainda usa `../../`: migrá-los é decisão pendente, não dívida silenciosa): `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
 - **Idioma:** string de UI em pt-BR com acento correto; comentário e JSDoc em inglês; propriedade de feição em português (`nome`, `descricao`, `visivel`, `bloqueado`).
 - **Comentário de caminho na linha 1** de todo arquivo JS, relativo ao `src/` do pacote: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
 - **Sem estilo inline em JS.** Classes BEM em arquivo CSS; exceção só para valor computado em runtime (cor vinda do JS, posição calculada).
-- **XSS:** nunca `innerHTML` com dado de usuário. Use `textContent` ou `createElement`; `escapeHtml` de `@utils/html-escape.js` ao interpolar. Ícone SVG estático é ok.
+- **XSS:** nunca `innerHTML` com dado de usuário. Use `textContent` ou `createElement`; `escapeHtml` de `@utils/html-escape.js` ao interpolar (ele escapa aspas, então vale dentro de atributo). HTML rico não se escapa, se sanitiza: conteúdo Quill de briefing passa por `sanitizeQuillHtml` (`@utils/quill-helpers.js`) em TODO ponto que o renderiza, e o slide chega por sync, escrito por outro usuário. Ícone SVG estático é ok.
 - **Limpeza de recurso** via `@utils/event-cleanup.js`. Todo `map.on()` do MapLibre pareado com `map.off()` no `onRemove()`; handler do Cesium com `.destroy()`; timer sempre limpo.
 - **Utilitários obrigatórios:** `deepClone()` (não `JSON.parse(JSON.stringify())`), `showToast()` (não `alert()`), `generateUUID()` para todo id, constantes `EventTypes.XXX` (nunca string literal de evento).
 - **CSS** em `frontend/src/css/` com os custom properties de `design-tokens.css`. Anime com `transform: translateX()`, nunca `left` (evita layout thrashing).
@@ -65,7 +67,7 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 ## Padrões estruturais
 
-**O app tem TRÊS páginas, não uma:** `index.html` (mapa), `projetos.html` (seletor de atlas) e `admin.html` (Administração). As duas sem mapa bootam sem MapLibre, sem `@store` e sem `initServices()` — importar o barrel `@utils` ou `@modals` delas arrasta a store inteira de volta pelo caminho transitivo. Elas compartilham a barra superior via `createAppBar` (`ui/app-bar.js`), porque `AccountControl` é `IControl` e só existe dentro de um mapa. Detalhe e medições em [`.claude/rules/architecture.md`](.claude/rules/architecture.md) §Páginas e chunks.
+**O app tem QUATRO páginas, não uma:** `index.html` (mapa), `projetos.html` (seletor de atlas), `admin.html` (Administração) e `calibracao.html` (calibração 360, só para `admin` global). As três que não são o mapa bootam sem `@store` e sem `initServices()`, e importar delas o barrel `@utils` ou `@modals` arrasta a store inteira de volta pelo caminho transitivo. Projetos e Administração compartilham a barra superior via `createAppBar` (`ui/app-bar.js`), porque `AccountControl` é `IControl` e só existe dentro de um mapa. Detalhe e medições em [`.claude/rules/architecture.md`](.claude/rules/architecture.md) §Páginas e chunks.
 
 **Ferramenta de desenho = 3 arquivos:** `add_*_control.js` (IControl do MapLibre) + `add_*_geometry.js` (geometria pura, testável em node) + `*_attributes_panel.js`. Use a skill `new-tool`.
 
@@ -89,6 +91,6 @@ Ordem: persistência → deferSync → deferAsync. Detalhe na skill `store-op`.
 
 A wiki em [`docs/wiki/`](docs/wiki/index.md) **é** a documentação, e vale um critério só: **o código já é a evidência**. Antes de escrever um parágrafo, pergunte se um engenheiro competente chegaria nele sozinho lendo o código. Se sim, não escreva. Entra o porquê e a alternativa rejeitada, a armadilha, o contrato congelado, o não-óbvio que atravessa arquivos. Regras de manutenção em [`docs/wiki/wiki-schema.md`](docs/wiki/wiki-schema.md).
 
-Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`frontend/tests/unit/docs-integridade.test.js`](frontend/tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver.
+Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`frontend/tests/unit/docs-integridade.test.js`](frontend/tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver, e todo símbolo entre crases precisa existir no código (comentário não conta como existência). Daí a regra tipográfica: crase promete código que existe, e proposta se escreve em prosa, sem crase.
 
 Ao corrigir um desvio, registre uma linha no [`docs/livro-razao.md`](docs/livro-razao.md) dizendo **onde a lição foi codificada**. Correção que recorre significa que a guia não pegou: mude a abordagem, não re-anote.

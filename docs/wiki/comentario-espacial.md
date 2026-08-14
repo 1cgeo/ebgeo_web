@@ -13,9 +13,9 @@ O preço disso é que não existe cascata no servidor: `removeComment` apaga rai
 `guardComment` exige autenticação **e** a capability `COMMENT` (`frontend/src/js/store/comment.operations.js:31-44`). Duas afirmações no próprio código são falsas e induzem ao erro:
 
 1. **O JSDoc do arquivo mente sobre offline.** `frontend/src/js/store/comment.operations.js:11` diz "commenting works fully offline (P1)". Não funciona: `guardComment` barra com `reason: 'not-authenticated'` (`:34-37`) e a ferramenta recusa entrar em colocação (`frontend/src/js/comment_tool/comment-overlay.js:123-126`). Anônimo/offline apenas **vê** comentários (por exemplo vindos de um `.ebgeo` importado).
-2. **A regra "autor ou Editor+" não existe no store.** `frontend/src/js/store/sync/permission-guard.js:39-40` afirma que ela é aplicada "in the comment operations + backend"; no cliente ela só existe na UI (`frontend/src/js/comment_tool/comment-overlay.js:171-176`). `updateComment`/`removeComment` chamados fora do overlay editam ou apagam comentário alheio com qualquer papel Comentarista+. Novo call site fora de `comment_tool/` precisa replicar o teste de autoria. Ver [[permissoes-atlas]].
+2. **A regra "autor ou Editor+" não existe no store, só na UI.** Ela vive em `_canModify` (`frontend/src/js/comment_tool/comment-overlay.js`); `updateComment`/`removeComment` não olham `authorId` em ponto nenhum, então chamados fora do overlay editam ou apagam comentário alheio com qualquer papel Comentarista+. Novo call site fora de `comment_tool/` precisa replicar o teste de autoria. Ver [[permissoes-atlas]].
 
-> **Nota histórica.** guia *visao-e-principios* (absorvido) §11 lista "Comentário disponível offline" entre as decisões fechadas. O código faz o oposto (item 1 acima). Isso vale inclusive para o visitante de [[link-publico]], que é ONLINE mas com `isAuthenticated()` falso por construção (`frontend/src/js/store/sync/session-context.js:258-266`).
+O item 1 vale inclusive para o visitante de [[link-publico]], que é ONLINE mas com `isAuthenticated()` falso por construção (`frontend/src/js/store/sync/session-context.js:258-266`).
 
 ## No mapa local, comentar não sai da máquina
 
@@ -40,7 +40,3 @@ O campo pode vir **ausente**, e não é bug: para conexão de nível `read` o se
 ## Relacionados
 
 [[atlas-modelo-de-dados]], [[envelope-operacao]], [[tipos-entidade-sync]], [[presenca-colaborativa]], [[compartilhamento-atlas]], [[modos-operacao]]
-
-## Fontes
-- guia *visao-e-principios* (absorvido) (§11): modelo de papéis, decisão raiz/resposta como entidades separadas (P10), filtro de transmissão para o Visualizador.
-- Código (autoridade sobre a prosa): `frontend/src/js/store/comment.operations.js`, `src/js/comment_tool/{comment-overlay,comments-panel}.js`, `src/js/store/sync/{permission-guard,operation-dispatcher,remote-operation-handler,session-context}.js`, `frontend/src/js/import_export/export-import.service.js`.

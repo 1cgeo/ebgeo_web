@@ -2,7 +2,7 @@
 
 Como se decide, com evidência, a forma e os números do ranking de `/nomes/busca`. O algoritmo em si está em [[ranking-busca-toponimos]]; esta página é o método que o produziu, e o que fazer antes de mexer nele.
 
-Ferramentas em `dev/`: `gerar-golden-busca.mjs` (gera o conjunto), `tune-busca.mjs` (avalia, ablação, busca de pesos), `busca-golden.json` (o conjunto, versionado).
+Ferramentas em `dev/`: `dev/gerar-golden-busca.mjs` (gera o conjunto, com o porquê de cada uma das 13 famílias), `dev/tune-busca.mjs` (avalia, ablação, busca de pesos), `dev/busca-golden.json` (o conjunto, versionado). O uso e a armadilha do `--truncate` estão em `dev/README.md`.
 
 ## Peso não vira assert
 
@@ -60,10 +60,3 @@ Tudo foi medido sobre o acervo de 2026-07-23: 52.420 topônimos depois da desdup
 O arnês sobrevive; é ele o ativo, não o vetor de constantes.
 
 O conjunto também é sintético: gerado do próprio acervo, mede "achar o lugar que eu nomeei", não "achar o que o operador quis dizer". A fonte natural de casos reais seriam logs de consulta, e o `nomesAccessLog` **deliberadamente não registra os valores da query** (num gazetteer militar o termo buscado e a coordenada clicada são o dado sensível). Não é decisão a reverter para tunar busca, então o sinal do mundo real tem de vir de casos curados à mão, com as famílias automáticas servindo de andaime.
-
-## Fontes
-- `dev/README.md`: uso das três ferramentas, modelos de ordenação e a armadilha do `--truncate`.
-- `dev/gerar-golden-busca.mjs`: as 13 famílias e por que cada uma existe.
-- `dev/tune-busca.mjs`: matriz de atributos, ablação, busca no simplex, comparação de modelos.
-- `backend/tests/integration/nomes-busca-doutrina.test.js`: os guardas de posição.
-- [[ranking-busca-toponimos]]: o algoritmo resultante.

@@ -57,11 +57,6 @@ O cliente web **não consome a rota**: não há referência a `/api/v1/audit` em
 
 Auditoria é REST puro e admin-only: não gera nem consome operações de colaboração, então nada disso passa por [[modelo-conflito-lww]] ou [[envelope-operacao]]. Para o que o admin faz sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
 
-## Fontes
-
-- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 5.
-- `backend/src/database/migrations/001_core.sql` e `backend/src/database/migrations/007_audit_zone_actions.sql`, `backend/src/utils/audit.js`, `src/modules/audit/*`, os call sites em `modules/{organizations,users,zones,sharing}`, `src/middleware/{require-admin,validate,error-handler}.js`, `backend/tests/integration/audit-coverage.test.js`.
-
 ## Histórico
 
 - **2026-07-25.** A seção "O CHECK não é cobertura" descrevia seis chamadas contra 15 ações e nomeava `SHARING_CHANGE` e `PERMISSION_REVOKE` como nunca emitidas. Superado: são dezoito call sites, o CHECK ganhou as três ações de zona por migração, e só `LOGIN`, `LOGOUT` e `ATLAS_DELETE` seguem sem emissor.

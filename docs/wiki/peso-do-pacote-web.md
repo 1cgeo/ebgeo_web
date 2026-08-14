@@ -21,4 +21,6 @@ Fechar uma ponta não tira um byte de `proj4` do bundle, porque a outra continua
 
 ## Custo escondido: `public/` é publicado inteiro, a cada release
 
-Tudo em `frontend/public/` é copiado verbatim para `dist/` e vai para o servidor a cada publicação, e o deploy retém as três últimas releases ([[deploy-web]]). Dado de amostra deixado ali não aparece em nenhum import, não é acusado por nenhum guarda de código morto e multiplica o custo de toda publicação: foi assim que 828 MB de panorâmicas de exemplo passaram a viajar em cada deploy até 2026-08-14. Antes de acrescentar dado pesado em `public/`, confira o tamanho do diretório, e prefira servi-lo pelo backend ([[assets3d-distribuicao]], [[streetview-360]]).
+Tudo em `frontend/public/` é copiado verbatim para `dist/` e vai para o servidor a cada publicação, e o deploy retém as três últimas releases ([[deploy-web]]). Dado de amostra deixado ali não aparece em nenhum import, não é acusado por nenhum guarda de código morto e multiplica o custo de toda publicação: foi assim que 828 MB de panorâmicas de exemplo passaram a viajar em cada deploy até 2026-08-14.
+
+O diretório continua pesado depois daquela limpeza (156 MB em 2026-08-14, dos quais 78 MB em `public/docs` e 65 MB em `public/vendors`), então a armadilha segue viva. Antes de acrescentar dado pesado ali, meça o diretório, e prefira servi-lo pelo backend ([[assets3d-distribuicao]], [[streetview-360]]).

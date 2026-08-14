@@ -46,9 +46,7 @@ Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire` (`:4
 
 ## Range: multi-range vira 416, não 200
 
-`parseRange` (`backend/src/modules/nomes/assets3d.controller.js:18`) casa exatamente `^bytes=(\d*)-(\d*)$`. Um `bytes=0-9,20-29` não casa e vira **416**, não um 200 com o arquivo inteiro. O RFC permite ignorar um Range que o servidor não entende; aqui a escolha foi rejeitar. Um proxy que reescreva Range em multipart quebra o carregamento do tileset, e desabilitar `Accept-Ranges` em proxy intermediário também: o Cesium depende de Range para fatiar tileset e terrain grandes.
-
-O `end` do `Content-Range` é inclusivo. `bytes=0-1023` devolve 1024 bytes.
+`parseRange` (`backend/src/modules/nomes/assets3d.controller.js:18`) casa exatamente um intervalo. Um `bytes=0-9,20-29` não casa e vira **416**, não um 200 com o arquivo inteiro. O RFC permite ignorar um Range que o servidor não entende; aqui a escolha foi rejeitar. Um proxy que reescreva Range em multipart quebra o carregamento do tileset, e desabilitar `Accept-Ranges` em proxy intermediário também: o Cesium depende de Range para fatiar tileset e terrain grandes.
 
 ## Divergência plantada no Content-Type
 
@@ -56,7 +54,6 @@ O mapa de extensão para Content-Type existe duas vezes: `backend/src/modules/no
 
 ## Notas de integração
 
-- Concatene sempre `assets3dBaseUrl + m.url`.
 - O terrain do mapa 3D **não** sai desta rota por padrão: é URL configurável em `map3d.providers.terrain.url`. A infra sabe servir `.terrain`/`layer.json` se um dia se decidir hospedá-lo aqui.
 - Nunca `401` aqui. O `401` só aparece na descoberta. Formato de erro em [[erros-api]].
 - Para blobs de usuário, que **são** sincronizados, o caminho é outro: [[imagens-atlas]].

@@ -31,8 +31,7 @@ O que o código **não** diz:
 - Só o `role` global é adotado do banco. `org_role`/`organization_id` seguem vindo do token **de propósito**, para preservar o degrade de tokens legados (`org_role || 'viewer'`). Alternativa rejeitada: adotar tudo do banco, o que faria token pré-claims-de-organização virar erro em vez de viewer. Ver [[jwt-emissor-unico]].
 - Sessão morta não vira 401 aqui: derruba o cookie, zera `req.user` e **segue anônima**. Então uma rota pública responde 200 (sem identidade) para um usuário recém-desativado, e só a rota estrita dá 401. Trilha de [[auditoria]] via `req.authVia` fica ausente nesse caso, não `'jwt'`.
 - Principals de link público nunca deslizam (guarda `UUID_RE.test(payload.sub)` antes da renovação): o `sub` é `public-<uuid>`, não-UUID, e não existe linha em `users` para revalidar. Mesma convenção de isenção em `backend/src/middleware/auth.js` (lá como `PRINCIPAL_UUID_RE`) e em `backend/src/middleware/permissions.js`. Quem mudar o formato do `sub` público para um UUID puro faz esses principals passarem a bater no banco e serem tratados como sessão morta. Ver [[link-publico]] e [[permissoes-atlas]].
-
-> **Nota histórica.** o guia *12-multiorg-identidade-auditoria* (absorvido, Parte 3) diz que a renovação ocorre quando o JWT **do cookie** está perto de expirar. O código resolve `token = cookie || Bearer` (`backend/src/middleware/flexible-auth.js`) e renova igualmente para o token vindo do header, gravando `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também ignora a revalidação viva e o `clearCookie` de sessão morta.
+- A renovação **não é exclusiva do cookie**. Como o token é resolvido por `cookie || Bearer`, uma chamada que só mandou `Authorization` também recebe `Set-Cookie`, ganhando um cookie que ela não pediu, e que passa a ganhar do Bearer nas requisições seguintes, pela precedência acima.
 
 ## Custo
 
@@ -44,6 +43,4 @@ O caminho anônimo/público não paga query nenhuma. O caminho estrito paga exat
 - `x-api-key`: máquina-a-máquina apenas. No browser é indefensável: sem `httpOnly`, sem expiração, e a rotação invalida a anterior na mesma transação, sem janela de convivência ([[api-keys]]).
 - O WebSocket **não** passa por aqui: o token vai na query da conexão e é validado no gateway ([[canal-collab-websocket]]). Correção de bug de auth feita só neste middleware não alcança o canal collab.
 
-## Fontes
-
-Guia *12-multiorg-identidade-auditoria* (absorvido), Partes 3 e 4. Código: `backend/src/middleware/flexible-auth.js`, `middleware/auth.js`, `utils/org-status.js`, `utils/environment.js`, `modules/users/users.queries.js`, `utils/redact-url.js`; bordas testadas em `backend/tests/unit/middleware-auth.test.js`.
+As bordas estão fixadas em `backend/tests/unit/middleware-auth.test.js`.

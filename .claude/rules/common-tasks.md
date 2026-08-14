@@ -44,16 +44,43 @@ aba, não no primeiro uso.
 
 ## Street View 360 Navigation
 
-Modelo de projeção em solo plano em `street_view_tool/navigation/`. A elevação do GPS
-**não** entra na projeção e `override_height` default 0 (solo).
+**A projeção não usa distância nem altura.** O marcador recebe do mundo só uma direção:
+o alvo é projetado no HORIZONTE da câmera pelo azimute, e a altura acima da linha vem da
+posição na fila daquela direção (`elevationDeg(rank)`), não da geometria. A distância só
+decide a ORDEM ao longo da direção. Altura de câmera, terreno, `distance_scale` e os
+overrides por alvo não estão apenas sem uso, foram removidos do cliente. O `fileoverview`
+de `projectOnHorizon` é onde isso está dito por extenso.
 
-**Neste branch o dado do 360 vem do backend** (módulo `streetview360`, schema `sv360`),
-não do repositório `ebgeo_360`. A regra antiga mandava manter as funções de projeção em
-sincronia com `ebgeo_360/public/calibration/js/`; isso vale para a linha `main`. Aqui o
-`ebgeo_360` segue existindo como **estúdio de calibração** — é ele quem escreve os
-metadados que o visualizador consome, e as faixas numéricas reais moram naquele fonte
-(ver [[calibracao-e-grafo-360]] e [[streetview-360]]). Se a calibração é autorada lá e
-aplicada aqui, a matemática de projeção dos dois lados ainda precisa concordar; o que
-mudou é o caminho do dado, não necessariamente esse acoplamento. **Confirme antes de
-mexer em `projector.js`** — nada quebra em teste se divergirem, e o sintoma é
-desalinhamento visual no 360, longe da causa.
+Consequência prática: `override_height` sobrevive como coluna do backend (`sv360`) e não
+tem nenhum leitor no frontend. Procurar por ele para ajustar o alinhamento é perseguir um
+botão que não está mais ligado em nada. O que corrige alinhamento hoje é a rotação de
+malha da calibração, que nivela a esfera antes de qualquer desenho.
+
+**O acoplamento que importa agora é interno.** Existem DOIS projetores neste repositório,
+e eles precisam concordar na matemática:
+
+- `frontend/src/js/street_view_tool/navigation/projector.js` (o visualizador do mapa);
+- `frontend/src/js/calibration/projector.js` (o estúdio, que virou a página `calibracao.html`).
+
+A duplicação é deliberada: a calibração não pode arrastar a store nem o MapLibre do mapa.
+O preço é que uma correção feita de um lado não chega ao outro, e o sintoma (o operador
+calibra vendo um arranjo, o visualizador desenha outro) aparece longe da causa, com as
+duas suítes verdes.
+
+**O guarda existe e tem nome:** `frontend/tests/unit/calibracao-espelha-marcador-andar.test.js`
+importa AS DUAS cópias e exige o mesmo número das duas. Ele também leva asserção
+ABSOLUTA em cada bloco, porque comparar sozinho deixaria passar duas cópias erradas do
+mesmo jeito. Rode-o ao tocar em qualquer um dos lados.
+
+Saiba o alcance dele, que é estreito: cobre a altura do ícone na troca de andar, o rótulo
+do andar de destino e o arranjo da fila. **Não** cobre o resto, e o resto já divergiu (só
+a calibração tem o cache de frame `beginFrame` e as constantes `ANDAR_PASSO_DEG` /
+`ANDAR_DEGRAUS_MAX`). Fora dos três itens medidos, a conferência ainda é o diff dos dois
+arquivos na mão.
+
+(A regra anterior mandava sincronizar com `ebgeo_360/public/calibration/js/`, de outro
+repositório. O estúdio foi portado para cá, então o alvo da conferência mudou de
+repositório para pasta vizinha. Ver [[calibracao-e-grafo-360]] e [[streetview-360]].)
+
+O dado do 360 vem do backend (módulo `streetview360`, schema `sv360`), não do repositório
+externo.

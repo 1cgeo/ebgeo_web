@@ -43,7 +43,7 @@ Sai com código 1 se houver **erro**, 0 se só houver **aviso**.
 | sobreposição alta (Jaccard 0.35-0.45) | pode ser vizinhança legítima ou fusão pendente |
 | pouco "porquê" | a página pode ter virado recontagem do código: **o critério central da wiki** |
 | não cita nenhum arquivo de código | afirmação sobre comportamento sem âncora verificável. **É o detector de cobertura vazia**: sem caminho citado, o `docs-integridade` passa verde sem checar nada naquela página |
-| em-dash na prosa | a regra estava escrita no `wiki-schema.md` e violada em toda parte, inclusive na página que a enuncia. Virou checagem porque regra escrita e ignorada ensina o agente a ignorar regra escrita. **É hoje o aviso mais numeroso** (19 dos 32 da última passada): não se assuste, e não confunda volume com gravidade |
+| em-dash na prosa | a regra estava escrita no `wiki-schema.md` e violada em toda parte, inclusive na página que a enuncia. Virou checagem porque regra escrita e ignorada ensina o agente a ignorar regra escrita. **É sempre o aviso mais numeroso, por larga margem**: não se assuste, e não confunda volume com gravidade. Não anote aqui a contagem do dia; ela rende uma linha errada em duas semanas e o próprio relatório já a informa |
 | debate aberto | divergência intencional; não é pendência, mas vale reler |
 
 ## Como interpretar

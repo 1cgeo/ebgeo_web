@@ -25,7 +25,7 @@ O servidor insere com o id que recebe. Só que o payload que chega já foi remap
 - **Mapas locais são name-keyed** e ganham UUID novo (`frontend/src/js/import_export/local-atlas-to-server.js:279-282`). Por isso `mapNameToId` do retorno é a **única** fonte para resolver referência por nome (slides referenciam mapa por nome ou por id; `frontend/src/js/import_export/local-atlas-to-server.js:341`).
 - **O mapper de camada é por mapa, não global** (`frontend/src/js/import_export/local-atlas-to-server.js:288`). Motivo não óbvio: a camada padrão tem o id literal `'default'` em todo mapa, então um mapper global fundiria as camadas padrão de todos os mapas em uma só.
 
-> **Nota histórica.** guia *08-offline-import* (absorvido) §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `frontend/src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
+"IDs preservados" vale só do lado do servidor, e é fácil ler demais na frase: o cliente gera UUID **novo** para todo id não-UUID (`frontend/src/js/import_export/local-atlas-to-server.js:52-63`), incluindo o id de todos os mapas e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) atravessam intactos.
 
 ## Import não é idempotente (ao contrário do sync)
 
@@ -47,18 +47,16 @@ A lista de 20 tipos existe em **três cópias manuais** que precisam mudar junta
 
 `POST /atlas/import` tem agora **duas** origens no cliente, e a diferença entre elas é de onde vêm os blobs:
 
-- **"Salvar no servidor"** (`import_export/save-local-atlas.service.js`) — lê o store local: `buildExportDataObject` monta o `.ebgeo` em memória e `getImage(id)` traz cada blob do IndexedDB.
-- **"Importar .ebgeo"** na página de projetos (`projects/import-ebgeo.service.js`) — lê um ARQUIVO: descompacta o ZIP, usa o `data.json` direto e tira os blobs das entradas `images/<id>.<ext>`. **Não toca no store**, e é por isso que existe: a rota antiga para subir um `.ebgeo` era abri-lo no mapa e então salvar, o que destruía o workspace local só para o arquivo passar por ele.
+- **"Salvar no servidor"** (`import_export/save-local-atlas.service.js`) lê o store local: `buildExportDataObject` monta o `.ebgeo` em memória e `getImage(id)` traz cada blob do IndexedDB.
+- **"Importar .ebgeo"** na página de projetos (`projects/import-ebgeo.service.js`) lê um ARQUIVO: descompacta o ZIP, usa o `data.json` direto e tira os blobs das entradas `images/<id>.<ext>`. **Não toca no store**, e é por isso que existe: a rota antiga para subir um `.ebgeo` era abri-lo no mapa e então salvar, o que destruía o workspace local só para o arquivo passar por ele.
 
-O que os dois compartilham (`buildServerImportPayload` + `atlas-image-upload.js`) foi extraído justamente para não virar duas implementações. A armadilha específica do caminho por arquivo: **JSZip devolve Blob com `type` vazio**, e o uploader trata tipo vazio como PNG — um JPEG subiria anunciando-se PNG e um SVG passaria pela allowlist que existe para recusá-lo. A extensão da entrada do ZIP é a única informação de tipo que existe ali, então o blob é recarimbado com ela antes de subir.
+O que os dois compartilham (`buildServerImportPayload` + `atlas-image-upload.js`) foi extraído justamente para não virar duas implementações. A armadilha específica do caminho por arquivo: **JSZip devolve Blob com `type` vazio**, e o uploader trata tipo vazio como PNG, e um JPEG subiria anunciando-se PNG e um SVG passaria pela allowlist que existe para recusá-lo. A extensão da entrada do ZIP é a única informação de tipo que existe ali, então o blob é recarimbado com ela antes de subir.
 
-O nome do atlas vem do **nome do arquivo** (`atlasNameFromFilename`): o formato `.ebgeo` não tem campo de nome de atlas — ele nomeia MAPAS, e é anterior aos atlas de servidor.
+O nome do atlas vem do **nome do arquivo** (`atlasNameFromFilename`): o formato `.ebgeo` não tem campo de nome de atlas: ele nomeia MAPAS, e é anterior aos atlas de servidor.
 
-## Imagens: a ordem real inverte o que o guia descreve
+## Imagens: importar ANTES de subir os blobs, e por quê
 
-O truque está no backend: `bulkUploadImages` usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId` (`backend/src/modules/images/images.service.js:191-210`), ou seja, o id local **vira** o id de servidor. Por isso o orquestrador (`frontend/src/js/import_export/save-local-atlas.service.js:91-119`) pode importar **antes** de subir os blobs e não precisa de fase de rewrite. Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
-
-> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `frontend/src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK, então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `frontend/src/js/import_export/local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
+O truque está no backend: `bulkUploadImages` usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId` (`backend/src/modules/images/images.service.js:191-210`), ou seja, o id local **vira** o id de servidor. Por isso o orquestrador (`frontend/src/js/import_export/save-local-atlas.service.js:91-119`) importa **antes** de subir os blobs e não precisa de fase de rewrite: as refs já importadas continuam válidas, e nenhuma operação de UPDATE é emitida para reescrever `properties.imageId`. O caminho de duas passadas com `meta.imageIdMap` existe em `frontend/src/js/import_export/local-atlas-to-server.js:270-275` e **não é usado** por este fluxo; quem o reativar precisa refazer o raciocínio inteiro. Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
 Onde isso morde:
 
@@ -79,16 +77,3 @@ O toast final soma `imageStats.skipped + failed`. É a **única** sinalização 
 - O `SELECT` de retorno projeta oito colunas fixas (`backend/src/modules/atlas/atlas.service.js:757`), sem `owner_id` nem timestamps de update. `current_version` é o valor que o cliente guarda como `lastVersion` antes de abrir o socket ([[snapshot-e-pull-incremental]]).
 
 Ver também [[atlas-modelo-de-dados]], [[atlas-settings]], [[api-rest-atlas]], [[catalogo-3d]] e [[streetview-360]].
-
-## Fontes
-
-- guia *08-offline-import* (absorvido): cenário, contrato, bulk upload de imagens e transição offline para online (duas divergências marcadas acima).
-- `backend/src/modules/atlas/atlas.service.js:551-767`: transação única, ordem de inserção, `map_order`, `summary`.
-- `backend/src/modules/atlas/atlas.schemas.js:73-191`: `importSchema`, os 20 tipos, validação só de formato UUID nas referências.
-- `backend/src/modules/images/images.service.js:118-236`: preservação do `localId` como PK, duplicata no lote, magic bytes, escrita pós-INSERT.
-- `backend/src/database/migrations/002_atlas.sql:165,310`: PKs globais de `features` e `images`, base da não idempotência.
-- `frontend/src/js/import_export/local-atlas-to-server.js`: remapeamento de UUID, mapper de camada por mapa, descarte de feições, `mapNameToId`.
-- `frontend/src/js/import_export/save-local-atlas.service.js`: ordem import para upload a partir do store local.
-- `frontend/src/js/import_export/atlas-image-upload.js`: chunk de 50, filtro de MIME, base64 — sem dependência de store.
-- `frontend/src/js/projects/import-ebgeo.service.js`: o mesmo payload a partir de um arquivo `.ebgeo`, na página de projetos.
-- `frontend/src/js/account/account.control.js:552-596`: sequência de troca do store local pelo atlas remoto.

@@ -1,6 +1,6 @@
 # Envelope de Operação
 
-Unidade atômica de sincronização do EBGeo: o objeto criado por `createOperation` (`frontend/src/js/store/sync/operation-factory.js:140`) e aceito pelo backend em dois vocabulários. O shape está no próprio arquivo; esta página cobre o que ele não conta.
+Unidade atômica de sincronização do EBGeo: o objeto que `createOperation` monta em `frontend/src/js/store/sync/operation-factory.js` e que o backend aceita em dois vocabulários. O shape está no próprio arquivo; esta página cobre o que ele não conta.
 
 ## Por que existe
 
@@ -24,11 +24,9 @@ Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backen
 
 ## Armadilhas
 
-**1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`frontend/src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:249`). Quem lê a interface normativa e espera `changes` na saída procura um campo inexistente.
+**1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`frontend/src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `frontend/src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:249`). Quem espera `changes` na saída do cliente procura um campo inexistente, e o inverso também engana: o envelope real sempre traz `previousData`, `lamportTimestamp` e `traceId`, mais `batchId` quando a op nasce em lote (`createBatchOperations`, mesmo arquivo).
 
-A documentação de origem apresentava o formato inverso (`changes` no update, sem `previousData`/`lamportTimestamp`/`batchId`) e é a fonte mais provável desse modelo mental errado. O envelope real sempre traz `previousData`, `lamportTimestamp` e `traceId` (`createOperation`, `frontend/src/js/store/sync/operation-factory.js`), mais `batchId` quando a op nasce em lote (`createBatchOperations`, mesmo arquivo).
-
-**2. Uma op malformada não envenena mais o lote, e o guard pré-flush continua valendo.** Até 2026-07-25 o push rodava numa transação única e uma op recusada pelo Postgres revertia o batch inteiro; nada era dequeued e a fila re-peekava as mesmas ops para sempre — sync travado, não degradado. Hoje cada op corre num SAVEPOINT e a violação de dado (classe 22/23) volta recusada **por operação**, com motivo ([[tabela-operations]], [[ack-idempotencia]]). O dispatcher segue dropando **antes** de enfileirar (`frontend/src/js/store/sync/operation-dispatcher.js:105-139`) — logging desabilitado, `SETTING` com `entityId` não-UUID fora do sentinel `'atlas'`, e qualquer `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`) — porque o motivo dele nunca foi só o travamento: é impedir que feição local vaze para atlas do servidor. Ver [[dominio-local-vs-remoto]].
+**2. Uma op malformada não envenena mais o lote, e o guard pré-flush continua valendo.** Até 2026-07-25 o push rodava numa transação única e uma op recusada pelo Postgres revertia o batch inteiro; nada era dequeued e a fila re-peekava as mesmas ops para sempre, ou seja sync travado, não degradado. Hoje cada op corre num SAVEPOINT e a violação de dado (classe 22/23) volta recusada **por operação**, com motivo ([[tabela-operations]], [[ack-idempotencia]]). O dispatcher segue dropando **antes** de enfileirar (`frontend/src/js/store/sync/operation-dispatcher.js:105-139`), a saber logging desabilitado, `SETTING` com `entityId` não-UUID fora do sentinel `'atlas'`, e qualquer `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`), porque o motivo dele nunca foi só o travamento: é impedir que feição local vaze para atlas do servidor. Ver [[dominio-local-vs-remoto]].
 
 **2b. O gatilho não é só o id: qualquer valor que o Postgres recuse é uma op perdida.** Nove páginas descreveram esta classe citando um único gatilho, o id não-UUID (`22P02`). Há uma segunda porta que nenhum guard cobre: o **teto de `VARCHAR`**. O `operationSchema` não tem um único `.max()` e passa `data`/`changes` como objeto aberto (`backend/src/modules/sync/sync.schemas.js:13-46`), então um nome acima de 255 caracteres chega intacto às colunas de nome de `maps`/`layers`/`groups`/`briefings`, todas `VARCHAR(255)` (`backend/src/database/migrations/002_atlas.sql:81,118,142,330`), e o Postgres levanta `22001`. É alcançável só colando texto: o input de rename de camada não tem `maxLength` (`frontend/src/js/features_tab/layer-list.component.js:205-221`). O dispatcher pré-flush testa UUID-ness e não vê isso passar.
 
@@ -49,9 +47,3 @@ Os dois vocabulários (frontend `entityType`/`operationType`/`entityId` e legacy
 ## Relacionados
 
 [[tipos-entidade-sync]], [[fila-operacoes-outbound]], [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[snapshot-e-pull-incremental]], [[tabela-operations]], [[permissoes-atlas]], [[aplicacao-operacoes-remotas]], [[sintese-rest-vs-websocket]], [[canal-collab-websocket]], [[atlas-modelo-de-dados]].
-
-## Fontes
-
-- `src/js/store/sync/`: `frontend/src/js/store/sync/operation-factory.js` (shape as-built), `frontend/src/js/store/sync/operation-dispatcher.js` (gates de pré-flush), `frontend/src/js/store/sync/operation-queue.js` (chave `timestamp_id`, compactação), `frontend/src/js/store/sync/sync-engine.js` (flush verbatim, ack, semeadura do guard).
-- `backend/src/modules/sync/`: `backend/src/modules/sync/sync.schemas.js` (dois vocabulários, `.unknown(true)`, teto 500), `backend/src/modules/sync/sync.service.js` (normalização, advisory lock, restamp de `entityId`).
-- Guias absorvidos *05-sync-crdt* e *arquitetura-sync* §3 (ver contradição acima).

@@ -4,55 +4,49 @@ Mecanismo de acesso anônimo em que um link opaco gerado por quem tem `manage` p
 
 ## O link não é a autoridade
 
-O link é um token opaco aleatório (`backend/src/modules/atlas/atlas.service.js:453-454`), não um JWT: é só chave de busca. A autoridade vem do JWT emitido na troca **somado** à releitura ao vivo de `atlas.is_public`, tanto no REST (`backend/src/middleware/permissions.js:30-48`) quanto no upgrade do socket (`backend/src/modules/collab/collab.gateway.js:52-67`). Nada de permissão viaja no link.
+O link é um token opaco aleatório (`generatePublicLink`, `backend/src/modules/atlas/atlas.service.js`), não um JWT: é só chave de busca. A autoridade vem do JWT emitido na troca **somado** à releitura ao vivo de `atlas.is_public`, tanto no REST (`backend/src/middleware/permissions.js`) quanto no upgrade do socket (`backend/src/modules/collab/collab.gateway.js`). Nada de permissão viaja no link.
 
-**Ligar/desligar rotaciona o link.** `enablePublicSharing` sempre gera um link novo e sobrescreve o anterior (`backend/src/modules/atlas/atlas.service.js:459-462`). Um toggle off/on, ou dois cliques em "gerar", **mata todos os links já distribuídos**. Não existe rotação explícita nem múltiplos links por [[atlas-modelo-de-dados]]: foi decidido assim para manter uma coluna única (`public_link VARCHAR(100) UNIQUE`, `backend/src/database/migrations/002_atlas.sql:41`) em vez de uma tabela de links, ao custo de não poder revogar um destinatário sem revogar todos.
+**Ligar/desligar rotaciona o link.** `enablePublicSharing` sempre gera um link novo e sobrescreve o anterior. Um toggle off/on, ou dois cliques em "gerar", **mata todos os links já distribuídos**. Não existe rotação explícita nem múltiplos links por [[atlas-modelo-de-dados]]: foi decidido assim para manter uma coluna única (`public_link VARCHAR(100) UNIQUE`, `backend/src/database/migrations/002_atlas.sql`) em vez de uma tabela de links, ao custo de não poder revogar um destinatário sem revogar todos.
 
-Link errado, atlas na lixeira e link desativado caem no mesmo 404, porque o filtro está dentro do `WHERE` da busca (`backend/src/modules/atlas/atlas.queries.js:78-83`). Indistinguível de propósito, contra enumeração (ver [[erros-api]] e [[hardening-borda-api]]).
+Link errado, atlas na lixeira e link desativado caem no mesmo 404, porque o filtro está dentro do `WHERE` da busca (`backend/src/modules/atlas/atlas.queries.js`). Indistinguível de propósito, contra enumeração (ver [[erros-api]] e [[hardening-borda-api]]).
 
 ## Armadilha central: `is_public` vale para todo mundo
 
-`resolvePermission` devolve `'read'` para *qualquer* principal quando `is_public = true` (`backend/src/middleware/permissions.js:42-44`), não só para portadores do link. Publicar um atlas concede leitura a **todo usuário logado que souber o `atlasId`**, com share ou sem share. O link opaco protege apenas contra quem não conhece o id; ele não é o gate, é a descoberta.
+`resolvePermission` devolve `'read'` para *qualquer* principal quando `is_public = true` (`backend/src/middleware/permissions.js`), não só para portadores do link. Publicar um atlas concede leitura a **todo usuário logado que souber o `atlasId`**, com share ou sem share. O link opaco protege apenas contra quem não conhece o id; ele não é o gate, é a descoberta.
 
-## O prefixo `public-` é contrato congelado
+## O visitante é confinado pelo claim, e isento pelo `sub`
 
-O `sub` do token é `public-<uuid>`, deliberadamente fora do formato UUID puro (`backend/src/modules/atlas/atlas.service.js:143-146`). Dois lugares dependem dessa convenção como teste de tipo de principal (eram três até 2026-07-25), e nenhum deles é visível a partir dos outros:
+São dois marcadores no mesmo token, com papéis diferentes, e confundi-los é o erro fácil aqui:
 
-- `backend/src/middleware/auth.js:80-82` pula a reconciliação com o banco (não existe linha em `users` para esse `sub`);
-- `backend/src/middleware/permissions.js:92` pula a busca em `atlas_shares`;
-- ~~o handshake e o `removeConnection` (`backend/src/modules/collab/collab.gateway.js`) não criam nem apagam linha em `active_sessions`, senão a FK para `users` quebraria~~. **Caiu em 2026-07-25**: `active_sessions` não tem mais escritor nenhum (a presença sempre foi só o `Map` em memória), então ninguém mais depende da convenção por esse lado. Restam os dois acima. Ver [[presenca-colaborativa]] §"O que não existe".
+- **`isPublic` confina.** O token é escopado ao atlas que o emitiu, e a checagem vem **antes** de qualquer isenção (`backend/src/middleware/auth.js`, com o par em `backend/src/middleware/permissions.js`). Sem esse confinamento, um único link público dava leitura em **todo** atlas público, porque o ramo `isPublic` de `resolvePermission` não olha qual atlas emitiu o token.
+- **O `sub` no formato `public-<uuid>` isenta.** Deliberadamente fora do formato UUID puro, ele é o que faz pular a reconciliação com o banco (não existe linha em `users` para esse `sub`) e a busca em `atlas_shares`. Emitir um `sub` UUID no token público derruba as duas de uma vez, e ambas falham *silenciosamente* (viram consulta vazia), não com erro. Ver [[jwt-emissor-unico]] e [[autenticacao-jwt]].
 
-Emitir um `sub` UUID no token público derruba os dois de uma vez, e ambos falham *silenciosamente* (viram consulta vazia), não com erro. Ver [[jwt-emissor-unico]] e [[autenticacao-jwt]].
-
-No handshake a identidade é sobrescrita por valores fixos (`backend/src/modules/collab/collab.gateway.js:270-275`): visitante não pode herdar `posto`, `role` ou `organization_id` do token, porque nenhum campo desses foi assinado por uma identidade real ([[canal-collab-websocket]]).
+No handshake a identidade é sobrescrita por valores fixos (`backend/src/modules/collab/collab.gateway.js`): visitante não pode herdar `posto`, `role` ou `organization_id` do token, porque nenhum campo desses foi assinado por uma identidade real ([[canal-collab-websocket]]).
 
 ## Revogação: imediata no REST, uma batida no socket
 
-Como toda verificação relê `is_public`, o token perde valor na próxima requisição REST, sem esperar o `exp` de 1 hora. Sockets já abertos têm janela: `reconcileAuthorization` roda por heartbeat (~30s, `backend/src/modules/collab/collab.gateway.js:118-143,289`) e fecha com `4003 'access revoked'`. Fechamento limpo, ou seja, o peer sai da presença na hora, sem passar pelo estado `away` ([[presenca-colaborativa]]).
+Como toda verificação relê `is_public`, o token perde valor na próxima requisição REST, sem esperar o `exp` de 1 hora. Sockets já abertos têm janela: `reconcileAuthorization` roda por heartbeat (~30 s) e fecha com `4003 'access revoked'`. Fechamento limpo, ou seja, o peer sai da presença na hora, sem passar pelo estado `away` ([[presenca-colaborativa]]).
 
 ## O que o tier `read` esconde
 
-Comentários espaciais são retirados do que chega a um `read`, tanto no snapshot (`backend/src/modules/sync/sync.service.js:489-491`) quanto no pull incremental (`backend/src/modules/sync/sync.service.js:830-831`). Isso **não** é regra de "público": vale igualmente para o Visualizador logado ([[sintese-capacidades-por-papel]]). Quem for adicionar um novo tipo de entidade sensível precisa repetir o filtro nos dois pontos, que são independentes. Ver [[comentario-espacial]] e [[snapshot-e-pull-incremental]].
+Comentários espaciais são retirados do que chega a um `read`, tanto no snapshot quanto no pull incremental (`backend/src/modules/sync/sync.service.js`, em dois pontos independentes). Isso **não** é regra de "público": vale igualmente para o Visualizador logado ([[sintese-capacidades-por-papel]]). Quem for adicionar um novo tipo de entidade sensível precisa repetir o filtro nos dois pontos. Ver [[comentario-espacial]] e [[snapshot-e-pull-incremental]].
 
 ## Custos do boot público (cliente)
 
-O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`frontend/src/js/index.js:226-228`). Dentro dele, três decisões não óbvias:
+O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`openPublicAtlasFromUrl`, `frontend/src/js/index.js`). Dentro dele, três decisões não óbvias:
 
-- **`clearAllDataStore()` roda sem confirmação** (`frontend/src/js/index.js:231`). Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
-- **`connectPublic` desliga o log de operações** (`frontend/src/js/store/sync/sync-engine.js:227`). Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
-- **O token é efêmero em memória e zera o refresh token** (`frontend/src/js/store/sync/api-client.js:162-165`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
+- **`clearAllDataStore()` roda sem confirmação.** Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
+- **`connectPublic` desliga o log de operações.** Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
+- **O token é efêmero em memória e zera o refresh token** (`setEphemeralToken`, `frontend/src/js/store/sync/api-client.js`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
 
-O overlay de configuração por atlas continua valendo para o visitante (`frontend/src/js/store/sync/sync-engine.js:235`), então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
+O overlay de configuração por atlas continua valendo para o visitante, então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
 
 ## Lacunas conhecidas
 
-- **Não existe renovação do token.** `setEphemeralToken` não arma timer e nada rechama `getPublicAtlas` depois do boot. O socket aberto sobrevive (a permissão é revalidada contra o banco, não contra o `exp`), mas uma **reconexão** após 1 hora falha com 401 no upgrade (`backend/src/modules/collab/collab.gateway.js:240-244`); a única recuperação é recarregar a página.
-- **A UI copia o token cru, não uma URL.** `frontend/src/js/modals/sharing.modal.js:542-551` escreve `cfg.publicLink` no clipboard; o usuário precisa montar `…/?atlasPublico=<token>` na mão. É a lacuna mais visível da feature hoje.
-- **A resposta vaza mais que o mínimo.** `res.json({ data: atlas })` devolve `SELECT a.*` mais `owner_nome`/`owner_username` (`backend/src/modules/atlas/atlas.controller.js:59-62`, `backend/src/modules/atlas/atlas.queries.js:78-83`), sem projeção e sem auth, atrás apenas do `publicLinkLimiter`. Identidade do dono, `owner_id` e o próprio `public_link` saem para chamador anônimo. Se um dia a projeção for reduzida, o boot só exige de fato `id` e `publicToken`. Consequência para consumidores: o corpo é snake_case do banco com **um** campo camelCase enxertado (`publicToken`, grudado em `backend/src/modules/atlas/atlas.service.js:156`).
-
-## Divergências com o guia
-
-> **Nota histórica.** O guia *07-compartilhamento* (absorvido) descreve a URL pública como caminho (`/atlas/public/abc123xyz`, via `location.pathname`), um `PublicTokenManager` que renova o token 5 minutos antes de expirar, e uma resposta enxuta sem `owner`. Nenhum dos três existe: o front usa query string (`frontend/src/js/index.js:226`, fixado em `frontend/tests/unit/atlas-link.test.js:73-77`), não há renovação, e `backend/src/modules/sharing/sharing.service.js:12-21` devolve o bloco `owner` que o modal consome (`frontend/src/js/modals/sharing.modal.js:181`). O caminho `/atlas/public/:link` existe apenas como rota de API (`backend/src/modules/atlas/atlas.routes.js:23`).
+- **Não existe renovação do token.** `setEphemeralToken` não arma timer e nada rechama `getPublicAtlas` depois do boot. O socket aberto sobrevive (a permissão é revalidada contra o banco, não contra o `exp`), mas uma **reconexão** após 1 hora falha com 401 no upgrade; a única recuperação é recarregar a página.
+- **A UI copia o token cru, não uma URL.** `frontend/src/js/modals/sharing.modal.js` escreve o `publicLink` no clipboard; o usuário precisa montar `…/?atlasPublico=<token>` na mão. É a lacuna mais visível da feature hoje.
+- **A resposta vaza mais que o mínimo.** A rota devolve `SELECT a.*` mais `owner_nome`/`owner_username`, sem projeção e sem auth, atrás apenas do `publicLinkLimiter`. Identidade do dono, `owner_id` e o próprio `public_link` saem para chamador anônimo. Se um dia a projeção for reduzida, o boot só exige de fato `id` e `publicToken`. Consequência para consumidores: o corpo é snake_case do banco com **um** campo camelCase enxertado (`publicToken`).
+- **O caminho é query string, não path.** O front lê `?atlasPublico=` (fixado em `frontend/tests/unit/atlas-link.test.js`); a rota `/atlas/public/:link` existe apenas como endpoint de API, e desenhar a URL do usuário em cima dela produz um link que não abre nada.
 
 ## Ver também
 

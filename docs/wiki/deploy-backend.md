@@ -12,9 +12,9 @@ Não existe upstream `:8081`: o módulo 360 foi absorvido em `/api/v1/sv360` ([[
 
 ## Banco: um cluster, três schemas
 
-`public` (atlas/maps/features, geometria em **JSONB**) · `ng` (gazetteer PostGIS) · `sv360` (metadados; os WebP não ficam no Postgres). Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[zonas-acesso-geografico]], [[tabela-operations]].
+`public` (atlas), `ng` (gazetteer PostGIS) e `sv360` (metadados) num cluster só. Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[zonas-acesso-geografico]], [[tabela-operations]].
 
-PostGIS **nunca** entra no schema do atlas. A decisão é deliberada: filtro espacial do atlas é bbox em JS, não `ST_Intersects`.
+PostGIS **nunca** entra no schema do atlas, e é decisão deliberada: a geometria do atlas mora em **JSONB** e o filtro espacial é bbox em JS, não `ST_Intersects`.
 
 ## Migrações: o que quebra
 
@@ -42,7 +42,7 @@ O piso é **Node 20.19.0** (`backend/package.json:6`), não 20.0.0: o boot usa `
 
 `validateEnvVariables()` roda em `backend/src/index.js:11`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula os erros que alcança e lança um único `Configuração inválida:`.
 
-Não alcança `DATABASE_URL` (`backend/src/config.js:43`) nem `JWT_SECRET` (`:49`): as duas passam por `required()`, que lança na **avaliação do módulo** (`:5`), e `index.js` importa `app.js` → `config.js` antes de chamar a validação. Faltando uma delas, a saída é `Missing required env var: X`, em inglês e uma por vez — não a lista. O acumulador governa o que é `optional()` (como `CORS_ORIGIN`) e as regras condicionais de produção. Ver [[hardening-borda-api]].
+Não alcança `DATABASE_URL` (`backend/src/config.js:43`) nem `JWT_SECRET` (`:49`): as duas passam por `required()`, que lança na **avaliação do módulo** (`:5`), e `index.js` importa `app.js` → `config.js` antes de chamar a validação. Faltando uma delas, a saída é `Missing required env var: X`, em inglês e uma por vez, não a lista. O acumulador governa o que é `optional()` (como `CORS_ORIGIN`) e as regras condicionais de produção. Ver [[hardening-borda-api]].
 
 Cada regra existe por um estrago observado, não por higiene (`config.js:216-292`):
 
@@ -72,7 +72,7 @@ Os defaults de URL são placeholders DEV-only (OSM, Google, BDGEx, demotiles) e 
 - `MAP3D_TERRAIN_URL` default `''` (`config.js:157`): vazio faz o `config.service` publicar `enabled: false` (elipsoide plano) em vez de pedir ao Cesium um provider inalcançável.
 - `SV360_SERVICE_URL` default `/api/v1/sv360` (`config.js:171`), relativo, porque o 360 é módulo deste mesmo backend. O default absoluto anterior só funcionava por acidente, via proxy do Vite.
 
-> **Nota histórica.** A documentação anterior (docs/deploy.md (removido) e o guia *10-config*, ambos absorvidos aqui) listava esses dois com os defaults absolutos antigos, e descrevia o catálogo vindo de uma tabela única `resources`, que não existe: cada tipo tem a sua (`backend/src/database/migrations/003_sync.sql:101`, whitelist em `backend/src/modules/catalog/catalog.tables.js:5-11`). Ver [[resources-catalogo]].
+Não existe tabela única `resources`: o catálogo tem uma tabela **por tipo**, com whitelist em `backend/src/modules/catalog/catalog.tables.js:5-11`. Ver [[resources-catalogo]].
 
 ## Stores binários e volumes
 
@@ -151,9 +151,3 @@ Ambos os importadores são invocação direta de `node`, sem npm script (`backen
 O "nunca em produção" não é higiene genérica: é uma conta administrativa com senha em texto no repositório. E o seed é idempotente por `ON CONFLICT (username) DO UPDATE SET password_hash`, então rodar de novo **reseta as senhas** para o valor de fábrica, mesmo que alguém as tenha trocado (`backend/src/database/seed.js:33,45`). A parte do atlas é pulada se já existir com `deleted_at IS NULL`, mas as senhas caem do mesmo jeito.
 
 Uma armadilha ao montar ambiente: nenhum dos dois usuários tem `email`, então o portão de confirmação nunca dispara e ambos logam de imediato ([[autenticacao-jwt]], [[gestao-usuarios]]).
-
-> **Nota histórica.** Esta lista trazia uma segunda armadilha: `cap.silva` resolve posto e OM por subquery de nome (`nome_abrev = 'Cap'`, `sigla = 'CIGEx'`, `backend/src/database/seed.js:43-44`) e nasceria **sem posto e sem OM, em silêncio**, se as migrações de [[organizacoes-om]] não tivessem sido aplicadas. Depois da consolidação em baseline esse estado deixou de ser alcançável: o seed de `organizations` e o de `ranks` vivem na MESMA migração que cria `users` (`backend/src/database/migrations/001_core.sql:32-40`, `:58-77`, `:84`), e o runner aplica cada arquivo numa transação única com o `INSERT` de tracking (`backend/src/database/migrate.js:76-79`). Ou a 001 entrou inteira e as subqueries resolvem, ou não há tabela `users` e o seed falha ruidosamente antes. Não há caminho intermediário.
-
-## Fontes
-
-`backend/src/{index,app,config}.js`, `database/{migrate,seed}.js`, `database/migrations/*.sql`, `Dockerfile`, `docker-compose.yml`, `utils/sqlite-blob-pool.js`, `modules/catalog/catalog.tables.js` (base das contradições marcadas acima) · os guias *00-visao-geral* / *10-config* e o antigo docs/deploy.md (removido), todos absorvidos aqui.

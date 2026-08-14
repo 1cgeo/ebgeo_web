@@ -10,22 +10,17 @@ O preço: toda mudança (calibração 360, ingestão, toggle de zona, alteraçã
 
 ## A armadilha central: ninguém invalida nada hoje
 
-`_projectsCache` (`frontend/src/js/street_view_tool/streetview-api.service.js:151`) é populado **uma única vez** pelo `preflightCheck` no boot (`frontend/src/js/map_sig.js:555`), e só se invalida via `fetchProjects(true)`, que ninguém mais chama. O catálogo ([[resources-catalogo]]) e as configurações de atlas leem esse cache sem rede.
+`_projectsCache` (`frontend/src/js/street_view_tool/streetview-api.service.js`) é populado **uma única vez** pelo `preflightCheck` no boot (`frontend/src/js/map_sig.js`), e só se invalida via `fetchProjects(true)`, que ninguém mais chama. O catálogo ([[resources-catalogo]]) e as configurações de atlas leem esse cache sem rede.
 
 Efeito atravessado: login/logout **não** refazem nada, e nenhum desses módulos escuta `SESSION_CHANGED` ([[sessao-boot-e-ciclo-de-vida]]; grep sem ocorrências em `search/`, `catalog/`, `street_view_tool/`). Um usuário que faz login continua vendo a lista de projetos 360 que o anônimo enxergava. Se você adicionar um consumidor novo, prenda-o a `SESSION_CHANGED`; não confie em o cache estar correto para a sessão atual.
 
 ## Contratos congelados que quebram o cliente padrão
 
-Três envelopes coexistem ([[erros-api]], [[sintese-contratos-congelados]]):
+Os quatro módulos divergem do envelope global, e a tabela canônica dessa divergência é [[sintese-contratos-congelados]]. O que interessa aqui é a consequência para quem escreve consumidor novo:
 
-- `/nomes/busca` responde **array nu** (sem `{ data }`), no máximo 5 itens já ordenados ([[ranking-busca-toponimos]]).
-- `/nomes/catalogo3d` responde `{ total, page, nr_records, data }`, com `page` **1-based**.
-- `/nomes/feicoes` responde **200** com `{ message }` quando não acha nada. Não é `404`, não é array vazio: cheque `id` vs `message`.
-- sv360 devolve sucesso nu e erro **plano** `{ "error": "mensagem" }`.
-
-O parser de erro do cliente genérico aceita os **dois** envelopes desde `c3a49d8` (`_request`, `frontend/src/js/store/sync/api-client.js`): quando `parsed.error` é string ele a promove a `{ message }`, e só cai no fallback `HTTP <status>` para corpo sem erro utilizável. O `code` segue `undefined` no envelope plano, porque o sv360 não emite código: **não ramifique por `code` em rota do sv360**, ramifique por status.
-
-Também congelado: `previewThumbnail` é relativo e **sem** o prefixo `/api/v1` ([[assets3d-distribuicao]], [[config-runtime-urls-relativas]]). Concatene com `serviceUrl` ou o thumbnail quebra em silêncio.
+- O parser de erro do cliente genérico aceita os **dois** envelopes desde `c3a49d8` (`_request`, `frontend/src/js/store/sync/api-client.js`), promovendo `parsed.error` string a `{ message }`. Mas o `code` segue `undefined` no envelope plano do sv360: **não ramifique por `code` em rota do sv360**, ramifique por status.
+- `previewThumbnail` é relativo e **sem** o prefixo `/api/v1` ([[assets3d-distribuicao]], [[config-runtime-urls-relativas]]). Concatene com `serviceUrl` ou o thumbnail quebra em silêncio.
+- `/nomes/feicoes` sinaliza "não achou" com **200** e `{ message }`, não com 404 nem array vazio ([[erros-api]], [[ranking-busca-toponimos]]).
 
 ## Permissão por zona é um eixo separado
 
@@ -41,7 +36,7 @@ Daí três regras que o código convida a violar:
 
 Três rotas do gazetteer estão documentadas e testadas do lado do servidor e não têm um único consumidor no cliente web. Isso não é bug, é margem, mas quem lê só o backend conclui o contrário.
 
-- **`Authorization` e `zoom` nunca são enviados em `/nomes/busca`.** Os dois call sites montam a query só com `q`, `lat`, `lon` (`frontend/src/js/search/search-bar.search-providers.js:279`, `frontend/src/js/search/feature-search.control.js:182`). Consequência: a barra de busca é **sempre anônima** (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
+- **`Authorization` e `zoom` nunca são enviados em `/nomes/busca`.** Os dois call sites montam a query só com `q`, `lat`, `lon` (`frontend/src/js/search/search-bar.search-providers.js`, `frontend/src/js/search/feature-search.control.js`). Consequência: a barra de busca é **sempre anônima** (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
 - **`/nomes/catalogo3d` e `/nomes/feicoes` não são chamadas em `frontend/src/js/`.** O catálogo 3D do app vem de `config.tilesets` ([[config-dinamico]]), lido por `getDeployTilesets` (`frontend/src/js/store/sync/atlas-settings.service.js`).
 
 ## Sem detecção de conflito

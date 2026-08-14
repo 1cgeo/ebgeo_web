@@ -20,9 +20,7 @@ Também ficam de fora, por omissão e não por decisão explícita: `is_public`/
 
 ## Armadilhas
 
-**Imagens viram referência morta, não "arquivo faltando".** As features clonadas mantêm em `properties` os IDs de imagem da origem, mas nenhuma linha de `images` é criada para o clone, e o download é escopado por atlas (`FIND_IMAGE_BY_ID` = `WHERE id = $1 AND atlas_id = $2`, `backend/src/modules/images/images.queries.js:19`). Logo `GET /atlas/<cloneId>/images/<imageIdOriginal>` responde **404** (`backend/src/modules/images/images.service.js:68`), sempre. Ver [[imagens-atlas]].
-
-> **Nota histórica.** O guia *02-atlas-basico* (absorvido) diz que no clone "referências são mantidas mas os arquivos não são duplicados", sugerindo que a imagem continua resolvível. Falso: a linha de `images` também não é copiada e a query filtra por `atlas_id`, então a referência mantida no `properties` é irresolvível a partir do clone.
+**Imagens viram referência morta, não "arquivo faltando".** As features clonadas mantêm em `properties` os IDs de imagem da origem, mas nenhuma linha de `images` é criada para o clone, e o download é escopado por atlas (`FIND_IMAGE_BY_ID` = `WHERE id = $1 AND atlas_id = $2`, `backend/src/modules/images/images.queries.js:19`). Logo `GET /atlas/<cloneId>/images/<imageIdOriginal>` responde **404** (`backend/src/modules/images/images.service.js:68`), sempre. "As referências são mantidas mas os arquivos não são duplicados" descreve o fato e sugere a conclusão errada: a referência mantida é irresolvível, não meramente pesada. Ver [[imagens-atlas]].
 
 **Referências órfãs degradam para `NULL` em silêncio.** Feature cujo `layer_id` não esteja no mapeamento sai do clone **sem layer** (`backend/src/modules/atlas/atlas.service.js:216`); slide cujo `map_id` não esteja no mapeamento sai **sem mapa** (`backend/src/modules/atlas/atlas.service.js:373`). Em vez de violar a FK, o clone perde o vínculo sem erro nem log. Se o clone "perdeu" organização de layers, é aqui.
 

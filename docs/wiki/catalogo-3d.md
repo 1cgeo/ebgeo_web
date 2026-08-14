@@ -1,10 +1,10 @@
 # Catálogo 3D (descoberta de modelos)
 
-`GET /api/v1/nomes/catalogo3d` lista modelos 3D com metadados de cena, sob envelope congelado próprio e filtro de acesso embutido no SQL. Contrato em `backend/src/modules/nomes/nomes.{routes,schemas,queries,service}.js`.
+`GET /api/v1/nomes/catalogo3d` lista modelos 3D com metadados de cena, sob envelope congelado próprio e filtro de acesso embutido no SQL. Contrato em `backend/src/modules/nomes/nomes.routes.js` e nos `nomes.schemas.js`/`nomes.queries.js`/`nomes.service.js` do mesmo diretório.
 
 ## Duas fontes de modelos 3D, e o cliente usa a outra
 
-> **Nota histórica.** guia *14-catalogo3d-assets* (absorvido):12-15 afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No cliente atual não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`frontend/src/js/3d_models_viewer_tool/map_3d.js:872`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
+Esta rota **não** é a fonte de descoberta do web app, ao contrário do que o nome sugere. Não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `frontend/src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`frontend/src/js/3d_models_viewer_tool/map_3d.js:872`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
 
 A divergência não é só de origem, é de vocabulário: o cliente discrimina por `type === 'glb'` (`frontend/src/js/3d_models_viewer_tool/map_3d.js:877`), enquanto `ng.catalogo_3d` tem CHECK em `'Tiles 3D' | 'Modelos 3D' | 'Nuvem de Pontos'` (`backend/src/database/migrations/004_ng.sql:91`). Quem integrar precisa decidir qual manda e mapear os dois vocabulários, não apenas trocar a URL do fetch. E `config.tilesets` não tem controle de acesso por modelo; `ng.catalogo_3d` tem. Migrar o cliente para o catálogo `ng` é um endurecimento de segurança, não uma refatoração cosmética.
 
@@ -18,8 +18,6 @@ Armadilha de eixo: aqui o critério é **permissão por modelo**, não zona geog
 
 - Envelope **próprio** `{ total, page, nr_records, data }`, não o `{ data }` padrão da API. O controller devolve o objeto do service sem embrulhar, e avisa disso no topo do arquivo (`backend/src/modules/nomes/nomes.controller.js:2-3,18`). Ver [[sintese-contratos-congelados]].
 - `url` e `thumbnail` trafegam como as strings relativas armazenadas, **sem prefixo**, fixado por teste de contrato (`backend/tests/integration/nomes-catalogo3d-gaps.test.js:173`). A URL final é `assets3dBaseUrl + url`, com `assets3dBaseUrl` vindo do `/api/config` (`backend/src/modules/config/config.service.js:186`). Hardcodar `/api/v1/assets3d` no cliente anula o propósito do campo: apontar para um host de estáticos interno sem rebuild e sem reescrever o catálogo ([[config-runtime-urls-relativas]], [[config-dinamico]]).
-
-> **Nota histórica.** guia *13-nomes-geograficos* (absorvido):358-359 mostra `thumbnail`/`url` como URLs absolutas, sugerindo que o campo pode ser absoluto. O contrato testado é relativo, e guia *14-catalogo3d-assets* (absorvido):134-135 o declara congelado assim. Trate como relativo.
 
 Descoberta não é distribuição: o binário (`tileset.json`/`.b3dm`/`.glb`/`.pnts`) vem de outra rota, pública, com ETag/Range/`immutable` ([[assets3d-distribuicao]], [[sintese-cache-http-imutavel]]). Deixe o Cesium emitir as requisições `Range`: envolver o asset num fetch próprio descarta `Accept-Ranges` e destrói o streaming por LOD.
 

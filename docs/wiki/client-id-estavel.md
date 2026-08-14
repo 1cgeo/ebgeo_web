@@ -1,6 +1,6 @@
 # clientId estável
 
-Identificador de instalação do navegador persistido em `localStorage['ebgeo_client_id']` (`frontend/src/js/store/sync/operation-factory.js:41-51`): não é credencial, não é identidade de usuário, mas é o que faz presença e filtro de auto-eco sobreviverem a uma reconexão.
+Identificador de instalação do navegador persistido em `localStorage['ebgeo_client_id']` por `frontend/src/js/store/sync/operation-factory.js`: não é credencial, não é identidade de usuário, mas é o que faz presença e filtro de auto-eco sobreviverem a uma reconexão.
 
 ## O contrato
 

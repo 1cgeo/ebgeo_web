@@ -20,15 +20,13 @@ Todo numérico é `Joi.number()` sem `min`/`max`, e as colunas são `DOUBLE PREC
 
 Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(false)` explícito de cada schema vence, então campo desconhecido dá 422 em vez de ser removido em silêncio.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido) diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; `backend/src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são coeridos e aceitos.
-
 ## Override de link: leitura viva, escrita aposentada
 
 Os campos `override_bearing`, `override_distance` e `override_height` continuam **servidos** em `targets[]` pela leitura do metadado, e continuam sendo gravados na criação do link (`INSERT_TARGET`). O que não existe mais é rota que os edite depois: o `PUT .../targets/:targetId/override` saiu junto com o modelo de marcador **absoluto**, substituído pelo **relativo**.
 
 Por que a leitura importa no cliente: `override_bearing` é o **gatilho** de todo o caminho manual de projeção (`frontend/src/js/street_view_tool/navigation/navigator.js`), que só projeta por override se ele for não-nulo, e então usa `override_distance ?? 5` e `override_height ?? 0`. Um `override_height` igual a 0 é valor legítimo, não ausência: 0 é o solo.
 
-> **Nota histórica.** A rota existiu como patch por coluna de três estados (número define, `null` limpa, chave ausente mantém), separados por flag de presença (`campo !== undefined` no service, `CASE WHEN $N THEN $M ELSE coluna END` no SQL). Esse desenho continua vivo e testado em `UPDATE_ATLAS`, `UPDATE_ORGANIZATION` e `UPDATE_RANK`, que é onde estudá-lo hoje. Ele existe porque `??`, `||` e `COALESCE` colapsam dois dos três estados, e `||` ainda comeria o `0` legítimo. A rota do 360 e o teste dela (`sv360-target-override-patch.repro.test.js`) foram removidos com o modelo absoluto; o histórico está no git.
+A rota removida usava o patch por coluna de **três estados** (número define, `null` limpa, chave ausente mantém), separados por flag de presença (`campo !== undefined` no service, `CASE WHEN $N THEN $M ELSE coluna END` no SQL). O desenho existe porque `??`, `||` e `COALESCE` colapsam dois dos três estados, e `||` ainda comeria o `0` legítimo. Ele continua vivo e testado em `UPDATE_ATLAS`, `UPDATE_ORGANIZATION` e `UPDATE_RANK`, que é onde estudá-lo hoje.
 
 ## Armadilha: `mesh_rotation_y` tem dois defaults incompatíveis
 
@@ -42,7 +40,7 @@ Ao mexer em rotação, lembre que a malha usa ordem Euler **ZXY** (`frontend/src
 
 `GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que **toda** escrita que termina em rebuild roda dentro de `tx()`: `updateCalibration`, `updateTargetVisibility` e `createTarget` (`backend/src/modules/streetview360/sv360.write.service.js`). Sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu, e o caminho é alcançável porque o tombstone não apaga linhas de `sv360.targets`. Elas só ficaram simétricas em 2026-07-24; até ali só a calibração estava protegida. A quarta, a escrita de override por coluna, saiu com o modelo de marcador absoluto. `deleteTarget` fica de fora porque não relê nada.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido) diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `softDeletePhoto` (`backend/src/modules/streetview360/sv360.write.service.js`, tombstone com `ON CONFLICT DO NOTHING`) e o teste `backend/tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
+Re-deletar uma foto é **204 idempotente**, não 404 (tombstone com `ON CONFLICT DO NOTHING` em `softDeletePhoto`, fixado em `backend/tests/integration/sv360-write.test.js:497-501`).
 
 O link do grafo, ao contrário da foto, é **hard-delete**, o único do módulo: adjacência é regenerável a partir da geometria e não merece tombstone.
 

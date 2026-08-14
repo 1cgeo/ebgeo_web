@@ -2,17 +2,17 @@
 
 A OM é um tenant de alcance estreito: particiona usuários e projetos 360, nunca atlas. Desativá-la não esconde, expulsa: derruba login, refresh e sockets abertos dos membros em segundos.
 
-CRUD em `src/modules/organizations/*` (5 rotas, `auth` para ler, `requireAdmin` para escrever), DDL em `backend/src/database/migrations/001_core.sql:15-23`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
+CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_core.sql:15-23`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
 
 ## O que a org NÃO escopa (a expectativa errada)
 
-O nome "dona dos dados" sugere que atlas pertence a OM. Não pertence: `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/002_atlas.sql:10-17`); o acesso vem de `atlas_shares`. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]]. Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/004_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
+A frase que circula, "uma organização representa a OM dona dos dados" (origem: guia *12-multiorg-identidade-auditoria*, absorvido), é **intenção de projeto e não comportamento**. `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/002_atlas.sql:10-17`); nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. O acesso vem de `atlas_shares`. Quem parte dessa frase desenha isolamento que o banco não entrega. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
+
+Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/004_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
 
 O único lugar onde a org de fato particiona dados é `sv360.projects.organization_id` com `UNIQUE (organization_id, slug)` (`backend/src/database/migrations/005_sv360.sql`). O único lugar onde `org_role` decide alguma coisa no backend é a escrita no 360 (`backend/src/modules/streetview360/sv360.write.service.js`). Ver [[streetview-360]] e [[ingestao-projetos-360]].
 
 **Consequência prática:** nunca use `org_role` para decidir escrita em atlas. No frontend ele vira o papel de sessão no login e no restore de boot, mas o papel **por atlas** do payload do WS o sobrescreve ao conectar (`frontend/src/js/store/sync/sync-engine.js`). `org_role` é só o default de UI enquanto não há atlas conectado. Ver [[sessao-boot-e-ciclo-de-vida]] e [[sintese-eixos-de-permissao]].
-
-A frase que circula, "uma organização representa a OM dona dos dados", é **intenção de projeto e não comportamento**. `backend/src/database/migrations/002_atlas.sql` não tem uma única coluna de organização: nem atlas, nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. Quem parte dessa frase desenha isolamento que o banco não entrega.
 
 ## Por que o gate roda contra o banco, e não contra o JWT
 
@@ -42,7 +42,7 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 
 ## Contratos congelados
 
-- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_core.sql:26-28`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js:74`) e o backfill do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js:25`). Mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
+- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_core.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
 - **Trocar de OM é ação de admin, nunca self-service.** `updateProfileSchema` omite `organization_id` de propósito (`backend/src/modules/users/users.schemas.js`): permitir daria ao usuário leitura dos projetos 360 privados da OM alvo e o faria passar nos gates org-scoped.
 - **Aliases `org` e `login`** no access token são consumidos as-is pelo módulo 360 (`issueAccessToken`, `backend/src/modules/auth/auth.service.js`). Ver [[jwt-emissor-unico]], [[autenticacao-jwt]] e [[api-keys]].
 - `organization_id` é **nullable** e o fallback de token legado é `?? null` (`verifyAndMapUser`, `backend/src/middleware/auth.js`). Só o autocadastro garante org; contas por outros caminhos podem ficar sem OM. Não presuma a default.
@@ -52,13 +52,4 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 
 `ORG_CREATE`/`ORG_UPDATE`/`ORG_DELETE` chamam `createAudit` **sem** o terceiro argumento de transação (`backend/src/modules/organizations/organizations.controller.js`), e `createAudit` só entra em `t.none` quando esse argumento existe (`backend/src/utils/audit.js`). Se o insert de auditoria falhar, a org já foi criada ou desativada e a trilha não registra. É o último módulo assim: `users` e `zones` migraram para a chamada dentro do `tx` do service, e é para lá que uma auditoria nova de OM deve ir. No `ORG_DELETE` o `targetName` nem é preenchido, então a trilha guarda só o UUID. Ver [[auditoria]].
 
-## Histórico
-
-- **2026-07-25.** Duas afirmações desta página foram superadas pelo código e reescritas acima: a `sigla` deixou de ser inapagável (o `COALESCE` virou flag de presença, alinhando `organizations` com `users`, então "dois padrões no mesmo backend" não vale mais), e o gatilho do `4003` deixou de ser enumerado como lista fechada de três, que é a forma de erro que já custou bug duas vezes neste repositório.
-
-## Fontes
-- `backend/src/modules/organizations/*.js`, `backend/src/utils/org-status.js`, `src/middleware/{auth,flexible-auth}.js`, `backend/src/modules/auth/auth.service.js`, `backend/src/modules/collab/collab.gateway.js`.
-- `backend/src/database/migrations/{001_core,002_atlas,005_sv360}.sql`.
-- `backend/src/modules/users/{users.schemas,users.queries}.js`, `backend/src/modules/config/config.service.js`, `backend/src/modules/streetview360/sv360.write.service.js`, `backend/src/modules/streetview360/sv360.merge.js`.
-- `frontend/src/js/admin/personnel-tab.js`, `src/js/store/sync/{api-client,sync-engine}.js`. Ver [[api-rest-atlas]] para o padrão do cliente REST.
-- guia *12-multiorg-identidade-auditoria* (absorvido): origem da contradição "dona dos dados".
+Ver [[api-rest-atlas]] para o padrão do cliente REST.
