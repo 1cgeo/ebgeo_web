@@ -64,7 +64,7 @@ O socket resolve a permissão no handshake e vive por horas; a reconciliação c
 
 O modo anônimo é local para **dados** (IndexedDB, [[dominio-local-vs-remoto]]), não para **boot**. O frontend é fail-fast em `GET /api/config`: sem backend alcançável ele mostra a tela "EBGeo indisponível" e não roda (`frontend/src/js/index.js`), porque o servidor é a fonte única de config e catálogo ([[config-dinamico]], [[config-runtime-urls-relativas]]). "Funcionamento completo sem backend" é fora de escopo declarado.
 
-O caminho suportado continua sendo: acumular local, logar, subir o atlas via `POST /atlas/import` (`frontend/src/js/store/sync/api-client.js:714`), depois enviar imagens em bulk e corrigir os `imageId` por operação de update. Ver [[atlas-import-offline]], [[imagens-atlas]] e [[modos-operacao]].
+O caminho suportado continua sendo: acumular local, logar, subir o atlas via `POST /atlas/import` (`frontend/src/js/store/sync/api-client.js`), depois enviar imagens em bulk e corrigir os `imageId` por operação de update. Ver [[atlas-import-offline]], [[imagens-atlas]] e [[modos-operacao]].
 
 ## 9. O que usar quando algo não converge
 

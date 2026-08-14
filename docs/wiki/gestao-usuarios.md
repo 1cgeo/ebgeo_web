@@ -20,7 +20,7 @@ Os demais campos são `COALESCE` puro, mas o modo de falha que isso sugere (mand
 
 ## Ordem de rotas é contrato congelado
 
-`/me` e `/search` são declarados antes de `/:userId` (`backend/src/modules/users/users.routes.js:12-16` vs `:21`). Inverter faz `/users/me` cair no handler admin e morrer na validação de UUID. Nada no código sinaliza isso; um refactor que agrupe rotas por guarda quebra o perfil próprio.
+`/me` e `/search` são declarados antes de `/:userId` (`backend/src/modules/users/users.routes.js`). Inverter faz `/users/me` cair no handler admin e morrer na validação de UUID. Nada no código sinaliza isso; um refactor que agrupe rotas por guarda quebra o perfil próprio.
 
 ## Auto-cadastro: as diferenças que mordem
 

@@ -846,38 +846,8 @@ class AddArrowControl extends BaseControl {
         const warning = document.createElement('div');
         warning.className = 'vertex-removal-warning';
         warning.textContent = 'Seta deve ter no mínimo 2 vértices';
-        warning.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #f44336;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 14px;
-            font-weight: 500;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            z-index: 10000;
-            animation: fadeInOut 2s ease-in-out forwards;
-        `;
 
-        // Add animation style if not exists
-        if (!document.querySelector('#vertex-warning-style')) {
-            const style = document.createElement('style');
-            style.id = 'vertex-warning-style';
-            style.textContent = `
-                @keyframes fadeInOut {
-                    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    85% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
+        // Appearance and fade animation live in css/vertex-warning.css
         document.body.appendChild(warning);
 
         // Remove after animation

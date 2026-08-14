@@ -523,13 +523,23 @@ body.streetview-active .modal-overlay {
     line-height: 1.4;
 }
 
-/* ===== NAVIGATION CANVAS OVERLAY ===== */
-#streetview-nav-canvas {
+/* ===== NAVIGATION CANVAS OVERLAY =====
+   Overlay canvas that street_view_tool/navigation/navigator.js injects over the
+   Three.js canvas. This rule used to be keyed on #streetview-nav-canvas and lost
+   every declaration to an inline cssText block in that file; the id survives only
+   as a getElementById handle (marker_tool_360.js).
+
+   The calibration page has a namesake rule in calibracao.css, because its
+   navigator is a deliberate copy and that page loads no sheet from here. The two
+   differ in one declaration, and only one: pointer-events (see there). */
+.sv360-nav-overlay {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+
+    /* auto: this canvas is the hit-test surface for the navigation markers */
     pointer-events: auto;
     z-index: var(--z-dropdown);
 }

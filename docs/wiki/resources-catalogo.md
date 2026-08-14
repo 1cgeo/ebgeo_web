@@ -40,11 +40,11 @@ O shape de cada `config` não tem validação: o Joi só exige objeto (`backend/
 
 ## A exceção deliberada: miniatura embutida em base64
 
-O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin embute no próprio `config` como data URL (`frontend/src/js/admin/catalog-tab.js:251,382-386`). O motivo é que o backend não serve estático público e `deploy/` é protegido ([[sintese-decisoes-arquiteturais]]).
+O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin embute no próprio `config` como data URL (`frontend/src/js/admin/catalog-tab.js`). O motivo é que o backend não serve estático público e `deploy/` é protegido ([[sintese-decisoes-arquiteturais]]).
 
 **Custo escondido:** a miniatura pesa no payload de `GET /api/config` de **todo** boot, inclusive anônimo ([[config-dinamico]]). Daí o teto de 256 KB no data URL: `compressImage` pode **silenciosamente devolver o original** quando o decode falha, e sem o teto um PNG grande entraria inteiro no `/config`. WebP é escolha consciente (preserva transparência que o JPEG achataria em preto).
 
-A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `frontend/src/js/admin/catalog-tab.js:21-27`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
+A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `frontend/src/js/admin/catalog-tab.js`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
 
 Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo intocado preserva. O **vídeo de preview é exclusivo de `tileset` e fica fora de banda** (só URL, nunca upload); esvaziar o campo faz `delete`, então remover não é no-op.
 

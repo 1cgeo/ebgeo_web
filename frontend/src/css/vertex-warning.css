@@ -1,0 +1,48 @@
+/* Path: css/vertex-warning.css */
+
+/**
+ * @fileoverview Floating warning shown when a vertex cannot be removed from a
+ * feature under edition (minimum vertex count reached).
+ * Shared by the line, arrow and boundary tools: the three used to carry an
+ * identical `style.cssText` block plus an injected `@keyframes` rule.
+ * BEM naming: .vertex-removal-warning (single block, no variants).
+ */
+
+.vertex-removal-warning {
+    position: fixed;
+    top: var(--space-5);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--space-3) var(--space-6);
+    background-color: var(--color-error);
+    color: white;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: var(--z-toast);
+    animation: vertex-removal-warning-fade 2s ease-in-out forwards;
+}
+
+@keyframes vertex-removal-warning-fade {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px);
+    }
+
+    15% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    85% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px);
+    }
+}

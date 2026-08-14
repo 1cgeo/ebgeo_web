@@ -2,6 +2,7 @@
 
 import js from '@eslint/js';
 import globals from 'globals';
+import ebgeo from './eslint-rules/index.js';
 
 /**
  * ESLint Flat Configuration for EBGEO Project
@@ -10,6 +11,25 @@ import globals from 'globals';
 export default [
     // Base recommended rules
     js.configs.recommended,
+
+    // Convenções da casa, antes prosa e agora mecânicas. Cada regra foi MEDIDA
+    // contra os 601 arquivos antes de entrar, porque com `--max-warnings 0` uma
+    // regra que acusa centenas é uma regra que alguém desliga, e o que cada uma
+    // deliberadamente NÃO pega está no topo do próprio arquivo.
+    // O controle negativo delas é `eslint-rules/probe.js`, que roda ANTES do
+    // eslint em `npm run lint:js`: regra de lint também é verificador, e
+    // verificador quebra calado.
+    {
+        files: ['src/**/*.js'],
+        plugins: { ebgeo },
+        rules: {
+            'ebgeo/require-path-comment': 'error',
+            'ebgeo/no-event-string-literal': 'error',
+            'ebgeo/no-json-clone': 'error',
+            'ebgeo/no-inline-style-assignment': 'error',
+            'ebgeo/no-unescaped-innerhtml': 'error',
+        },
+    },
 
     // Global configuration
     {
@@ -134,6 +154,12 @@ export default [
             '*.min.js',
             'server/**',
             '*/vendor/',
+            // Amostras deliberadamente quebradas, que existem para provar que as
+            // regras da casa disparam. Lintá-las normalmente deixaria o
+            // `npm run lint` vermelho POR CONSTRUÇÃO. Precisa ser recursivo: a
+            // árvore de `require-path-comment` tem um `src/js/` dentro, que é
+            // justamente o caminho que aquela regra persegue.
+            'eslint-rules/__fixtures__/**',
             // Artefato gerado. O ESLint 9 (flat config) NAO le o .gitignore por
             // conta propria — e por isso que dist/ e node_modules/ estao repetidos
             // aqui — e o script `lint:js` tambem nao recebe --ignore-path, ao

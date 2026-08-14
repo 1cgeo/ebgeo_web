@@ -10,7 +10,7 @@ Sync existe para mudanças de granularidade fina, frequentes e concorrentes, cuj
 
 REST existe para mudanças raras, estruturais e não concorrentes, onde "última escrita vence por entidade" seria perigoso: quem vê o atlas, quais basemaps ele expõe, quem é o dono. Uma op de sync com granularidade "atlas inteiro" reabriria a porta para um usuário `write` sobrescrever a lista de compartilhamentos.
 
-**A separação é o gate, não a estética.** A rota de push de sync exige no mínimo `comment` (`backend/src/modules/sync/sync.routes.js:19`), de propósito, para o Comentarista alcançá-la; o refinamento por op vem depois, em `assertOperationAllowed` (`backend/src/modules/sync/sync.service.js`) e em `operationDenialReason` ao lado dela. As rotas de sharing e settings exigem `manage`. Um usuário `write` nunca alcança a superfície de governança. Veja [[permissoes-atlas]], [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]]; detalhes por entidade em [[tipos-entidade-sync]], [[envelope-operacao]] e [[tabela-operations]].
+**A separação é o gate, não a estética.** A rota de push de sync exige no mínimo `comment` (`backend/src/modules/sync/sync.routes.js`), de propósito, para o Comentarista alcançá-la; o refinamento por op vem depois, em `assertOperationAllowed` (`backend/src/modules/sync/sync.service.js`) e em `operationDenialReason` ao lado dela. As rotas de sharing e settings exigem `manage`. Um usuário `write` nunca alcança a superfície de governança. Veja [[permissoes-atlas]], [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]]; detalhes por entidade em [[tipos-entidade-sync]], [[envelope-operacao]] e [[tabela-operations]].
 
 ## A armadilha central: `atlas.settings` tem dois donos
 

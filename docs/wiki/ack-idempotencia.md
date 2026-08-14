@@ -27,7 +27,7 @@ Ver [[erros-api]] e [[permissoes-atlas]].
 
 ## O ack não é só observabilidade (e a armadilha que nasce daí)
 
-Ler `recordPushAcks` de relance sugere tracing puro. Não é: o `currentVersion` de cada `result` alimenta `resolveLocalEdit` (`frontend/src/js/store/sync/remote-operation-handler.js:184`, exposto também pelo alias `recordLocalAppliedVersion`). O autor filtra o próprio eco de WebSocket e por isso **só aprende a ordem de chegada da própria op pelo ack**. `currentVersion` é insumo de LWW, não um número informativo.
+Ler `recordPushAcks` de relance sugere tracing puro. Não é: o `currentVersion` de cada `result` alimenta `resolveLocalEdit` (`frontend/src/js/store/sync/remote-operation-handler.js`, exposto também pelo alias `recordLocalAppliedVersion`). O autor filtra o próprio eco de WebSocket e por isso **só aprende a ordem de chegada da própria op pelo ack**. `currentVersion` é insumo de LWW, não um número informativo.
 
 A consequência atravessa backend e frontend e não é visível em nenhum dos dois isoladamente:
 

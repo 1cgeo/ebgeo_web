@@ -79,15 +79,8 @@ export class StreetViewNavigator {
         // Create canvas overlay
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'streetview-nav-canvas';
-        this.canvas.style.cssText = `
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 10;
-        `;
+        // Fixed appearance lives in css/panels-360.css (.sv360-nav-overlay).
+        this.canvas.classList.add('sv360-nav-overlay');
 
         // Set canvas size based on container (accounts for sidebar offset)
         this.canvas.width = this.container.clientWidth;
@@ -116,8 +109,8 @@ export class StreetViewNavigator {
         this.container.addEventListener('pointerup', this.handlePointerUp);
         window.addEventListener('resize', this.handleResize);
 
-        // Enable pointer events on canvas for hit testing
-        this.canvas.style.pointerEvents = 'auto';
+        // Pointer events stay enabled on the canvas for hit testing: declared by
+        // .sv360-nav-overlay, not re-set here.
 
         this.initialized = true;
     }

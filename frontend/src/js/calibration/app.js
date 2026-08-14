@@ -977,7 +977,7 @@ function showDeletePhotoDialog(displayName) {
             <div class="cal-dialog">
                 <h3 class="cal-dialog__title">Excluir foto permanentemente?</h3>
                 <p class="cal-dialog__text">
-                    <strong>${displayName}</strong><br><br>
+                    <strong>${escapeHtml(displayName)}</strong><br><br>
                     Todas as conexoes desta foto serao removidas.
                     Ela nao aparecera mais na navegacao.<br><br>
                     <em>O ponto some do mapa na proxima vez que o tile for pedido: aqui o mapa

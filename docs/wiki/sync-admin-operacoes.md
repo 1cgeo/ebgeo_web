@@ -1,6 +1,6 @@
 # Administração do Log de Operações de Sync
 
-Duas rotas admin por atlas (`backend/src/modules/sync/sync.routes.js:13-14`) podam a tabela `operations` e elevam `min_version`, trocando histórico de replay por espaço em disco.
+Duas rotas admin por atlas (`backend/src/modules/sync/sync.routes.js`) podam a tabela `operations` e elevam `min_version`, trocando histórico de replay por espaço em disco.
 
 ## Por que existe e o que custa
 

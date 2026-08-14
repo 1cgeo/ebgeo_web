@@ -9,7 +9,7 @@
     "clean": "rm -rf dist node_modules/.vite",
     "knip": "knip",
     "lint": "npm run lint:js && npm run lint:css",
-    "lint:js": "eslint . --max-warnings 0",
+    "lint:js": "node eslint-rules/probe.js && eslint . --max-warnings 0",
     "lint:css": "stylelint \"**/*.css\" --ignore-path .gitignore",
     "lint:fix": "npm run lint:js:fix && npm run lint:css:fix",
     "lint:js:fix": "eslint . --fix",

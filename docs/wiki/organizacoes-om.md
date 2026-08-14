@@ -2,11 +2,11 @@
 
 A OM é um tenant de alcance estreito: particiona usuários e projetos 360, nunca atlas. Desativá-la não esconde, expulsa: derruba login, refresh e sockets abertos dos membros em segundos.
 
-CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_core.sql:15-23`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
+CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_core.sql`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
 
 ## O que a org NÃO escopa (a expectativa errada)
 
-A frase que circula, "uma organização representa a OM dona dos dados" (origem: guia *12-multiorg-identidade-auditoria*, absorvido), é **intenção de projeto e não comportamento**. `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/002_atlas.sql:10-17`); nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. O acesso vem de `atlas_shares`. Quem parte dessa frase desenha isolamento que o banco não entrega. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
+A frase que circula, "uma organização representa a OM dona dos dados" (origem: guia *12-multiorg-identidade-auditoria*, absorvido), é **intenção de projeto e não comportamento**. `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/002_atlas.sql`); nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. O acesso vem de `atlas_shares`. Quem parte dessa frase desenha isolamento que o banco não entrega. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
 
 Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/004_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
 

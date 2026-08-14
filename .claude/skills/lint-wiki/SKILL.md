@@ -1,6 +1,6 @@
 ---
 name: lint-wiki
-description: Audita a higiene da wiki em docs/wiki (órfãs, wikilinks quebrados, duplicatas semânticas, contradições pendentes, páginas que viraram recontagem do código). Use na retrospectiva, ao terminar um lote de páginas, ou quando eu disser "audita a wiki" ou "lint da wiki".
+description: Audita a higiene da wiki em docs/wiki (órfãs, wikilinks quebrados, duplicatas semânticas, contradições pendentes, citação por número de linha, páginas que viraram recontagem do código). Use na retrospectiva, ao terminar um lote de páginas, ou quando eu disser "audita a wiki" ou "lint da wiki".
 ---
 
 # lint-wiki
@@ -34,6 +34,7 @@ Sai com código 1 se houver **erro**, 0 se só houver **aviso**.
 | página órfã | nada aponta para ela: ou falta cross-link, ou ela não deveria existir |
 | contradição pendente | divergência doc↔código não resolvida; só o código decide |
 | duplicata provável (Jaccard >= 0.45) | duas páginas sobre o mesmo conceito, o modo de falha que originou a skill |
+| citação por número de linha (`arquivo.js:123`) | o número não tem guarda e não pode ter: qualquer edição acima dele desloca tudo sem tocar na doc. Medido em 2026-08-14, 72% das citações desse formato num lote da revisão já apontavam para outro trecho, **com a suíte verde**. Cite o arquivo mais o NOME do símbolo, que o `docs-integridade` verifica. Só a forma inequívoca é acusada; `:8080` solto é porta, não linha |
 
 **Avisos** (julgamento):
 

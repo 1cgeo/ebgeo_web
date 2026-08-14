@@ -16,8 +16,8 @@ Alternativa rejeitada: resolver conflito por `timestamp` ou pelo relógio de Lam
 
 ## Contratos congelados
 
-- **Nunca aplicar ops em paralelo.** A cadeia `_applyChain` (`frontend/src/js/store/sync/ws-client.js:409`) não é cosmética: as feições moram **dentro do registro do mapa** no IndexedDB, e os handlers fazem read-modify-write assíncrono desse registro inteiro. Um `Promise.all` em qualquer novo chamador reintroduz o clobber e some com todas as ops menos uma. Por isso `pull()` e `sync_response` usam `for ... await` sequencial.
-- **Nunca chamar guard de permissão, log de operação ou undo** no caminho inbound (contrato no cabeçalho, `frontend/src/js/store/sync/remote-operation-handler.js:11-15`). Logar cria loop de feedback. Ver [[permissoes-atlas]].
+- **Nunca aplicar ops em paralelo.** A cadeia `_applyChain` (`frontend/src/js/store/sync/ws-client.js`) não é cosmética: as feições moram **dentro do registro do mapa** no IndexedDB, e os handlers fazem read-modify-write assíncrono desse registro inteiro. Um `Promise.all` em qualquer novo chamador reintroduz o clobber e some com todas as ops menos uma. Por isso `pull()` e `sync_response` usam `for ... await` sequencial.
+- **Nunca chamar guard de permissão, log de operação ou undo** no caminho inbound (contrato no cabeçalho, `frontend/src/js/store/sync/remote-operation-handler.js`). Logar cria loop de feedback. Ver [[permissoes-atlas]].
 - **Persistir sempre, não apenas emitir.** Bug histórico deste arquivo: layer e group só emitiam, e o peer ficava sem a camada porque **nenhum subscriber persiste eventos `LAYER_*`/`GROUP_*`**. Ao adicionar um `entityType`, escreva na mesma chave que o setter local usa e confira se o consumidor lê por id ou por nome. Ver [[tipos-entidade-sync]].
 - **`server_version` é sequência global entre atlas**: monotônica, **não contígua** por atlas. Buraco é op de outro atlas, não op perdida. Tratar não-contiguidade como gap já gerou tempestade de `sync_request`.
 

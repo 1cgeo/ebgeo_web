@@ -88,7 +88,9 @@ export function initNavigator(container, options = {}) {
     overlayCanvas = document.createElement('canvas');
     overlayCanvas.width = width;
     overlayCanvas.height = height;
-    overlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    // Fixed appearance lives in css/calibracao.css (.sv360-nav-overlay), the
+    // mirror of the rule with the same name in css/panels-360.css.
+    overlayCanvas.classList.add('sv360-nav-overlay');
     container.appendChild(overlayCanvas);
 
     projector = new StreetViewProjector(width, height);

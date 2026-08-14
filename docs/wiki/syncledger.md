@@ -48,5 +48,5 @@ O segundo não-óbvio é o gate: o anel é **por atlas**, então ler ou limpar �
 
 ## Histórico
 
-- 2026-07-24: o JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:7` apontava para um espelho de backend em `collab/trace/`, caminho morto duas vezes (prefixo do layout pré-monorepo mais um diretório que nunca existiu). Não eram dois arquivos distintos, era um ponteiro podre; os dois lados passaram a se citar pelo caminho real.
+- 2026-07-24: o JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js` apontava para um espelho de backend em `collab/trace/`, caminho morto duas vezes (prefixo do layout pré-monorepo mais um diretório que nunca existiu). Não eram dois arquivos distintos, era um ponteiro podre; os dois lados passaram a se citar pelo caminho real.
 - 2026-07-25: apagado um `[!CONTRADICAO]` que registrava a ausência de `apply.persist` na enumeração de spans de um guia absorvido. Contradição contra prosa já removida é irresolvível por construção; o fato virou a seção sobre o quarto elo.

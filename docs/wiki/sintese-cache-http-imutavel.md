@@ -12,7 +12,7 @@ O `parseRange` foi **copiado verbatim** entre os módulos (o cabeçalho de `back
 
 ## Armadilhas do ETag
 
-- **Migrar a mesma raiz de filesystem para o store SQLite troca a família do ETag** (`"{size}-{mtime}"` em `backend/src/modules/nomes/assets3d.service.js:42` vira `"{sha1}"` em `backend/src/modules/nomes/assets3d.store.js:69`). Não é bug, mas invalida o cache de todos os clientes no dia da migração.
+- **Migrar a mesma raiz de filesystem para o store SQLite troca a família do ETag** (`"{size}-{mtime}"` em `backend/src/modules/nomes/assets3d.service.js` vira `"{sha1}"` em `backend/src/modules/nomes/assets3d.store.js`). Não é bug, mas invalida o cache de todos os clientes no dia da migração.
 - **O SQLite sombreia o disco silenciosamente.** A ordem é store primeiro, filesystem só como fallback (`backend/src/modules/nomes/assets3d.controller.js`). Um caminho presente nos dois serve a versão do SQLite sem nenhum sinal.
 - **Comparação de `If-None-Match` é `===` estrito** (`backend/src/modules/nomes/assets3d.controller.js`, `backend/src/modules/streetview360/sv360.controller.js`). Sem normalização de ETag fraco (`W/"..."`) e sem lista de ETags. Um CDN ou proxy que reescreva o ETag para a forma fraca **destrói todo 304**, e cada cache hit vira 200 completo. `If-Modified-Since` não é tratado nessas rotas.
 - **Republicar no mesmo caminho funciona em teoria** (o ETag muda), mas com `immutable` o navegador pode não revalidar dentro do ano. Para garantir troca imediata, publique em outro caminho.

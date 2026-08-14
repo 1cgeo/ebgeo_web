@@ -65,11 +65,11 @@ Três consequências que não se leem em nenhum arquivo isoladamente:
 
 ## `zoom`: sobrou um eixo só
 
-`zoom` continua opcional (`backend/src/modules/nomes/nomes.schemas.js:11`) e agora afia **só o espaço**: platô e escala encolhem com `2^(10-zoom)`, saindo de 10 km / 300 km no zoom 10.
+`zoom` continua opcional (`backend/src/modules/nomes/nomes.schemas.js`) e agora afia **só o espaço**: platô e escala encolhem com `2^(10-zoom)`, saindo de 10 km / 300 km no zoom 10.
 
 O antigo `zoom_factor`, que neutralizava `tipo_peso` em zoom alto (todo tipo virava 0.5), foi **removido**: ele contradiz a chave 2 frontalmente, porque zerar a diferença de categoria é exatamente o que a doutrina proíbe. O teste que assertava a neutralização foi reescrito para assertar o oposto, e é hoje um dos guardas da doutrina (`backend/tests/integration/nomes-busca-ranking.test.js`).
 
-**O frontend não envia `zoom`** (`frontend/src/js/search/search-bar.search-providers.js:279` monta a URL só com `q`, `lat` e `lon`), então o caminho real é sempre o dos defaults.
+**O frontend não envia `zoom`** (`frontend/src/js/search/search-bar.search-providers.js` monta a URL só com `q`, `lat` e `lon`), então o caminho real é sempre o dos defaults.
 
 > **Armadilha do zoom alto, achada rodando contra o acervo real.** O Postgres **lança erro** em underflow de float em vez de saturar em zero. Com zoom 16 a escala cai para ~4,7 km, um candidato a 300 km dá expoente 4096, e `power(0.5, 4096)` derrubava a requisição inteira com `22003 float_underflow_error`. Daí o `LEAST(..., 700)` no expoente. Nenhum teste de unidade pegaria: exige zoom alto **e** candidato distante ao mesmo tempo.
 
@@ -81,7 +81,7 @@ A armadilha simétrica mora do outro lado e quase entrou junto: `com` como abrev
 
 ## Custo escondido: o operador e o limiar são um par
 
-> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/004_ng.sql:43-44`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24. O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js:9-22`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
+> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/004_ng.sql`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24. O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
 
 Fica o contrato que a troca criou: **operador e `SET LOCAL` andam juntos.** O default da extensão é 0.3, então remover o `SET LOCAL`, ou tirar a busca da transação que o carrega (`SET LOCAL` morre com ela), aperta a busca em silêncio e descarta os candidatos entre 0.25 e 0.3. O sintoma é resultado faltando, não erro, e nenhum teste o pega.
 
@@ -89,7 +89,7 @@ Detalhe do mesmo nó que parece cosmético e não é: o termo no predicado vem d
 
 Isso importa além da latência porque `/busca` é a única rota anônima do backend: o custo por requisição é pago por qualquer um, e o teto que sobra é o balde por endereço descrito em [[hardening-borda-api]].
 
-`f_unaccent` é aplicado dos dois lados da comparação, então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/004_ng.sql:21-23`), e é ele que o índice GIN cobre.
+`f_unaccent` é aplicado dos dois lados da comparação, então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/004_ng.sql`), e é ele que o índice GIN cobre.
 
 ## Integração: a busca de 2 letras que falha calada
 

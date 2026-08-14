@@ -2,7 +2,7 @@
 
 O que o catálogo de status não conta: onde o envelope `{ error: { code, message } }` não vale, onde o mesmo input rende dois status diferentes, e por que um push de sync rejeitado nunca sai da fila.
 
-O envelope e a cascata de cinco ramos estão inteiros em `backend/src/middleware/error-handler.js:11-124`; os pares status/código em `backend/src/utils/errors.js` (o arquivo inteiro é essa lista). Não recorte o intervalo ao ler: a citação `:12-47` que esta linha carregou até 2026-07-25 parava em `BadRequestError` e excluía `ServiceUnavailableError`, acrescentado no fim do arquivo, que é justamente o par que a matriz de status mais erra.
+O envelope e a cascata de cinco ramos estão inteiros em `backend/src/middleware/error-handler.js`; os pares status/código em `backend/src/utils/errors.js` (o arquivo inteiro é essa lista). Não recorte o intervalo ao ler: a citação por intervalo de linhas que esta linha carregou até 2026-07-25 parava em `BadRequestError` e excluía `ServiceUnavailableError`, acrescentado no fim do arquivo, que é justamente o par que a matriz de status mais erra.
 
 **Divisão com [[erros-api]]:** aqui está a semântica de quem *emite* (qual rota devolve qual status e por quê); lá está o comportamento de quem *consome*, o que o cliente descarta e o que ele já resolveu antes do seu `catch`.
 
@@ -24,7 +24,7 @@ Nunca ramifique pela `message`: no ramo 4 do handler ela só é repassada quando
 
 429 é backoff, nunca refresh nem logout. O `_request` só ramifica em 401, então um 429 vira `ApiError` comum, o que está correto.
 
-**Um limiter por rota, não uma instância compartilhada.** `authLimiter` chaveia por `` `${ip}:${username}` `` e por isso só guarda as duas rotas cujo schema declara `username`, `/login` e `/register` (`keyGenerator`, `backend/src/middleware/rate-limit.js`). `/auth/refresh`, `/auth/verify-email` e `/auth/resend-verification` não têm `username` no corpo (`backend/src/modules/auth/auth.schemas.js:9-11`), então cada uma ganhou seu próprio store via `credentialIpLimiter` (`backend/src/middleware/rate-limit.js:83-123`). O refresh ainda soma `skipSuccessfulRequests: true`, porque o endereço é chave grossa atrás de NAT e o orçamento inteiro precisa apontar para falhas repetidas.
+**Um limiter por rota, não uma instância compartilhada.** `authLimiter` chaveia por `` `${ip}:${username}` `` e por isso só guarda as duas rotas cujo schema declara `username`, `/login` e `/register` (`keyGenerator`, `backend/src/middleware/rate-limit.js`). `/auth/refresh`, `/auth/verify-email` e `/auth/resend-verification` não têm `username` no corpo (`backend/src/modules/auth/auth.schemas.js`), então cada uma ganhou seu próprio store via `credentialIpLimiter` (`backend/src/middleware/rate-limit.js`). O refresh ainda soma `skipSuccessfulRequests: true`, porque o endereço é chave grossa atrás de NAT e o orçamento inteiro precisa apontar para falhas repetidas.
 
 O que isso corrige, e é a armadilha que sobrevive na cabeça de quem leu a doc antiga: as três rotas **degeneravam** para a chave `ip:` e drenavam um balde único. Numa rede atrás de NAT o 11º refresh honesto da janela virava 429. Não escreva código novo assumindo o balde compartilhado, e não "otimize" reunindo os limiters: a separação é o conserto.
 

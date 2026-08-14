@@ -21,6 +21,9 @@
 
 import config from '@js/config.js';
 import { fetchProjectMap, getPhotoImageUrl } from './api.js';
+// Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
+// arrastaria a store inteira pelo caminho transitivo.
+import { escapeHtml } from '@utils/html-escape.js';
 
 /**
  * Estilo de fundo do mapa do projeto, vindo do `/api/config`.
@@ -523,9 +526,9 @@ function renderCard() {
     cardEl.hidden = false;
     cardEl.innerHTML = `
         <button class="pmap__card-close" data-acao="fechar" title="Fechar">&times;</button>
-        <img class="pmap__card-img" src="${getPhotoImageUrl(f.id, 'preview')}" alt="Pr&eacute;via de ${f.display_name}" />
+        <img class="pmap__card-img" src="${getPhotoImageUrl(f.id, 'preview')}" alt="Pr&eacute;via de ${escapeHtml(f.display_name)}" />
         <div class="pmap__card-head">
-            <span class="pmap__card-name">${f.display_name}</span>
+            <span class="pmap__card-name">${escapeHtml(f.display_name)}</span>
             ${f.reviewed ? '<span class="pmap__badge pmap__badge--ok">REVISADA</span>' : '<span class="pmap__badge">PENDENTE</span>'}
         </div>
         <div class="pmap__card-sub">#${f.sequence_number}${ehAtual ? ' &middot; aberta no visualizador' : ''}</div>

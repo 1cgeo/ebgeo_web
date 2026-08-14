@@ -14,7 +14,7 @@ Até 2026-07-18 isto era invertido de um jeito que custava caro: `build` apontav
 
 O deploy anterior copiava por cima do `dist/` servido. Durante a cópia o NGINX servia um diretório **meio atualizado**: `index.html` novo pedindo chunk que ainda não existia, ou o contrário. Não é hipótese de corrida rara, é a janela inteira da cópia.
 
-Cada build agora vira `releases/<timestamp>` e a publicação é um `ln -sfn` (`deploy/deploy.sh:96`), que o kernel resolve atomicamente. O NGINX resolve o symlink a cada request, então não há restart nem recarga de config. Rollback é o mesmo movimento apontando para a release anterior (`deploy/deploy.sh:48`), e é por isso que as 3 últimas ficam retidas (`deploy/deploy.sh:26,52-58`).
+Cada build agora vira `releases/<timestamp>` e a publicação é um `ln -sfn` (`deploy/deploy.sh`), que o kernel resolve atomicamente. O NGINX resolve o symlink a cada request, então não há restart nem recarga de config. Rollback é o mesmo movimento apontando para a release anterior (`deploy/deploy.sh`), e é por isso que as 3 últimas ficam retidas (`deploy/deploy.sh`).
 
 ## A armadilha: o symlink precisa ser relativo
 
@@ -22,7 +22,7 @@ Cada build agora vira `releases/<timestamp>` e a publicação é um `ln -sfn` (`
 
 O container monta o diretório `deploy/` do host em `/var/www/deploy/`. Um symlink **absoluto** guardaria um caminho do host, que dentro do container não existe: o NGINX segue o link, não acha nada e devolve **404 em tudo**, com o deploy reportando sucesso e o diretório da release visivelmente correto no host. O sintoma não aponta para o symlink.
 
-O `deploy.sh` acerta isso em dois pontos (`:48` e `:96`). Qualquer edição que troque para caminho absoluto (o instinto natural ao "consertar" um symlink quebrado visto do host) reintroduz a falha.
+O `deploy.sh` acerta isso em dois pontos. Qualquer edição que troque para caminho absoluto (o instinto natural ao "consertar" um symlink quebrado visto do host) reintroduz a falha.
 
 ## O que vive fora deste repositório
 

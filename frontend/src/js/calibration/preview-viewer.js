@@ -22,11 +22,8 @@ import { layoutDirections } from './navigator.js';
 const PREVIEW_WIDTH = 576;
 const PREVIEW_HEIGHT = 396;
 
-// Border colors
-const BORDER_TARGET = 'rgba(250, 179, 135, 0.6)';
-const BORDER_REAR = 'rgba(166, 227, 161, 0.6)';
-const LABEL_COLOR_TARGET = '#fab387';
-const LABEL_COLOR_REAR = '#a6e3a1';
+// Border and label colors per view mode live in `css/calibracao.css`, on the
+// `.cal-preview--rear` / `.cal-preview--target` modifiers.
 
 
 // ============================================================================
@@ -114,6 +111,18 @@ function markPreviewNeedsRender() {
 }
 
 /**
+ * Applies the view-mode modifier on the container. Border color and label color
+ * are fixed per mode and live in `css/calibracao.css`, on the
+ * `.cal-preview--rear` / `.cal-preview--target` modifiers.
+ * @param {'rear'|'target'} mode - The view mode to apply
+ */
+function applyModeClass(mode) {
+    if (!containerEl) return;
+    containerEl.classList.toggle('cal-preview--rear', mode === 'rear');
+    containerEl.classList.toggle('cal-preview--target', mode === 'target');
+}
+
+/**
  * Marca os markers do rear view para redesenho no proximo frame.
  */
 function markRearMarkersDirty() {
@@ -141,73 +150,28 @@ export function initPreviewViewer(parentContainer, options = {}) {
     // Create overlay container
     containerEl = document.createElement('div');
     containerEl.id = 'preview-viewer';
-    containerEl.style.cssText = `
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        width: ${PREVIEW_WIDTH}px;
-        height: ${PREVIEW_HEIGHT}px;
-        border-radius: 8px;
-        border: 2px solid ${BORDER_REAR};
-        overflow: hidden;
-        z-index: 15;
-        display: none;
-        background: #11111b;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-    `;
+    containerEl.classList.add('cal-preview');
+    applyModeClass('rear');
+    // Size stays in JS: the very same constants drive the WebGL renderer and the
+    // marker canvas, so repeating them in the stylesheet would let the container
+    // and the canvas drift apart.
+    containerEl.style.width = `${PREVIEW_WIDTH}px`;
+    containerEl.style.height = `${PREVIEW_HEIGHT}px`;
+    // Visibility is runtime state, toggled by show*/hide* below.
+    containerEl.style.display = 'none';
     parentContainer.appendChild(containerEl);
 
     // Label
     const label = document.createElement('div');
     label.id = 'preview-viewer-label';
-    label.style.cssText = `
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        padding: 4px 8px;
-        background: rgba(24, 24, 37, 0.85);
-        color: ${LABEL_COLOR_REAR};
-        font-size: 11px;
-        font-weight: 600;
-        z-index: 2;
-        pointer-events: none;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    `;
+    label.classList.add('cal-preview__label');
     containerEl.appendChild(label);
 
     // Close button
     closeBtn = document.createElement('button');
     closeBtn.id = 'preview-viewer-close';
     closeBtn.textContent = '\u00d7';
-    closeBtn.style.cssText = `
-        position: absolute;
-        top: 2px;
-        right: 4px;
-        width: 22px;
-        height: 22px;
-        border: none;
-        border-radius: 4px;
-        background: rgba(205, 214, 244, 0.15);
-        color: #cdd6f4;
-        font-size: 16px;
-        line-height: 20px;
-        text-align: center;
-        cursor: pointer;
-        z-index: 3;
-        pointer-events: auto;
-        transition: background 0.15s;
-        padding: 0;
-        display: none;
-    `;
-    closeBtn.addEventListener('mouseenter', () => {
-        closeBtn.style.background = 'rgba(243, 139, 168, 0.5)';
-    });
-    closeBtn.addEventListener('mouseleave', () => {
-        closeBtn.style.background = 'rgba(205, 214, 244, 0.15)';
-    });
+    closeBtn.classList.add('cal-preview__close');
     closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (onCloseCallback) onCloseCallback();
@@ -218,29 +182,7 @@ export function initPreviewViewer(parentContainer, options = {}) {
     navigateBtn = document.createElement('button');
     navigateBtn.id = 'preview-viewer-navigate';
     navigateBtn.textContent = 'Ir para esta foto \u2192';
-    navigateBtn.style.cssText = `
-        position: absolute;
-        bottom: 8px;
-        right: 8px;
-        padding: 5px 12px;
-        border: none;
-        border-radius: 6px;
-        background: rgba(250, 179, 135, 0.9);
-        color: #1e1e2e;
-        font-size: 11px;
-        font-weight: 600;
-        cursor: pointer;
-        z-index: 3;
-        pointer-events: auto;
-        transition: background 0.15s;
-        display: none;
-    `;
-    navigateBtn.addEventListener('mouseenter', () => {
-        navigateBtn.style.background = 'rgba(250, 179, 135, 1)';
-    });
-    navigateBtn.addEventListener('mouseleave', () => {
-        navigateBtn.style.background = 'rgba(250, 179, 135, 0.9)';
-    });
+    navigateBtn.classList.add('cal-preview__btn', 'cal-preview__btn--navigate');
     navigateBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (onNavigateCallback && currentTargetId) onNavigateCallback(currentTargetId);
@@ -251,29 +193,7 @@ export function initPreviewViewer(parentContainer, options = {}) {
     addTargetBtn = document.createElement('button');
     addTargetBtn.id = 'preview-viewer-add';
     addTargetBtn.textContent = 'Adicionar Conexao';
-    addTargetBtn.style.cssText = `
-        position: absolute;
-        bottom: 36px;
-        right: 8px;
-        padding: 5px 12px;
-        border: none;
-        border-radius: 6px;
-        background: rgba(166, 227, 161, 0.9);
-        color: #1e1e2e;
-        font-size: 11px;
-        font-weight: 600;
-        cursor: pointer;
-        z-index: 3;
-        pointer-events: auto;
-        transition: background 0.15s;
-        display: none;
-    `;
-    addTargetBtn.addEventListener('mouseenter', () => {
-        addTargetBtn.style.background = 'rgba(166, 227, 161, 1)';
-    });
-    addTargetBtn.addEventListener('mouseleave', () => {
-        addTargetBtn.style.background = 'rgba(166, 227, 161, 0.9)';
-    });
+    addTargetBtn.classList.add('cal-preview__btn', 'cal-preview__btn--add');
     addTargetBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (onAddTargetCallback && currentTargetId) onAddTargetCallback(currentTargetId);
@@ -284,36 +204,15 @@ export function initPreviewViewer(parentContainer, options = {}) {
     hideTargetBtn = document.createElement('button');
     hideTargetBtn.id = 'preview-viewer-hide';
     hideTargetBtn.textContent = 'Ocultar';
-    hideTargetBtn.style.cssText = `
-        position: absolute;
-        bottom: 36px;
-        right: 8px;
-        padding: 5px 12px;
-        border: none;
-        border-radius: 6px;
-        background: rgba(239, 68, 68, 0.9);
-        color: #fff;
-        font-size: 11px;
-        font-weight: 600;
-        cursor: pointer;
-        z-index: 3;
-        pointer-events: auto;
-        transition: background 0.15s;
-        display: none;
-    `;
-    hideTargetBtn.addEventListener('mouseenter', () => {
-        hideTargetBtn.style.background = 'rgba(239, 68, 68, 1)';
-    });
-    hideTargetBtn.addEventListener('mouseleave', () => {
-        hideTargetBtn.style.background = 'rgba(239, 68, 68, 0.9)';
-    });
+    hideTargetBtn.classList.add('cal-preview__btn', 'cal-preview__btn--hide');
     hideTargetBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (onHideCallback) onHideCallback();
     });
     containerEl.appendChild(hideTargetBtn);
 
-    // Set-from-click button
+    // Every action button starts hidden; show*/hide* below drive them.
+    hideAllButtons();
 
     // ── Three.js setup ──
     camera = new THREE.PerspectiveCamera(75, PREVIEW_WIDTH / PREVIEW_HEIGHT, 0.1, 1000);
@@ -336,22 +235,14 @@ export function initPreviewViewer(parentContainer, options = {}) {
     renderer.setSize(PREVIEW_WIDTH, PREVIEW_HEIGHT);
 
     canvasEl = renderer.domElement;
-    canvasEl.style.display = 'block';
+    canvasEl.classList.add('cal-preview__canvas');
     containerEl.appendChild(canvasEl);
 
     // ── Marker overlay canvas (for rear view markers) ──
     markerCanvas = document.createElement('canvas');
     markerCanvas.width = PREVIEW_WIDTH;
     markerCanvas.height = PREVIEW_HEIGHT;
-    markerCanvas.style.cssText = `
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 1;
-    `;
+    markerCanvas.classList.add('cal-preview__overlay');
     containerEl.appendChild(markerCanvas);
     markerCtx = markerCanvas.getContext('2d');
     markerProjector = new StreetViewProjector(PREVIEW_WIDTH, PREVIEW_HEIGHT);
@@ -393,11 +284,10 @@ export async function showRearView(photoId, meshRotationY, meshRotationX = 0, me
     markRearMarkersDirty();
 
     // Set rear view appearance
-    containerEl.style.borderColor = BORDER_REAR;
+    applyModeClass('rear');
     const label = document.getElementById('preview-viewer-label');
     if (label) {
         label.textContent = 'Visao Traseira';
-        label.style.color = LABEL_COLOR_REAR;
     }
 
     // Hide all action buttons in rear view
@@ -526,11 +416,10 @@ export async function showPreview(targetId, displayName, meshRotationY = 180, me
     containerEl.style.display = 'block';
 
     // Set target view appearance
-    containerEl.style.borderColor = BORDER_TARGET;
+    applyModeClass('target');
     const label = document.getElementById('preview-viewer-label');
     if (label) {
         label.textContent = `Target: ${displayName}`;
-        label.style.color = LABEL_COLOR_TARGET;
     }
 
     // Show target action buttons
@@ -593,11 +482,10 @@ export function hidePreview() {
         currentTargetId = null;
         markRearMarkersDirty();
 
-        containerEl.style.borderColor = BORDER_REAR;
+        applyModeClass('rear');
         const label = document.getElementById('preview-viewer-label');
         if (label) {
             label.textContent = 'Visao Traseira';
-            label.style.color = LABEL_COLOR_REAR;
         }
 
         hideAllButtons();

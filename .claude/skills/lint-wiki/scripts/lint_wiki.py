@@ -40,6 +40,13 @@ RE_DEBATE = re.compile(r'>\s*\[!DEBATE\s+(\d{4}-\d{2}-\d{2})\]')
 # QUALQUER token com cara de caminho e extensao conhecida". Aqui vale igual.
 RE_CAMINHO_CODIGO = re.compile(
     r'`([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.(?:js|cjs|mjs|sql|json|css|html))`')
+# Citacao ancorada em numero de linha. Aceita basename (`002_atlas.sql:201`) e
+# `Dockerfile:17-27` alem do caminho completo: a regra vale para todos, e foi
+# justamente na migracao SQL que o numero mais pareceu fazer parte do nome do
+# trecho. Racional completo no ponto de uso, la embaixo.
+RE_CITA_LINHA = re.compile(
+    r'`([A-Za-z0-9._/-]+\.(?:js|cjs|mjs|sql|json|css|html|yml|sh|md)|Dockerfile)'
+    r'(:\d+(?:[\s,-]*\d+)*)`')
 # Marcadores de conhecimento que o codigo NAO carrega. Uma pagina sem nenhum
 # deles provavelmente so reconta o codigo.
 RE_PORQUE = re.compile(
@@ -137,6 +144,35 @@ def main():
     for slug, texto in conteudo.items():
         if not RE_CAMINHO_CODIGO.search(texto):
             avisos.append(f'nao cita nenhum arquivo de codigo: {slug}')
+
+    # --- citacao por numero de linha: ponteiro que envelhece sozinho ---
+    # `arquivo.js:123` parece mais preciso que `arquivo.js` e e menos. O caminho
+    # tem guarda (o docs-integridade.test.js falha se o arquivo sumir) e o NOME DO
+    # SIMBOLO tambem tem (ele falha se o nome nao existir no codigo); o numero de
+    # linha nao tem guarda nenhuma e nao da para ter, porque qualquer edicao ACIMA
+    # dele desloca tudo sem tocar na doc. Medido em 2026-08-14: 72% das citacoes
+    # nesse formato num dos quatro lotes da revisao apontavam para outro trecho, e
+    # a suite estava verde o tempo todo, ou seja, a podridao crescia debaixo do
+    # verde. Ponteiro errado engana com precisao de endereco, o que e pior que a
+    # ausencia de ponteiro.
+    #
+    # ERRO e nao aviso, de proposito: a wiki esta em ZERO agora, entao o piso nao
+    # custa nada hoje e so morde na REINTRODUCAO, que e o unico momento em que a
+    # regra precisa existir. Como aviso ele entraria numa lista de dezenas
+    # (em-dash, pouco porque, sobreposicao) por onde se rola sem ler, e regra
+    # escrita e ignorada treina o agente a ignorar regra escrita.
+    #
+    # So a forma INEQUIVOCA e acusada, `arquivo.ext:123`. O `:123` solto entre
+    # crases fica de fora a proposito: e indistinguivel de porta (`:8080` do
+    # backend, `:3000` do Vite, `:8081` do 360 extinto), e detector que grita em
+    # cima de porta e desligado, que e como um guarda morre.
+    for slug, texto in paginas.items():
+        # A pagina do schema e onde a regra e ENUNCIADA, com a forma proibida
+        # escrita a proposito como contra-exemplo.
+        if slug == 'wiki-schema':
+            continue
+        for m in RE_CITA_LINHA.finditer(texto):
+            erros.append(f'citacao por numero de linha (cite o simbolo): {slug} -> `{m.group(1)}{m.group(2)}`')
 
     # --- em-dash: a regra so vale se for mecanica ---
     # Estava enunciada no wiki-schema e violada em toda parte, inclusive na
