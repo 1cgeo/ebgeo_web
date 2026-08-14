@@ -5,7 +5,7 @@ Publicação do bundle Vite por troca de symlink, servido por NGINX dentro de um
 ## Dois modos, e o nome de cada um diz o que ele faz
 
 - `npm run dev` sobe o **stack inteiro** (backend `:8080` e Vite `:3000` via `concurrently`). Vite sozinho é `dev:web`, e serve para o Playwright, não para trabalhar: sem backend o boot é fail-fast e a app só mostra "EBGeo indisponível".
-- `npm run build` compila (`vite build`, saída em `dist/`).
+- `npm run build` compila (`vite build`, saída em `dist/`). O que entra nesse `dist/`, e o que pesa nele sem precisar, está em [[peso-do-pacote-web]].
 - `npm run deploy` publica (`deploy/deploy.sh`), que é o que esta página descreve.
 
 Até 2026-07-18 isto era invertido de um jeito que custava caro: `build` apontava para o `deploy.sh`, ou seja, **publicava em produção**, e quem quisesse só compilar precisava de um `build_dev`. O engano não era simétrico, rodar `build` achando que compilava publicava sem querer. Havia ainda um `npm run preview` que servia o `dist/` sem proxy de `/api`, então nunca conseguiu mostrar a app funcionando. Ambos foram removidos.

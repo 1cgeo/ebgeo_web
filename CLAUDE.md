@@ -2,7 +2,7 @@
 
 GIS web do Exército Brasileiro. Monorepo de dois pacotes simétricos: **web** em [`frontend/`](frontend/) (Vanilla JS, Vite, MapLibre + Cesium + Three.js, IndexedDB) e **backend** em [`backend/`](backend/) (Express + PostgreSQL/PostGIS + `ws`), com [`backend/CLAUDE.md`](backend/CLAUDE.md) próprio. A raiz só orquestra: os scripts dela delegam com `--prefix`, e cada pacote tem seu `package.json`, seu `node_modules` e seu `.gitignore`.
 
-Este arquivo carrega **método, armadilha e convenção que diverge do default**. O que se deriva lendo o código não mora aqui: detalhe de arquitetura em [`.claude/rules/`](.claude/rules/), o porquê das decisões em [`docs/wiki/index.md`](docs/wiki/index.md), fatos duráveis em [`MEMORY.md`](MEMORY.md), princípios integrais em [`docs/doutrina.md`](docs/doutrina.md).
+Este arquivo carrega **método, armadilha e convenção que diverge do default**. O que se deriva lendo o código não mora aqui: detalhe de arquitetura em [`.claude/rules/`](.claude/rules/), o porquê das decisões em [`docs/wiki/index.md`](docs/wiki/index.md), fatos duráveis em [`docs/MEMORY.md`](docs/MEMORY.md), princípios integrais em [`docs/doutrina.md`](docs/doutrina.md).
 
 ## Os seis princípios (condensados)
 
@@ -15,7 +15,7 @@ Este arquivo carrega **método, armadilha e convenção que diverge do default**
 
 ## Verificação: a lição que mais custou
 
-`verificacao-fantasma` é a classe mais recorrente do [`livro-razao.md`](livro-razao.md) (9 eventos), e junto com `teste-que-nao-prende` tem sempre a mesma raiz: **uma checagem que não checa**. As quatro formas:
+`verificacao-fantasma` é a classe mais recorrente do [`docs/livro-razao.md`](docs/livro-razao.md) (9 eventos), e junto com `teste-que-nao-prende` tem sempre a mesma raiz: **uma checagem que não checa**. As quatro formas:
 
 - **Verificação que chega depois da ação não é verificação.** Rodar lint na mesma linha de comando do `git commit` faz a saída aparecer depois do commit já ter passado. Comando separado, antes.
 - **Conferir um subconjunto e tratar como o conjunto.** `grep` em dois arquivos da raiz deu por completa uma busca que tinha alvos em `backend/`. Onde existe teste que varre tudo, não confira à mão.
@@ -91,4 +91,4 @@ A wiki em [`docs/wiki/`](docs/wiki/index.md) **é** a documentação, e vale um 
 
 Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`frontend/tests/unit/docs-integridade.test.js`](frontend/tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver.
 
-Ao corrigir um desvio, registre uma linha no [`livro-razao.md`](livro-razao.md) dizendo **onde a lição foi codificada**. Correção que recorre significa que a guia não pegou: mude a abordagem, não re-anote.
+Ao corrigir um desvio, registre uma linha no [`docs/livro-razao.md`](docs/livro-razao.md) dizendo **onde a lição foi codificada**. Correção que recorre significa que a guia não pegou: mude a abordagem, não re-anote.

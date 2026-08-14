@@ -27,7 +27,19 @@ IGNORAR = {'index', 'wiki-schema'}
 RE_WIKILINK = re.compile(r'\[\[([^\]]+)\]\]')
 RE_CONTRADICAO = re.compile(r'>\s*\[!CONTRADICAO\s+(\d{4}-\d{2}-\d{2})\]\s*(.+)')
 RE_DEBATE = re.compile(r'>\s*\[!DEBATE\s+(\d{4}-\d{2}-\d{2})\]')
-RE_CAMINHO_CODIGO = re.compile(r'`((?:src|backend|tests)/[A-Za-z0-9._/-]+\.(?:js|sql|json))`')
+# O prefixo NAO e lista fechada, e a razao e um defeito medido: esta regex exigia
+# `src|backend|tests`, que sao os prefixos PRE-monorepo. Desde 2026-07-18 o pacote
+# web mora em `frontend/`, entao as 44 paginas que citam o caminho CERTO
+# (`frontend/src/js/...`) nao casavam, e o linter acusava "nao cita nenhum arquivo
+# de codigo" em 17 delas. Um detector de cobertura vazia que erra por lista fechada
+# de prefixo produz exatamente o que existe para achar: um aviso que nao aponta
+# para nada e um silencio onde havia problema.
+#
+# O `docs-integridade.test.js` cometeu e corrigiu o MESMO erro, com estas palavras:
+# "lista fechada silencia o que nao conhece, entao aqui a regra e inversa: colete
+# QUALQUER token com cara de caminho e extensao conhecida". Aqui vale igual.
+RE_CAMINHO_CODIGO = re.compile(
+    r'`([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.(?:js|cjs|mjs|sql|json|css|html))`')
 # Marcadores de conhecimento que o codigo NAO carrega. Uma pagina sem nenhum
 # deles provavelmente so reconta o codigo.
 RE_PORQUE = re.compile(

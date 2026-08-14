@@ -82,6 +82,12 @@ O caminho suportado continua sendo: acumular local, logar, subir o atlas via `PO
 
 Antes de suspeitar de perda de mensagem, colete os spans correlacionados por `op.id`: o backend registra `server.inserted`, `server.applied` (com `rowsAffected`, o guard de "ackado mas sem efeito") e `server.broadcast` (com `sent`, `recipients`, `skippedSelf`, `skippedClosed`, `skippedReadOnly`, em `backend/src/modules/collab/collab.rooms.js:121-135`). Na maioria dos casos o "sumiço" é filtro de comentário para viewer, eco próprio descartado ou lote travado, não perda de rede. Ver [[syncledger]] e [[aplicacao-operacoes-remotas]].
 
+## 10. A config temporal por mapa não converge (aberto desde 2026-08-14)
+
+Ligar a linha do tempo de um mapa é estado compartilhado por projeto, e na prática não chega ao par: o E2E de round-trip P11 compara a config temporal por mapa entre autor e convidado e reprova (`frontend/tests/e2e-ui/browser-p11-roundtrip.spec.js`). O spec está vermelho **de propósito**, sem expectativa ajustada e sem `skip`. O servidor foi conferido elo a elo e está correto; a causa está no cliente e não foi localizada. Detalhe e ponto de partida da investigação em [[modulo-temporal]].
+
+Consequência para quem depura outro sintoma: um mapa cuja janela temporal filtra feições diferentes para cada usuário é **este** limite, não perda de op nem divergência de LWW.
+
 ## Fontes
 
 - guia *04-websocket-collab* (absorvido): §10 (limitações declaradas: sala por atlas, sem replay, single-instance, lock de mapa imposto vs camada/grupo/feição advisory), §3.4/§3.5 (contrato de `ack`/`ack_batch` e `result`), §4 (semântica away vs remove, `WS_AWAY_GRACE_MS`), §8 (filtro de cursor por `mapId` no cliente), §9 (recuperação por `sync_request`).

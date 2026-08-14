@@ -43,6 +43,7 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 
 - Frontend: `npm test` (vitest, sem banco). Backend: `npm run test:backend` (exige PostgreSQL + PostGIS + superusuário; cria e dropa `ebgeo_test`).
 - E2E: `npm run test:e2e:ui` (Playwright sobe o backend real de `backend/`). É o guarda da fronteira entre os pacotes.
+- **A suíte `e2e-ui` usa porta e banco FIXOS e não suporta duas execuções ao mesmo tempo.** O `global-setup` faz DROP/CREATE do banco descartável e mata a migração da outra execução; a atropelada termina com `N skipped` e **código de saída 0**, ou seja, uma colisão produz verde que não verificou nada. Serialize as execuções, e trate `skipped` em massa como falha de medição, não como sucesso.
 - **Controle negativo é obrigatório** para teste de regressão: reverter o fix e confirmar que o teste falha. Sem isso não se sabe se o teste prende alguma coisa.
 - **Lint e teste em comando separado, ANTES do `git commit`.** Na mesma linha de comando a saída chega depois do commit já ter passado — verificação que chega depois da ação não é verificação.
 - Topologia de dev: Vite em **:3000**, backend em **:8080** (o Vite faz proxy de `/api`). Inverter derruba o boot.

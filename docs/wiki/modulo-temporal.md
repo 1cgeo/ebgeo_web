@@ -22,6 +22,8 @@ No inbound, o handler resolve UUID → nome antes de gravar, porque o armazename
 
 Conflito é LWW por ordem de chegada, e a granularidade é o **objeto de config inteiro**, não por campo: dois usuários trocando `unidade` e `inicio` ao mesmo tempo perdem um dos patches por completo. Ver [[modelo-conflito-lww]].
 
+> [!CONTRADICAO 2026-08-14] Esta seção descreve a config como estado compartilhado que chega ao par, e o E2E de round-trip P11 (`frontend/tests/e2e-ui/browser-p11-roundtrip.spec.js`, a comparação de temporal por mapa) reprova: o que A liga pelo relógio da aba Mapas não aparece no atlas que B abre do servidor. O spec foi deixado **vermelho de propósito**, com a expectativa intacta, porque o comportamento antigo é que é o defeito; o lado do servidor foi conferido elo a elo e está correto. A causa no cliente ainda não foi localizada, então quem for consertar começa medindo se a op sai da fila (ver [[syncledger]]) antes de suspeitar do inbound.
+
 ## O instante do outro é awareness, não comando
 
 O cursor viaja como presença, não como dado. O payload leva o cursor **e** um rótulo curto já formatado (ex.: "D+3"), justamente para o par renderizar sem conhecer a config temporal do remetente (`frontend/src/js/presence/presence-bridge.js:268-285`). Regra prática: nunca reagir a uma mensagem `temporal` de presença movendo o próprio cursor. Ver [[presenca-colaborativa]].
