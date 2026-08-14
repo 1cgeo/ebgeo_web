@@ -80,7 +80,11 @@ vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
         unregisterMapById: vi.fn(),
         renameMap: vi.fn(),
         resolveToId: vi.fn((name) => `uuid-${name}`),
-        resolveToName: vi.fn((idOrName) => idOrName)
+        resolveToName: vi.fn((idOrName) => idOrName),
+        // Read by `mapDocumentKey` (document-lock.js) since renameMap started running its
+        // read-modify-write inside the document lock. Undefined = name not registered, so
+        // the lock keys on the name itself, which is what this single-writer repro needs.
+        getIdForName: vi.fn()
     }
 }));
 

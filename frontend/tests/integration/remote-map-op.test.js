@@ -34,6 +34,10 @@ vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
         registerMap: (name, id) => h.registerMap(name, id),
         unregisterMapById: vi.fn(),
         getNameForId: vi.fn(),
+        // Read by mapDocumentKey (document-lock.js) to fold a map NAME onto the same lock
+        // key as its UUID. Undefined here means "not a registered name", so the key is the
+        // id the handler already passes.
+        getIdForName: vi.fn(),
     },
 }));
 
@@ -70,5 +74,32 @@ describe('remote map op carries the map id (entityId) and persists to the local 
         await applyRemoteOperation({ entityType: 'map', operationType: 'update', entityId: 'map-uuid-3', mapId: null, data: { name: 'X' } });
         expect(h.saveMap).toHaveBeenCalledWith('map-uuid-3', { name: 'X' });
         expect(bus.emit).toHaveBeenCalledWith(EventTypes.MAP_MODIFIED, { mapId: 'map-uuid-3', map: { name: 'X' } });
+    });
+
+    // Deadlock guard. The CREATE branch drains the feature ops buffered while the map was
+    // missing, and every drained op takes the map-document lock (document-lock.js). The
+    // drain therefore has to run OUTSIDE the locked save span: taking the same key around
+    // both would make the section wait for itself and hang forever. This test is the alarm
+    // — if the lock ever swallows the drain, it stops passing and starts timing out.
+    it('CREATE drena a feição bufferizada sem travar na trava do documento', async () => {
+        const feature = {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: { id: 'feat-1', source: 'point' }
+        };
+
+        // Arrives before its map exists: buffered, not dropped.
+        await applyRemoteOperation({
+            entityType: 'feature', operationType: 'create', entityId: 'feat-1',
+            mapId: 'map-uuid-4', data: feature, serverVersion: 1
+        });
+        expect(h.mapStore.has('map-uuid-4')).toBe(false);
+
+        await applyRemoteOperation({
+            entityType: 'map', operationType: 'create', entityId: 'map-uuid-4', mapId: null,
+            data: { name: 'Com feição', features: { points: [] } }
+        });
+
+        expect(h.mapStore.get('map-uuid-4').features.points.map((f) => f.properties.id)).toEqual(['feat-1']);
     });
 });

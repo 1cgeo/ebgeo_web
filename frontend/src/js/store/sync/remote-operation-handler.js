@@ -21,6 +21,7 @@ import { getStorageTypeFromSource } from '../store.constants.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
+import { withMapDocument } from '../document-lock.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
@@ -55,7 +56,14 @@ function bufferPendingFeatureOp(mapId, op) {
     arr.push(op);
 }
 
-/** Re-applies, in arrival order, any feature ops buffered while `mapId` was missing. */
+/**
+ * Re-applies, in arrival order, any feature ops buffered while `mapId` was missing.
+ *
+ * Deliberately NOT holding the map document lock: it awaits `applyRemoteFeatureOp`, which
+ * takes that lock per op. Its two callers (`applyRemoteMapOp` CREATE and
+ * `applyRemoteSnapshot`) therefore drain OUTSIDE their own locked save span, or the drain
+ * would wait for a lock its own caller still holds and hang forever (document-lock.js).
+ */
 async function drainPendingFeatureOps(mapId) {
     const arr = pendingFeatureOps.get(mapId);
     if (!arr || arr.length === 0) return;
@@ -405,8 +413,30 @@ function findFeatureIndex(features, featureId) {
  * descartava, então o buffer nascia sem as chaves de junção do SyncLedger. `drainPendingFeatureOps`
  * lê `op.opId`/`op.traceId` ao emitir o span `apply.persist` do replay, e eles saíam
  * indefinidos: o elo full-chain se rompia exatamente no caso que o buffer existe para cobrir.
+ *
+ * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
  */
-async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
+    // Inbound writes race with the LOCAL ones (a peer's op lands while the user is drawing),
+    // and both are read-modify-writes of the same map document. Same lock key as the local
+    // side, resolved through the map id (document-lock.js).
+    return withMapDocument(mapId, 'applyRemoteFeatureOp', () =>
+        applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId));
+}
+
+/**
+ * Body of applyRemoteFeatureOp, already holding the map document lock.
+ *
+ * @param {string} opType - Operation type
+ * @param {string} featureId - Feature UUID
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - Feature GeoJSON data
+ * @param {number} [serverVersion] - Server arrival order, for the LWW guard
+ * @param {string} [opId] - Op id, the SyncLedger join key
+ * @param {string} [traceId] - Trace id, minted per user gesture
+ * @returns {Promise<boolean>} Whether the op was applied (false = buffered)
+ */
+async function applyRemoteFeatureOpLocked(opType, featureId, mapId, data, serverVersion, opId, traceId) {
     const repo = getRepository();
     const mapData = await repo.getMap(mapId);
     if (!mapData) {
@@ -568,16 +598,21 @@ async function applyRemoteMapOp(opType, mapId, data) {
             // snake_case broadcast from corrupting the map's local shape (§item2). saveMap
             // registers the name↔UUID resolver mapping so the maps list shows the name.
             const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
-            if (reshaped) await repo.saveMap?.(mapId, reshaped);
+            // Blind whole-document write: it needs the lock not to protect its own read (it
+            // has none) but so it cannot land INSIDE another writer's read-modify-write
+            // window, which would revert the map to this snapshot.
+            if (reshaped) await withMapDocument(mapId, 'applyRemoteMapOp:create', () => repo.saveMap?.(mapId, reshaped));
             if (reshaped?.name) mapResolver.registerMap(reshaped.name, mapId);
             // Replay any feature ops that arrived before this map existed (anti silent-drop).
+            // OUTSIDE the lock above: each replayed op takes the same key itself, so draining
+            // inside it makes the section wait for itself (measured: the guard test hangs).
             await drainPendingFeatureOps(mapId);
             emit(EventTypes.MAP_CREATED, { mapId, map: reshaped });
             break;
         }
         case OperationType.UPDATE: {
             const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
-            if (reshaped) await repo.saveMap?.(mapId, reshaped);
+            if (reshaped) await withMapDocument(mapId, 'applyRemoteMapOp:update', () => repo.saveMap?.(mapId, reshaped));
             emit(EventTypes.MAP_MODIFIED, { mapId, map: reshaped });
             break;
         }
@@ -876,11 +911,13 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             // converges with the snapshot path (P9), not just emit. data = { baseLayer }.
             const layer = data?.baseLayer;
             if (layer) {
-                const mapData = await repo.getMap?.(mapId);
-                if (mapData) {
-                    mapData.baseLayer = layer;
-                    await repo.saveMap?.(mapId, mapData);
-                }
+                await withMapDocument(mapId, 'applyRemoteMapSettingOp:baseLayer', async () => {
+                    const mapData = await repo.getMap?.(mapId);
+                    if (mapData) {
+                        mapData.baseLayer = layer;
+                        await repo.saveMap?.(mapId, mapData);
+                    }
+                });
                 // The payload MUST be the layer id STRING (mirrors base-layer.control's emit). Emitting
                 // the wrapper object `data` made the base-layer-selector render "[object Object]".
                 emit(EventTypes.BASE_LAYER_CHANGED, { layer });
@@ -902,8 +939,9 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             // Persist the saved position onto the map record (savedPosition + legacy flat
             // fields) so the peer keeps the new center/zoom (P9). data = savedPosition, or
             // null on a clear (DELETE).
-            const mapData = await repo.getMap?.(mapId);
-            if (mapData) {
+            await withMapDocument(mapId, 'applyRemoteMapSettingOp:position', async () => {
+                const mapData = await repo.getMap?.(mapId);
+                if (!mapData) return;
                 if (data) {
                     mapData.savedPosition = data;
                     mapData.center_lat = data.center_lat ?? null;
@@ -920,7 +958,7 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                     mapData.pitch = null;
                 }
                 await repo.saveMap?.(mapId, mapData);
-            }
+            });
             break;
         }
         case EntityType.MAP_TEMPORAL: {
@@ -960,8 +998,9 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
  */
 async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
     const repo = getRepository();
-    const mapData = await repo.getMap?.(mapId);
-    if (mapData) {
+    await withMapDocument(mapId, 'applyRemoteCatalogLayerOp', async () => {
+        const mapData = await repo.getMap?.(mapId);
+        if (!mapData) return;
         if (!Array.isArray(mapData.catalogLayers)) mapData.catalogLayers = [];
         const idx = mapData.catalogLayers.findIndex((l) => l && l.id === layerId);
         if (opType === OperationType.DELETE) {
@@ -971,7 +1010,7 @@ async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
             else mapData.catalogLayers.push(data);
         }
         await repo.saveMap?.(mapId, mapData);
-    }
+    });
     emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
 }
 
@@ -1190,8 +1229,11 @@ export async function applyRemoteSnapshot(snapshot) {
     for (const map of maps) {
         if (map && map.id) {
             const reshaped = await reshapeSnapshotMap(repo, map);
-            await repo.saveMap(map.id, reshaped);
+            // Locked so the snapshot cannot land inside a local writer's read-modify-write
+            // window (which would revert the snapshot, or lose the local write).
+            await withMapDocument(map.id, 'applyRemoteSnapshot', () => repo.saveMap(map.id, reshaped));
             // Replay any live feature ops that arrived (and buffered) before this map existed.
+            // OUTSIDE the lock above: each replayed op takes the same key itself.
             await drainPendingFeatureOps(map.id);
             // Groups live in a SEPARATE local store (not part of map data), so saveMap does
             // not carry them. Restore the snapshot's map.groups (array → object keyed by id)

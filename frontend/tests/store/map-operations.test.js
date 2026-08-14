@@ -114,7 +114,10 @@ vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
         unregisterMapById: vi.fn(),
         renameMap: vi.fn(),
         resolveToId: vi.fn((name) => `uuid-${name}`),
-        resolveToName: vi.fn((idOrName) => idOrName)
+        resolveToName: vi.fn((idOrName) => idOrName),
+        // Read by mapDocumentKey (document-lock.js). Undefined = unregistered name, so the
+        // lock keys on the name itself, which is what these single-writer tests exercise.
+        getIdForName: vi.fn()
     }
 }));
 
@@ -179,7 +182,8 @@ import {
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
 import { logMapOperation, logAtlasSetting } from '../../src/js/store/sync/index.js';
-import { setSettingCompat } from '../../src/js/store/repositories/index.js';
+import { setSettingCompat, renameMapCompat } from '../../src/js/store/repositories/index.js';
+import { withMapDocument, getDocumentLockStats } from '../../src/js/store/document-lock.js';
 
 // ============================================================================
 // Setup
@@ -530,6 +534,70 @@ describe('renameMap', () => {
             'store:operationBlocked',
             expect.objectContaining({ operation: 'renameMap', reason: 'NO_EDIT' })
         );
+    });
+
+    // POR QUE O RENAME PRECISA DA TRAVA DO DOCUMENTO.
+    //
+    // `LocalRepository.renameMap`, no caminho UUID, NAO substitui o registro inteiro: ele
+    // le o documento do mapa, muta o campo `name` e grava o documento de volta. E o mesmo
+    // read-modify-write de `addFeature`, no mesmo documento. Sem a trava, renomear enquanto
+    // o usuario desenha (ou enquanto uma op remota chega) descarta uma das duas escritas em
+    // silencio: medido em 20 de 20 execucoes, nas duas ordens.
+    //
+    // O defeito escapou da auditoria original porque ela grepou `updateMapDataCompat` e
+    // `repo.saveMap`, e o rename grava por `mapStore.setItem`, que nao casa com nenhum dos
+    // dois. Conferir um subconjunto e tratar como o conjunto.
+    describe('serializacao do documento', () => {
+        it('roda o rename DENTRO da trava do documento do mapa', async () => {
+            let ocupadoDuranteORename = null;
+            renameMapCompat.mockImplementationOnce(async (oldName, newName) => {
+                ocupadoDuranteORename = getDocumentLockStats().busy;
+                await Promise.resolve();
+                mockMaps.value[newName] = mockMaps.value[oldName];
+                delete mockMaps.value[oldName];
+            });
+
+            await renameMap('TestMap', 'RenamedMap');
+
+            expect(ocupadoDuranteORename).toEqual(['map:TestMap:renameMap']);
+            expect(getDocumentLockStats().busy).toEqual([]);
+        });
+
+        it('exclui de fato outro escritor do mesmo documento', async () => {
+            // Prova o efeito, nao a presenca de uma flag: o outro escritor so pode entrar
+            // depois que o rename sair. A ordem de `eventos` e o que quebra sem a trava.
+            const eventos = [];
+            renameMapCompat.mockImplementationOnce(async (oldName, newName) => {
+                eventos.push('rename:entrou');
+                await Promise.resolve();
+                await Promise.resolve();
+                mockMaps.value[newName] = mockMaps.value[oldName];
+                delete mockMaps.value[oldName];
+                eventos.push('rename:saiu');
+            });
+
+            const renomeando = renameMap('TestMap', 'RenamedMap');
+            const concorrente = withMapDocument('TestMap', 'escritorConcorrente', async () => {
+                eventos.push('outro:entrou');
+                await Promise.resolve();
+                eventos.push('outro:saiu');
+            });
+
+            await Promise.all([renomeando, concorrente]);
+
+            // A propriedade e "nenhuma secao comeca antes de a anterior terminar", e ela
+            // vale para qualquer ordem de chegada. Assertar uma ordem especifica prenderia
+            // o escalonador (o rename tem awaits antes da trava, entao quem chega primeiro
+            // varia) em vez da exclusao, que e o que o conserto garante.
+            expect(eventos).toHaveLength(4);
+            for (let i = 0; i < eventos.length; i += 2) {
+                const [abriu, fechou] = [eventos[i], eventos[i + 1]];
+                expect(abriu).toMatch(/:entrou$/);
+                expect(fechou).toBe(abriu.replace(':entrou', ':saiu'));
+            }
+            expect(mockMaps.value['RenamedMap']).toBeDefined();
+            expect(mockMaps.value['TestMap']).toBeUndefined();
+        });
     });
 });
 

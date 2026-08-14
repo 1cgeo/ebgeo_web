@@ -15,6 +15,7 @@ import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
+import { withMapDocument } from './document-lock.js';
 
 /**
  * Catalog layer status.
@@ -114,26 +115,30 @@ export async function addCatalogLayer(layer, mapName = null) {
     if (!guardCatalogWrite('addCatalogLayer', GuardAction.CREATE_LAYER)) return;
 
     const targetMap = resolveMapName(mapName);
-    const mapData = await getMapDataCompat(targetMap);
+    // Catalog layers live INSIDE the map document, so this read-modify-write competes with
+    // every feature write on the same map. Same lock key (see document-lock.js).
+    return withMapDocument(targetMap, 'addCatalogLayer', async () => {
+        const mapData = await getMapDataCompat(targetMap);
 
-    if (!mapData.catalogLayers) {
-        mapData.catalogLayers = [];
-    }
+        if (!mapData.catalogLayers) {
+            mapData.catalogLayers = [];
+        }
 
-    const exists = mapData.catalogLayers.some(l => l.id === layer.id);
-    if (exists) return;
+        const exists = mapData.catalogLayers.some(l => l.id === layer.id);
+        if (exists) return;
 
-    const layerWithMetadata = {
-        ...layer,
-        id: layer.id || generateUUID(),
-        sync: createSyncMetadata(null)
-    };
+        const layerWithMetadata = {
+            ...layer,
+            id: layer.id || generateUUID(),
+            sync: createSyncMetadata(null)
+        };
 
-    mapData.catalogLayers.push(layerWithMetadata);
-    await updateMapDataCompat(targetMap, mapData);
+        mapData.catalogLayers.push(layerWithMetadata);
+        await updateMapDataCompat(targetMap, mapData);
 
-    const mapId = mapManager.getCurrentMapId();
-    logCatalogLayerOperation(OperationType.CREATE, layerWithMetadata.id, mapId, layerWithMetadata);
+        const mapId = mapManager.getCurrentMapId();
+        logCatalogLayerOperation(OperationType.CREATE, layerWithMetadata.id, mapId, layerWithMetadata);
+    });
 }
 
 /**
@@ -147,18 +152,20 @@ export async function removeCatalogLayer(layerId, mapName = null) {
     if (!guardCatalogWrite('removeCatalogLayer', GuardAction.DELETE_LAYER)) return;
 
     const targetMap = resolveMapName(mapName);
-    const mapData = await getMapDataCompat(targetMap);
+    return withMapDocument(targetMap, 'removeCatalogLayer', async () => {
+        const mapData = await getMapDataCompat(targetMap);
 
-    if (!mapData.catalogLayers) return;
+        if (!mapData.catalogLayers) return;
 
-    const removedLayer = mapData.catalogLayers.find(l => l.id === layerId);
-    mapData.catalogLayers = mapData.catalogLayers.filter(l => l.id !== layerId);
-    await updateMapDataCompat(targetMap, mapData);
+        const removedLayer = mapData.catalogLayers.find(l => l.id === layerId);
+        mapData.catalogLayers = mapData.catalogLayers.filter(l => l.id !== layerId);
+        await updateMapDataCompat(targetMap, mapData);
 
-    if (removedLayer) {
-        const mapId = mapManager.getCurrentMapId();
-        logCatalogLayerOperation(OperationType.DELETE, layerId, mapId, null, removedLayer);
-    }
+        if (removedLayer) {
+            const mapId = mapManager.getCurrentMapId();
+            logCatalogLayerOperation(OperationType.DELETE, layerId, mapId, null, removedLayer);
+        }
+    });
 }
 
 /**
@@ -173,24 +180,28 @@ export async function updateCatalogLayer(layerId, updates, mapName = null) {
     if (!guardCatalogWrite('updateCatalogLayer', GuardAction.UPDATE_LAYER)) return;
 
     const targetMap = resolveMapName(mapName);
-    const mapData = await getMapDataCompat(targetMap);
+    // Locked leaf: `toggleCatalogLayerVisibility` and `updateCatalogLayerStatus` await this
+    // one, so neither of them may take the lock (document-lock.js has no reentrancy).
+    return withMapDocument(targetMap, 'updateCatalogLayer', async () => {
+        const mapData = await getMapDataCompat(targetMap);
 
-    if (!mapData.catalogLayers) return;
+        if (!mapData.catalogLayers) return;
 
-    const layer = mapData.catalogLayers.find(l => l.id === layerId);
-    if (!layer) return;
+        const layer = mapData.catalogLayers.find(l => l.id === layerId);
+        if (!layer) return;
 
-    const oldLayer = { ...layer };
-    Object.assign(layer, updates);
+        const oldLayer = { ...layer };
+        Object.assign(layer, updates);
 
-    if (layer.sync) {
-        layer.sync = touchSyncMetadata(layer.sync);
-    }
+        if (layer.sync) {
+            layer.sync = touchSyncMetadata(layer.sync);
+        }
 
-    await updateMapDataCompat(targetMap, mapData);
+        await updateMapDataCompat(targetMap, mapData);
 
-    const mapId = mapManager.getCurrentMapId();
-    logCatalogLayerOperation(OperationType.UPDATE, layerId, mapId, layer, oldLayer);
+        const mapId = mapManager.getCurrentMapId();
+        logCatalogLayerOperation(OperationType.UPDATE, layerId, mapId, layer, oldLayer);
+    });
 }
 
 /**
@@ -304,35 +315,37 @@ export async function updateCatalogLayerStatus(layerId, status, mapName = null) 
  */
 export async function revalidateCatalogLayers(mapName = null) {
     const targetMap = resolveMapName(mapName);
-    const mapData = await getMapDataCompat(targetMap);
-    const catalogLayers = mapData.catalogLayers || [];
+    return withMapDocument(targetMap, 'revalidateCatalogLayers', async () => {
+        const mapData = await getMapDataCompat(targetMap);
+        const catalogLayers = mapData.catalogLayers || [];
 
-    const reactivated = [];
-    const stillUnavailable = [];
-    let hasChanges = false;
+        const reactivated = [];
+        const stillUnavailable = [];
+        let hasChanges = false;
 
-    for (const layer of catalogLayers) {
-        const oldStatus = layer.status;
-        const newStatus = validateCatalogLayerAvailability(layer);
+        for (const layer of catalogLayers) {
+            const oldStatus = layer.status;
+            const newStatus = validateCatalogLayerAvailability(layer);
 
-        if (oldStatus !== newStatus) {
-            layer.status = newStatus;
-            if (layer.sync) {
-                layer.sync = touchSyncMetadata(layer.sync);
+            if (oldStatus !== newStatus) {
+                layer.status = newStatus;
+                if (layer.sync) {
+                    layer.sync = touchSyncMetadata(layer.sync);
+                }
+                hasChanges = true;
             }
-            hasChanges = true;
+
+            if (newStatus === 'unavailable') {
+                stillUnavailable.push(layer.id);
+            } else if (oldStatus === 'unavailable' && newStatus === 'active') {
+                reactivated.push(layer.id);
+            }
         }
 
-        if (newStatus === 'unavailable') {
-            stillUnavailable.push(layer.id);
-        } else if (oldStatus === 'unavailable' && newStatus === 'active') {
-            reactivated.push(layer.id);
+        if (hasChanges) {
+            await updateMapDataCompat(targetMap, mapData);
         }
-    }
 
-    if (hasChanges) {
-        await updateMapDataCompat(targetMap, mapData);
-    }
-
-    return { reactivated, stillUnavailable };
+        return { reactivated, stillUnavailable };
+    });
 }
