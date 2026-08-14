@@ -6,6 +6,7 @@
  */
 
 import config from '@js/config.js';
+import { getFirstPersonScenes, hasFirstPersonScenes } from '@js/first_person_3d_tool/scene-config.service.js';
 import { escapeHtml } from '@utils';
 import { getControl } from '@store';
 
@@ -19,9 +20,11 @@ class FeatureSearchControl {
     this._uiManager = uiManager;
     this._isExpanded = false;
 
-    // Disable only if no API and no tilesets
+    // Disable only when there is genuinely nothing to search: no place API, no
+    // 3D tilesets AND no first-person scenes. Counting the scenes matters — an
+    // install that ships scenes only would otherwise boot with search switched off.
     const hasTilesets = config.tilesets && config.tilesets.length > 0;
-    this._disabled = !this._apiUrl && !hasTilesets;
+    this._disabled = !this._apiUrl && !hasTilesets && !hasFirstPersonScenes();
   }
 
   onAdd(map) {
@@ -118,16 +121,31 @@ class FeatureSearchControl {
   }
 
   /**
-   * Search for 3D models locally in config.tilesets
+   * Search local 3D products: Cesium tilesets from config plus first-person
+   * (Gaussian splatting) scenes. Both share the `'3d-model'` type so they keep
+   * the same suggestion styling; the `viewer` field discriminates the click
+   * target — 'cesium' carries `tilesetId`, 'firstPerson' carries `sceneId`.
    * @param {string} query - Search query (case-insensitive substring match)
-   * @returns {Array} Array of matching 3D model results
+   * @returns {Array} Array of matching 3D results
    */
   _search3DModels(query) {
+    const normalizedQuery = query.toLowerCase();
+
+    return [
+      ...this._searchTilesets3D(normalizedQuery),
+      ...this._searchFirstPersonScenes(normalizedQuery)
+    ];
+  }
+
+  /**
+   * Search for Cesium 3D tilesets in config.tilesets.
+   * @param {string} normalizedQuery - Lowercase search query
+   * @returns {Array} Array of matching tileset results
+   */
+  _searchTilesets3D(normalizedQuery) {
     if (!config.tilesets || config.tilesets.length === 0) {
       return [];
     }
-
-    const normalizedQuery = query.toLowerCase();
 
     return config.tilesets
       .filter(tileset => {
@@ -139,11 +157,39 @@ class FeatureSearchControl {
       .slice(0, MAX_3D_MODEL_RESULTS)
       .map(tileset => ({
         type: '3d-model',
+        viewer: 'cesium',
         tilesetId: tileset.id,
         nome: tileset.name,
         dataCaptura: tileset.data_captura || null,
         longitude: tileset.locate.lon,
         latitude: tileset.locate.lat
+      }));
+  }
+
+  /**
+   * Search for first-person scenes. Unlike a tileset, a scene needs no `locate`
+   * to be selectable: the click opens the walk-through viewer instead of flying
+   * the 2D map, so a scene without map coordinates is still a valid result.
+   * @param {string} normalizedQuery - Lowercase search query
+   * @returns {Array} Array of matching scene results
+   */
+  _searchFirstPersonScenes(normalizedQuery) {
+    return getFirstPersonScenes()
+      .filter(scene => {
+        if (!scene.name || !scene.id) {
+          return false;
+        }
+        return scene.name.toLowerCase().includes(normalizedQuery);
+      })
+      .slice(0, MAX_3D_MODEL_RESULTS)
+      .map(scene => ({
+        type: '3d-model',
+        viewer: 'firstPerson',
+        sceneId: scene.id,
+        nome: scene.name,
+        dataCaptura: scene.data_captura || null,
+        longitude: scene.locate?.lon ?? null,
+        latitude: scene.locate?.lat ?? null
       }));
   }
 
@@ -260,7 +306,7 @@ class FeatureSearchControl {
             <path d="M2 17l10 5 10-5"/>
             <path d="M2 12l10 5 10-5"/>
           </svg>
-          <span><strong>Modelo 3D:</strong> ${escapeHtml(suggestion.nome)}</span>
+          <span><strong>${suggestion.viewer === 'firstPerson' ? 'Cena 3D' : 'Modelo 3D'}:</strong> ${escapeHtml(suggestion.nome)}</span>
         `;
       } else {
         li.innerHTML = `<strong>${escapeHtml(suggestion.tipo)}:</strong> ${escapeHtml(suggestion.nome)} (${escapeHtml(suggestion.municipio)}, ${escapeHtml(suggestion.estado)})`;
@@ -290,8 +336,14 @@ class FeatureSearchControl {
     this._uiManager.saveChangesAndClosePanel();
     this.removeMarker();
 
-    // Handle 3D model selection
+    // Handle 3D selection: a first-person scene opens its own viewer, a tileset
+    // keeps the 2D control's fly-to-and-preview behaviour.
     if (feature.type === '3d-model') {
+      if (feature.viewer === 'firstPerson') {
+        this._openFirstPersonScene(feature.sceneId);
+        return;
+      }
+
       const modelsViewerControl = getControl('modelsViewer');
       if (modelsViewerControl) {
         modelsViewerControl.navigateToModel(feature.tilesetId);
@@ -311,6 +363,22 @@ class FeatureSearchControl {
     });
 
     this._uiManager.showFeatureSearchPanel(feature);
+  }
+
+  /**
+   * Opens a first-person scene in the walk-through viewer.
+   * The viewer module is heavy, so it is only pulled in on demand.
+   * @param {string} sceneId - Scene identifier
+   */
+  async _openFirstPersonScene(sceneId) {
+    try {
+      const { openFirstPersonViewer } = await import(
+        '@js/first_person_3d_tool/first_person_viewer.js'
+      );
+      await openFirstPersonViewer(sceneId);
+    } catch (error) {
+      console.error('Error opening first-person viewer from search:', error);
+    }
   }
 
   onRemove() {

@@ -7,7 +7,7 @@
  * @module sidebar/handlers
  */
 
-// 3D/360 feature handlers
+// 3D / 360 / first-person feature handlers
 export {
     handleMarker3dClick,
     handleMarker3dDeselect,

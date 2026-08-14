@@ -75,3 +75,10 @@ public/js/controls_sig/orto_multiescala.js
 # ==============================================================================
 preview.webm
 nul
+# ==============================================================================
+# Worktrees do Claude Code
+# ==============================================================================
+# Copias de trabalho isoladas do repositorio. Chegam facil a dezenas de GB e nao
+# sao codigo: um `git add -A` distraido tentaria versionar o repositorio inteiro
+# dentro dele mesmo.
+.claude/worktrees/

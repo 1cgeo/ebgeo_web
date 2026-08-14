@@ -397,8 +397,16 @@ export class SearchBarComponent {
         this._clearSearchInput();
         this._removeMarker();
 
-        // Handle 3D model
+        // Handle 3D result. Both products share the '3d-model' type so they get
+        // the same icon; `viewer` is what tells them apart. A first-person scene
+        // opens its walk-through viewer directly — it has no Cesium tileset to
+        // fly to, and `result.tilesetId` is undefined on it.
         if (result.type === '3d-model') {
+            if (result.viewer === 'firstPerson') {
+                this._openFirstPersonScene(result.sceneId);
+                return;
+            }
+
             const modelsViewerControl = getControl('modelsViewer');
             if (modelsViewerControl) {
                 modelsViewerControl.navigateToModel(result.tilesetId);
@@ -430,6 +438,23 @@ export class SearchBarComponent {
         // Handle API results (places)
         if (result.coordinates) {
             this._handleApiResult(result);
+        }
+    }
+
+    /**
+     * Opens a first-person (Gaussian splatting) scene in its walk-through viewer.
+     * The viewer module is heavy, so it is only pulled in on demand.
+     * @private
+     * @param {string} sceneId - Scene identifier
+     */
+    async _openFirstPersonScene(sceneId) {
+        try {
+            const { openFirstPersonViewer } = await import(
+                '@js/first_person_3d_tool/first_person_viewer.js'
+            );
+            await openFirstPersonViewer(sceneId);
+        } catch (error) {
+            console.error('Error opening first-person viewer from search:', error);
         }
     }
 

@@ -15,6 +15,7 @@
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
+import { cleanupFirstPersonFeatures } from './first_person_3d_tool/index.js';
 import { initServices } from './store';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
 import { initTabLock } from '@utils/tab-lock.js';
@@ -80,6 +81,17 @@ window.addEventListener('beforeunload', () => {
         cleanup3DFeatures();
     } catch (error) {
         console.warn('Cesium cleanup error:', error);
+    }
+
+    // First-person scene. The barrel wrapper is async (it dynamically imports the
+    // viewer), so a failure surfaces as a rejected promise, not as a throw — the
+    // try/catch alone would let it escape as an unhandled rejection.
+    try {
+        Promise.resolve(cleanupFirstPersonFeatures()).catch(error => {
+            console.warn('First-person cleanup error:', error);
+        });
+    } catch (error) {
+        console.warn('First-person cleanup error:', error);
     }
 });
 

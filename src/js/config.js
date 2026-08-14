@@ -441,6 +441,81 @@ const config = {
     }
   ],
 
+  // ===== 3D PRIMEIRA PESSOA (GAUSSIAN SPLATTING) =====
+  //
+  // Cenas navegaveis a pe, reconstruidas por Gaussian Splatting. Cada cena e uma
+  // PASTA produzida por uma unica passagem da pipeline de processamento, e os
+  // arquivos de dentro dela sempre viajam juntos, com nomes fixos:
+  //
+  //   <basePath>/cena.sog                  <- o splat (a nuvem que se ve)
+  //   <basePath>/voxel/voxel-meta.json     <- cabecalho do octree de colisao
+  //   <basePath>/voxel/voxel.bin           <- corpo do octree de colisao
+  //   <basePath>/marcadores.json           <- fichas curadas, so leitura
+  //   <basePath>/itens/                    <- fotos das fichas
+  //   <basePath>/preview/preview.webm      <- video do cartao do catalogo
+  //   <basePath>/preview/thumbnail.jpg     <- capa do cartao do catalogo
+  //
+  // POR QUE UM basePath UNICO, E NAO UMA URL POR ASSET. Sao sete enderecos por
+  // cena, e sete chances de errar um. O erro nao seria barulhento: o splat
+  // carrega, o voxel-meta.json volta 404, e a cena abre bonita com a colisao
+  // desligada — o visitante atravessa parede e cai da sala, sem nada no console
+  // que aponte para a configuracao. Como os nomes dentro da pasta sao decididos
+  // pela pipeline e nao pelo operador, exigir que ele os repita e pedir que ele
+  // erre. Aqui ele nomeia a PASTA, uma string, e o
+  // first_person_3d_tool/scene-config.service.js deriva os sete enderecos dela.
+  // Cada um ainda pode ser sobrescrito por chave explicita na cena (splatUrl,
+  // voxelMetaUrl, voxelBinUrl, markersUrl, itemsBaseUrl, previewVideo,
+  // previewThumbnail) quando um asset for mesmo morar fora do padrao, mas isso e
+  // a excecao, nao o caminho.
+  //
+  // O basePath e normalizado (barra final removida) num lugar so, dentro do
+  // service, pela mesma razao que a STREETVIEW_360_BASE la em cima: se cada
+  // ponto de uso concatenar por conta propria, '/3d/cena/' vira '/3d/cena//voxel
+  // /voxel.bin', que alguns servidores atendem e outros respondem 404 — uma
+  // falha que so aparece no deploy, e so em um dos assets.
+  //
+  // O campo `foto` de cada marcador tambem e relativo ao basePath (ex.:
+  // "itens/fuzil-m1.jpg"), NAO a raiz do site: assim a pasta da cena e
+  // reposicionavel inteira, sem reescrever o marcadores.json.
+  //
+  // AS CENAS NAO ENTRAM NO GIT: uma sala sozinha passa dos 29 MB. A pasta
+  // public/3d/ inteira ja esta no .gitignore (linha 55), entao os assets vivem no
+  // disco de quem desenvolve e no servidor de quem publica, nunca no historico.
+  // A consequencia pratica, e ela MORDE: num checkout limpo a pasta nao existe,
+  // mas a cena abaixo continua declarada aqui, entao o pino roxo APARECE no mapa
+  // e so falha quando alguem clica para entrar. O service filtra a cena por
+  // FORMA (precisa de `id` e `basePath`), nao por rede — ele nao sonda o
+  // servidor, e nem deveria: sao sete arquivos por cena e a sondagem custaria
+  // sete requisicoes no carregamento da aplicacao. Quem clona o repositorio e
+  // quer a cena tem de povoar public/3d/primeira-pessoa/museu-1cgeo/ no layout
+  // acima, ou comentar esta entrada.
+  firstPerson3d: {
+    enabled: true,
+    scenes: [
+      {
+        id: "museu-1cgeo",
+        name: "Sala Histórica General Malan",
+        description: "Acervo do 1º Centro de Geoinformação em Gaussian Splatting, percorrível a pé, com 78 peças identificadas",
+        keywords: ["museu", "sala histórica", "malan", "acervo", "1º CGEO"],  // Termos extras para a busca
+        basePath: "/3d/primeira-pessoa/museu-1cgeo",
+        data_captura: "04/08/2026",
+        local: "Porto Alegre, RS",
+        // Onde o pino roxo cai no mapa 2D. APROXIMADO: e a coordenada da cidade,
+        // nao a da porta do predio. Corrija quando tiver o ponto levantado — o
+        // pino e o que o usuario clica para entrar na cena, entao vale a precisao.
+        locate: { lon: -51.2, lat: -30.03 },
+        // Medida no octree: piso em y=-0.85, olho 1,4 m acima (0,2 de folga mais
+        // 1,2 de altura do olho). Mexer nisto sem remedir poe o visitante dentro
+        // do chao ou flutuando.
+        poseInicial: { x: 3.82, y: 0.55, z: 1.42, yaw: 0, pitch: 0 },
+        // m/s. O padrao do motor de caminhada e 7 m/s, uma corrida de 25 km/h que
+        // passa reto pelas vitrines. 2,4 fica perto do passo humano.
+        velocidade: 2.4,
+        fov: 60
+      }
+    ]
+  },
+
   // ===== STREETVIEW 360 SETTINGS =====
   //
   // As tres camadas do 360 (pontos, linhas e planta baixa) saem do MESMO

@@ -262,12 +262,48 @@ export class CatalogModal extends ModalBase {
     }
 
     /**
-     * Opens a 3D model directly in the 3D viewer.
-     * Activates the viewer tool (enabling markers) and opens the 3D viewer immediately.
+     * Opens a MODEL_3D card. The type covers two products, told apart by the
+     * `viewer` discriminator: a first-person Gaussian-splatting scene goes to the
+     * lazily loaded first-person viewer, everything else keeps the Cesium path.
      * @private
      * @param {CatalogItem} item
      */
     async _openModel3D(item) {
+        if (item.viewer === 'firstPerson') {
+            await this._openFirstPersonScene(item);
+            return;
+        }
+
+        await this._openCesiumModel3D(item);
+    }
+
+    /**
+     * Opens a first-person scene in the walk-through viewer.
+     * The viewer module is heavy (Gaussian splatting runtime), so it is only
+     * pulled in on demand — same lazy pattern the 360 viewer uses.
+     * @private
+     * @param {CatalogItem} item
+     */
+    async _openFirstPersonScene(item) {
+        this.hide();
+
+        try {
+            const { openFirstPersonViewer } = await import(
+                '@js/first_person_3d_tool/first_person_viewer.js'
+            );
+            await openFirstPersonViewer(item.originalData.id);
+        } catch (error) {
+            console.error('Error opening first-person viewer from catalog:', error);
+        }
+    }
+
+    /**
+     * Opens a Cesium 3D model directly in the 3D viewer.
+     * Activates the viewer tool (enabling markers) and opens the 3D viewer immediately.
+     * @private
+     * @param {CatalogItem} item
+     */
+    async _openCesiumModel3D(item) {
         const modelsViewerControl = getControl('modelsViewer');
         if (modelsViewerControl) {
             // Activate the tool to enable markers if not already active

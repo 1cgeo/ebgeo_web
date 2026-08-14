@@ -22,6 +22,9 @@ let viewshedPanel3dModule = null;
 // 360 panel modules (lazy imported)
 let markerPanel360Module = null;
 
+// First-person panel module (lazy imported)
+let markerPanelFpModule = null;
+
 // ============================================================================
 // 3D MARKER HANDLERS
 // ============================================================================
@@ -326,6 +329,85 @@ export function handleMarker360Deselect({ stateManager, hidePanel, cleanupConten
     const isPanelOpen = stateManager.get('ui.featurePanelOpen');
 
     if (featureType === 'marker360' && isPanelOpen) {
+        hidePanel(false);
+        cleanupContent();
+        stateManager.closeFeaturePanel();
+        return true;
+    }
+    return false;
+}
+
+// ============================================================================
+// FIRST PERSON MARKER HANDLERS
+// ============================================================================
+
+/**
+ * Handles a first-person scene marker click.
+ *
+ * Same shape as `handleMarker360Click`, and deliberately so: a scene marker
+ * opens the application's one feature panel, in the position and with the chrome
+ * every other viewer uses. What differs is the CONTENT, which is read-only —
+ * scene markers are curated JSON shipped with the scene folder, not features
+ * anybody edits from the viewer.
+ *
+ * @param {Object} options - Options
+ * @param {Object} options.marker - Marker data from the scene's marcadores.json
+ * @param {string} options.sceneName - Scene display name
+ * @param {string|null} options.photoUrl - Photo URL already resolved against the scene folder
+ * @param {Object} options.stateManager - State manager instance
+ * @param {Function} options.cleanupPrevious - Cleanup function for previous content
+ * @returns {Promise<{ element: HTMLElement, cleanup: Function, title: string }|null>}
+ */
+export async function handleMarkerFpClick({
+    marker,
+    sceneName,
+    photoUrl,
+    stateManager,
+    cleanupPrevious
+}) {
+    if (!marker) return null;
+
+    // Same call the other viewers make: it saves the previous sidebar state so
+    // closing the panel restores whatever tab the user had open.
+    stateManager.openFeaturePanel(marker.id, 'markerFp');
+
+    if (!markerPanelFpModule) {
+        markerPanelFpModule = await import(
+            '../../first_person_3d_tool/components/marker-panel-fp.js'
+        );
+    }
+
+    cleanupPrevious();
+
+    const { element, cleanup } = markerPanelFpModule.createMarkerPanelFpContent(
+        marker,
+        sceneName,
+        photoUrl
+    );
+
+    // No feature-panel--locked check here: the content has nothing to write, so
+    // a locked map changes nothing about it.
+    return {
+        element,
+        cleanup,
+        title: marker.titulo || 'Item do acervo'
+    };
+}
+
+/**
+ * Handles first-person marker deselection.
+ *
+ * @param {Object} options - Options
+ * @param {Object} options.stateManager - State manager instance
+ * @param {Function} options.hidePanel - Function to hide panel
+ * @param {Function} options.cleanupContent - Function to cleanup content
+ * @returns {boolean} True if deselection was handled
+ */
+export function handleMarkerFpDeselect({ stateManager, hidePanel, cleanupContent }) {
+    const featureType = stateManager.get('ui.currentFeatureType');
+    const isPanelOpen = stateManager.get('ui.featurePanelOpen');
+
+    if (featureType === 'markerFp' && isPanelOpen) {
         hidePanel(false);
         cleanupContent();
         stateManager.closeFeaturePanel();

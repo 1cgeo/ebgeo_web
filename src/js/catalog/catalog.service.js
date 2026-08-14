@@ -7,6 +7,7 @@
  */
 
 import config from '@js/config.js';
+import { getFirstPersonScenes, resolveSceneAssets } from '@js/first_person_3d_tool/scene-config.service.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
 
 /**
@@ -87,6 +88,10 @@ export function sortByDateDesc(items) {
  * @typedef {Object} CatalogItem
  * @property {string} id - Unique identifier
  * @property {string} type - Item type (CATALOG_ITEM_TYPES)
+ * @property {string} [viewer] - Which viewer opens the item. Only meaningful for
+ *   MODEL_3D, whose cards cover two different products: 'cesium' (a 3D tileset,
+ *   the historical behaviour) and 'firstPerson' (a Gaussian-splatting scene you
+ *   walk through). Same type, same filter, same icon — only the click target differs.
  * @property {string} name - Display name
  * @property {string} [description] - Optional description
  * @property {string} thumbnail - Thumbnail URL
@@ -205,16 +210,32 @@ export class CatalogService {
     }
 
     /**
-     * Gets 3D models from config.
+     * Gets 3D models from config: Cesium tilesets plus first-person (Gaussian
+     * splatting) scenes. Both are MODEL_3D — same filter, same icon — and are
+     * told apart by the `viewer` discriminator, which decides which viewer the
+     * card opens. Merging them here also buys the date sort and the catalog
+     * search for free: scene dates are DD/MM/YYYY, the same format tilesets use,
+     * so `parseCatalogDate` takes its slash branch and the two sources interleave
+     * correctly instead of piling up at the end.
      * @private
      * @returns {CatalogItem[]}
      */
     static _getModels3D() {
+        return [...this._getTilesets3D(), ...this._getFirstPersonScenes()];
+    }
+
+    /**
+     * Gets Cesium 3D tilesets from config.
+     * @private
+     * @returns {CatalogItem[]}
+     */
+    static _getTilesets3D() {
         if (!config.hasTilesets()) return [];
 
         return config.tilesets.map(tileset => ({
             id: `3d-${tileset.id}`,
             type: CATALOG_ITEM_TYPES.MODEL_3D,
+            viewer: 'cesium',
             name: tileset.name,
             description: tileset.description || null,
             keywords: tileset.keywords || null,
@@ -224,6 +245,34 @@ export class CatalogService {
             location: tileset.locate,
             originalData: tileset
         }));
+    }
+
+    /**
+     * Gets first-person (Gaussian splatting) scenes from config.
+     * Returns an empty array when the module is disabled or has no scenes.
+     * @private
+     * @returns {CatalogItem[]}
+     */
+    static _getFirstPersonScenes() {
+        return getFirstPersonScenes().map(scene => {
+            // Every asset URL is derived from the scene basePath; the thumbnail is
+            // the only one the card needs, and it may legitimately be missing.
+            const thumbnail = resolveSceneAssets(scene)?.previewThumbnail;
+
+            return {
+                id: `fp-${scene.id}`,
+                type: CATALOG_ITEM_TYPES.MODEL_3D,
+                viewer: 'firstPerson',
+                name: scene.name,
+                description: scene.description || null,
+                keywords: scene.keywords || null,
+                thumbnail: thumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
+                date: scene.data_captura || null,
+                local: scene.local || null,
+                location: scene.locate || null,
+                originalData: scene
+            };
+        });
     }
 
     /**

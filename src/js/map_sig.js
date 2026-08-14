@@ -44,6 +44,7 @@ import { RectangleSelectionControl } from './selection_tools';
 import { KeyboardShortcuts } from './keyboard';
 import { initKeyboardService360 } from './street_view_tool/services/keyboard_service_360.js';
 import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard-service-3d.js';
+import { initKeyboardServiceFp } from './first_person_3d_tool/services/keyboard-service-fp.js';
 import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterControl } from './briefing/index.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
@@ -456,6 +457,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     // This allows them to disable/re-enable global shortcuts when activated
     initKeyboardService360(keyboardShortcuts);
     initKeyboardService3D(keyboardShortcuts);
+    initKeyboardServiceFp(keyboardShortcuts);
     initKeyboardServiceBriefing(keyboardShortcuts);
 
     // ===== BRIEFING EDITOR CONTROL =====

@@ -17,6 +17,16 @@ export function hasTilesets() {
     return config.tilesets && config.tilesets.length > 0;
 }
 
+/**
+ * Check if any first-person (Gaussian splatting) scene is configured.
+ * The whole module is gated by `enabled`, so a disabled section reads as
+ * "no scenes" and the UI entry point stays hidden.
+ * @returns {boolean} True if the module is enabled and at least one scene exists
+ */
+export function hasFirstPersonScenes() {
+    return Boolean(config.firstPerson3d?.enabled) && config.firstPerson3d.scenes?.length > 0;
+}
+
 // ===== BASEMAPS =====
 
 /**
@@ -141,6 +151,7 @@ export function createTerrainProvider() {
  */
 export function initConfigHelpers() {
     config.hasTilesets = hasTilesets;
+    config.hasFirstPersonScenes = hasFirstPersonScenes;
     config.validateBasemapsConfig = validateBasemapsConfig;
     config.getEnabledBasemaps = getEnabledBasemaps;
     config.getBasemapLayoutClass = getBasemapLayoutClass;

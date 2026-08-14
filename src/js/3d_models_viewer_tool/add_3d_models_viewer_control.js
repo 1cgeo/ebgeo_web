@@ -1,9 +1,10 @@
 // Path: js/3d_models_viewer_tool/add_3d_models_viewer_control.js
 
 /**
- * @fileoverview Control for viewing 3D tilesets on the 2D map.
- * Displays clustered markers with video preview popups and opens the Cesium 3D viewer.
- * @dependencies config, store, event_types
+ * @fileoverview Control for viewing 3D tilesets and first-person (Gaussian splatting)
+ * scenes on the 2D map. Displays clustered markers with video preview popups and opens
+ * either the Cesium 3D viewer or the lazy-loaded first-person viewer.
+ * @dependencies config, store, event_types, first_person_3d_tool/scene-config.service
  */
 
 import config from '@js/config.js';
@@ -11,6 +12,7 @@ import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from 
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@utils/event-cleanup.js';
 import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
+import { getFirstPersonScenes, resolveSceneAssets } from '@js/first_person_3d_tool/scene-config.service.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -31,14 +33,67 @@ const CLUSTER_SIZE_STEPS = {
     large: { radius: 26 }
 };
 
-// Application primary color
+// Application primary color (3D tileset pins and clusters)
 const PRIMARY_COLOR = '#508D4E';
+
+// First-person scene pin color
+const FIRST_PERSON_COLOR = '#7B52D3';
 
 // Marker pin vertical offset for popup positioning
 const MARKER_POPUP_OFFSET = 55;
 
 // Badge color for feature count
 const BADGE_COLOR = '#e53935';
+
+// Marker kinds carried by the GeoJSON `kind` property
+const MARKER_KIND = {
+    TILESET: 'tileset',
+    FIRST_PERSON: 'firstPerson'
+};
+
+// Map image ids for each marker kind
+const MARKER_IMAGE = {
+    [MARKER_KIND.TILESET]: '3d-model-marker',
+    [MARKER_KIND.FIRST_PERSON]: '3d-fp-marker'
+};
+
+// Inner glyph of the tileset pin: an isometric cube
+const TILESET_GLYPH = `<path d="M0,-8 L-7,-4 L-7,4 L0,8 L7,4 L7,-4 Z" fill="${PRIMARY_COLOR}" stroke="${PRIMARY_COLOR}" stroke-width="1"/>
+    <path d="M0,-8 L-7,-4 L0,0 Z" fill="#3d6e3b"/>
+    <path d="M0,-8 L7,-4 L0,0 Z" fill="#6ba85e"/>`;
+
+// Inner glyph of the first-person pin: a walking figure
+const FIRST_PERSON_GLYPH = `<circle cx="-0.5" cy="-6" r="2.4" fill="${FIRST_PERSON_COLOR}"/>
+    <g fill="none" stroke="${FIRST_PERSON_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M-0.5,-3.2 L1,0.6"/>
+        <path d="M1,0.6 L4,6"/>
+        <path d="M1,0.6 L-3.6,5.6"/>
+        <path d="M0,-2.4 L-4,1.6"/>
+        <path d="M0,-2.4 L3.8,-3.4"/>
+    </g>`;
+
+/**
+ * Builds the marker pin SVG for a given color and inner glyph.
+ * @param {string} color - Pin body color
+ * @param {string} glyph - SVG markup drawn centered on the pin head (viewport -8..8)
+ * @returns {string} SVG markup
+ */
+function buildMarkerPinSvg(color, glyph) {
+    return `<svg width="48" height="64" viewBox="0 0 48 64" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="24" cy="60" rx="12" ry="4" fill="#000000" opacity="0.3"/>
+        <path d="M24,2 C13.5,2 5,10.5 5,21 C5,32 24,58 24,58 C24,58 43,32 43,21 C43,10.5 34.5,2 24,2 Z" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+        <circle cx="24" cy="21" r="10" fill="#ffffff" opacity="0.9"/>
+        <g transform="translate(24, 21) scale(0.5)">
+            ${glyph}
+        </g>
+    </svg>`;
+}
+
+// Pin images loaded into the map style, one per marker kind
+const MARKER_PIN_SPECS = [
+    { imageId: MARKER_IMAGE[MARKER_KIND.TILESET], svg: buildMarkerPinSvg(PRIMARY_COLOR, TILESET_GLYPH) },
+    { imageId: MARKER_IMAGE[MARKER_KIND.FIRST_PERSON], svg: buildMarkerPinSvg(FIRST_PERSON_COLOR, FIRST_PERSON_GLYPH) }
+];
 
 /**
  * Gets feature counts grouped by tilesetId.
@@ -88,13 +143,19 @@ class Add3DModelsViewerControl {
         this.badgeCircleLayer = '3d-models-badge-circle';
         this.badgeTextLayer = '3d-models-badge-text';
 
-        // Popup state
+        // Popup state (markerId is a tilesetId or a first-person sceneId)
         this.previewPopup = null;
         this.activeVideoElement = null;
-        this.currentOpenTilesetId = null;
+        this.currentOpenMarkerId = null;
 
         // Close button listener tracking
         this._closeListenerAttached = false;
+
+        // True while the first-person viewer is on screen. Mirrored from the
+        // viewer's own events rather than set here: the viewer also opens from
+        // the catalog, from the search and from a deep link, none of which pass
+        // through this control.
+        this._firstPersonOpen = false;
 
         // Bind methods
         this.handleMarkerClick = this.handleMarkerClick.bind(this);
@@ -102,9 +163,12 @@ class Add3DModelsViewerControl {
         this.showHoverCursor = this.showHoverCursor.bind(this);
         this.hideHoverCursor = this.hideHoverCursor.bind(this);
         this.closeViewer = this.closeViewer.bind(this);
+        this.closeFirstPersonScene = this.closeFirstPersonScene.bind(this);
         this.handlePopupClose = this.handlePopupClose.bind(this);
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._handleFeaturesChanged = this._handleFeaturesChanged.bind(this);
+        this._handleFirstPersonOpened = this._handleFirstPersonOpened.bind(this);
+        this._handleFirstPersonClosed = this._handleFirstPersonClosed.bind(this);
 
         setupCleanup(this);
     }
@@ -128,7 +192,28 @@ class Add3DModelsViewerControl {
         subscribe(this, getEventBus(), EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged);
         subscribe(this, getEventBus(), EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged);
 
+        // Track the first-person viewer, which also opens from the catalog, the
+        // search and deep links — this control is only one of its four doors.
+        subscribe(this, getEventBus(), EventTypes.FIRST_PERSON_OPENED, this._handleFirstPersonOpened);
+        subscribe(this, getEventBus(), EventTypes.FIRST_PERSON_CLOSED, this._handleFirstPersonClosed);
+
         return this.container;
+    }
+
+    /**
+     * The first-person viewer went on screen.
+     * @private
+     */
+    _handleFirstPersonOpened() {
+        this._firstPersonOpen = true;
+    }
+
+    /**
+     * The first-person viewer left the screen.
+     * @private
+     */
+    _handleFirstPersonClosed() {
+        this._firstPersonOpen = false;
     }
 
     /**
@@ -208,30 +293,26 @@ class Add3DModelsViewerControl {
         if (map3dContainer && map3dContainer.style.display !== 'none') {
             this.closeViewer();
         }
+
+        if (this._firstPersonOpen) {
+            this.closeFirstPersonScene();
+        }
     }
 
     /**
-     * Load marker image (SVG pin) into the map
+     * Loads a single SVG pin into the map style.
+     * @param {string} imageId - Map image id
+     * @param {string} svg - SVG markup
      * @returns {Promise<void>}
+     * @private
      */
-    async loadMarkerImage() {
-        const markerPinSvg = `<svg width="48" height="64" viewBox="0 0 48 64" xmlns="http://www.w3.org/2000/svg">
-            <ellipse cx="24" cy="60" rx="12" ry="4" fill="#000000" opacity="0.3"/>
-            <path d="M24,2 C13.5,2 5,10.5 5,21 C5,32 24,58 24,58 C24,58 43,32 43,21 C43,10.5 34.5,2 24,2 Z" fill="${PRIMARY_COLOR}" stroke="#ffffff" stroke-width="2"/>
-            <circle cx="24" cy="21" r="10" fill="#ffffff" opacity="0.9"/>
-            <g transform="translate(24, 21) scale(0.5)">
-                <path d="M0,-8 L-7,-4 L-7,4 L0,8 L7,4 L7,-4 Z" fill="${PRIMARY_COLOR}" stroke="${PRIMARY_COLOR}" stroke-width="1"/>
-                <path d="M0,-8 L-7,-4 L0,0 Z" fill="#3d6e3b"/>
-                <path d="M0,-8 L7,-4 L0,0 Z" fill="#6ba85e"/>
-            </g>
-        </svg>`;
-
+    _loadPinImage(imageId, svg) {
         return new Promise((resolve, reject) => {
             const img = new Image(48, 64);
             img.onload = () => {
                 try {
-                    if (!this.map.hasImage('3d-model-marker')) {
-                        this.map.addImage('3d-model-marker', img, { pixelRatio: 2 });
+                    if (!this.map.hasImage(imageId)) {
+                        this.map.addImage(imageId, img, { pixelRatio: 2 });
                     }
                     resolve();
                 } catch (error) {
@@ -241,37 +322,77 @@ class Add3DModelsViewerControl {
             };
             img.onerror = (error) => {
                 console.error('Error loading SVG:', error);
-                reject(new Error('Failed to load marker image'));
+                reject(new Error(`Failed to load marker image: ${imageId}`));
             };
-            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markerPinSvg);
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
         });
     }
 
     /**
-     * Builds GeoJSON FeatureCollection from config tilesets with feature counts.
+     * Load marker images (SVG pins) into the map: 3D tileset and first-person scene.
+     * @returns {Promise<void>}
+     */
+    async loadMarkerImage() {
+        await Promise.all(
+            MARKER_PIN_SPECS.map(spec => this._loadPinImage(spec.imageId, spec.svg))
+        );
+    }
+
+    /**
+     * Builds GeoJSON FeatureCollection from config tilesets (with feature counts)
+     * and from the configured first-person scenes.
      * @returns {Promise<Object>} GeoJSON FeatureCollection
      * @private
      */
     async _buildGeoJSON() {
         const featureCounts = await getFeatureCountsByTileset();
 
+        const tilesetFeatures = config.tilesets.map(tileset => ({
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [tileset.locate.lon, tileset.locate.lat]
+            },
+            properties: {
+                kind: MARKER_KIND.TILESET,
+                markerId: tileset.id,
+                tilesetId: tileset.id,
+                name: tileset.name,
+                dataCaptura: tileset.data_captura || null,
+                previewVideo: tileset.previewVideo || null,
+                previewThumbnail: tileset.previewThumbnail || null,
+                featureCount: featureCounts.get(tileset.id) || 0
+            }
+        }));
+
+        // First-person scenes persist nothing, so they never carry a feature count
+        const sceneFeatures = getFirstPersonScenes()
+            .filter(scene => Number.isFinite(scene?.locate?.lon) && Number.isFinite(scene?.locate?.lat))
+            .map(scene => {
+                const assets = resolveSceneAssets(scene);
+
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [scene.locate.lon, scene.locate.lat]
+                    },
+                    properties: {
+                        kind: MARKER_KIND.FIRST_PERSON,
+                        markerId: scene.id,
+                        sceneId: scene.id,
+                        name: scene.name,
+                        dataCaptura: scene.data_captura || null,
+                        previewVideo: assets?.previewVideo || null,
+                        previewThumbnail: assets?.previewThumbnail || null,
+                        featureCount: 0
+                    }
+                };
+            });
+
         return {
             type: 'FeatureCollection',
-            features: config.tilesets.map(tileset => ({
-                type: 'Feature',
-                geometry: {
-                    type: 'Point',
-                    coordinates: [tileset.locate.lon, tileset.locate.lat]
-                },
-                properties: {
-                    tilesetId: tileset.id,
-                    name: tileset.name,
-                    dataCaptura: tileset.data_captura || null,
-                    previewVideo: tileset.previewVideo || null,
-                    previewThumbnail: tileset.previewThumbnail || null,
-                    featureCount: featureCounts.get(tileset.id) || 0
-                }
-            }))
+            features: [...tilesetFeatures, ...sceneFeatures]
         };
     }
 
@@ -343,7 +464,12 @@ class Add3DModelsViewerControl {
                 source: this.sourceId,
                 filter: ['!', ['has', 'point_count']],
                 layout: {
-                    'icon-image': '3d-model-marker',
+                    'icon-image': [
+                        'match',
+                        ['get', 'kind'],
+                        MARKER_KIND.FIRST_PERSON, MARKER_IMAGE[MARKER_KIND.FIRST_PERSON],
+                        MARKER_IMAGE[MARKER_KIND.TILESET]
+                    ],
                     'icon-size': 1.7,
                     'icon-anchor': 'bottom',
                     'icon-allow-overlap': true,
@@ -385,6 +511,7 @@ class Add3DModelsViewerControl {
                 source: this.sourceId,
                 filter: ['all',
                     ['!', ['has', 'point_count']],
+                    ['==', ['get', 'kind'], MARKER_KIND.TILESET],
                     ['>', ['get', 'featureCount'], 0]
                 ],
                 paint: {
@@ -406,6 +533,7 @@ class Add3DModelsViewerControl {
                 source: this.sourceId,
                 filter: ['all',
                     ['!', ['has', 'point_count']],
+                    ['==', ['get', 'kind'], MARKER_KIND.TILESET],
                     ['>', ['get', 'featureCount'], 0]
                 ],
                 layout: {
@@ -562,10 +690,11 @@ class Add3DModelsViewerControl {
         e.originalEvent.preventDefault();
 
         const feature = e.features[0];
-        const tilesetId = feature.properties.tilesetId;
+        const properties = feature.properties;
+        const markerId = properties.markerId;
 
         // Toggle behavior: if clicking same marker, close popup
-        if (this.currentOpenTilesetId === tilesetId && this.previewPopup) {
+        if (this.currentOpenMarkerId === markerId && this.previewPopup) {
             this.removePreviewPopup();
             return;
         }
@@ -577,36 +706,44 @@ class Add3DModelsViewerControl {
             center: coordinates,
             duration: 500
         });
-        const name = feature.properties.name;
-        const dataCaptura = feature.properties.dataCaptura;
-        const previewVideo = feature.properties.previewVideo;
-        const previewThumbnail = feature.properties.previewThumbnail;
 
         // Adjust coordinates for multiple world copies
         while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        this.createPreviewPopup(coordinates, tilesetId, name, dataCaptura, previewVideo, previewThumbnail);
+        this.createPreviewPopup(coordinates, {
+            kind: properties.kind,
+            markerId,
+            name: properties.name,
+            dataCaptura: properties.dataCaptura,
+            previewVideo: properties.previewVideo,
+            previewThumbnail: properties.previewThumbnail
+        });
     }
 
     /**
      * Create preview popup with video/thumbnail and open button
      * @param {number[]} coordinates - [lng, lat] position
-     * @param {string} tilesetId - ID of the tileset
-     * @param {string} name - Display name of the model
-     * @param {string|null} dataCaptura - Capture date in DD/MM/YYYY format or null
-     * @param {string|null} previewVideo - URL to preview video or null
-     * @param {string|null} previewThumbnail - URL to preview thumbnail or null
+     * @param {Object} markerInfo - Marker descriptor
+     * @param {string} markerInfo.kind - 'tileset' or 'firstPerson'
+     * @param {string} markerInfo.markerId - Tileset id or first-person scene id
+     * @param {string} markerInfo.name - Display name
+     * @param {string|null} [markerInfo.dataCaptura] - Capture date in DD/MM/YYYY format
+     * @param {string|null} [markerInfo.previewVideo] - URL to preview video
+     * @param {string|null} [markerInfo.previewThumbnail] - URL to preview thumbnail
      */
-    createPreviewPopup(coordinates, tilesetId, name, dataCaptura, previewVideo, previewThumbnail) {
+    createPreviewPopup(coordinates, markerInfo) {
+        const { kind, markerId, name, dataCaptura, previewVideo, previewThumbnail } = markerInfo;
+        const isFirstPerson = kind === MARKER_KIND.FIRST_PERSON;
+
         // Remove existing popup
         this.removePreviewPopup();
 
-        this.currentOpenTilesetId = tilesetId;
+        this.currentOpenMarkerId = markerId;
 
         // Hide label for current marker
-        this.updateLabelFilter(tilesetId);
+        this.updateLabelFilter(markerId);
 
         // Determine if we have any media to show
         const hasMedia = previewVideo || previewThumbnail;
@@ -619,6 +756,33 @@ class Add3DModelsViewerControl {
         container.addEventListener('click', (e) => {
             e.stopPropagation();
         });
+
+        // Collapse the popup to its text-only layout. The terminal state when no
+        // preview media survives, whatever the reason.
+        const dropMedia = (element) => {
+            element.remove();
+            container.classList.add('no-video');
+        };
+
+        /**
+         * Build the thumbnail image, degrading to the text-only layout if it fails
+         * to load.
+         *
+         * The onerror is not defensive padding: a first-person scene DERIVES its
+         * preview paths from the scene folder (preview/thumbnail.jpg), so the
+         * address always exists even when the operator never recorded a preview.
+         * Worse, a missing file under the Vite dev server does not 404 — the SPA
+         * fallback answers 200 with index.html, so the request "succeeds" and the
+         * decode is what fails. Without this the popup shows a broken-image icon.
+         */
+        const buildThumbnail = () => {
+            const img = document.createElement('img');
+            img.className = 'model-preview-thumbnail';
+            img.alt = name;
+            img.onerror = () => dropMedia(img);
+            img.src = previewThumbnail;
+            return img;
+        };
 
         // Media element (video with thumbnail fallback, or just thumbnail)
         if (previewVideo) {
@@ -634,25 +798,16 @@ class Add3DModelsViewerControl {
             // Fallback to thumbnail on video error
             video.onerror = () => {
                 if (previewThumbnail) {
-                    const img = document.createElement('img');
-                    img.src = previewThumbnail;
-                    img.className = 'model-preview-thumbnail';
-                    img.alt = name;
-                    video.replaceWith(img);
+                    video.replaceWith(buildThumbnail());
                 } else {
-                    video.remove();
-                    container.classList.add('no-video');
+                    dropMedia(video);
                 }
             };
 
             container.appendChild(video);
             this.activeVideoElement = video;
         } else if (previewThumbnail) {
-            const img = document.createElement('img');
-            img.src = previewThumbnail;
-            img.className = 'model-preview-thumbnail';
-            img.alt = name;
-            container.appendChild(img);
+            container.appendChild(buildThumbnail());
         }
 
         // Info section
@@ -674,11 +829,15 @@ class Add3DModelsViewerControl {
 
         const openButton = document.createElement('button');
         openButton.className = 'model-preview-button';
-        openButton.textContent = 'Visualizar em 3D';
+        openButton.textContent = isFirstPerson ? 'Entrar na cena' : 'Visualizar em 3D';
         openButton.onclick = (e) => {
             e.stopPropagation();
             e.preventDefault();
-            this.openViewer(tilesetId);
+            if (isFirstPerson) {
+                this.openFirstPersonScene(markerId);
+            } else {
+                this.openViewer(markerId);
+            }
         };
         infoDiv.appendChild(openButton);
 
@@ -705,7 +864,7 @@ class Add3DModelsViewerControl {
      * Handle popup close event - restore label visibility
      */
     handlePopupClose() {
-        this.currentOpenTilesetId = null;
+        this.currentOpenMarkerId = null;
         this.resetLabelFilter();
 
         if (this.activeVideoElement) {
@@ -733,21 +892,21 @@ class Add3DModelsViewerControl {
             this.previewPopup = null;
         }
 
-        this.currentOpenTilesetId = null;
+        this.currentOpenMarkerId = null;
         this.resetLabelFilter();
     }
 
     /**
      * Update label filter to hide specific marker's label
-     * @param {string} tilesetId - ID of tileset to hide label for
+     * @param {string} markerId - Tileset id or first-person scene id to hide the label for
      */
-    updateLabelFilter(tilesetId) {
+    updateLabelFilter(markerId) {
         if (!this.map.getLayer(this.labelsLayer)) return;
 
         this.map.setFilter(this.labelsLayer, [
             'all',
             ['!', ['has', 'point_count']],
-            ['!=', ['get', 'tilesetId'], tilesetId]
+            ['!=', ['get', 'markerId'], markerId]
         ]);
     }
 
@@ -790,6 +949,42 @@ class Add3DModelsViewerControl {
             this.setFullMap(true);
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';
+        }
+    }
+
+    /**
+     * Open the first-person (Gaussian splatting) viewer for a scene.
+     * The viewer module is loaded lazily on purpose: a static import would pull
+     * the whole splatting runtime into the main bundle.
+     * @param {string} sceneId - ID of the first-person scene to enter
+     */
+    async openFirstPersonScene(sceneId) {
+        try {
+            this.removePreviewPopup();
+
+            const { openFirstPersonViewer } = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            await openFirstPersonViewer(sceneId);
+
+        } catch (error) {
+            console.error('Error opening first-person viewer:', error);
+        }
+    }
+
+    /**
+     * Close the first-person viewer and return to the map.
+     *
+     * Unlike the Cesium path, this control does NOT touch the viewer's DOM: the
+     * first-person viewer owns its own container, its close button and hiding
+     * the 2D map, all through CSS classes. Writing `style.display` here would
+     * beat `.fp3d-container--open` (an inline style outranks any class) and the
+     * scene would never come back after the first close.
+     */
+    async closeFirstPersonScene() {
+        try {
+            const { closeFirstPersonViewer } = await import('@js/first_person_3d_tool/first_person_viewer.js');
+            await closeFirstPersonViewer();
+        } catch (error) {
+            console.error('Error closing first-person viewer:', error);
         }
     }
 
@@ -863,15 +1058,56 @@ class Add3DModelsViewerControl {
     }
 
     /**
-     * Navigate to a specific 3D model and open its preview popup.
+     * Resolves a marker id into the popup descriptor, looking in both the
+     * configured tilesets and the first-person scenes.
+     * @param {string} markerId - Tileset id or first-person scene id
+     * @returns {Object|null} Descriptor with coordinates and popup fields, or null
+     * @private
+     */
+    _resolveMarkerInfo(markerId) {
+        const tileset = config.tilesets.find(t => t.id === markerId);
+        if (tileset) {
+            return {
+                coordinates: [tileset.locate.lon, tileset.locate.lat],
+                kind: MARKER_KIND.TILESET,
+                markerId: tileset.id,
+                name: tileset.name,
+                dataCaptura: tileset.data_captura || null,
+                previewVideo: tileset.previewVideo || null,
+                previewThumbnail: tileset.previewThumbnail || null
+            };
+        }
+
+        // `locate` is optional on a scene: without it the scene still exists in
+        // the catalog and in the search, but it has no pin on the 2D map, so
+        // there is nowhere to fly to and no popup to anchor.
+        const scene = getFirstPersonScenes().find(s => s.id === markerId);
+        if (scene && Number.isFinite(scene.locate?.lon) && Number.isFinite(scene.locate?.lat)) {
+            const assets = resolveSceneAssets(scene);
+            return {
+                coordinates: [scene.locate.lon, scene.locate.lat],
+                kind: MARKER_KIND.FIRST_PERSON,
+                markerId: scene.id,
+                name: scene.name,
+                dataCaptura: scene.data_captura || null,
+                previewVideo: assets?.previewVideo || null,
+                previewThumbnail: assets?.previewThumbnail || null
+            };
+        }
+
+        return null;
+    }
+
+    /**
+     * Navigate to a specific 3D model or first-person scene and open its preview popup.
      * Used by external components like search.
-     * @param {string} tilesetId - ID of the tileset to navigate to
+     * @param {string} markerId - Tileset id or first-person scene id to navigate to
      * @returns {Promise<boolean>} True if navigation successful
      */
-    async navigateToModel(tilesetId) {
-        const tileset = config.tilesets.find(t => t.id === tilesetId);
-        if (!tileset) {
-            console.warn(`Tileset not found: ${tilesetId}`);
+    async navigateToModel(markerId) {
+        const markerInfo = this._resolveMarkerInfo(markerId);
+        if (!markerInfo) {
+            console.warn(`3D model or first-person scene not found: ${markerId}`);
             return false;
         }
 
@@ -880,7 +1116,7 @@ class Add3DModelsViewerControl {
             this.toolManager.toggleViewer(this);
         }
 
-        const coordinates = [tileset.locate.lon, tileset.locate.lat];
+        const { coordinates, ...popupInfo } = markerInfo;
 
         // Fly to location
         this.map.flyTo({
@@ -891,14 +1127,7 @@ class Add3DModelsViewerControl {
 
         // Open popup after animation completes
         this.map.once('moveend', () => {
-            this.createPreviewPopup(
-                coordinates,
-                tileset.id,
-                tileset.name,
-                tileset.data_captura || null,
-                tileset.previewVideo || null,
-                tileset.previewThumbnail || null
-            );
+            this.createPreviewPopup(coordinates, popupInfo);
         });
 
         return true;

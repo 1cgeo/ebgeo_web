@@ -24,6 +24,7 @@
   "dependencies": {
     "@fastify/compress": "^8.3.1",
     "@fastify/static": "^9.0.0",
+    "@manycore/aholo-viewer": "^1.8.1",
     "@tmcw/togeojson": "^7.1.2",
     "chart.js": "^4.5.1",
     "dompurify": "^3.3.1",

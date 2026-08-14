@@ -48,8 +48,9 @@ export default defineConfig(({ mode: _mode }) => ({
         //   -> ui-components (sidebar, features_tab, user_data, attribute_table, search,
         //                     bottom-controls, base-layer-selector, context-menu, vector_info, processing)
         //   -> tools (draw, military, analysis, selection)
-        //   -> lazy (cesium-integration, street-view, import-export)
-        // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate
+        //   -> lazy (cesium-integration, street-view, first-person-3d, import-export)
+        // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate,
+        //                                        first_person_3d_tool/index (barrel)
         manualChunks(id) {
           // ===== STATICALLY-IMPORTED SERVICES (must resolve before lazy chunks) =====
 
@@ -60,6 +61,34 @@ export default defineConfig(({ mode: _mode }) => ({
           // circular chunk on Linux where Rollup strictly respects manualChunks.
           // Placing it in core follows the same pattern as keyboard-service-briefing.
           if (id.includes('3d_models_viewer_tool/services/keyboard-service-3d')) {
+            return 'core';
+          }
+
+          // scene-config.service reads the firstPerson3d config section and is
+          // statically imported by add_3d_models_viewer_control (main entry),
+          // catalog/catalog.service (core) and search/* (ui-components).
+          // Leaving it inside first-person-3d would make core AND ui-components
+          // statically depend on a lazy chunk that itself depends on core — the
+          // circular chunk pair that produces the TDZ "Cannot access 'X' before
+          // initialization" crash. It belongs in core, like config.js.
+          // walk/voxel-collision and walk/constants ride along: the service
+          // instantiates a VoxelCollision in loadSceneCollision(), and both are
+          // pure leaves (no DOM, no @manycore/aholo-viewer, a couple of kB), so
+          // pinning them to core removes the same core -> first-person-3d edge
+          // instead of pulling the splatting runtime in. walk-mode.js does NOT
+          // ride along — it imports aholo-viewer and stays lazy.
+          if (id.includes('first_person_3d_tool/scene-config.service') ||
+              id.includes('first_person_3d_tool/walk/voxel-collision') ||
+              id.includes('first_person_3d_tool/walk/constants')) {
+            return 'core';
+          }
+
+          // keyboard-service-fp is statically imported by map_sig.js (entry) to
+          // receive the global KeyboardShortcuts instance, and depends only on
+          // core. Same reasoning as keyboard-service-3d above: from inside the
+          // lazy chunk it would drag first-person-3d — and with it the whole
+          // splatting runtime — into the startup path, defeating the lazy load.
+          if (id.includes('first_person_3d_tool/services/keyboard-service-fp')) {
             return 'core';
           }
 
@@ -79,6 +108,21 @@ export default defineConfig(({ mode: _mode }) => ({
           // Street view (Three.js - lazy load)
           if (id.includes('street_view_tool')) {
             return 'street-view';
+          }
+          // First-person 3D scene (Gaussian splatting / @manycore/aholo-viewer - lazy load)
+          // NOTE: matched by explicit subpaths, not by the folder name. The barrel
+          // first_person_3d_tool/index.js must NOT land here: it is statically
+          // imported by src/js/index.js (beforeunload cleanup) and holds only async
+          // wrappers, so it belongs in the entry bundle — exactly like
+          // 3d_models_viewer_tool/index.js. A folder-wide match would put the barrel
+          // in this chunk and make the entry bundle load the splatting runtime on
+          // startup. scene-config.service, walk/voxel-collision, walk/constants and
+          // services/keyboard-service-fp were already routed to core above.
+          if (id.includes('first_person_3d_tool/first_person_viewer') ||
+              id.includes('first_person_3d_tool/components/') ||
+              id.includes('first_person_3d_tool/tools/') ||
+              id.includes('first_person_3d_tool/walk/walk-mode')) {
+            return 'first-person-3d';
           }
           // Import/export tools
           // export-utils.js is shared between import_export (import-export chunk)
@@ -316,6 +360,11 @@ export default defineConfig(({ mode: _mode }) => ({
     // module lives here because it is mutually entangled with the store layer
     // (store/feature.operations + store/temporal.operations import temporal helpers),
     // so it cannot be hoisted to a separate chunk without a core <-> temporal cycle.
+    //
+    // first-person-3d trips this warning on purpose (~1.9 MB minified): it is almost
+    // entirely the @manycore/aholo-viewer splatting runtime, which cannot be split.
+    // The limit stays at 1200 so it keeps guarding core's growth — raising it to
+    // silence one lazy chunk would blind the only chunk that loads on startup.
     chunkSizeWarningLimit: 1200
   },
 

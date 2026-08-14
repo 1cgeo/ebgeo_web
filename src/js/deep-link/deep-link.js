@@ -2,12 +2,17 @@
 
 /**
  * @module deep-link
- * @description URL hash-based deep linking for 360 photos and 3D models.
+ * @description URL hash-based deep linking for 360 photos, 3D models and
+ * first-person (Gaussian splatting) scenes.
  * Allows sharing a URL that opens a specific viewer with camera position/orientation.
  *
  * URL formats:
  *   #view=360&photo=<uuid>&lon=<deg>&lat=<deg>&fov=<deg>
  *   #view=3d&tileset=<id>&lon=<deg>&lat=<deg>&h=<meters>&heading=<rad>&pitch=<rad>&roll=<rad>
+ *   #view=fp&scene=<id>&x=<m>&y=<m>&z=<m>&yaw=<rad>&pitch=<rad>
+ *
+ * The first-person pose is in the scene's own metric space (the octree frame),
+ * not in geographic coordinates: it comes straight out of the walk controller.
  */
 
 import { getControl } from '@store';
@@ -16,9 +21,39 @@ import { showSuccess, showError } from '@utils';
 // ===== URL PARSING =====
 
 /**
+ * Parses one hash parameter as a finite number.
+ *
+ * Everything in the hash is third-party text: it can be truncated by a chat
+ * client, hand-edited or plain garbage. `parseFloat('12abc')` returns 12 and
+ * `Number('')` returns 0 - both would send the camera somewhere nobody asked
+ * for. This accepts only a value that reads as a whole finite number, and
+ * reports anything else as absent so the caller can fall back.
+ *
+ * @param {string|null} raw - Raw parameter value
+ * @returns {number|null} The number, or null when it is missing or invalid
+ */
+function parseFiniteParam(raw) {
+    if (raw === null || raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Formats a number for the hash, falling back to zero when it is not finite.
+ * `NaN.toFixed(2)` writes the literal "NaN" into a link that then gets shared.
+ * @param {number} value - Value to format
+ * @param {number} digits - Decimal places
+ * @returns {string}
+ */
+function formatFixed(value, digits) {
+    return (Number.isFinite(value) ? value : 0).toFixed(digits);
+}
+
+/**
  * Parses the URL hash into a typed deep link descriptor.
  * @returns {{ type: '360', photo: string, lon: number, lat: number, fov: number }
  *         | { type: '3d', tileset: string, lon: number, lat: number, height: number, heading: number, pitch: number, roll: number }
+ *         | { type: 'fp', scene: string, x: number|null, y: number|null, z: number|null, yaw: number|null, pitch: number|null }
  *         | null}
  */
 export function parseDeepLink() {
@@ -52,6 +87,20 @@ export function parseDeepLink() {
             heading: parseFloat(params.get('heading')),
             pitch: parseFloat(params.get('pitch')),
             roll: parseFloat(params.get('roll'))
+        };
+    }
+
+    if (view === 'fp') {
+        const scene = params.get('scene');
+        if (!scene) return null;
+        return {
+            type: 'fp',
+            scene,
+            x: parseFiniteParam(params.get('x')),
+            y: parseFiniteParam(params.get('y')),
+            z: parseFiniteParam(params.get('z')),
+            yaw: parseFiniteParam(params.get('yaw')),
+            pitch: parseFiniteParam(params.get('pitch'))
         };
     }
 
@@ -101,6 +150,32 @@ export function buildShareUrl3D(tilesetId, lon, lat, height, heading, pitch, rol
     params.set('heading', heading.toFixed(4));
     params.set('pitch', pitch.toFixed(4));
     params.set('roll', roll.toFixed(4));
+    return `${base}#${params.toString()}`;
+}
+
+/**
+ * Builds a shareable URL for a first-person scene view.
+ * Distances are metres with 2 decimals (centimetre precision, which is the
+ * voxel scale of the collision octree) and angles are radians with 4 decimals,
+ * the same precision the 3D link uses.
+ * @param {string} sceneId - Scene identifier
+ * @param {number} x - Camera X in the scene's metric space (metres)
+ * @param {number} y - Camera Y in the scene's metric space (metres)
+ * @param {number} z - Camera Z in the scene's metric space (metres)
+ * @param {number} yaw - Camera yaw (radians)
+ * @param {number} pitch - Camera pitch (radians)
+ * @returns {string} Full URL with hash
+ */
+export function buildShareUrlFirstPerson(sceneId, x, y, z, yaw, pitch) {
+    const base = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams();
+    params.set('view', 'fp');
+    params.set('scene', sceneId);
+    params.set('x', formatFixed(x, 2));
+    params.set('y', formatFixed(y, 2));
+    params.set('z', formatFixed(z, 2));
+    params.set('yaw', formatFixed(yaw, 4));
+    params.set('pitch', formatFixed(pitch, 4));
     return `${base}#${params.toString()}`;
 }
 
@@ -168,6 +243,8 @@ export async function handleDeepLink() {
         await openDeepLink360(link);
     } else if (link.type === '3d') {
         await openDeepLink3D(link);
+    } else if (link.type === 'fp') {
+        await openDeepLinkFp(link);
     }
 }
 
@@ -276,5 +353,59 @@ async function openDeepLink3D(link) {
     } catch (error) {
         console.error('[deep-link] Failed to open 3D viewer:', error);
         showError('Erro ao abrir modelo 3D');
+    }
+}
+
+/**
+ * Merges the pose from the link with the scene's configured starting pose.
+ *
+ * Any component the hash did not carry as a finite number falls back to
+ * `poseInicial`. If a component is missing on both sides the whole pose is
+ * dropped, so the viewer applies its own default instead of receiving a
+ * half-built pose that would put the camera at an arbitrary zero.
+ *
+ * @param {{ x: number|null, y: number|null, z: number|null, yaw: number|null, pitch: number|null }} link
+ * @param {{ x: number, y: number, z: number, yaw: number, pitch: number }|null} [poseInicial]
+ * @returns {{ x: number, y: number, z: number, yaw: number, pitch: number }|null}
+ */
+function resolveFpPose(link, poseInicial = null) {
+    const fallback = poseInicial || {};
+    const pose = {};
+
+    for (const key of ['x', 'y', 'z', 'yaw', 'pitch']) {
+        if (Number.isFinite(link[key])) {
+            pose[key] = link[key];
+        } else if (Number.isFinite(fallback[key])) {
+            pose[key] = fallback[key];
+        } else {
+            return null;
+        }
+    }
+
+    return pose;
+}
+
+/**
+ * Opens a first-person viewer from a deep link descriptor.
+ * @param {{ scene: string, x: number|null, y: number|null, z: number|null, yaw: number|null, pitch: number|null }} link
+ */
+async function openDeepLinkFp(link) {
+    try {
+        const [{ openFirstPersonViewer }, { getFirstPersonSceneById }] = await Promise.all([
+            import('@js/first_person_3d_tool/first_person_viewer.js'),
+            import('@js/first_person_3d_tool/scene-config.service.js')
+        ]);
+
+        const scene = getFirstPersonSceneById(link.scene);
+        if (!scene) {
+            showError('Cena 3D não encontrada');
+            return;
+        }
+
+        const pose = resolveFpPose(link, scene.poseInicial);
+        await openFirstPersonViewer(link.scene, pose ? { pose } : {});
+    } catch (error) {
+        console.error('[deep-link] Failed to open first-person viewer:', error);
+        showError('Erro ao abrir cena 3D');
     }
 }
