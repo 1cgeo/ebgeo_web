@@ -975,8 +975,13 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             // map UUID, so resolve UUID→name first.
             const mapName = mapResolver.resolveToName(mapId) || mapId;
             if (data) {
-                await setSettingCompat(`temporal_${mapName}`, data);
-                memoryStore.temporalConfigs.set(mapName, data);
+                // Mesma chave que o lado local (`setMapTemporalConfig`), que faz MERGE de
+                // patch sobre o estado anterior. Sem a exclusao, esta escrita inteira cai
+                // no meio daquele merge e sai sobrescrita pelo estado velho mais o patch.
+                await withSideDocument('temporal', mapName, 'applyRemoteMapSettingOp:temporal', async () => {
+                    await setSettingCompat(`temporal_${mapName}`, data);
+                    memoryStore.temporalConfigs.set(mapName, data);
+                });
                 emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName, config: data });
                 if (typeof data.ativo === 'boolean') {
                     emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName, enabled: data.ativo });

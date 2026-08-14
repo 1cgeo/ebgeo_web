@@ -244,3 +244,30 @@ describe('temporal.operations — map-id-must-be-UUID (flush-poison guard)', () 
         expect(readBack).toEqual(merged);
     });
 });
+
+describe('temporal.operations — dois patches concorrentes no mesmo documento', () => {
+    // `setMapTemporalConfig` faz MERGE (`{ ...previous, ...patch }`), e é o que a separa
+    // de `setMapNotes` e `setGridStyle`: aquelas leem só para escolher CREATE ou UPDATE e
+    // gravam o valor inteiro que o chamador passou, então duas escritas concorrentes são
+    // um last-write-wins legítimo. Aqui não: dois patches que leem o mesmo `previous`
+    // produzem dois merges, e o segundo a gravar apaga o campo do primeiro.
+    //
+    // Não é hipotético. `temporal-settings.modal.js` chama esta função de dois pontos, e
+    // o caminho inbound (`applyRemoteMapSettingOp`, EntityType.MAP_TEMPORAL) grava o
+    // documento inteiro por fora, então o colega mexendo na linha do tempo é o segundo
+    // escritor no caso multiusuário.
+    it('patches de campos diferentes não se apagam', async () => {
+        await setMapTemporalConfig(MAP_UUID, { ativo: true, unidade: 'hora' });
+
+        await Promise.all([
+            setMapTemporalConfig(MAP_UUID, { unidade: 'dia' }),
+            setMapTemporalConfig(MAP_UUID, { modo: 'relativo' }),
+        ]);
+
+        const config = await getMapTemporalConfig(MAP_UUID);
+        expect(config.unidade).toBe('dia');
+        expect(config.modo).toBe('relativo');
+        // O campo que nenhum dos dois patches tocou tem de sobreviver aos dois merges.
+        expect(config.ativo).toBe(true);
+    });
+});

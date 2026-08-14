@@ -17,6 +17,7 @@ import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { getEventBus } from './services.js';
 import { EventTypes } from '../events';
+import { withSideDocument } from './document-lock.js';
 import { DEFAULT_TEMPORAL_CONFIG } from '../temporal/temporal.constants.js';
 import { logMapTemporalOperation, OperationType } from './sync/operation-dispatcher.js';
 
@@ -88,18 +89,32 @@ export async function isMapTemporalEnabled(mapName = null) {
  */
 export async function setMapTemporalConfig(mapName, patch) {
     const target = resolveMapName(mapName);
-    const previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
-    const next = { ...previous, ...(patch || {}) };
 
-    await setSettingCompat(`${STORE_PREFIX}${target}`, next);
-    memoryStore.temporalConfigs.set(target, next);
+    // MERGE de patch sobre o estado anterior, e por isso um read-modify-write de
+    // verdade: dois patches concorrentes leem o mesmo `previous` e o segundo merge
+    // descarta o campo que o primeiro acabou de gravar. Diferente de `setMapNotes` e
+    // `setGridStyle`, que leem apenas para escolher CREATE ou UPDATE e gravam o valor
+    // inteiro recebido do chamador, e por isso NAO tomam trava.
+    //
+    // A chave e compartilhada com o caminho inbound, que grava o documento inteiro em
+    // `applyRemoteMapSettingOp` (EntityType.MAP_TEMPORAL). Os dois lados nomeiam o mapa
+    // pelo NOME, entao caem na mesma chave. Sem isso, a config do colega chegando no meio
+    // do merge local seria sobrescrita pelo estado velho mais o patch.
+    const next = await withSideDocument('temporal', target, 'setMapTemporalConfig', async () => {
+        const previous = withDefaults(await getSettingCompat(`${STORE_PREFIX}${target}`));
+        const merged = { ...previous, ...(patch || {}) };
+        await setSettingCompat(`${STORE_PREFIX}${target}`, merged);
+        memoryStore.temporalConfigs.set(target, merged);
+        return { merged, previous };
+    });
+    const { merged: config, previous } = next;
 
     const bus = getEventBus();
     if (bus) {
-        if (next.ativo !== previous.ativo) {
-            bus.emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName: target, enabled: next.ativo });
+        if (config.ativo !== previous.ativo) {
+            bus.emit(EventTypes.MAP_TEMPORAL_CHANGED, { mapName: target, enabled: config.ativo });
         }
-        bus.emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName: target, config: next });
+        bus.emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName: target, config });
     }
 
     // Emit as a sync op so the per-map temporal config travels to collaborators.
@@ -107,9 +122,9 @@ export async function setMapTemporalConfig(mapName, patch) {
     // 'mapTemporal' to maps.temporal_config; entityId === the map UUID. The op MUST
     // carry the UUID (not the name) — the dispatcher's isValidUUID guard drops non-UUID
     // map-setting ops, so logging the name silently dropped every temporal sync.
-    await logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), next);
+    await logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), config);
 
-    return next;
+    return config;
 }
 
 /**
