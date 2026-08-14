@@ -140,7 +140,3 @@ export function getGroupManager() {
     return getServices().groupManager;
 }
 
-/** @returns {import('./services/map-resolver.service.js').MapResolverService} */
-export function getMapResolver() {
-    return getServices().mapResolver;
-}

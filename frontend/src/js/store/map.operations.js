@@ -663,25 +663,13 @@ export async function clearMapPosition(mapName = null) {
 
 // ===== UNDO/REDO =====
 
-/**
- * Undoes the last action.
- *
- * @param {Object} executeFunctions - Functions to execute undo
- * @returns {Promise<Object>} Undo result
- */
-export async function undoLastAction(executeFunctions) {
-    return await mapManager.undoLastAction(executeFunctions);
-}
-
-/**
- * Redoes the last undone action.
- *
- * @param {Object} executeFunctions - Functions to execute redo
- * @returns {Promise<Object>} Redo result
- */
-export async function redoLastAction(executeFunctions) {
-    return await mapManager.redoLastAction(executeFunctions);
-}
+// Undo/redo has ONE public entry point: `undoLastAction`/`redoLastAction` in
+// store.js, which bind the feature executors and refuse to run on a locked map.
+// This file used to export homonyms that forwarded straight to the state manager
+// WITHOUT the lock guard; nothing imported them (store.js never re-exported them,
+// so the `@store` barrel only ever exposed the guarded pair) and importing the
+// wrong one would have silently bypassed the map lock. Pinned by
+// tests/store/undo-redo-lock-guard.test.js.
 
 // ===== COLOR TRACKING =====
 

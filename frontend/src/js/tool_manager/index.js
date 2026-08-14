@@ -25,10 +25,9 @@ export {
 
 // Hatch utilities
 export { HatchPatternGenerator } from './hatch_pattern_generator.js';
-export { openHatchConfigModal } from './hatch_config_modal.js';
 
 // Tabbed attribute panel
-export { createTabbedAttributePanel, injectTabbedPanelStyles, TAB_IDS } from './tabbed_attribute_panel.js';
+export { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
 
 // Re-export helpers
 export * from './helpers/index.js';

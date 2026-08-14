@@ -1063,22 +1063,6 @@ export function cleanupMeasurementTool() {
 }
 
 /**
- * Gets current tileset ID.
- * @returns {string|null} Current tileset ID
- */
-export function getCurrentTilesetId() {
-    return currentTilesetId;
-}
-
-/**
- * Checks if measurement tool is active.
- * @returns {boolean} True if active
- */
-export function isMeasurementToolActive() {
-    return isToolActive;
-}
-
-/**
  * Refreshes measurements for the current tileset.
  */
 export async function refreshMeasurementsForCurrentTileset() {

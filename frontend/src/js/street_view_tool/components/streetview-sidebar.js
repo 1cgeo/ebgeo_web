@@ -125,47 +125,9 @@ function setupHelpPopupTabs() {
 // TOOLBAR VISIBILITY
 // =========================================================================
 
-/**
- * Show the 360 toolbar.
- * Called when opening the 360 viewer.
- */
-export function showToolbar360() {
-    if (elements.toolbar) {
-        elements.toolbar.style.display = '';
-        // Apply current map lock state
-        elements.toolbar.classList.toggle('map-locked', isCurrentMapLockedSync());
-    }
-}
-
-/**
- * Hide the 360 toolbar.
- * Called when closing the 360 viewer.
- */
-export function hideToolbar360() {
-    if (elements.toolbar) {
-        elements.toolbar.style.display = 'none';
-    }
-    // Also hide related UI elements
-    hideActiveToolChip360();
-    closeHelpPopup();
-}
-
 // =========================================================================
 // ACTIVE TOOL CHIP
 // =========================================================================
-
-/**
- * Show the active tool chip with the specified tool name.
- * @param {string} toolName - Display name of the active tool
- */
-export function showActiveToolChip360(toolName) {
-    currentActiveTool = toolName;
-
-    if (elements.activeToolChip && elements.activeToolChipName) {
-        elements.activeToolChipName.textContent = toolName;
-        elements.activeToolChip.style.display = '';
-    }
-}
 
 /**
  * Hide the active tool chip.
@@ -176,14 +138,6 @@ export function hideActiveToolChip360() {
     if (elements.activeToolChip) {
         elements.activeToolChip.style.display = 'none';
     }
-}
-
-/**
- * Get the currently active tool name.
- * @returns {string|null} The active tool name or null
- */
-export function getCurrentActiveTool360() {
-    return currentActiveTool;
 }
 
 // =========================================================================
@@ -216,19 +170,6 @@ export function deactivateCurrentTool360() {
 // =========================================================================
 // ORIENTATION BUTTON STATE
 // =========================================================================
-
-/**
- * Update orientation button visibility based on saved state.
- * @param {boolean} hasSaved - Whether orientation is saved for current photo
- */
-export function setOrientationButtonState(hasSaved) {
-    if (elements.saveOrientationButton) {
-        elements.saveOrientationButton.style.display = hasSaved ? 'none' : '';
-    }
-    if (elements.clearOrientationButton) {
-        elements.clearOrientationButton.style.display = hasSaved ? '' : 'none';
-    }
-}
 
 // =========================================================================
 // HELP POPUP
@@ -293,16 +234,6 @@ export function onAddMarkerClick(handler) {
 }
 
 /**
- * Register a click handler for the screenshot button.
- * @param {Function} handler - Click handler function
- */
-export function onScreenshotClick(handler) {
-    if (elements.screenshotButton) {
-        elements.screenshotButton.addEventListener('click', handler);
-    }
-}
-
-/**
  * Register a click handler for the save orientation button.
  * @param {Function} handler - Click handler function
  */
@@ -342,12 +273,3 @@ export function setMarkerButtonActive(active) {
 // CLEANUP
 // =========================================================================
 
-/**
- * Cleanup toolbar state when viewer closes.
- * Resets button states but doesn't remove event listeners.
- */
-export function cleanupToolbar360() {
-    hideToolbar360();
-    setOrientationButtonState(false);
-    setMarkerButtonActive(false);
-}

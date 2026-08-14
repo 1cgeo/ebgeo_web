@@ -211,54 +211,6 @@ export function calculateWaypoints(
     return waypoints;
 }
 
-/**
- * Calculate waypoints for preview (in SVG coordinates).
- * Returns relative positions suitable for SVG rendering.
- *
- * @param {Array<Object>} legs - Array of leg objects
- * @param {string} angularUnit - Angular unit
- * @param {string} distanceUnit - Distance unit
- * @param {number} declination - Magnetic declination
- * @param {string} northRef - North reference
- * @returns {Array<{x: number, y: number}>} Array of {x, y} points
- */
-export function calculatePreviewPoints(
-    legs,
-    angularUnit,
-    distanceUnit,
-    declination,
-    northRef
-) {
-    const points = [{ x: 0, y: 0 }];
-    let cx = 0, cy = 0;
-
-    // Apply declination correction for preview
-    const declCorrection = northRef === NORTH_REFERENCE.MAGNETIC ? declination : 0;
-
-    for (const leg of legs) {
-        if (leg.azimuth === '' || leg.azimuth == null || !leg.distance) {
-            continue;
-        }
-
-        // Convert to degrees
-        let azDeg = azimuthToDegrees(Number(leg.azimuth), angularUnit);
-        azDeg = azDeg + declCorrection;
-
-        // Convert to radians (SVG: 0 = right, but we want 0 = up, so subtract 90)
-        const rad = ((azDeg - 90) * Math.PI) / 180;
-
-        // Use distance as-is for relative positioning (will be normalized later)
-        const dist = Number(leg.distance);
-
-        cx += dist * Math.cos(rad);
-        cy += dist * Math.sin(rad);
-
-        points.push({ x: cx, y: cy });
-    }
-
-    return points;
-}
-
 // ============================================================================
 // GEOMETRY GENERATION
 // ============================================================================

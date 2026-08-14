@@ -47,31 +47,6 @@ export const FEATURE_TYPE_ICONS = Object.freeze({
 });
 
 /**
- * Mapping of feature source types to their MapLibre layer IDs.
- * @constant {Object<string, string>}
- */
-export const FEATURE_TYPE_LAYERS = Object.freeze({
-    point: 'points-layer',
-    line: 'lines-layer',
-    polygon: 'polygons-layer',
-    circle: 'circles-layer',
-    ellipse: 'ellipses-layer',
-    rectangle: 'rectangles-layer',
-    sector: 'sectors-layer',
-    text: 'texts-layer',
-    image: 'images-layer',
-    brush: 'brushes-layer',
-    arrow: 'arrows-layer',
-    boundary: 'boundarys-layer',
-    occupied_front: 'occupied-fronts-layer',
-    military_symbol: 'military-symbols-layer',
-    coordination_measure: 'coordination-measures-layer',
-    los: 'los-layer',
-    visibility: 'visibility-layer',
-    magnetic_declination: 'magnetic-declinations-layer',
-});
-
-/**
  * Mapping of source types (singular) to storage types (plural).
  * @constant {Object<string, string>}
  */
@@ -181,11 +156,6 @@ export function getFeatureDisplayNameFromStorage(storageType) {
 /** @param {string} storageType @returns {string|undefined} */
 export function getFeatureIconFromStorage(storageType) {
     return getFeatureIcon(getSourceTypeFromStorage(storageType));
-}
-
-/** @returns {string[]} */
-export function getAllSourceTypes() {
-    return SOURCE_TYPES;
 }
 
 /** @returns {string[]} */

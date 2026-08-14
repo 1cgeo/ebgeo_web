@@ -578,18 +578,3 @@ export function updateRowSelections(tbody, selectedIds) {
     }
 }
 
-/**
- * Updates hover state for a row.
- * @param {HTMLElement} tbody - Table body element
- * @param {string} featureId - Feature ID
- * @param {boolean} isHovered - Whether hovered
- */
-export function updateRowHover(tbody, featureId, isHovered) {
-    const row = tbody.querySelector(
-        `.${ATTRIBUTE_TABLE.CSS_CLASSES.ROW}[data-feature-id="${featureId}"]`
-    );
-
-    if (row) {
-        row.dataset.hovered = isHovered.toString();
-    }
-}

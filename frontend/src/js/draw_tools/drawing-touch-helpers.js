@@ -4,7 +4,7 @@
  * Provides finish button and touch-specific interactions
  */
 
-import { isTouchDevice, createLongPressHandler, getPointerPosition } from '../utilities/pointer-utils';
+import { isTouchDevice, createLongPressHandler } from '../utilities/pointer-utils';
 
 /**
  * Creates and manages a "Finish" button for touch devices
@@ -156,20 +156,3 @@ export function setupVertexRemoveLongPress(map, options) {
     );
 }
 
-/**
- * Converts pointer events to MapLibre-compatible event format
- * @param {PointerEvent} e - Pointer event
- * @param {Object} map - MapLibre map instance
- * @returns {Object} MapLibre-compatible event object
- */
-export function pointerEventToMapEvent(e, map) {
-    const canvas = map.getCanvasContainer();
-    const point = getPointerPosition(e, canvas);
-    const lngLat = map.unproject([point.x, point.y]);
-
-    return {
-        point: { x: point.x, y: point.y },
-        lngLat,
-        originalEvent: e
-    };
-}

@@ -10,6 +10,5 @@ export {
     ViewerMode,
     ApplicationModeEvents,
     getApplicationModeManager,
-    createApplicationModeManager,
-    default as ApplicationModeManager
+    createApplicationModeManager
 } from './application-mode.manager.js';

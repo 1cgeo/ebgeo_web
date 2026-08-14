@@ -19,6 +19,7 @@ import { PhoneFabs } from './phone-fabs.js';
 import { PhoneMoveActions } from './phone-move-actions.js';
 import { PhoneFeatureEditor } from './phone-feature-editor.js';
 import { PhoneBaseLayerModal } from './phone-baselayer-modal.js';
+import { translateFeature, firstPosition, POSITION_PROPERTIES } from './phone-move-geometry.js';
 import { getEventBus, getStateManager } from '@store/services.js';
 import {
     getControl,
@@ -45,6 +46,37 @@ import config from '@js/config.js';
 // ============================================================================
 
 const PHONE_QUERY = '(max-width: 480px), (max-height: 440px) and (pointer: coarse)';
+
+/**
+ * Below this delta (degrees, on both axes) the map did not really pan, so a
+ * confirmed move is a no-op instead of a write the store would reject as equal.
+ * @type {number}
+ */
+const MOVE_MIN_DELTA_DEG = 1e-9;
+
+/**
+ * Tolerance when re-reading the persisted feature to confirm the move landed.
+ * The round trip is plain JSON, so this only absorbs float formatting.
+ * @type {number}
+ */
+const MOVE_CONFIRM_TOLERANCE_DEG = 1e-9;
+
+/**
+ * MapLibre ids for the move-mode ghost: the feature drawn where it WOULD land,
+ * updated on every map pan. Without it the user drags the map with no reference
+ * for where the feature is going and confirms blind.
+ */
+const MOVE_PREVIEW_SOURCE_ID = 'phone-move-preview';
+const MOVE_PREVIEW_FILL_LAYER_ID = 'phone-move-preview-fill';
+const MOVE_PREVIEW_LINE_LAYER_ID = 'phone-move-preview-line';
+const MOVE_PREVIEW_POINT_LAYER_ID = 'phone-move-preview-point';
+const MOVE_PREVIEW_LAYER_IDS = Object.freeze([
+    MOVE_PREVIEW_FILL_LAYER_ID,
+    MOVE_PREVIEW_LINE_LAYER_ID,
+    MOVE_PREVIEW_POINT_LAYER_ID,
+]);
+/** Matches --primary of design-tokens.css; MapLibre paint takes a literal. */
+const MOVE_PREVIEW_COLOR = '#16a34a';
 
 /**
  * Maps toolbar controlKey values to the registered control names in the
@@ -147,6 +179,18 @@ export class PhoneLayout {
         this._mapClickHandler = null;
         /** @private - guard to prevent double-fire when tree triggers selection */
         this._treeInitiatedSelection = false;
+
+        /**
+         * @private
+         * Active move session, or null. Holds the feature as it was when the
+         * gesture started plus the map centre at that instant; the delta is
+         * measured against it on confirm.
+         * @type {?{featureId: string, storageType: string, mapName: string,
+         *   original: Object, startLng: number, startLat: number, busy: boolean}}
+         */
+        this._moveSession = null;
+        /** @private - MapLibre 'move' handler that refreshes the ghost preview */
+        this._moveMapHandler = null;
     }
 
     // ========================================================================
@@ -306,6 +350,10 @@ export class PhoneLayout {
         };
 
         const onFeaturePanelClosed = () => {
+            // Closing the panel abandons an in-flight move: the session points at
+            // a feature that is no longer on screen, and its map handler would
+            // outlive it.
+            if (this._moveSession) this._endMoveSession();
             this._featureEditor.clear();
             this._bottomSheet.clearFeatureContent();
         };
@@ -363,22 +411,335 @@ export class PhoneLayout {
         });
 
         // Move start callback
-        this._featureEditor.onMoveStart((_featureId) => {
-            this._bottomSheet.snapTo('peek');
-            this._fabs.hide();
-
-            const restoreUI = () => {
-                this._moveActions.hide();
-                this._fabs.show();
-                this._bottomSheet.snapTo('half');
-                this._featureEditor.exitMoveMode();
-            };
-
-            this._moveActions.show(
-                () => { restoreUI(); showToast('Posição atualizada', 'success'); },
-                () => { restoreUI(); },
-            );
+        this._featureEditor.onMoveStart((featureId) => {
+            this._startMoveSession(featureId);
         });
+    }
+
+    // ========================================================================
+    // MOVE MODE
+    // ========================================================================
+
+    /**
+     * Enter move mode for a feature: remember the feature as it stands and the
+     * map centre, then let the user pan the map under it. Nothing is written
+     * while panning — the translation happens once, on confirm — so cancelling
+     * (or losing the session to a viewport change) cannot leave the feature
+     * half moved.
+     * @param {string} featureId
+     * @private
+     */
+    async _startMoveSession(featureId) {
+        if (this._moveSession) this._endMoveSession();
+
+        const featureData = this._featureEditor.getFeatureData();
+        const storageType = featureData ? resolveStorageType(featureData.type) : null;
+
+        if (!featureId || !storageType) {
+            this._featureEditor.exitMoveMode();
+            return;
+        }
+
+        const mapName = getCurrentMapNameSync();
+        let original = null;
+        try {
+            original = await getFeatureById(storageType, featureId, mapName);
+        } catch (err) {
+            console.error('PhoneLayout: error reading feature to move:', err);
+        }
+
+        if (!original || !firstPosition(original.geometry)) {
+            showToast('Não foi possível mover esta feição', 'error');
+            this._featureEditor.exitMoveMode();
+            return;
+        }
+
+        const center = this._map.getCenter();
+        this._moveSession = {
+            featureId,
+            storageType,
+            mapName,
+            original: deepClone(original),
+            // MapLibre returns an UNWRAPPED longitude here, so the delta stays
+            // continuous when the user pans across the antimeridian.
+            startLng: center.lng,
+            startLat: center.lat,
+            busy: false,
+        };
+
+        this._bottomSheet.snapTo('peek');
+        this._fabs.hide();
+        this._addMovePreview();
+
+        this._moveMapHandler = () => this._refreshMovePreview();
+        this._map.on('move', this._moveMapHandler);
+
+        showToast('Arraste o mapa e toque em Confirmar', 'info');
+
+        this._moveActions.show(
+            () => this._confirmMove(),
+            () => this._cancelMove(),
+        );
+    }
+
+    /**
+     * Current pan delta of the active move session, in degrees.
+     * @returns {{deltaLng: number, deltaLat: number}}
+     * @private
+     */
+    _currentMoveDelta() {
+        const session = this._moveSession;
+        if (!session) return { deltaLng: 0, deltaLat: 0 };
+
+        const center = this._map.getCenter();
+        return {
+            deltaLng: center.lng - session.startLng,
+            deltaLat: center.lat - session.startLat,
+        };
+    }
+
+    /**
+     * Translate the feature by the map pan and persist it.
+     * The success toast is only shown after the store is re-read and agrees:
+     * `updateFeature` returns undefined on EVERY path, including the permission
+     * and map-lock guards, so its return value proves nothing.
+     * @private
+     */
+    async _confirmMove() {
+        const session = this._moveSession;
+        if (!session || session.busy) return;
+
+        const { deltaLng, deltaLat } = this._currentMoveDelta();
+
+        if (Math.abs(deltaLng) < MOVE_MIN_DELTA_DEG && Math.abs(deltaLat) < MOVE_MIN_DELTA_DEG) {
+            this._endMoveSession();
+            showToast('A feição não foi movida', 'info');
+            return;
+        }
+
+        const moved = translateFeature(session.original, deltaLng, deltaLat);
+        const expected = moved ? firstPosition(moved.geometry) : null;
+
+        if (!moved || !expected) {
+            this._endMoveSession();
+            showToast('Não foi possível mover esta feição', 'error');
+            return;
+        }
+
+        session.busy = true;
+        this._moveActions.setBusy(true);
+
+        try {
+            // updateFeature takes the whole FEATURE as the second argument: an id
+            // there makes cleanFeature return null and the write is dropped without
+            // throwing (the same defect that silently lost attribute saves).
+            await updateFeature(session.storageType, moved, session.mapName);
+
+            const after = await getFeatureById(session.storageType, session.featureId, session.mapName);
+            const actual = after ? firstPosition(after.geometry) : null;
+            const saved = !!actual
+                && Math.abs(actual[0] - expected[0]) < MOVE_CONFIRM_TOLERANCE_DEG
+                && Math.abs(actual[1] - expected[1]) < MOVE_CONFIRM_TOLERANCE_DEG;
+
+            if (saved) await this._applyMoveToMapSource(session.storageType, after);
+
+            this._endMoveSession();
+
+            if (saved) {
+                showToast('Posição atualizada', 'success');
+            } else {
+                showToast('Não foi possível mover (sem permissão ou mapa bloqueado)', 'error');
+            }
+        } catch (err) {
+            console.error('PhoneLayout: error moving feature:', err);
+            this._endMoveSession();
+            showToast('Erro ao mover feição', 'error');
+        }
+    }
+
+    /**
+     * Abandon the move. No store write happened during the drag, so the feature
+     * is still at its original position; only the ghost preview is discarded.
+     * @private
+     */
+    _cancelMove() {
+        if (this._moveSession?.busy) return;
+        this._endMoveSession();
+    }
+
+    /**
+     * Tear down the map handler, the ghost preview and the session state,
+     * without touching the phone UI. Safe to call during deactivation.
+     * @private
+     */
+    _teardownMoveSession() {
+        if (this._moveMapHandler && this._map) {
+            this._map.off('move', this._moveMapHandler);
+        }
+        this._moveMapHandler = null;
+        this._removeMovePreview();
+        this._moveSession = null;
+    }
+
+    /**
+     * End the move session and restore the phone UI.
+     * @private
+     */
+    _endMoveSession() {
+        this._teardownMoveSession();
+
+        // hide() also clears the busy state.
+        this._moveActions?.hide();
+        this._fabs?.show();
+        this._bottomSheet?.snapTo('half');
+        this._featureEditor?.exitMoveMode();
+    }
+
+    /**
+     * Mirror the persisted move onto the live MapLibre source, which is what the
+     * canvas actually draws. The store write alone does not repaint: each tool
+     * owns a GeoJSON source named after the storage type and every desktop tool
+     * setData()s it after writing.
+     * @param {string} storageType - Storage type, which is also the source id
+     * @param {Object} feature - The feature as persisted
+     * @private
+     */
+    async _applyMoveToMapSource(storageType, feature) {
+        try {
+            const source = this._map?.getSource?.(storageType);
+            if (!source || typeof source.getData !== 'function') return;
+
+            const data = await source.getData();
+            const featureId = feature?.properties?.id;
+            const target = data?.features?.find(f => f.properties?.id === featureId);
+            if (!target) return;
+
+            target.geometry = feature.geometry;
+            // Only the position-bearing properties are copied: the rendered
+            // feature carries generated fields (calculated sizes, selection
+            // boxes) that the stored one does not, and a wholesale replace
+            // would drop them.
+            for (const key of POSITION_PROPERTIES) {
+                if (feature.properties[key] !== undefined) {
+                    target.properties[key] = feature.properties[key];
+                }
+            }
+
+            source.setData(data);
+        } catch (err) {
+            console.error('PhoneLayout: error refreshing moved feature source:', err);
+        }
+    }
+
+    /**
+     * Build the ghost preview data: the feature where it would land right now.
+     * @returns {Object} GeoJSON FeatureCollection (empty when not translatable)
+     * @private
+     */
+    _movePreviewData() {
+        const empty = { type: 'FeatureCollection', features: [] };
+        const session = this._moveSession;
+        if (!session) return empty;
+
+        const { deltaLng, deltaLat } = this._currentMoveDelta();
+        const moved = translateFeature(session.original, deltaLng, deltaLat);
+        if (!moved) return empty;
+
+        return {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: moved.geometry }],
+        };
+    }
+
+    /**
+     * Add the ghost source and its three layers (one per rendered dimension).
+     * @private
+     */
+    _addMovePreview() {
+        const map = this._map;
+        if (!map || typeof map.addSource !== 'function') return;
+
+        try {
+            if (!map.getSource(MOVE_PREVIEW_SOURCE_ID)) {
+                map.addSource(MOVE_PREVIEW_SOURCE_ID, {
+                    type: 'geojson',
+                    data: this._movePreviewData(),
+                });
+            }
+
+            if (!map.getLayer(MOVE_PREVIEW_FILL_LAYER_ID)) {
+                map.addLayer({
+                    id: MOVE_PREVIEW_FILL_LAYER_ID,
+                    type: 'fill',
+                    source: MOVE_PREVIEW_SOURCE_ID,
+                    filter: ['==', '$type', 'Polygon'],
+                    paint: { 'fill-color': MOVE_PREVIEW_COLOR, 'fill-opacity': 0.2 },
+                });
+            }
+
+            if (!map.getLayer(MOVE_PREVIEW_LINE_LAYER_ID)) {
+                map.addLayer({
+                    id: MOVE_PREVIEW_LINE_LAYER_ID,
+                    type: 'line',
+                    source: MOVE_PREVIEW_SOURCE_ID,
+                    filter: ['!=', '$type', 'Point'],
+                    paint: {
+                        'line-color': MOVE_PREVIEW_COLOR,
+                        'line-width': 2,
+                        'line-dasharray': [2, 2],
+                    },
+                });
+            }
+
+            if (!map.getLayer(MOVE_PREVIEW_POINT_LAYER_ID)) {
+                map.addLayer({
+                    id: MOVE_PREVIEW_POINT_LAYER_ID,
+                    type: 'circle',
+                    source: MOVE_PREVIEW_SOURCE_ID,
+                    filter: ['==', '$type', 'Point'],
+                    paint: {
+                        'circle-radius': 7,
+                        'circle-color': MOVE_PREVIEW_COLOR,
+                        'circle-opacity': 0.4,
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': MOVE_PREVIEW_COLOR,
+                    },
+                });
+            }
+        } catch (err) {
+            // A preview is a convenience; the move itself must still work.
+            console.error('PhoneLayout: error adding move preview:', err);
+        }
+    }
+
+    /**
+     * Redraw the ghost at the current pan offset.
+     * @private
+     */
+    _refreshMovePreview() {
+        try {
+            this._map?.getSource?.(MOVE_PREVIEW_SOURCE_ID)?.setData(this._movePreviewData());
+        } catch (_e) {
+            // Preview refresh is non-critical
+        }
+    }
+
+    /**
+     * Remove the ghost layers and source.
+     * @private
+     */
+    _removeMovePreview() {
+        const map = this._map;
+        if (!map || typeof map.getLayer !== 'function') return;
+
+        try {
+            for (const layerId of MOVE_PREVIEW_LAYER_IDS) {
+                if (map.getLayer(layerId)) map.removeLayer(layerId);
+            }
+            if (map.getSource(MOVE_PREVIEW_SOURCE_ID)) map.removeSource(MOVE_PREVIEW_SOURCE_ID);
+        } catch (err) {
+            console.error('PhoneLayout: error removing move preview:', err);
+        }
     }
 
     /**
@@ -782,6 +1143,11 @@ export class PhoneLayout {
      */
     _wireMapTapDeselect() {
         this._mapClickHandler = (e) => {
+            // A tap during move mode is part of the gesture (the user is panning
+            // the map under the feature). Deselecting there would tear down the
+            // editor mid-move and strand the session.
+            if (this._featureEditor?.isMoving()) return;
+
             // Only deselect if no feature was clicked
             const features = this._map.queryRenderedFeatures(e.point);
             if (!features || features.length === 0) {
@@ -811,6 +1177,10 @@ export class PhoneLayout {
      * @private
      */
     _unwireEvents() {
+        // Pairs the map.on('move') of an open move session with its off(), and
+        // removes the preview source/layers before the map outlives them.
+        this._teardownMoveSession();
+
         for (const unsub of this._eventUnsubscribers) {
             try {
                 unsub();

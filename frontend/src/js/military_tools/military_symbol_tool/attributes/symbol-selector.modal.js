@@ -14,6 +14,7 @@ import {
 } from '../brazilian_sidc_extension.js';
 import { checkCatalogWarnings } from '../brazilian_svg_postprocessing.js';
 import { isEngagementBarApplicable } from '../military_constants.js';
+import { loadSymbolSets } from '../symbol_sets.registry.js';
 
 import { createTabsContainer, switchTab } from './ui-components.helpers.js';
 import { createSymbolGallery } from './symbol-gallery.section.js';
@@ -626,10 +627,16 @@ export class SymbolSelectorModal extends ModalBase {
 /**
  * Opens the symbol configuration modal.
  *
+ * Awaits the symbol-set tables first: they are the only piece of the modal that
+ * is not already in memory (they load on demand, see `symbol_sets.registry.js`),
+ * and `render()` builds every combobox in one synchronous pass.
+ *
  * @param {SymbolModalConfig} config - Modal configuration
- * @returns {SymbolSelectorModal} Modal instance
+ * @returns {Promise<SymbolSelectorModal>} Modal instance
  */
-export function openSymbolModal(config) {
+export async function openSymbolModal(config) {
+    await loadSymbolSets();
+
     const modal = new SymbolSelectorModal(config);
     modal.render();
     modal.show();

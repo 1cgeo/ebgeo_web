@@ -61,7 +61,6 @@ export {
     updateItemVisualState,
 } from './feature-item.component.js';
 export {
-    createGroupItem,
     createGroupItemInLayer,
     handleGroupFeatureClick,
     toggleGroupExpansion,
@@ -69,8 +68,4 @@ export {
     toggleGroupLock,
     updateGroupVisualState,
     updateGroupLockState,
-} from './group-item.component.js';
-export {
-    createAnalysisLayersContainer,
-    renderAnalysisLayersControl,
-} from './analysis-layers.component.js';
+} from './group-item.component.js';

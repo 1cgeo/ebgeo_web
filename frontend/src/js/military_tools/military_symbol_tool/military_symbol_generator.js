@@ -7,6 +7,7 @@ import {
 } from './brazilian_svg_postprocessing.js';
 import { hasExtensions } from './brazilian_extension_catalog.js';
 import { convertImageToPngBlob } from '../svg-to-png.js';
+import { ensureMilsymbol } from './milsymbol-loader.js';
 
 const DEFAULT_SIZE = 100;
 
@@ -197,6 +198,13 @@ export class MilitarySymbolGenerator {
      * @returns {Promise<Object>} { blob: Blob, width: number, height: number }
      */
     async generateSymbol(sidc30, properties, targetSize = DEFAULT_SIZE, customColor = null) {
+        // The 855 kB milsymbol bundle is loaded on first use, not at boot. This is
+        // the single chokepoint every caller passes through, INCLUDING the one that
+        // is not a user gesture: `layers/layer_setup.js` regenerates symbol PNGs
+        // when a remote atlas snapshot arrives. Awaiting here is what turns "remove
+        // the eager script tag" from a race into a safe change.
+        await ensureMilsymbol();
+
         const sidc20 = getBaseSIDC(sidc30);
         const symbolSetCode = sidc20.substring(4, 6);
         const mainIcon = sidc20.substring(10, 16);

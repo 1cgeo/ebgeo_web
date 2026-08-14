@@ -279,30 +279,3 @@ export function createModernInfoBox(config) {
     return container;
 }
 
-/**
- * Creates a standardized attribute row with label and input.
- *
- * @param {string} labelText - Label text
- * @param {HTMLElement} inputElement - Input element
- * @returns {HTMLElement} Attribute row container
- */
-export function createAttributeRow(labelText, inputElement) {
-    const container = document.createElement('div');
-    container.className = 'attr-container-row';
-
-    const label = document.createElement('label');
-    label.textContent = labelText;
-
-    const attrName = document.createElement('div');
-    attrName.className = 'attr-name';
-    attrName.appendChild(label);
-
-    const attrInput = document.createElement('div');
-    attrInput.className = 'attr-input';
-    attrInput.appendChild(inputElement);
-
-    container.appendChild(attrName);
-    container.appendChild(attrInput);
-
-    return container;
-}

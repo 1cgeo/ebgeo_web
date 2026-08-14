@@ -308,4 +308,3 @@ export class RemoteSelectionsLayer {
     }
 }
 
-export default RemoteSelectionsLayer;

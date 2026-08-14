@@ -6,4 +6,3 @@
 
 export { default as userDataManager } from './user_data_manager.js';
 export { renderAttributesContent } from './attributes_tab_renderer.js';
-export { renderImagesContent } from './images_tab_renderer.js';

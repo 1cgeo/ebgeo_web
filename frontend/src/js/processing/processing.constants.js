@@ -66,26 +66,6 @@ export const PROCESSING_ICONS = Object.freeze({
 // CATEGORIES
 // ============================================================================
 
-/**
- * Algorithm categories for UI grouping.
- * @readonly
- */
-export const ALGORITHM_CATEGORIES = Object.freeze({
-    GEOMETRY: 'geometry',
-    ANALYSIS: 'analysis',
-    SPATIAL: 'spatial',
-});
-
-/**
- * Category labels in pt-BR.
- * @readonly
- */
-export const CATEGORY_LABELS = Object.freeze({
-    [ALGORITHM_CATEGORIES.GEOMETRY]: 'Geometria',
-    [ALGORITHM_CATEGORIES.ANALYSIS]: 'Análise',
-    [ALGORITHM_CATEGORIES.SPATIAL]: 'Espacial',
-});
-
 // ============================================================================
 // SHARED ALGORITHM CONSTANTS
 // ============================================================================

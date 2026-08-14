@@ -538,4 +538,3 @@ export function createPresentationTextPanel(config, callbacks) {
     return new PresentationTextPanel(config, callbacks);
 }
 
-export default PresentationTextPanel;

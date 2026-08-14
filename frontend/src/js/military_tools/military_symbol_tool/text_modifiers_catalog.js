@@ -4,8 +4,8 @@
  * Text amplifiers catalog by dimension
  * Mapping according to MD33-M-02 and milsymbol.js
  *
- * The keys MUST be the symbol set codes declared in `military_constants.js`
- * (SYMBOL_SET_REGISTRY / MILITARY_DATA.symbolSets), because the lookup in
+ * The keys MUST be the symbol set codes of `MILITARY_DATA.symbolSets`
+ * (`military_constants.js`), the same codes keying `data/index.js`, because the lookup in
  * `getTextModifiersConfig` is fed straight from `properties.symbolSet` with no
  * translation table. `tests/unit/text-modifiers-catalog.test.js` pins this.
  */

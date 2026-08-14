@@ -55,4 +55,3 @@ export function createTilePreloader(map) {
     return new TilePreloader(map);
 }
 
-export default TilePreloader;

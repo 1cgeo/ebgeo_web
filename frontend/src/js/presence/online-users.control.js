@@ -386,4 +386,3 @@ export class OnlineUsersControl {
     }
 }
 
-export default OnlineUsersControl;

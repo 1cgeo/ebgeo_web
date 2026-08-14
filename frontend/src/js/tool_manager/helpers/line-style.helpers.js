@@ -105,22 +105,3 @@ export function createModernLineStyleSelect(config) {
     return container;
 }
 
-/**
- * Gets the dash array for a line style ID.
- *
- * @param {string} styleId - Line style ID
- * @returns {string|null} Dash array string or null for solid
- */
-export function getLineDashArray(styleId) {
-    const style = LINE_STYLES.find(s => s.id === styleId);
-    return style ? style.dasharray : null;
-}
-
-/**
- * Gets all available line styles.
- *
- * @returns {Array} Array of line style objects
- */
-export function getLineStyles() {
-    return [...LINE_STYLES];
-}

@@ -5,6 +5,5 @@
  */
 
 export { createCompassRose, createCompassRoseComponent } from './compass-rose.component.js';
-export { createGeometryPreview, createGeometryPreviewComponent } from './geometry-preview.component.js';
 export { createLegRow, createLegsTable } from './leg-row.component.js';
 export { createReferencePointComponent, createSectionLabel } from './reference-point.component.js';

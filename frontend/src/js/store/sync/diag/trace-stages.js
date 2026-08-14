@@ -64,5 +64,3 @@ export const DropReason = Object.freeze({
     UNKNOWN_TYPE: 'unknown_type',
 });
 
-/** Frozen set of every known stage string — the merger uses it to reject drift. */
-export const KNOWN_STAGES = Object.freeze(new Set(Object.values(TraceStage)));

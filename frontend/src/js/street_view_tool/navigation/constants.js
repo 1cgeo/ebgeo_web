@@ -182,20 +182,3 @@ export const NAV_CONSTANTS = Object.freeze({
     /** Label offset from marker center */
     LABEL_OFFSET_Y: -30
 });
-
-/**
- * Default style for 360 markers (POIs)
- */
-export const DEFAULT_MARKER_360_STYLE = Object.freeze({
-    visible: true,
-    showMarker: true,
-    markerColor: '#3f4fb5',
-    markerSize: 12,
-    markerOpacity: 1,
-    showLabel: true,
-    labelText: '',
-    labelColor: '#ffffff',
-    labelBackgroundColor: '#3f4fb5',
-    labelBackgroundOpacity: 0.9,
-    labelSize: 14
-});

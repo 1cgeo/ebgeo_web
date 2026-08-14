@@ -31,43 +31,9 @@ import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.
 // CONSTANTS
 // ============================================================================
 
-/**
- * Feature type display names in Portuguese.
- * @constant {Object<string, string>}
- */
-const FEATURE_TYPE_NAMES = {
-    'point': 'Ponto',
-    'line': 'Linha',
-    'polygon': 'Polígono',
-    'circle': 'Círculo',
-    'ellipse': 'Elipse',
-    'rectangle': 'Retângulo',
-    'text': 'Texto',
-    'image': 'Imagem',
-    'brush': 'Pincel',
-    'arrow': 'Seta',
-    'boundary': 'Limite',
-    'occupied_front': 'Frente Ocupada',
-    'military_symbol': 'Símbolo Militar',
-    'coordination_measure': 'Medida de Coordenação',
-    'magnetic_declination': 'Declinação Magnética',
-    'los': 'Linha de Visada',
-    'visibility': 'Visibilidade',
-};
-
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * Gets a display name for the feature type.
- *
- * @param {string} featureType - Feature type
- * @returns {string} Display name in Portuguese
- */
-export function getFeatureTypeName(featureType) {
-    return FEATURE_TYPE_NAMES[featureType] || 'Feição';
-}
 
 /**
  * Creates the delete section with delete button.

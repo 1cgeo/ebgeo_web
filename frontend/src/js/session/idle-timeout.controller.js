@@ -61,4 +61,3 @@ export class IdleTimeoutController {
     }
 }
 
-export default IdleTimeoutController;

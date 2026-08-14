@@ -14,8 +14,7 @@ export {
     getEventBus,
     getStateManager,
     getLayerManager,
-    getGroupManager,
-    getMapResolver
+    getGroupManager
 } from './services.js';
 
 // Control Registry (centralized access to tool controls)

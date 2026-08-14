@@ -373,4 +373,3 @@ export function createApplicationModeManager() {
     return instance;
 }
 
-export default ApplicationModeManager;

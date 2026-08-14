@@ -62,7 +62,7 @@ O humano não se automatiza para fora. Ele assume dois papéis que o sistema nã
 ## Referências
 
 - [`CLAUDE.md`](../CLAUDE.md): a constituição (versão condensada dos princípios + regras operacionais).
-- [`../livro-razao.md`](../livro-razao.md): o espelho das correções.
+- [`docs/livro-razao.md`](livro-razao.md): o espelho das correções.
 - [`wiki/index.md`](wiki/index.md): a memória semântica.
 - [`decisions/DECISIONS.md`](decisions/DECISIONS.md): o log de decisões.
 - [`../.claude/skills/_DOUTRINA.md`](../.claude/skills/_DOUTRINA.md): como uma skill serve a esta doutrina.

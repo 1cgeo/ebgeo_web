@@ -6,7 +6,5 @@
 
 export { BaseLayerSelectorControl } from './base-layer-selector.control.js';
 export {
-    LAYER_THUMBNAILS,
-    SELECTOR_ICONS,
-    SELECTOR_DIMENSIONS
+    LAYER_THUMBNAILS
 } from './base-layer-selector.constants.js';

@@ -104,14 +104,6 @@ export function deactivateKeyboardService360() {
     isActive = false;
 }
 
-/**
- * Check if the keyboard service is currently active.
- * @returns {boolean}
- */
-export function isKeyboardService360Active() {
-    return isActive;
-}
-
 // =========================================================================
 // KEYBOARD HANDLER
 // =========================================================================

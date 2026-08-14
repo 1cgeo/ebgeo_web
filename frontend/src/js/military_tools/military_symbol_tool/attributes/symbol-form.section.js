@@ -7,15 +7,22 @@
 
 import {
     MILITARY_DATA,
-    getMainIcons,
-    getModifier1,
-    getModifier2,
     getEchelonData,
     getSpecialModifierData,
     isCommandApplicable,
     isModifier1Applicable,
     isModifier2Applicable
 } from '../military_constants.js';
+
+// The three table readers below are the heavy half: they only answer after
+// `loadSymbolSets()` resolved, which `openSymbolModal` awaits before rendering.
+// Keep this import separate from the constants one, so the boundary between what
+// is always in memory and what arrives on demand stays visible at the call site.
+import {
+    getMainIcons,
+    getModifier1,
+    getModifier2
+} from '../symbol_sets.registry.js';
 
 import { createModernToggle } from '@tools';
 

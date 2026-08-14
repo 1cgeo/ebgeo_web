@@ -319,4 +319,3 @@ export class CommentsPanel {
     }
 }
 
-export default CommentsPanel;

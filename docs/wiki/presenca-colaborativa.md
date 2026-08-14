@@ -25,7 +25,7 @@ Isto não é hipotético: **aconteceu duas vezes, nas duas metades opostas.** At
 
 A lição, que sobreviveu às duas: **uniformize a chave no emissor**, porque o consumidor não tem como reconciliar duas identidades depois. O store não pode se defender sozinho: um frame sem `clientId` é genuinamente inatribuível a uma aba, e casar por `userId` grudaria o cursor de uma aba na outra.
 
-E repare por que a suíte não pegou nenhuma das duas vezes: `presence-store.test.js` injetava `clientId` dentro do payload de `setCursor`, um campo que o backend não emitia. A fixture era mais generosa que o formato de fio, então cada lado passava sozinho e o par estava quebrado. É o ponto cego estrutural nº 5 de `testes-backend.md`.
+E repare por que a suíte não pegou nenhuma das duas vezes: `presence-store.test.js` injetava `clientId` dentro do payload de `setCursor`, um campo que o backend não emitia. A fixture era mais generosa que o formato de fio, então cada lado passava sozinho e o par estava quebrado. É o ponto cego que a auditoria de testes de backend de 2026-07 nomeou como o quinto: a fronteira entre os dois pacotes afirmada em comentário, testada de cada lado e nunca exercitada em par.
 
 O que a divisão de chave **não** quebrava, e é útil saber por quê:
 

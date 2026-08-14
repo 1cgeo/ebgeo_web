@@ -481,11 +481,3 @@ export function getUIVisibilityController() {
     return instance;
 }
 
-/**
- * Alias for getUIVisibilityController.
- * Kept for backward compatibility with service initialization code.
- * @returns {UIVisibilityController}
- */
-export const createUIVisibilityController = getUIVisibilityController;
-
-export default UIVisibilityController;

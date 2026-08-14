@@ -250,4 +250,3 @@ export class RemoteCursorsLayer {
     }
 }
 
-export default RemoteCursorsLayer;

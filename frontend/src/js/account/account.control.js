@@ -957,4 +957,3 @@ export class AccountControl {
     }
 }
 
-export default AccountControl;

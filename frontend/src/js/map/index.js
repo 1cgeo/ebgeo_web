@@ -11,15 +11,6 @@ export { default as DragRotateHandler } from './drag-rotate.handler.js';
 // Animation service
 export {
     ANIMATION_DURATION,
-    capturePosition,
-    capturePositionExtended,
     flyTo,
-    restorePosition,
-    easeTo,
-    zoomTo,
-    zoomIn,
-    zoomOut,
-    fitBounds,
-    rotateTo,
-    resetNorth
+    fitBounds
 } from './animation.service.js';

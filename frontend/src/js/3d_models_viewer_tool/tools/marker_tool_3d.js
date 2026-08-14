@@ -815,22 +815,6 @@ export function cleanupMarkerTool() {
 }
 
 /**
- * Gets current tileset ID.
- * @returns {string|null} Current tileset ID
- */
-export function getCurrentTilesetId() {
-    return currentTilesetId;
-}
-
-/**
- * Checks if marker tool is active.
- * @returns {boolean} True if active
- */
-export function isMarkerToolActive() {
-    return isToolActive;
-}
-
-/**
  * Refreshes markers for the current tileset.
  * Called when the active map changes to reload markers from the new map.
  */

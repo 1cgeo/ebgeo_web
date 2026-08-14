@@ -923,4 +923,3 @@ export function createTransitionService(map) {
     return new TransitionService(map);
 }
 
-export default TransitionService;

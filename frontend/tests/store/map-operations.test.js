@@ -17,8 +17,8 @@ const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps,
             removeMapFromMemory: vi.fn(async () => {}),
             renameMapInMemory: vi.fn(),
             setCurrentMap: vi.fn(async () => {}),
-            undoLastAction: vi.fn(async () => ({})),
-            redoLastAction: vi.fn(async () => ({})),
+            // No undoLastAction/redoLastAction here on purpose: map.operations.js no
+            // longer forwards to the state manager (see undo-redo-lock-guard.test.js).
             getFrequentColors: vi.fn(() => [])
         },
         mockLockedMaps: { value: new Set() },

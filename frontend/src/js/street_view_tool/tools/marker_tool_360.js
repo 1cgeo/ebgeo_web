@@ -116,14 +116,6 @@ export async function createMarkerAtPosition(position) {
 // ===== PHOTO TRACKING =====
 
 /**
- * Gets the current photo name for marker creation.
- * @returns {string|null} Current photo name
- */
-export function getCurrentPhotoForMarker() {
-    return currentPhotoName;
-}
-
-/**
  * Sets the current photo name for marker creation.
  * @param {string} photoName - Photo name
  */

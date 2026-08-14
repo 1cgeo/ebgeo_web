@@ -48,24 +48,3 @@ export const LAYER_THUMBNAILS = {
     },
 };
 
-/**
- * SVG icons for the selector.
- */
-export const SELECTOR_ICONS = {
-    expand: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`,
-
-    collapse: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
-
-    layers: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
-};
-
-/**
- * Selector dimensions.
- */
-export const SELECTOR_DIMENSIONS = {
-    thumbnailWidth: 80,
-    thumbnailHeight: 56,
-    gap: 8,
-    padding: 8,
-    borderRadius: 8,
-};

@@ -1096,15 +1096,6 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
 // ===== VISIBILITY/LOCK CHECKS =====
 
 /**
- * Checks if a feature is effectively visible.
- * @param {Object} feature - Feature to check
- * @returns {boolean} True if visible
- */
-export function isFeatureEffectivelyVisible(feature) {
-    return deps.layerManager.isFeatureEffectivelyVisible(feature);
-}
-
-/**
  * Checks if a feature is effectively locked.
  * @param {Object} feature - Feature to check
  * @returns {boolean} True if locked

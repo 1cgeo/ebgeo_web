@@ -15,14 +15,6 @@ export function isTouchDevice() {
 }
 
 /**
- * Detects whether the device is a mobile device (small screen + touch).
- * @returns {boolean}
- */
-export function isMobileDevice() {
-    return isTouchDevice() && window.innerWidth < 768;
-}
-
-/**
  * Returns the pointer position (mouse or touch) relative to a canvas element.
  * @param {PointerEvent|MouseEvent|TouchEvent} event
  * @param {HTMLElement} canvas

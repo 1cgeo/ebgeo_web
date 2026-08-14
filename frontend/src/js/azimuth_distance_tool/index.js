@@ -25,7 +25,6 @@ export {
     normalizeAzimuth,
     calculateContraAzimuth,
     calculateWaypoints,
-    calculatePreviewPoints,
     generateGeometry,
     generateFeature,
     generatePointFeatures,
@@ -49,18 +48,14 @@ export {
     COMPASS_PRESETS,
     DEFAULT_PROPERTIES,
     VALIDATION,
-    UI_CONFIG,
     COLORS,
-    MODE_TO_SOURCE,
-    MODE_TO_GEOMETRY_TYPE
+    MODE_TO_SOURCE
 } from './azimuth_distance_constants.js';
 
 // Components
 export {
     createCompassRose,
     createCompassRoseComponent,
-    createGeometryPreview,
-    createGeometryPreviewComponent,
     createLegRow,
     createLegsTable,
     createReferencePointComponent,

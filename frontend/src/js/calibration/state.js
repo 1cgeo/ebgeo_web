@@ -82,15 +82,6 @@ function rebuildPhotoIndex() {
 }
 
 /**
- * Returns the ordered photos of a capture run.
- * @param {string} runId - Run UUID
- * @returns {Array} Fotos em ordem de captura (vazio se a faixa nao existe)
- */
-export function getRunPhotos(runId) {
-    return photosByRun.get(runId) ?? [];
-}
-
-/**
  * Returns the run id of the photo currently open, or null.
  * @returns {string|null}
  */

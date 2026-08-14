@@ -1,75 +1,20 @@
 // Path: js/military_tools/military_symbol_tool/military_constants.js
 
-import landUnitsData from './data/unidades.js';
-import aeronaves from './data/aeronaves.js';
-import misseis from './data/misseis.js';
-import espaciais from './data/espaciais.js';
-import equipamentosViaturas from './data/equipamentos_viaturas.js';
-import instalacoes from './data/instalacoes.js';
-import individuosDesembarcados from './data/individuos_desembarcados.js';
-import maritimosSuperficie from './data/maritimos_superficie.js';
-import submarinos from './data/submarinos.js';
-import guerraMinas from './data/guerra_minas.js';
-import atividadesEventos from './data/atividades_eventos.js';
+/**
+ * @fileoverview Small, always-available symbol metadata: the fixed option lists
+ * (standard identity, status, echelon, mobility…) and the per-symbol-set
+ * applicability predicates.
+ *
+ * The eleven symbol-set TABLES do NOT live here anymore. They are ~215 kB that
+ * only the selector modal reads, and they were dragging the whole block into the
+ * eager `military-tools` chunk through this file. They now load on demand from
+ * `symbol_sets.registry.js`; do not import `./data/` from this module again.
+ */
 
 import {
     getTextModifiersConfig,
     hasTextModifiers
 } from './text_modifiers_catalog.js';
-
-/** Maps symbol set code to its data structure */
-const SYMBOL_SET_REGISTRY = {
-    '01': aeronaves.symbol_sets[0],
-    '02': misseis.symbol_sets[0],
-    '05': espaciais.symbol_sets[0],
-    '10': landUnitsData.symbol_sets[0],
-    '15': equipamentosViaturas.symbol_sets[0],
-    '20': instalacoes.symbol_sets[0],
-    '27': individuosDesembarcados.symbol_sets[0],
-    '30': maritimosSuperficie.symbol_sets[0],
-    '35': submarinos.symbol_sets[0],
-    '36': guerraMinas.symbol_sets[0],
-    '40': atividadesEventos.symbol_sets[0]
-};
-
-/**
- * Get symbol set data by code
- * @param {string} symbolSetCode - Symbol set code (e.g., "01", "10")
- * @returns {Object|null} Symbol set data or null if not found
- */
-export function getSymbolSetData(symbolSetCode) {
-    return SYMBOL_SET_REGISTRY[symbolSetCode] || null;
-}
-
-/**
- * Get main icons for a specific symbol set
- * @param {string} symbolSetCode - Symbol set code
- * @returns {Array} Array of main icon objects
- */
-export function getMainIcons(symbolSetCode) {
-    const symbolSet = SYMBOL_SET_REGISTRY[symbolSetCode];
-    return symbolSet ? symbolSet["main icon"] : [];
-}
-
-/**
- * Get modifier 1 options for a specific symbol set
- * @param {string} symbolSetCode - Symbol set code
- * @returns {Array} Array of modifier 1 objects
- */
-export function getModifier1(symbolSetCode) {
-    const symbolSet = SYMBOL_SET_REGISTRY[symbolSetCode];
-    return symbolSet ? symbolSet["modifier 1"] : [];
-}
-
-/**
- * Get modifier 2 options for a specific symbol set
- * @param {string} symbolSetCode - Symbol set code
- * @returns {Array} Array of modifier 2 objects
- */
-export function getModifier2(symbolSetCode) {
-    const symbolSet = SYMBOL_SET_REGISTRY[symbolSetCode];
-    return symbolSet ? symbolSet["modifier 2"] : [];
-}
 
 export const MILITARY_DATA = {
     format: "10",
@@ -310,23 +255,6 @@ export function getEngagementBarData() {
 }
 
 /**
- * Check if a symbol set code is valid
- * @param {string} symbolSetCode - Symbol set code to validate
- * @returns {boolean} True if valid
- */
-export function isValidSymbolSet(symbolSetCode) {
-    return Object.prototype.hasOwnProperty.call(SYMBOL_SET_REGISTRY, symbolSetCode);
-}
-
-/**
- * Get list of all available symbol set codes
- * @returns {Array<string>} Array of symbol set codes
- */
-export function getAllSymbolSetCodes() {
-    return Object.keys(SYMBOL_SET_REGISTRY);
-}
-
-/**
  * Check if echelon is applicable for a symbol set
  * @param {string} symbolSetCode - Symbol set code
  * @returns {boolean} True if echelon is applicable
@@ -346,5 +274,4 @@ export function isHqTfApplicable(symbolSetCode) {
     return hqTfApplicable.includes(symbolSetCode);
 }
 
-export { SYMBOL_SET_REGISTRY };
 export { getTextModifiersConfig, hasTextModifiers };

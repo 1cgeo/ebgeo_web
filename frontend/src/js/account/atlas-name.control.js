@@ -115,4 +115,3 @@ export class AtlasNameControl {
     }
 }
 
-export default AtlasNameControl;

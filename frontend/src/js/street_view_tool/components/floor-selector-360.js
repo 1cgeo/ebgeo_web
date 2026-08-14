@@ -169,14 +169,6 @@ export function getActiveFloorPlan() {
     return floors.find(f => f.level === activeLevel)?.plan || null;
 }
 
-/**
- * Whether the loaded project has floors at all.
- * @returns {boolean}
- */
-export function hasFloors() {
-    return floors.length > 0;
-}
-
 /** Removes the strip and clears the state. */
 export function destroyFloorSelector() {
     if (rootEl) {

@@ -24,28 +24,6 @@ import { zoomToFeature } from '@utils';
  */
 
 /**
- * Creates a group item with its features.
- *
- * @param {Object} groupData - Group data object
- * @param {Array} features - Features in the group
- * @param {GroupItemCallbacks} callbacks - Callback functions
- * @returns {HTMLElement} Group item element
- */
-export function createGroupItem(groupData, features, callbacks) {
-    const groupContainer = document.createElement('div');
-    groupContainer.className = 'group-container';
-    groupContainer.dataset.groupId = groupData.id;
-
-    const groupHeader = createGroupHeader(groupData, features.length, false, features.length, callbacks);
-    groupContainer.appendChild(groupHeader);
-
-    const featuresList = createGroupFeaturesList(groupData, features, callbacks);
-    groupContainer.appendChild(featuresList);
-
-    return groupContainer;
-}
-
-/**
  * Creates a group item inside a layer (with split indicator if cross-layer).
  *
  * @param {Object} groupInfo - Group info object with groupData, features, totalInGroup

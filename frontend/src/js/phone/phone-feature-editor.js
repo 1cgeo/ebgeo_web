@@ -472,15 +472,17 @@ export class PhoneFeatureEditor {
 
     /**
      * Handle move button click — fire move callback.
+     * Move mode is only entered when there is a callback able to drive it: the
+     * orchestrator owns the map gesture and the store write, so without it the
+     * component would sit in a mode nothing can leave.
      * @private
      */
     _onMoveClick() {
         if (!this._featureData) return;
-        this._mode = Mode.MOVE;
+        if (typeof this._moveStartCallback !== 'function') return;
 
-        if (typeof this._moveStartCallback === 'function') {
-            this._moveStartCallback(this._featureData.id);
-        }
+        this._mode = Mode.MOVE;
+        this._moveStartCallback(this._featureData.id);
     }
 
     /**

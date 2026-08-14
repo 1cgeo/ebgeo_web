@@ -335,7 +335,6 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
 
 export {
     FEATURE_TYPE_ICONS,
-    FEATURE_TYPE_LAYERS,
     DEFAULT_MAP_NAME,
     FEATURE_TYPE_MAPPINGS,
     FEATURE_DISPLAY_NAMES,
@@ -347,7 +346,6 @@ export {
     getFeatureDisplayName,
     getFeatureDisplayNameFromStorage,
     getFeatureIconFromStorage,
-    getAllSourceTypes,
     getAllStorageTypes,
     isUncopyableFeatureType,
     hasImageResource,
@@ -469,7 +467,6 @@ export {
 export {
     getCustomIcons,
     addCustomIcon,
-    removeCustomIcon,
     getCustomIconBlob,
     getCustomIconsForExport,
     restoreCustomIconsFromImport

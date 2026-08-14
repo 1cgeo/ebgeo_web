@@ -124,32 +124,6 @@ export function reorderAtlasMaps(atlas, newOrder) {
 }
 
 /**
- * Sets the last active map ID.
- * @param {Atlas} atlas - Atlas to modify
- * @param {string|null} mapId - Map ID to set as active
- * @returns {Atlas} New Atlas object
- */
-export function setAtlasActiveMap(atlas, mapId) {
-    return {
-        ...atlas,
-        lastActiveMapId: mapId,
-    };
-}
-
-/**
- * Updates the Atlas name.
- * @param {Atlas} atlas - Atlas to modify
- * @param {string} name - New name
- * @returns {Atlas} New Atlas object
- */
-export function renameAtlas(atlas, name) {
-    return {
-        ...atlas,
-        name,
-    };
-}
-
-/**
  * Gets terrain exaggeration from an Atlas, with fallback to default.
  * @param {Atlas|null} atlas - Atlas object (may be null or missing settings)
  * @returns {number} Terrain exaggeration value

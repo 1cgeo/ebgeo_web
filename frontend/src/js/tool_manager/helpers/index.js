@@ -7,9 +7,7 @@
 
 // Common configuration
 export {
-    DEFAULT_SLIDER_CONFIG,
-    COMMON_CONFIGS,
-    getCommonConfig
+    DEFAULT_SLIDER_CONFIG
 } from './common-config.helpers.js';
 
 // Slider components
@@ -32,8 +30,7 @@ export {
     createModernSelect,
     createModernTextarea,
     createModernTabs,
-    createModernInfoBox,
-    createAttributeRow
+    createModernInfoBox
 } from './form-controls.helpers.js';
 
 // Section divider
@@ -43,26 +40,18 @@ export {
 
 // Line style selector
 export {
-    createModernLineStyleSelect,
-    getLineDashArray,
-    getLineStyles
+    createModernLineStyleSelect
 } from './line-style.helpers.js';
 
 // Hatch control
 export {
-    createModernHatchControl,
-    getHatchPatterns
+    createModernHatchControl
 } from './hatch-control.helpers.js';
 
 // Text alignment
 export {
     createModernTextAlignment
 } from './text-alignment.helpers.js';
-
-// Coordinate editor
-export {
-    createCoordinateEditor
-} from './coordinate-editor.helpers.js';
 
 // Feature header
 export {
@@ -94,13 +83,13 @@ export {
     createLabelZoomHandler,
     createFillAreaButton,
     syncLabelSource,
-    computeShapeCentroid,
+    computeShapeCentroid
 } from './label-tab.helpers.js';
 
 // Observations editor
 export {
     createObservationsEditor,
-    createObservationsSection,
+    createObservationsSection
 } from './observations-editor.helpers.js';
 
 // Marker symbol picker

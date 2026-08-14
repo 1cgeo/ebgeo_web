@@ -83,4 +83,3 @@ export function getViewModeController() {
     return _instance;
 }
 
-export default ViewModeController;

@@ -94,17 +94,6 @@ export function cleanQuillContent(html) {
 }
 
 /**
- * Strips HTML tags from content for plain text display.
- *
- * @param {string} html - HTML string
- * @returns {string} Plain text
- */
-export function stripHtml(html) {
-    if (!html) return '';
-    return extractTextContent(html);
-}
-
-/**
  * Compresses an image file before embedding in Quill.
  *
  * @param {File} file - Image file to compress

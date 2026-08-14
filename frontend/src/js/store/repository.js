@@ -21,7 +21,6 @@ import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
 import { DEFAULT_MAP_NAME } from './store.constants.js';
-import { logAtlasSetting } from './sync/operation-dispatcher.js';
 
 // Re-export from repository.utils.js for backward compatibility
 export {
@@ -49,9 +48,6 @@ import {
     getEmptyCesium3dData
 } from './repository.utils.js';
 import { memoryStore } from './memory-store.js';
-
-// Schema version for v2.0+ (Atlas-based)
-export const CURRENT_SCHEMA_VERSION = ATLAS_SCHEMA_VERSION;
 
 // ===== LOCALFORAGE INSTANCES =====
 // These are kept here for initialization and bulk clear operations
@@ -390,15 +386,6 @@ export async function setAppSetting(key, value) {
     await appStore.setItem(key, value);
 }
 
-/**
- * Gets an app setting.
- * @param {string} key - Setting key
- * @returns {Promise<any>} Setting value
- */
-export async function getAppSetting(key) {
-    return appStore.getItem(key);
-}
-
 // ===== COLOR USAGE (needed by store.js for getColorUsage export) =====
 
 /**
@@ -411,23 +398,3 @@ export async function getColorUsage(mapName) {
     return data || {};
 }
 
-/**
- * Sets color usage data for a map.
- * @param {string} mapName - Map name
- * @param {Object} colorUsageData - Color usage data
- */
-export async function setColorUsage(mapName, colorUsageData) {
-    await appStore.setItem(`color_usage_${mapName}`, colorUsageData);
-    // datamodel-13: sync this map's color usage to the atlas as a per-map nested
-    // object ({ [mapName]: counts }). No-op offline; the backend deep-merges into
-    // atlas.settings.colorUsage so a single-map write does not clobber sibling maps.
-    await logAtlasSetting({ colorUsage: { [mapName]: colorUsageData } });
-}
-
-/**
- * Removes color usage data for a map.
- * @param {string} mapName - Map name
- */
-export async function removeColorUsage(mapName) {
-    await appStore.removeItem(`color_usage_${mapName}`);
-}

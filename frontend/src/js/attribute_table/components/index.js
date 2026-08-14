@@ -10,23 +10,19 @@ export {
     getTableContainer,
     getFiltersContainer,
     updateLayerName,
-    updateFeatureCount,
+    updateFeatureCount
 } from './table-panel.js';
 
 export {
-    createFiltersBar,
-    setSearchValue,
-    setSelectedOnly,
-    setActiveTypes,
+    createFiltersBar
 } from './table-filters.js';
 
 export {
     renderTable,
-    updateRowSelections,
-    updateRowHover,
+    updateRowSelections
 } from './table-renderer.js';
 
 export {
     showColumnContextMenu,
-    hideColumnContextMenu,
+    hideColumnContextMenu
 } from './column-context-menu.js';

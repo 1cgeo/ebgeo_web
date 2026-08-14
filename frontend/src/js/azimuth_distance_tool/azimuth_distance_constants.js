@@ -181,18 +181,6 @@ export const VALIDATION = {
 // UI CONFIGURATION
 // ============================================================================
 
-/**
- * UI sizing and layout constants
- */
-export const UI_CONFIG = {
-    COMPASS_SIZE: 156,
-    PREVIEW_WIDTH: 210,
-    PREVIEW_HEIGHT: 210,
-    PREVIEW_PADDING: 24,
-    LEG_ROW_HEIGHT: 40,
-    MAX_VISIBLE_LEGS: 5 // Before scrolling
-};
-
 // ============================================================================
 // DESIGN TOKENS (matching EBGeo design system)
 // ============================================================================
@@ -240,12 +228,3 @@ export const MODE_TO_SOURCE = {
     [OUTPUT_MODE.AREA]: 'polygons'
 };
 
-/**
- * Maps output mode to GeoJSON geometry type
- * @type {Object<string, string>}
- */
-export const MODE_TO_GEOMETRY_TYPE = {
-    [OUTPUT_MODE.POINT]: 'Point',
-    [OUTPUT_MODE.ROUTE]: 'LineString',
-    [OUTPUT_MODE.AREA]: 'Polygon'
-};

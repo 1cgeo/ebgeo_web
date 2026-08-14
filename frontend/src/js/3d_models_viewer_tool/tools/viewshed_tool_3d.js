@@ -835,22 +835,6 @@ export function cleanupViewshedTool() {
 }
 
 /**
- * Gets current tileset ID.
- * @returns {string|null} Current tileset ID
- */
-export function getCurrentTilesetId() {
-    return currentTilesetId;
-}
-
-/**
- * Checks if viewshed tool is active.
- * @returns {boolean} True if active
- */
-export function isViewshedToolActive() {
-    return isToolActive;
-}
-
-/**
  * Refreshes viewsheds for the current tileset.
  */
 export async function refreshViewshedsForCurrentTileset() {

@@ -59,16 +59,6 @@ export function getActiveLayerIdSync() {
 }
 
 /**
- * Gets the active layer ID (async, for compatibility).
- *
- * @param {string} [_mapName=null] - Map name (unused, kept for API compatibility)
- * @returns {Promise<string>} Active layer ID
- */
-export async function getActiveLayerId(_mapName = null) {
-    return deps.layerManager.getActiveLayerIdSync();
-}
-
-/**
  * Gets visible layer IDs.
  *
  * @param {string} [mapName=null] - Map name
@@ -122,17 +112,6 @@ export function createLayerForImport(name = 'Importação', mapName = null) {
  * @returns {import('./store.types.js').Layer} Activated layer
  */
 export function setActiveLayer(layerId, mapName = null) {
-    return deps.layerManager.setActiveLayer(layerId, mapName);
-}
-
-/**
- * Sets the active layer ID (for compatibility).
- *
- * @param {string} mapName - Map name
- * @param {string} layerId - Layer ID
- * @returns {Promise<import('./store.types.js').Layer>}
- */
-export async function setActiveLayerId(mapName, layerId) {
     return deps.layerManager.setActiveLayer(layerId, mapName);
 }
 
@@ -258,13 +237,6 @@ export function deleteLayerOnly(layerId, mapName = null) {
  */
 export async function loadLayersToMemory(mapName) {
     return deps.layerManager.loadLayersToMemory(mapName);
-}
-
-/**
- * Clears layers cache.
- */
-export function clearLayersCache() {
-    deps.layerManager.clearLayersCache();
 }
 
 // ===== IMPORT OPERATIONS =====

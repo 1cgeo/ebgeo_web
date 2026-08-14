@@ -9,4 +9,4 @@ export { StreetViewProjector } from './projector.js';
 export { StreetViewRenderer } from './renderer.js';
 export { StreetViewHitTester } from './hit-tester.js';
 export { StreetViewMinimapSync } from './minimap-sync.js';
-export { NAV_CONSTANTS, DEFAULT_MARKER_360_STYLE } from './constants.js';
+export { NAV_CONSTANTS } from './constants.js';

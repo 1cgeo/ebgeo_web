@@ -133,20 +133,6 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
 }
 
 /**
- * Remove a custom icon from the registry and delete its blob.
- * @param {string} id - Icon id
- * @returns {Promise<void>}
- */
-export async function removeCustomIcon(id) {
-    await ensureLoaded();
-    registry = registry.filter((entry) => entry.id !== id);
-    await setSettingCompat(SETTING_KEY, registry);
-    await deleteImageCompat(id);
-    // datamodel-14: sync the updated registry list to the atlas (no-op offline).
-    await logAtlasSetting({ customIcons: registry });
-}
-
-/**
  * Get the stored blob for a custom icon (used by the map renderer).
  * @param {string} id - Icon id
  * @returns {Promise<Blob|null>}

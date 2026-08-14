@@ -856,4 +856,3 @@ class AddAzimuthDistanceControl extends BaseControl {
 }
 
 export { AddAzimuthDistanceControl };
-export default AddAzimuthDistanceControl;

@@ -48,8 +48,15 @@ const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const ALVOS = [
     'CLAUDE.md',
     'README.md',
-    'MEMORY.md',
-    'livro-razao.md',
+    // MEMORY.md e livro-razao.md moraram na RAIZ até 2026-08-14, quando o dono
+    // pediu os dois dentro de `docs/`. A mudança de uma linha de caminho aqui é o
+    // passo que mais fácil se esquece e o único que falha CALADO: a montagem de
+    // DOCS filtra por existsSync, então caminho velho não dá erro, some da lista
+    // vigiada. Medido no movimento: os dois saíram de DOCS e o teste de tamanho
+    // do MEMORY.md (que fazia `if (!existsSync) return`) passou verde sem abrir
+    // arquivo nenhum. O teste "todo alvo declarado existe", abaixo, fecha isso.
+    'docs/MEMORY.md',
+    'docs/livro-razao.md',
     'backend/CLAUDE.md',
     'backend/README.md',
     // A doc da própria SUÍTE estava fora desta lista, e foi a única que apodreceu
@@ -80,7 +87,12 @@ function coletarMarkdown(dir, acc = []) {
     return acc;
 }
 
-const DOCS = [...ALVOS.filter((f) => existsSync(join(RAIZ, f))), ...PASTAS.flatMap((p) => coletarMarkdown(p))];
+// Set: `docs/` é varrido inteiro por PASTAS, então um ALVO que mora lá dentro
+// entraria duas vezes e seria checado em dobro. Declarar o alvo mesmo assim é de
+// propósito: PASTAS garante que o arquivo é lido enquanto estiver em `docs/`,
+// ALVOS garante que ele está NAQUELE caminho, que é o que o resto do corpus (e o
+// teto de tamanho do MEMORY.md) aponta.
+const DOCS = [...new Set([...ALVOS.filter((f) => existsSync(join(RAIZ, f))), ...PASTAS.flatMap((p) => coletarMarkdown(p))])];
 
 /**
  * Caminhos de código citados em backticks: `frontend/src/js/store/store.js`,
@@ -238,6 +250,25 @@ describe('integridade da documentação', () => {
         expect(DOCS.length).toBeGreaterThan(10);
     });
 
+    it('todo documento declarado em ALVOS existe no caminho declarado', () => {
+        // A montagem de DOCS filtra por existsSync, e filtro NÃO é verificação:
+        // renomear ou mover um alvo tira o documento da vigilância sem nada ficar
+        // vermelho. O guarda continua verde vigiando um conjunto menor, que é o
+        // modo de falha mais caro que este arquivo tem, porque o sintoma é a
+        // AUSÊNCIA de sintoma. Foi exatamente o que aconteceu ao mover MEMORY.md e
+        // livro-razao.md para `docs/` em 2026-08-14: dois alvos evaporaram da
+        // lista e a suíte passou 8/8. Aqui a lista é asserida, não filtrada.
+        const ausentes = ALVOS.filter((f) => !existsSync(join(RAIZ, f)));
+        expect(
+            ausentes,
+            'alvo declarado que não existe: o documento foi movido/renomeado e saiu da'
+                + ` vigilância em silêncio. Corrija o caminho em ALVOS:\n${ausentes.join('\n')}`
+        ).toEqual([]);
+        expect(DOCS, 'alvo declarado fora de DOCS: a montagem da lista quebrou').toEqual(
+            expect.arrayContaining(ALVOS)
+        );
+    });
+
     it('todo caminho de arquivo citado em backticks existe', () => {
         const quebrados = [];
         for (const doc of DOCS) {
@@ -352,8 +383,13 @@ describe('integridade da documentação', () => {
         // Limite duro: 200 linhas OU 25KB, o que vier primeiro; o excedente é
         // DESCARTADO EM SILÊNCIO na próxima carga. Falhar aqui é melhor que
         // perder memória sem aviso.
-        const arq = join(RAIZ, 'MEMORY.md');
-        if (!existsSync(arq)) return;
+        //
+        // O `if (!existsSync(arq)) return` que havia aqui era um segundo silêncio,
+        // e mais traiçoeiro que o de ALVOS: ao mover o arquivo para `docs/` em
+        // 2026-08-14 este teste passou VERDE sem abrir arquivo nenhum, ou seja,
+        // reportava sucesso medindo o vazio. Agora a ausência é a primeira falha.
+        const arq = join(RAIZ, 'docs/MEMORY.md');
+        expect(existsSync(arq), 'docs/MEMORY.md não existe: o teto não mediu nada').toBe(true);
         const texto = readFileSync(arq, 'utf8');
         expect(texto.split('\n').length, 'MEMORY.md acima de 200 linhas: o excedente é descartado').toBeLessThanOrEqual(200);
         expect(Buffer.byteLength(texto, 'utf8'), 'MEMORY.md acima de 25KB: o excedente é descartado').toBeLessThanOrEqual(25 * 1024);

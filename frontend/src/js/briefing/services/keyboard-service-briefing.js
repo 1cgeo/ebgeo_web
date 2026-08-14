@@ -97,14 +97,6 @@ export function deactivateKeyboardServiceBriefing() {
     isActive = false;
 }
 
-/**
- * Check if the keyboard service is currently active.
- * @returns {boolean}
- */
-export function isKeyboardServiceBriefingActive() {
-    return isActive;
-}
-
 // =========================================================================
 // KEYBOARD HANDLER
 // =========================================================================

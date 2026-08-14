@@ -707,13 +707,3 @@ export class BriefingPresenterControl {
     }
 }
 
-/**
- * Creates a new briefing presenter control.
- * @param {Object} dependencies - Dependencies
- * @returns {BriefingPresenterControl}
- */
-export function createBriefingPresenterControl(dependencies) {
-    return new BriefingPresenterControl(dependencies);
-}
-
-export default BriefingPresenterControl;

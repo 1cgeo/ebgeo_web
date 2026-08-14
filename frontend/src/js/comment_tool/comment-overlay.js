@@ -607,4 +607,3 @@ export class CommentOverlay {
     }
 }
 
-export default CommentOverlay;

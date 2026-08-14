@@ -105,4 +105,3 @@ export class LockedBannerControl {
     }
 }
 
-export default LockedBannerControl;

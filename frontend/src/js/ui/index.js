@@ -10,7 +10,5 @@ export {
     UIElement,
     VisibilityProfile,
     UIVisibilityEvents,
-    getUIVisibilityController,
-    createUIVisibilityController,
-    default as UIVisibilityController
+    getUIVisibilityController
 } from './ui-visibility.controller.js';

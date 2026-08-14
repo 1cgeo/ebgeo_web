@@ -9,7 +9,6 @@ export {
     setKeyboardCallbacks3D,
     activateKeyboardService3D,
     deactivateKeyboardService3D,
-    isKeyboardService3DActive,
     confirmAndDelete3DFeature
 } from './keyboard-service-3d.js';
 

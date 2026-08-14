@@ -421,14 +421,6 @@ export class ReferenceValidator {
 // ============================================================================
 
 /**
- * Creates a new reference validator.
- * @returns {ReferenceValidator}
- */
-export function createReferenceValidator() {
-    return new ReferenceValidator();
-}
-
-/**
  * Validates a briefing.
  * Convenience function that creates a validator and validates.
  *
@@ -440,4 +432,3 @@ export async function validateBriefing(briefing) {
     return await validator.validate(briefing);
 }
 
-export default ReferenceValidator;

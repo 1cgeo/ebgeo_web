@@ -11,6 +11,8 @@ import {
     createModernButtons
 } from '@tools';
 
+import { showError } from '@utils/toast_service.js';
+
 import { openSymbolModal } from './symbol-selector.modal.js';
 
 /**
@@ -41,13 +43,26 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const symbolButton = document.createElement('button');
         symbolButton.className = 'attr-modern-btn attr-modern-btn-primary symbol-selector-configure-btn';
         symbolButton.textContent = 'Configurar Símbolo';
-        symbolButton.onclick = () => openSymbolModal({
-            feature,
-            selectedFeatures,
-            militarySymbolControl,
-            selectionManager,
-            initialPropertiesMap
-        });
+        // `openSymbolModal` is async: the symbol-set tables load on demand. Disable
+        // the button while it resolves so a double click cannot open two modals,
+        // and report a failed load instead of leaving the click with no effect.
+        symbolButton.onclick = async () => {
+            symbolButton.disabled = true;
+            try {
+                await openSymbolModal({
+                    feature,
+                    selectedFeatures,
+                    militarySymbolControl,
+                    selectionManager,
+                    initialPropertiesMap
+                });
+            } catch (error) {
+                console.error('Error opening symbol modal:', error);
+                showError('Não foi possível carregar as tabelas de símbolos.');
+            } finally {
+                symbolButton.disabled = false;
+            }
+        };
 
         symbolButtonContainer.appendChild(symbolButton);
         panel.appendChild(symbolButtonContainer);

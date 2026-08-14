@@ -530,8 +530,11 @@
     <script src="/vendors/maplibre-gl.js"></script>
     <script src="/vendors/turf.min.js"></script>
 
-    <!-- Simbologia militar (defer) -->
-    <script src="/vendors/milsymbol.min.js" defer></script>
+    <!-- Simbologia militar: carregada SOB DEMANDA, na primeira geração de símbolo
+         (js/military_tools/military_symbol_tool/milsymbol-loader.js). São 855 kB,
+         14,6% do JavaScript inicial desta página, e a medição com Proxy sobre
+         window.ms num navegador real mostrou que nada os lê durante o boot, nem
+         em F5 com símbolo já na tela. Não recoloque a tag aqui sem medir de novo. -->
 
     <!-- GDAL para export de PDF georreferenciado (defer) -->
     <script src="/vendors/gdal/gdal3.js" defer></script>

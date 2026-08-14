@@ -11,13 +11,11 @@ import {
     deleteImageCompat as removeImageData,
     getGridStyleCompat as getGridStyleRepo,
     getImageCompat as getImageData,
-    getMapDataCompat as getMapData,
     getMapNotesCompat as getMapNotesRepo,
     hasImageCompat as hasImageData,
     saveImageCompat as storeImageData,
     setGridStyleCompat as setGridStyleRepo,
-    setMapNotesCompat as setMapNotesRepo,
-    updateMapDataCompat as updateMapData
+    setMapNotesCompat as setMapNotesRepo
 } from './repositories/index.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import mapManager from './store-state-manager.js';
@@ -131,37 +129,7 @@ export async function setGridStyle(mapName, gridStyle) {
 
 // ===== HILLSHADE =====
 
-/**
- * Gets map hillshade state from catalog layers.
- *
- * @param {string} [mapName=null] - Map name
- * @returns {Promise<boolean>} Hillshade enabled state
- */
-export async function getMapHillshadeState(mapName = null) {
-    const catalogLayers = await getCatalogLayers(mapName);
-    const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
-
-    return isCatalogLayerActive(hillshadeLayer);
-}
-
 // ===== ANALYSIS LAYERS =====
-
-/**
- * Gets a specific analysis layer state from catalog layers.
- *
- * @param {string} layerId - Analysis layer ID
- * @param {string} [mapName=null] - Map name
- * @returns {Promise<boolean>} Layer enabled state
- */
-export async function getMapAnalysisLayerState(layerId, mapName = null) {
-    const catalogLayers = await getCatalogLayers(mapName);
-    const analysisLayer = catalogLayers?.find(
-        l => l.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER &&
-             (l.config?.id === layerId || l.originalId === layerId || l.id === `analysis-${layerId}`)
-    );
-
-    return isCatalogLayerActive(analysisLayer);
-}
 
 /**
  * Gets all analysis layers states from catalog layers.
@@ -181,25 +149,6 @@ export async function getMapAnalysisLayersStates(mapName = null) {
     });
 
     return states;
-}
-
-/**
- * Sets multiple analysis layers states.
- *
- * @param {Object} layersStates - Layers states object
- * @param {string} [mapName=null] - Map name
- * @returns {Promise<void>}
- */
-export async function setMapAnalysisLayersStates(layersStates, mapName = null) {
-    const targetMap = resolveMapName(mapName);
-    const mapData = await getMapData(targetMap);
-
-    if (!mapData.analysisLayers) {
-        mapData.analysisLayers = {};
-    }
-
-    Object.assign(mapData.analysisLayers, layersStates);
-    await updateMapData(targetMap, mapData);
 }
 
 // ===== IMAGE MANAGEMENT =====

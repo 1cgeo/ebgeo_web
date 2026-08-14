@@ -77,6 +77,7 @@ export class PhoneMoveActions {
         this._onConfirm = onConfirm;
         this._onCancel = onCancel;
 
+        this.setBusy(false);
         if (this._container) {
             this._container.hidden = false;
         }
@@ -89,8 +90,21 @@ export class PhoneMoveActions {
         if (this._container) {
             this._container.hidden = true;
         }
+        this.setBusy(false);
         this._onConfirm = null;
         this._onCancel = null;
+    }
+
+    /**
+     * Disable both buttons while the confirmed move is being persisted.
+     * Without this a second tap on "Confirmar" fires a second store write with
+     * a delta measured from the same start centre, moving the feature twice.
+     * @param {boolean} busy
+     */
+    setBusy(busy) {
+        const disabled = Boolean(busy);
+        if (this._confirmBtn) this._confirmBtn.disabled = disabled;
+        if (this._cancelBtn) this._cancelBtn.disabled = disabled;
     }
 
     // -------------------------------------------------------------------------

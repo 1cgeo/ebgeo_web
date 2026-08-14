@@ -10,10 +10,7 @@
 // Notes panel
 export {
     createNotesPanelContent,
-    cleanQuillContent,
-    stripHtml,
-    compressImage,
-    handleQuillImageUpload
+    cleanQuillContent
 } from './notes-panel.js';
 
 // Vector info panel
@@ -23,6 +20,5 @@ export {
 
 // Feature panel content
 export {
-    createFeaturePanelContent,
-    getFeatureTypeName
+    createFeaturePanelContent
 } from './feature-panel-content.js';

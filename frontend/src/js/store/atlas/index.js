@@ -11,7 +11,5 @@ export {
     isValidAtlas,
     addMapToAtlas,
     removeMapFromAtlas,
-    reorderAtlasMaps,
-    setAtlasActiveMap,
-    renameAtlas
+    reorderAtlasMaps
 } from './atlas.entity.js';

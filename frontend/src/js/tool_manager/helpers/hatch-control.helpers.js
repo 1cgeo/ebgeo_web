@@ -224,11 +224,3 @@ export function createModernHatchControl(config) {
     return container;
 }
 
-/**
- * Gets all available hatch patterns.
- *
- * @returns {Array} Array of hatch pattern objects
- */
-export function getHatchPatterns() {
-    return [...HATCH_PATTERNS];
-}
