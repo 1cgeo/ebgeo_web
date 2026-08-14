@@ -43,8 +43,10 @@ import { DEFAULT_TEMPORAL_CONFIG } from '@js/temporal/temporal.constants.js';
 
 import { IDUtils } from '@utils/id_utils.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
-import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
+// Normalization/migration of imported data lives in its own module so it can be
+// tested in node (this file pulls in JSZip, the @store barrel and modal UI).
+import { migrateImportDataToV2, normalizeMapDataForCurrentVersion } from './import-normalize.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
 import JSZip from 'jszip';
@@ -59,109 +61,6 @@ function isV1Format(data) {
     if (data.atlas) return false;
     if (data.schemaVersion && compareVersions(data.schemaVersion, '2.0') >= 0) return false;
     return data.version && compareVersions(data.version, '2.0') < 0;
-}
-
-/**
- * Migrates import data from v1.x to v2.0 format.
- * Adds sync metadata to maps, features, layers, and groups.
- * @param {Object} data - v1.x format import data
- * @returns {Object} Migrated data in v2.0 format
- */
-function migrateImportDataToV2(data) {
-    const migrated = { ...data };
-
-    // Update version
-    migrated.version = ATLAS_SCHEMA_VERSION;
-
-    // Migrate each map
-    if (migrated.maps) {
-        for (const [_mapName, mapData] of Object.entries(migrated.maps)) {
-            // Add sync metadata to map
-            if (!mapData.sync) {
-                mapData.sync = createSyncMetadata(null);
-            }
-
-            // NOTE: map ids are intentionally NOT generated here — addMap (via createMapCompat)
-            // assigns the UUID and, when sync is active, stores the map UUID-keyed so a later
-            // snapshot re-apply updates the SAME entry (no phantom/duplicate). See addMap().
-
-            // Migrate features
-            if (mapData.features) {
-                for (const [_featureType, features] of Object.entries(mapData.features)) {
-                    if (!Array.isArray(features)) continue;
-                    for (const feature of features) {
-                        if (feature.properties && !feature.properties.sync) {
-                            feature.properties.sync = createSyncMetadata(null);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Migrate layers
-    if (migrated.layers) {
-        for (const [_mapName, layers] of Object.entries(migrated.layers)) {
-            if (!Array.isArray(layers)) continue;
-            for (const layer of layers) {
-                if (!layer.sync) {
-                    layer.sync = createSyncMetadata(null);
-                }
-            }
-        }
-    }
-
-    // Migrate groups
-    if (migrated.groups) {
-        for (const [_mapName, groups] of Object.entries(migrated.groups)) {
-            if (!groups || typeof groups !== 'object') continue;
-            for (const [_groupId, group] of Object.entries(groups)) {
-                if (!group.sync) {
-                    group.sync = createSyncMetadata(null);
-                }
-            }
-        }
-    }
-
-    return migrated;
-}
-
-/**
- * Normalizes mapData structure to current version.
- * Ensures coordination_measures exists (added in v1.4).
- * Validates catalog layers availability.
- * @param {Object} mapData - Map data to normalize
- * @returns {{ mapData: Object, unavailableCatalogLayersCount: number }} Normalized map data and count of unavailable layers
- */
-function normalizeMapDataForCurrentVersion(mapData) {
-    // Defensive: a malformed/hand-edited or legacy .ebgeo may omit the features
-    // object entirely. Guard before dereferencing it (avoids a throw mid-import).
-    if (!mapData.features) {
-        mapData.features = {};
-    }
-    // Ensure coordination_measures exists (v1.4)
-    if (!mapData.features.coordination_measures) {
-        mapData.features.coordination_measures = [];
-    }
-
-    // Add sync metadata if missing (v2.0)
-    if (!mapData.sync) {
-        mapData.sync = createSyncMetadata(null);
-    }
-
-    // NOTE: map ids are intentionally NOT generated here — addMap (via createMapCompat)
-    // assigns the UUID and, when sync is active, stores the map UUID-keyed so a later
-    // snapshot re-apply updates the SAME entry (no phantom/duplicate). See addMap().
-
-    // Validate catalog layers availability
-    let unavailableCatalogLayersCount = 0;
-    if (mapData.catalogLayers && mapData.catalogLayers.length > 0) {
-        const { processed, unavailableCount } = processCatalogLayersOnImport(mapData.catalogLayers);
-        mapData.catalogLayers = processed;
-        unavailableCatalogLayersCount = unavailableCount;
-    }
-
-    return { mapData, unavailableCatalogLayersCount };
 }
 
 export class ExportImportService {
@@ -657,7 +556,7 @@ export class ExportImportService {
                     const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping);
 
                     // Normalizar estrutura para versão atual
-                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData);
+                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData, processCatalogLayersOnImport);
                     totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
 
                     // Get original data from file to preserve colors and notes
@@ -701,7 +600,7 @@ export class ExportImportService {
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
-                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData);
+                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData, processCatalogLayersOnImport);
                     totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
 
                     const colorUsageData = data.colorUsage?.[mapName] || null;

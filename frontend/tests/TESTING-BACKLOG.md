@@ -1,14 +1,46 @@
 # TESTING-BACKLOG.md — EBGeo Web (Lógica Pura)
 
+## Como ler este arquivo
+
+É um **levantamento de alvos**, não um retrato da cobertura. O retrato é
+`ls frontend/tests/unit`; aqui só mora o que a leitura do código apurou sobre
+cada alvo (risco, edge cases, se vale fast-check). Três regras de uso:
+
+- **Confira em disco antes de pegar um item.** Um alvo listado abaixo pode já
+  ter suíte: o arquivo é atualizado por lote, não a cada suíte escrita. Esta
+  seção já mandou refazer nove suítes prontas por descrever o Lote 1 como
+  concluído numa seção e reofertá-lo na seguinte.
+- **Todo caminho com barra resolve.** A coluna "Módulo" usa o caminho completo a
+  partir da raiz do monorepo, ou o caminho relativo a `frontend/src/js/`; onde ela
+  traz só o nome do arquivo (`add_point_geometry.js`), o basename é único sob
+  `frontend/src/js/` e se acha com um Glob. Dezenove linhas citavam um caminho
+  truncado no meio (o tool sem a pasta de família, o algoritmo sem a pasta
+  processing): parecia caminho, não resolvia de raiz nenhuma, e mandava o leitor
+  procurar arquivo onde ele não está.
+- **Nome de função entre crases existe no código.** Nome de função **sem**
+  crases é uma extração proposta que ainda não existe: o nome é sugestão da
+  época do levantamento, não um símbolo a procurar por grep.
+
 ## Status
 
-**Lote 1 — CONCLUÍDO** (9 suítes, +491 testes, 10 bugs corrigidos). Suíte total: 1336 testes, lint limpo.
-Suítes criadas: `measurement-geometry`, `circle-geometry`, `polygon-geometry`, `line-geometry`,
-`csv-import`, `state-manager`, `military-symbol-generator`, `zoom-correction-helpers`, `ellipse-geometry`.
+**Lote 1 — CONCLUÍDO** (9 suítes, +491 testes, 10 bugs corrigidos), e por isso
+seus alvos **saíram das tabelas abaixo**, com um ponteiro no lugar de cada bloco.
+Suítes criadas: `tests/unit/measurement-geometry.test.js`,
+`tests/unit/circle-geometry.test.js`, `tests/unit/polygon-geometry.test.js`,
+`tests/unit/line-geometry.test.js`, `tests/unit/csv-import.test.js`,
+`tests/unit/state-manager.test.js`, `tests/unit/military-symbol-generator.test.js`,
+`tests/unit/zoom-correction-helpers.test.js`, `tests/unit/ellipse-geometry.test.js`.
+
+O tamanho da suíte não fica registrado aqui: esta linha já afirmou "1336 testes"
+e envelheceu por um fator de mais de dois. Quem quiser o número roda
+`npm test` e lê o rodapé do Vitest.
+
 Bugs corrigidos (classe "validate aceita NaN/Infinity" + outros): circle/line/polygon/ellipse `validate`
 (rejeitam não-finito), polygon `insertVertexAtIndex` (bounds), `generateArcCoordinates` (numPoints=0→NaN),
 csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil `validateSIDC`.
-~25 comportamentos ambíguos foram **fixados por teste mas NÃO alterados** (ver `documentedOnly` — candidatos a decisão futura, ex.: `state_manager` escopo `mouse.*` largo, formatadores emitindo `NaN`).
+~25 comportamentos ambíguos foram **fixados por teste mas NÃO alterados** (candidatos a decisão
+futura, ex.: `state_manager` escopo `mouse.*` largo, formatadores emitindo `NaN`). Eles estão
+marcados nos próprios testes; o relatório separado que esta linha citava não existe mais.
 
 ## Sumário Executivo
 
@@ -23,64 +55,45 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 ### Padrão de teste (já provado no repo)
 `tests/unit/sector-geometry.test.js` é o template: `vi.mock('@tools', () => ({ BaseGeometry: class { constructor(p={}){this.properties=p;} } }))` + dynamic import. Para turf (global via script tag, **não** npm): `globalThis.turf = {...}` em `beforeAll` / `delete` em `afterAll` (ver `tests/unit/azimuth-distance-geometry.test.js`). Ambiente `node`, sem jsdom; `mgrs`/`proj4` são deps npm reais e rodam direto.
 
-### Ordem de execução sugerida (Top 10 — comece aqui)
+### Ordem de execução sugerida
 
-| # | Alvo | Domínio | Por quê (ROI) |
-|---|------|---------|---------------|
-| 1 | `measurement-geometry.js` 5 formatadores (`formatDistanceAuto`/`formatAreaAuto`/`formatAngle`/`formatDistance`/`formatArea`) | measurement | Puro, zero deps, fronteiras 1000m/10000m²/1e6m², fatores mil/gon/NM/ft. Maior ROI absoluto. |
-| 2 | `add_circle_geometry.validate` + `generateCircleGeometry` | draw-circle | Bug real: `validate` aceita NaN/Infinity radius; singularidade polar cosLat→0. |
-| 3 | `add_polygon_geometry.js` (validate, generate/isPolygonClosed, perimeter, applyOffset, midpoint) | draw-polygon | Núcleo puro grande; bugs documentados (Infinity, antimeridiano, midpoint wrap). |
-| 4 | `csv-coordinate-converter.convertRowToLatLng` (+ `_parseUTMZone`/`_parseSingleDMS`) | ie-csv | Hemisférios PT-BR (O/L), banda MGRS, bug `_parseNumber` replace(',') só 1ª vírgula. |
-| 5 | `state_manager.js` (set/get round-trip, `_pathMatches`, batchUpdate, mútua exclusão sidebar/painel) | state | 1102 linhas puras, zero teste, invariantes fortes. |
-| 6 | `add_line_geometry.js` (validate, normalize, updateFromHandle, createLineStringGeometry, validateMinimumDistances) | draw-line | Corpo puro grande e limpo; bug Infinity em validate. |
-| 7 | `military_symbol_generator` (buildSIDC/parseSIDC round-trip, validateSIDC) | mil-symbol | String/regex puro, round-trip property-based, separado do já-coberto SIDC ext. |
-| 8 | `zoom-correction.helpers.js` (3 fns) — compartilhado por point/text/image/military | toolmgr | Duplicado 4×; bug NaN (`?? Infinity` não protege). Mata duplicação. |
-| 9 | `add_circle_geometry` restantes + `add_ellipse_geometry.validate`/`getBoundingBox` | draw-circle/ellipse | Mesmo padrão, mesmo bug NaN em validate, singularidade polar. |
-| 10 | `parseCSV`/`detectSeparator`/`csvToGeoJSON` | ie-csv | RFC-4180 quoting, round-trip property, ordem [lng,lat], off-by-one nº linha. |
+**O "Top 10" que morava aqui era o Lote 1, e o Lote 1 está concluído.** As dez
+linhas mandavam começar exatamente pelas nove suítes que a seção Status, vinte
+linhas acima, declarava prontas: quem lesse de cima para baixo reescreveria
+trabalho feito. Foi removido em 2026-08-14 em vez de reordenado, porque uma
+ordem sugerida que não é conferida contra o disco vira armadilha de novo no
+próximo lote.
+
+**Ordem para o próximo lote:** pegue de cima para baixo em `## P1`, pulando o que
+já tiver suíte em `frontend/tests/unit/`. Os alvos abertos de maior ROI hoje são
+`generateQAN` (`frontend/src/js/import_export/qan/qan-export.js`), os algoritmos
+de `frontend/src/js/processing/algorithms/` e
+`frontend/src/js/draw_tools/rectangle_tool/add_rectangle_geometry.js`.
 
 ---
 
 ## P1 — Risco Alto × Coupling Pure/Turf (ALTO ROI — COMECE AQUI)
 
-### Domínio: measurement
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `measurement_tool/measurement-geometry.js` | `formatDistanceAuto` | alto | Fronteira `>=1000` exata; 999.999→'1000.0 m' (toFixed); NaN/Infinity sem guarda | 999→'999.0 m', 1000→'1.00 km'; sufixo `m` iff <1000 | sim | S |
-| idem | `formatAreaAuto` | alto | Fronteiras 10000 (ha) e 1e6 (km²); km² vence ha (top-down); char ² U+00B2 | 9999→m², 10000→'1.00 ha', 1e6→'1.000 km²' | sim | S |
-| idem | `formatAngle` | alto | mil 6400/360, gon 400/360, ° sem espaço antes do sufixo; 1°→18mil arredonda | 360→'6400mil', 90gon→'100.00gon' | sim | S |
-| idem | `calculateAngle` | alto | Wrap `+360` em diff negativo; ângulo dirigido vs interior; p1==p3→0 | stub turf.bearing; b1=90,b2=0→270; soma(a,b)=360 | sim | M |
-| idem | `generateArcCoordinates` | médio | Retorna numPoints+1; numPoints=0→NaN; wrap sweep | stub turf.destination; len===numPoints+1 | sim | M |
+### Domínio: measurement — CONCLUÍDO
+Coberto por `tests/unit/measurement-geometry.test.js` (formatadores, `calculateAngle`,
+`generateArcCoordinates`). Alvo aberto que sobrou no domínio: `measurement-labels.js`, que é
+MapLibre e está na Fase 2.
 
-### Domínio: draw-circle
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `draw_tools/circle_tool/add_circle_geometry.js` | `generateCircleGeometry` | alto | radius=0 degenera; cosLat→0 nos polos→Infinity; sem wrap antimeridiano; 65 pts anel fechado; modelo 111320 vs haversine | center[0,0] r1000 ponto leste; ratio leste/norte=1/cos(lat); polo→lng não-finito | sim | M |
-| idem | `validate` | alto | **BUG: NaN/Infinity radius passam** (`NaN<10`/`Inf<10`=false); r=10 inclusivo; center `['a','b']` aceito | validate([0,0],NaN)→true (fixar+flag); 9.99→false | não | S |
-| idem | `getBoundingBox` | médio | Simétrico ao centro; leste/oeste escala 1/cosLat; polo→não-finito | bbox(0,0,1000) simétrico; lat60 lng-span 2× | sim | M |
-| idem | `updateFromHandle`/`calculatePreview` | médio | newRadius<10→null; mismatch haversine vs flat 111320 | dist 0→null; radius≈haversine com tolerância | sim | M |
+### Domínio: draw-circle — CONCLUÍDO
+Coberto por `tests/unit/circle-geometry.test.js`: `validate` (que passou a rejeitar não-finito),
+`generateCircleGeometry`, `getBoundingBox`, `updateFromHandle`, `calculatePreview`,
+`normalizeCenter`, `isValidCenter`.
 
-### Domínio: draw-polygon
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `draw_tools/polygon_tool/add_polygon_geometry.js` | `validate` | alto | **Infinity aceito** (`!isNaN(Inf)`); <3 pts→false; coord string→false | validate Infinity→true (fixar/flag) | não | S |
-| idem | `createPolygonGeometry`/`generate`/`isPolygonClosed` | alto | Auto-fecha; `===` estrito p/ fechamento→float quase-igual reabre; sem mutar input | gera 4º pt = 1º; já-fechado não duplica | sim | S |
-| idem | `updateFromHandle` | alto | **midpoint `(i+1)%length` no último segmento insere no índice 0** (front); legacy strings; <MIN_POINTS→null | inserção último segmento na posição 0 (flag bug) | não | M |
-| idem | `validateMinimumDistances`/`isPointTooClose` | alto | Circular (last→first); `isPointTooClose` só compara último pt; fronteira 1m | segmento de fechamento curto→false | não | M |
-| idem | `removeVertexAtIndex`/`insertVertexAtIndex` | alto | remove<MIN_POINTS→null; **insert sem validação de bounds** (splice negativo/clamp) | remove p/ <3→null; insert(-1) splice-from-end | não | M |
-| idem | `calculatePerimeter` | médio | Haversine puro (inclui fechamento); inválido→0; independente de winding | reverso==original; >= maior aresta | sim | S |
+### Domínio: draw-polygon — CONCLUÍDO
+Coberto por `tests/unit/polygon-geometry.test.js`, incluindo o bug de bounds em
+`insertVertexAtIndex` e o midpoint do último segmento.
 
-### Domínio: draw-line
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `draw_tools/line_tool/add_line_geometry.js` | `validate` | alto | **Infinity aceito**; coord string→false; 3D permitido | [[0,0],[Inf,1]]→true (flag) | sim | S |
-| idem | `normalizeBaseCoordinates` | alto | JSON malformado→null; `'5'`/`'{}'`→null; `'[]'`→[] | round-trip JSON; `'[[0,0'`→null | sim | S |
-| idem | `updateFromHandle` | alto | vertex out-of-range no-op; midpoint insert; legacy `vertex-N`; sub-1m→null | `midpoint-9` fora de range→inalterado | não | M |
-| idem | `removeVertexAtIndex` | alto | <2 pts→null; não muta input; idx 0/last | remove de linha 2-pt→null | não | S |
-| idem | `createLineStringGeometry` | médio | inválido→throw exato; coordinates é cópia (spread) | throw msg exata; output.coords !== input | não | S |
-| `line_tool/line-split.js` | `canSplitLine` | alto | null→false; source≠'line'; bloqueado `'true'` string não bloqueia (`===true`) | bloqueado:'true'→canSplit:true (documenta gap) | não | S |
-| `line_tool/line_profile.js` | `getTotalElevationGain`/`Loss` | médio | Descida→ganho 0; Math.abs perda≥0; NaN propaga; identidade ganho-perda=Δnet | gain-loss===last-first (property) | sim | S |
-| idem | `getElevationRange` | médio | Vazio→{0,0} hard-coded (não derivado); all-negative; primeiro NaN persiste | all-negative→min/max negativos | sim | S |
-| idem | `getMaxSlope`/`getAverageSlope` | médio | Vazio→0 (evita -Infinity); abs-fold; divide por N (não N-1) | [3,-45,10]→45; abs-fold | não | S |
+### Domínio: draw-line — CONCLUÍDO
+Coberto por `tests/unit/line-geometry.test.js`, que absorveu também
+`frontend/src/js/draw_tools/line_tool/line-split.js` (`canSplitLine`, cujo tratamento de
+`bloqueado` como string foi corrigido) e
+`frontend/src/js/draw_tools/line_tool/line_profile.js` (ganho/perda de elevação, faixa,
+declividade).
 
 ### Domínio: draw-brush
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
@@ -109,14 +122,16 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `draw_tools/point_tool/add_point_geometry.js` | `calculateSelectionBoxGeometry` | alto | **BUG: callsite `createPointAtCoordinates` passa 4 args (5 esperados)→effectiveZoom=null**; cosLat polos; anel fechado 5 pts | fixar geometria com assinatura 5-arg; anel[0]===anel[4] | sim | M |
 | `tool_manager/helpers/label-tab.helpers.js` | `computeShapeCentroid` | médio | Anel fechado exclui vértice de fechamento; <3→null; antimeridiano errado; holes ignorados | quadrado fechado→[1,1]; centroid dentro do anel | sim | S |
 
-### Domínio: mil-symbol
+### Domínio: mil-symbol (parcialmente concluído)
+`buildSIDC`, `parseSIDC` (com round-trip), `validateSIDC`, `canParseSIDC` e
+`extractViewBoxDimensions` estão cobertos por `tests/unit/military-symbol-generator.test.js`;
+a extensão brasileira do SIDC, por `tests/unit/brazilian-sidc.test.js`. As linhas abaixo são
+o que sobrou aberto no domínio.
+
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `military_symbol_generator.js` | `buildSIDC` | alto | `{}`→30-dígitos default + tail `'0760000000'`; `mainIconExtension:0` ativa ext; `specialModifier:'abc'`→NaN p/ encode | buildSIDC({}) string exata len 30; isCommand→ext | sim | M |
-| idem | `parseSIDC` (+round-trip) | alto | 20 vs 30 dígitos; slices exatos; inválido→throw; whitespace inconsistente validate vs parse | round-trip buildSIDC(parseSIDC(x))===x | sim | M |
-| idem | `validateSIDC` | médio | null→msg; whitespace stripado; len 20/30 ok; `\d` rejeita dígitos Árabe/full-width | len 19→false; Árabe→inválido | não | S |
 | `brazilian_svg_postprocessing.js` | `hexToRgb` (+`applyBrazilianModifications`) | alto | **3-dígitos `#fff`→`rgb(255,NaN,NaN)`**; lowercase; sem `#` | `#fff`→NaN (flag bug); 4 cores engagement substituídas | não | M |
-| `engagement-bar.section.js` | `encode`/`decode` (extrair) | alto | `'STAGE-WEAPON'`; `R:` prefix; desambiguação stage-vs-weapon; round-trip com valores contendo `<` | extrair pure; round-trip stage×weapon×remote | sim | M |
+| `engagement-bar.section.js` | encode/decode (extrair; nomes sugeridos, ainda não existem) | alto | `'STAGE-WEAPON'`; `R:` prefix; desambiguação stage-vs-weapon; round-trip com valores contendo `<` | extrair pure; round-trip stage×weapon×remote | sim | M |
 
 ### Domínio: mil-arrow
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
@@ -124,7 +139,7 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `military_tools/arrow_tool/add_arrow_geometry.js` | `normalizeBaseCoordinates` | alto | JSON malformado→[]; `'null'`/`'42'`→retorna null/42 (shape ruim); array passa por ref | round-trip; `'42'`→documenta bug | sim | S |
 | idem | `removeVertexAtIndex` | alto | <2→null; out-of-range→null; não muta | remove p/ 1 pt→null; input intacto | sim | S |
 | idem | `validate` | médio | <2→false; haversine real; fronteira 10m estrito `<`; string normalize | exatamente 10m→documentar | não | S |
-| `arrow_tool/arrow-merge.js` | `extractBranches` | alto | **width=0/false/airmobilePosition=0 (falsy-mas-definido) DEVEM ser copiados**; baseCoordinates deep-copy | width:0 preservado; mutação isolada | não | M |
+| `frontend/src/js/military_tools/arrow_tool/arrow-merge.js` | `extractBranches` | alto | **width=0/false/airmobilePosition=0 (falsy-mas-definido) DEVEM ser copiados**; baseCoordinates deep-copy | width:0 preservado; mutação isolada | não | M |
 | idem | `canMergeArrows`/`canSplitArrows` | médio | <2→false; source≠arrow; layerId ausente→'default' bucket; isMerged+branches | 2 arrows sem layerId→mergeable | não | S |
 | idem | `_applyWidthFromHandle` (extrair sideSign) | alto | Cross-product esquerda(>0)/direita; colinear `>0` estrito→não inverte | extrair `sideSign(a,b,p)`; esquerda→>0 | sim | M |
 
@@ -140,7 +155,7 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 ### Domínio: mil-occupied
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `occupied_front_tool/add_occupied_front_geometry.js` | `createOccupiedFrontGeometry`/`createRay` | alto | 3 pts→MultiLineString 10 segmentos; ratios 60/10/10; turn ±225, head ±150; dist<1→[] | coords.length===10; arm omitido se p2==p1 | sim | M |
+| `frontend/src/js/military_tools/occupied_front_tool/add_occupied_front_geometry.js` | `createOccupiedFrontGeometry`/`createRay` | alto | 3 pts→MultiLineString 10 segmentos; ratios 60/10/10; turn ±225, head ±150; dist<1→[] | coords.length===10; arm omitido se p2==p1 | sim | M |
 | idem | `calculateBearing` (local, distinto de utils) | médio | Norte→0, leste→90; normalizado [0,360); **antimeridiano NÃO tratado** (bug) | norte≈0; sempre [0,360); round-trip destination | sim | S |
 | idem | `updateFromHandle`/`calculatePreview` | alto | **p3 NÃO validado por distância** (pode colapsar em p1); **calculatePreview sem allowlist de handleType**; imutabilidade | p3 anyPos sucesso (flag); handleType bogus→geometria | não | M |
 
@@ -158,23 +173,24 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 ### Domínio: analysis (los + visibility)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `visibility_tool/add_visibility_geometry.js` | `calculateBearing`/`pointAtBearing` (cópias próprias) | alto | Norte/leste/sul/oeste; [0,360); radius 0→center; cosLat polo; antimeridiano | round-trip bearing/destination; norte=0 | sim | S |
+| `frontend/src/js/analysis_tools/visibility_tool/add_visibility_geometry.js` | `calculateBearing`/`pointAtBearing` (cópias próprias) | alto | Norte/leste/sul/oeste; [0,360); radius 0→center; cosLat polo; antimeridiano | round-trip bearing/destination; norte=0 | sim | S |
 | idem | `validate` | médio | **NaN radius/aperture passam** (comparações NaN false); aperture 1/359 inclusivo | validate([0,0],NaN,60)→true deveria ser false (flag) | não | S |
 | idem | `calculateDistanceStep` | alto | Múltiplo de 30 e >=30; radius pequeno→30; aperture guard | result%30===0 sempre | sim | S |
 | idem | `updateFromHandle` | alto | radius<10→null; aperture wrap +360 e espelho; clamp [1,359] | aperture clamp extremos; bogus→null | não | M |
 | idem | `generateProcessedFeatures` | alto | non-MultiPolygon→[]; **cellData[index] assume alinhamento**→mismatch throw | cellData curto→throw (documentar invariante) | não | M |
-| `visibility_tool` | `calculateViewshed` (extrair `classifyRay`) | alto | FOCO: classificação max-angle; barreira terrain-only vs visível terrain+target; primeiro pt sempre visível; `>` estrito | extrair pure; ridge crescente→[v,v,obstruído] | não | M |
-| `los_tool/add_los_geometry.js` | `validate` | médio | **Infinity aceito**; len≠2→false; 3D ok | [[Inf,0],[1,1]]→true (flag) | não | S |
-| idem | `calculateLOS` (extrair `detectObstruction`) | alto | FOCO: primeiro cruzamento terrain>LOS; sem obstrução→null; `>` estrito; visível+obstruído===total | extrair pure; soma===totalLength (invariante) | sim | M |
-| idem | `calculateProfile` (extrair `computeProfileFromElevations`) | alto | FOCO: slope %; primeiro herda segundo; deltaDist=0 guard; interp losElevation | extrair pure; flat→slope 0; endpoints exatos | não | M |
+| `visibility_tool` | `calculateViewshed` (extrair um classifyRay puro; nome sugerido, ainda não existe) | alto | FOCO: classificação max-angle; barreira terrain-only vs visível terrain+target; primeiro pt sempre visível; `>` estrito | extrair pure; ridge crescente→[v,v,obstruído] | não | M |
+| `frontend/src/js/analysis_tools/los_tool/add_los_geometry.js` | `validate` | médio | **Infinity aceito**; len≠2→false; 3D ok | [[Inf,0],[1,1]]→true (flag) | não | S |
+| idem | `calculateLOS` (extrair um detectObstruction puro; nome sugerido, ainda não existe) | alto | FOCO: primeiro cruzamento terrain>LOS; sem obstrução→null; `>` estrito; visível+obstruído===total | extrair pure; soma===totalLength (invariante) | sim | M |
+| idem | `calculateProfile` (extrair um computeProfileFromElevations puro; nome sugerido, ainda não existe) | alto | FOCO: slope %; primeiro herda segundo; deltaDist=0 guard; interp losElevation | extrair pure; flat→slope 0; endpoints exatos | não | M |
 
-### Domínio: ie-csv
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `csv/csv-coordinate-converter.js` | `convertRowToLatLng` (+`_parseUTMZone`/`_parseSingleDMS`) | alto | Override BR 'S'=Sul (vs banda real); bandas inválidas I/O; **`_parseNumber` replace(',') só 1ª→`'1,234,5'`→1.234**; minutos/segundos>=60→null; O/L PT-BR | `'23K'`→Sul; min=60→null; sinal vs direção (Math.abs vence) | sim | M |
-| `csv/csv-parser.js` | `parseCSV` | alto | Quoted-separator; `""` escape; newline em quotes; CRLF/LF/CR; linhas ragged; headers dup | quoted comma; round-trip simples | sim | M |
-| idem | `detectSeparator` | médio | Vazio→','; dentro de quotes não conta; tie→',' (primeiro); consistência min-count | `;`→';'; `\t`→'\t' | sim/não | S |
-| `csv/csv-to-geojson.js` | `csvToGeoJSON` | alto | 0 linhas/>1000→throw; all-inválido→throw distinto; **rowNumber=index+2**; coluna-coord excluída de props; ordem [lng,lat] | offset linha; 1001→limite; cols coord ausentes de props | não | M |
+### Domínio: ie-csv — CONCLUÍDO
+Os três módulos (`frontend/src/js/import_export/csv/csv-parser.js`,
+`frontend/src/js/import_export/csv/csv-coordinate-converter.js` e
+`frontend/src/js/import_export/csv/csv-to-geojson.js`) estão cobertos por
+`tests/unit/csv-import.test.js`, incluindo `parseCSV`, `parseCSVPreview`,
+`detectSeparator`, `autoDetectColumnMapping`, `convertRowToLatLng` nos quatro formatos e
+`csvToGeoJSON`. O bug do `_parseNumber` (o `replace(',')` que trocava só a primeira vírgula)
+foi corrigido nesse lote. A escrita de CSV fica à parte, em `tests/unit/csv-escape.test.js`.
 
 ### Domínio: ie-pdf / ie-ebgeo (cartográfico — extrair privados)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
@@ -191,8 +207,8 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 |---|---|---|---|---|---|---|
 | `processing/processing.constants.js` | `extractBaseCoordinates` | alto | null→inalterado; <=1→inalterado; `===` estrito (float quase-igual não strip); **coord len<2→`undefined===undefined`→strip errado** | round-trip strip-of-close; idempotente | sim | S |
 | idem | `registerAlgorithm`/`getAlgorithm`/`getAllAlgorithms` | médio | id falsy→throw; dup→throw; Object.freeze; snapshot isolado; **singleton module-level** | dup id→throw; getAll snapshot | não | S |
-| `algorithms/buffer.algorithm.js` | `executeBuffer` (via getAlgorithm) | alto | **MultiPolygon→fan-out 1 Polygon/poly**; null→skip; anel degenerado→skip; turf throw→continua; structuredClone attrs | stub turf MultiPolygon 2→2 results | não | M |
-| `algorithms/voronoi.algorithm.js` | `executeVoronoi` | alto | pointsOnly filtra; centroid overwrite props; **alinhamento pointSources[i] vs voronoi reordenado** (cell errada); <2→throw | stub turf; nome 'Alvo'→'Proximidade - Alvo' | não | L |
+| `frontend/src/js/processing/algorithms/buffer.algorithm.js` | `executeBuffer` (via getAlgorithm) | alto | **MultiPolygon→fan-out 1 Polygon/poly**; null→skip; anel degenerado→skip; turf throw→continua; structuredClone attrs | stub turf MultiPolygon 2→2 results | não | M |
+| `frontend/src/js/processing/algorithms/voronoi.algorithm.js` | `executeVoronoi` | alto | pointsOnly filtra; centroid overwrite props; **alinhamento pointSources[i] vs voronoi reordenado** (cell errada); <2→throw | stub turf; nome 'Alvo'→'Proximidade - Alvo' | não | L |
 
 ### Domínio: store-rest
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
@@ -202,14 +218,12 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `store/atlas/atlas.entity.js` | `reorderAtlasMaps` | alto | **`[A,A]` passa (len===Set.size + every)→dropa B**; permutação imutável; falta id→throw | dup [A,A]→não throw, dropa B (flag) | sim | S |
 | idem | `isValidAtlas`/`addMapToAtlas`/`removeMapFromAtlas`/`getAtlasTerrainExaggeration` | médio | settings null→false; position clamp; `terrainExaggeration===0` preservado (`??`) | exag 0→0; remove lastActive→null | sim | S |
 
-### Domínio: state
-| Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
-|---|---|---|---|---|---|---|
-| `state/state_manager.js` | `set`/`get`/`getUnsafe`/`getShallow` | alto | deepEqual no-op não notifica; get clona; getUnsafe ref-vivo; falsy aplica | set valor igual→0 callbacks; mutação de get isolada | sim | M |
-| idem | `_pathMatches` (via subscribe/set) | alto | Exato/filho/pai; **guard `+'.'` evita 'mouse' vs 'mouseExtra'**; segmento aligned | mouse não notifica mouseExtra; property prefix | sim | M |
-| idem | `batchUpdate`/`_flushPendingNotifications` | alto | Dedup 1×/subscriber; nested não flush; exception→finally decrementa | batch 2 sets→1 notificação; throw→depth 0 | não | M |
-| idem | expand/collapse/open/closeFeaturePanel (mútua exclusão) | alto | Restore branch (`_hadFeaturePanelBeforeSidebar`+selection); invariante nunca ambos abertos | NUNCA (sidebar.expanded && featurePanelOpen) (property) | sim | L |
-| idem | `set` (mouse.* throttling) | alto | **TODOS 'mouse.*' throttled→setCoordinateFormat não aplica síncrono** (bug latente); latest-wins | fakeTimers; A,B,C rápidos→só C | não | M |
+### Domínio: state — CONCLUÍDO
+Coberto por `tests/unit/state-manager.test.js`: round-trip de `set`/`get`, `getUnsafe`,
+`getShallow`, `_pathMatches`, `batchUpdate`, o throttle de `mouse.*`, a mútua exclusão
+sidebar↔painel de feição, os helpers de seleção e de grupo da toolbar, `reset` e a
+integração com o EventBus. As linhas de state que estavam repetidas em `## P2` saíram
+junto.
 
 ### Domínio: mode
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
@@ -231,16 +245,21 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `add_point_geometry.js` | `applyOffset`/`getBoundingBox`/`normalizeCoordinates` | médio/baixo | Inválido→input inalterado (no-op); JSON `'5'`→null; bbox degenerado | round-trip; `'5'`→null | sim | S |
-| `add_point_control.js` | `computeZoomCorrectedSize` (EXTRAIR — duplicado 4×) | alto | enabled false→base; clamp 500; `size||10` (0→10 suspeito) | extrair helper; clamp 500; size=0→10 (flag) | sim | M |
 | `label-tab.helpers.js` | `recalcLabelSize`/`hasLabelChanged` | médio | Backfill createdAtZoom em ambos features; `===0` falsy backfill; clamp 255 | disabled→base; 0 clobber (flag) | sim/não | S |
-| `add_circle_geometry.js` | `normalizeCenter`/`isValidCenter`/`createHandles` | médio/baixo | `'["a","b"]'`→passa (sem check numérico); Infinity passa isNaN | `'["a","b"]'`→gap; Inf→true (flag) | sim/não | S |
-| `add_ellipse_geometry.js` | `validate`/`getBoundingBox`/`normalizeCenter`/`isValidCenter` | alto/médio | **NaN/Inf radius passam** (só bearing tem isNaN); polo cosLat→0; Math.max(major,minor) | validate NaN radius→true (flag); polo blow-up | sim | S/M |
-| `add_ellipse_geometry.js` | `calculateRotationBearing`/`updateFromHandle`/`calculatePreview` (turf-stub) | médio/alto | **+90 sem normalização [0,360)**; floor <0.01→null; campo-seletivo | stub turf; bearing -180→-90 (flag); preview==commit | sim/não | S/M |
+| `add_circle_geometry.js` | `createHandles` | baixo | Só o que `tests/unit/circle-geometry.test.js` não pegou | posições dos handles | não | S |
 | `add_rectangle_geometry.js` | `calculateDimensionsFromCorners`/`extractCornersFromGeometry` | alto | Antimeridiano center=0 errado; **AABB normaliza retângulo rotacionado** (perde rotação); width na lat central | width<height por cos; rotacionado→AABB | sim | S |
 | `add_rectangle_geometry.js` | `rotateAndTranslate`/`calculateDimensionsFromRotatedCorners` (turf) | alto | **Mistura atan2 (leste=0) com turf bearing (norte=0)**; Pitágoras w²+h²=diag² | spy turf.destination; w²+h²≈diag² (property) | sim/não | M |
 | `add_rectangle_geometry.js` | `generateRectangleGeometry`/`calculateCornersFromCenterAndDimensions`/`validate` | médio | borderRadius 0→5 pts; cosLat polo div; round-trip haversine vs flat diverge | swap invariante; round-trip ~1% lat baixa | sim | M |
 | `add_image_geometry.js` | `calculateSelectionBoxGeometry`/`createSelectionBoxFromDegrees`/`getBoundingBox`/`normalizeCoordinates`/`validate` | alto/médio | **`effectiveZoom!==null` (0 é zoom válido, não falsy)**; padding×2; 0.625 mágico; Infinity aceito | stub uiManager; effectiveZoom=0 usado (regressão) | sim/não | S/M |
 | `add_text_geometry.js` | `calculateRotationHandlePosition`/`getBoundingBox`/`moveText`/`normalizeCoordinates`/`validate`/`affectsVisuals` | médio | **`mapZoom||createdAtZoom` (mapZoom=0 cai p/ createdAtZoom)**; 111320 vs METERS_PER_DEGREE; validate==isValidPosition dup | mapZoom=0 cai (flag); validate≡isValidPosition | sim/não | S/M |
+
+**Saíram desta tabela (Lote 1):** a extração de tamanho corrigido por zoom que estava em
+`add_point_control.js` virou `frontend/src/js/tool_manager/helpers/zoom-correction.helpers.js`
+(`calculateZoomCorrectedValue`, `applyZoomCorrections`, `syncZoomCorrectedProperty`), coberta por
+`tests/unit/zoom-correction-helpers.test.js`; as duas linhas de `add_ellipse_geometry.js`
+(`validate`, `getBoundingBox`, `calculateRotationBearing`, resize) estão em
+`tests/unit/ellipse-geometry.test.js`; e `normalizeCenter`/`isValidCenter` de círculo, em
+`tests/unit/circle-geometry.test.js`.
 
 ### Domínio: mil-* (restantes)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
@@ -249,8 +268,8 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `brazilian_extension_catalog.js` | `getCatalogEntry`/`hasSection`/`supportsCommand` etc | médio | extensionNumber 0 vs '0' (String coerção); byStandardIdentity merge; supportsCommand default true | ext 0===String(0); merge SI | não | M |
 | `brazilian_svg_postprocessing.js` | `applyBrazilianLabelsToSVG`/`checkCatalogWarnings` | médio | modifier1 '00'→skip; **RegExp-injection em label com metachar**; entityExtension 0 índice real | label metachar→risco; mod2>0 sem seção→warn | não | M |
 | `military_symbol_generator.js` | `extractViewBoxDimensions`/`extractTextModifiers` (exportar) | médio | **viewBox double-space→Number('')=0**; `quantity:0` mantido; whitespace `' '` vaza | double-space→{w:0} (flag); 0 mantido | não | S |
-| `arrow_tool/add_arrow_geometry.js` | `removeVertexInBranch`/`_applyHeadLengthFromHandle`/`_applyAirmobileFromHandle` | médio | branchIndex 0 sincroniza top-level; **wrap ângulo ~270 mal-classificado**; **lineLength 0→NaN não sanitizado** | branch 0 espelha; clamp NaN (flag) | sim | M |
-| `boundary_tool/add_boundary_geometry.js` | `validate`/`isValidBoundary`/`createLineWithGap`/`generateBoundaryCircles` | médio/baixo | **3 políticas divergentes** (filter vs every vs all-or-nothing); echelon o→círculos | contraste validate≡isValidBoundary; 'oo'→2 círculos | não | S/M |
+| `frontend/src/js/military_tools/arrow_tool/add_arrow_geometry.js` | `removeVertexInBranch`/`_applyHeadLengthFromHandle`/`_applyAirmobileFromHandle` | médio | branchIndex 0 sincroniza top-level; **wrap ângulo ~270 mal-classificado**; **lineLength 0→NaN não sanitizado** | branch 0 espelha; clamp NaN (flag) | sim | M |
+| `frontend/src/js/military_tools/boundary_tool/add_boundary_geometry.js` | `validate`/`isValidBoundary`/`generateBoundaryCircles` (o `createLineWithGaps` já tem suíte) | médio/baixo | **3 políticas divergentes** (filter vs every vs all-or-nothing); echelon o→círculos | contraste validate≡isValidBoundary; 'oo'→2 círculos | não | S/M |
 | `occupied_front_tool` | `validate`/`normalize...`/`getBoundingBox`/`destination` | médio/baixo | `normalizeBaseCoordinates`→[] vs `normalizeCenter`→null (assimétrico); NaN dist→NaN | assimetria documentada; bbox ordenado | sim | S |
 | `coordination_measure_generator.js` | `escapeXml`/`estimateTextWidth`/`hasExternalText` | médio | `&` escapa primeiro; bold 0.7/normal 0.6; numero 0 presente | sem `&lt;`; numero 0→true | sim/não | S |
 | `add_coordination_measure_geometry.js` | `getBoundingBox`/`affectsSIDC/TextModifiers/Visuals`/`moveSymbol` | médio/baixo | 111320 sem correção lat; conjuntos disjuntos sidc/visuals | sidc∩visuals=∅; pointCode→affectsSIDC | não | S |
@@ -258,13 +277,12 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 ### Domínio: import/export (extrações)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `import.control.js` | `getTargetType`/`generateImportName`/`uniquify` (extrair)/`stripClosingVertex` (extrair) | médio/baixo | substring case-insensitive; counter mutação; sufixo começa em 2; **strip `===` exato** | 'POLYGON'→polygons; uniquify gap; strip 1e-9→não | sim/não | S |
+| `import.control.js` | `getTargetType`/`generateImportName`/`uniquify` (extrair) e um stripClosingVertex extraído (nome sugerido) | médio/baixo | substring case-insensitive; counter mutação; sufixo começa em 2; **strip `===` exato** | 'POLYGON'→polygons; uniquify gap; strip 1e-9→não | sim/não | S |
 | `export-import.service.js` | `roundCoordinates`/`optimizeFeature`/`xorData`/`getBlobExtension` | médio | Recursão anéis; 6 decimais; **NaN/Inf passa unrounded**; xor self-inverse | xor(xor(d))===d (property); jpeg→jpg | sim | S |
 | `garmin-kmz-export.js` | `lng/latToPixel...`/`pixelToLng/Lat` (extrair mercator) | alto | Round-trip; base 512 (não 256); polo div; antimeridiano lng>180; monotônico | round-trip <1e-6; lat90→não-finito | sim | M |
 | `garmin-kmz-export.js` | `_cornersToBox`/`_calculateTileGrid`/`_buildMercatorTileGrid` (stub-map) | alto | Normaliza cantos; MAX_TILES 100/MAX_CANVAS 16384→null; cobertura sem gap; ordem row-major | 4 ordens→mesma box; soma widths===total | sim | M/L |
-| `qan/qan-export.js` | `generateQAN` (turf-stub) | alto | Polígono fecha (legs=n vs n-1); **normalização azimuth `<0→+360`**; observations[i]||''; ordem [lat,lng] | stub turf; bearing neg→270; closing leg | sim/não | M |
+| `frontend/src/js/import_export/qan/qan-export.js` | `generateQAN` (turf-stub) | alto | Polígono fecha (legs=n vs n-1); **normalização azimuth `<0→+360`**; observations[i]||''; ordem [lat,lng] | stub turf; bearing neg→270; closing leg | sim/não | M |
 | `drag-drop.handler.js` | `classifyFile`/`truncateName` (exportar) | baixo/médio | lastIndexOf('.'); **sem ponto→substring(-1) garbage** (bug); double-ext; '.json'→GEO_IMPORT | 'noextension'→INVALID (probe); 'a.kml.txt'→INVALID | não | S |
-| `csv/csv-coordinate-converter.js` | `autoDetectColumnMapping` | médio | case+trim; exact-includes ('lat_deg' não casa); 'x'→long/'y'→lat; unknown→{} | exact-equality limitação; utm zone opcional | não | S |
 | `pdf-cartographic-elements.js` | `_utmZone`/`_formatBarLabel`/`_formatScaleText`/`_getGridSpacing` (extrair) | médio/baixo | `_utmZone(-180)→1`,180→60,NaN→NaN; barLabel 0/'1.5 km'; scaleText '1:25.000' pt-BR | -180→1; 1500→'1.5 km'; 25000→'1:25.000' | sim/não | S |
 | `pdf-export.tab.js` | `calculateA4PixelSize`/`convertMMToMapUnitsFromScale`/`_getFeatureCoord`/getters | médio/baixo | landscape/portrait swap; pixelRatio=dpi/96; UTM allowed `<` 2.5M estrito; Polygon anel vazio→undefined | dpi linear; UTM 2.5M excluído (fronteira) | sim/não | S/M |
 
@@ -290,18 +308,18 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `snapping/snapping.service.js` | `closestPointOnSegment` (extrair) | alto | lenSq=0→t=0 sem NaN; clamp t∈[0,1]; vertical/horizontal | extrair; t∈[0,1] sempre; dist<=dist(a)e dist(b) | sim | M |
 | idem | `extractVertices`/`extractSegments` (extrair) | alto | type desconhecido→[]; slice(0,2) strip z; **flat(2) depth**; ring.length-1 bounds | MultiPolygon→4 verts; single-vertex line→0 seg | não | M |
 | idem | `interpolateLngLat` (extrair) | médio | t=0/1 endpoints; **sem wrap antimeridiano** (179→-179 dá ~0); linear | linear property; antimeridiano→0 (documenta) | sim | S |
-| idem | `computeEffectiveEnabled` (extrair XOR) | médio | global XOR ctrl; tabela-verdade 4 combos | global!==ctrl (tabela) | não | S |
+| idem | computeEffectiveEnabled (extrair o XOR; nome sugerido) | médio | global XOR ctrl; tabela-verdade 4 combos | global!==ctrl (tabela) | não | S |
 | idem | `_findBestSnap` (extrair) | alto | vertex bonus vence edge; geometry null skip; tolerância; tie primeiro | bonus 4 faz vertex 10px vencer edge 9px | não | L |
 
 ### Domínio: catalog/search/coordinates/util/userdata/briefing/store
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `catalog/catalog.service.js` | `searchItems`/`_normalizeText` | alto/médio | query ''→todos; NFD accent-fold (ç NÃO decompõe); name null→sem throw; só keyword casa | 'analise'→'Análise'; '' →todos; ç sobrevive | sim | S |
-| `catalog.service.js` | `sortCatalogItemsByDate` (extrair) | alto | **DD/MM/YYYY (BR)** não US; sem-data→fim; malformado→NaN instável | extrair; '05/03'=Março não Maio; sem-data→fim | não | S |
+| ~~`catalog.service.js` ordenação por data~~ | FEITO: a extração virou `parseCatalogDate`/`sortByDateDesc`/`formatCatalogDate`, cobertos por `tests/unit/catalog-sort.test.js` (DD/MM/YYYY, sem-data ao fim, malformado) | — | — | — | — | — |
 | `config.helpers.js` | `getValidBasemapFallback`/`getEnabledBasemaps`/`validateBasemapsConfig` | alto/médio | disabled→fallback prioridade; unknown id→fallback; nenhum→'carta-topografica'; **muta singleton** | save/restore config; all-disabled→carta-topografica | não | M |
 | `config.helpers.js` | `getBasemapLayoutClass` | baixo | 1-5→classes; 0/6+/NaN→default | n fora [1,5]→default (property) | sim | S |
 | `search/search-bar.search-providers.js` | `featureMatchesQuery`/`getFeatureCenter` (exportar) | alto | props.name não-string→throw; sem accent-fold; **Polygon centroid inclui vértice fechamento** (skew); anel []→[NaN,NaN]; '' query casa tudo | name 123→throw (documenta); square skew | sim | S |
-| `search/...` | `searchAPI`→`mapApiResults` (extrair) | alto | non-array→[]; **lng 0 incluído** (equador); '' excluído; cap 5; descrição comma-strip | lon 0→incluído (regressão); só estado→sem comma | não | M |
+| `search/...` | `searchAPI`, extraindo dele um mapApiResults (nome sugerido) | alto | non-array→[]; **lng 0 incluído** (equador); '' excluído; cap 5; descrição comma-strip | lon 0→incluído (regressão); só estado→sem comma | não | M |
 | `coordinate_converter.js` | `getDisplayFormat`/`formatCoordinates` (DMS/MGRS string) | alto/médio | latlong 5-dec+°; DMS 'O'/'L' não 'W'/'E'; **carry seg 60**; MGRS spacing só len 15; throw→fallback | (-22.45,-44.45,dms) lon ' O'; 0,0→'N','L' | sim/não | M |
 | `id_utils.js` | `generateUniqueLayerName`/`generateUniqueMapName` | alto | Vazio→base; base presente sem sufixo→'#2'; **gap-fill lowest>=2** não max+1; **regex metachar escapado** | ['X #2','X #4']→'X #3'; 'a.b' literal | sim | M |
 | `image_utils.js` | `validateImageFile` | médio | null→msg; size===max inclusivo (`>`); type case-sensitive; size 0 passa | ==max→valid; 'IMAGE/PNG'→invalid | não | S |
@@ -311,22 +329,19 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `feature_navigation_utils.js` | `extractAllCoordinates` (extrair) | médio | Point/Line/Polygon/MultiPolygon flatten; [lng,lat,z] mantém; null→[]; strings não-push | Polygon→flatten; MultiPolygon depth-4 | sim | M |
 | `briefing.operations.js` | `reorderSlides`/`addSlide` (mock repo) | alto | **position===length→append não splice** (off-by-one); omitidos→append; order 0..n-1 sem gaps; dup id consome 1× | permutação→multiset igual + order [0..n] (property) | sim | M |
 | `briefing.operations.js` | `generateUniqueBriefingName` | médio | **gap-scan primeiro-livre não max+1**; sem colisão→base | ['X','X (2)']→'X (1)' (prova gap) | não | S |
-| `briefing/validation/reference-validator.js` | `_validateSlide`/`isLegacy360Position` (extrair) | alto | 360 \|lat\|>90 legacy; lat===90 não (estrito); **lng 0 não-ausente** (meridiano); modo→severidade (3D ERROR, 2D WARNING) | extrair; lng 0 lat 0→sem NO_POSITION (regressão); modo bogus→INVALID_MODE | não | M |
-| `briefing/export/pdf-page-composer.js` | `computeCropRect` (extrair) | alto | srcAspect vs target; rounding cropX+cropW<=srcW; aspecto extremo; target 0/NaN | extrair; (3000,1000,1)→cropW 1000; dentro bounds (property) | sim | M |
+| `briefing/validation/reference-validator.js` | `_validateSlide` e um isLegacy360Position extraído (nome sugerido) | alto | 360 \|lat\|>90 legacy; lat===90 não (estrito); **lng 0 não-ausente** (meridiano); modo→severidade (3D ERROR, 2D WARNING) | extrair; lng 0 lat 0→sem NO_POSITION (regressão); modo bogus→INVALID_MODE | não | M |
+| `briefing/export/pdf-page-composer.js` | computeCropRect (extrair; nome sugerido) | alto | srcAspect vs target; rounding cropX+cropW<=srcW; aspecto extremo; target 0/NaN | extrair; (3000,1000,1)→cropW 1000; dentro bounds (property) | sim | M |
 | `analysis/...selection-highlight` (dup) | (ver draw-text) | — | já listado em P1 draw-text | — | — | — |
 | `wmm_calculator.js` | `calculateMagneticDeclination` (mock geomagnetism) | alto | lat/lng ±90/±180 inclusivo; **NaN coord passa guard** (sem isFinite); altitude clamp Math.max(0,-5); arredonda 2dp/1dp | vi.mock geomagnetism; 91→null; NaN→não-null (flag) | não | M |
 | `wmm_calculator.js` | `checkWMMValidity`/`dateToDecimalYear`/`roundTo` (exportar) | alto/médio | Fronteiras 2025.0/2030.0; **Invalid Date→valid:true** (NaN); ano bissexto 366; DST skew | extrair; 2025-01-01→true; Invalid Date→true (flag) | sim | S |
-| `attribute_table/table-data.service.js` | `filterFeatures`/`sortFeatures`/`getCellValue` | alto | selectedOnly+vazio→[]; tipos coerce String(); vazios ao fim; natural sort; **0/false não-vazio** | selectedOnly vazio→[]; 'item2'<'item10'; 0 ordena | sim/não | M |
+| `frontend/src/js/attribute_table/services/table-data.service.js` | `filterFeatures`/`sortFeatures`/`getCellValue` | alto | selectedOnly+vazio→[]; tipos coerce String(); vazios ao fim; natural sort; **0/false não-vazio** | selectedOnly vazio→[]; 'item2'<'item10'; 0 ordena | sim/não | M |
 | `features_tab/feature-organizer.service.js` | `flattenAndSortFeatures`/`countTotalFeatures` (mock @store) | médio/baixo | storageType desconhecido filtrado; `?? true` não guarda false; sort pt-BR | visivel false preservado; accent pt-BR sort | sim | S/M |
 | `phone/phone-layout.js` | `_getFeatureCentroid` (extrair→geometry-centroid.js) | alto | Point strip z; **Polygon inclui vértice fechamento** (skew); Line floor(len/2); null→null | extrair (dedup c/ search); square skew documentado | não | M |
 | `deep-link/deep-link.js` | `parseDeepLink`/`buildShareUrl360/3D` (stub window) | alto/médio | hash vazio→null; param faltando→NaN não 0; round-trip toFixed precision | round-trip build→parse dentro precisão (property) | sim | S/M |
 | `mode/application-mode.manager.js` | `setViewerMode`/`reset`/predicados | médio/baixo | inválido→false sem mutação; mesmo→false sem emit; mútua exclusão | exatamente 1 predicado true (invariante) | sim | S |
 | `ui-visibility.controller.js` | `register`/`toggleElement`/`defineProfile` | médio | callback faltando→skip; late-join hide; `?? true` default; **defineProfile muta PROFILES global** | toggle 2×→identidade; default true | sim | S/M |
-| `state_manager.js` | seleção (add/remove/select/update)/collapse toggles | médio/baixo | dedup (type,id); composite key; remove inexistente no-op; round-trip add/remove | add 2× mesma→count 1; toggle par→false | sim | S |
-| `state_manager.js` | subscribe/unsubscribe/reset/toolbar groups | médio/baixo | double-unsub seguro; subscriber throw isolado; reset notifica todos; toolbar prev-group emit | throw isolado; reset→default + callback | não | M |
-| `toolmgr/clipboard_manager.js` | `generateUniqueFeatureName`/`computeOffset` (extrair) | alto/médio | '- Cópia N' incremento; **'X - Cópia abc'→double-suffix**; unicode ó; cosLat polo singularidade | 'X - Cópia 5'→'6'; lat0 dx===dy | sim/não | M |
-| `toolmgr/hatch_pattern_generator.js` | `getConfigFromProperties`/`getCacheKey`/`getPatternId` | médio | **spacing/lineWidth 0 falsy→default 8/2**; case hex →cache-miss; fillColor>hatchColor | spacing:0→8 (flag); '#ff'≠'#FF' keys | sim | S |
-| `csv/csv-parser.js` | `parseCSVPreview` | médio | totalRows conta todos, preview cap 5; ragged sem padding (vs parseCSV) | 10 rows→preview 5, total 10 | não | S |
+| `frontend/src/js/tool_manager/clipboard_manager.js` | `generateUniqueFeatureName` e um computeOffset extraído (nome sugerido) | alto/médio | '- Cópia N' incremento; **'X - Cópia abc'→double-suffix**; unicode ó; cosLat polo singularidade | 'X - Cópia 5'→'6'; lat0 dx===dy | sim/não | M |
+| `frontend/src/js/tool_manager/hatch_pattern_generator.js` | `getConfigFromProperties`/`getCacheKey`/`getPatternId` | médio | **spacing/lineWidth 0 falsy→default 8/2**; case hex →cache-miss; fillColor>hatchColor | spacing:0→8 (flag); '#ff'≠'#FF' keys | sim | S |
 | `analysis/...` | `extractCenterFromGeometry`/`generateWedgePolygon`/`generateSectorGeometry` (turf-stub) | médio | **média de vértices ≠ centroid** (double-count fechamento); anel fechado; numArcPoints | empty→null; ring fechado | não | M |
 
 ---
@@ -343,9 +358,9 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `add_occupied_front_geometry.js` | `getBoundingBox`/`calculateCenter`/`updateFeatureForMove` | baixo | center=p1 (não centroid); imutabilidade | S |
 | `military_constants.js` | `getMainIcons`/`getModifier1/2`/`getAllSymbolSetCodes` | médio | Invariante: todo code→Array | S |
 | `coordination_measure_generator.js` | `generatePointGeometry` | baixo | dropa z; nova array | S |
-| `add_coordination_measure_control.js` | `resolveActualPointCode` (extrair) | médio | ECHELON fallback duplicado 3× | M |
+| `add_coordination_measure_control.js` | resolveActualPointCode (extrair; nome sugerido) | médio | ECHELON fallback duplicado 3× | M |
 | `declination_svg_generator.js` | `generateDeclinationSvg` | médio | Threshold 0.1/8 fronteiras; NaN vaza p/ legenda; snapshot determinístico | M |
-| `svg-to-png.js` | `computeImageFit` (extrair) | médio | Letterbox/pillarbox; dim 0→throw; centragem | M |
+| `svg-to-png.js` | computeImageFit (extrair; nome sugerido) | médio | Letterbox/pillarbox; dim 0→throw; centragem | M |
 | `add_declination_geometry.js` | `calculateSelectionBoxGeometry`/`generate` | baixo | stub uiManager; anel fechado; strip altitude | S |
 | `line_profile.js` | `formatLength` | médio | Fronteira 1000m toFixed(2); 999.999→'1000.00 m' quirk | S |
 | `los_tool` | `extractCoordinatesFromGeometry`/`generateProcessedFeatures`/`formatDistance` | médio | Multi vs Single; toFixed(2) vs panel toFixed(1) divergência | S |
@@ -355,11 +370,11 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `cesium3d.operations.js` | `getNextAutoNumber`/`removeByTileset` (exportar) | médio | vazio→1; max+1 não first-free; regex anchored | M |
 | `grid/grid-layers.config.js` | `GRID_LAYERS`/`lineLayerId`/`labelLayerId` (exportar) | médio | latlong label dropa '4326', utm mantém 'utm' (assimetria); 16 IDs/sistema; sem dup | S |
 | `coordinate_converter.js` | `getPlaceholderForFormat` | baixo | Self-consistência: placeholder parseável | S |
-| `mouse-coordinates.control.js` | `formatElevation`/`shouldShowElevation` (extrair) | baixo | Math.round(NaN); gate null+enabled | S |
-| `search/feature-search.control.js` | `filterValidSuggestions`/`search3DModelsFromTilesets` (extrair) | baixo/médio | 3d-model bypass; lon 0 incluído; keywords divergência | S |
+| `mouse-coordinates.control.js` | formatElevation/shouldShowElevation (extrair; nomes sugeridos) | baixo | Math.round(NaN); gate null+enabled | S |
+| `search/feature-search.control.js` | `_filterValidSuggestions`/`_search3DModels` (extrair para módulo puro) | baixo/médio | 3d-model bypass; lon 0 incluído; keywords divergência | S |
 | `briefing.operations.js` | `createEmptySlide`/`createEmptyBriefing`/`importBriefings` | baixo | id fresco; settings copy isolada; createdAt===updatedAt | S |
 | `briefing/validation/reference-validator.js` | `ValidationResult`/`ValidationError` | baixo/médio | severidade routing; getSummary sem leading comma; slideIndex+1 display | S |
-| `briefing/presentation` | `_getTransitionHandler`/`shouldUseInstant` (extrair) | médio | 9 pares modo; first-load→instant; forward→animated | S |
+| `briefing/presentation` | `_getTransitionHandler` e um shouldUseInstant extraído (nome sugerido) | médio | 9 pares modo; first-load→instant; forward→animated | S |
 | `mode` | `createApplicationModeManager`/`getApplicationModeManager` (singleton) | baixo | vi.resetModules p/ instância fresca | S |
 
 ---
@@ -393,4 +408,14 @@ Todos coupling `dom`/`maplibre`/`cesium`/`canvas`; valor de teste como lógica p
 2. **Antimeridiano (±180) não tratado** em praticamente todo bbox/midpoint/centroid/applyOffset/interpolateLngLat/calculateBearing local. Documentar como limitação conhecida, não como bug a corrigir no teste.
 3. **`===` estrito vs float quase-igual** em `isPolygonClosed`/`extractBaseCoordinates`/snapping — fixar.
 4. **fast-check** é ideal para: round-trips (normalize JSON, build/parse SIDC, build/parse deep-link, applyOffset ±d, mercator pixel↔lng), invariantes (bbox containment, anel fechado, batch dedup, perimeter reverso, `_pathMatches` prefix, ganho-perda=Δnet, w²+h²=diag², perfil restore), e monotonicidade (zoom-corrected size, distance step múltiplo de 30).
-5. **Extrações recomendadas (refactor barato, alto payoff), em ordem:** `computeZoomCorrectedSize` (mata duplicação 4×) · `classifyRay`/`detectObstruction`/`computeProfileFromElevations` (análise militar) · helpers privados pdf-cartográficos (`_formatDMS`/`_clipSegment`/`_findEdgeIntersection`/`_niceNumber`) · mercator garmin · `calculateBounds(features)` (terrain) · `geometry-centroid.js` (consolida `_getFeatureCentroid` + `getFeatureCenter` duplicados) · helpers snapping · encode/decode engagement-bar · `sortCatalogItemsByDate`.
+5. **Extrações recomendadas (refactor barato, alto payoff), em ordem.** Duas já foram
+   feitas e servem de modelo: a correção de tamanho por zoom, que estava duplicada quatro
+   vezes e virou `frontend/src/js/tool_manager/helpers/zoom-correction.helpers.js`, e a
+   ordenação por data do catálogo, que virou `parseCatalogDate`/`sortByDateDesc` em
+   `frontend/src/js/catalog/catalog.service.js`. Continuam pendentes (nomes abaixo são
+   sugestões, nenhum existe ainda): classifyRay/detectObstruction/computeProfileFromElevations
+   (análise militar) · helpers privados pdf-cartográficos (`_formatDMS`/`_clipSegment`/`_findEdgeIntersection`/`_niceNumber`) ·
+   mercator garmin · um calculateBounds puro extraído do `_calculateBounds` de
+   `frontend/src/js/terrain/data-layers.manager.js` · um módulo geometry-centroid consolidando
+   `_getFeatureCentroid` + `getFeatureCenter` duplicados · helpers snapping · encode/decode
+   da engagement-bar.

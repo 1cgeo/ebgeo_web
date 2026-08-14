@@ -52,6 +52,15 @@ const ALVOS = [
     'livro-razao.md',
     'backend/CLAUDE.md',
     'backend/README.md',
+    // A doc da própria SUÍTE estava fora desta lista, e foi a única que apodreceu
+    // sem nada ficar vermelho: a auditoria de 2026-08-14 achou nela um roadmap
+    // mandando escrever quatro suítes que já existem, um backlog cujo "Top 10"
+    // repete o que a seção acima declara concluído, e a afirmação de que
+    // `npm test` "roda toda a suíte" quando o vitest.config exclui os dois
+    // diretórios de e2e. Documento que orienta agente e não é vigiado envelhece
+    // exatamente como este envelheceu.
+    'frontend/tests/TESTING.md',
+    'frontend/tests/TESTING-BACKLOG.md',
 ];
 // `.claude/agents` entrou depois: a auditoria de 2026-07-18 achou erro real em
 // arquivo de agente (e no extinto launch.json) justamente por estarem fora desta

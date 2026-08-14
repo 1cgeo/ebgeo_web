@@ -120,11 +120,14 @@ describe.skipIf(E2E_SKIP)('§1.10 duplicate map (real backend)', () => {
     });
 
     it('404s when duplicating a non-existent map id', async () => {
+        // The STATUS is the claim, so assert the status (like combine-maps does):
+        // a bare `rejects.toThrow()` would also pass on a 500, on a network error
+        // or on a parse failure — i.e. on the backend being broken.
         await expect(
             api._request(
                 'POST',
                 `/atlas/${atlasId}/maps/${generateUUID()}/duplicate`,
             ),
-        ).rejects.toThrow();
+        ).rejects.toMatchObject({ status: 404 });
     });
 });

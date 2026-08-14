@@ -4,7 +4,16 @@
  * @fileoverview E2E: flat Street View 360 annotation ops (orientation360 /
  * marker360) travel through the real backend sync pipeline and surface in the
  * pullSync snapshot under `map.streetview360`, with `photoName` preserved as the
- * orientation key and on each marker. Also asserts the cross-client WS broadcast.
+ * orientation key and on each marker. Also asserts the cross-client WS broadcast
+ * delivers the 360 payload intact.
+ *
+ * NOT covered here: the WsClient self-echo filter (a peer dropping an op it
+ * authored itself). This suite used to claim it in a test title while asserting
+ * `received.some(o => o.clientId === peerClientId) === false` over a stream where
+ * NO op had ever been published with the peer's clientId — true with the filter
+ * on or off. The filter is entity-agnostic (`ws-client.js` compares clientIds
+ * before routing, regardless of entityType), and it is proved with a barrier op
+ * in `two-client-broadcast.e2e.test.js`; a second copy here would pin nothing new.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -98,7 +107,7 @@ describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
         expect(sv.markers).not.toHaveProperty(photoName);
     });
 
-    it('broadcasts a marker360 op to a connected WS peer (filtering its own clientId)', async () => {
+    it('broadcasts a marker360 op INTACT to a connected WS peer', async () => {
         const peerClientId = newClientId();
         const ws = makeWs(api, { clientId: peerClientId });
         const received = [];
@@ -124,8 +133,17 @@ describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
             { timeout: 4000 },
         );
         expect(got).toBeTruthy();
-        // The peer never sees an op authored by its own clientId (none was sent as such).
-        expect(received.some((o) => o.clientId === peerClientId)).toBe(false);
+        // The 360 payload survives the WS wire, field by field: entity routing,
+        // the photoName key, the nested position and the op idempotency key.
+        expect(got.entityType).toBe('marker360');
+        expect(got.operationType).toBe('create');
+        expect(got.mapId).toBe(mapId);
+        expect(got.id).toBe(op.id);
+        expect(got.data.photoName).toBe(photoName);
+        expect(got.data.position).toEqual({ x: 1, y: 2, z: 3 });
+        expect(got.data.properties.label).toBe('WS broadcast');
+        // Delivered precisely BECAUSE it was authored by a foreign client.
+        expect(got.clientId).toBe(senderClientId);
 
         ws.disconnect();
     });
