@@ -793,7 +793,15 @@ class AddTextControl extends BaseControl {
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
 
+        // Absent means enabled (the panel reads `!== false`), so normalize both
+        // sides before comparing: a raw `a !== b` would flag every legacy feature
+        // that never carried the key as changed on each deselect.
+        const zoomCorrectionChanged =
+            (feature.properties.zoomCorrectionEnabled !== false) !==
+            (initialProperties.zoomCorrectionEnabled !== false);
+
         return (
+            zoomCorrectionChanged ||
             feature.properties.text !== initialProperties.text ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.color !== initialProperties.color ||

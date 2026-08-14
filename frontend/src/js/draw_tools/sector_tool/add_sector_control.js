@@ -840,6 +840,10 @@ class AddSectorControl extends BaseControl {
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // lineStyle is edited by the panel (sector_attributes_panel.js) and
+            // rendered via line-dasharray; without it here a dashed/solid change
+            // alone never reaches updateFeature and is lost on reload.
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.radius !== initialProperties.radius ||
             feature.properties.bearing !== initialProperties.bearing ||
             feature.properties.aperture !== initialProperties.aperture ||

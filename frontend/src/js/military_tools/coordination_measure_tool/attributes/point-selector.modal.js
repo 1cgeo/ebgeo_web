@@ -79,7 +79,10 @@ export class PointSelectorModal extends ModalBase {
         super({
             id: 'point-selector-modal',
             title: 'Configurar Medida de Coordenação',
-            icon: ICONS.coordinationMeasure
+            icon: ICONS.coordinationMeasure,
+            // Transient modal: a fresh instance is created per open (openPointModal),
+            // so the overlay and the document keydown listener must go on hide.
+            destroyOnHide: true
         });
 
         this._feature = config.feature;
@@ -94,6 +97,25 @@ export class PointSelectorModal extends ModalBase {
         this._previewImage = null;
         this._subtypeDropdown = null;
         this._textModifiersContent = null;
+        // Combo containers created by this modal. Their dropdowns live in
+        // document.body, so they cannot be found by walking the modal subtree.
+        this._combos = [];
+    }
+
+    /**
+     * Runs the cleanup of a combo container and forgets it.
+     * @private
+     * @param {HTMLElement} combo - Combo container returned by the factory
+     */
+    _releaseCombo(combo) {
+        if (!combo) return;
+        const index = this._combos.indexOf(combo);
+        if (index > -1) {
+            this._combos.splice(index, 1);
+        }
+        if (typeof combo._cleanup === 'function') {
+            combo._cleanup();
+        }
     }
 
     /**
@@ -143,6 +165,7 @@ export class PointSelectorModal extends ModalBase {
             generateThumbnail,
             this._dropdownState
         );
+        this._combos.push(pointTypeCombo);
         controlsColumn.appendChild(pointTypeCombo);
 
         this._subtypeDropdown = document.createElement('div');
@@ -257,6 +280,9 @@ export class PointSelectorModal extends ModalBase {
      * @private
      */
     _updateSubtypeCombo() {
+        // Release the previous subtype combo before dropping it: its dropdown node
+        // and its document click listener live outside this subtree.
+        this._releaseCombo(this._subtypeDropdown.firstElementChild);
         this._subtypeDropdown.innerHTML = '';
 
         if (!isEchelonPointCode(this._tempProperties.pointCode)) return;
@@ -278,6 +304,7 @@ export class PointSelectorModal extends ModalBase {
             this._dropdownState
         );
 
+        this._combos.push(subtypeCombo);
         this._subtypeDropdown.appendChild(subtypeCombo);
     }
 
@@ -419,17 +446,12 @@ export class PointSelectorModal extends ModalBase {
      * @override
      */
     hide() {
-        if (this._controlsColumn) {
-            const comboBoxes = Array.from(this._controlsColumn.children);
-            comboBoxes.forEach(combo => {
-                if (combo._cleanup) {
-                    combo._cleanup();
-                }
-            });
-        }
+        // Iterate over a copy: _releaseCombo mutates the list.
+        [...this._combos].forEach(combo => this._releaseCombo(combo));
 
         if (this._previewDebounceTimer) {
             clearTimeout(this._previewDebounceTimer);
+            this._previewDebounceTimer = null;
         }
 
         super.hide();

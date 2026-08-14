@@ -200,12 +200,8 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
     try {
         selectionManager.deselectAllFeatures();
 
-        // Remove merged feature
-        await removeFeature('arrows', props.id);
-        const data = await map.getSource('arrows').getData();
-        data.features = data.features.filter(f => String(f.properties.id) !== String(props.id));
-
-        // Create individual features from each branch
+        // Build every branch feature in memory BEFORE any write, so a geometry failure aborts
+        // without having touched the store (mirrors the guard in mergeArrows).
         for (const branch of props.branches) {
             const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
             const featureName = await IDUtils.generateFeatureName('arrow', map);
@@ -235,18 +231,35 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
             };
 
             const featureGeometry = geometry.generate(featureProps.baseCoordinates, featureProps);
-            const newFeature = {
+            if (!featureGeometry) {
+                showWarning('Erro ao gerar geometria da seta');
+                return null;
+            }
+
+            createdFeatures.push({
                 type: 'Feature',
                 id: geoJsonId,
                 properties: featureProps,
                 geometry: featureGeometry
-            };
-
-            await addFeature('arrows', newFeature);
-            data.features.push(newFeature);
-            createdFeatures.push(newFeature);
+            });
         }
 
+        const data = await map.getSource('arrows').getData();
+
+        // Batch so a single Ctrl+Z undoes the whole split as one unit. Add the branches FIRST
+        // so a persist failure cannot lose the merged arrow (worst case is recoverable extras).
+        startBatchUndo();
+        try {
+            for (const newFeature of createdFeatures) {
+                await addFeature('arrows', newFeature);
+            }
+            await removeFeature('arrows', props.id);
+        } finally {
+            commitBatchUndo();
+        }
+
+        data.features = data.features.filter(f => String(f.properties.id) !== String(props.id));
+        data.features.push(...createdFeatures);
         map.getSource('arrows').setData(data);
 
         // Select first created feature

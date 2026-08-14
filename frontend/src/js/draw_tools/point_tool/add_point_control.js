@@ -505,6 +505,12 @@ class AddPointControl extends BaseControl {
             return;
         }
 
+        // Single-shot tool: disarm BEFORE the first await. `createPointAtCoordinates`
+        // awaits name generation, image registration and the store write before
+        // `deactivateCurrentTool()` runs, so two clicks in the same tick both used to
+        // pass the guard above and create two points with the same generated name.
+        this.isActive = false;
+
         const snapping = getSnappingService();
         const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
         if (snap.snapped) {

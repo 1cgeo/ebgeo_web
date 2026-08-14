@@ -1117,6 +1117,7 @@ class AddRectangleControl extends BaseControl {
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.borderRadius !== initialProperties.borderRadius ||
             feature.properties.bearing !== initialProperties.bearing ||
             feature.properties.width !== initialProperties.width ||

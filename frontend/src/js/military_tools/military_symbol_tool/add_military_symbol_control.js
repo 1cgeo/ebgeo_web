@@ -19,6 +19,97 @@ import {
 } from '@tools/helpers/zoom-correction.helpers.js';
 import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 
+/**
+ * Properties that feed the SIDC builder.
+ * Mirrors AddMilitarySymbolGeometry#affectsSIDC (pinned by
+ * `tests/unit/military-symbol-tracked-props.test.js`).
+ * @type {string[]}
+ */
+export const SIDC_PROPS = [
+    'context', 'standardIdentity', 'status', 'hqTfDummy',
+    'echelon', 'mainIcon', 'modifier1', 'modifier2',
+    'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
+    'specialModifier', 'isCommand', 'symbolSet'
+];
+
+/**
+ * Text amplifiers drawn onto the symbol image.
+ * Mirrors AddMilitarySymbolGeometry#affectsTextModifiers (same test pins it).
+ * @type {string[]}
+ */
+export const TEXT_MODIFIER_PROPS = [
+    'uniqueDesignation', 'higherFormation', 'quantity', 'reinforcedReduced',
+    'additionalInformation', 'credibility', 'type', 'iffSif', 'dateTimeGroup',
+    'altitudeDepth', 'equipmentTeardownTime', 'location', 'speed',
+    'specialHeadquarters', 'direction', 'engagementBar'
+];
+
+/**
+ * Style and identity properties worth persisting.
+ * Render-derived values (calculatedSize, selectionBox, width, height) are left out
+ * on purpose: they change on every zoom and would make the save gate fire forever.
+ * @type {string[]}
+ */
+export const STYLE_PROPS = [
+    'sidc', 'size', 'opacity', 'rotation', 'fillColor', 'createdAtZoom',
+    'zoomCorrectionEnabled', 'nome', 'descricao', 'visivel', 'bloqueado'
+];
+
+/**
+ * Every property whose change must reach the store.
+ * @type {string[]}
+ */
+export const TRACKED_PROPS = [...SIDC_PROPS, ...TEXT_MODIFIER_PROPS, ...STYLE_PROPS];
+
+/**
+ * Properties copied by "Definir como padrão".
+ * White list on purpose: a black list silently adopts every property added later,
+ * which is how trajectory/temporal/lock state leaked into brand-new symbols.
+ * @type {string[]}
+ */
+export const DEFAULTABLE_KEYS = [
+    'context', 'standardIdentity', 'symbolSet', 'status', 'hqTfDummy',
+    'echelon', 'specialModifier', 'isCommand', 'mainIcon', 'modifier1', 'modifier2',
+    'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
+    'size', 'opacity', 'rotation', 'fillColor', 'zoomCorrectionEnabled'
+];
+
+/**
+ * Builds the patch applied to DEFAULT_PROPERTIES from a source feature's properties.
+ * Pure: takes and returns plain objects.
+ * @param {Object} properties - Source feature properties
+ * @param {string[]} [keys=DEFAULTABLE_KEYS] - Keys allowed into the patch
+ * @returns {Object} Patch with only the allowed keys present in `properties`
+ */
+export function buildDefaultSymbolPatch(properties, keys = DEFAULTABLE_KEYS) {
+    const patch = {};
+    if (!properties) return patch;
+
+    for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(properties, key)) {
+            patch[key] = properties[key];
+        }
+    }
+    return patch;
+}
+
+/**
+ * Compares the tracked properties of a feature against its initial snapshot.
+ * Pure. `null`, `undefined` and `''` are treated as the same empty value, because
+ * the modal writes `''` where the feature was created with `null` — without that
+ * every Apply would persist an unchanged symbol.
+ * @param {Object} properties - Current feature properties
+ * @param {Object} initialProperties - Snapshot taken when the feature was selected
+ * @param {string[]} [keys=TRACKED_PROPS] - Keys to compare
+ * @returns {boolean} True when at least one tracked property changed
+ */
+export function hasTrackedPropsChanged(properties, initialProperties, keys = TRACKED_PROPS) {
+    if (!initialProperties) return true;
+
+    const current = properties || {};
+    return keys.some((key) => (current[key] ?? '') !== (initialProperties[key] ?? ''));
+}
+
 class AddMilitarySymbolControl extends BaseControl {
     featureType = 'military_symbol';
   constructor(toolManager) {
@@ -976,59 +1067,14 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   setDefaultProperties = (properties) => {
-    const TEXT_MODIFIERS = [
-      'uniqueDesignation',
-      'higherFormation',
-      'reinforcedReduced',
-      'additionalInformation',
-      'credibility',
-      'location',
-      'dateTimeGroup',
-      'altitudeDepth',
-      'speed',
-      'specialHeadquarters',
-      'type',
-      'iffSif',
-      'equipmentTeardownTime',
-      'direction',
-      'engagementBar'
-    ];
-
-    const safeProperties = { ...properties };
-    TEXT_MODIFIERS.forEach(key => {
-      delete safeProperties[key];
-    });
-
-    Object.assign(AddMilitarySymbolControl.DEFAULT_PROPERTIES, safeProperties);
-
-    TEXT_MODIFIERS.forEach(key => {
-      AddMilitarySymbolControl.DEFAULT_PROPERTIES[key] = null;
-    });
+    Object.assign(
+      AddMilitarySymbolControl.DEFAULT_PROPERTIES,
+      buildDefaultSymbolPatch(properties)
+    );
   };
 
   hasFeatureChanged = (feature, initialProperties) => {
-    if (!initialProperties) return true;
-
-    return (
-      feature.properties.context !== initialProperties.context ||
-      feature.properties.standardIdentity !==
-      initialProperties.standardIdentity ||
-      feature.properties.status !== initialProperties.status ||
-      feature.properties.hqTfDummy !== initialProperties.hqTfDummy ||
-      feature.properties.echelon !== initialProperties.echelon ||
-      feature.properties.mainIcon !== initialProperties.mainIcon ||
-      feature.properties.modifier1 !== initialProperties.modifier1 ||
-      feature.properties.modifier2 !== initialProperties.modifier2 ||
-      feature.properties.size !== initialProperties.size ||
-      feature.properties.opacity !== initialProperties.opacity ||
-      feature.properties.rotation !== initialProperties.rotation ||
-      feature.properties.fillColor !== initialProperties.fillColor ||
-      feature.properties.createdAtZoom !== initialProperties.createdAtZoom ||
-      feature.properties.nome !== initialProperties.nome ||
-      feature.properties.descricao !== initialProperties.descricao ||
-      feature.properties.visivel !== initialProperties.visivel ||
-      feature.properties.bloqueado !== initialProperties.bloqueado
-    );
+    return hasTrackedPropsChanged(feature?.properties, initialProperties);
   };
 
   updateFeatures = async (

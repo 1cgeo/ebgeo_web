@@ -3,6 +3,11 @@
 /**
  * Text amplifiers catalog by dimension
  * Mapping according to MD33-M-02 and milsymbol.js
+ *
+ * The keys MUST be the symbol set codes declared in `military_constants.js`
+ * (SYMBOL_SET_REGISTRY / MILITARY_DATA.symbolSets), because the lookup in
+ * `getTextModifiersConfig` is fed straight from `properties.symbolSet` with no
+ * translation table. `tests/unit/text-modifiers-catalog.test.js` pins this.
  */
 export const TEXT_MODIFIERS_CATALOG = {
     '02': { // MISSILE SYMBOLS
@@ -202,7 +207,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '20': { // AEROSPACE SYMBOLS - AIRCRAFT
+    '01': { // AEROSPACE SYMBOLS - AIRCRAFT
         label: 'Aeronaves',
         fields: [
             {
@@ -249,7 +254,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '25': { // SPACE SYMBOLS
+    '05': { // SPACE SYMBOLS
         label: 'Espaciais',
         fields: [
             {
@@ -470,7 +475,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '40': { // INSTALLATIONS SYMBOLS
+    '20': { // INSTALLATIONS SYMBOLS
         label: 'Instalações',
         fields: [
             {
@@ -517,7 +522,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '60': { // ACTIVITIES AND EVENTS SYMBOLS
+    '40': { // ACTIVITIES AND EVENTS SYMBOLS
         label: 'Atividades e Eventos',
         fields: [
             {

@@ -108,15 +108,11 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
                 value: feature.properties.borderRadius || 0,
                 unit: '',
                 onChange: (value) => {
+                    // `updateFeaturesProperty` already regenerates the geometry with
+                    // bearing/width/height and pushes it to the source. Regenerating here
+                    // (3-arg call = bearing 0) only produced an axis-aligned geometry that a
+                    // second, concurrent read-modify-write cycle then had to repair.
                     rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
-
-                    selectedFeatures.forEach(f => {
-                        const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
-                        const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
-                        f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
-                    });
-
-                    rectangleControl.updateFeatures(selectedFeatures, false, false);
                 }
             }));
 

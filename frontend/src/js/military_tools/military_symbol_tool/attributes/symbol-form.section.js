@@ -169,14 +169,21 @@ function resetTextModifiers(tempProperties) {
 
 /**
  * Removes a combobox element from DOM and nulls it.
+ * Runs `_cleanup()` first: a combobox created by `createDigitalComboBox` owns a
+ * document click listener and a dropdown appended to `document.body`, neither of
+ * which goes away when the container leaves the form.
  * @param {Object} comboboxes - Comboboxes object
  * @param {string} key - Combobox key
  */
 function removeCombobox(comboboxes, key) {
-    if (comboboxes[key]?.parentNode) {
-        comboboxes[key].remove();
-        comboboxes[key] = null;
+    const element = comboboxes[key];
+    if (!element) return;
+
+    element._cleanup?.();
+    if (element.parentNode) {
+        element.remove();
     }
+    comboboxes[key] = null;
 }
 
 /**

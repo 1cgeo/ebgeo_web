@@ -462,7 +462,14 @@ class AddBrushControl extends BaseControl {
     }
 
     performZoomUpdate = async () => {
-        if(this.map.getSource('brushes')){
+        // The flag MUST be cleared on every exit path: handleZoomChange only schedules a new frame
+        // when it is false, so leaving it set (no source yet after a setStyle, or a getData that
+        // rejects because the source vanished mid-await) freezes zoom correction until reload.
+        if (!this.map?.getSource('brushes')) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+        try {
             const data = await this.map.getSource('brushes').getData();
             if (data && data.features) {
                 const updatedFeatures = data.features.map(feature =>
@@ -474,6 +481,7 @@ class AddBrushControl extends BaseControl {
                     features: updatedFeatures
                 });
             }
+        } finally {
             this.pendingZoomUpdate = false;
         }
     }

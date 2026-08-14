@@ -663,7 +663,13 @@ class AddImageControl extends BaseControl {
   hasFeatureChanged = (feature, initialProperties) => {
     if (!initialProperties) return true;
 
+    // Zoom correction defaults to ON by absence, so `undefined` and `true` are the
+    // same state: compare the normalized flag, not the raw value.
+    const zoomCorrectionOn = feature.properties.zoomCorrectionEnabled !== false;
+    const initialZoomCorrectionOn = initialProperties.zoomCorrectionEnabled !== false;
+
     return (
+      zoomCorrectionOn !== initialZoomCorrectionOn ||
       feature.properties.size !== initialProperties.size ||
       feature.properties.rotation !== initialProperties.rotation ||
       feature.properties.opacity !== initialProperties.opacity ||

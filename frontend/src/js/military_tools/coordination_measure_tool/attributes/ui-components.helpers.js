@@ -115,32 +115,38 @@ export function getPointsGroupedOptions() {
         grouped[category].push(point);
     });
 
+    // Preferred display order only: it must never act as a filter, otherwise a
+    // renamed or newly added category silently disappears from the combo box.
     const categoryOrder = [
         'Gerais',
         'Movimento e Manobra',
         'Passagens',
         'Fogos',
-        'Protecao - Obstaculos',
-        'Protecao - Fortificacao',
-        'Protecao - Minas',
-        'Protecao - QBRN',
-        'Logistica',
-        'Controle Aereo',
-        'Controle Maritimo'
+        'Proteção - Obstáculos',
+        'Proteção - Fortificação',
+        'Proteção - Minas',
+        'Proteção - QBRN',
+        'Logística',
+        'Controle Aéreo',
+        'Controle Marítimo'
     ];
 
-    categoryOrder.forEach(category => {
-        if (grouped[category]) {
-            grouped[category].forEach(point => {
-                options.push({
-                    value: point.code,
-                    label: `${point.label} (${category})`,
-                    iconCode: point.code,
-                    isEchelon: false
-                });
+    const emitted = new Set();
+    const emitCategory = (category) => {
+        if (emitted.has(category) || !grouped[category]) return;
+        emitted.add(category);
+        grouped[category].forEach(point => {
+            options.push({
+                value: point.code,
+                label: `${point.label} (${category})`,
+                iconCode: point.code,
+                isEchelon: false
             });
-        }
-    });
+        });
+    };
+
+    categoryOrder.forEach(emitCategory);
+    Object.keys(grouped).forEach(emitCategory);
 
     options.push({
         value: 'ECHELON',

@@ -924,6 +924,9 @@ class AddEllipseControl extends BaseControl {
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // lineStyle is offered by the attributes panel and rendered via line-dasharray;
+            // without it here the change never reached the store (lost on reload).
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.majorRadius !== initialProperties.majorRadius ||
             feature.properties.minorRadius !== initialProperties.minorRadius ||
             feature.properties.bearing !== initialProperties.bearing ||

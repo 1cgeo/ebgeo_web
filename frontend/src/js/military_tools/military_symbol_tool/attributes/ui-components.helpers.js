@@ -356,9 +356,18 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 
     document.body.appendChild(dropdown);
 
+    // The dropdown lives on document.body (not inside `container`), so dropping the
+    // container alone leaks both the node and the document listener. Every caller
+    // that discards a combobox must call `_cleanup()`.
     container._cleanup = () => {
         document.removeEventListener('click', handleDocumentClick);
         dropdown.remove();
+        if (dropdownState) {
+            const index = dropdownState.openDropdowns.indexOf(dropdown);
+            if (index !== -1) {
+                dropdownState.openDropdowns.splice(index, 1);
+            }
+        }
     };
 
     container.updateValue = (newValue) => {
