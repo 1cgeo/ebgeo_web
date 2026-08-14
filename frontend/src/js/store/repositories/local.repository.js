@@ -272,6 +272,33 @@ export class LocalRepository {
     }
 
     /**
+     * Whether some OTHER map record still answers to `mapName`.
+     * Guards the deletion of the name-keyed side stores (`temporal_<nome>`,
+     * `mapLocked_<nome>`), which are shared by name and therefore not this record's to drop
+     * while a namesake survives.
+     * @param {string} mapName - Map name to look for.
+     * @param {string[]} excludedKeys - Storage keys of the record being deleted.
+     * @returns {Promise<boolean>}
+     * @private
+     */
+    async _isMapNameUsedByOther(mapName, excludedKeys) {
+        if (!mapName) {
+            return false;
+        }
+        const keys = await mapStore.keys();
+        for (const key of keys) {
+            if (excludedKeys.includes(key)) {
+                continue;
+            }
+            const data = await mapStore.getItem(key);
+            if (data && data.name === mapName) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Deletes a map and all associated data.
      * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<void>}
@@ -308,13 +335,31 @@ export class LocalRepository {
             appStore.removeItem(`mapLocked_${name}`)
         ];
 
-        const removals = [...removeByKey(resolvedKey), ...removeByName(mapName)];
+        // A name-keyed side store belongs to whatever map ANSWERS to that name, not to this
+        // record. While a local stray and an atlas map share a name (exactly what
+        // activateAtlasInitialMap faces right after a snapshot: the UUID-keyed atlas map and the
+        // recreated local 'Principal'), dropping `temporal_<nome>`/`mapLocked_<nome>` here erases
+        // the SURVIVOR's data — the pulled temporal config vanished microseconds after the
+        // snapshot wrote it (P11). So the name-keyed removal only runs when no other record still
+        // carries the name; the key-keyed stores (`gridStyle_<id>` and friends) are unaffected,
+        // which is why the grid round-tripped and the timeline did not.
+        // The namesake checks run BEFORE any removal is issued: `removeByKey` fires its promises
+        // at call time, and a scan of a half-emptied map store would answer about a moving target.
+        const excludedKeys = [resolvedKey, mapIdOrName];
+        const nameIsShared = await this._isMapNameUsedByOther(mapName, excludedKeys);
+        const aliasIsShared = mapIdOrName !== mapName
+            && await this._isMapNameUsedByOther(mapIdOrName, excludedKeys);
+
+        const removals = [...removeByKey(resolvedKey)];
+        if (!nameIsShared) {
+            removals.push(...removeByName(mapName));
+        }
 
         // Also remove with original key if different (legacy cleanup)
         if (resolvedKey !== mapIdOrName) {
             removals.push(...removeByKey(mapIdOrName));
         }
-        if (mapIdOrName !== mapName) {
+        if (mapIdOrName !== mapName && !aliasIsShared) {
             removals.push(...removeByName(mapIdOrName));
         }
 

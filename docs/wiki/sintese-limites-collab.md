@@ -70,8 +70,10 @@ O caminho suportado continua sendo: acumular local, logar, subir o atlas via `PO
 
 Antes de suspeitar de perda de mensagem, colete os spans correlacionados por `op.id`: o span de broadcast conta separadamente os pulos por self-echo, socket fechado e filtro de leitura, e o de apply carrega `rowsAffected`, que é o guard de "ackado mas sem efeito". Na maioria dos casos o "sumiço" é filtro de comentário para viewer, eco próprio descartado ou lote travado, não perda de rede. Ver [[syncledger]] e [[aplicacao-operacoes-remotas]].
 
-## 10. A config temporal por mapa não converge (aberto desde 2026-08-14)
+## 10. Lateral chaveado por nome pode ser apagado por um homônimo local
 
-Ligar a linha do tempo de um mapa é estado compartilhado por projeto, e na prática não chega ao par: o E2E de round-trip P11 compara a config temporal por mapa entre autor e convidado e reprova (`frontend/tests/e2e-ui/browser-p11-roundtrip.spec.js`). O spec está vermelho **de propósito**, sem expectativa ajustada e sem `skip`. O servidor foi conferido elo a elo e está correto; a causa está no cliente e não foi localizada. Detalhe e ponto de partida da investigação em [[modulo-temporal]].
+Resolvido em 2026-08-14, e a armadilha continua valendo para código novo. A config temporal por mapa não chegava ao convidado, com o P11 vermelho na comparação de temporal (`frontend/tests/e2e-ui/browser-p11-roundtrip.spec.js`). Não era transporte: o servidor entregava `temporal_config` no snapshot e o cliente o gravava. Era a limpeza seguinte. Ao abrir um atlas, `activateAtlasInitialMap` apaga os mapas locais soltos, e o mapa do atlas costuma ter o mesmo nome do mapa local padrão (`Principal`); o `deleteMap` do repositório removia por nome os dois laterais chaveados assim, `temporal_<nome>` e `mapLocked_<nome>`, matando o dado do mapa que sobrevive.
 
-Consequência para quem depura outro sintoma: um mapa cuja janela temporal filtra feições diferentes para cada usuário é **este** limite, não perda de op nem divergência de LWW.
+A guarda vive no repositório: remoção por nome só quando nenhum outro registro de mapa responde por aquele nome (`frontend/src/js/store/repositories/local.repository.js`). Detalhe e regressão em [[modulo-temporal]].
+
+Regra que fica: todo estado por mapa chaveado por **nome** é compartilhado por nome, e num store onde mapa remoto é chaveado por UUID e mapa local por nome, dois registros podem responder pelo mesmo nome ao mesmo tempo. Ao criar lateral novo, prefira chavear por id do mapa, como faz `gridStyle_<id>`, que atravessou o bug intacto.
