@@ -9,6 +9,7 @@ import { one } from './database/index.js';
 import { NotFoundError, ServiceUnavailableError } from './utils/errors.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { drainOnError } from './middleware/drain-on-error.js';
 import { flexibleAuth } from './middleware/flexible-auth.js';
 
 // Module routes
@@ -201,6 +202,10 @@ export function createApp() {
   app.use((req, res, next) => {
     next(new NotFoundError('Route'));
   });
+
+  // Drain an unread request body before the status is written, otherwise a gate
+  // that rejects mid-upload loses its own response to an ECONNRESET.
+  app.use(drainOnError);
 
   // Centralized error handler (must be last)
   app.use(errorHandler);
