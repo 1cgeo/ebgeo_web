@@ -316,7 +316,13 @@ export class StreetViewNavigator {
      */
     layoutDirections(targets, fov) {
         const vectors = targets
-            .map(t => ({ id: t.id, ...this.resolveTargetVector(t) }))
+            .map(t => ({
+                id: t.id,
+                // O degrau entra AQUI, e nao so na hora de desenhar, porque ele
+                // decide de que lado do horizonte o icone fica.
+                floorDelta: this.deltaDeAndar(t),
+                ...this.resolveTargetVector(t),
+            }))
             .sort((a, b) => a.distance - b.distance);
 
         // Place in the distance order of the whole photo, 0 = nearest of all.
@@ -362,7 +368,7 @@ export class StreetViewNavigator {
                 layout.set(member.id, {
                     rank: member.rank,
                     radius: this.projector.angularMarkerRadius(member.rank, fov),
-                    elevationDeg: this.projector.elevationDeg(member.rank),
+                    elevationDeg: this.projector.elevacaoComAndar(member.rank, member.floorDelta),
                 });
             }
         }
@@ -428,7 +434,9 @@ export class StreetViewNavigator {
                 // Kept so a click on the edge arrow can TURN to the target: the
                 // arrow's whole message is "it is that many degrees away".
                 azimuthRelDeg: projected.azimuthRelDeg,
-                floorDelta: this.deltaDeAndar(target)
+                floorDelta: this.deltaDeAndar(target),
+                floorLevel: target?.floor_level ?? null,
+                floorLabel: target?.floor_label ?? null
             };
         }
 
@@ -448,7 +456,11 @@ export class StreetViewNavigator {
             // Quantos andares o alvo sobe (positivo) ou desce (negativo). Zero
             // para o mesmo andar E para todo projeto SEM andar declarado, entao
             // o acervo externo desenha exatamente como antes.
-            floorDelta: this.deltaDeAndar(target)
+            floorDelta: this.deltaDeAndar(target),
+            // O andar de DESTINO, que vira o texto ao lado da seta. O rotulo
+            // manda, e o nivel so vale quando o banco nao nomeou o andar.
+            floorLevel: target?.floor_level ?? null,
+            floorLabel: target?.floor_label ?? null
         };
     }
 
