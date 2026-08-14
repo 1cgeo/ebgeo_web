@@ -11,7 +11,7 @@
 // state manager, events, image processing, uuid). The real sync-metadata and
 // deep-utils helpers run so we exercise genuine isActive()/soft-delete behavior.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ============================================================================
 // localStorage stub (node env has none; addMarker360 reads default style)
@@ -42,7 +42,14 @@ const h = vi.hoisted(() => ({
     mapIds: { TestMap: 'map-uuid-123', OtherMap: 'map-uuid-999' },
     // Permission gate toggle (checkPermission is allow-all offline / local-only).
     permissionAllowed: true,
-    permissionReason: 'Permissão insuficiente (teste)'
+    permissionReason: 'Permissão insuficiente (teste)',
+    // Ambos desligados por padrão, para que todo caso existente mantenha a semântica que
+    // tinha. O bloco de concorrência liga os dois, e AMBOS são necessários: sem os hops a
+    // interleaving perdedora não acontece, e sem o clone ela não perde nada, porque dois
+    // escritores que recebem a MESMA referência mutam um só documento. Um fake que não
+    // clona faz este defeito desaparecer, que é um verde provando nada.
+    clona: false,
+    hops: 0
 }));
 
 // ============================================================================
@@ -53,14 +60,16 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     getStreetview360Compat: vi.fn(async (mapName) => {
         // Mirror the repository contract: always return a fresh object with the
         // canonical empty shape when nothing is stored yet.
+        for (let i = 0; i < h.hops; i++) await Promise.resolve();
         const existing = h.store.get(mapName);
         if (!existing) {
             return { orientations: {}, markers: [] };
         }
-        return existing;
+        return h.clona ? structuredClone(existing) : existing;
     }),
     setStreetview360Compat: vi.fn(async (mapName, data) => {
-        h.store.set(mapName, data);
+        for (let i = 0; i < h.hops * 2; i++) await Promise.resolve();
+        h.store.set(mapName, h.clona ? structuredClone(data) : data);
     })
 }));
 
@@ -1105,5 +1114,47 @@ describe('permission gate on 360 writes', () => {
         expect(await updateMarker360(marker.id, { properties: { nome: 'ok' } })).not.toBeNull();
         expect(await removeMarker360(marker.id)).toBe(true);
         expect(emitStoreError).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// Concorrência: escritas sobrepostas no documento streetview360
+// ============================================================================
+
+describe('escrita concorrente no documento sv360', () => {
+    // Mesma raiz do documento do mapa, do de comentários e do cesium3d: toda operação
+    // aqui é um read-modify-write do documento inteiro, e o repositório devolve uma cópia
+    // a cada leitura. Sem serialização, a segunda gravação sobrescreve a primeira.
+    beforeEach(() => {
+        h.clona = true;
+        h.hops = 1;
+    });
+
+    afterEach(() => {
+        h.clona = false;
+        h.hops = 0;
+    });
+
+    it('20 marcadores 360 concorrentes persistem os 20', async () => {
+        const criados = await Promise.all(
+            Array.from({ length: 20 }, (_, i) =>
+                addMarker360('foto-1', { position: { yaw: i, pitch: 0 }, properties: { nome: `M${i}` } }))
+        );
+
+        expect(criados.every(Boolean)).toBe(true);
+        const doc = h.store.get('TestMap');
+        expect(doc.markers).toHaveLength(20);
+        expect(new Set(doc.markers.map((m) => m.id)).size).toBe(20);
+    });
+
+    it('orientação e marcador do mesmo documento não se atropelam', async () => {
+        await Promise.all([
+            saveOrientation('foto-1', { yaw: 90, pitch: 10 }),
+            addMarker360('foto-1', { position: { yaw: 1, pitch: 0 }, properties: { nome: 'M' } }),
+        ]);
+
+        const doc = h.store.get('TestMap');
+        expect(doc.markers).toHaveLength(1);
+        expect(doc.orientations['foto-1']).toBeTruthy();
     });
 });

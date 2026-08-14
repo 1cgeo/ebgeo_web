@@ -21,6 +21,7 @@ import {
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { deepClone } from '../utilities/deep-utils.js';
+import { withSideDocument } from './document-lock.js';
 
 // Alias for backward compatibility during migration
 const getStreetview360Data = getStreetview360Compat;
@@ -149,41 +150,44 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
     if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'saveOrientation')) return;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'saveOrientation', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const existing = data.orientations[photoName];
-    const isUpdate = !!existing?.sync;
-    const oldOrientation = existing ? { ...existing } : null;
+        const existing = data.orientations[photoName];
+        const isUpdate = !!existing?.sync;
+        const oldOrientation = existing ? { ...existing } : null;
 
-    const sync = existing?.sync
-        ? touchSyncMetadata(existing.sync)
-        : createSyncMetadata(null);
+        const sync = existing?.sync
+            ? touchSyncMetadata(existing.sync)
+            : createSyncMetadata(null);
 
-    data.orientations[photoName] = {
-        id: existing?.id || generateUUID(),
-        photoName,
-        lon: orientation.lon,
-        lat: orientation.lat,
-        fov: orientation.fov,
-        savedAt: Date.now(),
-        sync
-    };
+        data.orientations[photoName] = {
+            id: existing?.id || generateUUID(),
+            photoName,
+            lon: orientation.lon,
+            lat: orientation.lat,
+            fov: orientation.fov,
+            savedAt: Date.now(),
+            sync
+        };
 
-    await setStreetview360Data(targetMap, data);
+        await setStreetview360Data(targetMap, data);
 
-    if (isCached(targetMap)) {
-        memoryStore.streetview360.orientations[photoName] = data.orientations[photoName];
-    }
+        if (isCached(targetMap)) {
+            memoryStore.streetview360.orientations[photoName] = data.orientations[photoName];
+        }
 
-    deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
+        deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    const saved = data.orientations[photoName];
-    if (isUpdate) {
-        logOrientation360Operation(OperationType.UPDATE, saved.id, mapId, saved, oldOrientation);
-    } else {
-        logOrientation360Operation(OperationType.CREATE, saved.id, mapId, saved);
-    }
+        const mapId = mapManager.getCurrentMapId();
+        const saved = data.orientations[photoName];
+        if (isUpdate) {
+            logOrientation360Operation(OperationType.UPDATE, saved.id, mapId, saved, oldOrientation);
+        } else {
+            logOrientation360Operation(OperationType.CREATE, saved.id, mapId, saved);
+        }
+    });
 }
 
 /**
@@ -226,27 +230,30 @@ export async function clearOrientation(photoName, mapName = null) {
     if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'clearOrientation')) return false;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'clearOrientation', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const orientation = data.orientations[photoName];
-    if (!orientation || !isActive(orientation.sync)) {
-        return false;
-    }
+        const orientation = data.orientations[photoName];
+        if (!orientation || !isActive(orientation.sync)) {
+            return false;
+        }
 
-    const oldOrientation = { ...orientation };
-    orientation.sync = markDeleted(orientation.sync);
-    await setStreetview360Data(targetMap, data);
+        const oldOrientation = { ...orientation };
+        orientation.sync = markDeleted(orientation.sync);
+        await setStreetview360Data(targetMap, data);
 
-    if (isCached(targetMap)) {
-        memoryStore.streetview360.orientations[photoName] = orientation;
-    }
+        if (isCached(targetMap)) {
+            memoryStore.streetview360.orientations[photoName] = orientation;
+        }
 
-    deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
+        deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logOrientation360Operation(OperationType.DELETE, orientation.id, mapId, null, oldOrientation);
+        const mapId = mapManager.getCurrentMapId();
+        logOrientation360Operation(OperationType.DELETE, orientation.id, mapId, null, oldOrientation);
 
-    return true;
+        return true;
+    });
 }
 
 /**
@@ -282,47 +289,50 @@ export async function addMarker360(photoName, markerData, mapName = null) {
     if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'addMarker360')) return null;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'addMarker360', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const existingCount = data.markers.filter(m => m.photoName === photoName && isActive(m.sync)).length;
+        const existingCount = data.markers.filter(m => m.photoName === photoName && isActive(m.sync)).length;
 
-    const savedDefaultStyle = localStorage.getItem('default_marker_360_style');
-    const defaultStyle = savedDefaultStyle ? JSON.parse(savedDefaultStyle) : DEFAULT_MARKER_360_STYLE;
+        const savedDefaultStyle = localStorage.getItem('default_marker_360_style');
+        const defaultStyle = savedDefaultStyle ? JSON.parse(savedDefaultStyle) : DEFAULT_MARKER_360_STYLE;
 
-    const marker = {
-        id: generateUUID(),
-        photoName,
-        position: {
-            heading: markerData.position.heading,
-            pitch: markerData.position.pitch,
-            distance: markerData.position.distance || 5
-        },
-        properties: {
-            // Preserve any optional temporal validity (temporalInicio/temporalFim).
-            ...markerData.properties,
-            nome: markerData.properties?.nome || `Ponto #${existingCount + 1}`,
-            descricao: markerData.properties?.descricao || ''
-        },
-        style: { ...defaultStyle, ...markerData.style },
-        images: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        sync: createSyncMetadata(null)
-    };
+        const marker = {
+            id: generateUUID(),
+            photoName,
+            position: {
+                heading: markerData.position.heading,
+                pitch: markerData.position.pitch,
+                distance: markerData.position.distance || 5
+            },
+            properties: {
+                // Preserve any optional temporal validity (temporalInicio/temporalFim).
+                ...markerData.properties,
+                nome: markerData.properties?.nome || `Ponto #${existingCount + 1}`,
+                descricao: markerData.properties?.descricao || ''
+            },
+            style: { ...defaultStyle, ...markerData.style },
+            images: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            sync: createSyncMetadata(null)
+        };
 
-    data.markers.push(marker);
-    await setStreetview360Data(targetMap, data);
+        data.markers.push(marker);
+        await setStreetview360Data(targetMap, data);
 
-    if (isCached(targetMap)) {
-        memoryStore.streetview360.markers.push(marker);
-    }
+        if (isCached(targetMap)) {
+            memoryStore.streetview360.markers.push(marker);
+        }
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMarker360Operation(OperationType.CREATE, marker.id, mapId, marker);
+        const mapId = mapManager.getCurrentMapId();
+        logMarker360Operation(OperationType.CREATE, marker.id, mapId, marker);
 
-    return marker;
+        return marker;
+    });
 }
 
 /**
@@ -388,43 +398,46 @@ export async function updateMarker360(markerId, updates, mapName = null) {
     if (!guardStreetview360Write(GuardAction.CREATE_MARKER_360, 'updateMarker360')) return null;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'updateMarker360', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const marker = data.markers.find(m => m.id === markerId);
-    if (!marker || !isActive(marker.sync)) {
-        return null;
-    }
-
-    const previousData = deepClone(marker);
-
-    if (updates.properties) {
-        marker.properties = { ...marker.properties, ...updates.properties };
-    }
-    if (updates.style) {
-        marker.style = { ...marker.style, ...updates.style };
-    }
-    if (updates.position) {
-        marker.position = { ...marker.position, ...updates.position };
-    }
-
-    marker.updatedAt = Date.now();
-    marker.sync = touchSyncMetadata(marker.sync);
-
-    await setStreetview360Data(targetMap, data);
-
-    if (isCached(targetMap)) {
-        const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
-        if (memIndex !== -1) {
-            memoryStore.streetview360.markers[memIndex] = marker;
+        const marker = data.markers.find(m => m.id === markerId);
+        if (!marker || !isActive(marker.sync)) {
+            return null;
         }
-    }
 
-    // getMapId(targetMap), NOT the map NAME: the pre-flush guard drops any op whose
-    // mapId is not a UUID, so passing the name silently discarded every update.
-    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+        const previousData = deepClone(marker);
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return marker;
+        if (updates.properties) {
+            marker.properties = { ...marker.properties, ...updates.properties };
+        }
+        if (updates.style) {
+            marker.style = { ...marker.style, ...updates.style };
+        }
+        if (updates.position) {
+            marker.position = { ...marker.position, ...updates.position };
+        }
+
+        marker.updatedAt = Date.now();
+        marker.sync = touchSyncMetadata(marker.sync);
+
+        await setStreetview360Data(targetMap, data);
+
+        if (isCached(targetMap)) {
+            const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
+            if (memIndex !== -1) {
+                memoryStore.streetview360.markers[memIndex] = marker;
+            }
+        }
+
+        // getMapId(targetMap), NOT the map NAME: the pre-flush guard drops any op whose
+        // mapId is not a UUID, so passing the name silently discarded every update.
+        await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        return marker;
+    });
 }
 
 /**
@@ -437,28 +450,31 @@ export async function removeMarker360(markerId, mapName = null) {
     if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarker360')) return false;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'removeMarker360', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const marker = data.markers.find(m => m.id === markerId);
-    if (!marker || !isActive(marker.sync)) {
-        return false;
-    }
-
-    const previousData = deepClone(marker);
-    marker.sync = markDeleted(marker.sync);
-    await setStreetview360Data(targetMap, data);
-
-    if (isCached(targetMap)) {
-        const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
-        if (memIndex !== -1) {
-            memoryStore.streetview360.markers[memIndex] = marker;
+        const marker = data.markers.find(m => m.id === markerId);
+        if (!marker || !isActive(marker.sync)) {
+            return false;
         }
-    }
 
-    await logMarker360Operation(OperationType.DELETE, markerId, mapManager.getMapId(targetMap), null, previousData);
+        const previousData = deepClone(marker);
+        marker.sync = markDeleted(marker.sync);
+        await setStreetview360Data(targetMap, data);
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return true;
+        if (isCached(targetMap)) {
+            const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
+            if (memIndex !== -1) {
+                memoryStore.streetview360.markers[memIndex] = marker;
+            }
+        }
+
+        await logMarker360Operation(OperationType.DELETE, markerId, mapManager.getMapId(targetMap), null, previousData);
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        return true;
+    });
 }
 
 /**
@@ -471,41 +487,44 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
     if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarkers360ByPhoto')) return 0;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'removeMarkers360ByPhoto', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    /** @type {Array<{id: string, previous: Object}>} Pre-delete snapshots for the sync ops. */
-    const removed = [];
-    for (const marker of data.markers) {
-        if (marker.photoName === photoName && isActive(marker.sync)) {
-            const previous = deepClone(marker);
-            marker.sync = markDeleted(marker.sync);
-            removed.push({ id: marker.id, previous });
-        }
-    }
-
-    if (removed.length === 0) {
-        return 0;
-    }
-
-    await setStreetview360Data(targetMap, data);
-
-    if (isCached(targetMap)) {
-        for (const marker of memoryStore.streetview360.markers) {
+        /** @type {Array<{id: string, previous: Object}>} Pre-delete snapshots for the sync ops. */
+        const removed = [];
+        for (const marker of data.markers) {
             if (marker.photoName === photoName && isActive(marker.sync)) {
+                const previous = deepClone(marker);
                 marker.sync = markDeleted(marker.sync);
+                removed.push({ id: marker.id, previous });
             }
         }
-    }
 
-    // Bulk removal is still a removal per entity: without one DELETE op each, wiping a
-    // photo's markers stayed local and peers kept showing them.
-    const mapId = mapManager.getMapId(targetMap);
-    for (const entry of removed) {
-        await logMarker360Operation(OperationType.DELETE, entry.id, mapId, null, entry.previous);
-    }
+        if (removed.length === 0) {
+            return 0;
+        }
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return removed.length;
+        await setStreetview360Data(targetMap, data);
+
+        if (isCached(targetMap)) {
+            for (const marker of memoryStore.streetview360.markers) {
+                if (marker.photoName === photoName && isActive(marker.sync)) {
+                    marker.sync = markDeleted(marker.sync);
+                }
+            }
+        }
+
+        // Bulk removal is still a removal per entity: without one DELETE op each, wiping a
+        // photo's markers stayed local and peers kept showing them.
+        const mapId = mapManager.getMapId(targetMap);
+        for (const entry of removed) {
+            await logMarker360Operation(OperationType.DELETE, entry.id, mapId, null, entry.previous);
+        }
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        return removed.length;
+    });
 }
 
 // ===== MARKER IMAGE OPERATIONS =====
@@ -527,45 +546,48 @@ export async function addMarker360Image(markerId, file, mapName = null) {
     }
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'addMarker360Image', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const marker = data.markers.find(m => m.id === markerId);
-    if (!marker || !isActive(marker.sync)) {
-        return null;
-    }
-
-    const imageData = await processImageFile(file);
-    const image = {
-        id: generateUUID(),
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        data: imageData.data,
-        thumbnail: imageData.thumbnail,
-        addedAt: Date.now()
-    };
-
-    const previousData = deepClone(marker);
-    marker.images.push(image);
-    marker.updatedAt = Date.now();
-    marker.sync = touchSyncMetadata(marker.sync);
-
-    await setStreetview360Data(targetMap, data);
-
-    if (isCached(targetMap)) {
-        const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
-        if (memMarker) {
-            memMarker.images = marker.images;
-            memMarker.updatedAt = marker.updatedAt;
-            memMarker.sync = marker.sync;
+        const marker = data.markers.find(m => m.id === markerId);
+        if (!marker || !isActive(marker.sync)) {
+            return null;
         }
-    }
 
-    // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync to peers.
-    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+        const imageData = await processImageFile(file);
+        const image = {
+            id: generateUUID(),
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            data: imageData.data,
+            thumbnail: imageData.thumbnail,
+            addedAt: Date.now()
+        };
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return image;
+        const previousData = deepClone(marker);
+        marker.images.push(image);
+        marker.updatedAt = Date.now();
+        marker.sync = touchSyncMetadata(marker.sync);
+
+        await setStreetview360Data(targetMap, data);
+
+        if (isCached(targetMap)) {
+            const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
+            if (memMarker) {
+                memMarker.images = marker.images;
+                memMarker.updatedAt = marker.updatedAt;
+                memMarker.sync = marker.sync;
+            }
+        }
+
+        // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync to peers.
+        await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        return image;
+    });
 }
 
 /**
@@ -590,39 +612,42 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
     if (!guardStreetview360Write(GuardAction.DELETE_MARKER_360, 'removeMarker360Image')) return false;
 
     const targetMap = resolveMapName(mapName);
-    const data = await getStreetview360Data(targetMap);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', targetMap, 'removeMarker360Image', async () => {
+        const data = await getStreetview360Data(targetMap);
 
-    const marker = data.markers.find(m => m.id === markerId);
-    if (!marker || !isActive(marker.sync)) {
-        return false;
-    }
-
-    const imgIndex = marker.images.findIndex(img => img.id === imageId);
-    if (imgIndex === -1) {
-        return false;
-    }
-
-    const previousData = deepClone(marker);
-    marker.images.splice(imgIndex, 1);
-    marker.updatedAt = Date.now();
-    marker.sync = touchSyncMetadata(marker.sync);
-
-    await setStreetview360Data(targetMap, data);
-
-    if (isCached(targetMap)) {
-        const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
-        if (memMarker) {
-            memMarker.images = marker.images;
-            memMarker.updatedAt = marker.updatedAt;
-            memMarker.sync = marker.sync;
+        const marker = data.markers.find(m => m.id === markerId);
+        if (!marker || !isActive(marker.sync)) {
+            return false;
         }
-    }
 
-    // Removing an inline image is a marker UPDATE that must sync to peers.
-    await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+        const imgIndex = marker.images.findIndex(img => img.id === imageId);
+        if (imgIndex === -1) {
+            return false;
+        }
 
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
-    return true;
+        const previousData = deepClone(marker);
+        marker.images.splice(imgIndex, 1);
+        marker.updatedAt = Date.now();
+        marker.sync = touchSyncMetadata(marker.sync);
+
+        await setStreetview360Data(targetMap, data);
+
+        if (isCached(targetMap)) {
+            const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
+            if (memMarker) {
+                memMarker.images = marker.images;
+                memMarker.updatedAt = marker.updatedAt;
+                memMarker.sync = marker.sync;
+            }
+        }
+
+        // Removing an inline image is a marker UPDATE that must sync to peers.
+        await logMarker360Operation(OperationType.UPDATE, markerId, mapManager.getMapId(targetMap), marker, previousData);
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+        return true;
+    });
 }
 
 // ===== MEMORY OPERATIONS =====
@@ -685,39 +710,42 @@ export async function getStreetview360DataForExport(mapName) {
  * @returns {Promise<void>}
  */
 export async function setStreetview360DataForImport(mapName, importData) {
-    const existingData = await getStreetview360Data(mapName);
+    // Leaf read-modify-write of the sv360 document; see document-lock.js.
+    return withSideDocument('sv360', mapName, 'setStreetview360DataForImport', async () => {
+        const existingData = await getStreetview360Data(mapName);
 
-    // Merge orientations (import overwrites existing), ensuring sync metadata
-    const mergedOrientations = { ...existingData.orientations };
-    for (const [key, orientation] of Object.entries(importData.orientations || {})) {
-        mergedOrientations[key] = {
-            ...orientation,
-            id: orientation.id || generateUUID(),
-            sync: orientation.sync || createSyncMetadata(null)
-        };
-    }
+        // Merge orientations (import overwrites existing), ensuring sync metadata
+        const mergedOrientations = { ...existingData.orientations };
+        for (const [key, orientation] of Object.entries(importData.orientations || {})) {
+            mergedOrientations[key] = {
+                ...orientation,
+                id: orientation.id || generateUUID(),
+                sync: orientation.sync || createSyncMetadata(null)
+            };
+        }
 
-    // Regenerate marker IDs to avoid conflicts and ensure sync metadata
-    const newMarkers = (importData.markers || []).map(marker => ({
-        ...marker,
-        id: generateUUID(),
-        createdAt: marker.createdAt || Date.now(),
-        updatedAt: marker.updatedAt || Date.now(),
-        sync: marker.sync || createSyncMetadata(null)
-    }));
+        // Regenerate marker IDs to avoid conflicts and ensure sync metadata
+        const newMarkers = (importData.markers || []).map(marker => ({
+            ...marker,
+            id: generateUUID(),
+            createdAt: marker.createdAt || Date.now(),
+            updatedAt: marker.updatedAt || Date.now(),
+            sync: marker.sync || createSyncMetadata(null)
+        }));
 
-    const activeExistingMarkers = existingData.markers.filter(m => isActive(m.sync));
-    const mergedMarkers = [...activeExistingMarkers, ...newMarkers];
+        const activeExistingMarkers = existingData.markers.filter(m => isActive(m.sync));
+        const mergedMarkers = [...activeExistingMarkers, ...newMarkers];
 
-    await setStreetview360Data(mapName, {
-        orientations: mergedOrientations,
-        markers: mergedMarkers
+        await setStreetview360Data(mapName, {
+            orientations: mergedOrientations,
+            markers: mergedMarkers
+        });
+
+        if (isCached(mapName)) {
+            memoryStore.streetview360.orientations = mergedOrientations;
+            memoryStore.streetview360.markers = mergedMarkers;
+        }
+
+        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName });
     });
-
-    if (isCached(mapName)) {
-        memoryStore.streetview360.orientations = mergedOrientations;
-        memoryStore.streetview360.markers = mergedMarkers;
-    }
-
-    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName });
 }

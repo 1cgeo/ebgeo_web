@@ -29,7 +29,11 @@ const h = vi.hoisted(() => ({
     // loads through getCesium3dCompat (the backing store). Tests that exercise
     // the memory cache set this explicitly.
     memory: { cesium3d: null },
-    localStorage: new Map()
+    localStorage: new Map(),
+    // Microtask hops per store round trip. Zero by default, so every existing case
+    // keeps the timing it had; the concurrency block raises it to force the losing
+    // interleaving instead of hoping the scheduler produces it.
+    hops: 0
 }));
 
 // ============================================================================
@@ -39,6 +43,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('../../src/js/store/repositories/index.js', () => ({
     getCesium3dCompat: vi.fn(async (mapName) => {
+        for (let i = 0; i < h.hops; i++) await Promise.resolve();
         const existing = h.store.get(mapName);
         // Return a fresh deserialized copy each call (mirrors the real repo,
         // which deserializes from IndexedDB), and a fresh empty structure when
@@ -49,6 +54,7 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
         return data;
     }),
     setCesium3dCompat: vi.fn(async (mapName, data) => {
+        for (let i = 0; i < h.hops * 2; i++) await Promise.resolve();
         h.store.set(mapName, structuredClone(data));
     })
 }));
@@ -1202,5 +1208,55 @@ describe('permission gate on 3D writes', () => {
         expect(await updateMarker(marker.id, { properties: { nome: 'ok' } })).not.toBeNull();
         expect(await removeMarker(marker.id)).toBe(true);
         expect(emitStoreError).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// Concorrência: escritas sobrepostas no documento cesium3d
+// ============================================================================
+
+describe('escrita concorrente no documento cesium3d', () => {
+    // MESMA raiz do documento do mapa e do de comentários: toda operação aqui é um
+    // read-modify-write do documento INTEIRO (getCesium3dDataWithCache -> mutar ->
+    // saveCesium3dData), e o `deepClone` do cache garante que dois escritores partam do
+    // mesmo instantâneo. Sem serialização, a segunda gravação sobrescreve a primeira.
+    //
+    // Note que o clone do cache não é um defeito: ele existe para que uma persistência
+    // falha não deixe o cache divergido do disco. É correto, e é ele que cria a corrida.
+    //
+    // Os hops forçam a interleaving perdedora em vez de esperar que o escalonador a
+    // produza. Sem eles o teste passaria mesmo sem a trava, e isso é a diferença entre
+    // medir a corrida e medir um relógio parado.
+    beforeEach(() => {
+        h.hops = 1;
+    });
+
+    it('20 marcadores 3D concorrentes persistem os 20', async () => {
+        const criados = await Promise.all(
+            Array.from({ length: 20 }, (_, i) =>
+                addMarker('tileset-1', { position: { x: i, y: 0, z: 0 }, properties: { nome: `M${i}` } }))
+        );
+
+        expect(criados.every(Boolean)).toBe(true);
+        const doc = h.store.get('TestMap');
+        expect(doc.markers).toHaveLength(20);
+        // Identidades, não só a contagem: um documento com 20 cópias do mesmo marcador
+        // satisfaria a contagem e seria o mesmo defeito.
+        expect(new Set(doc.markers.map((m) => m.id)).size).toBe(20);
+    });
+
+    it('famílias diferentes do mesmo documento não se atropelam', async () => {
+        // Marcador, medição e viewshed moram no MESMO documento, então competem entre si
+        // apesar de serem coleções distintas. É o caso que uma trava por coleção perderia.
+        await Promise.all([
+            addMarker('t1', { position: { x: 1, y: 0, z: 0 }, properties: { nome: 'M' } }),
+            addMeasurement('t1', { points: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }], distance: 1 }),
+            addViewshed('t1', { position: { x: 2, y: 0, z: 0 }, radius: 50 }),
+        ]);
+
+        const doc = h.store.get('TestMap');
+        expect(doc.markers).toHaveLength(1);
+        expect(doc.measurements).toHaveLength(1);
+        expect(doc.viewsheds).toHaveLength(1);
     });
 });

@@ -21,7 +21,7 @@ import { getStorageTypeFromSource } from '../store.constants.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
-import { withMapDocument } from '../document-lock.js';
+import { withMapDocument, withSideDocument } from '../document-lock.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
@@ -714,21 +714,27 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
  * @param {Object} data - The comment object (root or reply).
  */
 async function applyRemoteCommentOp(opType, commentId, mapId, data) {
-    const collection = await localRepository.getMapComments(mapId);
-    switch (opType) {
-        case OperationType.CREATE:
-        case OperationType.UPDATE: {
-            if (data) collection[commentId] = data;
-            await localRepository.saveMapComments(mapId, collection);
-            emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: data });
-            break;
+    // The peer's comment and the local user's comment are two writers of the SAME document,
+    // and this is the ordinary case for spatial comments, not a burst: without the lock the
+    // later save drops the earlier one. Same key as the local side (`comments:<mapId>`), or
+    // the two would not exclude each other at all.
+    return withSideDocument('comments', mapId, 'applyRemoteCommentOp', async () => {
+        const collection = await localRepository.getMapComments(mapId);
+        switch (opType) {
+            case OperationType.CREATE:
+            case OperationType.UPDATE: {
+                if (data) collection[commentId] = data;
+                await localRepository.saveMapComments(mapId, collection);
+                emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: data });
+                break;
+            }
+            case OperationType.DELETE:
+                delete collection[commentId];
+                await localRepository.saveMapComments(mapId, collection);
+                emit(EventTypes.COMMENT_DELETED, { commentId });
+                break;
         }
-        case OperationType.DELETE:
-            delete collection[commentId];
-            await localRepository.saveMapComments(mapId, collection);
-            emit(EventTypes.COMMENT_DELETED, { commentId });
-            break;
-    }
+    });
 }
 
 // 3D / 360 entities live in the per-map cesium3d / streetview360 stores, keyed by map NAME

@@ -18,6 +18,7 @@ import { logCommentOperation, OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
+import { withSideDocument } from './document-lock.js';
 import { generateUUID } from '@utils/uuid.js';
 import { getEventBus } from './services.js';
 import { EventTypes } from '@events/event_types.js';
@@ -77,7 +78,12 @@ export async function addComment(input, mapName = null) {
         updatedAt: now,
     };
 
-    await runTransaction(async (tx) => {
+    // Leaf read-modify-write of the comments document. Without the lock the later save
+    // drops the earlier one: measured, 20 concurrent writers persisted 1. The peer's
+    // inbound comment is the second writer in the real case, not a burst. See
+    // document-lock.js; `resolveComment` is deliberately NOT locked (it awaits
+    // `updateComment`, and a section that waits on its own key waits forever).
+    await withSideDocument('comments', targetMap, 'addComment', () => runTransaction(async (tx) => {
         const collection = await getRepository().getMapComments(targetMap);
         collection[comment.id] = comment;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_CREATED, { comment }));
@@ -86,7 +92,7 @@ export async function addComment(input, mapName = null) {
             return logCommentOperation(OperationType.CREATE, comment.id, mapId, comment);
         });
         return () => getRepository().saveMapComments(targetMap, collection);
-    });
+    }));
 
     return comment;
 }
@@ -118,7 +124,8 @@ export async function addReply(parentId, input, mapName = null) {
         updatedAt: now,
     };
 
-    await runTransaction(async (tx) => {
+    // Leaf RMW of the comments document; see the note on `addComment` and document-lock.js.
+    await withSideDocument('comments', targetMap, 'addReply', () => runTransaction(async (tx) => {
         const collection = await getRepository().getMapComments(targetMap);
         collection[reply.id] = reply;
         tx.deferSync(() => emitComment(EventTypes.COMMENT_CREATED, { comment: reply }));
@@ -127,7 +134,7 @@ export async function addReply(parentId, input, mapName = null) {
             return logCommentOperation(OperationType.CREATE, reply.id, mapId, reply);
         });
         return () => getRepository().saveMapComments(targetMap, collection);
-    });
+    }));
 
     return reply;
 }
@@ -142,7 +149,8 @@ export async function updateComment(comment, mapName = null) {
     if (!guardComment(GuardAction.UPDATE_COMMENT, 'updateComment')) return;
     if (!comment?.id) return;
 
-    await runTransaction(async (tx) => {
+    // Leaf RMW of the comments document; see the note on `addComment` and document-lock.js.
+    await withSideDocument('comments', targetMap, 'updateComment', () => runTransaction(async (tx) => {
         const collection = await getRepository().getMapComments(targetMap);
         const previous = collection[comment.id];
         if (!previous) return () => {};
@@ -154,7 +162,7 @@ export async function updateComment(comment, mapName = null) {
             return logCommentOperation(OperationType.UPDATE, next.id, mapId, next, previous);
         });
         return () => getRepository().saveMapComments(targetMap, collection);
-    });
+    }));
 }
 
 /**
@@ -180,7 +188,8 @@ export async function removeComment(commentId, mapName = null) {
     const targetMap = resolveMap(mapName);
     if (!guardComment(GuardAction.DELETE_COMMENT, 'removeComment')) return;
 
-    await runTransaction(async (tx) => {
+    // Leaf RMW of the comments document; see the note on `addComment` and document-lock.js.
+    await withSideDocument('comments', targetMap, 'removeComment', () => runTransaction(async (tx) => {
         const collection = await getRepository().getMapComments(targetMap);
         const root = collection[commentId];
         if (!root) return () => {};
@@ -200,7 +209,7 @@ export async function removeComment(commentId, mapName = null) {
             }
         });
         return () => getRepository().saveMapComments(targetMap, collection);
-    });
+    }));
 }
 
 /**
@@ -220,5 +229,9 @@ export async function getComments(mapName = null) {
  */
 export async function setMapComments(mapName, comments) {
     if (!comments || typeof comments !== 'object') return;
-    await getRepository().saveMapComments(resolveMap(mapName), comments);
+    const targetMap = resolveMap(mapName);
+    // Bulk restore is a whole-document write, so it must not land in the middle of a
+    // read-modify-write that already read the old collection.
+    await withSideDocument('comments', targetMap, 'setMapComments', () =>
+        getRepository().saveMapComments(targetMap, comments));
 }

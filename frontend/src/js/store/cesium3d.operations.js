@@ -15,6 +15,7 @@ import { generateUUID } from '../utilities/uuid.js';
 import { deepClone } from '../utilities/deep-utils.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { withSideDocument } from './document-lock.js';
 import {
     logMarker3dOperation,
     logMeasurement3dOperation,
@@ -331,35 +332,38 @@ export async function saveCameraPosition(tilesetId, position, orientation, mapNa
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'saveCameraPosition')) return;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'saveCameraPosition', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const existing = data.cameraPositions[tilesetId];
-    const isUpdate = !!existing;
-    const previousData = existing ? { ...existing } : null;
+        const existing = data.cameraPositions[tilesetId];
+        const isUpdate = !!existing;
+        const previousData = existing ? { ...existing } : null;
 
-    const sync = existing?.sync
-        ? touchSyncMetadata(existing.sync)
-        : createSyncMetadata(null);
+        const sync = existing?.sync
+            ? touchSyncMetadata(existing.sync)
+            : createSyncMetadata(null);
 
-    data.cameraPositions[tilesetId] = {
-        id: existing?.id || generateUUID(),
-        tilesetId,
-        position,
-        orientation,
-        savedAt: Date.now(),
-        sync
-    };
+        data.cameraPositions[tilesetId] = {
+            id: existing?.id || generateUUID(),
+            tilesetId,
+            position,
+            orientation,
+            savedAt: Date.now(),
+            sync
+        };
 
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap });
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    const newPosition = data.cameraPositions[tilesetId];
-    if (isUpdate) {
-        logCameraPosition3dOperation(OperationType.UPDATE, newPosition.id, mapId, newPosition, previousData);
-    } else {
-        logCameraPosition3dOperation(OperationType.CREATE, newPosition.id, mapId, newPosition);
-    }
+        const mapId = mapManager.getCurrentMapId();
+        const newPosition = data.cameraPositions[tilesetId];
+        if (isUpdate) {
+            logCameraPosition3dOperation(OperationType.UPDATE, newPosition.id, mapId, newPosition, previousData);
+        } else {
+            logCameraPosition3dOperation(OperationType.CREATE, newPosition.id, mapId, newPosition);
+        }
+    });
 }
 
 /**
@@ -398,21 +402,24 @@ export async function clearCameraPosition(tilesetId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'clearCameraPosition')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'clearCameraPosition', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const existing = data.cameraPositions[tilesetId];
-    if (!existing) return false;
+        const existing = data.cameraPositions[tilesetId];
+        if (!existing) return false;
 
-    const previousData = { ...existing };
-    const positionId = existing.id || tilesetId;
+        const previousData = { ...existing };
+        const positionId = existing.id || tilesetId;
 
-    delete data.cameraPositions[tilesetId];
-    await saveCesium3dData(targetMap, data);
+        delete data.cameraPositions[tilesetId];
+        await saveCesium3dData(targetMap, data);
 
-    const mapId = mapManager.getCurrentMapId();
-    logCameraPosition3dOperation(OperationType.DELETE, positionId, mapId, null, previousData);
+        const mapId = mapManager.getCurrentMapId();
+        logCameraPosition3dOperation(OperationType.DELETE, positionId, mapId, null, previousData);
 
-    return true;
+        return true;
+    });
 }
 
 /**
@@ -459,37 +466,40 @@ export async function addMarker(tilesetId, markerData, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMarker')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'addMarker', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const nextNumber = getNextAutoNumber(data.markers, /^Ponto #(\d+)$/);
-    const defaultName = `Ponto #${nextNumber}`;
-    const userDefaultStyle = getUserDefaultStyle('marker3d_default_style');
+        const nextNumber = getNextAutoNumber(data.markers, /^Ponto #(\d+)$/);
+        const defaultName = `Ponto #${nextNumber}`;
+        const userDefaultStyle = getUserDefaultStyle('marker3d_default_style');
 
-    const marker = {
-        id: generateUUID(),
-        tilesetId,
-        position: markerData.position,
-        properties: {
-            nome: markerData.properties?.nome || defaultName,
-            descricao: markerData.properties?.descricao || ''
-        },
-        style: {
-            ...DEFAULT_MARKER_STYLE,
-            ...userDefaultStyle,
-            labelText: markerData.properties?.rotulo || '',
-            ...(markerData.style || {})
-        },
-        sync: createSyncMetadata(null)
-    };
+        const marker = {
+            id: generateUUID(),
+            tilesetId,
+            position: markerData.position,
+            properties: {
+                nome: markerData.properties?.nome || defaultName,
+                descricao: markerData.properties?.descricao || ''
+            },
+            style: {
+                ...DEFAULT_MARKER_STYLE,
+                ...userDefaultStyle,
+                labelText: markerData.properties?.rotulo || '',
+                ...(markerData.style || {})
+            },
+            sync: createSyncMetadata(null)
+        };
 
-    data.markers.push(marker);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+        data.markers.push(marker);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMarker3dOperation(OperationType.CREATE, marker.id, mapId, marker);
+        const mapId = mapManager.getCurrentMapId();
+        logMarker3dOperation(OperationType.CREATE, marker.id, mapId, marker);
 
-    return marker;
+        return marker;
+    });
 }
 
 /**
@@ -546,33 +556,36 @@ export async function updateMarker(markerId, updates, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMarker')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'updateMarker', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const markerIndex = data.markers.findIndex(m => m.id === markerId);
-    if (markerIndex === -1) return null;
+        const markerIndex = data.markers.findIndex(m => m.id === markerId);
+        if (markerIndex === -1) return null;
 
-    const marker = data.markers[markerIndex];
-    const oldMarker = { ...marker };
+        const marker = data.markers[markerIndex];
+        const oldMarker = { ...marker };
 
-    if (updates.properties) {
-        marker.properties = { ...marker.properties, ...updates.properties };
-    }
-    if (updates.style) {
-        marker.style = { ...(marker.style || DEFAULT_MARKER_STYLE), ...updates.style };
-    }
-    if (updates.position) {
-        marker.position = updates.position;
-    }
-    marker.sync = touchSyncMetadata(marker.sync);
+        if (updates.properties) {
+            marker.properties = { ...marker.properties, ...updates.properties };
+        }
+        if (updates.style) {
+            marker.style = { ...(marker.style || DEFAULT_MARKER_STYLE), ...updates.style };
+        }
+        if (updates.position) {
+            marker.position = updates.position;
+        }
+        marker.sync = touchSyncMetadata(marker.sync);
 
-    data.markers[markerIndex] = marker;
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+        data.markers[markerIndex] = marker;
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMarker3dOperation(OperationType.UPDATE, markerId, mapId, marker, oldMarker);
+        const mapId = mapManager.getCurrentMapId();
+        logMarker3dOperation(OperationType.UPDATE, markerId, mapId, marker, oldMarker);
 
-    return marker;
+        return marker;
+    });
 }
 
 /**
@@ -586,19 +599,22 @@ export async function removeMarker(markerId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMarker')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'removeMarker', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const deletedMarker = data.markers.find(m => m.id === markerId);
-    if (!deletedMarker) return false;
+        const deletedMarker = data.markers.find(m => m.id === markerId);
+        if (!deletedMarker) return false;
 
-    data.markers = data.markers.filter(m => m.id !== markerId);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+        data.markers = data.markers.filter(m => m.id !== markerId);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMarker3dOperation(OperationType.DELETE, markerId, mapId, null, deletedMarker);
+        const mapId = mapManager.getCurrentMapId();
+        logMarker3dOperation(OperationType.DELETE, markerId, mapId, null, deletedMarker);
 
-    return true;
+        return true;
+    });
 }
 
 /**
@@ -757,47 +773,50 @@ export async function addMeasurement(tilesetId, measurementData, mapName = null)
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addMeasurement')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'addMeasurement', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.measurements) data.measurements = [];
+        if (!data.measurements) data.measurements = [];
 
-    const type = measurementData.type || 'distance';
-    const prefix = type === 'distance' ? 'Distância' : 'Área';
-    const nextNumber = getNextAutoNumber(
-        data.measurements,
-        new RegExp(`^${prefix} #(\\d+)$`),
-        (m) => m.type === type
-    );
-    const defaultName = `${prefix} #${nextNumber}`;
-    const userDefaultStyle = getUserDefaultStyle('measurement3d_default_style');
+        const type = measurementData.type || 'distance';
+        const prefix = type === 'distance' ? 'Distância' : 'Área';
+        const nextNumber = getNextAutoNumber(
+            data.measurements,
+            new RegExp(`^${prefix} #(\\d+)$`),
+            (m) => m.type === type
+        );
+        const defaultName = `${prefix} #${nextNumber}`;
+        const userDefaultStyle = getUserDefaultStyle('measurement3d_default_style');
 
-    const measurement = {
-        id: generateUUID(),
-        tilesetId,
-        type,
-        positions: measurementData.positions || [],
-        result: measurementData.result || { value: 0, formatted: '' },
-        properties: {
-            nome: measurementData.properties?.nome || defaultName,
-            descricao: measurementData.properties?.descricao || ''
-        },
-        style: {
-            ...DEFAULT_MEASUREMENT_STYLE,
-            ...userDefaultStyle,
-            ...(measurementData.style || {})
-        },
-        images: [],
-        sync: createSyncMetadata(null)
-    };
+        const measurement = {
+            id: generateUUID(),
+            tilesetId,
+            type,
+            positions: measurementData.positions || [],
+            result: measurementData.result || { value: 0, formatted: '' },
+            properties: {
+                nome: measurementData.properties?.nome || defaultName,
+                descricao: measurementData.properties?.descricao || ''
+            },
+            style: {
+                ...DEFAULT_MEASUREMENT_STYLE,
+                ...userDefaultStyle,
+                ...(measurementData.style || {})
+            },
+            images: [],
+            sync: createSyncMetadata(null)
+        };
 
-    data.measurements.push(measurement);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        data.measurements.push(measurement);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMeasurement3dOperation(OperationType.CREATE, measurement.id, mapId, measurement);
+        const mapId = mapManager.getCurrentMapId();
+        logMeasurement3dOperation(OperationType.CREATE, measurement.id, mapId, measurement);
 
-    return measurement;
+        return measurement;
+    });
 }
 
 /**
@@ -850,32 +869,35 @@ export async function updateMeasurement(measurementId, updates, mapName = null) 
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateMeasurement')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'updateMeasurement', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.measurements) return null;
+        if (!data.measurements) return null;
 
-    const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
-    if (measurementIndex === -1) return null;
+        const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
+        if (measurementIndex === -1) return null;
 
-    const measurement = data.measurements[measurementIndex];
-    const oldMeasurement = { ...measurement };
+        const measurement = data.measurements[measurementIndex];
+        const oldMeasurement = { ...measurement };
 
-    if (updates.properties) {
-        measurement.properties = { ...measurement.properties, ...updates.properties };
-    }
-    if (updates.style) {
-        measurement.style = { ...(measurement.style || DEFAULT_MEASUREMENT_STYLE), ...updates.style };
-    }
-    measurement.sync = touchSyncMetadata(measurement.sync);
+        if (updates.properties) {
+            measurement.properties = { ...measurement.properties, ...updates.properties };
+        }
+        if (updates.style) {
+            measurement.style = { ...(measurement.style || DEFAULT_MEASUREMENT_STYLE), ...updates.style };
+        }
+        measurement.sync = touchSyncMetadata(measurement.sync);
 
-    data.measurements[measurementIndex] = measurement;
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        data.measurements[measurementIndex] = measurement;
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMeasurement3dOperation(OperationType.UPDATE, measurementId, mapId, measurement, oldMeasurement);
+        const mapId = mapManager.getCurrentMapId();
+        logMeasurement3dOperation(OperationType.UPDATE, measurementId, mapId, measurement, oldMeasurement);
 
-    return measurement;
+        return measurement;
+    });
 }
 
 /**
@@ -889,21 +911,24 @@ export async function removeMeasurement(measurementId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeMeasurement')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'removeMeasurement', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.measurements) return false;
+        if (!data.measurements) return false;
 
-    const deletedMeasurement = data.measurements.find(m => m.id === measurementId);
-    if (!deletedMeasurement) return false;
+        const deletedMeasurement = data.measurements.find(m => m.id === measurementId);
+        if (!deletedMeasurement) return false;
 
-    data.measurements = data.measurements.filter(m => m.id !== measurementId);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        data.measurements = data.measurements.filter(m => m.id !== measurementId);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logMeasurement3dOperation(OperationType.DELETE, measurementId, mapId, null, deletedMeasurement);
+        const mapId = mapManager.getCurrentMapId();
+        logMeasurement3dOperation(OperationType.DELETE, measurementId, mapId, null, deletedMeasurement);
 
-    return true;
+        return true;
+    });
 }
 
 /**
@@ -955,38 +980,41 @@ export async function addViewshed(tilesetId, viewshedData, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'addViewshed')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'addViewshed', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.viewsheds) data.viewsheds = [];
+        if (!data.viewsheds) data.viewsheds = [];
 
-    const nextNumber = getNextAutoNumber(data.viewsheds, /^Visibilidade #(\d+)$/);
-    const defaultName = `Visibilidade #${nextNumber}`;
+        const nextNumber = getNextAutoNumber(data.viewsheds, /^Visibilidade #(\d+)$/);
+        const defaultName = `Visibilidade #${nextNumber}`;
 
-    const viewshed = {
-        id: generateUUID(),
-        tilesetId,
-        position: viewshedData.position || { longitude: 0, latitude: 0, height: 0 },
-        targetPosition: viewshedData.targetPosition || null,
-        terrainBaseHeight: viewshedData.terrainBaseHeight ?? null,
-        direction: viewshedData.direction || { heading: 0, pitch: 0 },
-        parameters: viewshedData.parameters || { horizontalAngle: 150, verticalAngle: 120, distance: 10 },
-        observerHeight: viewshedData.observerHeight ?? 1.5,
-        properties: {
-            nome: viewshedData.properties?.nome || defaultName,
-            descricao: viewshedData.properties?.descricao || ''
-        },
-        images: [],
-        sync: createSyncMetadata(null)
-    };
+        const viewshed = {
+            id: generateUUID(),
+            tilesetId,
+            position: viewshedData.position || { longitude: 0, latitude: 0, height: 0 },
+            targetPosition: viewshedData.targetPosition || null,
+            terrainBaseHeight: viewshedData.terrainBaseHeight ?? null,
+            direction: viewshedData.direction || { heading: 0, pitch: 0 },
+            parameters: viewshedData.parameters || { horizontalAngle: 150, verticalAngle: 120, distance: 10 },
+            observerHeight: viewshedData.observerHeight ?? 1.5,
+            properties: {
+                nome: viewshedData.properties?.nome || defaultName,
+                descricao: viewshedData.properties?.descricao || ''
+            },
+            images: [],
+            sync: createSyncMetadata(null)
+        };
 
-    data.viewsheds.push(viewshed);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        data.viewsheds.push(viewshed);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logViewshed3dOperation(OperationType.CREATE, viewshed.id, mapId, viewshed);
+        const mapId = mapManager.getCurrentMapId();
+        logViewshed3dOperation(OperationType.CREATE, viewshed.id, mapId, viewshed);
 
-    return viewshed;
+        return viewshed;
+    });
 }
 
 /**
@@ -1039,32 +1067,35 @@ export async function updateViewshed(viewshedId, updates, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.CREATE_MARKER_3D, 'updateViewshed')) return null;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'updateViewshed', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.viewsheds) return null;
+        if (!data.viewsheds) return null;
 
-    const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
-    if (viewshedIndex === -1) return null;
+        const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
+        if (viewshedIndex === -1) return null;
 
-    const viewshed = data.viewsheds[viewshedIndex];
-    const oldViewshed = { ...viewshed };
+        const viewshed = data.viewsheds[viewshedIndex];
+        const oldViewshed = { ...viewshed };
 
-    if (updates.properties) {
-        viewshed.properties = { ...viewshed.properties, ...updates.properties };
-    }
-    if (updates.observerHeight !== undefined) {
-        viewshed.observerHeight = updates.observerHeight;
-    }
-    viewshed.sync = touchSyncMetadata(viewshed.sync);
+        if (updates.properties) {
+            viewshed.properties = { ...viewshed.properties, ...updates.properties };
+        }
+        if (updates.observerHeight !== undefined) {
+            viewshed.observerHeight = updates.observerHeight;
+        }
+        viewshed.sync = touchSyncMetadata(viewshed.sync);
 
-    data.viewsheds[viewshedIndex] = viewshed;
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        data.viewsheds[viewshedIndex] = viewshed;
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logViewshed3dOperation(OperationType.UPDATE, viewshedId, mapId, viewshed, oldViewshed);
+        const mapId = mapManager.getCurrentMapId();
+        logViewshed3dOperation(OperationType.UPDATE, viewshedId, mapId, viewshed, oldViewshed);
 
-    return viewshed;
+        return viewshed;
+    });
 }
 
 /**
@@ -1078,21 +1109,24 @@ export async function removeViewshed(viewshedId, mapName = null) {
     if (!guardCesium3dWrite(GuardAction.DELETE_MARKER_3D, 'removeViewshed')) return false;
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'removeViewshed', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    if (!data.viewsheds) return false;
+        if (!data.viewsheds) return false;
 
-    const deletedViewshed = data.viewsheds.find(v => v.id === viewshedId);
-    if (!deletedViewshed) return false;
+        const deletedViewshed = data.viewsheds.find(v => v.id === viewshedId);
+        if (!deletedViewshed) return false;
 
-    data.viewsheds = data.viewsheds.filter(v => v.id !== viewshedId);
-    await saveCesium3dData(targetMap, data);
-    emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        data.viewsheds = data.viewsheds.filter(v => v.id !== viewshedId);
+        await saveCesium3dData(targetMap, data);
+        emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-    const mapId = mapManager.getCurrentMapId();
-    logViewshed3dOperation(OperationType.DELETE, viewshedId, mapId, null, deletedViewshed);
+        const mapId = mapManager.getCurrentMapId();
+        logViewshed3dOperation(OperationType.DELETE, viewshedId, mapId, null, deletedViewshed);
 
-    return true;
+        return true;
+    });
 }
 
 /**
@@ -1167,52 +1201,55 @@ export async function removeAllFeaturesByTileset(tilesetId, mapName = null) {
     }
 
     const targetMap = getTargetMapName(mapName);
-    const data = await getCesium3dDataWithCache(targetMap);
+    // Leaf read-modify-write of the cesium3d document; see document-lock.js.
+    return withSideDocument('cesium3d', targetMap, 'removeAllFeaturesByTileset', async () => {
+        const data = await getCesium3dDataWithCache(targetMap);
 
-    const belongs = (item) => item.tilesetId === tilesetId;
+        const belongs = (item) => item.tilesetId === tilesetId;
 
-    // Snapshot each family's dropped entities so every one can carry its own oldData.
-    const removedMarkers = data.markers.filter(belongs);
-    data.markers = data.markers.filter(m => !belongs(m));
+        // Snapshot each family's dropped entities so every one can carry its own oldData.
+        const removedMarkers = data.markers.filter(belongs);
+        data.markers = data.markers.filter(m => !belongs(m));
 
-    const removedMeasurements = (data.measurements || []).filter(belongs);
-    if (data.measurements) {
-        data.measurements = data.measurements.filter(m => !belongs(m));
-    }
+        const removedMeasurements = (data.measurements || []).filter(belongs);
+        if (data.measurements) {
+            data.measurements = data.measurements.filter(m => !belongs(m));
+        }
 
-    const removedViewsheds = (data.viewsheds || []).filter(belongs);
-    if (data.viewsheds) {
-        data.viewsheds = data.viewsheds.filter(v => !belongs(v));
-    }
+        const removedViewsheds = (data.viewsheds || []).filter(belongs);
+        if (data.viewsheds) {
+            data.viewsheds = data.viewsheds.filter(v => !belongs(v));
+        }
 
-    const totalRemoved = removedMarkers.length + removedMeasurements.length + removedViewsheds.length;
+        const totalRemoved = removedMarkers.length + removedMeasurements.length + removedViewsheds.length;
 
-    if (totalRemoved > 0) {
-        await saveCesium3dData(targetMap, data);
+        if (totalRemoved > 0) {
+            await saveCesium3dData(targetMap, data);
 
-        if (removedMarkers.length > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
-        if (removedMeasurements.length > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
-        if (removedViewsheds.length > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+            if (removedMarkers.length > 0) emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+            if (removedMeasurements.length > 0) emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+            if (removedViewsheds.length > 0) emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
 
-        // Persistence → emit → log, as in removeMarker. Without a DELETE op per entity
-        // the bulk wipe stayed local and peers kept rendering the removed features.
-        const mapId = mapManager.getMapId(targetMap);
-        const families = [
-            [removedMarkers, logMarker3dOperation],
-            [removedMeasurements, logMeasurement3dOperation],
-            [removedViewsheds, logViewshed3dOperation]
-        ];
-        for (const [entities, logDelete] of families) {
-            for (const entity of entities) {
-                logDelete(OperationType.DELETE, entity.id, mapId, null, entity);
+            // Persistence → emit → log, as in removeMarker. Without a DELETE op per entity
+            // the bulk wipe stayed local and peers kept rendering the removed features.
+            const mapId = mapManager.getMapId(targetMap);
+            const families = [
+                [removedMarkers, logMarker3dOperation],
+                [removedMeasurements, logMeasurement3dOperation],
+                [removedViewsheds, logViewshed3dOperation]
+            ];
+            for (const [entities, logDelete] of families) {
+                for (const entity of entities) {
+                    logDelete(OperationType.DELETE, entity.id, mapId, null, entity);
+                }
             }
         }
-    }
 
-    return {
-        markers: removedMarkers.length,
-        measurements: removedMeasurements.length,
-        viewsheds: removedViewsheds.length,
-        total: totalRemoved
-    };
+        return {
+            markers: removedMarkers.length,
+            measurements: removedMeasurements.length,
+            viewsheds: removedViewsheds.length,
+            total: totalRemoved
+        };
+    });
 }
