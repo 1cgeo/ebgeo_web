@@ -36,7 +36,7 @@ Cada delta é aprovado ou recusado por si. Se um bloco inteiro precisa mudar, is
 
 ### Fase 1: Orientar
 
-1. Leia [`MEMORY.md`](../../../MEMORY.md), [`docs/wiki/index.md`](../../../docs/wiki/index.md) e [`livro-razao.md`](../../../livro-razao.md).
+1. Leia [`docs/MEMORY.md`](../../../docs/MEMORY.md), [`docs/wiki/index.md`](../../../docs/wiki/index.md) e [`docs/livro-razao.md`](../../../docs/livro-razao.md).
 2. Folheie as páginas de wiki e os `learnings.md` tocados na sessão, para não duplicar.
 
 ### Fase 2: Coletar sinal

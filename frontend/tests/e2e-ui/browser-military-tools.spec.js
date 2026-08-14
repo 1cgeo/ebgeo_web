@@ -10,9 +10,10 @@
  * The atlas feature model is GeoJSON: a feature's TYPE travels in
  * `properties.source`, which the backend persists as the `feature_type` column and
  * `pullSync` then files into the matching `map.features.<bucket>` collection. The
- * 18 valid types are enforced by the `valid_feature_type` CHECK in 002_atlas.sql;
- * an UNKNOWN source is hard-rejected at write and aborts its (atomic) batch. Writes
- * are CRDT operations pushed via `api.pushOperations` (no REST write routes exist).
+ * twenty valid types are enforced by the `valid_feature_type` CHECK in 002_atlas.sql;
+ * an UNKNOWN source is refused PER OPERATION at write time (the batch still answers
+ * 200 and names the op as rejected) and never persists. Writes are CRDT operations
+ * pushed via `api.pushOperations` (no REST write routes exist).
  *
  * Coverage — one create per §8 toolbar action, each filed into its OWN bucket with
  * source + domain props preserved:
@@ -22,7 +23,7 @@
  *   - §8.5 boundary (LineString)                             -> features.boundarys
  *   - §8.6 occupied_front (LineString)                       -> features.occupied_fronts
  *   - §8.7 declination diagram (Point + magneticDeclination) -> features.points
- *   - negative/edge: an UNSUPPORTED source is rejected at write and never persists.
+ *   - negative/edge: an UNSUPPORTED source is refused per-op and never persists.
  *
  * Op shapes mirror the passing headless twin tests/e2e/military-and-analysis.e2e.test.js:
  *   createOperation('feature', 'create', uuid, mapId, geojsonFeature) where the
@@ -199,7 +200,34 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
         }
     });
 
-    test('edge: an unsupported military source is rejected at write and never persists', async ({ page }) => {
+    /**
+     * Why this expectation changed (2026-08-14).
+     *
+     * This test used to demand that `pushOperations` THROW, and it was red for as long
+     * as the per-op SAVEPOINT has existed (2026-07-25), because the push does not throw
+     * and must not: a whole-batch 400 is exactly the failure that change removed. The
+     * client does not dequeue on a non-2xx, so a permanently poisonous op (the same
+     * bytes fail forever) used to be replayed every 1.5s and that user's sync stopped,
+     * silently and for good.
+     *
+     * What the backend actually does — verified against real Postgres in
+     * backend/tests/integration/sync-unsupported-feature-source.test.js — is refuse the
+     * op INDIVIDUALLY: the INSERT raises 23514 on `valid_feature_type`, the savepoint
+     * rolls back log and effect together, and the 200 batch carries a per-operation ack
+     * of `success: false` + `rejected: true` + a displayable `reason`. Nothing persists.
+     *
+     * So the guarantee is kept and what is asserted below is stronger than the old pair
+     * (a throw is also satisfied by a 500, a timeout or a network error): the op must be
+     * NAMED as refused, so the client can drop it knowing it never landed.
+     *
+     * The `leaked` assertion cannot carry this test on its own, and the negative control
+     * proved it: with 'enemy_symbol' temporarily added to the CHECK, the row persisted in
+     * Postgres and `leaked` was STILL false, because the snapshot builder has no bucket
+     * for an unknown feature_type and drops the row on the way out. The ack is what
+     * distinguishes "refused" from "written and invisible"; the row-level proof lives in
+     * the backend test cited above.
+     */
+    test('edge: an unsupported military source is refused per-op and never persists', async ({ page }) => {
         await page.goto('/');
 
         const result = await page.evaluate(async (baseUrl) => {
@@ -218,19 +246,21 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
                 createOperation('map', 'create', mapId, null, { name: 'Mapa Edge' }),
             ]);
 
-            // An unknown feature source is hard-rejected by the valid_feature_type CHECK
-            // at write time, aborting this (own) atomic batch. Push it ALONE so the
-            // throw cannot collaterally roll back a legitimate sibling op.
+            // An unknown feature source is rejected by the valid_feature_type CHECK at
+            // write time. Push it ALONE, which is the harshest shape: no sibling op keeps
+            // the batch alive, so a regression that abandoned per-op refusal would show up
+            // here as a rejected HTTP request instead of an acked refusal.
             const bogusId = crypto.randomUUID();
+            const bogusOp = createOperation('feature', 'create', bogusId, mapId, {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [0, 0] },
+                properties: { source: 'enemy_symbol', marker: 'mk_bogus' },
+            });
             let threw = false;
+            let ack = null;
             try {
-                await api.pushOperations(atlas.id, [
-                    createOperation('feature', 'create', bogusId, mapId, {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: [0, 0] },
-                        properties: { source: 'enemy_symbol', marker: 'mk_bogus' },
-                    }),
-                ]);
+                const pushRes = await api.pushOperations(atlas.id, [bogusOp]);
+                ack = (pushRes.results || []).find((r) => r.operationId === bogusOp.id) ?? null;
             } catch {
                 threw = true;
             }
@@ -243,10 +273,22 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
                 .flat()
                 .some((f) => f.properties && f.properties.id === bogusId);
 
-            return { threw, leaked };
+            return { threw, ack, leaked };
         }, state.baseUrl);
 
-        expect(result.threw).toBe(true);
+        // The transport completes: the batch is answered, not blown up.
+        expect(result.threw).toBe(false);
+
+        // …and the offending op is named as REFUSED, which is what lets the client drop
+        // it instead of replaying it forever. `success: true` here would be the real
+        // defect: the client would believe an unsupported feature had synced.
+        expect(result.ack, 'the push must ack the offending op by id').toBeTruthy();
+        expect(result.ack.success, 'a refused op is never acked as success').toBe(false);
+        expect(result.ack.rejected, 'the refusal is explicit').toBe(true);
+        expect(typeof result.ack.reason, 'the refusal carries a displayable reason').toBe('string');
+        expect(result.ack.reason.length).toBeGreaterThan(0);
+
+        // And nothing leaked: the row never reached any bucket of the snapshot.
         expect(result.leaked).toBe(false);
     });
 });

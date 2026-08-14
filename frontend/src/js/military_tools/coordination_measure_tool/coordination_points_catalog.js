@@ -5,6 +5,21 @@ import { ECHELON_CODES, SUPPLY_CLASSES } from './coordination_measure_constants.
 // ============================================================================
 // ECHELON SYMBOLS
 // ============================================================================
+//
+// PLACEHOLDER ART IS DELIBERATE, AND THIS NOTE EXISTS SO NOBODY "FIXES" IT AGAIN.
+//
+// The catalog holds 105 SVGs and only 63 of them are distinct: the SAME white rectangle
+// (`viewBox="56 -64 88 168"`) is repeated 41 times, across the three tables below
+// (ECHELON_SYMBOLS, ECHELON_SYMBOLS_FT, SUPPLY_CLASS_ICONS). The generators that consume
+// them only vary name, category and anchor, so on screen those options all draw the same
+// glyph. The 2026-08-14 frontend audit reported this as a defect; the owner answered that
+// it is INTENTIONAL and that the real symbols (echelon bars/dots per MIL-STD-2525 and the
+// roman numeral of each supply class per T34-400) will be authored gradually.
+//
+// So: this is missing DATA AUTHORING, not a bug. Do not hide these entries from
+// `getPointsGroupedOptions` and do not delete the tables to "remove duplication": the
+// keys are the contract that the future artwork will fill in, one entry at a time.
+// Replacing one string here is the whole change; nothing else has to move.
 
 const ECHELON_SYMBOLS = {
   "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,

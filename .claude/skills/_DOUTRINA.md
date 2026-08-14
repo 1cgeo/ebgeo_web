@@ -32,7 +32,7 @@ Se o controle negativo for caro ou impossível, **diga isso** em vez de omitir �
 
 **A forma mais forte de codificar é o teste.** Prosa descreve, teste impõe. Antes de escrever um learning, pergunte se cabe um teste de regressão; se couber, o teste é o learning e o texto só aponta para ele.
 
-**Registre o evento no livro-razão** ([`livro-razao.md`](../../livro-razao.md)), uma linha. É o que torna a recorrência visível — o que o learnings, curado e podado, descarta. Correção que recorre significa que a guia não pegou: mude a abordagem, não só re-anote. Espelho, não placar.
+**Registre o evento no livro-razão** ([`docs/livro-razao.md`](../../docs/livro-razao.md)), uma linha. É o que torna a recorrência visível — o que o learnings, curado e podado, descarta. Correção que recorre significa que a guia não pegou: mude a abordagem, não só re-anote. Espelho, não placar.
 
 ## Estrutura de uma skill
 
