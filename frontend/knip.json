@@ -1,7 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "entry": ["src/js/index.js"],
-  "project": ["src/**/*.js"],
+  "entry": [
+    "src/js/projects/projects-page.js",
+    "src/js/admin/admin-page.js",
+    "src/js/calibration/calibracao-page.js"
+  ],
+  "project": [
+    "src/**/*.js"
+  ],
   "ignore": [
     "**/vendor/**",
     "src/js/**/index.js"
