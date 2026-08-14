@@ -132,7 +132,8 @@
     <!-- RESOURCE HINTS -->
     <link rel="preload" href="/images/logo_ebgeo.webp" as="image" fetchpriority="high">
     <link rel="prefetch" href="/vendors/cesium/Cesium.js">
-    <link rel="prefetch" href="/street_view/build/three.min.js">
+    <!-- Sem prefetch de /street_view/build/three.min.js: caminho legado do ebgeo_360, 673 kB que
+         nenhum modulo carrega. O Three.js do app vem bundleado de src/vendor/three/three.module.js. -->
 
 </head>
 

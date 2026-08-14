@@ -5,18 +5,40 @@
  * Delegates to specialized managers for specific functionality.
  *
  * Refactored to use composition pattern with specialized managers:
- * - SelectionHighlightManager: Selection box rendering and caching
- * - ProfilePanelManager: Terrain profile charts with Chart.js
+ * - SelectionHighlightManager: Selection box rendering and caching (eager)
+ * - ProfilePanelManager: Terrain profile charts with Chart.js (loaded on demand)
  *
  * @module tool_manager/ui_manager
  */
 
-import { SelectionHighlightManager, ProfilePanelManager } from './managers';
+import { SelectionHighlightManager } from './managers';
 import { cleanupFeatureDropdownListeners } from './helpers';
 import { getStateManager, getEventBus } from '../store';
 import { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
 import { EventTypes } from '../events/event_types.js';
 import { pixelsToDegrees } from '../utilities/geometry-utils.js';
+
+// ============================================================================
+// PURE HELPERS
+// ============================================================================
+
+/**
+ * Cheap NECESSARY condition for a terrain/LOS profile chart, used only to decide
+ * whether the Chart.js-backed module must be downloaded.
+ *
+ * `ProfilePanelManager.showProfilePanel()` stays the single authority on what actually
+ * renders; this predicate is a strict superset of its "render" set because it checks a
+ * subset of the same conjuncts (`length === 1` and a truthy `properties.profile`). It may
+ * answer "maybe" and be overruled, but it must NEVER answer "no" for a selection the
+ * manager would render — that is the invariant pinned by
+ * tests/unit/profile-panel-lazy-gate.test.js.
+ *
+ * @param {Array<Object>} selectedFeatures
+ * @returns {boolean}
+ */
+export function canRenderProfile(selectedFeatures) {
+    return selectedFeatures?.length === 1 && Boolean(selectedFeatures[0]?.properties?.profile);
+}
 
 // ============================================================================
 // UI MANAGER CLASS
@@ -35,7 +57,23 @@ class UIManager {
 
         // Specialized managers (composition pattern)
         this._selectionHighlight = new SelectionHighlightManager(map, selectionManager);
-        this._profilePanel = new ProfilePanelManager(selectionManager);
+
+        /**
+         * Profile panel manager — built on first use, never at boot: its module pulls
+         * Chart.js into the payload. Null until `_ensureProfilePanel()` resolves.
+         * @type {Object|null}
+         */
+        this._profilePanel = null;
+        /** @type {Promise<Object>|null} In-flight load of the profile panel module. */
+        this._profilePanelPromise = null;
+        /**
+         * Monotonic counter that serializes async profile requests against synchronous
+         * hides: an awaited show whose id is stale must not paint over a later hide.
+         * @type {number}
+         */
+        this._profileRequestId = 0;
+        /** @type {boolean} */
+        this._destroyed = false;
 
         // External control references
         this.featureSearchControl = null;
@@ -48,17 +86,10 @@ class UIManager {
         injectTabbedPanelStyles();
     }
 
-    // ========================================================================
-    // STATIC PROPERTIES (for backward compatibility)
-    // ========================================================================
-
-    /**
-     * Slope threshold for cavalry mobility alerts.
-     * @type {number}
-     */
-    static get SLOPE_THRESHOLD() {
-        return ProfilePanelManager.SLOPE_THRESHOLD;
-    }
+    // NOTE: the `static get SLOPE_THRESHOLD()` that used to live here (a backward-compat
+    // alias for ProfilePanelManager.SLOPE_THRESHOLD) was removed: it had zero callers in
+    // src/ and in tests/, and it was the only reason this facade needed a STATIC reference
+    // to the Chart.js-backed module. Read the constant from ProfilePanelManager if ever needed.
 
     // ========================================================================
     // STATE MANAGER INTEGRATION
@@ -221,18 +252,54 @@ class UIManager {
     // ========================================================================
 
     /**
-     * Show profile panel for selected features.
-     * @param {Array<Object>} selectedFeatures
+     * Loads and builds the profile panel manager on demand.
+     * The module imports Chart.js at module level, so it must never be reachable from
+     * the static import graph of the map page — see managers/index.js.
+     * @private
+     * @returns {Promise<Object>}
      */
-    showProfilePanel(selectedFeatures) {
-        this._profilePanel.showProfilePanel(selectedFeatures);
+    _ensureProfilePanel() {
+        if (!this._profilePanelPromise) {
+            this._profilePanelPromise = import('./managers/profile-panel.manager.js')
+                .then(({ ProfilePanelManager }) => {
+                    if (this._destroyed) return null;
+                    this._profilePanel = new ProfilePanelManager(this.selectionManager);
+                    return this._profilePanel;
+                });
+        }
+        return this._profilePanelPromise;
+    }
+
+    /**
+     * Show profile panel for selected features.
+     * Downloads the chart module only when the selection could actually render a profile.
+     * A selection that could not never pays the download.
+     * @param {Array<Object>} selectedFeatures
+     * @returns {Promise<void>}
+     */
+    async showProfilePanel(selectedFeatures) {
+        // Nothing to draw AND the module was never loaded => there is also nothing to hide,
+        // because only createProfilePanel() ever puts a `.profile-panel` in the DOM.
+        if (!this._profilePanel && !canRenderProfile(selectedFeatures)) return;
+
+        const requestId = ++this._profileRequestId;
+        try {
+            const panel = await this._ensureProfilePanel();
+            if (!panel || requestId !== this._profileRequestId) return;
+            panel.showProfilePanel(selectedFeatures);
+        } catch (error) {
+            console.error('[ui_manager] failed to load the profile panel module:', error);
+        }
     }
 
     /**
      * Hide profile panel.
+     * Synchronous on purpose: it also cancels any in-flight show, so a close never loses
+     * a race against a chart module that is still downloading.
      */
     hideProfilePanel() {
-        this._profilePanel.hideProfilePanel();
+        this._profileRequestId++;
+        this._profilePanel?.hideProfilePanel();
     }
 
     /**
@@ -240,9 +307,17 @@ class UIManager {
      * @param {string} profileData
      * @param {boolean} [linkFirstLast=false]
      * @param {Object} [feature=null]
+     * @returns {Promise<void>}
      */
-    createProfilePanel(profileData, linkFirstLast = false, feature = null) {
-        this._profilePanel.createProfilePanel(profileData, linkFirstLast, feature);
+    async createProfilePanel(profileData, linkFirstLast = false, feature = null) {
+        const requestId = ++this._profileRequestId;
+        try {
+            const panel = await this._ensureProfilePanel();
+            if (!panel || requestId !== this._profileRequestId) return;
+            panel.createProfilePanel(profileData, linkFirstLast, feature);
+        } catch (error) {
+            console.error('[ui_manager] failed to load the profile panel module:', error);
+        }
     }
 
     // ========================================================================
@@ -589,11 +664,17 @@ class UIManager {
      * Call when component is destroyed.
      */
     destroy() {
+        this._destroyed = true;
+        this._profileRequestId++;
+
         this._unsubscribers.forEach(unsub => unsub());
         this._unsubscribers = [];
 
         this._selectionHighlight.destroy();
-        this._profilePanel.destroy();
+        // Null while the chart module was never needed — nothing was built, nothing to tear down.
+        this._profilePanel?.destroy();
+        this._profilePanel = null;
+        this._profilePanelPromise = null;
     }
 }
 

@@ -118,12 +118,99 @@ export function applyRevealDim(map, cursor, reveal) {
 let activeTrajectorySources = null;
 
 /**
+ * Per-source playback state retained between frames, keyed by source id.
+ *
+ * `data` is the FeatureCollection this module last read from (or wrote to) the
+ * source. Reusing it across frames removes the `getData()` worker round-trip — a
+ * structured clone of the WHOLE collection — from every playback frame. But a
+ * retained copy is only safe while we are still the last writer: any other
+ * `setData()` (a point drawn, an attribute edited) makes it stale, and pushing a
+ * stale copy back would silently revert that change on the map.
+ *
+ * `token` is the object the source itself holds as its data at the moment we
+ * synced with it. When it no longer matches, the copy is dropped and re-read.
+ * If MapLibre ever stops exposing that object the token reads `undefined`, which
+ * is treated as "not ours": every frame re-reads and the behaviour degrades to
+ * exactly what it was before this cache existed — never to a stale frame.
+ *
+ * `movers` is the subset of features that can actually move (usable trajectory
+ * or a stashed home), each carrying its trajectory normalized ONCE at read time
+ * instead of once per feature per frame.
+ * @type {Map<string, {data: Object, token: *, movers: Array<{feature: Object, props: Object, traj: Array}>}>}
+ */
+const retainedSources = new Map();
+
+/**
+ * The object a MapLibre GeoJSONSource currently holds as its data. Private API on
+ * purpose: there is no public equivalent, and it is read ONLY as an identity token
+ * (never mutated), so an internal rename can only make it `undefined`, which fails
+ * safe into a re-read.
+ * @param {Object} source - MapLibre GeoJSON source.
+ * @returns {*} Identity token, or undefined when unavailable.
+ */
+function sourceDataToken(source) {
+    return source?._data?.geojson;
+}
+
+/**
+ * Selects the features a temporal frame can actually move and normalizes each
+ * trajectory once. A feature with no usable trajectory but a stashed
+ * `_temporalHome` stays in the list so it can still be snapped back home.
+ * @param {Object} data - FeatureCollection retained for a source.
+ * @returns {Array<{feature: Object, props: Object, traj: Array}>}
+ */
+function collectMovers(data) {
+    const movers = [];
+    for (const feature of data.features) {
+        const props = feature.properties;
+        if (!props || feature.geometry?.type !== 'Point') continue;
+        const traj = normalizeTrajectory(props.trajetoria);
+        if (traj.length < 2 && !Array.isArray(props._temporalHome)) continue;
+        movers.push({ feature, props, traj });
+    }
+    return movers;
+}
+
+/**
+ * Returns the retained state for a source, re-reading it from the worker only
+ * when someone else wrote to the source since the last frame (or on first use).
+ * @param {Object} source - MapLibre GeoJSON source.
+ * @param {string} sourceId - Source ID.
+ * @returns {Promise<{data: Object, token: *, movers: Array}|null>}
+ */
+async function acquireSourceState(source, sourceId) {
+    const entry = retainedSources.get(sourceId);
+    // Read the token BEFORE awaiting: a write landing during the await must leave
+    // the retained copy invalid for the next frame, not falsely fresh.
+    const token = sourceDataToken(source);
+    if (entry && token !== undefined && entry.token === token) return entry;
+
+    let data;
+    try {
+        data = await source.getData();
+    } catch {
+        retainedSources.delete(sourceId);
+        return null;
+    }
+    if (!data || !Array.isArray(data.features)) {
+        retainedSources.delete(sourceId);
+        return null;
+    }
+
+    const next = { data, token, movers: collectMovers(data) };
+    retainedSources.set(sourceId, next);
+    return next;
+}
+
+/**
  * Forces the next updateTrajectoryPositions() to rescan every moving source and
  * rebuild the active-source list. Called by the controller on every resync, so
- * newly added/removed trajectories are picked up.
+ * newly added/removed trajectories are picked up. Also drops the retained
+ * per-source data, so the next frame re-reads it from the worker.
  */
 export function resetTrajectoryCache() {
     activeTrajectorySources = null;
+    retainedSources.clear();
 }
 
 /**
@@ -131,9 +218,12 @@ export function resetTrajectoryCache() {
  * sources (points / military_symbols / coordination_measures).
  *
  * During playback this runs every frame, so it avoids the expensive async
- * `source.getData()` round-trip for sources with no trajectory features: a full
- * rescan records which sources actually carry trajectories, and subsequent
- * frames touch only those (commonly none → the loop is a no-op).
+ * `source.getData()` round-trip twice over: a full rescan records which sources
+ * actually carry trajectories, and subsequent frames touch only those (commonly
+ * none → the loop is a no-op); and for a source that does carry them the
+ * collection read on the first frame is RETAINED and reused while we remain its
+ * last writer (see `retainedSources`), so the frame mutates coordinates in place
+ * and only pushes them back with `setData`.
  *
  * @param {Object} map - MapLibre map instance.
  * @param {number|null} cursor - Cursor (epoch ms), or null to restore home positions.
@@ -158,24 +248,15 @@ export async function updateTrajectoryPositions(map, cursor) {
         }
         if (!source || typeof source.getData !== 'function') continue;
 
-        let data;
-        try {
-            data = await source.getData();
-        } catch {
-            continue;
-        }
-        if (!data || !Array.isArray(data.features) || data.features.length === 0) continue;
+        const state = await acquireSourceState(source, sourceId);
+        if (!state) continue;
 
         let changed = false;
         let hasTrajectory = false;
-        for (const feature of data.features) {
-            const props = feature.properties;
-            if (!props || feature.geometry?.type !== 'Point') continue;
-
-            // Normalize once per feature per frame and reuse for both the usable
-            // check and the interpolation (was normalized three times — costly for
-            // long GPX tracks).
-            const traj = normalizeTrajectory(props.trajetoria);
+        // Only the features that can move, with their trajectory already
+        // normalized when the collection was read (it does not change while the
+        // retained copy stays valid).
+        for (const { feature, props, traj } of state.movers) {
             // Stash the authoring (home) position the first time we displace a feature.
             const hasUsableTrajectory = traj.length >= 2;
             if (hasUsableTrajectory) hasTrajectory = true;
@@ -199,7 +280,10 @@ export async function updateTrajectoryPositions(map, cursor) {
 
         if (rescan && hasTrajectory) nextActive.push(sourceId);
         if (changed) {
-            source.setData(data);
+            source.setData(state.data);
+            // We are the source's last writer again, so the retained copy stays
+            // valid for the next frame.
+            state.token = state.data;
         }
     }
 
@@ -263,6 +347,10 @@ export async function updateSourceFeatureProperty(map, sourceId, featureId, key,
     if (!feature) return;
     feature.properties[key] = value;
     source.setData(data);
+    // This collection is a different object from the one a playback frame may be
+    // holding, so drop the retained copy: the next frame re-reads (and re-normalizes
+    // the trajectory it just changed) instead of pushing the pre-edit coordinates back.
+    retainedSources.delete(sourceId);
 }
 
 /**
@@ -306,7 +394,12 @@ export async function shiftSourcesTemporal(map, deltaMs) {
             }
         }
 
-        if (changed) source.setData(data);
+        if (changed) {
+            source.setData(data);
+            // Every keypoint time just moved: whatever a playback frame retained
+            // for this source describes the pre-shift world.
+            retainedSources.delete(sourceId);
+        }
     }
 }
 

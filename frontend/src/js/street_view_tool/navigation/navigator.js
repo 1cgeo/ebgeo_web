@@ -47,6 +47,8 @@ export class StreetViewNavigator {
 
         // State
         this.targets = [];
+        /** @type {Object|null} Memo of the last direction layout, keyed by its inputs */
+        this._directionLayoutCache = null;
         this.pois = [];
         this.cameraConfig = null;
         this.mousePosition = { x: 0, y: 0 };
@@ -221,9 +223,10 @@ export class StreetViewNavigator {
         const markers = [];
 
         // The layout is a property of the whole set: every icon's size and height
-        // depends on the ones in front of it, so it is computed once per frame,
-        // before anything is projected.
-        this.directionLayout = this.layoutDirections(this.targets, fov);
+        // depends on the ones in front of it, so it is resolved before anything is
+        // projected — but it does not depend on where the camera is pointing, so
+        // dragging reuses it instead of rebuilding it (see directionLayoutFor).
+        this.directionLayout = this.directionLayoutFor(fov);
 
         for (const target of this.targets) {
             const projected = this.projectTargetOnHorizon(target, yaw, pitch, fov);
@@ -288,6 +291,46 @@ export class StreetViewNavigator {
             bearing: target.bearing ?? ((((Math.atan2(x, -z) * 180) / Math.PI) + 360) % 360),
             distance: target.distance ?? Math.sqrt(x * x + z * z)
         };
+    }
+
+    /**
+     * The direction layout for the current frame, recomputed only when one of its
+     * inputs actually changed.
+     *
+     * `layoutDirections` reads exactly four things: the target list, the camera
+     * config (floor step and the lat/lon fallback vector), the FOV and the canvas
+     * height (icon radius in pixels). Yaw and pitch are NOT among them, so the
+     * gesture that produces the most frames, dragging the camera, was rebuilding an
+     * identical Map sixty times a second, O(N²) grouping and all.
+     *
+     * The key is the inputs themselves, not a "dirty" flag someone has to remember
+     * to set: `setPhoto` replaces both `targets` and `cameraConfig` (never mutating
+     * them in place), a zoom changes `fov` and a resize changes the projector's
+     * canvas height, so every one of those misses the cache on its own.
+     *
+     * @param {number} fov - Camera vertical FOV in degrees.
+     * @returns {Map<string, {rank: number, radius: number, elevationDeg: number}>} Layout per target id.
+     */
+    directionLayoutFor(fov) {
+        const canvasHeight = this.projector?.canvasHeight;
+        const cached = this._directionLayoutCache;
+        if (cached
+            && cached.targets === this.targets
+            && cached.cameraConfig === this.cameraConfig
+            && cached.fov === fov
+            && cached.canvasHeight === canvasHeight) {
+            return cached.layout;
+        }
+
+        const layout = this.layoutDirections(this.targets, fov);
+        this._directionLayoutCache = {
+            targets: this.targets,
+            cameraConfig: this.cameraConfig,
+            fov,
+            canvasHeight,
+            layout,
+        };
+        return layout;
     }
 
     /**

@@ -18,7 +18,15 @@ import { getEventBus, getStateManager, registerControl, initializeWithLastActive
 import { showConfirm } from './modals';
 
 import { BaseLayerControl } from './baselayers';
-import { AddImportControl, ScreenshotControl, DragDropHandler, ExportImportService, PDFExportTab } from './import_export';
+// Direct module imports instead of the './import_export' barrel: the barrel ALSO re-exports
+// garmin-kmz-export.js, which export.tab.js already loads with `await import()`. Reaching it
+// statically from here pins it (and its own JSZip edge) into the eager payload of index.html
+// and makes that dynamic import a no-op split.
+import AddImportControl from './import_export/import.control.js';
+import { ExportImportService } from './import_export/export-import.service.js';
+import DragDropHandler from './import_export/drag-drop.handler.js';
+import ScreenshotControl from './import_export/screenshot.control.js';
+import PDFExportTab from './import_export/pdf-export.tab.js';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
 import { MapManager, DragRotateHandler } from './map';
 import { FeaturesTab } from './features_tab';
