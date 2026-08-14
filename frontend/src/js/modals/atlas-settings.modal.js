@@ -73,13 +73,22 @@ export class AtlasSettingsModal extends ModalBase {
         return overlay;
     }
 
-    /** @private Loads the current settings and renders the form. */
+    /**
+     * @private Loads the current settings and renders the form.
+     *
+     * `destroyOnHide` means Escape during the in-flight fetch tears the DOM down and `getBody()`
+     * starts returning undefined, so both paths bail out when the body is gone. Do NOT guard on
+     * `this._isOpen`: `_load()` is fired by `render()`, BEFORE `show()`.
+     */
     async _load() {
         try {
             this._settings = (await apiClient.getAtlasSettings(this._atlasId)) || {};
+            if (!this.getBody()) return; // modal closed while the request was in flight
             this._renderBody();
         } catch {
-            this.getBody().innerHTML =
+            const body = this.getBody();
+            if (!body) return;
+            body.innerHTML =
                 '<div class="sharing__state sharing__state--error" data-testid="atlas-settings-error">Não foi possível carregar as configurações.</div>';
         }
     }
@@ -100,6 +109,8 @@ export class AtlasSettingsModal extends ModalBase {
 
     /** @private */
     _renderBody() {
+        const body = this.getBody();
+        if (!body) return; // modal already destroyed — nothing to render into, no state to clear
         clearScopedListeners(this, 'body');
         const features = this._settings.features || {};
         const allowed = Array.isArray(this._settings.basemaps) ? this._settings.basemaps : [];
@@ -131,7 +142,7 @@ export class AtlasSettingsModal extends ModalBase {
             `;
         }).join('');
 
-        this.getBody().innerHTML = `
+        body.innerHTML = `
             <div class="atlas-config atlas-config--tabbed">
                 <div class="atlas-config__tabs" role="tablist">
                     <button type="button" class="atlas-config__tab atlas-config__tab--active" data-tab="geral" role="tab" aria-selected="true">Geral</button>
@@ -164,24 +175,26 @@ export class AtlasSettingsModal extends ModalBase {
 
         // Store the init promise so _handleSave can await catalog readiness before collapsing.
         this._catalogReady = this._initCatalogTab();
-        this.getBody().querySelectorAll('[data-tab]').forEach((btn) => {
+        body.querySelectorAll('[data-tab]').forEach((btn) => {
             addScopedDomListener(this, 'body', btn, 'click', () => this._switchTab(btn.dataset.tab));
         });
 
-        const save = this.getBody().querySelector('[data-action="save"]');
+        const save = body.querySelector('[data-action="save"]');
         if (save) addScopedDomListener(this, 'body', save, 'click', () => this._handleSave());
-        const cancel = this.getBody().querySelector('[data-action="cancel"]');
+        const cancel = body.querySelector('[data-action="cancel"]');
         if (cancel) addScopedDomListener(this, 'body', cancel, 'click', () => this.hide());
     }
 
     /** @private Switches the active tab pane. */
     _switchTab(tab) {
-        this.getBody().querySelectorAll('[data-tab]').forEach((b) => {
+        const body = this.getBody();
+        if (!body) return;
+        body.querySelectorAll('[data-tab]').forEach((b) => {
             const active = b.dataset.tab === tab;
             b.classList.toggle('atlas-config__tab--active', active);
             b.setAttribute('aria-selected', active ? 'true' : 'false');
         });
-        this.getBody().querySelectorAll('[data-pane]').forEach((p) => {
+        body.querySelectorAll('[data-pane]').forEach((p) => {
             p.hidden = p.dataset.pane !== tab;
         });
     }
@@ -322,7 +335,9 @@ export class AtlasSettingsModal extends ModalBase {
             // Catalog tab init is async; wait for it so _catalogItems/_catalogAllowed are populated.
             await this._catalogReady;
 
+            // The modal may have been closed (destroyOnHide) while the catalog was initializing.
             const body = this.getBody();
+            if (!body) return;
 
             const features = {};
             for (const f of FEATURE_FIELDS) {

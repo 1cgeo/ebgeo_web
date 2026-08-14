@@ -148,7 +148,7 @@ export class KmzExportSection {
 
         try {
             const mapNames = await getAllMapNamesStore();
-            const currentMap = getCurrentMapName();
+            const currentMap = await getCurrentMapName();
 
             this._mapSelect.textContent = '';
 

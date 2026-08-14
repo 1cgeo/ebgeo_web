@@ -13,6 +13,7 @@
  */
 
 import { loadLogoImage } from '@utils/logo-base64.js';
+import { sanitizeQuillHtml } from '@utils/quill-helpers.js';
 
 // Lazy-loaded to keep html2canvas out of the core chunk.
 // Only loaded when PDF export is actually invoked.
@@ -264,7 +265,9 @@ async function renderTextPanel(slide) {
         if (slide.content) {
             const contentSection = document.createElement('div');
             contentSection.className = 'briefing-text-panel__content';
-            contentSection.innerHTML = slide.content;
+            // Slide content is user data and reaches this document alive:
+            // sanitize with the same config the presentation panel uses.
+            contentSection.innerHTML = sanitizeQuillHtml(slide.content);
             container.appendChild(contentSection);
         }
 

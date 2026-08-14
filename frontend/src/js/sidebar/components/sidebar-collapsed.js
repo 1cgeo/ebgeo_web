@@ -149,6 +149,15 @@ export class SidebarCollapsed {
         container.className = 'sidebar-recent-maps';
         container.id = 'sidebar-recent-maps';
 
+        // Delegated click: registered ONCE here, so rebuilding the rail in
+        // updateRecentMaps() never accumulates per-button listeners (they would
+        // never be released until destroy(), retaining every detached button).
+        addDomListener(this, container, 'click', (event) => {
+            const button = event.target.closest?.('.recent-map-btn');
+            if (!button || !container.contains(button)) return;
+            this._onRecentMapClick?.(button.dataset.mapName);
+        });
+
         // Placeholder - will be populated by updateRecentMaps
         return container;
     }
@@ -220,13 +229,8 @@ export class SidebarCollapsed {
             label.textContent = this._truncateName(mapInfo.name, 8);
             button.appendChild(label);
 
-            const handleClick = () => {
-                if (this._onRecentMapClick) {
-                    this._onRecentMapClick(mapInfo.name);
-                }
-            };
-
-            addDomListener(this, button, 'click', handleClick);
+            // Click is handled by delegation on the container (see
+            // _createRecentMapsSection); the map name travels in dataset.mapName.
             container.appendChild(button);
         });
     }

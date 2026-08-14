@@ -174,10 +174,18 @@ export class SharingModal extends ModalBase {
 
     // ===== DATA =====
 
-    /** @private Fetches the sharing config and (re)renders the body. */
+    /**
+     * @private Fetches the sharing config and (re)renders the body.
+     *
+     * `destroyOnHide` means Escape (or an overlay click) during the in-flight fetch tears the DOM
+     * down and `getBody()` starts returning undefined — so both the success and the failure path
+     * bail out when the body is gone. Do NOT guard on `this._isOpen` instead: `_load()` is fired by
+     * `render()`, BEFORE `show()`, so `_isOpen` is legitimately false at that moment.
+     */
     async _load() {
         try {
             const cfg = await apiClient.getSharing(this._atlasId);
+            if (!this.getBody()) return; // modal closed while the request was in flight
             this._isPublic = Boolean(cfg?.isPublic);
             this._publicLink = cfg?.publicLink ?? null;
             this._owner = cfg?.owner ?? null;
@@ -185,6 +193,7 @@ export class SharingModal extends ModalBase {
             this._loaded = true;
             this._renderBody();
         } catch {
+            if (!this.getBody()) return;
             this._renderError();
         }
     }
@@ -203,8 +212,9 @@ export class SharingModal extends ModalBase {
 
     /** @private Renders the error state (with a retry button) into the body. */
     _renderError() {
-        clearScopedListeners(this, 'body');
         const body = this.getBody();
+        if (!body) return; // modal already destroyed — nothing to render into, no state to clear
+        clearScopedListeners(this, 'body');
         body.innerHTML = `
             <div class="sharing__state sharing__state--error" data-testid="sharing-error">
                 <p>Não foi possível carregar o compartilhamento.</p>
@@ -216,6 +226,7 @@ export class SharingModal extends ModalBase {
         const retry = body.querySelector('[data-action="retry"]');
         if (retry) {
             addScopedDomListener(this, 'body', retry, 'click', () => {
+                if (!this.getBody()) return;
                 body.innerHTML = this._renderLoading();
                 this._load();
             });
@@ -224,9 +235,10 @@ export class SharingModal extends ModalBase {
 
     /** @private Renders the full body (public + presence + members + add) and wires listeners. */
     _renderBody() {
+        const body = this.getBody();
+        if (!body) return; // modal already destroyed — nothing to render into, no state to clear
         clearScopedListeners(this, 'body');
         this._onlineIds = this._computeOnlineIds();
-        const body = this.getBody();
         body.innerHTML = `
             <div class="sharing">
                 ${this._renderPublicSection()}

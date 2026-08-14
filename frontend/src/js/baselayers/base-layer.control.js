@@ -117,21 +117,32 @@ class BaseLayerControl {
 
         this.container.className = `mapboxgl-ctrl base-layer-control ${layoutClass}`;
 
-        let htmlContent = '';
+        // Built node by node instead of by innerHTML: the basemap id, name and image
+        // come from the server catalog (free-form strings, admin-authored), and both
+        // the id and the image landed inside quoted attributes.
         enabledBasemaps.forEach(([id, basemapConfig], index) => {
-            const iconHtml = basemapConfig.image
-                ? `<img src="${basemapConfig.image}" class="layer-icon">`
-                : '';
+            const label = document.createElement('label');
+            label.className = 'layer-switch';
 
-            htmlContent += `
-                <label class="layer-switch">
-                    <input type="radio" name="base-layer" value="${id}" ${index === 0 ? 'checked' : ''}>
-                    <span>${iconHtml}${basemapConfig.name}</span>
-                </label>
-            `;
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'base-layer';
+            input.value = id;
+            input.checked = index === 0;
+
+            const span = document.createElement('span');
+            if (basemapConfig.image) {
+                const img = document.createElement('img');
+                img.className = 'layer-icon';
+                img.src = basemapConfig.image;
+                span.appendChild(img);
+            }
+            span.appendChild(document.createTextNode(basemapConfig.name ?? ''));
+
+            label.appendChild(input);
+            label.appendChild(span);
+            this.container.appendChild(label);
         });
-
-        this.container.innerHTML = htmlContent;
 
         this.container.querySelectorAll('input[name="base-layer"]').forEach((input) => {
             input.addEventListener('change', this.handleLayerChange);

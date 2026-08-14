@@ -23,6 +23,7 @@ import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync, FEATURE_TYPE_
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
 import { showWarning, showError, showSuccess } from '@utils';
+import { escapeCsvCell } from '@utils/csv-escape.js';
 
 // turf is loaded as a global via script tag in index.html
 
@@ -824,8 +825,10 @@ export class AttributeTableControl {
             return;
         }
 
+        // Headers include user-authored attribute column names, so they need the
+        // same formula-injection escaping as the body cells.
         const headers = ['Tipo', 'Nome', ...this._attributeColumns];
-        const rows = [headers.map(h => `"${h}"`).join(',')];
+        const rows = [headers.map(escapeCsvCell).join(',')];
 
         for (const feature of this._filteredFeatures) {
             const rawType = feature.properties?.source || '';
@@ -837,7 +840,7 @@ export class AttributeTableControl {
             });
 
             const row = [type, name, ...attrValues];
-            rows.push(row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','));
+            rows.push(row.map(escapeCsvCell).join(','));
         }
 
         // UTF-8 BOM for Excel compatibility

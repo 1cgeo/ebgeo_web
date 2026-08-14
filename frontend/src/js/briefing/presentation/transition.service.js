@@ -153,6 +153,10 @@ class TransitionService {
         // (e.g. the second of two sequential delays in a 360<->3D transition).
         this._pendingDelays = new Set();
         this._skipDelays = false;
+        // Set by destroy(). A transition already in flight resolves its pending
+        // delay and would otherwise open a viewer after the presentation ended,
+        // so every await of a delay is followed by an abort check.
+        this._destroyed = false;
     }
 
     /**
@@ -199,6 +203,8 @@ class TransitionService {
      * @returns {Promise<boolean>} True if transition completed
      */
     async transitionToSlide(slide, options = {}) {
+        if (this._destroyed) return false;
+
         // Cancel any ongoing map animation from a previous transition
         if (this._map) {
             this._map.stop();
@@ -475,6 +481,7 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         if (slide.modelId) {
             await open3DViewer(slide.modelId);
@@ -493,6 +500,7 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         if (slide.photoId) {
             await open360Viewer(slide.photoId);
@@ -514,6 +522,7 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         await this._flyTo2D(slide, options);
     }
@@ -556,6 +565,7 @@ class TransitionService {
                 console.warn('Cesium setView failed, falling back to reload:', error);
                 await close3DViewer();
                 await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+                if (this._destroyed) return;
                 await open3DViewer(slide.modelId);
                 await this._apply3DCameraFromSlide(slide);
             }
@@ -563,6 +573,7 @@ class TransitionService {
             // Different model: close and reopen (features load via loadSingleTileset)
             await close3DViewer();
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            if (this._destroyed) return;
             await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         }
@@ -579,12 +590,14 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         if (slide.photoId) {
             await open360Viewer(slide.photoId);
@@ -606,6 +619,7 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         await this._flyTo2D(slide, options);
     }
@@ -623,12 +637,14 @@ class TransitionService {
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
+        if (this._destroyed) return;
 
         if (slide.modelId) {
             await open3DViewer(slide.modelId);
@@ -666,12 +682,14 @@ class TransitionService {
                 if (!options.instant) {
                     await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 }
+                if (this._destroyed) return;
 
                 await this._flyTo2D(slide, options);
 
                 if (!options.instant) {
                     await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 }
+                if (this._destroyed) return;
 
                 await open360Viewer(slide.photoId);
             }
@@ -800,6 +818,7 @@ class TransitionService {
             // Different marker: close, reopen
             await close360Viewer();
             await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            if (this._destroyed) return;
             await open360Viewer(slide.photoId);
         }
 
@@ -848,6 +867,8 @@ class TransitionService {
      * @param {Object} slide - Target slide
      */
     async _openTargetViewer(toMode, slide) {
+        if (this._destroyed) return;
+
         if (toMode === SlideMode.VIEWER_3D && slide.modelId) {
             await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
@@ -876,6 +897,12 @@ class TransitionService {
      * Destroys the transition service.
      */
     destroy() {
+        // Order matters: mark destroyed BEFORE releasing the pending delays,
+        // otherwise the awaiting handler resumes with _destroyed still false
+        // and opens the viewer immediately.
+        this._destroyed = true;
+        this.skipPendingDelays();
+        this._pendingDelays.clear();
         this._map = null;
         this._isTransitioning = false;
         this._currentModelId = null;
