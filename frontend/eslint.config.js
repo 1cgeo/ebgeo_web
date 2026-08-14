@@ -134,6 +134,17 @@ export default [
             '*.min.js',
             'server/**',
             '*/vendor/',
+            // Artefato gerado. O ESLint 9 (flat config) NAO le o .gitignore por
+            // conta propria — e por isso que dist/ e node_modules/ estao repetidos
+            // aqui — e o script `lint:js` tambem nao recebe --ignore-path, ao
+            // contrario do `lint:css`. Sem estas tres linhas, um `npm test` com
+            // cobertura deixa o proximo `npm run lint` vermelho no JS do
+            // relatorio HTML, e com --max-warnings 0 nao ha como distinguir isso
+            // de um erro real do codigo da casa.
+            'coverage/**',
+            'test-results/**',
+            'playwright-report/**',
+            'blob-report/**',
             // O backend é um pacote próprio com regras próprias
             // (backend/eslint.config.js). `npm run lint:backend` cuida dele.
             'backend/**'
