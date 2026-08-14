@@ -425,7 +425,7 @@ function buildNavigateButton(container, viewshed) {
 /**
  * Builds the delete button at the end.
  */
-function buildDeleteButton(container, viewshed, onClose) {
+function buildDeleteButton(container, viewshed, _onClose) {
     const section = document.createElement('div');
     section.className = 'feature-panel-delete-section';
 
@@ -445,7 +445,10 @@ function buildDeleteButton(container, viewshed, onClose) {
             const result = await deleteViewshed(viewshed.id);
             if (result) {
                 showSuccess('Análise de visibilidade deletada!');
-                if (onClose) onClose();
+                // No onClose() here: deleteViewshed now emits VIEWSHED_3D_DESELECTED,
+                // which the sidebar already turns into a panel close. Calling both
+                // closes twice. This mirrors measurement-panel-3d.js, which never
+                // had the extra call.
             }
         } catch (error) {
             console.error('Error deleting viewshed:', error);

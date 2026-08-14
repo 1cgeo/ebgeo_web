@@ -373,6 +373,12 @@ class AddCoordinationMeasureControl extends BaseControl {
       return;
     }
 
+    // Single-shot tool: disarm BEFORE the first await. `createCoordinationMeasureFeature`
+    // awaits name generation, symbol image generation and the store write before
+    // `deactivateCurrentTool()` runs, so two clicks in the same tick both used to
+    // pass the guard above and create two measures with the same generated name.
+    this.isActive = false;
+
     await this.createCoordinationMeasureFeature(e.lngLat);
     this.toolManager.deactivateCurrentTool();
   };

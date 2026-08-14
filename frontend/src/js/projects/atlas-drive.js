@@ -24,6 +24,7 @@ import {
     setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
 } from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+import { getPermissionLabel, isKnownPermission, hasAtLeast } from '@js/projects/permission-levels.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 
 const ICONS = {
@@ -33,8 +34,6 @@ const ICONS = {
     search: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
     upload: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>`,
 };
-
-const PERMISSION_LABELS = Object.freeze({ owner: 'Proprietário', write: 'Edição', read: 'Leitura' });
 
 const FILTERS = [
     { key: 'recentes', label: 'Recentes' },
@@ -358,10 +357,20 @@ export class AtlasDrive {
 
         const tags = document.createElement('div');
         tags.className = 'atlas-drive__card-tags';
-        if (PERMISSION_LABELS[project?.user_permission]) {
+        // The chip is drawn for ANY level the server reports, not only the ones this file
+        // knows a label for: the local table used to list owner/write/read alone, so an atlas
+        // shared as Gestor (`manage`) or Comentarista (`comment`) rendered NO badge at all —
+        // indistinguishable from an atlas with no permission. An unknown level now degrades to
+        // its raw value on the base chip (no `--<level>` modifier, since no rule would match).
+        const permission = project?.user_permission;
+        const permissionLabel = getPermissionLabel(permission);
+        if (permissionLabel) {
             const chip = document.createElement('span');
-            chip.className = `atlas-drive__chip atlas-drive__chip--${project.user_permission}`;
-            chip.textContent = PERMISSION_LABELS[project.user_permission];
+            chip.className = isKnownPermission(permission)
+                ? `atlas-drive__chip atlas-drive__chip--${permission}`
+                : 'atlas-drive__chip';
+            chip.textContent = permissionLabel;
+            chip.dataset.permission = String(permission);
             tags.appendChild(chip);
         }
         if (project?.is_public) {
@@ -412,8 +421,9 @@ export class AtlasDrive {
         // (`manage`), que está ACIMA de write: o backend aceita o PUT dele
         // (`atlas.routes.js`), mas o card escondia "Renomear". Mesma armadilha
         // que já havia silenciado a presença de seleção do co-Gestor no servidor.
-        const canWrite = perm === 'owner' || perm === 'manage' || perm === 'write';
-        const canOwn = perm === 'owner';
+        // Por isso o gate é por posto na escada, não por enumeração.
+        const canWrite = hasAtLeast(perm, 'write');
+        const canOwn = hasAtLeast(perm, 'owner');
 
         const menu = document.createElement('div');
         menu.className = 'atlas-drive__menu';

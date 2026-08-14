@@ -107,7 +107,17 @@ class MapManager {
             }
 
             const trimmed = newName.trim();
-            await renameMap(oldName, trimmed);
+            // The store REFUSES the rename when the map is locked or permission is missing, and
+            // the refusal is not an exception. Switching the current map before checking pointed
+            // it at a name that does not exist, which is worse than the false success message.
+            // The store REFUSES the rename when the map is locked or permission is missing, and
+            // the refusal is not an exception. Switching the current map before checking pointed
+            // it at a name that does not exist, which is worse than the false success message.
+            const renamed = await renameMap(oldName, trimmed);
+            if (!renamed) {
+                return { success: false, message: 'Não foi possível renomear o mapa (mapa bloqueado ou sem permissão)' };
+            }
+
             await setCurrentMap(trimmed);
 
             return { success: true, message: `Mapa renomeado para "${newName}"` };

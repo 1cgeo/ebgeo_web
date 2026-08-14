@@ -731,6 +731,9 @@ class AddCircleControl extends BaseControl {
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // lineStyle is offered by the attributes panel and rendered via line-dasharray;
+            // without it here the change never reached the store (lost on reload).
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.radius !== initialProperties.radius ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||

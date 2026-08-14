@@ -372,6 +372,12 @@ class AddTextControl extends BaseControl {
             return;
         }
 
+        // Single-shot tool: disarm BEFORE the first await. `createTextFeature`
+        // awaits name generation and the store write before `deactivateCurrentTool()`
+        // runs, so two clicks in the same tick both used to pass the guard above and
+        // create two texts with the same generated name.
+        this.isActive = false;
+
         await this.createTextFeature(e.lngLat);
         this.toolManager.deactivateCurrentTool();
     }

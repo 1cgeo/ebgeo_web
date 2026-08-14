@@ -276,20 +276,25 @@ export async function removeMap(mapName) {
 /**
  * Renames a map.
  *
+ * Both refusals (missing permission, locked map) are expected failures, not caller bugs, so
+ * they emit STORE_OPERATION_BLOCKED and report back as `false`. Returning nothing made the
+ * refusal indistinguishable from success, and the caller went on to point the current map at a
+ * name that was never created.
+ *
  * @param {string} oldName - Current map name
  * @param {string} newName - New map name
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} True when the map was renamed, false when the rename was refused
  */
 export async function renameMap(oldName, newName) {
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: perm.reason });
-        return;
+        return false;
     }
 
     if (memoryStore.lockedMaps.has(oldName)) {
-        console.warn('Map is locked. Cannot rename.');
-        return;
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: 'map_locked' });
+        return false;
     }
 
     const oldMapData = await getMapData(oldName);
@@ -322,6 +327,8 @@ export async function renameMap(oldName, newName) {
 
     const newMapData = await getMapData(newName);
     logMapOperation(OperationType.UPDATE, mapId, newMapData, oldMapData);
+
+    return true;
 }
 
 /**

@@ -778,7 +778,7 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
 /**
  * Builds the delete button at the end.
  */
-function buildDeleteButton(container, marker, onClose) {
+function buildDeleteButton(container, marker, _onClose) {
     const section = document.createElement('div');
     section.className = 'feature-panel-delete-section';
 
@@ -799,7 +799,10 @@ function buildDeleteButton(container, marker, onClose) {
             const result = await deleteMarker(marker.id);
             if (result) {
                 showSuccess('Marcador deletado!');
-                if (onClose) onClose();
+                // No onClose() here: deleteMarker now emits MARKER_3D_DESELECTED,
+                // which the sidebar already turns into a panel close. Calling both
+                // closes twice. This mirrors measurement-panel-3d.js, which never
+                // had the extra call.
             }
         } catch (error) {
             console.error('Error deleting marker:', error);
