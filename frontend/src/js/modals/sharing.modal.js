@@ -39,6 +39,30 @@ import { showError, showSuccess } from '@utils/toast_service.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/index.js';
 
+/**
+ * The message to show for a failed sharing mutation: the SERVER's explanation when it sent one,
+ * the generic sentence otherwise.
+ *
+ * These handlers used to `catch { showError('...') }` without binding the error, throwing away
+ * exactly the part that says WHY — and the backend distinguishes real cases on these routes
+ * (removing the owner answers 404; a co-Gestor demoted mid-operation gets 403 from
+ * `requireAtlasPermission('manage')`). Same shape the admin panel and the project drive already
+ * use (`error?.message || 'fallback'`), plus one guard they lack: `_request` invents
+ * `HTTP <status>` when the response carries no message, and that string is a placeholder for the
+ * console, never user copy.
+ *
+ * Pure — no I/O, no DOM.
+ * @param {*} error - The caught error (an ApiError carries the server `message`).
+ * @param {string} fallback - Generic pt-BR sentence for when there is nothing better.
+ * @returns {string}
+ */
+export function sharingErrorMessage(error, fallback) {
+    const message = typeof error?.message === 'string' ? error.message.trim() : '';
+    if (!message) return fallback;
+    if (/^HTTP \d{3}$/.test(message)) return fallback;
+    return message;
+}
+
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
 /** Minimum query length the backend accepts for user search. */
@@ -542,8 +566,8 @@ export class SharingModal extends ModalBase {
                 await apiClient.disablePublicSharing(this._atlasId);
             }
             await this._load();
-        } catch {
-            showError('Não foi possível atualizar o link público.');
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível atualizar o link público.'));
         } finally {
             this._busy = false;
         }
@@ -590,8 +614,8 @@ export class SharingModal extends ModalBase {
         try {
             await apiClient.updateShare(this._atlasId, userId, permission);
             await this._load();
-        } catch {
-            showError('Não foi possível alterar a permissão.');
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível alterar a permissão.'));
             await this._load(); // resync the select to the server's truth
         } finally {
             this._busy = false;
@@ -608,8 +632,8 @@ export class SharingModal extends ModalBase {
         try {
             await apiClient.removeShare(this._atlasId, userId);
             await this._load();
-        } catch {
-            showError('Não foi possível remover o membro.');
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível remover o membro.'));
         } finally {
             this._busy = false;
         }
@@ -634,8 +658,8 @@ export class SharingModal extends ModalBase {
             await apiClient.transferOwnership(this._atlasId, userId);
             showSuccess('Propriedade transferida.');
             await this._load();
-        } catch {
-            showError('Não foi possível transferir a propriedade.');
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível transferir a propriedade.'));
         } finally {
             this._busy = false;
         }
@@ -721,8 +745,8 @@ export class SharingModal extends ModalBase {
             if (input) input.value = '';
             this._renderResultsInto([]);
             this._setResultsHidden(true);
-        } catch {
-            showError('Não foi possível adicionar a pessoa.');
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível adicionar a pessoa.'));
         } finally {
             this._busy = false;
         }

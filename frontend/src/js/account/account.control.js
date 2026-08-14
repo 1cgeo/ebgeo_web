@@ -6,6 +6,7 @@ import { showConfirm } from '@modals/index.js';
 import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { operationQueue } from '@store/sync/operation-queue.js';
 import { resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import { clearAllDataStore, activateAtlasInitialMap, markStoreRemote, markStoreLocal, isRemoteStoreSync, hasAnyMapFeatures } from '@store/store.js';
@@ -55,6 +56,45 @@ function setMenuButtonContent(btn, iconSvg, label) {
     text.className = 'account-control__btn-label';
     text.textContent = label;
     btn.replaceChildren(icon, text);
+}
+
+/**
+ * Whether a teardown must PRESERVE the local data instead of wiping it.
+ *
+ * A logout the user CLICKED is a decision: the remote data goes, as it always did. A teardown the
+ * user did not ask for (`handleSessionLost`, reached from a failed token refresh) is a network
+ * accident, and wiping IndexedDB there turned a transient 429/5xx into the irreversible loss of
+ * whatever had not yet been drained from the operation queue. Keeping data nobody asked to keep is
+ * recoverable; deleting work is not.
+ *
+ * An UNKNOWN pending count (the queue read failed — NaN/undefined) preserves too: the whole point
+ * is to not destroy on the strength of something that just went wrong.
+ *
+ * Pure — no I/O, no module state.
+ * @param {Object} params
+ * @param {boolean} [params.involuntary=false] - True when the session ended without a user gesture.
+ * @param {number} [params.pendingOps=0] - Operations still queued for the server.
+ * @returns {boolean}
+ */
+export function shouldPreserveLocalWork({ involuntary = false, pendingOps = 0 } = {}) {
+    if (!involuntary) return false;
+    if (!Number.isFinite(pendingOps)) return true;
+    return pendingOps > 0;
+}
+
+/**
+ * Reads the pending-operation count without ever throwing. NaN means "unknown", which
+ * {@link shouldPreserveLocalWork} treats as a reason to preserve.
+ * @returns {Promise<number>}
+ */
+async function countPendingOperations() {
+    try {
+        const count = await operationQueue.count();
+        return Number.isFinite(count) ? count : NaN;
+    } catch (error) {
+        console.warn('[AccountControl] pending operation count failed:', error);
+        return NaN;
+    }
 }
 
 /**
@@ -821,12 +861,22 @@ export class AccountControl {
 
     /**
      * Stop auto-flush, disconnect, and clear the local session identity.
+     *
+     * The wipe is NOT unconditional. On the involuntary path (see {@link handleSessionLost}) with
+     * operations still queued, the data stays and is re-marked LOCAL — otherwise a transient
+     * network failure upstream would delete work the server never received, and the next boot
+     * guard would finish the job by discarding orphan remote data.
+     * @param {Object} [options]
+     * @param {boolean} [options.involuntary=false] - True when nobody clicked "Sair".
      * @private
      */
-    async _handleLogout() {
+    async _handleLogout({ involuntary = false } = {}) {
         try {
             this._closeMenu();
             stopAutoFlush();
+            // Read the queue BEFORE the teardown: this is the count at the moment the session died.
+            const pendingOps = involuntary ? await countPendingOperations() : 0;
+            const preserve = shouldPreserveLocalWork({ involuntary, pendingOps });
             await syncEngine.logoutAndDisconnect();
             // Drop the collaboration UI and return to a BLANK LOCAL atlas: clear the
             // online-users roster (remote cursors + the connection light already hide via
@@ -834,7 +884,20 @@ export class AccountControl {
             // remote data so nothing server-side lingers in IndexedDB.
             presenceStore.clear();
             this._atlasCache = null;
-            await clearAllDataStore();
+            if (preserve) {
+                // Keep the data AND the queue (clearAllDataStore drops both). Marking the store
+                // LOCAL is what makes the rescue real: the boot guard discards remote-origin data
+                // found while logged out, so preserved-but-still-remote would be wiped on F5.
+                await markStoreLocal();
+                showWarning(
+                    'Sua sessão terminou com alterações que ainda não foram enviadas ao servidor. '
+                    + 'Elas foram mantidas neste computador como projeto local — entre novamente e '
+                    + 'use "Salvar no servidor".',
+                    { duration: 10000 }
+                );
+            } else {
+                await clearAllDataStore();
+            }
             // The "Mapa local" choice belonged to the session that just ended; leaving it set would
             // silently opt the NEXT identity out of the project chooser on this tab.
             clearLocalMapIntent();
@@ -847,8 +910,11 @@ export class AccountControl {
     }
 
     /**
-     * Session lost mid-use (idle timeout, or a refresh that finally failed): tear down to a blank
-     * local atlas and re-open login. Guarded against concurrent triggers (idle + a 401 racing).
+     * Session lost mid-use (idle timeout, or a refresh that finally failed): tear down and re-open
+     * login. Guarded against concurrent triggers (idle + a 401 racing).
+     *
+     * INVOLUNTARY by definition — nobody asked for this — so the teardown keeps un-synced work
+     * instead of wiping it (see {@link shouldPreserveLocalWork}).
      * @param {string} [message] - A toast explaining why the user is back at the login screen.
      */
     async handleSessionLost(message) {
@@ -856,7 +922,7 @@ export class AccountControl {
         this._sessionLostHandling = true;
         try {
             if (sessionContext.isAuthenticated()) {
-                await this._handleLogout();
+                await this._handleLogout({ involuntary: true });
             }
             if (message) showWarning(message);
             // The idle-timeout and the lost-auth (401) paths can both reach this near-simultaneously;

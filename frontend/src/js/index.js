@@ -339,10 +339,33 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
 }
 
 /**
+ * Whether a failed session restore means the CREDENTIAL is dead (so the stored tokens must go)
+ * or merely that the server could not answer right now (so they must stay).
+ *
+ * Only 401/403 are the credential answering for itself. A timeout (`getMe` runs with an 8 s boot
+ * deadline), a network error or a 5xx say nothing about the token — and clearing it on those
+ * logged the user out PERMANENTLY over a slow backend: the session did not come back when the
+ * server recovered, the password had to be typed again.
+ *
+ * The same "status decides, never the mere fact of failing" rule is applied to the flush loop by
+ * `classifyFlushFailure` (`store/sync/sync-flush.js`); the predicate is three lines, so it is
+ * stated here rather than shared, and its contract is this comment.
+ * @param {*} error
+ * @returns {boolean}
+ */
+function isCredentialFailure(error) {
+    const status = error?.status ?? error?.statusCode;
+    return status === 401 || status === 403;
+}
+
+/**
  * Restores a persisted login: loads the stored tokens, validates them against the backend
  * (transparently refreshing an expired access token), and mirrors the identity into the
- * session context. Any failure (no token, expired refresh, backend down) clears the tokens
- * and leaves the anonymous/offline path untouched.
+ * session context.
+ *
+ * A CREDENTIAL failure (401/403) clears the tokens. Anything else (timeout, offline, 5xx)
+ * KEEPS them and simply boots anonymous for this load — the next F5 recovers the session.
+ * Either way the anonymous/offline path is untouched.
  * @returns {Promise<void>}
  */
 async function restoreSessionFromStorage() {
@@ -355,8 +378,12 @@ async function restoreSessionFromStorage() {
             globalRole: user.role || 'user',
             username: user.username || user.nome,
         });
-    } catch {
-        apiClient.clearTokens();
+    } catch (error) {
+        if (isCredentialFailure(error)) {
+            apiClient.clearTokens();
+        } else {
+            console.warn('[boot] session restore deferred (server unreachable):', error);
+        }
     }
 }
 

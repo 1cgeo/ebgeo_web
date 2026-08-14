@@ -29,17 +29,97 @@ export class ApiError extends Error {
      * @param {Object} [opts]
      * @param {number} [opts.status] - HTTP status code.
      * @param {string} [opts.code] - Backend error code (e.g. 'UNAUTHORIZED').
+     * @param {Array<{field: string, message: string}>} [opts.details] - Per-field detail of a
+     *   422 `VALIDATION_ERROR` (the only envelope that carries it).
      */
-    constructor(message, { status, code } = {}) {
+    constructor(message, { status, code, details } = {}) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.code = code;
+        /** @type {Array<{field: string, message: string}>|null} */
+        this.details = Array.isArray(details) ? details : null;
     }
+}
+
+/**
+ * @private Renders the `details` array of a 422 into one human-readable line.
+ * @param {*} details - Expected `[{ field, message }]`; anything else yields ''.
+ * @returns {string}
+ */
+function formatValidationDetails(details) {
+    if (!Array.isArray(details)) return '';
+    return details.map((d) => {
+        const message = typeof d?.message === 'string' ? d.message.trim() : '';
+        const field = typeof d?.field === 'string' ? d.field.trim() : '';
+        if (!message) return field;
+        // Joi's default messages already quote the field ('"nome" is not allowed to be
+        // empty'); a schema with a custom `.messages()` override does not. Prefix only
+        // when the field is not named already, so the line never says it twice.
+        return field && !message.includes(field) ? `${field}: ${message}` : message;
+    }).filter(Boolean).join('; ');
+}
+
+/**
+ * Builds the message carried by an {@link ApiError} from the backend error envelope.
+ *
+ * For a 422 the top-level message is the constant `'Validation failed'`
+ * (`backend/src/middleware/error-handler.js`) and the offending FIELD is named only inside
+ * `details`. Every form in the app shows `error.message`, so without composing it here the
+ * naming work the server already did never reaches the user.
+ *
+ * Exported for the unit test (`tests/unit/api-client-error-contract.test.js`).
+ * @param {{code?: string, message?: string, details?: *}|null} err - The `error` envelope.
+ * @param {number} status - HTTP status, used for the last-resort message.
+ * @returns {string}
+ */
+export function buildApiErrorMessage(err, status) {
+    const composed = err?.code === 'VALIDATION_ERROR' ? formatValidationDetails(err.details) : '';
+    return composed || err?.message || `HTTP ${status}`;
+}
+
+/**
+ * Decides whether a FAILED token refresh means the session is terminally lost (drop the
+ * tokens and notify) or is a transient failure (keep the tokens and let the next call retry).
+ *
+ * Only a credential rejection is terminal: 401 `UNAUTHORIZED` (dead/reused refresh token,
+ * `backend/src/modules/auth/auth.service.js`) and 403 `FORBIDDEN` (deactivated organization,
+ * same file) — neither improves by trying again. Everything else is transient, and the one
+ * that matters most in this deployment is **429**: `refreshLimiter` is keyed by IP
+ * (`backend/src/middleware/rate-limit.js`) and the documented deployment is a military network
+ * behind NAT, so a shared egress address makes 429 an expected outcome, not a remote
+ * hypothesis. Treating it as terminal reaches `account.control#handleSessionLost` →
+ * `clearAllDataStore()`, i.e. a traffic spike erases unsynced local work.
+ *
+ * The status line wins over `code` when present: it is what the server's own error handler
+ * derives the code from, and a body from a proxy or gateway can carry anything. Absent a
+ * status (network failure, `AbortError`) the failure is transient by definition.
+ *
+ * Exported for the unit test (`tests/unit/api-client-error-contract.test.js`).
+ * @param {*} error - The error thrown by the refresh request.
+ * @returns {boolean} True when the session must be dropped.
+ */
+export function isTerminalRefreshFailure(error) {
+    const status = error?.status;
+    if (status === 401 || status === 403) return true;
+    if (Number.isFinite(status)) return false;
+    return error?.code === 'UNAUTHORIZED' || error?.code === 'FORBIDDEN';
 }
 
 /** localStorage key holding the persisted auth tokens (survives F5 until the JWT expires). */
 const TOKEN_STORAGE_KEY = 'ebgeo_auth';
+
+/**
+ * How long a TRANSIENT refresh failure suppresses further refresh attempts.
+ *
+ * Preserving the tokens on a 429/5xx (instead of ending the session) means the caller comes
+ * back: `sync-flush` alone retries every 1.5 s, so an unthrottled client would spend ~600
+ * failed refreshes inside one 15-minute limiter window — and `refreshLimiter` charges exactly
+ * those (`skipSuccessfulRequests: true`), for every user sharing the NAT address. 30 s caps it
+ * at ~30 attempts per window while staying far below the access token's lifetime, so an outage
+ * that ends is noticed within one cooldown.
+ */
+const REFRESH_COOLDOWN_MS = 30000;
 
 /**
  * Timeout (ms) for boot-critical requests (config + session restore) so a hung backend can't
@@ -119,6 +199,10 @@ export class ApiClient {
         this._authLostFired = false;
         /** Set once a renewal proves the local clock is unusable; see `_ensureFreshAccessToken`. */
         this._renewalStoodDown = false;
+        /** Epoch ms until which a TRANSIENT refresh failure suppresses new attempts. */
+        this._refreshCooldownUntil = 0;
+        /** The transient failure that opened the cooldown, replayed while it lasts. @type {Error|null} */
+        this._lastTransientRefreshError = null;
     }
 
     /**
@@ -152,6 +236,9 @@ export class ApiClient {
         this._accessToken = accessToken || null;
         if (refreshToken !== undefined) this._refreshToken = refreshToken;
         this._authLostFired = false; // a fresh, valid session — re-arm the auth-lost notification
+        // A login or a successful rotation proves the server is answering: whatever transient
+        // failure was holding refreshes back is over.
+        this._clearRefreshCooldown();
         this._persistTokens();
     }
 
@@ -269,9 +356,12 @@ export class ApiClient {
      * is never SENT with a token the server will refuse. See {@link TOKEN_RENEWAL_SKEW_MS}
      * for why the reactive 401 path is not sufficient on its own.
      *
-     * Never throws: a failed renewal has already cleared the tokens and notified, and the
-     * request then proceeds anonymous, which the route answers with its own 401. Turning it
-     * into a throw here would replace every caller's server error with a client-side one.
+     * Never throws, in either outcome of a failed renewal. Terminal (401/403): `refresh()` has
+     * already cleared the tokens and notified, and the request proceeds anonymous, which the
+     * route answers with its own 401. Transient (429/5xx/network): the tokens are KEPT and the
+     * request goes out with the current access token — which is only near expiry, not
+     * necessarily expired, so it often still succeeds. Turning either into a throw here would
+     * replace every caller's server error with a client-side one.
      * Concurrency is handled by `refresh()`, which is single-flight.
      * @returns {Promise<void>}
      */
@@ -285,7 +375,8 @@ export class ApiClient {
         try {
             await this.refresh();
         } catch {
-            // Session terminally lost; refresh() already cleared and notified.
+            // Either the session was terminally lost (refresh() cleared and notified) or the
+            // failure was transient and the tokens were deliberately kept. Both proceed.
             return;
         }
 
@@ -372,9 +463,13 @@ export class ApiClient {
             // catalog tab instead of the server's actual message.
             const raw = parsed && typeof parsed === 'object' ? parsed.error : null;
             const err = typeof raw === 'string' ? { message: raw, code: undefined } : raw;
-            throw new ApiError(err?.message || `HTTP ${res.status}`, {
+            // `details` (422) is kept on the error AND folded into the message: the top-level
+            // message of a validation failure is the constant 'Validation failed', so the field
+            // the server named lives nowhere else. See `buildApiErrorMessage`.
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
                 status: res.status,
                 code: err?.code,
+                details: err?.details,
             });
         }
 
@@ -431,11 +526,25 @@ export class ApiClient {
     /**
      * Rotates tokens using the stored refresh token. Concurrent calls share one
      * in-flight refresh.
+     *
+     * A failure destroys the session ONLY when the server rejected the credential
+     * (see {@link isTerminalRefreshFailure}). A 429, a 5xx or a dead network keeps the tokens
+     * and merely rejects, so the next call tries again — a shared NAT egress hitting the
+     * IP-keyed `refreshLimiter` must not log everyone out (and, down the chain, wipe their
+     * unsynced local work through `clearAllDataStore`).
+     *
      * @returns {Promise<void>}
+     * @throws {ApiError} The server's own error, unchanged, terminal or not.
      */
     async refresh() {
         if (this._refreshing) return this._refreshing;
         if (!this._refreshToken) throw new ApiError('No refresh token', { code: 'NO_REFRESH_TOKEN' });
+        // Keeping the tokens means the caller WILL come back — `sync-flush` alone retries every
+        // 1.5 s. Hammering a limiter that only charges failures would turn one 429 into hundreds,
+        // for every client behind the same address. Replay the failure instead of re-asking.
+        if (this._lastTransientRefreshError && Date.now() < this._refreshCooldownUntil) {
+            throw this._lastTransientRefreshError;
+        }
 
         this._refreshing = (async () => {
             try {
@@ -444,18 +553,34 @@ export class ApiClient {
                     auth: false,
                     _retry: false,
                 });
+                // `setTokens` also re-arms the auth-lost notification and the refresh cooldown.
                 this.setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
             } catch (error) {
-                // The refresh token is gone/expired: the session is terminally lost. Drop the dead
-                // tokens and notify (handler wired post-boot — at boot this falls to anonymous).
-                this.clearTokens();
-                this._notifyAuthLost();
+                if (isTerminalRefreshFailure(error)) {
+                    // The refresh token is gone/expired (or the org was deactivated): the session
+                    // is terminally lost. Drop the dead tokens and notify (handler wired post-boot
+                    // — at boot this falls to anonymous).
+                    this._clearRefreshCooldown();
+                    this.clearTokens();
+                    this._notifyAuthLost();
+                } else {
+                    // Transient: the tokens are still the best credential this client has, and the
+                    // current access token may well outlive the outage.
+                    this._lastTransientRefreshError = error;
+                    this._refreshCooldownUntil = Date.now() + REFRESH_COOLDOWN_MS;
+                }
                 throw error;
             } finally {
                 this._refreshing = null;
             }
         })();
         return this._refreshing;
+    }
+
+    /** @private Re-arms refreshing after a decisive answer (success or terminal failure). */
+    _clearRefreshCooldown() {
+        this._refreshCooldownUntil = 0;
+        this._lastTransientRefreshError = null;
     }
 
     /**
@@ -673,21 +798,32 @@ export class ApiClient {
 
     /**
      * Enables/disables a 360 project (metadata only).
+     *
+     * A slug is unique per ORGANIZATION, not globally: a global admin listing every organization
+     * can see the same slug twice, and the backend answers an unqualified write with "ambiguous
+     * slug". `orgId` is what disambiguates it, and the admin catalog tab already sends the row's
+     * `organization_id` — it was silently discarded here, which made those writes unusable.
+     *
      * @param {string} slug
      * @param {'enabled'|'disabled'} status
+     * @param {{orgId?: string}} [options]
      * @returns {Promise<Object>}
      */
-    async setSv360ProjectStatus(slug, status) {
-        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}/status`, { body: { status } });
+    async setSv360ProjectStatus(slug, status, { orgId } = {}) {
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}/status${qs}`, { body: { status } });
     }
 
     /**
-     * Deletes a 360 project.
+     * Deletes a 360 project. See `setSv360ProjectStatus` for why `orgId` matters.
+     *
      * @param {string} slug
+     * @param {{orgId?: string}} [options]
      * @returns {Promise<null>}
      */
-    async deleteSv360Project(slug) {
-        return this._request('DELETE', `/sv360/admin/projects/${encodeURIComponent(slug)}`);
+    async deleteSv360Project(slug, { orgId } = {}) {
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        return this._request('DELETE', `/sv360/admin/projects/${encodeURIComponent(slug)}${qs}`);
     }
 
     // ===== CALIBRAÇÃO 360 — ESCRITAS (calibracao.html) =====
@@ -975,9 +1111,13 @@ export class ApiClient {
 
     /**
      * Reads the sharing configuration for an atlas (public link + per-user shares).
-     * Owner-only server-side.
+     *
+     * Gated at `manage` server-side (`backend/src/modules/sharing/sharing.routes.js`), NOT
+     * owner-only: a co-Gestor administers sharing too. And a share carries any of the FOUR
+     * grantable levels — this said `'read'|'write'`, the closed list the constitution forbids,
+     * which is how a client written from it silently loses `comment` and `manage`.
      * @param {string} atlasId
-     * @returns {Promise<{ isPublic: boolean, publicLink: string|null, shares: Array<{ userId: string, username: string, nome: string, permission: 'read'|'write', addedAt: string }> }>}
+     * @returns {Promise<{ isPublic: boolean, publicLink: string|null, shares: Array<{ userId: string, username: string, nome: string, permission: 'read'|'comment'|'write'|'manage', addedAt: string }> }>}
      */
     async getSharing(atlasId) {
         return this._request('GET', `/atlas/${atlasId}/sharing`);
@@ -1071,9 +1211,18 @@ export class ApiClient {
     }
 
     /**
-     * Creates a user (admin-only). Payload per the backend createUserAdminSchema.
-     * @param {{ username: string, password: string, nome: string, posto_graduacao?: string,
-     *   organizacao_militar?: string, role?: 'user'|'admin' }} payload
+     * Creates a user (admin-only). Payload per the backend `createUserAdminSchema`
+     * (`backend/src/modules/users/users.schemas.js`).
+     *
+     * Rank and organization travel as the UUIDs `rank_id`/`organization_id`, not as the
+     * display names `posto_graduacao`/`organizacao_militar` — those are read-only aliases the
+     * SEARCH/LIST queries join in, and they are exactly what this block claimed to send until
+     * 2026-08-13. The mistake had no status and no log to find it by: `validate` runs with
+     * `stripUnknown: true`, so a caller written from the old text lost both fields and got a
+     * 200. `org_role` is the role WITHIN the organization, distinct from the global `role`.
+     * @param {{ username: string, password: string, nome: string, rank_id?: string|null,
+     *   organization_id?: string|null, role?: 'user'|'admin',
+     *   org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
      * @returns {Promise<Object>} The created user.
      */
     async createUser(payload) {
@@ -1081,10 +1230,12 @@ export class ApiClient {
     }
 
     /**
-     * Updates a user (admin-only). Partial payload per the backend updateUserAdminSchema.
+     * Updates a user (admin-only). Partial payload per the backend `updateUserAdminSchema`.
+     * See `createUser` on why rank/organization are UUID fields here.
      * @param {string} userId
-     * @param {{ username?: string, nome?: string, posto_graduacao?: string,
-     *   organizacao_militar?: string, role?: 'user'|'admin', is_active?: boolean }} payload
+     * @param {{ username?: string, nome?: string, rank_id?: string|null,
+     *   organization_id?: string|null, role?: 'user'|'admin', is_active?: boolean,
+     *   email_verified?: boolean, org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
      * @returns {Promise<Object>} The updated user.
      */
     async updateUser(userId, payload) {
@@ -1183,7 +1334,13 @@ export class ApiClient {
         const parsed = await this._parseBody(res);
         if (!res.ok) {
             const err = parsed && typeof parsed === 'object' ? parsed.error : null;
-            throw new ApiError(err?.message || `HTTP ${res.status}`, { status: res.status, code: err?.code });
+            // Same envelope reading as `_request` (this path builds its own request), so a
+            // validation failure names the field here too.
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
+                status: res.status,
+                code: err?.code,
+                details: err?.details,
+            });
         }
         return this._unwrap(parsed);
     }

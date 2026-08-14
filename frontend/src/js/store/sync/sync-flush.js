@@ -14,8 +14,13 @@
  * change event so pending operations leave promptly without waiting a full
  * interval. `stopAutoFlush` clears the timer and unsubscribes the listeners.
  *
+ * A failing flush used to be entirely silent (`console.warn` and nothing else),
+ * so a user could keep editing for minutes against a server that was receiving
+ * nothing. Consecutive failures are now counted and, past a threshold, told
+ * ONCE — see {@link classifyFlushFailure} / {@link nextFlushAlertState}.
+ *
  * @dependencies sync-engine.js, connection-state.js, operation-queue.js,
- *   ../services.js, ../../events/event_types.js
+ *   ../services.js, ../../events/event_types.js, @utils/toast_service.js
  */
 
 import { syncEngine } from './sync-engine.js';
@@ -23,6 +28,7 @@ import { connectionState } from './connection-state.js';
 import { operationQueue } from './operation-queue.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
+import { showWarning } from '@utils/toast_service.js';
 
 /** Local change events that should trigger an opportunistic flush. */
 const FLUSH_TRIGGER_EVENTS = [
@@ -44,6 +50,13 @@ const FLUSH_TRIGGER_EVENTS = [
     EventTypes.REMOTE_OPERATION_APPLIED,
 ];
 
+/**
+ * How many CONSECUTIVE failed flush cycles before the user is told. A single
+ * failure is normal (a dropped packet, a redeploy) and must stay quiet; three in
+ * a row at the 1.5 s interval means the work is not leaving this machine.
+ */
+export const FLUSH_ALERT_THRESHOLD = 3;
+
 /** Module-level runtime state (a single auto-flush loop is shared app-wide). */
 const state = {
     /** @type {ReturnType<typeof setInterval>|null} */
@@ -54,7 +67,66 @@ const state = {
     subscriptions: [],
     /** @type {object|null} The engine the loop is bound to. */
     engine: null,
+    /** @type {{ failures: number, notifiedKind: string|null }} Consecutive-failure tracking. */
+    alert: { failures: 0, notifiedKind: null },
 };
+
+/**
+ * Classifies a failed flush into what the user needs to hear. A lost permission
+ * and a network hiccup look identical in the console and are opposite problems:
+ * one is fixed by asking the Gestor, the other by waiting.
+ *
+ * Pure — no I/O, no module state.
+ * @param {*} error - The error thrown by `engine.flush()` (an ApiError carries `status`).
+ * @returns {{ kind: 'permission'|'session'|'network', message: string }}
+ */
+export function classifyFlushFailure(error) {
+    const status = error?.status ?? error?.statusCode;
+    if (status === 403) {
+        return {
+            kind: 'permission',
+            message: 'Suas alterações não estão sendo salvas no servidor: seu acesso a este projeto '
+                + 'não permite mais edição. Peça permissão ao gestor do projeto.',
+        };
+    }
+    if (status === 401) {
+        return {
+            kind: 'session',
+            message: 'Suas alterações não estão sendo salvas no servidor: sua sessão não é mais '
+                + 'válida. Entre novamente para enviá-las.',
+        };
+    }
+    return {
+        kind: 'network',
+        message: 'Suas alterações não estão chegando ao servidor. Elas continuam guardadas neste '
+            + 'computador e serão enviadas quando a conexão voltar.',
+    };
+}
+
+/**
+ * Reducer for the consecutive-failure alert: pure, so the "warn once, then stay
+ * quiet" rule is testable without timers or a DOM.
+ *
+ * `message` is non-null ONLY on the cycle where the user should be warned. A
+ * change of failure kind re-arms the warning (a 403 arriving after a network
+ * outage is genuinely new news); a repeat of the same kind never does.
+ * @param {{ failures?: number, notifiedKind?: string|null }|null|undefined} prev
+ * @param {*} error
+ * @param {number} [threshold=FLUSH_ALERT_THRESHOLD]
+ * @returns {{ failures: number, notifiedKind: string|null, message: string|null }}
+ */
+export function nextFlushAlertState(prev, error, threshold = FLUSH_ALERT_THRESHOLD) {
+    const previousFailures = Number.isFinite(prev?.failures) ? prev.failures : 0;
+    const failures = previousFailures + 1;
+    const { kind, message } = classifyFlushFailure(error);
+    const alreadyNotified = (prev?.notifiedKind ?? null) === kind;
+    const notify = failures >= threshold && !alreadyNotified;
+    return {
+        failures,
+        notifiedKind: notify ? kind : (prev?.notifiedKind ?? null),
+        message: notify ? message : null,
+    };
+}
 
 /**
  * Whether there is anything worth flushing right now: an active connection
@@ -79,8 +151,19 @@ async function flushOnce() {
     state.inFlight = true;
     try {
         await state.engine.flush();
+        // A successful drain re-arms the warning: the NEXT outage is news again.
+        state.alert = { failures: 0, notifiedKind: null };
     } catch (error) {
         console.warn('Auto-flush error:', error);
+        const next = nextFlushAlertState(state.alert, error);
+        state.alert = { failures: next.failures, notifiedKind: next.notifiedKind };
+        if (next.message) {
+            try {
+                showWarning(next.message, { duration: 8000 });
+            } catch {
+                // Headless (tests, worker): no UI to tell. Never break the loop over a toast.
+            }
+        }
     } finally {
         state.inFlight = false;
     }
@@ -127,6 +210,7 @@ export function startAutoFlush(engine = syncEngine, { intervalMs = 1500 } = {}) 
     if (state.timer) return; // Already running — idempotent.
 
     state.engine = engine;
+    state.alert = { failures: 0, notifiedKind: null };
     state.timer = setInterval(() => { flushOnce(); }, intervalMs);
 
     subscribeToChanges();
@@ -147,4 +231,5 @@ export function stopAutoFlush() {
     }
     unsubscribeFromChanges();
     state.engine = null;
+    state.alert = { failures: 0, notifiedKind: null };
 }
