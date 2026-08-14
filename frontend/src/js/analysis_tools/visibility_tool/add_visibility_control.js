@@ -41,6 +41,7 @@ class AddVisibilityControl extends BaseControl {
         this.PARAMETER_DEBOUNCE_DELAY = 1000;
 
         // Progress modal elements
+        this._progressDepth = 0;
         this.progressModal = null;
         this.progressBar = null;
         this.progressText = null;
@@ -698,8 +699,14 @@ class AddVisibilityControl extends BaseControl {
             if (this.parameterDebounceTimer) {
                 clearTimeout(this.parameterDebounceTimer);
             }
+            // Go through the same queue as the drag/move recalculations: a debounced
+            // slider change and a handle drag can otherwise run concurrently and
+            // overwrite each other's setData on the very sources they both read.
             this.parameterDebounceTimer = setTimeout(() => {
-                this.recalculateAfterParameterChange(features);
+                this.parameterDebounceTimer = null;
+                this.recalculateQueue = this.recalculateQueue
+                    .then(() => this.recalculateAfterParameterChange(features))
+                    .catch(error => console.error('Error in parameter recalculation:', error));
             }, this.PARAMETER_DEBOUNCE_DELAY);
 
             return;
@@ -873,7 +880,6 @@ class AddVisibilityControl extends BaseControl {
             console.error('Error in parameter change recalculation:', error);
         } finally {
             this.hideProgressModal();
-            this.parameterDebounceTimer = null;
         }
     }
 
@@ -1122,6 +1128,11 @@ class AddVisibilityControl extends BaseControl {
     }
 
     showProgressModal = () => {
+        // Ref-counted: whoever finishes first must not close the modal of a
+        // recalculation still running.
+        this._progressDepth += 1;
+        if (this._progressDepth > 1) return;
+
         this.progressModal.classList.add('visibility-progress-modal--visible');
         this.updateProgress(0, 'Iniciando análise...');
     }
@@ -1136,6 +1147,9 @@ class AddVisibilityControl extends BaseControl {
     }
 
     hideProgressModal = () => {
+        this._progressDepth = Math.max(0, this._progressDepth - 1);
+        if (this._progressDepth > 0) return;
+
         this.progressModal.classList.remove('visibility-progress-modal--visible');
         this.updateProgress(0, 'Analisando terreno...');
     }

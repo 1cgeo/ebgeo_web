@@ -162,19 +162,23 @@ export function setupTextLayers(features, mapInstance) {
         filter: ['==', '$type', 'Point']
     });
 
-    if (textControl && !textControl._backgroundUpdateListener) {
-        const textsSource = mapInstance.getSource('texts');
+    // Mirror every write to the 'texts' source into 'text-backgrounds'. The "already patched" mark
+    // lives on the SOURCE, not on the control: `setStyle()` (base-layer switch) destroys and
+    // recreates every custom source, while the control is a session-long singleton — a mark on the
+    // control would stay true and leave the brand-new source unpatched for the rest of the session.
+    const textsSource = mapInstance.getSource('texts');
+    if (textsSource && !textsSource.__ebgeoBgPatch) {
         const originalSetData = textsSource.setData.bind(textsSource);
         textsSource.setData = function (data) {
             originalSetData(data);
             setTimeout(async () => {
                 const currentTexts = await textsSource.getData();
-                mapInstance.getSource('text-backgrounds').setData(
+                mapInstance.getSource('text-backgrounds')?.setData(
                     featureCollection(toBackgroundFeatures(currentTexts.features))
                 );
             }, 0);
         };
-        textControl._backgroundUpdateListener = true;
+        textsSource.__ebgeoBgPatch = true;
     }
 }
 

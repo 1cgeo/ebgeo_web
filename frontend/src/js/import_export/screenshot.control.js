@@ -8,6 +8,13 @@
 import { showError } from '@utils/toast_service.js';
 
 class ScreenshotControl {
+    /**
+     * Upper bound for any capture step that waits on a MapLibre event.
+     * 'load'/'idle' may never fire (style or tile load failure) and the programmatic
+     * consumers (PDF/briefing export) await without a timeout of their own.
+     */
+    static CAPTURE_TIMEOUT_MS = 15000;
+
     constructor() {
         this.map = null;
         this.container = null;
@@ -270,9 +277,22 @@ class ScreenshotControl {
     static async captureMapAsDataUrl(map) {
         if (!map) return null;
 
-        // Wait for idle if not loaded
+        // Wait for idle if not loaded. Bounded: 'idle' may never fire (style/tile
+        // failure) and the caller (PDF/briefing export) has no timeout of its own,
+        // so an unbounded await would hang the export with no error.
         if (!map.loaded()) {
-            await new Promise(resolve => map.once('idle', resolve));
+            await new Promise(resolve => {
+                let idleTimer = null;
+                const onIdle = () => {
+                    if (idleTimer) clearTimeout(idleTimer);
+                    resolve();
+                };
+                idleTimer = setTimeout(() => {
+                    map.off('idle', onIdle);
+                    resolve();
+                }, ScreenshotControl.CAPTURE_TIMEOUT_MS);
+                map.once('idle', onIdle);
+            });
         }
 
         // Force repaint
@@ -314,6 +334,25 @@ class ScreenshotControl {
         return new Promise(resolve => {
             let tempContainer;
             let tempMap;
+            let settled = false;
+            let failsafe = null;
+
+            const cleanupTempMap = () => {
+                try { tempMap?.remove(); } catch (_e) { /* already removed */ }
+                if (tempContainer?.parentNode) {
+                    document.body.removeChild(tempContainer);
+                }
+            };
+
+            // Bail out on any outcome exactly once: the WebGL context and the
+            // off-screen container must not leak, and the caller must not await forever.
+            const settle = (dataUrl) => {
+                if (settled) return;
+                settled = true;
+                if (failsafe) clearTimeout(failsafe);
+                cleanupTempMap();
+                resolve(dataUrl);
+            };
 
             try {
                 tempContainer = document.createElement('div');
@@ -335,25 +374,35 @@ class ScreenshotControl {
                     validateStyle: false
                 });
 
+                failsafe = setTimeout(() => {
+                    if (settled) return;
+                    console.error('Screenshot temporary map timed out before load');
+                    settle(null);
+                }, ScreenshotControl.CAPTURE_TIMEOUT_MS);
+
+                // A style failure emits 'error' and never 'load', so it needs its own exit.
+                tempMap.once('error', (error) => {
+                    console.error('Error in hidden map capture:', error?.error || error);
+                    settle(null);
+                });
+
                 tempMap.once('load', () => {
                     tempMap.once('idle', () => {
                         setTimeout(() => {
+                            if (settled) return;
+                            let dataUrl = null;
                             try {
-                                const dataUrl = tempMap.getCanvas().toDataURL('image/png');
-                                resolve(dataUrl.length > 200 ? dataUrl : null);
+                                const captured = tempMap.getCanvas().toDataURL('image/png');
+                                dataUrl = captured.length > 200 ? captured : null;
                             } catch {
-                                resolve(null);
-                            } finally {
-                                tempMap.remove();
-                                document.body.removeChild(tempContainer);
+                                dataUrl = null;
                             }
+                            settle(dataUrl);
                         }, 500);
                     });
                 });
             } catch {
-                if (tempMap) tempMap.remove();
-                if (tempContainer?.parentNode) document.body.removeChild(tempContainer);
-                resolve(null);
+                settle(null);
             }
         });
     }

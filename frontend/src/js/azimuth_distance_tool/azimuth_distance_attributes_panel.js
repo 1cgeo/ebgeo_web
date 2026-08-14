@@ -27,6 +27,42 @@ import {
     calculateTotalDistance
 } from './azimuth_distance_geometry.js';
 
+/** Same seed color the generated feature uses (azimuth_distance_geometry.js). */
+const DEFAULT_STYLE_COLOR = '#16a34a';
+
+// ============================================================================
+// PANEL STATE (pure)
+// ============================================================================
+
+/**
+ * Derives the style and polar state this panel renders from a feature's properties.
+ *
+ * Pure on purpose: it is the piece that has to agree with what the MapLibre paint actually reads
+ * (`lineColor` / `lineWidth` / `opacity`, plus `fillColor` for the AREA polygon) and with where
+ * `generateFeature` stores the polar construction data (`properties.azimuthDistanceData`, not the
+ * top level). Both were wrong here — the panel wrote `stroke*` keys nothing paints and read the
+ * polar fields off the top level, where they never live.
+ *
+ * @param {Object} props - Feature properties
+ * @returns {{polar: Object, isArea: boolean, lineColor: string, lineWidth: number,
+ *   opacity: number, fillColor: string}}
+ */
+export function getAzimuthDistanceStyleState(props) {
+    const source = props || {};
+    const polar = source.azimuthDistanceData || {};
+    const isArea = polar.outputMode === OUTPUT_MODE.AREA;
+    // Number.isFinite (not `??`) so a NaN/null width or opacity falls back instead of poisoning
+    // the slider; 0 opacity is a legitimate value and must survive.
+    return {
+        polar,
+        isArea,
+        lineColor: source.lineColor || DEFAULT_STYLE_COLOR,
+        lineWidth: Number.isFinite(source.lineWidth) ? source.lineWidth : (isArea ? 2 : 5),
+        opacity: Number.isFinite(source.opacity) ? source.opacity : (isArea ? 0.5 : 0.7),
+        fillColor: source.fillColor || DEFAULT_STYLE_COLOR,
+    };
+}
+
 // ============================================================================
 // ATTRIBUTES PANEL
 // ============================================================================
@@ -59,14 +95,17 @@ export function addAzimuthDistanceAttributesToPanel(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
 
+    const { polar, isArea, lineColor, lineWidth, opacity, fillColor } =
+        getAzimuthDistanceStyleState(props);
+
     // Polar data and legs (single selection only)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createSectionDivider('Dados Polares'));
-        panel.appendChild(createPolarSummary(props));
+        panel.appendChild(createPolarSummary(polar));
 
-        if (props.legs && props.legs.length > 0) {
+        if (polar.legs && polar.legs.length > 0) {
             panel.appendChild(createSectionDivider('Pernas'));
-            panel.appendChild(createLegsReadOnly(props));
+            panel.appendChild(createLegsReadOnly(polar));
         }
     }
 
@@ -75,9 +114,9 @@ export function addAzimuthDistanceAttributesToPanel(
 
     panel.appendChild(createModernColorPicker({
         label: 'Cor da Linha',
-        value: props.strokeColor || '#16a34a',
+        value: lineColor,
         onChange: (color) => {
-            control.updateFeaturesProperty(selectedFeatures, 'strokeColor', color);
+            control.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
     }));
 
@@ -86,47 +125,37 @@ export function addAzimuthDistanceAttributesToPanel(
         min: 1,
         max: 10,
         step: 1,
-        value: props.strokeWidth || 2,
+        value: lineWidth,
         unit: 'px',
         onChange: (value) => {
-            control.updateFeaturesProperty(selectedFeatures, 'strokeWidth', value);
+            control.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
         }
     }));
 
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade da Linha',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((props.strokeOpacity ?? 1) * 100),
-        unit: '%',
-        onChange: (value) => {
-            control.updateFeaturesProperty(selectedFeatures, 'strokeOpacity', value / 100);
-        }
-    }));
-
-    // Fill options for area mode
-    if (props.outputMode === OUTPUT_MODE.AREA) {
+    // Fill color for area mode. There is no `fillOpacity`: on the polygon layers `opacity` IS the
+    // fill opacity (polygon.layers.js paints 'fill-opacity' from it), so the single slider below
+    // covers both modes and only its label changes.
+    if (isArea) {
         panel.appendChild(createModernColorPicker({
             label: 'Cor de Preenchimento',
-            value: props.fillColor || '#16a34a',
+            value: fillColor,
             onChange: (color) => {
                 control.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
             }
         }));
-
-        panel.appendChild(createModernSlider({
-            label: 'Opacidade do Preenchimento',
-            min: 0,
-            max: 100,
-            step: 1,
-            value: Math.round((props.fillOpacity ?? 0.15) * 100),
-            unit: '%',
-            onChange: (value) => {
-                control.updateFeaturesProperty(selectedFeatures, 'fillOpacity', value / 100);
-            }
-        }));
     }
+
+    panel.appendChild(createModernSlider({
+        label: isArea ? 'Opacidade do Preenchimento' : 'Opacidade da Linha',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round(opacity * 100),
+        unit: '%',
+        onChange: (value) => {
+            control.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+        }
+    }));
 
     // Action buttons
     panel.appendChild(createModernButtons({
@@ -146,7 +175,7 @@ export function addAzimuthDistanceAttributesToPanel(
 /**
  * Create polar data summary (read-only).
  *
- * @param {Object} props - Feature properties
+ * @param {Object} props - Polar construction data (`properties.azimuthDistanceData`)
  * @returns {HTMLElement}
  */
 function createPolarSummary(props) {
@@ -212,7 +241,7 @@ function createInfoRow(label, value) {
 /**
  * Create read-only legs list.
  *
- * @param {Object} props - Feature properties
+ * @param {Object} props - Polar construction data (`properties.azimuthDistanceData`)
  * @returns {HTMLElement}
  */
 function createLegsReadOnly(props) {

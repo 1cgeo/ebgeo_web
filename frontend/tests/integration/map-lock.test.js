@@ -109,6 +109,12 @@ function resetMocks() {
     storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
 }
 
+/** A real map UUID, to pin that the sync op carries an id and never a map name. */
+const ACTIVE_MAP_UUID = '9f1c2a3e-4b5d-4e6f-8a90-1b2c3d4e5f60';
+
+/** Canonical UUID shape (the backend matches map ids against an equivalent regex). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** Puts the session into an authenticated (online) state with the given role. */
 function setOnline(role) {
     sessionMock._offline = false;
@@ -137,7 +143,7 @@ describe('map-lock.controller', () => {
 
         it('returns false when the store reports unlocked', () => {
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
-            expect(controller.isMapLocked('map-1')).toBe(false);
+            expect(controller.isMapLocked()).toBe(false);
         });
     });
 
@@ -231,16 +237,33 @@ describe('map-lock.controller', () => {
             expect(showErrorMock).not.toHaveBeenCalled();
         });
 
-        it('uses an explicit mapId for the sync log and signal', async () => {
+        // This case used to assert the OPPOSITE — that an explicit argument won —
+        // which froze the defect as contract: the only production caller
+        // (maps.tab.js) passes a map NAME, and that name travelled into
+        // logMapOperation as the entity id, so the lock never reached the server
+        // nor the peers. The sync id is now always the ACTIVE map UUID.
+        it('logs the ACTIVE map UUID, never a caller-supplied map name', async () => {
             setOnline(UserRoleMock.OWNER);
+            storeMock.getCurrentMapIdSync.mockReturnValue(ACTIVE_MAP_UUID);
             storeMock.isCurrentMapLockedSync.mockReturnValue(true);
             storeMock.toggleMapLock.mockResolvedValue(false);
 
-            const next = await controller.toggleMapLock('map-2');
+            // A stale caller still passing a name must not poison the op.
+            const next = await controller.toggleMapLock('Operação Alfa');
 
             expect(next).toBe(false);
-            expect(logMapOperationMock).toHaveBeenCalledWith('update', 'map-2', { locked: false });
-            expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: 'map-2' });
+            expect(logMapOperationMock).toHaveBeenCalledWith('update', ACTIVE_MAP_UUID, { locked: false });
+            expect(UUID_RE.test(logMapOperationMock.mock.calls[0][1])).toBe(true);
+            expect(eventBusMock.emit).toHaveBeenCalledWith('map:modified', { mapId: ACTIVE_MAP_UUID });
+        });
+
+        it('calls the store toggle without arguments (it owns the active map)', async () => {
+            sessionMock._offline = true;
+            storeMock.getCurrentMapIdSync.mockReturnValue(ACTIVE_MAP_UUID);
+
+            await controller.toggleMapLock('Operação Alfa');
+
+            expect(storeMock.toggleMapLock).toHaveBeenCalledWith();
         });
 
         it('falls back to the computed next state when the store op returns null', async () => {

@@ -63,6 +63,50 @@ describe('WsClient — handshake', () => {
         expect(ws.isConnected()).toBe(true);
         expect(onConnected).toHaveBeenCalledOnce();
     });
+
+    it('rejects connect() when the socket closes BEFORE the connected frame', async () => {
+        // A rejected UPGRADE (403: disabled account/org, revoked session, no atlas
+        // permission) closes the socket with no `connected` frame. Nothing used to settle
+        // the promise `syncEngine.connect` awaits, so opening an atlas hung forever.
+        const { ws } = setup();
+
+        const p = ws.connect('atlas-1');
+        const sock = FakeSocket.instances[0];
+        sock.close(1006, 'upgrade rejected');
+
+        await expect(p).rejects.toThrow(/handshake/);
+    });
+
+    it('reports the close code and keeps trying to reconnect after the rejection', async () => {
+        vi.useFakeTimers();
+        try {
+            const { ws } = setup({ reconnectBaseMs: 50 });
+
+            const p = ws.connect('atlas-1');
+            await expect(
+                (async () => {
+                    FakeSocket.instances[0].close(4403, 'forbidden');
+                    return p;
+                })()
+            ).rejects.toThrow('Conexão encerrada antes do handshake (code 4403)');
+
+            // The reconnect loop must NOT be killed by the rejection: a drop before the
+            // handshake still deserves a retry, and its rejection is absorbed internally.
+            await vi.advanceTimersByTimeAsync(60);
+            expect(FakeSocket.instances).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('edge: a close with no code still rejects (no undefined leaking into the message)', async () => {
+        const { ws } = setup();
+
+        const p = ws.connect('atlas-1');
+        FakeSocket.instances[0].onclose?.({});
+
+        await expect(p).rejects.toThrow('Conexão encerrada antes do handshake (code n/d)');
+    });
 });
 
 describe('WsClient — inbound routing', () => {

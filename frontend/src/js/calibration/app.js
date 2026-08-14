@@ -56,6 +56,9 @@ import {
     initProjectMap, openProjectMap, closeProjectMap, isProjectMapOpen,
     setPhotoReviewedOnMap, setCurrentPhotoOnMap, disposeProjectMap,
 } from './project-map.js';
+// Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
+// arrastaria a store inteira pelo caminho transitivo.
+import { escapeHtml } from '@utils/html-escape.js';
 
 // ============================================================================
 // DOM ELEMENTS
@@ -217,7 +220,7 @@ async function showProjectSelector() {
                     const pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
                     return `
                     <div class="project-selector__card" data-photo-id="${p.entryPhotoId}" data-slug="${p.slug}">
-                        <h3 class="project-selector__card-title">${p.name}</h3>
+                        <h3 class="project-selector__card-title">${escapeHtml(p.name)}</h3>
                         <p class="project-selector__card-info">${p.photoCount} fotos</p>
                         <div class="project-selector__review-stats">
                             <div class="project-selector__progress-bar">
@@ -225,7 +228,7 @@ async function showProjectSelector() {
                             </div>
                             <span class="project-selector__review-text">${reviewed}/${total} revisadas (${pct}%)</span>
                         </div>
-                        ${p.location ? `<p class="project-selector__card-location">${p.location}</p>` : ''}
+                        ${p.location ? `<p class="project-selector__card-location">${escapeHtml(p.location)}</p>` : ''}
                     </div>
                     `;
                 }).join('')}
@@ -1190,6 +1193,16 @@ function onKeyDown(e) {
 
     // ── Instant action shortcuts ──
 
+    // Auto-repeat (key held down) must NOT reach the instant actions: the OS fires
+    // one keydown per repeat interval, and `E` writes `reviewed` to the server and
+    // advances the cursor on every one of them, marking a whole run as reviewed
+    // without the operator ever seeing those photos. WASD above is exempt on
+    // purpose (it dedupes through `heldKeys` and depends on the first keydown),
+    // and this guard sits AFTER Ctrl+S / Escape / M so their preventDefault()
+    // keeps running on a held key (an early return there would hand Ctrl+S back
+    // to the browser's "save page" dialog).
+    if (e.repeat) return;
+
     // Q = Previous photo
     if (e.key === 'q') handlePrevPhoto();
 
@@ -1311,15 +1324,28 @@ function resetMeshRotationZ() {
     updateRearViewRotation(state.editedMeshRotationY ?? 180, state.editedMeshRotationX ?? 0, original);
 }
 
+// Reentrancy latch for the review-and-advance gesture. `e.repeat` stops a HELD
+// key, but not two real keydowns fired inside the window of the awaits below:
+// the second one would run against a `state.currentPhotoId` that has not moved
+// yet, marking the same photo twice and then skipping the next. Same pattern as
+// `isNavigating`.
+let isReviewAdvancing = false;
+
 async function handleMarkReviewedAndNext() {
-    if (isDirty()) {
-        const saved = await handleSave();
-        // Save falhou (total ou parcial): nao marca como revisada nem avanca,
-        // para nao registrar revisao sobre um estado nao persistido.
-        if (!saved) return;
+    if (isReviewAdvancing) return;
+    isReviewAdvancing = true;
+    try {
+        if (isDirty()) {
+            const saved = await handleSave();
+            // Save falhou (total ou parcial): nao marca como revisada nem avanca,
+            // para nao registrar revisao sobre um estado nao persistido.
+            if (!saved) return;
+        }
+        await handleMarkReviewed(true);
+        await handleNextPhoto();
+    } finally {
+        isReviewAdvancing = false;
     }
-    await handleMarkReviewed(true);
-    await handleNextPhoto();
 }
 
 // ============================================================================

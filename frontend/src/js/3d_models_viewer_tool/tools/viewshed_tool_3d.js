@@ -774,12 +774,20 @@ export async function updateViewshedObserverHeight(viewshedId, newHeight) {
  * @param {string} viewshedId - Viewshed ID
  */
 export async function deleteViewshed(viewshedId) {
+    // Read the selection BEFORE the await: the persistence round-trip can be
+    // interleaved with a click that moves the selection elsewhere.
+    const wasSelected = selectedViewshedId === viewshedId;
+
     const result = await removeViewshed(viewshedId);
 
     if (result) {
         removeViewshedObjects(viewshedId);
-        if (selectedViewshedId === viewshedId) {
+        if (wasSelected) {
             selectedViewshedId = null;
+            // Emit deselected event to close the panel (same contract as
+            // deleteMeasurement). Without it the Delete-key path leaves the
+            // feature panel open on a viewshed that no longer exists.
+            emitViewshedDeselected();
         }
     }
 

@@ -429,6 +429,55 @@ describe('mouse throttle (set on mouse.* paths)', () => {
         expect(cb).toHaveBeenCalledTimes(1);
         expect(cb.mock.calls[0][0]).toEqual({ lng: 5, lat: 6 });
     });
+
+    // REGRESSION: the pending update used to live in a SINGLE slot
+    // (_pendingMousePath/_pendingMouseValue), so a second write to a DIFFERENT
+    // mouse.* path inside the same 16ms window overwrote the first one, which was
+    // lost forever (not deferred). The real caller is `_onTerrainChange`
+    // (mouse-coordinates.control.js), which writes mouse.elevationEnabled and then
+    // mouse.elevation in the same tick.
+    it('REGRESSION: two DIFFERENT mouse.* paths written in one window both survive', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1000);
+
+        const onEnabled = vi.fn();
+        const onElevation = vi.fn();
+        sm.subscribe('mouse.elevationEnabled', onEnabled);
+        sm.subscribe('mouse.elevation', onElevation);
+
+        sm.set('mouse.elevation', 10);              // first write after quiet -> immediate
+        expect(sm.get('mouse.elevation')).toBe(10);
+        onElevation.mockClear();
+
+        // Both inside the SAME throttle window.
+        sm.set('mouse.elevationEnabled', true);
+        sm.set('mouse.elevation', null);
+
+        vi.advanceTimersByTime(20);
+
+        expect(sm.get('mouse.elevationEnabled')).toBe(true);
+        expect(sm.get('mouse.elevation')).toBeNull();
+        expect(onEnabled).toHaveBeenCalledTimes(1);
+        expect(onElevation).toHaveBeenCalledTimes(1);
+    });
+
+    it('EDGE: within one window each path keeps its LAST value, and a falsy value is not dropped', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(5000);
+
+        sm.set('mouse.isOverMap', true);                    // immediate, stamps the window
+        sm.set('mouse.format', 'utm');                      // deferred
+        sm.set('mouse.coordinates', { lng: 1, lat: 2 });    // deferred
+        sm.set('mouse.coordinates', { lng: 3, lat: 4 });    // same path -> last wins
+        sm.set('mouse.elevation', 0);                       // deferred, falsy
+
+        vi.advanceTimersByTime(20);
+
+        expect(sm.get('mouse.isOverMap')).toBe(true);
+        expect(sm.get('mouse.format')).toBe('utm');
+        expect(sm.get('mouse.coordinates')).toEqual({ lng: 3, lat: 4 });
+        expect(sm.get('mouse.elevation')).toBe(0);
+    });
 });
 
 // ============================================================================

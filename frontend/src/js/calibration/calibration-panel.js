@@ -375,7 +375,7 @@ function applyTargetedUpdates(s, targets, dirty) {
             const displayName = target.display_name || target.id.slice(0, 8);
             const nextBadge = target.next ? '<span class="cal-panel__next-badge">next</span>' : '';
             info.innerHTML = `
-                <span class="cal-panel__target-name">${displayName}</span>
+                <span class="cal-panel__target-name">${escapeHtml(displayName)}</span>
                 ${nextBadge}
                 ${hidden ? '<span class="cal-panel__hidden-badge">oculto</span>' : ''}
             `;
@@ -534,7 +534,7 @@ function renderPanel(s) {
 
         <div class="cal-panel__section">
             <h3 class="cal-panel__title">
-                Foto: ${camera.display_name || 'Sem nome'}
+                Foto: ${escapeHtml(camera.display_name || 'Sem nome')}
                 ${s.calibrationReviewed ? '<span class="cal-panel__reviewed-badge">REVISADA</span>' : ''}
                 <button id="btn-open-json" class="cal-panel__btn cal-panel__btn--icon" title="Abrir JSON da foto">{ }</button>
                 <button id="btn-delete-photo" class="cal-panel__btn cal-panel__btn--icon cal-panel__btn--danger" title="Excluir foto">&times;</button>
@@ -736,9 +736,9 @@ function renderRunsSection(s) {
         const aplicado = faixa.applied?.mesh_rotation_y;
         return `
             <div class="cal-panel__run-item ${faixa.id === runAtual ? 'cal-panel__run-item--current' : ''} ${completa ? 'cal-panel__run-item--done' : ''}"
-                 data-run-id="${faixa.id}" title="Entrar na faixa ${faixa.label}">
+                 data-run-id="${faixa.id}" title="Entrar na faixa ${escapeHtml(faixa.label)}">
                 <span class="cal-panel__run-ord">${faixa.ordinal}</span>
-                <span class="cal-panel__run-label">${faixa.label}</span>
+                <span class="cal-panel__run-label">${escapeHtml(faixa.label)}</span>
                 <span class="cal-panel__run-progress">
                     <span class="cal-panel__run-bar"><span class="cal-panel__run-fill" style="width:${pct}%"></span></span>
                     <span class="cal-panel__run-count">${faixa.reviewed}/${faixa.total}</span>
@@ -856,7 +856,7 @@ function renderTargetItem(target, s) {
         <div class="cal-panel__target-item ${isSelected ? 'cal-panel__target-item--selected' : ''} ${hidden ? 'cal-panel__target-item--hidden' : ''}"
              data-target-id="${target.id}">
             <div class="cal-panel__target-info">
-                <span class="cal-panel__target-name">${displayName}</span>
+                <span class="cal-panel__target-name">${escapeHtml(displayName)}</span>
                 ${nextBadge}
                 ${hiddenBadge}
             </div>
@@ -957,7 +957,7 @@ function renderPhotoList(s) {
         return `
         <details class="cal-panel__faixa" data-run-id="${k}" ${k === runAtual ? 'open' : ''}>
             <summary class="cal-panel__faixa-cab">
-                <span class="cal-panel__faixa-nome">${nome}</span>
+                <span class="cal-panel__faixa-nome">${escapeHtml(nome)}</span>
                 <span class="cal-panel__faixa-num">${revisadas}/${lst.length}</span>
                 <span class="cal-panel__faixa-sol" title="Fotos com medida do Sol nesta faixa">${comSol ? `&#9788; ${comSol}` : ''}</span>
             </summary>

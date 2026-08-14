@@ -64,6 +64,8 @@ export class SearchBarComponent {
         this._debounceTimer = null;
         this._isSearching = false;
         this._abortController = null;
+        // Monotonic token: a search whose generation is stale must not render.
+        this._searchGeneration = 0;
 
         // Track if we opened the feature panel for API result
         this._apiResultPanelOpen = false;
@@ -222,70 +224,77 @@ export class SearchBarComponent {
     async _performSearch(query) {
         if (this._isSearching) return;
         this._isSearching = true;
+        const generation = ++this._searchGeneration;
         this._container.classList.add('searching');
 
-        // Try to detect coordinates first (highest priority)
-        let coordinateResults = [];
+        // The reentrancy flag and the spinner class are released in `finally`:
+        // an aborted API request (blur/result pick cancels the fetch) used to
+        // `return` before the reset, leaving every later search short-circuited
+        // by the guard above and the spinner spinning forever.
         try {
-            coordinateResults = await searchCoordinates(query);
-        } catch (error) {
-            console.warn('[SearchBar] Coordinate search failed:', error);
-        }
-
-        // Search 3D models (synchronous) and Streetview projects (async, from cache)
-        const model3dResults = search3DModels(query);
-        const streetviewResults = await searchStreetViewMarkers(query);
-
-        // Search local features from store (async but fast)
-        let featureResults = [];
-        try {
-            featureResults = await searchLocalFeatures(query);
-        } catch (error) {
-            console.warn('[SearchBar] Local features search failed:', error);
-        }
-
-        // Combine local results
-        const localResults = [...coordinateResults, ...featureResults, ...model3dResults, ...streetviewResults];
-
-        // Show local results if found, otherwise show loading
-        if (localResults.length > 0) {
-            this._displayResults(localResults, true);
-        } else {
-            this._showLoading();
-        }
-
-        // Search API (places) - async
-        let apiResults = [];
-        if (coordinateResults.length === 0 && config.features?.apisearch !== false) {
+            // Try to detect coordinates first (highest priority)
+            let coordinateResults = [];
             try {
-                // Cancel any pending request
-                this._cancelPendingRequest();
-                this._abortController = new AbortController();
-
-                apiResults = await searchAPI(query, this._map, this._abortController.signal);
+                coordinateResults = await searchCoordinates(query);
             } catch (error) {
-                if (error.name === 'AbortError') {
-                    return;
-                }
-                console.warn('[SearchBar] API search failed:', error);
+                console.warn('[SearchBar] Coordinate search failed:', error);
             }
-        }
 
-        // Check if search was cancelled while waiting
-        if (!this._isSearching) {
-            return;
-        }
+            // Search 3D models (synchronous) and Streetview projects (async, from cache)
+            const model3dResults = search3DModels(query);
+            const streetviewResults = await searchStreetViewMarkers(query);
 
-        this._isSearching = false;
-        this._container.classList.remove('searching');
+            // Search local features from store (async but fast)
+            let featureResults = [];
+            try {
+                featureResults = await searchLocalFeatures(query);
+            } catch (error) {
+                console.warn('[SearchBar] Local features search failed:', error);
+            }
 
-        // Combine all results
-        const allResults = [...localResults, ...apiResults];
+            // Combine local results
+            const localResults = [...coordinateResults, ...featureResults, ...model3dResults, ...streetviewResults];
 
-        if (allResults.length > 0) {
-            this._displayResults(allResults, false);
-        } else {
-            this._showNoResults();
+            // Show local results if found, otherwise show loading
+            if (localResults.length > 0) {
+                this._displayResults(localResults, true);
+            } else {
+                this._showLoading();
+            }
+
+            // Search API (places) - async
+            let apiResults = [];
+            if (coordinateResults.length === 0 && config.features?.apisearch !== false) {
+                try {
+                    // Cancel any pending request
+                    this._cancelPendingRequest();
+                    this._abortController = new AbortController();
+
+                    apiResults = await searchAPI(query, this._map, this._abortController.signal);
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
+                    console.warn('[SearchBar] API search failed:', error);
+                }
+            }
+
+            // Discard a result that a newer search (or a clear) superseded
+            if (generation !== this._searchGeneration) {
+                return;
+            }
+
+            // Combine all results
+            const allResults = [...localResults, ...apiResults];
+
+            if (allResults.length > 0) {
+                this._displayResults(allResults, false);
+            } else {
+                this._showNoResults();
+            }
+        } finally {
+            this._isSearching = false;
+            this._container.classList.remove('searching');
         }
     }
 
@@ -747,6 +756,8 @@ export class SearchBarComponent {
         this._hideResults();
         this._removeMarker();
         clearTimeout(this._debounceTimer);
+        // Invalidate an in-flight search so its results never land after the clear.
+        this._searchGeneration++;
         this._isSearching = false;
         this._container.classList.remove('searching');
         this._currentApiResult = null;

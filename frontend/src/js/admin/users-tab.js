@@ -299,6 +299,17 @@ class UsersTab {
         let emailVerified = null;
         if (isEdit) {
             active = checkboxField(form, 'Ativo', 'admin-userform-active', user.is_active !== false);
+            // Deactivation is NOT a plain edit: it must transfer owned atlases and end the user's
+            // sessions, so the backend rejects an active→inactive PUT with a conflict. Unchecking
+            // here could only ever fail — the control stays read-only while the user is active and
+            // is offered only for the reactivation transition.
+            if (user.is_active !== false) {
+                active.disabled = true;
+                const activeHint = document.createElement('p');
+                activeHint.className = 'admin-form__hint';
+                activeHint.textContent = 'Para desativar, use o botão "Desativar" na lista — ele transfere os atlas do usuário e encerra as sessões dele.';
+                form.appendChild(activeHint);
+            }
             // Admin approval of a pending e-mail account (the no-SMTP fallback path).
             if (user.email) {
                 emailVerified = checkboxField(form, 'E-mail verificado (aprovar acesso)',
@@ -354,7 +365,9 @@ class UsersTab {
             saveBtn.disabled = true;
             try {
                 if (isEdit) {
-                    payload.is_active = active.checked;
+                    // Only the inactive→active transition travels: the backend refuses the reverse
+                    // one, and resending `false` for an already-inactive user is a no-op edit.
+                    if (user.is_active === false && active.checked) payload.is_active = true;
                     if (emailVerified) payload.email_verified = emailVerified.checked;
                     await apiClient.updateUser(user.id, payload);
                     showSuccess('Usuário atualizado.');

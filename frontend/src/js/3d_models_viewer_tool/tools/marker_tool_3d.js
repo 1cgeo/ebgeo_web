@@ -736,13 +736,22 @@ export async function updateMarkerProperties(markerId, updates) {
  * @param {string} markerId - Marker ID
  */
 export async function deleteMarker(markerId) {
+    // Read the selection BEFORE the await: the persistence round-trip can be
+    // interleaved with a click that moves the selection elsewhere.
+    const wasSelected = selectedMarkerId === markerId;
+
     const result = await removeMarker(markerId);
 
     if (result) {
         removeMarkerEntity(markerId);
         loadedMarkers.delete(markerId);
-        if (selectedMarkerId === markerId) {
+        if (wasSelected) {
             selectedMarkerId = null;
+            // Emit deselected event to close the panel (same contract as
+            // deleteMeasurement). Without it the Delete-key path leaves the
+            // feature panel open on a marker that no longer exists, and peers
+            // keep the presence selection highlight over the removed entity.
+            emitMarkerDeselected();
         }
     }
 

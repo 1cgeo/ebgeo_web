@@ -52,7 +52,8 @@ vi.mock('../../src/js/store/atlas/atlas.entity.js', () => ({
 vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
     mapResolver: {
         resolveToId: vi.fn((nameOrId) => nameOrId),
-        resolveToName: vi.fn((id) => id)
+        resolveToName: vi.fn((id) => id),
+        registerMap: vi.fn()
     }
 }));
 
@@ -280,6 +281,51 @@ describe('Repository contract tests', () => {
             // Verify layers fall back to default
             const layers = await repo.getLayers('map-del');
             expect(layers[0].id).toBe('default');
+        });
+
+        it('deleteMap also clears notes, grid style, comments and color usage', async () => {
+            await repo.saveMap('map-side', { name: 'Com laterais' });
+            await repo.saveMapNotes('map-side', { title: 'T', description: 'D' });
+            await repo.saveGridStyle('map-side', { lineColor: '#fff' });
+            await repo.saveMapComments('map-side', { c1: { id: 'c1', text: 'oi' } });
+            await repo.saveSetting('color_usage_map-side', { '#ff0000': 3 });
+
+            await repo.deleteMap('map-side');
+
+            expect(await repo.getMapNotes('map-side')).toEqual({ title: '', description: '' });
+            expect(await repo.getGridStyle('map-side')).toBeNull();
+            expect(await repo.getMapComments('map-side')).toEqual({});
+            expect(await repo.getSetting('color_usage_map-side')).toBeNull();
+        });
+
+        it('deleteMap clears the NAME-keyed lock and temporal config (no resurrection)', async () => {
+            // These two are read back by NAME on setCurrentMap, so leaving them behind makes
+            // a NEW map of the same name be born locked and with the dead map's timeline.
+            await repo.saveMap('map-tmp', { name: 'map-tmp' });
+            await repo.saveSetting('mapLocked_map-tmp', true);
+            await repo.saveSetting('temporal_map-tmp', { ativo: true, modo: 'absoluto' });
+
+            await repo.deleteMap('map-tmp');
+
+            expect(await repo.getSetting('mapLocked_map-tmp')).toBeNull();
+            expect(await repo.getSetting('temporal_map-tmp')).toBeNull();
+        });
+
+        it('deleteMap by UUID resolves the display name for the name-keyed side stores', async () => {
+            // Remote path: the caller only has the UUID, so the name must come from the record.
+            const uuid = '11111111-2222-4333-8444-555555555555';
+            await repo.saveMap(uuid, { name: 'Mapa Remoto' });
+            await repo.saveSetting('mapLocked_Mapa Remoto', true);
+            await repo.saveSetting('temporal_Mapa Remoto', { ativo: true });
+
+            await repo.deleteMap(uuid);
+
+            expect(await repo.getSetting('mapLocked_Mapa Remoto')).toBeNull();
+            expect(await repo.getSetting('temporal_Mapa Remoto')).toBeNull();
+        });
+
+        it('deleteMap of a missing map is a no-op that does not throw (edge)', async () => {
+            await expect(repo.deleteMap('never-existed')).resolves.toBeUndefined();
         });
     });
 

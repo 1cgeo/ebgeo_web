@@ -17,9 +17,10 @@ vi.mock('@store', () => ({
     getCurrentBaseLayer: vi.fn(async () => 'carta-ortoimagem'),
     getColorUsage: vi.fn(async () => ({ '#ff0000': 2 })),
     getMapNotes: vi.fn(async () => ({ title: 'Titulo', description: 'Desc' })),
-    // getMapGroups returns a PLAIN OBJECT keyed by group id (NOT a Map) — the exact shape the bug
-    // mishandled. importGroupsDirectly expects this same shape.
-    getMapGroups: vi.fn(async () => ({ g1: { id: 'g1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] } })),
+    // getMapGroups is SYNCHRONOUS (store/group.operations.js:89) and returns a PLAIN OBJECT
+    // keyed by group id (NOT a Map) — the exact shape the bug mishandled, on both the export
+    // and the additive-import side. importGroupsDirectly expects this same shape.
+    getMapGroups: vi.fn(() => ({ g1: { id: 'g1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] } })),
     getLayers: vi.fn(async () => [{ id: 'default', name: 'Padrão', order: 0, visible: true, locked: false, opacity: 1 }]),
     getCesium3dDataForExport: vi.fn(async () => ({ cameraPositions: {}, markers: [{ id: 'm1', tilesetId: 't1' }], measurements: [], viewsheds: [] })),
     getStreetview360DataForExport: vi.fn(async () => ({ orientations: {}, markers: [{ id: 's1', photoName: 'p' }] })),
@@ -31,6 +32,7 @@ vi.mock('@store', () => ({
 }));
 
 import { ExportImportService } from '../../src/js/import_export/export-import.service.js';
+import { getMapGroups } from '@store';
 
 function makeService() {
     return new ExportImportService(/* baseLayerControl */ {}, /* toolManager */ { deactivateCurrentTool: vi.fn() }, /* mapManager */ {}, null);
@@ -86,6 +88,67 @@ describe('ExportImportService.optimizeMapData / optimizeFeature (pure)', () => {
         const out = svc.optimizeMapData({ baseLayer: 'osm', features: { texts: [{ properties: { id: 't1' } }] } });
         expect(out.baseLayer).toBe('osm');
         expect(out.features.texts[0].properties.id).toBe('t1');
+    });
+});
+
+describe('ExportImportService.processGroupsForAdditiveImport — additive import of groups', () => {
+    it('REGRESSION: processes groups when getMapGroups returns a plain object (not a Map)', async () => {
+        // getMapGroups is sync and returns memoryStore.groups[map], a PLAIN OBJECT. Calling
+        // `.values()` on it threw a TypeError caught by importGroupsAdditively, which aborted
+        // the group import of EVERY map in the archive — no group ever survived an additive import.
+        getMapGroups.mockReturnValueOnce({});
+
+        const out = await makeService().processGroupsForAdditiveImport({
+            g1: { id: 'g1', name: 'Grupo 1', features: [{ type: 'point', id: 'p1' }] },
+            g2: { id: 'g2', name: 'Grupo 2', features: [{ type: 'point', id: 'p2' }] },
+        }, 'Mapa A');
+
+        const groups = Object.values(out);
+        expect(groups).toHaveLength(2);
+        expect(groups.map((g) => g.name).sort()).toEqual(['Grupo 1', 'Grupo 2']);
+        // Groups are re-keyed by a NEW id, and the key matches the group's own id.
+        expect(Object.keys(out)).not.toContain('g1');
+        expect(Object.keys(out)).not.toContain('g2');
+        for (const key of Object.keys(out)) expect(out[key].id).toBe(key);
+    });
+
+    it('EDGE: an empty target map and a target map with no group cache at all both work', async () => {
+        // _ensureMapGroupsExist normally creates `{}`, but a defensive undefined must not throw.
+        getMapGroups.mockReturnValueOnce(undefined);
+        const out = await makeService().processGroupsForAdditiveImport(
+            { g1: { id: 'g1', name: 'Grupo 1', features: [] } }, 'Mapa Novo',
+        );
+        expect(Object.values(out)).toHaveLength(1);
+        expect(Object.values(out)[0].name).toBe('Grupo 1');
+    });
+
+    it('EDGE: disambiguates against a name already present in the target map', async () => {
+        getMapGroups.mockReturnValueOnce({ gx: { id: 'gx', name: 'Grupo 1' } });
+        const out = await makeService().processGroupsForAdditiveImport(
+            { g1: { id: 'g1', name: 'Grupo 1', features: [] } }, 'Mapa A',
+        );
+        expect(Object.values(out)[0].name).toBe('Grupo 1_1');
+    });
+
+    it('remaps group members through the feature-id mapping of regenerateMapIds', async () => {
+        // Feature ids are regenerated before the map is added, so a group that kept the OLD
+        // ids points at features that no longer exist (imported group looks empty).
+        getMapGroups.mockReturnValueOnce({});
+        const idMapping = new Map([['p1', 'novo-p1'], ['p2', 'novo-p2']]);
+
+        const out = await makeService().processGroupsForAdditiveImport({
+            g1: {
+                id: 'g1', name: 'Grupo 1',
+                features: [{ type: 'point', id: 'p1' }, { type: 'point', id: 'p2' }, { type: 'line', id: 'sem-mapeamento' }],
+            },
+        }, 'Mapa A', idMapping);
+
+        expect(Object.values(out)[0].features).toEqual([
+            { type: 'point', id: 'novo-p1' },
+            { type: 'point', id: 'novo-p2' },
+            // EDGE: an id absent from the mapping is kept as-is, never turned into undefined.
+            { type: 'line', id: 'sem-mapeamento' },
+        ]);
     });
 });
 

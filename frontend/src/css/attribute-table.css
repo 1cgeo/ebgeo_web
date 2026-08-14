@@ -19,6 +19,15 @@
     transition: transform var(--transition-panel, 300ms ease), height var(--transition-normal, 200ms ease);
 }
 
+/* While the resize handle is being dragged, the height must NOT animate: the
+   panel would trail 200ms behind the pointer and the `offsetHeight` read on
+   mouseup would persist a mid-animation height instead of the one the drag
+   asked for. The handle already carries `.active` for exactly the drag window,
+   so no extra state is needed. The minimize/expand animation is unaffected. */
+.attribute-table-panel:has(.attribute-table-resize-handle.active) {
+    transition: transform var(--transition-panel, 300ms ease);
+}
+
 .attribute-table-panel[data-state="minimized"] {
     height: 44px !important;
     transform: translateY(0);

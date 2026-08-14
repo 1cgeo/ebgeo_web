@@ -7,6 +7,8 @@
  */
 
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
+// Direct module import (not the @utils barrel, which drags the store in).
+import { formatCoordinates as formatCoordinateString } from '@utils/coordinate_converter.js';
 import { getFeatureIcon14, CHEVRON_SVG, CLOSE_SVG } from './phone-icons.constants.js';
 
 // ============================================================================
@@ -31,6 +33,17 @@ const CoordFormat = Object.freeze({
 const COORD_FORMAT_CYCLE = [CoordFormat.DD, CoordFormat.DMS, CoordFormat.UTM];
 
 /**
+ * Maps a sheet coordinate format to the format id used by the shared
+ * coordinate converter (`@utils/coordinate_converter.js`).
+ * @constant {Object<string, string>}
+ */
+const COORD_FORMAT_TO_CONVERTER_ID = Object.freeze({
+    [CoordFormat.DD]: 'latlong',
+    [CoordFormat.DMS]: 'latlong_dms',
+    [CoordFormat.UTM]: 'utm_wgs84',
+});
+
+/**
  * Minimum swipe velocity (px/ms) to trigger directional snap
  * instead of nearest-point snap.
  */
@@ -47,57 +60,27 @@ const PEEK_HEIGHT_PX = 64;
 // ============================================================================
 
 /**
- * Convert decimal degrees to DMS string.
- * @param {number} dd - Decimal degrees value
- * @param {'lat'|'lng'} axis - Which axis for N/S/E/W suffix
- * @returns {string} Formatted DMS string
+ * Translates a sheet coordinate format into the shared converter format id.
+ * Exported for unit testing (pure function, no DOM).
+ * @param {string} format - One of CoordFormat values
+ * @returns {string} Converter format id ('latlong' | 'latlong_dms' | 'utm_wgs84')
  */
-function ddToDms(dd, axis) {
-    const abs = Math.abs(dd);
-    const deg = Math.floor(abs);
-    const minFloat = (abs - deg) * 60;
-    const min = Math.floor(minFloat);
-    const sec = ((minFloat - min) * 60).toFixed(1);
-
-    let dir;
-    if (axis === 'lat') {
-        dir = dd >= 0 ? 'N' : 'S';
-    } else {
-        dir = dd >= 0 ? 'E' : 'W';
-    }
-    return `${deg}\u00b0${String(min).padStart(2, '0')}'${String(sec).padStart(4, '0')}"${dir}`;
-}
-
-/**
- * Convert decimal degrees to a simplified UTM-like string.
- * Uses a basic zone calculation; intended for display only.
- * @param {number} lat - Latitude in decimal degrees
- * @param {number} lng - Longitude in decimal degrees
- * @returns {string} Simplified UTM zone + easting/northing display
- */
-function ddToUtm(lat, lng) {
-    const zone = Math.floor((lng + 180) / 6) + 1;
-    const band = lat >= 0 ? 'N' : 'S';
-    return `${zone}${band} ${lng.toFixed(0)}E ${lat.toFixed(0)}N`;
+export function coordFormatToConverterId(format) {
+    return COORD_FORMAT_TO_CONVERTER_ID[format] || 'latlong';
 }
 
 /**
  * Format coordinates according to the given format.
+ * Delegates to the shared converter so the phone shows the same (real,
+ * projected) values as the desktop \u2014 the previous local UTM helper printed
+ * longitude/latitude as easting/northing, which is not UTM at all.
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
  * @param {string} format - One of CoordFormat values
  * @returns {string} Formatted coordinate string
  */
-function formatCoordinates(lat, lng, format) {
-    switch (format) {
-    case CoordFormat.DMS:
-        return `${ddToDms(lat, 'lat')} ${ddToDms(lng, 'lng')}`;
-    case CoordFormat.UTM:
-        return ddToUtm(lat, lng);
-    case CoordFormat.DD:
-    default:
-        return `${lat.toFixed(3)}\u00b0, ${lng.toFixed(3)}\u00b0`;
-    }
+function formatCoordinatesForSheet(lat, lng, format) {
+    return formatCoordinateString(lat, lng, coordFormatToConverterId(format));
 }
 
 // ============================================================================
@@ -857,7 +840,7 @@ export class PhoneBottomSheet {
         parts.push(`${layerCount} camada${layerCount !== 1 ? 's' : ''}`);
         this._subtitleEl.textContent = parts.join(' \u00b7 ');
 
-        this._coordsEl.textContent = formatCoordinates(
+        this._coordsEl.textContent = formatCoordinatesForSheet(
             this._currentLat,
             this._currentLng,
             this._coordFormat,
@@ -879,7 +862,7 @@ export class PhoneBottomSheet {
         this._currentLat = center.lat;
         this._currentLng = center.lng;
 
-        this._coordsEl.textContent = formatCoordinates(
+        this._coordsEl.textContent = formatCoordinatesForSheet(
             this._currentLat,
             this._currentLng,
             this._coordFormat,
@@ -895,7 +878,7 @@ export class PhoneBottomSheet {
         const nextIndex = (currentIndex + 1) % COORD_FORMAT_CYCLE.length;
         this._coordFormat = COORD_FORMAT_CYCLE[nextIndex];
 
-        this._coordsEl.textContent = formatCoordinates(
+        this._coordsEl.textContent = formatCoordinatesForSheet(
             this._currentLat,
             this._currentLng,
             this._coordFormat,

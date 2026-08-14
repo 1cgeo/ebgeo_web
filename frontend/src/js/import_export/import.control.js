@@ -156,15 +156,21 @@ class AddImportControl {
                 };
             }
 
-            reader.onload = (e) => {
+            // 'loadend' is the single exit that fires for EVERY outcome (load, error and
+            // abort), always after them. The timeout above calls reader.abort(), which
+            // per the File API dispatches 'abort' + 'loadend' but NOT 'error' — cleaning
+            // up only in onload/onerror left the progress overlay pinned to the screen
+            // forever after a read timeout.
+            reader.onloadend = () => {
                 clearTimeout(timeout);
                 if (progressCallback) this._hideProgressIndicator();
+            };
+
+            reader.onload = (e) => {
                 resolve(e.target.result);
             };
 
             reader.onerror = () => {
-                clearTimeout(timeout);
-                if (progressCallback) this._hideProgressIndicator();
                 reject(new Error(`Erro ao ler arquivo como ${method}`));
             };
 

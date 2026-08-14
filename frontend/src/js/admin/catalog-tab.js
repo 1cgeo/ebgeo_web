@@ -18,6 +18,7 @@ import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
+import config from '@js/config.js';
 import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
@@ -487,7 +488,9 @@ class CatalogTab {
         table.className = 'admin-users__table';
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Nome', 'Slug', 'Fotos', 'Status', 'Ações']) {
+        // The OM column is not decoration: a slug is unique per organization, not globally, so two
+        // rows of different OMs are otherwise indistinguishable here.
+        for (const h of ['Nome', 'Slug', 'OM', 'Fotos', 'Status', 'Ações']) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -504,6 +507,7 @@ class CatalogTab {
             tr.dataset.slug = slug;
             tr.appendChild(cell(p.name || ''));
             tr.appendChild(cell(slug || ''));
+            tr.appendChild(cell(orgLabel(p.organization_id ?? p.organizationId)));
             tr.appendChild(cell(String(p.photo_count ?? p.photoCount ?? '')));
 
             const statusCell = document.createElement('td');
@@ -516,7 +520,7 @@ class CatalogTab {
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
             actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
-                () => this._toggle360(slug, enabled ? 'disabled' : 'enabled')));
+                () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
             actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
                 () => this._delete360(p)));
             tr.appendChild(actions);
@@ -526,14 +530,25 @@ class CatalogTab {
         wrap.appendChild(table);
     }
 
-    /** @private */
-    async _toggle360(slug, status) {
+    /**
+     * @private
+     * @param {Object} project - the listed row (carries `organization_id`, which disambiguates a
+     *   slug that exists in more than one organization for a global admin).
+     * @param {string} status
+     */
+    async _toggle360(project, status) {
+        const slug = project.slug ?? project.name;
         try {
-            await apiClient.setSv360ProjectStatus(slug, status);
+            await apiClient.setSv360ProjectStatus(slug, status, {
+                orgId: project.organization_id ?? project.organizationId,
+            });
             showSuccess('Status atualizado.');
             if (this._alive) this._render360List();
         } catch (err) {
-            showError(err?.message || 'Falha ao atualizar o status.');
+            // The backend message here is developer English ("Ambiguous slug ..."), so it stays in
+            // the console and the screen gets fixed pt-BR microcopy.
+            console.warn('[catalog-tab] falha ao alterar o status do projeto 360:', err);
+            showError('Não foi possível atualizar o status do projeto 360°.');
         }
     }
 
@@ -544,13 +559,29 @@ class CatalogTab {
             { destructive: true, confirmText: 'Excluir' });
         if (!ok) return;
         try {
-            await apiClient.deleteSv360Project(slug);
+            await apiClient.deleteSv360Project(slug, {
+                orgId: project.organization_id ?? project.organizationId,
+            });
             showSuccess('Projeto 360° excluído.');
             if (this._alive) this._render360List();
         } catch (err) {
-            showError(err?.message || 'Falha ao excluir o projeto.');
+            console.warn('[catalog-tab] falha ao excluir o projeto 360:', err);
+            showError('Não foi possível excluir o projeto 360°.');
         }
     }
+}
+
+/**
+ * Resolves an organization id to its display name using the backend-served list in
+ * `/api/config` (the same one the users tab uses), falling back to the raw id.
+ * @param {string} [orgId]
+ * @returns {string}
+ */
+function orgLabel(orgId) {
+    if (!orgId) return '—';
+    const list = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
+    const found = list.find((o) => o && o.id === orgId);
+    return found?.name || orgId;
 }
 
 // ===== small DOM builders (shared shape with users-tab) =====

@@ -120,11 +120,11 @@ class StateManager {
         /** @private */
         this._lastMouseUpdate = 0;
 
-        // Pending mouse update storage to avoid stale closure captures
-        /** @private @type {string|null} */
-        this._pendingMousePath = null;
-        /** @private @type {*} */
-        this._pendingMouseValue = null;
+        // Pending mouse updates to avoid stale closure captures. Keyed BY PATH: a single
+        // slot silently dropped the first of two different `mouse.*` writes made inside
+        // the same throttle window (e.g. elevationEnabled followed by elevation).
+        /** @private @type {Map<string, *>} */
+        this._pendingMouse = new Map();
 
         /** @private @type {import('../events/event_bus.js').EventBus|null} */
         this._eventBus = null;
@@ -204,7 +204,7 @@ class StateManager {
         if (deepEqual(oldValue, value)) return;
 
         // Throttle mouse coordinate updates for performance
-        if (path === 'mouse.coordinates' || path.startsWith('mouse.')) {
+        if (path.startsWith('mouse.')) {
             this._throttledMouseUpdate(path, value);
             return;
         }
@@ -221,9 +221,9 @@ class StateManager {
      * @param {*} value - New value
      */
     _throttledMouseUpdate(path, value) {
-        // Always update pending value (latest wins)
-        this._pendingMousePath = path;
-        this._pendingMouseValue = value;
+        // Latest value wins PER PATH; Map preserves insertion order, so the writes are
+        // applied in the order they were made.
+        this._pendingMouse.set(path, value);
 
         const now = Date.now();
 
@@ -241,20 +241,20 @@ class StateManager {
     }
 
     /**
-     * Apply pending mouse update to state.
-     * Separated from throttle logic to always use latest pending value.
+     * Apply every pending mouse update to state.
+     * Separated from throttle logic to always use the latest pending value of each path.
      * @private
      */
     _applyPendingMouseUpdate() {
-        if (this._pendingMousePath === null) return;
+        if (this._pendingMouse.size === 0) return;
 
-        this._state = setByPath(this._state, this._pendingMousePath, this._pendingMouseValue);
+        for (const [path, value] of this._pendingMouse) {
+            this._state = setByPath(this._state, path, value);
+            this._notifySubscribers(path);
+        }
+
         this._lastMouseUpdate = Date.now();
-        this._notifySubscribers(this._pendingMousePath);
-
-        // Clear pending
-        this._pendingMousePath = null;
-        this._pendingMouseValue = null;
+        this._pendingMouse.clear();
     }
 
     /**

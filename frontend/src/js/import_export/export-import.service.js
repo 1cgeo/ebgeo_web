@@ -651,8 +651,10 @@ export class ExportImportService {
                         }
                     }
 
-                    // Regenerate feature IDs with layer ID mapping
-                    const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping);
+                    // Regenerate feature IDs with layer ID mapping.
+                    // `idMapping` (oldFeatureId -> newFeatureId) must be kept: the groups of this
+                    // map still reference the OLD feature ids and would import empty without it.
+                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping);
 
                     // Normalizar estrutura para versão atual
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData);
@@ -668,7 +670,8 @@ export class ExportImportService {
                     importedMapsCount++;
 
                     // Store mapping with layer ID mapping for importLayersAdditively
-                    mapNameMapping.set(originalMapName, { finalMapName, layerIdMapping });
+                    // and feature ID mapping for importGroupsAdditively
+                    mapNameMapping.set(originalMapName, { finalMapName, layerIdMapping, idMapping });
                 }
 
                 // Import groups with updated map names
@@ -817,7 +820,9 @@ export class ExportImportService {
                     continue;
                 }
 
-                const processedGroups = await this.processGroupsForAdditiveImport(mapGroups, finalMapName);
+                const processedGroups = await this.processGroupsForAdditiveImport(
+                    mapGroups, finalMapName, mappingEntry?.idMapping || null,
+                );
                 await getGroupManager().importMapGroups(finalMapName, processedGroups);
             }
         } catch (error) {
@@ -829,14 +834,18 @@ export class ExportImportService {
      * Processes groups for additive import (new IDs and unique names)
      * @param {Object} mapGroups - Groups to process
      * @param {string} mapName - Target map name
+     * @param {Map<string, string>} [idMapping=null] - oldFeatureId -> newFeatureId from regenerateMapIds
      * @returns {Object} Processed groups
      */
-    async processGroupsForAdditiveImport(mapGroups, mapName) {
+    async processGroupsForAdditiveImport(mapGroups, mapName, idMapping = null) {
         const processedGroups = {};
+        // getMapGroups is SYNCHRONOUS and returns a PLAIN OBJECT keyed by group id
+        // (memoryStore.groups[map]) — never a Map. Calling `.values()` on it threw a
+        // TypeError that aborted the group import for EVERY map of the archive.
         const existingGroups = getMapGroups(mapName);
         const existingNames = new Set();
 
-        for (const group of existingGroups.values()) {
+        for (const group of Object.values(existingGroups || {})) {
             existingNames.add(group.name);
         }
 
@@ -851,11 +860,23 @@ export class ExportImportService {
             }
             existingNames.add(finalName);
 
-            processedGroups[newGroupId] = {
+            const processed = {
                 ...group,
                 id: newGroupId,
                 name: finalName
             };
+
+            // Feature ids were regenerated before the map was added, so group members
+            // must follow the mapping or the imported group points at ids that no
+            // longer exist (group looks empty).
+            if (Array.isArray(group.features)) {
+                processed.features = group.features.map(featureRef => ({
+                    type: featureRef.type,
+                    id: idMapping?.get(featureRef.id) || featureRef.id
+                }));
+            }
+
+            processedGroups[newGroupId] = processed;
         });
 
         return processedGroups;

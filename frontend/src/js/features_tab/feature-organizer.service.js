@@ -11,6 +11,7 @@ import {
     getAllStorageTypes,
     getLayers,
     getActiveLayerIdSync,
+    getSourceTypeFromStorage,
 } from '@store';
 import { FEATURE_SOURCES, getFeatureDisplayName } from './features_tab.constants.js';
 
@@ -133,20 +134,20 @@ export async function organizeFeaturesByLayers(features) {
         };
     });
 
-    // Pre-calculate group totals
+    // Pre-calculate group totals. `getMapGroups` returns a PLAIN OBJECT, so the old
+    // `groups instanceof Map` branch never ran and every total fell back to 0.
     const groupTotals = new Map();
-    if (groups instanceof Map) {
-        groups.forEach((group, groupId) => {
-            groupTotals.set(groupId, group.features ? group.features.length : 0);
-        });
+    for (const [groupId, group] of Object.entries(groups || {})) {
+        groupTotals.set(groupId, group?.features?.length || 0);
     }
 
     // Distribute features to layers and groups
     flatFeatures.forEach((feature) => {
         const layerId = feature.rawFeature?.properties?.layerId || 'default';
-        const sourceType = feature.storageType.endsWith('s')
-            ? feature.storageType.slice(0, -1)
-            : feature.storageType;
+        // Canonical reverse lookup, NOT a plural-stripping heuristic: 'setores',
+        // 'brushes' and 'los' would become 'setore', 'brushe' and 'lo', which never
+        // match the `type` groups store (`properties.source`, already singular).
+        const sourceType = getSourceTypeFromStorage(feature.storageType);
         const group = getFeatureGroup(sourceType, feature.id, currentMapName);
 
         // Handle missing layer (use first layer as fallback)

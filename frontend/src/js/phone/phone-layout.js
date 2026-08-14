@@ -31,12 +31,13 @@ import {
     getLayers,
     getCurrentMapFeatures,
     getAllStorageTypes,
+    getStorageTypeFromSource,
     getAllMapNamesStore,
     setCurrentMap,
     setLayerVisibility,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
-import { showToast } from '@utils';
+import { showToast, deepClone } from '@utils';
 import config from '@js/config.js';
 
 // ============================================================================
@@ -77,6 +78,28 @@ const CONTROL_KEY_TO_REGISTRY = {
     vectorTileInfoControl: 'VectorTileInfoControl',
     rectangleSelectionControl: 'RectangleSelectionControl',
 };
+
+/**
+ * Normalizes a feature type coming from any emitter into the plural STORAGE type
+ * used to index `mapData.features`, or null when it is not a feature at all.
+ * Accepts the singular source type ('point', emitted by the map) and the plural
+ * storage type ('points', emitted by the tree and the search). Anything that does
+ * not resolve to a real bucket is rejected — that covers the pseudo-types the
+ * sidebar emits ('searchResult', 'tool_panel', 'vectorInfo'), whose plural fallback
+ * is a phantom bucket.
+ * Exported for unit testing (pure function, no DOM).
+ * @param {string} featureType - Type as emitted
+ * @returns {string|null} Storage type, or null when unusable
+ */
+export function resolveStorageType(featureType) {
+    if (typeof featureType !== 'string' || !featureType) return null;
+
+    const storageTypes = getAllStorageTypes();
+    if (storageTypes.includes(featureType)) return featureType;
+
+    const mapped = getStorageTypeFromSource(featureType);
+    return storageTypes.includes(mapped) ? mapped : null;
+}
 
 // ============================================================================
 // COMPONENT
@@ -265,15 +288,20 @@ export class PhoneLayout {
                 // Skip if already handled by tree click
                 if (this._treeInitiatedSelection) return;
                 if (!featureId || !featureType) return;
-                const feature = await getFeatureById(featureType, featureId);
+                // The map emits the SINGULAR source type ('point'), the tree and the
+                // search emit the PLURAL storage type ('points'), and the sidebar also
+                // emits pseudo-types ('searchResult', 'tool_panel') that are not features.
+                const storageType = resolveStorageType(featureType);
+                if (!storageType) return;
+                const feature = await getFeatureById(storageType, featureId);
                 if (feature) {
-                    const featureData = this._buildFeatureData(feature, featureType);
+                    const featureData = this._buildFeatureData(feature, storageType);
                     this._featureEditor.showFeature(featureData);
                     this._bottomSheet.setFeatureContent(this._featureEditor.getElement());
                     this._bottomSheet.snapTo('half');
                 }
-            } catch {
-                // Feature may not be accessible in current map state
+            } catch (err) {
+                console.error('PhoneLayout: erro ao abrir feição', err);
             }
         };
 
@@ -298,8 +326,36 @@ export class PhoneLayout {
                 const featureData = this._featureEditor.getFeatureData();
                 if (!featureData) return;
 
-                await updateFeature(featureData.type, featureId, { properties });
-                showToast('Feição atualizada', 'success');
+                // updateFeature takes the whole FEATURE, not an id: passing the id
+                // made cleanFeature return null and the write was silently dropped.
+                const storageType = resolveStorageType(featureData.type);
+                if (!storageType) return;
+
+                const stored = await getFeatureById(storageType, featureId);
+                if (!stored) {
+                    showToast('Feição não encontrada', 'error');
+                    return;
+                }
+
+                const updated = deepClone(stored);
+                updated.properties = { ...updated.properties, ...properties };
+                await updateFeature(storageType, updated);
+
+                // updateFeature returns nothing on every path (including when a
+                // permission/lock guard blocks it), so confirm by re-reading.
+                // Only scalar fields are compared: the editor hands back untouched
+                // object values (images, attributes) by reference, and the re-read
+                // returns a fresh clone, so `===` on those would always be false.
+                const after = await getFeatureById(storageType, featureId);
+                const saved = !!after && Object.entries(properties)
+                    .filter(([, value]) => value === null || typeof value !== 'object')
+                    .every(([key, value]) => after.properties[key] === value);
+
+                if (saved) {
+                    showToast('Feição atualizada', 'success');
+                } else {
+                    showToast('Não foi possível salvar (sem permissão ou mapa bloqueado)', 'error');
+                }
             } catch (err) {
                 console.error('PhoneLayout: error saving feature:', err);
                 showToast('Erro ao atualizar feição', 'error');
@@ -379,7 +435,11 @@ export class PhoneLayout {
         // Map creation
         this._drawer.onMapCreate(async () => {
             try {
-                await addMap('Novo Mapa');
+                // addMap returns null when the permission guard blocks it (it does not
+                // throw). The global STORE_OPERATION_BLOCKED listener already warns the
+                // user, so just bail out instead of claiming success.
+                const created = await addMap('Novo Mapa');
+                if (!created) return;
                 showToast('Mapa criado', 'success');
                 await this._refreshMapList();
             } catch (_e) {
@@ -411,6 +471,12 @@ export class PhoneLayout {
                 const newName = await this._showPrompt('Novo nome do mapa:', currentName);
                 if (newName && newName !== currentName) {
                     await renameMap(currentName, newName);
+                    // renameMap resolves to undefined on success AND on both refusals
+                    // (no permission, locked map), so confirm by re-reading the list.
+                    // No error toast of our own: the global STORE_OPERATION_BLOCKED
+                    // listener already warns when permission is missing.
+                    const names = await getAllMapNamesStore();
+                    if (!names.includes(newName)) return;
                     showToast('Mapa renomeado', 'success');
                     await this._refreshMapList();
                     this._bottomSheet.updateMapInfo(this._getMapInfo());
@@ -430,7 +496,10 @@ export class PhoneLayout {
                     true,
                 );
                 if (confirmed) {
-                    await removeMap(currentName);
+                    // removeMap reports refusal by `{ success: false, reason }` instead
+                    // of throwing (no permission, last map, map not found).
+                    const result = await removeMap(currentName);
+                    if (!result?.success) return;
                     showToast('Mapa excluído', 'success');
                     await this._refreshMapList();
                     this._bottomSheet.updateMapInfo(this._getMapInfo());
