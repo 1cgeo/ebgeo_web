@@ -56,8 +56,17 @@ function probeRenderSource(featureId, featureType, mapId) {
         }
         const sourceId = featureType ? getStorageTypeFromSource(featureType) : null;
         const src = sourceId ? map.getSource(sourceId) : null;
-        const data = src && src._data;
-        const feats = data && Array.isArray(data.features) ? data.features : null;
+        // MapLibre 5 wraps what `setData` received: `_data` is `{ geojson }` (or
+        // `{ url }`), NOT the collection itself. Reading `_data.features` gave
+        // `undefined` on every call, so this probe reported `inSource: false`
+        // ALWAYS — and a waiter on `inSource === false` (the delete case) was
+        // satisfied vacuously, whatever the map was actually showing. Both shapes
+        // are accepted so the probe survives the wrapper changing again.
+        // The async `getData()` is the public accessor, but this probe is a
+        // synchronous best-effort tap and must not await inside the event path.
+        const raw = src && src._data;
+        const geo = (raw && Array.isArray(raw.features)) ? raw : (raw && raw.geojson);
+        const feats = (geo && Array.isArray(geo.features)) ? geo.features : null;
         record(TraceStage.RENDER_SOURCE, {
             entityId: featureId, mapId, sourceId,
             sourceCount: feats ? feats.length : null,
