@@ -174,12 +174,16 @@ describe('Lamport clock ordering (CRDT readiness)', () => {
     // ========================================================================
 
     describe('client ID persistence', () => {
-        it('clientId is stored in localStorage', () => {
+        // O id passou a ter duas metades, `<instalacao>_<aba>`: o localStorage guarda a
+        // INSTALACAO (estavel por navegador) e o sessionStorage o sufixo da aba. Detalhe e
+        // casos de borda em tests/unit/client-id-por-aba.test.js.
+        it('the installation half is stored in localStorage and prefixes the clientId', () => {
             const clientId = getClientId();
             expect(clientId).toBeTruthy();
 
             const stored = localStorageMock.getItem('ebgeo_client_id');
-            expect(stored).toBe(clientId);
+            expect(stored).toBeTruthy();
+            expect(clientId.startsWith(`${stored}_`)).toBe(true);
         });
 
         it('resetClientId clears and regenerates', () => {
@@ -196,17 +200,14 @@ describe('Lamport clock ordering (CRDT readiness)', () => {
             expect(id1).toBe(id2);
         });
 
-        it('pre-existing clientId in localStorage is reused', () => {
+        it('pre-existing installation id in localStorage is reused, never rotated', () => {
+            // Reset module-level cache, then plant the value (resetClientId clears storage too).
             resetClientId();
-            localStorageMock.setItem('ebgeo_client_id', 'my-persistent-id');
-
-            // Reset module-level cache
-            resetClientId();
-            // But re-set the localStorage value since resetClientId clears it
             localStorageMock.setItem('ebgeo_client_id', 'my-persistent-id');
 
             const id = getClientId();
-            expect(id).toBe('my-persistent-id');
+            expect(id.startsWith('my-persistent-id_')).toBe(true);
+            expect(localStorageMock.getItem('ebgeo_client_id')).toBe('my-persistent-id');
         });
     });
 

@@ -143,6 +143,30 @@ describe('WsClient — inbound routing', () => {
         expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'theirs' }));
     });
 
+    // O id de cliente virou `<instalacao>_<aba>`, e o filtro de auto-eco passou a comparar a
+    // INSTALACAO. Sem isso, uma op enfileirada antes do F5 (carimbada com o sufixo da aba
+    // anterior) volta pelo broadcast e a aba reaplica o proprio trabalho como se fosse remoto.
+    it('descarta o eco proprio mesmo quando a op traz OUTRO sufixo de aba', async () => {
+        const ctxAba = setup({ clientId: 'inst-1_abadeagora' });
+        const conectando = ctxAba.ws.connect('atlas-1');
+        const sockAba = FakeSocket.instances[0];
+        sockAba.emit({ type: 'connected', sessionId: 'inst-1_abadeagora', permission: 'owner', role: 'owner' });
+        await conectando;
+        const onOp = vi.fn();
+        ctxAba.ws.on('operation', onOp);
+
+        sockAba.emit({ type: 'operations', ops: [
+            { id: 'desta-aba', clientId: 'inst-1_abadeagora' },
+            { id: 'da-aba-anterior', clientId: 'inst-1_abadeantes' },
+            { id: 'de-antes-do-sufixo', clientId: 'inst-1' },
+            { id: 'de-outro-navegador', clientId: 'inst-2_abaqualquer' },
+        ] });
+        await drain();
+
+        expect(onOp).toHaveBeenCalledTimes(1);
+        expect(onOp).toHaveBeenCalledWith(expect.objectContaining({ id: 'de-outro-navegador' }));
+    });
+
     // Regression: a batch of inbound ops must apply ONE AT A TIME in arrival order. The
     // handler does an async read-modify-write of the map's store entry; applying a batch
     // concurrently raced and clobbered all but the last (real cross-client data loss —

@@ -6,16 +6,72 @@
  */
 
 import { generateUUID } from '../../utilities/uuid.js';
+import { addDomListener, cleanup, setupCleanup, trackTimer } from '@utils/event-cleanup.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 
 // ===== CLIENT IDENTITY =====
 
 /**
- * Client ID for this browser session.
- * Persisted to localStorage for consistency across page reloads.
+ * The client id has TWO parts, `<installation>_<tab>`, because the two halves answer different
+ * questions and have different lifetimes:
+ *
+ * - INSTALLATION (`localStorage`, one per browser profile). What makes presence, the server's
+ *   120 s `away` grace and the self-echo de-dup survive a reload and a reconnect. Never rotated.
+ * - TAB (`sessionStorage`, one per tab, kept across F5 within that tab). What keeps two tabs from
+ *   collapsing into one presence entry and one `away` slot on the server.
+ *
+ * The composite is what the server sees, so it MUST satisfy the server's `CLIENT_ID_RE`
+ * (`backend/src/modules/collab/collab.gateway.js`). A malformed id is not refused there: the
+ * gateway quietly mints its own and the tab is left stamping ops with an id the room does not
+ * know, which kills the self-echo filter without a single error anywhere. Hence
+ * {@link isValidClientId}, applied to the composite before it is ever handed out.
+ *
+ * The inbound self-echo filter compares INSTALLATIONS, not whole ids (see
+ * {@link clientIdInstallation} and its call site in `ws-client.js`), and that is load-bearing in
+ * two places: an operation queued before a reload still carries the PREVIOUS tab suffix, and one
+ * written by an older build carries no suffix at all. Filtering by exact id would make the tab
+ * re-apply its own work in both cases.
+ *
+ * That is sound only because one browser never has two tabs in the SAME atlas: the tab lock
+ * forbids it, and an operation only reaches a tab through its atlas room.
+ */
+const INSTALLATION_STORAGE_KEY = 'ebgeo_client_id';
+const TAB_STORAGE_KEY = 'ebgeo_tab_id';
+const TAB_CLAIMS_STORAGE_KEY = 'ebgeo_tab_claims';
+const CLIENT_ID_SEPARATOR = '_';
+const TAB_SUFFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const TAB_SUFFIX_LENGTH = 12;
+
+/**
+ * How recently another document must have touched a tab claim for it to count as LIVE.
+ *
+ * Generous on purpose, and the asymmetry is deliberate. Reading a live claim as stale is the
+ * failure this whole mechanism exists to prevent (two live tabs sharing one id); reading a dead
+ * claim as live only costs a fresh suffix, i.e. one extra presence entry, and the self-echo filter
+ * does not even notice because it matches on the installation. Background tabs get their timers
+ * throttled to about one per minute, so the window has to clear that by a wide margin.
+ */
+const TAB_CLAIM_FRESH_MS = 5 * 60 * 1000;
+const TAB_CLAIM_HEARTBEAT_MS = 15 * 1000;
+
+/** MIRROR of `CLIENT_ID_RE` in `backend/src/modules/collab/collab.gateway.js`. */
+const CLIENT_ID_PATTERN = /^[a-zA-Z0-9_-]{8,64}$/;
+
+/**
+ * A tab suffix carries no separator (so the installation half stays recoverable) and is short
+ * enough that a 36-char UUID plus separator plus suffix still fits the server's 64.
+ */
+const TAB_SUFFIX_PATTERN = /^[a-zA-Z0-9-]{4,27}$/;
+
+/**
+ * Full client id for THIS tab, memoized for the module's lifetime.
+ * Resolved synchronously on first read: `ws-client.js` captures it while its module loads.
  * @type {string|null}
  */
 let clientId = null;
+
+/** Tracks the heartbeat timer and the page listeners that keep the tab claim honest. */
+const tabClaimLifecycle = {};
 
 /**
  * Returns the ambient `localStorage` when available, or `null` outside the
@@ -33,30 +89,215 @@ function safeLocalStorage() {
 }
 
 /**
- * Gets or creates the client ID for this session.
- * Persists to localStorage when available; otherwise keeps an in-memory id for
- * the lifetime of the module (e.g. Node-based test runners).
+ * Returns the ambient `sessionStorage`, or `null` where it is unavailable. Without it the tab
+ * suffix is in-memory only, so every reload looks like a NEW client: presence duplicates and the
+ * ops queued before the reload stop matching. That is the documented degraded path, not the
+ * normal one.
+ * @returns {Storage|null}
+ */
+function safeSessionStorage() {
+    try {
+        if (typeof sessionStorage !== 'undefined') return sessionStorage;
+    } catch {
+        // Same hazards as localStorage (sandboxed iframe, storage disabled).
+    }
+    return null;
+}
+
+/**
+ * Whether an id is acceptable to the server's collab gateway.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isValidClientId(id) {
+    return typeof id === 'string' && CLIENT_ID_PATTERN.test(id);
+}
+
+/** @returns {string} A fresh tab suffix, in the server's alphabet. */
+function mintTabSuffix() {
+    const bytes = crypto.getRandomValues(new Uint8Array(TAB_SUFFIX_LENGTH));
+    let out = '';
+    for (const byte of bytes) out += TAB_SUFFIX_ALPHABET[byte % TAB_SUFFIX_ALPHABET.length];
+    return out;
+}
+
+/**
+ * @private Reads the tab-claim registry: suffix → epoch ms of its last heartbeat.
+ * @param {Storage} store
+ * @returns {Object<string, number>}
+ */
+function readTabClaims(store) {
+    try {
+        const parsed = JSON.parse(store.getItem(TAB_CLAIMS_STORAGE_KEY) || 'null');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
+ * @private Writes the registry back, dropping entries no document could still own.
+ * @param {Storage} store
+ * @param {Object<string, number>} claims
+ */
+function writeTabClaims(store, claims) {
+    const now = Date.now();
+    for (const [suffix, seen] of Object.entries(claims)) {
+        if (!Number.isFinite(seen) || now - seen > TAB_CLAIM_FRESH_MS * 2) delete claims[suffix];
+    }
+    try {
+        store.setItem(TAB_CLAIMS_STORAGE_KEY, JSON.stringify(claims));
+    } catch {
+        // Quota or disabled storage: the claim is best-effort, the id is not.
+    }
+}
+
+/** @private Renews this tab's claim, so other documents keep seeing it as alive. */
+function touchTabClaim(suffix) {
+    const store = safeLocalStorage();
+    if (!store) return;
+    const claims = readTabClaims(store);
+    claims[suffix] = Date.now();
+    writeTabClaims(store, claims);
+}
+
+/**
+ * @private Drops this tab's claim, so the SAME tab reloading takes its suffix back.
+ *
+ * This is what separates a reload from a duplication, and there is no other signal that does:
+ * both documents start with a copy of the same `sessionStorage`. On a reload `pagehide` fires
+ * first and frees the claim; on a duplication the original keeps beating and the copy sees a live
+ * claim. When `pagehide` never fires (a crash, a kill) the claim is left behind and the tab comes
+ * back with a new suffix, which is the harmless direction.
+ */
+function releaseTabClaim(suffix) {
+    const store = safeLocalStorage();
+    if (!store) return;
+    const claims = readTabClaims(store);
+    delete claims[suffix];
+    writeTabClaims(store, claims);
+}
+
+/**
+ * @private Keeps the claim alive while this document is, and releases it on the way out.
+ * Registers nothing outside a real document (Node, worker), where there is no second tab anyway.
+ */
+function startTabClaimUpkeep(suffix) {
+    const view = globalThis.window;
+    if (!view || typeof view.addEventListener !== 'function') return;
+    setupCleanup(tabClaimLifecycle);
+    trackTimer(tabClaimLifecycle, setInterval(() => touchTabClaim(suffix), TAB_CLAIM_HEARTBEAT_MS), 'interval');
+    addDomListener(tabClaimLifecycle, view, 'pagehide', () => releaseTabClaim(suffix));
+    // Back from the bfcache: this document is live again and takes its claim back.
+    addDomListener(tabClaimLifecycle, view, 'pageshow', () => touchTabClaim(suffix));
+}
+
+/**
+ * @private Resolves the suffix identifying THIS tab, minting a new one when the one inherited
+ * from `sessionStorage` belongs to a tab that is still open (a duplicated tab, a `window.open`
+ * with an opener, a reopened tab, a restored session: all four copy `sessionStorage` wholesale).
+ * @returns {string}
+ */
+function resolveTabSuffix() {
+    const session = safeSessionStorage();
+    const local = safeLocalStorage();
+
+    let suffix = null;
+    try {
+        suffix = session?.getItem(TAB_STORAGE_KEY) || null;
+    } catch {
+        suffix = null;
+    }
+    if (suffix && !TAB_SUFFIX_PATTERN.test(suffix)) suffix = null;
+
+    if (suffix && local) {
+        const lastSeen = readTabClaims(local)[suffix];
+        // A claim still being renewed means another document is using this suffix right now.
+        if (Number.isFinite(lastSeen) && Date.now() - lastSeen < TAB_CLAIM_FRESH_MS) suffix = null;
+    }
+
+    if (!suffix) {
+        suffix = mintTabSuffix();
+        try {
+            session?.setItem(TAB_STORAGE_KEY, suffix);
+        } catch {
+            // In-memory for this load only (see safeSessionStorage).
+        }
+    }
+
+    touchTabClaim(suffix);
+    startTabClaimUpkeep(suffix);
+    return suffix;
+}
+
+/**
+ * @private Resolves the per-browser half of the id, minting one when it is missing or when the
+ * stored value cannot yield a composite the server would accept.
+ * @returns {string}
+ */
+function resolveInstallationId(suffixLength) {
+    const store = safeLocalStorage();
+    let installation = null;
+    try {
+        installation = store?.getItem(INSTALLATION_STORAGE_KEY) || null;
+    } catch {
+        installation = null;
+    }
+
+    const fits = (value) => typeof value === 'string'
+        && !value.includes(CLIENT_ID_SEPARATOR)
+        && isValidClientId(`${value}${CLIENT_ID_SEPARATOR}${'x'.repeat(suffixLength)}`);
+
+    if (!fits(installation)) {
+        installation = generateUUID();
+        try {
+            store?.setItem(INSTALLATION_STORAGE_KEY, installation);
+        } catch {
+            // In-memory for this load only.
+        }
+    }
+    return installation;
+}
+
+/**
+ * Gets or creates the client ID for this tab: `<installation>_<tab>`.
+ * Synchronous by contract — `ws-client.js` reads it while its module is loading.
  * @returns {string} Client ID
  */
 export function getClientId() {
     if (clientId) return clientId;
-
-    const store = safeLocalStorage();
-    clientId = store ? store.getItem('ebgeo_client_id') : null;
-    if (!clientId) {
-        clientId = generateUUID();
-        if (store) store.setItem('ebgeo_client_id', clientId);
-    }
+    const suffix = resolveTabSuffix();
+    clientId = `${resolveInstallationId(suffix.length)}${CLIENT_ID_SEPARATOR}${suffix}`;
     return clientId;
 }
 
 /**
- * Resets the client ID (for testing).
+ * The per-browser half of a client id. Ids written before the id gained a tab half have no
+ * separator and are their own installation, which is what keeps operations queued by an older
+ * build recognizable as ours.
+ * @param {string} id
+ * @returns {string|null}
+ */
+export function clientIdInstallation(id) {
+    if (typeof id !== 'string' || !id) return null;
+    const cut = id.indexOf(CLIENT_ID_SEPARATOR);
+    return cut === -1 ? id : id.slice(0, cut);
+}
+
+/**
+ * Resets the client ID (for testing): drops the memo, the persisted halves, the claim registry
+ * and the heartbeat.
  */
 export function resetClientId() {
+    cleanup(tabClaimLifecycle);
     clientId = null;
     const store = safeLocalStorage();
-    if (store) store.removeItem('ebgeo_client_id');
+    if (store) {
+        store.removeItem(INSTALLATION_STORAGE_KEY);
+        store.removeItem(TAB_CLAIMS_STORAGE_KEY);
+    }
+    const session = safeSessionStorage();
+    if (session) session.removeItem(TAB_STORAGE_KEY);
 }
 
 // ===== LAMPORT CLOCK =====

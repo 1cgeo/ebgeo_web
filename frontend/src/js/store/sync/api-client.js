@@ -152,25 +152,69 @@ const BOOT_TIMEOUT_MS = 8000;
 const TOKEN_RENEWAL_SKEW_MS = 30000;
 
 /**
- * Reads the `exp` claim of a JWT WITHOUT verifying it. Signature validation is the
- * server's job; the client only needs to know when to ask for a new token, and a forged
- * `exp` can at worst make this client refresh early (or not at all, which is exactly the
- * behaviour before this existed).
- * @param {string} token - Access token.
- * @returns {number|null} Expiry in epoch ms, or null when unreadable.
+ * Name of the Web Lock that serializes token rotation across every tab of this origin.
+ *
+ * The refresh token is single-use: two tabs presenting the same one is what the server reads
+ * as theft (`REFRESH_RACE_GRACE_MS`, `backend/src/modules/auth/auth.service.js`), and outside
+ * its 10 s grace window it revokes the whole family, logging BOTH tabs out. The in-flight
+ * sharing of `refresh()` is per instance, and there is one instance per document, so it never
+ * covered this. See `docs/wiki/refresh-token-rotacao.md`, "Contrato para o cliente", item 2.
  */
-function jwtExpiryMs(token) {
+const REFRESH_LOCK_NAME = 'ebgeo_auth_refresh';
+
+/**
+ * How long a tab waits for {@link REFRESH_LOCK_NAME} before rotating WITHOUT it.
+ *
+ * A rotation is one small request, so a healthy holder releases in well under a second; a wait
+ * this long means the holder is wedged (a hung socket holds the lock for as long as the request
+ * lives, and refresh requests are deliberately unbounded). Waiting forever would turn a wedged
+ * tab into "every other tab stops renewing", which surfaces as spontaneous logouts, i.e. exactly
+ * the failure this lock exists to prevent. Bounding the WAIT (never the hold) degrades to the
+ * lock-less path instead, which is the behaviour this client had before the lock existed.
+ */
+const REFRESH_LOCK_WAIT_MS = 5000;
+
+/**
+ * Decodes a JWT payload WITHOUT verifying it. Signature validation is the server's job; the
+ * client only reads claims to decide when to ask for a new token and whose token it is holding.
+ * @param {*} token - Access token.
+ * @returns {Object|null} The decoded payload, or null when unreadable.
+ */
+function jwtPayload(token) {
     if (typeof token !== 'string') return null;
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     try {
         const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const payload = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')));
-        return Number.isFinite(payload?.exp) ? payload.exp * 1000 : null;
+        return payload && typeof payload === 'object' ? payload : null;
     } catch {
-        // Not a readable JWT: treat as "unknown expiry" and leave the 401 path in charge.
         return null;
     }
+}
+
+/**
+ * Reads the `exp` claim of a JWT WITHOUT verifying it. A forged `exp` can at worst make this
+ * client refresh early (or not at all, which is exactly the behaviour before this existed).
+ * @param {string} token - Access token.
+ * @returns {number|null} Expiry in epoch ms, or null when unreadable.
+ */
+function jwtExpiryMs(token) {
+    const payload = jwtPayload(token);
+    // Not a readable JWT: treat as "unknown expiry" and leave the 401 path in charge.
+    return Number.isFinite(payload?.exp) ? payload.exp * 1000 : null;
+}
+
+/**
+ * Reads the `sub` claim (the user id, `issueAccessToken` in
+ * `backend/src/modules/auth/auth.service.js`) WITHOUT verifying it. Used only to REFUSE a token
+ * from another subject, never to grant anything.
+ * @param {string} token - Access token.
+ * @returns {string|null}
+ */
+function jwtSubject(token) {
+    const sub = jwtPayload(token)?.sub;
+    return typeof sub === 'string' && sub ? sub : null;
 }
 
 /**
@@ -203,6 +247,185 @@ export class ApiClient {
         this._refreshCooldownUntil = 0;
         /** The transient failure that opened the cooldown, replayed while it lasts. @type {Error|null} */
         this._lastTransientRefreshError = null;
+        /** `storage` listener that adopts a pair another tab rotated. @type {Function|null} */
+        this._storageListener = null;
+        this._installCrossTabTokenSync();
+    }
+
+    // ===== CROSS-TAB TOKEN SYNC =====
+
+    /**
+     * @private Subscribes to the `storage` event so an IDLE tab learns about a rotation done by
+     * another tab instead of waking up with a refresh token the server already revoked.
+     *
+     * The event fires in every document of the origin EXCEPT the one that wrote, which is exactly
+     * the wanted semantics, and `_persistTokens` is the only writer. Wired in the constructor so
+     * it covers the FOUR pages (the map, projetos, admin and calibração all boot on this singleton),
+     * not just the map. Absent `addEventListener` (Node test runner, worker) it degrades to
+     * in-memory only, like every other environment guard in this file.
+     */
+    _installCrossTabTokenSync() {
+        if (this._storageListener) return;
+        if (typeof globalThis.addEventListener !== 'function') return;
+        this._storageListener = (event) => this._onTokenStorageEvent(event);
+        globalThis.addEventListener('storage', this._storageListener);
+    }
+
+    /**
+     * Removes the cross-tab listener. The singleton lives as long as the document, so this exists
+     * for tests and for any client built ad hoc.
+     */
+    dispose() {
+        if (this._storageListener && typeof globalThis.removeEventListener === 'function') {
+            globalThis.removeEventListener('storage', this._storageListener);
+        }
+        this._storageListener = null;
+    }
+
+    /**
+     * @private Handles a `storage` event on the token item.
+     *
+     * A REMOVAL (`newValue` null) is deliberately NOT followed. `clearTokens()` is written both by
+     * a real logout and by the "any restore failure clears" branch of projetos/admin/calibração,
+     * so a backend blip in a second tab would otherwise log this one out on the spot. The session
+     * that was really revoked still ends here, one step later and for the right reason: the next
+     * rotation presents a token the server already killed and takes a terminal 401.
+     * @param {StorageEvent} event
+     */
+    _onTokenStorageEvent(event) {
+        // `key` is null for `localStorage.clear()`, which this also ignores.
+        if (event?.key !== TOKEN_STORAGE_KEY) return;
+        if (!event.newValue) return;
+        let parsed = null;
+        try {
+            parsed = JSON.parse(event.newValue);
+        } catch {
+            return;
+        }
+        this._adoptStoredTokens(parsed);
+    }
+
+    /**
+     * @private Reads the persisted pair without touching in-memory state.
+     * @returns {{accessToken?: string, refreshToken?: string}|null}
+     */
+    _readStoredTokens() {
+        try {
+            if (typeof localStorage === 'undefined') return null;
+            const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * @private Takes over a token pair written by ANOTHER tab, when it is strictly newer than the
+     * one in memory. Does not persist: the disk already holds what is being adopted.
+     *
+     * Four refusals, each one a way this could do damage:
+     * - no refresh token in memory. One guard covering three states that must never be overwritten:
+     *   the EPHEMERAL public-link token (access without refresh, and the disk deliberately still
+     *   holds the signed-in user's pair — `setEphemeralToken`), an anonymous tab, and a tab whose
+     *   session was already terminally lost (adopting would resurrect it);
+     * - unreadable incoming token;
+     * - a different `sub`. Another tab logging out and back in as someone else must not silently
+     *   re-identify this one, which keeps showing (and writing as) the first user;
+     * - a pair identical to the one in memory (nothing to do), or one whose access token expires
+     *   STRICTLY EARLIER (a stale read, a late event). Together these make adoption idempotent and
+     *   order-independent: it never rolls back to a previous pair.
+     *
+     * What makes "different means newer" safe is that this class is the only writer and every
+     * in-memory change goes to disk in the same call (`setTokens`), with the single deliberate
+     * exception excluded above. So memory is never AHEAD of disk, and a disk pair that differs was
+     * written after this tab's last write. Equality of `exp` alone cannot decide it: JWT `exp` has
+     * one-SECOND resolution, so two rotations inside the same second read as the same instant.
+     * @param {{accessToken?: string, refreshToken?: string}|null} stored
+     * @returns {boolean} Whether the in-memory pair was replaced.
+     */
+    _adoptStoredTokens(stored) {
+        if (!stored || !this._refreshToken) return false;
+        const incoming = stored.accessToken;
+        const theirExpiry = jwtExpiryMs(incoming);
+        if (theirExpiry === null) return false;
+
+        const mySubject = jwtSubject(this._accessToken);
+        const theirSubject = jwtSubject(incoming);
+        if (mySubject && theirSubject && mySubject !== theirSubject) return false;
+
+        const sameRefresh = !stored.refreshToken || stored.refreshToken === this._refreshToken;
+        if (incoming === this._accessToken && sameRefresh) return false;
+        const myExpiry = jwtExpiryMs(this._accessToken);
+        if (myExpiry !== null && theirExpiry < myExpiry) return false;
+
+        this._accessToken = incoming;
+        if (stored.refreshToken) this._refreshToken = stored.refreshToken;
+        // Another tab was just answered by the server: this one is a live session again.
+        this._authLostFired = false;
+        this._clearRefreshCooldown();
+        return true;
+    }
+
+    /**
+     * @private Whether the access token in memory survives long enough to be worth using, i.e. a
+     * rotation would be pointless. Same headroom the proactive renewal uses.
+     * @returns {boolean}
+     */
+    _accessTokenOutlivesSkew() {
+        const expiresAt = jwtExpiryMs(this._accessToken);
+        return expiresAt !== null && expiresAt - Date.now() > TOKEN_RENEWAL_SKEW_MS;
+    }
+
+    /**
+     * @private Runs the rotation's critical section holding a CROSS-TAB lock, so two tabs never
+     * present the same single-use refresh token.
+     *
+     * DEGRADED PATH, explicit on purpose: `navigator.locks` needs a secure context (https or
+     * localhost) and does not exist in older browsers, so on a plain-HTTP deployment it is simply
+     * `undefined`. There the critical section runs unlocked, which is what this client did before
+     * this method existed — never worse than that, and still better in practice, because the
+     * section re-reads the disk before presenting anything and recovers from a lost race
+     * (see `_rotateOrAdopt`).
+     * @param {() => Promise<void>} critical
+     * @returns {Promise<void>}
+     */
+    async _withRefreshLock(critical) {
+        const locks = globalThis.navigator?.locks;
+        if (!locks || typeof locks.request !== 'function') return critical();
+
+        // Whether the critical section already started, so an AbortError raised INSIDE it (an
+        // aborted fetch) is never mistaken for "gave up waiting" and run a second time — that
+        // second run is exactly the double rotation this lock exists to prevent.
+        let entered = false;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REFRESH_LOCK_WAIT_MS);
+        try {
+            // The lock is released when this promise settles, rejection included.
+            return await locks.request(REFRESH_LOCK_NAME, { signal: controller.signal }, () => {
+                entered = true;
+                return critical();
+            });
+        } catch (error) {
+            if (!entered && error?.name === 'AbortError') {
+                // GAVE UP WAITING, AND THAT IS NOT PERMISSION TO ROTATE ANYWAY. Running the
+                // critical section unlocked here was a real hazard: the holder is still mid-flight
+                // (the refresh request has no timeout), so the disk does not have its new pair yet,
+                // and this tab would present the SAME refresh token. Two presentations more than
+                // REFRESH_RACE_GRACE_MS apart are read as theft and revoke the whole family, taking
+                // BOTH tabs down — the exact outcome this lock exists to prevent.
+                //
+                // So: adopt whatever landed while waiting, and otherwise fail TRANSIENTLY. Not
+                // renewing is cheap (the access token usually still has headroom, and the next call
+                // tries again); presenting a token twice is not.
+                if (this._adoptStoredTokens(this._readStoredTokens())) return;
+                throw new ApiError('Refresh lock busy', { code: 'REFRESH_LOCK_BUSY' });
+            }
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /**
@@ -315,17 +538,11 @@ export class ApiClient {
      * @returns {boolean} Whether a token was found.
      */
     loadStoredTokens() {
-        try {
-            if (typeof localStorage === 'undefined') return false;
-            const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
-            if (!raw) return false;
-            const parsed = JSON.parse(raw) || {};
-            this._accessToken = parsed.accessToken || null;
-            this._refreshToken = parsed.refreshToken || null;
-            return !!(this._accessToken || this._refreshToken);
-        } catch {
-            return false;
-        }
+        const stored = this._readStoredTokens();
+        if (!stored) return false;
+        this._accessToken = stored.accessToken || null;
+        this._refreshToken = stored.refreshToken || null;
+        return !!(this._accessToken || this._refreshToken);
     }
 
     /**
@@ -338,15 +555,8 @@ export class ApiClient {
      * @returns {boolean}
      */
     hasStoredTokens() {
-        try {
-            if (typeof localStorage === 'undefined') return false;
-            const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
-            if (!raw) return false;
-            const parsed = JSON.parse(raw) || {};
-            return !!(parsed.accessToken || parsed.refreshToken);
-        } catch {
-            return false;
-        }
+        const stored = this._readStoredTokens();
+        return !!(stored?.accessToken || stored?.refreshToken);
     }
 
     // ===== CORE REQUEST =====
@@ -524,8 +734,10 @@ export class ApiClient {
     }
 
     /**
-     * Rotates tokens using the stored refresh token. Concurrent calls share one
-     * in-flight refresh.
+     * Rotates tokens using the stored refresh token. Concurrent calls share one in-flight refresh
+     * WITHIN this tab, and the critical section is serialized ACROSS tabs of the origin by
+     * {@link REFRESH_LOCK_NAME} — the refresh token is single-use, so two tabs presenting the same
+     * one is what the server reads as theft.
      *
      * A failure destroys the session ONLY when the server rejected the credential
      * (see {@link isTerminalRefreshFailure}). A 429, a 5xx or a dead network keeps the tokens
@@ -542,39 +754,86 @@ export class ApiClient {
         // Keeping the tokens means the caller WILL come back — `sync-flush` alone retries every
         // 1.5 s. Hammering a limiter that only charges failures would turn one 429 into hundreds,
         // for every client behind the same address. Replay the failure instead of re-asking.
+        // Checked BEFORE the lock, so an outage does not build a queue of tabs on it.
         if (this._lastTransientRefreshError && Date.now() < this._refreshCooldownUntil) {
             throw this._lastTransientRefreshError;
         }
 
-        this._refreshing = (async () => {
-            try {
-                const data = await this._request('POST', '/auth/refresh', {
-                    body: { refreshToken: this._refreshToken },
-                    auth: false,
-                    _retry: false,
-                });
-                // `setTokens` also re-arms the auth-lost notification and the refresh cooldown.
-                this.setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
-            } catch (error) {
-                if (isTerminalRefreshFailure(error)) {
-                    // The refresh token is gone/expired (or the org was deactivated): the session
-                    // is terminally lost. Drop the dead tokens and notify (handler wired post-boot
-                    // — at boot this falls to anonymous).
-                    this._clearRefreshCooldown();
-                    this.clearTokens();
-                    this._notifyAuthLost();
-                } else {
-                    // Transient: the tokens are still the best credential this client has, and the
-                    // current access token may well outlive the outage.
-                    this._lastTransientRefreshError = error;
-                    this._refreshCooldownUntil = Date.now() + REFRESH_COOLDOWN_MS;
-                }
-                throw error;
-            } finally {
+        this._refreshing = this._withRefreshLock(() => this._rotateOrAdopt())
+            .finally(() => {
                 this._refreshing = null;
-            }
-        })();
+            });
         return this._refreshing;
+    }
+
+    /**
+     * @private The critical section of {@link refresh}: adopt what another tab already rotated, or
+     * rotate. Runs under the cross-tab lock when there is one.
+     *
+     * Reading the disk HERE, and not before waiting for the lock, is the whole point: whoever held
+     * the lock wrote a new pair while this tab waited, so the pair in memory is stale and
+     * presenting it would be a reuse. localStorage stays the single source of truth; what changed
+     * is who reads it, when, and under which exclusion.
+     * @returns {Promise<void>}
+     */
+    async _rotateOrAdopt() {
+        // Already renewed by another tab, and still usable: nothing to ask the server.
+        if (this._adoptStoredTokens(this._readStoredTokens()) && this._accessTokenOutlivesSkew()) return;
+        // The adoption above may have replaced the pair; either way, rotate the NEWEST one known.
+        if (!this._refreshToken) throw new ApiError('No refresh token', { code: 'NO_REFRESH_TOKEN' });
+
+        // The token actually PRESENTED to the server, captured before the round trip. On a 401 it
+        // is the only thing that answers the question that matters, and asking the disk instead is
+        // what made this path log the user out of a live session: see the comment below.
+        const presented = this._refreshToken;
+
+        try {
+            const data = await this._request('POST', '/auth/refresh', {
+                body: { refreshToken: presented },
+                auth: false,
+                _retry: false,
+            });
+            // `setTokens` also re-arms the auth-lost notification and the refresh cooldown, and
+            // persists — which is what tells the other tabs, through the `storage` event.
+            this.setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+        } catch (error) {
+            if (isTerminalRefreshFailure(error)) {
+                // A 401 is not always a dead credential. Without the cross-tab lock (insecure
+                // context, old browser) another tab can rotate between this tab's read and its
+                // request, and the server answers the loser 401 without revoking the family
+                // (REFRESH_RACE_GRACE_MS). This tab simply lost the race, and the session is alive.
+                //
+                // THE QUESTION IS "IS THE TOKEN I PRESENTED STILL THE ONE I HOLD", NOT "DOES THE
+                // DISK HAVE SOMETHING NEWER". Asking the disk was a real logout bug: the `storage`
+                // event is local and synchronous while the 401 arrives over the network, so the
+                // listener had usually adopted the winner's pair ALREADY. `_adoptStoredTokens`
+                // then refuses an identical pair, returns false, and this branch killed a live
+                // session — and worse, `clearTokens()` wipes localStorage, so the loser also
+                // deleted the pair the winner had just rotated. Measured in a real browser: a tab
+                // died in 3 of 5 forced-race trials.
+                if (this._refreshToken && this._refreshToken !== presented) {
+                    this._clearRefreshCooldown();
+                    return;
+                }
+                // Nothing adopted it in the meantime; the disk is the last place to look.
+                if (this._adoptStoredTokens(this._readStoredTokens())) {
+                    this._clearRefreshCooldown();
+                    return;
+                }
+                // The refresh token is gone/expired (or the org was deactivated): the session
+                // is terminally lost. Drop the dead tokens and notify (handler wired post-boot
+                // — at boot this falls to anonymous).
+                this._clearRefreshCooldown();
+                this.clearTokens();
+                this._notifyAuthLost();
+            } else {
+                // Transient: the tokens are still the best credential this client has, and the
+                // current access token may well outlive the outage.
+                this._lastTransientRefreshError = error;
+                this._refreshCooldownUntil = Date.now() + REFRESH_COOLDOWN_MS;
+            }
+            throw error;
+        }
     }
 
     /** @private Re-arms refreshing after a decisive answer (success or terminal failure). */

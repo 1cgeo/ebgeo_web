@@ -24,7 +24,7 @@
 
 import { connectionState as defaultConnectionState, ConnectionStates } from './connection-state.js';
 import { apiClient as defaultApiClient } from './api-client.js';
-import { getClientId } from './operation-factory.js';
+import { clientIdInstallation, getClientId } from './operation-factory.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 
@@ -89,6 +89,19 @@ export class WsClient {
         this._handlers = {};
         /** Session info from the last `connected` frame. */
         this.session = null;
+    }
+
+    /**
+     * @private Whether an inbound op was authored by THIS browser (not merely by this tab).
+     * Compares the installation half of the client id, so an op queued before a reload — stamped
+     * with the previous tab suffix — is still recognized as ours. Instance-scoped rather than the
+     * module's `isOwnClientId` because test instances carry their own `clientId`.
+     * @param {string} id
+     * @returns {boolean}
+     */
+    _isOwnClientId(id) {
+        const theirs = clientIdInstallation(id);
+        return Boolean(theirs && theirs === clientIdInstallation(this._clientId));
     }
 
     // ===== PUBLIC API =====
@@ -393,8 +406,10 @@ export class WsClient {
                 this._lastVersion = sv;
             }
 
-            // The HTTP-push broadcast can't exclude the sender; ignore our own echo.
-            if (op.clientId && this._clientId && op.clientId === this._clientId) {
+            // The HTTP-push broadcast can't exclude the sender; ignore our own echo. Matched on
+            // the INSTALLATION half of the client id (`isOwnClientId`), because an op queued
+            // before a reload carries the previous tab's suffix and is still ours.
+            if (op.clientId && this._clientId && this._isOwnClientId(op.clientId)) {
                 record(TraceStage.WS_SELF_ECHO, {
                     opId: op.id, traceId: op.traceId, clientId: op.clientId,
                     outcome: TraceOutcome.FILTERED, reason: DropReason.ECHO_SELF,
