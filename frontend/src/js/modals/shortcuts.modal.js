@@ -117,7 +117,7 @@ const SHORTCUTS_DATA = {
         shortcuts: [
             { key: 'W A S D', description: 'Andar (ou setas direcionais)' },
             { key: 'Espaço', description: 'Pular' },
-            { key: 'Shift', description: 'Agachar (ou C)' },
+            { key: 'Shift', description: 'Agachar' },
             // T, not D: D already walks right inside the scene.
             { key: 'T', icon: TOOLBAR_ICONS.measureDistance, description: 'Trena (medição)' },
             { key: 'L', icon: SHORTCUT_ICONS.labels, description: 'Mostrar/ocultar rótulos' },

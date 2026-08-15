@@ -340,6 +340,110 @@ body.first-person-active .modal-overlay {
 }
 
 /* =========================================================================
+   MOVEMENT KEY HINTS — BOTTOM LEFT
+
+   The corner the walker never looks at, telling them the only thing the scene
+   cannot show: which keys move them. Deliberately quiet — no panel chrome, no
+   title, no close button. A visitor reads it once in the first seconds and
+   then stops seeing it, which is why it is worth 0.6 of an opacity and not a
+   card.
+
+   The corner is the LEFT one because the right belongs to the toolbar and to
+   the close button, and stacking a fourth thing there would crowd the exit.
+
+   The direction keys are DRAWN as the pad they are, with each cap carrying its
+   arrow, and the two modifiers sit beside it. That shape is the caption: it
+   replaces the "andar (ou setas)" line an earlier version spelled out, and a
+   pad is read at a glance where a sentence has to be read.
+   ========================================================================= */
+
+.fp3d-keyhints {
+    position: absolute;
+    bottom: var(--space-4);
+    left: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: rgb(0 0 0 / 35%);
+    color: var(--fp3d-text);
+    font-size: var(--font-size-xs);
+    opacity: 0.6;
+
+    /* Never takes the pointer: turning the view is a drag across the whole
+       scene, and this rectangle would be a dead spot in it. */
+    pointer-events: none;
+    user-select: none;
+    z-index: var(--fp3d-layer-overlay);
+}
+
+/* Jump and crouch, to the right of the pad.
+   A GRID of key/action pairs rather than two rows: the left column takes the
+   width of the widest cap and every cap stretches to it, so the two line up
+   without a guessed min-width that a longer key name would break. */
+.fp3d-keyhints__list {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 5px 6px;
+    align-items: center;
+}
+
+/* The pad: W alone on the top row, A S D under it.
+   Placement is by POSITION, not by four modifier classes — the pad has exactly
+   four caps in a fixed order and always will, so the first one goes to the
+   middle column and the rest fall into the row below. */
+.fp3d-keypad {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 3px;
+}
+
+.fp3d-keypad > .fp3d-key:first-child {
+    grid-column: 2;
+}
+
+.fp3d-keypad > .fp3d-key:not(:first-child) {
+    grid-row: 2;
+}
+
+/* The key cap. Sized off its own text; what lines the caps up is the grid
+   column they sit in, not a width written here. */
+.fp3d-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    padding: 2px 5px;
+    border: 1px solid rgb(255 255 255 / 35%);
+    border-radius: 4px;
+    background: rgb(255 255 255 / 12%);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.2;
+}
+
+/* Square, and letter over arrow. Square because a pad of caps of different
+   widths stops reading as a pad. */
+.fp3d-key--pad {
+    flex-direction: column;
+    gap: 1px;
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    padding: 0;
+}
+
+/* Dimmer than the letter: the letter is the shortcut, the arrow is the
+   alternative. Same weight would make the cap read as two shortcuts. */
+.fp3d-key__arrow {
+    font-size: 9px;
+    line-height: 1;
+    opacity: 0.65;
+}
+
+/* =========================================================================
    TOOLBAR — VERTICAL, RIGHT SIDE
 
    Same shape and rhythm as the 360 and 3D toolbars, so the three viewers
@@ -514,6 +618,12 @@ body.first-person-active .modal-overlay {
         left: 0;
     }
 
+    /* No keyboard legend on a device with no keyboard. It also removes the
+       clash with the toolbar, which drops to the bottom at this width. */
+    .fp3d-keyhints {
+        display: none;
+    }
+
     .toolbar-fp {
         top: auto;
         right: var(--space-4);
@@ -559,6 +669,17 @@ body.first-person-active .modal-overlay {
 @media (prefers-contrast: more) {
     .button-tool-fp {
         border: 2px solid currentcolor;
+    }
+
+    /* The quiet version relies on a 0.6 opacity over an unlit room. Here it
+       becomes an opaque plate, because contrast is the whole request. */
+    .fp3d-keyhints {
+        background: #000;
+        opacity: 1;
+    }
+
+    .fp3d-key {
+        border-color: #fff;
     }
 
     .fp3d-label {

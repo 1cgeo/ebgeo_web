@@ -360,6 +360,39 @@
     <div id="first-person-container" class="fp3d-container" role="application"
         aria-label="Cena 3D em primeira pessoa">
         <div id="first-person-canvas" class="fp3d-canvas"></div>
+        <!-- Legenda de movimento, canto inferior esquerdo. Vive DENTRO do
+             container, e não solta como a barra e o botão fechar: assim ela
+             aparece e some junto com a cena, sem uma linha de JS para alternar.
+             Não recebe ponteiro porque girar a câmera é um arrasto que cobre a
+             cena inteira, e um retângulo clicável no canto seria um buraco nele.
+             Os mesmos atalhos estão na modal de atalhos (bloco "Primeira
+             Pessoa"); esta é a cópia visível para quem entra na cena e não abriu
+             a modal. Se um atalho mudar, mude nos dois lugares. -->
+        <div class="fp3d-keyhints">
+            <!-- O teclado direcional desenhado na forma dele: o W em cima do S,
+                 e A S D embaixo. A FORMA é a legenda, então não há texto ao
+                 lado. Cada tecla carrega a seta equivalente, que é como o
+                 visitante descobre que as setas também andam, sem um "(ou
+                 setas)" escrito. role="img" com aria-label porque o desenho não
+                 se lê em voz alta: para o leitor de tela ele vira uma frase. -->
+            <div class="fp3d-keypad" role="img"
+                aria-label="W, A, S, D ou as setas direcionais: andar">
+                <kbd class="fp3d-key fp3d-key--pad">W<span class="fp3d-key__arrow">&#8593;</span></kbd>
+                <kbd class="fp3d-key fp3d-key--pad">A<span class="fp3d-key__arrow">&#8592;</span></kbd>
+                <kbd class="fp3d-key fp3d-key--pad">S<span class="fp3d-key__arrow">&#8595;</span></kbd>
+                <kbd class="fp3d-key fp3d-key--pad">D<span class="fp3d-key__arrow">&#8594;</span></kbd>
+            </div>
+            <!-- Grade de dois pares tecla/ação, e não duas linhas soltas: a
+                 coluna da esquerda se dimensiona pela caixa mais larga, então
+                 "Espaço" e "Shift" saem do mesmo tamanho sem largura chutada
+                 em CSS. -->
+            <div class="fp3d-keyhints__list">
+                <kbd class="fp3d-key">Espaço</kbd>
+                <span class="fp3d-keyhints__label">pular</span>
+                <kbd class="fp3d-key">Shift</kbd>
+                <span class="fp3d-keyhints__label">agachar</span>
+            </div>
+        </div>
         <!-- Loading padrão do EBGeo: fundo verde, logo e barra de progresso, o
              mesmo do carregamento inicial e do visualizador 3D. As classes
              loading-3d-* vêm de panels-3d.css e são a moldura compartilhada de
