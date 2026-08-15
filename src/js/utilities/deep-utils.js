@@ -13,6 +13,18 @@
 /**
  * Deep clone an object to ensure immutability.
  * Handles primitives, Date, Array, and plain Objects.
+ *
+ * THE `__proto__` KEY IS NOT ASSIGNED, it is defined. Plain
+ * `copy['__proto__'] = value` does not create a property at all: it runs the
+ * setter inherited from Object.prototype and REPLACES THE PROTOTYPE of the
+ * copy. The clone comes back with zero own keys and the data gone, silently.
+ * A key named `__proto__` is ordinary in imported GeoJSON — it is a string in
+ * a properties bag, not a language feature — so this is a data-loss path, and
+ * `defineProperty` writes the own property the assignment only pretended to.
+ *
+ * The comparison costs one string check per key and the assignment stays on
+ * the fast path, which matters: every `stateManager.get()` clones through here.
+ *
  * @param {*} obj - Object to clone
  * @returns {*} Deep cloned object
  */
@@ -23,7 +35,17 @@ export function deepClone(obj) {
 
     const copy = {};
     for (const key of Object.keys(obj)) {
-        copy[key] = deepClone(obj[key]);
+        const value = deepClone(obj[key]);
+        if (key === '__proto__') {
+            Object.defineProperty(copy, key, {
+                value,
+                writable: true,
+                enumerable: true,
+                configurable: true
+            });
+        } else {
+            copy[key] = value;
+        }
     }
     return copy;
 }

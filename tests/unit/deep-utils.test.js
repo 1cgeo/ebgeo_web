@@ -64,6 +64,36 @@ describe('deepClone', () => {
         cloned.geometry.coordinates[0] = -44.0;
         expect(feature.geometry.coordinates[0]).toBe(-43.2);
     });
+
+    // Regression. `copy['__proto__'] = value` creates no property: it runs the
+    // setter inherited from Object.prototype and swaps the prototype of the
+    // copy, so the clone used to come back with no own keys and the data gone.
+    // Found by the fast-check round-trip property in state-manager.test.js,
+    // which generates a `__proto__` key now and then.
+    it('keeps a "__proto__" key as data instead of swapping the prototype', () => {
+        // Built by the parser, not by a literal: a literal `__proto__:` in
+        // source IS the prototype syntax and would not make an own property.
+        const original = JSON.parse('{"__proto__": [1, 2], "nome": "Ponto A"}');
+        const cloned = deepClone(original);
+
+        expect(Object.keys(cloned).sort()).toEqual(['__proto__', 'nome']);
+        expect(Object.getOwnPropertyDescriptor(cloned, '__proto__').value).toEqual([1, 2]);
+        expect(cloned).toEqual(original);
+        // The clone is still an ordinary object, and nothing global moved.
+        expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype);
+        expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    });
+
+    it('clones a nested "__proto__" key too', () => {
+        const original = JSON.parse('{"properties": {"__proto__": {"a": 1}}}');
+        const cloned = deepClone(original);
+        const inner = Object.getOwnPropertyDescriptor(cloned.properties, '__proto__').value;
+
+        expect(inner).toEqual({ a: 1 });
+        expect(inner).not.toBe(
+            Object.getOwnPropertyDescriptor(original.properties, '__proto__').value
+        );
+    });
 });
 
 // ============================================================================
