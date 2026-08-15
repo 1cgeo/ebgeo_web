@@ -718,7 +718,19 @@ describe('atlas-namespace :: lock de montagem', () => {
     it('o nome do lock é injetivo, inclusive para o slot legado de sufixo vazio', () => {
         expect(ns.atlasMountLockName('')).not.toBe(ns.atlasMountLockName('legacy'));
         expect(ns.atlasMountLockName('remote-x')).not.toBe(ns.atlasMountLockName('remote-y'));
-        expect(ns.atlasMountLockName('aaa')).toBe(ns.atlasMountLockName('aaa'));
+        // Esta linha era `expect(f('aaa')).toBe(f('aaa'))`, que é verdade para QUALQUER função
+        // pura e portanto não media nada: a injetividade inteira estava nas duas linhas acima.
+        // No lugar dela, o nome ABSOLUTO, porque a forma dele é contrato e não detalhe:
+        // `releaseMountLockIfRemote` reconhece o lock por `startsWith(MOUNT_LOCK_PREFIX)` e recupera
+        // o sufixo cortando em `MOUNT_LOCK_PREFIX.length + 1`, isto é, conta com o prefixo E com o
+        // separador de um caractere. Uma implementação que devolvesse só o sufixo, ou que trocasse
+        // o `#` por `-`, passaria nas duas linhas acima e quebraria aquele leitor.
+        expect(ns.atlasMountLockName('aaa')).toBe('ebgeo-atlas:#aaa');
+        expect(ns.atlasMountLockName('')).toBe('ebgeo-atlas:#');
+        expect(ns.atlasMountLockName('remote-x')).toBe('ebgeo-atlas:#remote-x');
+        // E o `#` é o que torna a aplicação injetiva, porque `VALID_SUFFIX` o proíbe dentro do
+        // sufixo: sem separador nenhum, `remote-` + `x` e `remote-x` + `` dariam o mesmo nome.
+        expect(ns.atlasMountLockName('remote-x').slice('ebgeo-atlas:'.length + 1)).toBe('remote-x');
     });
 
     // CONTEXTO NÃO SEGURO (HTTP puro): `navigator.locks` não existe, e ali o invariante duro

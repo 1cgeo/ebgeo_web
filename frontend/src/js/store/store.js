@@ -37,8 +37,12 @@ import {
     getStoreOriginSync,
     resolveTabMountOrigin
 } from './store-origin.js';
-import { purgeAllRemoteAtlases, purgeReachedAtlas } from './remote-atlas.api.js';
+import { purgeAllRemoteAtlases, purgeReachedAtlas, listRemoteAtlases } from './remote-atlas.api.js';
 import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
+import { readLocalAtlasRegistry } from './atlas-namespace.js';
+// Imported DIRECT, never through the `@utils` barrel: the barrel drags the store back in through
+// `feature_navigation_utils`, and this module is the store.
+import { announceTabLockTeardown } from '@utils/tab-lock.js';
 import { operationQueue } from './sync/operation-queue.js';
 import { migratePendingOperationsToScopedQueues } from './sync/operation-queue-migration.js';
 
@@ -166,6 +170,51 @@ async function unmountCurrentAtlas({ clearQueue = true } = {}) {
 }
 
 /**
+ * WARNS THE OTHER TABS BEFORE THE SWEEP TOUCHES ANYTHING, and answers with the lock's report.
+ *
+ * The sweep is derived from the remote registry, so it covers every server namespace on this
+ * machine, not only the one this tab has mounted. A sibling writing into one of them is protected
+ * from the destruction by its mount lock, and that is where the protection used to stop: it was
+ * never TOLD. It kept writing into a namespace already condemned, and the `forced` branch (the 24 h
+ * reprieve expired) destroys a LIVE mount without asking anybody.
+ *
+ * THE LIST IS THE SWEEP'S OWN LIST, down to the exclusion. `purgeAllRemoteAtlases` skips any
+ * namespace a LOCAL atlas claims (the rescued slot keeps its `remote-<id>` suffix and moves the
+ * claim to the local registry, zero bytes copied), so announcing the raw registry would condemn an
+ * address nothing is going to touch, and the tab holding that rescued slot would freeze for
+ * nothing. Warning about a different list than the one about to be destroyed is a notice that looks
+ * right and misses, in either direction. It lives HERE, next to the sweep and derived once, for the
+ * same reason: a second copy of this derivation in a caller is a list that drifts.
+ *
+ * It never throws. A failure to warn must not abort a logout or a boot; the silent case degrades to
+ * exactly the previous behaviour, which is that the sibling keeps its mount lock and its namespace
+ * is spared.
+ *
+ * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
+ *   timedOut: boolean, degraded: boolean}|null>} The lock's report, or null when nothing was
+ *   announced (no registered namespace, or the registry could not be read).
+ */
+export async function announceRemoteNamespaceTeardown() {
+    try {
+        const claimed = new Set(
+            (await readLocalAtlasRegistry())
+                .map(entry => entry?.dbSuffix)
+                .filter(dbSuffix => typeof dbSuffix === 'string')
+        );
+        const addresses = (await listRemoteAtlases())
+            .map(entry => entry?.dbSuffix)
+            .filter(dbSuffix => typeof dbSuffix === 'string'
+                && dbSuffix.length > 0
+                && !claimed.has(dbSuffix));
+        if (addresses.length === 0) return null;
+        return await announceTabLockTeardown(addresses);
+    } catch (error) {
+        console.warn('[store] announcing the namespace teardown failed:', error);
+        return null;
+    }
+}
+
+/**
  * Destroys every REMOTE atlas namespace registered on this machine, and re-points the store
  * at a local slot when the one it was using went with them.
  *
@@ -190,9 +239,19 @@ async function unmountCurrentAtlas({ clearQueue = true } = {}) {
  * registry entry survives, and a deadline makes the reprieve temporary. The scope this tab had
  * mounted is never among them: the sweep lets go of its own mount before asking.
  *
+ * AND IT WARNS FIRST, ALWAYS. The notice used to be a call written into the logout
+ * (`AccountControl._handleLogout`), which left the OTHER caller of this same destructive sweep, the
+ * logged-out boot guard below, warning nobody: the `forced` branch would take a live sibling's
+ * namespace with no warning at all. Two callers and one of them remembering is the shape of defect
+ * that comes back, so the warning is bound to the sweep instead of to the caller. The logout still
+ * announces on its own, EARLIER, and that is not redundancy: its `clearAllDataStore` runs before
+ * this and empties the atlas that tab has mounted, which a notice sent from here would reach too
+ * late.
+ *
  * @returns {Promise<import('./remote-atlas.api.js').RemotePurgeReport>}
  */
 export async function discardRemoteAtlasNamespaces() {
+    await announceRemoteNamespaceTeardown();
     const report = await purgeAllRemoteAtlases();
     if (report.deactivated) {
         // The purge left no active scope on purpose (a destroyed scope must not be written

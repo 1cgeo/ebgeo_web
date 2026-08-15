@@ -591,17 +591,28 @@ describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
 
 /**
  * Esta seção é ESTRUTURAL, e a limitação está escrita porque ela importa: o comportamento do
- * aviso (entrega sem colisão, ack como evidência, freio que solta a montagem e não recria banco)
- * é medido em `tests/unit/tab-lock.test.js` e `tests/unit/tab-lock-sync-brake.test.js`, com os
- * módulos reais. O que NÃO é medido em lugar nenhum é o SÍTIO DE CHAMADA, porque `_handleLogout`
- * é método de um IControl do MapLibre e o harness que o constrói vive em arquivos de outra frente.
+ * aviso (entrega sem colisão, ack como evidência, freio que para de escrever sem soltar a
+ * montagem) é medido em `tests/unit/tab-lock.test.js` e `tests/unit/tab-lock-sync-brake.test.js`,
+ * e o aviso do BOOT em `tests/unit/wipe-unificado-de-atlas.test.js`, todos com módulos reais. O
+ * que NÃO é medido em lugar nenhum é o SÍTIO DE CHAMADA do logout, porque `_handleLogout` é
+ * método de um IControl do MapLibre e o harness que o constrói vive em arquivos de outra frente.
  * Um teste estrutural sozinho não prova que o portão faz a coisa certa; prova só que a ordem das
  * três chamadas não inverteu, que é exatamente o defeito que tornaria o aviso inútil (avisar
  * DEPOIS de esvaziar é não avisar). Fica anotado como dívida em `_PENDENCIAS.md`.
+ *
+ * A DERIVAÇÃO DA LISTA MUDOU DE CASA (2026-08-15) e este arquivo seguiu junto: ela era
+ * `announceRemoteTeardown` em `account.control.js`, com UM chamador, e a guarda de boot rodava a
+ * mesma varredura destrutiva sem avisar ninguém. Agora ela é `announceRemoteNamespaceTeardown` em
+ * `store/store.js`, ao lado do expurgo e chamada por ele, então os dois caminhos avisam por
+ * construção em vez de por memória.
  */
 describe('logout: o aviso vem ANTES de esvaziar e destruir', () => {
     const fonte = readFileSync(
         resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js/account/account.control.js'),
+        'utf8'
+    );
+    const fonteDaStore = readFileSync(
+        resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js/store/store.js'),
         'utf8'
     );
     // A prosa do arquivo NOMEIA as três chamadas (é o ponto do comentário), então o guarda lê o
@@ -624,7 +635,7 @@ describe('logout: o aviso vem ANTES de esvaziar e destruir', () => {
 
     it('as três chamadas existem no logout, e o aviso precede as duas destrutivas', () => {
         const corpo = corpoDoLogout();
-        const aviso = corpo.indexOf('announceRemoteTeardown(');
+        const aviso = corpo.indexOf('announceRemoteNamespaceTeardown(');
         const esvazia = corpo.indexOf('clearAllDataStore(');
         const destroi = corpo.indexOf('discardRemoteAtlasNamespaces(');
 
@@ -638,17 +649,38 @@ describe('logout: o aviso vem ANTES de esvaziar e destruir', () => {
     });
 
     it('o aviso é AGUARDADO: um `await` esquecido faria a corrida voltar inteira', () => {
-        expect(corpoDoLogout()).toMatch(/await\s+announceRemoteTeardown\(\)/);
+        expect(corpoDoLogout()).toMatch(/await\s+announceRemoteNamespaceTeardown\(\)/);
     });
 
     it('a lista anunciada exclui o que um atlas LOCAL reivindica, como o expurgo faz', () => {
         // O slot resgatado conserva o sufixo `remote-<id>` e muda de registro, e o expurgo o pula.
         // Anunciar o registro cru condenaria um endereço que ninguém vai tocar, e a aba que o
         // segura freiaria à toa.
-        const inicio = codigo.indexOf('export async function announceRemoteTeardown');
+        const inicio = fonteDaStore.indexOf('export async function announceRemoteNamespaceTeardown');
         expect(inicio).toBeGreaterThan(-1);
-        const corpo = codigo.slice(inicio, inicio + 900);
+        const corpo = fonteDaStore.slice(inicio, inicio + 900);
         expect(corpo).toMatch(/readLocalAtlasRegistry\(\)/);
         expect(corpo).toMatch(/claimed\.has\(dbSuffix\)/);
+    });
+
+    // O ACHADO QUE FECHOU ESTA SEÇÃO: o aviso morava só aqui, e a guarda de boot
+    // (`enforceLocalStoreWhenLoggedOut` -> `discardRemoteAtlasNamespaces`) roda a MESMA varredura
+    // destrutiva sem passar por este arquivo. Dois chamadores e um deles lembrando é a forma de
+    // defeito que volta, então o aviso passou a ser do expurgo. O comportamento está medido em
+    // `tests/unit/wipe-unificado-de-atlas.test.js`; o que este caso guarda é o acoplamento, para
+    // que separar os dois de novo exija apagar uma linha que diz por que ela existe.
+    it('o EXPURGO avisa por conta própria, que é o que cobre a guarda de boot', () => {
+        const codigoDaStore = fonteDaStore
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
+        const inicio = codigoDaStore.indexOf('export async function discardRemoteAtlasNamespaces');
+        expect(inicio).toBeGreaterThan(-1);
+        const corpo = codigoDaStore.slice(inicio, codigoDaStore.indexOf('\n}', inicio));
+
+        const aviso = corpo.indexOf('announceRemoteNamespaceTeardown(');
+        const varre = corpo.indexOf('purgeAllRemoteAtlases(');
+        expect(aviso).toBeGreaterThan(-1);
+        expect(varre).toBeGreaterThan(-1);
+        expect(aviso).toBeLessThan(varre);
     });
 });

@@ -76,10 +76,11 @@ import {
     releaseMountLock,
     withExclusiveAtlasLock,
     hasMountLockSupport,
+    clearAtlasDatabases,
     dropAtlasDatabases,
 } from '@store/atlas-namespace.js';
 import { getScopedStore } from '@store/repositories/local.repository.js';
-import { databaseExists, resetIndexedDB } from '../helpers/idb-helpers.js';
+import { databaseExists, databaseState, readKey, resetIndexedDB } from '../helpers/idb-helpers.js';
 import {
     startAutoFlush,
     stopAutoFlush,
@@ -617,6 +618,49 @@ describe('tab-lock brake: o freio do aviso de desmontagem', () => {
     const scopeA = remoteScope(ATLAS_A);
     const scopeB = remoteScope(ATLAS_B);
     const DB_MAPAS_A = resolveDbName(StoreName.MAPS, scopeA);
+    const DB_FILA_A = resolveDbName(StoreName.OPERATION_QUEUE, scopeA);
+    /** A fila de saída mora num object store próprio dentro do banco `ebgeo__<sufixo>`. */
+    const FILA = { storeName: 'operation_queue' };
+
+    /**
+     * O EXCLUSIVO PEDIDO NA MÃO, fora do módulo que está sendo medido.
+     *
+     * `withExclusiveAtlasLock` é a função que o expurgo usa, então ela é a testemunha certa do
+     * efeito; mas ela também é código da casa, e uma medição que só a consulta confere o assunto
+     * pelo mesmo caminho que o produziu. Este helper pergunta ao `navigator.locks` direto, com o
+     * nome ESCRITO À MÃO (contrato entre abas), que é o caminho independente.
+     *
+     * @param {string} dbSuffix - Sufixo do namespace.
+     * @returns {Promise<boolean>} Se um destruidor conseguiria o exclusivo agora.
+     */
+    async function exclusivoDisponivel(dbSuffix) {
+        return navigator.locks.request(
+            `ebgeo-atlas:#${dbSuffix}`,
+            { mode: 'exclusive', ifAvailable: true },
+            lock => lock !== null
+        );
+    }
+
+    /**
+     * O PASSO DECISIVO DO EXPURGO, com a mesma forma de `destroyRemoteAtlasIfUnmounted`: pede o
+     * exclusivo e, se conseguir, esvazia e apaga os bancos daquele namespace.
+     *
+     * Ele é montado aqui em vez de chamar `purgeAllRemoteAtlases` porque a varredura de verdade
+     * SOLTA A PRÓPRIA MONTAGEM antes de perguntar (`releaseRemoteMountLock`), e num único processo
+     * a aba freada e a aba que desloga são o mesmo cliente: chamá-la aqui derrubaria justamente o
+     * lock que este caso existe para medir. Os dois pedaços (`withExclusiveAtlasLock` e
+     * `clearAtlasDatabases`/`dropAtlasDatabases`) são os do expurgo, importados dele.
+     *
+     * @param {{ dbSuffix: string }} scope - Namespace que a outra aba quer destruir.
+     * @returns {Promise<boolean>} Se a destruição chegou a rodar.
+     */
+    async function varreduraDaOutraAba(scope) {
+        const { granted } = await withExclusiveAtlasLock(scope, async () => {
+            await clearAtlasDatabases(scope);
+            await dropAtlasDatabases(scope);
+        });
+        return granted;
+    }
 
     beforeEach(async () => {
         h.online = false;
@@ -646,7 +690,12 @@ describe('tab-lock brake: o freio do aviso de desmontagem', () => {
         expect(hasMountLockSupport()).toBe(true);
     });
 
-    it('avisada no endereço que tem montado: para o flush, fecha o socket e SOLTA a montagem', async () => {
+    // TROCADO EM 2026-08-15, nunca somado. Este caso exigia o oposto ("SOLTA a montagem", e o
+    // exclusivo passando a ser CONCEDIDO depois do freio), o que fazia dele a suíte defendendo a
+    // perda de dado que ele deveria pegar: soltar a montagem é o que entrega os bancos da vizinha
+    // ao expurgo. Um caso que continuasse cobrando o mundo antigo faria a correção parecer
+    // regressão. O que o freio deve é PARAR DE ESCREVER, e só isso.
+    it('avisada no endereço que tem montado: para o flush, fecha o socket e SEGUE protegida', async () => {
         activateScope(scopeA);
         await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
         h.atlasId = ATLAS_A;
@@ -660,12 +709,18 @@ describe('tab-lock brake: o freio do aviso de desmontagem', () => {
         expect(freou).toBe(true);
         expect(isAutoFlushRunning()).toBe(false);
         expect(h.disconnect).toHaveBeenCalledTimes(1);
-        expect(getActiveScope()).toBe(null);
-        // Nada a restaurar: reconectar seria reconectar a um namespace que está sendo apagado.
+        // Nada a restaurar: a sessão desta aba acabou, e reconectar seria voltar a um atlas a que
+        // ela não tem mais direito.
         expect(getSyncBrakeState().engaged).toBe(false);
-        // DEPOIS: o expurgo do emissor passa a conseguir destruir. Sem esta metade o aviso seria
-        // cortesia, a irmã seguiria "poupada" e a destruição só chegaria pelo prazo de 24 h.
-        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(true);
+        // O ESCOPO CONTINUA MONTADO, e isso é a decisão, não um esquecimento: com o namespace
+        // poupado não há banco apagado para uma escrita perdida recriar, enquanto LIMPAR o escopo
+        // mandaria essa escrita para a ponte legada, ou seja, para o slot local do próprio usuário.
+        expect(getActiveScope()?.dbSuffix).toBe(scopeA.dbSuffix);
+        // DEPOIS, e é o coração da correção: o expurgo da outra aba CONTINUA sendo recusado.
+        // Medido por dois caminhos, um deles independente do módulo (o `navigator.locks` na mão),
+        // porque conferir o efeito só pela função que o produz é conferir pelo mesmo caminho.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(false);
+        expect(await exclusivoDisponivel(scopeA.dbSuffix)).toBe(false);
     });
 
     it('avisada sobre OUTRO endereço: não para nada (a decisão é do endereço)', async () => {
@@ -705,45 +760,127 @@ describe('tab-lock brake: o freio do aviso de desmontagem', () => {
         expect(await applyTeardownFreeze(null)).toBe(false);
     });
 
-    it('PORTÃO: a aba freada NÃO RECRIA os bancos destruídos', async () => {
+    // ========================================================================================
+    // A PERDA DE DADO, MEDIDA (auditoria de 2026-08-15, cenário P2).
+    //
+    // Aba A no atlas X e aba B no atlas Y, mesmo usuário, B com trabalho ainda não enviado. O
+    // usuário clica "Sair" na aba A. O freio antigo soltava a montagem, e a montagem era
+    // EXATAMENTE o que poupava B: medido, `spared:[Y]` e dado vivo com a montagem de pé,
+    // `atlases:[Y]`, dado `null` e fila `absent` sem ela. Ou seja, obedecer ao aviso era o que
+    // destruía a aba que o aviso existe para proteger, e B não tem resgate nenhum
+    // (`preserveUnsyncedWorkAsLocal` só roda na aba que desloga).
+    //
+    // A FILA ENTRA NA MEDIÇÃO de propósito: ela é `perAtlas`, então mora dentro do namespace
+    // condenado e morre junto. Ela é a parte irreversível (o dado do atlas ainda está no
+    // servidor; a operação pendente não está em lugar nenhum).
+    // ========================================================================================
+    it('PORTÃO: o dado E A FILA da vizinha sobrevivem à varredura da aba que saiu', async () => {
         activateScope(scopeA);
         await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
-        // Positivo ANTES, por nome absoluto: sem isto, o "não existe" do fim seria indistinguível
-        // de um banco que nunca existiu.
-        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+        await getStore(StoreName.OPERATION_QUEUE).setItem('op_1', { id: 'op_1', tipo: 'create' });
+        // Positivo ANTES, por nome ABSOLUTO: sem isto, "sobreviveu" e "nunca existiu" seriam o
+        // mesmo verde.
+        expect(await readKey(DB_MAPAS_A, 'sentinela')).toEqual({ nome: 'trabalho vivo' });
+        expect(await databaseState(DB_FILA_A, FILA)).toBe('populated');
 
         expect(await applyTeardownFreeze([scopeA.dbSuffix])).toBe(true);
-        // O emissor esvazia e apaga, exatamente como `purgeAllRemoteAtlases` faz depois do ack.
-        await dropAtlasDatabases(scopeA);
-        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+        const destruiu = await varreduraDaOutraAba(scopeA);
 
-        // E agora a escrita seguinte da aba freada, pelo caminho REAL do repositório (que passa
-        // pela ponte `ensureAtlasScope`, e é exatamente por onde uma escrita perdida cairia).
-        await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
-
-        // O namespace condenado NÃO ressuscita, que é o resíduo imortal que o aviso existe para
-        // impedir (registro já removido, banco de volta, nenhuma varredura futura o acha).
-        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
-        // CONTROLE DE VÁCUO: a escrita realmente aconteceu, em outro lugar. Sem esta linha, um
-        // `getScopedStore` que lançasse daria o mesmo verde acima sem provar nada. O nome é o
-        // pré-namespace, escrito à mão: é para onde a ponte `ensureAtlasScope` manda quem escreve
-        // sem escopo montado, e é o preço documentado do freio (o mal menor, não um acerto).
-        expect(await databaseExists('ebgeo_maps')).toBe(true);
+        // A varredura da outra aba é RECUSADA, que é o `spared` do relatório dela.
+        expect(destruiu).toBe(false);
+        expect(await readKey(DB_MAPAS_A, 'sentinela')).toEqual({ nome: 'trabalho vivo' });
+        expect(await databaseState(DB_FILA_A, FILA)).toBe('populated');
     });
 
-    it('CONTROLE NEGATIVO: sem o freio, a MESMA escrita ressuscita os dez bancos', async () => {
+    it('CONTROLE DE VÁCUO: a MESMA varredura destrói quando ninguém está montado', async () => {
+        // Sem este par, o verde acima passaria também contra uma varredura quebrada, contra um
+        // nome de banco errado ou contra um `clearAtlasDatabases` que não alcança a fila.
         activateScope(scopeA);
         await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
-        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+        await getStore(StoreName.OPERATION_QUEUE).setItem('op_1', { id: 'op_1', tipo: 'create' });
+        expect(await readKey(DB_MAPAS_A, 'sentinela')).toEqual({ nome: 'trabalho vivo' });
 
-        // Mesmo arranjo, mesma destruição, MENOS o freio: é o mundo de hoje, em que a irmã não é
-        // avisada e seu escopo continua apontado para o namespace condenado.
-        await dropAtlasDatabases(scopeA);
-        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+        // Ninguém segura o namespace: é a aba que fechou, ou a que já recarregou.
+        await releaseMountLock(scopeA);
+        clearActiveScope();
+        const destruiu = await varreduraDaOutraAba(scopeA);
 
-        await getScopedStore(StoreName.MAPS).setItem('depois-do-nada', { nome: 'ressuscitou' });
+        expect(destruiu).toBe(true);
+        expect(await databaseState(DB_MAPAS_A)).toBe('absent');
+        expect(await databaseState(DB_FILA_A, FILA)).toBe('absent');
+    });
 
-        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+    // ========================================================================================
+    // O OUTRO REGIME: sem `navigator.locks` (contexto não seguro, embedder endurecido) o
+    // `withExclusiveAtlasLock` CONCEDE sempre, então poupar é impossível por construção. Aí o
+    // freio volta a soltar e a limpar o escopo, porque os bancos vão embora de qualquer jeito e
+    // o que sobra a fazer é impedir que uma escrita perdida os RECRIE fora do registro.
+    // ========================================================================================
+    describe('runtime sem Web Locks', () => {
+        let descritorOriginal = null;
+
+        beforeEach(() => {
+            descritorOriginal = Object.getOwnPropertyDescriptor(navigator, 'locks')
+                ?? Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), 'locks');
+            Object.defineProperty(navigator, 'locks', { get: () => undefined, configurable: true });
+            // Controle do instrumento: sem esta linha, um dia em que a substituição parasse de
+            // funcionar deixaria estes casos medindo o regime COM lock e passando assim mesmo.
+            expect(hasMountLockSupport()).toBe(false);
+        });
+
+        afterEach(() => {
+            Object.defineProperty(navigator, 'locks', descritorOriginal);
+            expect(hasMountLockSupport()).toBe(true);
+        });
+
+        it('solta a montagem e LIMPA o escopo, porque não há como poupar', async () => {
+            activateScope(scopeA);
+            await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+            h.atlasId = ATLAS_A;
+            h.online = true;
+            startAutoFlush();
+
+            expect(await applyTeardownFreeze([scopeA.dbSuffix])).toBe(true);
+
+            expect(isAutoFlushRunning()).toBe(false);
+            expect(h.disconnect).toHaveBeenCalledTimes(1);
+            expect(getActiveScope()).toBe(null);
+        });
+
+        it('e por isso a aba freada NÃO RECRIA os bancos destruídos', async () => {
+            activateScope(scopeA);
+            await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+            expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+
+            expect(await applyTeardownFreeze([scopeA.dbSuffix])).toBe(true);
+            // O emissor esvazia e apaga, exatamente como `purgeAllRemoteAtlases` faz depois do ack.
+            await dropAtlasDatabases(scopeA);
+            expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+
+            // A escrita seguinte da aba freada, pelo caminho REAL do repositório (a ponte
+            // `ensureAtlasScope`, que é por onde uma escrita perdida cai).
+            await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
+
+            expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+            // CONTROLE DE VÁCUO: a escrita aconteceu mesmo, em outro lugar. O nome é o
+            // pré-namespace, escrito à mão: é para onde a ponte manda quem escreve sem escopo
+            // montado, e é o preço documentado deste regime (o mal menor, não um acerto).
+            expect(await databaseExists('ebgeo_maps')).toBe(true);
+        });
+
+        it('CONTROLE NEGATIVO: sem o freio, a MESMA escrita ressuscita o banco apagado', async () => {
+            activateScope(scopeA);
+            await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+            expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+
+            // Mesmo arranjo, mesma destruição, MENOS o freio.
+            await dropAtlasDatabases(scopeA);
+            expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+
+            await getScopedStore(StoreName.MAPS).setItem('depois-do-nada', { nome: 'ressuscitou' });
+
+            expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+        });
     });
 });
 
@@ -841,25 +978,23 @@ describe('tab-lock brake: o aviso atravessa o protocolo até o freio REAL', () =
         expect(relatorio).toMatchObject({ peers: 1, acked: 1, frozen: 1, timedOut: false });
         expect(page.frozen).toBe(true);
         expect(isTabLockFrozen()).toBe(true);
-        // O freio de verdade rodou: os dois escritores automáticos pararam e o escopo saiu.
+        // O freio de verdade rodou: os dois escritores automáticos pararam.
         expect(isAutoFlushRunning()).toBe(false);
         expect(h.disconnect).toHaveBeenCalledTimes(1);
-        expect(getActiveScope()).toBe(null);
         expect(getSyncBrakeState().engaged).toBe(false);
 
-        // E a irmã consegue destruir, que é o que o aviso comprou: antes do freio o exclusivo era
-        // recusado e o namespace seria POUPADO até o prazo de 24 h vencer sobre uma aba viva.
-        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(true);
-        await dropAtlasDatabases(scopeA);
-        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+        // E O DADO DESTA ABA CONTINUA AQUI. Esta metade do caso pedia o contrário (que a irmã
+        // conseguisse destruir), e era a suíte defendendo a perda: a irmã que sai da conta não
+        // pode levar junto o trabalho não enviado de quem ficou. O expurgo dela vai encontrar o
+        // namespace montado e reportá-lo como `spared`.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(false);
+        expect(await readKey(DB_MAPAS_A, 'sentinela')).toEqual({ nome: 'trabalho vivo' });
 
-        // A escrita seguinte desta aba, pelo caminho REAL do repositório, não ressuscita o
-        // namespace condenado (o resíduo que nenhuma varredura futura acharia).
+        // E a aba freada segue montada, então uma escrita perdida cai onde sempre caiu, e não no
+        // slot local do usuário pela ponte legada.
         await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
-        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
-        // CONTROLE DE VÁCUO: a escrita aconteceu mesmo, no destino documentado da ponte
-        // `ensureAtlasScope` quando não há escopo montado.
-        expect(await databaseExists('ebgeo_maps')).toBe(true);
+        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+        expect(await databaseExists('ebgeo_maps')).toBe(false);
     });
 
     it('CONTROLE NEGATIVO: um aviso sobre OUTRO endereço atravessa o mesmo fio e NÃO freia', async () => {

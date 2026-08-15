@@ -12,7 +12,7 @@ import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
     clearAllDataStore,
     discardRemoteAtlasNamespaces,
-    listRemoteAtlases,
+    announceRemoteNamespaceTeardown,
     activateRemoteAtlas,
     activateAtlasInitialMap,
     markStoreRemote,
@@ -29,7 +29,7 @@ import {
     openRemoteAtlas,
     retractAtlasClaim,
 } from '@js/account/open-atlas.service.js';
-import { acquireTabLock, announceTabLockTeardown, remoteAtlasKey } from '@utils/tab-lock.js';
+import { acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
@@ -191,51 +191,6 @@ export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
  */
 function mountedRemoteAtlasId() {
     return syncEngine.atlasId ?? getStoreOriginSync().atlasId ?? null;
-}
-
-/**
- * WARNS THE OTHER TABS BEFORE THE LOGOUT SWEEP TOUCHES ANYTHING.
- *
- * The sweep is derived from the remote registry, so it covers every server namespace on this
- * machine, not only the one this tab has mounted. A sibling tab writing into one of them is
- * protected from the destruction by its mount lock, and that is where the protection used to
- * stop: it was never TOLD. It kept writing into a namespace already condemned, and the reprieve
- * expiring turned into a forced destruction with no warning; worse, a write arriving after the
- * emptying would RECREATE those databases outside the registry, where no later sweep finds them.
- *
- * THE LIST IS THE SWEEP'S OWN LIST, down to the exclusion. `purgeAllRemoteAtlases` skips any
- * namespace a LOCAL atlas claims (the rescued slot keeps its `remote-<id>` suffix and moves the
- * claim to the local registry, zero bytes copied), so announcing the raw registry would condemn an
- * address nothing is going to touch, and the tab holding that rescued slot would freeze for
- * nothing. Warning about a different list than the one about to be destroyed is a notice that
- * looks right and misses, in either direction.
- *
- * It never throws. This runs inside a logout, and a failure to warn must not abort the teardown;
- * the silent case degrades to exactly the previous behaviour, which is that the sibling keeps its
- * mount lock and its namespace is spared.
- *
- * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
- *   timedOut: boolean, degraded: boolean}|null>} The lock's report, or null when nothing was
- *   announced (no registered namespace, or the registry could not be read).
- */
-export async function announceRemoteTeardown() {
-    try {
-        const claimed = new Set(
-            (await readLocalAtlasRegistry())
-                .map(entry => entry?.dbSuffix)
-                .filter(dbSuffix => typeof dbSuffix === 'string')
-        );
-        const addresses = (await listRemoteAtlases())
-            .map(entry => entry?.dbSuffix)
-            .filter(dbSuffix => typeof dbSuffix === 'string'
-                && dbSuffix.length > 0
-                && !claimed.has(dbSuffix));
-        if (addresses.length === 0) return null;
-        return await announceTabLockTeardown(addresses);
-    } catch (error) {
-        console.warn('[AccountControl] announcing the namespace teardown failed:', error);
-        return null;
-    }
 }
 
 /**
@@ -1138,10 +1093,16 @@ export class AccountControl {
                 // is one of exactly two places that mean "the session is over".
                 //
                 // THE WARNING COMES FIRST, and "first" is the whole point: a sibling tab has to
-                // stop writing BEFORE the emptying, or its next write recreates the databases
-                // outside the registry. The lock waits for the acks (or for its timeout) before
-                // this returns, so the two calls below run after the other tabs have stopped.
-                await announceRemoteTeardown();
+                // stop writing BEFORE the emptying. The lock waits for the acks (or for its
+                // timeout) before this returns, so the two calls below run after the other tabs
+                // have stopped.
+                //
+                // `discardRemoteAtlasNamespaces` announces on its own now (the boot guard runs the
+                // same sweep and used to warn nobody), so this line is not what keeps the sibling
+                // safe from the SWEEP. It is here for the call in between: `clearAllDataStore`
+                // empties the namespace THIS tab has mounted, and a notice sent from inside the
+                // sweep would arrive after that.
+                await announceRemoteNamespaceTeardown();
                 await clearAllDataStore();
                 await discardRemoteAtlasNamespaces();
             }

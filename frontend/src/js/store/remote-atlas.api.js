@@ -56,6 +56,14 @@
  * for everything it does not rescue. The purge SKIPS a namespace already claimed by a local
  * registry entry, so the two registries can disagree for a moment without anyone losing
  * data, and it removes the stale remote key when it finds one.
+ *
+ * THAT DISAGREEMENT HAS TO BE A MOMENT, and for one gesture it was permanent. Re-opening the very
+ * server atlas a rescue came from used to wipe the rescued slot on the way in and leave its LOCAL
+ * claim standing, so from then on every sweep found the namespace `adopted`, spared it, and server
+ * data stayed readable after a logout. The exit from a rescue is therefore as explicit as the
+ * entrance: `releaseAdoptedLocalAtlas` (`local-atlas.api.js`) hands the claim back, and
+ * `openRemoteAtlas` calls it AFTER `activateRemoteAtlas` has registered the remote claim, so the
+ * two claims overlap rather than leaving a window with none.
  */
 
 import {

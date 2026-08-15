@@ -18,9 +18,11 @@
  *   presence roster and stops inbound operations from landing in a store another tab owns.
  *
  * WHAT BLOCKING MUST NEVER MEAN
- * - NOTHING IS ERASED. The outbound queue is GLOBAL, not per atlas, so wiping on a collision
- *   would discard unsynced work belonging to BOTH tabs. This module has no import that can
- *   clear storage, and a test reads the source to keep it that way.
+ * - NOTHING IS ERASED. Two tabs collide only when they hold the SAME atlas, and the outbound queue
+ *   is per atlas, so on a collision it is ONE queue holding the unsynced work of BOTH tabs and
+ *   wiping it discards the loser's and the winner's alike. (This line used to say the queue was
+ *   global; it stopped being global, and the conclusion did not change, only the reason.) This
+ *   module has no import that can clear storage, and a test reads the source to keep it that way.
  * - The ANONYMOUS path does not move. A tab with no connection and no flush loop has nothing to
  *   stop: the brake records that it stopped nothing and calls neither function, so no
  *   `ATLAS_SETTINGS_CHANGED` is emitted and no config is reverted for a tab that never had one.
@@ -57,25 +59,48 @@
  * addressed by a set of database addresses, and matching it is this module's job precisely because
  * the lock may not import the store: only here can `getActiveScope()` be read.
  *
- * WHAT THE FREEZE HAS TO ACHIEVE, in order:
+ * WHAT THE FREEZE HAS TO ACHIEVE:
  *   1. the automatic writers stop (`applySyncBrake`: the 1.5 s drain and the inbound socket);
- *   2. the MOUNT LOCK is released, and this is the half that makes the notice worth sending. The
- *      destroyer asks for it exclusively and spares whatever it cannot get, so a tab that stopped
- *      but kept the lock would still leave the namespace standing, and the reprieve would only
- *      expire into a forced destruction later;
- *   3. the active scope is cleared, so a write that still arrives cannot RECREATE the databases
- *      that are about to be deleted. That recreation is the expensive failure mode: the registry
- *      entry is gone by then, so the resurrected namespace is residue no later sweep can find;
- *   4. the brake's record is DISCARDED, because there is nothing to restore. The lock keeps a
+ *   2. the brake's record is DISCARDED, because there is nothing to restore. The lock keeps a
  *      frozen tab out of `onResumed` on its side too; belt and braces, since a reconnect here
- *      would pull a snapshot into a namespace that no longer exists.
+ *      would pull a snapshot into a namespace whose session is over.
  *
- * WHAT IT DOES NOT ACHIEVE, and this is written down rather than implied: a write that reaches the
- * repository after step 3 still lands somewhere. `ensureAtlasScope` (`repositories/local.repository.js`)
- * activates the LEGACY local scope when nothing is mounted, so a stray write goes to `ebgeo_maps`,
- * the user's local slot, instead of resurrecting the condemned namespace. That is the lesser evil
- * and the reason the freeze also shows the lock's blocking overlay: the gestures that would produce
- * such a write are the user's, and the overlay is what stops them.
+ * AND WHAT IT MUST NOT DO IS LET GO OF THE MOUNT LOCK, which is the one line of this module that
+ * cost a data loss. It used to release it (and clear the active scope with it), on the reasoning
+ * that a tab which stopped but kept the lock would leave the namespace standing and only push the
+ * destruction out to the 24 h reprieve. That reasoning traded the wrong thing away, because the
+ * mount lock is not a formality about WHEN the namespace dies: it is the only thing standing
+ * between the sibling's databases and the sweep. Measured, atlas Y open in the sibling: with the
+ * mount held the sweep reports `spared:[Y]` and both the data and the per-atlas outbound queue
+ * (`ebgeo__remote-Y`) survive; with it released the sweep reports `atlases:[Y]`, the data reads
+ * back `null` and the queue database is gone. So obeying the notice was what destroyed the tab the
+ * notice was invented to protect, unsynced work included, and that work has no rescue on this side
+ * (`preserveUnsyncedWorkAsLocal` only runs in the tab that logs out).
+ *
+ * THE TWO LOSSES, AND THE ONE THAT IS CHOSEN. Releasing loses the sibling's unsynced operations,
+ * irreversibly and with no gesture from its user. Keeping loses nothing of the user's, and costs
+ * this instead: a server atlas's data stays on this machine after somebody logged out, for as long
+ * as the frozen tab keeps the lock, and at most `SPARE_GRACE_MS` past the first sparing before a
+ * later sweep takes it by force. That residue is bounded, it is already the arbitrated behaviour
+ * for every sibling that does not answer the notice at all (an older-protocol tab, a freeze that
+ * throws), and the reprieve exists precisely to time-box it. Work destroyed under a live tab is
+ * bounded by nothing.
+ *
+ * WHICH IS ALSO WHY THE ACTIVE SCOPE STAYS. Clearing it was step 3 of the old design, and its whole
+ * job was to stop a stray write from RECREATING databases that had just been deleted, outside the
+ * registry, where no later sweep finds them. With the mount kept, those databases are not deleted:
+ * they are spared, still registered, and a write that slips through lands where it always did. The
+ * clearing would now be the harmful half, because `ensureAtlasScope`
+ * (`repositories/local.repository.js`) sends a scope-less write to the LEGACY `ebgeo_maps`, i.e.
+ * into the user's own local slot.
+ *
+ * THE EXCEPTION IS A RUNTIME WITH NO WEB LOCKS (plain HTTP, a hardened embedder), where
+ * `withExclusiveAtlasLock` is granted unconditionally and sparing is impossible by construction.
+ * There the databases really are going away whatever this tab does, so the freeze keeps the old
+ * behaviour: release, clear the scope, and accept the legacy bridge as the lesser evil.
+ *
+ * The freeze also shows the lock's blocking overlay in both regimes, because the gestures that
+ * would still produce a write are the user's, and the overlay is what stops them.
  *
  * THE PUBLIC VISITOR IS THE ONE TAB THAT DOES NOT FREEZE. It is anonymous by definition, so the
  * logout of some other identity says nothing about it, and it is protected by the mount lock it
@@ -90,7 +115,12 @@ import { syncEngine } from './sync-engine.js';
 import { connectionState } from './connection-state.js';
 import { sessionContext } from './session-context.js';
 import { startAutoFlush, stopAutoFlush, isAutoFlushRunning } from './sync-flush.js';
-import { getActiveScope, clearActiveScope, releaseMountLock } from '@store/atlas-namespace.js';
+import {
+    getActiveScope,
+    clearActiveScope,
+    releaseMountLock,
+    hasMountLockSupport
+} from '@store/atlas-namespace.js';
 import { setTabLockEffects } from '@utils/tab-lock.js';
 import { showWarning } from '@utils/toast_service.js';
 
@@ -211,6 +241,11 @@ export async function releaseSyncBrake() {
  * this tab never mounted): the sender then finds the namespace either unmounted, and destroys it,
  * or mounted by somebody else, and spares it.
  *
+ * STOPPING IS THE WHOLE ANSWER. The tab keeps its mount lock, so the sweep waiting on this ack
+ * finds the namespace mounted and SPARES it, data and outbound queue included; see the fileoverview
+ * for the two losses and which one is chosen. The mount is let go only where the lock does not
+ * exist, and there it buys nothing anyway.
+ *
  * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
  * @returns {Promise<boolean>} True when this tab held one of them and is now stopped.
  */
@@ -222,13 +257,16 @@ export async function applyTeardownFreeze(addresses) {
     if (sessionContext.isVisitor()) return false;
 
     await applySyncBrake();
-    // AWAITED, and before `clearActiveScope`: the release has to have LANDED for the sender's
-    // `exclusive ifAvailable` to be deterministic rather than a race with the lock queue.
-    // `clearActiveScope` fires its own release, but it neither targets a scope nor is awaitable.
-    await releaseMountLock(scope);
-    clearActiveScope();
-    // Nothing to put back: these databases are being deleted. Discarding the record is what keeps
-    // a later resume from reconnecting to them.
+    if (!hasMountLockSupport()) {
+        // No arbitration in this runtime: the sweep is granted whatever this tab holds, so the
+        // databases are going regardless and the only remaining job is to keep a stray write from
+        // recreating them outside the registry. AWAITED before `clearActiveScope`, which fires its
+        // own release but neither targets a scope nor is awaitable.
+        await releaseMountLock(scope);
+        clearActiveScope();
+    }
+    // Nothing to put back: this tab's session is over. Discarding the record is what keeps a later
+    // resume from reconnecting to an atlas nobody is entitled to any more.
     discardSyncBrakeRecord();
     return true;
 }

@@ -20,7 +20,7 @@
  * operation owned by the deletion of a named local atlas.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ============================================================================
 // A fake IndexedDB keyed by (database name, object store), so the test can see WHICH
@@ -558,6 +558,129 @@ describe('guarda de boot com um namespace remoto POUPADO', () => {
 
         expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
         expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+    });
+});
+
+// ============================================================================
+// O AVISO DE DESMONTAGEM NO BOOT
+//
+// A varredura destrutiva tem DOIS chamadores que significam "a sessão acabou": o logout e a
+// guarda de boot. O aviso existia só no primeiro, então o ramo `forced` (prazo de 24 h vencido)
+// destruía o namespace de uma aba VIVA sem que ela soubesse, que é exatamente o buraco que o
+// protocolo TEARDOWN existe para fechar.
+//
+// E o conserto óbvio (chamar `announceTabLockTeardown` aqui também) seria FANTASMA: `index.js`
+// só chama `initTabLock` DEPOIS que o boot da store termina, então no instante desta varredura
+// não existe lock nenhum nesta página e a função devolvia um relatório sem postar nada. Por isso
+// estes casos medem o que a VIZINHA recebeu, nunca o que a função devolveu.
+// ============================================================================
+
+describe('a varredura avisa as outras abas antes de destruir', () => {
+    /** @type {Array<{destroy: () => void}>} */
+    let abas = [];
+
+    afterEach(() => {
+        for (const aba of abas) aba.destroy();
+        abas = [];
+    });
+
+    /**
+     * Uma OUTRA ABA de verdade no canal real (`BroadcastChannel`), que é o transporte que a
+     * varredura usa quando não há lock de página. Ela responde ao aviso como a aba do mapa
+     * responde: "eu escrevo nesse endereço e já parei".
+     *
+     * @returns {Promise<{avisos: string[][], bancosNoAviso: number[]}>} O que ela recebeu, e
+     *   quantos bancos do namespace ainda tinham dado NO INSTANTE do aviso.
+     */
+    async function abaVizinhaEscutando() {
+        const { createTabLock, noneKey } = await import('@utils/tab-lock.js');
+        const recebido = { avisos: [], bancosNoAviso: [] };
+        abas.push(createTabLock({
+            key: noneKey(),
+            overlayHost: null,
+            onTeardown: (addresses) => {
+                recebido.avisos.push(addresses);
+                // A ORDEM, medida em vez de suposta: avisar depois de esvaziar é não avisar.
+                recebido.bancosNoAviso.push(remoteDatabasesStillHoldingSentinel(ATLAS_A).length);
+                return true;
+            }
+        }));
+        return recebido;
+    }
+
+    it('o boot deslogado avisa a vizinha, e avisa ANTES de esvaziar', async () => {
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedRemoteAtlas(ATLAS_A);
+        const recebido = await abaVizinhaEscutando();
+
+        await store.initializeWithLastActiveMap();
+
+        expect(recebido.avisos).toEqual([[`remote-${ATLAS_A}`]]);
+        expect(recebido.bancosNoAviso).toEqual([10]);
+    });
+
+    it('e avisa também no ramo FORÇADO, que é o que destrói uma aba viva', async () => {
+        // `sparedAt: 1` é um prazo vencido em 1970 e a outra aba segura a montagem: a varredura
+        // passa pelo braço `forced` e destrói mesmo assim. É o caso em que o aviso é a ÚNICA
+        // proteção que resta, e era justamente onde ele não existia.
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedRemoteAtlas(ATLAS_A);
+        seed(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`, {
+            atlasId: ATLAS_A, dbSuffix: `remote-${ATLAS_A}`, createdAt: 1, updatedAt: 1, sparedAt: 1
+        });
+        const soltar = await outraAbaMonta(ATLAS_A);
+        const recebido = await abaVizinhaEscutando();
+
+        await store.initializeWithLastActiveMap();
+        await soltar();
+
+        expect(recebido.avisos).toEqual([[`remote-${ATLAS_A}`]]);
+        // Positivo do cenário: a destruição forçada aconteceu mesmo. Sem isto, um boot que
+        // POUPASSE daria o mesmo verde acima e o caso estaria medindo outro braço.
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+    });
+
+    it('CONTROLE: sem namespace remoto registrado, ninguém é avisado à toa', async () => {
+        // O caso comum (usuário local, nenhum atlas de servidor nesta máquina). Também é o que
+        // impede o boot de pagar o tempo de assentamento do canal por nada.
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        const recebido = await abaVizinhaEscutando();
+
+        await store.initializeWithLastActiveMap();
+
+        expect(recebido.avisos).toEqual([]);
+    });
+
+    it('CONTROLE: o slot RESGATADO não é anunciado, porque o expurgo não o toca', async () => {
+        // A lista anunciada é a do expurgo, exclusão inclusa: o slot adotado conserva o sufixo
+        // `remote-<id>` e muda de registro. Anunciá-lo congelaria à toa a aba que o segura.
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedRemoteAtlas(ATLAS_A);
+        seed(GLOBAL_DATABASE, `local_atlas:slot-resgatado`, {
+            atlasId: 'slot-resgatado',
+            dbSuffix: `remote-${ATLAS_A}`,
+            nome: 'Trabalho recuperado',
+            createdAt: 1,
+            updatedAt: 1
+        });
+        // O boot monta esse slot (é o único do registro local); sem a versão de schema ele toma o
+        // caminho de instalação nova e descarta o subconjunto legado, o que apagaria metade das
+        // sentinelas por um motivo que não tem nada a ver com este caso.
+        seed(`ebgeo_app_settings__remote-${ATLAS_A}`, 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        const recebido = await abaVizinhaEscutando();
+
+        await store.initializeWithLastActiveMap();
+
+        expect(recebido.avisos).toEqual([]);
+        // Positivo: o cenário é mesmo o do resgate, e o dado ficou de pé por causa dele.
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
     });
 });
 

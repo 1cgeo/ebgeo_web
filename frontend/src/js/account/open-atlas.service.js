@@ -11,9 +11,16 @@
  * namespace per atlas the wipe lands on the namespace being OPENED, so the user's local slot keeps
  * its data on disk and comes back on the next logout. The three-way question below is therefore
  * more conservative than it needs to be; it stays because its "Salvar e continuar" branch is the
- * only one that puts local work on the SERVER, and because it is still the truth for the one case
- * where the two namespaces coincide (an atlas rescued by `adoptRemoteAtlasAsLocal` keeps the
- * `remote-<atlasId>` suffix, so re-opening that same server atlas does empty it).
+ * only one that puts local work on the SERVER.
+ *
+ * THE ONE CASE WHERE THE TWO NAMESPACES REALLY COINCIDE has a question of its own now
+ * (`confirmDiscardingRescuedWork`), and it used to have none: an atlas rescued by
+ * `adoptRemoteAtlasAsLocal` keeps the `remote-<atlasId>` suffix, so re-opening that same server
+ * atlas empties the rescue. The generic question above did not cover it — it reads the MOUNTED
+ * store, and the rescued slot need not be mounted — and where it did fire, its wording promised a
+ * replacement of "local work" rather than the deletion of the work the app had told the user it was
+ * keeping for them. Worse, the open left the namespace claimed by BOTH registries, which spares
+ * server data from every later logout sweep.
  *
  * This is the SINGLE place the local-work guard lives. It used to be duplicated in
  * `AccountControl.openProjectPicker`, which fired it when the picker OPENED — i.e. right after every
@@ -53,7 +60,12 @@ import {
     activateAtlasInitialMap,
     activateRemoteAtlas,
 } from '@store/store.js';
-import { createLocalAtlas, mountLocalAtlas } from '@store/local-atlas.api.js';
+import {
+    createLocalAtlas,
+    localAtlasAdoptingRemote,
+    mountLocalAtlas,
+    releaseAdoptedLocalAtlas,
+} from '@store/local-atlas.api.js';
 import { getActiveScope, remoteAtlasIdFromDbSuffix, StoreScopeKind } from '@store/atlas-namespace.js';
 import { ensureAtlasScope } from '@store/repositories/local.repository.js';
 import {
@@ -300,6 +312,79 @@ async function saveLocalWorkToServer() {
 }
 
 /**
+ * Asks what to do with the work in the CURRENT local store before it is replaced.
+ *
+ * Extracted from `openRemoteAtlas` so the rescue question below can REPLACE it instead of queueing
+ * a second modal behind it: when the atlas being opened is the one a rescue came from, the two
+ * questions are about the same bytes and the rescue one says something this one cannot.
+ *
+ * @returns {Promise<boolean>} True when the open may continue.
+ */
+async function confirmReplacingLocalWork() {
+    // Opening a remote atlas REPLACES the local store. When that store is the user's own LOCAL
+    // workspace with work in it, the honest answer set has three members — a two-button confirm
+    // would hide the one people actually want ("keep it AND open the project").
+    if (isRemoteStoreSync() || !await hasAnyMapFeatures()) return true;
+
+    const choice = await showChoice('Você tem trabalho local não salvo', {
+        message: 'Abrir este projeto do servidor substitui os dados que estão abertos agora.',
+        choices: [
+            { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
+            { id: 'save', label: 'Salvar e continuar', variant: 'primary' },
+            { id: 'discard', label: 'Descartar e abrir', variant: 'danger' },
+        ],
+    });
+    // Dismissing (Esc/backdrop) resolves null and must behave exactly like Cancelar.
+    if (choice !== 'save' && choice !== 'discard') return false;
+    if (choice === 'save') return await saveLocalWorkToServer();
+    return true;
+}
+
+/**
+ * Asks before opening the server atlas a RESCUE came from, which is the one open that still
+ * destroys data the user was promised would be kept.
+ *
+ * THE SEQUENCE THIS EXISTS FOR, and every step of it is an ordinary gesture: a session dies with
+ * unsynced operations, so `preserveUnsyncedWorkAsLocal` adopts the namespace as a local slot and
+ * the user is TOLD the work was kept on this computer; the user logs back in and reopens THE SAME
+ * project; the wipe on the way in lands on `remote-<atlasId>`, which is literally the rescued slot's
+ * ten databases (`adoptRemoteAtlasAsLocal` moves the claim, never the bytes). The work is gone, the
+ * slot stays in the list and empty, and the namespace ends up claimed by BOTH registries forever,
+ * which makes `purgeAllRemoteAtlases` spare server data at every logout from then on.
+ *
+ * WHY ASK, and what was rejected. Deleting the rescue silently is what the code already did and is
+ * the whole defect. Opening the server atlas under a SECOND address was the other candidate: it
+ * would need `remoteScope` to stop being one namespace per atlas, and that identity is what the
+ * logout sweep, the tab-lock address comparison and the rescue itself are all derived from, so the
+ * cure would cost more than the disease. That leaves asking, and the answer set is deliberately two
+ * members: the reversible one, and the destructive one the user typed out for themselves.
+ *
+ * "SALVAR E CONTINUAR" IS NOT OFFERED HERE ON PURPOSE, although the sibling question has it:
+ * `saveLocalWorkToServer` uploads the MOUNTED store, and the rescued slot is only sometimes the
+ * mounted one (another tab may hold it, and the pointer may have moved). A button whose meaning
+ * depends on invisible state is worse than a button that is not there — so the message spells out
+ * the route that always works, which is the one the logout toast already promised.
+ *
+ * @param {import('@store/local-atlas.api.js').LocalAtlasEntry} rescued - The local slot claiming
+ *   this atlas's namespace.
+ * @returns {Promise<boolean>} True when the user chose to discard the rescue and open.
+ */
+async function confirmDiscardingRescuedWork(rescued) {
+    const choice = await showChoice('Este projeto tem trabalho resgatado neste computador', {
+        message:
+            `Quando sua sessão caiu, as alterações que ainda não tinham subido para o servidor foram `
+            + `guardadas aqui como o projeto local "${rescued.name}". Ele ocupa o mesmo espaço deste `
+            + `projeto do servidor, então abrir agora apaga o resgate.\n\n`
+            + `Para não perder nada: cancele, volte ao mapa local e use "Salvar no servidor".`,
+        choices: [
+            { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
+            { id: 'discard', label: 'Descartar o resgate e abrir', variant: 'danger' },
+        ],
+    });
+    return choice === 'discard';
+}
+
+/**
  * Opens a remote atlas, optionally landing on a specific map.
  *
  * Replaces the local store, so when the current store is the user's own LOCAL workspace with unsaved
@@ -328,29 +413,20 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
         return false;
     }
 
-    // Opening a remote atlas REPLACES the local store. When that store is the user's own LOCAL
-    // workspace with work in it, the honest answer set has three members — a two-button confirm
-    // would hide the one people actually want ("keep it AND open the project").
-    if (!isRemoteStoreSync() && await hasAnyMapFeatures()) {
-        const choice = await showChoice('Você tem trabalho local não salvo', {
-            message: 'Abrir este projeto do servidor substitui os dados que estão abertos agora.',
-            choices: [
-                { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
-                { id: 'save', label: 'Salvar e continuar', variant: 'primary' },
-                { id: 'discard', label: 'Descartar e abrir', variant: 'danger' },
-            ],
-        });
-        // Dismissing (Esc/backdrop) resolves null and must behave exactly like Cancelar.
-        // Either way this tab claimed a remote atlas it is not going to open, so the claim goes
-        // back to whatever it really holds; leaving it standing would block the next tab for free.
-        if (choice !== 'save' && choice !== 'discard') {
-            syncAtlasLockKey();
-            return false;
-        }
-        if (choice === 'save' && !(await saveLocalWorkToServer())) {
-            syncAtlasLockKey();
-            return false;
-        }
+    // WHOSE WORK THIS WIPE WOULD DESTROY, asked of the local REGISTRY and not of the mounted
+    // scope. A rescued slot claims the very namespace this open is about to empty, and it does not
+    // have to be the atlas this tab has mounted for that to be true: another tab may hold it, and
+    // the local pointer may have moved on. Reading the registry is what makes the question fire in
+    // those cases too, and it comes BEFORE anything destructive so "Cancelar" costs nothing.
+    const rescued = await localAtlasAdoptingRemote(atlasId);
+    const proceed = rescued
+        ? await confirmDiscardingRescuedWork(rescued)
+        : await confirmReplacingLocalWork();
+    // A refusal leaves this tab holding a claim on an atlas it is not going to open, so the claim
+    // goes back to whatever it really holds; leaving it standing would block the next tab for free.
+    if (!proceed) {
+        syncAtlasLockKey();
+        return false;
     }
 
     // Switching atlases: close any previous server connection first (one socket per atlas — the
@@ -373,6 +449,13 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // namespace this tab has just claimed, which is the only one it may destroy.
     try {
         await activateRemoteAtlas(atlasId);
+        // AND ONLY NOW the rescue's claim goes away, never before. Registering the remote claim
+        // first means a crash between the two lines leaves the namespace claimed TWICE, which is
+        // exactly the rescued state and heals itself at the next sweep (`adopted`, stale remote key
+        // dropped). Releasing first would leave a window with NO claim at all, and unclaimed data
+        // is the one outcome the two registries exist to prevent. Nothing has been emptied yet
+        // either way: the wipe is the next statement.
+        if (rescued) await releaseAdoptedLocalAtlas(atlasId);
     } catch (error) {
         // The registry write comes first inside it, so a failure here activated NOTHING and wrote
         // nothing. Retract, or every other tab stays locked out on behalf of an atlas this one

@@ -44,6 +44,7 @@ import {
     dropAtlasDatabases,
     localScope,
     bootTabMountPointer,
+    readLocalAtlasRegistry,
     remoteAtlasRegistryKey,
     remoteScope
 } from './atlas-namespace.js';
@@ -521,6 +522,95 @@ export async function adoptRemoteAtlasAsLocal(atlasId, name) {
     // leaving it REMOTE would let the next logged-out purge treat it as server data.
     if (getActiveScope()?.dbSuffix === dbSuffix) {
         activateScope(scopeOfLocalAtlas(entry));
+    }
+
+    return { ok: true, atlas: { ...entry } };
+}
+
+/**
+ * The LOCAL slot that claims the namespace of one SERVER atlas, if there is one. That slot only
+ * ever comes from `adoptRemoteAtlasAsLocal`, so this is "was work of this project rescued on this
+ * machine".
+ *
+ * IT READS THE DISK, never the in-memory mirror, for the reason the remote registry states as its
+ * property 3: the rescue may have happened in ANOTHER TAB after this one loaded its registry, and
+ * a caller that misses the claim opens the server atlas over the rescued work.
+ *
+ * `describeRemoteNamespaceClaim` (`atlas-namespace.js`) answers the same question with a word;
+ * this answers it with the ENTRY, because the caller has to name the slot to the user and has to
+ * be able to release it.
+ *
+ * @param {string} atlasId - Server atlas id.
+ * @returns {Promise<LocalAtlasEntry|null>} A copy of the claiming entry, or null.
+ */
+export async function localAtlasAdoptingRemote(atlasId) {
+    let dbSuffix;
+    try {
+        ({ dbSuffix } = remoteScope(atlasId));
+    } catch {
+        // An id that cannot name a namespace is claimed by nobody. Same rule as
+        // `describeRemoteNamespaceClaim`: refusing loudly here would turn a corrupt URL into a
+        // crash on a path whose whole job is to ask a question.
+        return null;
+    }
+    const entry = (await readLocalAtlasRegistry()).find(e => e?.dbSuffix === dbSuffix);
+    return entry ? { ...entry } : null;
+}
+
+/**
+ * Gives the namespace of a rescued slot BACK to the remote registry: removes the local claim and
+ * moves ZERO bytes. It is the exact inverse of `adoptRemoteAtlasAsLocal`.
+ *
+ * WHO CALLS IT AND WHY. Re-opening the very server atlas a rescue came from is the one open that
+ * still lands on databases the user cares about (`account/open-atlas.service.js`): the rescued slot
+ * and the server atlas ARE the same ten databases. Opening while both registries name them leaves
+ * the namespace claimed twice and permanently, and `purgeAllRemoteAtlases` then reports it
+ * `adopted` and spares it, so server data stays readable after a logout, which is the one
+ * invariant `remote-atlas.api.js` may not break. Before this existed the wipe simply destroyed the
+ * rescue and left that double claim behind.
+ *
+ * THE CALLER REGISTERS THE REMOTE CLAIM FIRST AND RELEASES AFTERWARDS, and that order is the same
+ * "register before you write" the adoption obeys in reverse: a crash in between leaves BOTH claims,
+ * which is the rescued state and heals itself (the next sweep sees `adopted` and drops the stale
+ * remote key). Releasing first would leave a window in which NOBODY claims the namespace, and
+ * unclaimed data is the outcome this design may not produce.
+ *
+ * IT DOES NOT DELETE A DATABASE. The caller mounts that same namespace as the server atlas one
+ * line later and empties it there; dropping here would delete a database that is about to be
+ * reopened, for nothing.
+ *
+ * @param {string} atlasId - Server atlas id whose namespace goes back to the remote registry.
+ * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }` with the released entry, or
+ *   `{ ok: true, atlas: null }` when no local slot claimed it. Idempotent by design: "no claim to
+ *   release" is the end state the caller asked for, not a refusal to report to the user.
+ * @throws {Error} When `atlasId` is not an opaque server id (caller bug).
+ */
+export async function releaseAdoptedLocalAtlas(atlasId) {
+    const { dbSuffix } = remoteScope(atlasId);
+    const globalStore = getGlobalStore();
+
+    // From disk, like the reader above: the tab that rescued the work may not be this one.
+    const entry = (await readLocalAtlasRegistry()).find(e => e?.dbSuffix === dbSuffix) ?? null;
+    if (!entry) return { ok: true, atlas: null };
+
+    await globalStore.removeItem(localAtlasRegistryKey(entry.id));
+
+    // Mirror AFTER the disk (the rule `adoptRemoteAtlasAsLocal` writes out): a mirror that drops
+    // the slot while the key survives would hide from this tab a claim the next boot honours.
+    if (_entries !== null) {
+        const index = _entries.findIndex(e => e.id === entry.id);
+        if (index !== -1) _entries.splice(index, 1);
+    }
+
+    if (_currentId === entry.id) {
+        // The pointer cannot stay on a slot that no longer exists. Null is a legal value here:
+        // `initLocalAtlases` falls back to the most recently touched slot, and bootstraps one when
+        // the registry ends up empty (the released slot may have been the only one, and refusing
+        // for that reason would mean keeping a claim the user asked to drop).
+        _currentId = _entries?.length
+            ? [..._entries].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+            : null;
+        await globalStore.setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
     }
 
     return { ok: true, atlas: { ...entry } };

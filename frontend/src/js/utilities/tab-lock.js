@@ -266,6 +266,16 @@
  * Worse, a write arriving after the emptying RECREATES those databases, now outside the registry,
  * which is residue no later sweep can find.
  *
+ * THE NOTICE IS INFORMATION, NEVER A HANDOVER, and conflating the two cost a data loss. The first
+ * version of the receiver's effect released the MOUNT LOCK as part of freezing, on the reading that
+ * a tab which stopped but kept the lock would only postpone the destruction to the reprieve. But
+ * the lock is not bookkeeping about WHEN: it is the arbitration itself, the one thing between the
+ * sibling's databases (its unsynced outbound queue included, since the queue is per atlas) and the
+ * sweep. So obeying the notice was what destroyed the tab the notice exists to protect. The
+ * receiver stops writing and KEEPS the lock; the sender then finds the namespace mounted and spares
+ * it, exactly as it would have without the notice. The rationale, the measurements and the residue
+ * this chooses to accept are in `store/sync/tab-lock-sync-brake.js`.
+ *
  * THE NOTICE IS ADDRESSED BY A SET OF ADDRESSES, NEVER BY `keysCollide`, and this is the one
  * design decision here that is easy to get wrong in a way that works today and stops working
  * exactly when it matters. `_handleTakeover` returns early when the keys do not collide; the pair
@@ -292,8 +302,10 @@
  *
  * A FROZEN TAB DOES NOT COME BACK. It retracts its key (it no longer holds that atlas, so keeping
  * the claim would lock everyone else out of an atlas nobody has), shows an overlay that offers a
- * reload, and is pinned out of `_leaveBlocked` forever: its databases are being deleted, so an
- * `onResumed` that reconnected would be a reconnect to nothing. Only a reload clears it.
+ * reload, and is pinned out of `_leaveBlocked` forever: the session behind that atlas is over, so
+ * an `onResumed` that reconnected would be a reconnect nobody is entitled to. Only a reload clears
+ * it, and the overlay says what a reload costs, because the reload is what finally lets the next
+ * logged-out sweep take the namespace this tab is holding open.
  *
  * ===========================================================================
  * 9. DEGRADED PATH (no BroadcastChannel)
@@ -337,8 +349,11 @@
  *     the EFFECTS through `installTabLockSyncBrake` (`store/sync/tab-lock-sync-brake.js`),
  *     which is what turns a block into a real stop, an unblock into a real reconnect, and an
  *     unmount notice into a real freeze.
- *   - `account/account.control.js` announces the notice on the logout path, with the addresses
- *     read from the remote registry, BEFORE it empties or destroys anything.
+ *   - `store/store.js` announces the notice, with the addresses read from the remote registry,
+ *     BEFORE the sweep empties or destroys anything. It is bound to the sweep
+ *     (`discardRemoteAtlasNamespaces`) and not to the logout, because the logged-out BOOT GUARD
+ *     runs that same sweep and used to warn nobody; on that path there is no singleton yet, which
+ *     is what `announceTabLockTeardown` builds a throwaway participant for.
  *   - `open-atlas.service.js` owns every claim of an atlas: `claimRemoteAtlas` before an
  *     open, `clearMountedAtlasIfGranted` before a boot wipe, `syncAtlasLockKey` on the live
  *     changes, `retractAtlasClaim` on a claim it cannot honour.
@@ -435,12 +450,20 @@ const OVERLAY_TEXT = Object.freeze({
         + 'por lá, ou traga o controle para cá.'
 });
 
-/** Wording of the FROZEN state (section 8): the databases of this tab are being destroyed. */
+/**
+ * Wording of the FROZEN state (section 8): the session behind this tab's atlas ended elsewhere.
+ *
+ * It used to say the data was being removed and that reloading was how to continue, and both
+ * halves became false when the freeze stopped releasing the mount lock: the namespace is SPARED
+ * while this tab holds it, and the reload is precisely what hands it to the next sweep. A message
+ * that tells someone to press the button that discards their unsent work is worse than no message.
+ */
 const TEARDOWN_OVERLAY = Object.freeze({
     title: 'Este projeto foi encerrado em outra aba',
-    message: 'Outra aba saiu da conta, e os dados deste projeto estão sendo removidos deste '
-        + 'computador. Esta aba parou de gravar para não recriá-los. Recarregue a página para '
-        + 'continuar.',
+    message: 'Outra aba saiu da conta, então este projeto do servidor não pode mais ser editado '
+        + 'aqui: esta aba parou de gravar. O que ainda não foi enviado continua guardado neste '
+        + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o projeto para '
+        + 'enviá-lo; recarregar esta aba antes disso descarta esse trabalho.',
     button: 'Recarregar'
 });
 
@@ -615,6 +638,27 @@ export function findBlockingPeer(self, peers) {
         if (!blocker || compareClaims(peer, blocker) < 0) blocker = peer;
     }
     return blocker;
+}
+
+/**
+ * @param {string[]|*} addresses - Whatever a caller passed.
+ * @returns {string[]} De-duplicated `dbSuffix` strings, safe to broadcast.
+ */
+function normalizeTeardownAddresses(addresses) {
+    return [...new Set(
+        (Array.isArray(addresses) ? addresses : [])
+            .filter(address => typeof address === 'string')
+    )];
+}
+
+/**
+ * @param {string[]} list - Addresses the notice is about.
+ * @param {boolean} degraded - Whether the announcer had no transport.
+ * @returns {{addresses: string[], peers: number, acked: number, frozen: number,
+ *   timedOut: boolean, degraded: boolean}} A report saying nothing happened.
+ */
+function emptyTeardownReport(list, degraded) {
+    return { addresses: list, peers: 0, acked: 0, frozen: 0, timedOut: false, degraded };
 }
 
 /**
@@ -965,18 +1009,8 @@ class TabLock {
      *   one of the addresses and stopped.
      */
     async announceTeardown(addresses, { timeoutMs = this._teardownTimeoutMs } = {}) {
-        const list = [...new Set(
-            (Array.isArray(addresses) ? addresses : [])
-                .filter(address => typeof address === 'string')
-        )];
-        const report = {
-            addresses: list,
-            peers: 0,
-            acked: 0,
-            frozen: 0,
-            timedOut: false,
-            degraded: this._degraded
-        };
+        const list = normalizeTeardownAddresses(addresses);
+        const report = emptyTeardownReport(list, this._degraded);
         if (this._degraded || this._destroyed || list.length === 0) return report;
 
         const pending = new Set(this._livePeers().map(peer => peer.tabId));
@@ -1511,14 +1545,38 @@ export function setTabLockEffects(handlers = {}) {
 }
 
 /**
- * Announces on the page's lock that these database addresses are about to be destroyed, and waits
- * for the tabs writing to them to stop (section 8). The logout path calls it
- * (`account/account.control.js`) BEFORE it empties or destroys anything.
+ * Announces that these database addresses are about to be destroyed, and waits for the tabs
+ * writing to them to stop (section 8). Every path that means "the session is over" calls it
+ * BEFORE it empties or destroys anything; both of them reach it through
+ * `store/store.js discardRemoteAtlasNamespaces`.
  *
- * IT DOES NOT CREATE THE LOCK, unlike every other function here. A caller that runs before
- * `initTabLock` (the boot guard is one) has no peers to warn through this page anyway, and
- * building the singleton here would give it the DEFAULT options, including an overlay mounted on
- * `document.body`, behind the back of the page that owns the real configuration.
+ * IT DOES NOT BECOME THE PAGE'S LOCK, and it used to answer `degraded: true` and warn nobody when
+ * there was none. That silence had a real victim: the logged-out BOOT GUARD runs the same
+ * destructive sweep as the logout, and it runs INSIDE the store boot, which `index.js` finishes
+ * before it calls `initTabLock`. So the one caller that most needed the notice was structurally
+ * incapable of sending it, and a one-line "just announce here too" fix would have been a call that
+ * returns a report and posts nothing.
+ *
+ * What it does instead is join the channel as a THROWAWAY participant: `none` key (it holds no
+ * atlas, so it collides with nobody and blocks nobody), no overlay, no heartbeat, destroyed in the
+ * `finally`. It is never stored in `_instance`, because the page that owns the real configuration
+ * has not spoken yet and inheriting the defaults here would mount an overlay on `document.body`
+ * behind its back.
+ *
+ * IT HAS TO LET THE PEERS ANSWER FIRST, and it does that in TURNS OF THE EVENT LOOP, never with a
+ * timer. `announceTeardown` waits for one ack per peer it KNOWS ABOUT, and a participant born a
+ * microsecond ago knows about nobody, so with no pause at all it would post the notice, count zero
+ * peers and return: the same silence in a louder shape. A `setTimeout` pause was the obvious fix
+ * and the wrong one, because this runs inside a logout and inside a boot, both of which are driven
+ * by harnesses that freeze the clock, and a settle that waits on a frozen timer does not delay the
+ * sweep, it hangs it. A BroadcastChannel delivery IS a task, so turns are also the honest unit.
+ *
+ * WHAT THAT BUYS AND WHAT IT DOES NOT. In one process (and for a responsive peer, which also has
+ * the whole of the caller's registry reads to answer in) the round trip lands inside a handful of
+ * turns. A peer too busy to answer in that window is simply not waited for: it still RECEIVES the
+ * notice and freezes a moment later, and the destruction it might have raced is still gated by its
+ * mount lock, which spares the namespace. Silence degrading to "spared" is the same safe direction
+ * the whole protocol is built on (section 8).
  *
  * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
  * @param {{timeoutMs?: number}} [options]
@@ -1526,12 +1584,58 @@ export function setTabLockEffects(handlers = {}) {
  *   timedOut: boolean, degraded: boolean}>}
  */
 export function announceTabLockTeardown(addresses, options = {}) {
-    if (!_instance) {
-        return Promise.resolve({
-            addresses: [], peers: 0, acked: 0, frozen: 0, timedOut: false, degraded: true
-        });
+    if (_instance) return _instance.announceTeardown(addresses, options);
+    return announceTeardownWithoutPage(addresses, options);
+}
+
+/**
+ * One turn of the event loop, without a timer (see {@link announceTabLockTeardown}).
+ * @returns {Promise<void>}
+ */
+function nextTurn() {
+    return new Promise(resolve => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+            channel.port1.close();
+            resolve();
+        };
+        channel.port2.postMessage(0);
+    });
+}
+
+/**
+ * How many turns the throwaway announcer gives the peers to state their claim. Generous because a
+ * turn costs microseconds when nobody answers, and the loop stops at the first peer anyway.
+ */
+const PEER_DISCOVERY_TURNS = 20;
+
+/**
+ * The throwaway announcer described in {@link announceTabLockTeardown}.
+ * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
+ *   timedOut: boolean, degraded: boolean}>}
+ */
+async function announceTeardownWithoutPage(addresses, { timeoutMs } = {}) {
+    const list = normalizeTeardownAddresses(addresses);
+    // Nothing to say, so nothing is built: this is the ordinary case (no server namespace has
+    // ever been registered on this machine) and it must cost neither a channel nor a turn.
+    if (list.length === 0) return emptyTeardownReport(list, false);
+
+    // The constructor posts the HELLO, so the peers are already answering while this waits.
+    const announcer = new TabLock({ key: noneKey(), overlayHost: null, autoPulse: false });
+    try {
+        if (announcer.degraded) return emptyTeardownReport(list, true);
+        for (let turn = 0; turn < PEER_DISCOVERY_TURNS && announcer.peers().length === 0; turn++) {
+            await nextTurn();
+        }
+        return await announcer.announceTeardown(
+            list,
+            timeoutMs === undefined ? {} : { timeoutMs }
+        );
+    } finally {
+        announcer.destroy();
     }
-    return _instance.announceTeardown(addresses, options);
 }
 
 /** Retracts the key (403/404, or any revert to holding nothing). @returns {void} */

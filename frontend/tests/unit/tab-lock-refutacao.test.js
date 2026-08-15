@@ -49,6 +49,157 @@ const read = (rel) => readFileSync(resolve(SRC, rel), 'utf8');
 const ATLAS_A = '11111111-1111-4111-8111-111111111111';
 const ATLAS_B = '22222222-2222-4222-8222-222222222222';
 
+// =============================================================================================
+// CUTTING SOURCE AT A SYNTACTIC BOUNDARY
+//
+// Several cases below assert something NEGATIVE about one function ("this one does not call
+// `clearAllDataStore`"), and a negative assertion is worth exactly the cut it reads. These cuts
+// used to be character windows (`fn.slice(0, 800)`), which fail in BOTH directions and fail
+// QUIETLY:
+//
+//   too short - the forbidden call moves past the end and the case stays green. Measured: a wipe
+//               reintroduced INSIDE `openAtlasChooserOnBoot` and pushed past character 800 by
+//               comments left the three files that could catch it at 63 passed, 0 failed.
+//   too long  - the window runs into the NEXT function, so the case reports on code it never
+//               meant to name. Same measurement: that function is 460 characters long, so the
+//               800-character window was reading `initApp` and file-level comments.
+//
+// A window also rots on its own: source only ever grows, so a green window is indistinguishable
+// from a window that stopped looking. So the cut is the BLOCK, brace-matched, and every cut
+// asserts that what it got is what the caller named.
+// =============================================================================================
+
+/**
+ * Blanks out comments and string/template bodies while PRESERVING LENGTH, so brace scanning sees
+ * structure only. Offsets into the result address the same characters as in the input, which is
+ * what lets the caller slice the ORIGINAL text with indices computed here.
+ * @param {string} source - JavaScript source text.
+ * @returns {string} Same-length text with literal and comment content replaced by spaces.
+ */
+function maskLiterals(source) {
+    const out = [...source];
+    const n = source.length;
+    const blank = (at) => { if (at < n && source[at] !== '\n') out[at] = ' '; };
+    let i = 0;
+    while (i < n) {
+        const c = source[i];
+        const next = source[i + 1];
+        if (c === '/' && next === '/') {
+            while (i < n && source[i] !== '\n') { blank(i); i++; }
+        } else if (c === '/' && next === '*') {
+            blank(i); blank(i + 1); i += 2;
+            while (i < n && !(source[i] === '*' && source[i + 1] === '/')) { blank(i); i++; }
+            blank(i); blank(i + 1); i += 2;
+        } else if (c === '"' || c === '\'' || c === '`') {
+            i++;
+            while (i < n) {
+                if (source[i] === '\\') { blank(i); blank(i + 1); i += 2; continue; }
+                if (source[i] === c) { i++; break; }
+                blank(i); i++;
+            }
+        } else {
+            i++;
+        }
+    }
+    return out.join('');
+}
+
+/**
+ * Probe of the masker, which is itself a verifier and would otherwise break quietly: a whole JS
+ * file has balanced braces once comments and literals are out, and a brace left inside a masked
+ * literal (a regex literal with an odd quote, say) shows up here as an imbalance instead of as a
+ * silently truncated cut downstream.
+ * @param {string} masked - Output of `maskLiterals`.
+ * @returns {void}
+ */
+function expectMaskIsSane(masked) {
+    let depth = 0;
+    let lowest = 0;
+    for (const ch of masked) {
+        if (ch === '{') {
+            depth++;
+        } else if (ch === '}') {
+            depth--;
+            if (depth < lowest) { lowest = depth; }
+        }
+    }
+    expect(lowest, 'chaves desbalanceadas apos o mascaramento').toBe(0);
+    expect(depth, 'chaves desbalanceadas apos o mascaramento').toBe(0);
+}
+
+/**
+ * @param {string} masked - Output of `maskLiterals`.
+ * @param {number} open - Index of the `{` that opens the block.
+ * @returns {number} Index of the `}` that closes it.
+ */
+function matchBrace(masked, open) {
+    let depth = 0;
+    for (let i = open; i < masked.length; i++) {
+        if (masked[i] === '{') depth++;
+        else if (masked[i] === '}' && --depth === 0) return i;
+    }
+    throw new Error(`bloco aberto em ${open} nunca fecha`);
+}
+
+/**
+ * The full text of ONE function declaration, from its header to its own closing brace.
+ * @param {string} source - JavaScript source text.
+ * @param {string} header - Declaration header, e.g. `async function openAtlasChooserOnBoot`.
+ * @returns {string} The function's text, cut at the brace that closes it.
+ */
+function functionText(source, header) {
+    const masked = maskLiterals(source);
+    expectMaskIsSane(masked);
+    const start = masked.indexOf(header);
+    expect(start, `cabecalho ausente: ${header}`).toBeGreaterThan(-1);
+    expect(masked.indexOf(header, start + 1), `cabecalho ambiguo: ${header}`).toBe(-1);
+    // The body brace is the first `{` outside the parameter list: a destructured parameter
+    // (`unmountCurrentAtlas({ clearQueue = true } = {})`) opens a brace before the body does.
+    let parens = 0;
+    let open = -1;
+    for (let i = start + header.length; i < masked.length; i++) {
+        const c = masked[i];
+        if (c === '(') {
+            parens++;
+        } else if (c === ')') {
+            parens--;
+        } else if (c === '{' && parens === 0) {
+            open = i;
+            break;
+        }
+    }
+    expect(open, `corpo nao encontrado: ${header}`).toBeGreaterThan(-1);
+    const text = source.slice(start, matchBrace(masked, open) + 1);
+    // O recorte E o que o chamador pensa que e: comeca no cabecalho pedido, fecha, e carrega UMA
+    // declaracao de topo, nunca a seguinte. Sem esta conferencia o recorte errado passa
+    // despercebido, que e exatamente como a janela de caracteres silenciava.
+    expect(text.startsWith(header)).toBe(true);
+    expect(text.endsWith('}')).toBe(true);
+    const decls = maskLiterals(text).match(/^(?:export\s+)?(?:async\s+)?function\s+\w+/gm) ?? [];
+    expect(decls, `o recorte transbordou a funcao: ${header}`).toHaveLength(1);
+    return text;
+}
+
+/**
+ * The full text of ONE object literal, addressed by the code that opens it.
+ * @param {string} source - JavaScript source text.
+ * @param {string} header - Text ending at (or before) the literal's `{`.
+ * @returns {string} The literal's text, cut at the brace that closes it.
+ */
+function objectText(source, header) {
+    const masked = maskLiterals(source);
+    expectMaskIsSane(masked);
+    const start = masked.indexOf(header);
+    expect(start, `entrada ausente: ${header}`).toBeGreaterThan(-1);
+    expect(masked.indexOf(header, start + 1), `entrada ambigua: ${header}`).toBe(-1);
+    const open = masked.indexOf('{', start);
+    expect(open, `entrada sem bloco: ${header}`).toBeGreaterThan(-1);
+    const text = source.slice(start, matchBrace(masked, open) + 1);
+    expect(text.startsWith(header)).toBe(true);
+    expect(text.endsWith('}')).toBe(true);
+    return text;
+}
+
 /** Hub with buffering, per-message dropping, and delayed (busy-peer) delivery. */
 function createHub() {
     const endpoints = [];
@@ -96,6 +247,56 @@ function createHub() {
         kill(transport) { transport._endpoint.dead = true; transport._endpoint.receiver = null; }
     };
 }
+
+describe('ATAQUE 0 - o recorte, sondado contra si mesmo', () => {
+    // O recorte e um verificador, e verificador quebra calado: enquanto ele foi uma janela de
+    // caracteres, ninguem tinha medido o que ele lia. Estas asercoes rodam o MESMO helper que os
+    // casos de baixo, sobre um fonte sintetico onde a resposta certa e conhecida.
+    const FONTE = [
+        '// Path: js/falso.js',
+        '',
+        '/** Doc com chave solta { e apostrofo de prosa: don\'t. */',
+        'async function alvo() {',
+        `    // ${'x'.repeat(900)}`,
+        '    const s = "}}} nada disso fecha bloco {{{";',
+        '    await clearAllDataStore();',
+        '}',
+        '',
+        'async function vizinha() {',
+        '    await clearAllDataStore();',
+        '}',
+        ''
+    ].join('\n');
+
+    it('0.1: o recorte alcanca o fim da funcao, e a janela de 800 caracteres NAO alcancava', () => {
+        const alvo = functionText(FONTE, 'async function alvo');
+        expect(alvo).toMatch(/await clearAllDataStore\(\)/);
+        // CONTROLE NEGATIVO, e e o defeito que este helper existe para fechar: o mesmo recorte,
+        // truncado como antes, nao ve a chamada, entao o `not.toMatch` passava verde.
+        expect(alvo.slice(0, 800)).not.toMatch(/await clearAllDataStore\(\)/);
+    });
+
+    it('0.2: o recorte para no fecho da funcao e nao le a seguinte, mesmo quando ela e curta', () => {
+        expect(functionText(FONTE, 'async function alvo')).not.toMatch(/vizinha/);
+        const curto = 'function a() {\n    return 1;\n}\n\nfunction b() {\n    clearAllDataStore();\n}\n';
+        // Uma janela de 800 aqui leria as DUAS funcoes; o recorte le uma.
+        expect(curto.slice(curto.indexOf('function a'), 800)).toMatch(/clearAllDataStore/);
+        expect(functionText(curto, 'function a')).not.toMatch(/clearAllDataStore/);
+        expect(functionText(curto, 'function b')).toMatch(/clearAllDataStore/);
+    });
+
+    it('0.3: chave dentro de comentario, de string e de parametro desestruturado nao desloca o corte', () => {
+        const params = 'function f({ a = 1 } = {}) {\n    return "{";\n}\nfunction g() { return 2; }\n';
+        expect(functionText(params, 'function f')).toBe('function f({ a = 1 } = {}) {\n    return "{";\n}');
+        expect(objectText('const x = Object.freeze({ id: Q, flag: false });\n',
+            'Object.freeze({ id: Q')).toBe('Object.freeze({ id: Q, flag: false }');
+    });
+
+    it('0.4: cabecalho ausente ou ambiguo FALHA, em vez de devolver um recorte qualquer', () => {
+        expect(() => functionText(FONTE, 'async function inexistente')).toThrow();
+        expect(() => functionText(`${FONTE}\nasync function alvo() {}\n`, 'async function alvo')).toThrow();
+    });
+});
 
 describe('ATAQUE 1 - a janela de tempo', () => {
     let hub; let clock; let locks;
@@ -235,16 +436,17 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
         // A fila virou o 11o banco POR ATLAS (`atlas-namespace.js`, Decisao 2b), logo nao ha
         // mais recurso compartilhado a arbitrar, e o wipe de entrada deixou de alcanca-la.
         const store = read('store/store.js');
-        const unmount = store.slice(store.indexOf('async function unmountCurrentAtlas'));
-        // Controle positivo do recorte: a funcao foi mesmo lida.
-        expect(unmount.slice(0, 400)).toMatch(/clearAllAtlasStores\(\)/);
+        const unmount = functionText(store, 'async function unmountCurrentAtlas');
+        expect(unmount).toMatch(/clearAllAtlasStores\(\)/);
         // O `clear` da fila existe, mas so sob a decisao do chamador.
-        expect(unmount.slice(0, 400)).toMatch(/if \(clearQueue\) \{\s*await operationQueue\.clear\(\)/);
+        expect(unmount).toMatch(/if \(clearQueue\) \{\s*await operationQueue\.clear\(\)/);
 
         const ns = read('store/atlas-namespace.js');
         expect(ns).not.toMatch(/queue stays global/);
-        const fila = ns.slice(ns.indexOf('id: StoreName.OPERATION_QUEUE'));
-        expect(fila.slice(0, 200)).toMatch(/perAtlas: true, atlasData: false/);
+        // Recortado na PROPRIA entrada do descritor: uma janela de caracteres a partir do `id`
+        // atravessa para a entrada seguinte assim que alguem inserir um campo.
+        const fila = objectText(ns, 'Object.freeze({ id: StoreName.OPERATION_QUEUE');
+        expect(fila).toMatch(/perAtlas: true, atlasData: false/);
 
         const openSvc = read('account/open-atlas.service.js');
         expect(openSvc).toMatch(/await clearAllDataStore\(/);
@@ -254,7 +456,7 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
     it('2.4 CONFIRMADO (decisao): o wipe do open remoto roda ANTES de markStoreRemote, logo '
         + 'esvazia o escopo ATUAL e nunca o namespace do atlas de destino', () => {
         const svc = read('account/open-atlas.service.js');
-        const fn = svc.slice(svc.indexOf('export async function openRemoteAtlas'));
+        const fn = functionText(svc, 'export async function openRemoteAtlas');
         const iWipe = fn.indexOf('await clearAllDataStore(');
         const iMark = fn.indexOf('await markStoreRemote(atlasId);');
         expect(iWipe).toBeGreaterThan(-1);
@@ -268,10 +470,11 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
 
 describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
     it('3.1 CONFIRMADO: openRemoteAtlas reivindica ANTES do wipe', () => {
-        // Recortado na FUNCAO: o arquivo tem outro `clearAllDataStore()` (o do pre-voo do boot),
-        // e um `indexOf` no arquivo inteiro passaria a medir aquele.
+        // Recortado na FUNCAO, e ate o fecho dela: o arquivo tem outro `clearAllDataStore()` (o do
+        // pre-voo do boot), e tanto um `indexOf` no arquivo inteiro quanto um recorte que segue ate
+        // o fim do arquivo podem acabar medindo aquele.
         const svc = read('account/open-atlas.service.js');
-        const fn = svc.slice(svc.indexOf('export async function openRemoteAtlas'));
+        const fn = functionText(svc, 'export async function openRemoteAtlas');
         const iClaim = fn.indexOf('if (!await claimRemoteAtlas(atlasId))');
         const iWipe = fn.indexOf('await clearAllDataStore(');
         expect(iClaim).toBeGreaterThan(-1);
@@ -280,20 +483,25 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
 
     it('3.2 CORRIGIDO: enterLocalMapOnBoot passa pelo pre-voo aguardavel, no lugar do wipe cru', () => {
         const index = read('index.js');
-        const fn = index.slice(index.indexOf('async function enterLocalMapOnBoot'),
-            index.indexOf('async function openAtlasFromUrl'));
+        const fn = functionText(index, 'async function enterLocalMapOnBoot');
         expect(fn).not.toMatch(/await clearAllDataStore\(/);
         expect(fn).toMatch(/await clearMountedAtlasIfGranted\(\(\) => enterLocalMapOnBoot\(\)\)/);
-        // Controle positivo do recorte: a funcao foi mesmo lida.
+        // Controle positivo do recorte: a funcao foi mesmo lida ate o fim (o `return` final).
         expect(fn).toMatch(/hasLocalMapIntent\(\)/);
+        expect(fn).toMatch(/return true;\s*\}$/);
     });
 
     it('3.3 CORRIGIDO: openAtlasChooserOnBoot idem, e nao abre o seletor se foi recusado', () => {
+        // A asercao NEGATIVA daqui morava numa janela de 800 caracteres sobre uma funcao de 460:
+        // ela nao alcancava um wipe empurrado para o fim da funcao por comentarios, e de quebra
+        // lia `initApp` e o rodape do arquivo. Agora o recorte e a funcao (ver ATAQUE 0).
         const index = read('index.js');
-        const fn = index.slice(index.indexOf('async function openAtlasChooserOnBoot'));
-        expect(fn.slice(0, 800)).not.toMatch(/await clearAllDataStore\(/);
-        expect(fn.slice(0, 800)).toMatch(/!await clearMountedAtlasIfGranted\(/);
-        expect(fn.slice(0, 800)).toMatch(/openProjectPicker/);
+        const fn = functionText(index, 'async function openAtlasChooserOnBoot');
+        expect(fn).not.toMatch(/await clearAllDataStore\(/);
+        expect(fn).toMatch(/!await clearMountedAtlasIfGranted\(/);
+        expect(fn).toMatch(/openProjectPicker/);
+        // ...e o recorte parou na funcao, em vez de continuar pelo resto do arquivo.
+        expect(fn).not.toMatch(/initApp\(\)/);
     });
 
     it('3.4 CORRIGIDO no comportamento: o pre-voo recusa e nao apaga (o ponteiro para a prova)', () => {
@@ -344,9 +552,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         expect(read('store/repository.js'))
             .toMatch(/export async function clearAllAtlasStores\(\)\s*\{[\s\S]{0,300}?ensureAtlasScope\(\)/);
         // (d) o unico elo que mudou: o caminho agora consulta o lock antes de apagar.
-        const index = read('index.js');
-        const fn = index.slice(index.indexOf('async function enterLocalMapOnBoot'),
-            index.indexOf('async function openAtlasFromUrl'));
+        const fn = functionText(read('index.js'), 'async function enterLocalMapOnBoot');
         expect(fn).toMatch(/clearMountedAtlasIfGranted/);
     });
 });
@@ -485,8 +691,8 @@ describe('ATAQUE 5 - o bloqueio para mesmo?', () => {
         expect(brake).toMatch(/await releaseSyncBrake\(\);/);
         expect(brake).toMatch(/syncEngine\.connect\(atlasId, \{ initialPull: true \}\)/);
         const svc = read('account/open-atlas.service.js');
-        const fn = svc.slice(svc.indexOf('export async function resumeDeferredAtlasOpen'));
-        expect(fn.slice(0, 600)).not.toMatch(/startAutoFlush|syncEngine\.connect/);
+        const fn = functionText(svc, 'export async function resumeDeferredAtlasOpen');
+        expect(fn).not.toMatch(/startAutoFlush|syncEngine\.connect/);
         const spec = readFileSync(
             resolve(SRC, '../../tests/unit/tab-lock-sync-brake.test.js'), 'utf8');
         expect(spec).toMatch(/A ABA ZUMBI/);

@@ -25,9 +25,14 @@
  *     tab, on purpose: the wipe of `openRemoteAtlas` runs three lines after the namespace of the
  *     atlas being opened is activated, so a queue inside that wipe would be destroyed by the very
  *     act of opening the atlas it belongs to, immediately before the connect that would drain it.
- * B3  o aviso de desmontagem congela a aba vizinha, e os bancos NÃO voltam. This case REPLACES
- *     A3 of the sibling file, which asserted the opposite and was written before the notice
- *     existed; the reason is in the case's own comment.
+ * B3  o aviso congela a aba vizinha, e o dado E A FILA dela SOBREVIVEM. Rewritten on 2026-08-15:
+ *     it used to assert that the condemned databases went away, which was faithful to the code of
+ *     the day it was written. The decision behind that ("o logout NÃO poupa depois do aviso") was
+ *     taken while the outbound queue was GLOBAL, so the destroyed namespace held only server data,
+ *     which the next login refetches. With the queue physically per atlas, the same destruction
+ *     takes PENDING OPERATIONS that exist nowhere else. The premise expired and nobody revisited
+ *     the conclusion. Today the neighbour STOPS WRITING and does NOT release the mount, so the
+ *     sweep is refused the exclusive and reports `spared`. Full reasoning in the case's comment.
  *
  * ---------------------------------------------------------------------------
  * O QUE ESTA BATERIA NÃO COBRE, ESCRITO PARA NÃO SER CONFUNDIDO COM O REQUISITO
@@ -44,13 +49,14 @@
  *    duvidosa a bfcache (duas incertezas independentes, uma delas do produto). O que existe hoje
  *    é o primitivo REAL com um segundo lock tomado no mesmo processo (`tests/unit/`), que é
  *    indistinguível de outro cliente para o código sob teste e NÃO é outra aba.
- *  - A ORDEM DENTRO DE B3 ("a irmã parou ANTES de o emissor esvaziar"). O que se assere é o
- *    efeito da ordem (os bancos não voltam), não a ordem. Uma medição da ordem exigiria um sinal
- *    que só o `src/` pode emitir.
- *  - DUAS ABAS EM ATLAS REMOTOS DISTINTOS. Bloqueado por E7 (`keysCollide` ainda faz qualquer par
- *    remoto x remoto colidir), e a aba bloqueada nem chega a executar o caminho destrutivo:
- *    `openRemoteAtlas` retorna cedo quando a reivindicação falha. Por isso B1 usa o par
- *    alcançável hoje (aba A no slot LOCAL, aba B trocando de projeto) e B3 usa o mesmo par.
+ *  - A ORDEM DENTRO DE B3 ("a irmã parou ANTES de o emissor pedir o exclusivo"). O que se assere é
+ *    o EFEITO (o namespace foi poupado e a fila sobreviveu), não a ordem. Uma medição da ordem
+ *    exigiria um sinal que só o `src/` pode emitir.
+ *  - DUAS ABAS EM ATLAS REMOTOS DISTINTOS **neste arquivo**. A retenção remoto x remoto de
+ *    `keysCollide` SAIU em E7, então o par passou a ser alcançável; quem o exercita é o arquivo
+ *    irmão (caso A1), que é o portão daquela etapa. Aqui B1 e B3 seguem com o par local x remoto
+ *    porque o que eles medem (a fila da vizinha, o aviso de desmontagem) não depende da espécie
+ *    do atlas da outra aba, e trocar o par só acrescentaria uma variável à medição.
  *  - A FILA DE UM ATLAS QUE NÃO EXISTE MAIS (a política de oferecer download antes de destruir).
  */
 
@@ -61,7 +67,6 @@ import {
     goToLocalMapUI,
     drawPointUI,
     currentMapName,
-    attemptStoreWriteBlocked,
 } from './helpers/collab-helpers.js';
 import {
     createTabContext,
@@ -398,30 +403,46 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         ).toEqual(expect.arrayContaining(antes));
     });
 
-    test('B3 — o aviso de desmontagem congela a aba vizinha, e os bancos não voltam', async ({ browser }, testInfo) => {
-        // ESTE CASO SUBSTITUI O A3 DO ARQUIVO IRMÃO, e a substituição é uma correção de
-        // EXPECTATIVA, não de código. A3 exigia que o trabalho da aba B nunca desaparecesse
-        // durante o logout da aba A. A decisão registrada diz o contrário, em tantas palavras
-        // (`_PLANO-multiaba.md`, E2): "O logout NÃO poupa depois do aviso confirmado. Sem sessão
-        // não existe aba legítima segurando dado de servidor". O desenho implementado faz
-        // exatamente isso (`store/sync/tab-lock-sync-brake.js`, `applyTeardownFreeze`): a aba
-        // avisada PARA, SOLTA O LOCK DE MONTAGEM e limpa o escopo ativo, e só então o emissor
-        // destrói. Manter A3 seria manter, em verde-como-esperado, uma asserção que contradiz a
-        // decisão, e um `test.fail` assim nunca vira vermelho, logo nunca cobra nada.
+    test('B3 — o aviso congela a aba vizinha, e o dado E A FILA dela sobrevivem', async ({ browser }, testInfo) => {
+        // REESCRITO EM 2026-08-15. A versão anterior media o contrato OPOSTO ("os bancos
+        // condenados vão embora", "a aba avisada SOLTA O LOCK DE MONTAGEM"), e ela estava fiel ao
+        // código do dia em que foi escrita. O código mudou depois, e a razão é a que segue.
         //
-        // O QUE IMPORTA MEDIR, então, é o que o aviso existe para conseguir:
+        // A DECISÃO QUE ELA CITAVA VENCEU, E VENCEU POR UMA MUDANÇA EM OUTRO LUGAR.
+        // `_PLANO-multiaba.md` (E2) dizia: "O logout NÃO poupa depois do aviso confirmado; sem
+        // sessão não existe aba legítima segurando dado de servidor". Isso foi decidido quando a
+        // fila de saída era GLOBAL: o namespace destruído continha então apenas dado de SERVIDOR,
+        // que o próximo login refaz. Com a fila FÍSICA por atlas (`perAtlas: true`), a mesma
+        // destruição leva junto OPERAÇÃO PENDENTE, que não existe em lugar nenhum senão ali.
+        // A premissa caiu e ninguém revisitou a conclusão.
+        //
+        // O DEFEITO MEDIDO: obedecer ao aviso era o que destruía a vizinha. `applyTeardownFreeze`
+        // soltava a montagem, e era a montagem que a poupava. Com montagem viva o expurgo relata
+        // `spared` e o dado sobrevive; depois de soltar, `atlases`, dado nulo, fila ausente. Ou
+        // seja, o logout de uma aba apagava a fila de saída de outra, pela porta que o aviso
+        // abriu para protegê-la.
+        //
+        // O DESENHO DE HOJE: **parar e NÃO soltar**. O aviso é INFORMAÇÃO (a irmã para de
+        // escrever, e o usuário sabe); soltar o lock seria ENTREGA, e conflatar os dois era o
+        // defeito. O expurgo que espera pede o exclusivo, é recusado, e reporta `spared` com a
+        // entrada do registro preservada e `sparedAt` carimbado, limitado por `SPARE_GRACE_MS`.
+        // A troca é explícita: perda limitada por prazo vence perda limitada por nada.
+        //
+        // O QUE ESTE CASO MEDE, então:
         //   1. a aba vizinha SABE (o overlay muda de texto: bloqueado e congelado dividem um
         //      elemento e uma classe, e só o texto os separa);
-        //   2. os bancos condenados vão embora (o expurgo alcançou o que a aba largou);
-        //   3. e NÃO VOLTAM: uma escrita que ainda chegue àquela aba não pode recriá-los, que é
-        //      o modo de falha caro: o registro já saiu, então o namespace ressuscitado é resíduo
-        //      que nenhuma varredura posterior encontra.
+        //   2. o dado E A FILA dela SOBREVIVEM ao logout da irmã;
+        //   3. e o expurgo ainda alcança o que NINGUÉM segura, senão "poupou" seria
+        //      indistinguível de "a varredura não varreu nada" (é o controle de vácuo).
         //
-        // O par é o alcançável hoje (aba A no slot LOCAL, aba B em atlas de servidor): um par
-        // remoto x remoto colidiria enquanto E7 não sai.
+        // O par é o alcançável hoje (aba A no slot LOCAL, aba B em atlas de servidor).
         test.setTimeout(180000);
 
-        const seed = await seedUserWithAtlases(browser, state.baseUrl, ['Atlas Desmontado']);
+        // DOIS atlas: X é o que a aba B monta e deve ser POUPADO; o segundo não é montado por
+        // ninguém e é o controle de vácuo, sem o qual "poupou X" não se distingue de "a
+        // varredura não rodou".
+        const seed = await seedUserWithAtlases(browser, state.baseUrl,
+            ['Atlas Desmontado', 'Atlas Sem Dono']);
         const [X] = seed.atlases;
 
         const ctx = await createTabContext(browser, state.baseUrl);
@@ -465,46 +486,60 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
             + 'encerramento, não o de bloqueio)',
         ).toMatchObject({ matched: true, blocked: true, overlayTitle: TEARDOWN_OVERLAY_TITLE });
 
-        // --- 2. O EXPURGO ALCANÇOU O QUE A ABA LARGOU. O namespace pode terminar apagado do
-        //     disco ou esvaziado, e as duas saídas são legítimas: a pergunta é se a feição ainda
-        //     é legível ali. ---
-        await expect
-            .poll(async () => (await readIdbFeatureIds(tabB, dbX)).featureIds,
-                {
-                    timeout: 30000,
-                    message: 'o expurgo alcançou o namespace que a aba congelada soltou (se ele '
-                        + 'sobreviveu, o aviso não chegou ou o lock não foi liberado)',
-                })
-            .not.toContain(point);
-
-        // --- 3. E NÃO VOLTA. Uma escrita ainda chega a essa aba (o gesto do usuário está atrás
-        //     do overlay, mas o `src/` não está), e ela não pode recriar o namespace condenado.
-        //     Documentado no `@fileoverview` do freio: uma escrita perdida cai no slot LOCAL
-        //     (`ensureAtlasScope`), que é o mal menor, e NUNCA de volta no namespace destruído. ---
-        try {
-            await attemptStoreWriteBlocked(tabB, [[-43.3, -23.0], [-43.31, -23.01]]);
-        } catch (error) {
-            await testInfo.attach('B3 a escrita tentada na aba congelada lançou (não é o defeito)', {
-                body: String(error && error.stack ? error.stack : error), contentType: 'text/plain',
-            });
-        }
-        const amostras = await sampleIdbKeys(tabB, dbX, { durationMs: 8000, intervalMs: 200 });
-        const c = classifyKeySamples(amostras);
-        await testInfo.attach('B3 amostragem do namespace condenado depois da escrita', {
-            body: `total=${c.total} ausente=${c.absent} vazio=${c.empty} comChaves=${c.withKeys} `
-                + `ilegivel=${c.unreadable} maxChaves=${c.maxKeys}\n`
-                + amostras.map((s, i) => `${i}: ${s.kind}${s.n ? ` (${s.n})` : ''}${s.error ? ` :: ${s.error}` : ''}`).join('\n'),
+        // --- 2. O DADO E A FILA DA VIZINHA SOBREVIVEM. Este é o coração da correção: a aba
+        //     avisada PARA de escrever mas NÃO solta a montagem, então o exclusivo do expurgo é
+        //     recusado e o namespace é POUPADO.
+        //
+        //     A espera é por ESTABILIDADE, não por mudança: o que se afirma aqui é que uma coisa
+        //     NÃO acontece, e `poll` sobre uma negativa passa no primeiro instante, antes mesmo
+        //     de o expurgo ter chegado. Então amostramos por uma janela e exigimos que a feição
+        //     esteja lá o tempo todo. ---
+        const amostrasDado = await sampleIdbKeys(tabB, dbX, { durationMs: 12000, intervalMs: 250 });
+        const cd = classifyKeySamples(amostrasDado);
+        await testInfo.attach('B3 amostragem do namespace POUPADO', {
+            body: `total=${cd.total} ausente=${cd.absent} vazio=${cd.empty} comChaves=${cd.withKeys} `
+                + `ilegivel=${cd.unreadable}`,
             contentType: 'text/plain',
         });
-        // A amostragem tem que ter RODADO e LIDO: uma série toda ilegível não é prova de nada,
-        // em direção nenhuma.
-        expect(c.total, 'a amostragem realmente rodou').toBeGreaterThan(20);
-        expect(c.readable, 'a amostragem conseguiu LER o disco').toBeGreaterThan(20);
+        expect(cd.total, 'a amostragem realmente rodou').toBeGreaterThan(20);
+        expect(cd.readable, 'a amostragem conseguiu LER o disco').toBeGreaterThan(20);
         expect(
-            c.withKeys,
-            `os bancos condenados não voltam a existir com dado (${c.withKeys} amostras de `
-            + `${c.readable} leituras boas encontraram chaves em ${dbX})`,
+            cd.absent + cd.empty,
+            `o namespace da aba viva foi poupado: nenhuma amostra o viu ausente ou vazio `
+            + `(ausente=${cd.absent}, vazio=${cd.empty} de ${cd.readable} leituras boas)`,
         ).toBe(0);
+        expect(
+            (await readIdbFeatureIds(tabB, dbX)).featureIds,
+            'a feição que a aba B desenhou continua legível depois do logout da irmã',
+        ).toContain(point);
+
+        // A FILA, que é o que a decisão antiga não podia prever: ela não existe em lugar nenhum
+        // senão neste namespace, então destruí-la é perda irreversível e sem gesto do usuário.
+        const filaB = queueDbOf(remoteSuffix(X.id));
+        const filaDepois = await readIdbKeys(tabB, filaB, QUEUE_STORE);
+        await testInfo.attach('B3 a fila da aba poupada', {
+            body: JSON.stringify(filaDepois, null, 2), contentType: 'application/json',
+        });
+        expect(filaDepois.exists, `a fila de saída da aba viva sobrevive ao logout da irmã (${filaB})`)
+            .toBe(true);
+
+        // --- 3. CONTROLE DE VÁCUO. Sem ele, "poupou o namespace da aba viva" é indistinguível
+        //     de "a varredura não varreu nada", e essas duas hipóteses produzem exatamente as
+        //     mesmas asserções acima. O atlas `Z` foi registrado e NINGUÉM o monta, então a mesma
+        //     varredura que poupou X tem de tê-lo destruído. ---
+        const [, Z] = seed.atlases;
+        if (Z) {
+            const dbZ = mapsDbOf(remoteSuffix(Z.id));
+            const nomes = await idbDatabaseNames(tabB);
+            await testInfo.attach('B3 bancos no disco no fim', {
+                body: nomes.join('\n'), contentType: 'text/plain',
+            });
+            expect(
+                nomes,
+                `o expurgo alcançou o atlas que ninguém montava (${dbZ}); se ele sobreviveu junto `
+                + 'com o de X, a varredura não rodou e o "poupou" acima não prova nada',
+            ).not.toContain(dbZ);
+        }
 
         // --- E a aba B continua VIVA: se ela tivesse morrido, "não recriou" seria só "não existe
         //     mais ninguém para recriar", que é outra afirmação. ---

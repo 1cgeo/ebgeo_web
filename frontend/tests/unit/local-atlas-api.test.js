@@ -186,37 +186,95 @@ describe('local-atlas.api :: o registro é uma chave POR SLOT (E4)', () => {
     // propriedade 2) e o local o ignorava.
     //
     // Este teste modela as duas abas do jeito que elas de fato se atropelam: dois REGISTROS DE
-    // MÓDULO distintos sobre o MESMO disco falso, cada um com seu espelho em memória. Com uma
-    // chave por slot as duas escritas sobrevivem; com o array, a segunda apagava a primeira.
+    // MÓDULO distintos sobre o MESMO disco falso, cada um com seu espelho em memória.
+    //
+    // O ENTRELAÇAMENTO É A METADE QUE PRENDE, e a versão anterior deste bloco não a tinha:
+    // ela rodava A carrega → A grava → B carrega → B grava, e nessa ORDEM nenhuma forma de
+    // registro perde nada, porque B relê o disco depois de A ter escrito. Medido: com o
+    // registro devolvido ao array-sob-uma-chave, aquele arquivo ficava 35/35 verde enquanto o
+    // comentário logo acima afirmava "com o array, a segunda apagava a primeira". Prosa
+    // prometendo o que o código não sustenta.
+    //
+    // A ordem que perde dado é a que duas abas de verdade produzem: as duas CARREGAM antes de
+    // qualquer uma GRAVAR. Daí o `carregarAba()` abaixo e a sequência A carrega, B carrega, A
+    // grava, B grava, em todos os casos deste bloco.
     beforeEach(async () => {
         await api.initLocalAtlases();
     });
 
-    it('duas abas criando um slot cada: as DUAS entradas sobrevivem', async () => {
-        // Aba A (o registro de módulo já carregado) cria o seu.
-        const a = await api.createLocalAtlas('Operação Alfa');
-        expect(a.ok).toBe(true);
-
-        // Aba B: outro grafo de módulos, mesmo disco. É o que duas abas realmente são.
+    /**
+     * Uma aba a mais sobre o MESMO disco: outro grafo de módulos, outro espelho em memória,
+     * com o registro JÁ CARREGADO (que é o instante em que a corrida começa).
+     * @returns {Promise<object>} O módulo `local-atlas.api.js` daquela aba.
+     */
+    async function carregarAba() {
         vi.resetModules();
-        const apiB = await import('../../src/js/store/local-atlas.api.js');
-        await apiB.initLocalAtlases();
-        const b = await apiB.createLocalAtlas('Operação Bravo');
-        expect(b.ok).toBe(true);
+        const aba = await import('../../src/js/store/local-atlas.api.js');
+        await aba.initLocalAtlases();
+        return aba;
+    }
 
-        // Uma terceira leitura, limpa, é quem diz o que ficou NO DISCO. Perguntar a uma das
-        // duas abas devolveria o espelho de memória dela, que não é a propriedade em questão.
-        vi.resetModules();
-        const apiC = await import('../../src/js/store/local-atlas.api.js');
-        await apiC.initLocalAtlases();
-        const nomes = apiC.listLocalAtlases().map(e => e.name).sort();
+    /**
+     * O que ficou NO DISCO, por uma terceira leitura limpa. Perguntar a uma das abas
+     * devolveria o espelho de memória dela, que não é a propriedade em questão.
+     * @returns {Promise<string[]>} Nomes dos slots, ordenados.
+     */
+    async function nomesQueSobreviveram() {
+        const apiC = await carregarAba();
+        return apiC.listLocalAtlases().map(e => e.name).sort();
+    }
 
-        expect(nomes).toEqual(['Meu Atlas', 'Operação Alfa', 'Operação Bravo']);
+    it('duas abas criando um slot cada, as duas CARREGADAS antes de gravar: nenhuma some', async () => {
+        const apiA = api; // já carregada no beforeEach
+        const apiB = await carregarAba();
+        // Premissa positiva: as duas partem do MESMO registro de uma entrada só. Sem isto, uma
+        // aba B que tivesse carregado o slot de A já pronto tornaria a corrida impossível.
+        expect(apiA.listLocalAtlases().map(e => e.name)).toEqual(['Meu Atlas']);
+        expect(apiB.listLocalAtlases().map(e => e.name)).toEqual(['Meu Atlas']);
+
+        // AGORA as duas gravam, cada uma sobre a leitura que fez antes da outra.
+        expect((await apiA.createLocalAtlas('Operação Alfa')).ok).toBe(true);
+        expect((await apiB.createLocalAtlas('Operação Bravo')).ok).toBe(true);
+
+        expect(await nomesQueSobreviveram())
+            .toEqual(['Meu Atlas', 'Operação Alfa', 'Operação Bravo']);
         // E o disco confirma pelo caminho independente: o espelho de `apiC` foi construído
         // pelo mesmo leitor de produção que está sob teste, então sozinho ele não distingue
         // "as duas entradas ficaram" de "o leitor inventou as duas".
         expect(slotsOnDisk().map(e => e.name).sort())
             .toEqual(['Meu Atlas', 'Operação Alfa', 'Operação Bravo']);
+    });
+
+    // O CAMINHO POR ONDE ISSO MORDE DE VERDADE, e não precisa de azar nenhum: a sessão de um
+    // usuário morre nas duas abas ao mesmo tempo (a rede caiu, o refresh falhou), as duas
+    // rodam `preserveUnsyncedWorkAsLocal`, e cada uma adota o namespace do atlas que ELA
+    // tinha montado. É trabalho não sincronizado dos dois lados, quer dizer, o dado mais caro
+    // que existe neste app, e sob o array a segunda adoção apagava a primeira do registro
+    // deixando os dez bancos dela de pé e invisíveis para toda tela e todo expurgo.
+    it('dois RESGATES simultâneos, um por aba: as duas adoções sobrevivem', async () => {
+        const apiA = api;
+        const apiB = await carregarAba();
+
+        await apiA.adoptRemoteAtlasAsLocal('atlas-de-A', 'Resgate de A');
+        await apiB.adoptRemoteAtlasAsLocal('atlas-de-B', 'Resgate de B');
+
+        expect(await nomesQueSobreviveram())
+            .toEqual(['Meu Atlas', 'Resgate de A', 'Resgate de B']);
+        // A propriedade que o usuário sente é o ENDEREÇO: cada resgate tem de continuar
+        // apontando para os dez bancos do atlas de onde veio, ou o slot listado está vazio.
+        expect(slotsOnDisk().map(e => e.dbSuffix).sort())
+            .toEqual(['', 'remote-atlas-de-A', 'remote-atlas-de-B']);
+    });
+
+    it('uma aba resgatando e a outra criando: as duas escritas convivem', async () => {
+        const apiA = api;
+        const apiB = await carregarAba();
+
+        await apiA.adoptRemoteAtlasAsLocal('atlas-de-A', 'Resgate de A');
+        await apiB.createLocalAtlas('Operação Bravo');
+
+        expect(await nomesQueSobreviveram())
+            .toEqual(['Meu Atlas', 'Operação Bravo', 'Resgate de A']);
     });
 
     it('a chave antiga é MIGRADA e removida, e o slot dela continua no disco', async () => {
@@ -533,6 +591,100 @@ describe('local-atlas.api :: excluir atlas', () => {
         expect(resultado.ok).toBe(false);
         expect(resultado.error).toBe(api.LocalAtlasError.NOT_FOUND);
         expect(api.listLocalAtlases()).toHaveLength(2);
+    });
+});
+
+// ============================================================================
+// SAIR DE UM RESGATE: quem reivindica o namespace de um atlas de servidor, e como a posse
+// local é devolvida.
+//
+// O par `localAtlasAdoptingRemote` / `releaseAdoptedLocalAtlas` existe para UM chamador
+// (`account/open-atlas.service.js`, reabrir do servidor o projeto de onde veio o resgate). A
+// história inteira daquele defeito está em
+// `tests/integration/reabrir-projeto-resgatado.repro.test.js`; aqui ficam as propriedades do
+// registro, que é o que este módulo responde.
+// ============================================================================
+
+describe('local-atlas.api :: a posse de um namespace remoto', () => {
+    const ATLAS = 'atlas-de-servidor';
+
+    beforeEach(async () => {
+        await api.initLocalAtlases();
+    });
+
+    it('acha o slot que reivindica o namespace, e só ele', async () => {
+        await api.adoptRemoteAtlasAsLocal(ATLAS, 'Trabalho recuperado');
+
+        const achado = await api.localAtlasAdoptingRemote(ATLAS);
+
+        expect(achado.name).toBe('Trabalho recuperado');
+        expect(achado.dbSuffix).toBe(`remote-${ATLAS}`);
+        // Controles negativos: um atlas sem resgate, e um id que não nomeia namespace nenhum
+        // (uma URL corrompida não pode virar exceção num caminho cuja função é perguntar).
+        expect(await api.localAtlasAdoptingRemote('outro-atlas')).toBeNull();
+        expect(await api.localAtlasAdoptingRemote('id invalido!')).toBeNull();
+    });
+
+    // A METADE QUE PRENDE: quem resgatou pode ter sido a OUTRA aba. Um leitor que respondesse
+    // pelo espelho em memória diria "não há resgate" e a abertura apagaria o trabalho.
+    it('lê o DISCO: enxerga o resgate feito por outra aba depois desta ter carregado', async () => {
+        const apiA = api;
+        vi.resetModules();
+        const apiB = await import('../../src/js/store/local-atlas.api.js');
+        await apiB.initLocalAtlases();
+
+        await apiB.adoptRemoteAtlasAsLocal(ATLAS, 'Resgate da vizinha');
+
+        // `apiA` nunca recarregou o registro: seu espelho não conhece esse slot.
+        expect(apiA.listLocalAtlases().map(e => e.name)).not.toContain('Resgate da vizinha');
+        expect((await apiA.localAtlasAdoptingRemote(ATLAS))?.name).toBe('Resgate da vizinha');
+    });
+
+    it('soltar a posse tira a chave do registro e NÃO encosta num byte de dado', async () => {
+        const { atlas } = await api.adoptRemoteAtlasAsLocal(ATLAS, 'Trabalho recuperado');
+        const escopo = api.scopeOfLocalAtlas(atlas);
+        await ns.getStoreFor(ns.StoreName.MAPS, escopo).setItem('Principal', { dono: 'resgate' });
+
+        const resultado = await api.releaseAdoptedLocalAtlas(ATLAS);
+
+        expect(resultado.ok).toBe(true);
+        expect(resultado.atlas.id).toBe(atlas.id);
+        expect(slotsOnDisk().map(e => e.dbSuffix)).not.toContain(`remote-${ATLAS}`);
+        expect(api.listLocalAtlases().map(e => e.id)).not.toContain(atlas.id);
+        // O DADO FICA: quem apaga é o wipe de entrada do chamador, e apagar aqui destruiria um
+        // banco que a linha seguinte vai reabrir como o atlas de servidor.
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, escopo).getItem('Principal'))
+            .toEqual({ dono: 'resgate' });
+        expect(dbNamesWithSuffix(`remote-${ATLAS}`).length).toBeGreaterThan(0);
+    });
+
+    it('o ponteiro do corrente não fica apontando para o slot que saiu', async () => {
+        // A adoção deixa o resgate como atlas corrente, então este é o caso normal, não a borda.
+        const { atlas } = await api.adoptRemoteAtlasAsLocal(ATLAS, 'Trabalho recuperado');
+        expect(api.getCurrentLocalAtlasId()).toBe(atlas.id);
+
+        await api.releaseAdoptedLocalAtlas(ATLAS);
+
+        const sobrou = api.listLocalAtlases()[0];
+        expect(api.getCurrentLocalAtlasId()).toBe(sobrou.id);
+        expect(await ns.getGlobalStore().getItem(ns.GlobalKey.CURRENT_LOCAL_ATLAS)).toBe(sobrou.id);
+    });
+
+    it('é idempotente: soltar de novo (ou sem resgate nenhum) não é uma recusa', async () => {
+        await api.adoptRemoteAtlasAsLocal(ATLAS, 'Trabalho recuperado');
+        await api.releaseAdoptedLocalAtlas(ATLAS);
+
+        const denovo = await api.releaseAdoptedLocalAtlas(ATLAS);
+
+        // "Não há posse a soltar" É o estado final que o chamador pediu, então não vira erro nem
+        // toast: uma aba pode ter chegado primeiro.
+        expect(denovo).toEqual({ ok: true, atlas: null });
+        expect(bus.emit).not.toHaveBeenCalledWith('store:operationBlocked', expect.anything());
+        expect(api.listLocalAtlases()).toHaveLength(1);
+    });
+
+    it('id que não nomeia namespace é bug do chamador, então lança', async () => {
+        await expect(api.releaseAdoptedLocalAtlas('id invalido!')).rejects.toThrow(/invalid atlasId/);
     });
 });
 
