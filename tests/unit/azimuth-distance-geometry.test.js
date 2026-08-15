@@ -41,6 +41,30 @@ describe('normalizeAzimuth', () => {
             expect(normalizeAzimuth(normalizeAzimuth(a))).toBeCloseTo(normalizeAzimuth(a), 9);
         }));
     });
+
+    // Regression for the two rounding failures the property above used to find,
+    // one every few hundred runs. Root cause: `((a % 360) + 360) % 360` adds a
+    // circle that the input did not need, and the sum has no double.
+    it('is idempotent one hair short of north', () => {
+        // The largest double below 360. The old form pushed it to 720, which
+        // rounds to exactly 720, and 720 % 360 is 0 — north, off by 5.7e-14.
+        const a = 359.99999999999994;
+        expect(normalizeAzimuth(a)).toBe(a);
+        expect(normalizeAzimuth(normalizeAzimuth(a))).toBe(a);
+    });
+
+    it('folds a negative hair to zero, never to 360', () => {
+        // -1e-14 + 360 rounds up to exactly 360, and 360 is outside [0, 360).
+        expect(normalizeAzimuth(-1e-14)).toBe(0);
+        expect(Object.is(normalizeAzimuth(-0), 0)).toBe(true);
+        expect(Object.is(normalizeAzimuth(-720), 0)).toBe(true);
+    });
+
+    it('non-finite input stays non-finite', () => {
+        expect(normalizeAzimuth(NaN)).toBeNaN();
+        expect(normalizeAzimuth(Infinity)).toBeNaN();
+        expect(normalizeAzimuth(-Infinity)).toBeNaN();
+    });
 });
 
 // ============================================================================

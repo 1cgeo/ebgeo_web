@@ -121,13 +121,39 @@ export function applyDeclination(azimuthDeg, declination, northRef) {
 }
 
 /**
- * Normalize azimuth to 0-360 range.
+ * Normalize azimuth to the [0, 360) range.
+ *
+ * WHY NOT THE ONE-LINER. The obvious `((a % 360) + 360) % 360` is not
+ * idempotent near the top of the circle, and doubles are what break it: for
+ * a = 359.99999999999994 the `+ 360` lands on 719.99999999999994, which has no
+ * double and rounds to exactly 720, and 720 % 360 is 0. So a bearing one
+ * hair short of north normalized to north — right by 5e-14, and a different
+ * number every time it was normalized again. The circle is only added to a
+ * remainder that is actually negative, which is the only case that needs it.
+ *
+ * The `shifted < 360` guard catches the mirror image of the same rounding: for
+ * a = -1e-14 the sum rounds up to exactly 360, and 360 is not in [0, 360).
  *
  * @param {number} azimuth - Azimuth in degrees
- * @returns {number} Normalized azimuth (0-360)
+ * @returns {number} Normalized azimuth in [0, 360), or NaN if the input is not finite
  */
 export function normalizeAzimuth(azimuth) {
-    return ((azimuth % DEGREES_PER_CIRCLE) + DEGREES_PER_CIRCLE) % DEGREES_PER_CIRCLE;
+    if (!Number.isFinite(azimuth)) {
+        return NaN;
+    }
+
+    const rest = azimuth % DEGREES_PER_CIRCLE;
+    if (rest > 0) {
+        return rest;
+    }
+    if (rest === 0) {
+        // Also folds -0, which would otherwise travel into every reading and
+        // every export downstream.
+        return 0;
+    }
+
+    const shifted = rest + DEGREES_PER_CIRCLE;
+    return shifted < DEGREES_PER_CIRCLE ? shifted : 0;
 }
 
 /**
