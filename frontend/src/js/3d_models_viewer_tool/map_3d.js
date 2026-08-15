@@ -141,7 +141,7 @@ function waitForGlobal(globalName, timeout = 5000) {
 
 async function initCesiumMap() {
     const { bounds } = config.map3d;
-    const extent = new Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north);
+    const extent = Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north);
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
     Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
 
