@@ -49,11 +49,19 @@ const BRIDGE_ATLAS_ID = 'legacy-workspace';
  * `ebgeo_app_settings`, ...): with it, an install that never reaches the local-atlas
  * bootstrap behaves precisely as it does today, which is the constraint of this phase.
  *
- * It becomes dead the moment the boot calls `initLocalAtlases()` before touching storage,
- * because that activates a scope first and this function then only reads it. Deleting the
- * bridge is safe only once EVERY entry point into the repository is preceded by that call
- * (the map boot, the schema migration, the `.ebgeo` import and the store-origin read), so
- * it stays until the bootstrap wiring lands.
+ * THE BOOT NOW CALLS `initLocalAtlases()` (`activateBootAtlasScope` in `store.js`), and the
+ * bridge SURVIVED that, which the previous version of this comment predicted it would not.
+ * The reason is an ordering the logged-out guard requires: `enforceLocalStoreWhenLoggedOut`
+ * runs BEFORE the boot activates a scope, because in the PRE-namespace case (a store whose
+ * origin says REMOTE and whose server data therefore sits in the unsuffixed databases) its
+ * wipe has to land on exactly those databases. Activating a registry slot first would aim
+ * that wipe somewhere else and leave the server data on disk. So one repository entry point
+ * still precedes the registry, and this bridge is what resolves it.
+ *
+ * Deleting the bridge therefore means giving that guard an EXPLICIT scope instead of an
+ * implicit one, and then re-checking every other pre-registry entry point (the `.ebgeo`
+ * import, the schema migration, the store-origin read — the last two already pass explicit
+ * scopes). Until that is done, silence here is correct behavior and not an oversight.
  *
  * @returns {void}
  */

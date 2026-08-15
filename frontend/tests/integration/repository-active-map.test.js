@@ -64,6 +64,7 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
 // map-resolver singleton + factory, sync metadata, config) runs unmocked.
 // ============================================================================
 
+import localforage from 'localforage';
 import { initializeRepository, memoryStore } from '../../src/js/store/repository.js';
 import { LocalRepository } from '../../src/js/store/repositories/local.repository.js';
 import { getRepository } from '../../src/js/store/repositories/index.js';
@@ -76,9 +77,28 @@ import { DEFAULT_MAP_NAME } from '../../src/js/store/store.constants.js';
 // Store handles (created by the repository's createInstance() calls)
 // ============================================================================
 
-const mapStore = () => stores['ebgeo_maps'];
-const appStore = () => stores['ebgeo_app_settings'];
-const atlasStore = () => stores['ebgeo_atlas'];
+/**
+ * A store handle by absolute database name, CREATING it if nothing has asked for it yet.
+ *
+ * These three used to be plain lookups into `stores`, and they worked by accident: the
+ * migration service called `localforage.createInstance({name: 'ebgeo_atlas'})` at MODULE LOAD,
+ * so importing it populated the registry before any test ran. That module-load call was the
+ * very defect the migration-per-slot work removed (a handle bound to a fixed database name,
+ * decided before any atlas is known), and removing it left these lookups returning undefined.
+ *
+ * The test was depending on a side effect of the bug. Asking for the handle explicitly is what
+ * it should have done from the start: it states which databases this file is about instead of
+ * inheriting them from whatever the code under test happened to open.
+ * @param {string} name - Absolute database name.
+ * @returns {object} The fake store.
+ */
+function storeNamed(name) {
+    return localforage.createInstance({ name });
+}
+
+const mapStore = () => storeNamed('ebgeo_maps');
+const appStore = () => storeNamed('ebgeo_app_settings');
+const atlasStore = () => storeNamed('ebgeo_atlas');
 
 // ============================================================================
 // Fixtures

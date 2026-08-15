@@ -15,9 +15,12 @@
 export {
     detectMigrationNeeded,
     isTooOldToMigrate,
+    migrateActiveSlot,
     safelyMigrate,
     getMigrationStatus
 } from './migration.service.js';
+
+export { isLegacyScope, legacyScope } from './migration-scope.js';
 
 // Migration logic (for testing and advanced use)
 export {

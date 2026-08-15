@@ -123,7 +123,6 @@ beforeEach(async () => {
     settingStore.clear();
     eventBus = createMockEventBus();
     disableOperationLogging();
-    operationQueue._index = null;
     await operationQueue.clear();
 });
 

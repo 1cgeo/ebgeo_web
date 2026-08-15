@@ -120,6 +120,25 @@ function raw(dbName) {
     return makeStore({ name: dbName });
 }
 
+
+/**
+ * O registro local no formato que estas asserções esperam, montado a partir das chaves
+ * `local_atlas:<id>`. Ver a nota igual em `boot-escopo-de-atlas.test.js`: o registro passou a
+ * ser UMA CHAVE POR SLOT (E4) porque a forma antiga era um read-modify-write entre abas.
+ * @returns {Promise<{atlases: Array<object>}|null>}
+ */
+async function lerRegistroLocal() {
+    const store = raw('ebgeo_global');
+    const chaves = await store.keys();
+    const atlases = [];
+    for (const k of chaves) {
+        if (!k.startsWith('local_atlas:')) continue;
+        atlases.push({ ...(await store.getItem(k)), id: k.slice('local_atlas:'.length) });
+    }
+    atlases.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    return atlases.length > 0 ? { atlases } : null;
+}
+
 /** Carrega a cadeia num grafo de módulos NOVO (a fábrica e o registro têm estado de módulo). */
 async function loadModules() {
     vi.resetModules();
@@ -255,7 +274,7 @@ const SEEDED_KEYS = {
  * própria migração), ativa e devolve um `LocalRepository` de verdade.
  */
 async function openSlotFromRegistry(mods) {
-    const registry = await raw('ebgeo_global').getItem('local_atlases');
+    const registry = await lerRegistroLocal();
     const pointer = await raw('ebgeo_global').getItem('current_local_atlas');
     const entry = registry.atlases.find(e => e.id === pointer);
     mods.namespace.activateScope(mods.namespace.localScope(entry.id, entry.dbSuffix));
@@ -437,13 +456,13 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        const antes = await raw('ebgeo_global').getItem('local_atlases');
+        const antes = await lerRegistroLocal();
         expect(antes.atlases).toHaveLength(1);
 
         // Segundo boot: módulos novos, mesmo disco.
         const mods2 = await loadModules();
         await mods2.service.safelyMigrate();
-        const depois = await raw('ebgeo_global').getItem('local_atlases');
+        const depois = await lerRegistroLocal();
 
         expect(depois.atlases).toHaveLength(1);
         expect(depois.atlases[0].id).toBe(antes.atlases[0].id);
@@ -465,7 +484,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases[0].name).toBe('Exercício Guararapes');
         expect((await raw('ebgeo_atlas').getItem('current_atlas')).name).toBe('Exercício Guararapes');
     });
@@ -479,7 +498,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(1);
         expect(registry.atlases[0].name).toBe('Meu Atlas');
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
@@ -509,14 +528,14 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         await expect(mods.service.safelyMigrate()).rejects.toThrow('quota exceeded');
 
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.1');
-        expect(await raw('ebgeo_global').getItem('local_atlases')).toBeNull();
+        expect(await lerRegistroLocal()).toBeNull();
         expect((await mods.service.detectMigrationNeeded()).needed).toBe(true);
 
         app.setItem.mockImplementation(realSet);
         const mods2 = await loadModules();
         await mods2.service.safelyMigrate();
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
-        expect((await raw('ebgeo_global').getItem('local_atlases')).atlases).toHaveLength(1);
+        expect((await lerRegistroLocal()).atlases).toHaveLength(1);
     });
 
     it('cadeia interrompida DEPOIS de v2→v2.1 para em 2.2, e não em 2.3', async () => {
@@ -539,7 +558,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
 
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.2');
         expect((await raw('ebgeo_atlas').getItem('current_atlas')).schemaVersion).toBe('2.2');
-        expect(await raw('ebgeo_global').getItem('local_atlases')).toBeNull();
+        expect(await lerRegistroLocal()).toBeNull();
 
         // O boot seguinte ainda sabe que há trabalho, e o completa.
         globalStore.setItem.mockImplementation(realSet);
@@ -548,7 +567,7 @@ describe('migração 2.3: carimbo e encadeamento', () => {
         await mods2.service.safelyMigrate();
 
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
-        expect((await raw('ebgeo_global').getItem('local_atlases')).atlases).toHaveLength(1);
+        expect((await lerRegistroLocal()).atlases).toHaveLength(1);
     });
 });
 
@@ -576,7 +595,7 @@ describe('migração 2.3: store de origem REMOTA', () => {
 
         // O marcador global diz LOCAL, e o slot existe e está vazio, pronto para uso.
         expect(await raw('ebgeo_global').getItem('__store_origin__')).toEqual({ kind: 'local', atlasId: null });
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(1);
         expect(registry.atlases[0].dbSuffix).toBe('');
     });
@@ -593,7 +612,7 @@ describe('migração 2.3: store de origem REMOTA', () => {
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases[0].name).toBe(mods.api.DEFAULT_LOCAL_ATLAS_NAME);
         expect(registry.atlases[0].name).toBe('Meu Atlas');
     });
@@ -630,7 +649,7 @@ describe('migração 2.3: teto de atlas locais', () => {
         expect(mods.api.MAX_LOCAL_ATLASES).toBe(10);
         await expect(mods.service.safelyMigrate()).resolves.toEqual({ success: true });
 
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(10);
         // Carimbou onde a detecção lê, então não re-roda a cadeia inteira a cada boot.
         expect(await raw('ebgeo_app_settings').getItem('schemaVersion')).toBe('2.3');
@@ -649,7 +668,7 @@ describe('migração 2.3: teto de atlas locais', () => {
         const mods = await loadModules();
         await mods.service.safelyMigrate();
 
-        const registry = await raw('ebgeo_global').getItem('local_atlases');
+        const registry = await lerRegistroLocal();
         expect(registry.atlases).toHaveLength(1);
         expect(registry.atlases[0].id).toBe('slot-1');
 

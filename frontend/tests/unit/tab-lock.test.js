@@ -10,6 +10,12 @@
  * pairing is the point: a predicate test with only the positive half stays green when the
  * predicate is widened to "always true", which is precisely how the previous rule read.
  *
+ * ROW 4 (two DIFFERENT server atlases) asserted the opposite of the rule until the namespace
+ * wiring landed, because while every server atlas resolved to one set of databases, letting the
+ * second tab in meant letting it wipe the first tab's live map. It now asserts the rule, and the
+ * sixth case below is the one the rule needed to be honest about: an ADOPTED slot, where a local
+ * atlas and a server atlas are the same ten databases and the kinds disagree with the address.
+ *
  * The window-hole case is built, never raced: a fake transport buffers both announcements so
  * the two tabs are, by construction, simultaneously unaware of each other, and only then are
  * the messages released. No timing, no statistics.
@@ -111,24 +117,28 @@ describe('tab-lock: the owner rule as a predicate (one test per row of the table
         expect(keysCollide(byLinkA, byLinkB)).toBe(true);
     });
 
-    // ROW 4 IS ON HOLD, AND THE HOLD IS THE SAFE READING, NOT THE OWNER'S RULE.
-    //
-    // The rule says two DIFFERENT server atlases should not collide. Honouring it requires each
-    // remote atlas to own its databases. That machinery is written (`activateRemoteAtlas`, the
-    // remote registry, the derived logout purge) but has no production caller: `openRemoteAtlas`
-    // never activates a scope, so every remote atlas still resolves to the SAME `ebgeo_maps`.
-    //
-    // Releasing the predicate first is data loss, not an unfinished feature: the lock would let
-    // two tabs onto two server atlases, both landing in one database, and the second tab's
-    // `clearAllDataStore` would erase the first tab's live map. So remote x remote keeps
-    // colliding until the wiring lands, and the target below is recorded as todo rather than
-    // deleted, so nobody has to rediscover the rule from the commit log.
-    it('ROW 4 — remote x remote, DIFFERENT ids: STILL collides, until each remote owns its databases', () => {
-        expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_B))).toBe(true);
+    // ROW 4 WAS THE HOLD, AND THE HOLD IS GONE (E7, 2026-08-15). This case asserted `true`
+    // (every pair of server atlases collided) for as long as one of the four holes named in
+    // `keysCollide` was open: a third entry into a server atlas that mounted no namespace, the
+    // logout of one tab deregistering the live namespace of the other, the public link erasing
+    // what it had just registered, and a GLOBAL outbound queue pushing the operation of one
+    // atlas to the server of the other. All four are closed by name, each with its own guard,
+    // and the wiring is measured elsewhere (`tests/integration/namespace-remoto-fiacao.test.js`
+    // proves two atlases are two blocks of databases), so the predicate now says what the
+    // owner's rule always said.
+    it('ROW 4 — remote x remote, DIFFERENT ids: does NOT collide', () => {
+        expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_B))).toBe(false);
+        expect(keysCollide(remoteAtlasKey(ATLAS_B), remoteAtlasKey(ATLAS_A))).toBe(false);
+        // NEGATIVE CONTROL, and it is the whole point of removing a predicate branch: the SAME
+        // server atlas still collides. Without this line, "two server atlases pass" is
+        // indistinguishable from a predicate that turned into always-false, which is literally
+        // the change this case records.
         expect(keysCollide(remoteAtlasKey(ATLAS_B), remoteAtlasKey(ATLAS_B))).toBe(true);
+        expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_A))).toBe(true);
+        // ...and local x local keeps both halves too, so nothing else moved with it.
+        expect(keysCollide(localAtlasKey('slot-1'), localAtlasKey('slot-2'))).toBe(false);
+        expect(keysCollide(localAtlasKey('slot-1'), localAtlasKey('slot-1'))).toBe(true);
     });
-
-    it.todo('ROW 4, target — remote x remote with DIFFERENT ids does not collide, once `activateRemoteAtlas` is wired into `openRemoteAtlas` and the public-link path');
 
     it('ROW 5 — remote x local: never collides, even under the same id string', () => {
         expect(keysCollide(localAtlasKey('slot-1'), remoteAtlasKey(ATLAS_A))).toBe(false);
@@ -136,6 +146,42 @@ describe('tab-lock: the owner rule as a predicate (one test per row of the table
         // `localScope('x')` and `remoteScope('x')` are different database names, so the same id
         // under two kinds is two different atlases.
         expect(keysCollide(localAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_A))).toBe(false);
+    });
+
+    // ROW 6 — THE EXCEPTION TO ROW 5, AND THE ONLY ONE.
+    //
+    // `adoptRemoteAtlasAsLocal` rescues unsynced work at logout by moving the CLAIM from the
+    // remote registry to the local one and ZERO bytes between databases, so the rescued slot
+    // keeps the `remote-<atlasId>` suffix. A predicate on (kind, id) reads that pair as ROW 5
+    // ("different namespaces") when it is the one pair that IS the same ten databases, and the
+    // tab holding the rescue would watch another tab open that server atlas and wipe it on the
+    // way in. The address is what is arbitrated, so the adopted slot claims the address of the
+    // atlas it came from.
+    it('ROW 6 — a local slot ADOPTED from a server atlas collides with that server atlas', () => {
+        const rescued = localAtlasKey('slot-resgatado', { adoptedFrom: ATLAS_A });
+
+        expect(keysCollide(rescued, remoteAtlasKey(ATLAS_A))).toBe(true);
+        expect(keysCollide(remoteAtlasKey(ATLAS_A), rescued)).toBe(true);
+        // ...and with nothing else: another server atlas, another local slot, and the same slot
+        // id WITHOUT the adoption (which is the exact key the old derivation produced, i.e. the
+        // negative control that shows this test measures `adoptedFrom` and not the slot id).
+        expect(keysCollide(rescued, remoteAtlasKey(ATLAS_B))).toBe(false);
+        expect(keysCollide(rescued, localAtlasKey('slot-1'))).toBe(false);
+        expect(keysCollide(localAtlasKey('slot-resgatado'), remoteAtlasKey(ATLAS_A))).toBe(false);
+        // Two tabs on the SAME rescued slot still collide, by slot and by address alike.
+        expect(keysCollide(rescued, localAtlasKey('slot-resgatado', { adoptedFrom: ATLAS_A })))
+            .toBe(true);
+        // The kind stays LOCAL: it is what the overlay wording reads, and the atlas IS local now.
+        expect(rescued.kind).toBe(TabLockKeyKind.LOCAL);
+    });
+
+    it('an ordinary local key carries no adoption field, and a bogus one is refused', () => {
+        // The field is omitted rather than set to null, so every caller and test that compares a
+        // local key against `{kind, atlasId}` keeps reading the same object.
+        expect(localAtlasKey('slot-1')).toEqual({ kind: 'local', atlasId: 'slot-1' });
+        expect(localAtlasKey('slot-1', { adoptedFrom: null })).toEqual({ kind: 'local', atlasId: 'slot-1' });
+        expect(() => localAtlasKey('slot-1', { adoptedFrom: '' })).toThrow();
+        expect(() => localAtlasKey('slot-1', { adoptedFrom: 42 })).toThrow();
     });
 
     it('rejects a key without an atlas id on BOTH sides: a nameless claim collides with nothing', () => {
@@ -153,12 +199,17 @@ describe('tab-lock: the owner rule as a predicate (one test per row of the table
         expect(keysCollide(bogus, bogus)).toBe(true);
         expect(keysCollide(bogus, { kind: 'atlas', atlasId: 'slot-2' })).toBe(false);
         expect(keysCollide(bogus, localAtlasKey('slot-1'))).toBe(false);
-        // ...but a claim carrying no id at all names no databases, so it arbitrates nothing.
-        // EXCEPT between two remotes, where the hold above collides on kind alone: an id-less
-        // remote claim is exactly the public-link tab that has not resolved its UUID yet, and
-        // while all remotes share one database it must not slip past.
-        expect(keysCollide({ kind: 'remote', atlasId: null }, remoteAtlasKey(ATLAS_A))).toBe(true);
+        // ...but a claim carrying no id at all names no databases, so it arbitrates nothing, on
+        // BOTH sides now. This line read `true` for the remote pair while all remotes shared one
+        // database and an id-less remote claim (a public-link tab before it resolves its UUID)
+        // therefore named that one address; with a namespace per atlas it names nothing, and
+        // `remoteAtlasKey` refuses to build such a key at all (the case below), which is why the
+        // deferred claim of `openPublicAtlasFromUrl` resolves the token first.
+        expect(keysCollide({ kind: 'remote', atlasId: null }, remoteAtlasKey(ATLAS_A))).toBe(false);
         expect(keysCollide({ kind: 'local', atlasId: null }, localAtlasKey('slot-1'))).toBe(false);
+        // Control for the two lines above: the id is what makes them false, not the shape. Give
+        // the same malformed pair an id and it collides again.
+        expect(keysCollide({ kind: 'remote', atlasId: ATLAS_A }, remoteAtlasKey(ATLAS_A))).toBe(true);
     });
 });
 
@@ -307,31 +358,87 @@ describe('tab-lock: two tabs', () => {
         expect(b.blocked).toBe(true);
     });
 
-    // On hold with ROW 4: two server atlases still share one set of databases, so the second tab
-    // is blocked. See the note on the ROW 4 case for what lifts this.
-    it('blocks a second tab on ANOTHER server atlas, while all remotes share one database', async () => {
-        const a = makeLock();
-        await a.acquire(remoteAtlasKey(ATLAS_A));
+    // PROMOVIDO EM E7 (era `it.todo` ao lado de um caso que afirmava a recusa). O par de baixo e
+    // o portao da etapa: sem o segundo caso, "as duas abas passaram" nao se distingue de um
+    // predicado que virou sempre-falso, que e exatamente a linha que E7 apagou.
+    it('concede DUAS abas em atlas de servidor DIFERENTES, e nenhuma delas e parada', async () => {
+        const blockedA = vi.fn();
+        const blockedB = vi.fn();
+        const a = makeLock({ onBlocked: blockedA });
+        const resultA = await a.acquire(remoteAtlasKey(ATLAS_A));
         clock += 5;
 
-        const b = makeLock();
+        const b = makeLock({ onBlocked: blockedB });
+        const resultB = await b.acquire(remoteAtlasKey(ATLAS_B));
+
+        expect(resultA.granted).toBe(true);
+        expect(resultB.granted).toBe(true);
+        expect(a.blocked).toBe(false);
+        expect(b.blocked).toBe(false);
+        // O freio e a metade que destroi dado: se ele rodou, a aba parou de drenar um atlas que
+        // ninguem disputa. `granted` sozinho nao veria isso.
+        expect(blockedA).not.toHaveBeenCalled();
+        expect(blockedB).not.toHaveBeenCalled();
+        // As duas se enxergam: o silencio acima e arbitragem, nao um barramento morto.
+        expect(a.peers().map(peer => peer.tabId)).toEqual([b.tabId]);
+        expect(b.peers().map(peer => peer.tabId)).toEqual([a.tabId]);
+    });
+
+    it('CONTROLE NEGATIVO da promocao: duas abas no MESMO atlas de servidor ainda colidem', async () => {
+        const blockedB = vi.fn();
+        const a = makeLock();
+        await a.acquire(remoteAtlasKey(ATLAS_B));
+        clock += 5;
+
+        const b = makeLock({ onBlocked: blockedB });
         const result = await b.acquire(remoteAtlasKey(ATLAS_B));
 
         expect(result.granted).toBe(false);
-        expect(result.blockedBy).not.toBeNull();
-        expect(a.blocked).toBe(false);
+        expect(result.blockedBy.tabId).toBe(a.tabId);
         expect(b.blocked).toBe(true);
-        // Negative control on the arrangement itself: two LOCAL atlases over the same clock and
-        // transport are granted, so the block above is the remote hold and not a broken harness.
-        clock += 5;
-        const c = makeLock();
-        const d = makeLock();
-        expect((await c.acquire(localAtlasKey('slot-1'))).granted).toBe(true);
-        clock += 5;
-        expect((await d.acquire(localAtlasKey('slot-2'))).granted).toBe(true);
+        expect(a.blocked).toBe(false);
+        expect(blockedB).toHaveBeenCalled();
     });
 
-    it.todo('two tabs in DIFFERENT server atlases are both granted, once each remote owns its own databases');
+    it('blocks a tab that opens the server atlas a RESCUED local slot is sitting on', async () => {
+        // The logout rescue (`adoptRemoteAtlasAsLocal`) leaves this tab on a LOCAL atlas whose
+        // databases are still `remote-<ATLAS_A>`. A tab opening that server atlas wipes on the
+        // way in, so it must be the one that is stopped.
+        const a = makeLock();
+        await a.acquire(localAtlasKey('slot-resgatado', { adoptedFrom: ATLAS_A }));
+        clock += 5;
+
+        const b = makeLock();
+        expect((await b.acquire(remoteAtlasKey(ATLAS_A))).granted).toBe(false);
+        expect(a.blocked).toBe(false);
+        expect(b.blocked).toBe(true);
+
+        // Control 1, same arrangement: a tab opening ANOTHER SERVER atlas passes. It is the
+        // control that names the cause, and it only became usable again with the ROW 4 hold out
+        // (while two remotes collided by kind, this tab was refused by the hold rather than by
+        // the adoption, and the control measured the wrong thing). Another LOCAL slot alongside
+        // it, so the pass is not a property of remotes.
+        clock += 5;
+        const c = makeLock();
+        expect((await c.acquire(remoteAtlasKey(ATLAS_B))).granted).toBe(true);
+        clock += 5;
+        const cLocal = makeLock();
+        expect((await cLocal.acquire(localAtlasKey('slot-outro'))).granted).toBe(true);
+
+        // Control 2, the one that names the cause: with the other tabs gone, the SAME slot id
+        // WITHOUT the adoption (the key the old derivation built) lets the same open through.
+        a.destroy();
+        b.destroy();
+        c.destroy();
+        cLocal.destroy();
+        clock += 5;
+        const d = makeLock();
+        await d.acquire(localAtlasKey('slot-resgatado'));
+        clock += 5;
+        const e = makeLock();
+        expect((await e.acquire(remoteAtlasKey(ATLAS_A))).granted).toBe(true);
+        expect(d.blocked).toBe(false);
+    });
 
     it('grants two tabs in DIFFERENT local atlases', async () => {
         const a = makeLock();
@@ -524,7 +631,214 @@ describe('tab-lock: two tabs', () => {
         expect(b.blocked).toBe(true);
     });
 
+    // ---------------------------------------------------------------- unmount notice
+
+    // O SUFIXO DE BANCO É ESCRITO À MÃO, e não derivado de `remoteScope()`. Este arquivo mede o
+    // protocolo, que não conhece o store; derivar o endereço do módulo que o produz faria sujeito
+    // e instrumento concordarem por construção. Que a string tenha esta forma é medido do outro
+    // lado, em `tests/unit/tab-lock-sync-brake.test.js`, com a fábrica de namespace real.
+    const ENDERECO_A = `remote-${ATLAS_A}`;
+    const ENDERECO_B = `remote-${ATLAS_B}`;
+
+    it('PORTÃO: a aba avisada FREIA mesmo sem colisão de chaves', async () => {
+        // O par exato do expurgo de logout: quem sai da conta segurando um slot LOCAL, e a irmã
+        // segurando um atlas de SERVIDOR. As duas chaves não colidem — hoje, e ainda menos depois
+        // de E7 — e é por isso que o aviso não pode ser endereçado por `keysCollide`.
+        const recebidos = [];
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const irma = makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async (enderecos) => {
+                recebidos.push(enderecos);
+                return enderecos.includes(ENDERECO_B);
+            }
+        });
+        // A premissa do caso, asserida em vez de suposta: sem esta linha o teste passaria também
+        // contra um aviso endereçado por colisão.
+        expect(keysCollide(emissor.key, irma.key)).toBe(false);
+
+        const relatorio = await emissor.announceTeardown([ENDERECO_B]);
+
+        expect(recebidos).toEqual([[ENDERECO_B]]);
+        expect(relatorio).toMatchObject({
+            peers: 1, acked: 1, frozen: 1, timedOut: false, degraded: false
+        });
+        expect(irma.frozen).toBe(true);
+        expect(irma.blocked).toBe(true);
+        // Retratou: a aba não segura mais atlas nenhum, então ninguém fica trancado do lado de fora.
+        expect(irma.key.kind).toBe(TabLockKeyKind.NONE);
+    });
+
+    it('o aviso chega a TODA aba viva, e só freia quem tem o endereço montado', async () => {
+        const vistos = new Map();
+        const observar = (nome, meu) => async (enderecos) => {
+            vistos.set(nome, enderecos);
+            return meu !== null && enderecos.includes(meu);
+        };
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const semMapa = makeLock({ key: noneKey(), onTeardown: observar('semMapa', null) });
+        const outroLocal = makeLock({
+            key: localAtlasKey('slot-b'), onTeardown: observar('outroLocal', 'slot-b')
+        });
+        const remota = makeLock({
+            key: remoteAtlasKey(ATLAS_B), onTeardown: observar('remota', ENDERECO_B)
+        });
+
+        const relatorio = await emissor.announceTeardown([ENDERECO_A, ENDERECO_B]);
+
+        // Entregue às três, incluindo a página sem mapa, que nunca colide com nada.
+        expect([...vistos.keys()].sort()).toEqual(['outroLocal', 'remota', 'semMapa']);
+        expect(vistos.get('semMapa')).toEqual([ENDERECO_A, ENDERECO_B]);
+        expect(relatorio).toMatchObject({ peers: 3, acked: 3, frozen: 1 });
+        // Uma só freou, e foi a do endereço citado: a decisão é do ENDEREÇO, não do recebimento.
+        expect(remota.frozen).toBe(true);
+        expect(outroLocal.frozen).toBe(false);
+        expect(semMapa.frozen).toBe(false);
+        expect(outroLocal.key.atlasId).toBe('slot-b');
+    });
+
+    it('o ack é EVIDÊNCIA: o emissor espera o freio TERMINAR, não começar', async () => {
+        let liberar;
+        const parando = new Promise((resolve) => { liberar = resolve; });
+        const ordem = [];
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async () => {
+                await parando;
+                ordem.push('irma-parou');
+                return true;
+            }
+        });
+
+        const pendente = emissor.announceTeardown([ENDERECO_B], { timeoutMs: 2000 })
+            .then((relatorio) => { ordem.push('emissor-seguiu'); return relatorio; });
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        // Passaram-se duas rodadas de espera e o emissor NÃO seguiu: um ack postado no início do
+        // freio (em vez de no fim) apareceria aqui, e o expurgo esvaziaria sob uma aba escrevendo.
+        expect(ordem).toEqual([]);
+
+        liberar();
+        const relatorio = await pendente;
+
+        expect(ordem).toEqual(['irma-parou', 'emissor-seguiu']);
+        expect(relatorio).toMatchObject({ acked: 1, frozen: 1, timedOut: false });
+    });
+
+    it('uma aba que não responde custa o tempo limite, e nada mais', async () => {
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const muda = makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: () => new Promise(() => {})   // nunca resolve
+        });
+
+        const relatorio = await emissor.announceTeardown([ENDERECO_B], { timeoutMs: 60 });
+
+        // Silêncio degrada para o comportamento de hoje: a irmã segue montada, o lock exclusivo do
+        // expurgo é recusado, o namespace é POUPADO. O logout não fica refém dela.
+        expect(relatorio).toMatchObject({ peers: 1, acked: 0, frozen: 0, timedOut: true });
+        expect(muda.frozen).toBe(false);
+    });
+
+    it('a aba freada NÃO volta: nem por o emissor sumir, nem por "Usar aqui"', async () => {
+        const retomou = vi.fn();
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const irma = makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async () => true,
+            onResumed: retomou
+        });
+        await emissor.announceTeardown([ENDERECO_B]);
+        expect(irma.frozen).toBe(true);
+
+        // O emissor fecha a aba, e o tempo passa: o caminho normal de desbloqueio.
+        emissor.destroy();
+        clock += 10000;
+        irma.pulse();
+
+        expect(irma.blocked).toBe(true);
+        expect(retomou).not.toHaveBeenCalled();
+        // E o botão do overlay não serve de saída: não há o que retomar de uma destruição.
+        expect(await irma.requestTakeover()).toBe(false);
+        expect(irma.blocked).toBe(true);
+    });
+
+    it('CONTROLE NEGATIVO do freio: sem `onTeardown` a aba responde e NÃO para', async () => {
+        // A mesma montagem do portão, com o efeito ausente (é o estado de uma aba antes de
+        // `installTabLockSyncBrake`). O ack sai mesmo assim, senão o emissor pagaria o tempo
+        // limite inteiro por uma aba que já respondeu que não é com ela.
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const irma = makeLock({ key: remoteAtlasKey(ATLAS_B) });
+
+        const relatorio = await emissor.announceTeardown([ENDERECO_B]);
+
+        expect(relatorio).toMatchObject({ peers: 1, acked: 1, frozen: 0, timedOut: false });
+        expect(irma.frozen).toBe(false);
+        expect(irma.key.atlasId).toBe(ATLAS_B);
+    });
+
+    it('um `onTeardown` que LANÇA responde "não parei", em vez de mentir que parou', async () => {
+        const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const irma = makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async () => { throw new Error('freio quebrado'); }
+        });
+
+        const relatorio = await emissor.announceTeardown([ENDERECO_B]);
+
+        expect(relatorio).toMatchObject({ acked: 1, frozen: 0 });
+        expect(irma.frozen).toBe(false);
+        expect(erro).toHaveBeenCalled();
+        erro.mockRestore();
+    });
+
+    it('lista vazia ou lixo não anuncia nada', async () => {
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+        const irma = makeLock({ key: remoteAtlasKey(ATLAS_B), onTeardown: async () => true });
+
+        for (const entrada of [[], null, undefined, [null, 42, {}]]) {
+            const relatorio = await emissor.announceTeardown(entrada);
+            expect(relatorio.addresses).toEqual([]);
+            expect(relatorio.peers).toBe(0);
+        }
+        expect(irma.frozen).toBe(false);
+    });
+
+    it('um aviso do dialeto ANTIGO é ignorado, em vez de ser lido pela metade', async () => {
+        const irma = makeLock({ key: remoteAtlasKey(ATLAS_B), onTeardown: async () => true });
+        const emissor = makeLock({ key: localAtlasKey('slot-a') });
+
+        emissor._transport.post({
+            v: 2, type: 'TEARDOWN', tabId: emissor.tabId, addresses: [ENDERECO_B]
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(irma.frozen).toBe(false);
+        // Controle positivo: o MESMO aviso na versão corrente freia, então o falso acima é a
+        // versão e não o arranjo.
+        expect((await emissor.announceTeardown([ENDERECO_B])).frozen).toBe(1);
+        expect(irma.frozen).toBe(true);
+    });
+
     // ---------------------------------------------------------------- degraded path
+
+    it('anunciar sem transporte nenhum resolve na hora, declarando-se degradado', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const lock = createTabLock({
+            createTransport: () => null,
+            overlayHost: null,
+            autoPulse: false
+        });
+        locks.push(lock);
+
+        const relatorio = await lock.announceTeardown([ENDERECO_A]);
+
+        // Sem canal não há a quem avisar, e o expurgo do lado do store já destrói em vez de
+        // poupar quando não há Web Lock. O aviso não pode ser o que trava um logout.
+        expect(relatorio).toMatchObject({ degraded: true, peers: 0, acked: 0, timedOut: false });
+        warn.mockRestore();
+    });
 
     it('degrades LOUDLY when there is no transport at all', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -557,6 +871,65 @@ describe('tab-lock: two tabs', () => {
         a._transport.post({ type: 'RELEASE', tabId: a.tabId });
         b.pulse();
         expect(b.blocked).toBe(true);
+    });
+});
+
+describe('tab-lock: o transporte REAL, sem o hub em processo', () => {
+    // TODO SITIO DE TESTE DESTE MODULO INJETA UM HUB, entao o transporte que a producao usa nunca
+    // tinha sido exercitado uma vez: um `post` que nao atravessasse, um `onmessage` que o
+    // BroadcastChannel nao aceitasse, ou um envelope que o clone estruturado recusasse passariam
+    // verdes em todos eles. Aqui a fabrica e a `defaultCreateTransport` (nenhum `createTransport`
+    // e passado), com o BroadcastChannel do node.
+    //
+    // O RELOGIO CONTINUA INJETADO de proposito: o sujeito deste caso e o transporte, e um relogio
+    // real faria as duas reivindicacoes cairem no mesmo milissegundo, onde quem bloqueia vira
+    // sorteio pelo sufixo aleatorio do `tabId` (foi assim que o flake do sync-brake nasceu).
+    const uniqueChannel = () => `ebgeo-tab-lock-teste-${Math.random().toString(36).slice(2)}`;
+
+    it('usa o BroadcastChannel de verdade, e arbitra por ele', async () => {
+        expect(typeof BroadcastChannel).toBe('function');
+        const channelName = uniqueChannel();
+        const built = [];
+        let clock = 1000;
+        const mk = () => {
+            const lock = createTabLock({
+                channelName,
+                now: () => clock,
+                overlayHost: null,
+                autoPulse: false,
+                settleMs: 30
+            });
+            built.push(lock);
+            return lock;
+        };
+
+        try {
+            const a = mk();
+            expect(a.transportKind).toBe('broadcast-channel');
+            expect(a.degraded).toBe(false);
+            expect((await a.acquire(remoteAtlasKey(ATLAS_A))).granted).toBe(true);
+
+            // MESMO atlas: a segunda aba perde, e o que prova que a mensagem atravessou o canal
+            // (em vez de a aba simplesmente nao ter ouvido nada) e o `blockedBy` nomear a primeira.
+            clock += 5;
+            const b = mk();
+            const disputa = await b.acquire(remoteAtlasKey(ATLAS_A));
+            expect(disputa.granted).toBe(false);
+            expect(disputa.blockedBy?.tabId).toBe(a.tabId);
+            expect(b.blocked).toBe(true);
+
+            // Controle negativo no MESMO canal: outro atlas de servidor passa...
+            clock += 5;
+            const c = mk();
+            expect((await c.acquire(remoteAtlasKey(ATLAS_B))).granted).toBe(true);
+            expect(c.blocked).toBe(false);
+            // ...e as tres se enxergam mesmo, senao o `granted` acima seria surdez e nao
+            // arbitragem: o roster de `a` tem as outras duas, vindas so pelo canal real.
+            expect(a.peers().map(peer => peer.tabId).sort())
+                .toEqual([b.tabId, c.tabId].sort());
+        } finally {
+            for (const lock of built) lock.destroy();
+        }
     });
 });
 

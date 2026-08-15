@@ -7,7 +7,8 @@
  * so the new size zoom correction does not cause extreme scaling.
  */
 
-import localforage from 'localforage';
+import { ATLAS_RECORD_KEY, StoreName, getStoreFor } from '../atlas-namespace.js';
+import { legacyScope } from './migration-scope.js';
 
 /**
  * The version THIS step reaches — not the chain's final version.
@@ -21,9 +22,11 @@ import localforage from 'localforage';
  */
 const TARGET_VERSION = '2.1';
 
-const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
-const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
-const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
+// Resolved against the TARGET scope on every call, never a fixed database name: the same
+// backfill has to be able to run over slot #2 as over the pre-namespace databases.
+const mapStore = (scope) => getStoreFor(StoreName.MAPS, scope);
+const atlasStore = (scope) => getStoreFor(StoreName.ATLAS, scope);
+const appStore = (scope) => getStoreFor(StoreName.SETTINGS, scope);
 
 /** Default zoom reference for pre-existing points. */
 const DEFAULT_SIZE_ZOOM = 10;
@@ -57,31 +60,33 @@ function migratePointZoomProperties(features) {
 
 /**
  * Main migration function: v2.0 to v2.1.
+ * @param {{ kind: string, dbSuffix: string }} [scope] - Target scope. Defaults to the
+ *   pre-namespace databases.
  * @returns {Promise<{success: boolean}>}
  */
-export async function migrateToV2_1() {
+export async function migrateToV2_1(scope = legacyScope()) {
     console.log('Starting migration to v2.1...');
 
-    const mapNames = await mapStore.keys();
+    const mapNames = await mapStore(scope).keys();
     console.log(`Found ${mapNames.length} maps to migrate`);
 
     for (const mapName of mapNames) {
-        const mapData = await mapStore.getItem(mapName);
+        const mapData = await mapStore(scope).getItem(mapName);
         if (!mapData?.features) continue;
 
         const updatedFeatures = migratePointZoomProperties(mapData.features);
         if (updatedFeatures !== mapData.features) {
-            await mapStore.setItem(mapName, { ...mapData, features: updatedFeatures });
+            await mapStore(scope).setItem(mapName, { ...mapData, features: updatedFeatures });
             console.log(`Migrated point zoom properties in map: ${mapName}`);
         }
     }
 
-    const atlas = await atlasStore.getItem('current_atlas');
+    const atlas = await atlasStore(scope).getItem(ATLAS_RECORD_KEY);
     if (atlas) {
         atlas.schemaVersion = TARGET_VERSION;
-        await atlasStore.setItem('current_atlas', atlas);
+        await atlasStore(scope).setItem(ATLAS_RECORD_KEY, atlas);
     }
-    await appStore.setItem('schemaVersion', TARGET_VERSION);
+    await appStore(scope).setItem('schemaVersion', TARGET_VERSION);
 
     console.log('Migration to v2.1 complete');
     return { success: true };

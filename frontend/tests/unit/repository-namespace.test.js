@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { localAtlasDiskKey, localSlotsOnDisk } from '../helpers/atlas-registry-disk.js';
 
 // ============================================================================
 // Fake do localforage, keyed by database name: dois `createInstance` com o mesmo nome
@@ -232,21 +233,44 @@ describe('wipe derivado dos descritores', () => {
         }
     });
 
-    it('clearAll() não encosta nos dois bancos GLOBAIS', async () => {
+    it('clearAll() não encosta no banco GLOBAL da instalação', async () => {
         const { namespace, repo } = await loadFront();
         namespace.activateScope(namespace.localScope('atlas-a', 'a'));
 
+        // O que mora no banco global é o registro de slots, então é ele que se semeia aqui.
+        // A chave sai do helper compartilhado (`tests/helpers/atlas-registry-disk.js`) e a
+        // sobrevivência é lida por ele: este arquivo não precisa saber o layout, e a versão
+        // anterior sabia (usava a chave LEGADA `local_atlases`, que produção já não escreve).
         const globalStore = namespace.getGlobalStore();
-        const queueStore = namespace.getStoreFor(namespace.StoreName.OPERATION_QUEUE);
-        await globalStore.setItem(namespace.GlobalKey.LOCAL_ATLASES, { atlases: [] });
-        await queueStore.setItem('op_1', { id: 'op_1' });
+        const slot = { id: 'slot-1', name: 'Meu Atlas', dbSuffix: '', createdAt: 1 };
+        await globalStore.setItem(localAtlasDiskKey(slot.id), slot);
 
         await repo.clearAll();
 
-        expect(await globalStore.getItem(namespace.GlobalKey.LOCAL_ATLASES)).toEqual({ atlases: [] });
+        expect(localSlotsOnDisk(databases.get('ebgeo_global'))).toEqual([slot]);
+        expect(contentsOf('ebgeo_global')).toEqual([localAtlasDiskKey(slot.id)]);
+    });
+
+    // A FILA NÃO É DADO DE ATLAS, e este caso é o portão dessa exclusão do lado do
+    // repositório. O wipe que `openRemoteAtlas` roda três linhas depois de ativar o namespace
+    // do atlas que está abrindo passaria por aqui: se `clearAll()` alcançasse a fila, ele
+    // destruiria o trabalho pendente DAQUELE atlas, imediatamente antes do `connect` que o
+    // drenaria. O caso é escrito no nome ABSOLUTO do banco, não pelo acessor, porque é o
+    // endereço que decide.
+    it('clearAll() não encosta na fila do atlas MONTADO', async () => {
+        const { namespace, repo } = await loadFront();
+        namespace.activateScope(namespace.localScope('atlas-a', 'a'));
+
+        const queueStore = namespace.getStoreFor(namespace.StoreName.OPERATION_QUEUE);
+        await queueStore.setItem('op_1', { id: 'op_1' });
+        // Positiva ANTES da negativa: sem ela, um "sobreviveu" adiante seria indistinguível
+        // de uma fila que nunca recebeu nada.
+        expect(contentsOf('ebgeo__a::operation_queue')).toEqual(['op_1']);
+
+        await repo.clearAll();
+
         expect(await queueStore.getItem('op_1')).toEqual({ id: 'op_1' });
-        expect(contentsOf('ebgeo_global')).toEqual([namespace.GlobalKey.LOCAL_ATLASES]);
-        expect(contentsOf('ebgeo::operation_queue')).toEqual(['op_1']);
+        expect(contentsOf('ebgeo__a::operation_queue')).toEqual(['op_1']);
     });
 
     it('clearAll() não encosta no atlas local vizinho', async () => {

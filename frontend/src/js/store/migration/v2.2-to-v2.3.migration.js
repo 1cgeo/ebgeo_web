@@ -18,7 +18,8 @@
  * WHAT IT ACTUALLY WRITES, in order, with the version stamp LAST:
  *   1. discards the store contents when they are REMOTE (see below);
  *   2. the local-atlas registry and the current-atlas pointer, in `ebgeo_global`
- *      (`initLocalAtlases`, which also activates the slot's scope);
+ *      (`initLocalAtlases`, whose scope activation is undone on the way out: the boot decides
+ *      which atlas is mounted, this step only registers one);
  *   3. the name of the slot's own atlas record, aligned with the registry;
  *   4. `schemaVersion` = 2.3 on the settings store and on the atlas record.
  * Crashing anywhere before step 4 leaves `detectMigrationNeeded` reporting `needed: true`,
@@ -36,11 +37,16 @@
  * Note this branch is only reachable for an AUTHENTICATED user: an expired session is
  * discarded by the boot guard before the repository is initialized.
  *
- * WHY THE STAMP GOES TO THE LEGACY SCOPE, ALWAYS: `detectMigrationNeeded` reads
- * `ebgeo_app_settings` and `ebgeo_atlas` by FIXED name (as do the three earlier steps of
- * the chain, which stay frozen on those names). Stamping only the active slot would leave
- * the fixed-name marker at 2.2 forever, and the whole chain — including v1→v2, which
- * CREATES an atlas record — would re-run against those databases on every single boot.
+ * THIS STEP IS INSTALLATION-LEVEL, AND THAT IS WHY IT BRANCHES ON ITS SCOPE. Registering
+ * slot #1 and discarding a REMOTE store happen exactly once, to the pre-namespace databases.
+ * Asked to bring a NAMESPACED slot from 2.2 to 2.3 (which `migrateActiveSlot` does), there is
+ * nothing structural left to do — the slot already exists, is already in the registry and
+ * already owns its namespace — so the step only stamps that slot and returns.
+ *
+ * IT USED TO STAMP THE MOUNTED SLOT AS A SIDE EFFECT, and that was the worse half of the
+ * fixed-name defect: the chain ran against the pre-namespace databases and marked slot #2 as
+ * migrated without transforming a byte of it, so the slot looked current and was skipped for
+ * good. The stamp of a slot now belongs to the pass that actually migrated it.
  *
  * THE CAP (10 local atlases) CANNOT BE HIT HERE: this step creates an atlas only when the
  * registry is EMPTY, so it can only ever take the count from 0 to 1. A repository that
@@ -50,19 +56,16 @@
 
 import {
     ATLAS_RECORD_KEY,
-    GlobalKey,
     LEGACY_DB_SUFFIX,
     StoreName,
-    getGlobalStore,
+    activateScope,
+    readLocalAtlasRegistry,
+    getActiveScope,
     getStoreFor,
-    listAtlasStores,
-    localScope
+    listAtlasStores
 } from '../atlas-namespace.js';
-import {
-    initLocalAtlases,
-    listLocalAtlases,
-    scopeOfLocalAtlas
-} from '../local-atlas.api.js';
+import { isLegacyScope, legacyScope } from './migration-scope.js';
+import { initLocalAtlases, listLocalAtlases } from '../local-atlas.api.js';
 import { StoreOriginKind, loadStoreOrigin, markStoreLocal } from '../store-origin.js';
 
 /**
@@ -74,20 +77,6 @@ const TARGET_VERSION = '2.3';
 
 /** Key of the schema marker inside a scope's settings database. */
 const SCHEMA_VERSION_KEY = 'schemaVersion';
-
-/**
- * Diagnostic id of the scope that resolves to the PRE-NAMESPACE (unsuffixed) databases. It
- * never reaches a database name: the empty `LEGACY_DB_SUFFIX` does.
- */
-const LEGACY_SCOPE_ID = 'legacy-workspace';
-
-/**
- * @returns {{ kind: string, atlasId: string, dbSuffix: string }} Scope of the unsuffixed
- *   databases, which are both the pre-namespace layout and local slot #1.
- */
-function legacyScope() {
-    return localScope(LEGACY_SCOPE_ID, LEGACY_DB_SUFFIX);
-}
 
 /**
  * Empties the pre-namespace databases and marks the store LOCAL. Reached only when the
@@ -125,8 +114,7 @@ async function nameOfAdoptedAtlas() {
  *   already exists, i.e. this installation already claimed its workspace.
  */
 async function hasRegistryEntries() {
-    const stored = await getGlobalStore().getItem(GlobalKey.LOCAL_ATLASES);
-    return Array.isArray(stored?.atlases) && stored.atlases.length > 0;
+    return (await readLocalAtlasRegistry()).length > 0;
 }
 
 /**
@@ -161,10 +149,28 @@ async function stampVersion(scope, name = null) {
 
 /**
  * Main migration function: v2.2 to v2.3.
+ * @param {{ kind: string, dbSuffix: string }} [scope] - Target scope. Defaults to the
+ *   pre-namespace databases, which is the only scope this step has structural work for.
  * @returns {Promise<{success: boolean}>}
  */
-export async function migrateToV2_3() {
+export async function migrateToV2_3(scope = legacyScope()) {
+    if (!isLegacyScope(scope)) {
+        // A namespaced slot is already registered and already owns its databases: the
+        // structural half of this step is spent. Only the version marker is missing.
+        console.log(`Migration to v2.3: stamping namespaced slot "${scope.dbSuffix}"`);
+        await stampVersion(scope);
+        return { success: true };
+    }
+
     console.log('Starting migration to v2.3 (named local atlases)...');
+
+    // WHICH ATLAS THE BOOT MOUNTED IS NOT THIS STEP'S DECISION. `initLocalAtlases` activates a
+    // scope as a side effect, and this step calls it with a deliberately fixed LOCAL origin (see
+    // below), so on a boot that had already activated something else — an authenticated session
+    // whose origin is REMOTE activates that atlas's namespace — running the migration would leave
+    // the app writing into the local slot while it believes it is in the server atlas. The scope
+    // is therefore restored on the way out: a migration is a repository step, not a router.
+    const scopeBefore = getActiveScope();
 
     const origin = await loadStoreOrigin();
     if (origin.kind === StoreOriginKind.REMOTE) {
@@ -193,13 +199,13 @@ export async function migrateToV2_3() {
         console.warn('Migration 2.3: the pre-namespace databases are claimed by no local atlas');
     }
 
-    // The fixed-name marker is what `detectMigrationNeeded` (and the three frozen earlier
-    // steps) read, so it is stamped whether or not it is also the active slot.
+    // Only the scope this step actually worked on is stamped. Stamping the slot the pointer
+    // happens to name would declare it migrated by a chain that never opened its databases,
+    // which is what made `migrateActiveSlot` unreachable for that slot forever.
     const legacyName = current.dbSuffix === LEGACY_DB_SUFFIX ? current.name : null;
     await stampVersion(legacyScope(), legacyName);
-    if (current.dbSuffix !== LEGACY_DB_SUFFIX) {
-        await stampVersion(scopeOfLocalAtlas(current), current.name);
-    }
+
+    if (scopeBefore) activateScope(scopeBefore);
 
     console.log(`Migration to v2.3 complete (atlas "${current.name}")`);
     return { success: true };

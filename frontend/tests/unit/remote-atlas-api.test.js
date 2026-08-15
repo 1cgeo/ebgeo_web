@@ -16,6 +16,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+    remoteAtlasDiskKey,
+    remoteAtlasesOnDisk,
+    localSlotsOnDisk
+} from '../helpers/atlas-registry-disk.js';
 
 // ============================================================================
 // Disco falso, chaveado por (nome do banco, object store): o ponto dos testes é EM QUAL
@@ -60,8 +65,8 @@ vi.mock('localforage', () => ({
     }
 }));
 
-/** Os dez bancos por atlas, escritos à mão em vez de derivados do módulo sob teste. */
-const PER_ATLAS_BASE_NAMES = [
+/** Os dez bancos de DADO do atlas, escritos à mão em vez de derivados do módulo sob teste. */
+const ATLAS_DATA_BASE_NAMES = [
     'ebgeo_atlas',
     'ebgeo_maps',
     'ebgeo_images',
@@ -73,6 +78,14 @@ const PER_ATLAS_BASE_NAMES = [
     'ebgeo_briefings',
     'ebgeo_comments'
 ];
+
+/**
+ * Os ONZE bancos que MORREM com o atlas. A fila de saída é o décimo primeiro e é a única
+ * linha em que os dois eixos divergem: ela é `perAtlas` (morre na destruição) sem ser
+ * `atlasData` (o wipe de ENTRADA não a leva junto). Escrever só uma das listas faria
+ * "destruído" e "esvaziado" parecerem sinônimos, que é justamente o que eles não são.
+ */
+const PER_ATLAS_BASE_NAMES = [...ATLAS_DATA_BASE_NAMES, 'ebgeo'];
 
 const SENTINELA = '__sentinela_do_teste__';
 
@@ -99,8 +112,20 @@ beforeEach(async () => {
     local = await import('@store/local-atlas.api.js');
 });
 
-/** Nomes de banco de um atlas remoto, derivados do sufixo mas com os dez nomes absolutos. */
+/**
+ * Bancos de DADO de um atlas remoto (os dez), derivados do sufixo mas com nomes absolutos.
+ * É a lista que casa com `seedRemote`, então serve às conferências de sentinela.
+ */
 function dbNamesOfRemote(atlasId) {
+    return ATLAS_DATA_BASE_NAMES.map(base => `${base}__remote-${atlasId}`);
+}
+
+/**
+ * TODOS os bancos que a destruição alcança (os onze, fila de saída incluída). É a lista que
+ * casa com `cleared`/`dropped`/`blocked` do relatório, que derivam de `perAtlas`, não de
+ * `atlasData`.
+ */
+function allDbNamesOfRemote(atlasId) {
     return PER_ATLAS_BASE_NAMES.map(base => `${base}__remote-${atlasId}`);
 }
 
@@ -114,6 +139,61 @@ async function seedRemote(atlasId) {
 /** @returns {string[]} Bancos que AINDA guardam a sentinela. */
 function stillHoldingSentinel(names) {
     return names.filter(name => databases.get(`${name}::keyvaluepairs`)?.has(SENTINELA));
+}
+
+/** @returns {Map<string, *>|undefined} O banco global do disco falso. */
+function globalDisk() {
+    return databases.get('ebgeo_global::keyvaluepairs');
+}
+
+/**
+ * Segura a montagem de um namespace como faria OUTRA ABA, com o `navigator.locks` de verdade
+ * (existe no node que roda a suíte, medido em `atlas-namespace.test.js`). O lock desta função
+ * NÃO passa pelo módulo sob teste, então é indistinguível, para ele, de um lock de outro
+ * cliente: é o mais perto de "duas abas" que um processo alcança.
+ *
+ * O nome é montado com o sufixo ESCRITO À MÃO, não derivado do escopo, pela mesma razão de os
+ * dez bancos estarem escritos aqui: derivar da mesma fonte que o código passaria verde com a
+ * derivação errada.
+ *
+ * @param {string} atlasId - Atlas de servidor cujo namespace fica montado.
+ * @returns {Promise<() => Promise<void>>} Função que solta o lock (e espera a soltura).
+ */
+async function outraAbaMonta(atlasId) {
+    const nome = ns.atlasMountLockName(`remote-${atlasId}`);
+    let release;
+    let granted;
+    const ateSoltar = new Promise(resolve => { release = resolve; });
+    const concedido = new Promise(resolve => { granted = resolve; });
+
+    const settled = navigator.locks.request(nome, { mode: 'shared' }, () => {
+        granted();
+        return ateSoltar;
+    });
+    settled.catch(() => undefined);
+    await concedido;
+
+    return async () => {
+        release();
+        await settled;
+    };
+}
+
+/** Escreve `sparedAt` na entrada do registro, como um expurgo anterior teria feito. */
+async function carimbarPoupadoEm(atlasId, sparedAt) {
+    const globalStore = ns.getGlobalStore();
+    const key = remoteAtlasDiskKey(atlasId);
+    const atual = await globalStore.getItem(key);
+    await globalStore.setItem(key, { ...atual, sparedAt });
+}
+
+/**
+ * Os atlas remotos registrados NO DISCO, pela leitura compartilhada
+ * (`tests/helpers/atlas-registry-disk.js`), não pela `listRemoteAtlases` sob teste.
+ * @returns {string[]} Ids, ordenados.
+ */
+function remotosNoDisco() {
+    return remoteAtlasesOnDisk(globalDisk()).map(e => e.atlasId);
 }
 
 // ============================================================================
@@ -138,12 +218,17 @@ describe('remote-atlas.api :: um namespace por atlas remoto', () => {
             .not.toBe(ns.resolveDbName(ns.StoreName.MAPS, ns.remoteScope(ATLAS_B)));
     });
 
+    // LAYOUT DE DISCO, DE PROPÓSITO: os nomes de chave estão escritos LITERALMENTE aqui, e
+    // este é o único teste do arquivo que os conhece. É contrato de disco, então algum dia
+    // alguém vai precisar migrá-lo de novo, e nesse dia a mudança tem que aparecer em UM
+    // vermelho nomeado em vez de espalhada por vinte casos. O par local está em
+    // `tests/unit/atlas-namespace.test.js`.
     it('o registro e UMA CHAVE POR ATLAS, nao um array sob uma chave', async () => {
         await api.registerRemoteAtlas(ATLAS_A);
         await api.registerRemoteAtlas(ATLAS_B);
 
         const chaves = await ns.getGlobalStore().keys();
-        expect(chaves.filter(k => ns.isRemoteAtlasKey(k)).sort())
+        expect(chaves.filter(k => ns.isRemoteAtlasRegistryKey(k)).sort())
             .toEqual([`remote_atlas:${ATLAS_A}`, `remote_atlas:${ATLAS_B}`].sort());
         expect((await api.listRemoteAtlases()).map(e => e.atlasId).sort())
             .toEqual([ATLAS_A, ATLAS_B].sort());
@@ -182,29 +267,65 @@ describe('remote-atlas.api :: um namespace por atlas remoto', () => {
 // ============================================================================
 
 describe('remote-atlas.api :: purgeAllRemoteAtlases', () => {
-    it('esvazia e apaga os dez bancos de TODOS os atlas registrados', async () => {
+    // TROCADO EM E2 (2026-08-15), nunca somado. A versão anterior se chamava "esvazia e apaga
+    // os dez bancos de TODOS os atlas registrados" e não mencionava montagem nenhuma: era a
+    // descrição fiel de um expurgo CEGO, que apagava o namespace vivo da aba vizinha e a
+    // deixava escrevendo em bancos que nenhum registro nomeava. Um caso que continuasse
+    // exigindo aquilo faria a correção parecer regressão.
+    //
+    // O que ficou é a mesma afirmação com a CONDIÇÃO escrita: sem ninguém montado, destrói
+    // tudo. É o controle positivo dos casos de "poupa" logo abaixo.
+    it('SEM NINGUÉM MONTADO: esvazia e apaga os dez bancos de todos os registrados', async () => {
         await api.activateRemoteAtlas(ATLAS_A);
         await seedRemote(ATLAS_A);
         await api.activateRemoteAtlas(ATLAS_B);
         await seedRemote(ATLAS_B);
+        // ANTES (positivo): sem isto, "foi destruído" e "nunca existiu" são o mesmo verde.
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_B))).toEqual(dbNamesOfRemote(ATLAS_B));
 
         const relatorio = await api.purgeAllRemoteAtlases();
 
         expect(relatorio.atlases.sort()).toEqual([ATLAS_A, ATLAS_B].sort());
+        expect(relatorio.spared).toEqual([]);
         expect(stillHoldingSentinel([...dbNamesOfRemote(ATLAS_A), ...dbNamesOfRemote(ATLAS_B)]))
             .toEqual([]);
+        // A destruição alcança os ONZE, não os dez: a fila de saída daquele atlas morre com
+        // ele. Antes de E2B ela era um banco global e o payload das entidades do atlas
+        // remoto sobrevivia ao logout.
         expect(relatorio.dropped.sort())
-            .toEqual([...dbNamesOfRemote(ATLAS_A), ...dbNamesOfRemote(ATLAS_B)].sort());
+            .toEqual([...allDbNamesOfRemote(ATLAS_A), ...allDbNamesOfRemote(ATLAS_B)].sort());
         expect(relatorio.blocked).toEqual([]);
         expect(await api.listRemoteAtlases()).toEqual([]);
     });
 
-    it('ESTRUTURAL: a varredura cobre todo store marcado por atlas, e sao exatamente dez', async () => {
-        // Metade absoluta: se um descritor sumir da lista, isto falha.
-        const perAtlas = ns.STORE_DESCRIPTORS.filter(d => d.perAtlas).map(d => d.dbName);
-        expect(perAtlas).toEqual(PER_ATLAS_BASE_NAMES);
+    // O atlas que a PRÓPRIA aba tem montado é o que ela acabou de estar olhando, e é o
+    // primeiro que o logout precisa destruir. Sem soltar o lock antes de varrer, o cliente
+    // pouparia a si mesmo e o único namespace a sobreviver ao logout seria justamente esse.
+    it('o namespace que ESTA aba tem montado é destruído: ela solta o próprio lock', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
 
-        // Metade derivada: a sentinela vai para todo banco que a FÁBRICA considera por
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.atlases).toEqual([ATLAS_A]);
+        expect(relatorio.spared).toEqual([]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+    });
+
+    it('ESTRUTURAL: a varredura cobre todo store marcado por atlas, e os dois eixos divergem numa linha só', async () => {
+        // Metade absoluta: se um descritor sumir de qualquer um dos dois eixos, isto falha.
+        const perAtlas = ns.STORE_DESCRIPTORS.filter(d => d.perAtlas).map(d => d.dbName);
+        const atlasData = ns.STORE_DESCRIPTORS.filter(d => d.perAtlas && d.atlasData).map(d => d.dbName);
+        expect(perAtlas).toEqual(PER_ATLAS_BASE_NAMES);
+        expect(atlasData).toEqual(ATLAS_DATA_BASE_NAMES);
+        // E a divergência é EXATAMENTE a fila de saída. Sem esta linha, um descritor novo que
+        // errasse o eixo passaria despercebido enquanto as duas listas acima crescessem juntas.
+        expect(ns.STORE_DESCRIPTORS.filter(d => d.perAtlas !== d.atlasData).map(d => d.dbName))
+            .toEqual(['ebgeo']);
+
+        // Metade derivada: a sentinela vai para todo banco que a FÁBRICA considera dado de
         // atlas, então um store novo que a varredura deixasse de fora reprovaria aqui pelo
         // nome, sem ninguém lembrar de atualizar este teste.
         await api.activateRemoteAtlas(ATLAS_A);
@@ -218,21 +339,29 @@ describe('remote-atlas.api :: purgeAllRemoteAtlases', () => {
         expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
     });
 
-    it('NAO toca em atlas LOCAL nem nos dois bancos globais', async () => {
+    // TROCADO NA AUDITORIA DE E2B (2026-08-15). O título dizia "nem nos dois bancos globais"
+    // e a fila era um deles; agora ela é POR ATLAS, então o que precisa ser afirmado mudou de
+    // natureza: não é mais "a fila global sobreviveu", é "a fila DAQUELE atlas local
+    // sobreviveu ao expurgo dos remotos". Escrever o acessor sem escopo aqui (como antes)
+    // passou a ESTOURAR, porque o expurgo desativa o escopo remoto e não sobra escopo ativo,
+    // e um teste que só corrigisse o estouro estaria medindo outra coisa.
+    it('NAO toca no atlas LOCAL, nem na FILA dele, nem no banco da instalação', async () => {
         await local.initLocalAtlases();
         const localAtlas = (await local.createLocalAtlas('Operação Alfa')).atlas;
-        await ns.getStoreFor(ns.StoreName.MAPS, local.scopeOfLocalAtlas(localAtlas))
+        const escopoLocal = local.scopeOfLocalAtlas(localAtlas);
+        await ns.getStoreFor(ns.StoreName.MAPS, escopoLocal)
             .setItem('Principal', { dono: 'local' });
-        await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE).setItem('op_1', { id: 'op_1' });
+        await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, escopoLocal)
+            .setItem('op_1', { id: 'op_1' });
 
         await api.activateRemoteAtlas(ATLAS_A);
         await seedRemote(ATLAS_A);
         await api.purgeAllRemoteAtlases();
 
-        expect(await ns.getStoreFor(ns.StoreName.MAPS, local.scopeOfLocalAtlas(localAtlas))
+        expect(await ns.getStoreFor(ns.StoreName.MAPS, escopoLocal)
             .getItem('Principal')).toEqual({ dono: 'local' });
-        expect(await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE).getItem('op_1'))
-            .toEqual({ id: 'op_1' });
+        expect(await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE, escopoLocal)
+            .getItem('op_1')).toEqual({ id: 'op_1' });
         expect(databases.has('ebgeo_global::keyvaluepairs')).toBe(true);
         expect(local.listLocalAtlases()).toHaveLength(2);
     });
@@ -261,14 +390,286 @@ describe('remote-atlas.api :: purgeAllRemoteAtlases', () => {
 });
 
 // ============================================================================
+// 2b. E2: o expurgo POUPA o que uma aba viva tem montado, e só até o prazo
+//
+// Os três casos são um portão só, e nenhum deles vale sozinho: (1) prova que poupar existe,
+// (2) prova que o expurgo continua destruindo (sem ele, um expurgo virado no-op passaria em
+// (1) com louvor), e (3) prova que poupar tem fim, que é o que separa "adiar o resíduo" de
+// "torná-lo permanente". Todos leem a sentinela pelos dez nomes ABSOLUTOS, e todos afirmam o
+// estado ANTES da destruição.
+// ============================================================================
+
+describe('remote-atlas.api :: expurgo que poupa a montagem viva', () => {
+    it('(1) LOCK SEGURADO por outra aba: sentinela viva, entrada intacta, spared traz o id', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        // esta aba sai de A, e a vizinha continua nele
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+        await soltar();
+
+        expect(relatorio.spared).toEqual([ATLAS_A]);
+        expect(relatorio.atlases).toEqual([ATLAS_B]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect(relatorio.cleared).not.toContain(`ebgeo_maps__remote-${ATLAS_A}`);
+        // a entrada SOBREVIVE: é ela que faz a próxima varredura enxergar o namespace
+        expect((await api.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_A]);
+    });
+
+    it('(2) CONTROLE: com o mesmo cenário e o lock SOLTO, sentinela morta e entrada removida', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+        await soltar();
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.spared).toEqual([]);
+        expect(relatorio.atlases.sort()).toEqual([ATLAS_A, ATLAS_B].sort());
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        expect(await api.listRemoteAtlases()).toEqual([]);
+    });
+
+    it('poupar CARIMBA a data, e é a primeira que fica: o prazo não se renova', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+
+        await api.purgeAllRemoteAtlases();
+        const primeiro = (await api.listRemoteAtlases())[0].sparedAt;
+        // uma reconexão da aba vizinha não pode zerar o relógio
+        await api.registerRemoteAtlas(ATLAS_A);
+        await api.purgeAllRemoteAtlases();
+        const depois = (await api.listRemoteAtlases())[0].sparedAt;
+        await soltar();
+
+        expect(primeiro).toBeGreaterThan(0);
+        expect(depois).toBe(primeiro);
+    });
+
+    it('(3) PRAZO VENCIDO com o lock ainda segurado: a sentinela morre assim mesmo', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+        await carimbarPoupadoEm(ATLAS_A, Date.now() - api.SPARE_GRACE_MS - 1);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+        await soltar();
+
+        expect(relatorio.forced).toEqual([ATLAS_A]);
+        expect(relatorio.spared).toEqual([]);
+        expect(relatorio.atlases).toContain(ATLAS_A);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        expect((await api.listRemoteAtlases()).map(e => e.atlasId)).toEqual([]);
+    });
+
+    // `forced` é relatório de exceção: se ele acusasse todo prazo vencido, o caso ordinário
+    // (a aba vizinha morreu faz tempo) apareceria como tomada à força toda vez, e o aviso
+    // deixaria de significar alguma coisa.
+    it('prazo vencido e NINGUÉM montado: destrói pelo caminho normal, forced fica vazio', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        await carimbarPoupadoEm(ATLAS_A, Date.now() - api.SPARE_GRACE_MS - 1);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.forced).toEqual([]);
+        expect(relatorio.atlases.sort()).toEqual([ATLAS_A, ATLAS_B].sort());
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+    });
+
+    it('CONTROLE do prazo: um dia DENTRO do prazo com o mesmo lock ainda poupa', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+        await carimbarPoupadoEm(ATLAS_A, Date.now() - api.SPARE_GRACE_MS + 60_000);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+        await soltar();
+
+        expect(relatorio.forced).toEqual([]);
+        expect(relatorio.spared).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+    });
+
+    // Sem esta linha, E2 CRIA uma perda nova: um namespace poupado não entra em `atlases` nem
+    // em `adopted`, o predicado responde false, e o guarda de boot esvazia o slot local #1 do
+    // usuário sobre a ponte legada, no boot, sem erro.
+    it('poupado CONTA como alcançado pelo predicado do guarda de boot', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        const soltar = await outraAbaMonta(ATLAS_A);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+        await soltar();
+
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_A)).toBe(true);
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_B)).toBe(true);
+        // controle negativo: um atlas que a varredura não viu continua não alcançado
+        expect(api.purgeReachedAtlas(relatorio, 'atlas-que-ninguem-registrou')).toBe(false);
+    });
+});
+
+// ============================================================================
+// 2c. P3: o expurgo não pode relatar como destruído o namespace que nunca foi escrito
+//
+// O RELATÓRIO E O PREDICADO SÃO DUAS PERGUNTAS DIFERENTES, e confundi-las custou uma perda de
+// dado (P13). O relatório responde "o que a destruição encontrou": `empty` é um namespace que
+// não tinha um byte, e ele NÃO pode aparecer em `cleared`/`atlases`, senão a varredura volta a
+// alegar destruição de banco que ela mesma abriu para ler. O predicado responde outra coisa,
+// "este atlas possuía namespace", e para essa `empty` vale tanto quanto `atlases`: quem não
+// possuía namespace não aparece no relatório de jeito nenhum, porque o relatório é DERIVADO do
+// registro.
+// ============================================================================
+
+describe('remote-atlas.api :: namespace registrado e NUNCA escrito', () => {
+    // TROCADO EM 2026-08-15 (P13), nunca somado. Este caso exigia
+    // `purgeReachedAtlas(...) === false` para o namespace vazio: era a descrição fiel do código
+    // e o código perdia dado, então mantê-lo faria a correção parecer regressão. O que ele
+    // continua exigindo (`empty` fora de `cleared` e de `atlases`) é a metade de P3 que estava
+    // certa e que segue valendo.
+    it('não entra em cleared nem em atlases, e mesmo assim CONTA como alcançado', async () => {
+        // Registrar acontece ANTES da primeira escrita, então este estado é alcançável por um
+        // crash entre as duas: a entrada existe e os dez bancos, não.
+        await api.registerRemoteAtlas(ATLAS_A);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.cleared).toEqual([]);
+        expect(relatorio.atlases).toEqual([]);
+        expect(relatorio.empty).toEqual([ATLAS_A]);
+        // Estar no REGISTRO é a prova de que este atlas possuía namespace, e é isso que o
+        // guarda de boot pergunta: o dado dele nunca esteve nos bancos sem sufixo, então o
+        // segundo wipe não tem nada para terminar lá e só alcançaria o slot local #1.
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_A)).toBe(true);
+        // a entrada some assim mesmo: não há o que guardar
+        expect(await api.listRemoteAtlases()).toEqual([]);
+    });
+
+    // CONTROLE NEGATIVO do caso acima, e ele é o que impede a correção de virar "responde true
+    // para tudo": um atlas que a varredura nunca viu continua NÃO alcançado, no MESMO relatório
+    // em que o vazio é alcançado. É esse par que separa "o predicado passou a contar `empty`" de
+    // "o predicado parou de olhar".
+    it('CONTROLE: no mesmo relatório, quem nunca foi registrado NÃO é alcançado', async () => {
+        await api.registerRemoteAtlas(ATLAS_A);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.empty).toEqual([ATLAS_A]);
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_B)).toBe(false);
+        expect(api.purgeReachedAtlas(relatorio, 'atlas-pre-namespace')).toBe(false);
+    });
+
+    it('CONTROLE: o MESMO atlas com um byte dentro conta como alcançado', async () => {
+        await api.registerRemoteAtlas(ATLAS_A);
+        await ns.getStoreFor(ns.StoreName.MAPS, ns.remoteScope(ATLAS_A))
+            .setItem('Principal', { dono: 'servidor' });
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.cleared).toEqual([`ebgeo_maps__remote-${ATLAS_A}`]);
+        expect(relatorio.atlases).toEqual([ATLAS_A]);
+        expect(relatorio.empty).toEqual([]);
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_A)).toBe(true);
+    });
+});
+
+// ============================================================================
 // 3. Órfão: a entrada que sobrou de uma aba que morreu
 // ============================================================================
+
+describe('remote-atlas.api :: uma entrada corrompida não derruba a varredura', () => {
+    // P13, segunda metade (a opção que o dono escolheu): o guarda de boot pergunta "este atlas
+    // estava REGISTRADO", não "o expurgo o pôs em alguma lista de resultado". As duas concordam
+    // no caminho feliz e divergem exatamente aqui.
+    //
+    // Antes, o laço não tinha `try` por entrada: um atlas cuja destruição lançasse derrubava a
+    // varredura INTEIRA, e todo OUTRO atlas de servidor da máquina sobrevivia ao logout, que é
+    // o invariante que esta função existe para carregar. E o atlas que falhou não aparecia em
+    // lista nenhuma, então um predicado somado por resultados responderia "não alcançado" e o
+    // guarda aponta o segundo wipe para o slot local #1 do usuário.
+
+    it('a chave inutilizável é pulada e os atlas REAIS são varridos assim mesmo', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+        // ANTES (positivo): sem isto, "foi destruído" e "nunca existiu" seriam o mesmo verde.
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_B))).toEqual(dbNamesOfRemote(ATLAS_B));
+
+        // A destruição de A lança; a de B segue o caminho normal. A injeção é uma entrada
+        // CORROMPIDA no registro (sufixo com caractere que `remoteScope` recusa), que é uma
+        // falha realista e, ao contrário de um spy em `navigator.locks`, não é global e não
+        // vaza para os outros casos deste arquivo.
+        // A entrada corrompida: o id vem da CHAVE, e um id que `remoteScope` recusa faz a
+        // destruição daquela entrada lançar. É falha realista (um registro escrito por uma
+        // versão futura, um valor truncado) e, ao contrário de um spy em `navigator.locks`,
+        // não é global e não vaza para os outros casos deste arquivo.
+        await ns.getGlobalStore().setItem('remote_atlas:id invalido!', {
+            atlasId: 'id invalido!', dbSuffix: 'remote-id invalido!', createdAt: 1, updatedAt: 1
+        });
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        // O vizinho morreu: a varredura NÃO foi abortada pela exceção do primeiro. Esta é a
+        // asserção central, e antes do `try` por entrada ela ficava vermelha.
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_B))).toEqual([]);
+        expect(relatorio.failed).toEqual([]);
+
+        // Os dois atlas REAIS contam como alcançados, que é o que impede o guarda de apontar
+        // o segundo wipe para o slot local #1 do usuário.
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_A)).toBe(true);
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_B)).toBe(true);
+        // O que NUNCA esteve no registro segue respondendo false, senão o predicado viraria
+        // sempre-verdadeiro e o segundo wipe nunca rodaria (o caso pré-namespace precisa dele).
+        expect(api.purgeReachedAtlas(relatorio, 'atlas-que-nunca-existiu')).toBe(false);
+    });
+
+    it('a chave inutilizável fica no disco, e o atlas real ao lado dela morre', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        // A entrada corrompida: o id vem da CHAVE, e um id que `remoteScope` recusa faz a
+        // destruição daquela entrada lançar. É falha realista (um registro escrito por uma
+        // versão futura, um valor truncado) e, ao contrário de um spy em `navigator.locks`,
+        // não é global e não vaza para os outros casos deste arquivo.
+        await ns.getGlobalStore().setItem('remote_atlas:id invalido!', {
+            atlasId: 'id invalido!', dbSuffix: 'remote-id invalido!', createdAt: 1, updatedAt: 1
+        });
+
+        await api.purgeAllRemoteAtlases();
+
+        // A chave inutilizável FICA no disco: apagá-la seria o módulo escondendo a própria
+        // corrupção, e ela é inerte de qualquer forma (não nomeia namespace alcançável).
+        expect(remotosNoDisco()).toContain('id invalido!');
+        // E o atlas REAL foi destruído, que é a prova de que a corrupção não derrubou nada.
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+    });
+});
 
 describe('remote-atlas.api :: orfaos', () => {
     it('entrada orfa de outra aba (ou de um crash) e varrida sem sessao nenhuma', async () => {
         // Simula o que a OUTRA aba deixou: registro no banco global e dados no namespace,
         // sem que ESTA execução tenha aberto nada.
-        await ns.getGlobalStore().setItem(`remote_atlas:${ATLAS_A}`, {
+        await ns.getGlobalStore().setItem(remoteAtlasDiskKey(ATLAS_A), {
             atlasId: ATLAS_A,
             dbSuffix: `remote-${ATLAS_A}`,
             createdAt: 1,
@@ -280,11 +681,11 @@ describe('remote-atlas.api :: orfaos', () => {
 
         expect(relatorio.atlases).toEqual([ATLAS_A]);
         expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
-        expect(await ns.getGlobalStore().getItem(`remote_atlas:${ATLAS_A}`)).toBeNull();
+        expect(remotosNoDisco()).toEqual([]);
     });
 
     it('valor corrompido nao esconde o namespace: a identidade esta na CHAVE', async () => {
-        await ns.getGlobalStore().setItem(`remote_atlas:${ATLAS_A}`, 'lixo');
+        await ns.getGlobalStore().setItem(remoteAtlasDiskKey(ATLAS_A), 'lixo');
         await seedRemote(ATLAS_A);
 
         const relatorio = await api.purgeAllRemoteAtlases();
@@ -321,7 +722,7 @@ describe('remote-atlas.api :: delete bloqueado', () => {
 
         // o invariante (nenhum byte legível) foi cumprido pelo clear, que não depende de ninguém
         expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
-        expect(relatorio.blocked.sort()).toEqual(dbNamesOfRemote(ATLAS_A).sort());
+        expect(relatorio.blocked.sort()).toEqual(allDbNamesOfRemote(ATLAS_A).sort());
         expect(relatorio.dropped).toEqual([]);
         // e a entrada SOBREVIVE: é ela que faz a próxima carga sem sessão tentar de novo
         expect((await api.listRemoteAtlases()).map(e => e.atlasId)).toEqual([ATLAS_A]);
@@ -336,7 +737,7 @@ describe('remote-atlas.api :: delete bloqueado', () => {
         localforage.dropInstance.mockImplementation(dropFromFake);
         const relatorio = await api.purgeAllRemoteAtlases({ dropTimeoutMs: 5 });
 
-        expect(relatorio.dropped.sort()).toEqual(dbNamesOfRemote(ATLAS_A).sort());
+        expect(relatorio.dropped.sort()).toEqual(allDbNamesOfRemote(ATLAS_A).sort());
         expect(relatorio.blocked).toEqual([]);
         expect(await api.listRemoteAtlases()).toEqual([]);
     });
@@ -369,7 +770,7 @@ describe('remote-atlas.api :: namespace adotado pelo registro local', () => {
         await seedRemote(ATLAS_A);
         await local.adoptRemoteAtlasAsLocal(ATLAS_A, 'Trabalho resgatado');
         // Simula o crash entre escrever o registro local e remover a chave remota.
-        await ns.getGlobalStore().setItem(`remote_atlas:${ATLAS_A}`, {
+        await ns.getGlobalStore().setItem(remoteAtlasDiskKey(ATLAS_A), {
             atlasId: ATLAS_A,
             dbSuffix: `remote-${ATLAS_A}`,
             createdAt: 1,
@@ -381,7 +782,10 @@ describe('remote-atlas.api :: namespace adotado pelo registro local', () => {
         expect(relatorio.adopted).toEqual([ATLAS_A]);
         expect(relatorio.atlases).toEqual([]);
         expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
-        expect(await ns.getGlobalStore().getItem(`remote_atlas:${ATLAS_A}`)).toBeNull();
+        expect(remotosNoDisco()).toEqual([]);
+        // A posse ficou com o registro LOCAL, no disco: sem esta linha, "a chave remota sumiu"
+        // seria indistinguível de as duas terem sumido, que é a perda que o resgate evita.
+        expect(localSlotsOnDisk(globalDisk()).map(e => e.dbSuffix)).toContain(`remote-${ATLAS_A}`);
     });
 
     it('adotar duas vezes nao gasta um segundo slot nos mesmos bancos', async () => {

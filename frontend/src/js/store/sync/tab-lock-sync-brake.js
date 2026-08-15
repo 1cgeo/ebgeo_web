@@ -50,14 +50,47 @@
  * record is DISCARDED rather than applied. If it did not run (the ordinary handoff: a tab that was
  * already in its atlas and got it back), the record is applied and the tab reconnects.
  *
+ * THE THIRD EFFECT IS THE FREEZE, and it answers a different question from the other two. Blocking
+ * means "another tab holds this atlas" and is reversible; freezing means "the databases this tab
+ * writes to are being DESTROYED" (a logout in a sibling tab sweeps every remote namespace on the
+ * machine, including the one mounted here) and is not. The notice arrives on the lock's channel
+ * addressed by a set of database addresses, and matching it is this module's job precisely because
+ * the lock may not import the store: only here can `getActiveScope()` be read.
+ *
+ * WHAT THE FREEZE HAS TO ACHIEVE, in order:
+ *   1. the automatic writers stop (`applySyncBrake`: the 1.5 s drain and the inbound socket);
+ *   2. the MOUNT LOCK is released, and this is the half that makes the notice worth sending. The
+ *      destroyer asks for it exclusively and spares whatever it cannot get, so a tab that stopped
+ *      but kept the lock would still leave the namespace standing, and the reprieve would only
+ *      expire into a forced destruction later;
+ *   3. the active scope is cleared, so a write that still arrives cannot RECREATE the databases
+ *      that are about to be deleted. That recreation is the expensive failure mode: the registry
+ *      entry is gone by then, so the resurrected namespace is residue no later sweep can find;
+ *   4. the brake's record is DISCARDED, because there is nothing to restore. The lock keeps a
+ *      frozen tab out of `onResumed` on its side too; belt and braces, since a reconnect here
+ *      would pull a snapshot into a namespace that no longer exists.
+ *
+ * WHAT IT DOES NOT ACHIEVE, and this is written down rather than implied: a write that reaches the
+ * repository after step 3 still lands somewhere. `ensureAtlasScope` (`repositories/local.repository.js`)
+ * activates the LEGACY local scope when nothing is mounted, so a stray write goes to `ebgeo_maps`,
+ * the user's local slot, instead of resurrecting the condemned namespace. That is the lesser evil
+ * and the reason the freeze also shows the lock's blocking overlay: the gestures that would produce
+ * such a write are the user's, and the overlay is what stops them.
+ *
+ * THE PUBLIC VISITOR IS THE ONE TAB THAT DOES NOT FREEZE. It is anonymous by definition, so the
+ * logout of some other identity says nothing about it, and it is protected by the mount lock it
+ * keeps rather than by the session gate. Freezing it would hand its namespace to a sweep that has
+ * no business there.
+ *
  * @dependencies sync-engine.js, sync-flush.js, connection-state.js, session-context.js,
- *   @utils/tab-lock.js, @utils/toast_service.js
+ *   @store/atlas-namespace.js, @utils/tab-lock.js, @utils/toast_service.js
  */
 
 import { syncEngine } from './sync-engine.js';
 import { connectionState } from './connection-state.js';
 import { sessionContext } from './session-context.js';
 import { startAutoFlush, stopAutoFlush, isAutoFlushRunning } from './sync-flush.js';
+import { getActiveScope, clearActiveScope, releaseMountLock } from '@store/atlas-namespace.js';
 import { setTabLockEffects } from '@utils/tab-lock.js';
 import { showWarning } from '@utils/toast_service.js';
 
@@ -171,6 +204,36 @@ export async function releaseSyncBrake() {
 }
 
 /**
+ * ANSWERS AN UNMOUNT NOTICE: another tab is about to destroy the databases named in `addresses`.
+ *
+ * It reports whether THIS tab was one of the writers and has stopped, which is what the lock acks
+ * back to the sender. `false` is the safe answer and the common one (most notices name namespaces
+ * this tab never mounted): the sender then finds the namespace either unmounted, and destroys it,
+ * or mounted by somebody else, and spares it.
+ *
+ * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
+ * @returns {Promise<boolean>} True when this tab held one of them and is now stopped.
+ */
+export async function applyTeardownFreeze(addresses) {
+    const scope = getActiveScope();
+    if (!scope || !Array.isArray(addresses) || !addresses.includes(scope.dbSuffix)) return false;
+    // The public visitor holds a server namespace without a session, so a logout elsewhere is not
+    // about it. The mount lock it keeps is what protects it.
+    if (sessionContext.isVisitor()) return false;
+
+    await applySyncBrake();
+    // AWAITED, and before `clearActiveScope`: the release has to have LANDED for the sender's
+    // `exclusive ifAvailable` to be deterministic rather than a race with the lock queue.
+    // `clearActiveScope` fires its own release, but it neither targets a scope nor is awaitable.
+    await releaseMountLock(scope);
+    clearActiveScope();
+    // Nothing to put back: these databases are being deleted. Discarding the record is what keeps
+    // a later resume from reconnecting to them.
+    discardSyncBrakeRecord();
+    return true;
+}
+
+/**
  * Wires the brake into the page's tab lock. Call it once, on a page that can hold an atlas (the
  * map). Late-safe: a tab that is already blocked when this runs is stopped right away, and the
  * returned promise resolves once that catch-up stop has finished.
@@ -179,6 +242,12 @@ export async function releaseSyncBrake() {
  * straight to `initTabLock` is how the map page ended up with a stop that erased nothing but also
  * restored nothing: unblocking left the tab editable and silently offline. Handing the whole pair
  * to one owner is what keeps the stop and the restore describing the same thing.
+ *
+ * THE THREE HANDLERS BELOW ARE THE WHOLE SEAM, and it is measured as one. Deleting `onTeardown`
+ * from this call used to leave every case of both suites green: the protocol proved itself against
+ * a fake effect, the effect proved itself against a direct call, and nothing walked the wire a real
+ * tab walks. `tests/unit/tab-lock-sync-brake.test.js` §"o aviso atravessa o protocolo até o freio
+ * REAL" is what fails now, in the same arrangement `index.js` builds.
  *
  * @param {Object} [options]
  * @param {(() => Promise<boolean>)|null} [options.replay] - An open this tab still owes (see the
@@ -195,5 +264,6 @@ export function installTabLockSyncBrake({ replay = null } = {}) {
             }
             await releaseSyncBrake();
         },
+        onTeardown: applyTeardownFreeze,
     });
 }

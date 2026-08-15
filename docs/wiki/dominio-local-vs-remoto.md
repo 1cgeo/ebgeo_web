@@ -1,14 +1,18 @@
 # Domínio local vs. domínio remoto (store-origin)
 
-Um único IndexedDB guarda dois domínios, o workspace local permanente e a cópia efêmera de um atlas do servidor, discriminados por um marcador de origem (`frontend/src/js/store/store-origin.js`) e não por namespacing.
+Dois domínios convivem no IndexedDB, o workspace local permanente e a cópia efêmera de um atlas do servidor, discriminados por um marcador de origem (`frontend/src/js/store/store-origin.js`); desde 2026-08-15 cada atlas também tem o seu conjunto de bancos, e as duas coisas respondem perguntas diferentes.
 
-## Por que um marcador e não namespacing por atlas
+## O marcador e o namespace respondem perguntas diferentes
 
-Namespacing responderia "onde este dado mora". A pergunta que importa é outra: *este dado tem direito de continuar existindo aqui?* Dado de atlas remoto é temporário por definição, precisa sumir no logout. Um namespace o preservaria intacto e editável offline, e o usuário acharia que colabora enquanto edita uma cópia morta.
+O namespace responde "**onde** este dado mora": qual banco IndexedDB um `getStore()` resolve, dado o atlas ativo. O marcador responde a pergunta que decide destruição: *este dado tem direito de continuar existindo aqui?* Dado de atlas remoto é temporário por definição e precisa sumir no logout, senão o usuário acha que colabora enquanto edita uma cópia morta.
 
-Namespacing seria ainda um refactor pesado da persistência sem ganho de princípio, já que a separação local↔remoto já está garantida, e só adicionaria risco ao caso offline. Daí o não-objetivo deliberado (P12): **não existem múltiplos atlas locais nomeados**. O modelo local é um workspace mais arquivos `.ebgeo`; "atlas nomeado" é conceito de servidor. Decisão fechada, não backlog.
+**Esta seção dizia que namespacing tinha sido rejeitado, e isso deixou de valer.** O argumento da rejeição era que o namespace seria refactor pesado sem ganho de princípio, porque a separação local↔remoto já estava garantida pelo marcador. Ele foi vencido por um caso que o marcador não cobre: duas abas em atlas de servidor DIFERENTES eram, com um scratch único, o mesmo conjunto de dez bancos, o que não é contenção que um lock arbitre, é um endereço com dois donos. O invariante que a rejeição protegia ("dado remoto não sobrevive ao logout") continua de pé por outro meio, um registro mais um expurgo derivado dele. Ver [[namespace-por-atlas]] e [[coordenacao-entre-abas]].
 
-Consequência prática para o usuário: trocar de atlas é destrutivo. Para trabalhar offline em algo do servidor, **baixe o `.ebgeo` antes de desconectar** (ver [[formato-ebgeo-roundtrip]]).
+O que o marcador continua sendo, e nada disso mudou: a fonte que o boot guard lê para descartar resíduo, o que `checkPermission` consulta para liberar o store local, e a intenção durável gravada antes do pull.
+
+**Múltiplos atlas locais nomeados deixaram de ser não-objetivo na persistência, e o produto expõe só a criação.** O registro, o teto de 10 (`MAX_LOCAL_ATLASES`) e as operações de criar, trocar e excluir estão em `frontend/src/js/store/local-atlas.api.js`. Criar tem um gesto (importar um `.ebgeo` com um atlas de servidor aberto, ver [[formato-ebgeo-roundtrip]]) e o resgate de logout cria outro; **trocar e excluir não têm tela nenhuma**. Planejar a partir de "o usuário escolhe entre seus atlas locais" é planejar sobre UI que não existe, e o efeito colateral é real: o slot anterior fica no disco sem caminho de volta.
+
+Consequência prática para o usuário: trocar de atlas de servidor esvazia o store montado e **não** toca no que ficou pendente do atlas que se deixa, porque a fila de saída é por atlas e fica de fora do wipe de entrada ([[namespace-por-atlas]]). O que não volta é o DADO do atlas anterior, que se busca de novo no servidor. Para trabalhar offline em algo do servidor, **baixe o `.ebgeo` antes de desconectar** (ver [[formato-ebgeo-roundtrip]]).
 
 ## Ordem, que é onde está a corretude
 
@@ -19,9 +23,9 @@ Duas ordens não são estilo, são o que torna o crash seguro:
 
 ## Armadilhas
 
-**`atlasId` é campo morto.** O marcador persiste `{kind, atlasId}` e há teste pinando a persistência (`frontend/tests/store/store-origin.test.js`), mas **nenhum código de produção lê `atlasId`**: só `kind` é consultado (`frontend/src/js/index.js`, `frontend/src/js/store/sync/permission-guard.js`, `frontend/src/js/locking/map-lock.controller.js`, `frontend/src/js/store/store.js`). Não escreva código novo assumindo que ele é a fonte de verdade do atlas conectado, use `syncEngine.atlasId`.
+**`atlasId` deixou de ser campo morto, e isso muda como se lê o marcador.** Até o namespace por atlas existir, só `kind` era consultado e esta linha mandava ignorar o `atlasId` persistido. Hoje ele decide coisas: `initLocalAtlases` (`frontend/src/js/store/local-atlas.api.js`) o usa para reativar e REPARAR o registro do namespace no boot, `purgeReachedAtlas` (`frontend/src/js/store/remote-atlas.api.js`) o usa para decidir se o segundo apagamento do boot guard ainda precisa rodar, e `resolveTabMountOrigin` (`frontend/src/js/store/store-origin.js`) o usa como QUEDA do ponteiro de montagem por aba, que é a fonte de primeira escolha desde que o ponteiro passou a viver em `sessionStorage`. A precedência do boot é ponteiro da aba primeiro, marcador da instalação depois; o que mudou é que o `atlasId` do marcador é caminho vivo nas duas pontas. (Esta linha citou um terceiro consumidor em `frontend/src/js/account/account.control.js`, com um nome que nunca existiu no código, e o guarda de símbolo de `frontend/tests/unit/docs-integridade.test.js` foi quem acusou. Por isso a convenção pede crase só para o que existe.)
 
-**Duas listas paralelas de clear.** `clearAllDataStore` e `enforceLocalStoreWhenLoggedOut` (`frontend/src/js/store/store.js`) apagam o mesmo conjunto de side-stores em código duplicado. Adicionou um side-store persistido? Ele tem que entrar nas **duas**, senão dado remoto sobrevive ao logout. O código não força isso de forma alguma.
+**A lista de bancos a limpar é derivada, não escrita à mão.** Esta linha registrava duas listas paralelas em `clearAllDataStore` e `enforceLocalStoreWhenLoggedOut`, com nada forçando as duas a concordarem. As duas passaram a chamar `unmountCurrentAtlas`, que usa `clearAllAtlasStores` derivada de `STORE_DESCRIPTORS` (`frontend/src/js/store/atlas-namespace.js`). Adicionar um banco persistido é adicionar uma linha àquele descritor, e os caminhos de limpeza o alcançam sozinhos.
 
 **Replique a cláusula local em todo gate por papel.** `checkPermission` libera tudo quando `!isRemoteStoreSync()` (`frontend/src/js/store/sync/permission-guard.js`) e `isReadOnly()` retorna `false` de saída (`frontend/src/js/locking/map-lock.controller.js`). Um gate novo que consulte `sessionContext.role` cru quebra a edição do workspace local de um usuário logado cujo papel global seja restritivo. Ver [[permissoes-atlas]].
 
@@ -29,7 +33,7 @@ Duas ordens não são estilo, são o que torna o crash seguro:
 
 ## O anti-leak do `Principal` (comportamento que atravessa quatro arquivos)
 
-O marcador cobre local↔remoto, **não** cobre remoto↔remoto. O isolamento entre atlas vem de outro lugar: um store por vez, clear destrutivo na troca, e uma sala por atlas com guarda IDOR no servidor (ver [[atlas-modelo-de-dados]]).
+O marcador cobre local↔remoto, **não** cobre remoto↔remoto. O isolamento entre atlas de servidor vem de outro lugar: o namespace por atlas ([[namespace-por-atlas]]), o clear destrutivo na troca, e uma sala por atlas com guarda IDOR no servidor (ver [[atlas-modelo-de-dados]]).
 
 A raiz do problema é um chaveamento misto que nenhum arquivo declara sozinho: mapas de atlas remoto são chaveados por **UUID**, o mapa local padrão `Principal` é chaveado por **nome**. Quatro defesas independentes decorrem disso, e cada uma parece arbitrária lida isoladamente:
 
@@ -59,3 +63,7 @@ A precedência real é link público, depois deep link `?atlas=<uuid>`, depois `
 > [!CONTRADICAO 2026-07-18] RESOLVIDO 2026-07-24: o comentário de boot em `frontend/src/js/index.js` descrevia "otherwise reconnect the last remote atlas for a restored authenticated session", mas o código chama `openAtlasChooserOnBoot`. O comentário passou a dizer que o boot **não** reconecta sozinho e que o caminho é o seletor.
 
 Ver [[sessao-boot-e-ciclo-de-vida]] e [[autenticacao-jwt]].
+
+## Histórico
+
+- **2026-08-15.** Namespacing por atlas deixou de ser alternativa rejeitada e passou a existir, então três afirmações desta página foram reescritas acima: "um único IndexedDB", "namespacing foi rejeitado" e "não existem múltiplos atlas locais nomeados (P12)". Não é contradição, é supersessão: o invariante que a rejeição protegia continua valendo, agora por registro mais expurgo derivado. Junto caíram duas armadilhas que o código já não tem, o `atlasId` como campo morto e as duas listas paralelas de clear. O não-objetivo P12 estava replicado em [[sintese-decisoes-arquiteturais]], [[atlas-modelo-de-dados]], [[modos-operacao]] e [[formato-ebgeo-roundtrip]], que foram corrigidas na mesma data; a lição é que um não-objetivo repetido em cinco páginas custa cinco edições quando cai.

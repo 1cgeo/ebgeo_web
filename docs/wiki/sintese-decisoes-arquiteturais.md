@@ -26,11 +26,11 @@ A colaboração é **server-authoritative last-write-wins pela ordem de chegada 
 
 O `locked` de mapa não contradiz isso: é **aviso de UI, frontend-only**, não um lock de concorrência.
 
-## Um único workspace local (P12), não-objetivo explícito
+## P12 caiu: o namespace por atlas existe (2026-08-15)
 
-**Múltiplos atlas locais nomeados coexistindo no IndexedDB NÃO serão feitos.** Local = 1 workspace + `.ebgeo`; "atlas nomeado" é capacidade do servidor.
+**Esta seção declarava "múltiplos atlas locais nomeados NÃO serão feitos", com namespacing por atlas no IndexedDB como refactor rejeitado. Deixou de valer.** O argumento da rejeição (a separação local↔remoto já está garantida pelo marcador de origem, então o namespace não traz ganho de princípio) foi vencido por um caso que o marcador não cobre: duas abas em atlas de SERVIDOR diferentes eram, com um scratch único, o mesmo conjunto de dez bancos. Isso não é contenção que um lock arbitre, é um endereço com dois donos.
 
-O raciocínio: namespacing por atlas no IndexedDB seria um refactor pesado da camada de persistência **sem ganho de princípio**, porque a separação local↔remoto já é garantida pelo marcador de origem, e só adicionaria risco ao caso de uso número 1 (offline). Portabilidade e multiprojeto local se resolvem por exportar/importar `.ebgeo`.
+O que existe hoje: um namespace por atlas no nome do banco (a fila de saída inclusa), um registro de atlas locais com teto de 10, e um expurgo do remoto derivado de registro, que POUPA o namespace montado por outro cliente vivo até um prazo. O que **não** existe: tela que TROQUE ou exclua um atlas local. Criar um tem um gesto só, o import de `.ebgeo` dentro de um atlas de servidor. Ver [[namespace-por-atlas]] e [[coordenacao-entre-abas]].
 
 Dois corolários que causam bug se ignorados:
 
@@ -109,7 +109,7 @@ Gazetteer, catálogo 3D, assets e panoramas 360 são **REST read-only** sobre Po
 
 ## Não-objetivos declarados (lista curta)
 
-1. Múltiplos atlas locais nomeados no IndexedDB (P12).
+1. ~~Múltiplos atlas locais nomeados no IndexedDB (P12)~~ **caiu em 2026-08-15** (ver a seção acima): a persistência os suporta, o produto ainda não os expõe.
 2. CRDT verdadeiro com merge por propriedade.
 3. Locks de edição, ninguém bloqueia ninguém.
 4. Undo/redo global ou sincronizado.

@@ -31,6 +31,13 @@ export default defineConfig({
     // isolation but can miss a timing window under sustained full-suite load (a long
     // serial run on a loaded machine). A retry re-runs only the flaked test and reports
     // it as "flaky", keeping the suite honest without masking real (both-attempt) failures.
+    //
+    // ONE FILE OPTS OUT, IN ITSELF: `browser-multi-tab-namespace.spec.js` calls
+    // `test.describe.configure({ retries: 0 })`. There the retry would be the bug: two tabs of one
+    // profile racing over the same IndexedDB is the very thing under test, and a race that only
+    // loses sometimes would be re-run and reported as "flaky", which is a green run. The opt-out
+    // lives in the spec (not as a project here) so the rest of the suite keeps its retry and the
+    // reason travels with the file that needs it.
     retries: 1,
     timeout: 60000,
     expect: { timeout: 10000 },
@@ -41,11 +48,17 @@ export default defineConfig({
         trace: 'on-first-retry',
     },
     webServer: {
-        // Roda com cwd em frontend/, entao `npm run dev` AQUI e o `vite` do
-        // proprio pacote, nao o stack completo (esse e o `dev` da RAIZ, que sobe
-        // backend junto e nem repassaria o `--port`). O global-setup ja sobe o
-        // backend descartavel.
-        command: `npm run dev -- --port ${APP_PORT} --strictPort`,
+        // Roda com cwd em frontend/, entao o `vite` daqui e o do proprio pacote, nao o stack
+        // completo (esse e o `dev` da RAIZ, que sobe backend junto e nem repassaria o `--port`).
+        // O global-setup ja sobe o backend descartavel.
+        //
+        // NAO e o `vite.config.js` da raiz do pacote, e a diferenca importa: `tests/e2e-ui/
+        // vite.e2e.config.js` e o mesmo config com o WATCHER e o HMR removidos. Servido pelo
+        // config normal, um `src/` editado durante a rodada reinjeta o modulo com `?t=<epoch>`
+        // e recarrega a pagina no meio da medicao, o que ja derrubou 6 de 10 casos de
+        // `browser-multi-tab-namespace` por motivo que nao e do app. A razao medida esta no
+        // `@fileoverview` daquele arquivo, junto do controle que prova que o HMR esta mesmo fora.
+        command: `npx vite --config ./tests/e2e-ui/vite.e2e.config.js --port ${APP_PORT} --strictPort`,
         url: APP_ORIGIN,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,

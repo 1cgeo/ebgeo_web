@@ -14,7 +14,8 @@
  * the version-detection chain consistent and old `.ebgeo` files loadable.
  */
 
-import localforage from 'localforage';
+import { ATLAS_RECORD_KEY, StoreName, getStoreFor } from '../atlas-namespace.js';
+import { legacyScope } from './migration-scope.js';
 
 /**
  * The version THIS step reaches — not the chain's final version. See the same constant in
@@ -24,24 +25,27 @@ import localforage from 'localforage';
  */
 const TARGET_VERSION = '2.2';
 
-const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
-const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
+// Resolved against the TARGET scope on every call, never a fixed database name.
+const atlasStore = (scope) => getStoreFor(StoreName.ATLAS, scope);
+const appStore = (scope) => getStoreFor(StoreName.SETTINGS, scope);
 
 /**
  * Main migration function: v2.1 to v2.2.
+ * @param {{ kind: string, dbSuffix: string }} [scope] - Target scope. Defaults to the
+ *   pre-namespace databases.
  * @returns {Promise<{success: boolean}>}
  */
-export async function migrateToV2_2() {
+export async function migrateToV2_2(scope = legacyScope()) {
     console.log('Starting migration to v2.2 (Temporal Module)...');
 
     // Temporal fields are additive and optional — no per-feature backfill needed.
     // Stamp the new schema version on both the atlas and the app settings store.
-    const atlas = await atlasStore.getItem('current_atlas');
+    const atlas = await atlasStore(scope).getItem(ATLAS_RECORD_KEY);
     if (atlas) {
         atlas.schemaVersion = TARGET_VERSION;
-        await atlasStore.setItem('current_atlas', atlas);
+        await atlasStore(scope).setItem(ATLAS_RECORD_KEY, atlas);
     }
-    await appStore.setItem('schemaVersion', TARGET_VERSION);
+    await appStore(scope).setItem('schemaVersion', TARGET_VERSION);
 
     console.log('Migration to v2.2 complete');
     return { success: true };

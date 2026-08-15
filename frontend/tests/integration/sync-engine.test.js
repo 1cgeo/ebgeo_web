@@ -175,6 +175,7 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 // ============================================================================
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
+import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
 
 // ============================================================================
 // Setup
@@ -558,6 +559,47 @@ describe('flush', () => {
         expect(apiClientMock.pushOperations).not.toHaveBeenCalled();
         expect(result).toEqual({ pushed: 0 });
     });
+
+    // O dequeue era do LOTE: bastava o push resolver para as três saírem da fila, tendo o
+    // servidor falado sobre as três ou sobre uma. Uma op que ele não menciona não foi
+    // aplicada e não tem versão; tirá-la da fila é como uma feição some de uma máquina e
+    // não aparece em nenhuma outra.
+    it('desenfileira SÓ as ops que o servidor confirmou, e mantém as demais', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }, { id: 'op-3' }];
+
+        apiClientMock.pushOperations
+            // O servidor fala sobre op-1 e op-3; op-2 ele ignorou.
+            .mockResolvedValueOnce({
+                results: [
+                    { operationId: 'op-1', success: true, currentVersion: 9 },
+                    { operationId: 'op-3', success: true, currentVersion: 9 },
+                ],
+                serverVersion: 9,
+            })
+            // A op não confirmada é RETENTADA no mesmo laço; aqui a rede cai, e é isso que
+            // deixa o estado final observável.
+            .mockRejectedValueOnce(httpError(503));
+
+        await expect(syncEngine.flush()).rejects.toThrow();
+
+        expect(queueState.dequeued).toEqual(['op-1', 'op-3']);
+        expect(queueState.ops.map((o) => o.id)).toEqual(['op-2']);
+    });
+
+    it('falha ALTO quando o servidor não confirma nenhuma op (em vez de girar em vazio)', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }];
+        apiClientMock.pushOperations.mockResolvedValue({
+            results: [{ operationId: 'de-outro-cliente', success: true }],
+            serverVersion: 9,
+        });
+
+        await expect(syncEngine.flush()).rejects.toThrow(/não confirmou nenhuma/);
+        // Nada perdido: o trabalho continua na fila, e o `sync-flush` conta a falha e avisa.
+        expect(queueState.dequeued).toEqual([]);
+        expect(queueState.ops).toHaveLength(2);
+    });
 });
 
 // ============================================================================
@@ -625,6 +667,37 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
             expect(h.showWarningMock).not.toHaveBeenCalled();
         }
     );
+
+    // 404/410 é classe TERMINAL e DISTINTA: o atlas sumiu do servidor. Isolar op a op
+    // contra um endereço que não existe é um round-trip por op, para sempre; e descartar
+    // seria jogar fora o trabalho que o resgate ainda pode salvar. Então: nada sai da fila,
+    // o lote NÃO encolhe, e o erro sobe para o `sync-flush` classificar e avisar.
+    it.each([404, 410])('atlas ausente (%i): não isola, não descarta, e diz o que houve', async (status) => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }, { id: 'op-3' }];
+        apiClientMock.pushOperations.mockRejectedValue(httpError(status));
+
+        setTracing(true);
+        clearTrace();
+        try {
+            await expect(syncEngine.flush()).rejects.toThrow();
+        } finally {
+            setTracing(false);
+        }
+
+        expect(queueState.dequeued).toEqual([]);
+        expect(queueState.ops).toHaveLength(3);
+        // UMA tentativa, com o lote inteiro: se o modo de isolamento tivesse engatado,
+        // haveria uma segunda chamada com lote de tamanho 1.
+        const tamanhos = apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length);
+        expect(tamanhos).toEqual([3]);
+        expect(h.showWarningMock).not.toHaveBeenCalled();
+
+        // A classe é NOMEADA no ledger. Sem isto, "o atlas sumiu" e "a rede caiu" são o
+        // mesmo vermelho, que é a leitura errada que travava a fila em silêncio.
+        const motivos = getTrace((s) => s.stage === 'flush.push').map((s) => s.reason);
+        expect(motivos).toContain('atlas_gone');
+    });
 
     it('não gira em vazio quando a fila não avança (dequeue removeu 0)', async () => {
         // Se o descarte não remover nada, repetir o mesmo peek é laço infinito. O erro

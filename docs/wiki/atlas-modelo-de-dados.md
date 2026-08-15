@@ -37,15 +37,17 @@ O objeto do cliente e a linha do Postgres não são o mesmo shape, e o campo hom
 
 Contrato: chaves de disponibilidade **nunca** entram por op de sync do tipo `SETTING` (que faz merge whitelisted); só `PATCH /settings` com `manage` altera restrição. Quem tentar propagar restrição pelo canal de sync vai ver o merge aceitar e o efeito não acontecer.
 
-## Um atlas local, N no servidor (P12)
+## Um atlas montado por vez, N conjuntos de bancos no disco
 
-No IndexedDB o Atlas é **singleton**: chave fixa `current_atlas` (`frontend/src/js/store/repositories/local.repository.js`). Namespacing por atlas foi **rejeitado**; a separação local↔remoto é um marcador de origem (`store/store-origin.js`; note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. Local = 1 workspace (`Principal` + `.ebgeo`); atlas nomeado e compartilhável é capacidade de servidor. Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
+O registro de Atlas é singleton **dentro de um namespace**: chave fixa `current_atlas` (`frontend/src/js/store/repositories/local.repository.js`), um registro por conjunto de bancos. Esta seção dizia que namespacing por atlas tinha sido **rejeitado** e que o local era um workspace só (P12); desde 2026-08-15 cada atlas, local ou de servidor, tem o seu conjunto de dez bancos, e o expurgo do remoto é derivado de registro. Ver [[namespace-por-atlas]].
+
+O que não mudou: a separação local↔remoto continua sendo o marcador de origem (`store/store-origin.js`; note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. E o app continua **montando um atlas por vez**: trocar de atlas de servidor é destrutivo para o atlas montado, mas não para a fila de saída dele, que vive no namespace dele e sobrevive à saída ([[namespace-por-atlas]]). Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
 
 Consequências que causam bug se ignoradas:
 
-1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A; por isso o clear inclui o registro do atlas e a fila de operações não flushadas ([[fila-operacoes-outbound]]).
+1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A; por isso o clear inclui o registro do atlas. A fila de operações não flushadas fica **de fora** desse clear, e a exceção é o que a torna correta: o wipe roda com o namespace de B já montado, então varrer a fila ali seria destruir o pendente DE B três linhas antes do `connect` que o drenaria ([[fila-operacoes-outbound]], [[namespace-por-atlas]]).
 2. **A origem é marcada REMOTE antes do connect**, de propósito: se a aba morrer no meio do pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente.
-3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `frontend/src/js/store/store.js`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
+3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `frontend/src/js/store/store.js`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance. Duas ressalvas do namespace por atlas, ambas com prazo e nenhuma delas um furo: o namespace que outra aba tem MONTADO é poupado até o prazo vencer, e o trabalho não sincronizado de uma sessão que caiu sozinha é adotado como atlas local em vez de destruído. Ver [[namespace-por-atlas]].
 
 ## Identidade de mapa: UUID vs nome
 
@@ -85,6 +87,6 @@ O link público emite JWT efêmero (1h, `read`, identidade "Visitante") que serv
 - **`features.layer_id` é UUID puro, SEM FK, e a ausência é load-bearing.** `002_atlas.sql` declara só `layer_id UUID,` enquanto as irmãs do mesmo arquivo declaram `REFERENCES` (`groups.parent_id`, `group_features.group_id`). A ausência parece esquecimento e não é: pela mesma razão do bullet acima, uma feição pode citar camada cujo create ainda não chegou ou foi eliminado pela compactação da fila, e uma FK ali transformaria isso em `23503`, que hoje descarta a feição em silêncio (e, antes de 2026-07-25, travava a fila daquele cliente para sempre). **Integridade referencial não é imponível num log de aplicação por ordem de chegada.** Registre isto antes de "consertar": acrescentar a FK que falta parece higiene de schema e é regressão de sync. O porquê também vive no ponto de uso, em `002_atlas.sql`.
 - **Slides quebram sozinhos**: `trg_mark_slides_broken` marca `is_broken` quando o mapa referenciado é soft-deletado.
 - **`temporal_config` é por mapa**, não por atlas. Ver [[modulo-temporal]].
-- **`schemaVersion` do cliente é `'2.2'`** e as migrações são forward-only e aditivas: atualizar o app nunca pode tornar inacessível um atlas já no IndexedDB. Contrato congelado.
+- **`schemaVersion` do cliente é `ATLAS_SCHEMA_VERSION` (`frontend/src/js/store/atlas/atlas.entity.js`), e desde 2026-08-15 ele é POR SLOT**, não da instalação: cada conjunto de bancos carrega a sua, e a migração recebe o escopo como argumento ([[namespace-por-atlas]]). O valor não se copia para cá porque ele sobe a cada migração nova, e a constante é o único lugar que não envelhece. O contrato congelado é o outro: migrações são forward-only e aditivas, e atualizar o app nunca pode tornar inacessível um atlas já no IndexedDB.
 
 Conflito é LWW por ordem de chegada ao servidor, não por timestamp: [[modelo-conflito-lww]]. Para depurar convergência ponta a ponta, [[syncledger]].

@@ -7,7 +7,7 @@ Os três modos não saem de uma flag: emergem do cruzamento de dois estados inde
 1. **Identidade** (`frontend/src/js/store/sync/session-context.js`): OFFLINE ou ONLINE, mais o marcador `_isVisitor`.
 2. **Origem do store** (`frontend/src/js/store/store-origin.js`): LOCAL ou REMOTE, marcador único persistido, com espelho síncrono para hot path.
 
-O split local↔remoto é esse marcador único, não namespacing de IndexedDB por atlas: múltiplos atlas locais nomeados são não-objetivo declarado (local = um workspace + `.ebgeo`). Ver [[dominio-local-vs-remoto]] e [[atlas-modelo-de-dados]].
+O split local↔remoto é esse marcador único. Ele **convive** com o namespace de IndexedDB por atlas, que existe desde 2026-08-15 e responde outra pergunta (em qual banco escrever, não se o dado pode continuar existindo): esta linha dizia que o namespacing era não-objetivo declarado. Ver [[dominio-local-vs-remoto]], [[namespace-por-atlas]] e [[atlas-modelo-de-dados]].
 
 A combinação decide o gate: `checkPermission()` libera tudo quando `isOffline() || !isRemoteStoreSync()` (`frontend/src/js/store/sync/permission-guard.js`). **O papel só restringe um atlas remoto conectado.** Sem isso, um usuário cujo papel global é `viewer` não conseguiria desenhar no próprio workspace local. Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
@@ -31,7 +31,7 @@ O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh
 
 ## Contratos de ordem que não podem inverter
 
-- **Abrir atlas remoto**: `disconnect → clearAllDataStore → markStoreRemote → connect → activateAtlasInitialMap → startAutoFlush` (`frontend/src/js/account/open-atlas.service.js`, o único pipeline de abertura). `markStoreRemote` **antes** do connect é intenção durável: se a aba morrer durante o pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente. E o store é um só, por isso a UI confirma antes de descartar trabalho local.
+- **Abrir atlas remoto**: `claimRemoteAtlas → disconnect → activateRemoteAtlas → clearAllDataStore → markStoreRemote → connect → activateAtlasInitialMap → startAutoFlush` (`frontend/src/js/account/open-atlas.service.js`, o único pipeline de abertura). `markStoreRemote` **antes** do connect é intenção durável: se a aba morrer durante o pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente. E `activateRemoteAtlas` **antes** do wipe é o que mira o wipe: ele esvazia o escopo ATIVO, e com um namespace por atlas o escopo anterior pode ser o dado vivo de outra aba ([[namespace-por-atlas]]). O que a UI confirma antes de descartar é o trabalho LOCAL, que a abertura substitui.
 - **Restaurar sessão antes do boot do store** (`restoreSessionFromStorage`, `frontend/src/js/index.js`): invertido, a guarda de boot não enxerga a sessão e descarta o atlas remoto em cache.
 - **Owner elevado a partir do snapshot, antes do handshake** (`frontend/src/js/store/sync/sync-engine.js`): sem isso os botões de configuração piscam ausentes no F5. O `connected` do WS ainda reconfirma e resolve o papel por atlas, que sobrepõe o papel global do login.
 

@@ -1,10 +1,19 @@
 // Path: js/account/open-atlas.service.js
 
 /**
- * @fileoverview Shared "open a remote atlas" flow. Opening (or switching to) a server atlas replaces
- * the local store and connects: resolve what happens to unsaved local work, close any previous
- * socket, wipe local, mark the origin REMOTE (durable intent before the snapshot pull), connect +
- * initial-pull, activate the atlas map, and resume auto-flush.
+ * @fileoverview Shared "open a remote atlas" flow. Opening (or switching to) a server atlas mounts
+ * that atlas's own namespace and connects: resolve what happens to unsaved local work, close any
+ * previous socket, ACTIVATE the atlas namespace (registering it first), wipe it, mark the origin
+ * REMOTE (durable intent before the snapshot pull), connect + initial-pull, activate the atlas map,
+ * and resume auto-flush.
+ *
+ * NOTE ON "REPLACES THE LOCAL STORE", which is what this flow used to do literally: with a
+ * namespace per atlas the wipe lands on the namespace being OPENED, so the user's local slot keeps
+ * its data on disk and comes back on the next logout. The three-way question below is therefore
+ * more conservative than it needs to be; it stays because its "Salvar e continuar" branch is the
+ * only one that puts local work on the SERVER, and because it is still the truth for the one case
+ * where the two namespaces coincide (an atlas rescued by `adoptRemoteAtlasAsLocal` keeps the
+ * `remote-<atlasId>` suffix, so re-opening that same server atlas does empty it).
  *
  * This is the SINGLE place the local-work guard lives. It used to be duplicated in
  * `AccountControl.openProjectPicker`, which fired it when the picker OPENED — i.e. right after every
@@ -42,8 +51,10 @@ import {
     isRemoteStoreSync,
     hasAnyMapFeatures,
     activateAtlasInitialMap,
+    activateRemoteAtlas,
 } from '@store/store.js';
-import { getActiveScope, StoreScopeKind } from '@store/atlas-namespace.js';
+import { createLocalAtlas, mountLocalAtlas } from '@store/local-atlas.api.js';
+import { getActiveScope, remoteAtlasIdFromDbSuffix, StoreScopeKind } from '@store/atlas-namespace.js';
 import { ensureAtlasScope } from '@store/repositories/local.repository.js';
 import {
     acquireTabLock,
@@ -126,7 +137,24 @@ export function currentAtlasLockKey() {
     if (scope?.kind === StoreScopeKind.REMOTE) {
         return scope.atlasId ? remoteAtlasKey(scope.atlasId) : noneKey();
     }
-    return scope?.atlasId ? localAtlasKey(scope.atlasId) : noneKey();
+    return localKeyOfScope(scope);
+}
+
+/**
+ * The LOCAL key of a store scope, carrying the adoption when the slot has one.
+ *
+ * The adoption is the whole reason this is a function and not `localAtlasKey(scope.atlasId)`: a
+ * slot rescued by `adoptRemoteAtlasAsLocal` keeps the `remote-<atlasId>` databases of the server
+ * atlas it came from, so its CLAIM has to name that atlas or a tab opening it would be allowed to
+ * wipe the rescued work (`utilities/tab-lock.js`, section 2).
+ * @param {{kind: string, atlasId: string|null, dbSuffix: string}|null} scope - Active scope.
+ * @returns {import('@utils/tab-lock.js').TabLockKey}
+ */
+function localKeyOfScope(scope) {
+    if (!scope?.atlasId) return noneKey();
+    return localAtlasKey(scope.atlasId, {
+        adoptedFrom: remoteAtlasIdFromDbSuffix(scope.dbSuffix)
+    });
 }
 
 /**
@@ -184,7 +212,7 @@ export function retractAtlasClaim() {
     releaseTabLock();
     const scope = getActiveScope();
     if (scope?.kind === StoreScopeKind.LOCAL && scope.atlasId) {
-        setTabLockKey(localAtlasKey(scope.atlasId));
+        setTabLockKey(localKeyOfScope(scope));
     }
 }
 
@@ -331,7 +359,32 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
         stopAutoFlush();
         syncEngine.disconnect();
     }
-    await clearAllDataStore();
+
+    // THE NAMESPACE OF THIS ATLAS, activated before anything writes. `activateRemoteAtlas` is the
+    // only legal way in: it REGISTERS the atlas in the remote registry and only then points every
+    // store at `ebgeo_*__remote-<atlasId>`. Reaching for `activateScope(remoteScope(...))` instead
+    // skips the registration and produces a namespace no logout wipe can find, forever and without
+    // an error (`remote-atlas.api.js`, property 1).
+    //
+    // IT PRECEDES `clearAllDataStore`, and that is not cosmetic. The wipe empties the ACTIVE scope,
+    // and by this line the tab-lock claim already names the atlas being OPENED: emptying under the
+    // previous scope would erase databases this tab no longer holds the claim for, which with one
+    // namespace per atlas is another tab's live data. Activating first aims the wipe at the
+    // namespace this tab has just claimed, which is the only one it may destroy.
+    try {
+        await activateRemoteAtlas(atlasId);
+    } catch (error) {
+        // The registry write comes first inside it, so a failure here activated NOTHING and wrote
+        // nothing. Retract, or every other tab stays locked out on behalf of an atlas this one
+        // never opened.
+        retractAtlasClaim();
+        throw error;
+    }
+
+    // `markLocal: false`: the very next line marks REMOTE, and the marker is global to the
+    // installation. Flipping it to LOCAL in between announced, to every other tab, an origin
+    // that contradicts what this one had already mounted.
+    await clearAllDataStore({ markLocal: false });
     // Mark REMOTE before connecting (durable intent): if the tab dies mid-pull, the boot guard sees
     // 'remote' and discards the partial data instead of mislabeling it as a permanent local atlas.
     await markStoreRemote(atlasId);
@@ -356,4 +409,71 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     await getControl('BaseLayerControl')?.switchMap?.(false);
     startAutoFlush();
     return true;
+}
+
+/**
+ * Leaves whatever atlas this tab holds and lands on a BRAND-NEW, EMPTY local atlas.
+ *
+ * This is the fifth (and last) entry into an atlas, and it exists for one caller: importing a
+ * `.ebgeo` while a SERVER project is open. That import used to be refused outright (phase E3's
+ * deliberate cut), because the alternative available then was worse: the import writes into
+ * whatever scope is mounted, so with a namespace per atlas the imported project was born inside
+ * `ebgeo_*__remote-<id>` and died with it at the next logout, silently.
+ *
+ * THE ORDER IS THE CONTRACT, and it is the same one `openRemoteAtlas` obeys, for the same reason:
+ *
+ *   1. CREATE FIRST, because creating is the only step that can be REFUSED (the cap of 10 local
+ *      atlases) and the only one that is not destructive. A cap hit here has cost the user
+ *      nothing: the socket is still up, the server project is still open, and the caller gets a
+ *      pt-BR refusal instead of an exception. Creating writes into the NEW slot's own databases
+ *      (`seedAtlasRecord` passes an explicit scope), never into the mounted one.
+ *   2. DISCONNECT, because one socket belongs to one atlas and the server has no "switch". The
+ *      outbound queue is deliberately NOT cleared: since E2B every operation carries the scope it
+ *      was born in, so the server atlas's pending work stays queued for the next time it is
+ *      opened instead of being discarded on the way out.
+ *   3. MOUNT, and only then WIPE. The wipe empties the ACTIVE scope; running it before the mount
+ *      would empty the server atlas's namespace, which is another tab's live data whenever two
+ *      tabs hold the same atlas. Mounting first aims it at the slot created in step 1, which is
+ *      empty anyway — the wipe is here to rebuild the in-memory store (and the drawn map) from
+ *      the new slot, not to destroy anything.
+ *   4. DECLARE the origin LOCAL last, after the wipe, so the marker can never announce an origin
+ *      that contradicts the namespace actually mounted.
+ *
+ * THE CLAIM MOVES WITHOUT ARBITRATION, on purpose. A slot created one line above carries a fresh
+ * UUID and fresh databases, so no peer can be holding it; `syncAtlasLockKey` re-derives the key
+ * from the scope now mounted, which both releases the server atlas for other tabs and stops this
+ * one from being blocked on its behalf.
+ *
+ * PARTIAL FAILURE, and what survives it. If anything after step 1 throws, NOTHING has been
+ * destroyed: the server atlas's databases were never the wipe's target and no operation was
+ * pushed. The user may end up on an empty local atlas with the server project closed, which is
+ * recoverable by reopening it from "Seus projetos"; the caller is expected to say so.
+ *
+ * @param {string} name - Display name for the new atlas, pt-BR. Duplicates are suffixed.
+ * @returns {Promise<import('@store/local-atlas.api.js').LocalAtlasResult>} `{ ok: true, atlas }`,
+ *   or the named refusal `createLocalAtlas` produced (cap reached), in which case NOTHING moved.
+ * @throws {Error} Propagates a persistence failure from the mount or the wipe.
+ */
+export async function switchToNewLocalAtlas(name) {
+    const created = await createLocalAtlas(name);
+    if (!created.ok) return created;
+
+    if (syncEngine.atlasId) {
+        stopAutoFlush();
+        syncEngine.disconnect();
+    }
+
+    await mountLocalAtlas(created.atlas.id);
+    syncAtlasLockKey();
+    // `clearQueue: false` is SPELLED OUT rather than left to follow `markLocal`, because this
+    // caller breaks the coupling that default encodes. `markLocal: true` means "this wipe ends in
+    // a blank local store, so abandon the pending work with it"; here the pending work belongs to
+    // the SERVER atlas just left, which is still on the server and still reopenable, so discarding
+    // it would push ghosts (or lose edits) the next time that atlas is opened. Whether the queue in
+    // reach is even the same one is a property of the queue's own addressing, and this line must
+    // not depend on which way that is settled.
+    await clearAllDataStore({ markLocal: false, clearQueue: false });
+    await markStoreLocal();
+
+    return created;
 }

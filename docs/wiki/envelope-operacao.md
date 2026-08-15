@@ -10,7 +10,9 @@ Não há rota REST de escrita **incremental** para entidades colaborativas (fei�
 
 `flush()` empurra os objetos da fila sem projeção (`frontend/src/js/store/sync/sync-engine.js`, `frontend/src/js/store/sync/api-client.js`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
 
-Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js`) vence o `stripUnknown: true` do middleware (`middleware/validate.js`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. O comentário do próprio schema hesita nisso e declara `traceId` explicitamente "rather than relying on .unknown(true)". A hesitação é infundada, mas **remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
+Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js`) vence o `stripUnknown: true` do middleware (`middleware/validate.js`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. **Remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
+
+Declarar um campo explicitamente (o schema faz isso com `traceId`, `atlasId` e `scopeSuffix`) não é redundância: o `.unknown(true)` transporta qualquer valor, e a declaração é o que impõe o TIPO. Sem ela um `atlasId` numérico atravessa intacto, e a guarda que o lê no servidor vê um não-string e cala. Medido pela recusa de tipo errado em `backend/tests/integration/sync-carimbo-de-atlas.test.js`, que é o controle negativo daquelas duas linhas do schema.
 
 ## Os campos que enganam
 
@@ -20,6 +22,7 @@ Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backen
 - **`mapId`** é contexto, não alvo. Ops de nível atlas (`map`, `briefing`, `setting`) passam `null`.
 - **`previousData`** existe para undo **local**. Viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa merge servidor-side em cima disso.
 - **`clientId`** não é credencial ([[client-id-estavel]]); **`traceId`** é best-effort e `null` nunca quebra o sync ([[syncledger]]).
+- **`scopeSuffix` e `atlasId`** dizem onde a op NASCEU, e são a metade de identidade da fila por atlas ([[namespace-por-atlas]], [[fila-operacoes-outbound]]). `scopeSuffix` é o endereço do banco local (a string VAZIA é o slot legado, um endereço de verdade; `null` é "nenhum atlas montado"); `atlasId` é o atlas de servidor, `null` quando não há. Os dois divergem no slot adotado pelo resgate, que é local e mora nos bancos de um atlas de servidor. **Eles NÃO são persistidos**: o INSERT usa o atlas da ROTA e uma lista fixa de colunas, então o par viaja no rebroadcast e some no pull incremental (medido em `backend/tests/integration/sync-carimbo-de-atlas.test.js`). Logo, nunca construa guarda de cliente sobre a presença deles numa op RECEBIDA. No servidor eles têm um único uso legítimo: `foreignAtlasDenialReason` recusa por operação a op que declara pertencer a outro atlas.
 - **`id`** é a âncora: sobrevive intacto por `push → INSERT → broadcast/pull → apply`, é a chave de `UNIQUE (atlas_id, op_id)` e a chave de junção do ledger. Ver [[idempotencia-e-convergence-guard]] e [[ack-idempotencia]].
 
 ## Armadilhas

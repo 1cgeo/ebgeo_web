@@ -4,7 +4,11 @@ O `.ebgeo` é o contêiner portável do trabalho local, sujeito a duas invariant
 
 ## Por que o formato existe
 
-Localmente existe **um** só espaço de trabalho no IndexedDB (P12). "Vários projetos" não são vários atlas nomeados, são vários arquivos `.ebgeo`; atlas nomeado é capacidade de servidor (ver [[atlas-modelo-de-dados]], [[dominio-local-vs-remoto]]). Daí decorre a regra de ouro operacional: dado de atlas remoto é efêmero no cliente, então **baixe o `.ebgeo` antes de desconectar**. "Salvar projeto" enquanto conectado exporta o estado remoto atual, e é a forma suportada de tirar uma foto de um atlas do servidor.
+Localmente "vários projetos" continuam sendo vários arquivos `.ebgeo`. Isto era o não-objetivo P12 e virou um fato de produto sem ser mais uma decisão: a persistência suporta N atlas locais nomeados desde 2026-08-15 ([[namespace-por-atlas]]), e o único gesto que cria um é justamente o import descrito abaixo. **Nenhuma tela TROCA de atlas local**, então o usuário continua sem caminho de volta ao slot anterior (ver [[atlas-modelo-de-dados]], [[dominio-local-vs-remoto]]).
+
+**Importar com um atlas de servidor aberto SAI daquele atlas.** O import não-aditivo escreveria no escopo ATIVO, e com namespace por atlas isso é `ebgeo_*__remote-<id>`: o projeto importado nasceria dentro do namespace que o próximo logout destrói, e sumiria sem erro (antes do namespace ele caía no banco legado e sobrevivia). Então o import cria um atlas LOCAL novo e troca para ele (`switchToNewLocalAtlas`, `frontend/src/js/account/open-atlas.service.js`), avisando o usuário em pt-BR de que o projeto do servidor foi fechado e continua intacto. Duas consequências que só se veem cruzando arquivos: **criar vem primeiro** porque é o único passo recusável (teto de 10 atlas locais) e o único não destrutivo, então bater no teto custa zero ao usuário, com o socket ainda de pé; e o import **aditivo** continua recusado dentro de um atlas de servidor, porque "somar" ali significaria criar mapas, camadas e feições no projeto do servidor, o que exige permissão de escrita e uma rodada de sync por entidade. Ver [[namespace-por-atlas]].
+
+A regra de ouro operacional continua: dado de atlas remoto é efêmero no cliente, então **baixe o `.ebgeo` antes de desconectar**. "Salvar projeto" enquanto conectado exporta o estado remoto atual, e é a forma suportada de tirar uma foto de um atlas do servidor.
 
 O XOR sobre o ZIP (prefixo `EBGXOR`) é **máscara, não criptografia**. Não trate como proteção nem construa nada em cima disso.
 

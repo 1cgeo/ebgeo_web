@@ -25,13 +25,16 @@
  * atlas must unmount the current one first (the wipe/unmount path stays in `store.js`).
  */
 
-import { createAtlas } from './atlas/atlas.entity.js';
+import { createAtlas, ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import {
     ATLAS_RECORD_KEY,
     GlobalKey,
     LEGACY_DB_SUFFIX,
+    localAtlasRegistryKey,
+    isLocalAtlasRegistryKey,
+    atlasIdFromLocalRegistryKey,
     StoreName,
     StoreScopeKind,
     activateScope,
@@ -40,7 +43,8 @@ import {
     getStoreFor,
     dropAtlasDatabases,
     localScope,
-    remoteAtlasKey,
+    bootTabMountPointer,
+    remoteAtlasRegistryKey,
     remoteScope
 } from './atlas-namespace.js';
 import { activateRemoteAtlas } from './remote-atlas.api.js';
@@ -135,22 +139,94 @@ function requireEntries() {
  */
 async function persistRegistry() {
     const globalStore = getGlobalStore();
-    await globalStore.setItem(GlobalKey.LOCAL_ATLASES, {
-        version: REGISTRY_VERSION,
-        atlases: _entries.map(e => ({ ...e }))
-    });
+    for (const entry of _entries) {
+        await globalStore.setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+    }
     await globalStore.setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
 }
 
 /**
- * Reads the registry from the global database into memory.
+ * Persists ONE slot's registry entry, without touching the in-memory mirror.
+ *
+ * Separate from `persistRegistry` so a caller can write to disk FIRST and only mirror after
+ * the write resolves. A mirror updated before the disk is a claim the next boot cannot honour.
+ * @param {LocalAtlasEntry} entry
+ * @returns {Promise<void>}
+ */
+async function persistRegistryEntry(entry) {
+    await getGlobalStore().setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+}
+
+/**
+ * Removes one slot's registry entry. Deleting a slot must not rewrite the entries of the
+ * others, which is the whole point of one key per slot.
+ * @param {string} id - Local atlas id.
+ * @returns {Promise<void>}
+ */
+async function removeRegistryEntry(id) {
+    await getGlobalStore().removeItem(localAtlasRegistryKey(id));
+}
+
+/**
+ * Reads the registry from the global database into memory, migrating the legacy
+ * single-array key on the way.
+ *
+ * ONE KEY PER SLOT, and the local registry arrived here late. It used to be one array under
+ * `local_atlases`, written whole on every change, which is a read-modify-write across tabs:
+ * tab A reads [x], appends a, writes [x,a]; tab B reads [x], appends b, writes [x,b]; the
+ * result is [x,b] and slot `a` is gone from the registry while its ten databases sit on
+ * disk, reachable by no purge and no UI. It is not a theoretical race: two tabs whose
+ * session dies together both run the rescue, and the loser's rescued work disappears from
+ * the list that was supposed to be saving it.
+ *
+ * The remote registry already documents this reasoning (`remote-atlas.api.js`, property 2)
+ * and the local one ignored it. They now use the same shape.
+ *
  * @returns {Promise<void>}
  */
 async function loadRegistry() {
     const globalStore = getGlobalStore();
-    const stored = await globalStore.getItem(GlobalKey.LOCAL_ATLASES);
-    _entries = Array.isArray(stored?.atlases) ? stored.atlases.map(e => ({ ...e })) : [];
+    _entries = [];
+
+    const keys = await globalStore.keys();
+    for (const key of keys) {
+        if (!isLocalAtlasRegistryKey(key)) continue;
+        const stored = await globalStore.getItem(key);
+        const id = atlasIdFromLocalRegistryKey(key);
+        // Identity comes from the KEY: a value that failed to parse still yields an
+        // enumerable slot instead of turning into unreachable disk.
+        if (!stored || typeof stored !== 'object') continue;
+        _entries.push({ ...stored, id });
+    }
+
+    await migrateLegacyRegistryArray(globalStore);
+
+    _entries.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
     _currentId = await globalStore.getItem(GlobalKey.CURRENT_LOCAL_ATLAS) ?? null;
+}
+
+/**
+ * Converts the legacy `local_atlases` array into one key per slot, once.
+ *
+ * Entries already present as their own key WIN: a tab that migrated and then created a slot
+ * must not have that slot shadowed by a stale copy of the old array.
+ *
+ * @param {import('localforage').default} globalStore
+ * @returns {Promise<void>}
+ */
+async function migrateLegacyRegistryArray(globalStore) {
+    const legacy = await globalStore.getItem(GlobalKey.LOCAL_ATLASES);
+    if (!Array.isArray(legacy?.atlases)) return;
+
+    const known = new Set(_entries.map(e => e.id));
+    for (const entry of legacy.atlases) {
+        if (!entry?.id || known.has(entry.id)) continue;
+        _entries.push({ ...entry });
+        await globalStore.setItem(localAtlasRegistryKey(entry.id), { version: REGISTRY_VERSION, ...entry });
+    }
+    // Only after every entry has its own key: a crash before this point re-runs the
+    // migration harmlessly, while removing first could lose the whole registry.
+    await globalStore.removeItem(GlobalKey.LOCAL_ATLASES);
 }
 
 /**
@@ -222,12 +298,43 @@ async function bootstrapEntry(adoptLegacy, name = DEFAULT_LOCAL_ATLAS_NAME) {
 /**
  * Writes the slot's own atlas record, so the slot is valid the moment it exists and its
  * name matches the registry.
+ *
+ * IT ALSO STAMPS `schemaVersion`, AND THAT IS NOT DECORATION. `checkAndCleanLegacyData`
+ * (`repository.js`) reads that key from the ACTIVE scope on every boot and, finding it absent
+ * or below the minimum, calls `clearLegacyStores()`. A slot created here starts empty, so
+ * without the stamp the FIRST boot after it receives data would delete that data, silently and
+ * with no error: the guard cannot tell "brand-new slot at the current schema" from "ancient
+ * installation from before the schema existed", and absence reads as the second.
+ *
+ * Nothing hit this while the only slot came from the migration (which stamps on its own way
+ * through). It becomes reachable the moment anything calls `createLocalAtlas`, and the
+ * `.ebgeo` import is the first caller.
+ *
  * @param {LocalAtlasEntry} entry
  * @returns {Promise<void>}
  */
 async function seedAtlasRecord(entry) {
-    const atlasStore = getStoreFor(StoreName.ATLAS, scopeOfLocalAtlas(entry));
-    await atlasStore.setItem(ATLAS_RECORD_KEY, { ...createAtlas(entry.name), id: entry.id });
+    const scope = scopeOfLocalAtlas(entry);
+    await getStoreFor(StoreName.ATLAS, scope)
+        .setItem(ATLAS_RECORD_KEY, { ...createAtlas(entry.name), id: entry.id });
+    await getStoreFor(StoreName.SETTINGS, scope).setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+}
+
+/**
+ * The LOCAL slot this tab had mounted before the reload, if any.
+ *
+ * It reads the BOOT SNAPSHOT and never the live pointer, for the reason spelled out in
+ * `bootTabMountPointer`: the repository bridge mounts the legacy scope before the boot decides
+ * anything, so the live pointer would answer "the legacy slot" for every tab.
+ *
+ * A REMOTE pointer yields null on purpose: which server atlas to reopen is decided by the origin
+ * (`resolveTabMountOrigin` feeds it in as `options.origin`), and answering it from here would give
+ * a server atlas id to code whose whole subject is the local registry.
+ * @returns {string|null} A local slot id, not yet checked against the registry.
+ */
+function tabMountedLocalSlotId() {
+    const pointer = bootTabMountPointer();
+    return pointer?.kind === StoreScopeKind.LOCAL ? pointer.atlasId : null;
 }
 
 /**
@@ -247,6 +354,10 @@ async function seedAtlasRecord(entry) {
  *   empty. Defaults to `DEFAULT_LOCAL_ATLAS_NAME`. The schema migration passes the name the
  *   adopted atlas record already carries, so a workspace the user named something else is
  *   not silently relabelled by being registered.
+ * @param {boolean} [options.preferTabMountPointer=false] - Whether the slot THIS TAB last mounted
+ *   wins over the installation pointer (`atlas-namespace.js`, Decision 6). Opt-in, and only the
+ *   boot passes it: the schema migration hands in an origin of its own and must not have its
+ *   target redirected by wherever the tab happened to be.
  * @returns {Promise<{ scope: Object, current: LocalAtlasEntry|null, atlases: LocalAtlasEntry[] }>}
  */
 export async function initLocalAtlases(options = {}) {
@@ -260,13 +371,27 @@ export async function initLocalAtlases(options = {}) {
         await bootstrapEntry(adoptLegacy, options.bootstrapName ?? DEFAULT_LOCAL_ATLAS_NAME);
     }
 
-    let current = _entries.find(e => e.id === _currentId) ?? null;
+    // WHICH SLOT THIS TAB REOPENS. `GlobalKey.CURRENT_LOCAL_ATLAS` answers for the installation,
+    // which is the right answer for a tab that has never mounted anything and the WRONG one for a
+    // tab that has: with two tabs in two local atlases, the pointer holds whichever was opened
+    // last, so a reload in the other tab lands it in its neighbour's atlas.
+    const mountedSlotId = options.preferTabMountPointer ? tabMountedLocalSlotId() : null;
+    let current = _entries.find(e => e.id === mountedSlotId)
+        ?? _entries.find(e => e.id === _currentId)
+        ?? null;
+
     if (!current) {
         // A pointer that no longer resolves is not an error worth stopping the boot for:
         // fall back to the most recently touched slot, and repair the pointer.
         current = [..._entries].sort((a, b) => b.updatedAt - a.updatedAt)[0];
         _currentId = current.id;
         await persistRegistry();
+    } else if (current.id !== _currentId) {
+        // IN MEMORY ONLY, and never persisted: this branch is only reachable when the tab pointer
+        // won. Writing it through would make this tab's reload move the INSTALLATION's default,
+        // which is the coupling the per-tab pointer exists to cut — the neighbour tab would then
+        // find its own default changed by a reload it did not perform.
+        _currentId = current.id;
     }
 
     // A live session on a remote atlas keeps working in THAT atlas's namespace; the local
@@ -377,11 +502,20 @@ export async function adoptRemoteAtlasAsLocal(atlasId, name) {
         createdAt: now,
         updatedAt: now
     };
+    // PERSISTE PRIMEIRO, ESPELHA DEPOIS. O espelho em memória era escrito antes, e num disco
+    // que recusa a escrita (cota) o resultado era o pior possível: `listLocalAtlases()`
+    // afirmava um slot que NENHUM boot vai encontrar, apontando para bancos que a varredura
+    // seguinte esvazia. A UI mostrava o resgate na lista e o dado já estava condenado.
+    //
+    // A ordem aqui é a mesma regra da transação do store: efeito colateral só depois que a
+    // persistência confirma. Se `persistRegistry` lança, nada foi anunciado e o chamador
+    // (`preserveUnsyncedWorkAsLocal`) trata a falha alto, sem marcar a origem LOCAL.
+    await persistRegistryEntry(entry);
     _entries.push(entry);
     _currentId = entry.id;
-    await persistRegistry();
+    await getGlobalStore().setItem(GlobalKey.CURRENT_LOCAL_ATLAS, _currentId);
 
-    await getGlobalStore().removeItem(remoteAtlasKey(atlasId));
+    await getGlobalStore().removeItem(remoteAtlasRegistryKey(atlasId));
 
     // The databases do not move, so the only thing left is the KIND of the active scope:
     // leaving it REMOTE would let the next logged-out purge treat it as server data.
@@ -442,10 +576,48 @@ export async function createLocalAtlas(name) {
  * Switches the current local atlas. The caller must have unmounted the previous atlas
  * (memory store, layer caches, outbound queue) BEFORE calling this.
  *
+ * While a remote atlas is open the pointer moves but the active scope does NOT: the remote
+ * namespace stays mounted until the session ends, and the new pointer takes effect on the next
+ * local activation. Leaving a server atlas ON PURPOSE is `mountLocalAtlas`, which says so.
+ *
  * @param {string} id - Local atlas id.
  * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
  */
 export async function setCurrentLocalAtlas(id) {
+    return pointAtLocalAtlas(id, getActiveScopeKind() !== StoreScopeKind.REMOTE);
+}
+
+/**
+ * Moves the pointer AND mounts the slot, whatever was mounted before — including a server
+ * atlas's namespace.
+ *
+ * WHY IT IS A SEPARATE EXPORT AND NOT A FLAG ON `setCurrentLocalAtlas`. The conditional above is
+ * a safety net for a caller that only meant to move the pointer: silently mounting over a live
+ * remote namespace would redirect writes the connected session still believes are going to the
+ * server. Leaving the server atlas is a DECISION, and a decision needs a caller that spells it
+ * out. Today there is exactly one (`account/open-atlas.service.js`, the `.ebgeo` import that
+ * creates a local atlas and switches to it), and `tests/unit/portao-de-montagem.test.js` pins
+ * that list, because "who may mount an atlas" is the question that phase E3 exists to keep
+ * answerable.
+ *
+ * IT DOES NOT DISCONNECT, WIPE OR UNMOUNT ANYTHING. This module owns persistence and scope
+ * selection only (see the fileoverview): the caller must have closed the socket and must empty
+ * the newly mounted slot afterwards, so the in-memory store stops mirroring the atlas it left.
+ *
+ * @param {string} id - Local atlas id.
+ * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
+ */
+export async function mountLocalAtlas(id) {
+    return pointAtLocalAtlas(id, true);
+}
+
+/**
+ * Shared body of the two pointer moves: persist first, then (maybe) mount.
+ * @param {string} id - Local atlas id.
+ * @param {boolean} mount - Whether to point every store at this slot.
+ * @returns {Promise<LocalAtlasResult>}
+ */
+async function pointAtLocalAtlas(id, mount) {
     const entry = requireEntries().find(e => e.id === id);
     if (!entry) {
         return refuse(LocalAtlasError.NOT_FOUND, { atlasId: id });
@@ -455,10 +627,7 @@ export async function setCurrentLocalAtlas(id) {
     entry.updatedAt = Date.now();
     await persistRegistry();
 
-    // While a remote atlas is open the pointer moves but the active scope does not: the
-    // remote scratch stays active until the session ends, and the new pointer takes
-    // effect on the next local activation.
-    if (getActiveScopeKind() !== StoreScopeKind.REMOTE) {
+    if (mount) {
         activateScope(scopeOfLocalAtlas(entry));
     }
 
@@ -497,6 +666,11 @@ export async function deleteLocalAtlas(id) {
     if (wasCurrent) {
         _currentId = [...entries].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
     }
+    // The deleted slot's key is REMOVED, never left to be overwritten by a rewrite of the
+    // whole registry: under one key per slot, `persistRegistry` only touches the entries it
+    // still knows about, so without this the deleted slot would survive on disk and come
+    // back on the next boot.
+    await removeRegistryEntry(entry.id);
     await persistRegistry();
 
     const { dropped, blocked } = await dropAtlasDatabases(scopeOfLocalAtlas(entry));

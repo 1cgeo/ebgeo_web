@@ -23,18 +23,30 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
 
 1. Criar `store/migration/v<from>-to-v<to>.migration.js`. Repare no nome real da
    função exportada: `migrateToV2_1`, `migrateToV2_2`, com **underscore**, não
-   `migrateToV21`. Migrações existentes: `v1-to-v2`, `v2-to-v2.1`, `v2.1-to-v2.2`.
+   `migrateToV21`. Migrações existentes: `v1-to-v2`, `v2-to-v2.1`, `v2.1-to-v2.2`,
+   `v2.2-to-v2.3` (esta última é a que criou o registro de atlas locais e adotou os
+   bancos sem sufixo como slot #1; ver §Atlas, namespace e tab-lock em
+   [`architecture.md`](architecture.md)).
 2. Em `migration.service.js`, importar e adicionar a chamada condicional dentro de
    `safelyMigrate()`. O encadeamento é por número de versão, não por registry.
-3. **Subir `ATLAS_SCHEMA_VERSION` em `frontend/src/js/store/atlas/atlas.entity.js:12`** (hoje
-   `'2.2'`). Este é o passo que falta com mais facilidade e falha em silêncio:
-   `detectMigrationNeeded()` compara a versão do repositório com essa constante
-   (`frontend/src/js/store/migration/migration.service.js:50-52`) e devolve
+3. **A migração recebe o ESCOPO como argumento**, e ignorar isso re-ancora o degrau
+   nos nomes de banco pré-namespace, que podem não ser os do atlas montado. São dois
+   alvos e dois trabalhos diferentes: `safelyMigrate(scope)` com o default
+   `legacyScope()` é o upgrade da INSTALAÇÃO, e `migrateActiveSlot()` é o upgrade de
+   UM SLOT namespaced (ele sai cedo, com `reason` nomeado, para escopo remoto, para o
+   legado e para slot virgem). Os quatro degraus antigos já recebem o escopo; um novo
+   que abra `localforage.createInstance` por nome fixo migra o banco errado em silêncio.
+4. **Subir `ATLAS_SCHEMA_VERSION` (`frontend/src/js/store/atlas/atlas.entity.js`)**, hoje
+   `'2.3'`. Este é o passo que falta com mais facilidade e falha em silêncio:
+   `detectMigrationNeeded()` compara a versão do repositório com essa constante e devolve
    `needed: false` se ela não subiu, então `safelyMigrate()` nunca é chamado. A
    migração nova simplesmente não roda, sem erro. (Esta linha chamou a função de
    `needsMigration` até 2026-07-25; esse nome nunca existiu no código, e procurá-lo
-   por grep não devolve nada, o que faz parecer que o guarda não existe.)
-4. Roda sozinha no próximo startup.
+   por grep não devolve nada, o que faz parecer que o guarda não existe. E citou os dois
+   trechos por `arquivo:linha` até 2026-08-15, quando o segundo já apontava para outra
+   função: é a razão de a convenção pedir SÍMBOLO, que tem guarda, e não número de linha,
+   que não tem.)
+5. Roda sozinha no próximo startup, pelos dois caminhos de `initializeRepository`.
 
 ## PDF Export
 

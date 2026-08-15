@@ -39,6 +39,21 @@ const operationSchema = Joi.object({
   // SyncLedger gesture id (best-effort observability). Explicitly allowed (rather than
   // relying on .unknown(true)) so it survives validation and rides the broadcast to peers.
   traceId: Joi.string().allow(null),
+  // ── Identidade de ORIGEM da operação (namespace de IndexedDB por atlas) ──────────
+  // `atlasId` é o atlas de SERVIDOR em que a op nasceu; `scopeSuffix` é o endereço do
+  // banco local que a produziu (`remote-<atlasId>`, ou o slot local). O cliente carimba
+  // os dois na FÁBRICA (frontend `operation-factory.js`), e aqui eles são declarados pela
+  // mesma razão do `traceId`: não se confia no `.unknown(true)` para transportar um campo
+  // que alguém vai ler do outro lado.
+  //
+  // O QUE ELES NÃO SÃO, E ESTÁ MEDIDO: eles NÃO são persistidos. O INSERT usa o atlas da
+  // ROTA e uma lista fixa de colunas (`sync.queries.js`), então o par sobrevive à validação,
+  // viaja no rebroadcast (o controller espalha a op validada) e NÃO volta no pull
+  // incremental. Ou seja, nenhuma guarda de cliente pode ser construída sobre a presença
+  // deles numa op RECEBIDA. O único uso legítimo no servidor é a recusa por operação de uma
+  // op que declara pertencer a OUTRO atlas (`foreignAtlasDenialReason`).
+  atlasId: Joi.string().allow(null),
+  scopeSuffix: Joi.string().allow(null, ''),
 })
   .or('entityType', 'target')
   .or('operationType', 'type')

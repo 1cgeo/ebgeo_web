@@ -118,43 +118,47 @@ describe('OperationQueue lifecycle', () => {
     });
 
     // ========================================================================
-    // Reverse index (_ensureIndex)
+    // Key resolution comes from DISK (there is no in-memory reverse index)
+    //
+    // These three cases used to assert the shape of a module-level `opId -> key`
+    // Map. It was removed in E2B: it was built from whatever scope happened to be
+    // active when the module first touched storage, and `dequeue` counted removals
+    // through it while `peek` read the disk, so an operation enqueued by ANOTHER TAB
+    // was peeked, pushed and never removed. What the index was there for is the
+    // OBSERVABLE property asserted below.
     // ========================================================================
 
-    describe('reverse index (_ensureIndex)', () => {
-        it('index is built lazily on first operation', async () => {
-            expect(queue._index).toBeNull();
-            await queue.enqueue(createOp('op-1'));
-            expect(queue._index).toBeInstanceOf(Map);
-            expect(queue._index.size).toBe(1);
+    describe('key resolution from disk', () => {
+        it('a second instance (another tab) sees and can dequeue what the first wrote', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.peek(10); // warms whatever internal state instance #1 keeps
+
+            const outraAba = new OperationQueue();
+            await outraAba.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', null, 2000));
+
+            const seen = await queue.peek(10);
+            expect(seen.map(o => o.id)).toEqual(['op-1', 'op-2']);
+            expect(await queue.dequeue(['op-1', 'op-2'])).toBe(2);
+            expect(await queue.count()).toBe(0);
+            expect(queueMap.size).toBe(0);
         });
 
-        it('index is rebuilt correctly after manual reset', async () => {
+        it('count is correct for a fresh instance (simulates a page reload)', async () => {
             await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
             await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', null, 2000));
-            expect(queue._index.size).toBe(2);
 
-            // Simulate "page reload" by clearing index
-            queue._index = null;
-
-            // Next operation rebuilds the index from IndexedDB keys
-            expect(await queue.count()).toBe(2);
-            expect(queue._index.size).toBe(2);
+            expect(await new OperationQueue().count()).toBe(2);
         });
 
-        it('index consistent after enqueue + dequeue cycles', async () => {
+        it('dequeue removes exactly the named ops and leaves the rest', async () => {
             await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
             await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', null, 2000));
             await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.CREATE, 'feat-3', 'map-1', null, 3000));
 
-            await queue.dequeue(['op-2']);
-            expect(queue._index.size).toBe(2);
-            expect(queue._index.has('op-1')).toBe(true);
-            expect(queue._index.has('op-2')).toBe(false);
-            expect(queue._index.has('op-3')).toBe(true);
+            expect(await queue.dequeue(['op-2'])).toBe(1);
+            expect(await queue.dequeue(['op-2'])).toBe(0); // and it is idempotent
 
             const all = await queue.getAll();
-            expect(all).toHaveLength(2);
             expect(all.map(o => o.id)).toEqual(['op-1', 'op-3']);
         });
     });
@@ -348,14 +352,10 @@ describe('OperationQueue lifecycle', () => {
     // ========================================================================
 
     describe('queue persistence simulation', () => {
-        it('ops survive index reset (simulates page reload)', async () => {
+        it('ops survive a page reload (a fresh instance reads the same store)', async () => {
             await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'Ponto 1' }, 1000));
             await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', { nome: 'Ponto 2' }, 2000));
 
-            // Simulate page reload: reset in-memory index
-            queue._index = null;
-
-            // Create new queue instance pointing to same store
             const queue2 = new OperationQueue();
             const all = await queue2.getAll();
             expect(all).toHaveLength(2);
@@ -363,13 +363,12 @@ describe('OperationQueue lifecycle', () => {
             expect(all[1].data.nome).toBe('Ponto 2');
         });
 
-        it('count is correct after index rebuild', async () => {
+        it('count is correct for a fresh instance', async () => {
             await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
             await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', null, 2000));
             await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.CREATE, 'feat-3', 'map-1', null, 3000));
 
-            queue._index = null;
-            expect(await queue.count()).toBe(3);
+            expect(await new OperationQueue().count()).toBe(3);
         });
     });
 
@@ -395,33 +394,24 @@ describe('OperationQueue lifecycle', () => {
     });
 
     // ========================================================================
-    // _ensureIndex key parsing edge case
+    // Key parsing edge case
     // ========================================================================
 
-    describe('_ensureIndex key parsing', () => {
-        it('IDs with underscores cause index mismatch after rebuild (known fragility)', async () => {
-            // The key format is `op_{timestamp}_{id}` and _ensureIndex extracts id
-            // via lastIndexOf('_'), so an ID containing underscores gets truncated.
-            // In practice, IDs are UUIDs (with hyphens), so this is not a real bug,
-            // but this test documents the fragility.
+    describe('key parsing', () => {
+        it('an id containing underscores round-trips (the old parse truncated it)', async () => {
+            // The key is `op_{timestamp}_{id}` and the id used to be recovered with
+            // lastIndexOf('_'), which truncated such an id to its last segment: after a
+            // reload the operation could be peeked and never dequeued. The parse now cuts
+            // at the FIRST separator after the prefix (a timestamp has no underscore), so
+            // the whole id survives. Real ids are UUIDs, so this is the guard, not the bug.
             const op = createOp('id_with_underscores', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000);
             await queue.enqueue(op);
 
-            // After enqueue, the index uses the real operation.id (correct)
-            expect(queue._index.has('id_with_underscores')).toBe(true);
-
-            // Simulate page reload: _ensureIndex rebuilds from keys using lastIndexOf('_')
-            queue._index = null;
-            await queue.count(); // triggers _ensureIndex
-
-            // After rebuild: key is `op_1000_id_with_underscores`
-            // lastIndexOf('_') extracts "underscores" instead of "id_with_underscores"
-            expect(queue._index.has('underscores')).toBe(true);
-            expect(queue._index.has('id_with_underscores')).toBe(false);
-
-            // But the stored data still has the correct full ID
-            const all = await queue.getAll();
-            expect(all[0].id).toBe('id_with_underscores');
+            // A fresh instance has nothing in memory: everything comes from the key.
+            const depoisDoReload = new OperationQueue();
+            expect((await depoisDoReload.getAll())[0].id).toBe('id_with_underscores');
+            expect(await depoisDoReload.dequeue(['id_with_underscores'])).toBe(1);
+            expect(await depoisDoReload.count()).toBe(0);
         });
     });
 

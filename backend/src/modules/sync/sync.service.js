@@ -1031,6 +1031,34 @@ function operationDenialReason(op, permission) {
 }
 
 /**
+ * Refusal for an operation that DECLARES it belongs to another atlas.
+ *
+ * Cinto e suspensório do isolamento por namespace: desde que cada atlas tem seus próprios
+ * bancos no cliente, a op carrega o atlas em que NASCEU (`atlasId`, carimbado na fábrica) e
+ * o cliente já filtra a fila pelo escopo montado. Esta é a segunda linha, e a única que o
+ * servidor pode oferecer: aplicar num atlas uma op nascida em outro é escrever o dado de um
+ * projeto dentro de outro, que é pior do que perdê-la.
+ *
+ * ELA SÓ FALA QUANDO A OP FALA. Op sem `atlasId` (build antiga, atlas local, fila anterior
+ * ao carimbo) não é recusada: o campo é uma declaração do cliente, não um dado do servidor,
+ * e tratar a ausência como suspeita descartaria trabalho legítimo de qualquer cliente que
+ * ainda não carimba.
+ *
+ * Recusa POR OPERAÇÃO (200 + `rejected`), como as outras três deste arquivo, nunca 400 de
+ * lote: um 400 volta para a fila idêntico e é reenviado a cada 1,5 s para sempre.
+ *
+ * @param {Object} op - Operação (normalizada; o campo vem intacto do envelope).
+ * @param {string} atlasId - Atlas da ROTA, a única verdade sobre onde a escrita cai.
+ * @returns {string|null} Motivo da recusa, ou null.
+ */
+function foreignAtlasDenialReason(op, atlasId) {
+  const declared = op?.atlasId;
+  if (typeof declared !== 'string' || declared.length === 0) return null;
+  if (declared === atlasId) return null;
+  return 'Alteração descartada: ela pertence a outro projeto.';
+}
+
+/**
  * Refusal for an operation whose entityType this server cannot apply at all.
  *
  * `applyOperation` used to end an unknown target with `const table = tableMap[target];
@@ -1198,7 +1226,8 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // locked map): refuse THIS operation without aborting the transaction, so one
       // denied op cannot freeze the client's queue. The unknown-target check runs first
       // because it is the cheapest and needs no database round-trip.
-      const denialReason = unknownTargetDenialReason(op)
+      const denialReason = foreignAtlasDenialReason(op, atlasId)
+        ?? unknownTargetDenialReason(op)
         ?? operationDenialReason(op, permission)
         ?? await lockedMapDenialReason(t, op);
       if (denialReason) {

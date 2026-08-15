@@ -57,8 +57,6 @@ beforeEach(async () => {
     disableOperationLogging();
     vi.clearAllMocks();
     localStorageMock.clear();
-    // Reset queue index
-    operationQueue._index = null;
 });
 
 // ============================================================================

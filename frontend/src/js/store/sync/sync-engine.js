@@ -65,6 +65,50 @@ const FLUSH_BATCH_SIZE = 100;
 const PERMANENT_PUSH_REJECTIONS = new Set([400, 422]);
 
 /**
+ * HTTP statuses that mean "the atlas this queue is aimed at is not there any more":
+ * deleted server-side, or the share that made it reachable was revoked to the point where
+ * the route itself is gone.
+ *
+ * TERMINAL AND DISTINCT, and each half of that is load-bearing. Terminal: retrying is
+ * pointless, so the isolation mode of {@link PERMANENT_PUSH_REJECTIONS} must never engage
+ * (it would re-push the queue one operation at a time, forever, against an address that no
+ * longer exists). Distinct: the operations are NOT discarded, because they are the user's
+ * unsynced work and the rescue path (`preserveUnsyncedWorkAsLocal`) is what decides their
+ * fate. What the old code did was neither — it fell through to the generic rethrow, which
+ * `sync-flush` reported as a network hiccup, so a project deleted under the user's feet
+ * looked exactly like a bad wifi and the queue stalled without anyone being told.
+ * @type {ReadonlySet<number>}
+ */
+const ATLAS_GONE_STATUSES = new Set([404, 410]);
+
+/**
+ * The ids the server SPOKE ABOUT in a push response.
+ *
+ * Pure, and separate from {@link recordPushAcks} because it decides what leaves the queue.
+ * An operation the server did not mention was not applied, was not refused, and has no
+ * server version: dequeuing it on the strength of its NEIGHBOURS being accepted is how a
+ * feature disappears from one machine and never appears on any other. It stays queued, and
+ * `op_id` idempotency makes the retry free.
+ *
+ * A response that identifies NO operation at all is the legacy shape (a bare 2xx for the
+ * batch). There the batch as a whole is the acknowledgement, so all of it leaves.
+ *
+ * @param {Object} resp - The pushOperations response.
+ * @param {Object[]} ops - The operations that were pushed, in order.
+ * @returns {string[]} Ids to dequeue.
+ */
+export function acknowledgedOperationIds(resp, ops) {
+    const results = resp?.results || resp?.acks || [];
+    const named = new Set();
+    for (const r of results) {
+        const id = r?.operationId ?? r?.opId;
+        if (id) named.add(id);
+    }
+    if (named.size === 0) return ops.map(op => op.id);
+    return ops.filter(op => named.has(op.id)).map(op => op.id);
+}
+
+/**
  * Entity types of MARKER operations: a structural change made over REST that moved
  * rows in bulk, so no per-entity operation describes it.
  *
@@ -316,6 +360,11 @@ class SyncEngine {
      * Uma op nunca sai da fila sem que o servidor tenha se pronunciado sobre ELA: ou
      * ele a aceitou (2xx), ou a recusou por operação (`rejected` no ack), ou a recusou
      * de forma permanente quando ela era a única do lote (modo de isolamento abaixo).
+     * Quem decide isso é {@link acknowledgedOperationIds}, e não o sucesso do LOTE: o
+     * dequeue por lote inteiro tirava da fila op que o servidor sequer mencionou.
+     *
+     * O que sai daqui é sempre do atlas MONTADO: `peek` filtra pelo escopo ativo
+     * (`operation-queue.js`), então uma aba não drena o trabalho nascido no atlas da outra.
      * @returns {Promise<{ pushed: number }>}
      */
     async flush() {
@@ -342,6 +391,18 @@ class SyncEngine {
                     atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
                     error: error?.message || String(error),
                 });
+
+                // O atlas sumiu do servidor: classe TERMINAL, e nada é descartado aqui.
+                // Sai antes do modo de isolamento de propósito (isolar op a op contra um
+                // endereço que não existe é um round-trip por op, para sempre).
+                if (ATLAS_GONE_STATUSES.has(error?.status)) {
+                    record(TraceStage.FLUSH_PUSH, {
+                        atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                        reason: 'atlas_gone', error: error?.message || String(error),
+                    });
+                    await this._reconcileConvergenceGuard();
+                    throw error;
+                }
 
                 // ── Rede de segurança: op envenenada ────────────────────────────────
                 // O servidor recusa violação de integridade POR OPERAÇÃO (200 +
@@ -395,8 +456,22 @@ class SyncEngine {
                 throw error;
             }
             recordPushAcks(resp, ops);
-            await operationQueue.dequeue(opIds);
-            pushed += ops.length;
+            const ackedIds = acknowledgedOperationIds(resp, ops);
+            const removed = await operationQueue.dequeue(ackedIds);
+            if (removed === 0) {
+                // Nada saiu da fila: o próximo peek devolve exatamente estas ops e o laço
+                // gira em vazio para sempre. Falhar alto é a saída que preserva o dado E
+                // avisa (o `sync-flush` conta a falha e fala com o usuário).
+                record(TraceStage.FLUSH_PUSH, {
+                    atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                    reason: 'unacknowledged_batch',
+                });
+                await this._reconcileConvergenceGuard();
+                throw new Error(
+                    `sync: o servidor não confirmou nenhuma das ${ops.length} operações enviadas`
+                );
+            }
+            pushed += removed;
             ops = await operationQueue.peek(isolating ? 1 : FLUSH_BATCH_SIZE);
         }
         await this._reconcileConvergenceGuard();

@@ -18,6 +18,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 // ------------------------------------------------------------------ doubles for the store side
 
@@ -59,6 +62,14 @@ vi.mock('@store/sync/sync-flush.js', () => ({
 vi.mock('@store/atlas-namespace.js', () => ({
     StoreScopeKind: { LOCAL: 'local', REMOTE: 'remote' },
     getActiveScope: () => fixture.scope.value,
+    // Dublê do parser do sufixo. Que ele CASE com o de verdade é medido em
+    // `tests/integration/namespace-remoto-fiacao.test.js`, onde a adoção roda com a fábrica de
+    // namespace real; aqui o que se mede é se a derivação da chave usa o resultado.
+    remoteAtlasIdFromDbSuffix: (dbSuffix) => (
+        typeof dbSuffix === 'string' && dbSuffix.startsWith('remote-')
+            ? dbSuffix.slice('remote-'.length) || null
+            : null
+    ),
 }));
 vi.mock('@store/repositories/local.repository.js', () => ({ ensureAtlasScope: vi.fn() }));
 vi.mock('@modals/confirm.modal.js', () => ({ showChoice: vi.fn(async () => 'discard') }));
@@ -71,6 +82,10 @@ vi.mock('@utils/toast_service.js', () => ({
 }));
 
 vi.mock('@store/store.js', () => ({
+    // O namespace do atlas remoto: registra e ativa. Aqui é dublê porque o que este arquivo mede é
+    // a ORDEM em que a abertura o chama (antes do wipe); o efeito real está em
+    // `tests/integration/namespace-remoto-fiacao.test.js`, com a fábrica de verdade.
+    activateRemoteAtlas: vi.fn(async () => calls.push('activateRemoteAtlas')),
     clearAllDataStore: vi.fn(async () => calls.push('clearAllDataStore')),
     markStoreRemote: vi.fn(async () => calls.push('markStoreRemote')),
     markStoreLocal: vi.fn(async () => calls.push('markStoreLocal')),
@@ -218,9 +233,9 @@ describe('chave do lock: o que esta aba segura', () => {
 
     it('sem conexão, a chave é o ESCOPO ativo, e escopo remoto continua sendo remoto', () => {
         expect(currentAtlasLockKey()).toEqual({ kind: 'local', atlasId: 'slot-a' });
-        // Origem remota antes do socket subir: a aba já segura o scratch `__remote`, e dizer
-        // "local" aqui deixaria outra aba apagá-lo por baixo dela.
-        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote' };
+        // Origem remota antes do socket subir: a aba já segura os bancos daquele atlas, e dizer
+        // "local" aqui deixaria outra aba apagá-los por baixo dela.
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
         expect(currentAtlasLockKey()).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
     });
 
@@ -302,7 +317,8 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         // Se o acquire viesse depois do wipe, aqui se leria `local`.
         expect(keyAtWipe).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
         expect(calls).toEqual([
-            'clearAllDataStore', 'markStoreRemote', 'connect', 'activateAtlasInitialMap', 'startAutoFlush',
+            'activateRemoteAtlas', 'clearAllDataStore', 'markStoreRemote', 'connect',
+            'activateAtlasInitialMap', 'startAutoFlush',
         ]);
     });
 
@@ -314,7 +330,8 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         const opened = await openRemoteAtlas('atlas-uuid');
 
         expect(opened).toBe(false);
-        // Item 9: a fila de saída é GLOBAL. Limpar aqui descartaria trabalho das DUAS abas.
+        // A recusa acontece ANTES de qualquer passo destrutivo: as duas abas endereçam os mesmos
+        // dez bancos e a mesma fila de saída, então um wipe aqui seria trabalho das DUAS.
         expect(calls).not.toContain('clearAllDataStore');
         expect(calls).not.toContain('markStoreRemote');
         expect(calls).not.toContain('connect');
@@ -368,23 +385,78 @@ describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore',
         expect(calls).toContain('connect');
     });
 
-    // EM ESPERA junto com a linha 4 do predicado. Enquanto `activateRemoteAtlas` nao for chamado
-    // por `openRemoteAtlas`, os dois atlas de servidor resolvem para os MESMOS dez bancos, e
-    // deixar passar aqui e exatamente o caminho que apaga o mapa vivo do vizinho.
-    it('abrir OUTRO projeto de servidor ao lado de uma aba remota e RECUSADO, e nada e apagado', async () => {
+    // A PROMOCAO DA ESPERA, FEITA EM E7 (2026-08-15). Este caso afirmava a recusa ("abrir OUTRO
+    // projeto de servidor ao lado e RECUSADO"), que era o ramo `REMOTE x REMOTE` de `keysCollide`
+    // e nunca a regra do dono: com um unico bloco de bancos para todos os remotos, deixar a
+    // segunda aba entrar era deixa-la apagar o mapa vivo da primeira. Primeiro veio a fiacao do
+    // namespace (`activateRemoteAtlas` nas TRES entradas, medida com a fabrica real em
+    // `tests/integration/namespace-remoto-fiacao.test.js`), depois a fila fisica por atlas, e so
+    // entao a espera saiu. O que este caso afere agora e o requisito do dono: a abertura segue
+    // ATE o fim, e a aba vizinha nao e tocada.
+    it('abrir OUTRO projeto de servidor ao lado de uma aba remota e PERMITIDO', async () => {
         peer = bootPeer(remoteAtlasKey('atlas-do-vizinho'));
-        bootPageLock(localAtlasKey('slot-a'));
+        const lock = bootPageLock(localAtlasKey('slot-a'));
         await settle();
 
         const opened = await openRemoteAtlas('atlas-uuid');
 
-        expect(opened).toBe(false);
-        // O que importa nao e a recusa, e o que ela evitou: o wipe nao rodou.
+        expect(opened).toBe(true);
+        // A abertura rodou inteira, na ordem que o contrato exige.
+        expect(calls).toContain('clearAllDataStore');
+        expect(calls).toContain('connect');
+        expect(syncEngineDouble.atlasId).toBe('atlas-uuid');
+        // E a vizinha nao pagou por isso: nem bloqueada, nem deslocada da propria chave.
+        expect(peer.blocked).toBe(false);
+        expect(peer.key).toEqual(remoteAtlasKey('atlas-do-vizinho'));
+        expect(lock.blocked).toBe(false);
+        expect(lock.key).toEqual(remoteAtlasKey('atlas-uuid'));
+    });
+
+    it('CONTROLE NEGATIVO da promocao: o MESMO projeto do vizinho continua recusado', async () => {
+        // Sem esta metade, o caso acima passaria tambem contra um predicado que parou de arbitrar.
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(false);
         expect(calls).not.toContain('clearAllDataStore');
+        expect(calls).not.toContain('connect');
         expect(peer.blocked).toBe(false);
     });
 
-    it.todo('abrir OUTRO projeto de servidor ao lado e permitido, depois que cada atlas remoto tiver os proprios bancos');
+    it('o slot local ADOTADO anuncia o atlas de servidor de onde veio, e colide com ele', async () => {
+        // Depois do resgate do logout (`adoptRemoteAtlasAsLocal`), a aba esta num atlas LOCAL cujos
+        // bancos ainda sao `remote-<atlasId>`. Uma aba que abre AQUELE atlas de servidor apaga esses
+        // bancos na entrada, entao ela tem de ser recusada, embora as duas chaves tenham `kind`
+        // diferente.
+        fixture.scope.value = {
+            kind: 'local', atlasId: 'slot-resgatado', dbSuffix: 'remote-atlas-uuid',
+        };
+        expect(currentAtlasLockKey())
+            .toEqual({ kind: 'local', atlasId: 'slot-resgatado', adoptedFrom: 'atlas-uuid' });
+
+        peer = bootPeer(currentAtlasLockKey());
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+    });
+
+    it('CONTROLE NEGATIVO: o MESMO slot sem a adocao nao colide, e a abertura passa', async () => {
+        // A chave que a derivacao antiga produzia para os dois casos. Sem este par, o teste acima
+        // tambem passaria contra um lock que recusa tudo.
+        fixture.scope.value = { kind: 'local', atlasId: 'slot-resgatado', dbSuffix: 'slot-resgatado' };
+        expect(currentAtlasLockKey()).toEqual({ kind: 'local', atlasId: 'slot-resgatado' });
+
+        peer = bootPeer(currentAtlasLockKey());
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+        expect(peer.blocked).toBe(false);
+    });
 
     it('duas abas locais em atlas DIFERENTES não colidem (o caminho anônimo não regride)', async () => {
         peer = bootPeer(localAtlasKey('slot-b'));
@@ -428,7 +500,7 @@ describe('retratação: chave anunciada que não se consegue honrar', () => {
     });
 
     it('sem slot local (escopo ainda remoto), a retratação para em `none`', () => {
-        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote' };
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
         const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
         retractAtlasClaim();
         expect(lock.key).toEqual(noneKey());
@@ -469,10 +541,11 @@ describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
 
     it('CONTROLE NEGATIVO: sem par no mesmo atlas, o mesmo caminho apaga normalmente', async () => {
         fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
-        // O par e uma aba LOCAL: ela nunca colide com um remoto, entao o caminho segue. Um par
-        // em OUTRO atlas remoto tambem deveria servir aqui, e servira quando cada remoto tiver os
-        // proprios bancos; enquanto todos dividem um endereco, aquele par colide de proposito.
-        peer = bootPeer(localAtlasKey('slot-vizinho'));
+        // O par e uma aba em OUTRO atlas de servidor, que e o controle que nomeia a propria
+        // causa: mesmo tipo de chave, endereco diferente. Ele so voltou a valer com a saida da
+        // espera da ROW 4 (E7); enquanto dois remotos colidiam por KIND, este caminho era barrado
+        // pela espera em vez de seguir, e o controle media outra coisa.
+        peer = bootPeer(remoteAtlasKey('atlas-do-vizinho'));
         bootPageLock(remoteAtlasKey('atlas-uuid'));
 
         const replay = vi.fn(async () => 'replayed');
@@ -509,5 +582,73 @@ describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
         expect(await clearMountedAtlasIfGranted()).toBe(true);
         expect(calls).toContain('clearAllDataStore');
         expect(lock.blocked).toBe(false);
+    });
+});
+
+// ==========================================================================================
+// O AVISO DE DESMONTAGEM NO LOGOUT
+// ==========================================================================================
+
+/**
+ * Esta seção é ESTRUTURAL, e a limitação está escrita porque ela importa: o comportamento do
+ * aviso (entrega sem colisão, ack como evidência, freio que solta a montagem e não recria banco)
+ * é medido em `tests/unit/tab-lock.test.js` e `tests/unit/tab-lock-sync-brake.test.js`, com os
+ * módulos reais. O que NÃO é medido em lugar nenhum é o SÍTIO DE CHAMADA, porque `_handleLogout`
+ * é método de um IControl do MapLibre e o harness que o constrói vive em arquivos de outra frente.
+ * Um teste estrutural sozinho não prova que o portão faz a coisa certa; prova só que a ordem das
+ * três chamadas não inverteu, que é exatamente o defeito que tornaria o aviso inútil (avisar
+ * DEPOIS de esvaziar é não avisar). Fica anotado como dívida em `_PENDENCIAS.md`.
+ */
+describe('logout: o aviso vem ANTES de esvaziar e destruir', () => {
+    const fonte = readFileSync(
+        resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js/account/account.control.js'),
+        'utf8'
+    );
+    // A prosa do arquivo NOMEIA as três chamadas (é o ponto do comentário), então o guarda lê o
+    // código e não a documentação sobre o código.
+    const codigo = fonte
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+
+    /** @returns {string} O corpo de `_handleLogout`, isolado do resto do arquivo. */
+    function corpoDoLogout() {
+        const inicio = codigo.indexOf('async _handleLogout(');
+        expect(inicio).toBeGreaterThan(-1);
+        const fim = codigo.indexOf('\n    /**', inicio);
+        const corpo = fim > inicio ? codigo.slice(inicio, fim) : codigo.slice(inicio);
+        // Sem esta asserção, um recorte vazio (o método renomeado, o marcador de fim mudando de
+        // forma) faria todos os `indexOf` abaixo devolverem -1 e a comparação de ordem passar.
+        expect(corpo.length).toBeGreaterThan(500);
+        return corpo;
+    }
+
+    it('as três chamadas existem no logout, e o aviso precede as duas destrutivas', () => {
+        const corpo = corpoDoLogout();
+        const aviso = corpo.indexOf('announceRemoteTeardown(');
+        const esvazia = corpo.indexOf('clearAllDataStore(');
+        const destroi = corpo.indexOf('discardRemoteAtlasNamespaces(');
+
+        // Cada marco é asserido como ENCONTRADO antes de qualquer comparação de índice: -1 < N é
+        // verdadeiro, e um marco ausente passaria por "veio antes".
+        expect(aviso).toBeGreaterThan(-1);
+        expect(esvazia).toBeGreaterThan(-1);
+        expect(destroi).toBeGreaterThan(-1);
+        expect(aviso).toBeLessThan(esvazia);
+        expect(esvazia).toBeLessThan(destroi);
+    });
+
+    it('o aviso é AGUARDADO: um `await` esquecido faria a corrida voltar inteira', () => {
+        expect(corpoDoLogout()).toMatch(/await\s+announceRemoteTeardown\(\)/);
+    });
+
+    it('a lista anunciada exclui o que um atlas LOCAL reivindica, como o expurgo faz', () => {
+        // O slot resgatado conserva o sufixo `remote-<id>` e muda de registro, e o expurgo o pula.
+        // Anunciar o registro cru condenaria um endereço que ninguém vai tocar, e a aba que o
+        // segura freiaria à toa.
+        const inicio = codigo.indexOf('export async function announceRemoteTeardown');
+        expect(inicio).toBeGreaterThan(-1);
+        const corpo = codigo.slice(inicio, inicio + 900);
+        expect(corpo).toMatch(/readLocalAtlasRegistry\(\)/);
+        expect(corpo).toMatch(/claimed\.has\(dbSuffix\)/);
     });
 });

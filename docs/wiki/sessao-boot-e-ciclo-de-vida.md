@@ -26,6 +26,15 @@ A armadilha sobrevive à correção: quem planeja a partir de uma fonte que prom
 
 Isto foi uma `[!CONTRADICAO]` pendente até 2026-07-25, com quatro fontes afirmando o contrário. Três eram guias absorvidos e morreram com a absorção; a quarta era `.claude/rules/architecture.md`, a perigosa, por ser carregada como instrução em toda sessão de agente, e foi corrigida na mesma data. Repare por que o guarda não pegou: `frontend/tests/unit/docs-integridade.test.js` valida o **caminho** citado, nunca o **símbolo**, então uma citação a uma função que não existe atravessa o teste em silêncio.
 
+## O boot agora escolhe um NAMESPACE, e pergunta ao lock antes de apagar
+
+Estas fases entraram no boot com o namespace por atlas ([[namespace-por-atlas]]), e a ordem delas é contrato:
+
+- **`activateBootAtlasScope` vem DEPOIS do boot guard** (`frontend/src/js/store/store.js`), não antes. O segundo apagamento do guard precisa cair nos bancos sem sufixo no caso pré-namespace, e ativar um slot do registro antes dele apontaria aquele apagamento para um slot novo e vazio, deixando o dado de servidor no disco sem referência. Ler a origem depois do guard é também o que faz os dois concordarem, porque o guard pode acabar de re-marcar o store como LOCAL.
+- **Todo apagamento de boot passa por um `acquire` aguardado do tab lock** (`clearMountedAtlasIfGranted`, `frontend/src/js/account/open-atlas.service.js`). O motivo é específico e não se adivinha: a intenção "Mapa local" mora em `sessionStorage`, que é HERDADO quando a aba é duplicada, então a duplicata boota com a intenção, lê origem remota e apagaria o namespace que a aba original está usando. E no boot uma leitura de flag não serve, porque naquele instante o lock ainda não ouviu ninguém. Ver [[coordenacao-entre-abas]].
+- **O segundo apagamento do guarda é CONDICIONAL**, decidido por `purgeReachedAtlas` sobre o relatório da varredura. Ele existe para o caso pré-namespace, em que o dado de servidor morava nos bancos sem sufixo; quando o atlas possuía namespace, a varredura já terminou o trabalho e rodar o segundo wipe esvaziaria o slot local #1 do usuário, no boot e sem erro. Por isso a pergunta que o predicado responde é "este atlas estava registrado", não "a destruição encontrou bytes" ([[namespace-por-atlas]]).
+- **A fila pré-namespace é roteada uma vez, depois de o escopo existir** (`migratePendingOperationsToScopedQueues`). As ops escritas antes do carimbo não têm endereço, e a regra que as coloca ("pertencem ao atlas montado no momento da atualização") não tem sujeito antes da montagem. Ela nunca reprova o boot: o pior caso é trabalho pendente ficar parado no endereço legado, que é onde a build anterior já o mantinha, e trocar isso por uma tela branca seria trocar um atraso de upload pela sessão inteira.
+
 ## Invariantes que quebram de longe
 
 O código comenta cada decisão no ponto em que ela acontece. O que ele não comenta é o que quebra **em outro arquivo**:

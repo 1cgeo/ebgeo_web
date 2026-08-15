@@ -19,6 +19,11 @@
  * nothing. Consecutive failures are now counted and, past a threshold, told
  * ONCE — see {@link classifyFlushFailure} / {@link nextFlushAlertState}.
  *
+ * ONE OF THOSE KINDS ALSO STOPS THE LOOP: `gone` (404/410, the atlas is not on the
+ * server any more). The others are worth retrying and this one cannot be, so past the
+ * threshold the loop stops instead of knocking on a deleted address every 1.5 s for the
+ * rest of the session. Nothing is dequeued; a later `startAutoFlush` re-arms it.
+ *
  * @dependencies sync-engine.js, connection-state.js, operation-queue.js,
  *   ../services.js, ../../events/event_types.js, @utils/toast_service.js
  */
@@ -78,10 +83,21 @@ const state = {
  *
  * Pure — no I/O, no module state.
  * @param {*} error - The error thrown by `engine.flush()` (an ApiError carries `status`).
- * @returns {{ kind: 'permission'|'session'|'network', message: string }}
+ * @returns {{ kind: 'permission'|'session'|'gone'|'network', message: string }}
  */
 export function classifyFlushFailure(error) {
     const status = error?.status ?? error?.statusCode;
+    // O atlas sumiu do servidor (excluído, ou o compartilhamento que o tornava alcançável
+    // foi revogado). Sem esta classe o caso caía em 'network' e a mensagem dizia ao usuário
+    // que era a conexão e que as alterações seriam enviadas quando ela voltasse — as duas
+    // metades falsas, e a espera nunca termina.
+    if (status === 404 || status === 410) {
+        return {
+            kind: 'gone',
+            message: 'Este projeto não está mais disponível no servidor. Suas alterações '
+                + 'continuam guardadas neste computador e não serão enviadas.',
+        };
+    }
     if (status === 403) {
         return {
             kind: 'permission',
@@ -163,6 +179,19 @@ async function flushOnce() {
             } catch {
                 // Headless (tests, worker): no UI to tell. Never break the loop over a toast.
             }
+        }
+        // THE ATLAS IS GONE: STOP KNOCKING. The other failure kinds are worth retrying (a
+        // token refreshes, a permission comes back, a network returns), and this one cannot
+        // be: the address does not exist, so the loop was firing a request every 1.5 s
+        // forever, against a project that had been deleted, while telling the user once and
+        // then falling silent. Stopping AFTER the warning, and only at the threshold, is what
+        // keeps a single transient 404 from disarming a working session.
+        //
+        // The queue is untouched: the operations are the user's unsynced work, and it is the
+        // rescue path (`preserveUnsyncedWorkAsLocal`) that decides their fate. A later
+        // `startAutoFlush` (any successful connect) re-arms the loop from scratch.
+        if (next.message && classifyFlushFailure(error).kind === 'gone') {
+            stopAutoFlush();
         }
     } finally {
         state.inFlight = false;

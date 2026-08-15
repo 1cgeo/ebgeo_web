@@ -61,9 +61,25 @@ vi.mock('@utils/toast_service.js', () => ({
 import {
     applySyncBrake,
     releaseSyncBrake,
+    applyTeardownFreeze,
     installTabLockSyncBrake,
     getSyncBrakeState,
 } from '../../src/js/store/sync/tab-lock-sync-brake.js';
+import {
+    StoreName,
+    remoteScope,
+    activateScope,
+    getActiveScope,
+    clearActiveScope,
+    getStore,
+    resolveDbName,
+    releaseMountLock,
+    withExclusiveAtlasLock,
+    hasMountLockSupport,
+    dropAtlasDatabases,
+} from '@store/atlas-namespace.js';
+import { getScopedStore } from '@store/repositories/local.repository.js';
+import { databaseExists, resetIndexedDB } from '../helpers/idb-helpers.js';
 import {
     startAutoFlush,
     stopAutoFlush,
@@ -73,6 +89,9 @@ import {
     createTabLock,
     initTabLock,
     destroyTabLock,
+    isTabLockFrozen,
+    keysCollide,
+    localAtlasKey,
     remoteAtlasKey,
 } from '@utils/tab-lock.js';
 
@@ -330,21 +349,34 @@ describe('tab-lock brake: wiring and handoff order', () => {
     it('stops a tab that was ALREADY blocked when the brake is installed', async () => {
         // The lock boots early (index.js) and the brake is wired later; a lock that only stopped
         // tabs losing AFTER the wiring would leave the boot-time loser flushing.
+        //
+        // THE INJECTED CLOCK IS LOAD-BEARING, not decoration, and it is what this case was
+        // missing while every other case in this file had it. `compareClaims` orders by
+        // `claimedAt` and breaks a tie on the tab id, whose second half is random by design. With
+        // the real clock the two claims here land in the SAME millisecond often enough to matter,
+        // and then WHICH tab is blocked is a coin flip: the case failed on line "granted === false"
+        // 6 times in 400, and never past it. Advancing the clock makes the holder strictly
+        // precede, so the loser is decided by the arrangement instead of by the machine.
+        let clock = 1000;
         const holder = createTabLock({
             createTransport: () => hub.connect(),
+            now: () => clock,
             overlayHost: null,
             autoPulse: false,
             settleMs: 0,
         });
         const lock = initTabLock({
             createTransport: () => hub.connect(),
+            now: () => clock,
             overlayHost: null,
             autoPulse: false,
             settleMs: 0,
         });
         await holder.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
         const result = await lock.acquire(remoteAtlasKey(ATLAS_A));
         expect(result.granted).toBe(false);
+        expect(lock.blocker?.tabId).toBe(holder.tabId);
 
         h.atlasId = ATLAS_A;
         h.online = true;
@@ -571,6 +603,302 @@ describe('tab-lock brake: wiring and handoff order', () => {
         expect(taken).toBe(true);
         expect(order).toEqual(['middle-stopped', 'latest-resumed']);
         for (const lock of [middle, latest, earliest]) lock.destroy();
+    });
+});
+
+describe('tab-lock brake: o freio do aviso de desmontagem', () => {
+    /**
+     * O ENDEREÇO É LIDO DA FÁBRICA DE VERDADE, ao contrário de `tab-lock.test.js`, que o escreve
+     * à mão. Lá o sujeito é o protocolo, que não conhece o store; aqui o sujeito é justamente o
+     * casamento entre o endereço anunciado e o escopo montado, então usar `remoteScope()` é o que
+     * prova que as duas pontas falam do MESMO banco. As asserções de existência, essas, são por
+     * nome ABSOLUTO (`resolveDbName`), nunca "o banco que o módulo resolver agora".
+     */
+    const scopeA = remoteScope(ATLAS_A);
+    const scopeB = remoteScope(ATLAS_B);
+    const DB_MAPAS_A = resolveDbName(StoreName.MAPS, scopeA);
+
+    beforeEach(async () => {
+        h.online = false;
+        h.atlasId = null;
+        h.visitor = false;
+        h.connect.mockClear();
+        h.disconnect.mockClear();
+        await releaseMountLock();
+        clearActiveScope();
+        await resetIndexedDB();
+    });
+
+    afterEach(async () => {
+        h.atlasId = null;
+        h.online = true;
+        await releaseSyncBrake();
+        h.online = false;
+        stopAutoFlush();
+        await releaseMountLock();
+        clearActiveScope();
+    });
+
+    it('o instrumento existe: sem Web Lock as asserções de montagem seriam vácuo', () => {
+        // `withExclusiveAtlasLock` CONCEDE sempre quando não há gerenciador de locks (o invariante
+        // duro vence o poupar), então num runtime sem `navigator.locks` os dois casos abaixo
+        // passariam sem medir nada. Esta linha é o que separa "passou" de "mediu".
+        expect(hasMountLockSupport()).toBe(true);
+    });
+
+    it('avisada no endereço que tem montado: para o flush, fecha o socket e SOLTA a montagem', async () => {
+        activateScope(scopeA);
+        await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+        h.atlasId = ATLAS_A;
+        h.online = true;
+        startAutoFlush();
+        // ANTES: o destruidor não consegue o exclusivo, que é a razão de o expurgo POUPAR hoje.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(false);
+
+        const freou = await applyTeardownFreeze([scopeA.dbSuffix]);
+
+        expect(freou).toBe(true);
+        expect(isAutoFlushRunning()).toBe(false);
+        expect(h.disconnect).toHaveBeenCalledTimes(1);
+        expect(getActiveScope()).toBe(null);
+        // Nada a restaurar: reconectar seria reconectar a um namespace que está sendo apagado.
+        expect(getSyncBrakeState().engaged).toBe(false);
+        // DEPOIS: o expurgo do emissor passa a conseguir destruir. Sem esta metade o aviso seria
+        // cortesia, a irmã seguiria "poupada" e a destruição só chegaria pelo prazo de 24 h.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(true);
+    });
+
+    it('avisada sobre OUTRO endereço: não para nada (a decisão é do endereço)', async () => {
+        activateScope(scopeA);
+        h.atlasId = ATLAS_A;
+        h.online = true;
+        startAutoFlush();
+
+        const freou = await applyTeardownFreeze([scopeB.dbSuffix]);
+
+        expect(freou).toBe(false);
+        expect(isAutoFlushRunning()).toBe(true);
+        expect(h.disconnect).not.toHaveBeenCalled();
+        expect(getActiveScope()?.dbSuffix).toBe(scopeA.dbSuffix);
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'x')).granted).toBe(false);
+    });
+
+    it('o VISITANTE de link público não freia: ele é anônimo, e o lock é que o protege', async () => {
+        activateScope(scopeA);
+        h.atlasId = ATLAS_A;
+        h.online = true;
+        h.visitor = true;
+        startAutoFlush();
+
+        const freou = await applyTeardownFreeze([scopeA.dbSuffix]);
+
+        expect(freou).toBe(false);
+        expect(isAutoFlushRunning()).toBe(true);
+        expect(h.disconnect).not.toHaveBeenCalled();
+        // Segue montado, logo o expurgo do logout alheio continua sendo recusado para ele.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'x')).granted).toBe(false);
+    });
+
+    it('sem escopo montado não há o que congelar', async () => {
+        expect(getActiveScope()).toBe(null);
+        expect(await applyTeardownFreeze([scopeA.dbSuffix])).toBe(false);
+        expect(await applyTeardownFreeze(null)).toBe(false);
+    });
+
+    it('PORTÃO: a aba freada NÃO RECRIA os bancos destruídos', async () => {
+        activateScope(scopeA);
+        await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+        // Positivo ANTES, por nome absoluto: sem isto, o "não existe" do fim seria indistinguível
+        // de um banco que nunca existiu.
+        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+
+        expect(await applyTeardownFreeze([scopeA.dbSuffix])).toBe(true);
+        // O emissor esvazia e apaga, exatamente como `purgeAllRemoteAtlases` faz depois do ack.
+        await dropAtlasDatabases(scopeA);
+        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+
+        // E agora a escrita seguinte da aba freada, pelo caminho REAL do repositório (que passa
+        // pela ponte `ensureAtlasScope`, e é exatamente por onde uma escrita perdida cairia).
+        await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
+
+        // O namespace condenado NÃO ressuscita, que é o resíduo imortal que o aviso existe para
+        // impedir (registro já removido, banco de volta, nenhuma varredura futura o acha).
+        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+        // CONTROLE DE VÁCUO: a escrita realmente aconteceu, em outro lugar. Sem esta linha, um
+        // `getScopedStore` que lançasse daria o mesmo verde acima sem provar nada. O nome é o
+        // pré-namespace, escrito à mão: é para onde a ponte `ensureAtlasScope` manda quem escreve
+        // sem escopo montado, e é o preço documentado do freio (o mal menor, não um acerto).
+        expect(await databaseExists('ebgeo_maps')).toBe(true);
+    });
+
+    it('CONTROLE NEGATIVO: sem o freio, a MESMA escrita ressuscita os dez bancos', async () => {
+        activateScope(scopeA);
+        await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+
+        // Mesmo arranjo, mesma destruição, MENOS o freio: é o mundo de hoje, em que a irmã não é
+        // avisada e seu escopo continua apontado para o namespace condenado.
+        await dropAtlasDatabases(scopeA);
+        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+
+        await getScopedStore(StoreName.MAPS).setItem('depois-do-nada', { nome: 'ressuscitou' });
+
+        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+    });
+});
+
+// ==========================================================================================
+// O AVISO INTEIRO, DE PONTA A PONTA
+// ==========================================================================================
+
+/**
+ * A JUNÇÃO DAS DUAS METADES, que é o único ponto que nenhum dos dois lados media sozinho.
+ *
+ * O protocolo é medido em `tests/unit/tab-lock.test.js` com um `onTeardown` de mentira; o freio é
+ * medido acima chamando `applyTeardownFreeze` na mão. As duas suítes ficavam VERDES com o
+ * `onTeardown: applyTeardownFreeze` REMOVIDO de `installTabLockSyncBrake` (medido em 2026-08-15,
+ * 128/128 passando com a linha apagada): cada metade provava a si mesma e ninguém provava o fio
+ * entre elas, que é o que uma aba de verdade percorre.
+ *
+ * Aqui a aba é montada como `index.js` a monta (`initTabLock` mais `installTabLockSyncBrake`) e o
+ * aviso entra pelo transporte, não por chamada direta.
+ */
+describe('tab-lock brake: o aviso atravessa o protocolo até o freio REAL', () => {
+    const scopeA = remoteScope(ATLAS_A);
+    const DB_MAPAS_A = resolveDbName(StoreName.MAPS, scopeA);
+    let hub;
+    /** @type {Array<{destroy: () => void}>} */
+    let peers;
+
+    beforeEach(async () => {
+        hub = createHub();
+        peers = [];
+        h.online = false;
+        h.atlasId = null;
+        h.visitor = false;
+        h.connect.mockClear();
+        h.disconnect.mockClear();
+        await releaseMountLock();
+        clearActiveScope();
+        await resetIndexedDB();
+    });
+
+    afterEach(async () => {
+        for (const peer of peers) peer.destroy();
+        destroyTabLock();
+        h.atlasId = null;
+        h.online = true;
+        await releaseSyncBrake();
+        h.online = false;
+        stopAutoFlush();
+        await releaseMountLock();
+        clearActiveScope();
+    });
+
+    it('PORTÃO: a irmã sem colisão avisa, e ESTA aba freia sem ninguém chamar o freio', async () => {
+        expect(hasMountLockSupport()).toBe(true);
+        let clock = 1000;
+        activateScope(scopeA);
+        await getStore(StoreName.MAPS).setItem('sentinela', { nome: 'trabalho vivo' });
+        // Positivo ANTES, por nome absoluto: sem ele o "não existe" do fim não distingue um banco
+        // destruído de um que nunca existiu.
+        expect(await databaseExists(DB_MAPAS_A)).toBe(true);
+
+        // Esta aba É a página do mapa: segura o atlas de servidor A, conectada e drenando, com o
+        // freio instalado pelo MESMO caminho de `index.js`.
+        const page = initTabLock({
+            key: remoteAtlasKey(ATLAS_A),
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        h.atlasId = ATLAS_A;
+        h.online = true;
+        startAutoFlush();
+        await installTabLockSyncBrake({ replay: async () => false });
+
+        // A irmã sai da conta segurando um slot LOCAL: é o par exato do expurgo de logout, e as
+        // duas chaves NÃO colidem. As duas premissas são asseridas, não supostas — sem elas o caso
+        // passaria também contra um aviso endereçado por colisão, ou contra um freio disparado
+        // pelo caminho de BLOQUEIO, que é outro mecanismo.
+        clock += 5;
+        const irma = createTabLock({
+            key: localAtlasKey('slot-a'),
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        peers.push(irma);
+        expect(keysCollide(irma.key, page.key)).toBe(false);
+        expect(page.blocked).toBe(false);
+
+        const relatorio = await irma.announceTeardown([scopeA.dbSuffix]);
+
+        expect(relatorio).toMatchObject({ peers: 1, acked: 1, frozen: 1, timedOut: false });
+        expect(page.frozen).toBe(true);
+        expect(isTabLockFrozen()).toBe(true);
+        // O freio de verdade rodou: os dois escritores automáticos pararam e o escopo saiu.
+        expect(isAutoFlushRunning()).toBe(false);
+        expect(h.disconnect).toHaveBeenCalledTimes(1);
+        expect(getActiveScope()).toBe(null);
+        expect(getSyncBrakeState().engaged).toBe(false);
+
+        // E a irmã consegue destruir, que é o que o aviso comprou: antes do freio o exclusivo era
+        // recusado e o namespace seria POUPADO até o prazo de 24 h vencer sobre uma aba viva.
+        expect((await withExclusiveAtlasLock(scopeA, async () => 'destruiu')).granted).toBe(true);
+        await dropAtlasDatabases(scopeA);
+        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+
+        // A escrita seguinte desta aba, pelo caminho REAL do repositório, não ressuscita o
+        // namespace condenado (o resíduo que nenhuma varredura futura acharia).
+        await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
+        expect(await databaseExists(DB_MAPAS_A)).toBe(false);
+        // CONTROLE DE VÁCUO: a escrita aconteceu mesmo, no destino documentado da ponte
+        // `ensureAtlasScope` quando não há escopo montado.
+        expect(await databaseExists('ebgeo_maps')).toBe(true);
+    });
+
+    it('CONTROLE NEGATIVO: um aviso sobre OUTRO endereço atravessa o mesmo fio e NÃO freia', async () => {
+        // Mesmo arranjo, mesmo transporte, mesma instalação: só o endereço anunciado muda. Sem
+        // este par, o caso acima passaria também contra um freio que congela ao primeiro aviso.
+        let clock = 1000;
+        activateScope(scopeA);
+        const page = initTabLock({
+            key: remoteAtlasKey(ATLAS_A),
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        h.atlasId = ATLAS_A;
+        h.online = true;
+        startAutoFlush();
+        await installTabLockSyncBrake({ replay: async () => false });
+
+        clock += 5;
+        const irma = createTabLock({
+            key: localAtlasKey('slot-a'),
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        peers.push(irma);
+
+        const relatorio = await irma.announceTeardown([remoteScope(ATLAS_B).dbSuffix]);
+
+        // Respondeu (o emissor não paga o tempo limite por ela) e seguiu trabalhando.
+        expect(relatorio).toMatchObject({ peers: 1, acked: 1, frozen: 0, timedOut: false });
+        expect(page.frozen).toBe(false);
+        expect(isAutoFlushRunning()).toBe(true);
+        expect(h.disconnect).not.toHaveBeenCalled();
+        expect(getActiveScope()?.dbSuffix).toBe(scopeA.dbSuffix);
     });
 });
 

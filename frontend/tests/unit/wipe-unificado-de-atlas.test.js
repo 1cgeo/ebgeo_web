@@ -171,20 +171,36 @@ beforeEach(() => {
 // ============================================================================
 
 describe('a lista de bases do atlas', () => {
-    it('tem exatamente estas dez bases marcadas como por atlas', async () => {
+    it('tem exatamente estas dez bases marcadas como DADO de atlas', async () => {
         const { STORE_DESCRIPTORS } = await import('@store/atlas-namespace.js');
-        const perAtlas = STORE_DESCRIPTORS.filter(d => d.perAtlas).map(d => d.dbName);
+        const atlasData = STORE_DESCRIPTORS.filter(d => d.perAtlas && d.atlasData).map(d => d.dbName);
 
-        expect(perAtlas).toHaveLength(10);
-        expect(perAtlas).toEqual(ATLAS_DATABASES);
+        expect(atlasData).toHaveLength(10);
+        expect(atlasData).toEqual(ATLAS_DATABASES);
     });
 
-    it('deixa de fora as duas bases da instalação, que nenhum wipe de atlas pode tocar', async () => {
+    // TROCADO NA AUDITORIA DE E2B (2026-08-15), nunca somado. Este caso afirmava "os DOIS
+    // bancos globais", e a fila de saída era o segundo. Ela virou por atlas, e o descritor
+    // ganhou um segundo eixo: `perAtlas` = morre com o atlas (destruição), `atlasData` = é
+    // esvaziado pelo wipe de ENTRADA. A fila é a ÚNICA linha em que os dois divergem, e é
+    // por isso que uma troca de projeto não apaga o trabalho pendente do usuário. Ler um
+    // eixo só chamaria os dois de sinônimos, que é o defeito que esta fase corrigiu.
+    it('a fila de saída morre com o atlas SEM ser dado dele, e é a única divergência', async () => {
+        const { STORE_DESCRIPTORS } = await import('@store/atlas-namespace.js');
+        const perAtlas = STORE_DESCRIPTORS.filter(d => d.perAtlas).map(d => d.dbName);
+        const divergentes = STORE_DESCRIPTORS.filter(d => d.perAtlas !== d.atlasData).map(d => d.dbName);
+
+        expect(perAtlas).toHaveLength(11);
+        expect(perAtlas).toEqual([...ATLAS_DATABASES, 'ebgeo']);
+        expect(divergentes).toEqual(['ebgeo']);
+    });
+
+    it('deixa de fora a base da instalação, que nenhum wipe de atlas pode tocar', async () => {
         const { STORE_DESCRIPTORS } = await import('@store/atlas-namespace.js');
         const globals = STORE_DESCRIPTORS.filter(d => !d.perAtlas).map(d => d.dbName);
 
-        expect(globals).toHaveLength(2);
-        expect(globals).toEqual(['ebgeo', GLOBAL_DATABASE]);
+        expect(globals).toHaveLength(1);
+        expect(globals).toEqual([GLOBAL_DATABASE]);
     });
 });
 
@@ -253,8 +269,19 @@ describe('clearAllDataStore', () => {
 // sobra dado de servidor no disco até a próxima recarga.
 // ============================================================================
 
-describe('clearAllDataStore com a sessão já encerrada (o logout ativo)', () => {
-    it('varre todos os namespaces remotos registrados, não só o que esta aba montou', async () => {
+// REESCRITO EM E1 (2026-08-15), e a versão anterior é o motivo de este comentário existir.
+//
+// Este par afirmava que `clearAllDataStore` VARRE todo namespace remoto quando ninguém está
+// autenticado, e não varre quando há sessão. Era a descrição fiel do código, e o código estava
+// errado: a condição fazia de todo wipe anônimo um logout. O visitante de um link público
+// registra um namespace e chama o wipe três linhas depois (`index.js openPublicAtlasFromUrl`),
+// então ele destruía o namespace que acabara de registrar. O import de `.ebgeo` e o "Limpar
+// Tudo" herdavam a mesma coisa.
+//
+// Os casos foram TROCADOS, nunca somados: um teste que continuasse exigindo a varredura dentro
+// do wipe faria a correção parecer regressão, que é como uma suíte passa a defender um defeito.
+describe('clearAllDataStore não varre namespace nenhum, com ou sem sessão', () => {
+    it('DESLOGADO: esvazia o atlas montado e NÃO toca os outros namespaces registrados', async () => {
         const { store } = await loadStoreFacade();
         await setSession(false);
         seedRemoteAtlas(ATLAS_A);
@@ -262,16 +289,14 @@ describe('clearAllDataStore com a sessão já encerrada (o logout ativo)', () =>
 
         await store.clearAllDataStore();
 
-        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
-        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual([]);
-        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
-        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_B}`)).toBeNull();
+        // Os dois sobrevivem: destruí-los é trabalho do logout, chamado por nome.
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual(remoteDatabases(ATLAS_B));
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).not.toBeNull();
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_B}`)).not.toBeNull();
     });
 
-    it('CONTROLE NEGATIVO: com sessão viva não varre nada, porque aí não é um logout', async () => {
-        // `openRemoteAtlas` chama isto antes de CADA connect, e `_handleRemoteAtlasDeleted`
-        // depois de um delete: as duas querem "esvazia o atlas que eu tenho", nunca "apague
-        // todo atlas de servidor desta máquina".
+    it('LOGADO: idem, porque a sessão deixou de ser consultada', async () => {
         const { store } = await loadStoreFacade();
         await setSession(true);
         seedRemoteAtlas(ATLAS_A);
@@ -282,6 +307,28 @@ describe('clearAllDataStore com a sessão já encerrada (o logout ativo)', () =>
         expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
         expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual(remoteDatabases(ATLAS_B));
         expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).not.toBeNull();
+    });
+});
+
+describe('discardRemoteAtlasNamespaces: a varredura, agora chamada por nome', () => {
+    // CONTROLE POSITIVO do par acima. Sem ele, "o wipe não varreu" seria indistinguível de
+    // "a varredura não funciona mais": os dois casos anteriores ficariam verdes se
+    // `purgeAllRemoteAtlases` tivesse simplesmente quebrado.
+    it('destrói TODOS os namespaces registrados, que é o que o logout precisa', async () => {
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedRemoteAtlas(ATLAS_A);
+        seedRemoteAtlas(ATLAS_B);
+        // ANTES (positivo): os dois estão lá, senão "sumiu" e "nunca existiu" se confundem.
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual(remoteDatabases(ATLAS_B));
+
+        await store.discardRemoteAtlasNamespaces();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual([]);
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_B}`)).toBeNull();
     });
 });
 
@@ -344,6 +391,175 @@ describe('guarda de boot com dado remoto e ninguém autenticado', () => {
 // A origem diz LOCAL (esta aba nunca abriu nada de servidor) e mesmo assim existe namespace
 // remoto registrado, porque OUTRA aba abriu e morreu. Sem sessão, ele não pode ficar.
 // ============================================================================
+
+// ============================================================================
+// Path 2.b: o guarda de boot quando o namespace foi POUPADO (E2)
+//
+// A perda que esta seção existe para impedir: um namespace poupado não entra em `atlases` nem
+// em `adopted`, então um predicado que o ignorasse responderia "não alcancei" e o guarda
+// esvaziaria o slot local #1 do usuário sobre a ponte legada, no boot, sem erro nenhum.
+// ============================================================================
+
+/**
+ * Segura o lock de montagem como faria OUTRA ABA, com o `navigator.locks` de verdade.
+ *
+ * O nome está ESCRITO À MÃO, não derivado de `atlasMountLockName`: é contrato entre abas (e um
+ * dia entre versões do app), então uma mudança de formato tem de aparecer como vermelho aqui em
+ * vez de acompanhar silenciosamente a fonte que ela deveria estar conferindo.
+ *
+ * @param {string} atlasId - Atlas de servidor mantido montado.
+ * @returns {Promise<() => Promise<void>>} Função que solta o lock.
+ */
+async function outraAbaMonta(atlasId) {
+    let release;
+    let granted;
+    const ateSoltar = new Promise(resolve => { release = resolve; });
+    const concedido = new Promise(resolve => { granted = resolve; });
+    const settled = navigator.locks.request(
+        `ebgeo-atlas:#remote-${atlasId}`,
+        { mode: 'shared' },
+        () => { granted(); return ateSoltar; }
+    );
+    settled.catch(() => undefined);
+    await concedido;
+    return async () => { release(); await settled; };
+}
+
+describe('guarda de boot com um namespace remoto POUPADO', () => {
+    it('poupa o namespace da outra aba E NÃO esvazia o slot local deste boot', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seedRemoteAtlas(ATLAS_A);
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+        const soltar = await outraAbaMonta(ATLAS_A);
+        // ANTES (positivo): os dois blocos estão de pé, senão "sobreviveu" e "nunca esteve lá"
+        // seriam o mesmo verde.
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+
+        await store.initializeWithLastActiveMap();
+        await soltar();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).not.toBeNull();
+        // o trabalho local do usuário continua inteiro: é ele que a falta de `spared` apagaria
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+    });
+
+    // ========================================================================
+    // P13, FECHADO EM 2026-08-15 POR DECISÃO DO DONO. Os dois casos abaixo eram `it.fails`.
+    //
+    // A OUTRA METADE DE P3 tinha aberto uma perda nova: `purgeReachedAtlas` contava `atlases`,
+    // `adopted` e `spared` e deliberadamente NÃO contava `empty`. A intenção era boa (um
+    // namespace fabricado não pode falar o guarda para fora do wipe que importa), mas `empty`
+    // mistura DUAS coisas: "nunca foi registrado" e "registrado e nunca escrito". A primeira nem
+    // aparece no relatório, que é DERIVADO do registro, então ela já respondia false sozinha e o
+    // segundo wipe seguia rodando: é o caso pré-namespace, e é para ele que o segundo wipe
+    // existe. A segunda é um atlas que POSSUI namespace, logo o dado dele nunca esteve nos
+    // bancos sem sufixo, logo o segundo wipe não tinha o que terminar ali e caía sobre o slot
+    // local #1.
+    //
+    // A JANELA É REAL E TEM GESTO: `openRemoteAtlas` registra o namespace
+    // (`activateRemoteAtlas`) e marca a origem REMOTE ANTES de `syncEngine.connect`
+    // (`open-atlas.service.js`). O `catch` do connect reverte a origem, mas a aba FECHADA no
+    // meio do pull nunca roda o catch. O boot deslogado seguinte encontrava: entrada no
+    // registro, dez bancos vazios, marcador REMOTE — e esvaziava o trabalho local do usuário.
+    //
+    // O que P3 temia (o expurgo FABRICAR dez bancos e chamá-los de destruídos) foi eliminado na
+    // ORIGEM pela guarda de `keys()` em `clearAtlasDatabases`, então nenhum braço deste
+    // relatório pode ser inventado pelo ato de ler.
+    //
+    // Localizado por bissecção: com o `hadData` pré-P3 (`true` incondicional) os dois casos
+    // passavam, o que põe o defeito dentro de E2 e não antes dela. A mesma bissecção é o
+    // controle negativo desta correção: com `empty` fora do predicado os dois voltam a VERMELHO.
+    it('namespace REGISTRADO e VAZIO não pode esvaziar o slot local #1', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        // registrado, mas sem um byte nos dez bancos: a aba morreu durante o pull inicial
+        seed(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`, {
+            atlasId: ATLAS_A, dbSuffix: `remote-${ATLAS_A}`, createdAt: 1, updatedAt: 1
+        });
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+        // ANTES (positivo): sem isto, "o slot local sobreviveu" e "nunca teve nada" seriam o
+        // mesmo verde, e o namespace remoto precisa estar de fato VAZIO, senão o cenário é o do
+        // controle logo abaixo e não este.
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+
+        await store.initializeWithLastActiveMap();
+
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+        // e o namespace vazio foi mesmo ALCANÇADO, não ignorado: a entrada saiu do registro.
+        // Sem esta linha, um expurgo que não enxergasse ATLAS_A daria o mesmo verde acima.
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+    });
+
+    it('destruição FORÇADA de um namespace vazio não pode esvaziar o slot local #1', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seed(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`, {
+            atlasId: ATLAS_A, dbSuffix: `remote-${ATLAS_A}`, createdAt: 1, updatedAt: 1,
+            sparedAt: 1
+        });
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+        const soltar = await outraAbaMonta(ATLAS_A);
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+
+        await store.initializeWithLastActiveMap();
+        await soltar();
+
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+        // `sparedAt: 1` é um prazo vencido em 1970, então este boot passou pelo braço FORÇADO e
+        // não pelo `spared`: a entrada tem de ter sumido. Se ela sobrevivesse, o caso teria sido
+        // poupado e estaria medindo o caminho do vizinho, que já é medido logo acima.
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+    });
+
+    // CONTROLE dos dois acima, e ele roda a MESMA chamada destrutiva: com dado no namespace o
+    // atlas cai em `atlases`, o predicado responde true e o slot local sobrevive. Se este
+    // ficar vermelho, o harness parou de alcançar o cenário e os dois `it.fails` acima estão
+    // verdes por motivo errado.
+    it('CONTROLE: com dado no namespace, o mesmo boot NÃO esvazia o slot local #1', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seedRemoteAtlas(ATLAS_A);
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+
+        await store.initializeWithLastActiveMap();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+    });
+
+    it('CONTROLE: sem ninguém montado, o MESMO boot destrói o namespace', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seedRemoteAtlas(ATLAS_A);
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+
+        await store.initializeWithLastActiveMap();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+    });
+});
 
 describe('órfão no registro remoto, boot sem sessão', () => {
     it('é recolhido mesmo com a origem LOCAL, que é o caso que um crash deixa', async () => {

@@ -69,6 +69,8 @@ Onde isso morde:
 
 O import não conecta nada. A troca do store acontece em `frontend/src/js/account/account.control.js`: `saveLocalAtlasToServer` (que **lê** o store local) tem que rodar **antes** de `clearAllDataStore`, `markStoreRemote` e `connect` ([[snapshot-e-pull-incremental]], [[sessao-boot-e-ciclo-de-vida]], [[fila-operacoes-outbound]], [[canal-collab-websocket]]). Inverter apaga os dados antes de subi-los, e como o import não é repetível não há como refazer.
 
+Entre o upload e o wipe entram duas linhas que não são cerimônia: a reivindicação do tab lock sob o id do atlas NOVO e `activateRemoteAtlas`. Sem a segunda, tudo abaixo rodava contra o slot LOCAL: o wipe esvaziava o atlas do próprio usuário (não o novo) e o pull do `connect` escrevia o snapshot do SERVIDOR nos bancos locais, fora do registro remoto, onde nenhum expurgo de logout o encontra. A ordem também compra uma segunda coisa: o upload de imagens é best-effort, e a versão que apagava o original local descartava a fonte das imagens que acabaram de falhar. **A adoção do namespace no sentido local→remoto foi rejeitada**, por isso o caminho é COPIAR: ver [[namespace-por-atlas]].
+
 O toast final soma `imageStats.skipped + failed`. É a **única** sinalização de perda parcial que o usuário recebe, e ela não cobre `droppedFeatures` nem os vínculos de grupo.
 
 ## Contrato congelado

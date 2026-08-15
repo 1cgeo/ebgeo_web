@@ -48,7 +48,7 @@ vi.mock('../../src/js/store/sync/operation-queue.js', () => ({
 // Imports
 // ============================================================================
 
-import { startAutoFlush, stopAutoFlush } from '../../src/js/store/sync/sync-flush.js';
+import { startAutoFlush, stopAutoFlush, isAutoFlushRunning } from '../../src/js/store/sync/sync-flush.js';
 import { connectionState, ConnectionStates } from '../../src/js/store/sync/connection-state.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
 
@@ -244,5 +244,81 @@ describe('idempotency + stop', () => {
 
     it('stop is safe to call when not running', () => {
         expect(() => stopAutoFlush()).not.toThrow();
+    });
+});
+
+// ============================================================================
+// O atlas sumiu do servidor (404/410): a única classe de falha em que insistir é inútil.
+// ============================================================================
+
+describe('atlas_gone para o laço', () => {
+    /**
+     * @param {number} status - HTTP status a devolver.
+     * @returns {Object} Engine cujo `flush` sempre rejeita com aquele status.
+     */
+    function engineQueFalha(status) {
+        const erro = Object.assign(new Error(`HTTP ${status}`), { status });
+        return { flush: vi.fn(async () => { throw erro; }) };
+    }
+
+    it('para depois de avisar, e não bate mais na porta', async () => {
+        goOnline();
+        queueState.pending = 3;
+        const morto = engineQueFalha(404);
+        startAutoFlush(morto, { intervalMs: 1000 });
+
+        // Uma falha só é normal e NÃO pode parar nada: o laço tem de sobreviver a um 404
+        // transitório de proxy. Positiva antes da negativa.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(isAutoFlushRunning()).toBe(true);
+
+        // O limiar são três ciclos consecutivos, e é no terceiro que o usuário é avisado.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(isAutoFlushRunning()).toBe(true);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(isAutoFlushRunning()).toBe(false);
+        const tentativas = morto.flush.mock.calls.length;
+        expect(tentativas).toBe(3);
+
+        // E o laço não volta sozinho: nem pelo relógio, nem por um gesto do usuário.
+        await vi.advanceTimersByTimeAsync(60000);
+        mockBus.emit(EventTypes.FEATURE_CREATED, {});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(morto.flush.mock.calls.length).toBe(tentativas);
+    });
+
+    it('CONTROLE NEGATIVO: uma falha de REDE, com o mesmo limiar, NÃO para o laço', async () => {
+        // Sem este caso, "parou" seria indistinguível de um laço que passou a morrer em
+        // qualquer erro, que é a regressão cara: uma queda de wi-fi desligaria o sync até o
+        // próximo connect, em silêncio.
+        goOnline();
+        queueState.pending = 3;
+        const instavel = engineQueFalha(503);
+        startAutoFlush(instavel, { intervalMs: 1000 });
+
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(isAutoFlushRunning()).toBe(true);
+        expect(instavel.flush.mock.calls.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('a fila NÃO é drenada: o trabalho não sincronizado continua lá', async () => {
+        goOnline();
+        queueState.pending = 3;
+        const morto = engineQueFalha(410);
+        startAutoFlush(morto, { intervalMs: 1000 });
+
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(isAutoFlushRunning()).toBe(false);
+        // O laço nunca desenfileira (quem faz isso é o `flush` do engine, que aqui nem
+        // chegou a rodar), e é o resgate no logout que decide o destino dessas operações.
+        expect(queueState.pending).toBe(3);
     });
 });

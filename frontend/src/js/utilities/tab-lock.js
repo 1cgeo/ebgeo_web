@@ -35,7 +35,7 @@
  * A tab announces a KEY, which is what it holds, never where it came from:
  *
  *   { kind: 'none'   , atlasId: null }   page holds no atlas
- *   { kind: 'local'  , atlasId: <local slot id> }
+ *   { kind: 'local'  , atlasId: <local slot id>, adoptedFrom: <atlas UUID>|null }
  *   { kind: 'remote' , atlasId: <atlas UUID> }
  *
  * THE KEY IS THE ATLAS ID, NEVER THE URL, and under the uniform rule the id is decisive on
@@ -60,16 +60,43 @@
  * ===========================================================================
  * 2. THE COLLISION PREDICATE (`keysCollide`)
  * ===========================================================================
+ * WHAT IS ARBITRATED IS AN ADDRESS: the set of databases a tab writes to. So the predicate
+ * computes one (`claimAddress`) and compares it, instead of comparing the pair (kind, id):
+ *
+ *   none, or a key with no id : NO address, therefore collides with nobody
+ *   remote X                  : `remote:X`
+ *   local  L                  : `local:L`  — unless it was ADOPTED, see below
+ *   any other kind            : `<kind>:<id>`
+ *
  *   none    x anything : never collides
  *   local   x local    : collides only when the atlas ids are equal
  *   remote  x remote   : collides only when the atlas ids are equal
  *   remote  x local    : never collides (different namespaces, no shared database)
- *   a key with no id   : never collides (it names no databases to fight over)
  *
- * Read as one line: same kind, same id. It FAILS CLOSED on a kind it does not know, which a
- * per-kind switch could not do: a peer whose `kind` is corrupted or comes from a future
- * deploy still collides with an identical claim, because the thing being arbitrated is the
- * ADDRESS, and two claims naming the same address collide whatever they call themselves.
+ * It FAILS CLOSED on a kind it does not know, which a per-kind switch could not do: a peer
+ * whose `kind` is corrupted or comes from a future deploy still collides with an identical
+ * claim, because two claims naming the same address collide whatever they call themselves.
+ *
+ * THE ADOPTED SLOT IS THE ONE PLACE WHERE KIND AND ADDRESS DISAGREE, and it is why the local
+ * key carries `adoptedFrom`. `adoptRemoteAtlasAsLocal` (`store/local-atlas.api.js`) rescues
+ * unsynced work at logout by moving the CLAIM from the remote registry to the local one and
+ * ZERO bytes between databases: the rescued slot KEEPS the `remote-<atlasId>` suffix. So a
+ * local slot and a server atlas can be literally the same ten databases, and a predicate on
+ * (kind, id) answers "no collision" for the one pair that shares a disk — the rescue tab would
+ * sit there while another tab opened that server atlas and wiped, on its way in, the work the
+ * rescue existed to save. `currentAtlasLockKey` (`account/open-atlas.service.js`) therefore
+ * fills `adoptedFrom` from the active scope's suffix (`remoteAtlasIdFromDbSuffix`), and such a
+ * slot claims the address `remote:<atlasId>` while keeping `kind: 'local'`, which is what the
+ * overlay wording and the user both need it to be.
+ *
+ * THE REMOTE x REMOTE HOLD IS GONE (it made every pair of server atlases collide). It was not
+ * the owner's rule, it was the safe reading of a period in which `openRemoteAtlas` did not
+ * activate any namespace, so two server atlases were one set of databases and letting the
+ * second tab in meant letting it wipe the first tab's live map. The wiring landed first
+ * (`activateRemoteAtlas` in `openRemoteAtlas` and in the public-link path, the rescue in
+ * `AccountControl._handleLogout`, `activateBootAtlasScope` at boot) and the hold came out
+ * afterwards, as its own change: `tests/integration/namespace-remoto-fiacao.test.js` is what
+ * says two server atlases really are two blocks of databases.
  *
  * ===========================================================================
  * 3. MESSAGES
@@ -86,11 +113,28 @@
  *   RELEASE   the sender is leaving (pagehide) or has dropped its key. Peers forget it.
  *   TAKEOVER  the sender asks every holder of a colliding key to yield ("Usar aqui").
  *   YIELD     `target`ed ack: "I have already stopped, the claim is yours".
+ *   TEARDOWN  the sender is about to DESTROY a set of database addresses. It carries
+ *             `addresses` (a list of `dbSuffix`), never a key. See section 8.
+ *   TEARDOWN_ACK  `target`ed ack: "I read it, and here is whether I stopped" (`frozen`).
  *
  * `v` (protocol version) makes tabs from two different deploys mutually INVISIBLE rather than
  * mutually confused: an old tab speaking the old `{type:'PING'}` dialect is ignored here, and
  * ignores this. That is the honest failure mode for a hot deploy, and it is bounded, because
  * a reload of either tab ends it.
+ *
+ * TEARDOWN DID BUMP IT (2 -> 3), and the reason is that invisibility is here the SAFE reading,
+ * which is the opposite of the adoption case below. An old tab cannot understand the notice, so
+ * it never freezes and never releases its mount lock; the destroyer then finds the namespace
+ * mounted and SPARES it, which is exactly the behaviour of the deploy that tab came from. Keeping
+ * the old version would buy nothing (it would still not freeze) and would cost the destroyer a
+ * full ack timeout waiting for a tab that cannot answer.
+ *
+ * WHICH IS EXACTLY WHY `adoptedFrom` DID NOT BUMP IT. Invisibility is the honest answer only
+ * when the two dialects cannot be read at all; here the field is ADDITIVE, and an old tab's
+ * key parses as a local key with no adoption. Bumping would make every claim of an old tab
+ * unreadable, so two tabs in the SAME atlas would both proceed — trading a corner case for
+ * the collision this module exists to catch. What the old tab does instead is over-block (it
+ * still collides remote x remote) and miss the adopted-slot pair, both bounded by a reload.
  *
  * ===========================================================================
  * 4. THE WINDOW HOLE, AND WHY THERE IS NO WINDOW ANY MORE
@@ -208,7 +252,51 @@
  * frozen-holder case is then covered by the TTL sweep, which is also evidence.
  *
  * ===========================================================================
- * 8. DEGRADED PATH (no BroadcastChannel)
+ * 8. THE UNMOUNT NOTICE (`announceTeardown`), AND WHY IT IS NOT ADDRESSED BY COLLISION
+ * ===========================================================================
+ * Everything above arbitrates who MAY hold an atlas. This section is the other half, and it
+ * arrived later: a tab that is about to DESTROY databases telling whoever is writing to them.
+ *
+ * The case is the logout sweep. One tab logs out, the purge is derived from the registry and
+ * covers every remote namespace on the machine, including the one a SIBLING tab has mounted. The
+ * mount lock (`store/atlas-namespace.js`, Decision 5) already protects that sibling's data: the
+ * sweep asks for an exclusive lock, is refused, and reports the atlas as `spared`. What it did
+ * NOT do was tell the sibling anything, so the sibling kept writing into a namespace already
+ * condemned, and when the 24 h reprieve expired the forced destruction landed with no warning.
+ * Worse, a write arriving after the emptying RECREATES those databases, now outside the registry,
+ * which is residue no later sweep can find.
+ *
+ * THE NOTICE IS ADDRESSED BY A SET OF ADDRESSES, NEVER BY `keysCollide`, and this is the one
+ * design decision here that is easy to get wrong in a way that works today and stops working
+ * exactly when it matters. `_handleTakeover` returns early when the keys do not collide; the pair
+ * this notice must reach is a tab logging OUT (whose key is local, or none) and a tab holding a
+ * SERVER atlas, which do not collide, and now that the remote x remote hold is out (section 2)
+ * two tabs in two different server atlases do not collide either. Routing the notice through the
+ * collision predicate would therefore make it work in the demo and go silent in production. So
+ * TEARDOWN carries `addresses` (`dbSuffix` strings), it is delivered to EVERY live peer, and each
+ * receiver decides for itself by comparing against the address it has MOUNTED, which is a fact of
+ * the store and not of the key.
+ *
+ * WHICH IS ALSO WHY THE MATCH IS NOT MADE HERE. This module must not import the store (section 7),
+ * and the mounted address lives there. The receiver's decision is therefore an EFFECT, installed
+ * with the other two through `setEffects({onTeardown})` by `store/sync/tab-lock-sync-brake.js`. It
+ * answers a boolean, "I hold one of those and I have stopped", and this module does the protocol
+ * around it: deliver, await, ack, and only then act on the ack.
+ *
+ * ORDER, AND WHY THE ACK IS EVIDENCE. The receiver's freeze is AWAITED before the ack is posted,
+ * exactly as a YIELD awaits the stop it announces. The emitter waits for one ack per live peer (or
+ * for a timeout) before it empties anything, so "the sibling stopped writing" is something it was
+ * told, not something it hopes. A peer that never answers costs the timeout and nothing else: the
+ * destruction that follows is still gated by the exclusive mount lock, so silence degrades to
+ * TODAY's behaviour (spare), never to a wipe under a live writer.
+ *
+ * A FROZEN TAB DOES NOT COME BACK. It retracts its key (it no longer holds that atlas, so keeping
+ * the claim would lock everyone else out of an atlas nobody has), shows an overlay that offers a
+ * reload, and is pinned out of `_leaveBlocked` forever: its databases are being deleted, so an
+ * `onResumed` that reconnected would be a reconnect to nothing. Only a reload clears it.
+ *
+ * ===========================================================================
+ * 9. DEGRADED PATH (no BroadcastChannel)
  * ===========================================================================
  * The old module turned the lock OFF, entirely and silently, when `BroadcastChannel` was
  * missing. That is the worst of the three options: the failure is invisible and it fails
@@ -228,25 +316,29 @@
  * status, so a caller can badge it. Off and audible, never off and quiet.
  *
  * ===========================================================================
- * 9. PUBLIC API (other agents wire this; nothing here integrates itself)
+ * 10. PUBLIC API (other agents wire this; nothing here integrates itself)
  * ===========================================================================
  * Pure, for callers and tests: `TabLockKeyKind`, `noneKey`, `localAtlasKey`, `remoteAtlasKey`,
  * `keysCollide`, `compareClaims`, `findBlockingPeer`.
  *
- * Instance: `createTabLock(deps)` returns `{ tabId, key, blocked, degraded, transportKind,
- * peers(), acquire(key, opts), setKey(key), release(), requestTakeover(), pulse(),
- * setEffects(handlers), subscribe(fn), destroy() }`.
+ * Instance: `createTabLock(deps)` returns `{ tabId, key, blocked, frozen, degraded, transportKind,
+ * peers(), acquire(key, opts), setKey(key), release(), requestTakeover(), announceTeardown(addrs),
+ * pulse(), setEffects(handlers), subscribe(fn), destroy() }`.
  *
  * Singleton, for the pages: `initTabLock(options)`, `getTabLock()`, `acquireTabLock(key)`,
  * `setTabLockKey(key)`, `setTabLockEffects(handlers)`, `releaseTabLock()`, `isTabLockBlocked()`,
- * `onTabLockChange(fn)`, `destroyTabLock()`.
+ * `isTabLockFrozen()`, `announceTabLockTeardown(addresses)`, `onTabLockChange(fn)`,
+ * `destroyTabLock()`.
  *
  * WHO CALLS WHAT (this paragraph claimed the opposite for one phase: it said no page called
  * `acquire` yet, while `index.js` and `open-atlas.service.js` already did):
  *
  *   - `index.js` boots the singleton with the key from `currentAtlasLockKey()`, then installs
  *     the EFFECTS through `installTabLockSyncBrake` (`store/sync/tab-lock-sync-brake.js`),
- *     which is what turns a block into a real stop and an unblock into a real reconnect.
+ *     which is what turns a block into a real stop, an unblock into a real reconnect, and an
+ *     unmount notice into a real freeze.
+ *   - `account/account.control.js` announces the notice on the logout path, with the addresses
+ *     read from the remote registry, BEFORE it empties or destroys anything.
  *   - `open-atlas.service.js` owns every claim of an atlas: `claimRemoteAtlas` before an
  *     open, `clearMountedAtlasIfGranted` before a boot wipe, `syncAtlasLockKey` on the live
  *     changes, `retractAtlasClaim` on a claim it cannot honour.
@@ -254,7 +346,7 @@
  *     and nothing else.
  *
  * ===========================================================================
- * 10. WHAT THIS PROTOCOL DOES NOT DO (known, open, and written down here on purpose)
+ * 11. WHAT THIS PROTOCOL DOES NOT DO (known, open, and written down here on purpose)
  * ===========================================================================
  * Everything above describes what the lock arbitrates. It arbitrates less than a first reading
  * suggests, and a doc that only lists the guarantees is the kind that misleads an agent twice
@@ -285,7 +377,7 @@ import { setupCleanup, addDomListener, trackTimer, cleanup, removeElement } from
 const CHANNEL_NAME = 'ebgeo-tab-lock';
 
 /** Bumped whenever a message shape changes; mismatched versions ignore each other. */
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 /** How often a tab restates its claim, so peers can notice its absence. */
 const HEARTBEAT_MS = 2000;
@@ -299,13 +391,28 @@ const SETTLE_MS = 300;
 /** How long "Usar aqui" waits for the holders to actually stop. */
 const TAKEOVER_TIMEOUT_MS = 4000;
 
+/**
+ * How long an unmount notice waits for every live peer to answer (section 8). Silence is safe
+ * (the destruction that follows is still gated by the exclusive mount lock), so this bounds a
+ * logout, it does not decide anything.
+ */
+const TEARDOWN_TIMEOUT_MS = 2000;
+
+/**
+ * Polling step of that wait. The loop counts STEPS rather than reading the clock, so an injected
+ * clock that does not advance still terminates instead of spinning.
+ */
+const TEARDOWN_POLL_MS = 25;
+
 /** Message types of the channel protocol. */
 const Msg = Object.freeze({
     HELLO: 'HELLO',
     STATE: 'STATE',
     RELEASE: 'RELEASE',
     TAKEOVER: 'TAKEOVER',
-    YIELD: 'YIELD'
+    YIELD: 'YIELD',
+    TEARDOWN: 'TEARDOWN',
+    TEARDOWN_ACK: 'TEARDOWN_ACK'
 });
 
 /** What a tab can be holding. */
@@ -328,11 +435,29 @@ const OVERLAY_TEXT = Object.freeze({
         + 'por lá, ou traga o controle para cá.'
 });
 
+/** Wording of the FROZEN state (section 8): the databases of this tab are being destroyed. */
+const TEARDOWN_OVERLAY = Object.freeze({
+    title: 'Este projeto foi encerrado em outra aba',
+    message: 'Outra aba saiu da conta, e os dados deste projeto estão sendo removidos deste '
+        + 'computador. Esta aba parou de gravar para não recriá-los. Recarregue a página para '
+        + 'continuar.',
+    button: 'Recarregar'
+});
+
+/** Wording of the ordinary blocked state. */
+const BLOCKED_OVERLAY = Object.freeze({
+    title: 'EBGeo está aberto em outra aba',
+    button: 'Usar aqui'
+});
+
 /**
  * @typedef {Object} TabLockKey
  * @property {string} kind - A `TabLockKeyKind` value.
  * @property {string|null} atlasId - Atlas id, decisive for `local` AND for `remote`. Null only
  *   on the `none` key, which never collides.
+ * @property {string|null} [adoptedFrom] - LOCAL keys only: the server atlas whose databases
+ *   this slot occupies after `adoptRemoteAtlasAsLocal` (fileoverview, 2). It moves the ADDRESS
+ *   of the claim without moving its kind.
  */
 
 /**
@@ -356,14 +481,28 @@ export function noneKey() {
 /**
  * The key of a LOCAL atlas slot. The id is decisive: two tabs in two different local atlases
  * do not collide.
+ *
+ * `adoptedFrom` is the exception that the ADDRESS rule needs (fileoverview, 2): a slot rescued
+ * by `adoptRemoteAtlasAsLocal` keeps the `remote-<atlasId>` databases of the server atlas it
+ * came from, so it must collide with a tab opening THAT atlas even though its kind is local.
+ * The field is omitted when there is no adoption, so an ordinary local key stays the plain
+ * `{kind, atlasId}` pair every caller compares against.
+ *
  * @param {string} atlasId - Local atlas slot id (registry entry id).
+ * @param {{adoptedFrom?: string|null}} [options] - `adoptedFrom`: server atlas id whose
+ *   namespace this slot occupies, from `remoteAtlasIdFromDbSuffix(scope.dbSuffix)`.
  * @returns {TabLockKey}
  */
-export function localAtlasKey(atlasId) {
+export function localAtlasKey(atlasId, { adoptedFrom = null } = {}) {
     if (typeof atlasId !== 'string' || atlasId.length === 0) {
         throw new Error('localAtlasKey: atlasId must be a non-empty string');
     }
-    return Object.freeze({ kind: TabLockKeyKind.LOCAL, atlasId });
+    if (adoptedFrom !== null && (typeof adoptedFrom !== 'string' || adoptedFrom.length === 0)) {
+        throw new Error('localAtlasKey: adoptedFrom must be a non-empty string or null');
+    }
+    return adoptedFrom === null
+        ? Object.freeze({ kind: TabLockKeyKind.LOCAL, atlasId })
+        : Object.freeze({ kind: TabLockKeyKind.LOCAL, atlasId, adoptedFrom });
 }
 
 /**
@@ -387,42 +526,65 @@ export function remoteAtlasKey(atlasId) {
 }
 
 /**
- * The owner's rule as a predicate: SAME KIND, SAME ID. See the fileoverview, section 2.
+ * The set of databases a claim names, as a comparable string, or null when it names none.
+ *
+ * Kinds are part of the address because `local:x` and `remote:x` ARE different namespaces
+ * (`localScope` vs `remoteScope`), so the same id under two kinds is two different sets of
+ * databases. The single exception is the adopted slot, which is the one case where a local slot
+ * and a server atlas are the same databases (fileoverview, 2).
+ *
+ * @param {TabLockKey|null|undefined} key
+ * @returns {string|null} Address, or null for a claim over nothing.
+ */
+function claimAddress(key) {
+    if (!key || key.kind === TabLockKeyKind.NONE) return null;
+
+    if (key.kind === TabLockKeyKind.LOCAL && typeof key.adoptedFrom === 'string'
+        && key.adoptedFrom.length > 0) {
+        return `${TabLockKeyKind.REMOTE}:${key.adoptedFrom}`;
+    }
+
+    // A claim that names no atlas names no databases. This is also the last defence of the
+    // pages without a map, whose key is `none` on both counts.
+    const atlasId = key.atlasId ?? null;
+    if (atlasId === null) return null;
+
+    // The kind is interpolated raw, never switched on: a corrupted or future-deploy kind still
+    // produces an address, so two identical claims collide whatever they call themselves.
+    return `${key.kind}:${atlasId}`;
+}
+
+/**
+ * The owner's rule as a predicate: SAME ADDRESS. See the fileoverview, section 2.
  * @param {TabLockKey|null|undefined} a
  * @param {TabLockKey|null|undefined} b
  * @returns {boolean} True when the two keys cannot be held at the same time.
  */
 export function keysCollide(a, b) {
-    if (!a || !b) return false;
-    if (a.kind === TabLockKeyKind.NONE || b.kind === TabLockKeyKind.NONE) return false;
-    // A claim that names no atlas names no databases. This is also the last defence of the
-    // pages without a map, whose key is `none` on both counts.
-    const idA = a.atlasId ?? null;
-    const idB = b.atlasId ?? null;
-
-    // TWO REMOTE ATLASES STILL COLLIDE, AND THIS IS A DELIBERATE HOLD, NOT THE OWNER'S RULE.
+    // THE REMOTE x REMOTE HOLD LIVED HERE, AND IT IS OUT (2026-08-15). It made every pair of
+    // server atlases collide, which was never the owner's rule: it was the safe reading of four
+    // holes that only two remote tabs could reach. Each was closed by name before this line was
+    // deleted, and each has its own guard, so the removal is not a promise:
     //
-    // The rule is "same atlas collides, different atlases do not", uniformly. Honouring it for
-    // remotes REQUIRES each remote atlas to own its databases, and that machinery exists
-    // (`activateRemoteAtlas`, the remote registry, the derived logout purge) but IS NOT WIRED:
-    // `openRemoteAtlas` never activates a scope, so every remote atlas still resolves to the
-    // same `ebgeo_maps`. Verified three ways, with a positive control in the same run.
+    //   - `saveLocalToServer` did not activate a namespace. It calls `activateRemoteAtlas`
+    //     between the claim and the wipe now (`account/account.control.js`), and the LIST of
+    //     legal mounters plus the ORDER inside a server-atlas entry is asserted structurally by
+    //     `tests/unit/portao-de-montagem.test.js`;
+    //   - the logout of ONE tab deregistered the LIVE namespace of the other. The sweep now asks
+    //     for the exclusive mount lock, reports the refusal as `spared` and keeps the registry
+    //     entry (`store/remote-atlas.api.js`, `SPARE_GRACE_MS`), and the sibling is TOLD by the
+    //     unmount notice of section 8 instead of being left to find out;
+    //   - the public-link path wiped the namespace it had just registered, because the sweep
+    //     hung off `clearAllDataStore`. It is called BY NAME now, from the two places that mean
+    //     "the session is over" (`store/store.js discardRemoteAtlasNamespaces`);
+    //   - the outbound queue was GLOBAL. It is `perAtlas: true` (`atlas-namespace.js`), so atlas
+    //     X writes into `ebgeo__<suffix of X>` and cannot drain or empty the queue of atlas Y,
+    //     and every operation also carries the address of the scope it was born in.
     //
-    // Letting the predicate through before the wiring is not an incomplete feature, it is DATA
-    // LOSS: the lock would allow two tabs onto two server atlases, both would resolve to the one
-    // database, and the second tab's `clearAllDataStore` would erase the first tab's live map.
-    // The old rule was the only thing preventing that, so it stays until the wiring lands.
-    //
-    // TO LIFT THIS: wire `activateRemoteAtlas` into `openRemoteAtlas` and the public-link path,
-    // wire `adoptRemoteAtlasAsLocal` into logout (or the unsynced-work rescue becomes deletion),
-    // then delete this branch. The tests for the uniform rule are already written and marked.
-    if (a.kind === TabLockKeyKind.REMOTE && b.kind === TabLockKeyKind.REMOTE) return true;
-
-    if (idA === null || idB === null) return false;
-    // Kinds must match: `local:x` and `remote:x` are different namespaces (`localScope` vs
-    // `remoteScope`), so the same id under two kinds is two different sets of databases.
-    if (a.kind !== b.kind) return false;
-    return idA === idB;
+    // What is left is the uniform rule, and it is what the address comparison below says on its
+    // own: same atlas collides, different atlases do not, local and remote alike.
+    const addressA = claimAddress(a);
+    return addressA !== null && addressA === claimAddress(b);
 }
 
 /**
@@ -500,7 +662,7 @@ function createBroadcastTransport(name) {
 }
 
 /**
- * localStorage transport (the degraded path, fileoverview 8). The `storage` event fires in
+ * localStorage transport (the degraded path, fileoverview 9). The `storage` event fires in
  * every other same-origin tab and not in the writer, which is the same no-self-echo semantics
  * BroadcastChannel has.
  * @param {string} name
@@ -566,6 +728,9 @@ class TabLock {
      *   `syncEngine.disconnect()`. It MUST NOT clear any store (fileoverview, 7).
      * @param {() => (void|Promise<void>)} [options.onResumed] - Called when this tab regains
      *   the claim (peer died, peer yielded, key changed to a free one).
+     * @param {((addresses: string[]) => (boolean|Promise<boolean>))} [options.onTeardown] - Wire
+     *   it to `applyTeardownFreeze` (`store/sync/tab-lock-sync-brake.js`). It answers whether
+     *   this tab held one of those database addresses AND has stopped writing (section 8).
      * @param {HTMLElement|null} [options.overlayHost] - Where the blocking overlay is mounted;
      *   null disables the overlay (headless/tests).
      * @param {(name: string) => (TabLockTransport|null)} [options.createTransport]
@@ -581,6 +746,7 @@ class TabLock {
         key = noneKey(),
         onBlocked = null,
         onResumed = null,
+        onTeardown = null,
         overlayHost = (typeof document !== 'undefined' ? document.body : null),
         createTransport = defaultCreateTransport,
         channelName = CHANNEL_NAME,
@@ -589,6 +755,7 @@ class TabLock {
         peerTtlMs = PEER_TTL_MS,
         settleMs = SETTLE_MS,
         takeoverTimeoutMs = TAKEOVER_TIMEOUT_MS,
+        teardownTimeoutMs = TEARDOWN_TIMEOUT_MS,
         autoPulse = true
     } = {}) {
         setupCleanup(this);
@@ -600,11 +767,13 @@ class TabLock {
         this._claimedAt = this._birth;
         this._onBlocked = onBlocked;
         this._onResumed = onResumed;
+        this._onTeardown = onTeardown;
         this._overlayHost = overlayHost;
         this._heartbeatMs = heartbeatMs;
         this._peerTtlMs = peerTtlMs;
         this._settleMs = settleMs;
         this._takeoverTimeoutMs = takeoverTimeoutMs;
+        this._teardownTimeoutMs = teardownTimeoutMs;
 
         /** @type {Map<string, TabLockClaim & {lastSeen: number}>} */
         this._peers = new Map();
@@ -616,6 +785,12 @@ class TabLock {
         this._yielded = false;
         this._yieldedKey = null;
         this._message = null;
+        this._title = null;
+        this._button = null;
+        /** True once an unmount notice froze this tab. Only a reload clears it (section 8). */
+        this._frozen = false;
+        /** @type {Map<string, boolean>|null} Acks of the notice in flight, by peer tab id. */
+        this._teardownAcks = null;
         /** @type {Promise<void>|null} The stop currently running, or the one that already ran. */
         this._blockingPromise = null;
 
@@ -659,6 +834,14 @@ class TabLock {
     /** @returns {boolean} True when this tab lost and has been stopped. */
     get blocked() {
         return this._blocked;
+    }
+
+    /**
+     * @returns {boolean} True when an unmount notice stopped this tab for good: the databases it
+     * was writing to are being destroyed elsewhere, and only a reload brings it back.
+     */
+    get frozen() {
+        return this._frozen;
     }
 
     /** @returns {boolean} True when no transport exists and the lock is OFF. */
@@ -738,6 +921,9 @@ class TabLock {
      */
     async requestTakeover() {
         if (this._degraded || this._destroyed) return true;
+        // There is nothing to take over from a destruction: the databases this tab would take the
+        // claim to are being deleted, and a granted claim would only let it recreate them.
+        if (this._frozen) return false;
         if (!this._blocked) return true;
 
         if (this._yielded) {
@@ -757,6 +943,66 @@ class TabLock {
         }
         this._evaluate();
         return !this._blocked;
+    }
+
+    /**
+     * ANNOUNCES THAT THESE DATABASE ADDRESSES ARE ABOUT TO BE DESTROYED, and waits for the tabs
+     * writing to them to stop. Call it BEFORE emptying or deleting anything (section 8).
+     *
+     * The notice goes to EVERY live peer and carries no key: it is addressed by ADDRESS, and each
+     * receiver matches it against what it has MOUNTED. Routing it through `keysCollide` would
+     * silence it for exactly the pair it exists for (a tab logging out next to a tab holding a
+     * server atlas, which do not collide).
+     *
+     * Silence is safe by construction: a peer that cannot or will not answer keeps its mount lock,
+     * so the destruction that follows is refused for that namespace and it is spared, which is the
+     * behaviour of the deploy that had no notice at all.
+     *
+     * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
+     * @param {{timeoutMs?: number}} [options]
+     * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
+     *   timedOut: boolean, degraded: boolean}>} `frozen` counts the peers that reported they held
+     *   one of the addresses and stopped.
+     */
+    async announceTeardown(addresses, { timeoutMs = this._teardownTimeoutMs } = {}) {
+        const list = [...new Set(
+            (Array.isArray(addresses) ? addresses : [])
+                .filter(address => typeof address === 'string')
+        )];
+        const report = {
+            addresses: list,
+            peers: 0,
+            acked: 0,
+            frozen: 0,
+            timedOut: false,
+            degraded: this._degraded
+        };
+        if (this._degraded || this._destroyed || list.length === 0) return report;
+
+        const pending = new Set(this._livePeers().map(peer => peer.tabId));
+        report.peers = pending.size;
+        const acks = new Map();
+        this._teardownAcks = acks;
+        this._post(Msg.TEARDOWN, null, { addresses: list });
+
+        // Counting STEPS instead of reading the clock: `_now` is injectable and a frozen clock
+        // must still let this return.
+        for (let waited = 0; pending.size > 0 && waited < timeoutMs; waited += TEARDOWN_POLL_MS) {
+            await this._wait(TEARDOWN_POLL_MS);
+            if (this._destroyed) break;
+            const live = new Set(this._livePeers().map(peer => peer.tabId));
+            for (const tabId of [...pending]) {
+                // A peer that answered is done; one that died meanwhile cannot answer, and its
+                // mount lock died with it, so waiting for it would only delay the destruction.
+                if (acks.has(tabId) || !live.has(tabId)) pending.delete(tabId);
+            }
+        }
+
+        if (this._teardownAcks === acks) this._teardownAcks = null;
+        report.acked = acks.size;
+        report.frozen = [...acks.values()].filter(Boolean).length;
+        report.timedOut = pending.size > 0;
+        return report;
     }
 
     /**
@@ -782,12 +1028,17 @@ class TabLock {
      * @param {(() => (void|Promise<void>))|null} [handlers.onBlocked] - Stop the sync. It MUST
      *   NOT clear any store (fileoverview, 7). Undefined leaves the current handler in place.
      * @param {(() => (void|Promise<void>))|null} [handlers.onResumed] - Restore what was stopped.
+     * @param {((addresses: string[]) => (boolean|Promise<boolean>))|null} [handlers.onTeardown] -
+     *   Answer an unmount notice (section 8). It is NOT late-safe like `onBlocked`, and does not
+     *   need to be: a notice that arrived before this handler existed was acked with `frozen:
+     *   false`, so the sender left that namespace mounted and spared it.
      * @returns {Promise<void>} Resolves once any catch-up stop has finished.
      */
-    setEffects({ onBlocked, onResumed } = {}) {
+    setEffects({ onBlocked, onResumed, onTeardown } = {}) {
         if (this._destroyed) return Promise.resolve();
         if (onBlocked !== undefined) this._onBlocked = onBlocked;
         if (onResumed !== undefined) this._onResumed = onResumed;
+        if (onTeardown !== undefined) this._onTeardown = onTeardown;
         if (this._blocked && this._onBlocked && !this._blockingPromise) {
             this._blockingPromise = this._runBlockedEffect();
         }
@@ -818,6 +1069,7 @@ class TabLock {
         this._transport = null;
         this._listeners.clear();
         this._peers.clear();
+        this._teardownAcks = null;
         removeElement(this._overlay);
         this._overlay = null;
     }
@@ -827,17 +1079,25 @@ class TabLock {
     /**
      * @param {string} type - A `Msg` value.
      * @param {string|null} [target] - Recipient tab id, for targeted acks.
+     * @param {Object|null} [extra] - Fields of the specific message type (`addresses`, `frozen`).
      * @returns {void}
      */
-    _post(type, target = null) {
+    _post(type, target = null, extra = null) {
         if (!this._transport) return;
         this._transport.post({
+            // The wire key carries `adoptedFrom` ALWAYS, unlike the in-memory key, which omits
+            // it when there is none: a message is read by code, a key is also compared by hand.
             v: PROTOCOL_VERSION,
             type,
             tabId: this._tabId,
-            key: { kind: this._key.kind, atlasId: this._key.atlasId ?? null },
+            key: {
+                kind: this._key.kind,
+                atlasId: this._key.atlasId ?? null,
+                adoptedFrom: this._key.adoptedFrom ?? null
+            },
             claimedAt: this._claimedAt,
-            target
+            target,
+            ...(extra ?? {})
         });
     }
 
@@ -880,6 +1140,21 @@ class TabLock {
             this._handleTakeover(message);
             break;
 
+        case Msg.TEARDOWN:
+            // NO `keysCollide` GATE, and no early return: the notice is addressed by the set of
+            // ADDRESSES it carries, and the pair it exists for does not collide (section 8).
+            this._rememberPeer(message);
+            this._handleTeardown(message);
+            break;
+
+        case Msg.TEARDOWN_ACK:
+            // Not remembered as a peer: the sender retracts its key right after acking, and
+            // re-adding it here would resurrect a claim it has already dropped.
+            if (message.target === this._tabId) {
+                this._teardownAcks?.set(message.tabId, message.frozen === true);
+            }
+            break;
+
         default:
             break;
         }
@@ -893,7 +1168,9 @@ class TabLock {
         const key = message.key ?? NONE_KEY;
         this._peers.set(message.tabId, {
             tabId: message.tabId,
-            key: { kind: key.kind, atlasId: key.atlasId ?? null },
+            // `adoptedFrom` is absent in a message from an older deploy, and reads as "no
+            // adoption", which is that deploy's own behaviour (fileoverview, 3).
+            key: { kind: key.kind, atlasId: key.atlasId ?? null, adoptedFrom: key.adoptedFrom ?? null },
             claimedAt: message.claimedAt,
             lastSeen: this._now()
         });
@@ -925,6 +1202,61 @@ class TabLock {
     }
 
     /**
+     * An unmount notice: some tab is about to destroy the databases named in `addresses`. Ask the
+     * effect whether THIS tab was writing to one of them, wait for it to stop, and only then ack.
+     *
+     * The ack is posted whatever the answer, including when there is no handler at all (the three
+     * pages without a map), because the sender waits for one ack per live peer and silence would
+     * cost it the whole timeout for nothing.
+     *
+     * @param {Object} message
+     * @returns {Promise<void>}
+     */
+    async _handleTeardown(message) {
+        const addresses = (Array.isArray(message.addresses) ? message.addresses : [])
+            .filter(address => typeof address === 'string');
+
+        let frozen = false;
+        if (addresses.length > 0 && this._onTeardown && !this._frozen) {
+            try {
+                frozen = (await this._onTeardown(addresses)) === true;
+            } catch (error) {
+                // A freeze that throws must not ack as if it had stopped: `frozen` stays false,
+                // the sender finds the namespace still mounted, and spares it.
+                console.error('[tab-lock] onTeardown failed:', error);
+                frozen = false;
+            }
+        }
+        if (this._destroyed) return;
+
+        this._post(Msg.TEARDOWN_ACK, message.tabId, { frozen });
+        if (frozen) this._enterFrozen(message);
+    }
+
+    /**
+     * Pins this tab out of service after its databases were reported doomed: it retracts the key
+     * (it holds no atlas any more, and keeping the claim would lock every other tab out of an
+     * atlas nobody has), shows the frozen overlay, and never leaves the blocked state again.
+     * @param {Object} message - The notice that caused it, for the blocker record.
+     * @returns {void}
+     */
+    _enterFrozen(message) {
+        const surrendered = this._key;
+        this._frozen = true;
+        this._blocked = true;
+        this._blocker = {
+            tabId: message.tabId,
+            key: message.key ?? NONE_KEY,
+            claimedAt: message.claimedAt
+        };
+        this._key = noneKey();
+        this._claimedAt = this._now();
+        this._post(Msg.RELEASE);
+        this._renderOverlay(surrendered);
+        this._emit();
+    }
+
+    /**
      * @returns {Array<TabLockClaim & {lastSeen: number}>} Peers heard from recently. Expiring
      * here (and not on a timer) is what makes a tab that died without a RELEASE recoverable.
      */
@@ -951,7 +1283,11 @@ class TabLock {
             this._enterBlocked(blocker);
             return;
         }
-        if (!blocker && this._blocked && !this._yielded) {
+        // A FROZEN TAB NEVER LEAVES, and this guard is load-bearing rather than defensive: the
+        // freeze retracts the key, and `syncEngine.disconnect()` inside the brake fires the very
+        // key-change listener that calls back in here. Without it the tab would find no blocker,
+        // resume, and reconnect to an atlas whose databases are being deleted.
+        if (!blocker && this._blocked && !this._yielded && !this._frozen) {
             this._leaveBlocked();
         }
     }
@@ -1038,13 +1374,22 @@ class TabLock {
     /**
      * Builds (once) and shows the blocking overlay. Text is set with `textContent`; the only
      * markup is the static icon.
-     * @param {TabLockKey} key - Key whose kind decides the wording.
+     *
+     * TWO STATES, ONE OVERLAY. Blocked means "another tab has this atlas", and the way out is the
+     * handoff. Frozen means "the databases of this tab are being destroyed", and there is no
+     * handoff out of that: the only honest offer is a reload.
+     * @param {TabLockKey} key - Key whose kind decides the wording of the blocked state.
      * @returns {void}
      */
     _renderOverlay(key) {
         if (!this._overlayHost) return;
         if (!this._overlay) this._overlay = this._buildOverlay();
-        this._message.textContent = OVERLAY_TEXT[key?.kind] ?? OVERLAY_TEXT[TabLockKeyKind.REMOTE];
+        this._title.textContent = this._frozen ? TEARDOWN_OVERLAY.title : BLOCKED_OVERLAY.title;
+        this._message.textContent = this._frozen
+            ? TEARDOWN_OVERLAY.message
+            : (OVERLAY_TEXT[key?.kind] ?? OVERLAY_TEXT[TabLockKeyKind.REMOTE]);
+        this._button.textContent = this._frozen ? TEARDOWN_OVERLAY.button : BLOCKED_OVERLAY.button;
+        this._button.disabled = false;
         this._overlay.classList.add('tab-lock-overlay--visible');
     }
 
@@ -1068,7 +1413,7 @@ class TabLock {
 
         const title = doc.createElement('h2');
         title.className = 'tab-lock-overlay__title';
-        title.textContent = 'EBGeo está aberto em outra aba';
+        title.textContent = BLOCKED_OVERLAY.title;
 
         const message = doc.createElement('p');
         message.className = 'tab-lock-overlay__message';
@@ -1076,8 +1421,15 @@ class TabLock {
         const button = doc.createElement('button');
         button.className = 'tab-lock-overlay__button';
         button.type = 'button';
-        button.textContent = 'Usar aqui';
+        button.textContent = BLOCKED_OVERLAY.button;
         addDomListener(this, button, 'click', () => {
+            // The handler branches instead of being replaced: the listener is registered once,
+            // through the cleanup registry, and swapping it would leak the previous one.
+            if (this._frozen) {
+                button.disabled = true;
+                globalThis.location?.reload?.();
+                return;
+            }
             button.disabled = true;
             this.requestTakeover().finally(() => {
                 button.disabled = false;
@@ -1087,7 +1439,9 @@ class TabLock {
         card.append(icon, title, message, button);
         el.appendChild(card);
         this._overlayHost.appendChild(el);
+        this._title = title;
         this._message = message;
+        this._button = button;
         return el;
     }
 }
@@ -1156,6 +1510,30 @@ export function setTabLockEffects(handlers = {}) {
     return _instance.setEffects(handlers);
 }
 
+/**
+ * Announces on the page's lock that these database addresses are about to be destroyed, and waits
+ * for the tabs writing to them to stop (section 8). The logout path calls it
+ * (`account/account.control.js`) BEFORE it empties or destroys anything.
+ *
+ * IT DOES NOT CREATE THE LOCK, unlike every other function here. A caller that runs before
+ * `initTabLock` (the boot guard is one) has no peers to warn through this page anyway, and
+ * building the singleton here would give it the DEFAULT options, including an overlay mounted on
+ * `document.body`, behind the back of the page that owns the real configuration.
+ *
+ * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
+ *   timedOut: boolean, degraded: boolean}>}
+ */
+export function announceTabLockTeardown(addresses, options = {}) {
+    if (!_instance) {
+        return Promise.resolve({
+            addresses: [], peers: 0, acked: 0, frozen: 0, timedOut: false, degraded: true
+        });
+    }
+    return _instance.announceTeardown(addresses, options);
+}
+
 /** Retracts the key (403/404, or any revert to holding nothing). @returns {void} */
 export function releaseTabLock() {
     _instance?.release();
@@ -1164,6 +1542,11 @@ export function releaseTabLock() {
 /** @returns {boolean} True when this tab lost the arbitration. */
 export function isTabLockBlocked() {
     return _instance?.blocked ?? false;
+}
+
+/** @returns {boolean} True when an unmount notice stopped this tab for good (section 8). */
+export function isTabLockFrozen() {
+    return _instance?.frozen ?? false;
 }
 
 /**

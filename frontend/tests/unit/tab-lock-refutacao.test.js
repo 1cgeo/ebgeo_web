@@ -47,6 +47,7 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js');
 const read = (rel) => readFileSync(resolve(SRC, rel), 'utf8');
 
 const ATLAS_A = '11111111-1111-4111-8111-111111111111';
+const ATLAS_B = '22222222-2222-4222-8222-222222222222';
 
 /** Hub with buffering, per-message dropping, and delayed (busy-peer) delivery. */
 function createHub() {
@@ -179,17 +180,37 @@ describe('ATAQUE 1 - a janela de tempo', () => {
 });
 
 describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
-    it('2.1 CONFIRMADO: as cinco linhas da matriz, com remoto x remoto ainda em espera', () => {
+    it('2.1: as cinco linhas da matriz, com remoto x remoto ja SEM a espera', () => {
         expect(keysCollide(localAtlasKey('s1'), localAtlasKey('s1'))).toBe(true);
         expect(keysCollide(localAtlasKey('s1'), localAtlasKey('s2'))).toBe(false);
         expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_A))).toBe(true);
-        // Esta linha e a que esta EM ESPERA: a regra do dono manda `false`, mas enquanto todo
-        // atlas remoto resolver para os mesmos bancos, liberar aqui deixa a segunda aba apagar o
-        // mapa vivo da primeira. Ver a nota em `keysCollide` e o `it.todo` do alvo.
-        expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey('22222222-2222-4222-8222-222222222222'))).toBe(true);
+        // A ESPERA SAIU EM E7 (2026-08-15), e esta linha e o seu registro. Ela devolvia `true`
+        // aqui enquanto quatro furos so alcancaveis com duas abas remotas estavam abertos
+        // (`saveLocalToServer` sem namespace, o logout desregistrando o namespace vivo da irma,
+        // o link publico apagando o que registrou, e a fila de saida GLOBAL). Os quatro foram
+        // fechados por nome; a lista e as guardas de cada um estao em `keysCollide`. A linha
+        // acima e o controle negativo desta: o MESMO atlas continua colidindo.
+        expect(keysCollide(remoteAtlasKey(ATLAS_A), remoteAtlasKey(ATLAS_B))).toBe(false);
         expect(keysCollide(remoteAtlasKey(ATLAS_A), localAtlasKey('s1'))).toBe(false);
         expect(keysCollide(noneKey(), remoteAtlasKey(ATLAS_A))).toBe(false);
         expect(keysCollide(noneKey(), localAtlasKey('s1'))).toBe(false);
+    });
+
+    it('2.1b CORRIGIDO: o slot ADOTADO e a excecao da linha `remoto x local`, e ela colide', () => {
+        // O refutador anterior levantou e ninguem tinha fechado: depois de `adoptRemoteAtlasAsLocal`
+        // o slot local guarda o sufixo `remote-<atlasId>`, isto e, os MESMOS dez bancos do atlas de
+        // servidor. Comparar (kind, id) respondia `false` para o unico par que divide um disco, e a
+        // aba do resgate assistiria outra aba abrir aquele atlas e apagar, no caminho de entrada, o
+        // trabalho que o resgate existe para salvar. O predicado compara ENDERECO.
+        const resgatado = localAtlasKey('slot-resgatado', { adoptedFrom: ATLAS_A });
+        expect(keysCollide(resgatado, remoteAtlasKey(ATLAS_A))).toBe(true);
+        // Controle negativo: sem a adocao (a chave que a derivacao antiga produzia) nao colide.
+        expect(keysCollide(localAtlasKey('slot-resgatado'), remoteAtlasKey(ATLAS_A))).toBe(false);
+        expect(keysCollide(resgatado, remoteAtlasKey(ATLAS_B))).toBe(false);
+        // E a derivacao da chave a partir do escopo passa o campo, senao o predicado nunca o ve.
+        const svc = read('account/open-atlas.service.js');
+        expect(svc).toMatch(/adoptedFrom: remoteAtlasIdFromDbSuffix\(scope\.dbSuffix\)/);
+        expect(svc).toMatch(/return localKeyOfScope\(scope\);/);
     });
 
     it('2.2 CORRIGIDO: chave de tipo desconhecido FALHA FECHADA, e chave remota sem id nao existe', () => {
@@ -204,18 +225,29 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
         expect(() => remoteAtlasKey()).toThrow();
     });
 
-    it('2.3 CONFIRMADO (decisao): a fila de saida e GLOBAL, e o open remoto a limpa mesmo sem '
-        + 'colidir com uma aba local', () => {
-        // Prende a decisao, nao um defeito: `remote x local` nao colide porque os bancos sao
-        // disjuntos, e a fila continua sendo o unico recurso compartilhado. O risco residual
-        // (uma aba local perde trabalho nao sincronizado quando a outra abre um atlas do
-        // servidor) e o furo #5 do TESTING-BACKLOG.
+    it('2.3 CORRIGIDO: a fila deixou de ser o recurso compartilhado, e o open remoto nao a '
+        + 'apaga mais', () => {
+        // Este caso AFIRMAVA o contrario ate 2026-08-15, e afirmava certo para o codigo de
+        // entao: `remote x local` nao colide (os bancos de DADO sao disjuntos) e a fila era o
+        // unico recurso que as duas abas dividiam, entao uma aba local perdia trabalho nao
+        // sincronizado quando a irma abria um atlas do servidor. Era o furo #5.
+        //
+        // A fila virou o 11o banco POR ATLAS (`atlas-namespace.js`, Decisao 2b), logo nao ha
+        // mais recurso compartilhado a arbitrar, e o wipe de entrada deixou de alcanca-la.
         const store = read('store/store.js');
         const unmount = store.slice(store.indexOf('async function unmountCurrentAtlas'));
-        expect(unmount.slice(0, 400)).toMatch(/operationQueue\.clear\(\)/);
-        expect(read('store/atlas-namespace.js')).toMatch(/queue stays global/);
+        // Controle positivo do recorte: a funcao foi mesmo lida.
+        expect(unmount.slice(0, 400)).toMatch(/clearAllAtlasStores\(\)/);
+        // O `clear` da fila existe, mas so sob a decisao do chamador.
+        expect(unmount.slice(0, 400)).toMatch(/if \(clearQueue\) \{\s*await operationQueue\.clear\(\)/);
+
+        const ns = read('store/atlas-namespace.js');
+        expect(ns).not.toMatch(/queue stays global/);
+        const fila = ns.slice(ns.indexOf('id: StoreName.OPERATION_QUEUE'));
+        expect(fila.slice(0, 200)).toMatch(/perAtlas: true, atlasData: false/);
+
         const openSvc = read('account/open-atlas.service.js');
-        expect(openSvc).toMatch(/await clearAllDataStore\(\);/);
+        expect(openSvc).toMatch(/await clearAllDataStore\(/);
         expect(keysCollide(remoteAtlasKey(ATLAS_A), localAtlasKey('s1'))).toBe(false);
     });
 
@@ -223,7 +255,7 @@ describe('ATAQUE 2 - a regra do dono, caso a caso', () => {
         + 'esvazia o escopo ATUAL e nunca o namespace do atlas de destino', () => {
         const svc = read('account/open-atlas.service.js');
         const fn = svc.slice(svc.indexOf('export async function openRemoteAtlas'));
-        const iWipe = fn.indexOf('await clearAllDataStore();');
+        const iWipe = fn.indexOf('await clearAllDataStore(');
         const iMark = fn.indexOf('await markStoreRemote(atlasId);');
         expect(iWipe).toBeGreaterThan(-1);
         expect(iMark).toBeGreaterThan(iWipe);
@@ -241,7 +273,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         const svc = read('account/open-atlas.service.js');
         const fn = svc.slice(svc.indexOf('export async function openRemoteAtlas'));
         const iClaim = fn.indexOf('if (!await claimRemoteAtlas(atlasId))');
-        const iWipe = fn.indexOf('await clearAllDataStore();');
+        const iWipe = fn.indexOf('await clearAllDataStore(');
         expect(iClaim).toBeGreaterThan(-1);
         expect(iWipe).toBeGreaterThan(iClaim);
     });
@@ -250,7 +282,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
         const index = read('index.js');
         const fn = index.slice(index.indexOf('async function enterLocalMapOnBoot'),
             index.indexOf('async function openAtlasFromUrl'));
-        expect(fn).not.toMatch(/await clearAllDataStore\(\)/);
+        expect(fn).not.toMatch(/await clearAllDataStore\(/);
         expect(fn).toMatch(/await clearMountedAtlasIfGranted\(\(\) => enterLocalMapOnBoot\(\)\)/);
         // Controle positivo do recorte: a funcao foi mesmo lida.
         expect(fn).toMatch(/hasLocalMapIntent\(\)/);
@@ -259,7 +291,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
     it('3.3 CORRIGIDO: openAtlasChooserOnBoot idem, e nao abre o seletor se foi recusado', () => {
         const index = read('index.js');
         const fn = index.slice(index.indexOf('async function openAtlasChooserOnBoot'));
-        expect(fn.slice(0, 800)).not.toMatch(/await clearAllDataStore\(\)/);
+        expect(fn.slice(0, 800)).not.toMatch(/await clearAllDataStore\(/);
         expect(fn.slice(0, 800)).toMatch(/!await clearMountedAtlasIfGranted\(/);
         expect(fn.slice(0, 800)).toMatch(/openProjectPicker/);
     });
@@ -499,8 +531,10 @@ describe('ATAQUE 6 - regressao', () => {
         // (`GlobalKey.CURRENT_LOCAL_ATLAS`), as duas abas derivam a MESMA chave, mesmo atlas,
         // colisao. Bloquear a segunda e exatamente o que protege o namespace compartilhado.
         expect(read('store/atlas-namespace.js')).toMatch(/CURRENT_LOCAL_ATLAS/);
+        // A derivação da chave local (era o `localAtlasKey(scope.atlasId)` inline, hoje
+        // `localKeyOfScope`, que ainda cai em `none` quando o escopo não nomeia atlas nenhum).
         expect(read('account/open-atlas.service.js'))
-            .toMatch(/return scope\?\.atlasId \? localAtlasKey\(scope\.atlasId\) : noneKey\(\);/);
+            .toMatch(/function localKeyOfScope\(scope\) \{\s*if \(!scope\?\.atlasId\) return noneKey\(\);/);
         expect(keysCollide(localAtlasKey('slot-corrente'), localAtlasKey('slot-corrente'))).toBe(true);
     });
 

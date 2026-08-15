@@ -19,7 +19,7 @@ import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
-import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl, getEventBus } from './store';
+import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -366,7 +366,17 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
             deferAtlasOpen(() => openPublicAtlasFromUrl(link));
             return true;
         }
-        await clearAllDataStore();
+        // The namespace, before the first write into it. A public visit is READ-only for the user
+        // and ephemeral by contract, but on disk it is server data like any other: it has to own
+        // `ebgeo_*__remote-<atlasId>` and be in the remote registry, or the logged-out purge (which
+        // is the only thing that ever collects it, since nobody here logs out) cannot find it.
+        // Same reason as `openRemoteAtlas` for coming before the wipe: the claim above already
+        // names this atlas, so this is the only namespace this tab may empty.
+        await activateRemoteAtlas(atlas.id);
+        // `markLocal: false`: this visit mounts a REMOTE atlas two lines down, and the marker is
+        // global to the installation. Announcing LOCAL in between is a window in which another
+        // tab reads a marker that contradicts what this one has mounted.
+        await clearAllDataStore({ markLocal: false });
         await markStoreRemote(atlas.id);
         await syncEngine.connectPublic(atlas.id);
         await activateAtlasInitialMap();

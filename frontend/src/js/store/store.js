@@ -30,10 +30,17 @@ import mapManager from './store-state-manager.js';
 import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
 import { EventTypes } from '../events';
 import { sessionContext } from './sync/session-context.js';
-import { loadStoreOrigin, isRemoteStoreSync, markStoreLocal } from './store-origin.js';
-import { purgeAllRemoteAtlases } from './remote-atlas.api.js';
-import { activateCurrentLocalAtlasScope } from './local-atlas.api.js';
+import {
+    loadStoreOrigin,
+    isRemoteStoreSync,
+    markStoreLocal,
+    getStoreOriginSync,
+    resolveTabMountOrigin
+} from './store-origin.js';
+import { purgeAllRemoteAtlases, purgeReachedAtlas } from './remote-atlas.api.js';
+import { activateCurrentLocalAtlasScope, initLocalAtlases } from './local-atlas.api.js';
 import { operationQueue } from './sync/operation-queue.js';
+import { migratePendingOperationsToScopedQueues } from './sync/operation-queue-migration.js';
 
 import {
     setFeatureDependencies,
@@ -115,7 +122,7 @@ async function loadMapDataToMemory(mapName) {
 
 /**
  * Unmounts the atlas that is currently mounted: drops the in-memory mirrors and EMPTIES
- * every per-atlas database, plus the outbound operation queue.
+ * every DATA database of that atlas.
  *
  * UNMOUNT IS NOT DESTROY, and keeping the two apart is the point of this function. It
  * calls `clear()`, which empties a database and leaves it standing: the slot survives and
@@ -125,21 +132,37 @@ async function loadMapDataToMemory(mapName) {
  * local atlas), and it must never be reached from here: it would destroy the workspace of
  * a user who only logged out.
  *
- * The queue goes with the atlas on purpose: it is global to the installation, so an
- * operation born in the atlas being abandoned would otherwise survive and be pushed into
- * whichever atlas is connected next (inv 2/3, same reason the atlas record is cleared).
+ * THE OUTBOUND QUEUE IS NO LONGER SWEPT ALONG BY DEFAULT, and that is the whole of P11 in
+ * one line. It used to be, for a reason that has expired: while the queue was one global
+ * table, an operation born in the atlas being abandoned would have been pushed into
+ * whichever atlas connected next, so leaving it was a leak. It is now a database per atlas
+ * (`atlas-namespace.js`, Decision 2b), so that leak is structurally impossible, and clearing
+ * it here became a NEW loss: `openRemoteAtlas` activates the namespace of the atlas it is
+ * opening and unmounts three lines later, which aimed this call at the pending work of the
+ * atlas being opened, seconds before the `connect` that would have drained it.
+ *
+ * So emptying the queue is now a decision of the caller. `clearQueue` defaults to true here
+ * because the direct callers of this function (the boot guard) are abandoning the data those
+ * operations describe; `clearAllDataStore` derives its own default from `markLocal`, which is
+ * where the two shapes of wipe are told apart.
  *
  * The list of databases is DERIVED (`clearAllAtlasStores`, from `STORE_DESCRIPTORS`), not
  * written out here. It used to be written out twice, once per caller below, with nothing
  * forcing the two copies to agree.
  *
+ * @param {object} [options]
+ * @param {boolean} [options.clearQueue=true] - Whether to also empty the outbound queue of
+ *   the mounted atlas. Pass false when the caller is about to mount an atlas INTO this very
+ *   namespace: the queue it would empty belongs to that atlas.
  * @returns {Promise<void>}
  */
-async function unmountCurrentAtlas() {
+async function unmountCurrentAtlas({ clearQueue = true } = {}) {
     resetMemoryStore();
     mapResolver.clear();
     await clearAllAtlasStores();
-    await operationQueue.clear();
+    if (clearQueue) {
+        await operationQueue.clear();
+    }
 }
 
 /**
@@ -157,9 +180,19 @@ async function unmountCurrentAtlas() {
  *   - it is not part of unmounting an atlas. Unmounting empties the mounted one; this
  *     destroys every server namespace, and only ever runs when nobody is authenticated.
  *
+ * IT IS CALLED BY NAME, NEVER AS A SIDE EFFECT. Two callers, and both mean "the session is
+ * over": the boot guard below and `AccountControl._handleLogout`. It used to hang off
+ * `clearAllDataStore` under a `!isAuthenticated` test, which made every anonymous wipe a
+ * logout: the public-link visitor destroyed the namespace it had just registered.
+ *
+ * IT NO LONGER DESTROYS EVERYTHING UNCONDITIONALLY. A namespace another live client has mounted
+ * is SPARED (`report.spared`, arbitrated by a Web Lock, Decision 5 of `atlas-namespace.js`), its
+ * registry entry survives, and a deadline makes the reprieve temporary. The scope this tab had
+ * mounted is never among them: the sweep lets go of its own mount before asking.
+ *
  * @returns {Promise<import('./remote-atlas.api.js').RemotePurgeReport>}
  */
-async function discardRemoteAtlasNamespaces() {
+export async function discardRemoteAtlasNamespaces() {
     const report = await purgeAllRemoteAtlases();
     if (report.deactivated) {
         // The purge left no active scope on purpose (a destroyed scope must not be written
@@ -187,6 +220,20 @@ async function discardRemoteAtlasNamespaces() {
  * does the marker decide whether the MOUNTED atlas also has to be emptied, which is the
  * pre-namespace case where server data sat in the unsuffixed databases.
  *
+ * A SPARED NAMESPACE COUNTS AS REACHED (`purgeReachedAtlas`), and it has to: it appears in
+ * neither `atlases` nor `adopted`, so a predicate that ignored it would answer false here and
+ * send the second wipe over the legacy bridge, emptying the user's local slot #1 at boot,
+ * without an error. The opposite half is P3: a registered namespace that never received a byte
+ * does NOT count, because a destruction that never had anything to destroy must not talk this
+ * guard out of the wipe that matters.
+ *
+ * AND THE SECOND GUARD IS CONDITIONAL NOW, which is the whole of `purgeReachedAtlas`. It runs
+ * BEFORE `activateBootAtlasScope`, so the scope it empties is whatever the repository bridge
+ * resolves, i.e. the UNSUFFIXED databases, i.e. the user's local slot #1. That was the right
+ * target while a server atlas lived in those very databases; once the atlas owns a namespace the
+ * sweep above has already emptied it, and running this second wipe would destroy local work in
+ * order to finish a job that is already done.
+ *
  * @returns {Promise<void>}
  */
 async function enforceLocalStoreWhenLoggedOut() {
@@ -194,13 +241,72 @@ async function enforceLocalStoreWhenLoggedOut() {
     if (sessionContext.isAuthenticated()) {
         return;
     }
-    await discardRemoteAtlasNamespaces();
+    const report = await discardRemoteAtlasNamespaces();
 
     if (!isRemoteStoreSync()) {
         return;
     }
-    await unmountCurrentAtlas();
+    if (!purgeReachedAtlas(report, getStoreOriginSync().atlasId)) {
+        await unmountCurrentAtlas();
+    }
     await markStoreLocal();
+}
+
+/**
+ * Activates the atlas namespace this boot works in, from the PERSISTED origin and the LIVE
+ * session. It is the boot's single entry into `local-atlas.api.js`, and the one call that makes
+ * the namespace machinery real for anything other than the schema migration.
+ *
+ * WHY IT COMES AFTER THE LOGGED-OUT GUARD, and not before. The guard's second wipe has to land on
+ * the unsuffixed databases in the pre-namespace case (see `enforceLocalStoreWhenLoggedOut`), and
+ * this call would have pointed the store at a registry slot before it ran, aiming that wipe at a
+ * fresh empty slot and leaving the server data on disk unreferenced. Reading the origin AFTER the
+ * guard is also what makes the two agree: the guard may have just re-marked the store LOCAL, and
+ * passing the stale REMOTE marker here would ask for a namespace that no longer holds anything.
+ *
+ * AND IT IS THE ONE CALLER THAT ASKS THE QUESTION PER TAB. `getStoreOriginSync()` is the
+ * INSTALLATION's answer, which is right for a tab that never mounted anything and wrong for one
+ * that did: two tabs in two atlases share that marker, so a reload here would follow the
+ * neighbour. `resolveTabMountOrigin` puts this tab's own mount pointer in front of it, and
+ * `preferTabMountPointer` does the same for the choice of LOCAL slot
+ * (`atlas-namespace.js`, Decision 6). The guard above deliberately keeps reading the global
+ * marker: what it hunts is installation-wide residue that belongs to no tab.
+ *
+ * @returns {Promise<void>}
+ */
+async function activateBootAtlasScope() {
+    await initLocalAtlases({
+        origin: resolveTabMountOrigin(getStoreOriginSync()),
+        isAuthenticated: sessionContext.isAuthenticated(),
+        preferTabMountPointer: true
+    });
+    await routePendingOperationsToTheirAtlas();
+}
+
+/**
+ * Sends the operations parked in the pre-namespace queue to the atlas they belong to.
+ *
+ * IT RUNS AFTER THE SCOPE IS ACTIVE, and it has to: the entries written before the stamp
+ * existed carry no address, and the rule that places them ("they belong to the atlas mounted
+ * at the time of the upgrade") has no subject until something is mounted.
+ *
+ * IT NEVER FAILS THE BOOT. The pass moves nothing it has not written and read back, so its
+ * worst case is that pending work stays parked at the legacy address, which is where the
+ * previous build kept it anyway. Turning that into a blank screen would trade a delay in
+ * uploading for the loss of the whole session.
+ * @returns {Promise<void>}
+ */
+async function routePendingOperationsToTheirAtlas() {
+    try {
+        const report = await migratePendingOperationsToScopedQueues();
+        if (report.moved > 0 || report.failed > 0) {
+            console.info(
+                `Operation queue: ${report.moved} moved, ${report.kept} kept, ${report.failed} left behind`
+            );
+        }
+    } catch (error) {
+        console.warn('Operation queue migration failed; pending work stays where it is:', error);
+    }
 }
 
 /**
@@ -210,6 +316,7 @@ async function enforceLocalStoreWhenLoggedOut() {
  */
 export async function initializeWithLastActiveMap() {
     await enforceLocalStoreWhenLoggedOut();
+    await activateBootAtlasScope();
     const lastActiveMap = await initializeRepository();
     await awaitMapResolverReady();
     await mapManager.setCurrentMap(lastActiveMap);
@@ -229,26 +336,48 @@ export async function initializeWithLastActiveMap() {
 /**
  * Clears all data from storage and reinitializes with defaults.
  *
- * IT ALSO REACHES THE OTHER REMOTE NAMESPACES, BUT ONLY WHEN NOBODY IS AUTHENTICATED.
- * Unmounting empties the atlas this tab has mounted, which was the whole wipe back when
- * every server atlas shared one scratch. With a namespace per server atlas that is no
- * longer enough on the LOGOUT path: a session that ends in the middle of use has to sweep
- * the registry, or remote data stays on disk until the next reload finds it.
+ * IT EMPTIES THE MOUNTED ATLAS AND NOTHING ELSE. This used to also sweep every registered
+ * remote namespace whenever nobody was authenticated, and that condition was wrong in both
+ * directions:
  *
- * The condition is what keeps the sweep from firing on the paths that are NOT a logout, and
- * it is read from the session rather than passed in by the caller: `openRemoteAtlas` calls
- * this before every connect, and `_handleRemoteAtlasDeleted` calls it after a delete, both
- * with a live session and both meaning "empty the atlas I have", not "erase every server
- * atlas on this machine".
+ *   - it fired where it must not. The anonymous visitor of a public link registers a
+ *     namespace and calls this three lines later (`index.js openPublicAtlasFromUrl`), so the
+ *     wipe destroyed the namespace that same visit had just registered, and the public
+ *     snapshot landed in the LOCAL slot instead. Same shape for the `.ebgeo` import and for
+ *     "Limpar Tudo": they are not logouts, and they inherited a logout's behaviour.
+ *   - it read the session instead of being told. A wipe is destructive, and what it destroys
+ *     must be an argument, never something it infers about the world.
+ *
+ * The sweep is now called BY NAME on the two paths that mean "the session is over":
+ * `enforceLocalStoreWhenLoggedOut` (boot guard) and `AccountControl._handleLogout`.
+ * `discardRemoteAtlasNamespaces` is exported for the second one.
+ *
+ * MARKING LOCAL IS ALSO A DECISION OF THE CALLER now (`markLocal`, default true). The marker
+ * is GLOBAL to the installation while a wipe belongs to one tab, so a tab that emptied its
+ * own atlas was announcing "this machine is on a local atlas" on behalf of every other tab.
+ * The caller that mounts an atlas next declares the origin; the caller that empties does not.
+ *
+ * THE OUTBOUND QUEUE FOLLOWS `markLocal` BY DEFAULT, and the coupling is meaning, not
+ * coincidence. `markLocal: true` says "this wipe ENDS here, in a blank local store": the data
+ * those pending operations describe is being abandoned with it, and keeping them would push
+ * ghosts of deleted entities on the next connect. `markLocal: false` is passed by exactly the
+ * three callers that mount a REMOTE atlas immediately afterwards (`openRemoteAtlas`,
+ * `openPublicAtlasFromUrl`, `saveLocalToServer`), and by then the namespace is already the one
+ * being opened, so the queue in reach is that atlas's own pending work. `clearQueue` is a
+ * separate parameter and not a rename of `markLocal` so a caller that ever needs to split the
+ * two can, instead of discovering the coupling by losing work.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.markLocal=true] - Whether to leave the origin marker on LOCAL.
+ *   Pass false when the caller mounts a REMOTE atlas straight after (it marks REMOTE itself)
+ *   or when it must not speak for the whole installation.
+ * @param {boolean} [options.clearQueue=markLocal] - Whether to also empty the outbound queue of
+ *   the mounted atlas.
  *
  * @returns {Promise<void>}
  */
-export async function clearAllDataStore() {
-    await unmountCurrentAtlas();
-
-    if (!sessionContext.isAuthenticated()) {
-        await discardRemoteAtlasNamespaces();
-    }
+export async function clearAllDataStore({ markLocal = true, clearQueue = markLocal } = {}) {
+    await unmountCurrentAtlas({ clearQueue });
 
     await mapManager.clearAllColorCaches();
 
@@ -261,9 +390,9 @@ export async function clearAllDataStore() {
     // CURRENT version so the no-op Atlas migration chain does NOT re-run on every project open.
     // Migrations are only for OLD pre-existing repositories carrying data at an older version.
     await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
-    // A full clear always lands on a blank LOCAL atlas (the offline default). A subsequent
-    // server connect re-marks the store REMOTE (markStoreRemote).
-    await markStoreLocal();
+    if (markLocal) {
+        await markStoreLocal();
+    }
 
     const defaultMap = await initializeRepository();
     await mapManager.setCurrentMap(defaultMap);

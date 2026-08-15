@@ -10,6 +10,7 @@ import {
     addMap,
     setCurrentMap,
     clearAllDataStore,
+    isRemoteStoreSync,
     getImage,
     storeImage,
     setSchemaVersion,
@@ -49,6 +50,15 @@ import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 import { migrateImportDataToV2, normalizeMapDataForCurrentVersion } from './import-normalize.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
+// The ONE entry into a brand-new local atlas (see `switchToNewLocalAtlas`). Importing a `.ebgeo`
+// with a server project open is not a wipe-in-place, it is a change of atlas, and the pipeline that
+// owns "which atlas this tab holds" owns it too — spreading a sixth improvised entry through this
+// file is exactly the defect phase E3 exists to prevent.
+import { switchToNewLocalAtlas } from '@js/account/open-atlas.service.js';
+// SHARED with the chooser page's "Importar .ebgeo" (which creates a SERVER atlas from the same
+// file), so both surfaces derive the same project name from the same filename. A second copy of
+// this rule would drift, and the name is the only thing the user sees before opening the project.
+import { atlasNameFromFilename } from '@js/projects/import-ebgeo.service.js';
 import JSZip from 'jszip';
 import config from '@js/config.js';
 
@@ -459,6 +469,24 @@ export class ExportImportService {
         const file = event.target.files[0];
         if (!file) return;
 
+        // O IMPORT ADITIVO NÃO ENTRA EM ATLAS DE SERVIDOR, e este é o caso que "criar um atlas
+        // local novo" não resolve: aditivo significa SOMAR ao projeto que está aberto, e um atlas
+        // novo não tem a que somar. Somar de verdade seria criar mapas, camadas e feições DENTRO
+        // do atlas do servidor, o que exige permissão de escrita (o guard nem é consultado aqui) e
+        // uma rodada de sync por entidade. A recusa nomeia a saída, que existe logo ao lado.
+        if (isAdditiveImport && isRemoteStoreSync()) {
+            showError(
+                'Não é possível adicionar um arquivo ao projeto do servidor que está aberto. '
+                + 'Use "Importar projeto", que abre o arquivo em um atlas local novo.',
+                { duration: 10000 }
+            );
+            event.target.value = '';
+            return;
+        }
+
+        // Preenchido só quando o import trocou de atlas, para a frase que explica isso ao usuário.
+        let newLocalAtlasName = null;
+
         try {
             const fileBuffer = await file.arrayBuffer();
             const fileArray = new Uint8Array(fileBuffer);
@@ -501,12 +529,18 @@ export class ExportImportService {
                 throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
 
-            // Non-additive import replaces the whole project. Clear ONLY after the
-            // archive has been parsed and the version validated above, so a corrupt
-            // or incompatible file can no longer wipe the current project before we
-            // know it is loadable.
+            // Non-additive import replaces the whole project. Decided (and executed) ONLY after
+            // the archive has been parsed and the version validated above, so a corrupt or
+            // incompatible file can no longer wipe the current project — nor spend a local atlas
+            // slot — before we know it is loadable.
             if (!isAdditiveImport) {
-                await clearAllDataStore();
+                const target = await this._prepareNonAdditiveTarget(file);
+                if (!target.ok) {
+                    showError(target.message, { duration: 10000 });
+                    event.target.value = '';
+                    return;
+                }
+                newLocalAtlasName = target.atlasName;
             }
 
             await setSchemaVersion(ATLAS_SCHEMA_VERSION);
@@ -672,12 +706,76 @@ export class ExportImportService {
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';
             this.showLoadSuccess(importedMapsCount, importType);
 
+            if (newLocalAtlasName) {
+                showToast(
+                    `Importado em um atlas local novo, "${newLocalAtlasName}". `
+                    + 'O projeto do servidor foi fechado e continua intacto em "Seus projetos".',
+                    'info',
+                    8000
+                );
+            }
+
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
             showError('Erro ao carregar arquivo .ebgeo: ' + error.message);
         }
 
         event.target.value = '';
+    }
+
+    /**
+     * Decides WHERE a non-additive import lands, and puts the store there.
+     *
+     * TWO TARGETS, and the difference is whose data is at stake.
+     *
+     * On a LOCAL atlas the import replaces it IN PLACE, which is literally what the button says
+     * ("Importar projeto (substitui atual)") and what it has always done. Minting a slot per
+     * import instead would burn the cap of 10 in ten imports, for a wipe the user asked for on
+     * their own workspace.
+     *
+     * On a SERVER atlas replacing in place is not an option: the wipe would land on
+     * `ebgeo_*__remote-<id>`, i.e. the databases another tab may be writing to, and the imported
+     * project would be born inside a namespace the next logout destroys — which is how it lost
+     * projects silently before this branch existed. So the import LEAVES the server atlas for a
+     * brand-new local one (`switchToNewLocalAtlas`, which owns the order and the tab-lock claim).
+     *
+     * THE CAP DEGRADES TO A REFUSAL, NEVER TO AN EXCEPTION AND NEVER TO A WIPE. `createLocalAtlas`
+     * runs first inside the switch precisely so a full registry costs the user nothing: the socket
+     * is still up and the server project still open when this returns `ok: false`.
+     *
+     * @param {File} file - The `.ebgeo` being imported; its name becomes the new atlas's name.
+     * @returns {Promise<{ok: boolean, message?: string, atlasName?: string}>} `atlasName` is set
+     *   only when the store changed atlas, so the caller can say so.
+     * @private
+     */
+    async _prepareNonAdditiveTarget(file) {
+        if (!isRemoteStoreSync()) {
+            await clearAllDataStore();
+            return { ok: true };
+        }
+
+        let result;
+        try {
+            result = await switchToNewLocalAtlas(atlasNameFromFilename(file?.name));
+        } catch (error) {
+            // Past the refusal there is nothing left that destroys data (the wipe targets the new,
+            // empty slot), so this is a persistence failure. The server project may already be
+            // closed, so the message must not promise that nothing changed.
+            console.error('[import] failed to switch to a new local atlas:', error);
+            return {
+                ok: false,
+                message: 'Não foi possível preparar um atlas local para receber a importação. '
+                    + 'Nada foi importado; reabra o projeto em "Seus projetos" e tente de novo.'
+            };
+        }
+
+        if (!result.ok) {
+            return {
+                ok: false,
+                message: `${result.message} O projeto do servidor continua aberto e nada foi alterado.`
+            };
+        }
+        return { ok: true, atlasName: result.atlas.name };
     }
 
     /**

@@ -82,6 +82,8 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 - [[modos-operacao]] - os três modos do frontend: anônimo, autenticado e público.
 - [[sessao-boot-e-ciclo-de-vida]] - a ordem de boot, a URL como fonte de verdade e a expiração por inatividade.
+- [[coordenacao-entre-abas]] - quando duas abas do mesmo navegador colidem, por que a arbitragem é por ordem total, e o que bloquear significa (parar o sync, nunca apagar).
+- [[namespace-por-atlas]] - um conjunto de bancos IndexedDB por atlas, o expurgo derivado de registro e o resgate do trabalho não sincronizado.
 - [[formato-ebgeo-roundtrip]] - o contêiner portável do trabalho local e as invariantes de round-trip.
 - [[modulo-temporal]] - a dimensão de tempo por mapa e a fronteira entre estado compartilhado e estado local.
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.

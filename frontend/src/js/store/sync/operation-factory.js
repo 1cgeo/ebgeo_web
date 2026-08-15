@@ -7,6 +7,7 @@
 
 import { generateUUID } from '../../utilities/uuid.js';
 import { addDomListener, cleanup, setupCleanup, trackTimer } from '@utils/event-cleanup.js';
+import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@store/atlas-namespace.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 
 // ===== CLIENT IDENTITY =====
@@ -349,6 +350,43 @@ export function getActionTraceId() {
     return actionTraceId;
 }
 
+// ===== SCOPE STAMP: WHICH ATLAS AN OPERATION WAS BORN IN =====
+
+/**
+ * Reads the address of the atlas scope the operation now being created belongs to.
+ *
+ * THE STAMP IS TAKEN HERE, IN THE FACTORY, AND NEVER IN THE DISPATCHER. The dispatcher
+ * has two retry paths that REBUILD the operation about two seconds after the gesture
+ * (`handleQueueFailure`), so a switch of atlas in between would stamp the op with the
+ * atlas the user moved TO, i.e. would hand the wrong project the previous project's
+ * work. The factory runs inside the gesture, so it reads the scope that produced the data.
+ *
+ * The two fields answer two different questions, and they diverge on the rescued slot:
+ * `adoptRemoteAtlasAsLocal` keeps a `remote-<atlasId>` suffix on a LOCAL slot, so the same
+ * ten databases can be a local atlas whose bytes came from a server atlas.
+ *
+ * - `scopeSuffix` is the ADDRESS ON DISK (the database suffix), and it is what decides
+ *   whether a tab may read the operation back (`operation-queue.js`). The legacy slot's
+ *   address is the EMPTY STRING, a real address, so it is never collapsed into null; null
+ *   means no atlas was mounted at all.
+ * - `atlasId` is the SERVER atlas the operation belongs to, or null when it belongs to no
+ *   server atlas. It is the half the backend can check, and it is derived from the suffix
+ *   for a local slot precisely so a rescued slot keeps naming its atlas of origin.
+ *
+ * @returns {{scopeSuffix: string|null, atlasId: string|null}}
+ */
+function readScopeStamp() {
+    const scope = getActiveScope();
+    if (!scope) return { scopeSuffix: null, atlasId: null };
+
+    const scopeSuffix = typeof scope.dbSuffix === 'string' ? scope.dbSuffix : null;
+    const atlasId = scope.kind === StoreScopeKind.REMOTE
+        ? (scope.atlasId || null)
+        : (scopeSuffix === null ? null : remoteAtlasIdFromDbSuffix(scopeSuffix));
+
+    return { scopeSuffix, atlasId };
+}
+
 // ===== OPERATION CREATION =====
 
 /**
@@ -364,6 +402,8 @@ export function getActionTraceId() {
  * @property {number} lamportTimestamp - Logical clock for causal ordering across clients
  * @property {string} clientId - ID of the client that created this operation
  * @property {string|null} traceId - SyncLedger gesture id (best-effort; survives the wire via Joi .unknown)
+ * @property {string|null} scopeSuffix - Database suffix of the atlas scope the op was born in
+ * @property {string|null} atlasId - Server atlas the op belongs to (null when it belongs to none)
  */
 
 /**
@@ -389,6 +429,8 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         throw new Error('Entity ID is required');
     }
 
+    const { scopeSuffix, atlasId } = readScopeStamp();
+
     return {
         id: generateUUID(),
         entityType,
@@ -400,7 +442,9 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         timestamp: Date.now(),
         lamportTimestamp: ++lamportClock,
         clientId: getClientId(),
-        traceId: actionTraceId
+        traceId: actionTraceId,
+        scopeSuffix,
+        atlasId
     };
 }
 
@@ -414,6 +458,9 @@ export function createBatchOperations(operations) {
     const batchId = generateUUID();
     const timestamp = Date.now();
     const client = getClientId();
+    // Read ONCE for the batch: every op of one gesture is born in the same scope, and a
+    // per-op read would let a scope switch split a batch across two atlases.
+    const { scopeSuffix, atlasId } = readScopeStamp();
 
     return operations.map((op, index) => ({
         id: generateUUID(),
@@ -427,6 +474,8 @@ export function createBatchOperations(operations) {
         lamportTimestamp: ++lamportClock,
         clientId: client,
         traceId: actionTraceId,
+        scopeSuffix,
+        atlasId,
         batchId,
         batchIndex: index
     }));

@@ -1,40 +1,85 @@
 // Path: js/store/sync/operation-queue.js
 
 /**
- * @fileoverview Operation queue for sync system.
- * Persists operations to IndexedDB for eventual sync with backend.
+ * @fileoverview Outbound operation queue: what this machine has written and the server
+ * has not acknowledged yet. It is the only place in the store where the user's work
+ * exists as an INTENTION rather than as data, which is why every rule below leans towards
+ * keeping an operation nobody can place over discarding it.
  *
- * Features:
- * - Configurable max queue size with automatic compaction
- * - In-memory reverse index (opId -> key) for O(1) dequeue
- * - Compaction merges redundant operations (multiple UPDATEs, CREATE+DELETE)
- */
-
-import { StoreName, getStore } from '@store/atlas-namespace.js';
-import { OperationType } from './operation-types.js';
-
-/**
- * Dedicated IndexedDB store for the operation queue, resolved through the namespace
- * factory instead of being created here.
+ * ONE DATABASE PER ATLAS, AND THE ADDRESS ALSO TRAVELS IN THE OPERATION.
+ * The queue is `perAtlas: true` (`atlas-namespace.js`, Decision 2b): atlas X writes into
+ * `ebgeo__<suffix of X>` and cannot see, drain or empty the queue of atlas Y, because it
+ * never opens that database. The envelope keeps its stamp (`createOperation` writes
+ * `scopeSuffix`, the address of the scope it was born in, and `atlasId`, the server atlas
+ * when there is one) and every READ here is still filtered by it, but the roles have
+ * swapped: the SEPARATION is now structural and the filter is an assertion over it. A
+ * filter is a rule a future caller can forget; a separate database is a fact of the browser.
  *
- * The queue is one of the two GLOBAL (`perAtlas: false`) databases: the operation
- * envelope carries no atlas id, so a per-atlas queue would record the atlas where nobody
- * reads it, would leave up to 10 local queues that never drain, and keyed by remote atlas
- * id it would be exactly the persistent, editable server residue the store-origin marker
- * forbids. Being global also means this accessor never needs an active scope, which is
- * what lets the queue be touched at boot, before `initLocalAtlases()` picks one.
+ * The two defects this closed were both reachable by an ordinary gesture: a flush pushing
+ * work born in another atlas, and `clear()` on a switch of project destroying the pending
+ * work of another tab, i.e. the feature the user drew and had not uploaded.
+ *
+ * THE LEGACY SUFFIX KEEPS THE NAME `ebgeo`, so local slot #1 and the pre-namespace queue are
+ * the same database and the ordinary installation moves zero bytes. Everything else is routed
+ * once, by address, in `operation-queue-migration.js`.
+ *
+ * THE QUEUE IS PER ATLAS BUT IT IS NOT ATLAS DATA, and that is why `clearAllAtlasStores`
+ * does not reach it. `openRemoteAtlas` activates the namespace of the atlas it is opening and
+ * wipes three lines later; a queue inside that wipe would be the pending work OF THE ATLAS
+ * BEING OPENED, destroyed immediately before the `connect` that would have drained it.
+ * Emptying the queue on a wipe is a decision of the caller (`clearAllDataStore`), and
+ * destroying it is part of destroying the namespace (`dropAtlasDatabases`).
+ *
+ * AN UNSTAMPED OPERATION BELONGS TO WHOEVER IS LOOKING (`operationBelongsToScope`).
+ * Operations written before the stamp existed carry no address at all. Refusing them would
+ * strand real, un-pushed work forever; there is exactly one such generation of them, and the
+ * migration places them by the documented rule ("they belong to the atlas mounted at the time
+ * of the upgrade"). The same permissiveness covers the window before any atlas is mounted,
+ * where the queue resolves to `UNMOUNTED_QUEUE_SCOPE` and there is nothing to compare against.
+ *
+ * NO REVERSE INDEX. There used to be a module-level `opId -> key` Map, and it was two bugs
+ * in one: it was built from the scope that happened to be active when the module first
+ * touched storage, and `dequeue` counted removals through it while `peek` read the disk. So
+ * an operation enqueued by ANOTHER TAB was peeked, pushed, and then not removed (the id was
+ * absent from this tab's index), which re-peeked and re-pushed it forever without the queue
+ * ever draining. Keys are now resolved from disk on every path that removes; the only cached
+ * number left is the total key count, and it is used for nothing but the compaction
+ * threshold, where being stale costs nothing.
  *
  * Resolved on every call on purpose (the factory caches, so it is a Map lookup): a handle
  * captured at module load is the exact bug the factory exists to remove.
+ */
+
+import {
+    StoreName,
+    getStoreFor,
+    getActiveScope,
+    UNMOUNTED_QUEUE_SCOPE
+} from '@store/atlas-namespace.js';
+import { OperationType } from './operation-types.js';
+
+/**
+ * The scope this queue reads and writes right now: the mounted atlas, or the legacy
+ * (pre-namespace) address while nothing is mounted.
  *
- * The price of a global queue is that a SWITCH of local atlas must clear it, or an
- * operation born in atlas A survives into atlas B and a later connect pushes it to the
- * wrong atlas. Today that comes for free inside `clearAllDataStore`.
- *
- * @returns {import('localforage').default} The queue's localforage instance.
+ * IT NEVER RETURNS NULL, and that is deliberate. `getStore()` throws without an active
+ * scope, and the queue is reachable before `initLocalAtlases()` (the boot enables operation
+ * logging first) and after a destroyed scope is cleared. Throwing there would turn a
+ * harmless read into a boot failure; falling back to the legacy address keeps exactly the
+ * database the pre-namespace build used.
+ * @returns {{ kind: string, atlasId: string|null, dbSuffix: string }}
+ */
+function queueScope() {
+    return getActiveScope() ?? UNMOUNTED_QUEUE_SCOPE;
+}
+
+/**
+ * @returns {import('localforage').default} The queue's localforage instance for the scope
+ *   mounted right now. Resolved on every call: a handle captured at module load is the exact
+ *   bug the namespace factory exists to remove.
  */
 function queueStore() {
-    return getStore(StoreName.OPERATION_QUEUE);
+    return getStoreFor(StoreName.OPERATION_QUEUE, queueScope());
 }
 
 /**
@@ -47,21 +92,82 @@ const KEY_PREFIX = 'op_';
 const MAX_QUEUE_SIZE = 10000;
 
 /**
+ * The address (database suffix) the queue is reading right now. The empty string is a real
+ * address (the legacy slot, database `ebgeo`), never "no address".
+ * @returns {string}
+ */
+function activeScopeSuffix() {
+    return queueScope().dbSuffix;
+}
+
+/**
+ * Whether an operation may be read back by a tab that has `scopeSuffix` mounted.
+ *
+ * Pure, and exported because it is the assertion over the physical split: a test that pins
+ * it directly cannot be fooled by a caller that forgot to apply it, and a test that pins
+ * only the callers cannot tell a correct rule from an absent one. Since the split it can
+ * only ever refuse an operation that is in the WRONG database (a migration that could not
+ * finish), which is why refusing means "leave it alone", never "delete it".
+ *
+ * @param {{scopeSuffix?: string|null}|null} operation
+ * @param {string|null} scopeSuffix - Address of the reading scope. `null` means "no address
+ *   to compare against" and accepts everything; the queue itself no longer passes null (it
+ *   falls back to the legacy address), but the predicate keeps the case because a caller
+ *   reading a raw database has no scope of its own.
+ * @returns {boolean}
+ */
+export function operationBelongsToScope(operation, scopeSuffix) {
+    if (scopeSuffix === null) return true;
+    const born = operation?.scopeSuffix;
+    if (born === null || born === undefined) return true;
+    return born === scopeSuffix;
+}
+
+/**
+ * The operation id carried by a queue key, or null when the key is not a queue entry.
+ *
+ * Splits on the FIRST separator after the prefix, not the last: the timestamp can never
+ * contain an underscore but an id can, and the previous parse (`lastIndexOf`) truncated
+ * such an id to its final segment, so it could not be dequeued after a reload.
+ *
+ * @param {string} key
+ * @returns {string|null}
+ */
+function operationIdFromKey(key) {
+    if (typeof key !== 'string' || !key.startsWith(KEY_PREFIX)) return null;
+    const rest = key.slice(KEY_PREFIX.length);
+    const cut = rest.indexOf('_');
+    if (cut === -1) return null;
+    const id = rest.slice(cut + 1);
+    return id.length > 0 ? id : null;
+}
+
+/**
  * Operation queue for sync operations.
  * Operations are persisted to IndexedDB and can be:
  * - Enqueued: Added for later sync
- * - Peeked: Viewed without removing
- * - Dequeued: Removed after successful sync
+ * - Peeked: Viewed without removing (ACTIVE SCOPE ONLY)
+ * - Dequeued: Removed after successful sync (by explicit id, from disk)
  */
 class OperationQueue {
     constructor() {
         /**
-         * Reverse index: opId -> IndexedDB key.
-         * Built lazily on first use, kept in sync on enqueue/dequeue/clear.
-         * @type {Map<string, string>|null}
+         * Cached number of entries in the queue database of {@link _countedSuffix}, or null
+         * when unknown. Feeds the compaction threshold and nothing else: a stale value delays
+         * or anticipates a compaction, which is a heuristic either way.
+         * @type {number|null}
          * @private
          */
-        this._index = null;
+        this._totalKeys = null;
+
+        /**
+         * Which address {@link _totalKeys} was counted at. Without it a switch of atlas
+         * carries the previous atlas's count into a different database, and a count inflated
+         * by ten thousand would call compaction on every single enqueue of the new one.
+         * @type {string|null}
+         * @private
+         */
+        this._countedSuffix = null;
 
         /**
          * Whether compaction is currently running (prevent re-entrancy).
@@ -71,26 +177,7 @@ class OperationQueue {
         this._compacting = false;
     }
 
-    // ===== INDEX MANAGEMENT =====
-
-    /**
-     * Ensures the reverse index is built.
-     * Called lazily on first operation that needs the index.
-     * @private
-     * @returns {Promise<void>}
-     */
-    async _ensureIndex() {
-        if (this._index) return;
-        this._index = new Map();
-
-        const keys = await queueStore().keys();
-        for (const key of keys) {
-            if (!key.startsWith(KEY_PREFIX)) continue;
-            const lastUnderscore = key.lastIndexOf('_');
-            const opId = key.substring(lastUnderscore + 1);
-            this._index.set(opId, key);
-        }
-    }
+    // ===== CORE OPERATIONS =====
 
     /**
      * Builds the storage key for an operation.
@@ -102,24 +189,15 @@ class OperationQueue {
         return `${KEY_PREFIX}${operation.timestamp}_${operation.id}`;
     }
 
-    // ===== CORE OPERATIONS =====
-
     /**
      * Enqueues an operation for later sync.
-     * Triggers compaction if queue exceeds MAX_QUEUE_SIZE.
+     * Triggers compaction if the queue exceeds MAX_QUEUE_SIZE.
      * @param {import('./operation-factory.js').Operation} operation - Operation to queue
      * @returns {Promise<void>}
      */
     async enqueue(operation) {
-        await this._ensureIndex();
-
-        const key = this._buildKey(operation);
-        await queueStore().setItem(key, operation);
-        this._index.set(operation.id, key);
-
-        if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
-            await this._compact();
-        }
+        await queueStore().setItem(this._buildKey(operation), operation);
+        await this._growAndMaybeCompact(1);
     }
 
     /**
@@ -128,57 +206,61 @@ class OperationQueue {
      * @returns {Promise<void>}
      */
     async enqueueAll(operations) {
-        await this._ensureIndex();
-
         for (const operation of operations) {
-            const key = this._buildKey(operation);
-            await queueStore().setItem(key, operation);
-            this._index.set(operation.id, key);
+            await queueStore().setItem(this._buildKey(operation), operation);
         }
-
-        if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
-            await this._compact();
-        }
+        await this._growAndMaybeCompact(operations.length);
     }
 
     /**
-     * Peeks at operations without removing them.
+     * Peeks at operations of the ACTIVE SCOPE without removing them.
      * @param {number} [count=10] - Maximum number to return
      * @returns {Promise<import('./operation-factory.js').Operation[]>} Operations
      */
     async peek(count = 10) {
         const keys = await this._getOrderedKeys();
-        return this._loadOperations(keys.slice(0, count));
+        return this._loadOperations(keys, { limit: count, scopeSuffix: activeScopeSuffix() });
     }
 
     /**
      * Dequeues operations by their IDs.
-     * Uses reverse index for O(1) key lookup per operation.
+     *
+     * NOT scope-filtered, and deliberately so: the caller names exact ids, and those ids
+     * came from a scoped {@link peek}. Filtering again here would let an operation the
+     * server has already accepted survive on disk and be pushed a second time.
+     *
      * @param {string[]} operationIds - IDs of operations to remove
      * @returns {Promise<number>} Number of operations removed
      */
     async dequeue(operationIds) {
-        await this._ensureIndex();
-        let removed = 0;
+        if (!Array.isArray(operationIds) || operationIds.length === 0) return 0;
+        const wanted = new Set(operationIds);
 
-        for (const opId of operationIds) {
-            const key = this._index.get(opId);
-            if (key) {
-                await queueStore().removeItem(key);
-                this._index.delete(opId);
-                removed++;
-            }
+        let removed = 0;
+        for (const key of await queueStore().keys()) {
+            const opId = operationIdFromKey(key);
+            if (opId === null || !wanted.has(opId)) continue;
+            await queueStore().removeItem(key);
+            removed++;
         }
+        if (removed > 0) this._totalKeys = null;
         return removed;
     }
 
     /**
-     * Gets the count of pending operations.
+     * Counts the pending operations OF THE ACTIVE SCOPE.
+     *
+     * It reads the values rather than counting keys, because the stamp lives in the
+     * envelope and an operation in the wrong database must not be counted as flushable.
+     * That cost is only ever paid on a non-empty queue, and the caller that polls it
+     * (`sync-flush.js`) checks the connection first and flushes immediately afterwards,
+     * which reads the same values.
      * @returns {Promise<number>} Number of pending operations
      */
     async count() {
-        await this._ensureIndex();
-        return this._index.size;
+        const keys = await this._getOrderedKeys();
+        const ops = await this._loadOperations(keys, { scopeSuffix: activeScopeSuffix() });
+        return ops.length;
     }
 
     /**
@@ -190,30 +272,43 @@ class OperationQueue {
     }
 
     /**
-     * Clears all operations from the queue.
+     * Clears the operations OF THE ACTIVE SCOPE, and only its own database.
+     *
+     * IT IS NOT PART OF THE ATLAS WIPE, and the caller decides (`clearAllDataStore`,
+     * `clearQueue`). A wipe that ends in a blank local store abandons the data those
+     * operations describe, so keeping them would push ghosts of deleted entities on the next
+     * connect; a wipe that is the PREAMBLE to mounting a remote atlas is aimed at the
+     * namespace of the atlas being opened, and emptying its queue there destroys pending work
+     * seconds before the `connect` that would have drained it.
+     *
+     * The stamp filter survives the physical split as an assertion: an operation of another
+     * address found in this database is a migration that did not finish, and it is left alone
+     * rather than deleted.
      * @returns {Promise<void>}
      */
     async clear() {
-        const keys = await queueStore().keys();
-        for (const key of keys) {
-            if (key.startsWith(KEY_PREFIX)) {
-                await queueStore().removeItem(key);
-            }
+        const scopeSuffix = activeScopeSuffix();
+        const store = queueStore();
+
+        for (const key of await this._getOrderedKeys()) {
+            const operation = await store.getItem(key);
+            if (operation && !operationBelongsToScope(operation, scopeSuffix)) continue;
+            await store.removeItem(key);
         }
-        this._index = new Map();
+        this._totalKeys = null;
     }
 
     /**
-     * Gets all pending operations in chronological order.
+     * Gets the pending operations OF THE ACTIVE SCOPE, in chronological order.
      * @returns {Promise<import('./operation-factory.js').Operation[]>} All operations
      */
     async getAll() {
         const keys = await this._getOrderedKeys();
-        return this._loadOperations(keys);
+        return this._loadOperations(keys, { scopeSuffix: activeScopeSuffix() });
     }
 
     /**
-     * Gets operations filtered by entity type.
+     * Gets operations filtered by entity type (within the active scope).
      * @param {string} entityType - Entity type to filter by
      * @returns {Promise<import('./operation-factory.js').Operation[]>} Filtered operations
      */
@@ -223,7 +318,7 @@ class OperationQueue {
     }
 
     /**
-     * Gets operations filtered by map ID.
+     * Gets operations filtered by map ID (within the active scope).
      * @param {string} mapId - Map ID to filter by
      * @returns {Promise<import('./operation-factory.js').Operation[]>} Filtered operations
      */
@@ -249,16 +344,43 @@ class OperationQueue {
     /**
      * Loads operations from IndexedDB by their keys, skipping nulls.
      * @private
-     * @param {string[]} keys - IndexedDB keys to load
+     * @param {string[]} keys - IndexedDB keys to load, already ordered.
+     * @param {Object} [options]
+     * @param {number} [options.limit] - Stop after this many MATCHING operations.
+     * @param {string|null} [options.scopeSuffix=null] - Keep only operations of this scope.
      * @returns {Promise<import('./operation-factory.js').Operation[]>}
      */
-    async _loadOperations(keys) {
+    async _loadOperations(keys, { limit = Infinity, scopeSuffix = null } = {}) {
         const operations = [];
+        if (limit <= 0) return operations;
+
         for (const key of keys) {
             const op = await queueStore().getItem(key);
-            if (op) operations.push(op);
+            if (!op) continue;
+            if (!operationBelongsToScope(op, scopeSuffix)) continue;
+            operations.push(op);
+            if (operations.length >= limit) break;
         }
         return operations;
+    }
+
+    /**
+     * Accounts for newly written entries and compacts when the queue outgrows its bound.
+     * @private
+     * @param {number} added - How many entries were just written.
+     * @returns {Promise<void>}
+     */
+    async _growAndMaybeCompact(added) {
+        const suffix = activeScopeSuffix();
+        if (this._totalKeys === null || this._countedSuffix !== suffix) {
+            this._totalKeys = (await this._getOrderedKeys()).length;
+            this._countedSuffix = suffix;
+        } else {
+            this._totalKeys += added;
+        }
+        if (this._totalKeys > MAX_QUEUE_SIZE && !this._compacting) {
+            await this._compact();
+        }
     }
 
     // ===== COMPACTION =====
@@ -272,6 +394,11 @@ class OperationQueue {
      * - CREATE followed by DELETE -> remove both (entity never needs to sync)
      * - UPDATE followed by DELETE -> keep only DELETE
      *
+     * Runs over the queue of the MOUNTED atlas, which since the physical split is the only
+     * one this process can open. The group key still carries the address, and it stays:
+     * within one database an unstamped operation and a stamped one can describe the same
+     * entity id, and collapsing those two into one would merge work from two owners.
+     *
      * @private
      * @returns {Promise<void>}
      */
@@ -280,14 +407,28 @@ class OperationQueue {
         this._compacting = true;
 
         try {
-            const allOps = await this.getAll();
+            const keys = await this._getOrderedKeys();
+            // Re-anchors the cached count on the disk before deciding anything. Without
+            // this, a count inflated by another tab's dequeue would call compaction on
+            // EVERY enqueue, and each call reads the whole queue to decide it has nothing
+            // to do.
+            this._totalKeys = keys.length;
+            this._countedSuffix = activeScopeSuffix();
+
+            const allOps = await this._loadOperations(keys);
             if (allOps.length <= MAX_QUEUE_SIZE) return;
 
-            // Group operations by entityType+entityId (preserving chronological order)
+            const keyById = new Map();
+            for (const key of keys) {
+                const opId = operationIdFromKey(key);
+                if (opId !== null) keyById.set(opId, key);
+            }
+
+            // Group operations by scope+entityType+entityId (preserving chronological order)
             /** @type {Map<string, import('./operation-factory.js').Operation[]>} */
             const groups = new Map();
             for (const op of allOps) {
-                const groupKey = `${op.entityType}:${op.entityId}`;
+                const groupKey = `${op.scopeSuffix ?? ''}:${op.entityType}:${op.entityId}`;
                 if (!groups.has(groupKey)) {
                     groups.set(groupKey, []);
                 }
@@ -307,13 +448,13 @@ class OperationQueue {
 
                 for (const op of ops) {
                     if (!keptIds.has(op.id)) {
-                        const key = this._index.get(op.id);
+                        const key = keyById.get(op.id);
                         if (key) keysToRemove.push(key);
                     }
                 }
 
                 for (const op of compacted) {
-                    const key = this._index.get(op.id);
+                    const key = keyById.get(op.id);
                     if (key) opsToUpdate.push({ key, op });
                 }
             }
@@ -325,9 +466,7 @@ class OperationQueue {
                 await queueStore().setItem(key, op);
             }
 
-            // Rebuild index after compaction
-            this._index = null;
-            await this._ensureIndex();
+            this._totalKeys = null;
         } finally {
             this._compacting = false;
         }
@@ -370,15 +509,24 @@ class OperationQueue {
     // ===== AUTO-PURGE =====
 
     /**
-     * Purges operations older than maxAgeMs from the queue.
-     * Prevents unbounded queue growth when no backend is consuming operations.
+     * Purges operations older than maxAgeMs from the queue OF THE MOUNTED ATLAS.
+     *
+     * It used to sweep every atlas at once, and it no longer can: since the physical split
+     * this process only ever opens one queue database. The consequence is written down
+     * rather than worked around, because working around it means enumerating databases the
+     * browser will not enumerate: a stale operation of an unmounted atlas survives until
+     * that atlas is mounted again (where this collects it) or destroyed (where
+     * `dropAtlasDatabases` takes the whole database). Neither leaves it flushable, which is
+     * the property that mattered.
+     *
+     * It ignores the stamp on purpose: age is a property of the entry, and an operation of
+     * a foreign address sitting in this database is exactly the residue worth collecting.
      * @param {number} [maxAgeMs=604800000] - Max age in milliseconds (default: 7 days)
      * @returns {Promise<number>} Number of operations purged
      */
     async purgeOldOperations(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
-        await this._ensureIndex();
         const cutoff = Date.now() - maxAgeMs;
-        const allOps = await this.getAll();
+        const allOps = await this._loadOperations(await this._getOrderedKeys());
         const toPurge = allOps
             .filter(op => op.timestamp < cutoff)
             .map(op => op.id);
@@ -392,6 +540,11 @@ class OperationQueue {
     /**
      * Starts periodic auto-purge of old operations.
      * Runs every 6 hours. Safe to call multiple times (idempotent).
+     *
+     * `initServices()` starts it BEFORE any atlas is mounted, which is why the queue falls
+     * back to the legacy address instead of throwing: a timer that dies on its first tick
+     * with "no active atlas scope" is a collector that silently never collects. Every tick
+     * after the boot lands on whatever atlas is mounted then.
      */
     startAutoPurge() {
         if (this._purgeInterval) return;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ============================================================================
 // Hoisted shared state (available to vi.mock factories)
@@ -65,9 +65,19 @@ vi.mock('../../src/js/utilities/uuid.js', () => ({
 import {
     detectMigrationNeeded,
     isTooOldToMigrate,
+    migrateActiveSlot,
     safelyMigrate,
     getMigrationStatus,
 } from '../../src/js/store/migration/migration.service.js';
+import { legacyScope } from '../../src/js/store/migration/migration-scope.js';
+import {
+    StoreName,
+    activateScope,
+    clearActiveScope,
+    localScope,
+    remoteScope,
+    resolveDbName,
+} from '../../src/js/store/atlas-namespace.js';
 import { migrateToV2 } from '../../src/js/store/migration/v1-to-v2.migration.js';
 import { migrateToV2_1 } from '../../src/js/store/migration/v2-to-v2.1.migration.js';
 import { migrateToV2_2 } from '../../src/js/store/migration/v2.1-to-v2.2.migration.js';
@@ -677,6 +687,123 @@ describe('migrateToV2_2 (version stamp only)', () => {
         expect(result).toEqual({ success: true });
         expect(await atlasStore().getItem('current_atlas')).toBeNull();
         expect(await appStore().getItem('schemaVersion')).toBe('2.2');
+    });
+});
+
+// ============================================================================
+// migrateActiveSlot — the SECOND target, and the three things it refuses
+// ============================================================================
+//
+// `safelyMigrate()` with no argument speaks for the pre-namespace databases. It cannot speak
+// for the atlas the boot MOUNTED, and inferring the target from the mounted scope is the fix
+// that was tried and reverted (it aims the chain at an empty namespace on exactly the boot
+// whose residue sits in the unsuffixed databases). So the mounted slot gets a pass of its
+// own, and this block pins WHAT IT REFUSES — each refusal paired with a positive control
+// over the SAME data, because "nothing happened" is otherwise indistinguishable from "the
+// function is a no-op".
+
+describe('migrateActiveSlot (o segundo alvo: o atlas montado)', () => {
+    const SLOT_ID = 'aaaa1111-bbbb-2222-cccc-333333333333';
+    const REMOTE_ID = 'dddd4444-eeee-5555-ffff-666666666666';
+
+    beforeEach(() => { clearActiveScope(); });
+    afterEach(() => { clearActiveScope(); });
+
+    /**
+     * Seeds one scope's two markers by ABSOLUTE database name, and asserts that name is the
+     * one the factory resolves. Writing through the factory instead would make the seed and
+     * the code under test share the resolver, so a resolver that moved would move both.
+     * @param {{ kind: string, dbSuffix: string }} scope - Scope to seed.
+     * @param {string} version - Schema version to stamp.
+     * @returns {{ settings: Object, atlas: Object }} The raw fake stores.
+     */
+    function seedScopeAt(scope, version) {
+        const suffix = scope.dbSuffix === '' ? '' : `__${scope.dbSuffix}`;
+        const settingsName = `ebgeo_app_settings${suffix}`;
+        const atlasName = `ebgeo_atlas${suffix}`;
+        expect(resolveDbName(StoreName.SETTINGS, scope)).toBe(settingsName);
+        expect(resolveDbName(StoreName.ATLAS, scope)).toBe(atlasName);
+
+        const settings = makeNamedStore(settingsName);
+        const atlas = makeNamedStore(atlasName);
+        settings.__backing.set('schemaVersion', version);
+        atlas.__backing.set('current_atlas', {
+            id: 'atlas-do-slot', name: 'Slot', schemaVersion: version,
+            mapOrder: [], lastActiveMapId: null,
+        });
+        return { settings, atlas };
+    }
+
+    it('migra o slot LOCAL namespaceado que está atrasado (controle positivo)', async () => {
+        const scope = localScope(SLOT_ID, SLOT_ID);
+        const { settings } = seedScopeAt(scope, '2.1');
+        activateScope(scope);
+
+        const result = await migrateActiveSlot();
+
+        expect(result.migrated).toBe(true);
+        expect(await settings.getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+    });
+
+    it('RECUSA um escopo REMOTO, e a recusa é sobre o kind e não sobre alcance', async () => {
+        // The two scopes below resolve to the SAME databases (`localScope` accepts a
+        // `remote-<id>` suffix, which is what the rescue keeps). Same bytes, same names,
+        // different answer: nothing but `kind` can explain the difference.
+        const remote = remoteScope(REMOTE_ID);
+        const adoptedLocal = localScope(REMOTE_ID, remote.dbSuffix);
+        expect(resolveDbName(StoreName.SETTINGS, adoptedLocal))
+            .toBe(resolveDbName(StoreName.SETTINGS, remote));
+
+        const { settings } = seedScopeAt(remote, '2.1');
+
+        activateScope(remote);
+        const refused = await migrateActiveSlot();
+        expect(refused.migrated).toBe(false);
+        expect(refused.reason).toBe('remote');
+        expect(await settings.getItem('schemaVersion')).toBe('2.1');
+
+        // POSITIVE CONTROL over the very same databases.
+        activateScope(adoptedLocal);
+        const accepted = await migrateActiveSlot();
+        expect(accepted.migrated).toBe(true);
+        expect(await settings.getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+    });
+
+    it('RECUSA um slot VIRGEM (vazio não é antigo), e não o carimba', async () => {
+        const scope = localScope(SLOT_ID, SLOT_ID);
+        activateScope(scope);
+        const settings = makeNamedStore(`ebgeo_app_settings__${SLOT_ID}`);
+        expect(await settings.getItem('schemaVersion')).toBeNull();
+
+        const result = await migrateActiveSlot();
+
+        expect(result.migrated).toBe(false);
+        expect(result.reason).toBe('empty');
+        // Not stamped either: a slot that was skipped must stay recognizable as unwritten,
+        // otherwise the next boot finds it "current" and the data that arrives later is
+        // compared against a version nothing ever produced.
+        expect(await settings.getItem('schemaVersion')).toBeNull();
+
+        // POSITIVE CONTROL: the same scope, once it carries a marker, IS a target.
+        seedScopeAt(scope, '2.1');
+        expect((await migrateActiveSlot()).migrated).toBe(true);
+    });
+
+    it('RECUSA o escopo pré-namespace, que pertence à passagem de instalação', async () => {
+        const scope = legacyScope();
+        const { settings } = seedScopeAt(scope, '2.1');
+        expect(resolveDbName(StoreName.SETTINGS, scope)).toBe('ebgeo_app_settings');
+        activateScope(scope);
+
+        const result = await migrateActiveSlot();
+        expect(result.migrated).toBe(false);
+        expect(result.reason).toBe('pre-namespace');
+        expect(await settings.getItem('schemaVersion')).toBe('2.1');
+
+        // POSITIVE CONTROL: the pre-namespace databases are not immune to migration, they
+        // simply belong to the other pass — which does move them.
+        await safelyMigrate();
+        expect(await settings.getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
     });
 });
 

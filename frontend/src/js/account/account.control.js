@@ -9,14 +9,27 @@ import { apiClient } from '@store/sync/api-client.js';
 import { operationQueue } from '@store/sync/operation-queue.js';
 import { resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
-import { clearAllDataStore, activateAtlasInitialMap, markStoreRemote, markStoreLocal, isRemoteStoreSync, hasAnyMapFeatures } from '@store/store.js';
+import {
+    clearAllDataStore,
+    discardRemoteAtlasNamespaces,
+    listRemoteAtlases,
+    activateRemoteAtlas,
+    activateAtlasInitialMap,
+    markStoreRemote,
+    markStoreLocal,
+    isRemoteStoreSync,
+    hasAnyMapFeatures,
+    getStoreOriginSync,
+    adoptRemoteAtlasAsLocal
+} from '@store/store.js';
+import { remoteScope, readLocalAtlasRegistry } from '@store/atlas-namespace.js';
 import { getControl } from '@store';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
 import {
     openRemoteAtlas,
     retractAtlasClaim,
 } from '@js/account/open-atlas.service.js';
-import { acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
+import { acquireTabLock, announceTabLockTeardown, remoteAtlasKey } from '@utils/tab-lock.js';
 import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
@@ -84,6 +97,145 @@ export function shouldPreserveLocalWork({ involuntary = false, pendingOps = 0 } 
     if (!involuntary) return false;
     if (!Number.isFinite(pendingOps)) return true;
     return pendingOps > 0;
+}
+
+/**
+ * Name the rescued atlas takes in the LOCAL registry.
+ *
+ * The atlas name is what the user recognises, so it is preferred; the dated fallback exists
+ * because the cached name can be missing (a session lost before the atlas metadata was read),
+ * and an atlas called "undefined" in the local list is a rescue the user cannot identify.
+ *
+ * Pure — no I/O, no module state.
+ * @param {string|null|undefined} atlasName - Name of the server atlas, when known.
+ * @returns {string} A non-empty pt-BR name.
+ */
+export function rescuedAtlasName(atlasName) {
+    const trimmed = typeof atlasName === 'string' ? atlasName.trim() : '';
+    if (trimmed.length > 0) return trimmed;
+    return `Trabalho recuperado — ${new Date().toLocaleDateString('pt-BR')}`;
+}
+
+/**
+ * THE RESCUE. Keeps the unsynced work of a dead session by moving its namespace from the REMOTE
+ * registry to the LOCAL one, and only then marking the store LOCAL.
+ *
+ * WHY IT IS NOT JUST `markStoreLocal()` ANY MORE. It used to be, and that was correct while
+ * local and remote data shared one set of databases: flipping the marker was enough to make the
+ * boot guard keep the data. Every server atlas now owns a namespace (`atlas-namespace.js`
+ * Decision 1) that `purgeAllRemoteAtlases` DELETES whenever nobody is authenticated, which is
+ * precisely the state this path leaves the app in. Without the adoption the preserved work would
+ * be erased by the very next boot, with the warning toast still promising it was kept.
+ *
+ * THE ORDER IS THE CONTRACT, and it is the adoption's own (see `adoptRemoteAtlasAsLocal`): the
+ * local claim is written first, so a crash mid-flight leaves the namespace claimed by BOTH
+ * registries, which the purge resolves in favour of the local one. Marking the store LOCAL last
+ * is the same rule one level up: a marker that says LOCAL over a namespace no local atlas claims
+ * is data the purge deletes while the boot guard believes it is safe.
+ *
+ * A failure to adopt is logged and swallowed on purpose: the caller is a logout, and throwing
+ * here would abort the teardown (the lock retraction, the intent reset, the re-render) over a
+ * rescue that has already failed.
+ *
+ * @param {string|null} atlasId - Server atlas whose namespace holds the work, or null when this
+ *   tab had none mounted (then there is nothing to adopt and only the marker changes).
+ * @param {string|null} [atlasName] - Display name of that atlas, for the local registry.
+ * @returns {Promise<void>}
+ */
+export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
+    if (typeof atlasId !== 'string' || atlasId.length === 0) {
+        // Nada de remoto montado, logo nada a resgatar: o estado final já é o correto e
+        // nenhum trabalho está em risco. Marcar LOCAL aqui é o comportamento de sempre.
+        await markStoreLocal();
+        return true;
+    }
+
+    try {
+        await adoptRemoteAtlasAsLocal(atlasId, rescuedAtlasName(atlasName));
+    } catch (error) {
+        // NÃO MARCA LOCAL, e é aqui que estava a perda. O catch existia e engolia; o
+        // `markStoreLocal()` rodava logo abaixo, incondicional. O resultado era o pior
+        // estado possível: o marcador dizia LOCAL sobre um namespace que NENHUM atlas local
+        // reivindica, então a próxima varredura de deslogado o destruía — e o usuário já
+        // tinha lido "suas alterações foram mantidas neste computador".
+        //
+        // Deixando o marcador em REMOTE, o namespace continua reivindicado pelo registro
+        // remoto e o próximo boot ainda pode tentar de novo. Perder o trabalho é
+        // irreversível; deixar dado remoto um boot a mais no disco não é.
+        console.error('[AccountControl] rescuing unsynced work as a local atlas failed:', error);
+        return false;
+    }
+
+    // READ-BACK, do DISCO, antes de declarar sucesso. `adoptRemoteAtlasAsLocal` não lançar
+    // não é a mesma coisa que a entrada ter sido persistida: a escrita do registro pode ter
+    // falhado por cota sem rejeitar de forma que este caminho perceba, e o espelho em memória
+    // concordaria com o otimismo em vez de com o disco.
+    const { dbSuffix } = remoteScope(atlasId);
+    const adotado = (await readLocalAtlasRegistry()).some(e => e.dbSuffix === dbSuffix);
+    if (!adotado) {
+        console.error('[AccountControl] rescue reported success but the slot is not on disk');
+        return false;
+    }
+
+    await markStoreLocal();
+    return true;
+}
+
+/**
+ * The server atlas THIS TAB has mounted, read before the teardown drops both sources.
+ *
+ * `syncEngine.atlasId` is the live connection and wins; the persisted origin marker is the
+ * fallback for a session that died with the socket already gone, which is the ordinary shape of
+ * the involuntary path this exists for.
+ * @returns {string|null}
+ */
+function mountedRemoteAtlasId() {
+    return syncEngine.atlasId ?? getStoreOriginSync().atlasId ?? null;
+}
+
+/**
+ * WARNS THE OTHER TABS BEFORE THE LOGOUT SWEEP TOUCHES ANYTHING.
+ *
+ * The sweep is derived from the remote registry, so it covers every server namespace on this
+ * machine, not only the one this tab has mounted. A sibling tab writing into one of them is
+ * protected from the destruction by its mount lock, and that is where the protection used to
+ * stop: it was never TOLD. It kept writing into a namespace already condemned, and the reprieve
+ * expiring turned into a forced destruction with no warning; worse, a write arriving after the
+ * emptying would RECREATE those databases outside the registry, where no later sweep finds them.
+ *
+ * THE LIST IS THE SWEEP'S OWN LIST, down to the exclusion. `purgeAllRemoteAtlases` skips any
+ * namespace a LOCAL atlas claims (the rescued slot keeps its `remote-<id>` suffix and moves the
+ * claim to the local registry, zero bytes copied), so announcing the raw registry would condemn an
+ * address nothing is going to touch, and the tab holding that rescued slot would freeze for
+ * nothing. Warning about a different list than the one about to be destroyed is a notice that
+ * looks right and misses, in either direction.
+ *
+ * It never throws. This runs inside a logout, and a failure to warn must not abort the teardown;
+ * the silent case degrades to exactly the previous behaviour, which is that the sibling keeps its
+ * mount lock and its namespace is spared.
+ *
+ * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
+ *   timedOut: boolean, degraded: boolean}|null>} The lock's report, or null when nothing was
+ *   announced (no registered namespace, or the registry could not be read).
+ */
+export async function announceRemoteTeardown() {
+    try {
+        const claimed = new Set(
+            (await readLocalAtlasRegistry())
+                .map(entry => entry?.dbSuffix)
+                .filter(dbSuffix => typeof dbSuffix === 'string')
+        );
+        const addresses = (await listRemoteAtlases())
+            .map(entry => entry?.dbSuffix)
+            .filter(dbSuffix => typeof dbSuffix === 'string'
+                && dbSuffix.length > 0
+                && !claimed.has(dbSuffix));
+        if (addresses.length === 0) return null;
+        return await announceTabLockTeardown(addresses);
+    } catch (error) {
+        console.warn('[AccountControl] announcing the namespace teardown failed:', error);
+        return null;
+    }
 }
 
 /**
@@ -678,8 +830,38 @@ export class AccountControl {
                         );
                         return;
                     }
+                    // 2.7) THE NAMESPACE OF THE NEW ATLAS, before anything writes into it, and
+                    // for the same reason `openRemoteAtlas` does it here: `activateRemoteAtlas`
+                    // REGISTERS the atlas and only then points the stores at
+                    // `ebgeo_*__remote-<atlasId>`.
+                    //
+                    // THIS LINE WAS MISSING, and it was the third entry into a server atlas that
+                    // never activated a namespace. Everything below ran against the LOCAL slot:
+                    // the wipe emptied the user's own local atlas (not the new one), and the
+                    // `connect` pull wrote the SERVER snapshot into `ebgeo_maps`. That snapshot
+                    // then belonged to no registry, so the logged-out purge could not find it and
+                    // the next anonymous load mounted it as the user's local atlas. Server data,
+                    // permanently readable offline, which is the hardest invariant the store has.
+                    try {
+                        await activateRemoteAtlas(result.atlasId);
+                    } catch (error) {
+                        // Nothing was activated and nothing written (the registry write comes
+                        // first inside it). The upload STANDS and the local data is untouched, so
+                        // say exactly that instead of leaving the user guessing.
+                        retractAtlasClaim();
+                        showWarning(
+                            'O projeto foi criado no servidor, mas não foi possível abri-lo agora. '
+                            + 'Seus dados locais continuam aqui, intactos: abra o projeto em '
+                            + '"Seus projetos".',
+                            { duration: 10000 }
+                        );
+                        console.error('[AccountControl] activateRemoteAtlas failed:', error);
+                        return;
+                    }
                     // 3) Swap the local store for the new remote atlas, live.
-                    await clearAllDataStore();
+                    // `markLocal: false`: REMOTE is declared on the next line (see the same
+                    // reason in `openRemoteAtlas`).
+                    await clearAllDataStore({ markLocal: false });
                     await markStoreRemote(result.atlasId);
                     await syncEngine.connect(result.atlasId, { initialPull: true });
                     await activateAtlasInitialMap();
@@ -903,6 +1085,13 @@ export class AccountControl {
             // Read the queue BEFORE the teardown: this is the count at the moment the session died.
             const pendingOps = involuntary ? await countPendingOperations() : 0;
             const preserve = shouldPreserveLocalWork({ involuntary, pendingOps });
+            // WHICH atlas this tab holds, and under WHICH name, both read before the teardown
+            // erases them: `logoutAndDisconnect` clears `syncEngine.atlasId` and the cache below
+            // is dropped a few lines down. Without the id there is no namespace to rescue.
+            const mountedAtlasId = mountedRemoteAtlasId();
+            const mountedAtlasName = this._atlasCache?.id === mountedAtlasId
+                ? this._atlasCache?.name
+                : null;
             await syncEngine.logoutAndDisconnect();
             // Drop the collaboration UI and return to a BLANK LOCAL atlas: clear the
             // online-users roster (remote cursors + the connection light already hide via
@@ -912,17 +1101,49 @@ export class AccountControl {
             this._atlasCache = null;
             if (preserve) {
                 // Keep the data AND the queue (clearAllDataStore drops both). Marking the store
-                // LOCAL is what makes the rescue real: the boot guard discards remote-origin data
-                // found while logged out, so preserved-but-still-remote would be wiped on F5.
-                await markStoreLocal();
-                showWarning(
-                    'Sua sessão terminou com alterações que ainda não foram enviadas ao servidor. '
-                    + 'Elas foram mantidas neste computador como projeto local — entre novamente e '
-                    + 'use "Salvar no servidor".',
-                    { duration: 10000 }
-                );
+                // LOCAL is no longer enough to make the rescue real, and the difference is the
+                // whole of `preserveUnsyncedWorkAsLocal`: the work sits in a namespace the
+                // logged-out purge deletes, so keeping it means moving the CLAIM to the local
+                // registry first and only then flipping the marker.
+                const resgatado = await preserveUnsyncedWorkAsLocal(mountedAtlasId, mountedAtlasName);
+                if (resgatado) {
+                    showWarning(
+                        'Sua sessão terminou com alterações que ainda não foram enviadas ao servidor. '
+                        + 'Elas foram mantidas neste computador como projeto local — entre novamente e '
+                        + 'use "Salvar no servidor".',
+                        { duration: 10000 }
+                    );
+                } else {
+                    // A MENSAGEM DIZ O QUE ACONTECEU, e antes ela dizia o contrário: este toast
+                    // era incondicional, então um resgate que falhou anunciava que o trabalho
+                    // estava salvo. O usuário fechava a aba tranquilo e o dado ia embora no
+                    // boot seguinte.
+                    //
+                    // "Não feche esta aba" não é dramatização: o dado ainda está no disco e a
+                    // sessão ainda pode voltar, mas nada aqui consegue garantir isso sozinho.
+                    showError(
+                        'Sua sessão terminou e NÃO foi possível guardar as alterações pendentes '
+                        + 'como projeto local. Não feche esta aba: entre novamente para que elas '
+                        + 'sejam enviadas ao servidor.',
+                        { duration: 0 }
+                    );
+                }
             } else {
+                // TWO CALLS, AND THE ORDER MATTERS. `clearAllDataStore` empties the atlas THIS
+                // tab has mounted; the sweep destroys every OTHER server namespace registered on
+                // this machine, including one left behind by a tab that crashed. The sweep used
+                // to ride inside the wipe under a `!isAuthenticated` test, which made every
+                // anonymous wipe in the app behave like a logout (the public-link visitor
+                // destroyed the namespace it had just registered). It is named here because this
+                // is one of exactly two places that mean "the session is over".
+                //
+                // THE WARNING COMES FIRST, and "first" is the whole point: a sibling tab has to
+                // stop writing BEFORE the emptying, or its next write recreates the databases
+                // outside the registry. The lock waits for the acks (or for its timeout) before
+                // this returns, so the two calls below run after the other tabs have stopped.
+                await announceRemoteTeardown();
                 await clearAllDataStore();
+                await discardRemoteAtlasNamespaces();
             }
             // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop
             // claiming one — otherwise logging out here would lock every other tab out of the
@@ -932,7 +1153,10 @@ export class AccountControl {
             //
             // NOT when the work was preserved. That branch keeps un-synced data sitting in the very
             // scratch another tab's `clearAllDataStore` would wipe, so the claim is still true and
-            // dropping it would expose exactly the work this path exists to rescue.
+            // dropping it would expose exactly the work this path exists to rescue. The adoption
+            // does not change that: it moves the CLAIM to the local registry and keeps the
+            // `remote-<atlasId>` suffix (zero copy), so those databases are still the ones another
+            // tab reaches by opening that same server atlas, and `remote:<atlasId>` still names them.
             if (!preserve) retractAtlasClaim();
             // The "Mapa local" choice belonged to the session that just ended; leaving it set would
             // silently opt the NEXT identity out of the project chooser on this tab.

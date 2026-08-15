@@ -145,10 +145,144 @@ collabTest.use({ collabOptions: { peers: 2, permission: 'write' } });
 > `renameViaPanelUI`/`deleteFeatureUI` references are aspirational — add those drivers to
 > `collab-helpers.js` as specs need them.
 
+## Two TABS of one user (not two users) — `helpers/two-tabs.js`
+
+Every `browser.newContext()` in this folder is a **user profile**: its own cookies, localStorage
+and IndexedDB. That is right for collaboration and wrong for *one* user with two tabs open, which
+is what the tab-lock and the per-atlas IndexedDB namespace arbitrate over. `helpers/two-tabs.js`
+opens `context.newPage()` twice on ONE profile and adds the reads that go with it:
+
+- `createTabContext(browser, baseUrl)` / `openTab(ctx, url)` — one profile, N tabs.
+- `idbDatabaseNames(page)` — the databases of the origin. **Throws** where
+  `indexedDB.databases()` is missing, because an empty list would make every "must NOT exist"
+  assertion pass without measuring anything.
+- `readIdbKeys` / `readIdbFeatureIds` — raw reads that never CREATE the database they are asked
+  about (they check `databases()` first): `indexedDB.open(name)` on an absent name manufactures it.
+- `sampleFeatureInDb` — presence sampled *through* a destructive act. "Did the other tab's data
+  survive" asked once, afterwards, is a race and measured as one (1 run in 4). **Sem chamador
+  hoje**: o único caso que o usava (A3) saiu quando a decisão que ele codificava foi superada
+  (ver a bateria abaixo). Fica porque é o instrumento da janela "durante o ato", que a promoção
+  de A1 depois de E7 volta a precisar.
+- `sampleIdbKeys` / `classifyKeySamples` — o irmão dele para a pergunta que vem DEPOIS de uma
+  destruição: "estes bancos VOLTARAM?". Amostra `absent` / `empty` / `keys` / `unreadable` numa
+  janela, porque a recriação que se quer proibir é uma escrita que pode chegar a qualquer
+  instante nos segundos seguintes.
+- `queueDbOf(suffix)` / `QUEUE_STORE` — o endereço da fila de saída (`ebgeo` no slot legado,
+  `ebgeo__<sufixo>` no resto), escrito à mão pelo mesmo motivo que `atlasDbNames`.
+- `waitForOverlayTitle(page, título)` — espera o overlay COM AQUELE TEXTO e **nunca lança**:
+  devolve o que a aba virou. Bloqueado e congelado dividem um elemento e uma classe, e só o
+  texto os separa; e uma asserção de locator reportaria "elemento não encontrado" tanto para
+  "não congelou" quanto para "foi parar no seletor de projetos".
+- `atlasDbNames(suffix)` / `mapsDbOf` / `remoteSuffix` — the expected names, written out instead of
+  derived from `atlas-namespace.js`, so the expectation does not come from the code under test.
+- `classifySamples` — splits a sample series into `has` / `gone` / `absent` / **`unreadable`**. A
+  read that could not run (the tab navigated, the execution context died) is its OWN category and
+  never counts as destruction; folding it into "gone" made a navigation look like a wipe.
+- `tabDiagnostic(page)` — blocked, sync state, WHICH PAGE, map loaded, url, title, in one round
+  trip. A gate asserting only "the badge is not online" cannot tell a blocked tab from one that
+  fell through to `projetos.html` from one that never booted; measured, all three happened.
+- `pendingGate(testInfo, { setup, gate, marca })` — see below.
+- `activeScopeOf` is **diagnostic only**: it imports an app module through the dev server and can
+  receive a second instance (HMR `?t=`), so it may report a scope that is not the app's.
+
+### `pendingGate`: why a `test.fail()` case here is not just `test.fail()`
+
+`test.fail()` marks the whole test, so **any** throw is reported as the expected failure: a
+timeout in setup, a renamed selector, a navigation that destroys the execution context. This
+folder used to carry the rule "read the attached error, it must be the named assertion", and the
+rule was measured to lapse in 2 runs out of 6.
+
+`pendingGate` makes it mechanical. It throws **only** when the gate failed with the named message
+(`marca`); a broken setup, or a failure with any other message, RETURNS instead, which makes the
+case pass, and Playwright reports a fail-marked test that passes as a run failure. Either way the
+evidence is attached. So "expected failure" can only mean the named assertion, and the day the
+defect closes the case also goes red, which is what forces the marker out in the same commit.
+
+Reference spec: `browser-multi-tab-namespace.spec.js` (E0 of `frontend/_PLANO-multiaba.md`). It
+pins `retries: 0` via `test.describe.configure`, because retrying a real two-tab race reports it
+as "flaky", which is a green run. Read the block comment at the top of that file for the list of
+what the cases DO NOT cover, which is as load-bearing as the cases themselves.
+
+**Sem backend, o arquivo inteiro é pulado**, e skip é verde sem verificação. Um caso de guarda
+fora da describe reprova a rodada nesse estado, a menos que a intenção seja declarada em
+`EBGEO_E2E_NO_DB=1`.
+
+## A bateria final de duas abas: como rodar e como LER
+
+São dois arquivos, e eles se rodam juntos porque compartilham o instrumento e o critério:
+
+```bash
+# a bateria inteira (os dois arquivos, ~15 min em série, um worker)
+DB_USER=postgres DB_PASSWORD=postgres npx playwright test browser-multi-tab
+
+# só o namespace (A*), ou só fila + desmontagem (B*)
+npx playwright test browser-multi-tab-namespace
+npx playwright test browser-multi-tab-teardown
+```
+
+Os dois pinam `retries: 0` (`test.describe.configure`): repetir uma corrida real de duas abas e
+reportá-la como "flaky" é uma rodada verde. **Rode em série e relate N/N**, nunca uma rodada só:
+uma medição única de algo probabilístico não é medição.
+
+### O que cada caso prova
+
+| caso | arquivo | o que fica provado se ele passa |
+|---|---|---|
+| A0z | namespace | o servidor do e2e não trocou a página no meio da medição (sem socket de HMR, sem módulo `?t=`). É o controle do instrumento: sem ele, os outros casos podem estar medindo outra cópia do app. |
+| A0a | namespace | duas abas no mesmo atlas **LOCAL** colidem, e a segunda é bloqueada. É a regra do ENDEREÇO: um par local x local não passa pela espera de `keysCollide`. |
+| A0b | namespace | uma SEGUNDA aba desenha de verdade, e o ponto cai no namespace dela (e em nenhum banco local). |
+| A0c | namespace | o que a aba local escreve não chega ao atlas de servidor da outra aba. É a única asserção da bateria que pergunta ao SERVIDOR. |
+| A1 | namespace | **PENDENTE (E7)**: duas abas em atlas distintos, as duas vivas, sem vazamento cruzado no disco nem no servidor. |
+| A2 | namespace | duas abas no MESMO atlas remoto: a segunda mostra o overlay. É o controle negativo de A1 (sem ele, "as duas passaram" é indistinguível de um predicado sempre-falso). |
+| A2b | namespace | **PENDENTE**: a aba bloqueada fica mesmo parada (foi medido que ela reconectava ~2 s depois). |
+| A3b | namespace | depois do logout da própria aba, nada do atlas de servidor continua legível em banco nenhum. |
+| A4 | namespace | **PENDENTE (E1)**: visitante de link público não polui os bancos do atlas LOCAL. |
+| B0 | fila/desmontagem | o bfcache está DESLIGADO neste runner. Não é decoração: é o que impede um caso de fingir que cobre o Web Lock sob bfcache. |
+| B1 | fila/desmontagem | a fila de saída da aba A sobrevive à TROCA DE PROJETO na aba B. Era o defeito mais caro da fase (a fila era global e um `clear` apagava a de todos). |
+| B2 | fila/desmontagem | a fila do atlas X sobrevive a sair de X e voltar, isto é, o wipe de entrada não destrói a fila do atlas que está sendo aberto. |
+| B3 | fila/desmontagem | o aviso de desmontagem chega à aba vizinha, ela congela (o overlay TROCA de texto) e os bancos condenados **não voltam** depois de uma escrita tardia. |
+
+### Como ler uma falha
+
+1. **Um caso marcado `test.fail()` que aparece como FALHA da rodada é boa notícia**, e o anexo
+   diz qual: `O GATE PASSOU` significa que o defeito fechou e que o marcador tem de sair no
+   mesmo commit. `SETUP QUEBRADO` ou `O GATE CAIU POR OUTRO MOTIVO` significam harness, nunca
+   defeito. `ORÇAMENTO ESTOURADO` vira um SKIP com a razão anexada, e um pulo não é um verde.
+   Hoje isso vale para A1, A2b e A4: **E1 e E2 entraram depois que esses três foram escritos**,
+   então A2b e A4 podem muito bem passar nesta rodada. Se passarem, apague o `test.fail()`.
+2. **Um caso B que falha é vermelho de verdade**, porque nenhum deles é `test.fail`. A diferença
+   é propositalmente essa: B1/B2/B3 medem código que já entrou.
+3. Todo caso desta bateria anexa a evidência (a lista de `indexedDB.databases()`, a série de
+   amostras, o diagnóstico da aba). **Leia o anexo antes da mensagem**, porque a mensagem diz o
+   que foi violado e o anexo diz o que a aba virou.
+
+### O que a bateria NÃO cobre (e não deve ser lido como se cobrisse)
+
+- **O Web Lock sob `pagehide`/bfcache**, que é a janela em que a Decisão 1 do plano alega que o
+  lock ganha de um lease. **Não é reproduzível aqui**: o Playwright 1.61.1 sobe o Chromium com
+  `--disable-back-forward-cache` entre os switches PADRÃO (`playwright-core/lib/coreBundle.js`,
+  lista `chromiumSwitches`), e B0 mede o efeito disso em vez de confiar na leitura. Ligar o
+  bfcache exigiria `ignoreDefaultArgs` + `--enable-features=BackForwardCache`, e ainda assim uma
+  aba do mapa (WebSocket vivo, IndexedDB aberto) é candidata duvidosa a entrar nele: duas
+  incertezas independentes, uma delas do produto.
+- **Duas abas em atlas remotos DISTINTOS**, fora de A1: bloqueado por E7, e a aba bloqueada nem
+  executa o caminho destrutivo (`openRemoteAtlas` retorna cedo quando a claim falha).
+- **Dois atlas LOCAIS distintos em duas abas**: não há UI para criar o segundo slot.
+- **"Uma aba nunca segura dois atlas"**: o único sinal que poderia asseri-lo é `activeScopeOf`,
+  que é diagnóstico por desenho.
+- **A ORDEM dentro de B3** ("a irmã parou antes de o emissor esvaziar"): o que se assere é o
+  efeito da ordem, não a ordem.
+- **Uma TERCEIRA aba, F5, fechar-e-reabrir e a tomada de controle por "Usar aqui".**
+
 ## How it runs
 
 `playwright.config.js`:
-- **`webServer`** runs `npm run dev -- --port 4321 --strictPort` (Vite serving the app).
+- **`webServer`** runs `npx vite --config ./tests/e2e-ui/vite.e2e.config.js --port 4321
+  --strictPort`. That config is the repo's real `vite.config.js` **com o watcher e o HMR
+  removidos**: um `src/` editado durante a rodada faria o Vite re-servir o módulo com
+  `?t=<epoch>` e recarregar a página no meio da medição (medido: 6 de 10 casos de
+  `browser-multi-tab-namespace` caíram de uma vez, por motivo que não é do app). O `@fileoverview`
+  daquele arquivo tem os corpos e o controle que prova que o HMR está mesmo fora (caso A0z).
 - **`globalSetup`** (`e2e-ui/global-setup.js`) spawns the real `ebgeo_backend` on port
   `3912` against a throwaway `ebgeo_ui_e2e` Postgres DB (created + migrated), with
   `CORS_ORIGIN` set to the Vite origin so the browser can call it cross-origin.

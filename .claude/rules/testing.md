@@ -85,14 +85,29 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   makes it work in both packages. Silence means clean; a broken install says so out
   loud. Do not "fix" a noisy hook by making it fail quiet, which is how the
   previous one hid.
-- **O que o hook NÃO cobre, e é o que mais custa aqui:** ele roda o ESLint da casa,
-  e o ESLint do frontend não tem UMA regra de projeto (só `js.configs.recommended`
-  mais estilo). Nenhuma convenção da constituição é mecânica hoje no frontend:
-  `innerHTML` com dado de usuário, estilo inline em JS, string literal de evento no
-  lugar de `EventTypes`, `JSON.parse(JSON.stringify())` no lugar de `deepClone`, o
-  comentário de caminho na linha 1. Tudo isso é prosa, cobrada por leitura, enquanto
-  o backend já provou o padrão contrário com `backend/eslint-rules/` mais probe.
-  Verde do hook significa "sem erro de sintaxe e sem variável não usada", não
+- **O frontend TAMBÉM tem regras próprias, desde 2026-08** (`frontend/eslint-rules/`,
+  ligadas em `frontend/eslint.config.js` sobre `src/**/*.js`, e o `lint:js` roda o
+  `eslint-rules/probe.js` ANTES do eslint, como no backend): `require-path-comment`,
+  `no-event-string-literal`, `no-json-clone`, `no-inline-style-assignment` e
+  `no-unescaped-innerhtml`. Esta linha afirmou por meses o contrário ("o ESLint do
+  frontend não tem UMA regra de projeto, nenhuma convenção é mecânica"), e cinco
+  convenções da constituição saíram da prosa desde então.
+- **Saiba o alcance delas, que é estreito de propósito.** Com `--max-warnings 0` uma
+  regra ruidosa é uma regra que alguém desliga, então cada uma foi medida contra os
+  ~601 arquivos e comprada com zero falso positivo, pagando em falso negativo. O que
+  cada uma deliberadamente NÃO pega está escrito no topo do próprio arquivo, e vale
+  ler antes de concluir "o lint não reclamou, então está dentro da convenção". Os
+  buracos que mais custam: `no-unescaped-innerhtml` só dispara quando a interpolação
+  usa os nomes de campo de dado do usuário (`nome`, `descricao` e afins), e das 214
+  interpolações cruas medidas reporta 3; `no-inline-style-assignment` ignora a
+  atribuição de UMA propriedade (`el.style.left = ...`, 617 ocorrências, a maioria
+  legitimamente computada) e só acusa o bloco estático; `no-json-clone` não pega a
+  forma em dois passos (`stringify` numa linha, `parse` na outra);
+  `no-event-string-literal` só reconhece o barramento da casa pelo nome do receptor,
+  então mini-emissor privado (`toolManager`, `wsClient`) passa. **Import por alias
+  continua sem regra nenhuma**, cobrado por leitura.
+- Verde do lint no frontend significa hoje "sem erro de sintaxe, sem variável não
+  usada e sem violação das cinco regras acima **no recorte que elas cobrem**", não
   "dentro da convenção".
 
 ## Collaboration / sync e2e

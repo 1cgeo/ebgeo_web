@@ -35,7 +35,7 @@ Comentários espaciais são retirados do que chega a um `read`, tanto no snapsho
 
 O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`openPublicAtlasFromUrl`, `frontend/src/js/index.js`). Dentro dele, três decisões não óbvias:
 
-- **`clearAllDataStore()` roda sem confirmação.** Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
+- **O wipe roda sem confirmação, e desde o namespace por atlas ele não cai mais sobre o desenho local.** `activateRemoteAtlas` vem ANTES do `clearAllDataStore`, então o que se esvazia é o namespace `remote-<id>` da própria visita; o trabalho anônimo fica no slot local e volta a aparecer quando a visita termina. Antes disso o visitante perdia o desenho, e por um segundo motivo já corrigido: a varredura de namespaces remotos pendurava dentro do wipe sob "ninguém autenticado", e destruía o namespace que a visita acabara de registrar, jogando o snapshot público no banco local ([[namespace-por-atlas]]). Ver também [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
 - **`connectPublic` desliga o log de operações.** Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
 - **O token é efêmero em memória e zera o refresh token** (`setEphemeralToken`, `frontend/src/js/store/sync/api-client.js`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
 

@@ -28,6 +28,9 @@ export default defineConfig({
         // of the hermetic unit/integration run.
         exclude: ['node_modules/**', 'tests/e2e/**', 'tests/e2e-ui/**'],
         environment: 'node',
+        // `fake-indexeddb` for every file, on purpose. The rationale (and the measured
+        // cost) is in the fileoverview of the setup file itself.
+        setupFiles: ['tests/setup/indexeddb.setup.js'],
         globals: true,
         coverage: {
             provider: 'v8',

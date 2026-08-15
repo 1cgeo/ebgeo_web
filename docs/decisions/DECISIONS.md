@@ -29,7 +29,9 @@ a decisão
 
 1. **cria ou muda um padrão obrigatório** (ex.: "transação do store é persistence-first"),
 2. **rejeita uma alternativa óbvia por motivo não-óbvio** (ex.: "múltiplos atlas locais nomeados é
-   non-goal"), ou
+   non-goal", que é exemplo de FORMA e não de conteúdo vigente: aquela decisão foi superada em
+   2026-08-15, e o exemplo fica aqui de propósito, porque uma decisão superada é o caso que este
+   registro existe para saber contar), ou
 3. **é cara de reverter** (schema, contrato congelado, formato de dado persistido).
 
 Nada mais. Escolha de biblioteca trivial, refatoração local e correção de bug não viram decisão:
@@ -54,3 +56,5 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-07-18 | O pacote web vai para `frontend/` (supera o layout da entrada acima) | [decisions-2026.md](decisions-2026.md) |
 | 2026-07-18 | Documentação concentrada em `docs/` com camada de memória | [decisions-2026.md](decisions-2026.md) |
 | 2026-07-25 | Cartão de atlas sem miniatura do mapa (descopado) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-15 | Namespace de IndexedDB por atlas, com expurgo derivado de registro (supera P12) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-15 | A fila de saída vira um banco por atlas (reverte a alternativa rejeitada da entrada acima) | [decisions-2026.md](decisions-2026.md) |

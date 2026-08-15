@@ -1,14 +1,23 @@
 # clientId estável
 
-Identificador de instalação do navegador persistido em `localStorage['ebgeo_client_id']` por `frontend/src/js/store/sync/operation-factory.js`: não é credencial, não é identidade de usuário, mas é o que faz presença e filtro de auto-eco sobreviverem a uma reconexão.
+Identificador composto, `<instalação>_<aba>`, montado por `frontend/src/js/store/sync/operation-factory.js`: não é credencial, não é identidade de usuário, mas é o que faz presença e filtro de auto-eco sobreviverem a uma reconexão.
+
+## As duas metades respondem perguntas diferentes
+
+Esta página descreveu o id como um valor único de `localStorage` até 2026-08-15, e a metade que faltava é a que resolve o caso de duas abas:
+
+- **Instalação** (`localStorage`, uma por perfil de navegador, nunca rotacionada). É o que faz presença, a graça de 120 s de `away` no servidor e a de-duplicação de auto-eco sobreviverem a um F5 e a uma reconexão.
+- **Aba** (`sessionStorage`, uma por aba, preservada no F5 daquela aba). É o que impede duas abas de colapsarem numa entrada de presença e num único slot de `away` no servidor.
+
+**O sufixo de aba não pode ser simplesmente herdado**, e é aí que mora o não óbvio: `sessionStorage` é copiado por inteiro em quatro situações (duplicar aba, `window.open` com opener, reabrir aba fechada, restaurar sessão), então a cópia nasceria com o sufixo de uma aba que ainda está viva. Por isso existe um registro de reivindicações em `localStorage` com heartbeat: um sufixo herdado cuja reivindicação ainda está sendo renovada é descartado e um novo é cunhado. A janela é generosa (`TAB_CLAIM_FRESH_MS`, 5 min) e a assimetria é deliberada: ler uma reivindicação viva como morta é exatamente a falha que o mecanismo existe para impedir, enquanto ler uma morta como viva custa só um sufixo novo, ou seja, uma entrada de presença a mais que o filtro de auto-eco nem percebe. Aba em segundo plano tem timer estrangulado para cerca de um por minuto, então a janela tem que folgar bem acima disso.
 
 ## O contrato
 
 Ele **não autoriza nada**. Quem autoriza é o JWT ([[autenticacao-jwt]]) e a permissão por atlas resolvida no handshake ([[permissoes-atlas]]). Forjar o `clientId` alheio não dá acesso a nada, só bagunça presença e de-duplicação. Consequência prática: **não derive nada de segurança dele** e não assuma que ele chega, porque é opcional na query do [[canal-collab-websocket]] e o servidor gera um quando falta.
 
-O que não pode mudar: o valor precisa casar o regex do servidor `^[a-zA-Z0-9_-]{8,64}$`. Hoje isso é acidental, não garantido: `generateUUID()` produz 36 caracteres com hífen, que passa por sorte da classe de caracteres. Trocar o gerador por algo com ponto, dois-pontos ou base64 padrão quebra o handshake sem aviso no cliente.
+O que não pode mudar: o valor precisa casar o regex do servidor `^[a-zA-Z0-9_-]{8,64}$`. Isso já foi acidental (um UUID de 36 caracteres passava por sorte da classe de caracteres) e hoje é verificado: `isValidClientId` é um ESPELHO do `CLIENT_ID_PATTERN` do servidor e é aplicado ao id COMPOSTO antes de ele ser entregue, e um id de instalação que não caiba é recunhado. O teto de 64 é o que aperta agora, porque o composto é UUID mais separador mais 12 caracteres. Um id malformado não é recusado no servidor: o gateway cunha silenciosamente um próprio, e a aba fica carimbando operações com um id que a sala não conhece, o que mata o filtro de auto-eco sem um único erro em lugar nenhum.
 
-O `clientId` sobrevive a login, logout e troca de usuário no mesmo navegador **por design**: nenhum caminho do app o limpa. `resetClientId()` existe só para teste; chamá-lo em produção equivale a trocar de máquina. Ver [[sessao-boot-e-ciclo-de-vida]].
+A metade de instalação sobrevive a login, logout e troca de usuário no mesmo navegador **por design**: nenhum caminho do app a limpa. `resetClientId()` existe só para teste; chamá-lo em produção equivale a trocar de máquina. Ver [[sessao-boot-e-ciclo-de-vida]].
 
 ## Por que ele é crítico: o auto-eco
 
@@ -19,7 +28,7 @@ Presença ([[presenca-colaborativa]]) é chaveada por ele, com queda para `userI
 ## Armadilhas
 
 - **Sem localStorage o id ainda é gerado, só que em memória** (`frontend/src/js/store/sync/operation-factory.js`): iframe sandbox, modo privado, runner Node. Cada F5 vira um cliente novo: presença duplica, a graça `away` não é cancelada e o auto-eco para de reconhecer as próprias ops. O sync não quebra; as garantias somem **silenciosamente**.
-- **Duas abas compartilham o localStorage, logo compartilham o `clientId`.** Além de colapsarem numa entrada de presença, o filtro de auto-eco faz a aba B **descartar as operações da aba A**; elas não convergem entre si. O JSDoc de `frontend/src/js/presence/presence-store.js` fala em "várias abas" chaveadas por `clientId`, mas nada no código deriva id por aba. Multi-aba no mesmo atlas é cenário **não suportado**. No servidor, a guarda que decide anunciar `user_left` compara `clientId` (`backend/src/modules/collab/collab.gateway.js`); como as abas dividem o id, elas seguem contando como um cliente só e o anúncio sai quando a última fecha.
+- **O filtro de auto-eco compara INSTALAÇÕES, não o id inteiro** (`clientIdInstallation`, chamado em `frontend/src/js/store/sync/ws-client.js`), e isso é carga estrutural em dois pontos: uma operação enfileirada antes de um F5 carrega o sufixo da aba ANTERIOR, e uma escrita por um build mais antigo não carrega sufixo nenhum. Filtrar por id exato faria a aba reaplicar o próprio trabalho nos dois casos. **A contrapartida é que duas abas do mesmo navegador descartam o eco uma da outra e não convergem entre si**, e isso só é são porque um navegador nunca tem duas abas no MESMO atlas: quem proíbe é o tab lock ([[coordenacao-entre-abas]]), e uma operação só alcança uma aba pela sala do seu atlas. Esta linha afirmou o contrário até 2026-08-15, dizendo que "nada no código deriva id por aba" e tratando multi-aba como cenário simplesmente não suportado.
 - **O `sessionId` do frame `connected` nunca é reconciliado de volta.** O servidor ecoa o id efetivo ali (gerando um próprio se o recebido for malformado), e o cliente guarda a mensagem inteira em `this.session` mas jamais atualiza `this._clientId` (`frontend/src/js/store/sync/ws-client.js`). Enquanto mandarmos UUID válido é inofensivo; no dia em que divergir, o auto-eco morre sem nenhum sinal. É o mesmo risco do regex, por outra porta.
 - **Não confunda com identidade de usuário.** `sessionContext.getUserId()` cai para `clientId` quando offline (`frontend/src/js/store/sync/session-context.js`). Serve para autoria local, mas o mesmo `clientId` atende usuários diferentes que logarem no mesmo navegador. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 

@@ -21,7 +21,11 @@
 
 import { StoreName, listAtlasStores } from './atlas-namespace.js';
 import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
-import { detectMigrationNeeded, safelyMigrate } from './migration/migration.service.js';
+import {
+    detectMigrationNeeded,
+    migrateActiveSlot,
+    safelyMigrate
+} from './migration/migration.service.js';
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
@@ -254,7 +258,12 @@ export async function initializeRepository() {
         const currentSchemaVersion = await appStore().getItem('schemaVersion');
         await runLegacyMigrations(currentSchemaVersion);
 
-        // Run v2.0 migration if needed (adds Atlas, sync metadata, etc.)
+        // ===== TWO MIGRATION TARGETS, AND THEY ARE NOT INTERCHANGEABLE =====
+        // First the INSTALLATION upgrade, on the pre-namespace databases: it is what
+        // registers local slot #1 and what discards a store whose origin marker says the
+        // data belongs to a server atlas. Aiming this pass at the mounted scope instead
+        // would point it at an empty namespace on exactly the boot where the residue it
+        // has to reach sits in the unsuffixed databases.
         const { needed } = await detectMigrationNeeded();
         if (needed) {
             console.log('Running v2.0 migration...');
@@ -265,6 +274,13 @@ export async function initializeRepository() {
                 console.error('v2.0 migration failed:', result.error);
             }
         }
+
+        // Then the MOUNTED slot, which the pass above cannot speak for: with one namespace
+        // per atlas, a slot carrying older data used to be compared against slot #1's stamp
+        // and skipped, with no error and no log. `migrateActiveSlot` returns without
+        // touching storage when the mounted scope is not a namespaced local slot that needs
+        // work; the reasons are enumerated in `migration.service.js`.
+        await migrateActiveSlot();
 
         const allMapNames = await mapStore().keys();
         if (allMapNames.length === 0) {
