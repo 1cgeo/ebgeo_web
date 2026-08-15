@@ -80,21 +80,26 @@ export const WALK_CROUCH_DROP = 0.6;
 export const WALK_CROUCH_RATE = 12;
 
 /**
- * Crouch keys.
+ * Crouch keys. Shift, and only Shift.
  *
  * MEASURED PITFALL: Ctrl is deliberately absent. `Ctrl+W` closes the Chrome tab
  * and no `preventDefault` from the page can cancel it, so a visitor crouching
  * with Ctrl while walking forward would lose the page. What is left is Shift,
- * which the browser ignores, and C, which is the game convention. Windows
- * caveat: five consecutive TAPS on Shift open the Sticky Keys dialog; holding
- * it down, which is the crouch gesture, does not.
+ * which the browser ignores. Windows caveat: five consecutive TAPS on Shift
+ * open the Sticky Keys dialog; holding it down, which is the crouch gesture,
+ * does not.
+ *
+ * C USED TO BE HERE, as the game convention, and was dropped: one gesture with
+ * two keys is two things to teach and two things to draw in the corner legend,
+ * and the second key bought nothing the first did not already do. Do not add it
+ * back because a shooter has it.
  *
  * RELATED PITFALL: the full keyboard only ever reaches a page in fullscreen,
  * through the Keyboard Lock API. This viewer has no fullscreen shortcut, so the
  * browser keeps `Ctrl+W` and friends for itself — which is exactly why Ctrl
  * cannot be a crouch key here.
  */
-export const CROUCH_KEYS = ['ShiftLeft', 'ShiftRight', 'KeyC'];
+export const CROUCH_KEYS = ['ShiftLeft', 'ShiftRight'];
 
 /**
  * Movement keys, which need preventDefault so the page does not scroll.
