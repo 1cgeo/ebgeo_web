@@ -7,9 +7,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // different name MUST reach a different one. That is the property under test.
 // ============================================================================
 
-const { databases, createCalls, makeStore, resetFake } = vi.hoisted(() => {
+const { databases, createCalls, makeStore, dropFromFake, resetFake } = vi.hoisted(() => {
     const databases = new Map();
     const createCalls = [];
+
+    /** Default behaviour of `dropInstance`: the delete completes. Named so a test that
+     * overrides it (a delete another tab is holding open) can put it back. */
+    async function dropFromFake({ name }) {
+        for (const key of [...databases.keys()]) {
+            if (key.startsWith(`${name}::`)) databases.delete(key);
+        }
+    }
 
     function keyOf(name, storeName) {
         return `${name}::${storeName || 'keyvaluepairs'}`;
@@ -36,24 +44,31 @@ const { databases, createCalls, makeStore, resetFake } = vi.hoisted(() => {
         createCalls.length = 0;
     }
 
-    return { databases, createCalls, makeStore, resetFake };
+    return { databases, createCalls, makeStore, dropFromFake, resetFake };
 });
 
 vi.mock('localforage', () => ({
     default: {
         createInstance: vi.fn(makeStore),
-        dropInstance: vi.fn(async ({ name }) => {
-            for (const key of [...databases.keys()]) {
-                if (key.startsWith(`${name}::`)) databases.delete(key);
-            }
-        })
+        dropInstance: vi.fn(dropFromFake)
     }
 }));
 
-/** Fresh module state per test: the factory caches instances at module level. */
+/**
+ * Fresh module state per test: the factory caches instances at module level.
+ *
+ * The localforage double does NOT come back fresh (the mock survives `vi.resetModules()`),
+ * so its implementation is restored explicitly. Without this, a test that makes a delete
+ * hang leaves every later test running against a store that never deletes, which is the
+ * kind of green that proves nothing.
+ */
 async function loadNamespace() {
     vi.resetModules();
     resetFake();
+    const localforage = (await import('localforage')).default;
+    localforage.dropInstance.mockReset();
+    localforage.dropInstance.mockImplementation(dropFromFake);
+    localforage.createInstance.mockClear();
     return await import('../../src/js/store/atlas-namespace.js');
 }
 
@@ -126,17 +141,49 @@ describe('atlas-namespace :: resolucao de nome', () => {
         }
     });
 
-    it('INVARIANTE: todo atlas REMOTO cai no mesmo rascunho, sem banco por atlasId', () => {
+    // Este bloco AFIRMAVA o contrário ("todo atlas REMOTO cai no mesmo rascunho"), que era a
+    // regra antiga: um único rascunho `__remote` para todos. Duas abas em atlas remotos
+    // diferentes escreveriam nos MESMOS bancos, que não é disputa de acesso, é o mesmo
+    // endereço. A asserção foi invertida junto com o código, não removida.
+    it('INVARIANTE: dois atlas REMOTOS distintos nunca compartilham banco', () => {
         const primeiro = ns.remoteScope('11111111-1111-4111-8111-111111111111');
         const segundo = ns.remoteScope('22222222-2222-4222-8222-222222222222');
 
         for (const base of PER_ATLAS_BASE_NAMES) {
             const id = ns.STORE_DESCRIPTORS.find(d => d.dbName === base).id;
-            expect(ns.resolveDbName(id, primeiro)).toBe(`${base}__remote`);
-            expect(ns.resolveDbName(id, segundo)).toBe(ns.resolveDbName(id, primeiro));
-            // e o rascunho jamais colide com um slot local
+            expect(ns.resolveDbName(id, primeiro))
+                .toBe(`${base}__remote-11111111-1111-4111-8111-111111111111`);
+            expect(ns.resolveDbName(id, segundo))
+                .toBe(`${base}__remote-22222222-2222-4222-8222-222222222222`);
+            expect(ns.resolveDbName(id, segundo)).not.toBe(ns.resolveDbName(id, primeiro));
+            // e nenhum dos dois colide com um slot local (nem com o legado, sem sufixo)
             expect(ns.resolveDbName(id, primeiro)).not.toBe(base);
+            expect(ns.resolveDbName(id, primeiro))
+                .not.toBe(ns.resolveDbName(id, ns.localScope('a', 'aaa')));
         }
+    });
+
+    it('escopo remoto sem id nao cai num nome compartilhado: quebra alto', () => {
+        expect(() => ns.remoteScope()).toThrow(/atlasId/);
+        expect(() => ns.remoteScope(null)).toThrow(/atlasId/);
+        expect(() => ns.remoteScope('')).toThrow(/atlasId/);
+        // controle negativo: com id opaco, resolve
+        expect(ns.remoteScope('servidor-1').dbSuffix).toBe('remote-servidor-1');
+    });
+
+    it('recusa id de atlas remoto que nao seja opaco (ele chega ao nome do banco)', () => {
+        expect(() => ns.remoteScope('Operação Alfa')).toThrow(/atlasId/);
+        expect(() => ns.remoteScope('a/b')).toThrow(/atlasId/);
+    });
+
+    it('o sufixo adotado (remote-<id>) e legal como slot LOCAL, e o rascunho nu nao', () => {
+        // O resgate de trabalho não sincronizado transfere a posse do namespace para o
+        // registro local SEM copiar dez bancos, então este sufixo precisa ser aceitável.
+        expect(ns.localScope('adotado', 'remote-servidor-1').dbSuffix).toBe('remote-servidor-1');
+        expect(() => ns.localScope('a', 'remote')).toThrow(/reserved/);
+        expect(ns.isRemoteDbSuffix('remote-servidor-1')).toBe(true);
+        expect(ns.isRemoteDbSuffix('remote')).toBe(false);
+        expect(ns.isRemoteDbSuffix('')).toBe(false);
     });
 
     it('o que e GLOBAL resolve igual em local, remoto e slots diferentes', () => {
@@ -184,7 +231,7 @@ describe('atlas-namespace :: escopo ativo', () => {
         expect(ns.getStore(ns.StoreName.LAYERS).__dbName).toBe('ebgeo_layers__bbb');
 
         ns.activateScope(ns.remoteScope('servidor'));
-        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote');
+        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote-servidor');
         expect(ns.getActiveScope().kind).toBe(ns.StoreScopeKind.REMOTE);
     });
 
@@ -235,16 +282,81 @@ describe('atlas-namespace :: destruicao de bancos', () => {
         await ns.getGlobalStore().setItem('local_atlases', { version: 1, atlases: [] });
         await ns.getStoreFor(ns.StoreName.OPERATION_QUEUE).setItem('op_1', {});
 
-        const dropped = await ns.dropAtlasDatabases(scope);
+        const { dropped, blocked } = await ns.dropAtlasDatabases(scope);
 
         expect(dropped).toHaveLength(10);
-        expect(dropped.sort()).toEqual(PER_ATLAS_BASE_NAMES.map(n => `${n}__aaa`).sort());
+        expect(blocked).toEqual([]);
+        expect([...dropped].sort()).toEqual(PER_ATLAS_BASE_NAMES.map(n => `${n}__aaa`).sort());
         for (const name of dropped) {
             expect(databases.has(`${name}::keyvaluepairs`)).toBe(false);
         }
         // controle negativo: os globais continuam de pe, com o dado dentro
         expect(databases.has('ebgeo_global::keyvaluepairs')).toBe(true);
         expect(databases.has('ebgeo::operation_queue')).toBe(true);
+    });
+
+    // ------------------------------------------------------------------------
+    // Decisão 4: um delete que não completa não pode virar espera muda.
+    // ------------------------------------------------------------------------
+
+    it('delete que fica PENDENTE e reportado como blocked, sem travar a espera', async () => {
+        const localforage = (await import('localforage')).default;
+        const scope = ns.localScope('a', 'aaa');
+        // Uma aba vizinha segura a conexão: o dropInstance nunca resolve.
+        localforage.dropInstance.mockImplementation(() => new Promise(() => {}));
+
+        const { dropped, blocked } = await ns.dropAtlasDatabases(scope, { timeoutMs: 5 });
+
+        expect(dropped).toEqual([]);
+        expect(blocked).toHaveLength(10);
+        expect([...blocked].sort()).toEqual(PER_ATLAS_BASE_NAMES.map(n => `${n}__aaa`).sort());
+    });
+
+    it('CONTROLE NEGATIVO: com o mesmo tempo limite e um delete que responde, blocked e vazio', async () => {
+        const scope = ns.localScope('a', 'aaa');
+
+        const { dropped, blocked } = await ns.dropAtlasDatabases(scope, { timeoutMs: 5 });
+
+        expect(blocked).toEqual([]);
+        expect(dropped).toHaveLength(10);
+    });
+
+    it('delete que REJEITA conta como blocked: dos dois jeitos o banco ficou no disco', async () => {
+        const localforage = (await import('localforage')).default;
+        localforage.dropInstance.mockImplementation(async ({ name }) => {
+            if (name === 'ebgeo_images__aaa') throw new Error('UnknownError');
+        });
+
+        const { dropped, blocked } = await ns.dropAtlasDatabases(ns.localScope('a', 'aaa'), { timeoutMs: 5 });
+
+        expect(blocked).toEqual(['ebgeo_images__aaa']);
+        expect(dropped).toHaveLength(9);
+    });
+
+    it('clearAtlasDatabases ESVAZIA os dez sem apagar nenhum', async () => {
+        const localforage = (await import('localforage')).default;
+        const scope = ns.localScope('a', 'aaa');
+        for (const { store } of ns.listAtlasStores(scope)) await store.setItem('k', 1);
+
+        const cleared = await ns.clearAtlasDatabases(scope);
+
+        expect([...cleared].sort()).toEqual(PER_ATLAS_BASE_NAMES.map(n => `${n}__aaa`).sort());
+        for (const { store } of ns.listAtlasStores(scope)) {
+            expect(await store.getItem('k')).toBeNull();
+        }
+        // continua de pé: esvaziar não é destruir
+        expect(localforage.dropInstance).not.toHaveBeenCalled();
+        expect(databases.has('ebgeo_maps__aaa::keyvaluepairs')).toBe(true);
+    });
+
+    it('clearActiveScope deixa o proximo getStore sem escopo, em vez de reviver o destruido', async () => {
+        ns.activateScope(ns.remoteScope('servidor-1'));
+        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote-servidor-1');
+
+        ns.clearActiveScope();
+
+        expect(ns.getActiveScope()).toBeNull();
+        expect(() => ns.getStore(ns.StoreName.MAPS)).toThrow(/no active atlas scope/);
     });
 
     it('nao alcanca outro slot local', async () => {

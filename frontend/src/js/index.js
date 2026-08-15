@@ -19,9 +19,19 @@ import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
-import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl } from './store';
+import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl, getEventBus } from './store';
+import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
+import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { openRemoteAtlas } from './account/open-atlas.service.js';
+import {
+    openRemoteAtlas,
+    currentAtlasLockKey,
+    syncAtlasLockKey,
+    deferAtlasOpen,
+    resumeDeferredAtlasOpen,
+    retractAtlasClaim,
+    clearMountedAtlasIfGranted,
+} from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
 import { shouldRouteToProjects } from './deep-link/route-decision.js';
@@ -30,7 +40,7 @@ import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
-import { initTabLock } from '@utils/tab-lock.js';
+import { initTabLock, isTabLockBlocked, acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/diag/trace-core.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 
@@ -140,9 +150,6 @@ async function initApp() {
     // Cleanup handlers (global error handlers + beforeunload)
     setupCleanupHandlers(controls.destroyables);
 
-    // Tab lock — runs after app is fully loaded so the map is visible behind the overlay
-    initTabLock();
-
     // Session lifecycle guards (logged-in only): idle timeout ends an inactive session with a
     // warning; a terminally-failed refresh drops to anonymous. Both re-open login cleanly. Wired
     // AFTER controls so the account control exists; a boot-time expiry already fell to anonymous.
@@ -183,6 +190,32 @@ async function initApp() {
     // wait so a 'load' event that never fires can't deadlock boot. Local IDB only — no network wait.
     await Promise.race([bootRendered, new Promise((resolve) => setTimeout(resolve, 15000))]);
     await statePromise.catch(() => {});
+
+    // Tab lock — announce WHAT THIS TAB HOLDS, and keep announcing it for the rest of the session.
+    //
+    // It runs HERE, and not right after the controls, for two reasons. The map is already rendered,
+    // so an overlay lands on a visible app rather than on a splash; and the store boot (schema
+    // migration included) has finished, so the active atlas scope is the real one — announced any
+    // earlier the key would name the bridge scope and then silently disagree with the databases
+    // this tab actually writes to.
+    //
+    // Everything below this line either opens an atlas or wipes one, and each of those asks the
+    // lock FIRST: with a namespace per atlas, a wipe lands on exactly the databases another tab in
+    // the same atlas is writing to.
+    initTabLock({ key: currentAtlasLockKey() });
+    // The EFFECTS come from the brake, not from a handler written here. Blocking has to STOP the
+    // tab (stop the flush, close the socket) and erase nothing, and unblocking has to put back what
+    // was stopped — an inline `onBlocked` that stopped without a matching restore is what left a
+    // tab unblocked, editable and silently offline after a "Usar aqui" round trip. Awaited because
+    // `setEffects` is late-safe: a tab that lost the arbitration in the microtask before this line
+    // is stopped right here, and this is where that stop finishes.
+    await installTabLockSyncBrake({ replay: resumeDeferredAtlasOpen });
+    // The atlas changes LIVE in four flows (login with a pending link, "Salvar no servidor",
+    // logout, a session lost to a 401). These are the same two signals `deep-link/atlas-url-sync.js`
+    // listens to, reading the same `syncEngine.atlasId`, so the URL and the lock cannot disagree.
+    getEventBus().on(EventTypes.CONNECTION_STATE_CHANGED, syncAtlasLockKey);
+    getEventBus().on(EventTypes.SESSION_CHANGED, syncAtlasLockKey);
+
     if (await openPublicAtlasFromUrl(bootPublicLink)) return;
     if (await openAtlasFromUrl(bootAtlasLink)) return;
     if (await enterLocalMapOnBoot()) return;
@@ -199,13 +232,20 @@ async function initApp() {
  * it (no features left drawn on the canvas).
  *
  * A store that is ALREADY local is left untouched: that is the offline user's own work.
+ *
+ * THE WIPE IS GATED, and this path is the reason the gate exists. `ebgeo_local_intent` lives in
+ * sessionStorage, and sessionStorage is INHERITED when a tab is duplicated: the duplicate boots
+ * carrying the intent, reads the same remote origin, and would erase the namespace the original tab
+ * is working in. `clearMountedAtlasIfGranted` asks the lock and AWAITS the answer, which a boot-time
+ * read of `isTabLockBlocked()` cannot do (the lock has not heard from anybody yet). Refused, the tab
+ * stays blocked with the overlay, and "Usar aqui" replays this same entry.
  * @returns {Promise<boolean>} true when this boot is a local-map boot (the chooser must not run).
  */
 async function enterLocalMapOnBoot() {
     if (!hasLocalMapIntent()) return false;
     try {
         const origin = await loadStoreOrigin();
-        if (origin.kind === 'remote') await clearAllDataStore();
+        if (origin.kind === 'remote') await clearMountedAtlasIfGranted(() => enterLocalMapOnBoot());
     } catch (error) {
         console.warn('[boot] local map entry failed:', error);
     }
@@ -233,7 +273,11 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         const opened = await openRemoteAtlas(link.atlasId, { mapId: link.mapId });
         // User declined the "replace local work" confirm → stay local; drop the deep link so a
         // reconnect doesn't re-open it, and don't fall through to the last-atlas reconnect.
-        if (!opened) clearAtlasUrl();
+        //
+        // A tab BLOCKED by another one is the other `false`, and it must keep the link: the open is
+        // only deferred, and "Usar aqui" is about to replay it. Stripping the URL there would leave
+        // the address bar denying an atlas this tab is still on its way into.
+        if (!opened && !isTabLockBlocked()) clearAtlasUrl();
         return true;
     } catch (error) {
         const status = error?.status ?? error?.statusCode;
@@ -307,8 +351,21 @@ async function handleEmailVerificationFromUrl() {
 async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location.search).get('atlasPublico')) {
     try {
         if (!link || sessionContext.isAuthenticated()) return false;
+        // RESOLVE FIRST, CLAIM SECOND. `?atlasPublico=` carries a link TOKEN, and the atlas UUID
+        // only exists once the server answers — but under the uniform rule the key IS the UUID, so
+        // there is nothing honest to claim before this call. Resolving is a read: it opens nothing
+        // and destroys nothing, so deferring the claim costs one round trip and no data. (The
+        // alternative, claiming under a placeholder id and re-stamping later, collides with the
+        // wrong tabs and hands away a claim this tab already holds — see tab-lock.js, section 1.)
         const atlas = await apiClient.getPublicAtlas(link);
         apiClient.setEphemeralToken(atlas.publicToken);
+        // Now the claim, and it still precedes every destructive step below.
+        const claim = await acquireTabLock(remoteAtlasKey(atlas.id));
+        if (!claim.granted) {
+            // Blocked: the overlay explains it and its "Usar aqui" replays this open.
+            deferAtlasOpen(() => openPublicAtlasFromUrl(link));
+            return true;
+        }
         await clearAllDataStore();
         await markStoreRemote(atlas.id);
         await syncEngine.connectPublic(atlas.id);
@@ -317,6 +374,9 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         return true;
     } catch (error) {
         console.warn('[boot] public atlas open failed:', error);
+        // A dead link must not leave this tab holding the server claim: retract, or nobody else
+        // gets to open a server atlas until this tab is closed.
+        retractAtlasClaim();
         return false;
     }
 }
@@ -378,6 +438,10 @@ async function restoreSessionFromStorage() {
  * Discards any remote-atlas data left over from a previous session first, so the user does not
  * leave a disconnected atlas sitting in IndexedDB (clearAllDataStore re-marks LOCAL).
  *
+ * Same gate as `enterLocalMapOnBoot`, for the same reason: that "left over" data is left over only
+ * from THIS tab's point of view, and another tab may have it open right now. Refused, the chooser
+ * does not open either — the tab is blocked, and the overlay is the answer the user needs first.
+ *
  * The boot deliberately does NOT reconnect the last atlas: the address bar is the source of truth.
  * @returns {Promise<void>}
  */
@@ -385,7 +449,10 @@ async function openAtlasChooserOnBoot() {
     try {
         if (!sessionContext.isAuthenticated()) return;
         const origin = await loadStoreOrigin();
-        if (origin.kind === 'remote') await clearAllDataStore();
+        if (origin.kind === 'remote'
+            && !await clearMountedAtlasIfGranted(() => openAtlasChooserOnBoot())) {
+            return;
+        }
         getControl('account')?.openProjectPicker?.();
     } catch (error) {
         console.warn('[boot] atlas chooser failed:', error);

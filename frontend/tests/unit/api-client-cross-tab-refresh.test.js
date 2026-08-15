@@ -44,7 +44,7 @@ Object.defineProperty(globalThis, 'removeEventListener', {
     configurable: true,
 });
 
-import { ApiClient } from '../../src/js/store/sync/api-client.js';
+import { ApiClient, ApiError, isTerminalRefreshFailure } from '../../src/js/store/sync/api-client.js';
 
 const TOKEN_KEY = 'ebgeo_auth';
 /** Igual a TOKEN_RENEWAL_SKEW_MS / REFRESH_LOCK_WAIT_MS do api-client.js. */
@@ -308,6 +308,11 @@ describe('renovação de token entre abas — com navigator.locks', () => {
 
         const pA = a.client.refresh(); // entra no lock e trava lá dentro
         const pB = b.client.refresh(); // fica na fila do lock
+        // pB rejeita DURANTE o avanço do relógio abaixo, antes do `expect` lá adiante prender um
+        // handler nela: sem este, a rejeição conta como não tratada e o vitest reporta um erro no
+        // arquivo inteiro ("might cause false positive tests"), que é ruído capaz de esconder uma
+        // rejeição solta de verdade. A asserção continua sendo a de baixo.
+        pB.catch(() => {});
         await vi.advanceTimersByTimeAsync(LOCK_WAIT_MS + 1);
 
         // B desiste de esperar e falha de forma TRANSIENTE, sem falar com o servidor.
@@ -538,6 +543,253 @@ describe('renovação de token entre abas — SEM navigator.locks (caminho degra
         expect(a.client.isAuthenticated()).toBe(false);
         expect(ls.getItem(TOKEN_KEY)).toBeNull();
         expect(server.state.familyRevoked).toBe(true);
+    });
+});
+
+describe('cooldown de renovação — ele segura o SERVIDOR, nunca o disco', () => {
+    beforeEach(() => {
+        // Caminho degradado de propósito: o cooldown é anterior ao lock, e é ele que está sob teste.
+        vi.stubGlobal('navigator', {});
+    });
+
+    it('(i1) a aba que tomou 503 e perdeu o evento adota o par do disco em vez de repetir o erro velho', async () => {
+        // Uma aba em segundo plano é CONGELADA pelo navegador e o `storage` dela não chega. Sem
+        // esta releitura ela passa os 30 s inteiros replicando um erro morto com um par bom
+        // parado no disco, e o usuário vê a aba de trás "não sincroniza" sem nenhum motivo vivo.
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+
+        const a = openTab(server.fetch);
+        const b = openTab(server.fetch);
+        a.client.loadStoredTokens();
+        b.client.loadStoredTokens();
+
+        server.state.failNextWith = 503;
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+
+        await b.client.refresh(); // outra aba renova e grava; A não recebe o evento
+        const idasAoServidor = server.state.presented.length;
+
+        await a.client.refresh(); // ainda dentro dos 30 s de cooldown
+
+        expect(a.client.getAccessToken()).toBe(b.client.getAccessToken());
+        // Adotou do disco: nenhuma ida a mais ao servidor, que é o que o cooldown protege.
+        expect(server.state.presented).toHaveLength(idasAoServidor);
+        expect(server.state.familyRevoked).toBe(false);
+    });
+
+    it('(i1b) a RELEITURA, isolada: com o par adotado já dentro da margem, ela ainda evita '
+        + 'apresentar o token velho', async () => {
+        // (i1) mede DOIS comportamentos de uma vez — a releitura do disco e o early-return de
+        // `_accessTokenOutlivesSkew` — e reprova pela igualdade de token nos dois casos, o que
+        // nomeia a releitura mesmo quando o defeito é o outro. Aqui o par adotado já está DENTRO
+        // da margem de renovação, então o early-return não pode disparar: o único comportamento
+        // sob teste é a releitura. Apagar o early-return deixa este caso VERDE, que é o que o
+        // separa de (i1c).
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+        const a = openTab(server.fetch);
+        a.client.loadStoredTokens();
+
+        server.state.failNextWith = 503;
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+        expect(server.state.presented).toEqual(['R1']);   // o 503 veio antes de qualquer rotação
+
+        // Outra aba rotacionou; o access token que ela gravou já está dentro da margem.
+        ls.setItem(TOKEN_KEY, JSON.stringify({
+            accessToken: mintAccess({ ttlMs: SKEW_MS - 5000 }),
+            refreshToken: 'R2',
+        }));
+        server.state.current = 'R2';
+
+        await a.client.refresh();   // ainda dentro dos 30 s de cooldown
+
+        // Não repetiu o erro morto, e apresentou o refresh token do DISCO, nunca o R1 da memória.
+        expect(server.state.presented).toEqual(['R1', 'R2']);
+        expect(server.state.familyRevoked).toBe(false);
+    });
+
+    it('(i1c) o EARLY-RETURN, isolado: par adotado COM folga encerra o refresh ali, sem ida '
+        + 'ao servidor', async () => {
+        // Controle positivo de (i1b). Mesmo setup, mudando só a folga do token adotado. Sem o
+        // `if (this._accessTokenOutlivesSkew()) return;` do cooldown a execução cai em
+        // `_rotateOrAdopt`, onde a segunda adoção recusa o par idêntico e a rotação acontece:
+        // a única assertion abaixo é a ida ao servidor, então a falha aponta para a linha certa.
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+        const a = openTab(server.fetch);
+        a.client.loadStoredTokens();
+
+        server.state.failNextWith = 503;
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+        expect(server.state.presented).toEqual(['R1']);
+
+        ls.setItem(TOKEN_KEY, JSON.stringify({
+            accessToken: mintAccess({ ttlMs: 15 * 60 * 1000 }),
+            refreshToken: 'R2',
+        }));
+        server.state.current = 'R2';
+
+        await a.client.refresh();
+
+        expect(server.state.presented).toEqual(['R1']);
+        expect(server.state.rotations).toBe(0);
+    });
+
+    it('(i2) sem par novo no disco o cooldown continua valendo, e o servidor não é martelado', async () => {
+        // Controle negativo de (i1): a releitura não pode virar "tentar de novo sempre".
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+        const a = openTab(server.fetch);
+        a.client.loadStoredTokens();
+
+        server.state.failNextWith = 503;
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+        await expect(a.client.refresh()).rejects.toMatchObject({ status: 503 });
+
+        expect(server.state.presented).toEqual(['R1']);
+    });
+});
+
+describe('lock que rejeita sem ser AbortError', () => {
+    /** LockManager que recusa a concessão, como num contexto que o navegador não julga seguro. */
+    function withRefusingLocks(name = 'SecurityError') {
+        vi.stubGlobal('navigator', {
+            locks: {
+                request: async () => {
+                    const err = new Error('The operation is insecure.');
+                    err.name = name;
+                    throw err;
+                },
+            },
+        });
+    }
+
+    it('(j1) SecurityError vira falha TRANSIENTE classificável, em vez de vazar cru para o chamador', async () => {
+        // Cru, ele escapava de toda a classificação deste arquivo: `isTerminalRefreshFailure`
+        // nunca o via, o caminho proativo o engolia e o REATIVO (401 em `_request`) rejeitava com
+        // uma exceção de DOM no lugar do erro do servidor.
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+        withRefusingLocks();
+
+        const a = openTab(server.fetch);
+        a.client.loadStoredTokens();
+        let perdeuSessao = false;
+        a.client.setAuthLostHandler(() => { perdeuSessao = true; });
+
+        const erro = await a.client.refresh().catch((e) => e);
+
+        expect(erro).toBeInstanceOf(ApiError);
+        expect(erro.code).toBe('REFRESH_LOCK_FAILED');
+        expect(isTerminalRefreshFailure(erro)).toBe(false);
+        expect(erro.cause?.name).toBe('SecurityError');
+        // Nada foi apresentado ao servidor, então a sessão está intacta.
+        expect(perdeuSessao).toBe(false);
+        expect(a.client.isAuthenticated()).toBe(true);
+        expect(server.state.presented).toEqual([]);
+    });
+
+    it('(j2) com par novo no disco a recusa do lock nem aparece: a aba adota e segue', async () => {
+        const server = makeAuthServer();
+        seedTokens({ ttlMs: 10000 });
+        withRefusingLocks('NotSupportedError');
+
+        const a = openTab(server.fetch);
+        a.client.loadStoredTokens();
+        const novo = mintAccess({ ttlMs: 15 * 60 * 1000 });
+        ls.setItem(TOKEN_KEY, JSON.stringify({ accessToken: novo, refreshToken: 'R2' }));
+
+        await a.client.refresh();
+
+        expect(a.client.getAccessToken()).toBe(novo);
+        expect(server.state.presented).toEqual([]);
+    });
+});
+
+describe('guardas provados por mutação', () => {
+    it('(k) AbortError vindo de DENTRO da seção crítica não é confundido com "desisti de esperar"', async () => {
+        // Mata o mutante que apaga a flag `entered`. Sem ela, o cancelamento de uma requisição em
+        // voo sai rotulado como REFRESH_LOCK_BUSY (e, com par novo no disco, como SUCESSO), e o
+        // chamador perde a única coisa que o erro dizia: a requisição foi cancelada.
+        const { manager } = makeLockManager();
+        vi.stubGlobal('navigator', { locks: manager });
+        seedTokens({ ttlMs: 10000 });
+
+        const abortando = async () => {
+            const err = new Error('The user aborted a request.');
+            err.name = 'AbortError';
+            throw err;
+        };
+        const a = openTab(abortando);
+        a.client.loadStoredTokens();
+
+        const erro = await a.client.refresh().catch((e) => e);
+
+        expect(erro.name).toBe('AbortError');
+        expect(erro.code).toBeUndefined();
+        // Aborto é transiente: os tokens ficam.
+        expect(a.client.isAuthenticated()).toBe(true);
+    });
+
+    it('(l) evento de REMOÇÃO é descartado ANTES de qualquer tentativa de adoção', () => {
+        // O contrato visível (uma remoção não desloga esta aba) está em (g). Este caso prende o
+        // guarda em si, que de fora é invisível: `JSON.parse(null)` devolve null e
+        // `_adoptStoredTokens(null)` recusa, então apagar a linha não muda nenhum efeito
+        // observável e o mutante passa verde. O único lugar onde o guarda existe é a chamada que
+        // ele evita, então é ali que ele se prende.
+        const server = makeAuthServer();
+        seedTokens();
+        const b = openTab(server.fetch);
+        b.client.loadStoredTokens();
+        const adotar = vi.spyOn(b.client, '_adoptStoredTokens');
+
+        b.deliverStorage(null);
+        expect(adotar).not.toHaveBeenCalled();
+
+        // Controle: com valor, a adoção É tentada. Sem esta metade, o teste acima também passaria
+        // com o handler inteiro removido, que é cobertura vazia.
+        b.deliverStorage(JSON.stringify({ accessToken: mintAccess(), refreshToken: 'R2' }));
+        expect(adotar).toHaveBeenCalledTimes(1);
+    });
+
+    it('(m) sem refresh token na memória, a aba NUNCA adota a sessão que outra gravou', () => {
+        // Guarda de segurança, e o (f) não o cobre: lá quem recusa é o `sub` diferente. Os três
+        // estados abaixo passam pelo guarda do `sub` e só este os segura.
+        const server = makeAuthServer();
+
+        // 1) Aba ANÔNIMA. Quem não tem token não tem `sub`, então o guarda do `sub` não a protege:
+        //    sem este, ela entraria na sessão de outra aba sem ninguém ter feito login nela.
+        const anon = openTab(server.fetch);
+        anon.deliverStorage(JSON.stringify({
+            accessToken: mintAccess({ ttlMs: 60 * 60 * 1000 }),
+            refreshToken: 'R7',
+        }));
+        expect(anon.client.isAuthenticated()).toBe(false);
+        expect(anon.client.getAccessToken()).toBeNull();
+
+        // 2) Link público do MESMO usuário: o token efêmero não pode ser substituído pelo par do
+        //    disco, que é justamente o que `setEphemeralToken` se recusa a tocar.
+        const publico = openTab(server.fetch);
+        const efemero = mintAccess({ ttlMs: 60 * 60 * 1000 });
+        publico.client.setEphemeralToken(efemero);
+        publico.deliverStorage(JSON.stringify({
+            accessToken: mintAccess({ ttlMs: 2 * 60 * 60 * 1000 }),
+            refreshToken: 'R8',
+        }));
+        expect(publico.client.getAccessToken()).toBe(efemero);
+
+        // 3) Aba cuja sessão foi perdida em definitivo: adotar a ressuscitaria.
+        const morta = openTab(server.fetch);
+        seedTokens();
+        morta.client.loadStoredTokens();
+        morta.client.clearTokens();
+        morta.deliverStorage(JSON.stringify({
+            accessToken: mintAccess({ ttlMs: 60 * 60 * 1000 }),
+            refreshToken: 'R9',
+        }));
+        expect(morta.client.isAuthenticated()).toBe(false);
     });
 });
 

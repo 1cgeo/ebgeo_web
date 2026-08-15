@@ -23,6 +23,8 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
+// From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
+import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
 import { mountAdminPage } from './index.js';
 
@@ -117,6 +119,14 @@ async function initAdminPage() {
         window.location.replace(MAP_URL);
         return;
     }
+
+    // Joins the multi-tab channel holding NOTHING (`tab-lock.js`, section 1: the arbitration is
+    // over which tab may hold which ATLAS, and this page holds none). So it never blocks and is
+    // never blocked, which is what keeps "map in one tab, Administração in another" working; it
+    // stays visible in every peer's roster, which is the whole point of announcing. No overlay: a
+    // page that cannot be blocked has nothing to render, and it does not load `tab-lock.css`.
+    // Announced only past the gate, so a tab that is about to redirect does not join and leave.
+    initTabLock({ key: noneKey(), overlayHost: null });
 
     clearSplash();
 

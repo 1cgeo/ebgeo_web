@@ -31,6 +31,8 @@ import { mapResolver, awaitMapResolverReady } from './services/map-resolver.serv
 import { EventTypes } from '../events';
 import { sessionContext } from './sync/session-context.js';
 import { loadStoreOrigin, isRemoteStoreSync, markStoreLocal } from './store-origin.js';
+import { purgeAllRemoteAtlases } from './remote-atlas.api.js';
+import { activateCurrentLocalAtlasScope } from './local-atlas.api.js';
 import { operationQueue } from './sync/operation-queue.js';
 
 import {
@@ -141,6 +143,34 @@ async function unmountCurrentAtlas() {
 }
 
 /**
+ * Destroys every REMOTE atlas namespace registered on this machine, and re-points the store
+ * at a local slot when the one it was using went with them.
+ *
+ * WHY IT IS DERIVED AND NOT AIMED. Each server atlas owns its own ten databases now
+ * (`atlas-namespace.js` Decision 1), so "wipe the remote data" is no longer a fixed list of
+ * names: it is whatever `remote-atlas.api.js` has registered, written by whichever tab
+ * opened the atlas. Two consequences that make this function look wider than it is:
+ *
+ *   - it runs even when the origin marker says LOCAL, because the marker only describes
+ *     the atlas THIS tab last mounted, while the residue is whatever ANY tab opened. An
+ *     entry left by a tab that crashed is collected here, on the next boot with no session.
+ *   - it is not part of unmounting an atlas. Unmounting empties the mounted one; this
+ *     destroys every server namespace, and only ever runs when nobody is authenticated.
+ *
+ * @returns {Promise<import('./remote-atlas.api.js').RemotePurgeReport>}
+ */
+async function discardRemoteAtlasNamespaces() {
+    const report = await purgeAllRemoteAtlases();
+    if (report.deactivated) {
+        // The purge left no active scope on purpose (a destroyed scope must not be written
+        // to again). A false here is not a failure: the repository bridge then activates the
+        // legacy local databases, which is where a pre-namespace installation already was.
+        activateCurrentLocalAtlasScope();
+    }
+    return report;
+}
+
+/**
  * Additive boot guard: if the local IndexedDB currently holds a REMOTE (server) atlas but
  * nobody is authenticated — the JWT expired, or the tab was closed without logging out —
  * that remote data must not remain editable offline. Discard it back to a blank local
@@ -152,11 +182,21 @@ async function unmountCurrentAtlas() {
  * `.ebgeo` workflow are completely untouched. Item 8 (session restore) runs BEFORE this, so
  * a returning authenticated user keeps their session and reconnects instead of being wiped.
  *
+ * TWO GUARDS, NOT ONE, and the wider one comes first: with no session, no REMOTE NAMESPACE
+ * may exist at all, whatever the marker says (`discardRemoteAtlasNamespaces`). Only then
+ * does the marker decide whether the MOUNTED atlas also has to be emptied, which is the
+ * pre-namespace case where server data sat in the unsuffixed databases.
+ *
  * @returns {Promise<void>}
  */
 async function enforceLocalStoreWhenLoggedOut() {
     await loadStoreOrigin();
-    if (!isRemoteStoreSync() || sessionContext.isAuthenticated()) {
+    if (sessionContext.isAuthenticated()) {
+        return;
+    }
+    await discardRemoteAtlasNamespaces();
+
+    if (!isRemoteStoreSync()) {
         return;
     }
     await unmountCurrentAtlas();
@@ -189,10 +229,26 @@ export async function initializeWithLastActiveMap() {
 /**
  * Clears all data from storage and reinitializes with defaults.
  *
+ * IT ALSO REACHES THE OTHER REMOTE NAMESPACES, BUT ONLY WHEN NOBODY IS AUTHENTICATED.
+ * Unmounting empties the atlas this tab has mounted, which was the whole wipe back when
+ * every server atlas shared one scratch. With a namespace per server atlas that is no
+ * longer enough on the LOGOUT path: a session that ends in the middle of use has to sweep
+ * the registry, or remote data stays on disk until the next reload finds it.
+ *
+ * The condition is what keeps the sweep from firing on the paths that are NOT a logout, and
+ * it is read from the session rather than passed in by the caller: `openRemoteAtlas` calls
+ * this before every connect, and `_handleRemoteAtlasDeleted` calls it after a delete, both
+ * with a live session and both meaning "empty the atlas I have", not "erase every server
+ * atlas on this machine".
+ *
  * @returns {Promise<void>}
  */
 export async function clearAllDataStore() {
     await unmountCurrentAtlas();
+
+    if (!sessionContext.isAuthenticated()) {
+        await discardRemoteAtlasNamespaces();
+    }
 
     await mapManager.clearAllColorCaches();
 
@@ -567,3 +623,14 @@ export {
     loadStoreOrigin,
     StoreOriginKind
 } from './store-origin.js';
+
+// ===== RE-EXPORTS FROM THE REMOTE ATLAS REGISTRY =====
+
+// The connect path needs `activateRemoteAtlas` (it registers the namespace BEFORE the first
+// write, which is the ordering the logout wipe depends on) and the unsynced-work rescue
+// needs `adoptRemoteAtlasAsLocal`. Both are re-exported here because the call sites already
+// import the facade, and reaching for the module directly is how a caller ends up using
+// `activateScope(remoteScope(...))` instead, which skips the registration.
+
+export { activateRemoteAtlas, listRemoteAtlases, purgeAllRemoteAtlases } from './remote-atlas.api.js';
+export { adoptRemoteAtlasAsLocal } from './local-atlas.api.js';

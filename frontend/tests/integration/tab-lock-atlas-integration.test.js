@@ -1,0 +1,513 @@
+// Path: tests/integration/tab-lock-atlas-integration.test.js
+
+/**
+ * @fileoverview The tab lock wired to the real atlas lifecycle.
+ *
+ * The protocol itself is pinned by `tests/unit/tab-lock.test.js`. What is measured HERE is the
+ * integration: that every collision is answered BEFORE `clearAllDataStore()` (the wipe empties the
+ * databases of the atlas this tab has mounted, which are another tab's live databases whenever the
+ * two hold the same atlas), that a refusal erases NOTHING, that a claim this tab cannot honour is
+ * RETRACTED, and that the announced key follows the atlas through the flows that change it without
+ * a reload.
+ *
+ * The BOOT wipes get their own section, because they had no pre-flight at all and they are the one
+ * place where reading `blocked` cannot substitute for an awaited claim.
+ *
+ * The lock is the REAL module on a fake in-process transport, with a second instance standing in
+ * for the other tab. Mocking the lock here would only prove that the mock was called.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// ------------------------------------------------------------------ doubles for the store side
+
+/**
+ * Shared mutable fixture. It lives in `vi.hoisted` because the `vi.mock` factories below are
+ * hoisted above every other statement in this file and would otherwise read it before it exists.
+ */
+const fixture = vi.hoisted(() => {
+    /** @type {string[]} Ordered log of the side effects the open pipeline performs. */
+    const calls = [];
+    const syncEngine = {
+        atlasId: null,
+        connect: null,
+        disconnect: null,
+    };
+    return {
+        calls,
+        syncEngine,
+        /** Active store scope, the second half of the key derivation. */
+        scope: { value: { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' } },
+    };
+});
+
+const { calls } = fixture;
+const syncEngineDouble = fixture.syncEngine;
+syncEngineDouble.connect = vi.fn(async (atlasId) => {
+    calls.push('connect');
+    syncEngineDouble.atlasId = atlasId;
+});
+syncEngineDouble.disconnect = vi.fn(() => calls.push('disconnect'));
+
+vi.mock('@store/sync/sync-engine.js', () => ({ syncEngine: fixture.syncEngine }));
+vi.mock('@store', () => ({ getControl: vi.fn(() => null) }));
+vi.mock('@store/sync/api-client.js', () => ({ apiClient: {} }));
+vi.mock('@store/sync/sync-flush.js', () => ({
+    startAutoFlush: vi.fn(() => calls.push('startAutoFlush')),
+    stopAutoFlush: vi.fn(() => calls.push('stopAutoFlush')),
+}));
+vi.mock('@store/atlas-namespace.js', () => ({
+    StoreScopeKind: { LOCAL: 'local', REMOTE: 'remote' },
+    getActiveScope: () => fixture.scope.value,
+}));
+vi.mock('@store/repositories/local.repository.js', () => ({ ensureAtlasScope: vi.fn() }));
+vi.mock('@modals/confirm.modal.js', () => ({ showChoice: vi.fn(async () => 'discard') }));
+vi.mock('@modals/prompt.modal.js', () => ({ showPrompt: vi.fn(async () => 'nome') }));
+vi.mock('@js/import_export/save-local-atlas.service.js', () => ({
+    saveLocalAtlasToServer: vi.fn(async () => ({ stats: {}, imageStats: {} })),
+}));
+vi.mock('@utils/toast_service.js', () => ({
+    showToast: vi.fn(), showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn(),
+}));
+
+vi.mock('@store/store.js', () => ({
+    clearAllDataStore: vi.fn(async () => calls.push('clearAllDataStore')),
+    markStoreRemote: vi.fn(async () => calls.push('markStoreRemote')),
+    markStoreLocal: vi.fn(async () => calls.push('markStoreLocal')),
+    isRemoteStoreSync: vi.fn(() => false),
+    hasAnyMapFeatures: vi.fn(async () => false),
+    activateAtlasInitialMap: vi.fn(async () => calls.push('activateAtlasInitialMap')),
+}));
+
+import { isRemoteStoreSync, hasAnyMapFeatures, clearAllDataStore } from '@store/store.js';
+import { showChoice } from '@modals/confirm.modal.js';
+import {
+    createTabLock,
+    initTabLock,
+    getTabLock,
+    destroyTabLock,
+    localAtlasKey,
+    remoteAtlasKey,
+    noneKey,
+} from '@utils/tab-lock.js';
+import {
+    openRemoteAtlas,
+    currentAtlasLockKey,
+    sameAtlasClaim,
+    syncAtlasLockKey,
+    retractAtlasClaim,
+    clearMountedAtlasIfGranted,
+    deferAtlasOpen,
+    resumeDeferredAtlasOpen,
+} from '@js/account/open-atlas.service.js';
+
+// ------------------------------------------------------------------ transport
+
+/**
+ * In-process bus with BroadcastChannel's no-self-echo semantics.
+ *
+ * `delayMs` exists for one case and matters there: a real BroadcastChannel delivers
+ * ASYNCHRONOUSLY, so a tab that has just been constructed knows of no peers yet. Delivering
+ * synchronously would make every lock omniscient the instant it boots, which is exactly the state
+ * the boot pre-flight has to work without.
+ * @param {number} [delayMs=0]
+ * @returns {Object} Hub.
+ */
+function createHub(delayMs = 0) {
+    const endpoints = [];
+    return {
+        connect() {
+            const endpoint = { receiver: null, dead: false };
+            endpoints.push(endpoint);
+            return {
+                kind: 'fake',
+                post: (message) => {
+                    for (const other of endpoints) {
+                        if (other === endpoint || other.dead || !other.receiver) continue;
+                        if (delayMs > 0) {
+                            setTimeout(() => {
+                                if (!other.dead && other.receiver) other.receiver(message);
+                            }, delayMs);
+                        } else {
+                            other.receiver(message);
+                        }
+                    }
+                },
+                setReceiver: (fn) => { endpoint.receiver = fn; },
+                close: () => { endpoint.dead = true; },
+            };
+        },
+    };
+}
+
+let hub;
+let onBlocked;
+/** The page tab's clock. Mutable so a test can make a re-announcement observable. */
+let pageNow = 2000;
+
+/** Lets timers and microtasks drain (the settle window is a real `setTimeout`). */
+async function settle(rounds = 6) {
+    for (let i = 0; i < rounds; i++) await new Promise((resolve) => setTimeout(resolve, 1));
+}
+
+/**
+ * Boots the page's lock exactly as `index.js` does, minus the DOM.
+ * @param {Object} key - Initial key.
+ * @returns {Object} The lock instance.
+ */
+function bootPageLock(key, { settleMs = 1 } = {}) {
+    return initTabLock({
+        key,
+        onBlocked,
+        onResumed: resumeDeferredAtlasOpen,
+        createTransport: () => hub.connect(),
+        overlayHost: null,
+        autoPulse: false,
+        settleMs,
+        now: () => pageNow,
+    });
+}
+
+/**
+ * The OTHER tab. `at` is its `claimedAt`: below the page tab's clock it is the incumbent, above it
+ * a newcomer.
+ * @param {Object} key
+ * @param {number} [at=1000]
+ * @returns {Object} The peer lock instance.
+ */
+function bootPeer(key, at = 1000) {
+    return createTabLock({
+        key,
+        createTransport: () => hub.connect(),
+        overlayHost: null,
+        autoPulse: false,
+        settleMs: 1,
+        now: () => at,
+    });
+}
+
+let peer = null;
+
+beforeEach(() => {
+    calls.length = 0;
+    hub = createHub();
+    peer = null;
+    onBlocked = vi.fn(() => calls.push('onBlocked'));
+    pageNow = 2000;
+    syncEngineDouble.atlasId = null;
+    fixture.scope.value = { kind: 'local', atlasId: 'slot-a', dbSuffix: 'slot-a' };
+    vi.mocked(isRemoteStoreSync).mockReturnValue(false);
+    vi.mocked(hasAnyMapFeatures).mockResolvedValue(false);
+    vi.mocked(showChoice).mockResolvedValue('discard');
+    deferAtlasOpen(null);
+});
+
+afterEach(() => {
+    peer?.destroy();
+    destroyTabLock();
+    vi.clearAllMocks();
+});
+
+// =================================================================================================
+
+describe('chave do lock: o que esta aba segura', () => {
+    it('conexão viva manda: o atlas do syncEngine vira chave remota', () => {
+        syncEngineDouble.atlasId = 'atlas-uuid';
+        expect(currentAtlasLockKey()).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
+    });
+
+    it('sem conexão, a chave é o ESCOPO ativo, e escopo remoto continua sendo remoto', () => {
+        expect(currentAtlasLockKey()).toEqual({ kind: 'local', atlasId: 'slot-a' });
+        // Origem remota antes do socket subir: a aba já segura o scratch `__remote`, e dizer
+        // "local" aqui deixaria outra aba apagá-lo por baixo dela.
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote' };
+        expect(currentAtlasLockKey()).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
+    });
+
+    it('borda: sem escopo nenhum a chave é `none` (não inventa um atlas)', () => {
+        fixture.scope.value = null;
+        expect(currentAtlasLockKey()).toEqual(noneKey());
+    });
+
+    it('sameAtlasClaim exige o id nos DOIS lados (antes o remoto ignorava o seu)', () => {
+        expect(sameAtlasClaim(remoteAtlasKey('x'), remoteAtlasKey('x'))).toBe(true);
+        // Esta linha respondia `true` sob a regra antiga, quando todo remoto era a mesma
+        // reivindicação: a aba seguiria anunciando o atlas que já deixou.
+        expect(sameAtlasClaim(remoteAtlasKey('x'), remoteAtlasKey('y'))).toBe(false);
+        expect(sameAtlasClaim(localAtlasKey('a'), localAtlasKey('b'))).toBe(false);
+        expect(sameAtlasClaim(localAtlasKey('a'), localAtlasKey('a'))).toBe(true);
+        expect(sameAtlasClaim(localAtlasKey('a'), remoteAtlasKey('a'))).toBe(false);
+        expect(sameAtlasClaim(null, localAtlasKey('a'))).toBe(false);
+    });
+});
+
+describe('syncAtlasLockKey: o laço reativo dos quatro fluxos', () => {
+    it('troca a chave quando o atlas muda de verdade (local → remoto)', () => {
+        const lock = bootPageLock(localAtlasKey('slot-a'));
+        syncEngineDouble.atlasId = 'atlas-uuid';
+        syncAtlasLockKey();
+        expect(lock.key.kind).toBe('remote');
+    });
+
+    it('NÃO reanuncia uma reivindicação inalterada: recarimbar entregaria o lock ao recém-chegado', async () => {
+        // Esta aba entrou primeiro (2000), já conectada ao atlas.
+        syncEngineDouble.atlasId = 'atlas-uuid';
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+        // Depois chega outra aba (3000) NO MESMO atlas. Como esta precede, quem bloqueia é a de lá.
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'), 3000);
+        await settle();
+        expect(lock.blocked).toBe(false);
+        expect(peer.blocked).toBe(true);
+
+        // CONNECTION_STATE_CHANGED dispara de novo (reconexão, troca de mapa). Reanunciar a MESMA
+        // reivindicação recarimbaria `claimedAt` para 5000, jogando esta aba para trás da vizinha e
+        // entregando um lock que ela já tem.
+        pageNow = 5000;
+        syncAtlasLockKey();
+        syncAtlasLockKey();
+        await settle();
+
+        expect(lock.blocked).toBe(false);
+        expect(peer.blocked).toBe(true);
+    });
+
+    it('não mexe na chave enquanto BLOQUEADA: onBlocked desconecta, e o evento voltaria aqui', async () => {
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        syncEngineDouble.atlasId = 'atlas-uuid';
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+        await settle();
+        expect(lock.blocked).toBe(true);
+
+        // O onBlocked real chama syncEngine.disconnect(), que emite CONNECTION_STATE_CHANGED, que
+        // chama isto. Sem a guarda, a aba se desbloquearia no meio de estar sendo parada.
+        syncEngineDouble.atlasId = null;
+        syncAtlasLockKey();
+        expect(lock.blocked).toBe(true);
+        expect(lock.key.kind).toBe('remote');
+    });
+});
+
+describe('openRemoteAtlas: a colisão é respondida ANTES do clearAllDataStore', () => {
+    it('caminho livre: a chave já é remota no instante em que o scratch é apagado', async () => {
+        bootPageLock(localAtlasKey('slot-a'));
+        let keyAtWipe = null;
+        vi.mocked(clearAllDataStore).mockImplementation(async () => {
+            calls.push('clearAllDataStore');
+            keyAtWipe = getTabLock().key;
+        });
+
+        const opened = await openRemoteAtlas('atlas-uuid');
+
+        expect(opened).toBe(true);
+        // Se o acquire viesse depois do wipe, aqui se leria `local`.
+        expect(keyAtWipe).toEqual({ kind: 'remote', atlasId: 'atlas-uuid' });
+        expect(calls).toEqual([
+            'clearAllDataStore', 'markStoreRemote', 'connect', 'activateAtlasInitialMap', 'startAutoFlush',
+        ]);
+    });
+
+    it('outra aba NO MESMO projeto: NADA é apagado e nada é desconectado do lado de lá', async () => {
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+
+        const opened = await openRemoteAtlas('atlas-uuid');
+
+        expect(opened).toBe(false);
+        // Item 9: a fila de saída é GLOBAL. Limpar aqui descartaria trabalho das DUAS abas.
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(calls).not.toContain('markStoreRemote');
+        expect(calls).not.toContain('connect');
+        expect(peer.blocked).toBe(false);
+        expect(getTabLock().blocked).toBe(true);
+    });
+
+    it('a aba perdedora é PARADA de verdade (onBlocked), não só coberta', async () => {
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+        await openRemoteAtlas('atlas-uuid');
+        expect(onBlocked).toHaveBeenCalled();
+    });
+
+    it('a abertura recusada é RETOMADA quando a outra aba solta a chave', async () => {
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(false);
+        expect(calls).not.toContain('connect');
+
+        // "Usar aqui" (ou a morte do detentor) termina em retratação; o desbloqueio roda o thunk.
+        peer.release();
+        await settle(10);
+
+        expect(calls).toContain('clearAllDataStore');
+        expect(syncEngineDouble.atlasId).toBe('atlas-uuid');
+    });
+
+    it('reabrir o MESMO projeto não entra de novo na fila atrás de quem esperava', async () => {
+        // Esta aba já está no atlas-x (reivindicou em 2000).
+        syncEngineDouble.atlasId = 'atlas-x';
+        const lock = bootPageLock(remoteAtlasKey('atlas-x'));
+        // Outra aba pediu o MESMO atlas depois (3000) e está esperando, bloqueada.
+        peer = bootPeer(remoteAtlasKey('atlas-x'), 3000);
+        await settle();
+        expect(peer.blocked).toBe(true);
+        expect(lock.blocked).toBe(false);
+
+        // Reabrir o atlas em que já se está (replay de deep link, retomada de abertura) NÃO é entrar
+        // de novo na fila. Um `acquire` cego recarimbaria a reivindicação para 5000, jogaria esta aba
+        // para trás da que esperava, e reabrir o próprio projeto viraria perda do lock.
+        pageNow = 5000;
+        const opened = await openRemoteAtlas('atlas-x');
+        await settle();
+
+        expect(opened).toBe(true);
+        expect(lock.blocked).toBe(false);
+        expect(peer.blocked).toBe(true);
+        expect(calls).toContain('connect');
+    });
+
+    // EM ESPERA junto com a linha 4 do predicado. Enquanto `activateRemoteAtlas` nao for chamado
+    // por `openRemoteAtlas`, os dois atlas de servidor resolvem para os MESMOS dez bancos, e
+    // deixar passar aqui e exatamente o caminho que apaga o mapa vivo do vizinho.
+    it('abrir OUTRO projeto de servidor ao lado de uma aba remota e RECUSADO, e nada e apagado', async () => {
+        peer = bootPeer(remoteAtlasKey('atlas-do-vizinho'));
+        bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+
+        const opened = await openRemoteAtlas('atlas-uuid');
+
+        expect(opened).toBe(false);
+        // O que importa nao e a recusa, e o que ela evitou: o wipe nao rodou.
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(peer.blocked).toBe(false);
+    });
+
+    it.todo('abrir OUTRO projeto de servidor ao lado e permitido, depois que cada atlas remoto tiver os proprios bancos');
+
+    it('duas abas locais em atlas DIFERENTES não colidem (o caminho anônimo não regride)', async () => {
+        peer = bootPeer(localAtlasKey('slot-b'));
+        const lock = bootPageLock(localAtlasKey('slot-a'));
+        await settle();
+        expect(lock.blocked).toBe(false);
+        expect(peer.blocked).toBe(false);
+        // ... e o mesmo atlas local em duas abas colide, porque são os mesmos bancos.
+        peer.setKey(localAtlasKey('slot-a'));
+        await settle();
+        expect(lock.blocked).toBe(true);
+    });
+});
+
+describe('retratação: chave anunciada que não se consegue honrar', () => {
+    it('403/404 no connect solta a chave, e a próxima aba passa', async () => {
+        bootPageLock(localAtlasKey('slot-a'));
+        syncEngineDouble.connect.mockRejectedValueOnce(Object.assign(new Error('nope'), { status: 403 }));
+
+        await expect(openRemoteAtlas('atlas-uuid')).rejects.toThrow('nope');
+
+        expect(calls).toContain('markStoreLocal');
+        expect(getTabLock().key.kind).not.toBe('remote');
+    });
+
+    it('cancelar o aviso de trabalho local devolve a chave e não apaga nada', async () => {
+        vi.mocked(hasAnyMapFeatures).mockResolvedValue(true);
+        vi.mocked(showChoice).mockResolvedValue(null); // Esc/backdrop
+        bootPageLock(localAtlasKey('slot-a'));
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(getTabLock().key).toEqual({ kind: 'local', atlasId: 'slot-a' });
+    });
+
+    it('retractAtlasClaim volta para o slot local quando existe um, em vez de ficar em `none`', () => {
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+        retractAtlasClaim();
+        // `none` nunca colide: parar aí seria um buraco numa aba que ainda segura bancos locais.
+        expect(lock.key).toEqual({ kind: 'local', atlasId: 'slot-a' });
+    });
+
+    it('sem slot local (escopo ainda remoto), a retratação para em `none`', () => {
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote' };
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+        retractAtlasClaim();
+        expect(lock.key).toEqual(noneKey());
+    });
+});
+
+describe('abertura adiada', () => {
+    it('roda uma única vez e engole o erro do thunk', async () => {
+        const run = vi.fn(async () => { throw new Error('falhou'); });
+        deferAtlasOpen(run);
+        expect(await resumeDeferredAtlasOpen()).toBe(false);
+        expect(run).toHaveBeenCalledTimes(1);
+        // Segunda chamada não tem nada a retomar: o desbloqueio comum não pode reabrir atlas.
+        expect(await resumeDeferredAtlasOpen()).toBe(false);
+        expect(run).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
+    it('recusa o wipe quando outra aba segura o atlas montado, e guarda a retomada', async () => {
+        // A aba duplicada herda `ebgeo_local_intent` do sessionStorage e boota com a origem remota
+        // da original: sem pré-voo, o `clearAllDataStore()` do boot cairia nos bancos vivos de lá.
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        const replay = vi.fn(async () => 'replayed');
+        const wiped = await clearMountedAtlasIfGranted(replay);
+
+        expect(wiped).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(lock.blocked).toBe(true);
+        // A retomada foi guardada: o "Usar aqui" do overlay termina o passo do boot em vez de
+        // apenas descobrir a aba.
+        expect(await resumeDeferredAtlasOpen()).toBe(true);
+        expect(replay).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROLE NEGATIVO: sem par no mesmo atlas, o mesmo caminho apaga normalmente', async () => {
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        // O par e uma aba LOCAL: ela nunca colide com um remoto, entao o caminho segue. Um par
+        // em OUTRO atlas remoto tambem deveria servir aqui, e servira quando cada remoto tiver os
+        // proprios bancos; enquanto todos dividem um endereco, aquele par colide de proposito.
+        peer = bootPeer(localAtlasKey('slot-vizinho'));
+        bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        const replay = vi.fn(async () => 'replayed');
+        const wiped = await clearMountedAtlasIfGranted(replay);
+
+        expect(wiped).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+        expect(replay).not.toHaveBeenCalled();
+        expect(await resumeDeferredAtlasOpen()).toBe(false);
+    });
+
+    it('é o AWAIT que pega o par: no instante do boot o lock ainda não decidiu', async () => {
+        // O par já está no ar, mas a aba acabou de construir o lock e o canal entrega em outro
+        // tick, então ela não ouviu ninguém. Uma leitura de `blocked` (ou de `isTabLockBlocked()`)
+        // responde `false` aqui, e era exatamente isso que o boot tinha de informação: nada.
+        hub = createHub(1);
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'), { settleMs: 40 });
+        expect(lock.blocked).toBe(false);          // a leitura síncrona, mentindo
+
+        const wiped = await clearMountedAtlasIfGranted();
+
+        expect(lock.blocked).toBe(true);           // a resposta, depois do settle
+        expect(wiped).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+    });
+
+    it('uma aba que não segura atlas nenhum apaga sem pedir licença a ninguém', async () => {
+        fixture.scope.value = null;                // `none`: nada resolvido, nada a arbitrar
+        peer = bootPeer(remoteAtlasKey('atlas-uuid'));
+        const lock = bootPageLock(noneKey());
+
+        expect(await clearMountedAtlasIfGranted()).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+        expect(lock.blocked).toBe(false);
+    });
+});

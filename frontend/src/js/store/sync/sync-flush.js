@@ -220,6 +220,18 @@ export function startAutoFlush(engine = syncEngine, { intervalMs = 1500 } = {}) 
 }
 
 /**
+ * Whether the auto-flush loop is running right now.
+ *
+ * It exists for the tab-lock brake (`tab-lock-sync-brake.js`): the brake must restore EXACTLY
+ * what it stopped, and starting a loop that was never running would turn a blocked anonymous tab
+ * into a flushing one on resume.
+ * @returns {boolean}
+ */
+export function isAutoFlushRunning() {
+    return state.timer !== null;
+}
+
+/**
  * Stops the auto-flush loop: clears the timer and unsubscribes change listeners.
  * Idempotent and safe to call when not running.
  * @returns {void}

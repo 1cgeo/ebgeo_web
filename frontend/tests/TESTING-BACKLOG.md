@@ -72,6 +72,31 @@ de `frontend/src/js/processing/algorithms/` e
 
 ---
 
+## Furos abertos do tab-lock
+
+Estes NÃO são alvos de cobertura: são defeitos conhecidos do protocolo de arbitragem entre
+abas (`frontend/src/js/utilities/tab-lock.js`), levantados por uma passada adversarial e
+deixados abertos por decisão de escopo. Moram aqui porque a alternativa era pior: eles já
+foram testes verdes que **asseguravam o defeito** (`expect(wipes).toEqual(['a-wipe',
+'b-wipe'])` autorizava as duas abas a apagar), de modo que fechar o buraco deixaria a suíte
+vermelha e a suíte estaria defendendo o bug.
+
+Cada um tem um `it.todo` correspondente em `frontend/tests/unit/tab-lock-refutacao.test.js`,
+com a reprodução escrita por extenso no comentário acima dele. **Ao fechar um destes, promova
+o `it.todo` a teste de verdade** (a reprodução vira o caso, com a asserção no comportamento
+correto) e apague a entrada daqui.
+
+| # | Furo | Onde | Fecha com |
+|---|---|---|---|
+| 1 | `granted: true` é concedido por **ausência de prova** e é ele que autoriza `clearAllDataStore()`. Três faces: mensagens presas (as duas abas recebem `granted`), par ocupado por mais que o settle (200 ms contra 60 ms), e uma única mensagem `STATE` perdida. A ordem total conserta o **estado** depois; o wipe já rodou. | `tab-lock.js` `acquire`, `open-atlas.service.js` `claimRemoteAtlas`/`clearMountedAtlasIfGranted` | Segunda pergunta ao lock **depois** do settle e imediatamente antes do wipe, ou um wipe reversível |
+| 2 | **Sem fencing:** aba apenas travada (não morta) é expirada por TTL, o par assume e limpa, e quando ela destrava volta a preceder na ordem (mantém o `claimedAt` antigo) e **retoma o lock sem nunca ter rodado o próprio `onBlocked`** | `tab-lock.js` `_livePeers`/`_evaluate` | Época monotônica por atlas, ou `onBlocked` disparado pela própria aba ao notar que ficou muda por mais que o TTL |
+| 3 | **bfcache:** o handler de `pagehide` não olha `event.persisted`, então a aba posta `RELEASE` ao entrar no cache e volta achando-se dona; não há `pageshow` para re-anunciar, só o heartbeat seguinte | `tab-lock.js`, `const leave = () => this._postLeave()` | Ignorar `persisted: true` no `pagehide` + re-anunciar em `pageshow` |
+| 4 | **Uma aba que cedeu nunca reassume.** `_evaluate` só sai do bloqueio com `!this._yielded`, então (a) quem cedeu fica bloqueado para sempre se a vencedora fecha, e (b) um `TAKEOVER` encalha **todas** as abas com a chave em colisão, não só a que o pediu (`_handleTakeover` é por colisão, não por destinatário) | `tab-lock.js` `_handleTakeover`/`_evaluate` | Re-adotar `_yieldedKey` ao cair para zero par vivo em colisão (fecha os dois sintomas de uma vez) |
+| 5 | A fila de saída é **global**, não por atlas, e `clearAllDataStore()` do open remoto a limpa. Como `remote × local` não colide (bancos disjuntos, e isso é a regra), uma aba local pode perder operações não sincronizadas por causa de um open na outra | `store/store.js` `unmountCurrentAtlas`, `store/atlas-namespace.js` | Fila por atlas, ou drenar antes do wipe |
+| 6 | **Ninguém lê `degraded`.** Sem `BroadcastChannel` e sem `localStorage` o lock desliga e concede (fail-open deliberado, "off and audible"), mas o único sinal é um `console.warn`: nenhum chamador badgeia a UI | `tab-lock.js` seção 8; chamadas em `open-atlas.service.js` | Propagar `degraded` até um aviso visível |
+
+---
+
 ## P1 — Risco Alto × Coupling Pure/Turf (ALTO ROI — COMECE AQUI)
 
 ### Domínio: measurement — CONCLUÍDO
@@ -387,7 +412,10 @@ Todos coupling `dom`/`maplibre`/`cesium`/`canvas`; valor de teste como lógica p
 - **Canvas/Image:** `point-marker-symbols.js`, `military_symbol_generator` PNG pipeline, `svg-to-png.js` (convert*), `hatch_pattern_generator` (createPatternImageData/draw*), `image_utils` (compressImage/createThumbnail/processImageFile), `pdf-cartographic-elements.composeLayout` + todos `_draw*`, `quill-helpers` (DOMParser/DOMPurify), `pdf-page-composer.stripHtmlToPlainText`.
 - **DOM builders:** todos `*_attributes_panel.js`, `*.section.js`/`*.modal.js`, sidebar/*, modals/*, toolbar/*, context-menu/*, bottom-controls/*, features_tab/*.component.js, vector_info/*, ui/* (exceto controllers puros), search-bar component, phone views, attribute_table renderers/filters, catalog components, briefing editor/presenter/text-panel.
 - **MapLibre source/layer:** `layers/styles/*.layers.js` (definições estáticas + ensureLayer), `measurement-labels.js`, `grid.control.js`, `terrain` toggle/zoom methods, `snapping showIndicator/hideIndicator`, `data/analysis-layers.manager` add/toggle layer methods.
-- **Async-IO + store (integração, não unit puro):** import/export `handleImport/handleExport` (JSZip/IndexedDB/GDAL), `processing-runner`, briefing slide-capture/tile-preloader/transition handler bodies, cesium3d/streetview360 CRUD wrappers, store group.operations (delegação guard já-coberta), `tab-lock.js` (BroadcastChannel).
+- **Async-IO + store (integração, não unit puro):** import/export `handleImport/handleExport` (JSZip/IndexedDB/GDAL), `processing-runner`, briefing slide-capture/tile-preloader/transition handler bodies, cesium3d/streetview360 CRUD wrappers, store group.operations (delegação guard já-coberta).
+  (`tab-lock.js` saiu desta lista: o protocolo de arbitragem entre abas é coberto por
+  `frontend/tests/unit/tab-lock.test.js`, com transporte falso injetado. O que segue sem
+  cobertura ali é só o overlay, que é DOM.)
 - **html-escape.escapeHtml** (document.createElement) — XSS, alto valor mas precisa jsdom.
 
 ---

@@ -395,9 +395,9 @@ export class ApiClient {
         const locks = globalThis.navigator?.locks;
         if (!locks || typeof locks.request !== 'function') return critical();
 
-        // Whether the critical section already started, so an AbortError raised INSIDE it (an
-        // aborted fetch) is never mistaken for "gave up waiting" and run a second time — that
-        // second run is exactly the double rotation this lock exists to prevent.
+        // Whether the critical section already started. Everything below hangs on it: a rejection
+        // from a section that RAN carries the server's answer and must reach the caller untouched,
+        // while one from a section that never ran is a lock failure and nothing more.
         let entered = false;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), REFRESH_LOCK_WAIT_MS);
@@ -408,7 +408,14 @@ export class ApiClient {
                 return critical();
             });
         } catch (error) {
-            if (!entered && error?.name === 'AbortError') {
+            // `entered` is what separates the two rejections that look alike. Not entered means
+            // the LOCK failed and the critical section never ran, so nothing was presented to the
+            // server and the session is intact — a transient client-side failure. Entered means
+            // `_rotateOrAdopt` itself rejected, and it has already classified that failure (kept
+            // or dropped the tokens, opened the cooldown); re-labelling it here would hide the
+            // server's own answer, and an aborted fetch INSIDE the section would come out as
+            // "gave up waiting", which it is not.
+            if (!entered) {
                 // GAVE UP WAITING, AND THAT IS NOT PERMISSION TO ROTATE ANYWAY. Running the
                 // critical section unlocked here was a real hazard: the holder is still mid-flight
                 // (the refresh request has no timeout), so the disk does not have its new pair yet,
@@ -420,7 +427,19 @@ export class ApiClient {
                 // renewing is cheap (the access token usually still has headroom, and the next call
                 // tries again); presenting a token twice is not.
                 if (this._adoptStoredTokens(this._readStoredTokens())) return;
-                throw new ApiError('Refresh lock busy', { code: 'REFRESH_LOCK_BUSY' });
+                if (error?.name === 'AbortError') {
+                    throw new ApiError('Refresh lock busy', { code: 'REFRESH_LOCK_BUSY' });
+                }
+                // The lock manager refused outright (a `SecurityError` from a context it does not
+                // consider secure, a `NotSupportedError`): the same "nothing happened" outcome,
+                // and it must reach the caller as such. Raw, it escaped every classification in
+                // this file — `isTerminalRefreshFailure` never sees it — so the REACTIVE path
+                // (`_request`, on a 401) rejected with a DOM exception in place of the server's
+                // own error, while the proactive path swallowed it. The original is kept as
+                // `cause` because nothing else in the client records why the lock failed.
+                const failed = new ApiError('Refresh lock unavailable', { code: 'REFRESH_LOCK_FAILED' });
+                failed.cause = error;
+                throw failed;
             }
             throw error;
         } finally {
@@ -755,8 +774,19 @@ export class ApiClient {
         // 1.5 s. Hammering a limiter that only charges failures would turn one 429 into hundreds,
         // for every client behind the same address. Replay the failure instead of re-asking.
         // Checked BEFORE the lock, so an outage does not build a queue of tabs on it.
-        if (this._lastTransientRefreshError && Date.now() < this._refreshCooldownUntil) {
-            throw this._lastTransientRefreshError;
+        //
+        // What the cooldown throttles is the REQUEST, never the disk read, and reading first is
+        // what keeps it from blinding this tab: a background tab is frozen by the browser and
+        // drops the `storage` event, so a tab that took a 503 would otherwise spend up to 30 s
+        // replaying a dead error with a GOOD pair, rotated by another tab, sitting on disk.
+        // Adopting costs nothing and asks nobody. And when the adopted pair ALSO needs rotating,
+        // going to the server is right rather than rude: the pair only exists because the server
+        // just answered another tab, which is the proof that the outage is over (`_adoptStoredTokens`
+        // clears the cooldown for the same reason).
+        const cooldownError = this._lastTransientRefreshError;
+        if (cooldownError && Date.now() < this._refreshCooldownUntil) {
+            if (!this._adoptStoredTokens(this._readStoredTokens())) throw cooldownError;
+            if (this._accessTokenOutlivesSkew()) return;
         }
 
         this._refreshing = this._withRefreshLock(() => this._rotateOrAdopt())

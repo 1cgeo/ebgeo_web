@@ -12,7 +12,11 @@ import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import { clearAllDataStore, activateAtlasInitialMap, markStoreRemote, markStoreLocal, isRemoteStoreSync, hasAnyMapFeatures } from '@store/store.js';
 import { getControl } from '@store';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
-import { openRemoteAtlas } from '@js/account/open-atlas.service.js';
+import {
+    openRemoteAtlas,
+    retractAtlasClaim,
+} from '@js/account/open-atlas.service.js';
+import { acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
@@ -639,6 +643,11 @@ export class AccountControl {
             showError('Serviço de exportação indisponível.');
             return;
         }
+        // There used to be an up-front refusal here, reading the roster for ANY tab holding ANY
+        // server atlas. It went with the rule it enforced ("one remote atlas at a time"): the atlas
+        // this action creates is brand new, so no other tab can be holding it, and refusing because
+        // a sibling tab has a DIFFERENT project open would deny a legitimate save. The claim taken
+        // below, right before the wipe, is the whole check now.
         this._closeMenu();
         showCreateAtlasModal({
             onCreate: async (name, sharing) => {
@@ -652,6 +661,23 @@ export class AccountControl {
                     const result = await saveLocalAtlasToServer(apiClient, exportService, { name });
                     // 2) Apply the staged sharing (the creator is the owner).
                     await this._applyAtlasSharing(result.atlasId, sharing);
+                    // 2.5) Announce the new atlas BEFORE the wipe. The wipe below empties the
+                    // databases this tab has mounted, so the claim has to be in force first — and
+                    // the announcement is what tells a sibling tab that this one is no longer in
+                    // the local atlas they shared. A refusal is nearly impossible now (the atlas
+                    // was created one line ago, so nobody else can hold it), but if it happens the
+                    // upload still stands and NOTHING local is touched: say so and stop.
+                    const claim = await acquireTabLock(remoteAtlasKey(result.atlasId));
+                    if (!claim.granted) {
+                        retractAtlasClaim();
+                        showWarning(
+                            'O projeto foi criado no servidor, mas outra aba assumiu este projeto '
+                            + 'enquanto isso. Seus dados locais continuam aqui, intactos: feche a '
+                            + 'outra aba e abra o projeto em "Seus projetos".',
+                            { duration: 10000 }
+                        );
+                        return;
+                    }
                     // 3) Swap the local store for the new remote atlas, live.
                     await clearAllDataStore();
                     await markStoreRemote(result.atlasId);
@@ -898,6 +924,16 @@ export class AccountControl {
             } else {
                 await clearAllDataStore();
             }
+            // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop
+            // claiming one — otherwise logging out here would lock every other tab out of the
+            // server until this one is closed. The reactive listener cannot do it: nothing moves
+            // the active store SCOPE back to a local slot before the next boot, so the derived key
+            // would still read `remote` and be taken for an unchanged claim.
+            //
+            // NOT when the work was preserved. That branch keeps un-synced data sitting in the very
+            // scratch another tab's `clearAllDataStore` would wipe, so the claim is still true and
+            // dropping it would expose exactly the work this path exists to rescue.
+            if (!preserve) retractAtlasClaim();
             // The "Mapa local" choice belonged to the session that just ended; leaving it set would
             // silently opt the NEXT identity out of the project chooser on this tab.
             clearLocalMapIntent();

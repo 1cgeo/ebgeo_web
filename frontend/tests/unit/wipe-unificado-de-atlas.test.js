@@ -108,6 +108,45 @@ function databasesStillHoldingSentinel() {
     return ATLAS_DATABASES.filter(name => readKey(name, SENTINEL) !== null);
 }
 
+// ============================================================================
+// Um atlas REMOTO tem os mesmos dez bancos, sob o sufixo `remote-<atlasId>`, e o wipe do
+// logout precisa alcançar TODOS os registrados, não só o que este boot montou.
+// ============================================================================
+
+const ATLAS_A = '11111111-1111-4111-8111-111111111111';
+const ATLAS_B = '22222222-2222-4222-8222-222222222222';
+
+/** @returns {string[]} Os dez bancos de um atlas remoto, escritos absolutamente. */
+function remoteDatabases(atlasId) {
+    return ATLAS_DATABASES.map(name => `${name}__remote-${atlasId}`);
+}
+
+/** Registra um atlas remoto no banco global e semeia a sentinela nos seus dez bancos. */
+function seedRemoteAtlas(atlasId) {
+    seed(GLOBAL_DATABASE, `remote_atlas:${atlasId}`, {
+        atlasId,
+        dbSuffix: `remote-${atlasId}`,
+        createdAt: 1,
+        updatedAt: 1
+    });
+    for (const name of remoteDatabases(atlasId)) seed(name, SENTINEL, { alvo: name });
+}
+
+/** @returns {string[]} Bancos daquele atlas remoto que ainda guardam a sentinela. */
+function remoteDatabasesStillHoldingSentinel(atlasId) {
+    return remoteDatabases(atlasId).filter(name => readKey(name, SENTINEL) !== null);
+}
+
+/**
+ * Finge uma sessão viva no grafo de módulos recém-carregado.
+ * @param {boolean} authenticated - Se há alguém autenticado.
+ * @returns {Promise<void>}
+ */
+async function setSession(authenticated) {
+    const { sessionContext } = await import('@store/sync/session-context.js');
+    vi.spyOn(sessionContext, 'isAuthenticated').mockReturnValue(authenticated);
+}
+
 /**
  * A store facade on a fresh module graph. `initServices()` is the real boot wiring (it
  * calls `initStoreEvents` itself), so the paths under test run against the real managers
@@ -207,6 +246,46 @@ describe('clearAllDataStore', () => {
 });
 
 // ============================================================================
+// Path 1.b: o logout ATIVO, no meio do uso
+//
+// `enforceLocalStoreWhenLoggedOut` só roda no boot e desmonta o atlas CORRENTE. Com um
+// namespace por atlas remoto, sair da sessão no meio do uso tem de varrer o REGISTRO, senão
+// sobra dado de servidor no disco até a próxima recarga.
+// ============================================================================
+
+describe('clearAllDataStore com a sessão já encerrada (o logout ativo)', () => {
+    it('varre todos os namespaces remotos registrados, não só o que esta aba montou', async () => {
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedRemoteAtlas(ATLAS_A);
+        seedRemoteAtlas(ATLAS_B);
+
+        await store.clearAllDataStore();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual([]);
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_B}`)).toBeNull();
+    });
+
+    it('CONTROLE NEGATIVO: com sessão viva não varre nada, porque aí não é um logout', async () => {
+        // `openRemoteAtlas` chama isto antes de CADA connect, e `_handleRemoteAtlasDeleted`
+        // depois de um delete: as duas querem "esvazia o atlas que eu tenho", nunca "apague
+        // todo atlas de servidor desta máquina".
+        const { store } = await loadStoreFacade();
+        await setSession(true);
+        seedRemoteAtlas(ATLAS_A);
+        seedRemoteAtlas(ATLAS_B);
+
+        await store.clearAllDataStore();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual(remoteDatabases(ATLAS_B));
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).not.toBeNull();
+    });
+});
+
+// ============================================================================
 // Path 2: o guarda de boot do usuário deslogado
 // ============================================================================
 
@@ -233,6 +312,18 @@ describe('guarda de boot com dado remoto e ninguém autenticado', () => {
         expect(localforage.dropInstance).not.toHaveBeenCalled();
     });
 
+    it('varre TAMBÉM os namespaces remotos registrados, que o marcador não menciona', async () => {
+        const { store } = await loadStoreFacade();
+        seedRemoteAtlas(ATLAS_A);
+        seedRemoteAtlas(ATLAS_B);
+        seed(GLOBAL_DATABASE, '__store_origin__', { kind: 'remote', atlasId: ATLAS_A });
+
+        await store.initializeWithLastActiveMap();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_B)).toEqual([]);
+    });
+
     it('não dispara com origem local: o dado do usuário offline fica onde está', async () => {
         const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
         const { store } = await loadStoreFacade();
@@ -244,5 +335,42 @@ describe('guarda de boot com dado remoto e ninguém autenticado', () => {
         await store.initializeWithLastActiveMap();
 
         expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+    });
+});
+
+// ============================================================================
+// Path 3: o órfão que uma aba morta deixou no registro
+//
+// A origem diz LOCAL (esta aba nunca abriu nada de servidor) e mesmo assim existe namespace
+// remoto registrado, porque OUTRA aba abriu e morreu. Sem sessão, ele não pode ficar.
+// ============================================================================
+
+describe('órfão no registro remoto, boot sem sessão', () => {
+    it('é recolhido mesmo com a origem LOCAL, que é o caso que um crash deixa', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(false);
+        seedSentinels();
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seedRemoteAtlas(ATLAS_A);
+
+        await store.initializeWithLastActiveMap();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual([]);
+        expect(readKey(GLOBAL_DATABASE, `remote_atlas:${ATLAS_A}`)).toBeNull();
+        // controle negativo: o atlas LOCAL do usuário deslogado não é tocado por isto
+        expect(databasesStillHoldingSentinel()).toEqual(ATLAS_DATABASES);
+    });
+
+    it('CONTROLE NEGATIVO: com sessão viva o órfão fica, porque pode ser o atlas em uso', async () => {
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
+        const { store } = await loadStoreFacade();
+        await setSession(true);
+        seed('ebgeo_app_settings', 'schemaVersion', ATLAS_SCHEMA_VERSION);
+        seedRemoteAtlas(ATLAS_A);
+
+        await store.initializeWithLastActiveMap();
+
+        expect(remoteDatabasesStillHoldingSentinel(ATLAS_A)).toEqual(remoteDatabases(ATLAS_A));
     });
 });

@@ -128,7 +128,7 @@ describe('escopo ausente: os bancos continuam os de hoje', () => {
 
         await repo.saveMap('Principal', { name: 'Principal', features: {} });
 
-        expect(contentsOf('ebgeo_maps__remote')).toEqual(['Principal']);
+        expect(contentsOf('ebgeo_maps__remote-atlas-do-servidor')).toEqual(['Principal']);
         // O banco legado pode ter sido ABERTO por uma migração que ainda não passou pela
         // fábrica; o que não pode é ter recebido a escrita do escopo remoto.
         expect(contentsOf('ebgeo_maps') ?? []).not.toContain('Principal');

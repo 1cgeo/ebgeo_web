@@ -40,8 +40,10 @@ import {
     getStoreFor,
     dropAtlasDatabases,
     localScope,
+    remoteAtlasKey,
     remoteScope
 } from './atlas-namespace.js';
+import { activateRemoteAtlas } from './remote-atlas.api.js';
 
 /**
  * Ceiling of named local atlases. Owner decision, and deliberately low: every slot is 10
@@ -267,12 +269,21 @@ export async function initLocalAtlases(options = {}) {
         await persistRegistry();
     }
 
-    // A live session on a remote atlas keeps working in the single remote scratch scope;
-    // the local pointer stays where it is, untouched, for the next local boot.
-    const scope = (isRemoteOrigin && options.isAuthenticated)
-        ? remoteScope(origin?.atlasId ?? null)
-        : scopeOfLocalAtlas(current);
+    // A live session on a remote atlas keeps working in THAT atlas's namespace; the local
+    // pointer stays where it is, untouched, for the next local boot. Going through
+    // `activateRemoteAtlas` (rather than `activateScope(remoteScope(...))`) is what makes
+    // this boot path also REPAIR the registry: an installation whose marker says REMOTE but
+    // whose registry entry was lost gets the entry back here, so the logout wipe can find
+    // the namespace again.
+    const atlasId = typeof origin?.atlasId === 'string' ? origin.atlasId : '';
+    if (isRemoteOrigin && options.isAuthenticated && atlasId.length > 0) {
+        const scope = await activateRemoteAtlas(atlasId);
+        return { scope, current, atlases: listLocalAtlases() };
+    }
 
+    // A REMOTE marker with no atlas id names no namespace, so there is nothing to activate
+    // and nothing to repair: fall back to the local slot instead of inventing a scope.
+    const scope = scopeOfLocalAtlas(current);
     activateScope(scope);
     return { scope, current, atlases: listLocalAtlases() };
 }
@@ -292,6 +303,93 @@ export function listLocalAtlases() {
  */
 export function getCurrentLocalAtlasId() {
     return _currentId;
+}
+
+/**
+ * Points the store at the current LOCAL slot, if the registry is loaded and has one.
+ *
+ * Written for exactly one caller: the logged-out purge in `store.js`, which destroys the
+ * active remote namespace and leaves nothing active. It reports failure instead of
+ * bootstrapping a slot, because inventing an atlas inside a wipe is how a wipe grows a side
+ * effect nobody expects; a false here means the repository's own `ensureAtlasScope` bridge
+ * will activate the legacy local databases, which is the pre-namespace behavior.
+ *
+ * @returns {boolean} True when a local scope was activated.
+ */
+export function activateCurrentLocalAtlasScope() {
+    if (_entries === null || _entries.length === 0) return false;
+
+    const entry = _entries.find(e => e.id === _currentId)
+        ?? [..._entries].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (!entry) return false;
+
+    activateScope(scopeOfLocalAtlas(entry));
+    return true;
+}
+
+/**
+ * Turns a REMOTE namespace into a named LOCAL atlas, moving zero bytes.
+ *
+ * THIS IS THE RESCUE PATH, and it is the reason `localScope` accepts a `remote-<id>`
+ * suffix. When a session dies with operations still queued, `AccountControl._handleLogout`
+ * keeps the work instead of wiping it. That used to be nothing more than flipping the
+ * origin marker, because remote and local data shared one set of databases. Now the work
+ * sits in a namespace the logged-out purge deletes, so keeping it means moving the CLAIM
+ * from the remote registry to the local one.
+ *
+ * Order is deliberate: the local claim is written FIRST, and only then is the remote key
+ * removed. A crash in between leaves the namespace claimed by BOTH registries, which is
+ * harmless because `purgeAllRemoteAtlases` skips a namespace a local atlas claims (and
+ * removes the stale remote key when it sees one). The reverse order has a crash window in
+ * which the namespace is claimed by NOBODY, and unclaimed server data is the one outcome
+ * this design may not produce.
+ *
+ * THE CAP DOES NOT APPLY. Refusing here would mean deleting work the user cannot get back,
+ * to defend a ceiling on databases. An installation can therefore end up with 11 local
+ * atlases; the user deletes one, and the next `createLocalAtlas` refuses as usual.
+ *
+ * @param {string} atlasId - Server atlas id whose namespace is being adopted.
+ * @param {string} name - Display name for the new local atlas, pt-BR.
+ * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`.
+ * @throws {Error} When `name` is not a non-empty string (caller bug).
+ */
+export async function adoptRemoteAtlasAsLocal(atlasId, name) {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+        throw new Error('adoptRemoteAtlasAsLocal: name must be a non-empty string');
+    }
+    const { dbSuffix } = remoteScope(atlasId);
+
+    // The rescue can fire at any moment of a session, so it cannot require a boot that
+    // already loaded the registry.
+    if (_entries === null) await loadRegistry();
+
+    const already = _entries.find(e => e.dbSuffix === dbSuffix);
+    if (already) {
+        // Idempotent: a retried rescue must not spend a second slot on the same databases.
+        return { ok: true, atlas: { ...already } };
+    }
+
+    const now = Date.now();
+    const entry = {
+        id: generateUUID(),
+        name: uniqueName(name.trim(), _entries),
+        dbSuffix,
+        createdAt: now,
+        updatedAt: now
+    };
+    _entries.push(entry);
+    _currentId = entry.id;
+    await persistRegistry();
+
+    await getGlobalStore().removeItem(remoteAtlasKey(atlasId));
+
+    // The databases do not move, so the only thing left is the KIND of the active scope:
+    // leaving it REMOTE would let the next logged-out purge treat it as server data.
+    if (getActiveScope()?.dbSuffix === dbSuffix) {
+        activateScope(scopeOfLocalAtlas(entry));
+    }
+
+    return { ok: true, atlas: { ...entry } };
 }
 
 /**
@@ -376,7 +474,10 @@ export async function setCurrentLocalAtlas(id) {
  * would leave the pointer aimed at a half deleted atlas.
  *
  * @param {string} id - Local atlas id.
- * @returns {Promise<LocalAtlasResult & { droppedDatabases?: string[] }>}
+ * @returns {Promise<LocalAtlasResult & { droppedDatabases?: string[], blockedDatabases?: string[] }>}
+ *   `blockedDatabases` names the databases another tab was holding open: the slot is gone
+ *   from the registry either way, and those files stay on disk as unreferenced garbage
+ *   rather than the delete hanging (`atlas-namespace.js` Decision 4).
  */
 export async function deleteLocalAtlas(id) {
     const entries = requireEntries();
@@ -398,13 +499,18 @@ export async function deleteLocalAtlas(id) {
     }
     await persistRegistry();
 
-    const droppedDatabases = await dropAtlasDatabases(scopeOfLocalAtlas(entry));
+    const { dropped, blocked } = await dropAtlasDatabases(scopeOfLocalAtlas(entry));
 
     if (wasCurrent && getActiveScopeKind() !== StoreScopeKind.REMOTE) {
         activateScope(scopeOfLocalAtlas(entries.find(e => e.id === _currentId)));
     }
 
-    return { ok: true, atlas: { ...entry }, droppedDatabases };
+    return {
+        ok: true,
+        atlas: { ...entry },
+        droppedDatabases: dropped,
+        blockedDatabases: blocked
+    };
 }
 
 /**

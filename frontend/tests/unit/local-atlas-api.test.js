@@ -129,7 +129,7 @@ describe('local-atlas.api :: boot e ponteiro de atlas corrente', () => {
         const { scope, current } = await api.initLocalAtlases({ isAuthenticated: true });
 
         expect(scope.kind).toBe('remote');
-        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote');
+        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote-servidor-1');
         expect(api.getCurrentLocalAtlasId()).toBe(current.id);
     });
 
@@ -337,7 +337,7 @@ describe('local-atlas.api :: trocar de atlas corrente', () => {
         await api.setCurrentLocalAtlas(atlas.id);
 
         expect(api.getCurrentLocalAtlasId()).toBe(atlas.id);
-        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote');
+        expect(ns.getStore(ns.StoreName.MAPS).__dbName).toBe('ebgeo_maps__remote-servidor-1');
     });
 });
 

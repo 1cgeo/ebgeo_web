@@ -26,6 +26,8 @@ import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
 import { showError, showSuccess, showWarning } from '@utils/toast_service.js';
+// From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
+import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { AtlasDrive } from './atlas-drive.js';
 import { LOCAL_INTENT_KEY } from '../deep-link/local-intent.js';
 
@@ -227,6 +229,14 @@ async function initProjectsPage() {
         window.location.replace(MAP_URL);
         return;
     }
+
+    // Joins the multi-tab channel holding NOTHING (`tab-lock.js`, section 1: the arbitration is
+    // over which tab may hold which ATLAS, and this page holds none). So it never blocks and is
+    // never blocked, which is what keeps "map in one tab, chooser in another" working; it stays
+    // visible in every peer's roster, which is the whole point of announcing. No overlay: a page
+    // that cannot be blocked has nothing to render, and it does not load `tab-lock.css` either.
+    // Announced only past the gate, so a tab that is about to redirect does not join and leave.
+    initTabLock({ key: noneKey(), overlayHost: null });
 
     let projects = [];
     try {
