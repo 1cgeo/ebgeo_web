@@ -84,7 +84,10 @@ export function combineGroups(groupIds, selectedFeatures = [], mapName = null) {
  * Gets all groups for a map.
  *
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Group[]} Array of groups
+ * @returns {Object<string, import('./store.types.js').Group>} Groups keyed by group id. NOT an
+ *   array and NOT a Map: it is `memoryStore.groups[mapName]`, a plain object. The old JSDoc said
+ *   "Array of groups", and the exporter believed a third thing (`v?.size`, i.e. a Map), which is
+ *   how every group was silently dropped from the .ebgeo.
  */
 export function getMapGroups(mapName = null) {
     return deps.groupManager.getMapGroups(mapName);

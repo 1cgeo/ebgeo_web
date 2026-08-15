@@ -1024,7 +1024,13 @@ export class ExportImportService {
         const tasks = [
             { key: 'colorUsage', fn: () => getColorUsage(mapName), check: (v) => v && Object.keys(v).length > 0 },
             { key: 'mapNotes', fn: () => getMapNotes(mapName), check: (v) => v && (v.title || v.description) },
-            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v?.size > 0, transform: (v) => Object.fromEntries(v) },
+            // `getMapGroups` devolve um OBJETO (`memoryStore.groups[mapa]`, chaveado por id de
+            // grupo), e nao um Map. O predicado antigo era `v?.size > 0`, e objeto nao tem
+            // `.size`: `undefined > 0` e sempre falso, entao TODO grupo era descartado do
+            // .ebgeo em silencio. O usuario agrupava, salvava, reabria, e os grupos sumiam,
+            // sem erro. O importador (`importGroupsDirectly`) sempre esteve pronto para
+            // recebe-los; quem nunca os entregava era o exportador.
+            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v && Object.keys(v).length > 0 },
             { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
             { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
             { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
