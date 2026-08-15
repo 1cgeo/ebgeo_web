@@ -417,6 +417,19 @@ describe('removeMap', () => {
         expect(result.reason).toBe('LAST_MAP');
         // Verify map was NOT removed from storage
         expect(mockMaps.value['TestMap']).toBeDefined();
+
+        // `reason` é código de máquina, `message` é o que o usuário lê. Esta recusa já
+        // carregou a frase em português DENTRO de `reason`, e o listener, que separa os
+        // avisos justamente por esse campo, caía no balde genérico e dizia "Acesso somente
+        // leitura" para um caso que não tem nada a ver com permissão.
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({
+                operation: 'removeMap',
+                reason: 'LAST_MAP',
+                message: expect.stringContaining('único mapa')
+            })
+        );
     });
 
     it('switches to first remaining map when removing current', async () => {

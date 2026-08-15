@@ -242,9 +242,14 @@ export async function removeMap(mapName) {
     const allMaps = await getAllMapNames();
 
     if (allMaps.length <= 1) {
+        // `reason` is a MACHINE code (the listener buckets by it) and `message` is what the
+        // user reads. This block used to put the Portuguese sentence in `reason`, so it fell
+        // into the catch-all bucket and the user was told "Acesso somente leitura", which is
+        // the wrong explanation entirely: nothing here is about permission.
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'removeMap',
-            reason: 'Não é possível deletar o último mapa'
+            reason: 'LAST_MAP',
+            message: 'Não é possível excluir o único mapa do projeto.'
         });
         return { success: false, reason: 'LAST_MAP' };
     }
