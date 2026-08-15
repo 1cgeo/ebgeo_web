@@ -21,16 +21,7 @@ import { setStoreErrorEventBus } from './store-errors.js';
 import { registerStoreErrorListeners } from './store-error-listener.js';
 import {
     initializeRepository,
-    clearAllMapData,
-    clearAllImageData,
-    clearAllAppSettings,
-    clearAllGroupData,
-    clearAllLayerData,
-    clearAllCesium3dData,
-    clearAllStreetview360Data,
-    clearAllBriefingData,
-    clearAllCommentData,
-    clearAllAtlasData,
+    clearAllAtlasStores,
     setAppSetting,
     getColorUsage
 } from './repository.js';
@@ -121,6 +112,35 @@ async function loadMapDataToMemory(mapName) {
 }
 
 /**
+ * Unmounts the atlas that is currently mounted: drops the in-memory mirrors and EMPTIES
+ * every per-atlas database, plus the outbound operation queue.
+ *
+ * UNMOUNT IS NOT DESTROY, and keeping the two apart is the point of this function. It
+ * calls `clear()`, which empties a database and leaves it standing: the slot survives and
+ * is immediately usable again, which is what every caller here wants (a logout, a switch
+ * of atlas, a "clear everything"). DELETING the databases of a slot is a different
+ * operation with a different owner (`dropAtlasDatabases`, reached by deleting a named
+ * local atlas), and it must never be reached from here: it would destroy the workspace of
+ * a user who only logged out.
+ *
+ * The queue goes with the atlas on purpose: it is global to the installation, so an
+ * operation born in the atlas being abandoned would otherwise survive and be pushed into
+ * whichever atlas is connected next (inv 2/3, same reason the atlas record is cleared).
+ *
+ * The list of databases is DERIVED (`clearAllAtlasStores`, from `STORE_DESCRIPTORS`), not
+ * written out here. It used to be written out twice, once per caller below, with nothing
+ * forcing the two copies to agree.
+ *
+ * @returns {Promise<void>}
+ */
+async function unmountCurrentAtlas() {
+    resetMemoryStore();
+    mapResolver.clear();
+    await clearAllAtlasStores();
+    await operationQueue.clear();
+}
+
+/**
  * Additive boot guard: if the local IndexedDB currently holds a REMOTE (server) atlas but
  * nobody is authenticated — the JWT expired, or the tab was closed without logging out —
  * that remote data must not remain editable offline. Discard it back to a blank local
@@ -139,19 +159,7 @@ async function enforceLocalStoreWhenLoggedOut() {
     if (!isRemoteStoreSync() || sessionContext.isAuthenticated()) {
         return;
     }
-    resetMemoryStore();
-    mapResolver.clear();
-    await clearAllMapData();
-    await clearAllImageData();
-    await clearAllAppSettings();
-    await clearAllGroupData();
-    await clearAllLayerData();
-    await clearAllCesium3dData();
-    await clearAllStreetview360Data();
-    await clearAllBriefingData();
-    await clearAllCommentData();
-    await clearAllAtlasData();
-    await operationQueue.clear();
+    await unmountCurrentAtlas();
     await markStoreLocal();
 }
 
@@ -184,22 +192,7 @@ export async function initializeWithLastActiveMap() {
  * @returns {Promise<void>}
  */
 export async function clearAllDataStore() {
-    resetMemoryStore();
-    mapResolver.clear();
-    await clearAllMapData();
-    await clearAllImageData();
-    await clearAllAppSettings();
-    await clearAllGroupData();
-    await clearAllLayerData();
-    await clearAllCesium3dData();
-    await clearAllStreetview360Data();
-    await clearAllBriefingData();
-    await clearAllCommentData();
-    // The atlas record + pending operation queue belong to the atlas being abandoned. Clearing
-    // them prevents remote atlas.settings and un-flushed remote ops from surviving a
-    // logout/switch or leaking into another atlas (inv 2/3).
-    await clearAllAtlasData();
-    await operationQueue.clear();
+    await unmountCurrentAtlas();
 
     await mapManager.clearAllColorCaches();
 

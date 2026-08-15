@@ -9,13 +9,18 @@
  * - ./memory-store.js - for runtime memory state
  * - ./repositories/index.js - for data access operations
  *
- * The following functions are still implemented here because they require
- * direct access to localforage instances for initialization and bulk operations:
+ * The following functions are still implemented here because they need whole-store
+ * access for initialization and bulk operations:
  * - initializeRepository() - initializes the data layer and runs migrations
- * - clearAll*() functions - bulk clear operations for all stores
+ * - clearAllAtlasStores() - the single bulk clear of every per-atlas database
+ *
+ * Which DATABASE those stores are is decided by the namespace factory
+ * (`atlas-namespace.js`) at CALL time, never at module load; the accessors below and the
+ * ones in `repositories/local.repository.js` share one resolver on purpose.
  */
 
-import localforage from 'localforage';
+import { StoreName, listAtlasStores } from './atlas-namespace.js';
+import { ensureAtlasScope, getScopedStore } from './repositories/local.repository.js';
 import { detectMigrationNeeded, safelyMigrate } from './migration/migration.service.js';
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
@@ -49,19 +54,19 @@ import {
 } from './repository.utils.js';
 import { memoryStore } from './memory-store.js';
 
-// ===== LOCALFORAGE INSTANCES =====
-// These are kept here for initialization and bulk clear operations
+// ===== STORE ACCESSORS =====
+// Resolved through the namespace factory on every call, never captured at module load:
+// a handle taken here at import time is bound to whichever atlas was active when this
+// module was first evaluated, and would keep writing there after a switch, silently.
+// `getScopedStore` (repositories/local.repository.js) is shared with the repository
+// implementation so both halves of this front resolve through ONE code path.
 
-const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
-const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
-const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
-const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
-const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
-const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
-const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
-const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
-const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
-const commentStore = localforage.createInstance({ name: 'ebgeo_comments' });
+const mapStore = () => getScopedStore(StoreName.MAPS);
+const imageStore = () => getScopedStore(StoreName.IMAGES);
+const appStore = () => getScopedStore(StoreName.SETTINGS);
+const groupStore = () => getScopedStore(StoreName.GROUPS);
+const layerStore = () => getScopedStore(StoreName.LAYERS);
+const cesium3dStore = () => getScopedStore(StoreName.CESIUM3D);
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
@@ -69,18 +74,18 @@ const commentStore = localforage.createInstance({ name: 'ebgeo_comments' });
  * Clears all legacy stores and resets schema version.
  */
 async function clearLegacyStores() {
-    await mapStore.clear();
-    await imageStore.clear();
-    await appStore.clear();
-    await groupStore.clear();
-    await layerStore.clear();
+    await mapStore().clear();
+    await imageStore().clear();
+    await appStore().clear();
+    await groupStore().clear();
+    await layerStore().clear();
     // After clearing, the store is EMPTY — a brand-new repository. It will be rebuilt at the current
     // schema (getEmptyMapData produces v2.2), so stamp it at the CURRENT version, NOT the legacy 1.7.
     // This is the fresh-install (null version) and too-old-to-migrate (data discarded) path; either
     // way there is nothing to migrate, so the Atlas migration chain must be skipped. Pre-existing
     // repos at a still-supported older version are NOT cleared here and DO migrate (runLegacyMigrations
     // + detectMigrationNeeded), honoring "migrate old repos per their version; create new ones current".
-    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+    await appStore().setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
 }
 
 /**
@@ -88,7 +93,7 @@ async function clearLegacyStores() {
  */
 async function checkAndCleanLegacyData() {
     try {
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
+        const currentSchemaVersion = await appStore().getItem('schemaVersion');
 
         if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
             await clearLegacyStores();
@@ -112,12 +117,12 @@ async function checkAndCleanLegacyData() {
  * @param {boolean} [needsData=true] - Whether the migration needs map data loaded
  */
 async function runMigrationForAllMaps(migrateFn, label, needsData = true) {
-    const mapNames = await mapStore.keys();
+    const mapNames = await mapStore().keys();
     let migratedCount = 0;
 
     for (const mapName of mapNames) {
         if (needsData) {
-            const mapData = await mapStore.getItem(mapName);
+            const mapData = await mapStore().getItem(mapName);
             if (mapData) {
                 const wasMigrated = await migrateFn(mapName, mapData);
                 if (wasMigrated) migratedCount++;
@@ -136,7 +141,7 @@ async function runMigrationForAllMaps(migrateFn, label, needsData = true) {
 async function migrateMapTo14(mapName, mapData) {
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
-        await mapStore.setItem(mapName, mapData);
+        await mapStore().setItem(mapName, mapData);
         return true;
     }
     return false;
@@ -158,7 +163,7 @@ async function migrateMapTo15(mapName, mapData) {
     }
 
     if (modified) {
-        await mapStore.setItem(mapName, mapData);
+        await mapStore().setItem(mapName, mapData);
     }
     return modified;
 }
@@ -189,16 +194,16 @@ async function migrateMapTo16(mapName, mapData) {
     }
 
     if (modified) {
-        await mapStore.setItem(mapName, mapData);
+        await mapStore().setItem(mapName, mapData);
     }
     return modified;
 }
 
 async function migrateMapTo17(mapName) {
     const key = `cesium3d_${mapName}`;
-    const existingData = await cesium3dStore.getItem(key);
+    const existingData = await cesium3dStore().getItem(key);
     if (!existingData || existingData.cameraPositions === undefined || existingData.markers === undefined) {
-        await cesium3dStore.setItem(key, getEmptyCesium3dData());
+        await cesium3dStore().setItem(key, getEmptyCesium3dData());
         return true;
     }
     return false;
@@ -221,7 +226,7 @@ const LEGACY_MIGRATIONS = [
  */
 async function runLegacyMigrations(currentVersion) {
     if (!currentVersion) {
-        await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        await appStore().setItem('schemaVersion', SCHEMA_VERSION);
         return;
     }
 
@@ -233,7 +238,7 @@ async function runLegacyMigrations(currentVersion) {
         await runMigrationForAllMaps(fn, label, needsData !== false);
     }
 
-    await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+    await appStore().setItem('schemaVersion', SCHEMA_VERSION);
 }
 
 // ===== INITIALIZATION =====
@@ -246,7 +251,7 @@ export async function initializeRepository() {
     try {
         await checkAndCleanLegacyData();
 
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
+        const currentSchemaVersion = await appStore().getItem('schemaVersion');
         await runLegacyMigrations(currentSchemaVersion);
 
         // Run v2.0 migration if needed (adds Atlas, sync metadata, etc.)
@@ -261,7 +266,7 @@ export async function initializeRepository() {
             }
         }
 
-        const allMapNames = await mapStore.keys();
+        const allMapNames = await mapStore().keys();
         if (allMapNames.length === 0) {
             const newMapData = getEmptyMapData();
 
@@ -278,12 +283,12 @@ export async function initializeRepository() {
                 }];
             }
 
-            await mapStore.setItem(DEFAULT_MAP_NAME, newMapData);
+            await mapStore().setItem(DEFAULT_MAP_NAME, newMapData);
             memoryStore.currentMap = DEFAULT_MAP_NAME;
             return DEFAULT_MAP_NAME;
         }
 
-        const lastActiveMap = await appStore.getItem('lastActiveMap');
+        const lastActiveMap = await appStore().getItem('lastActiveMap');
         const activeMap = (lastActiveMap && allMapNames.includes(lastActiveMap))
             ? lastActiveMap
             : allMapNames[0];
@@ -297,82 +302,39 @@ export async function initializeRepository() {
     }
 }
 
-// ===== BULK CLEAR OPERATIONS =====
+// ===== BULK CLEAR (DERIVED FROM THE STORE LIST, NOT HAND-LISTED) =====
 
 /**
- * Clears all map data.
+ * EMPTIES every per-atlas database of the atlas currently mounted. One function replaces
+ * the two parallel hand-written lists that lived in `store.js` (the wipe on logout and the
+ * wipe on "clear everything"), which nothing forced to stay in sync: a side-store added to
+ * one list and forgotten in the other left server data behind on exactly one of the paths.
+ *
+ * The list is now DERIVED, not hand-written: `listAtlasStores()` returns exactly the
+ * descriptors marked `perAtlas`, so a database added to the factory is wiped here without
+ * anyone remembering this function. The hand-written half that used to sit above (a table
+ * of module-level handles keyed by store id, with a throw for the entry someone forgot)
+ * disappeared with the lazy accessors: there is nothing left to forget.
+ *
+ * What it covers, and why it is worth naming: the atlas record (atlas-level settings such
+ * as `terrainExaggeration` that a remote atlas writes), the ENTIRE app-settings store
+ * (per-map color usage, notes, grid style, temporal config, saved position, base layer,
+ * map lock, plus the schema version and the origin marker), and every side-store (groups,
+ * layers, 3D, 360, briefings, spatial comments, images).
+ *
+ * CLEAR IS NOT DELETE. `clear()` empties a database and leaves it standing, which is what
+ * unmounting the current atlas means. Destroying a slot's databases is `dropAtlasDatabases`
+ * (`atlas-namespace.js`), reached only by deleting a local atlas.
+ *
+ * @returns {Promise<void>}
  */
-export async function clearAllMapData() {
-    await mapStore.clear();
-}
-
-/**
- * Clears all image data.
- */
-export async function clearAllImageData() {
-    await imageStore.clear();
-}
-
-/**
- * Clears all group data.
- */
-export async function clearAllGroupData() {
-    await groupStore.clear();
-}
-
-/**
- * Clears all layer data.
- */
-export async function clearAllLayerData() {
-    await layerStore.clear();
-}
-
-/**
- * Clears all Cesium 3D data.
- */
-export async function clearAllCesium3dData() {
-    await cesium3dStore.clear();
-}
-
-/**
- * Clears all Street View 360 data.
- */
-export async function clearAllStreetview360Data() {
-    await streetview360Store.clear();
-}
-
-/**
- * Clears all briefing data.
- */
-export async function clearAllBriefingData() {
-    await briefingStore.clear();
-}
-
-/**
- * Clears all spatial-comment data.
- */
-export async function clearAllCommentData() {
-    await commentStore.clear();
-}
-
-/**
- * Clears the atlas record (`ebgeo_atlas`). The atlas holds atlas-level settings (e.g.
- * `terrainExaggeration`) that a remote atlas writes; clearing it on logout/switch prevents
- * those from surviving the session or leaking into another atlas (inv 2/3).
- */
-export async function clearAllAtlasData() {
-    await atlasStore.clear();
-}
-
-/**
- * Clears the ENTIRE app-settings store — every per-map key (color usage, notes, grid style,
- * temporal config, saved position, base layer, map lock) plus globals (schema version, store
- * origin). Per-map data in the OTHER stores (groups, layers, 3D, 360) is cleared by their own
- * clearAll*Data functions, which every caller invokes alongside this one — so a per-map sweep here
- * (which also ran AFTER mapStore was already cleared, making it a no-op) was redundant.
- */
-export async function clearAllAppSettings() {
-    await appStore.clear();
+export async function clearAllAtlasStores() {
+    // `listAtlasStores()` resolves against the ACTIVE scope and throws when there is none,
+    // so the scope has to be settled before the set is resolved.
+    ensureAtlasScope();
+    for (const { store } of listAtlasStores()) {
+        await store.clear();
+    }
 }
 
 // ===== APP SETTINGS (needed by store.js for setSchemaVersion) =====
@@ -383,7 +345,7 @@ export async function clearAllAppSettings() {
  * @param {any} value - Setting value
  */
 export async function setAppSetting(key, value) {
-    await appStore.setItem(key, value);
+    await appStore().setItem(key, value);
 }
 
 // ===== COLOR USAGE (needed by store.js for getColorUsage export) =====
@@ -394,7 +356,7 @@ export async function setAppSetting(key, value) {
  * @returns {Promise<Object>} Color usage data
  */
 export async function getColorUsage(mapName) {
-    const data = await appStore.getItem(`color_usage_${mapName}`);
+    const data = await appStore().getItem(`color_usage_${mapName}`);
     return data || {};
 }
 

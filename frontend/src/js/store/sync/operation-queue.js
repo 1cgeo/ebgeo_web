@@ -10,14 +10,32 @@
  * - Compaction merges redundant operations (multiple UPDATEs, CREATE+DELETE)
  */
 
-import localforage from 'localforage';
+import { StoreName, getStore } from '@store/atlas-namespace.js';
 import { OperationType } from './operation-types.js';
 
-/** Dedicated IndexedDB store for operation queue */
-const queueStore = localforage.createInstance({
-    name: 'ebgeo',
-    storeName: 'operation_queue'
-});
+/**
+ * Dedicated IndexedDB store for the operation queue, resolved through the namespace
+ * factory instead of being created here.
+ *
+ * The queue is one of the two GLOBAL (`perAtlas: false`) databases: the operation
+ * envelope carries no atlas id, so a per-atlas queue would record the atlas where nobody
+ * reads it, would leave up to 10 local queues that never drain, and keyed by remote atlas
+ * id it would be exactly the persistent, editable server residue the store-origin marker
+ * forbids. Being global also means this accessor never needs an active scope, which is
+ * what lets the queue be touched at boot, before `initLocalAtlases()` picks one.
+ *
+ * Resolved on every call on purpose (the factory caches, so it is a Map lookup): a handle
+ * captured at module load is the exact bug the factory exists to remove.
+ *
+ * The price of a global queue is that a SWITCH of local atlas must clear it, or an
+ * operation born in atlas A survives into atlas B and a later connect pushes it to the
+ * wrong atlas. Today that comes for free inside `clearAllDataStore`.
+ *
+ * @returns {import('localforage').default} The queue's localforage instance.
+ */
+function queueStore() {
+    return getStore(StoreName.OPERATION_QUEUE);
+}
 
 /**
  * Key prefix for queue entries.
@@ -65,7 +83,7 @@ class OperationQueue {
         if (this._index) return;
         this._index = new Map();
 
-        const keys = await queueStore.keys();
+        const keys = await queueStore().keys();
         for (const key of keys) {
             if (!key.startsWith(KEY_PREFIX)) continue;
             const lastUnderscore = key.lastIndexOf('_');
@@ -96,7 +114,7 @@ class OperationQueue {
         await this._ensureIndex();
 
         const key = this._buildKey(operation);
-        await queueStore.setItem(key, operation);
+        await queueStore().setItem(key, operation);
         this._index.set(operation.id, key);
 
         if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
@@ -114,7 +132,7 @@ class OperationQueue {
 
         for (const operation of operations) {
             const key = this._buildKey(operation);
-            await queueStore.setItem(key, operation);
+            await queueStore().setItem(key, operation);
             this._index.set(operation.id, key);
         }
 
@@ -146,7 +164,7 @@ class OperationQueue {
         for (const opId of operationIds) {
             const key = this._index.get(opId);
             if (key) {
-                await queueStore.removeItem(key);
+                await queueStore().removeItem(key);
                 this._index.delete(opId);
                 removed++;
             }
@@ -176,10 +194,10 @@ class OperationQueue {
      * @returns {Promise<void>}
      */
     async clear() {
-        const keys = await queueStore.keys();
+        const keys = await queueStore().keys();
         for (const key of keys) {
             if (key.startsWith(KEY_PREFIX)) {
-                await queueStore.removeItem(key);
+                await queueStore().removeItem(key);
             }
         }
         this._index = new Map();
@@ -222,7 +240,7 @@ class OperationQueue {
      * @returns {Promise<string[]>} Ordered keys
      */
     async _getOrderedKeys() {
-        const keys = await queueStore.keys();
+        const keys = await queueStore().keys();
         return keys
             .filter(k => k.startsWith(KEY_PREFIX))
             .sort(); // Lexicographic sort works since keys are timestamp-prefixed
@@ -237,7 +255,7 @@ class OperationQueue {
     async _loadOperations(keys) {
         const operations = [];
         for (const key of keys) {
-            const op = await queueStore.getItem(key);
+            const op = await queueStore().getItem(key);
             if (op) operations.push(op);
         }
         return operations;
@@ -301,10 +319,10 @@ class OperationQueue {
             }
 
             for (const key of keysToRemove) {
-                await queueStore.removeItem(key);
+                await queueStore().removeItem(key);
             }
             for (const { key, op } of opsToUpdate) {
-                await queueStore.setItem(key, op);
+                await queueStore().setItem(key, op);
             }
 
             // Rebuild index after compaction

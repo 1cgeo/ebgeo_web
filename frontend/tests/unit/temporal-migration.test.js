@@ -9,8 +9,13 @@ import { ATLAS_SCHEMA_VERSION } from '../../src/js/store/atlas/atlas.entity.js';
  * the migration, and 2.2 must be considered current.
  */
 describe('temporal schema migration (v2.1 -> v2.2)', () => {
-    it('bumps the atlas schema version to 2.2', () => {
-        expect(ATLAS_SCHEMA_VERSION).toBe('2.2');
+    it('leaves 2.2 behind the chain head, which is now the named-local-atlas step (2.3)', () => {
+        // This used to read `toBe('2.2')`, i.e. "2.2 is the head". The head moved when the
+        // single local workspace became a named atlas, and the temporal step's own contract
+        // (below) is what this file is actually about: a step's target version stops being
+        // the head the moment another step is appended.
+        expect(ATLAS_SCHEMA_VERSION).toBe('2.3');
+        expect(compareVersions('2.2', ATLAS_SCHEMA_VERSION)).toBe(-1);
     });
 
     it('orders the version chain so older atlases trigger the migration', () => {
@@ -19,9 +24,9 @@ describe('temporal schema migration (v2.1 -> v2.2)', () => {
         expect(compareVersions('1.7', '2.2')).toBe(-1);
     });
 
-    it('treats a 2.2 atlas as current (no re-migration loop)', () => {
-        expect(compareVersions('2.2', ATLAS_SCHEMA_VERSION)).toBe(0);
-        expect(compareVersions(ATLAS_SCHEMA_VERSION, '2.2') < 0).toBe(false);
+    it('treats a 2.2 atlas as current FOR THE TEMPORAL STEP (no re-migration loop)', () => {
+        expect(compareVersions('2.2', '2.2')).toBe(0);
+        expect(compareVersions('2.2', '2.1') > 0).toBe(true);
     });
 
     it('matches the chained guard used by safelyMigrate (currentVersion < 2.2)', () => {

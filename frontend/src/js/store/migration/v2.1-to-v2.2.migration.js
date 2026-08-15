@@ -15,7 +15,14 @@
  */
 
 import localforage from 'localforage';
-import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
+
+/**
+ * The version THIS step reaches — not the chain's final version. See the same constant in
+ * `v1-to-v2.migration.js` and `v2-to-v2.1.migration.js`: a step that stamps
+ * `ATLAS_SCHEMA_VERSION` marks the database fully migrated while later steps have not run,
+ * and an interrupted chain then never resumes, without a single error.
+ */
+const TARGET_VERSION = '2.2';
 
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
@@ -31,10 +38,10 @@ export async function migrateToV2_2() {
     // Stamp the new schema version on both the atlas and the app settings store.
     const atlas = await atlasStore.getItem('current_atlas');
     if (atlas) {
-        atlas.schemaVersion = ATLAS_SCHEMA_VERSION;
+        atlas.schemaVersion = TARGET_VERSION;
         await atlasStore.setItem('current_atlas', atlas);
     }
-    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+    await appStore.setItem('schemaVersion', TARGET_VERSION);
 
     console.log('Migration to v2.2 complete');
     return { success: true };

@@ -23,7 +23,7 @@ const BLOCKED_DEBOUNCE_MS = 3000;
 const LOCK_REASONS = new Set(['map_locked', 'target_map_locked']);
 
 /** Last toast time PER KIND, so a lock toast doesn't debounce-swallow a differing read-only one. */
-const _lastBlockedToastAt = { lock: 0, denied: 0 };
+const _lastBlockedToastAt = { lock: 0, denied: 0, explicit: 0 };
 
 /**
  * Registers error event listeners on the EventBus.
@@ -55,20 +55,26 @@ export function registerStoreErrorListeners(eventBus) {
         // Distinguish the two block kinds the store ops carry (previously both showed the lock
         // message): a locked map vs insufficient role on a remote atlas (a Visualizador) — the latter
         // must read as read-only access.
+        // A block that ships its OWN message wins: the two canned texts below describe the
+        // map-lock and the read-only role, and showing either of them for an unrelated
+        // refusal (a local-atlas cap, say) would be actively misleading.
+        const explicit = typeof payload?.message === 'string' && payload.message.length > 0;
         const isLock = LOCK_REASONS.has(payload?.reason);
-        const kind = isLock ? 'lock' : 'denied';
+        const kind = explicit ? 'explicit' : (isLock ? 'lock' : 'denied');
 
         const now = Date.now();
         if (now - _lastBlockedToastAt[kind] < BLOCKED_DEBOUNCE_MS) return;
         _lastBlockedToastAt[kind] = now;
 
-        showInChannel(
-            'store-blocked',
-            isLock
-                ? 'Mapa bloqueado. Desbloqueie para editar.'
-                : 'Acesso somente leitura — você não pode editar este projeto.',
-            'warning',
-            { duration: 2500 }
-        );
+        let text;
+        if (explicit) {
+            text = payload.message;
+        } else if (isLock) {
+            text = 'Mapa bloqueado. Desbloqueie para editar.';
+        } else {
+            text = 'Acesso somente leitura — você não pode editar este projeto.';
+        }
+
+        showInChannel('store-blocked', text, 'warning', { duration: 2500 });
     });
 }

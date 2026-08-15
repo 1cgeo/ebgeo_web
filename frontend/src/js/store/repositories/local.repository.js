@@ -3,9 +3,14 @@
 /**
  * @fileoverview Local Repository implementation using IndexedDB (via LocalForage).
  * Primary data persistence layer for EBGeo in offline/local mode.
+ *
+ * Which DATABASE each method writes to is no longer decided here. The ten handles this
+ * file used to create at module load now come from the namespace factory
+ * (`atlas-namespace.js`) on every call, so the active atlas decides the database and a
+ * switch of atlas re-points all of them at once. See `ensureAtlasScope` for the one
+ * behavior this migration deliberately keeps unchanged.
  */
 
-import localforage from 'localforage';
 import { touchSyncMetadata, createSyncMetadata } from '../sync/sync-metadata.js';
 import { createAtlas, isValidAtlas } from '../atlas/atlas.entity.js';
 import { mapResolver } from '../services/map-resolver.service.js';
@@ -15,19 +20,76 @@ import {
     getEmptyCesium3dData,
     getEmptyStreetview360Data
 } from '../repository.utils.js';
+import {
+    ATLAS_RECORD_KEY,
+    LEGACY_DB_SUFFIX,
+    StoreName,
+    activateScope,
+    getActiveScope,
+    getStore,
+    listAtlasStores,
+    localScope
+} from '@store/atlas-namespace.js';
 
-// ===== LOCALFORAGE INSTANCES =====
+// ===== STORE ACCESSORS =====
 
-const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
-const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
-const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
-const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
-const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
-const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
-const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
-const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
-const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
-const commentStore = localforage.createInstance({ name: 'ebgeo_comments' });
+/**
+ * Atlas id of the bridge scope described in `ensureAtlasScope`. It never reaches a
+ * database name (the empty `LEGACY_DB_SUFFIX` does), so it exists only to make the scope
+ * legal and to name itself in a debugger.
+ */
+const BRIDGE_ATLAS_ID = 'legacy-workspace';
+
+/**
+ * Guarantees an active scope, activating the LEGACY (unsuffixed) local scope when nothing
+ * else has activated one.
+ *
+ * This is a bridge, and it is deliberately silent because it resolves to exactly the
+ * databases this repository used before the namespace factory existed (`ebgeo_maps`,
+ * `ebgeo_app_settings`, ...): with it, an install that never reaches the local-atlas
+ * bootstrap behaves precisely as it does today, which is the constraint of this phase.
+ *
+ * It becomes dead the moment the boot calls `initLocalAtlases()` before touching storage,
+ * because that activates a scope first and this function then only reads it. Deleting the
+ * bridge is safe only once EVERY entry point into the repository is preceded by that call
+ * (the map boot, the schema migration, the `.ebgeo` import and the store-origin read), so
+ * it stays until the bootstrap wiring lands.
+ *
+ * @returns {void}
+ */
+export function ensureAtlasScope() {
+    if (!getActiveScope()) {
+        activateScope(localScope(BRIDGE_ATLAS_ID, LEGACY_DB_SUFFIX));
+    }
+}
+
+/**
+ * Resolves a per-atlas store through the namespace factory, on EVERY call.
+ *
+ * Resolving per call is the point of the migration away from the ten module-level
+ * `createInstance` handles that used to live here: a handle captured at module load is
+ * bound to whichever atlas happened to be active when the module was first imported, and
+ * a later switch of atlas would leave this repository writing into the previous one, with
+ * no error anywhere. The factory caches instances, so the cost is a Map lookup.
+ *
+ * @param {string} storeId - A `StoreName` value.
+ * @returns {import('localforage').default} localforage instance of the active scope.
+ */
+export function getScopedStore(storeId) {
+    ensureAtlasScope();
+    return getStore(storeId);
+}
+
+const atlasStore = () => getScopedStore(StoreName.ATLAS);
+const mapStore = () => getScopedStore(StoreName.MAPS);
+const imageStore = () => getScopedStore(StoreName.IMAGES);
+const appStore = () => getScopedStore(StoreName.SETTINGS);
+const groupStore = () => getScopedStore(StoreName.GROUPS);
+const layerStore = () => getScopedStore(StoreName.LAYERS);
+const cesium3dStore = () => getScopedStore(StoreName.CESIUM3D);
+const streetview360Store = () => getScopedStore(StoreName.STREETVIEW360);
+const briefingStore = () => getScopedStore(StoreName.BRIEFINGS);
+const commentStore = () => getScopedStore(StoreName.COMMENTS);
 
 // ===== HELPER FUNCTIONS =====
 
@@ -89,7 +151,7 @@ export class LocalRepository {
      * @returns {Promise<import('../atlas/atlas.entity.js').Atlas|null>}
      */
     async getAtlas() {
-        return await atlasStore.getItem('current_atlas');
+        return await atlasStore().getItem(ATLAS_RECORD_KEY);
     }
 
     /**
@@ -102,7 +164,7 @@ export class LocalRepository {
             throw new Error('Invalid Atlas structure');
         }
         atlas.sync = touchSyncMetadata(atlas.sync);
-        await atlasStore.setItem('current_atlas', atlas);
+        await atlasStore().setItem(ATLAS_RECORD_KEY, atlas);
     }
 
     /**
@@ -114,7 +176,7 @@ export class LocalRepository {
         let atlas = await this.getAtlas();
         if (!atlas) {
             atlas = createAtlas(name);
-            await atlasStore.setItem('current_atlas', atlas);
+            await atlasStore().setItem(ATLAS_RECORD_KEY, atlas);
         }
         return atlas;
     }
@@ -140,13 +202,13 @@ export class LocalRepository {
             }
         }
 
-        const directMap = await mapStore.getItem(mapIdOrName);
+        const directMap = await mapStore().getItem(mapIdOrName);
         if (directMap) return mapIdOrName;
 
         // Slow path: full scan (populates resolver on hit for future O(1) lookups)
-        const keys = await mapStore.keys();
+        const keys = await mapStore().keys();
         for (const key of keys) {
-            const mapData = await mapStore.getItem(key);
+            const mapData = await mapStore().getItem(key);
             if (mapData && mapData.name === mapIdOrName) {
                 mapResolver.registerMap(mapIdOrName, key);
                 return key;
@@ -183,22 +245,22 @@ export class LocalRepository {
      */
     async getMap(mapIdOrName) {
         // Direct lookup (works for UUID keys and legacy name keys)
-        const directResult = await mapStore.getItem(mapIdOrName);
+        const directResult = await mapStore().getItem(mapIdOrName);
         if (directResult) return directResult;
 
         // Fast path: resolve name → ID via cache
         if (mapResolver.isInitialized) {
             const resolvedId = mapResolver.resolveToId(mapIdOrName);
             if (resolvedId !== mapIdOrName) {
-                const cachedResult = await mapStore.getItem(resolvedId);
+                const cachedResult = await mapStore().getItem(resolvedId);
                 if (cachedResult) return cachedResult;
             }
         }
 
         // Slow path: full scan (populates resolver on hit)
-        const keys = await mapStore.keys();
+        const keys = await mapStore().keys();
         for (const key of keys) {
-            const mapData = await mapStore.getItem(key);
+            const mapData = await mapStore().getItem(key);
             if (mapData && (mapData.name === mapIdOrName || mapData.id === mapIdOrName)) {
                 if (mapData.name) {
                     mapResolver.registerMap(mapData.name, key);
@@ -217,7 +279,7 @@ export class LocalRepository {
      * @returns {Promise<Object|null>}
      */
     async getMapById(mapId) {
-        return await mapStore.getItem(mapId);
+        return await mapStore().getItem(mapId);
     }
 
     /**
@@ -226,9 +288,9 @@ export class LocalRepository {
      */
     async getAllMaps() {
         const maps = new Map();
-        const keys = await mapStore.keys();
+        const keys = await mapStore().keys();
         for (const key of keys) {
-            const data = await mapStore.getItem(key);
+            const data = await mapStore().getItem(key);
             if (data) {
                 maps.set(key, data);
             }
@@ -241,7 +303,7 @@ export class LocalRepository {
      * @returns {Promise<string[]>}
      */
     async getAllMapIds() {
-        return await mapStore.keys();
+        return await mapStore().keys();
     }
 
     /**
@@ -260,7 +322,7 @@ export class LocalRepository {
             name: data.name || mapIdOrName,
             sync: data.sync ? touchSyncMetadata(data.sync) : createSyncMetadata(null)
         };
-        await mapStore.setItem(resolvedKey, mapData);
+        await mapStore().setItem(resolvedKey, mapData);
         // A synced/atlas map is keyed by UUID; register name↔id so the rest of the app
         // (maps list, getMap-by-name, ordering) can resolve the UUID back to its display
         // name. Without this a peer's UUID-keyed map surfaced as a raw UUID in the maps
@@ -285,12 +347,12 @@ export class LocalRepository {
         if (!mapName) {
             return false;
         }
-        const keys = await mapStore.keys();
+        const keys = await mapStore().keys();
         for (const key of keys) {
             if (excludedKeys.includes(key)) {
                 continue;
             }
-            const data = await mapStore.getItem(key);
+            const data = await mapStore().getItem(key);
             if (data && data.name === mapName) {
                 return true;
             }
@@ -312,27 +374,27 @@ export class LocalRepository {
         // those two survive and a NEW map with the same name is born locked and with the
         // dead map's timeline. renameMap already transfers these side stores; only the
         // delete was missing them.
-        const record = await mapStore.getItem(resolvedKey);
+        const record = await mapStore().getItem(resolvedKey);
         const mapName = record?.name || mapIdOrName;
 
         /** Side stores keyed by the map KEY. */
         const removeByKey = (key) => [
-            mapStore.removeItem(key),
-            groupStore.removeItem(key),
-            layerStore.removeItem(`layers_${key}`),
-            layerStore.removeItem(`activeLayer_${key}`),
-            cesium3dStore.removeItem(`cesium3d_${key}`),
-            streetview360Store.removeItem(`streetview360_${key}`),
-            commentStore.removeItem(`comments_${key}`),
-            appStore.removeItem(`map_notes_${key}`),
-            appStore.removeItem(`gridStyle_${key}`),
-            appStore.removeItem(`color_usage_${key}`)
+            mapStore().removeItem(key),
+            groupStore().removeItem(key),
+            layerStore().removeItem(`layers_${key}`),
+            layerStore().removeItem(`activeLayer_${key}`),
+            cesium3dStore().removeItem(`cesium3d_${key}`),
+            streetview360Store().removeItem(`streetview360_${key}`),
+            commentStore().removeItem(`comments_${key}`),
+            appStore().removeItem(`map_notes_${key}`),
+            appStore().removeItem(`gridStyle_${key}`),
+            appStore().removeItem(`color_usage_${key}`)
         ];
 
         /** Side stores keyed by the map NAME. */
         const removeByName = (name) => [
-            appStore.removeItem(`temporal_${name}`),
-            appStore.removeItem(`mapLocked_${name}`)
+            appStore().removeItem(`temporal_${name}`),
+            appStore().removeItem(`mapLocked_${name}`)
         ];
 
         // A name-keyed side store belongs to whatever map ANSWERS to that name, not to this
@@ -381,7 +443,7 @@ export class LocalRepository {
     async renameMap(mapIdOrOldName, newName) {
         // Try to resolve to the actual map key (could be UUID or legacy name)
         const resolvedKey = await this._resolveMapKey(mapIdOrOldName);
-        const mapData = await mapStore.getItem(resolvedKey);
+        const mapData = await mapStore().getItem(resolvedKey);
         if (!mapData) return;
 
         // Check if the map is using UUID-based storage (v2.0+)
@@ -391,65 +453,65 @@ export class LocalRepository {
             // v2.0+: Simply update the name property, keep UUID as key
             mapData.name = newName;
             mapData.sync = touchSyncMetadata(mapData.sync);
-            await mapStore.setItem(resolvedKey, mapData);
+            await mapStore().setItem(resolvedKey, mapData);
         } else {
             // Legacy: Transfer data from old name key to new name key
             // This path handles legacy data during migration
             mapData.name = newName;
             mapData.sync = touchSyncMetadata(mapData.sync);
-            await mapStore.setItem(newName, mapData);
-            await mapStore.removeItem(resolvedKey);
+            await mapStore().setItem(newName, mapData);
+            await mapStore().removeItem(resolvedKey);
 
             // Transfer color usage
-            const colorData = await appStore.getItem(`color_usage_${resolvedKey}`);
+            const colorData = await appStore().getItem(`color_usage_${resolvedKey}`);
             if (colorData && Object.keys(colorData).length > 0) {
-                await appStore.setItem(`color_usage_${newName}`, colorData);
-                await appStore.removeItem(`color_usage_${resolvedKey}`);
+                await appStore().setItem(`color_usage_${newName}`, colorData);
+                await appStore().removeItem(`color_usage_${resolvedKey}`);
             }
 
             // Transfer notes
-            const notesData = await appStore.getItem(`map_notes_${resolvedKey}`);
+            const notesData = await appStore().getItem(`map_notes_${resolvedKey}`);
             if (notesData && (notesData.title || notesData.description)) {
-                await appStore.setItem(`map_notes_${newName}`, notesData);
-                await appStore.removeItem(`map_notes_${resolvedKey}`);
+                await appStore().setItem(`map_notes_${newName}`, notesData);
+                await appStore().removeItem(`map_notes_${resolvedKey}`);
             }
 
             // Transfer groups
-            const groupsData = await groupStore.getItem(resolvedKey);
+            const groupsData = await groupStore().getItem(resolvedKey);
             if (groupsData && Object.keys(groupsData).length > 0) {
-                await groupStore.setItem(newName, groupsData);
-                await groupStore.removeItem(resolvedKey);
+                await groupStore().setItem(newName, groupsData);
+                await groupStore().removeItem(resolvedKey);
             }
 
             // Transfer layers
-            const layersData = await layerStore.getItem(`layers_${resolvedKey}`);
-            const activeLayerId = await layerStore.getItem(`activeLayer_${resolvedKey}`);
+            const layersData = await layerStore().getItem(`layers_${resolvedKey}`);
+            const activeLayerId = await layerStore().getItem(`activeLayer_${resolvedKey}`);
             if (layersData && layersData.length > 0) {
-                await layerStore.setItem(`layers_${newName}`, layersData);
-                await layerStore.setItem(`activeLayer_${newName}`, activeLayerId || 'default');
-                await layerStore.removeItem(`layers_${resolvedKey}`);
-                await layerStore.removeItem(`activeLayer_${resolvedKey}`);
+                await layerStore().setItem(`layers_${newName}`, layersData);
+                await layerStore().setItem(`activeLayer_${newName}`, activeLayerId || 'default');
+                await layerStore().removeItem(`layers_${resolvedKey}`);
+                await layerStore().removeItem(`activeLayer_${resolvedKey}`);
             }
 
             // Transfer Cesium 3D data
-            const cesium3dData = await cesium3dStore.getItem(`cesium3d_${resolvedKey}`);
+            const cesium3dData = await cesium3dStore().getItem(`cesium3d_${resolvedKey}`);
             if (cesium3dData && (Object.keys(cesium3dData.cameraPositions || {}).length > 0 || (cesium3dData.markers || []).length > 0)) {
-                await cesium3dStore.setItem(`cesium3d_${newName}`, cesium3dData);
-                await cesium3dStore.removeItem(`cesium3d_${resolvedKey}`);
+                await cesium3dStore().setItem(`cesium3d_${newName}`, cesium3dData);
+                await cesium3dStore().removeItem(`cesium3d_${resolvedKey}`);
             }
 
             // Transfer Street View 360 data
-            const streetview360Data = await streetview360Store.getItem(`streetview360_${resolvedKey}`);
+            const streetview360Data = await streetview360Store().getItem(`streetview360_${resolvedKey}`);
             if (streetview360Data && (Object.keys(streetview360Data.orientations || {}).length > 0 || (streetview360Data.markers || []).length > 0)) {
-                await streetview360Store.setItem(`streetview360_${newName}`, streetview360Data);
-                await streetview360Store.removeItem(`streetview360_${resolvedKey}`);
+                await streetview360Store().setItem(`streetview360_${newName}`, streetview360Data);
+                await streetview360Store().removeItem(`streetview360_${resolvedKey}`);
             }
 
             // Transfer grid style
-            const gridStyle = await appStore.getItem(`gridStyle_${resolvedKey}`);
+            const gridStyle = await appStore().getItem(`gridStyle_${resolvedKey}`);
             if (gridStyle) {
-                await appStore.setItem(`gridStyle_${newName}`, gridStyle);
-                await appStore.removeItem(`gridStyle_${resolvedKey}`);
+                await appStore().setItem(`gridStyle_${newName}`, gridStyle);
+                await appStore().removeItem(`gridStyle_${resolvedKey}`);
             }
         }
     }
@@ -463,7 +525,7 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async saveImage(imageId, blob) {
-        await imageStore.setItem(imageId, blob);
+        await imageStore().setItem(imageId, blob);
     }
 
     /**
@@ -472,7 +534,7 @@ export class LocalRepository {
      * @returns {Promise<Blob|null>}
      */
     async getImage(imageId) {
-        return await imageStore.getItem(imageId);
+        return await imageStore().getItem(imageId);
     }
 
     /**
@@ -481,7 +543,7 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async deleteImage(imageId) {
-        await imageStore.removeItem(imageId);
+        await imageStore().removeItem(imageId);
     }
 
     /**
@@ -490,7 +552,7 @@ export class LocalRepository {
      * @returns {Promise<boolean>}
      */
     async hasImage(imageId) {
-        const image = await imageStore.getItem(imageId);
+        const image = await imageStore().getItem(imageId);
         return image !== null;
     }
 
@@ -503,7 +565,7 @@ export class LocalRepository {
      */
     async getLayers(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const layers = await this._getWithFallback(layerStore, resolvedKey, mapIdOrName, 'layers_');
+        const layers = await this._getWithFallback(layerStore(), resolvedKey, mapIdOrName, 'layers_');
 
         if (!layers || layers.length === 0) {
             return [getDefaultLayer()];
@@ -520,7 +582,7 @@ export class LocalRepository {
     async saveLayers(mapIdOrName, layers) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `layers_${resolvedKey}`;
-        await layerStore.setItem(key, layers);
+        await layerStore().setItem(key, layers);
     }
 
     /**
@@ -530,7 +592,7 @@ export class LocalRepository {
      */
     async getActiveLayerId(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const activeId = await this._getWithFallback(layerStore, resolvedKey, mapIdOrName, 'activeLayer_');
+        const activeId = await this._getWithFallback(layerStore(), resolvedKey, mapIdOrName, 'activeLayer_');
         return activeId || 'default';
     }
 
@@ -543,7 +605,7 @@ export class LocalRepository {
     async saveActiveLayerId(mapIdOrName, layerId) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `activeLayer_${resolvedKey}`;
-        await layerStore.setItem(key, layerId);
+        await layerStore().setItem(key, layerId);
     }
 
     // ===== GROUP OPERATIONS =====
@@ -555,7 +617,7 @@ export class LocalRepository {
      */
     async getGroups(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const groups = await this._getWithFallback(groupStore, resolvedKey, mapIdOrName);
+        const groups = await this._getWithFallback(groupStore(), resolvedKey, mapIdOrName);
         return groups || {};
     }
 
@@ -567,7 +629,7 @@ export class LocalRepository {
      */
     async saveGroups(mapIdOrName, groups) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        await groupStore.setItem(resolvedKey, groups);
+        await groupStore().setItem(resolvedKey, groups);
     }
 
     // ===== CESIUM 3D OPERATIONS =====
@@ -579,7 +641,7 @@ export class LocalRepository {
      */
     async getCesium3d(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const data = await this._getWithFallback(cesium3dStore, resolvedKey, mapIdOrName, 'cesium3d_');
+        const data = await this._getWithFallback(cesium3dStore(), resolvedKey, mapIdOrName, 'cesium3d_');
         return data || getEmptyCesium3dData();
     }
 
@@ -592,7 +654,7 @@ export class LocalRepository {
     async saveCesium3d(mapIdOrName, data) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `cesium3d_${resolvedKey}`;
-        await cesium3dStore.setItem(key, data);
+        await cesium3dStore().setItem(key, data);
     }
 
     // ===== STREET VIEW 360 OPERATIONS =====
@@ -604,7 +666,7 @@ export class LocalRepository {
      */
     async getStreetview360(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const data = await this._getWithFallback(streetview360Store, resolvedKey, mapIdOrName, 'streetview360_');
+        const data = await this._getWithFallback(streetview360Store(), resolvedKey, mapIdOrName, 'streetview360_');
         return data || getEmptyStreetview360Data();
     }
 
@@ -617,7 +679,7 @@ export class LocalRepository {
     async saveStreetview360(mapIdOrName, data) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `streetview360_${resolvedKey}`;
-        await streetview360Store.setItem(key, data);
+        await streetview360Store().setItem(key, data);
     }
 
     // ===== COMMENT OPERATIONS (spatial comments) =====
@@ -629,7 +691,7 @@ export class LocalRepository {
      */
     async getMapComments(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const data = await this._getWithFallback(commentStore, resolvedKey, mapIdOrName, 'comments_');
+        const data = await this._getWithFallback(commentStore(), resolvedKey, mapIdOrName, 'comments_');
         return data || {};
     }
 
@@ -641,7 +703,7 @@ export class LocalRepository {
      */
     async saveMapComments(mapIdOrName, commentsById) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        await commentStore.setItem(`comments_${resolvedKey}`, commentsById);
+        await commentStore().setItem(`comments_${resolvedKey}`, commentsById);
     }
 
     // ===== SETTINGS OPERATIONS =====
@@ -652,7 +714,7 @@ export class LocalRepository {
      * @returns {Promise<any>}
      */
     async getSetting(key) {
-        return await appStore.getItem(key);
+        return await appStore().getItem(key);
     }
 
     /**
@@ -662,7 +724,7 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async saveSetting(key, value) {
-        await appStore.setItem(key, value);
+        await appStore().setItem(key, value);
     }
 
     /**
@@ -671,7 +733,7 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async deleteSetting(key) {
-        await appStore.removeItem(key);
+        await appStore().removeItem(key);
     }
 
     // ===== MAP NOTES OPERATIONS =====
@@ -683,7 +745,7 @@ export class LocalRepository {
      */
     async getMapNotes(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        const notes = await this._getWithFallback(appStore, resolvedKey, mapIdOrName, 'map_notes_');
+        const notes = await this._getWithFallback(appStore(), resolvedKey, mapIdOrName, 'map_notes_');
         return notes || { title: '', description: '' };
     }
 
@@ -696,7 +758,7 @@ export class LocalRepository {
     async saveMapNotes(mapIdOrName, notes) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `map_notes_${resolvedKey}`;
-        await appStore.setItem(key, notes);
+        await appStore().setItem(key, notes);
     }
 
     /**
@@ -707,12 +769,12 @@ export class LocalRepository {
     async deleteMapNotes(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `map_notes_${resolvedKey}`;
-        await appStore.removeItem(key);
+        await appStore().removeItem(key);
 
         // Also try to remove with original key if different (legacy cleanup)
         if (resolvedKey !== mapIdOrName) {
             const fallbackKey = `map_notes_${mapIdOrName}`;
-            await appStore.removeItem(fallbackKey);
+            await appStore().removeItem(fallbackKey);
         }
     }
 
@@ -725,7 +787,7 @@ export class LocalRepository {
      */
     async getGridStyle(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
-        return await this._getWithFallback(appStore, resolvedKey, mapIdOrName, 'gridStyle_');
+        return await this._getWithFallback(appStore(), resolvedKey, mapIdOrName, 'gridStyle_');
     }
 
     /**
@@ -737,7 +799,7 @@ export class LocalRepository {
     async saveGridStyle(mapIdOrName, gridStyle) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const key = `gridStyle_${resolvedKey}`;
-        await appStore.setItem(key, gridStyle);
+        await appStore().setItem(key, gridStyle);
     }
 
     // ===== BRIEFING OPERATIONS =====
@@ -748,7 +810,7 @@ export class LocalRepository {
      */
     async getAllBriefings() {
         const briefings = [];
-        await briefingStore.iterate((value) => {
+        await briefingStore().iterate((value) => {
             if (value) {
                 briefings.push(value);
             }
@@ -764,7 +826,7 @@ export class LocalRepository {
      * @returns {Promise<Object|null>}
      */
     async getBriefing(briefingId) {
-        return await briefingStore.getItem(briefingId);
+        return await briefingStore().getItem(briefingId);
     }
 
     /**
@@ -781,7 +843,7 @@ export class LocalRepository {
             updatedAt: data.updatedAt || now,
             createdAt: data.createdAt || now
         };
-        await briefingStore.setItem(briefingId, briefingData);
+        await briefingStore().setItem(briefingId, briefingData);
     }
 
     /**
@@ -790,29 +852,26 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async deleteBriefing(briefingId) {
-        await briefingStore.removeItem(briefingId);
+        await briefingStore().removeItem(briefingId);
     }
 
     // ===== BULK OPERATIONS =====
 
     /**
-     * Clears all data from all stores.
-     * Use with caution!
+     * Empties every per-atlas store of the ACTIVE scope. Use with caution.
+     *
+     * The list is DERIVED from the descriptors (`listAtlasStores`) rather than written out
+     * here, which is why adding a database no longer means remembering this method: a
+     * hand-written copy of the same list is how the two parallel `clearAll*` lists in
+     * `store.js` came to exist with nothing forcing them to agree.
+     *
+     * This empties, it does not destroy: the databases stay standing, and dropping them
+     * from disk is `dropAtlasDatabases` (which only the deletion of an atlas wants).
      * @returns {Promise<void>}
      */
     async clearAll() {
-        await Promise.all([
-            atlasStore.clear(),
-            mapStore.clear(),
-            imageStore.clear(),
-            appStore.clear(),
-            groupStore.clear(),
-            layerStore.clear(),
-            cesium3dStore.clear(),
-            streetview360Store.clear(),
-            briefingStore.clear(),
-            commentStore.clear()
-        ]);
+        ensureAtlasScope();
+        await Promise.all(listAtlasStores().map(({ store }) => store.clear()));
     }
 }
 

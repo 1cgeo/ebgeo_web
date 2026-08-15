@@ -8,7 +8,18 @@
  */
 
 import localforage from 'localforage';
-import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
+
+/**
+ * The version THIS step reaches — not the chain's final version.
+ *
+ * This used to stamp `ATLAS_SCHEMA_VERSION`, which worked only by accident while 2.1 was
+ * one step from the end: the moment the constant moved to 2.3, this step started declaring
+ * 2.3 having reached 2.1, and an interrupted chain (a closed tab, or a later step throwing
+ * into the catch that `initializeRepository` swallows) marked the database fully migrated
+ * forever, so `detectMigrationNeeded` compared 2.3 with 2.3 and the namespacing step never
+ * ran, in silence. Same defect `v1-to-v2.migration.js` documents at length.
+ */
+const TARGET_VERSION = '2.1';
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
@@ -67,10 +78,10 @@ export async function migrateToV2_1() {
 
     const atlas = await atlasStore.getItem('current_atlas');
     if (atlas) {
-        atlas.schemaVersion = ATLAS_SCHEMA_VERSION;
+        atlas.schemaVersion = TARGET_VERSION;
         await atlasStore.setItem('current_atlas', atlas);
     }
-    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
+    await appStore.setItem('schemaVersion', TARGET_VERSION);
 
     console.log('Migration to v2.1 complete');
     return { success: true };

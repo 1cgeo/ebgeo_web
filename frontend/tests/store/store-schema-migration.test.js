@@ -307,8 +307,10 @@ describe('safelyMigrate orchestration', () => {
         const map = await mapStore().getItem('MapaBeta');
         expect(map.features.points[0].properties.sizeCreatedAtZoom).toBe(7);
         expect(map.features.points[0].properties.id).toBe('uuid-keep');
-        // No UUID was generated at all (v2 step skipped).
-        expect(uuidCounter.value).toBe(0);
+        // Exactly ONE UUID was generated, and it is the id of the local-atlas slot the
+        // v2.3 step registers — not a feature id: the v2 step, which renumbers every
+        // feature, did not run (the two assertions above are what prove that).
+        expect(uuidCounter.value).toBe(1);
     });
 
     it('returns success without touching data when no migration is needed', async () => {
@@ -632,8 +634,11 @@ describe('migrateToV2_1 (point sizeCreatedAtZoom)', () => {
 
         const map = await mapStore().getItem('Empty');
         expect(map).toEqual({ id: 'e' }); // untouched
-        expect((await atlasStore().getItem('current_atlas')).schemaVersion).toBe(ATLAS_SCHEMA_VERSION);
-        expect(await appStore().getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+        // Its OWN target version, not the chain's final one: this step used to stamp
+        // ATLAS_SCHEMA_VERSION, so the bump to 2.3 made it declare a version it never
+        // reached and an interrupted chain never resumed.
+        expect((await atlasStore().getItem('current_atlas')).schemaVersion).toBe('2.1');
+        expect(await appStore().getItem('schemaVersion')).toBe('2.1');
     });
 });
 
@@ -642,7 +647,7 @@ describe('migrateToV2_1 (point sizeCreatedAtZoom)', () => {
 // ============================================================================
 
 describe('migrateToV2_2 (version stamp only)', () => {
-    it('stamps ATLAS_SCHEMA_VERSION on the atlas and appStore without backfilling features', async () => {
+    it('stamps its OWN target version (2.2) on the atlas and appStore without backfilling features', async () => {
         const point = v1Point('p1'); // no sizeCreatedAtZoom, no temporal fields
         await mapStore().setItem('M', { features: { points: [point] } });
         await atlasStore().setItem('current_atlas', {
@@ -653,11 +658,11 @@ describe('migrateToV2_2 (version stamp only)', () => {
         await migrateToV2_2();
 
         const atlas = await atlasStore().getItem('current_atlas');
-        expect(atlas.schemaVersion).toBe(ATLAS_SCHEMA_VERSION);
+        expect(atlas.schemaVersion).toBe('2.2');
         // Atlas otherwise unchanged.
         expect(atlas.id).toBe('a');
         expect(atlas.mapOrder).toEqual(['m']);
-        expect(await appStore().getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+        expect(await appStore().getItem('schemaVersion')).toBe('2.2');
 
         // No feature backfill: the point is byte-for-byte the same as seeded.
         const map = await mapStore().getItem('M');
@@ -671,7 +676,7 @@ describe('migrateToV2_2 (version stamp only)', () => {
 
         expect(result).toEqual({ success: true });
         expect(await atlasStore().getItem('current_atlas')).toBeNull();
-        expect(await appStore().getItem('schemaVersion')).toBe(ATLAS_SCHEMA_VERSION);
+        expect(await appStore().getItem('schemaVersion')).toBe('2.2');
     });
 });
 
