@@ -46,6 +46,26 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   When you only touched one package, `npm run lint:backend` / `test:backend` (or
   the `:frontend` pair) is the faster loop; just don't mistake it for the whole
   check before a commit that crosses the boundary.
+
+  **O laço apertado, com os tempos medidos em 2026-08-16** (o dono reclamou de
+  lentidão, e a primeira explicação que dei estava errada por não ter medido):
+
+  | comando | tempo |
+  |---|---|
+  | `npm test --prefix frontend` (4214 casos, 229 arquivos) | 8 s |
+  | `npm run test:fast --prefix backend -- <arquivo>` | 1,5 s |
+  | `npm test --prefix backend -- <arquivo>` | 2,8 s |
+
+  Ou seja: **o ciclo de banco do backend custa ~1,2 s, não os 40 s que a intuição
+  atribuía a ele**, e nenhum dos dois pacotes é lento por arquivo. O que demora é a
+  suíte INTEIRA do backend (sob `c8`, verificando o piso) e a perna de e2e. Antes de
+  otimizar qualquer coisa aqui, meça: esta linha existe porque um palpite virou
+  diagnóstico e quase virou trabalho.
+
+  `test:fast` (`--reuse-db`) **exige um alvo** e recusa a suíte completa: ele troca
+  hermeticidade por tempo, e a rodada que vale antes do commit não pode fazer esse
+  câmbio. Vermelho em banco reaproveitado se confirma sem a bandeira antes de virar
+  diagnóstico, porque dado de rodada anterior também reprova.
 - **UI**: no preview or interactive-browser tool. The approved loop is a
   Playwright capture driving the real app and backend, then READING the produced
   image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.

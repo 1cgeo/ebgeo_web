@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Path: scripts/run-tests.js
 // Complete test runner: creates DB, runs migrations, runs tests, drops DB
-// Usage: node scripts/run-tests.js [--coverage] [--keep-db] [test-pattern]
+// Usage: node scripts/run-tests.js [--coverage] [--keep-db] [--reuse-db] [test-pattern]
 
 import { spawn } from 'child_process';
 import pgPromise from 'pg-promise';
@@ -23,6 +23,38 @@ const withCoverage = args.includes('--coverage');
 const keepDb = args.includes('--keep-db');
 const padraoExplicito = args.find(a => !a.startsWith('--'));
 const testPattern = padraoExplicito || 'tests/**/*.test.js';
+
+// ---------------------------------------------------------------------------
+// `--reuse-db`: o laço de desenvolvimento.
+//
+// MEDIDO em 2026-08-16, mesmo arquivo de dez casos, `time` nos dois modos: **2,76 s** com
+// o ciclo completo de banco contra **1,53 s** reaproveitando. Vale para o laço apertado, e
+// o número está aqui porque a estimativa que motivou esta bandeira era 40 s — tempo de
+// parede percebido, nunca medido — e errava por mais de uma ordem de grandeza. Derrubar,
+// recriar e aplicar as dezesseis migrações custa ~1,2 s, não os 99% do relógio.
+//
+// Consequência que essa medição impõe a quem vier depois: se o laço parece lento, o banco
+// NÃO é o suspeito. O custo está na suíte inteira (que roda sob `c8` e verifica o piso de
+// cobertura) e na perna de e2e, e é lá que se mede antes de otimizar.
+//
+// Com a bandeira, o banco só nasce se não existir, as migrações PENDENTES são aplicadas
+// (`runMigrations` consulta `_migrations`, então isto é barato e mantém o schema em dia:
+// pular a migração é como o modo rápido passaria a rodar contra um schema velho, que é o
+// jeito de ser rápido e errado ao mesmo tempo), e nada é apagado no fim.
+//
+// O QUE SE PERDE, e é o motivo da trava abaixo: o banco deixa de ser virgem. As fixtures
+// geram nome com UUID, então acúmulo normalmente não colide, mas um caso que conte linhas
+// de uma tabela inteira passa a enxergar o lixo das rodadas anteriores. Por isso a
+// bandeira EXIGE um alvo explícito: a suíte completa — a que a constituição manda rodar
+// antes do commit — continua hermética, e não existe forma de pedir "tudo, rápido".
+// ---------------------------------------------------------------------------
+const reuseDb = args.includes('--reuse-db');
+if (reuseDb && !padraoExplicito) {
+  console.error('❌ `--reuse-db` exige um alvo explícito (ex.: tests/integration/atlas.test.js).');
+  console.error('   A suíte completa roda sempre em banco virgem, porque é ela que vale antes');
+  console.error('   do commit: um verde tirado de banco sujo não prova o que ele parece provar.');
+  process.exit(1);
+}
 
 // O piso de cobertura do `.c8rc.json` só é avaliado quando o c8 embrulha este script,
 // e até 2026-07-25 só `npm run test:coverage` fazia isso. Piso que só reprova quem
@@ -82,6 +114,32 @@ async function createDatabase() {
     // Create fresh database
     await adminDb.none(`CREATE DATABASE ${TEST_DB_NAME}`);
     console.log(`✅ Created database "${TEST_DB_NAME}"`);
+  } finally {
+    await pgp.end();
+    pgp = null;
+  }
+}
+
+/**
+ * Cria o banco de teste APENAS se ele ainda não existir (modo `--reuse-db`).
+ * @returns {Promise<boolean>} True quando o banco já estava lá (e traz dados de rodadas
+ *   anteriores), false quando foi criado agora.
+ */
+async function ensureDatabase() {
+  pgp = pgPromise();
+  const adminDb = pgp(ADMIN_DB_URL);
+  try {
+    const exists = await adminDb.oneOrNone(
+      'SELECT 1 FROM pg_database WHERE datname = $1',
+      [TEST_DB_NAME]
+    );
+    if (exists) {
+      console.log(`♻️  Reaproveitando o banco "${TEST_DB_NAME}" (NÃO está vazio).`);
+      return true;
+    }
+    await adminDb.none(`CREATE DATABASE ${TEST_DB_NAME}`);
+    console.log(`✅ Created database "${TEST_DB_NAME}"`);
+    return false;
   } finally {
     await pgp.end();
     pgp = null;
@@ -193,19 +251,25 @@ async function main() {
   console.log('═'.repeat(60));
   console.log(`  Database: ${TEST_DB_NAME}`);
   console.log(`  Coverage: ${withCoverage ? 'Yes' : 'No'}`);
-  console.log(`  Keep DB:  ${keepDb ? 'Yes' : 'No'}`);
+  console.log(`  Keep DB:  ${keepDb || reuseDb ? 'Yes' : 'No'}`);
+  console.log(`  Reuse DB: ${reuseDb ? 'SIM — o banco NÃO é virgem' : 'No'}`);
   console.log(`  Pattern:  ${testPattern}`);
   console.log('═'.repeat(60));
   console.log('');
 
   try {
-    // Step 1: Create database
-    await createDatabase();
+    // Step 1: Create database. Em modo rápido ele só nasce se faltar; no modo normal é
+    // sempre derrubado e refeito, que é o que torna a suíte completa hermética.
+    if (reuseDb) await ensureDatabase();
+    else await createDatabase();
 
-    // Step 1b: Ensure spatial extensions (PostGIS needs a superuser)
+    // Step 1b: Ensure spatial extensions (PostGIS needs a superuser). Vale nos dois modos:
+    // no rápido custa milissegundos (`IF NOT EXISTS`) e cobre o banco que sobreviveu de uma
+    // versão anterior sem alguma extensão que uma migração nova venha a exigir.
     await ensureExtensions();
 
-    // Step 2: Run migrations
+    // Step 2: Run migrations. Idempotente por `_migrations`: no modo rápido aplica só o
+    // que faltar, e é o que impede o atalho de virar "rápido contra o schema errado".
     await migrate();
 
     // Step 3: Run tests
@@ -215,8 +279,17 @@ async function main() {
     console.error('\n❌ Error:', err.message);
     exitCode = 1;
   } finally {
-    // Step 4: Drop database (unless --keep-db)
-    if (!keepDb) {
+    // Step 4: Drop database (unless --keep-db / --reuse-db)
+    if (reuseDb) {
+      console.log(`\n♻️  Banco "${TEST_DB_NAME}" preservado para a próxima rodada rápida.`);
+      if (exitCode !== 0) {
+        // O vermelho pode ser do código OU do lixo acumulado, e os dois se parecem. Dizer
+        // isso aqui é mais barato que a hora que alguém vai gastar perseguindo o segundo
+        // caso achando que é o primeiro.
+        console.log('   Falhou? Confirme sem `--reuse-db` antes de acreditar: em banco');
+        console.log('   reaproveitado, dado de rodada anterior também reprova.');
+      }
+    } else if (!keepDb) {
       try {
         await dropDatabase();
       } catch (err) {

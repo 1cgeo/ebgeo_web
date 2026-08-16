@@ -21,6 +21,7 @@
     "test": "node scripts/run-tests.js",
     "test:coverage": "c8 node scripts/run-tests.js",
     "test:keep-db": "node scripts/run-tests.js --keep-db",
+    "test:fast": "node scripts/run-tests.js --reuse-db",
     "test:unit": "node scripts/run-tests.js tests/unit/**/*.test.js",
     "test:integration": "node scripts/run-tests.js tests/integration/**/*.test.js",
     "test:ws": "node scripts/run-tests.js tests/ws/**/*.test.js",

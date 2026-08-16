@@ -34,12 +34,20 @@ npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+i
                        #   argumento não, e o runner usa só o PRIMEIRO pattern que receber.
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
+npm run test:fast -- tests/integration/x.test.js  # laço apertado: reaproveita o banco
 npm run lint           # probe das regras próprias + eslint (rode antes de finalizar) | npm run format
 ```
 
 - `npm test` é hermético (cria/dropa `ebgeo_test`). **PostGIS** é extensão *untrusted*: o runner
   pré-cria as extensões via `SUPERUSER_DATABASE_URL` (default `postgres:postgres@localhost`); sem um
   superusuário acessível os testes que usam `ng`/`sv360` falham.
+- `test:fast` (`--reuse-db`) **exige um alvo** e recusa rodar a suíte inteira, de propósito: ele
+  troca a hermeticidade por tempo, e a rodada que vale antes do commit não pode fazer esse
+  câmbio. O banco reaproveitado carrega dado das rodadas anteriores, então **vermelho ali se
+  confirma sem a bandeira antes de virar diagnóstico**. Ele ainda aplica migração pendente, que é o
+  que impede o atalho de virar "rápido contra o schema velho". Números medidos em 2026-08-16 estão
+  no comentário de `scripts/run-tests.js`, e o principal é negativo: o ciclo de banco custa ~1,2 s,
+  não os 40 s que a intuição atribuía a ele. Laço lento não se otimiza por palpite.
 - Testes batem no `app` exportado via **supertest** (não sobem servidor); WS em `tests/ws/`.
 
 ## Decisões de arquitetura: NÃO violar (e o porquê)
