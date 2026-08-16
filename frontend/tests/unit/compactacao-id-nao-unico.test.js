@@ -166,6 +166,15 @@ function extrairChavesDeSetting(corpus) {
         for (const m of codigo.matchAll(/logSettingOperation\(\s*[^,]+,\s*[^,]+,\s*\{\s*(\w+)\s*:/g)) {
             chaves.add(m[1]);
         }
+        // A terceira forma, e a razão de ela existir: desde 2026-08-16 as preferências de
+        // APARÊNCIA são escritas por um serviço que monta o patch a partir de uma lista, então o
+        // literal inline que as duas regexes acima procuram não está mais em lugar nenhum. O
+        // extrator passou a ler a lista, que é a autoridade viva — sem isto ele emagrecia em
+        // silêncio, que é o modo de falha que este arquivo inteiro existe para impedir.
+        const lista = /APPEARANCE_KEYS\s*=\s*Object\.freeze\(\[([^\]]+)\]\)/.exec(codigo);
+        if (lista) {
+            for (const m of lista[1].matchAll(/'(\w+)'/g)) chaves.add(m[1]);
+        }
     }
     return chaves;
 }
@@ -349,13 +358,17 @@ describe('compactação da fila: tipos cujo entityId não identifica uma entidad
         // delas (terrainExaggeration) não tem chamador de `logAtlasSetting` nenhum.
         // Ela chega ao MESMO grupo por outro caminho, `logSettingOperation` chamado
         // direto com o id do atlas, e é por isso que a extração varre as duas formas.
-        const esperadas = ['colorUsage', 'customIcons', 'mapBadgeColors', 'mapOrder', 'terrainExaggeration'];
+        // `globeProjection` entrou em 2026-08-16, irmã de `terrainExaggeration`: as duas dizem
+        // como o mapa 2D deste projeto se parece e viajam pela mesma porta. Ela AUMENTA em um o
+        // risco que este caso mede — dois patches de aparência escritos em sequência colapsam
+        // para o último —, e o modal grava as duas JUNTAS, num patch só, exatamente por isso.
+        const esperadas = ['colorUsage', 'customIcons', 'globeProjection', 'mapBadgeColors', 'mapOrder', 'terrainExaggeration'];
         expect([...CHAVES_SETTING].sort(),
             'as chaves de preferência de atlas mudaram. Toda chave nesta lista divide o grupo'
             + ' `<escopo>:setting:<id do atlas>` com as demais, então acrescentar uma aumenta em'
             + ' um o número de patches que a compactação pode descartar. Confira se a chave nova'
             + ' realmente pode viajar como patch parcial.').toEqual(esperadas);
         expect(CHAVES_SETTING.size,
-            'menos de cinco chaves compartilhando o grupo: a extração encolheu').toBeGreaterThanOrEqual(5);
+            'menos de seis chaves compartilhando o grupo: a extração encolheu').toBeGreaterThanOrEqual(6);
     });
 });

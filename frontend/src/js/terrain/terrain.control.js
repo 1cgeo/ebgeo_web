@@ -5,6 +5,7 @@ import { EventTypes } from '../events/event_types.js';
 import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
+import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
 
 /**
  * Gets terrain elevation at given coordinates
@@ -31,7 +32,6 @@ class TerrainControl {
         this.hillshadeSourceConfig = config.hillshadeSource;
         this.hillshadeConfig = config.hillshade;
         this._exaggeration = DEFAULT_TERRAIN_EXAGGERATION;
-        this._globeProjection = config.globe_projection || false;
         this._wasTerrainActive = false;
         this._map = null;
         this._container = null;
@@ -156,13 +156,16 @@ class TerrainControl {
     }
 
     _disableGlobeForTerrain() {
-        if (this._globeProjection) {
+        // Perguntado NA HORA, nunca guardado no construtor: a projeção passou a ser escolha do
+        // atlas, e um campo lido no boot ficaria preso ao projeto que estava montado naquele
+        // instante — o mesmo defeito que o handle de banco guardado no import.
+        if (currentGlobeProjection()) {
             this._map.setProjection({ type: 'mercator' });
         }
     }
 
     _restoreGlobeProjection() {
-        if (this._globeProjection) {
+        if (currentGlobeProjection()) {
             this._map.setProjection({ type: 'globe' });
             this._map.setSky(undefined);
         }

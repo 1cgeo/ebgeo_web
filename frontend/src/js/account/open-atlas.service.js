@@ -91,6 +91,7 @@ import {
 } from '@utils/tab-lock.js';
 import { showChoice } from '@modals/confirm.modal.js';
 import { showError } from '@utils/toast_service.js';
+import { reapplyAtlasAppearance } from '@store/atlas-appearance.service.js';
 
 // =================================================================================================
 // TAB-LOCK KEY: which atlas this tab holds
@@ -526,6 +527,11 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // so military-symbol/coordination/declination rasters intermittently 404'd → error icon. After the
     // try/catch so a render error can't revert the (successfully opened) atlas origin.
     await getControl('BaseLayerControl')?.switchMap?.(false);
+    // A APARÊNCIA É DO ATLAS QUE ACABOU DE ENTRAR, e o cache dela vive num módulo: sem esta
+    // releitura, um atlas local marcado como "plano" deixava plano um projeto de servidor que
+    // nunca escolheu nada. O boot não cobre este caso — ele lê antes do namespace montar e antes
+    // do snapshot chegar.
+    await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
     startAutoFlush();
     return true;
 }

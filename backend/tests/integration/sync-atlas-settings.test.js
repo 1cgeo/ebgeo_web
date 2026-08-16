@@ -60,4 +60,27 @@ describe('Sync atlas-level setting (§24.8 terrainExaggeration)', () => {
     const s = await settings();
     assert.equal(s.terrainExaggeration, 3);
   });
+
+  // globeProjection entrou pela mesma porta em 2026-08-16: é irmã do exagero (as duas dizem como
+  // o mapa 2D DESTE projeto se parece, não o que ele expõe) e o caminho de sync é o único que
+  // funciona igual num atlas local, que não tem rota REST nenhuma.
+  it('aceita globeProjection, e os TRÊS estados sobrevivem à ida e volta', async () => {
+    // `null` não é `false`: ele significa "herda o deploy". Um merge que colapsasse os dois
+    // deixaria o usuário sem como desfazer, e é o tipo de perda que nenhum erro anuncia.
+    for (const valor of [true, false, null]) {
+      await pushSetting(ownerTok, { globeProjection: valor }).expect(200);
+      const s = await settings();
+      assert.strictEqual(s.globeProjection, valor, `globeProjection = ${valor}`);
+    }
+  });
+
+  it('as duas irmãs viajam juntas sem uma apagar a outra', async () => {
+    // O merge é raso sobre `settings`, então escrever uma chave não pode zerar a vizinha: é o
+    // caso que separa "mesclou" de "substituiu o objeto inteiro".
+    await pushSetting(ownerTok, { terrainExaggeration: 1.8 }).expect(200);
+    await pushSetting(ownerTok, { globeProjection: true }).expect(200);
+    const s = await settings();
+    assert.equal(s.terrainExaggeration, 1.8, 'o exagero sobreviveu à escrita da irmã');
+    assert.equal(s.globeProjection, true);
+  });
 });

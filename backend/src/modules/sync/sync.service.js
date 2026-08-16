@@ -1988,6 +1988,12 @@ async function applyOperation(t, atlasId, op, userId, permission) {
     const patch = op.changes || op.data || {};
     const safe = {};
     if (patch.terrainExaggeration !== undefined) safe.terrainExaggeration = patch.terrainExaggeration;
+    // globeProjection entra pela MESMA porta, e não pelo PATCH /settings, por dois motivos que
+    // andam juntos: ela é irmã do exagero (as duas dizem como o mapa 2D deste projeto se parece,
+    // não o que ele expõe), e o caminho de sync é o único que funciona igual num atlas LOCAL, que
+    // não tem rota REST nenhuma. `null` significa "herda o deploy", que é diferente de `false`:
+    // sem os três estados não haveria como desfazer um desligamento.
+    if (patch.globeProjection !== undefined) safe.globeProjection = patch.globeProjection;
     // datamodel-13/14: app-level preference state that is local-only today, synced
     // through the SAME whitelist mechanism as terrainExaggeration. customIcons is the
     // icon REGISTRY (metadata list under the frontend key `custom_icons`; the blobs

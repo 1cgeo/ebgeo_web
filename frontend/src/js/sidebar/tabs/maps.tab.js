@@ -90,7 +90,11 @@ const AtlasTabState = Object.freeze({
 const ACTIONS_BY_STATE = Object.freeze({
     [AtlasTabState.LOCAL_ANON]: ['open', 'import', 'save', 'clear'],
     [AtlasTabState.LOCAL_SIGNED_IN]: ['open', 'save-server', 'import', 'save', 'clear'],
-    [AtlasTabState.REMOTE]: ['open', 'import', 'save']
+    // "share" fica ao lado de "save" (Exportar) porque as duas respondem "como isto sai daqui".
+    // Só no estado REMOTE: compartilhar um atlas local não significa nada, e o backend exige
+    // `manage` na rota — a recusa fica com ele, e a tela não esconde o botão por papel, porque
+    // um Gestor rebaixado no meio da sessão veria o botão sumir sem explicação.
+    [AtlasTabState.REMOTE]: ['open', 'import', 'save', 'share']
 });
 
 /**
@@ -106,6 +110,8 @@ const MAPS_ICONS = {
     save: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
 
     trash2: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
+
+    share: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
 
     copy: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
 
@@ -266,6 +272,7 @@ export class MapsTab {
             { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao atlas atual' },
             // "Exportar", not "Salvar": it saves nothing, it generates a `.ebgeo` for download.
             { id: 'save', icon: MAPS_ICONS.save, label: 'Exportar', handler: () => this._handleSaveProject(), title: 'Exportar este atlas como arquivo .ebgeo' },
+            { id: 'share', icon: MAPS_ICONS.share, label: 'Compartilhar', handler: () => this._handleShare(), title: 'Escolher quem pode ver e editar este projeto', testid: 'maps-share' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar tudo', handler: () => this._handleClearAll(), title: 'Apagar todo o conteúdo deste atlas' },
         ];
 
@@ -1563,22 +1570,39 @@ export class MapsTab {
     }
 
     /**
-     * Opens the settings modal with terrain exaggeration control.
+     * Abre as configurações DO PROJETO.
+     *
+     * Uma tela só, para qualquer atlas. Até 2026-08-16 este botão abria um modal exclusivo do
+     * exagero vertical, enquanto "Configurar projeto" (recursos, mapas base, catálogo) vivia
+     * escondido no menu da conta e só existia para o Gestor de um atlas de servidor. Eram duas
+     * telas chamadas "Configurações", e a que o usuário local alcançava tinha um controle.
+     *
+     * O que o modal mostra ele decide sozinho a partir do que pode ser salvo: aparência sempre,
+     * restrições de projeto só num atlas de servidor administrado por quem abriu.
      * @private
      */
     async _handleOpenSettings() {
-        const terrainControl = getControl('TerrainControl');
-        const currentExaggeration = terrainControl?._exaggeration ?? 1.5;
-
-        const { showSettingsModal } = await import('../../modals/settings.modal.js');
-        await showSettingsModal({
-            currentExaggeration,
-            onExaggerationChanged: (value) => {
-                if (terrainControl) {
-                    terrainControl.setExaggeration(value);
-                }
-            }
+        const { showAtlasSettingsModal } = await import('@modals/atlas-settings.modal.js');
+        const role = sessionContext.role;
+        showAtlasSettingsModal(syncEngine.atlasId || null, {
+            atlasName: this._atlasName || '',
+            canManage: role === 'owner' || role === 'manager' || role === 'admin',
         });
+    }
+
+    /**
+     * "Compartilhar" — quem pode ver e editar este projeto do servidor.
+     *
+     * Fica ao lado de "Exportar" porque as duas respondem à mesma pergunta ("como isto sai
+     * daqui"), e porque o único caminho até o compartilhamento era o menu da conta, que é onde
+     * se procura por identidade, não por projeto.
+     * @private
+     */
+    async _handleShare() {
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId) return;
+        const { showSharingModal } = await import('@modals/sharing.modal.js');
+        showSharingModal(atlasId, { atlasName: this._atlasName || '' });
     }
 
     /**

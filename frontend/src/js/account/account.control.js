@@ -43,7 +43,6 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { showSharingModal } from '@modals/sharing.modal.js';
-import { showAtlasSettingsModal } from '@modals/atlas-settings.modal.js';
 import { showSuccess, showError, showWarning } from '@utils';
 import {
     setupCleanup,
@@ -56,7 +55,6 @@ import {
 /* Static inline icons for the dropdown menu actions (no user data — safe to inject). */
 const ICON_SAVE_SERVER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13v8"/><path d="m8 17 4-4 4 4"/><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/></svg>';
 const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>';
-const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
 const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="10" r="2.5"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>';
@@ -290,8 +288,6 @@ export class AccountControl {
         this._saveToServerBtn = null;
         /** @type {HTMLButtonElement|null} The "Excluir projeto" menu item (owner/admin + connected). */
         this._deleteAtlasBtn = null;
-        /** @type {HTMLButtonElement|null} The "Configurar projeto" menu item (Gestor + connected). */
-        this._settingsBtn = null;
         /** @type {boolean} Whether the account menu is open. */
         this._open = false;
         /** @type {((event: Event) => void)|null} Document-level dismiss handler. */
@@ -395,17 +391,6 @@ export class AccountControl {
         this._shareBtn.hidden = true;
         this._menu.appendChild(this._shareBtn);
 
-        // "Configurar projeto" — atlas settings (3D/360/basemap availability). Gestor-only; the
-        // backend enforces 'manage' on PATCH /settings and broadcasts the change to all clients.
-        this._settingsBtn = document.createElement('button');
-        this._settingsBtn.type = 'button';
-        this._settingsBtn.className = 'account-control__btn account-control__btn--settings';
-        this._settingsBtn.setAttribute('role', 'menuitem');
-        this._settingsBtn.setAttribute('data-testid', 'account-settings-btn');
-        setMenuButtonContent(this._settingsBtn, ICON_SETTINGS, 'Configurar projeto');
-        this._settingsBtn.hidden = true;
-        this._menu.appendChild(this._settingsBtn);
-
         // "Excluir projeto" — delete the connected atlas (owner/admin only). The server broadcasts
         // `atlas_deleted` so every connected client tears down and returns to the picker (§item-1.4).
         this._deleteAtlasBtn = document.createElement('button');
@@ -444,7 +429,6 @@ export class AccountControl {
         addDomListener(this, this._loginBtn, 'click', () => this._handleLogin());
         addDomListener(this, this._avatarBtn, 'click', () => this._toggleMenu());
         addDomListener(this, this._shareBtn, 'click', () => this._handleShareAtlas());
-        addDomListener(this, this._settingsBtn, 'click', () => this._handleAtlasSettings());
         addDomListener(this, this._projectsBtn, 'click', () => this._handleOpenProjects());
         addDomListener(this, this._saveToServerBtn, 'click', () => this.saveLocalToServer());
         addDomListener(this, this._deleteAtlasBtn, 'click', () => this._handleDeleteAtlas());
@@ -475,7 +459,6 @@ export class AccountControl {
             this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
             this._updateDeleteAtlasVisibility();
-            this._updateSettingsVisibility();
         });
         // The connected atlas was deleted (by this user or another owner) — tear down + redirect.
         subscribe(this, getEventBus(), EventTypes.ATLAS_DELETED_REMOTE, () => this._handleRemoteAtlasDeleted());
@@ -534,7 +517,6 @@ export class AccountControl {
         this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
-        this._updateSettingsVisibility();
         this._updateAdminVisibility();
         // Logging out (or switching identity) must never leave the menu open.
         if (!loggedIn) {
@@ -565,7 +547,6 @@ export class AccountControl {
         this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
-        this._updateSettingsVisibility();
         this._updateAdminVisibility();
         // Resolve the current atlas name lazily (fire-and-forget).
         this._renderAtlasName();
@@ -669,19 +650,6 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Configurar projeto" only when connected to a server atlas the user can configure
-     * (a Gestor: owner or promoted co-Gestor, or a global admin). The backend enforces 'manage'.
-     * @private
-     */
-    _updateSettingsVisibility() {
-        if (!this._settingsBtn) return;
-        const role = sessionContext.role;
-        const canConfigure = !!syncEngine.atlasId
-            && (role === 'owner' || role === 'manager' || role === 'admin');
-        this._settingsBtn.hidden = !canConfigure;
-    }
-
-    /**
      * Shows "Administração" only to a GLOBAL system admin (sessionContext.isAdmin()). Unlike the
      * atlas-scoped items above, this is NOT predicated on a connected atlas — the admin panel is
      * global. The backend gates every admin route with requireAdmin.
@@ -703,26 +671,6 @@ export class AccountControl {
         window.location.assign('./admin.html');
     }
 
-    /**
-     * Opens the atlas settings modal for the connected atlas (Gestor-only). The display name is
-     * cosmetic (lazily cached from the project list).
-     * @private
-     */
-    async _handleAtlasSettings() {
-        const atlasId = syncEngine.atlasId;
-        if (!atlasId) return;
-        this._closeMenu();
-        let atlasName = this._atlasCache?.id === atlasId ? this._atlasCache?.name : undefined;
-        if (atlasName === undefined) {
-            try {
-                const projects = await apiClient.listAtlas();
-                atlasName = projects?.find((p) => p && p.id === atlasId)?.name;
-            } catch {
-                // Name is cosmetic; the modal works without it.
-            }
-        }
-        showAtlasSettingsModal(atlasId, { atlasName });
-    }
 
     /**
      * Opens the sharing modal for the connected atlas. The display name comes from the
@@ -1247,7 +1195,6 @@ export class AccountControl {
         this._logoutBtn = null;
         this._shareBtn = null;
         this._projectsBtn = null;
-        this._settingsBtn = null;
         this._deleteAtlasBtn = null;
         this._adminBtn = null;
         this._saveToServerBtn = null;

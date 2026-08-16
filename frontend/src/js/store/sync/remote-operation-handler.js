@@ -18,6 +18,7 @@ import { EventTypes } from '../../events/event_types.js';
 import { getRepository, setSettingCompat } from '../repositories/index.js';
 import { localRepository } from '../repositories/local.repository.js';
 import { getStorageTypeFromSource } from '../store.constants.js';
+import { applyRemoteAppearance } from '../atlas-appearance.service.js';
 import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
@@ -1046,23 +1047,13 @@ async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
 async function applyRemoteSettingOp(data) {
     if (!data || typeof data !== 'object') return;
 
-    if (data.terrainExaggeration !== undefined) {
-        try {
-            const repo = getRepository();
-            const atlas = await repo.getAtlas?.();
-            if (atlas) {
-                if (!atlas.settings) atlas.settings = {};
-                atlas.settings.terrainExaggeration = data.terrainExaggeration;
-                await repo.saveAtlas?.(atlas);
-            }
-        } catch {
-            // best-effort persist; the live apply below is what the user sees
-        }
-        const terrain = getControl('terrain');
-        if (terrain && typeof terrain.setExaggeration === 'function') {
-            terrain.setExaggeration(data.terrainExaggeration);
-        }
-    }
+    // As duas chaves de APARÊNCIA passam pelo serviço que as escreve localmente, para que o
+    // caminho remoto e o local não possam divergir. O que este bloco fazia à mão tinha três
+    // defeitos, todos silenciosos: persistia com `getAtlas()` (que devolve null num slot sem
+    // registro, e aí o valor do par sumia no F5), buscava o controle por `getControl('terrain')`
+    // enquanto o registro usa `TerrainControl` (então o apply ao vivo NUNCA rodou), e não
+    // conhecia `globeProjection`.
+    await applyRemoteAppearance(data, getControl('TerrainControl'), globalThis.__ebgeoMap);
 
     await applyRemoteAppStateSettings(data);
 }
@@ -1231,9 +1222,18 @@ export async function applyRemoteSnapshot(snapshot) {
     // atlas.settings (mapBadgeColors, colorUsage, customIcons) into the SAME local
     // store keys their local setters use, so a fresh snapshot rehydrates them. Uses
     // the analogous reshape the map fields get (reshapeSnapshotMap), but for atlas
-    // settings keys. terrainExaggeration is left on the atlas record (loaded elsewhere).
+    // settings keys.
     if (snapshot.atlas && snapshot.atlas.settings && typeof snapshot.atlas.settings === 'object') {
         await applyRemoteAppStateSettings(snapshot.atlas.settings);
+        // E A APARÊNCIA, que esta linha dizia estar "loaded elsewhere" e não estava. O
+        // "elsewhere" é o boot do mapa, que lê o atlas ANTES de o snapshot chegar: ao abrir um
+        // projeto do servidor o wipe esvazia o namespace, a leitura acha um registro em branco, e
+        // o valor que o snapshot traz logo depois não era aplicado por ninguém. O sintoma era
+        // exatamente "mudo, salvo, dou F5 e perdi" — só no atlas remoto, porque no local nada
+        // apaga o registro entre a escrita e a leitura.
+        await applyRemoteAppearance(
+            snapshot.atlas.settings, getControl('TerrainControl'), globalThis.__ebgeoMap,
+        );
     }
 
     const maps = Array.isArray(snapshot.maps) ? snapshot.maps : [];

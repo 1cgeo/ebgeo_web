@@ -43,8 +43,7 @@ import { createTemporalController } from './temporal/temporal-controller.js';
 import { createTrajectoryEditControl } from './temporal/trajectory-tool/trajectory-edit-control.js';
 import { createTemporalDerivationService } from './temporal/temporal-derivation.service.js';
 import config from './config.js';
-import { getRepository } from './store/repositories/index.js';
-import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
+import { refreshAtlasAppearance, reapplyAtlasAppearance } from './store/atlas-appearance.service.js';
 import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './ui/loading-screen.js';
 import { ContextMenuControl } from './context-menu';
@@ -309,10 +308,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     importControl.setControls(pointControl, lineControl, polygonControl);
 
     const terrainControl = new TerrainControl(config.map2d);
-    // Load persisted terrain exaggeration from Atlas
-    const repo = getRepository();
-    const atlas = await repo.getAtlas();
-    terrainControl.initExaggeration(getAtlasTerrainExaggeration(atlas));
+    // As duas preferências de aparência do atlas, de uma vez: a leitura preenche o cache que os
+    // pontos síncronos de projeção consultam depois (boot, troca de estilo, liga/desliga relevo).
+    const { terrainExaggeration } = await refreshAtlasAppearance();
+    terrainControl.initExaggeration(terrainExaggeration);
 
     const screenshotControl = new ScreenshotControl();
     screenshotControl.setMap(map);
@@ -813,9 +812,12 @@ export function initializeApp(map, controlsPromise) {
 
             await baseLayerControl.switchMap(true);
 
-            if (config.map2d.globe_projection) {
-                map.setProjection({ type: 'globe' });
-            }
+            // A APARÊNCIA É RELIDA AQUI, e não basta a leitura que alimentou o controle de
+            // terreno lá em cima: aquela roda enquanto os controles são construídos, ANTES de
+            // `activateBootAtlasScope` montar o namespace do atlas que o boot escolheu. Trocar de
+            // atlas local é uma navegação, então o boot inteiro roda de novo — e com a leitura só
+            // no ponto antigo o segundo slot herdava a projeção do primeiro, sem erro nenhum.
+            await reapplyAtlasAppearance(controls.terrainControl, map);
 
             // Disable sky/fog - universe background is set via CSS on #map-sig container
             map.setSky(undefined);

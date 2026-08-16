@@ -337,54 +337,193 @@
 }
 
 /* =========================================================================
-   ATLAS CONFIG MODAL (Gestor): feature / basemap availability as toggle rows
+   CONFIGURAÇÕES DO PROJETO: aparência (todo atlas) + restrições (atlas de
+   servidor administrado), em navegação lateral.
    ========================================================================= */
+
+/* Casca larga (a grade do Catálogo precisa de espaço) + navegação lateral. */
+[data-testid="atlas-settings-modal"] .modal-container {
+    max-width: 960px;
+}
+
+/* Duas colunas: as seções à esquerda, o painel à direita. Coluna e não abas no topo porque
+   a lista cresce (quatro seções hoje) e porque a esquerda é onde o olho procura índice. */
 .atlas-config {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    gap: var(--space-5);
+
+    /* Altura FIXA, e o scroll mora no painel. Com o corpo do modal rolando, o rodapé grudado
+       passava por cima dos cartões do catálogo: sticky não empurra conteúdo, ele flutua sobre. */
+    height: min(60vh, 520px);
+}
+
+/* Uma seção só (atlas local) não precisa de índice: a coluna vira ruído ao lado de dois campos. */
+.atlas-config--single {
+    grid-template-columns: 1fr;
+    height: auto;
+}
+
+.atlas-config--single .atlas-config__nav {
+    display: none;
+}
+
+.atlas-config__nav {
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
+    gap: 2px;
+    position: sticky;
+    top: 0;
 }
 
-/* Tabbed atlas-config: a wider shell (the Catálogo grid needs room) + a Geral | Catálogo tab bar. */
-[data-testid="atlas-settings-modal"] .modal-container {
-    max-width: 940px;
-}
-
-/* The Geral toggles don't need the full width — keep them readable + centered. */
-.atlas-config__pane[data-pane="geral"] {
-    width: 100%;
-    max-width: 620px;
-    align-self: center;
-}
-
-.atlas-config__tabs {
+.atlas-config__nav-item {
     display: flex;
+    align-items: center;
     gap: var(--space-2);
-    margin: calc(var(--space-5) * -1) calc(var(--space-5) * -1) var(--space-2);
-    padding: 0 var(--space-5);
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--gray-600);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.atlas-config__nav-item:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+}
+
+.atlas-config__nav-item--active {
+    background: var(--primary-50);
+    color: var(--primary-700);
+    font-weight: var(--font-weight-semibold);
+}
+
+.atlas-config__nav-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: currentcolor;
+}
+
+.atlas-config__nav-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.atlas-config__content {
+    min-width: 0;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.atlas-config--single .atlas-config__content {
+    overflow: visible;
+}
+
+/* ----- Aparência ----- */
+
+.atlas-config__slider-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.atlas-config__slider {
+    flex: 1;
+    accent-color: var(--primary);
+}
+
+.atlas-config__slider-bound {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* Largura fixa e dígitos tabulares: sem isso o número empurra o slider a cada arrasto. */
+.atlas-config__slider-value {
+    min-width: 44px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-900);
+    text-align: right;
+}
+
+/* Três respostas, uma barra: "padrão do sistema" é a ausência de escolha e precisa aparecer
+   ao lado das outras duas, não como um terceiro interruptor solto. */
+.atlas-config__segmented {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--gray-100);
+    border-radius: var(--radius-md);
+}
+
+.atlas-config__segment {
+    padding: var(--space-2) var(--space-4);
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius-md) - 2px);
+    color: var(--gray-600);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.atlas-config__segment:hover {
+    color: var(--gray-900);
+}
+
+.atlas-config__segment--active {
+    background: #fff;
+    color: var(--primary-700);
+    font-weight: var(--font-weight-semibold);
+    box-shadow: var(--shadow-sm);
+}
+
+.atlas-config__note {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* ----- Ações em lote do catálogo ----- */
+
+.atlas-config__bulk {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border-bottom: var(--border-width) solid var(--border-color);
 }
 
-.atlas-config__tab {
-    padding: var(--space-3);
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
+.atlas-config__bulk-label {
+    flex: 1;
+    font-size: var(--font-size-xs);
     color: var(--gray-500);
+}
+
+.atlas-config__bulk-btn {
+    padding: var(--space-1) var(--space-3);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
-    transition: color var(--transition-fast), border-color var(--transition-fast);
+    transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.atlas-config__tab:hover {
-    color: var(--gray-800);
-}
-
-.atlas-config__tab--active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
+.atlas-config__bulk-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
 }
 
 .atlas-config__pane {
@@ -397,8 +536,14 @@
     display: none;
 }
 
+/* O painel do catálogo ocupa a altura toda e rola por dentro (filtros fixos, grade rolando). */
+.atlas-config__pane--catalog {
+    height: 100%;
+}
+
 .atlas-config__pane--catalog .catalog-layout {
-    min-height: 340px;
+    height: 100%;
+    min-height: 0;
 }
 
 /* Tighter card grid in the config modal so more items fit per row than the full-screen catalog. */
@@ -468,10 +613,22 @@
     height: 20px;
 }
 
-.atlas-config__item-label {
+.atlas-config__item-text {
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.atlas-config__item-label {
     font-size: var(--font-size-sm);
     color: var(--gray-800);
+}
+
+.atlas-config__item-hint {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
 }
 
 /* Toggle switch (styled checkbox). */
@@ -533,12 +690,20 @@
     bottom: 0;
     z-index: 1;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: var(--space-2);
     margin: 0 calc(var(--space-5) * -1) calc(var(--space-5) * -1);
     padding: var(--space-3) var(--space-5);
     background: #fff;
     border-top: var(--border-width) solid var(--border-color);
+}
+
+/* A frase que diz PARA QUEM a configuração vale, empurrando os botões para a direita. */
+.atlas-config__scope {
+    flex: 1;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
 }
 
 .atlas-config__btn-cancel {

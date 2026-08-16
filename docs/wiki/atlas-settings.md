@@ -4,6 +4,18 @@ Overlay **apenas restritivo** por atlas sobre a config de deploy, trafegado por 
 
 O objeto e seus campos estão declarados em `backend/src/modules/atlas/atlas.schemas.js`; a semântica de interseção está no JSDoc de `frontend/src/js/store/sync/atlas-settings.service.js`. Esta página cobre só o que esses arquivos não contam.
 
+## Duas chaves de `settings` NÃO passam por aqui
+
+`terrainExaggeration` e `globeProjection` moram no mesmo `atlas.settings`, e chegam lá por outra porta: **operação de sync**, pela whitelist de `backend/src/modules/sync/sync.service.js`. Quem lê o schema Joi do PATCH e conclui que a lista dele é o conteúdo do objeto se engana — e o engano é caro, porque um cliente que mandasse as duas pelo PATCH receberia 422 sem entender por quê.
+
+O motivo é o que elas são: as duas dizem como o mapa 2D deste projeto se PARECE, não o que ele oferece. Daí decorrem as três diferenças que importam:
+
+- **Gate `write`, não `manage`.** Quem pode desenhar pode escolher o exagero; escolher exagero não redistribui recurso nenhum.
+- **Funcionam em atlas LOCAL**, que não tem rota REST alguma. Era o motivo estrutural: a mesma tela precisa salvar nos dois casos, e só o caminho de sync existe nos dois.
+- **Só `false` tira o globo.** `globeProjection` tem dois estados e o padrão é globo: ausência, `null` ou lixo de um `settings` antigo resolvem para globo (`frontend/src/js/store/atlas-appearance.service.js`). Houve um terceiro estado, "padrão do sistema", herdando `config.map2d.globe_projection` do painel do administrador; foi cortado em 2026-08-16 por decisão do dono, e a config de deploy deixou de decidir a projeção.
+
+Uma armadilha de fila herdada: as duas dividem a chave de compactação `<escopo>:setting:<atlas>` com `customIcons`, `mapOrder`, `colorUsage` e `mapBadgeColors`, e a compactação **substitui** o payload em vez de fundir. Por isso o modal grava as duas num patch só. Ver [[tipos-entidade-sync]].
+
 ## Por que settings fica fora do sync
 
 É metadado do [[atlas-modelo-de-dados]], não entidade sincronizada ([[tipos-entidade-sync]]). Consequência que morde: não há resolução LWW aqui (comparar com [[modelo-conflito-lww]]), o último PATCH simplesmente vence e a `version` do atlas é incrementada. Dois Gestores editando settings ao mesmo tempo perdem trabalho sem qualquer sinal. Ver [[sintese-rest-vs-sync]] e [[sintese-modulos-fora-do-sync]].

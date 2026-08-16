@@ -73,7 +73,7 @@ Errar o lado é o bug mais comum de feature nova: ou o usuário sobrescreve a vi
 
 Os casos em que a intuição erra:
 
-- **Exagero de terreno é atlas-wide**, não por mapa (`frontend/src/js/modals/settings.modal.js` → `atlas.settings.terrainExaggeration`). Mudá-lo em um mapa muda em todos.
+- **Exagero de terreno é atlas-wide**, não por mapa (`frontend/src/js/store/atlas-appearance.service.js` → `atlas.settings.terrainExaggeration`). Mudá-lo em um mapa muda em todos. Desde 2026-08-16 ele tem uma irmã na mesma chave de grupo, `globeProjection`, e as duas são gravadas JUNTAS num patch só — a compactação da fila colapsa patches parciais do mesmo grupo para o último, então escrevê-las em duas ops perderia uma.
 - **Visibilidade e bloqueio de feição, camada e grupo não são preferência de visualização**: são propriedade persistida. Esconder uma camada esconde para todo mundo no atlas.
 - **Ordem dos mapas, cores de badge e ícones customizados** são `setting` de **atlas**, não de mapa.
 - **Seleção de feições parece local mas é espelhada** como awareness, não como dado ([[presenca-colaborativa]]).

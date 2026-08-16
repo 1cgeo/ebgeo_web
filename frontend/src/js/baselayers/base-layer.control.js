@@ -19,6 +19,7 @@ import {
 } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
+import { currentGlobeProjection } from '../store/atlas-appearance.service.js';
 import cartaTopografica from './carta_topografica.js';
 import cartaOrtoimagem from './carta_ortoimagem.js';
 import osmLayer from './osm_layer.js';
@@ -251,7 +252,9 @@ class BaseLayerControl {
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
             const terrainActive = getControl('TerrainControl')?._wasTerrainActive;
-            if (config.map2d.globe_projection && !terrainActive) {
+            // A escolha do ATLAS, com o deploy como padrão — nunca o deploy direto, senão trocar
+            // de mapa base desfaria a projeção que o projeto pediu.
+            if (currentGlobeProjection() && !terrainActive) {
                 this.map.setProjection({ type: 'globe' });
             }
 
