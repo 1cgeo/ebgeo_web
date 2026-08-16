@@ -6,7 +6,7 @@
 
 import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
-import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
+import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, getSourceTypeFromStorage, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 import { removeImage } from './settings.operations.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
@@ -652,14 +652,21 @@ export async function updateFeatureProperty(featureType, featureId, property, va
  * shifted, so a `dateTimeGroup` / `gdhIni` / `gdhFim` bound to the timeline (the
  * `autoDtg` opt-in) does not go stale after "Reagendar". No-op unless `autoDtg` is
  * on. Mirrors deriveDtgFields in temporal-attributes-section.js (canonical values only).
- * @param {string} type - Storage feature type (military_symbol / coordination_measure).
+ *
+ * Takes the SOURCE type (singular), which is the namespace the constants below live in.
+ * The JSDoc used to say "Storage feature type" while the body compared against the
+ * singulars, and the only caller passes a bucket key (plural): both branches were
+ * unreachable and nothing threw, so a rescheduled symbol kept the old date-time group
+ * printed beside its new window. Converted at the call site with
+ * `getSourceTypeFromStorage`.
+ * @param {string} sourceType - Source feature type: 'military_symbol' / 'coordination_measure'.
  * @param {Object} p - Feature properties (already shifted in place).
  */
-function rederiveAutoDtg(type, p) {
+function rederiveAutoDtg(sourceType, p) {
     if (p.autoDtg !== true) return;
-    if (type === 'military_symbol') {
+    if (sourceType === 'military_symbol') {
         if (Number.isFinite(p.temporalInicio)) p.dateTimeGroup = formatDTG(p.temporalInicio, 'military');
-    } else if (type === 'coordination_measure') {
+    } else if (sourceType === 'coordination_measure') {
         if (Number.isFinite(p.temporalInicio)) p.gdhIni = formatDTG(p.temporalInicio, 'coordination');
         if (Number.isFinite(p.temporalFim)) p.gdhFim = formatDTG(p.temporalFim, 'coordination');
     }
@@ -701,7 +708,10 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
                     }
                 }
                 if (touched) {
-                    rederiveAutoDtg(type, p); // keep auto DTG/GDH amplifiers in sync with the shifted window
+                    // `type` is a STORAGE bucket key ('military_symbols'); the derivation
+                    // reasons in SOURCE types ('military_symbol'). Converting here rather
+                    // than restating the table inside the helper.
+                    rederiveAutoDtg(getSourceTypeFromStorage(type), p); // keep auto DTG/GDH amplifiers in sync
                     touchUpdatedTimestamp(feature);
                     shifted.push({ feature, oldFeature });
                 }

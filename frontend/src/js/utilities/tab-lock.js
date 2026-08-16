@@ -192,6 +192,38 @@
  *
  * A read of `blocked` right after `initTabLock()` is always `false` and means nothing.
  *
+ * AND AN AWAITED `acquire()` WAS STILL NOT ENOUGH, which is the correction this section carries.
+ * The settle answers by ABSENCE: nobody objected, therefore nobody is there. Three ordinary things
+ * produce that silence with a peer very much alive — two settles that overlap (both tabs are
+ * granted, and the total order then blocks one AFTER its wipe has run), a peer whose main thread is
+ * busy for longer than the settle (200 ms of render or import against a 300 ms window is a coin
+ * toss, and boot makes it worse), and a single dropped message on the localStorage bus. The total
+ * order repairs the STATE in all three; it cannot repair databases that are already empty.
+ *
+ * So `acquire()` takes a WITNESS, and a destructive caller must pass one. The witness answers from
+ * a fact of the browser rather than from the channel: the store takes a SHARED Web Lock on every
+ * namespace it MOUNTS (`store/atlas-namespace.js`, Decision 5), a Web Lock is released by the
+ * DEATH of the client and never by its silence, and `otherClientHoldsLock` counts the holds that
+ * are not this client's. A frozen tab, a throttled tab and a tab whose message was dropped are all
+ * indistinguishable from a dead one on the channel, and all three still hold the lock.
+ *
+ * WHY NOT REPLACE THE SETTLE WITH IT, which is the tempting simplification. The two answer
+ * different questions and each is blind where the other sees. The lock says "somebody has these
+ * databases open" but not WHO, so it cannot name a blocker, cannot order two claims, cannot drive
+ * the overlay or "Usar aqui", and cannot distinguish this tab from another when this tab is one of
+ * the holders (which it always is for the wipe of the atlas it has mounted — hence `selfHolds`).
+ * The channel says exactly who and in what order, and lies by silence. Keeping both, with a
+ * refusal from either one refusing the grant, is what makes the grant mean something; and where
+ * the browser cannot answer at all (plain HTTP has no `navigator.locks`) the settle is still
+ * there, degraded but not absent.
+ *
+ * THE ALTERNATIVE NOT TAKEN was a REVERSIBLE wipe (snapshot the ten databases, wipe, restore if
+ * the claim turns out to be contested). It is strictly stronger: it needs no evidence at all,
+ * because it survives being wrong. It was rejected on cost, and the cost is not the code — it is
+ * copying an image blob store on every boot of every tab, to insure against a race, in a module
+ * whose whole design is to make that race not happen. If the witness is ever found insufficient,
+ * that is the next move, not a longer settle.
+ *
  * ===========================================================================
  * 6. LIFECYCLE OF THE KEY (it changes LIVE, so this is an N-time protocol)
  * ===========================================================================
@@ -210,12 +242,43 @@
  *   RETRACT   `release()`: a 403/404 reverts to local, and a tab that announced a UUID it
  *             cannot open must drop the key. Retraction is a first-class move, not a special
  *             case of unload.
- *   LEAVE     `pagehide`/`beforeunload` post RELEASE and close the channel.
+ *   LEAVE     `pagehide`/`beforeunload` post RELEASE and close the channel — UNLESS `persisted`
+ *             says the page is going into the BFCACHE, which is not a departure at all, see the
+ *             fence below.
  *   DEATH     a tab that dies without saying anything (crash, kill, sleep) is detected by
  *             ABSENCE: every tab heartbeats a STATE every HEARTBEAT_MS, and a peer unheard of
  *             for PEER_TTL_MS is dropped from the registry, which re-runs the predicate and
  *             releases whoever was waiting on it. The old lock had no heartbeat and no exit
  *             message, so closing the owner tab left the other one blocked forever.
+ *
+ * THE FENCE: ABSENCE IS NOT DEATH, AND EVICTION IS NOT FINAL BY ITSELF. This paragraph used to
+ * read DEATH as if the TTL sweep settled the matter. It does not, because the thing being expired
+ * is usually not dead: a suspended OS, a sleeping machine, a page in the bfcache and a main thread
+ * busy past the TTL all look exactly like a crash from the outside, and all of them come BACK,
+ * holding the `claimedAt` they had before. The old claim precedes again, wins the total order
+ * again, and the tab resumes writing over databases the peer already took and wiped, without its
+ * own `onBlocked` ever having run. Neither side can fix that alone, so both do their half:
+ *
+ *   the EVICTOR remembers the claim it expired (`_evictedClaims`) and denies THAT claim its
+ *   standing once, so one stale re-announcement cannot push out the tab that legitimately took
+ *   over. The denial is consumed on first use, because an eviction can be wrong (dropped
+ *   messages, a peer that never left) and a permanent veto would leave two tabs each believing it
+ *   owns the atlas, with nothing left to correct it;
+ *
+ *   the EVICTED tab measures its own absence — the protocol did not run for longer than the TTL
+ *   (`_fenceAfterSilence`) — and re-enters the order as a NEWCOMER, with a fresh stamp and a
+ *   HELLO. From there the ordinary path does the rest: the peer that took over now precedes it,
+ *   so it blocks, stops for real and gets the ordinary overlay with the ordinary way back.
+ *
+ * The bfcache is the same silence in a different shape, which is why it needs no separate rule:
+ * `pagehide` with `persisted` posts nothing (a cached page is coming back, and handing its atlas
+ * away is exactly wrong), and `pageshow` with `persisted` speaks at once instead of waiting for
+ * the next heartbeat, letting the same fence decide whether the claim survived the stay.
+ *
+ * WHAT NEITHER HALF COVERS: if the evictor is gone by the time the frozen tab wakes, nobody
+ * arbitrates and the tab resumes over databases wiped by a tab that no longer exists. That one
+ * needs a monotonic epoch PERSISTED per atlas, which is a store concern, and this module reaches
+ * no store (section 7).
  *
  * ===========================================================================
  * 7. WHAT HAPPENS TO THE LOSER
@@ -250,6 +313,17 @@
  * is evidence that the other side already stopped, not an assumption that it will. If nobody
  * yields within TAKEOVER_TIMEOUT_MS the requester STAYS blocked and reports failure; the
  * frozen-holder case is then covered by the TTL sweep, which is also evidence.
+ *
+ * AND IT IS A HANDOFF FOR THE TAB THAT YIELDS TOO, which took a second pass to become true. The
+ * request reaches every tab holding a colliding key, which is the right address (only one of them
+ * is unblocked, but sending only to that one would let a THIRD tab win the order the moment the
+ * winner steps aside, so "Usar aqui" would hand the atlas to a tab nobody clicked). What was
+ * missing was the way back: a tab that yielded kept `_yieldedKey` and stayed out of the order for
+ * good, so the winner closing left it blocked for ever, in front of an overlay naming a tab that
+ * no longer existed, and a tab that was never addressed paid the same price for somebody else's
+ * click. It now RE-ADOPTS the surrendered key as soon as no standing peer collides with it
+ * (`_reclaimYieldedKey`), with a fresh stamp, so it comes back as a newcomer and the ordinary
+ * order decides between two tabs that come back together.
  *
  * ===========================================================================
  * 8. THE UNMOUNT NOTICE (`announceTeardown`), AND WHY IT IS NOT ADDRESSED BY COLLISION
@@ -344,7 +418,9 @@
  * 10. PUBLIC API (other agents wire this; nothing here integrates itself)
  * ===========================================================================
  * Pure, for callers and tests: `TabLockKeyKind`, `noneKey`, `localAtlasKey`, `remoteAtlasKey`,
- * `keysCollide`, `compareClaims`, `findBlockingPeer`.
+ * `keysCollide`, `compareClaims`, `findBlockingPeer`, `otherClientHoldsLock` (the witness
+ * primitive of section 5; the caller supplies the LockManager and the lock name, so this module
+ * still knows nothing about databases).
  *
  * Instance: `createTabLock(deps)` returns `{ tabId, key, blocked, frozen, degraded, transportKind,
  * peers(), acquire(key, opts), setKey(key), release(), requestTakeover(), announceTeardown(addrs),
@@ -378,25 +454,26 @@
  * ===========================================================================
  * Everything above describes what the lock arbitrates. It arbitrates less than a first reading
  * suggests, and a doc that only lists the guarantees is the kind that misleads an agent twice
- * over. The six open holes are enumerated in `frontend/tests/TESTING-BACKLOG.md`, section
+ * over. The open holes are enumerated in `frontend/tests/TESTING-BACKLOG.md`, section
  * "Furos abertos do tab-lock", each with its reproduction in
- * `frontend/tests/unit/tab-lock-refutacao.test.js` as an `it.todo`. The four that change how you
+ * `frontend/tests/unit/tab-lock-refutacao.test.js` as an `it.todo`. The ones that change how you
  * should read the sections above:
  *
- *   - `acquire()` GRANTS BY ABSENCE OF PROOF. Section 4 says the total order removes the timing
- *     window, and it does — for the STATE. It does not remove it for an effect that already ran:
- *     two tabs whose settle windows overlap both get `{granted: true}`, and `granted` is what
- *     authorises `clearAllDataStore()` (section 5). One lost message does the same.
- *   - THERE IS NO FENCING. Section 6 (DEATH) explains the TTL sweep as if eviction were final.
- *     The evicted tab is never told: a tab merely FROZEN (busy main thread, not dead) stops
- *     pulsing, is expired, and on waking re-announces its old `claimedAt`, precedes again, and
- *     resumes without its `onBlocked` ever having run.
- *   - `pagehide` DOES NOT CHECK `persisted`, so entering the bfcache posts RELEASE and coming
- *     back does not re-announce until the next heartbeat.
- *   - A TAB THAT YIELDED NEVER RE-ADOPTS. Section 7 presents "Usar aqui" as a clean handoff; it
- *     is one for the requester. `_evaluate` only leaves the blocked state when `!this._yielded`,
- *     so a tab holding `_yieldedKey` stays blocked forever if the winner closes, and a single
- *     TAKEOVER strands EVERY tab holding the colliding key, not just the one that asked.
+ *   - THE WITNESS IS ONLY AS GOOD AS THE CALLER THAT PASSES ONE. `acquire()` no longer grants on
+ *     silence alone (section 5), but a caller that omits the `witness` gets the old answer, and
+ *     a runtime with no `navigator.locks` (plain HTTP) has no fact to read. Adding a fifth wipe
+ *     without a witness reopens the hole in that one path, silently.
+ *   - THE FENCE HAS NO EPOCH, so it reaches exactly as far as the peers do. Section 6 describes
+ *     the two halves that close the ordinary case (the evictor denies the stale claim once, the
+ *     woken tab re-enters as a newcomer). Both need somebody to still be there: a tab that was
+ *     evicted and comes back after the EVICTOR has closed finds an empty channel, is granted its
+ *     claim, and writes over databases the evictor wiped. Only a monotonic epoch persisted per
+ *     atlas answers that, and this module reaches no store.
+ *   - THE BFCACHE PROOF IS A NODE PROOF. `pagehide`/`pageshow` now read `persisted` and the
+ *     restored tab re-announces at once, but the Playwright runner starts Chromium with the
+ *     bfcache DISABLED (measured by case B0 of
+ *     `frontend/tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js`), so what is measured is
+ *     the handler, with the events dispatched by hand, not the browser window it exists for.
  */
 
 import { setupCleanup, addDomListener, trackTimer, cleanup, removeElement } from './event-cleanup.js';
@@ -676,6 +753,54 @@ export function findBlockingPeer(self, peers) {
 }
 
 /**
+ * ASKS THE BROWSER, NOT THE CHANNEL: does a live client other than this one hold `lockName`?
+ *
+ * This is the primitive `acquire()` leans on to stop granting by absence of proof (fileoverview,
+ * 5). A Web Lock is a FACT of the user agent: it is released by the DEATH of the client and never
+ * by its silence, so a peer that is frozen, throttled, or whose message was dropped still holds
+ * it. Nothing here waits on a clock, so nothing here can be outrun by a slow answer.
+ *
+ * IT COUNTS, IT DOES NOT PROBE. An `exclusive ifAvailable` request answers "is anybody here",
+ * which is the wrong question whenever the asker is itself one of the holders — and it always is
+ * for the wipe of the atlas this tab has MOUNTED, since mounting takes a SHARED lock on that same
+ * name (`store/atlas-namespace.js`, Decision 5). So the caller states how many holds are its own
+ * (`selfHolds`) and anything above that is somebody else. The caller can state it because the
+ * store keeps at most ONE mount lock per client: 1 for the scope this tab has mounted, 0 for any
+ * other address.
+ *
+ * `pending` is counted with `held`: a shared request that has not been granted yet is still a live
+ * client on its way in, and reading it as absence is the failure this function exists to remove.
+ *
+ * UNKNOWN IS A REAL ANSWER, and it is `null`. Where there is no LockManager (a NON-SECURE context,
+ * i.e. plain HTTP) or `query()` refuses, there is no fact to read, and inventing one in either
+ * direction is worse than saying so: "occupied" would deadlock every open on a runtime quirk,
+ * "free" would be the silence this replaces. The caller falls back to the settle and says so.
+ *
+ * @param {{query: () => Promise<{held?: Array<{name: string}>, pending?: Array<{name: string}>}>}
+ *   |null|undefined} locks - A `LockManager` (`navigator.locks`), or null where there is none.
+ * @param {string} lockName - Name of the lock that means "a live client is using these databases".
+ * @param {number} [selfHolds] - How many of the holds on that name belong to THIS client.
+ * @returns {Promise<boolean|null>} True when another live client holds it, false when none does,
+ *   null when this runtime cannot tell.
+ */
+export async function otherClientHoldsLock(locks, lockName, selfHolds = 0) {
+    if (!locks || typeof locks.query !== 'function') return null;
+    if (typeof lockName !== 'string' || lockName.length === 0) return null;
+
+    let snapshot;
+    try {
+        snapshot = await locks.query();
+    } catch {
+        return null;
+    }
+    if (!snapshot) return null;
+
+    const entries = [...(snapshot.held ?? []), ...(snapshot.pending ?? [])];
+    const holds = entries.filter(entry => entry?.name === lockName).length;
+    return holds > Math.max(0, selfHolds);
+}
+
+/**
  * @param {string[]|*} addresses - Whatever a caller passed.
  * @returns {string[]} De-duplicated `dbSuffix` strings, safe to broadcast.
  */
@@ -873,6 +998,19 @@ class TabLock {
         /** @type {Promise<void>|null} The stop currently running, or the one that already ran. */
         this._blockingPromise = null;
 
+        /**
+         * @type {Map<string, number>} Claims this tab EXPIRED by TTL, by peer tab id. A tab that
+         * was merely FROZEN keeps its old `claimedAt`, so its first message back would precede
+         * again and push out the peer that legitimately took the atlas over. The record is what
+         * denies that one stale re-announcement its standing (section 6, THE FENCE).
+         */
+        this._evictedClaims = new Map();
+        /**
+         * Last instant this tab ran the protocol. A gap wider than the TTL means the tab itself
+         * was away, which is the only thing it can observe about its own absence (section 6).
+         */
+        this._lastTickAt = this._birth;
+
         /** @type {HTMLElement|null} The degraded-mode banner, built on first showing. */
         this._degradedNotice = null;
         /** True once the user acknowledged the banner. It never comes back (section 9). */
@@ -897,9 +1035,19 @@ class TabLock {
         this._transport.setReceiver((message) => this._onMessage(message));
 
         if (typeof window !== 'undefined' && window.addEventListener) {
-            const leave = () => this._postLeave();
+            // `pagehide` FIRES FOR THE BFCACHE TOO, and `persisted` is the whole difference: the
+            // page is being FROZEN INTACT, not unloaded, and it can be restored at any moment with
+            // its key, its peers and its store exactly as they were. Announcing a departure there
+            // hands the atlas away on behalf of a tab that is coming back (section 6, THE FENCE).
+            const leave = (event) => {
+                if (event?.persisted === true) return;
+                this._postLeave();
+            };
             addDomListener(this, window, 'pagehide', leave);
+            // `beforeunload` carries no `persisted` and does not fire on the way into the cache,
+            // so it reads as a real departure, which is what it is.
             addDomListener(this, window, 'beforeunload', leave);
+            addDomListener(this, window, 'pageshow', (event) => this._handlePageShow(event));
         }
 
         if (autoPulse && heartbeatMs > 0) {
@@ -959,19 +1107,95 @@ class TabLock {
     /**
      * Claims a key and reports whether this tab may proceed. CALL THIS BEFORE ANY DESTRUCTIVE
      * STEP, notably before `clearAllDataStore()` in the remote-open flow (fileoverview, 5).
+     *
+     * THE GRANT IS NO LONGER DECIDED BY SILENCE ALONE. Two independent things must agree:
+     *
+     *   1. the total order over the claims this tab HEARD (the settle, the peer registry), and
+     *   2. the `witness`, which reads a FACT of the browser instead of listening for a message.
+     *
+     * A refusal from either one refuses the grant, and `deniedBy` says which. The witness is what
+     * closes the three faces of "granted by absence of proof": two settles that overlap, a peer
+     * whose main thread is busy for longer than the settle, and a single lost message. None of
+     * them can silence a Web Lock (see {@link otherClientHoldsLock} and the fileoverview, 5).
+     *
+     * IT IS INJECTED, NOT IMPORTED, for the reason section 7 gives about `onBlocked`: the fact
+     * worth reading is "another live client has these DATABASES mounted", and the databases live
+     * in the store, which this module must never reach. `account/open-atlas.service.js` builds the
+     * witness from the store's own mount lock and hands it in.
+     *
+     * WITHOUT A WITNESS THE BEHAVIOUR IS EXACTLY WHAT IT WAS, deliberately: a caller that is not
+     * about to destroy anything has nothing to gain from the extra round trip, and the settle
+     * remains a courtesy that the total order corrects afterwards.
+     *
+     * AND IT IS ASKED EVEN WHEN THE TRANSPORT IS MISSING (section 9). Degraded mode has no channel
+     * and therefore no roster at all, so the witness is the only arbitration left there; skipping
+     * it would throw away the one answer that still works.
+     *
      * @param {TabLockKey} key
-     * @param {{settleMs?: number}} [options]
-     * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean}>}
+     * @param {{settleMs?: number, witness?: (() => Promise<boolean|null>)|null}} [options] -
+     *   `witness` answers "is another live client using the databases this claim names": true
+     *   refuses the grant, false clears it, null (or absent) leaves the decision to the settle.
+     * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean,
+     *   deniedBy: string|null}>} `deniedBy` is `'peer'` (the order), `'witness'` (the browser
+     *   fact), `'destroyed'`, or null when the claim was granted.
      */
-    async acquire(key, { settleMs = this._settleMs } = {}) {
+    async acquire(key, { settleMs = this._settleMs, witness = null } = {}) {
         this.setKey(key);
-        if (this._degraded || this._destroyed) {
-            return { granted: !this._blocked, blockedBy: null, degraded: this._degraded };
+        if (this._destroyed) return this._acquireResult('destroyed');
+
+        if (!this._degraded) {
+            await this._wait(settleMs);
+            if (this._destroyed) return this._acquireResult('destroyed');
+            this._evaluate();
         }
-        await this._wait(settleMs);
-        if (this._destroyed) return { granted: false, blockedBy: null, degraded: false };
-        this._evaluate();
-        return { granted: !this._blocked, blockedBy: this._blocker, degraded: false };
+        if (this._blocked) return this._acquireResult('peer');
+
+        // THE SECOND QUESTION, and it is asked HERE rather than by the caller just before the
+        // wipe, because here it is still this module's business whether the claim stands. It
+        // costs one microtask when there is no witness and one `query()` when there is.
+        const occupied = await this._askWitness(witness);
+        if (this._destroyed) return this._acquireResult('destroyed');
+        // The order may have moved while the witness was answering: re-read it rather than
+        // trusting the value captured before the await.
+        if (this._blocked) return this._acquireResult('peer');
+        return this._acquireResult(occupied === true ? 'witness' : null);
+    }
+
+    /**
+     * @param {string|null} deniedBy - Why the claim was refused, or null when it was granted.
+     * @returns {{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean,
+     *   deniedBy: string|null}}
+     */
+    _acquireResult(deniedBy) {
+        return {
+            granted: deniedBy === null,
+            blockedBy: deniedBy === 'peer' ? this._blocker : null,
+            degraded: this._degraded,
+            deniedBy
+        };
+    }
+
+    /**
+     * Asks the injected witness, and normalises everything it can answer into three values.
+     *
+     * A WITNESS THAT THROWS ANSWERS "UNKNOWN", never "occupied". The witness is evidence of
+     * PRESENCE, and a broken reader of that evidence is not presence: treating a failed `query()`
+     * as a peer would turn a runtime quirk into an app that can never open a project, which
+     * trades a data risk for an outage. Unknown falls back to the settle, which is the behaviour
+     * of the deploy that had no witness at all — the same direction section 9 takes when the
+     * transport is missing.
+     * @param {(() => Promise<boolean|null>)|null|undefined} witness
+     * @returns {Promise<boolean|null>} True/false, or null when there is nothing to read.
+     */
+    async _askWitness(witness) {
+        if (typeof witness !== 'function') return null;
+        try {
+            const answer = await witness();
+            return typeof answer === 'boolean' ? answer : null;
+        } catch (error) {
+            console.error('[tab-lock] witness failed:', error);
+            return null;
+        }
     }
 
     /**
@@ -1194,6 +1418,31 @@ class TabLock {
     }
 
     /**
+     * RESTORATION FROM THE BFCACHE, which is the other half of not announcing a departure on the
+     * way in. A restored page resumes with everything it had, including a claim it stopped
+     * defending the moment its timers were frozen: peers heard nothing from it while it sat in the
+     * cache, and after PEER_TTL_MS they were right to expire it and take the atlas.
+     *
+     * So the tab speaks IMMEDIATELY instead of waiting for the next heartbeat, and the silence
+     * fence (see `_fenceAfterSilence`) decides what it may say: a short stay keeps the claim
+     * (nothing could have expired it), a stay longer than the TTL re-enters the order as a
+     * NEWCOMER. The two cases share one rule because the cache is just a long silence.
+     *
+     * `persisted` is checked here for the same reason it is checked on the way out: a `pageshow`
+     * without it is an ordinary load, whose HELLO the constructor has already posted.
+     * @param {PageTransitionEvent|{persisted?: boolean}} [event]
+     * @returns {void}
+     */
+    _handlePageShow(event) {
+        if (event?.persisted !== true) return;
+        if (this._degraded || this._destroyed) return;
+        // The fence re-announces when it moves the claim, so a second HELLO is only posted when
+        // it did not: the peers must hear this tab again either way.
+        if (!this._fenceAfterSilence(this._now())) this._post(Msg.HELLO);
+        this._evaluate();
+    }
+
+    /**
      * @param {Object} message
      * @returns {void}
      */
@@ -1272,6 +1521,16 @@ class TabLock {
     async _handleTakeover(message) {
         if (!keysCollide(this._key, message.key)) return;
         const surrendered = this._key;
+        // THE INTENT IS RECORDED BEFORE THE STOP IS AWAITED, and the RETRACTION only after it.
+        // The two used to happen together, on the far side of the await, and the gap between them
+        // was a hole with three tabs: while this tab awaited its own stop, the YIELD of ANOTHER
+        // holder arrived, `_evaluate` ran with `_yielded` still false and every colliding claim
+        // already retracted, found no blocker, and UNBLOCKED the tab in the middle of
+        // surrendering — resuming the very sync it was handing away. Marking first closes it,
+        // and it costs nothing: `_evaluate` reads `_yielded` only to refuse to unblock, and the
+        // re-adoption below is gated on this tab holding NOTHING, which is still false here.
+        this._yielded = true;
+        this._yieldedKey = surrendered;
         // Unconditional, including when this tab is already blocked: `_enterBlocked` then adds no
         // second stop and simply awaits the one in flight. Yielding on the `blocked` flag alone
         // acked a stop that had only STARTED, which is the assumption the handoff exists to avoid.
@@ -1280,8 +1539,6 @@ class TabLock {
             key: message.key,
             claimedAt: message.claimedAt
         });
-        this._yielded = true;
-        this._yieldedKey = surrendered;
         this._key = noneKey();
         this._claimedAt = this._now();
         this._post(Msg.YIELD, message.tabId);
@@ -1346,6 +1603,9 @@ class TabLock {
     /**
      * @returns {Array<TabLockClaim & {lastSeen: number}>} Peers heard from recently. Expiring
      * here (and not on a timer) is what makes a tab that died without a RELEASE recoverable.
+     *
+     * EVERY EXPIRY IS RECORDED, because eviction is the only moment at which this tab knows that
+     * a claim it can still be shown has already been overruled here (section 6, THE FENCE).
      */
     _livePeers() {
         const cutoff = this._now() - this._peerTtlMs;
@@ -1353,6 +1613,7 @@ class TabLock {
         for (const [tabId, peer] of this._peers) {
             if (peer.lastSeen < cutoff) {
                 this._peers.delete(tabId);
+                this._evictedClaims.set(tabId, peer.claimedAt);
                 continue;
             }
             live.push(peer);
@@ -1360,20 +1621,149 @@ class TabLock {
         return live;
     }
 
+    /**
+     * The live peers whose claims still have STANDING in the order.
+     *
+     * A tab expired by TTL keeps its `claimedAt` (nothing tells it otherwise), so its first
+     * message back carries the very claim this tab already overruled, and it would precede again
+     * and push out the peer that legitimately took the atlas over. That one stale re-announcement
+     * is denied here, which is what keeps a woken tab from evicting the live one for the round
+     * trip it takes to notice its own absence (`_fenceAfterSilence`).
+     *
+     * THE DENIAL IS CONSUMED ON FIRST USE, and that bound is deliberate. A record that outlived
+     * its purpose would be a permanent veto over a tab id: if the eviction was WRONG (four
+     * dropped messages on the localStorage bus, with the peer alive and unaware), a lasting veto
+     * would leave two tabs each believing it owns the atlas, with nothing left to correct it. One
+     * denial covers the round trip the fence needs; the next heartbeat of a peer that never left
+     * is honoured, and the order repairs itself exactly as it does today.
+     * @returns {Array<TabLockClaim & {lastSeen: number}>}
+     */
+    _standingPeers() {
+        const standing = [];
+        for (const peer of this._livePeers()) {
+            const evictedAt = this._evictedClaims.get(peer.tabId);
+            if (evictedAt === undefined) {
+                standing.push(peer);
+                continue;
+            }
+            // A re-stamped claim is a NEW claim: the tab noticed its absence and re-entered the
+            // order as a newcomer, which is precisely what the record was waiting for.
+            this._evictedClaims.delete(peer.tabId);
+            if (peer.claimedAt !== evictedAt) standing.push(peer);
+        }
+        return standing;
+    }
+
+    /**
+     * THE OTHER HALF OF THE FENCE, and the only thing a tab can observe about its OWN absence:
+     * the protocol did not run for longer than the TTL a peer uses to expire it.
+     *
+     * A tab that is merely FROZEN (the OS suspended it, the machine slept, the page sat in the
+     * bfcache) is indistinguishable from a dead one on the channel, so a peer expires it, takes
+     * the atlas and wipes on the way in. What used to happen next is the hole: the tab woke up
+     * still holding its OLD `claimedAt`, precedes again in the total order, and resumed writing
+     * without its own `onBlocked` ever having run. So on waking it re-enters the order as a
+     * NEWCOMER: the fresh stamp is what makes the peer that took over precede it, which then
+     * blocks it through the ordinary path, with the ordinary overlay and the ordinary way back.
+     *
+     * IT DROPS THE PEER REGISTRY WITHOUT RECORDING AN EVICTION, and that asymmetry is the point.
+     * After a silence of this tab's own, EVERY peer looks expired and none of them is: their
+     * records are stale because nothing was HEARD, not because nothing was SAID. Recording those
+     * as evictions would arm `_standingPeers` against tabs that never left, which is the one way
+     * this fence could produce two writers instead of preventing them.
+     *
+     * WHAT IT DOES NOT DO: if the peer that evicted this tab is gone by the time it wakes, nobody
+     * is left to arbitrate and the tab resumes over databases that were wiped in the meantime.
+     * Closing that needs a monotonic epoch PERSISTED per atlas, which is a store concern and this
+     * module reaches no store (section 7).
+     * @param {number} now - Current instant, from the injected clock.
+     * @returns {boolean} True when the claim was re-stamped and re-announced.
+     */
+    _fenceAfterSilence(now) {
+        const lastTick = this._lastTickAt;
+        this._lastTickAt = now;
+        if (now - lastTick <= this._peerTtlMs) return false;
+        this._peers.clear();
+        // Nothing to fence: a frozen tab is out for good (section 8), and a claim over no atlas
+        // was never in the order.
+        if (this._frozen || claimAddress(this._key) === null) return false;
+        // A claim younger than the silence was adopted after it (`setKey` stamps before it
+        // evaluates), so it was never held across the gap and is already a newcomer's claim.
+        if (this._claimedAt > lastTick) return false;
+        this._claimedAt = now;
+        this._post(Msg.HELLO);
+        return true;
+    }
+
+    /**
+     * Takes the yielded key back when nothing is holding it any more.
+     *
+     * "Usar aqui" is a real handoff for the REQUESTER (section 7); for the tab that yielded it
+     * used to be a one-way door. `_handleTakeover` fires on COLLISION, not on a recipient, so a
+     * single takeover retracted the key of every tab holding that atlas, and `_evaluate` would
+     * not leave the blocked state while `_yielded`. The winner closing therefore left those tabs
+     * blocked for ever, staring at an overlay that named a tab nobody could see.
+     *
+     * Re-adopting when zero standing peer collides with the surrendered key closes both symptoms
+     * at once: the tab that was asked to yield recovers when the winner leaves, and the third tab
+     * that was never addressed recovers the same way. The re-adoption stamps a FRESH `claimedAt`,
+     * so two tabs coming back together are ordered by the ordinary rule instead of by who yielded
+     * first, and neither inherits an incumbency it stopped defending.
+     * @param {TabLockClaim[]} peers - Peers with standing, from `_standingPeers`.
+     * @returns {void}
+     */
+    _reclaimYieldedKey(peers) {
+        const key = this._yieldedKey;
+        if (!key) return;
+        for (const peer of peers) {
+            if (keysCollide(key, peer.key)) return;
+        }
+        this._key = key;
+        this._claimedAt = this._now();
+        this._yielded = false;
+        this._yieldedKey = null;
+        this._post(Msg.HELLO);
+    }
+
     /** Runs the predicate and moves this tab into or out of the blocked state. @returns {void} */
     _evaluate() {
         if (this._degraded || this._destroyed) return;
+        // Both fences run BEFORE the predicate, because both can change what this tab is
+        // claiming, and the order must be computed over the claim it will actually defend.
+        this._fenceAfterSilence(this._now());
+        const peers = this._standingPeers();
+        // A FROZEN TAB NEVER RE-ADOPTS: the atlas it yielded is being destroyed, so taking the
+        // key back would be a claim over databases on their way out (section 8). And a tab that
+        // has only DECIDED to yield (its stop is still running, `_handleTakeover`) still holds the
+        // key, so there is nothing to re-adopt and reading `_yielded` alone would cancel a
+        // handoff in flight.
+        if (this._yielded && !this._frozen && claimAddress(this._key) === null) {
+            this._reclaimYieldedKey(peers);
+        }
+
         const self = { tabId: this._tabId, key: this._key, claimedAt: this._claimedAt };
-        const blocker = findBlockingPeer(self, this._livePeers());
+        const blocker = findBlockingPeer(self, peers);
 
         if (blocker && !this._blocked) {
             this._enterBlocked(blocker);
             return;
         }
+        // THE BLOCKER CAN CHANGE WITHOUT THE BLOCK CHANGING, and `_enterBlocked` cannot say so: it
+        // returns early when the tab is already blocked, so the record kept pointing at whoever
+        // won first. After a takeover that is a tab which has since retracted or closed, and a
+        // status that names a peer nobody can see is the overlay lying about why it is there.
+        if (blocker && this._blocked && this._blocker?.tabId !== blocker.tabId) {
+            this._blocker = blocker;
+            this._emit();
+        }
         // A FROZEN TAB NEVER LEAVES, and this guard is load-bearing rather than defensive: the
         // freeze retracts the key, and `syncEngine.disconnect()` inside the brake fires the very
         // key-change listener that calls back in here. Without it the tab would find no blocker,
         // resume, and reconnect to an atlas whose databases are being deleted.
+        //
+        // `_yielded` survives the re-adoption above for the case that is NOT recoverable: a tab
+        // that yielded while another still holds the atlas keeps its `none` key, and a `none` key
+        // has no blocker, so without this guard it would unblock and resume holding nothing.
         if (!blocker && this._blocked && !this._yielded && !this._frozen) {
             this._leaveBlocked();
         }
@@ -1636,9 +2026,14 @@ export function getTabLock() {
 
 /**
  * Claims a key on the page's lock and reports whether this tab may proceed.
+ *
+ * A caller that is about to DESTROY databases must pass `witness` (section 5), or its grant is
+ * decided by the settle alone. `account/open-atlas.service.js` builds one for every such caller
+ * it owns; the public-link open in `index.js` is the one that still asks without it.
  * @param {TabLockKey} key
- * @param {{settleMs?: number}} [options]
- * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean}>}
+ * @param {{settleMs?: number, witness?: (() => Promise<boolean|null>)|null}} [options]
+ * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean,
+ *   deniedBy: string|null}>}
  */
 export function acquireTabLock(key, options = {}) {
     if (!_instance) initTabLock();

@@ -80,7 +80,26 @@ export const HATCH_PATTERN_LAYERS = Object.fromEntries(
     ])
 );
 
-/** Source names for features. */
+/**
+ * Live MapLibre GeoJSON source id for every persisted feature bucket.
+ *
+ * CONTRACT: one entry per bucket of `getEmptyMapData()` (store/repository.utils.js) that
+ * has a live source, spelled EXACTLY as the style module registers it. The single
+ * exception is `coordenadas`, which is an ephemeral readout with no source and no layer.
+ *
+ * Two spellings coexist here and normalizing them would be a bug, not a cleanup: the
+ * store buckets are `processed_los` / `processed_visibility` with an UNDERSCORE, while
+ * the sources those buckets render into are `processed-los` / `processed-visibility` with
+ * a HYPHEN (layers/styles/tactical.layers.js). Note also that `los` / `visibility` are
+ * NOT the same sources: they hold the analysis INPUT geometry, and the same style module
+ * registers both pairs.
+ *
+ * This is a CLOSED list read by `shiftSourcesTemporal` (temporal/temporal-render.service.js)
+ * against an OPEN one (the buckets). A bucket missing here keeps the pre-shift window in
+ * the live source after "Reagendar", and the temporal filter reads that window FROM the
+ * source, so the feature shows and hides at the wrong instant until a reload. Guarded by
+ * tests/unit/reagendar-fonte-viva.repro.test.js.
+ */
 export const FEATURE_SOURCES = {
     POINTS: 'points',
     LINES: 'lines',
@@ -96,7 +115,10 @@ export const FEATURE_SOURCES = {
     COORDINATION_MEASURES: 'coordination_measures',
     BOUNDARIES: 'boundarys',
     OCCUPIED_FRONTS: 'occupied_fronts',
+    MAGNETIC_DECLINATIONS: 'magnetic_declinations',
     LOS: 'los',
     VISIBILITY: 'visibility',
+    PROCESSED_LOS: 'processed-los',
+    PROCESSED_VISIBILITY: 'processed-visibility',
     SECTORS: 'setores'
 };

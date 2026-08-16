@@ -10,6 +10,99 @@ Origem: um estudo comparativo do GeoLibre (`opengeos/GeoLibre`, MIT, snapshot v2
 
 ---
 
+## 0. Revisão de 2026-08-16, contra o código depois da fase multi-aba
+
+Este plano foi escrito contra `c27cc930`, o primeiro commit da fase de namespace por atlas.
+Aquela fase seguiu por mais seis commits e mudou o núcleo do store, então o plano foi reconferido
+inteiro. **Ele sobreviveu**, e o que segue é o que mudou, o que envelheceu e o que ele ganhou.
+
+### 0.1 As âncoras continuam de pé, e isso foi MEDIDO
+
+Extraí do texto os 57 caminhos de arquivo e os 57 símbolos entre crases e verifiquei um a um
+contra a árvore: **nenhum caminho ausente, nenhum símbolo sem ocorrência no código.** É o mesmo
+que o `docs-integridade` faria, e vale registrar que ele **não** varre a raiz, então esta
+conferência é manual por construção e precisa ser repetida à mão a cada revisão.
+
+### 0.2 Os dois bugs vivos continuam vivos, e a fase não os tocou
+
+- **Item 1**: `FEATURE_SOURCES` (`frontend/src/js/layers/layer.constants.js`) segue com 17
+  entradas e **sem** a declinação magnética.
+- **Item 1, segunda metade**: `shiftFeatureTimes`
+  (`frontend/src/js/temporal/temporal-controller.js`) segue chamando `shiftMapTemporalTimes` sem
+  consumir o retorno, e `GuardAction` continua com **zero** ocorrências em
+  `frontend/src/js/temporal/`.
+- **Item 2**: `rederiveAutoDtg` (`frontend/src/js/store/feature.operations.js`) segue comparando
+  contra os singulares `military_symbol` e `coordination_measure`.
+
+### 0.3 ~~UMA IMPRECISÃO~~ — ESTA SEÇÃO ESTAVA ERRADA, e a execução a refutou
+
+> **Retratação, escrita em 2026-08-16 pelo mesmo autor da revisão.** O texto original desta seção
+> afirmava que `LOS: 'los'` e `VISIBILITY: 'visibility'` ERAM as duas saídas de processamento com
+> grafia errada, e concluía que o conserto seria **reescrever duas entradas**. **Isso é falso.**
+>
+> Medido em `frontend/src/js/layers/styles/tactical.layers.js`: existem **QUATRO** fontes vivas,
+> duas por análise, criadas lado a lado no mesmo módulo. `'los'` e `'visibility'` são a geometria
+> de **ENTRADA** da análise (baldes `los` e `visibility`); `'processed-los'` e
+> `'processed-visibility'` são a **SAÍDA** (baldes `processed_los` e `processed_visibility`).
+> Quatro baldes, quatro fontes.
+>
+> Logo, as entradas `LOS`/`VISIBILITY` de `FEATURE_SOURCES` estavam **certas**, e o que faltava
+> eram **três** entradas, não duas reescritas: a declinação magnética e as DUAS saídas.
+> **Seguir esta seção teria trocado um buraco por outro**, removendo da lista as fontes de
+> entrada da análise. A seção 5 original estava certa no efeito e no diagnóstico; foi esta
+> "correção" que confundiu entrada com saída.
+>
+> **A lição, que vale mais que o caso:** a revisão leu a lista de constantes e a lista de fontes
+> e casou os nomes por semelhança, sem abrir o módulo que CRIA as fontes. Semelhança de nome não
+> é identidade de papel. O executor pegou o erro porque a instrução dele dizia, em tantas
+> palavras, que onde o plano e o código discordarem **o código decide** — e ele foi conferir.
+>
+> O conserto real está feito: `FEATURE_SOURCES` foi de 17 para 20 entradas, para 21 baldes, com
+> `coordenadas` em allowlist por não ter fonte nem camada.
+
+### 0.4 O que a fase multi-aba mudou e este plano precisa saber
+
+Nada que invalide o argumento central, e três coisas que mudam o terreno:
+
+- **A fila de saída é FÍSICA por atlas** (`OPERATION_QUEUE.perAtlas`), e a operação carrega o
+  endereço do escopo em que nasceu mais o `atlasId` de servidor. A seção 2.4 mede o custo por
+  classe de sincronização e continua válida, mas o envelope deixou de ser o mesmo objeto: quem
+  acrescentar uma classe nova agora também decide o que ela carimba.
+- **O schema de sync do backend passou a declarar os campos novos explicitamente**
+  (`backend/src/modules/sync/sync.schemas.js`), pelo mesmo motivo que o `traceId` já era
+  declarado: não se confia no `.unknown(true)`. Isso reforça o item 6 (o guarda de paridade entre
+  os pacotes) em vez de enfraquecê-lo.
+- **A wiki mudou** em `docs/wiki/coordenacao-entre-abas.md` e `docs/wiki/namespace-por-atlas.md`.
+  A afirmação da seção 2.3 sobre `docs/wiki/atlas-import-offline.md` (registra três das quatro
+  cópias e omite a quarta) foi reconferida e **continua verdadeira**.
+
+### 0.5 O regime de verificação da seção 4 foi validado na prática, e ganha duas regras
+
+As quatro regras da seção 4 não são teoria: a fase multi-aba as praticou por seis commits e cada
+uma delas pegou defeito real. Duas lições novas, que a fase pagou caro para aprender, entram
+aqui porque valem para qualquer item deste plano:
+
+5. **Mutação que passa verde pode ser linha REDUNDANTE, não teste vazio.** Aconteceu com a defesa
+   em profundidade do resgate: duas linhas sustentavam a mesma garantia, e mutar uma delas não
+   mudava nada. Antes de condenar um teste, mute o CONJUNTO que sustenta a garantia.
+6. **Um teste que modela o mundo antigo não reconhece o conserto.** Aconteceu duas vezes: um
+   `it.fails` que lia uma chave aposentada ficava verde existisse ou não o defeito, e um helper
+   que simulava o import como escrita crua mantinha o caso vermelho depois de a correção existir.
+   **Ao promover um caso, conserte o helper dele primeiro**, senão o defeito some do relatório sem
+   ninguém perceber que fechou.
+
+E uma advertência de escopo, aprendida na marra: **reverter uma mutação com `git checkout` num
+repositório cujo trabalho não está commitado apaga o trabalho.** Reverta pela operação inversa.
+
+### 0.6 O que NÃO foi reconferido
+
+As medições de arqueologia da seção 2 (as datas em que cada lista aprendeu o setor, as contagens
+de ocorrência por `EntityType`) foram tomadas por leitura de histórico e **não** foram refeitas
+nesta revisão. Elas sustentam o argumento e não a execução: se algum item depender de um daqueles
+números, meça de novo antes.
+
+---
+
 ## 1. De onde isto vem
 
 O GeoLibre foi clonado e lido por leitura de código, não de roadmap. O que interessa dele para esta decisão cabe em três frases. Ele tem um store global imutável, um único reconciliador que projeta o estado no MapLibre, e um modelo de dado deliberadamente plano, onde camada é um registro raso e estilo é um objeto de cerca de oitenta campos escalares por camada. Com isso, desfazer, salvar projeto, colaborar e exportar viram a mesma operação, que é fatiar o mesmo objeto. O preço é que ele **não tem camada de operações**, logo não tem o que transmitir além do documento inteiro: a colaboração dele é broadcast do projeto com last-write-wins por ordem de chegada, sem fila offline, e a edição feita com o socket caído se perde em silêncio.

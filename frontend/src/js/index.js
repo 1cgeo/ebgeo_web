@@ -31,6 +31,7 @@ import {
     resumeDeferredAtlasOpen,
     retractAtlasClaim,
     clearMountedAtlasIfGranted,
+    remoteMountWitness,
 } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
@@ -360,7 +361,18 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         const atlas = await apiClient.getPublicAtlas(link);
         apiClient.setEphemeralToken(atlas.publicToken);
         // Now the claim, and it still precedes every destructive step below.
-        const claim = await acquireTabLock(remoteAtlasKey(atlas.id));
+        // A TESTEMUNHA, pelo mesmo motivo dos outros dois sítios destrutivos: `granted` sozinho é
+        // concedido por AUSÊNCIA DE PROVA (o settle ouve silêncio e conclui que está só), e três
+        // linhas abaixo este caminho chama `clearAllDataStore`. O lock de montagem é fato do
+        // navegador e é solto pela MORTE do cliente, nunca pelo silêncio dele, então ele responde
+        // onde o canal se cala. `selfHolds` é 0: o namespace público ainda não foi ativado aqui.
+        //
+        // Este era o QUARTO sítio destrutivo e ficou de fora quando os outros três foram ligados,
+        // porque `index.js` não estava na lista de arquivos daquela frente. Um sítio destrutivo
+        // sem testemunha é o furo inteiro de volta, num caminho só.
+        const claim = await acquireTabLock(remoteAtlasKey(atlas.id), {
+            witness: remoteMountWitness(atlas.id),
+        });
         if (!claim.granted) {
             // Blocked: the overlay explains it and its "Usar aqui" replays this open.
             deferAtlasOpen(() => openPublicAtlasFromUrl(link));

@@ -75,14 +75,16 @@ Inverter 1 e 2 apaga trabalho do usuário. Fazer 4 antes de 2 teria sido perda d
 
 ## O que este protocolo NÃO garante
 
-Doc que só conta vitória é propaganda, e o lock arbitra menos do que uma primeira leitura sugere. Os furos estão enumerados com reprodução em `frontend/tests/TESTING-BACKLOG.md` (seção "Furos abertos do tab-lock"); os quatro que são do PROTOCOLO têm `it.todo` correspondente em `frontend/tests/unit/tab-lock-refutacao.test.js`, e são estes, que mudam como se deve ler as seções acima:
+Doc que só conta vitória é propaganda. Os quatro furos de PROTOCOLO que esta seção enumerava foram **fechados em 2026-08-16**, e o que segue é o que ficou no lugar deles, porque a forma da solução importa mais que o placar.
 
-- **`granted` é concedido por AUSÊNCIA DE PROVA**, e é ele que autoriza o apagamento. Duas abas cujas janelas de settle se sobrepõem recebem as duas `{granted: true}`; uma única mensagem `STATE` perdida faz o mesmo. A ordem total conserta o ESTADO depois, e o apagamento já rodou.
-- **Não há fencing.** Uma aba apenas congelada (thread principal ocupada, não morta) para de pulsar, é expirada por TTL, e ao acordar re-anuncia o `claimedAt` antigo, volta a preceder e retoma sem que o próprio `onBlocked` jamais tenha rodado.
-- **`pagehide` não olha `persisted`**, então entrar no bfcache posta uma retratação e voltar não re-anuncia até o heartbeat seguinte.
-- **Uma aba que cedeu nunca reassume**, e um único `TAKEOVER` encalha TODAS as abas com a chave em colisão, não só a que pediu.
+- **`granted` deixou de ser concedido por ausência de prova.** Uma segunda leitura do mesmo instrumento não resolveria nada: se as mensagens estão presas, a segunda pergunta também ouve silêncio, e **ausência de mensagem nunca é prova**. O que entrou foi uma TESTEMUNHA independente do canal: o lock de montagem que a store já toma em todo namespace ([[namespace-por-atlas]]), que é fato do navegador e é solto pela MORTE do cliente, nunca pelo silêncio dele. Os dois precisam concordar, e a recusa de qualquer um recusa a concessão. O canal continua necessário porque o lock não sabe QUEM, não ordena duas reivindicações e não alimenta o "Usar aqui".
+- **A aba mede o PRÓPRIO silêncio.** Passado o TTL sem falar, ela re-entra na ordem como recém-chegada em vez de reapresentar o carimbo antigo, e daí o caminho comum faz o resto: quem assumiu passa a preceder, ela bloqueia e roda o próprio `onBlocked`. O despejo de um par é registrado e recusado UMA vez, não para sempre: um despejo pode estar errado, e um veto permanente deixaria duas abas se achando donas sem nada para corrigir.
+- **`pagehide` olha `persisted`**, e a volta do bfcache re-anuncia em `pageshow` em vez de esperar o heartbeat.
+- **A aba que cedeu volta a adotar a chave** quando cai a zero par vivo em colisão, o que fecha de uma vez os dois sintomas (ficar bloqueada para sempre, e o `TAKEOVER` encalhar terceiros que não o pediram).
 
-Some-se a isso o que é aberto por fora do lock. **Ninguém lê `degraded`**: sem `BroadcastChannel` e sem `localStorage` o lock desliga e concede, de propósito ("off and audible"), mas o único sinal é um `console.warn`, e nenhum chamador transforma isso em aviso na tela. E o expurgo de logout arbitra por um mecanismo que **não é este**, um Web Lock de montagem ([[namespace-por-atlas]]), justamente porque o roster daqui é relógio: a aba em bfcache posta retratação, o modo degradado o deixa permanentemente vazio, e o expurgo de boot roda antes de o lock existir. Quem for consertar um furo de destruição de dado não deve procurar a solução no roster.
+**O que a solução ensina, e vale além deste módulo:** o roster é relógio e mente por silêncio; onde a decisão destrói dado, ela precisa de uma testemunha que não dependa de mensagem chegar. Foi por isso que o expurgo de logout já usava o Web Lock de montagem, e agora a concessão do lock usa também.
+
+Some-se a isso o que é aberto por fora do lock. **`degraded`**: sem `BroadcastChannel` e sem `localStorage` o lock desliga e concede, de propósito ("off and audible"), mas o único sinal é um `console.warn`, e nenhum chamador transforma isso em aviso na tela. E o expurgo de logout arbitra por um mecanismo que **não é este**, um Web Lock de montagem ([[namespace-por-atlas]]), justamente porque o roster daqui é relógio: a aba em bfcache posta retratação, o modo degradado o deixa permanentemente vazio, e o expurgo de boot roda antes de o lock existir. Quem for consertar um furo de destruição de dado não deve procurar a solução no roster.
 
 ## Fronteiras com outras páginas
 

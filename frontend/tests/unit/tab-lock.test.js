@@ -395,6 +395,10 @@ describe('tab-lock: two tabs', () => {
         ]);
 
         // Both were granted, which is exactly why a settle window can never be the guarantee.
+        // NOTA (2026-08-16, furo #1): esta continua sendo a resposta de um `acquire` SEM
+        // testemunha, e e o comportamento certo aqui, porque este caso mede a ORDEM. Quem esta
+        // prestes a destruir banco passa uma testemunha, e ai as duas seriam recusadas: ver
+        // `tests/unit/tab-lock-refutacao.test.js` 1.2 e a secao 5 do fileoverview do modulo.
         expect(resA.granted).toBe(true);
         expect(resB.granted).toBe(true);
 

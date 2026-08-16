@@ -41,7 +41,16 @@ O import cai no parser JSON global, `express.json({ limit: '10mb' })` (`backend/
 
 `buildFeatures` (`frontend/src/js/import_export/local-atlas-to-server.js`) descarta sem erro a feição sem `geometry` ou com tipo fora da allowlist, apenas incrementando `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute e coordenada) não tem tipo no servidor e some **por design**.
 
-A lista de 20 tipos existe em **três cópias manuais** que precisam mudar juntas: `frontend/src/js/import_export/local-atlas-to-server.js`, `VALID_FEATURE_TYPES` no Joi (`backend/src/modules/atlas/atlas.schemas.js`) e o CHECK `features.valid_feature_type` em `backend/src/database/migrations/002_atlas.sql`. Adicionar um tipo de feição sem tocar nas três faz a feição ser descartada no cliente, ou o import inteiro tomar 400 ([[erros-api]]).
+A lista de 20 tipos existe em **quatro cópias manuais** que precisam mudar juntas. Esta página contou três até 2026-08-16, e a que faltava é justamente a de dano mais silencioso. As quatro, com o que cada omissão custa:
+
+- `frontend/src/js/import_export/local-atlas-to-server.js` (o cliente): a feição é descartada **antes da rede** e só incrementa `droppedFeatures`, que não tem consumidor de interface. O usuário vê um import bem-sucedido.
+- `VALID_FEATURE_TYPES` no Joi (`backend/src/modules/atlas/atlas.schemas.js`): o import inteiro toma 400 e o atlas não nasce ([[erros-api]]). É a falha barulhenta, e por isso a benigna.
+- o CHECK `features.valid_feature_type` (`backend/src/database/migrations/002_atlas.sql`): a escrita é recusada pelo próprio banco.
+- `typeToCollection` e o esqueleto de `transformFeaturesToFrontend` (`backend/src/modules/sync/sync.service.js`): **a pior das quatro**. A linha é gravada, o servidor confirma, e ela **nunca aparece em snapshot nenhum**. Invisível para todo cliente, para sempre, sem erro em lugar algum. Um atlas importado com um tipo fora deste mapa sobe inteiro e volta sem aquelas feições.
+
+A paridade das quatro é asserida por `frontend/tests/unit/tipos-feicao-paridade-pacotes.test.js`, que é um teste do **frontend lendo fonte do backend**: mudança backend-only reprova na perna do frontend, de propósito. A constraint VIVA, que nenhuma leitura de texto alcança, é conferida por `backend/tests/integration/tipos-feicao-constraint-viva.test.js`. O guarda mais antigo, `backend/tests/unit/snapshot-tipos-vs-check.test.js`, amarra duas das quatro.
+
+Nada disso **previne** a divergência: um tipo novo continua custando quatro edições manuais, nada deriva uma lista da outra através da fronteira dos pacotes, e a ordem de implantação continua sem guarda mecânico ([[deploy-backend]]).
 
 ## Dois produtores para o mesmo payload (2026-08-05)
 

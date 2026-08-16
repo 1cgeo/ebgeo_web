@@ -38,6 +38,7 @@ import {
     keysCollide,
     compareClaims,
     findBlockingPeer,
+    otherClientHoldsLock,
     noneKey,
     localAtlasKey,
     remoteAtlasKey
@@ -298,6 +299,26 @@ describe('ATAQUE 0 - o recorte, sondado contra si mesmo', () => {
     });
 });
 
+/**
+ * Dublê do LOCK DE MONTAGEM da store (`store/atlas-namespace.js`, Decisão 5), que é o fato que a
+ * testemunha lê: um cliente com um namespace MONTADO segura um Web Lock COMPARTILHADO com o nome
+ * daquele namespace.
+ *
+ * O formato é o do `LockManager.query()` de verdade, e não uma invenção conveniente: medido neste
+ * runtime (node v24) o retorno é `{held: [{name, mode, clientId}], pending: []}`, e duas posses do
+ * MESMO cliente aparecem como duas entradas. É por isso que a contagem funciona sem conhecer o
+ * `clientId` de ninguém. O caso 1.2c abaixo confere essa forma contra o `navigator.locks` real,
+ * para que este dublê não vire um sujeito diferente do que a produção lê.
+ * @returns {{manager: Object, mount: (name: string, clientId: string) => void}}
+ */
+function createMountLocks() {
+    const held = [];
+    return {
+        manager: { query: async () => ({ held: [...held], pending: [] }) },
+        mount(name, clientId) { held.push({ name, mode: 'shared', clientId }); }
+    };
+}
+
 describe('ATAQUE 1 - a janela de tempo', () => {
     let hub; let clock; let locks;
     const mk = (o = {}) => {
@@ -350,19 +371,262 @@ describe('ATAQUE 1 - a janela de tempo', () => {
         expect((c.blocked ? c : d).tabId > (c.blocked ? d : c).tabId).toBe(true);
     });
 
-    // ------------------------------------------------------------------ BACKLOG (furo #1)
-    // `granted: true` NAO E PROVA DE EXCLUSIVIDADE, e e ele que autoriza `clearAllDataStore()`.
-    // A ordem total conserta o ESTADO depois; o wipe ja rodou. Tres reproducoes da mesma raiz:
-    //   (a) duas abas com as mensagens presas: `acquire` devolve granted nas DUAS, e so o flush
-    //       seguinte bloqueia uma;
-    //   (b) par ocupado por mais que o settle (main thread em render/import, 200 ms contra um
-    //       settle de 60 ms): a recem-chegada recebe granted por AUSENCIA DE PROVA;
-    //   (c) uma unica mensagem STATE perdida (quota do barramento de localStorage) deixa as duas
-    //       ativas ate o heartbeat seguinte.
-    // Fechar isso exige uma segunda pergunta ao lock DEPOIS do settle e imediatamente antes do
-    // wipe, ou um wipe reversivel. Nao ha teste aqui porque qualquer asercao possivel hoje exige
-    // o defeito. Ver TESTING-BACKLOG.md, "Furos abertos do tab-lock" #1.
-    it.todo('1.2 ABERTO (furo #1): `granted` e concedido por ausencia de prova, e autoriza o wipe');
+    // ------------------------------------------------------------------ furo #1, FECHADO
+    // `granted: true` ERA CONCEDIDO POR AUSENCIA DE PROVA, e e ele que autoriza
+    // `clearAllDataStore()`. A ordem total conserta o ESTADO depois; o wipe ja rodou. As tres
+    // faces da mesma raiz estao reproduzidas abaixo, cada uma com o seu CONTROLE NEGATIVO (a
+    // MESMA cena sem a testemunha, que segue devolvendo granted: e isso que prova que a cena
+    // reproduz o furo, e nao que o teste e frouxo).
+    //
+    // O que fechou: `acquire` passou a exigir DUAS concordancias, a ordem total (o canal) e uma
+    // TESTEMUNHA (um fato do navegador). A testemunha le o lock de montagem COMPARTILHADO que a
+    // store toma em todo namespace montado, e um Web Lock so e solto pela MORTE do cliente, nunca
+    // pelo seu silencio: aba congelada, aba estrangulada e mensagem perdida continuam segurando.
+    // A fiacao das duas chamadas destrutivas esta no caso 1.4.
+    it('1.2 CORRIGIDO (furo #1): a concessao deixou de ser decidida por silencio, nas TRES faces '
+        + 'que produziam silencio com o par vivo', async () => {
+        const NOME = `ebgeo-atlas:#remote-${ATLAS_A}`;
+
+        // ---------------------------------------------------------------- face (a)
+        // Duas abas NO MESMO atlas, ja montado pelas duas, com as mensagens presas: nenhuma
+        // ouve ninguem. E a cena do wipe de boot (`clearMountedAtlasIfGranted`), onde cada aba
+        // segura UMA posse do lock de montagem, logo `selfHolds` e 1 e a segunda posse e o par.
+        const montadoPelasDuas = createMountLocks();
+        montadoPelasDuas.mount(NOME, 'aba-1');
+        montadoPelasDuas.mount(NOME, 'aba-2');
+        const testemunhaMontada = () => otherClientHoldsLock(montadoPelasDuas.manager, NOME, 1);
+
+        const a = mk(); const b = mk();
+        hub.hold();
+        const [ra, rb] = await Promise.all([
+            a.acquire(remoteAtlasKey(ATLAS_A), { witness: testemunhaMontada }),
+            b.acquire(remoteAtlasKey(ATLAS_A), { witness: testemunhaMontada })
+        ]);
+        hub.flush();
+        expect(ra.granted).toBe(false);
+        expect(rb.granted).toBe(false);
+        expect([ra.deniedBy, rb.deniedBy]).toEqual(['witness', 'witness']);
+
+        // CONTROLE NEGATIVO da face (a): a MESMA cena sem testemunha concede as duas, que e o
+        // furo. Sem esta metade, "as duas recusadas" tambem passaria com um `acquire` que nunca
+        // concede, e passaria com uma cena que nem chega a disputar.
+        hub = createHub();
+        const a2 = mk(); const b2 = mk();
+        hub.hold();
+        const [ra2, rb2] = await Promise.all([
+            a2.acquire(remoteAtlasKey(ATLAS_A)),
+            b2.acquire(remoteAtlasKey(ATLAS_A))
+        ]);
+        hub.flush();
+        expect([ra2.granted, rb2.granted]).toEqual([true, true]);
+
+        // ---------------------------------------------------------------- face (b)
+        // Par OCUPADO por mais que o settle (main thread em render ou import). Aqui a aba nova
+        // ainda nao montou o atlas de destino, que e a cena de `claimRemoteAtlas`: `selfHolds` 0.
+        const montadoPeloPar = createMountLocks();
+        montadoPeloPar.mount(NOME, 'aba-estabelecida');
+        const testemunhaDoAlvo = () => otherClientHoldsLock(montadoPeloPar.manager, NOME, 0);
+
+        hub = createHub();
+        hub.setDelay(200);                       // 200 ms medidos contra um settle de 20
+        mk({ key: remoteAtlasKey(ATLAS_A) });     // a estabelecida, viva e muda a tempo
+        const lenta = mk();
+        const rLenta = await lenta.acquire(remoteAtlasKey(ATLAS_A), {
+            settleMs: 20, witness: testemunhaDoAlvo
+        });
+        expect(rLenta.granted).toBe(false);
+        expect(rLenta.deniedBy).toBe('witness');
+        // ...e ela nao ouviu ninguem mesmo: o bloqueio nao veio da ordem.
+        expect(lenta.blocked).toBe(false);
+        expect(lenta.peers()).toHaveLength(0);
+
+        // CONTROLE NEGATIVO da face (b).
+        hub = createHub();
+        hub.setDelay(200);
+        mk({ key: remoteAtlasKey(ATLAS_A) });
+        const lenta2 = mk();
+        expect((await lenta2.acquire(remoteAtlasKey(ATLAS_A), { settleMs: 20 })).granted).toBe(true);
+
+        // ---------------------------------------------------------------- face (c)
+        // UMA mensagem perdida (quota do barramento de localStorage): o STATE com que a
+        // estabelecida responde ao HELLO nunca chega, e a recem-chegada se ve sozinha.
+        hub = createHub();
+        hub.setDrop((m) => m.type === 'STATE');
+        mk({ key: remoteAtlasKey(ATLAS_A) });
+        const surda = mk();
+        const rSurda = await surda.acquire(remoteAtlasKey(ATLAS_A), { witness: testemunhaDoAlvo });
+        expect(rSurda.granted).toBe(false);
+        expect(rSurda.deniedBy).toBe('witness');
+        expect(surda.peers()).toHaveLength(0);
+
+        // CONTROLE NEGATIVO da face (c).
+        hub = createHub();
+        hub.setDrop((m) => m.type === 'STATE');
+        mk({ key: remoteAtlasKey(ATLAS_A) });
+        const surda2 = mk();
+        expect((await surda2.acquire(remoteAtlasKey(ATLAS_A))).granted).toBe(true);
+    });
+
+    it('1.2b CONTROLE: a concessao LEGITIMA continua acontecendo, senao o conserto seria '
+        + '"nunca conceder"', async () => {
+        const NOME = `ebgeo-atlas:#remote-${ATLAS_A}`;
+        const vazio = createMountLocks();
+
+        // (i) ninguem montou nada: a testemunha nao ve nada e a aba passa.
+        const livre = mk();
+        const r1 = await livre.acquire(remoteAtlasKey(ATLAS_A), {
+            witness: () => otherClientHoldsLock(vazio.manager, NOME, 0)
+        });
+        expect(r1.granted).toBe(true);
+        expect(r1.deniedBy).toBeNull();
+
+        // (ii) alguem montou OUTRO endereco: nao e este atlas, e a aba passa.
+        const outro = createMountLocks();
+        outro.mount(`ebgeo-atlas:#remote-${ATLAS_B}`, 'aba-vizinha');
+        hub = createHub();
+        const vizinha = mk();
+        expect((await vizinha.acquire(remoteAtlasKey(ATLAS_A), {
+            witness: () => otherClientHoldsLock(outro.manager, NOME, 0)
+        })).granted).toBe(true);
+
+        // (iii) a UNICA posse e a desta propria aba (`selfHolds` 1): montar o proprio atlas nao
+        // pode bloquear a si mesmo, que e a forma de errar que travaria todo boot.
+        const soEu = createMountLocks();
+        soEu.mount(NOME, 'esta-aba');
+        hub = createHub();
+        const sozinha = mk();
+        expect((await sozinha.acquire(remoteAtlasKey(ATLAS_A), {
+            witness: () => otherClientHoldsLock(soEu.manager, NOME, 1)
+        })).granted).toBe(true);
+
+        // (iv) e a recusa pela ORDEM continua sendo pela ordem, com o par nomeado: a testemunha
+        // nao substituiu o canal, que e quem sabe QUEM bloqueia e alimenta o "Usar aqui".
+        hub = createHub();
+        const primeira = mk();
+        await primeira.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        const segunda = mk();
+        const r4 = await segunda.acquire(remoteAtlasKey(ATLAS_A), {
+            witness: () => otherClientHoldsLock(vazio.manager, NOME, 0)
+        });
+        expect(r4.granted).toBe(false);
+        expect(r4.deniedBy).toBe('peer');
+        expect(r4.blockedBy?.tabId).toBe(primeira.tabId);
+    });
+
+    it('1.2c CONTROLE DO INSTRUMENTO: o dublê de `query()` tem a forma do LockManager REAL, e a '
+        + 'contagem responde o mesmo sobre ele', async () => {
+        // O dublê acima poderia ser um sujeito diferente do que a produção lê. Este caso roda a
+        // MESMA função sobre o `navigator.locks` deste runtime, que é o objeto que
+        // `open-atlas.service.js` passa.
+        expect(typeof navigator?.locks?.query).toBe('function');
+        const NOME = `ebgeo-teste-testemunha:${Math.random().toString(36).slice(2)}`;
+
+        expect(await otherClientHoldsLock(navigator.locks, NOME, 0)).toBe(false);
+
+        let soltar;
+        const posse = navigator.locks.request(NOME, { mode: 'shared' },
+            () => new Promise((resolve) => { soltar = resolve; }));
+        // Uma posse: é "outro cliente" para quem não tem nenhuma, e não é para quem tem a sua.
+        expect(await otherClientHoldsLock(navigator.locks, NOME, 0)).toBe(true);
+        expect(await otherClientHoldsLock(navigator.locks, NOME, 1)).toBe(false);
+
+        let soltar2;
+        const posse2 = navigator.locks.request(NOME, { mode: 'shared' },
+            () => new Promise((resolve) => { soltar2 = resolve; }));
+        // Duas posses: agora há alguém além da sua, que é a leitura do wipe do atlas MONTADO.
+        expect(await otherClientHoldsLock(navigator.locks, NOME, 1)).toBe(true);
+
+        soltar(); soltar2();
+        await posse; await posse2;
+        // E a morte do dono devolve o endereço, que é a propriedade toda: um par CALADO segue
+        // segurando, um par MORTO não.
+        expect(await otherClientHoldsLock(navigator.locks, NOME, 0)).toBe(false);
+
+        // Sem LockManager (contexto não seguro, HTTP puro) a resposta é "não sei", nunca "livre":
+        // é o que faz o `acquire` cair de volta no settle em vez de inventar um fato.
+        expect(await otherClientHoldsLock(null, NOME, 0)).toBeNull();
+        expect(await otherClientHoldsLock({}, NOME, 0)).toBeNull();
+        expect(await otherClientHoldsLock(navigator.locks, '', 0)).toBeNull();
+        expect(await otherClientHoldsLock(
+            { query: async () => { throw new Error('sem permissao'); } }, NOME, 0)).toBeNull();
+    });
+
+    it('1.2d: "nao sei" cai de volta no settle, e nao vira nem bloqueio nem prova', async () => {
+        // Contexto não seguro: a testemunha responde null. O comportamento tem de ser EXATAMENTE
+        // o do deploy que não tinha testemunha, senão HTTP puro viraria um app que não abre nada.
+        const a = mk();
+        expect((await a.acquire(remoteAtlasKey(ATLAS_A), { witness: () => Promise.resolve(null) }))
+            .granted).toBe(true);
+        // ...e uma testemunha QUEBRADA responde o mesmo: evidência de presença que falhou não é
+        // presença. O contrário transformaria um defeito de runtime em app que nunca abre projeto.
+        const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+        hub = createHub();
+        const b = mk();
+        expect((await b.acquire(remoteAtlasKey(ATLAS_A), {
+            witness: () => { throw new Error('query explodiu'); }
+        })).granted).toBe(true);
+        expect(erro).toHaveBeenCalledTimes(1);
+        erro.mockRestore();
+
+        // E o par ouvido continua bloqueando mesmo com a testemunha muda: as duas recusas são
+        // independentes, e é a recusa de QUALQUER uma que recusa a concessão.
+        hub = createHub();
+        const c = mk();
+        await c.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        const d = mk();
+        expect((await d.acquire(remoteAtlasKey(ATLAS_A), { witness: () => Promise.resolve(null) }))
+            .granted).toBe(false);
+    });
+
+    it('1.4: as TRES chamadas destrutivas deste repo passam a testemunha, e ela vem do lock de '
+        + 'montagem da store', () => {
+        // Uma testemunha que ninguem passa e uma opcao morta. Este caso e o que impede o conserto
+        // de existir so no modulo do lock: o recorte e a FUNCAO, pelo motivo do ATAQUE 0.
+        //
+        // ERAM DUAS, E SAO TRES. `openPublicAtlasFromUrl` (`index.js`) e o quarto sitio que
+        // reivindica e destroi, e ficou de fora quando os outros foram ligados, porque `index.js`
+        // nao estava na lista de arquivos daquela frente. Um sitio destrutivo sem testemunha e o
+        // furo inteiro de volta, num caminho so, e nada apontava para ele: por isso a contagem
+        // agora esta no NOME do caso, onde um quarto sitio novo obriga alguem a mexer aqui.
+        const svc = read('account/open-atlas.service.js');
+
+        const claim = functionText(svc, 'async function claimRemoteAtlas');
+        expect(claim).toMatch(/witness: remoteMountWitness\(atlasId\)/);
+
+        const boot = functionText(svc, 'export async function clearMountedAtlasIfGranted');
+        expect(boot).toMatch(/witness: mountWitness\(getActiveScope\(\)\?\.dbSuffix, 1\)/);
+
+        // A testemunha le o lock de montagem DA STORE, e nao um nome inventado aqui: e isso que
+        // faz dela um fato mantido por toda aba, inclusive as que nunca falam com o tab-lock.
+        const fabrica = functionText(svc, 'function mountWitness');
+        expect(fabrica).toMatch(/atlasMountLockName\(dbSuffix\)/);
+        expect(fabrica).toMatch(/hasMountLockSupport\(\)/);
+        expect(fabrica).toMatch(/otherClientHoldsLock\(navigator\.locks, lockName, selfHolds\)/);
+        // E os dois `selfHolds` sao os dois casos, nao um so repetido: 0 para o atlas que a aba
+        // ainda NAO montou, 1 para o que ela montou. Trocar os dois passa despercebido sem isto.
+        expect(functionText(svc, 'export function remoteMountWitness'))
+            .toMatch(/mountWitness\(remoteScope\(atlasId\)\.dbSuffix, 0\)/);
+
+        // O TERCEIRO SITIO: o visitante de link publico. Ele reivindica e chama
+        // `clearAllDataStore` tres linhas depois, igual aos outros dois.
+        const idx = read('index.js');
+        const publico = functionText(idx, 'async function openPublicAtlasFromUrl');
+        expect(publico, 'o link publico reivindica sem testemunha: `granted` volta a ser '
+            + 'concedido por ausencia de prova num caminho que destroi bancos')
+            .toMatch(/witness: remoteMountWitness\(atlas\.id\)/);
+        // E a testemunha tem de estar na chamada que REIVINDICA, nao solta em outro lugar da
+        // funcao: sem isto, um `remoteMountWitness` importado e nunca usado passaria.
+        expect(publico).toMatch(/acquireTabLock\(remoteAtlasKey\(atlas\.id\)[\s\S]{0,120}?witness:/);
+
+        // E o modulo do lock segue sem alcancar a store, que e o que mantem a testemunha injetada
+        // em vez de importada (a razao inteira de ela ser um parametro).
+        const lock = read('utilities/tab-lock.js')
+            .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        expect(lock).not.toMatch(/from\s+'@store/);
+        expect(lock).not.toMatch(/atlasMountLockName/);
+    });
 
     it('1.3 CONFIRMADO: a identidade da aba nao vem de storage nenhum, entao duplicar a aba '
         + 'produz outra identidade e nao um empate', () => {
@@ -593,41 +857,235 @@ describe('ATAQUE 4 - liberacao', () => {
         expect(b.blocked).toBe(false);
     });
 
-    // ------------------------------------------------------------------ BACKLOG (furo #2)
-    // NAO HA FENCING: o despejo por TTL nao chega a quem foi despejado. Uma aba apenas TRAVADA
-    // (main thread ocupado, nao morta) para de pulsar, o par a expira, assume o atlas e roda o
-    // wipe; quando ela destrava, ela pulsa com o `claimedAt` ANTIGO, volta a preceder na ordem
-    // total, e retoma o lock sem NUNCA ter rodado o proprio `onBlocked`. Ela segue escrevendo
-    // sobre bancos que a outra ja limpou. Fechar exige uma epoca monotonica por atlas, ou um
-    // `onBlocked` disparado pela propria aba ao notar que ficou muda por mais que o TTL.
-    // Ver TESTING-BACKLOG.md, "Furos abertos do tab-lock" #2.
-    it.todo('4.3 ABERTO (furo #2): aba despejada por TTL retoma o lock sem saber que foi despejada');
+    it('4.3 CORRIGIDO (furo #2): a aba TRAVADA e despejada por TTL volta como RECEM-CHEGADA, '
+        + 'para de verdade, e nao expulsa quem assumiu', async () => {
+        // O furo: o despejo por TTL nunca chegava a quem foi despejado. Uma aba apenas TRAVADA
+        // (SO suspenso, maquina hibernada) para de pulsar, o par a expira, assume o atlas e limpa;
+        // quando ela destrava, ela fala com o `claimedAt` ANTIGO, volta a preceder na ordem total,
+        // e retoma o lock sem NUNCA ter rodado o proprio `onBlocked`.
+        //
+        // Sao DUAS metades, e este caso mede as duas separadamente: a despejada mede o proprio
+        // silencio e re-entra como recem-chegada (`_fenceAfterSilence`), e a que despejou recusa
+        // UMA vez a reapresentacao daquela reivindicacao (`_standingPeers`), que e o que impede o
+        // pisca-pisca durante a viagem de ida e volta.
+        const paradasA = []; const paradasB = []; const retomadasB = [];
+        const a = mk({ peerTtlMs: 7000, onBlocked: () => { paradasA.push('a'); } });
+        const b = mk({
+            peerTtlMs: 7000,
+            onBlocked: () => { paradasB.push('b'); },
+            onResumed: () => { retomadasB.push('b'); }
+        });
+        await a.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await b.acquire(remoteAtlasKey(ATLAS_A));
+        expect(b.blocked).toBe(true);
+        expect(paradasB).toEqual(['b']);          // controle positivo: B parou ao perder a ordem
+        expect(paradasA).toEqual([]);
 
-    // ------------------------------------------------------------------ BACKLOG (furo #3)
-    // BFCACHE: o handler de `pagehide` e `const leave = () => this._postLeave();`, que nao olha
-    // `event.persisted`. Uma aba que entra no bfcache posta RELEASE, o par assume e limpa, e ela
-    // volta do cache achando-se dona (a chave em memoria segue remota) porque nao ha handler de
-    // `pageshow` para re-anunciar; ela so se corrige no heartbeat seguinte, depois do estrago.
-    // Ver TESTING-BACKLOG.md, "Furos abertos do tab-lock" #3.
-    it.todo('4.4 ABERTO (furo #3): pagehide de bfcache libera a chave e a volta nao a re-anuncia');
+        // A TRAVA, sem morrer: para de pulsar E para de RECEBER. Modelar so o silencio de SAIDA
+        // (a aba congelada continuando a ouvir os pares) mediria uma aba atenta, que e o oposto
+        // do sujeito: ela acordaria com o registro de pares em dia.
+        hub.setDrop((_msg, ep) => ep === a._transport._endpoint);
 
-    // ------------------------------------------------------------------ BACKLOG (furo #4)
-    // UMA ABA QUE CEDEU NUNCA REASSUME, e o mesmo `_yielded` produz os dois sintomas:
-    //   (a) a aba que cedeu fica bloqueada PARA SEMPRE se a vencedora fecha, porque `_evaluate`
-    //       so sai do bloqueio com `!this._yielded`, e o overlay passa a mentir ("ja esta aberto
-    //       em outra aba") sem par nenhum vivo;
-    //   (b) um TAKEOVER de UMA aba encalha TODAS as outras que seguravam a mesma chave, porque
-    //       `_handleTakeover` e por colisao de chave, nao por destinatario: quem nem clicou perde
-    //       a chave e fica sem caminho de volta.
-    // Fechar os dois e a mesma linha: ao cair para zero par vivo em colisao, re-adotar
-    // `_yieldedKey` em vez de continuar cedido. Ver TESTING-BACKLOG.md #4.
-    it.todo('4.5 ABERTO (furo #4): a aba que cedeu (YIELD) nunca re-adota a chave, e encalha');
+        // B fica VIVA o tempo todo, pulsando no passo do heartbeat. Isto nao e decoracao: um salto
+        // unico de 60 s no relogio injetado faria a PROPRIA B se dar por ausente (a cerca de
+        // silencio e dela tambem), e o caso passaria a medir a cerca errada.
+        for (let t = 0; t < 30; t += 1) { clock += 2000; b.pulse(); }
+        expect(b.blocked).toBe(false);            // despejou A por TTL e assumiu o atlas
+
+        // A destrava 60 s depois e fala pela primeira vez. O primeiro STATE ainda carrega o
+        // `claimedAt` antigo, que e exatamente o que reprecedia B.
+        hub.setDrop(() => false);
+        a.pulse();
+
+        expect(a.blocked).toBe(true);             // ...e ela NAO retoma o lock
+        expect(paradasA).toEqual(['a']);          // rodou o proprio onBlocked, que era o que faltava
+        expect(a.key.atlasId).toBe(ATLAS_A);      // com a chave na mao, so que atras na ordem
+        // E a que assumiu nao piscou: nem parou de novo, nem retomou de novo, por causa do retorno.
+        expect(b.blocked).toBe(false);
+        expect(paradasB).toEqual(['b']);
+        expect(retomadasB).toEqual(['b']);
+    });
+
+    it('4.4 CORRIGIDO (furo #3): entrar no bfcache nao entrega o atlas, e a volta re-anuncia', async () => {
+        // O furo: `const leave = () => this._postLeave()` nao olhava `event.persisted`, entao a
+        // aba postava RELEASE ao ENTRAR no cache (o par assumia e limpava) e voltava achando-se
+        // dona, porque nao havia `pageshow` para re-anunciar, so o heartbeat seguinte.
+        //
+        // O QUE ESTE CASO NAO PROVA, e a distincao importa: o runner do Playwright sobe o Chromium
+        // com o bfcache DESLIGADO (medido pelo caso B0 de
+        // tests/e2e-ui/browser-multi-tab-teardown-queue.spec.js), entao nao existe prova de
+        // navegador para esta janela em lugar nenhum deste repositorio. Aqui os eventos sao
+        // disparados A MAO sobre uma janela falsa: o que fica medido e o HANDLER, nao o
+        // comportamento do cache real.
+        const janelas = [];
+        const criarJanela = () => {
+            const ouvintes = new Map();
+            const janela = {
+                addEventListener: (tipo, fn) => {
+                    if (!ouvintes.has(tipo)) ouvintes.set(tipo, []);
+                    ouvintes.get(tipo).push(fn);
+                },
+                removeEventListener: (tipo, fn) => {
+                    const lista = ouvintes.get(tipo) ?? [];
+                    const i = lista.indexOf(fn);
+                    if (i >= 0) lista.splice(i, 1);
+                },
+                conta: (tipo) => (ouvintes.get(tipo) ?? []).length,
+                dispara: (tipo, evento) => { for (const fn of [...(ouvintes.get(tipo) ?? [])]) fn(evento); }
+            };
+            janelas.push(janela);
+            return janela;
+        };
+        // Uma janela POR aba: o lock guarda a referencia que existia na construcao, entao trocar o
+        // global entre as duas construcoes e o que faz cada `dispara` atingir uma aba so. Uma
+        // janela compartilhada mandaria o `pagehide` para as duas e mediria outra coisa.
+        const janelaA = criarJanela();
+        const janelaB = criarJanela();
+        const original = globalThis.window;
+        try {
+            globalThis.window = janelaA;
+            const a = mk({ peerTtlMs: 7000 });
+            globalThis.window = janelaB;
+            const b = mk({ peerTtlMs: 7000 });
+            // Controle positivo do stub: os handlers foram MESMO instalados nesta janela, e um por
+            // aba. Sem isto, um `dispara` que nao chama ninguem passaria como "nao liberou".
+            expect(janelaA.conta('pagehide')).toBe(1);
+            expect(janelaA.conta('pageshow')).toBe(1);
+
+            await a.acquire(remoteAtlasKey(ATLAS_A));
+            clock += 5;
+            await b.acquire(remoteAtlasKey(ATLAS_A));
+            expect(b.blocked).toBe(true);
+
+            // ENTRAR NO CACHE NAO E SAIR DA ABA.
+            janelaA.dispara('pagehide', { persisted: true });
+            expect(b.blocked).toBe(true);
+
+            // E a volta CURTA nao custa nada: nada pode ter expirado em 1 s, entao a chave fica.
+            clock += 1000;
+            janelaA.dispara('pageshow', { persisted: true });
+            expect(a.blocked).toBe(false);
+            expect(a.key.atlasId).toBe(ATLAS_A);
+            expect(b.blocked).toBe(true);
+
+            // CONTROLE NEGATIVO, no mesmo handler e na mesma aba: um `pagehide` de VERDADE (sem
+            // `persisted`) segue entregando o atlas na hora. Se a correcao tivesse silenciado o
+            // handler inteiro em vez de olhar o campo, esta linha ficaria vermelha.
+            janelaA.dispara('pagehide', { persisted: false });
+            expect(b.blocked).toBe(false);
+            a.destroy(); b.destroy();
+
+            // ------------------------------------------------- estadia LONGA, com o par assumindo
+            const janelaC = criarJanela();
+            globalThis.window = janelaC;
+            const c = mk({ peerTtlMs: 7000 });
+            globalThis.window = janelaB;
+            const d = mk({ peerTtlMs: 7000 });
+            await c.acquire(remoteAtlasKey(ATLAS_A));
+            clock += 5;
+            await d.acquire(remoteAtlasKey(ATLAS_A));
+            expect(d.blocked).toBe(true);
+
+            // C entra no cache e congela de verdade: nao posta e nao recebe.
+            janelaC.dispara('pagehide', { persisted: true });
+            hub.setDrop((_msg, ep) => ep === c._transport._endpoint);
+            for (let t = 0; t < 6; t += 1) { clock += 2000; d.pulse(); }
+            expect(d.blocked).toBe(false);        // passado o TTL, D assume, que e a regra
+
+            // C volta do cache: fala AGORA, em vez de esperar o heartbeat, e volta atras na ordem.
+            hub.setDrop(() => false);
+            janelaC.dispara('pageshow', { persisted: true });
+            expect(c.blocked).toBe(true);
+            expect(d.blocked).toBe(false);
+        } finally {
+            if (original === undefined) delete globalThis.window;
+            else globalThis.window = original;
+        }
+    });
+
+    it('4.5 CORRIGIDO (furo #4): a aba que cedeu re-adota a chave quando ninguem mais a segura, '
+        + 'e um TAKEOVER de UMA aba nao encalha a terceira', async () => {
+        // (a) A ABA QUE CEDEU FICAVA BLOQUEADA PARA SEMPRE se a vencedora fechava: `_evaluate` so
+        // saia do bloqueio com `!this._yielded`, e o overlay passava a citar uma aba que nao
+        // existia mais.
+        const retomadas = [];
+        const a = mk({ onResumed: () => retomadas.push('a') });
+        const b = mk();
+        await a.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await b.acquire(remoteAtlasKey(ATLAS_A));
+        expect(await b.requestTakeover()).toBe(true);
+        expect(a.blocked).toBe(true);
+        expect(a.key.atlasId).toBe(null);          // cedeu a chave, que e o handoff de verdade
+
+        b.destroy();
+
+        expect(a.blocked).toBe(false);
+        expect(a.key.atlasId).toBe(ATLAS_A);       // re-adotou a chave cedida
+        expect(retomadas).toEqual(['a']);          // e o sync voltou, em vez de so o overlay sumir
+        a.destroy();
+
+        // (b) UM TAKEOVER DE UMA ABA ENCALHAVA TODAS as que seguravam a chave. O pedido continua
+        // indo a todas de proposito (mandar so para a bloqueadora entregaria o atlas a segunda da
+        // fila, que nem clicou); o que faltava era o caminho de volta de quem nao pediu nada.
+        const x = mk(); const y = mk(); const z = mk();
+        await x.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await y.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await z.acquire(remoteAtlasKey(ATLAS_A));
+        expect([x.blocked, y.blocked, z.blocked]).toEqual([false, true, true]);
+
+        expect(await z.requestTakeover()).toBe(true);
+        expect(z.blocked).toBe(false);
+        // Y nao clicou em nada e mesmo assim cedeu a chave: e o preco do endereco por colisao.
+        expect(y.key.atlasId).toBe(null);
+        expect(y.blocked).toBe(true);
+
+        // A VENCEDORA FECHA. Antes, X e Y ficavam bloqueadas para sempre, as duas.
+        z.destroy();
+
+        // Exatamente uma re-adota e fica ativa; a ordem comum decide qual, porque as duas voltam
+        // com carimbo novo.
+        expect([x.blocked, y.blocked].filter(Boolean)).toHaveLength(1);
+        const ativa = x.blocked ? y : x;
+        const bloqueada = x.blocked ? x : y;
+        expect(ativa.key.atlasId).toBe(ATLAS_A);
+        // E a que segue bloqueada NAO esta encalhada: quem a bloqueia existe e esta viva...
+        expect(bloqueada.blocker.tabId).toBe(ativa.tabId);
+        // ...e o "Usar aqui" ainda a traz de volta, que e o caminho de volta que faltava.
+        expect(await bloqueada.requestTakeover()).toBe(true);
+        expect(bloqueada.blocked).toBe(false);
+        expect(ativa.blocked).toBe(true);
+        x.destroy(); y.destroy(); z.destroy();
+
+        // (c) E O REGISTRO DE QUEM BLOQUEIA acompanha a troca de dono, que e a outra metade do
+        // "o overlay mente": `_enterBlocked` volta cedo quando a aba ja esta bloqueada, entao o
+        // campo continuava apontando para quem venceu PRIMEIRO, e depois de uma troca isso e uma
+        // aba que ja retratou a chave (ou fechou). Aqui a terceira aba nunca sai do bloqueio, o
+        // que e exatamente a condicao em que o registro congelava.
+        const p = mk(); const q = mk(); const r = mk();
+        await p.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await q.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await r.acquire(remoteAtlasKey(ATLAS_A));
+        expect(r.blocker.tabId).toBe(p.tabId);
+
+        p.release();
+
+        expect(q.blocked).toBe(false);
+        expect(r.blocked).toBe(true);          // R segue bloqueada, sem transicao nenhuma...
+        expect(r.blocker.tabId).toBe(q.tabId); // ...e mesmo assim quem a bloqueia agora e Q
+    });
 
     it('4.6 CONFIRMADO (decisao): sem transporte nenhum o lock desliga, concede, e AVISA', async () => {
         // "Off and audible, never off and quiet" (tab-lock.js, secao 8). Fail-open e deliberado:
         // um navegador sem BroadcastChannel E sem localStorage nao pode arbitrar, e travar o app
-        // seria pior que arbitrar mal. O que falta e alguem LER `degraded` para badgear a UI, e
-        // isso e o furo #6 do TESTING-BACKLOG, nao uma asercao daqui.
+        // seria pior que arbitrar mal. O que faltava era alguem LER `degraded` para avisar o
+        // usuario, e isso FOI FECHADO: o proprio modulo monta um banner (`_degradedNotice`),
+        // porque o unico consumidor natural nao existia e o sinal ficava so no console.
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const lock = createTabLock({ createTransport: () => null, overlayHost: null, autoPulse: false });
         locks.push(lock);
@@ -637,6 +1095,37 @@ describe('ATAQUE 4 - liberacao', () => {
         expect(lock.transportKind).toBe('none');
         expect(warn).toHaveBeenCalledTimes(1);
         warn.mockRestore();
+    });
+
+    // ------------------------------------------------------------------ furo #6, FECHADO
+    // PROMOVIDO de `it.todo` em 2026-08-16: o furo #6 fechou. Ele estava marcado como "nenhum
+    // chamador propaga o `degraded`", e a solucao nao foi arranjar um chamador: foi o proprio
+    // modulo montar o aviso, porque o consumidor natural nao existia e a espera por ele deixou o
+    // unico sinal no console de desenvolvedor por meses.
+    //
+    // POR QUE ISTO PESA MAIS DEPOIS DE E7: com a retencao remoto x remoto removida, o modo
+    // degradado e o UNICO mecanismo que separa duas abas no MESMO atlas. Degradado em silencio e
+    // um usuario com duas abas escrevendo nos mesmos bancos sem forma de saber.
+    it('4.7: o modo degradado monta um aviso VISIVEL, e nao so um console.warn', () => {
+        const fonte = read('utilities/tab-lock.js');
+
+        // Recorte do METODO por indice, e nao por `functionText`: aquele helper e para funcoes de
+        // TOPO (ele exige exatamente uma declaracao no recorte) e um metodo de classe nao passa.
+        const ini = fonte.indexOf('    _buildDegradedNotice() {');
+        expect(ini, 'o construtor do aviso sumiu').toBeGreaterThan(-1);
+        const construtor = fonte.slice(ini, fonte.indexOf('\n    }', ini));
+
+        // O aviso e DOM de verdade: um `degraded: true` que ninguem transforma em pixel e a
+        // omissao original com outro nome.
+        expect(construtor).toMatch(/createElement/);
+        // ...e fala com o usuario, em pt-BR. Um banner mudo seria a mesma omissao de novo.
+        expect(construtor).toMatch(/[A-Za-zÀ-ú]{4,}\s+[A-Za-zÀ-ú]{4,}/);
+
+        // E ele so aparece quando a aba SEGURA um atlas: uma chave `none` nao colide com
+        // ninguem, entao as tres paginas sem mapa nao herdam um aviso que nao as descreve.
+        const iniSync = fonte.indexOf('    _syncDegradedNotice(');
+        expect(iniSync, 'o gatilho do aviso sumiu').toBeGreaterThan(-1);
+        expect(fonte.slice(iniSync, fonte.indexOf('\n    }', iniSync))).toMatch(/degraded/);
     });
 });
 
@@ -769,9 +1258,15 @@ describe('ATAQUE 6 - regressao', () => {
         expect(doc).not.toMatch(/NOT DONE HERE/);
         expect(doc).toMatch(/WHO CALLS WHAT/);
         // E as chamadas que ele descreve existem mesmo, nos tres arquivos citados.
-        expect(read('index.js')).toMatch(/await acquireTabLock\(remoteAtlasKey\(atlas\.id\)\)/);
+        // A chamada segue existindo; o que mudou e que ela agora leva a testemunha, entao o
+        // recorte nao pode exigir o par de parenteses fechando logo apos o argumento. Casar a
+        // FORMA exata de uma chamada e a mesma fragilidade que o ATAQUE 0 deste arquivo trata:
+        // ela silencia sozinha quando um argumento novo aparece.
+        expect(read('index.js')).toMatch(/await acquireTabLock\(remoteAtlasKey\(atlas\.id\)/);
         expect(read('index.js')).toMatch(/installTabLockSyncBrake/);
-        expect(read('account/open-atlas.service.js')).toMatch(/await acquireTabLock\(key\)/);
+        // `acquireTabLock(key, { witness })`: a chamada segue existindo, agora com a testemunha
+        // do caso 1.4 junto. Casar o parenteses de fechar aqui era casar a AUSENCIA de argumento.
+        expect(read('account/open-atlas.service.js')).toMatch(/await acquireTabLock\(key, \{/);
     });
 
     it('6.5 CONFIRMADO: todo furo aberto citado aqui existe no TESTING-BACKLOG, e o fileoverview '
@@ -784,11 +1279,31 @@ describe('ATAQUE 6 - regressao', () => {
         expect(backlog).toMatch(/## Furos abertos do tab-lock/);
 
         const citados = [...spec.matchAll(/it\.todo\('[^']*furo #(\d+)/g)].map((m) => Number(m[1]));
-        expect(citados.length).toBeGreaterThan(0);          // controle positivo do regex
         expect(citados).toEqual([...new Set(citados)]);      // sem numero repetido
         const secao = backlog.slice(backlog.indexOf('## Furos abertos do tab-lock'));
+        const tabela = secao.slice(0, secao.indexOf('\n---'));
         for (const n of citados) {
-            expect(secao.slice(0, secao.indexOf('\n---'))).toMatch(new RegExp(`^\\| ${n} \\|`, 'm'));
+            expect(tabela).toMatch(new RegExp(`^\\| ${n} \\|`, 'm'));
+        }
+
+        // A COERENCIA VALE NOS DOIS SENTIDOS, INCLUSIVE NO VAZIO. Este caso exigia
+        // `citados.length > 0` como controle positivo do regex, o que era razoavel enquanto
+        // houvesse furo aberto e virou falso em 2026-08-16, quando o ultimo fechou: um arquivo
+        // sem `it.todo` reprovava por nao ter defeito. O controle positivo do regex passou a ser
+        // o outro lado da mesma pergunta, que existe sempre: toda linha da tabela ou esta
+        // RISCADA (fechada, com o registro do fechamento) ou tem um `it.todo` citando o numero
+        // dela. Assim um furo reaberto sem todo, e um todo orfao, continuam vermelhos.
+        const linhas = [...tabela.matchAll(/^\| (\d+) \| (.*)$/gm)];
+        expect(linhas.length, 'a tabela de furos sumiu ou mudou de forma').toBeGreaterThan(0);
+        for (const [, num, corpo] of linhas) {
+            const fechado = corpo.trimStart().startsWith('~~');
+            const temTodo = citados.includes(Number(num));
+            expect(
+                fechado || temTodo,
+                `o furo #${num} do TESTING-BACKLOG nao esta riscado como fechado e nao tem `
+                + '`it.todo` neste arquivo: ou ele voltou a ser aberto sem reproducao, ou o '
+                + 'registro do fechamento nao foi escrito',
+            ).toBe(true);
         }
         // E o modulo manda o leitor para o mesmo lugar, em vez de descrever so as garantias.
         const doc = read('utilities/tab-lock.js');

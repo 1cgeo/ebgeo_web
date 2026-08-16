@@ -45,6 +45,16 @@
  * ALREADY have" for the boot paths, which used to call `clearAllDataStore()` outright: with a
  * namespace per atlas, that wipe lands on the exact databases another tab may be writing to,
  * and a duplicated tab inherits the sessionStorage intent that takes it there.
+ *
+ * BOTH PRE-FLIGHTS NOW CARRY A WITNESS, and that is the correction of an assumption this file made
+ * for a phase: that an AWAITED `acquire()` was proof. It is not. The settle answers by absence, and
+ * a boot is where absence is cheapest to produce — the sibling tab is busy rendering, the two
+ * settle windows overlap, one dropped message costs a heartbeat — so both tabs were granted and
+ * both wiped. The witness (`mountWitness` below) reads the store's own SHARED MOUNT LOCK, which is
+ * a fact of the browser: it survives the sibling being frozen, throttled or unheard, because a Web
+ * Lock is released by the DEATH of a client and never by its silence. The settle stays, because it
+ * is what names the blocker and drives "Usar aqui"; the witness is what makes the grant mean
+ * something. Rationale and the rejected alternative in `utilities/tab-lock.js`, section 5.
  */
 
 import { syncEngine } from '@store/sync/sync-engine.js';
@@ -66,7 +76,14 @@ import {
     mountLocalAtlas,
     releaseAdoptedLocalAtlas,
 } from '@store/local-atlas.api.js';
-import { getActiveScope, remoteAtlasIdFromDbSuffix, StoreScopeKind } from '@store/atlas-namespace.js';
+import {
+    getActiveScope,
+    remoteAtlasIdFromDbSuffix,
+    StoreScopeKind,
+    atlasMountLockName,
+    hasMountLockSupport,
+    remoteScope,
+} from '@store/atlas-namespace.js';
 import { ensureAtlasScope } from '@store/repositories/local.repository.js';
 import {
     acquireTabLock,
@@ -76,6 +93,7 @@ import {
     localAtlasKey,
     remoteAtlasKey,
     noneKey,
+    otherClientHoldsLock,
     TabLockKeyKind,
 } from '@utils/tab-lock.js';
 import { showChoice } from '@modals/confirm.modal.js';
@@ -228,6 +246,72 @@ export function retractAtlasClaim() {
     }
 }
 
+// =================================================================================================
+// THE WITNESS: the fact a destructive pre-flight checks, next to the settle
+// =================================================================================================
+
+/**
+ * What a tab is told when the browser says somebody else is in those databases.
+ *
+ * IT IS A SEPARATE MESSAGE FROM THE OVERLAY, and it has to be: the overlay appears when the tab
+ * lost the ORDER, which means it heard the other tab and can offer "Usar aqui". This message is
+ * for the case the overlay cannot cover — the peer never made it into the roster (its settle
+ * overlapped ours, its main thread was busy, its message was dropped), so there is nobody to ask
+ * for a handoff and the honest thing is to name the situation and stop.
+ */
+const OCCUPIED_MESSAGE = 'Este projeto já está aberto em outra aba deste navegador. '
+    + 'Nada foi apagado: continue por lá, ou feche a outra aba e tente de novo.';
+
+/**
+ * Builds the witness `acquire()` consults before it grants a destructive claim.
+ *
+ * WHAT IT READS, AND WHY IT IS NOT THE TAB-LOCK CHANNEL. The store takes a SHARED Web Lock on
+ * every namespace it MOUNTS (`atlas-namespace.js`, Decision 5), and that lock is released by the
+ * DEATH of the client, never by its silence. So it answers the one question the channel answers
+ * badly: is a live client — frozen, throttled, or simply not heard from — using these databases
+ * right now. Every tab maintains it unconditionally, including the ones that never speak to the
+ * tab lock, which is what makes it evidence rather than cooperation.
+ *
+ * `selfHolds` IS THE WHOLE SUBTLETY. This client holds AT MOST ONE mount lock (Decision 5 keeps it
+ * on `globalThis` and releases the previous one when the scope changes), so the count that means
+ * "somebody else" depends on whether the address being asked about is the one THIS tab has
+ * mounted: 1 for the wipe of the mounted atlas, 0 for an atlas this tab has not entered yet. Get
+ * this backwards and the pre-flight either blocks every tab on its own mount or stops seeing the
+ * only peer that matters.
+ *
+ * @param {string|null|undefined} dbSuffix - Database suffix of the namespace about to be destroyed.
+ * @param {number} selfHolds - How many holds on that lock belong to this client (0 or 1).
+ * @returns {(() => Promise<boolean|null>)|null} The witness, or null where there is nothing to
+ *   read (no LockManager at all, i.e. plain HTTP, or no address to name).
+ */
+function mountWitness(dbSuffix, selfHolds) {
+    if (typeof dbSuffix !== 'string' || !hasMountLockSupport()) return null;
+    const lockName = atlasMountLockName(dbSuffix);
+    return () => otherClientHoldsLock(navigator.locks, lockName, selfHolds);
+}
+
+/**
+ * The witness for an atlas this tab is about to OPEN.
+ *
+ * `selfHolds` is 0 because the namespace is not mounted yet: `activateRemoteAtlas` runs after the
+ * claim, on purpose (`openRemoteAtlas`). The one exception is the tab that already sits in that
+ * atlas, and it never reaches here — `claimRemoteAtlas` short-circuits first.
+ *
+ * A suffix that cannot be built (an id `remoteScope` refuses) yields no witness rather than an
+ * exception: this is a pre-flight, and failing to read a fact must not become the failure of the
+ * open. The very next step of the open builds the same scope and will throw there, where the
+ * caller already handles it.
+ * @param {string} atlasId - Atlas UUID being opened.
+ * @returns {(() => Promise<boolean|null>)|null}
+ */
+export function remoteMountWitness(atlasId) {
+    try {
+        return mountWitness(remoteScope(atlasId).dbSuffix, 0);
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Claims `atlasId` for this tab, unless this tab already holds THAT atlas.
  *
@@ -243,7 +327,13 @@ export function retractAtlasClaim() {
 async function claimRemoteAtlas(atlasId) {
     const lock = getTabLock();
     if (lock && !lock.blocked && sameAtlasClaim(lock.key, remoteAtlasKey(atlasId))) return true;
-    const { granted } = await acquireTabLock(remoteAtlasKey(atlasId));
+    const { granted, deniedBy } = await acquireTabLock(remoteAtlasKey(atlasId), {
+        witness: remoteMountWitness(atlasId),
+    });
+    // A refusal by the WITNESS produces no overlay, because there is no peer in the roster to
+    // offer a handoff to (that is the whole point: the peer was never heard). Saying nothing here
+    // would leave the user clicking a project that silently does not open.
+    if (!granted && deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
     return granted;
 }
 
@@ -261,6 +351,13 @@ async function claimRemoteAtlas(atlasId) {
  * nobody, so `isTabLockBlocked()` is `false` for a tab that is about to lose. Only `acquire()`, with
  * its settle window, can answer.
  *
+ * AND THE SETTLE ALONE IS NOT AN ANSWER EITHER, which is why this is the pre-flight that most
+ * needed the witness. A boot is exactly where the other tab is least likely to be heard in time:
+ * it is busy rendering a map, the duplicate's own settle overlaps it, and a dropped message costs
+ * a whole heartbeat. The witness reads the sibling's SHARED MOUNT LOCK instead of waiting for it
+ * to speak — and `selfHolds` is 1 here, because the address being asked about is the one this tab
+ * has mounted, so this tab's own hold must not be read as a peer.
+ *
  * @param {(() => Promise<unknown>)|null} [replay] - What to re-run if the claim is refused, so the
  *   overlay's "Usar aqui" finishes the boot step instead of leaving the tab merely unblocked.
  * @returns {Promise<boolean>} True when the wipe ran.
@@ -270,10 +367,18 @@ export async function clearMountedAtlasIfGranted(replay = null) {
     // Holding nothing means there is no atlas to arbitrate: nobody else can be writing to a
     // namespace this tab has not resolved.
     if (key.kind !== TabLockKeyKind.NONE) {
-        const { granted } = await acquireTabLock(key);
+        // Read AFTER `currentAtlasLockKey()`, which is what runs `ensureAtlasScope()`: the key and
+        // the address must name the same slot, or the witness would guard a namespace nobody is
+        // about to erase.
+        const { granted, deniedBy } = await acquireTabLock(key, {
+            witness: mountWitness(getActiveScope()?.dbSuffix, 1),
+        });
         if (!granted) {
             if (replay) deferAtlasOpen(replay);
-            console.warn('[tab-lock] wipe refused: another tab holds this atlas');
+            console.warn(`[tab-lock] wipe refused (${deniedBy}): another tab holds this atlas`);
+            // Only the witness path needs a message. A refusal by the ORDER already put the
+            // overlay on screen, and a toast behind it would be the same news said twice.
+            if (deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
             return false;
         }
     }

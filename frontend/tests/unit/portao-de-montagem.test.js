@@ -274,7 +274,13 @@ describe('a ordem dentro de cada entrada em atlas de servidor', () => {
     it('openPublicAtlasFromUrl: idem, com o claim antes de tudo', () => {
         const corpo = corpoDe('index.js', 'async function openPublicAtlasFromUrl', 'function isCredentialFailure');
 
-        const reivindica = posicaoDe(corpo, 'acquireTabLock(remoteAtlasKey(atlas.id))', 'claim');
+        // O marco é a chamada, NÃO a forma dela: `acquireTabLock` ganhou um segundo argumento (a
+        // testemunha do lock de montagem) e a chamada passou a ocupar três linhas. Um marco que
+        // exige o par de parênteses fechando junto silencia sozinho no dia em que um argumento
+        // aparece, que é a mesma fragilidade que o `ATAQUE 0` de `tab-lock-refutacao.test.js`
+        // trata: aqui ele não silenciou, ficou VERMELHO, porque a asserção é de ORDEM e o marco
+        // ausente é detectado por `posicaoDe`.
+        const reivindica = posicaoDe(corpo, 'acquireTabLock(remoteAtlasKey(atlas.id)', 'claim');
         const ativa = posicaoDe(corpo, 'activateRemoteAtlas(atlas.id)', 'ativação');
         const limpa = posicaoDe(corpo, 'clearAllDataStore(', 'wipe');
 

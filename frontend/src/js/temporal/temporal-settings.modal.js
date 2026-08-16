@@ -387,18 +387,42 @@ class TemporalSettingsModal {
         try {
             // Shift features (store + live), then persist the moved origin/bounds so
             // the D+N picture is identical and the controller re-syncs once.
-            await getControl('TemporalControl')?.shiftFeatureTimes(delta);
+            const result = await getControl('TemporalControl')?.shiftFeatureTimes(delta);
             await setMapTemporalConfig(this._mapName, {
                 origem: newD,
                 inicio: Number.isFinite(cfg.inicio) ? cfg.inicio + delta : cfg.inicio,
                 fim: Number.isFinite(cfg.fim) ? cfg.fim + delta : cfg.fim,
             });
-            showSuccess('Feições reagendadas para o novo Dia D.');
+            this._announceReschedule(result);
         } catch (error) {
             console.warn('Failed to reschedule features:', error);
             showWarning('Falha ao reagendar as feições.');
         }
         this._close();
+    }
+
+    /**
+     * Reports what "Reagendar" actually did. It used to announce success no matter what,
+     * which is how a refused write looked exactly like a completed one. Zero shifted
+     * features has TWO causes and they need different words: the map had nothing timed,
+     * or the store refused the write (role too low, or the map is locked).
+     * @param {{changed: number, hadCandidates: boolean}|undefined} result
+     */
+    _announceReschedule(result) {
+        if (!result) {
+            showWarning('O controle temporal não está disponível: nenhuma feição foi reagendada.');
+            return;
+        }
+        if (result.changed > 0) {
+            const plural = result.changed === 1 ? 'feição reagendada' : 'feições reagendadas';
+            showSuccess(`${result.changed} ${plural} para o novo Dia D.`);
+            return;
+        }
+        if (result.hadCandidates) {
+            showWarning('Nenhuma feição foi reagendada: a escrita foi recusada (permissão insuficiente ou mapa bloqueado).');
+            return;
+        }
+        showToast('Nenhuma feição temporal para reagendar; apenas o Dia D foi atualizado.', 'info');
     }
 
     /** Default relative origin when none is set: resolved timeline start, else today 00:00. */

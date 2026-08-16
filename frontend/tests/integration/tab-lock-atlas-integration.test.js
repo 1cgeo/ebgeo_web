@@ -70,6 +70,20 @@ vi.mock('@store/atlas-namespace.js', () => ({
             ? dbSuffix.slice('remote-'.length) || null
             : null
     ),
+    // O LOCK DE MONTAGEM, que é o fato que a testemunha do pré-voo lê. Dublês pela mesma razão
+    // dos de cima: o que este arquivo mede é se o pré-voo CONSULTA o lock antes de apagar, e os
+    // casos abaixo tomam posses de verdade em `navigator.locks` com o nome que este dublê dá, de
+    // modo que a cena é auto-consistente. Que a produção passe o `atlasMountLockName` REAL (e não
+    // um nome inventado no serviço) é asserido em `tests/unit/tab-lock-refutacao.test.js` 1.4.
+    atlasMountLockName: (dbSuffix) => `ebgeo-atlas:#${dbSuffix}`,
+    hasMountLockSupport: () => true,
+    remoteScope: (atlasId) => ({ kind: 'remote', atlasId, dbSuffix: `remote-${atlasId}` }),
+    // NENHUM slot local reivindica o namespace remoto nestes casos (o resgate tem os seus, em
+    // `tests/integration/namespace-remoto-fiacao.test.js`). Precisa existir porque `remoteScope`
+    // passou a existir no dublê: `localAtlasAdoptingRemote` devolvia null por EXCEÇÃO enquanto
+    // `remoteScope` faltava aqui, e uma pergunta respondida por um throw é uma resposta por
+    // acidente — a mesma classe de verde vazio que este arquivo persegue nos outros casos.
+    readLocalAtlasRegistry: async () => [],
 }));
 vi.mock('@store/repositories/local.repository.js', () => ({ ensureAtlasScope: vi.fn() }));
 vi.mock('@modals/confirm.modal.js', () => ({ showChoice: vi.fn(async () => 'discard') }));
@@ -96,6 +110,7 @@ vi.mock('@store/store.js', () => ({
 
 import { isRemoteStoreSync, hasAnyMapFeatures, clearAllDataStore } from '@store/store.js';
 import { showChoice } from '@modals/confirm.modal.js';
+import { showError } from '@utils/toast_service.js';
 import {
     createTabLock,
     initTabLock,
@@ -582,6 +597,112 @@ describe('os DOIS wipes do boot: clearMountedAtlasIfGranted', () => {
         expect(await clearMountedAtlasIfGranted()).toBe(true);
         expect(calls).toContain('clearAllDataStore');
         expect(lock.blocked).toBe(false);
+    });
+});
+
+// ==========================================================================================
+// A TESTEMUNHA: o furo #1, medido no sítio de chamada
+// ==========================================================================================
+
+/**
+ * O canal MENTE POR SILÊNCIO, e as três faces do furo #1 (settles sobrepostos, par ocupado por
+ * mais que o settle, mensagem perdida) produzem a MESMA cena: um par vivo que o roster não
+ * conhece. O que se mede aqui é o pré-voo com o roster VAZIO — nenhum peer no hub, exatamente
+ * como nas três faces — e um par que existe só como posse do lock de montagem.
+ *
+ * AS POSSES SÃO REAIS (`navigator.locks` deste runtime, medido em node v24), e não um dublê: a
+ * contagem é o mecanismo, então uma posse a mais é literalmente o que separa "sozinha" de
+ * "acompanhada". `selfHolds` é 1 no wipe do atlas MONTADO (a store de verdade toma essa posse ao
+ * montar, e aqui ela é mockada, então o teste toma as duas: a desta aba e a da irmã) e 0 na
+ * abertura de um atlas que esta aba ainda não montou.
+ */
+describe('furo #1: o pré-voo consulta o lock de montagem, e não só o silêncio do canal', () => {
+    /** @type {Array<() => void>} */
+    let soltar = [];
+
+    /**
+     * @param {string} dbSuffix - Sufixo do namespace.
+     * @param {number} quantas - Quantas posses compartilhadas tomar.
+     * @returns {Promise<void>}
+     */
+    async function montar(dbSuffix, quantas) {
+        for (let i = 0; i < quantas; i++) {
+            let libera;
+            const posse = navigator.locks.request(`ebgeo-atlas:#${dbSuffix}`, { mode: 'shared' },
+                () => new Promise((resolve) => { libera = resolve; }));
+            soltar.push(() => { libera(); return posse; });
+        }
+        // Uma rodada de espera para as concessões assentarem antes de qualquer `query()`.
+        await settle(2);
+    }
+
+    beforeEach(() => { soltar = []; });
+    afterEach(async () => { await Promise.all(soltar.map((f) => f())); });
+
+    it('o wipe do boot é RECUSADO por um par que o canal nunca ouviu', async () => {
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        await montar('remote-atlas-uuid', 2);          // a desta aba + a da irmã
+        const lock = bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        const replay = vi.fn(async () => 'replayed');
+        const wiped = await clearMountedAtlasIfGranted(replay);
+
+        expect(wiped).toBe(false);
+        expect(calls).not.toContain('clearAllDataStore');
+        // E NÃO foi a ordem: o roster está vazio, que é a cena das três faces.
+        expect(lock.blocked).toBe(false);
+        expect(lock.peers()).toHaveLength(0);
+        // O usuário é avisado, porque aqui não há overlay para explicar (não há par a quem pedir
+        // "Usar aqui": ele nunca entrou no roster).
+        expect(vi.mocked(showError)).toHaveBeenCalledTimes(1);
+        // E a retomada fica guardada, como na recusa pela ordem.
+        expect(await resumeDeferredAtlasOpen()).toBe(true);
+        expect(replay).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROLE NEGATIVO: com a posse desta aba SOZINHA, o mesmo caminho apaga normalmente', async () => {
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        await montar('remote-atlas-uuid', 1);          // só a desta aba
+        bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        expect(await clearMountedAtlasIfGranted()).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+        expect(vi.mocked(showError)).not.toHaveBeenCalled();
+    });
+
+    it('o open remoto é RECUSADO quando o namespace de DESTINO está montado em outra aba', async () => {
+        // Aqui `selfHolds` é 0: esta aba está num slot local e ainda não entrou no atlas de
+        // destino (`activateRemoteAtlas` só roda depois do claim), então UMA posse já é a irmã.
+        await montar('remote-atlas-uuid', 1);
+        bootPageLock(localAtlasKey('slot-a'));
+
+        const opened = await openRemoteAtlas('atlas-uuid');
+
+        expect(opened).toBe(false);
+        expect(calls).not.toContain('activateRemoteAtlas');
+        expect(calls).not.toContain('clearAllDataStore');
+        expect(getTabLock().peers()).toHaveLength(0);
+        expect(vi.mocked(showError)).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONTROLE NEGATIVO: sem ninguém montando o destino, o open segue e apaga', async () => {
+        bootPageLock(localAtlasKey('slot-a'));
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+    });
+
+    it('a testemunha NÃO é consultada quando a aba já segura aquele atlas: seria a própria '
+        + 'montagem barrando o retorno', async () => {
+        // `claimRemoteAtlas` atalha antes, e este é o motivo de o atalho ser correção e não
+        // otimização: com `selfHolds` 0 a posse desta aba seria lida como par.
+        syncEngineDouble.atlasId = 'atlas-uuid';
+        fixture.scope.value = { kind: 'remote', atlasId: 'atlas-uuid', dbSuffix: 'remote-atlas-uuid' };
+        await montar('remote-atlas-uuid', 1);
+        bootPageLock(remoteAtlasKey('atlas-uuid'));
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
+        expect(calls).toContain('clearAllDataStore');
+        expect(vi.mocked(showError)).not.toHaveBeenCalled();
     });
 });
 

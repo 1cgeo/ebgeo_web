@@ -147,12 +147,51 @@ export class TemporalController {
      * real D-Day while keeping the D+N offsets. Does NOT re-sync — the caller
      * persists the new config right after, which triggers a single authoritative
      * sync with the shifted data and new bounds.
+     *
+     * The two halves are NOT symmetric and the order is the gate: `shiftMapTemporalTimes`
+     * consults `guardWrite` and returns 0 when it refuses (role too low, locked map),
+     * while `shiftSourcesTemporal` writes straight to the live sources with no gate of
+     * its own. Ignoring that 0 let a `read`/`comment` user watch the map reschedule
+     * itself with the store untouched, so the count is consumed here rather than by
+     * restating the permission hierarchy in the temporal module.
      * @param {number} deltaMs
+     * @returns {Promise<{changed: number, hadCandidates: boolean}>} Features shifted, and
+     *   whether the map carried anything shiftable at all (which is what separates a
+     *   refused write from an empty timeline — both return 0).
      */
     async shiftFeatureTimes(deltaMs) {
-        if (!Number.isFinite(deltaMs) || deltaMs === 0) return;
-        await shiftMapTemporalTimes(this._mapName, deltaMs);
+        if (!Number.isFinite(deltaMs) || deltaMs === 0) return { changed: 0, hadCandidates: false };
+
+        const changed = await shiftMapTemporalTimes(this._mapName, deltaMs);
+        if (changed === 0) {
+            return { changed: 0, hadCandidates: await this._hasTemporalFeatures() };
+        }
+
         await shiftSourcesTemporal(this._map, deltaMs);
+        return { changed, hadCandidates: true };
+    }
+
+    /**
+     * Whether the active map holds at least one feature the shift could have moved.
+     * Read only on the zero path, where it is the difference between "nothing to do"
+     * and "the write was refused".
+     * @returns {Promise<boolean>}
+     */
+    async _hasTemporalFeatures() {
+        let fc;
+        try {
+            fc = await getCurrentMapFeatures(this._mapName);
+        } catch {
+            return false;
+        }
+        const features = fc ? Object.values(fc).flat() : [];
+        return features.some((f) => {
+            const p = f?.properties;
+            if (!p) return false;
+            return Number.isFinite(p.temporalInicio)
+                || Number.isFinite(p.temporalFim)
+                || (Array.isArray(p.trajetoria) && p.trajetoria.some((kp) => Number.isFinite(kp?.t)));
+        });
     }
 
     /**
