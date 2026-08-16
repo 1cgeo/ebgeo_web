@@ -6,8 +6,10 @@
  *
  * Also serves the N-way variant (`showChoice`): the same dialog with an arbitrary set of labelled
  * actions instead of yes/no. It exists because a two-button confirm forces a false dilemma whenever
- * the safe third option is "do the thing, but keep my data" — the shape of the local-work guard in
- * `open-atlas.service.js` (Cancelar / Salvar e continuar / Descartar e abrir).
+ * the safe extra option is "do the thing, but keep my data". Live caller: the rescued-slot question
+ * in `open-atlas.service.js`. (Its three-way sibling, the "trabalho local não salvo" guard, was
+ * removed in 2026-08-16 — opening a server project stopped touching the local atlas, so the dialog
+ * threatened a destruction that no longer happened.)
  */
 
 import {
@@ -290,11 +292,10 @@ export async function showConfirm(title, options = {}) {
  * @returns {Promise<string|null>} The chosen `id`, or `null` if dismissed.
  *
  * @example
- * const choice = await showChoice('Você tem trabalho local não salvo', {
+ * const choice = await showChoice('Este projeto tem trabalho resgatado neste computador', {
  *     choices: [
  *         { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
- *         { id: 'save', label: 'Salvar e continuar' },
- *         { id: 'discard', label: 'Descartar e abrir', variant: 'danger' },
+ *         { id: 'discard', label: 'Descartar o resgate e abrir', variant: 'danger' },
  *     ],
  * });
  */

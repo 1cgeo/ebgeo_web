@@ -83,7 +83,9 @@ vi.mock('@store/atlas-namespace.js', () => ({
     // passou a existir no dublê: `localAtlasAdoptingRemote` devolvia null por EXCEÇÃO enquanto
     // `remoteScope` faltava aqui, e uma pergunta respondida por um throw é uma resposta por
     // acidente — a mesma classe de verde vazio que este arquivo persegue nos outros casos.
-    readLocalAtlasRegistry: async () => [],
+    // `vi.fn`, e não uma seta constante, porque um caso precisa devolver UM slot resgatado (o que
+    // reivindica o namespace remoto) sem contaminar os outros.
+    readLocalAtlasRegistry: vi.fn(async () => []),
 }));
 vi.mock('@store/repositories/local.repository.js', () => ({ ensureAtlasScope: vi.fn() }));
 vi.mock('@modals/confirm.modal.js', () => ({ showChoice: vi.fn(async () => 'discard') }));
@@ -109,6 +111,7 @@ vi.mock('@store/store.js', () => ({
 }));
 
 import { isRemoteStoreSync, hasAnyMapFeatures, clearAllDataStore } from '@store/store.js';
+import { readLocalAtlasRegistry } from '@store/atlas-namespace.js';
 import { showChoice } from '@modals/confirm.modal.js';
 import { showError } from '@utils/toast_service.js';
 import {
@@ -497,14 +500,35 @@ describe('retratação: chave anunciada que não se consegue honrar', () => {
         expect(getTabLock().key.kind).not.toBe('remote');
     });
 
-    it('cancelar o aviso de trabalho local devolve a chave e não apaga nada', async () => {
-        vi.mocked(hasAnyMapFeatures).mockResolvedValue(true);
+    it('cancelar o aviso do slot resgatado devolve a chave e não apaga nada', async () => {
+        // O GATILHO MUDOU EM 2026-08-16, a propriedade não. Este caso pendurava-se no aviso
+        // genérico de "trabalho local não salvo", que foi removido porque abrir um projeto do
+        // servidor deixou de tocar no atlas local (o wipe cai no namespace ABERTO). Restou uma
+        // única pergunta na entrada, a do slot RESGATADO, e ali a destruição é real: aquele slot
+        // são literalmente os mesmos dez bancos do atlas do servidor.
+        //
+        // O caso foi TROCADO e não apagado porque o que ele prende é a retratação — recusar deixa
+        // a aba anunciando um atlas que ela não abriu, e uma chave anunciada e não honrada tranca
+        // a próxima aba de graça.
+        vi.mocked(readLocalAtlasRegistry).mockResolvedValueOnce([
+            { id: 'slot-resgatado', name: 'Resgate', dbSuffix: 'remote-atlas-uuid' },
+        ]);
         vi.mocked(showChoice).mockResolvedValue(null); // Esc/backdrop
         bootPageLock(localAtlasKey('slot-a'));
 
         expect(await openRemoteAtlas('atlas-uuid')).toBe(false);
         expect(calls).not.toContain('clearAllDataStore');
         expect(getTabLock().key).toEqual({ kind: 'local', atlasId: 'slot-a' });
+    });
+
+    it('sem slot resgatado, a abertura não pergunta nada e segue', async () => {
+        // O CONTROLE do caso acima, e a razão de a remoção do aviso genérico ter um guarda aqui
+        // além do de navegador: um `showChoice` que voltasse a ser chamado no caminho comum
+        // pararia a abertura de todo mundo que tem qualquer coisa desenhada no mapa local.
+        bootPageLock(localAtlasKey('slot-a'));
+
+        expect(await openRemoteAtlas('atlas-uuid')).toBe(true);
+        expect(showChoice).not.toHaveBeenCalled();
     });
 
     it('retractAtlasClaim volta para o slot local quando existe um, em vez de ficar em `none`', () => {
