@@ -19,9 +19,9 @@
  *   - §9.2: a Viewshed result (`source=visibility`, params) round-trips into the
  *     `visibility` bucket, props preserved;
  *   - isolation: the LoS feature must NOT leak into the `visibility` bucket and vice versa;
- *   - edge: an unsupported analysis kind (`source=enemy_los`) is REJECTED at write
- *     (the backend `valid_feature_type` CHECK aborts the atomic push) and never surfaces
- *     in any snapshot bucket.
+ *   - edge: an unsupported analysis kind (`source=enemy_los`) is REFUSED at write by the
+ *     backend `valid_feature_type` CHECK, per operation (HTTP 200 + `rejected: true`
+ *     since 2026-07-24), and never surfaces in any snapshot bucket.
  *
  * Each test self-provisions its own user + atlas + map for full isolation.
  *
@@ -140,24 +140,20 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
             };
 
             // ---- EDGE: an unsupported analysis kind is rejected at write ----
-            // The backend valid_feature_type CHECK hard-rejects `enemy_los`, aborting the
-            // atomic push; the row must never be persisted nor surface in any bucket.
+            // The backend valid_feature_type CHECK hard-refuses `enemy_los`; the row must
+            // never be persisted nor surface in any bucket.
             // no-UI: an unsupported analysis source (enemy_los) is unreachable through any
             // tool — it can only be forged at the transport layer to prove the backend
             // valid_feature_type CHECK rejects it.
             const bogusId = crypto.randomUUID();
-            let writeRejected = false;
-            try {
-                await api.pushOperations(atlas.id, [
-                    createOperation('feature', 'create', bogusId, mapId,
-                        makeFeature(bogusId, 'enemy_los', {
-                            type: 'Point',
-                            coordinates: [0, 0],
-                        })),
-                ]);
-            } catch {
-                writeRejected = true;
-            }
+            const bogusRes = await api.pushOperations(atlas.id, [
+                createOperation('feature', 'create', bogusId, mapId,
+                    makeFeature(bogusId, 'enemy_los', {
+                        type: 'Point',
+                        coordinates: [0, 0],
+                    })),
+            ]);
+            const bogusOutcome = bogusRes.results?.[0] ?? null;
             const after = await api.pullSync(atlas.id, 0);
             const bogusLanded = (after.snapshot?.maps || []).some((m) =>
                 Object.values(m.features || {}).some(
@@ -171,7 +167,7 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
                 hasToken: Boolean(api.getAccessToken()),
                 happy,
                 isolation,
-                edge: { writeRejected, bogusLanded },
+                edge: { bogusOutcome, bogusLanded },
             };
         }, state.baseUrl);
 
@@ -210,8 +206,16 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
         expect(result.isolation.losCount).toBe(1);
         expect(result.isolation.visCount).toBe(1);
 
-        // ---- EDGE: unsupported analysis kind rejected, never persisted ----
-        expect(result.edge.writeRejected).toBe(true);
+        // ---- EDGE: unsupported analysis kind refused, never persisted ----
+        // The REFUSAL SHAPE changed on 2026-07-24 and this block asserted the old one (a
+        // thrown 400 aborting the batch) until 2026-08-16. A data violation is now refused
+        // PER OPERATION: HTTP 200, `rejected: true`, generic pt-BR reason. What did NOT
+        // change is the half that matters, asserted right below: nothing is persisted.
+        expect(result.edge.bogusOutcome, 'the push returned no per-operation outcome').toBeTruthy();
+        expect(result.edge.bogusOutcome.success).toBe(false);
+        expect(result.edge.bogusOutcome.rejected).toBe(true);
+        expect(result.edge.bogusOutcome.reason).toMatch(/^Alteração descartada:/);
+        expect(result.edge.bogusOutcome.reason).not.toMatch(/constraint|features_|check/i);
         expect(result.edge.bogusLanded).toBe(false);
     });
 });

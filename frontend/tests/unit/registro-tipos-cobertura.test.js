@@ -260,8 +260,22 @@ const fontePorArquivo = new Map(
     inventario.map(rel => [rel, readFileSync(new URL(rel, URL_JS), 'utf8')])
 );
 
+/**
+ * The registry itself, which is the SOURCE of the vocabulary and never a consumer of it.
+ *
+ * It has to be excluded by name, and the reason it was not excluded from the start is worth
+ * keeping: the inventory comes from `git ls-files`, so while the registry was a new,
+ * UNTRACKED file the sweep could not see it, and the census passed. It became an "orphan
+ * file with a list of types" at the exact moment it was committed — the guard behaves
+ * differently before and after `git add`, and verifying only the pre-commit tree hides that.
+ * Any guard fed by `git ls-files` deserves one run against the COMMITTED tree.
+ */
+const ARQUIVO_DO_REGISTRO = 'store/feature-type.registry.js';
+
 /** Files that write out a list of types: `LIMIAR` or more distinct vocabulary names. */
-const VARRIDOS = inventario.filter(rel => nomesCitados(fontePorArquivo.get(rel)).size >= LIMIAR);
+const VARRIDOS = inventario
+    .filter(rel => rel !== ARQUIVO_DO_REGISTRO)
+    .filter(rel => nomesCitados(fontePorArquivo.get(rel)).size >= LIMIAR);
 
 const porArquivo = new Map(CENSO.map(e => [e.arquivo, e]));
 

@@ -102,8 +102,12 @@ function mountRoster(page) {
         for (const c of p.cursors) presenceStore.setCursor(c);
         for (const t of p.temporal) presenceStore.setTemporal(t);
         for (const b of p.briefingEdit) {
+            // `clientId` travels through, like the bridge does. Dropping it here would key
+            // the entry by userId and mint a second roster row for the same peer, which is
+            // the very defect the row COUNT below now guards.
             presenceStore.setBriefingEdit({
                 userId: b.userId,
+                clientId: b.clientId,
                 briefingId: b.briefingId,
                 userName: b.userName,
                 editing: b.type === 'briefing_edit_started',
@@ -255,7 +259,8 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         }
 
         const cfg = { baseUrl: state.baseUrl, username: seed.username, password: seed.password, atlasId: seed.atlasId };
-        const connA = await connectClient(pageA, { ...cfg, clientId: `awz-A-${crypto.randomUUID().slice(0, 8)}` });
+        const clientIdA = `awz-A-${crypto.randomUUID().slice(0, 8)}`;
+        const connA = await connectClient(pageA, { ...cfg, clientId: clientIdA });
         await connectClient(pageB, { ...cfg, clientId: `awz-B-${crypto.randomUUID().slice(0, 8)}` });
 
         // 2. A broadcasts the full awareness set: active map (via cursor mapId),
@@ -293,10 +298,24 @@ describeOrSkip('Presence/awareness (two real browser clients + real backend)', (
         await expect(roster.getByTestId('online-user-briefing')).toContainText('editando briefing');
 
         // 5. Case G — away rendering: drive a user_away into B's store and re-render.
-        await pageB.evaluate((awayUserId) => {
-            window.__roster.presenceStore.userAway({ userId: awayUserId });
-        }, connA.sessionUserId);
+        //
+        // THE FRAME CARRIES BOTH IDENTITIES, and passing only `userId` (what this block did
+        // until 2026-08-16) is a shape the server never sends: `broadcastUserAway`
+        // (`backend/src/modules/collab/collab.service.js`) always sends `{ userId, clientId }`,
+        // and the store's `resolveKey` PREFERS `clientId`. With only the userId the call did
+        // not mark A away — it minted a SECOND, phantom roster entry under a different key.
+        // The badge assertion above still found "ausente" (on the phantom) while the item
+        // assertion below read the real A, which was never touched. The same mismatch is
+        // recorded on the server side, in `collab.rooms.js`: a join snapshot without
+        // `clientId` was keyed by userId and never matched the `user_away` that followed.
+        await pageB.evaluate(({ awayUserId, awayClientId }) => {
+            window.__roster.presenceStore.userAway({ userId: awayUserId, clientId: awayClientId });
+        }, { awayUserId: connA.sessionUserId, awayClientId: clientIdA });
         await expect(roster.getByTestId('online-user-away')).toContainText('ausente');
+        // Exactly ONE row: a second row here means the away frame minted a phantom entry
+        // instead of marking the peer, which is precisely how this case used to pass its
+        // badge assertion while failing its attribute assertion.
+        await expect(roster.getByTestId('online-user-item')).toHaveCount(1);
         await expect(roster.getByTestId('online-user-item').first()).toHaveAttribute('data-away', 'true');
 
         // 6. Clean up.

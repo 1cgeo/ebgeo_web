@@ -314,6 +314,13 @@ export function handleConnectionQuality(ws, data) {
  */
 export function handleBriefingEditStart(ws, data) {
   broadcastToRoom(ws.atlasId, {
+    // Estes eram os DOIS ÚLTIMOS frames de percepção sem `clientId`, e a razão está escrita
+    // por extenso em `handleCursor`: o roster é CHAVEADO por clientId, então um frame que só
+    // carrega userId não atualiza a entrada existente, ele CRIA UMA SEGUNDA. Quem editava um
+    // briefing aparecia duas vezes na lista de quem está online, uma com nome e outra com o
+    // UUID cru. Cursor e temporal foram corrigidos; estes dois ficaram para trás, e só um
+    // teste que CONTA as linhas do roster pegaria isso (contar era o que faltava).
+    clientId: ws.clientId ?? null,
     type: 'briefing_edit_started',
     userId: ws.userId,
     userName: ws.userName,
@@ -326,6 +333,7 @@ export function handleBriefingEditStart(ws, data) {
  */
 export function handleBriefingEditEnd(ws, data) {
   broadcastToRoom(ws.atlasId, {
+    clientId: ws.clientId ?? null, // veja o porquê em handleBriefingEditStart
     type: 'briefing_edit_ended',
     userId: ws.userId,
     userName: ws.userName,

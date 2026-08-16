@@ -13,10 +13,10 @@
  *   - §5.8 / §24.9 "adicionar pontos por coordenadas" — a batch of N point `create`
  *     ops pushed in ONE call, asserting every coordinate pair round-trips into the
  *     `points` bucket with geometry intact;
- *   - ATOMICITY (negative/edge): a batch where ONE op carries an invalid
- *     `properties.source` (rejected by the `valid_feature_type` CHECK at write time,
- *     002_atlas.sql) must roll the WHOLE push back — `pushOperations` rejects AND
- *     none of the sibling features in that batch are persisted.
+ *   - BLAST RADIUS (negative/edge): a batch where ONE op carries an invalid
+ *     `properties.source` (refused by the `valid_feature_type` CHECK at write time,
+ *     002_atlas.sql). The invalid op writes NOTHING; its valid siblings in the same
+ *     batch COMMIT. See the case below for why this reversed on 2026-07-24.
  *
  * A feature carries its TYPE in `properties.source` (GeoJSON Feature); the backend
  * buckets by `feature_type`. Writes are CRDT operations (no REST write routes).
@@ -193,7 +193,25 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
         }
     });
 
-    test('ATOMICITY: one invalid op in a batch rolls the WHOLE push back (none persisted)', async ({
+    /**
+     * ONE INVALID OP NO LONGER TAKES THE BATCH DOWN, AND THE CASE WAS REPLACED, NOT PATCHED.
+     *
+     * This case asserted whole-batch rollback, and it was right when it was written: a data
+     * violation aborted the single transaction wrapping the push, so the valid siblings were
+     * lost with it. On 2026-07-24 the blast radius was deliberately narrowed — each op runs
+     * inside its own savepoint, and a data violation (SQLSTATE class 22/23) is refused PER
+     * OPERATION with HTTP 200 and `rejected: true`, so the neighbours commit. The reason is
+     * the outbound queue: one poisoned op used to freeze every op behind it.
+     *
+     * The old assertions were TROCADAS, never kept alongside the new ones. A case that keeps
+     * demanding the previous contract makes the correction read as a regression, and this
+     * file sat red for weeks saying exactly that — unnoticed, because the browser layer runs
+     * outside `npm test`.
+     *
+     * What did NOT change, and is still asserted: the invalid op persists nothing, and the
+     * atlas is not wedged afterwards.
+     */
+    test('BLAST RADIUS: one invalid op writes nothing while its valid siblings commit', async ({
         page,
     }) => {
         await page.goto('/');
@@ -219,9 +237,10 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
             const badId = crypto.randomUUID();
 
             // The batch interleaves two VALID point creates around one create whose
-            // `properties.source` is an UNKNOWN feature type. The backend buckets by
-            // feature_type and the `valid_feature_type` CHECK rejects the unknown one
-            // at INSERT time, aborting the single transaction that wraps the batch.
+            // `properties.source` is an UNKNOWN feature type. The `valid_feature_type` CHECK
+            // refuses that one at INSERT time; its savepoint rolls back and the two
+            // neighbours commit. Interleaving matters: a sibling BEFORE and AFTER the bad op
+            // proves the refusal does not poison what came earlier or abort what comes next.
             const batch = [
                 createOperation('feature', 'create', goodA, mapId, {
                     type: 'Feature',
@@ -242,15 +261,12 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
 
             // The whole push must REJECT (the invalid op violates the CHECK constraint
             // inside the transaction). Capture whether it threw without aborting the test.
-            let threw = false;
-            try {
-                await api.pushOperations(atlas.id, batch);
-            } catch {
-                threw = true;
-            }
+            const pushRes = await api.pushOperations(atlas.id, batch);
+            const outcomes = (pushRes.results || []).map((r) => ({
+                success: r.success, rejected: Boolean(r.rejected), reason: r.reason ?? null,
+            }));
 
-            // Rollback verification: NONE of the batch's features — not even the valid
-            // siblings that came before/after the bad one — may exist in the snapshot.
+            // Verification: the siblings live, the bad one does not.
             const pulled = await api.pullSync(atlas.id, 0);
             const map = pulled.snapshot?.maps?.find((m) => m.id === mapId);
             const allFeatureIds = Object.values(map?.features || {})
@@ -258,8 +274,8 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 .flat()
                 .map((f) => f.properties?.id);
 
-            // Sanity: a SUBSEQUENT all-valid push still succeeds (the atlas/map are not
-            // wedged by the rolled-back batch).
+            // Sanity: a SUBSEQUENT all-valid push still succeeds (the refused op does not
+            // wedge the atlas, which is the whole reason the blast radius was narrowed).
             const recoverId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [
                 createOperation('feature', 'create', recoverId, mapId, {
@@ -273,7 +289,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
             const pointIds2 = (map2?.features?.points || []).map((f) => f.properties.id);
 
             return {
-                threw,
+                outcomes,
                 goodAPersisted: allFeatureIds.includes(goodA),
                 goodBPersisted: allFeatureIds.includes(goodB),
                 badPersisted: allFeatureIds.includes(badId),
@@ -282,13 +298,18 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
             };
         }, state.baseUrl);
 
-        // The push with the invalid op rejected.
-        expect(result.threw).toBe(true);
-        // ATOMICITY: the entire batch rolled back — no member persisted.
-        expect(result.goodAPersisted).toBe(false);
-        expect(result.goodBPersisted).toBe(false);
-        expect(result.badPersisted).toBe(false);
-        expect(result.featureCountAfterFailedBatch).toBe(0);
+        // The push answers PER OPERATION: two accepted, the middle one refused.
+        expect(result.outcomes).toHaveLength(3);
+        expect(result.outcomes[0].success, 'the sibling BEFORE the bad op was accepted').toBe(true);
+        expect(result.outcomes[2].success, 'the sibling AFTER the bad op was accepted').toBe(true);
+        expect(result.outcomes[1].success).toBe(false);
+        expect(result.outcomes[1].rejected, 'the bad op is refused, not merely failed').toBe(true);
+        expect(result.outcomes[1].reason).toMatch(/^Alteração descartada:/);
+        // The refusal is CONTAINED: neighbours committed, the invalid op wrote nothing.
+        expect(result.goodAPersisted, 'the sibling before the bad op survived').toBe(true);
+        expect(result.goodBPersisted, 'the sibling after the bad op survived').toBe(true);
+        expect(result.badPersisted, 'the refused op must never be persisted').toBe(false);
+        expect(result.featureCountAfterFailedBatch, 'exactly the two valid siblings').toBe(2);
         // The atlas remains usable: a later valid push lands normally.
         expect(result.recoverPersisted).toBe(true);
     });

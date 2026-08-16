@@ -370,23 +370,33 @@ class Add3DModelsViewerControl {
     async _buildGeoJSON() {
         const featureCounts = await getFeatureCountsByTileset();
 
-        const tilesetFeatures = config.tilesets.map(tileset => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [tileset.locate.lon, tileset.locate.lat]
-            },
-            properties: {
-                kind: MARKER_KIND.TILESET,
-                markerId: tileset.id,
-                tilesetId: tileset.id,
-                name: tileset.name,
-                dataCaptura: tileset.data_captura || null,
-                previewVideo: tileset.previewVideo || null,
-                previewThumbnail: tileset.previewThumbnail || null,
-                featureCount: featureCounts.get(tileset.id) || 0
-            }
-        }));
+        // The `locate` guard mirrors the one the first-person branch below already had, and it
+        // is not defensive decoration: `config.tilesets` comes from the catalog, whose `config`
+        // column an admin edits as FREE JSON (Painel do Administrador, aba Catálogo). A row
+        // saved without `locate` made this line throw, and the throw took down the whole
+        // marker layer — so one malformed row disabled the 3D-models toggle for every user,
+        // with nothing on screen to say why. A tileset with no position has no marker to draw;
+        // it is skipped, exactly like a scene with no position.
+        const tilesetFeatures = config.tilesets
+            .filter(tileset => Number.isFinite(tileset?.locate?.lon)
+                && Number.isFinite(tileset?.locate?.lat))
+            .map(tileset => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [tileset.locate.lon, tileset.locate.lat]
+                },
+                properties: {
+                    kind: MARKER_KIND.TILESET,
+                    markerId: tileset.id,
+                    tilesetId: tileset.id,
+                    name: tileset.name,
+                    dataCaptura: tileset.data_captura || null,
+                    previewVideo: tileset.previewVideo || null,
+                    previewThumbnail: tileset.previewThumbnail || null,
+                    featureCount: featureCounts.get(tileset.id) || 0
+                }
+            }));
 
         // First-person scenes persist nothing, so they never carry a feature count
         const sceneFeatures = getFirstPersonScenes()

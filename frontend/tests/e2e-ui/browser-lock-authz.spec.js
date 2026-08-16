@@ -33,7 +33,7 @@ const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('Map lock authorization (two real browser clients + real backend)', () => {
-    test('owner shares write; lock blocks user2 write (409); user2 map-delete denied (403); unlock re-enables write', async ({
+    test('owner shares write; lock refuses user2 write per-op; user2 map-delete denied; unlock re-enables write', async ({
         browser,
     }) => {
         // ---- Provision user2 in its own context (real register → real user id). ----
@@ -138,10 +138,19 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
         });
         expect(typeof locked.serverVersion).toBe('number');
 
-        // ---- user2 feature write on the LOCKED map → ApiError 409 in-browser. ----
+        // ---- user2 feature write on the LOCKED map -> refused PER OPERATION. ----
+        //
+        // THIS BLOCK ASSERTED A THROWN 409 UNTIL 2026-08-16, and that was the contract when it
+        // was written. The backend reversed it deliberately (`lockedMapDenialReason`,
+        // `backend/src/modules/sync/sync.service.js`): a `ConflictError` raised inside the tx
+        // that wraps the batch rolled back every sibling op and answered 409, and the client
+        // does not dequeue a batch the server refused — so it replayed the poisoned batch
+        // every 1.5 s forever and that user stopped syncing entirely, for EVERY map, with
+        // nothing but a console.warn. A lock is a policy refusal, not an integrity failure.
+        //
+        // The half that did NOT change is asserted right after: nothing is written.
         const writeWhileLocked = await pageB.evaluate(async () => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const { ApiError } = await import('/src/js/store/sync/api-client.js');
             const { api, atlasId, mapId } = window.__user2;
             const fid = crypto.randomUUID();
             const feature = {
@@ -149,43 +158,35 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
                 geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
                 properties: { id: fid, source: 'point', nome: 'Blocked point' },
             };
-            try {
-                await api.pushOperations(atlasId, [createOperation('feature', 'create', fid, mapId, feature)]);
-                return { rejected: false, fid };
-            } catch (err) {
-                return {
-                    rejected: true,
-                    fid,
-                    status: err.status,
-                    code: err.code,
-                    isApiError: err instanceof ApiError,
-                };
-            }
+            const res = await api.pushOperations(atlasId, [
+                createOperation('feature', 'create', fid, mapId, feature),
+            ]);
+            const pull = await api.pullSync(atlasId, 0);
+            const map = pull?.snapshot?.maps?.find((m) => m.id === mapId);
+            const landed = (map?.features?.points || []).some((p) => p.properties?.id === fid);
+            return { fid, outcome: res.results?.[0] ?? null, landed };
         });
-        expect(writeWhileLocked.rejected).toBe(true);
-        expect(writeWhileLocked.isApiError).toBe(true);
-        expect(writeWhileLocked.status).toBe(409);
+        expect(writeWhileLocked.outcome, 'o push nao devolveu resultado por operacao').toBeTruthy();
+        expect(writeWhileLocked.outcome.success).toBe(false);
+        expect(writeWhileLocked.outcome.reason).toMatch(/bloqueado/i);
+        expect(writeWhileLocked.landed, 'nada pode ser gravado num mapa bloqueado').toBe(false);
 
-        // ---- user2 map-delete → ApiError 403 (owner-only authz, NOT a lock conflict). ----
+        // ---- user2 map-delete -> denied (owner-only authz, NOT a lock conflict). ----
+        // `canDeleteMap` is a SEPARATE flag from `canDelete`, and the separation is contract
+        // with the server: joining them made the client offer a button the server refused.
         const deleteByUser2 = await pageB.evaluate(async () => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-            const { ApiError } = await import('/src/js/store/sync/api-client.js');
             const { api, atlasId, mapId } = window.__user2;
-            try {
-                await api.pushOperations(atlasId, [createOperation('map', 'delete', mapId, null, {})]);
-                return { rejected: false };
-            } catch (err) {
-                return {
-                    rejected: true,
-                    status: err.status,
-                    code: err.code,
-                    isApiError: err instanceof ApiError,
-                };
-            }
+            const res = await api.pushOperations(atlasId, [
+                createOperation('map', 'delete', mapId, null, {}),
+            ]);
+            const pull = await api.pullSync(atlasId, 0);
+            const stillThere = Boolean(pull?.snapshot?.maps?.find((m) => m.id === mapId));
+            return { outcome: res.results?.[0] ?? null, stillThere };
         });
-        expect(deleteByUser2.rejected).toBe(true);
-        expect(deleteByUser2.isApiError).toBe(true);
-        expect(deleteByUser2.status).toBe(403);
+        expect(deleteByUser2.outcome, 'o push nao devolveu resultado por operacao').toBeTruthy();
+        expect(deleteByUser2.outcome.success).toBe(false);
+        expect(deleteByUser2.stillThere, 'quem nao e dono nao apaga o mapa').toBe(true);
 
         // ---- OWNER unlocks the map. ----
         const unlocked = await pageA.evaluate(async () => {

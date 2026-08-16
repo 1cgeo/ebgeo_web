@@ -18,6 +18,7 @@ import { expect } from '@playwright/test';
 import { waitForRemoteEntity } from './trace-helpers.js';
 import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
+import { DEFAULT_MAP_NAME } from '../../../src/js/store/store.constants.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -182,8 +183,20 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
     // local default map when this returns. Under full-suite load that window is wide enough
     // to be observed: browser-collab-maps-layers.spec.js:145 flaked in two consecutive full
     // runs on a SETUP assertion, reading "Principal" (the local map) where it expected the
-    // shared one — before the test had done anything. Waiting here fixes the class for every
-    // collab spec instead of patching each one's first assertion.
+    // shared one — before the test had done anything.
+    //
+    // THE WAIT USED TO BE OPT-IN, AND THE COMMENT HERE CLAIMED IT "FIXED THE CLASS FOR EVERY
+    // COLLAB SPEC". It did not: it only helped the callers that remembered to ask, which is
+    // the guard that guards its callers instead of its subject. Measured on 2026-08-16 in a
+    // full run: `browser-context-move` failed BOTH attempts and `browser-cascade-atomicity`
+    // flaked, both on their first line, both reading "Principal", and neither passed the
+    // option. So the wait is now the DEFAULT and `expectMapName` only sharpens it.
+    //
+    // The default condition is caller-independent: leave the LOCAL default map. Its one
+    // limit, stated instead of discovered: an atlas whose initial map is itself named
+    // `Principal` cannot be distinguished this way and would burn the timeout — such a
+    // caller passes `expectMapName` (or a seed with another name, which is what
+    // `seedSharedAtlas` does).
     if (expectMapName) {
         await expect
             .poll(() => currentMapName(page), {
@@ -191,6 +204,14 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
                 message: `o cliente ativou o mapa do atlas ("${expectMapName}") apos abrir`,
             })
             .toBe(expectMapName);
+    } else {
+        await expect
+            .poll(() => currentMapName(page), {
+                timeout: 20000,
+                message: 'o cliente continua no mapa local depois de abrir o atlas: a ativacao '
+                    + `do mapa do atlas nao aconteceu (mapa local: "${DEFAULT_MAP_NAME}")`,
+            })
+            .not.toBe(DEFAULT_MAP_NAME);
     }
     return page;
 }

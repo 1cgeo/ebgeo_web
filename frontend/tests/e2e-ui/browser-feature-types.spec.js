@@ -1,7 +1,7 @@
 // Path: e2e-ui/browser-feature-types.spec.js
 
 /**
- * Browser-level coverage of ALL 18 backend feature types. Drives the REAL frontend
+ * Browser-level coverage of EVERY backend feature type (list DERIVED, never counted). Drives the REAL frontend
  * transport (api-client / operation-factory) imported live from the Vite dev server
  * INSIDE real Chromium, against the REAL backend, making genuine HTTP round-trips.
  *
@@ -12,7 +12,7 @@
  * occupied_fronts, military_symbols, coordination_measures, los, visibility,
  * processed_los, processed_visibility).
  *
- * This spec creates ONE feature of each of the 18 types in a single atomic push, then
+ * This spec creates ONE feature of each type in a single atomic push, then
  * pulls the snapshot and asserts each feature landed in EXACTLY its expected bucket
  * (and nowhere else). It also asserts a negative: an unknown `source` is dropped by
  * the backend's type→bucket mapping and appears in none of the buckets.
@@ -23,41 +23,31 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * The 18 backend feature types paired with the snapshot bucket each must land in,
- * exactly as the backend's `transformFeaturesToFrontend` mapping dictates. Note the
- * intentionally irregular plurals/identities (`boundary`→`boundarys`, `los`→`los`,
- * `visibility`→`visibility`, the `processed_*` pair) — these are part of the frozen
- * frontend contract and must NOT be "corrected".
+ * Every backend feature type paired with the snapshot bucket it must land in, DERIVED.
+ *
+ * It used to be eighteen pairs written out here, under a header announcing "ALL 18 backend
+ * feature types", while the store, the Joi schema and the database CHECK all agreed on
+ * TWENTY: `sector` and `magnetic_declination` were missing. A sweep that names itself "all"
+ * and covers a subset is the most dangerous copy in the repository, because it wears the
+ * clothes of a verification. `FEATURE_TYPE_MAPPINGS` derives from
+ * `store/feature-type.registry.js`, so a type born there arrives here with no edit.
+ *
+ * The irregular plurals/identities survive the derivation because they live in the registry:
+ * `boundary`→`boundarys`, `sector`→`setores`, `los`→`los`, and the `processed_*` pair whose
+ * bucket is the source name verbatim. They are frozen contract and must NOT be "corrected".
  *
  * @type {Array<{ source: string, bucket: string }>}
  */
-const TYPE_TO_BUCKET = [
-    { source: 'point', bucket: 'points' },
-    { source: 'line', bucket: 'lines' },
-    { source: 'polygon', bucket: 'polygons' },
-    { source: 'text', bucket: 'texts' },
-    { source: 'image', bucket: 'images' },
-    { source: 'circle', bucket: 'circles' },
-    { source: 'rectangle', bucket: 'rectangles' },
-    { source: 'ellipse', bucket: 'ellipses' },
-    { source: 'brush', bucket: 'brushes' },
-    { source: 'arrow', bucket: 'arrows' },
-    { source: 'boundary', bucket: 'boundarys' },
-    { source: 'occupied_front', bucket: 'occupied_fronts' },
-    { source: 'military_symbol', bucket: 'military_symbols' },
-    { source: 'coordination_measure', bucket: 'coordination_measures' },
-    { source: 'los', bucket: 'los' },
-    { source: 'visibility', bucket: 'visibility' },
-    { source: 'processed_los', bucket: 'processed_los' },
-    { source: 'processed_visibility', bucket: 'processed_visibility' },
-];
+const TYPE_TO_BUCKET = Object.entries(FEATURE_TYPE_MAPPINGS)
+    .map(([source, bucket]) => ({ source, bucket }));
 
-describeOrSkip('Feature types (all 18, real Chromium + real backend)', () => {
+describeOrSkip('Feature types (every one, real Chromium + real backend)', () => {
     test('one feature of each type lands in exactly its snapshot bucket', async ({ page }) => {
         await page.goto('/');
 
@@ -95,27 +85,25 @@ describeOrSkip('Feature types (all 18, real Chromium + real backend)', () => {
                     ops.push(createOperation('feature', 'create', featureId, mapId, feature));
                 }
 
-                // One atomic push of the 18 valid ops.
+                // One push carrying every valid op.
                 await api.pushOperations(atlas.id, ops);
 
-                // NEGATIVE: an unknown source is rejected by the backend's
-                // `valid_feature_type` CHECK constraint at WRITE time (the push throws).
-                // It MUST go in its OWN push: bundling it with the 18 valid ops would
-                // abort the whole atomic batch (correct behavior — see backend
-                // batch-atomicity). The row is never inserted, so it can never leak.
+                // NEGATIVE: an unknown source is refused by the backend's
+                // `valid_feature_type` CHECK. The REFUSAL SHAPE changed on 2026-07-24 and this
+                // block asserted the old one until 2026-08-16: a data violation (SQLSTATE class
+                // 22/23) is now refused PER OPERATION — HTTP 200, `rejected: true`, and a
+                // generic pt-BR reason that never echoes the driver text — instead of throwing
+                // and aborting the batch. The contract that did NOT change is the one that
+                // matters: the row is never inserted, so it can never leak into a bucket.
                 const unknownId = crypto.randomUUID();
-                let unknownRejected = false;
-                try {
-                    await api.pushOperations(atlas.id, [
-                        createOperation('feature', 'create', unknownId, mapId, {
-                            type: 'Feature',
-                            geometry: { type: 'Point', coordinates: [0, 0] },
-                            properties: { id: unknownId, source: 'not_a_real_type' },
-                        }),
-                    ]);
-                } catch {
-                    unknownRejected = true;
-                }
+                const unknownRes = await api.pushOperations(atlas.id, [
+                    createOperation('feature', 'create', unknownId, mapId, {
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [0, 0] },
+                        properties: { id: unknownId, source: 'not_a_real_type' },
+                    }),
+                ]);
+                const unknownOutcome = unknownRes.results?.[0] ?? null;
 
                 const pulled = await api.pullSync(atlas.id, 0);
                 const maps = pulled.snapshot ? pulled.snapshot.maps : null;
@@ -159,7 +147,7 @@ describeOrSkip('Feature types (all 18, real Chromium + real backend)', () => {
                     bucketNames,
                     checks,
                     unknownLeaked,
-                    unknownRejected,
+                    unknownOutcome,
                 };
             },
             { baseUrl: state.baseUrl, typeToBucket: TYPE_TO_BUCKET },
@@ -169,7 +157,7 @@ describeOrSkip('Feature types (all 18, real Chromium + real backend)', () => {
         expect(result.isSnapshot).toBe(true);
         expect(result.mapFound).toBe(true);
 
-        // Every one of the 18 types must be present in its own bucket, leak into no
+        // Every type must be present in its own bucket, leak into no
         // other bucket, and be re-stamped with the same `source` on the way back.
         for (const check of result.checks) {
             expect(
@@ -183,12 +171,19 @@ describeOrSkip('Feature types (all 18, real Chromium + real backend)', () => {
             expect(check.stampedSource).toBe(check.source);
         }
 
-        // We asserted on exactly 18 types.
-        expect(result.checks).toHaveLength(18);
+        // We asserted on every type the store declares, and the floor is absolute so a
+        // derivation that broke and yielded {} cannot pass by iterating zero times.
+        expect(result.checks.length, 'the derived type list came back empty or truncated')
+            .toBeGreaterThanOrEqual(20);
+        expect(result.checks).toHaveLength(TYPE_TO_BUCKET.length);
 
-        // NEGATIVE: the unknown-type push was rejected at write time by the backend's
-        // `valid_feature_type` CHECK constraint (the separate push threw)...
-        expect(result.unknownRejected).toBe(true);
+        // NEGATIVE: the unknown type is refused PER OPERATION (HTTP 200, `rejected: true`,
+        // generic pt-BR reason that never echoes the constraint name)...
+        expect(result.unknownOutcome, 'the push returned no per-operation outcome').toBeTruthy();
+        expect(result.unknownOutcome.success).toBe(false);
+        expect(result.unknownOutcome.rejected).toBe(true);
+        expect(result.unknownOutcome.reason).toMatch(/^Alteração descartada:/);
+        expect(result.unknownOutcome.reason).not.toMatch(/constraint|features_|check/i);
         // ...so the row was never inserted and appears in no bucket at all.
         expect(
             result.unknownLeaked,

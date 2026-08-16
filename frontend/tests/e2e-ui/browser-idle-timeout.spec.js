@@ -34,13 +34,53 @@ async function seedUserAtlas(page, baseUrl) {
     }, baseUrl);
 }
 
-/** Shrinks the idle/warning windows (in the live config the controller reads on login). */
+/**
+ * Shrinks the idle/warning windows by rewriting the CONFIG RESPONSE inside the page.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY NOT THE OBVIOUS TWO WAYS
+ * ---------------------------------------------------------------------------
+ * 1. Mutating the loaded `config` object after boot (what this file did until 2026-08-16)
+ *    stopped working when login became a NAVIGATION: it lands on `projetos.html`, and every
+ *    document boot re-hydrates `config` from `GET /api/config` — the backend is the single
+ *    source and there is no static fallback. The mutation was thrown away before the idle
+ *    detector read it, so both cases waited for a warning that was still minutes away. The
+ *    failure read as "the idle warning is broken" and was "the setting did not survive a
+ *    page load".
+ *
+ * 2. `page.route` + `route.fetch()` + `route.fulfill()` is the documented interception
+ *    pattern and it does not survive here: the fetched response is DISPOSED before the body
+ *    can be read back ("Response has been disposed"), inside a handler where the throw looks
+ *    like a patch that quietly did nothing.
+ *
+ * So the rewrite happens in the page, in an init script, wrapping `window.fetch`. It runs on
+ * every document with no Playwright lifecycle involved, and it patches INSIDE the envelope:
+ * the controller answers `res.json({ data })` and `ApiClient._unwrap` reads `data`, so a patch
+ * written at the top level edits a key nobody reads.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {number} idleMinutes - Idle window, in minutes.
+ * @param {number} warnSeconds - Warning window, in seconds.
+ * @returns {Promise<void>}
+ */
 async function shrinkIdleWindows(page, idleMinutes, warnSeconds) {
-    await page.evaluate(async ({ m, w }) => {
-        const config = (await import('/src/js/config.js')).default;
-        config.features = config.features || {};
-        config.features.idle_timeout_minutes = m;
-        config.features.idle_warning_seconds = w;
+    await page.addInitScript(({ m, w }) => {
+        const original = window.fetch.bind(window);
+        window.fetch = async (input, init) => {
+            const response = await original(input, init);
+            const url = typeof input === 'string' ? input : (input?.url ?? '');
+            if (!/\/api\/(v1\/)?config(\?|$)/.test(url) || !response.ok) return response;
+            const body = await response.clone().json().catch(() => null);
+            if (!body) return response;
+            const target = ('data' in body) ? body.data : body;
+            target.features = target.features || {};
+            target.features.idle_timeout_minutes = m;
+            target.features.idle_warning_seconds = w;
+            return new Response(JSON.stringify(body), {
+                status: response.status,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        };
     }, { m: idleMinutes, w: warnSeconds });
 }
 
@@ -48,13 +88,28 @@ async function loginAndOpen(page, seed) {
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
     await page.goto('/');
-    // Set the short idle windows BEFORE login so the detector reads them when the session starts.
-    await shrinkIdleWindows(page, IDLE_MINUTES, WARN_SECONDS);
+    // Positive control on the instrument itself: without it, a patch that silently stopped
+    // applying would come back as "the idle warning is broken" all over again.
+    const applied = await page.evaluate(async () => {
+        const config = (await import('/src/js/config.js')).default;
+        return config.features?.idle_timeout_minutes ?? null;
+    });
+    expect(applied, 'a janela de inatividade encurtada nao chegou ao config do app')
+        .toBe(IDLE_MINUTES);
     await loginUI(page, seed.username, seed.password);
     await openAtlasUI(page, seed.atlasId); // last interaction; from here we stay idle
 }
 
 describeOrSkip('Idle session timeout', () => {
+    // The patch is installed before the FIRST navigation of the test, not inside
+    // `loginAndOpen`. Installed later it fires on the first boot and then goes quiet: the
+    // browser serves the second boot's config from its own HTTP cache, so no request reaches
+    // the route and the app hydrates with the production windows. Measured, and it looked
+    // exactly like "the patch does not work" rather than "the patch was never asked".
+    test.beforeEach(async ({ page }) => {
+        await shrinkIdleWindows(page, IDLE_MINUTES, WARN_SECONDS);
+    });
+
     test('warns then expires → session ends and login re-opens', async ({ page }) => {
         await page.goto('/');
         const seed = await seedUserAtlas(page, state.baseUrl);

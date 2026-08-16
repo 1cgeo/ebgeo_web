@@ -26,12 +26,86 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createDb } from './helpers/db.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-/** Tileset id present in the default config.js (the PCL 3D Tiles model). */
-const TILESET_ID = 'PCL';
+/**
+ * Tileset id this spec REGISTERS for itself.
+ *
+ * It used to be `'PCL'`, "present in the default config.js", and that stopped being true on
+ * migration 015 (`backend/src/database/migrations/015_remove_seeded_tileset.sql`), which
+ * removed the seeded demo tileset by decision of the product owner: the catalog is a
+ * configuration point, not a place for example content. The seeded row had always pointed at
+ * an asset that was never in the repository, so every clean install promised a model the
+ * server did not serve.
+ *
+ * The consequence for THIS spec was invisible for weeks, because the browser layer runs
+ * outside `npm test`: with no tileset in the catalog `hasTilesets()` is false, the bottom
+ * toggle renders DISABLED, and §20.1-2 timed out clicking it. A spec that needs a tileset now
+ * registers one instead of assuming the product ships it.
+ */
+const TILESET_ID = 'e2e-tileset-3d';
+
+/**
+ * Registers one tileset in the catalog, as a global admin, over the real HTTP API.
+ *
+ * Admin is granted the same way `browser-admin-catalog.spec.js` does it: register through the
+ * public route, then promote the row directly. There is no self-service path to `admin`, and
+ * inventing one for a test would be inventing a product feature.
+ * @param {import('@playwright/test').Page} page - Any page on the app origin.
+ * @returns {Promise<void>}
+ */
+async function registerTileset(page) {
+    await page.goto('/');
+    const creds = await page.evaluate(async (url) => {
+        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
+        const username = `t3dadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
+        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Tileset Admin' });
+        return { username, password: 'Sup3r-Secret-Pw!' };
+    }, state.baseUrl);
+
+    await createDb(state.dbName).raw.none(
+        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
+
+    const created = await page.evaluate(async ({ url, creds: c, id }) => {
+        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
+        await api.login(c.username, c.password);
+        const res = await fetch(`${url}/api/v1/tilesets`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${api.getAccessToken()}`,
+            },
+            body: JSON.stringify({
+                id,
+                name: 'Modelo 3D de teste',
+                config: {
+                    url: `/3d/${id}/tileset.json`,
+                    tipo: 'Modelo 3D',
+                    // `locate` is what puts the marker on the 2D map. Without it the
+                    // marker layer is never built.
+                    locate: { lon: -43.2, lat: -22.9 },
+                },
+            }),
+        });
+        return { status: res.status, body: await res.text() };
+    }, { url: state.baseUrl, creds, id: TILESET_ID });
+
+    expect(
+        created.status,
+        `o tileset nao foi registrado no catalogo: ${created.status} ${created.body}`,
+    ).toBeLessThan(300);
+
+    // Drop the admin session before the app boots. This spec is about LOCAL controls with no
+    // login, and a live session on a bare URL is routed to `projetos.html` by design
+    // (`shouldRouteToProjects`, `index.js`) — the page that follows has no map at all, so
+    // `bootApp` would wait for a zoom button that page never renders.
+    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+}
 
 /** Boots the app and waits for the 2D map + bottom controls to be ready. */
 async function bootApp(page) {
@@ -67,12 +141,26 @@ const container3dVisible = (page) =>
     });
 
 describeOrSkip('§20 3D models viewer (real browser, local open/close)', () => {
-    test('§20.1-2 the #feature-toggle-models3d toggle activates the 3D-models marker viewer on the 2D map', async ({ page }) => {
+    test('§20.0 with NO tileset in the catalog the toggle renders DISABLED', async ({ page }) => {
+        // The property migration 015 created, and the control that keeps the case below
+        // honest: without this, "the toggle works" could be satisfied by a toggle that is
+        // always enabled, and the disabled state that broke this file would go unmeasured.
         await bootApp(page);
 
         const toggle = page.locator('#feature-toggle-models3d');
-        // The toggle only renders when tilesets are configured; the default config ships some.
         await expect(toggle).toBeVisible({ timeout: 10000 });
+        await expect(toggle, 'sem tileset no catalogo o botao nasce desabilitado')
+            .toBeDisabled();
+    });
+
+    test('§20.1-2 the #feature-toggle-models3d toggle activates the 3D-models marker viewer on the 2D map', async ({ page }) => {
+        await registerTileset(page);
+        await bootApp(page);
+
+        const toggle = page.locator('#feature-toggle-models3d');
+        // The toggle renders when tilesets are configured, and this spec registered one above.
+        await expect(toggle).toBeVisible({ timeout: 10000 });
+        await expect(toggle, 'com tileset no catalogo o botao fica habilitado').toBeEnabled();
         await expect(toggle).toHaveAttribute('data-active', 'false');
         await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 

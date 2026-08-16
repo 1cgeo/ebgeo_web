@@ -9,12 +9,24 @@
  * observable backend state read back through `pullSync`'s snapshot.
  *
  * Proves the create <-> delete inverse pair the undo stack relies on:
- *   1. create feature           -> feature PRESENT in the snapshot      (do);
- *   2. push inverse delete       -> feature ABSENT (soft-deleted)        (undo);
- *   3. re-create under a FRESH id -> feature PRESENT again               (redo);
- *   4. EDGE: re-create under the SAME (tombstoned) id is a NO-OP — the
- *      backend's `ON CONFLICT (id) DO NOTHING` keeps the deleted row dead, so the
- *      feature stays ABSENT. This is why redo must mint a fresh id, not reuse the old.
+ *   1. create feature             -> feature PRESENT in the snapshot     (do);
+ *   2. push inverse delete        -> feature ABSENT (soft-deleted)       (undo);
+ *   3. re-create under the SAME id -> feature PRESENT again              (redo);
+ *   4. re-create under a FRESH id -> that one is present too, independently.
+ *
+ * STEP 3 REVERSED, AND THE OLD ASSERTIONS WERE TROCADAS, NEVER SOMADAS. Until 2026-08-16
+ * this file asserted the opposite: that a re-create under a tombstoned id was a NO-OP, so
+ * "redo must mint a fresh id, not reuse the old". That was true of the backend when it was
+ * written and stopped being true on 2026-07-19, when RESURRECT-ON-CREATE was decided
+ * (`backend/src/modules/sync/sync.service.js`, the `case 'create'` comment). The reason is
+ * exactly this gesture: the client's undo of a delete replays the ORIGINAL entity WITH its
+ * original id, so `DO NOTHING` acked a silent no-op — the feature stayed alive on the
+ * client, dead on the server, and died locally at the next snapshot. Permanent data loss in
+ * the most common gesture of the product.
+ *
+ * The guard that keeps resurrection honest is asserted here too: only TOMBSTONES revive. A
+ * replayed create against a LIVE row must not clobber it, which is what the
+ * `WHERE features.deleted_at IS NOT NULL` clause buys.
  *
  * Each test mints its own user + atlas + map for isolation. The backend stores a
  * feature as GeoJSON whose type lives in `properties.source`; delete carries `null`
@@ -45,7 +57,7 @@ function featurePresent(page, ref) {
 }
 
 describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backend)', () => {
-    test('create (present) -> inverse delete (absent) -> redo fresh id (present); same-id re-create is a no-op', async ({
+    test('create -> inverse delete -> redo under the SAME id resurrects it; a live row is never clobbered', async ({
         page,
     }) => {
         // 1. Seed an isolated user + atlas + map; stash the ApiClient on window so the
@@ -100,26 +112,52 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
 
         expect(await featurePresent(page, { atlasId: seed.atlasId, mapId: seed.mapId, featureId })).toBe(false);
 
-        // 4. EDGE / negative: re-creating under the SAME (now tombstoned) id is a no-op.
-        //    The backend `ON CONFLICT (id) DO NOTHING` leaves the soft-deleted row
-        //    untouched, so the feature stays ABSENT. This is precisely why redo must
-        //    allocate a fresh id rather than resurrect the old one.
+        // 4. REDO, the real gesture: the undo stack replays the ORIGINAL entity, id and all.
+        //    The backend resurrects the tombstone instead of acking a silent no-op.
         await page.evaluate(async ({ atlasId, mapId, featureId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const feature = {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
-                properties: { id: featureId, source: 'point', nome: 'Tombstone Recreate' },
+                properties: { id: featureId, source: 'point', nome: 'Ressuscitado' },
             };
             await window.__undo.api.pushOperations(atlasId, [
                 createOperation('feature', 'create', featureId, mapId, feature),
             ]);
         }, { atlasId: seed.atlasId, mapId: seed.mapId, featureId });
 
-        expect(await featurePresent(page, { atlasId: seed.atlasId, mapId: seed.mapId, featureId })).toBe(false);
+        expect(
+            await featurePresent(page, { atlasId: seed.atlasId, mapId: seed.mapId, featureId }),
+            'Ctrl+Z depois de apagar tem de trazer a feicao de volta, com o id original',
+        ).toBe(true);
 
-        // 5. REDO: create under a FRESH id. The feature must be present again, proving
-        //    the create<->delete inverse round-trips when ids are not tombstoned.
+        // 4b. THE GUARD ON THE RESURRECTION: only a TOMBSTONE revives. A replayed create
+        //     against the now-LIVE row must not clobber it with the stale payload, which is
+        //     what `WHERE features.deleted_at IS NOT NULL` buys. Without this assertion the
+        //     case above would pass just as well against an unconditional upsert, and a
+        //     stale replay would silently overwrite newer edits.
+        const nameAfterStaleReplay = await page.evaluate(async ({ atlasId, mapId, featureId }) => {
+            const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
+            await window.__undo.api.pushOperations(atlasId, [
+                createOperation('feature', 'create', featureId, mapId, {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
+                    properties: { id: featureId, source: 'point', nome: 'Replay Obsoleto' },
+                }),
+            ]);
+            const pulled = await window.__undo.api.pullSync(atlasId, 0);
+            const map = pulled.snapshot?.maps?.find((m) => m.id === mapId || m.mapId === mapId);
+            const hit = (map?.features?.points || []).find((p) => p.properties.id === featureId);
+            return hit?.properties?.nome ?? null;
+        }, { atlasId: seed.atlasId, mapId: seed.mapId, featureId });
+
+        expect(
+            nameAfterStaleReplay,
+            'um create repetido contra linha VIVA nao pode sobrescrever o dado corrente',
+        ).toBe('Ressuscitado');
+
+        // 5. A create under a FRESH id lands independently, which is what keeps step 4
+        //    from being satisfied by "every create in this map produces a live point".
         const redoId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -136,8 +174,6 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
 
         expect(redoId).not.toBe(featureId);
         expect(await featurePresent(page, { atlasId: seed.atlasId, mapId: seed.mapId, featureId: redoId })).toBe(true);
-        // The undone original id remains dead — undo/redo did not resurrect it.
-        expect(await featurePresent(page, { atlasId: seed.atlasId, mapId: seed.mapId, featureId })).toBe(false);
     });
 
     test('an inverse delete is idempotent by op id: replaying it keeps the feature absent', async ({ page }) => {

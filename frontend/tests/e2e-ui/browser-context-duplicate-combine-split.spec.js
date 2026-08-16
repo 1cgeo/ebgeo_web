@@ -305,28 +305,26 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
                         ?.coordinates?.[0]?.[0]),
             };
 
-            // ---- EDGE: a copy with a bogus source is rejected by the
-            // valid_feature_type CHECK; the atomic batch aborts and nothing lands.
+            // ---- EDGE: a copy with a bogus source is refused by the valid_feature_type
+            // CHECK. This block asserted the pre-2026-07-24 shape (a thrown 400 aborting the
+            // batch) until 2026-08-16; the refusal is now PER OPERATION, HTTP 200 with
+            // `rejected: true`. Nothing lands either way, which is the half that matters.
             const badId = crypto.randomUUID();
-            let badRejected = false;
-            try {
-                await api.pushOperations(atlas.id, [
-                    createOperation('feature', 'create', badId, mapId, {
-                        type: 'Feature',
-                        geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.0, -22.9]] },
-                        properties: { id: badId, source: 'not_a_real_type' },
-                    }),
-                ]);
-            } catch {
-                badRejected = true;
-            }
+            const badRes = await api.pushOperations(atlas.id, [
+                createOperation('feature', 'create', badId, mapId, {
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.0, -22.9]] },
+                    properties: { id: badId, source: 'not_a_real_type' },
+                }),
+            ]);
+            const badOutcome = badRes.results?.[0] ?? null;
             const afterBad = await pullMap();
             const badLanded = Object.values(afterBad.features || {})
                 .filter(Array.isArray)
                 .flat()
                 .some((f) => f.properties?.id === badId);
 
-            return { cut, edge: { badRejected, badLanded } };
+            return { cut, edge: { badOutcome, badLanded } };
         }, state.baseUrl);
 
         // §14.12 cut assertions
@@ -335,8 +333,11 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         expect(result.cut.halfBPresent).toBe(true);
         expect(result.cut.cutVertexShared).toBe(true);
 
-        // edge assertions: hard reject, nothing persisted
-        expect(result.edge.badRejected).toBe(true);
+        // edge assertions: refused per operation, nothing persisted
+        expect(result.edge.badOutcome, 'the push returned no per-operation outcome').toBeTruthy();
+        expect(result.edge.badOutcome.success).toBe(false);
+        expect(result.edge.badOutcome.rejected).toBe(true);
+        expect(result.edge.badOutcome.reason).toMatch(/^Alteração descartada:/);
         expect(result.edge.badLanded).toBe(false);
     });
 });
