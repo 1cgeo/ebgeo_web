@@ -1155,21 +1155,22 @@ export class AccountControl {
                 // empties the namespace THIS tab has mounted, and a notice sent from inside the
                 // sweep would arrive after that.
                 //
-                // E O WIPE SÓ ALCANÇA UM ATLAS DE SERVIDOR. `clearAllDataStore` esvazia o atlas
-                // que ESTA aba montou, e depois do namespace por atlas esse atlas pode ser LOCAL:
-                // basta o usuário ter importado um `.ebgeo` (que agora cria um slot local e troca
-                // para ele) ou estar em "Mapa local". Nesse estado, sair da conta apagava o
-                // projeto LOCAL do usuário, que nunca teve nada a ver com a sessão que terminou.
+                // O WIPE ALCANÇA O ATLAS MONTADO, INCLUSIVE QUANDO ELE É LOCAL, e isso é
+                // deliberado apesar de parecer perda: sair da conta devolve o workspace ao estado
+                // limpo, e há um repro de bug de USUÁRIO que exige exatamente isso
+                // (`tests/e2e-ui/browser-logout-clears-map.repro.spec.js`: "após Sair, as feições
+                // do mapa antigo continuam desenhadas no canvas").
                 //
-                // O que a saída da conta precisa destruir é dado de SERVIDOR, e disso já cuida
-                // `discardRemoteAtlasNamespaces`, que é derivado do registro remoto e alcança
-                // inclusive o namespace que outra aba abriu. Com o atlas montado sendo local não
-                // há o que este wipe termine: ele só destrói trabalho que ninguém pediu para
-                // destruir.
+                // ISTO FOI ALTERADO E REVERTIDO em 2026-08-16, e a razão fica para quem tentar de
+                // novo. A tentativa condicionou o wipe a `isRemoteStoreSync()`, para que sair da
+                // conta não apagasse um projeto LOCAL (o caso do `.ebgeo` importado, que hoje
+                // nasce num slot próprio). O argumento continua de pé, e o teste de nó que o
+                // pediu está em `resgate-trabalho-nao-sincronizado.repro.test.js`. Mas a mudança
+                // quebra o repro acima, que descreve comportamento pedido por usuário: o alvo do
+                // conserto não é desligar este wipe, é fazer o projeto importado viver num slot
+                // que o logout não tem por que tocar. Decisão de produto, com dono.
                 await announceRemoteNamespaceTeardown();
-                if (isRemoteStoreSync()) {
-                    await clearAllDataStore();
-                }
+                await clearAllDataStore();
                 await discardRemoteAtlasNamespaces();
             }
             // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop

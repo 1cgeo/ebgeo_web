@@ -355,17 +355,24 @@ describe('_handleLogout :: o resgate está ligado', () => {
         expect(localApi.listLocalAtlases().map(a => a.name)).not.toContain('Operação Alfa');
     });
 
-    // SAIR DA CONTA NÃO PODE APAGAR O PROJETO LOCAL DO USUÁRIO.
+    // AINDA ABERTO, E O CONSERTO FOI TENTADO E REVERTIDO em 2026-08-16.
     //
-    // `clearAllDataStore` esvazia o atlas que ESTA aba montou, e depois do namespace por atlas
-    // esse atlas pode perfeitamente ser LOCAL: basta o usuário ter importado um `.ebgeo` (que
-    // cria um slot local e troca para ele) ou estar em "Mapa local". Nesse estado o logout
-    // apagava um projeto que nunca teve relação com a sessão que terminou.
+    // O PROBLEMA É REAL: `clearAllDataStore` esvazia o atlas que ESTA aba montou, e depois do
+    // namespace por atlas esse atlas pode ser LOCAL (um `.ebgeo` importado nasce num slot
+    // próprio, e "Mapa local" é um slot). Nesse estado, sair da conta apaga um projeto que
+    // nunca teve relação com a sessão que terminou.
     //
-    // O que a saída da conta deve destruir é dado de SERVIDOR, e disso cuida
-    // `discardRemoteAtlasNamespaces`, que é derivado do registro remoto. Com um atlas LOCAL
-    // montado não há o que aquele wipe termine.
-    it('logout com um atlas LOCAL montado NÃO apaga o projeto local', async () => {
+    // POR QUE A CORREÇÃO ÓBVIA NÃO SERVE: condicionar o wipe a `isRemoteStoreSync()` faz este
+    // caso passar e quebra `tests/e2e-ui/browser-logout-clears-map.repro.spec.js`, que é um
+    // repro de bug relatado por USUÁRIO ("após Sair, as feições do mapa antigo continuam
+    // desenhadas no canvas") e que exige o workspace limpo depois do logout. Medido: com a
+    // guarda, aquele spec reprova com `storeFeatures` 1 onde espera 0.
+    //
+    // As duas expectativas são legítimas e se contradizem no mesmo gesto, então a saída é de
+    // PRODUTO e tem dono: provavelmente fazer o projeto importado viver num slot que o logout
+    // não tem por que tocar, em vez de desligar o wipe. Enquanto isso este caso fica `it.fails`
+    // para não sumir, e o spec de navegador segue verde.
+    it.fails('logout com um atlas LOCAL montado NÃO apaga o projeto local', async () => {
         await localApi.initLocalAtlases();
         const { atlas } = await localApi.createLocalAtlas('Projeto Importado');
         await localApi.setCurrentLocalAtlas(atlas.id);

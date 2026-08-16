@@ -462,3 +462,35 @@ Todos coupling `dom`/`maplibre`/`cesium`/`canvas`; valor de teste como lógica p
    `frontend/src/js/terrain/data-layers.manager.js` · um módulo geometry-centroid consolidando
    `_getFeatureCentroid` + `getFeatureCenter` duplicados · helpers snapping · encode/decode
    da engagement-bar.
+
+---
+
+## A suíte de Playwright NÃO está verde, e não é desta fase
+
+Medido em 2026-08-16, rodada completa: **242 passaram, 12 falharam, 6 flaky, 1 pulado** (261
+casos, 39 min). Onze das doze falham IGUAL no `src/` anterior à fase multi-aba, verificado
+restaurando aquele `src/` e rodando os mesmos specs. Ou seja, elas já estavam quebradas e
+ninguém sabia: a camada de Playwright fica FORA do `npm test` e é cara demais para rodar por
+hábito, então nada as reportava.
+
+**Isto precisa de dono.** Vários descrevem propriedades sérias, não detalhes de UI.
+
+| spec | o que ele afirma |
+|---|---|
+| `browser-import-batch` | ATOMICIDADE: uma op inválida no lote reverte o push INTEIRO |
+| `browser-cascade-atomicity` | exclusão de camada leva as feições dela e poupa as outras |
+| `browser-lock-authz` | a trava de mapa bloqueia escrita de terceiro (409) e nega delete (403) |
+| `browser-feature-types` | cada um dos 18 tipos cai exatamente no seu bucket do snapshot |
+| `browser-analysis-tools` | tipo de análise não suportado é RECUSADO na escrita |
+| `browser-context-duplicate-combine-split` | cortar linha cria duas metades; origem ruim é recusada |
+| `browser-undo-redo` | ida e volta de create/delete, e idempotência por `op_id` |
+| `browser-idle-timeout` (2 casos) | a sessão ociosa avisa e expira |
+| `viewer-3d-open` (2 casos) | o visualizador 3D abre e fecha |
+| `presence` | os quadros de awareness chegam ao par e aparecem no roster |
+
+O décimo segundo (`browser-logout-clears-map.repro`) é **flaky**, também antes da fase.
+
+**Recomendação de método, aprendida aqui:** rodar a bateria de navegador ao menos por marco, e
+não só quando alguém desconfia. Onze regressões acumuladas em silêncio é o custo de uma camada
+que ninguém exercita, e a mesma constituição que exige controle negativo em teste de nó não tem
+como alcançar o que nunca roda.
