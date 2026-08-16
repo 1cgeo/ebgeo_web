@@ -324,8 +324,21 @@
  * storage quota error would drop a message. A dropped message costs at most one heartbeat.
  *
  * When BOTH transports are missing (a hardened embedder, a non-browser host), the lock
- * degrades to OFF, and says so: a single `console.warn` plus `degraded: true` on the public
- * status, so a caller can badge it. Off and audible, never off and quiet.
+ * degrades to OFF, and says so THREE ways: a `console.warn`, `degraded: true` on the public
+ * status, and a banner the user actually sees (`_syncDegradedNotice`). Off and audible, never
+ * off and quiet.
+ *
+ * THE BANNER IS NOT OPTIONAL DECORATION, and this paragraph used to end at "so a caller can
+ * badge it", an invitation that no caller ever accepted, which left the only user-visible
+ * signal in the developer console. It matters more since the remote x remote hold was removed:
+ * this is now the ONLY mechanism separating two tabs in the SAME atlas, so a silent degraded
+ * mode is a user with two tabs writing to the same databases and no way to know.
+ *
+ * It appears only while the tab HOLDS AN ATLAS (a `none` key collides with nobody, so the three
+ * pages without a map stay clean), it is dismissible and does not come back once dismissed
+ * (nothing here can fix a browser with neither transport, so repeating is nagging), and it is a
+ * banner rather than the overlay because the lock fails OPEN here: taking the app away would
+ * turn a missing browser feature into an outage.
  *
  * ===========================================================================
  * 10. PUBLIC API (other agents wire this; nothing here integrates itself)
@@ -465,6 +478,28 @@ const TEARDOWN_OVERLAY = Object.freeze({
         + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o projeto para '
         + 'enviá-lo; recarregar esta aba antes disso descarta esse trabalho.',
     button: 'Recarregar'
+});
+
+/**
+ * Wording of the DEGRADED state (section 9): no transport, so the arbitration is OFF.
+ *
+ * IT NAMES THE ACTION, because there is nothing this code can do about it. Every other state of
+ * this module ends in a button that fixes something ("Usar aqui", "Recarregar"); this one ends in
+ * a habit the user has to adopt, so a message that only described the failure ("a arbitragem está
+ * desligada") would leave them with a warning and no move. The two halves are deliberate: what
+ * stopped working, then the single instruction that replaces it.
+ *
+ * AND IT IS NOT AN OVERLAY. The lock fails OPEN here on purpose, so the tab keeps working; a
+ * modal that swallowed the map would turn a missing browser feature into an outage. A banner is
+ * the honest shape: visible, dismissible, and it does not take the app away.
+ */
+const DEGRADED_NOTICE = Object.freeze({
+    title: 'Proteção contra abas duplicadas indisponível',
+    message: 'Este navegador não deixa as abas do EBGeo se enxergarem, então nada impede que o '
+        + 'mesmo projeto seja aberto duas vezes aqui. Feche as outras abas do EBGeo e trabalhe '
+        + 'em uma só: duas abas no mesmo projeto gravam nos mesmos dados, e a última a gravar '
+        + 'apaga o trabalho da outra.',
+    button: 'Entendi'
 });
 
 /** Wording of the ordinary blocked state. */
@@ -838,6 +873,11 @@ class TabLock {
         /** @type {Promise<void>|null} The stop currently running, or the one that already ran. */
         this._blockingPromise = null;
 
+        /** @type {HTMLElement|null} The degraded-mode banner, built on first showing. */
+        this._degradedNotice = null;
+        /** True once the user acknowledged the banner. It never comes back (section 9). */
+        this._degradedDismissed = false;
+
         this._transport = createTransport(channelName);
         this._degraded = !this._transport;
         if (this._degraded) {
@@ -845,6 +885,11 @@ class TabLock {
                 '[tab-lock] No BroadcastChannel and no localStorage: multi-tab arbitration is '
                 + 'OFF in this tab. Two tabs may end up in the same atlas.'
             );
+            // The console line was the ONLY signal for one phase, and nothing badged it, which
+            // made "off and audible" true for a developer and false for the user. The notice is
+            // evaluated here as well as on every key change because a tab can boot straight into
+            // an atlas: `initTabLock({ key: currentAtlasLockKey() })` never goes through `setKey`.
+            this._syncDegradedNotice();
             return;
         }
 
@@ -940,6 +985,10 @@ class TabLock {
         this._key = key ?? noneKey();
         this._claimedAt = this._now();
         this._yielded = false;
+        // The degraded warning is tied to HOLDING AN ATLAS, not to the transport being missing:
+        // a tab that holds nothing cannot collide with anybody, so warning it would be noise
+        // right where the message has to be believed.
+        this._syncDegradedNotice();
         this._post(Msg.HELLO);
         this._evaluate();
         return this._blocked;
@@ -954,6 +1003,8 @@ class TabLock {
         if (this._destroyed) return;
         this._key = noneKey();
         this._claimedAt = this._now();
+        // Holding nothing again: the banner goes with the claim it was about.
+        this._syncDegradedNotice();
         this._post(Msg.RELEASE);
         this._evaluate();
     }
@@ -1106,6 +1157,8 @@ class TabLock {
         this._teardownAcks = null;
         removeElement(this._overlay);
         this._overlay = null;
+        removeElement(this._degradedNotice);
+        this._degradedNotice = null;
     }
 
     // ------------------------------------------------------------------ protocol
@@ -1430,6 +1483,77 @@ class TabLock {
     /** @returns {void} */
     _hideOverlay() {
         this._overlay?.classList.remove('tab-lock-overlay--visible');
+    }
+
+    // ---------------------------------------------------------- degraded notice (section 9)
+
+    /**
+     * Shows or hides the degraded-mode banner, from the two facts that decide it: this tab has no
+     * transport, and it is holding an atlas.
+     *
+     * IT IS DERIVED, never toggled by whoever remembered. Both facts change over the life of the
+     * tab (the key does, at least), and a pair of `show()`/`hide()` calls sprinkled through the
+     * key lifecycle is the shape that ends with a banner left standing over an atlas the tab no
+     * longer holds. One function, called wherever the key moves.
+     *
+     * A DISMISSAL IS FINAL for this tab. The condition it reports cannot be fixed from here (the
+     * browser has neither transport), so re-showing it on the next atlas would be nagging about
+     * something the user has already been told and cannot change.
+     * @returns {void}
+     */
+    _syncDegradedNotice() {
+        if (!this._overlayHost || this._destroyed) return;
+        const shouldShow = this._degraded
+            && !this._degradedDismissed
+            && this._key?.kind !== TabLockKeyKind.NONE;
+
+        if (!shouldShow) {
+            this._degradedNotice?.classList.remove('tab-lock-degraded--visible');
+            return;
+        }
+        if (!this._degradedNotice) this._degradedNotice = this._buildDegradedNotice();
+        this._degradedNotice.classList.add('tab-lock-degraded--visible');
+    }
+
+    /**
+     * Builds the banner once. Every string goes in through `textContent`, and the only markup is
+     * the same static icon the overlay uses: no user data reaches this element.
+     * @returns {HTMLElement}
+     */
+    _buildDegradedNotice() {
+        const doc = this._overlayHost.ownerDocument;
+        const el = doc.createElement('div');
+        el.className = 'tab-lock-degraded';
+        el.setAttribute('role', 'alert');
+
+        const icon = doc.createElement('div');
+        icon.className = 'tab-lock-degraded__icon';
+        icon.innerHTML = MONITOR_ICON;
+
+        const text = doc.createElement('div');
+        text.className = 'tab-lock-degraded__text';
+
+        const title = doc.createElement('strong');
+        title.className = 'tab-lock-degraded__title';
+        title.textContent = DEGRADED_NOTICE.title;
+
+        const message = doc.createElement('p');
+        message.className = 'tab-lock-degraded__message';
+        message.textContent = DEGRADED_NOTICE.message;
+
+        const button = doc.createElement('button');
+        button.className = 'tab-lock-degraded__button';
+        button.type = 'button';
+        button.textContent = DEGRADED_NOTICE.button;
+        addDomListener(this, button, 'click', () => {
+            this._degradedDismissed = true;
+            this._syncDegradedNotice();
+        });
+
+        text.append(title, message);
+        el.append(icon, text, button);
+        this._overlayHost.appendChild(el);
+        return el;
     }
 
     /** @returns {HTMLElement} */

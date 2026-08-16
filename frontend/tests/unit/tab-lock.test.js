@@ -89,6 +89,104 @@ function createHub() {
     };
 }
 
+/**
+ * Um `overlayHost` de mentira, com o vocabulário EXATO que o módulo usa e nada além dele.
+ *
+ * O ambiente da suíte é node puro, então não há DOM, e o que este arquivo precisa medir não é
+ * layout: é se um aviso VISÍVEL aparece, com qual texto, e se ele não aparece quando não deve.
+ * O risco de um dublê de DOM é medir o dublê, e o antídoto é o par de casos que vem depois: o
+ * MESMO host recebe a sobreposição de bloqueio no modo normal, então "o host consegue receber
+ * elementos" e "o aviso degradado não apareceu" deixam de ser a mesma resposta.
+ *
+ * @returns {object} Um nó raiz com `ownerDocument`, para passar como `overlayHost`.
+ */
+function createFakeHost() {
+    function makeEl(tag) {
+        const classes = new Set();
+        const el = {
+            tagName: tag,
+            children: [],
+            parent: null,
+            listeners: new Map(),
+            innerHTML: '',
+            textContent: '',
+            attributes: {},
+            type: '',
+            disabled: false,
+            classList: {
+                add: (name) => classes.add(name),
+                remove: (name) => classes.delete(name),
+                contains: (name) => classes.has(name)
+            },
+            get className() {
+                return [...classes].join(' ');
+            },
+            set className(value) {
+                classes.clear();
+                for (const name of String(value).split(/\s+/u).filter(Boolean)) classes.add(name);
+            },
+            setAttribute: (key, value) => { el.attributes[key] = value; },
+            append: (...kids) => {
+                for (const kid of kids) {
+                    kid.parent = el;
+                    el.children.push(kid);
+                }
+            },
+            appendChild: (kid) => {
+                kid.parent = el;
+                el.children.push(kid);
+                return kid;
+            },
+            remove: () => {
+                if (!el.parent) return;
+                el.parent.children = el.parent.children.filter(child => child !== el);
+                el.parent = null;
+            },
+            addEventListener: (type, handler) => {
+                if (!el.listeners.has(type)) el.listeners.set(type, []);
+                el.listeners.get(type).push(handler);
+            },
+            removeEventListener: (type, handler) => {
+                const bucket = el.listeners.get(type) ?? [];
+                el.listeners.set(type, bucket.filter(fn => fn !== handler));
+            },
+            click: () => {
+                for (const handler of el.listeners.get('click') ?? []) handler({});
+            }
+        };
+        return el;
+    }
+
+    const host = makeEl('body');
+    host.ownerDocument = { createElement: makeEl };
+    return host;
+}
+
+/**
+ * @param {object} node - Nó do host falso.
+ * @returns {object[]} O nó e toda a sua descendência, em pré-ordem.
+ */
+function arvore(node) {
+    return [node, ...node.children.flatMap(arvore)];
+}
+
+/**
+ * @param {object} host - Host falso.
+ * @param {string} classe - Classe procurada.
+ * @returns {object|undefined} O primeiro nó VISÍVEL com aquela classe.
+ */
+function achar(host, classe) {
+    return arvore(host).find(node => node.classList.contains(classe));
+}
+
+/**
+ * @param {object} node - Raiz da subárvore.
+ * @returns {string} Todo o texto dela, concatenado, que é o que o usuário lê.
+ */
+function textoDe(node) {
+    return arvore(node).map(item => item.textContent).filter(Boolean).join(' ');
+}
+
 const ATLAS_A = '11111111-1111-4111-8111-111111111111';
 const ATLAS_B = '22222222-2222-4222-8222-222222222222';
 
@@ -856,6 +954,95 @@ describe('tab-lock: two tabs', () => {
         expect(result.granted).toBe(true);
         expect(lock.degraded).toBe(true);
         expect(lock.transportKind).toBe('none');
+        warn.mockRestore();
+    });
+
+    // ------------------------------------------- degraded: o aviso que o usuário precisa VER
+    //
+    // O modo degradado concede a todos (fail-open deliberado), e por uma fase inteira o único
+    // sinal foi um `console.warn`: "off and audible" para quem tem o devtools aberto, e off e
+    // MUDO para o usuário. Com a retenção remoto x remoto removida, este é o único mecanismo que
+    // separa duas abas do MESMO atlas, então um degradado silencioso é um usuário com duas abas
+    // gravando nos mesmos dados sem saber.
+    //
+    // Os quatro casos abaixo são um conjunto, e três deles existem para que o primeiro não possa
+    // ficar verde por acaso: um aviso sempre presente, ou um host que aceita qualquer coisa,
+    // passariam no primeiro e reprovariam nos outros.
+
+    it('DEGRADADO: segurando um atlas, o aviso aparece e diz o que FAZER', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const host = createFakeHost();
+        const lock = makeLock({ createTransport: () => null, overlayHost: host });
+
+        await lock.acquire(remoteAtlasKey(ATLAS_A));
+
+        const aviso = achar(host, 'tab-lock-degraded--visible');
+        expect(aviso).toBeDefined();
+        const texto = textoDe(aviso);
+        // O QUE ACONTECEU e, principalmente, O QUE FAZER. A segunda metade é a que falta com mais
+        // facilidade, e um aviso que só descreve a falha deixa a pessoa sem jogada nenhuma.
+        expect(texto).toContain('Feche as outras abas');
+        expect(texto).toContain('trabalhe em uma só');
+        // E ele NÃO é a sobreposição de bloqueio: aquela tira o app do ar, e aqui a trava falha
+        // ABERTA de propósito, então roubar o mapa transformaria falta de recurso em pane.
+        expect(achar(host, 'tab-lock-overlay--visible')).toBeUndefined();
+        warn.mockRestore();
+    });
+
+    it('CONTROLE: no modo NORMAL o aviso não aparece, e o host não é surdo', async () => {
+        const host = createFakeHost();
+        const a = makeLock();
+        const b = makeLock({ overlayHost: host });
+
+        await a.acquire(remoteAtlasKey(ATLAS_A));
+        clock += 5;
+        await b.acquire(remoteAtlasKey(ATLAS_A));
+
+        // Sem este par o caso acima passaria contra um aviso pendurado incondicionalmente.
+        expect(b.degraded).toBe(false);
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeUndefined();
+        // ...e o host RECEBE elementos, o que separa "o aviso não apareceu" de "nada aparece
+        // neste host": a mesma aba, no mesmo host, perdeu a disputa e ganhou a sobreposição.
+        expect(b.blocked).toBe(true);
+        expect(achar(host, 'tab-lock-overlay--visible')).toBeDefined();
+    });
+
+    it('CONTROLE: degradado SEM atlas nenhum não avisa nada', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const host = createFakeHost();
+        const lock = makeLock({ createTransport: () => null, overlayHost: host });
+
+        // As três páginas sem mapa vivem assim (`noneKey`), e uma chave `none` não colide com
+        // ninguém: avisar ali seria ruído exatamente onde a mensagem precisa ser levada a sério.
+        expect(lock.degraded).toBe(true);
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeUndefined();
+
+        // CONTROLE do controle: a MESMA trava, no MESMO host, avisa assim que segura um atlas.
+        await lock.acquire(localAtlasKey('slot-1'));
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeDefined();
+        warn.mockRestore();
+    });
+
+    it('o aviso some quando a aba larga o atlas, e não volta depois de reconhecido', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const host = createFakeHost();
+        const lock = makeLock({ createTransport: () => null, overlayHost: host });
+
+        await lock.acquire(remoteAtlasKey(ATLAS_A));
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeDefined();
+
+        lock.release();
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeUndefined();
+
+        // Reconhecer é definitivo: a condição não tem conserto a partir daqui (o navegador não
+        // tem nenhum dos dois transportes), então re-exibir a cada troca de atlas seria insistir
+        // sobre algo que o usuário já sabe e não pode mudar.
+        await lock.acquire(remoteAtlasKey(ATLAS_A));
+        achar(host, 'tab-lock-degraded__button').click();
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeUndefined();
+
+        await lock.acquire(remoteAtlasKey(ATLAS_B));
+        expect(achar(host, 'tab-lock-degraded--visible')).toBeUndefined();
         warn.mockRestore();
     });
 

@@ -15,7 +15,7 @@
  * cercam: registrar antes de escrever, uma chave por atlas, e a varredura lendo do disco.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     remoteAtlasDiskKey,
     remoteAtlasesOnDisk,
@@ -87,6 +87,28 @@ const ATLAS_DATA_BASE_NAMES = [
  */
 const PER_ATLAS_BASE_NAMES = [...ATLAS_DATA_BASE_NAMES, 'ebgeo'];
 
+/**
+ * `localStorage`, que o node não tem.
+ *
+ * O veto do resgate mora FORA do IndexedDB DE PROPÓSITO (o que falha no resgate é uma escrita
+ * no `ebgeo_global`, e um veto guardado ali teria o modo de falha que ele existe para cobrir).
+ * Sem este dobro, `retainRemoteAtlasForRescue` devolve false e vira no-op: todo caso de veto
+ * abaixo ficaria verde por AUSÊNCIA de veto, que é o mesmo verde de um expurgo quebrado.
+ * `naoRetemSemArmazenamento` é o caso que prova que este dobro está sendo usado.
+ */
+const memoriaLocal = (() => {
+    let dados = new Map();
+    return {
+        getItem: k => (dados.has(k) ? dados.get(k) : null),
+        setItem: (k, v) => { dados.set(k, String(v)); },
+        removeItem: k => { dados.delete(k); },
+        clear: () => { dados = new Map(); }
+    };
+})();
+if (typeof globalThis.localStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'localStorage', { value: memoriaLocal, writable: true });
+}
+
 const SENTINELA = '__sentinela_do_teste__';
 
 const ATLAS_A = '11111111-1111-4111-8111-111111111111';
@@ -100,6 +122,9 @@ let localforage;
 beforeEach(async () => {
     vi.resetModules();
     resetFake();
+    // O veto sobrevive ao `resetModules` porque não mora em módulo nenhum: sem esta linha um
+    // veto de ATLAS_A vazaria para todo caso seguinte, e os dois ids são os mesmos em todos.
+    globalThis.localStorage.clear();
     localforage = (await import('localforage')).default;
     // O dobro sobrevive ao resetModules, então a implementação volta explicitamente: sem
     // isto, um teste que faz o delete travar deixa todos os seguintes rodando contra um
@@ -110,6 +135,12 @@ beforeEach(async () => {
     ns = await import('@store/atlas-namespace.js');
     api = await import('@store/remote-atlas.api.js');
     local = await import('@store/local-atlas.api.js');
+});
+
+afterEach(() => {
+    // Os casos de prazo espionam `Date.now`, que é um global de verdade e não volta com o
+    // `resetModules`: sem isto, um relógio adiantado um dia vazaria para o resto do arquivo.
+    vi.restoreAllMocks();
 });
 
 /**
@@ -525,6 +556,214 @@ describe('remote-atlas.api :: expurgo que poupa a montagem viva', () => {
         expect(api.purgeReachedAtlas(relatorio, ATLAS_B)).toBe(true);
         // controle negativo: um atlas que a varredura não viu continua não alcançado
         expect(api.purgeReachedAtlas(relatorio, 'atlas-que-ninguem-registrou')).toBe(false);
+    });
+});
+
+// ============================================================================
+// 2b-bis. O VETO DO RESGATE QUE FALHOU (E6, segunda metade)
+//
+// O resgate parou de MENTIR quando passou a confirmar a adoção por leitura de disco, e não
+// parou de PERDER: ninguém reivindicava o namespace e a varredura seguinte destruía a única
+// cópia de trabalho que o servidor nunca recebeu. O veto é a retenção com prazo que fecha isso.
+//
+// O QUE ESTES VERDES PROVARIAM SE O CÓDIGO ESTIVESSE ERRADO. Cada caso de retenção anda em par
+// com um controle que roda a MESMA varredura sem o veto (ou com o prazo vencido) e exige a
+// sentinela MORTA. Sem esse par, "o veto poupou" e "a varredura não varreu" são a mesma
+// resposta, que foi exatamente a forma de cobertura vazia que o par `spared` acima já pagou.
+// ============================================================================
+
+describe('remote-atlas.api :: o veto do resgate que falhou', () => {
+    it('vetado: a sentinela sobrevive, a entrada fica, e o NÃO vetado morre na mesma varredura', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+
+        expect(await api.retainRemoteAtlasForRescue(ATLAS_A)).toBe(true);
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+        expect(relatorio.cleared).not.toContain(`ebgeo_maps__remote-${ATLAS_A}`);
+        // A entrada REMOTA sobrevive: é ela que faz a próxima varredura enxergar o namespace,
+        // e é o que distingue "retido" de "esquecido no disco".
+        expect(remotosNoDisco()).toEqual([ATLAS_A]);
+        // ...e o que ninguém vetou morre na mesma passada.
+        expect(relatorio.atlases).toEqual([ATLAS_B]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_B))).toEqual([]);
+    });
+
+    // O CONTROLE QUE ISOLA A CAUSA: cenário idêntico, veto ausente, e A morre. Sem ele, o caso
+    // acima ficaria verde com o expurgo inteiro comentado.
+    it('CONTROLE: o MESMO cenário sem veto destrói os dois', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.activateRemoteAtlas(ATLAS_B);
+        await seedRemote(ATLAS_B);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([]);
+        expect(relatorio.atlases.sort()).toEqual([ATLAS_A, ATLAS_B].sort());
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_B))).toEqual([]);
+    });
+
+    it('o relógio é o da PRIMEIRA falha: vetar de novo não compra outro dia', async () => {
+        await api.retainRemoteAtlasForRescue(ATLAS_A);
+        const primeiro = api.remoteAtlasRescueVetoSince(ATLAS_A);
+
+        vi.spyOn(Date, 'now').mockReturnValue(primeiro + 60_000);
+        expect(await api.retainRemoteAtlasForRescue(ATLAS_A)).toBe(true);
+
+        expect(primeiro).toBeGreaterThan(0);
+        expect(api.remoteAtlasRescueVetoSince(ATLAS_A)).toBe(primeiro);
+    });
+
+    // O INVARIANTE DURO: dado de servidor não fica legível para sempre no disco de um deslogado.
+    // O prazo lido aqui é a CONSTANTE EXPORTADA, não um número injetado no expurgo: um teste que
+    // passasse `rescueGraceMs: 0` provaria que a opção funciona e nada sobre o padrão que embarca.
+    it('PRAZO VENCIDO: o namespace é destruído e o veto sai do disco', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.retainRemoteAtlasForRescue(ATLAS_A);
+        const vetadoEm = api.remoteAtlasRescueVetoSince(ATLAS_A);
+
+        vi.spyOn(Date, 'now').mockReturnValue(vetadoEm + api.RESCUE_VETO_GRACE_MS + 1);
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([]);
+        expect(relatorio.atlases).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        expect(remotosNoDisco()).toEqual([]);
+        // O veto vencido não fica pendurado: uma remontagem futura herdaria uma retenção que
+        // já não protege nada.
+        expect(api.remoteAtlasRescueVetoSince(ATLAS_A)).toBe(0);
+    });
+
+    it('CONTROLE do prazo: um minuto ANTES de vencer, o mesmo cenário ainda retém', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.retainRemoteAtlasForRescue(ATLAS_A);
+        const vetadoEm = api.remoteAtlasRescueVetoSince(ATLAS_A);
+
+        vi.spyOn(Date, 'now').mockReturnValue(vetadoEm + api.RESCUE_VETO_GRACE_MS - 60_000);
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+    });
+
+    // A OUTRA METADE DO INVARIANTE, e sem ela a retenção romperia o que veio proteger: montar o
+    // atlas de novo (login, reabertura) significa que o trabalho deixou de estar encalhado, então
+    // o SAIR seguinte, o que o usuário clicou, tem que levar o dado como sempre levou. Um veto
+    // que sobrevivesse à remontagem deixaria dado de servidor um dia inteiro depois de um logout
+    // deliberado, que é o invariante duro deste módulo.
+    it('remontar o atlas derruba o veto, e o logout seguinte destrói de novo', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.retainRemoteAtlasForRescue(ATLAS_A);
+        expect(api.remoteAtlasRescueVetoSince(ATLAS_A)).toBeGreaterThan(0);
+
+        // O usuário entra de novo e reabre o mesmo atlas.
+        await api.activateRemoteAtlas(ATLAS_A);
+        expect(api.remoteAtlasRescueVetoSince(ATLAS_A)).toBe(0);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([]);
+        expect(relatorio.atlases).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+    });
+
+    // Se o retido NÃO contasse como alcançado, a retenção criaria uma perda nova pela porta de
+    // `spared`: o guarda de boot esvaziaria o slot local #1 do usuário sobre a ponte legada.
+    //
+    // MEDIDO, E VALE ESTAR ESCRITO: no relatório de verdade quem responde é `registered`, que é
+    // capturado antes de a varredura tocar em nada, então apagar `retained` do ramo de soma NÃO
+    // deixa este caso vermelho. É por isso que a SEGUNDA metade existe: ela chama o predicado com
+    // um relatório SEM `registered`, que é o formato antigo (relatório em cache, dobro de teste)
+    // para o qual aquele ramo é o único leitor. Sem ela, a linha seria redundante e o teste
+    // afirmaria policiar algo que não policia.
+    it('retido CONTA como alcançado pelo predicado do guarda de boot', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        await api.retainRemoteAtlasForRescue(ATLAS_A);
+
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([ATLAS_A]);
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_A)).toBe(true);
+        // controle negativo no MESMO relatório: quem não foi registrado segue não alcançado.
+        expect(api.purgeReachedAtlas(relatorio, ATLAS_B)).toBe(false);
+
+        // O ramo de compatibilidade, o único que lê `retained`.
+        expect(api.purgeReachedAtlas({ retained: [ATLAS_A] }, ATLAS_A)).toBe(true);
+        expect(api.purgeReachedAtlas({ retained: [ATLAS_A] }, ATLAS_B)).toBe(false);
+    });
+
+    // ACHADO PELO CONTROLE NEGATIVO, e é pior que a perda que a retenção veio impedir. O resgate
+    // tem DOIS jeitos de falhar, e o segundo (a adoção RESOLVE e o read-back não acha o slot no
+    // disco) roda DEPOIS de `adoptRemoteAtlasAsLocal` já ter removido a chave remota: sem a
+    // entrada, a varredura nem visita o atlas, o veto nunca é consultado, o prazo nunca vence, e
+    // o dado de servidor fica no disco PARA SEMPRE. Reter tem que devolver o namespace ao
+    // registro, não só vetá-lo.
+    it('retido sem entrada no registro: a entrada volta, e o prazo volta a correr sobre ela', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+        // Como fica o disco depois de uma adoção que resolveu sem gravar o slot local.
+        await ns.getGlobalStore().removeItem(remoteAtlasDiskKey(ATLAS_A));
+        expect(remotosNoDisco()).toEqual([]);
+
+        expect(await api.retainRemoteAtlasForRescue(ATLAS_A)).toBe(true);
+
+        // A varredura ENXERGA o atlas de novo, e o retém enquanto o prazo vale...
+        expect(remotosNoDisco()).toEqual([ATLAS_A]);
+        expect((await api.purgeAllRemoteAtlases()).retained).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual(dbNamesOfRemote(ATLAS_A));
+
+        // ...e o destrói quando vence, que é o que "para sempre" deixou de ser.
+        const vetadoEm = api.remoteAtlasRescueVetoSince(ATLAS_A);
+        vi.spyOn(Date, 'now').mockReturnValue(vetadoEm + api.RESCUE_VETO_GRACE_MS + 1);
+        const relatorio = await api.purgeAllRemoteAtlases();
+
+        expect(relatorio.atlases).toEqual([ATLAS_A]);
+        expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+    });
+
+    // CONTROLE do caso acima: no caminho ORDINÁRIO (a adoção lançou, a chave remota nunca saiu)
+    // reter não escreve nada no registro. Importa porque o chamador está aqui justamente por causa
+    // de um disco que recusou escrita: uma escrita a mais neste ponto falharia junto.
+    it('CONTROLE: com a entrada no lugar, reter NÃO reescreve o registro', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        const antes = (await api.listRemoteAtlases())[0];
+        const globalStore = ns.getGlobalStore();
+        globalStore.setItem.mockClear();
+
+        expect(await api.retainRemoteAtlasForRescue(ATLAS_A)).toBe(true);
+
+        expect(globalStore.setItem).not.toHaveBeenCalled();
+        expect((await api.listRemoteAtlases())[0]).toEqual(antes);
+    });
+
+    // O veto DIZ quando não conseguiu. Um guarda que falha calado é a classe que este caminho
+    // inteiro existe para remover, e é também o que prova que o dobro de `localStorage` no topo
+    // deste arquivo é o que faz os casos acima passarem.
+    it('naoRetemSemArmazenamento: sem localStorage o veto devolve false, e a varredura destrói', async () => {
+        await api.activateRemoteAtlas(ATLAS_A);
+        await seedRemote(ATLAS_A);
+
+        const guardado = globalThis.localStorage;
+        Object.defineProperty(globalThis, 'localStorage', { value: undefined, writable: true });
+        try {
+            expect(await api.retainRemoteAtlasForRescue(ATLAS_A)).toBe(false);
+            expect(api.remoteAtlasRescueVetoSince(ATLAS_A)).toBe(0);
+            const relatorio = await api.purgeAllRemoteAtlases();
+            expect(relatorio.retained).toEqual([]);
+            expect(stillHoldingSentinel(dbNamesOfRemote(ATLAS_A))).toEqual([]);
+        } finally {
+            Object.defineProperty(globalThis, 'localStorage', { value: guardado, writable: true });
+        }
     });
 });
 

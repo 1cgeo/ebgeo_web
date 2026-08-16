@@ -151,6 +151,27 @@ const Z = '33333333-3333-4333-8333-333333333333';
 const SENT_LOCAL = '__sentinela_trabalho_local__';
 const SENT_SERVIDOR = '__sentinela_dado_de_servidor__';
 
+/**
+ * `localStorage`, que o node não tem e o veto do resgate precisa.
+ *
+ * O veto mora FORA do IndexedDB de propósito (`remote-atlas.api.js`): o que falha no resgate é
+ * uma escrita no `ebgeo_global`, e guardar o veto ali seria dar a ele o modo de falha que ele
+ * existe para cobrir. Sem este dobro `retainRemoteAtlasForRescue` é um no-op silencioso e o
+ * caso da retenção ficaria verde-como-defeito, ou seja, exatamente como antes de E6.
+ */
+const memoriaLocal = (() => {
+    let dados = new Map();
+    return {
+        getItem: k => (dados.has(k) ? dados.get(k) : null),
+        setItem: (k, v) => { dados.set(k, String(v)); },
+        removeItem: k => { dados.delete(k); },
+        clear: () => { dados = new Map(); }
+    };
+})();
+if (typeof globalThis.localStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'localStorage', { value: memoriaLocal, writable: true });
+}
+
 const mapsDb = suffix => (suffix ? `ebgeo_maps__${suffix}` : 'ebgeo_maps');
 const remoteMapsDb = atlasId => mapsDb(`remote-${atlasId}`);
 
@@ -162,6 +183,9 @@ beforeEach(async () => {
     // otherwise include the calls of every test before it.
     vi.clearAllMocks();
     await resetIndexedDB();
+    // O veto do resgate não mora em módulo nenhum, então `resetModules` não o alcança: sem esta
+    // linha um veto de X vazaria para todo caso seguinte, e X é o atlas de quase todos.
+    globalThis.localStorage.clear();
     engine.atlasId = null;
     modal.onCreate = null;
     upload.fn.mockReset();
@@ -183,6 +207,9 @@ afterEach(() => {
     // Back to the real clock, which DISCARDS every timer the test left pending. That discard is
     // the whole fix: the boot's orphan can no longer be inherited by the next test.
     vi.useRealTimers();
+    // `Date` é global de verdade e NÃO volta com o `resetModules`: o caso do prazo do veto
+    // adianta o relógio um dia, e sem esta linha ele o adiantaria para o resto do arquivo.
+    vi.restoreAllMocks();
 });
 
 /**
@@ -876,22 +903,192 @@ describe('resgate de trabalho não sincronizado no logout involuntário', () => 
         expect(await databaseState(remoteMapsDb(X))).toBe('absent');
     });
 
-    // FECHA EM: E6 (resgate falha alto). VERDE HOJE porque a adoção é engolida num
-    // `console.error`: o registro local nunca chega ao disco, o expurgo seguinte não vê
-    // reivindicação nenhuma e destrói o trabalho, enquanto o usuário lê que ele "foi mantido
-    // neste computador".
-    it.fails('adoção que falha preserva o trabalho, e o aviso não mente', async () => {
+    // FECHADO EM E6 (segunda metade, a que faltava), 2026-08-15, promovido de `it.fails`.
+    //
+    // A PRIMEIRA METADE só tinha consertado a MENSAGEM: o resgate passou a confirmar a adoção por
+    // leitura de disco e, falhando, devolvia false, não marcava LOCAL e o usuário lia que NÃO foi
+    // possível guardar. O dado continuava condenado, porque ninguém reivindicava o namespace e a
+    // varredura seguinte o destruía. Informar a perda é melhor que enganar e não é suficiente.
+    //
+    // O QUE FECHA, e a razão está escrita no `fileoverview` de `remote-atlas.api.js`: um VETO com
+    // prazo. O resgate que falha chama `retainRemoteAtlasForRescue`, a varredura pula o namespace
+    // enquanto o veto vale, e o login que o toast de erro pede ainda encontra o trabalho. A
+    // exportação de emergência que o plano previa foi REJEITADA: download precisa de gesto do
+    // usuário, e esta sessão morreu sem nenhum, possivelmente com a aba em segundo plano.
+    //
+    // A INJEÇÃO MUDOU DE FORMA, E DE PROPÓSITO. Era `mockRejectedValueOnce`, que derrubava a
+    // PRIMEIRA escrita qualquer no banco global e só por acaso era a do registro local. Agora ela
+    // mira a chave (o comentário dela sempre disse "a gravação do registro LOCAL falha"), e a
+    // diferença é que o resto do caminho continua podendo escrever: sem isso, este caso mediria
+    // "a segunda escrita foi bloqueada" em vez do que ele afirma.
+    //
+    // E POR ISSO O CASO CARREGA CONTROLES DE QUE O RESGATE REALMENTE FALHOU. Sem eles, "o dado
+    // sobreviveu" tem DOIS caminhos até o verde: a retenção (o que se quer provar) e uma adoção
+    // bem-sucedida, que também deixa o dado vivo, pelo braço `adopted`. Chegar ao mesmo estado por
+    // outro caminho é verde-como-defeito, e é a forma que este arquivo já pagou antes.
+    it('adoção que falha preserva o trabalho, e o aviso não mente', async () => {
         const control = await abaComTrabalhoNaoSincronizado({ opDe: X });
+        // Um atlas de servidor que ninguém vetou: ele tem que morrer na MESMA varredura, senão
+        // "a retenção poupou X" e "a varredura não varreu nada" são a mesma resposta.
+        await remoteApi.activateRemoteAtlas(Z);
+        await semear(ns.remoteScope(Z), SENT_SERVIDOR, { atlas: Z });
+        await remoteApi.activateRemoteAtlas(X);
         expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toEqual({ atlas: X });
 
-        // A gravação do registro local falha (cota, IDB).
-        vi.spyOn(ns.getGlobalStore(), 'setItem')
-            .mockRejectedValueOnce(new Error('QuotaExceeded'));
+        // A gravação do registro LOCAL falha (cota, IDB), e só ela.
+        const globalStore = ns.getGlobalStore();
+        const escreverDeVerdade = globalStore.setItem.bind(globalStore);
+        vi.spyOn(globalStore, 'setItem').mockImplementation(async (chave, valor) => {
+            if (ns.isLocalAtlasRegistryKey(chave)) throw new Error('QuotaExceeded');
+            return escreverDeVerdade(chave, valor);
+        });
 
         await control._handleLogout({ involuntary: true });
-        await remoteApi.purgeAllRemoteAtlases();
+        const relatorio = await remoteApi.purgeAllRemoteAtlases();
 
+        // CONTROLES DE QUE ESTE É O CAMINHO DA FALHA, e vêm primeiro porque falham perto da causa.
+        expect(toast.showWarning).not.toHaveBeenCalled();
+        expect(toast.showError).toHaveBeenCalledTimes(1);
+        expect(toast.showError.mock.calls[0][0]).toContain('NÃO foi possível guardar');
+        // A mensagem do caso RETIDO, e ela é diferente da do caso perdido logo abaixo.
+        expect(toast.showError.mock.calls[0][0]).toContain('por tempo limitado');
+        expect(localApi.listLocalAtlases().map(a => a.dbSuffix)).not.toContain(`remote-${X}`);
+        // Do DISCO, que é onde o boot seguinte vai olhar: nenhum slot local reivindica X, então
+        // o dado NÃO sobrevive pelo braço `adopted`.
+        expect((await ns.readLocalAtlasRegistry()).map(e => e.dbSuffix)).not.toContain(`remote-${X}`);
+        expect(relatorio.adopted).toEqual([]);
+        // O marcador segue REMOTO: marcar LOCAL sobre um namespace que nenhum atlas local
+        // reivindica é a mentira que a primeira metade de E6 removeu.
+        expect(origem.isRemoteStoreSync()).toBe(true);
+
+        // E O TRABALHO ESTÁ LÁ, retido pelo veto e não por acidente...
+        expect(relatorio.retained).toEqual([X]);
         expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toEqual({ atlas: X });
+        // ...na mesma varredura em que o não vetado morre.
+        expect(relatorio.atlases).toEqual([Z]);
+        expect(await databaseState(remoteMapsDb(Z))).toBe('absent');
+    });
+
+    // O SEGUNDO JEITO DE FALHAR, e ele NÃO é o de cima. A adoção pode RESOLVER sem gravar (um
+    // store que engole a escrita), e aí quem descobre é o read-back de disco, DEPOIS de
+    // `adoptRemoteAtlasAsLocal` já ter removido a chave do registro remoto como último passo.
+    //
+    // ESTE CASO EXISTE PORQUE O CONTROLE NEGATIVO O EXIGIU. Com só o caso de cima, trocar esta
+    // saída por um `return false` seco ficava VERDE: as duas saídas do resgate são caminhos
+    // distintos e um teste que só exercita uma delas mede metade. E o que ele encontrou é PIOR
+    // que a perda: sem entrada no registro a varredura nem visita o atlas, o veto nunca é
+    // consultado e o dado de servidor ficaria no disco para sempre.
+    it('adoção que RESOLVE sem chegar ao disco também retém o trabalho', async () => {
+        const control = await abaComTrabalhoNaoSincronizado({ opDe: X });
+
+        const globalStore = ns.getGlobalStore();
+        const escreverDeVerdade = globalStore.setItem.bind(globalStore);
+        vi.spyOn(globalStore, 'setItem').mockImplementation(async (chave, valor) => {
+            // Resolve e não grava. A adoção não lança, então só o read-back pega.
+            if (ns.isLocalAtlasRegistryKey(chave)) return valor;
+            return escreverDeVerdade(chave, valor);
+        });
+
+        await control._handleLogout({ involuntary: true });
+
+        // A chave remota SAIU (a adoção chegou até o fim) e o slot local não existe: sem a
+        // retenção este namespace não pertenceria a registro nenhum.
+        expect((await ns.readLocalAtlasRegistry()).map(e => e.dbSuffix)).not.toContain(`remote-${X}`);
+        expect(toast.showError).toHaveBeenCalledTimes(1);
+        expect(toast.showWarning).not.toHaveBeenCalled();
+
+        const relatorio = await remoteApi.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([X]);
+        expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toEqual({ atlas: X });
+    });
+
+    // O CASO EM QUE A RETENÇÃO NÃO É POSSÍVEL, e ele é o controle negativo da mensagem: sem
+    // `localStorage` (modo privado, iframe com storage bloqueado) não há onde gravar o veto, o
+    // trabalho realmente depende da aba continuar viva, e o toast volta a dizer isso. Sem este
+    // par, "por tempo limitado" seria uma frase fixa que ninguém conferiu contra o que aconteceu,
+    // que é exatamente o defeito que a primeira metade de E6 removeu.
+    it('sem armazenamento para o veto, a mensagem volta a pedir a aba aberta, e o dado morre', async () => {
+        const control = await abaComTrabalhoNaoSincronizado({ opDe: X });
+
+        const globalStore = ns.getGlobalStore();
+        const escreverDeVerdade = globalStore.setItem.bind(globalStore);
+        vi.spyOn(globalStore, 'setItem').mockImplementation(async (chave, valor) => {
+            if (ns.isLocalAtlasRegistryKey(chave)) throw new Error('QuotaExceeded');
+            return escreverDeVerdade(chave, valor);
+        });
+
+        const guardado = globalThis.localStorage;
+        Object.defineProperty(globalThis, 'localStorage', { value: undefined, writable: true });
+        try {
+            await control._handleLogout({ involuntary: true });
+        } finally {
+            Object.defineProperty(globalThis, 'localStorage', { value: guardado, writable: true });
+        }
+
+        expect(toast.showError).toHaveBeenCalledTimes(1);
+        expect(toast.showError.mock.calls[0][0]).toContain('Não feche esta aba');
+        expect(toast.showError.mock.calls[0][0]).not.toContain('por tempo limitado');
+        // E o aviso é verdadeiro: sem veto, a varredura seguinte leva o trabalho.
+        const relatorio = await remoteApi.purgeAllRemoteAtlases();
+        expect(relatorio.retained).toEqual([]);
+        expect(relatorio.atlases).toEqual([X]);
+        expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toBeNull();
+    });
+
+    // HIGIENE, E ESTA ETIQUETA É O ACHADO. O controle negativo mostrou que apagar a soltura do
+    // veto no caminho de SUCESSO não deixava nada vermelho, e a investigação disse por quê: o
+    // expurgo pergunta `claimed` ANTES do veto, então sobre um namespace já adotado o veto não
+    // muda desfecho nenhum. Ele é lixo em `localStorage`, não proteção. O caso é alcançável com
+    // duas abas no mesmo atlas (uma falha o resgate, a outra o completa), a linha custa uma
+    // chamada, e o que este caso afirma é o que ela faz de verdade: não deixar rastro. Chamá-la
+    // de invariante seria a mentira que a primeira metade de E6 removeu do toast.
+    it('HIGIENE: um resgate que dá certo não deixa veto pendurado', async () => {
+        await abaComTrabalhoNaoSincronizado({ opDe: X });
+        // Uma tentativa anterior (outra aba, mesmo atlas) que falhou e vetou.
+        await remoteApi.retainRemoteAtlasForRescue(X);
+        expect(remoteApi.remoteAtlasRescueVetoSince(X)).toBeGreaterThan(0);
+
+        const { preserveUnsyncedWorkAsLocal } = await import('@js/account/account.control.js');
+        expect(await preserveUnsyncedWorkAsLocal(X, 'Operação Alfa')).toBe(true);
+
+        expect(localApi.listLocalAtlases().map(a => a.dbSuffix)).toContain(`remote-${X}`);
+        expect(remoteApi.remoteAtlasRescueVetoSince(X)).toBe(0);
+    });
+
+    // O OUTRO LADO DO MESMO INVARIANTE, e sem ele a correção acima seria uma perda nova: reter
+    // sem prazo não ADIA o resíduo, torna-o PERMANENTE, porque o único coletor de dado remoto só
+    // roda com ninguém autenticado e `restoreSessionFromStorage` reautentica a cada boot. Foi
+    // essa a conclusão de E2, e ela está no `fileoverview` de `remote-atlas.api.js`.
+    //
+    // O PRAZO LIDO AQUI É A CONSTANTE QUE EMBARCA (`RESCUE_VETO_GRACE_MS`), não um número passado
+    // ao expurgo: um caso com `rescueGraceMs: 0` provaria que a opção existe e nada sobre o padrão.
+    it('um deslogado não fica com dado de servidor legível para sempre: o veto vence', async () => {
+        const control = await abaComTrabalhoNaoSincronizado({ opDe: X });
+
+        const globalStore = ns.getGlobalStore();
+        const escreverDeVerdade = globalStore.setItem.bind(globalStore);
+        vi.spyOn(globalStore, 'setItem').mockImplementation(async (chave, valor) => {
+            if (ns.isLocalAtlasRegistryKey(chave)) throw new Error('QuotaExceeded');
+            return escreverDeVerdade(chave, valor);
+        });
+        await control._handleLogout({ involuntary: true });
+
+        // Boot deslogado dentro do prazo: o dado fica.
+        expect((await remoteApi.purgeAllRemoteAtlases()).retained).toEqual([X]);
+        expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toEqual({ atlas: X });
+
+        // Um dia e um milissegundo depois, no boot deslogado seguinte.
+        const vetadoEm = remoteApi.remoteAtlasRescueVetoSince(X);
+        expect(vetadoEm).toBeGreaterThan(0);
+        vi.spyOn(Date, 'now').mockReturnValue(vetadoEm + remoteApi.RESCUE_VETO_GRACE_MS + 1);
+
+        const relatorio = await remoteApi.purgeAllRemoteAtlases();
+
+        expect(relatorio.retained).toEqual([]);
+        expect(relatorio.atlases).toEqual([X]);
+        expect(await readKey(remoteMapsDb(X), SENT_SERVIDOR)).toBeNull();
+        expect(remoteApi.remoteAtlasRescueVetoSince(X)).toBe(0);
     });
 
     // FECHADO EM E6 (segunda metade), 2026-08-15, promovido de `it.fails`. O espelho em

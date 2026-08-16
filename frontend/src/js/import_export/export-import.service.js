@@ -55,12 +55,38 @@ import { showExportModal } from '@modals/export.modal.js';
 // owns "which atlas this tab holds" owns it too — spreading a sixth improvised entry through this
 // file is exactly the defect phase E3 exists to prevent.
 import { switchToNewLocalAtlas } from '@js/account/open-atlas.service.js';
+// WHICH namespace this tab has mounted, which is what the import actually writes into. See
+// `_prepareNonAdditiveTarget` for why the origin marker alone is not enough to answer it.
+import { getActiveScope, StoreScopeKind } from '@store/atlas-namespace.js';
 // SHARED with the chooser page's "Importar .ebgeo" (which creates a SERVER atlas from the same
 // file), so both surfaces derive the same project name from the same filename. A second copy of
 // this rule would drift, and the name is the only thing the user sees before opening the project.
 import { atlasNameFromFilename } from '@js/projects/import-ebgeo.service.js';
 import JSZip from 'jszip';
 import config from '@js/config.js';
+
+/**
+ * Whether an import right now would be writing into a SERVER atlas's databases.
+ *
+ * BOTH HALVES ARE ASKED, and the scope is the one that answers the question the import actually
+ * cares about. `isRemoteStoreSync()` reads the origin MARKER, which speaks for the INSTALLATION;
+ * the import writes into the namespace THIS TAB has MOUNTED. The product has an ordinary route to
+ * making the two disagree: an `openRemoteAtlas` whose `connect` fails (403, atlas deleted on the
+ * server, a backend hiccup) has already mounted `ebgeo_*__remote-<id>` and, in its catch, reverts
+ * the marker to LOCAL without unmounting anything. Asking only the marker there reads back
+ * "local atlas, replace in place", and the imported project is born inside a server namespace
+ * that the next logged-out load sweeps away, with no error at any point.
+ *
+ * The marker is kept as the second half rather than dropped: it is what a REMOTE origin says
+ * before this tab has mounted anything (the boot reads it to decide what to mount), and a
+ * disagreement in that direction must also land on the safe branch. Either one saying REMOTE
+ * sends the import to a brand-new local atlas, which is never destructive.
+ *
+ * @returns {boolean} True when the mounted namespace, or the persisted origin, is a server atlas.
+ */
+function writingIntoServerAtlas() {
+    return getActiveScope()?.kind === StoreScopeKind.REMOTE || isRemoteStoreSync();
+}
 
 /**
  * Checks if import data is in v1.x format (pre-v2.0).
@@ -474,7 +500,7 @@ export class ExportImportService {
         // novo não tem a que somar. Somar de verdade seria criar mapas, camadas e feições DENTRO
         // do atlas do servidor, o que exige permissão de escrita (o guard nem é consultado aqui) e
         // uma rodada de sync por entidade. A recusa nomeia a saída, que existe logo ao lado.
-        if (isAdditiveImport && isRemoteStoreSync()) {
+        if (isAdditiveImport && writingIntoServerAtlas()) {
             showError(
                 'Não é possível adicionar um arquivo ao projeto do servidor que está aberto. '
                 + 'Use "Importar projeto", que abre o arquivo em um atlas local novo.',
@@ -743,13 +769,16 @@ export class ExportImportService {
      * runs first inside the switch precisely so a full registry costs the user nothing: the socket
      * is still up and the server project still open when this returns `ok: false`.
      *
+     * WHICH QUESTION DECIDES is `writingIntoServerAtlas()`, and the reason it is not
+     * `isRemoteStoreSync()` alone is written there.
+     *
      * @param {File} file - The `.ebgeo` being imported; its name becomes the new atlas's name.
      * @returns {Promise<{ok: boolean, message?: string, atlasName?: string}>} `atlasName` is set
      *   only when the store changed atlas, so the caller can say so.
      * @private
      */
     async _prepareNonAdditiveTarget(file) {
-        if (!isRemoteStoreSync()) {
+        if (!writingIntoServerAtlas()) {
             await clearAllDataStore();
             return { ok: true };
         }

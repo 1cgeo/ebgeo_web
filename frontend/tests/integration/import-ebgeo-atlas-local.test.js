@@ -114,10 +114,22 @@ vi.mock('@utils/tab-lock.js', async (importOriginal) => ({
 // HOISTED, como todo dublê citado dentro de uma fábrica de `vi.mock`: as fábricas sobem para o
 // topo do arquivo e uma `const` comum ainda não existe quando elas rodam.
 const { wipeDoEscopoAtivo, addMapNoEscopoAtivo } = vi.hoisted(() => ({
-    /** Esvazia os bancos do escopo ATIVO: é a metade do wipe que decide onde ele cai. */
+    /**
+     * Esvazia os bancos do escopo ATIVO: é a metade do wipe que decide onde ele cai.
+     *
+     * E RE-CARIMBA O `schemaVersion`, que é a outra metade que chega ao disco. O
+     * `clearAllDataStore` de verdade faz as duas coisas em sequência (`store.js`), e a
+     * segunda é load-bearing para qualquer caso que atravesse um boot: sem o carimbo, o
+     * `checkAndCleanLegacyData` do `initializeRepository` lê "versão ausente", conclui
+     * "instalação anterior ao schema" e apaga o slot inteiro. Um dublê que só esvaziasse
+     * faria a carga deslogada apagar o projeto importado no teste sem que isso fosse
+     * verdade no produto, isto é, um vermelho sobre um defeito que não existe.
+     */
     wipeDoEscopoAtivo: vi.fn(async () => {
         const ns = await import('@store/atlas-namespace.js');
+        const { ATLAS_SCHEMA_VERSION } = await import('@store/atlas/atlas.entity.js');
         for (const { store } of ns.listAtlasStores()) await store.clear();
+        await ns.getStore(ns.StoreName.SETTINGS).setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
     }),
     /** `addMap` de verdade grava no `getStore(MAPS)` do escopo ativo; o dublê faz só isso. */
     addMapNoEscopoAtivo: vi.fn(async (name, data) => {
@@ -196,6 +208,8 @@ import * as remoteApi from '@store/remote-atlas.api.js';
 import * as localApi from '@store/local-atlas.api.js';
 import * as origem from '@store/store-origin.js';
 import { ExportImportService } from '@js/import_export/export-import.service.js';
+import { openRemoteAtlas } from '@js/account/open-atlas.service.js';
+import { initializeRepository, clearAllAtlasStores } from '@store/repository.js';
 import { localSlotsOnDisk } from '../helpers/atlas-registry-disk.js';
 
 // Quantos bancos um atlas possui é decisão de `atlas-namespace.js` e já mudou de 10 para 11 no
@@ -302,6 +316,67 @@ function slotsNoDisco() {
 /** @param {string} dbName @returns {boolean} Se aquele banco de mapas guarda o mapa importado. */
 function temOMapa(dbName) {
     return Boolean(databases.get(`${dbName}::keyvaluepairs`)?.has(MAPA));
+}
+
+/** @returns {string[]} Todo banco de mapas onde o projeto importado ainda é legível. */
+function ondeOMapaEstaLegivel() {
+    return [...databases.keys()]
+        .filter(chave => chave.startsWith('ebgeo_maps') && databases.get(chave).has(MAPA))
+        .map(chave => chave.split('::')[0]);
+}
+
+/**
+ * Deixa a aba no estado que um `openRemoteAtlas` COM FALHA DE CONEXÃO produz: o namespace do
+ * servidor MONTADO e o marcador de origem dizendo LOCAL.
+ *
+ * O estado não é inventado aqui, ele é PRODUZIDO pelo código de produção: a função abre o atlas
+ * de verdade e o `syncEngine.connect` recusa (403 é o caso real: o convite foi revogado, o atlas
+ * foi apagado, ou o backend piscou). O `catch` do `openRemoteAtlas` reverte o marcador para LOCAL
+ * e retrata a reivindicação, mas NÃO desmonta o namespace: ele segue sendo o escopo ativo, e é
+ * nele que qualquer escrita seguinte cai.
+ *
+ * @param {string} atlasId - Atlas de servidor a abrir.
+ * @returns {Promise<void>}
+ */
+async function abrirAtlasDeServidorEFalharAConexao(atlasId) {
+    fixture.syncEngine.connect.mockRejectedValueOnce(new Error('403 Forbidden'));
+    await expect(openRemoteAtlas(atlasId)).rejects.toThrow('403');
+}
+
+/**
+ * A PRÓXIMA CARGA DESLOGADA, pelas funções do boot e na ordem do boot.
+ *
+ * `store.js` encadeia três passos, e os três importam para a pergunta deste arquivo:
+ * `enforceLocalStoreWhenLoggedOut` (varre TODO namespace remoto registrado e, só quando o
+ * marcador ainda diz REMOTE sobre um atlas que a varredura não alcançou, esvazia o escopo que a
+ * ponte do repositório resolve), `activateBootAtlasScope` (escolhe e monta o slot local) e
+ * `initializeRepository` (que é onde mora o `checkAndCleanLegacyData`, o guarda que apaga um
+ * escopo sem `schemaVersion`). Simular só o primeiro deixaria de fora exatamente o passo que já
+ * apagou um slot recém-criado uma vez.
+ *
+ * O reset de módulo antes deles é o que faz disto uma CARGA e não uma continuação: uma aba nova
+ * começa sem escopo ativo, sem cache de instância e relendo o registro do disco.
+ *
+ * @returns {Promise<string>} O mapa que o boot elegeu como ativo.
+ */
+async function cargaDeslogada() {
+    ns.clearStoreCache();
+    ns.clearActiveScope();
+
+    await origem.loadStoreOrigin();
+    const relatorio = await remoteApi.purgeAllRemoteAtlases();
+    if (origem.isRemoteStoreSync()
+        && !remoteApi.purgeReachedAtlas(relatorio, origem.getStoreOriginSync().atlasId)) {
+        await clearAllAtlasStores();
+        await origem.markStoreLocal();
+    }
+
+    await localApi.initLocalAtlases({
+        origin: origem.getStoreOriginSync(),
+        isAuthenticated: false,
+        preferTabMountPointer: true
+    });
+    return initializeRepository();
 }
 
 // ============================================================================================
@@ -453,5 +528,82 @@ describe('CONTROLE NEGATIVO: sem atlas de servidor o import não gasta um slot',
         expect(calls).toEqual([]);
         // A frase sobre "atlas local novo" não aparece quando não houve troca.
         expect((toasts.info ?? []).join(' ')).not.toContain('atlas local novo');
+    });
+});
+
+// ============================================================================================
+// O import decide pelo BANCO MONTADO, não pelo marcador de origem.
+//
+// O marcador é da INSTALAÇÃO e o banco montado é da ABA, então os dois podem discordar, e o
+// produto tem um caminho ordinário até essa discordância: um `openRemoteAtlas` cuja conexão
+// falha monta o namespace do servidor, marca REMOTE, apanha o erro do `connect` e reverte o
+// marcador para LOCAL sem desmontar nada. A aba fica com `ebgeo_*__remote-<id>` ativo e
+// `isRemoteStoreSync()` respondendo `false`.
+//
+// Nesse estado, um import que perguntasse ao marcador concluiria "atlas local, substitui no
+// lugar" e escreveria o projeto DENTRO do namespace do servidor: o usuário vê os mapas, fecha a
+// aba, e na próxima carga sem sessão a varredura de namespaces remotos leva o projeto junto. É
+// exatamente a perda que P4 existe para impedir, alcançada por outra porta.
+// ============================================================================================
+describe('marcador LOCAL sobre um namespace de SERVIDOR montado', () => {
+    // A PREMISSA, asserida ABSOLUTAMENTE e por nome de banco. Sem ela os dois casos abaixo
+    // poderiam estar medindo um estado que o produto nunca produz, e ficariam verdes por isso.
+    it('CONTROLE: um open que falha na conexão deixa o namespace montado e o marcador LOCAL', async () => {
+        await abrirAtlasDeServidorEFalharAConexao(ATLAS_SERVIDOR);
+
+        expect(ns.getActiveScope()).toEqual(ns.remoteScope(ATLAS_SERVIDOR));
+        expect(ns.getStore(ns.StoreName.MAPS).__dbName)
+            .toBe(`ebgeo_maps__remote-${ATLAS_SERVIDOR}`);
+        expect(origem.isRemoteStoreSync()).toBe(false);
+    });
+
+    it('o import NÃO escreve no namespace do servidor: ele cria um atlas local', async () => {
+        await abrirAtlasDeServidorEFalharAConexao(ATLAS_SERVIDOR);
+        const slotsAntes = slotsNoDisco();
+
+        await importar(await arquivoEbgeo('Operação Alfa.ebgeo'));
+
+        expect(toasts.error).toEqual([]);
+        const novo = slotsNoDisco().find(s => !slotsAntes.some(a => a.id === s.id));
+        expect(novo?.name).toBe('Operação Alfa');
+        // Onde o projeto está é medido por VARREDURA de todos os bancos de mapas, não por uma
+        // pergunta ao banco que se espera. Uma asserção que só perguntasse "não está no
+        // servidor" ficaria verde também para um import que não escreveu em lugar nenhum.
+        expect(ondeOMapaEstaLegivel()).toEqual([`ebgeo_maps__${novo.dbSuffix}`]);
+        expect(ns.getActiveScope()).toEqual(ns.localScope(novo.id, novo.dbSuffix));
+    });
+
+    // A MESMA pergunta governa a recusa do import ADITIVO, e ela some do radar com facilidade:
+    // "somar" escreve mapa a mapa no escopo montado, então um aditivo autorizado aqui derrama o
+    // arquivo inteiro dentro do namespace do servidor, sem sequer criar um slot para resgatar.
+    it('o import ADITIVO continua recusado nesse estado', async () => {
+        await abrirAtlasDeServidorEFalharAConexao(ATLAS_SERVIDOR);
+
+        await importar(await arquivoEbgeo('Operação Alfa.ebgeo'), { aditivo: true });
+
+        expect(toasts.error).toHaveLength(1);
+        expect(toasts.error[0]).toContain('Importar projeto');
+        expect(ondeOMapaEstaLegivel()).toEqual([]);
+        expect(slotsNoDisco()).toHaveLength(1);
+    });
+
+    it('e o projeto importado sobrevive à próxima carga deslogada', async () => {
+        await abrirAtlasDeServidorEFalharAConexao(ATLAS_SERVIDOR);
+        await importar(await arquivoEbgeo('Operação Alfa.ebgeo'));
+
+        const mapaAtivo = await cargaDeslogada();
+
+        // 1. A afirmação do caso, e ela vem primeiro porque é a que o usuário sente.
+        expect(ondeOMapaEstaLegivel()).not.toEqual([]);
+        // 2. O boot não só poupou o projeto: ele ABRIU nele. Sobreviver num banco que o boot não
+        //    monta é sobreviver invisível, que para o usuário é a mesma coisa que ter sumido.
+        expect(mapaAtivo).toBe(MAPA);
+        // 3. E o banco é o do slot local que o import criou, por nome absoluto.
+        const novo = slotsNoDisco().find(s => s.name === 'Operação Alfa');
+        expect(ondeOMapaEstaLegivel()).toEqual([`ebgeo_maps__${novo.dbSuffix}`]);
+        expect(ns.getActiveScope()).toEqual(ns.localScope(novo.id, novo.dbSuffix));
+        // 4. CONTROLE DE COBERTURA VAZIA: a carga deslogada destruiu MESMO alguma coisa. Sem
+        //    isto, uma varredura virada no-op deixaria os três de cima verdes sem verificar nada.
+        expect(databases.has(`ebgeo_maps__remote-${ATLAS_SERVIDOR}::keyvaluepairs`)).toBe(false);
     });
 });

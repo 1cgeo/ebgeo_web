@@ -64,6 +64,40 @@
  * entrance: `releaseAdoptedLocalAtlas` (`local-atlas.api.js`) hands the claim back, and
  * `openRemoteAtlas` calls it AFTER `activateRemoteAtlas` has registered the remote claim, so the
  * two claims overlap rather than leaving a window with none.
+ *
+ * AND A RESCUE THAT FAILS VETOES THE DESTRUCTION, WITH A DEADLINE. The rescue stopped LYING when
+ * it started confirming the adoption by reading the disk back: it returns false, the store is not
+ * marked LOCAL, and the user is told the work could not be kept. That fixed the message and not
+ * the outcome. Nobody claims the namespace, so the sweep below destroys the only copy of work the
+ * server never received, and "informed of the loss" is better than "deceived about it" without
+ * being enough. `retainRemoteAtlasForRescue` is the exit.
+ *
+ * THE ALTERNATIVE WAS AN EMERGENCY `.ebgeo` DOWNLOAD, AND IT WAS REJECTED. A download needs a user
+ * GESTURE or the browser discards it, and this path runs in a session that just died WITHOUT one,
+ * possibly with the tab in the background: the offer would land on nobody in exactly the case it
+ * exists for. Retention needs no gesture, no UI and no new file format, and it keeps the work where
+ * the next login can still flush it, which is what the error toast already tells the user to do.
+ *
+ * THE VETO DOES NOT LIVE IN INDEXEDDB, AND THAT IS THE WHOLE POINT. What failed is a write to
+ * `ebgeo_global`; recording the veto in that same database would give it the failure mode it exists
+ * to cover, and it would fail silently, on a full disk, in the one moment that matters. It lives in
+ * `localStorage`, which is a different store with a different budget. The price is that a browser
+ * with storage disabled cannot record a veto at all, and there the rescue's failure stays terminal
+ * (`retainRemoteAtlasForRescue` says so by returning false instead of pretending).
+ *
+ * THE DEADLINE IS NOT OPTIONAL, and E2 already paid for learning why on the spare path: the only
+ * collector of remote residue runs when nobody is authenticated, so a hold with no expiry does not
+ * DELAY the residue, it makes it PERMANENT. `RESCUE_VETO_GRACE_MS` bounds it, the clock starts at
+ * the first failed rescue, and the sweep that finds it expired destroys the namespace and drops the
+ * veto.
+ *
+ * THE VETO IS ALSO DROPPED THE MOMENT ITS PREMISE DIES, which is `registerRemoteAtlas`: a live
+ * session mounting that atlas again means the work is no longer stranded, and a veto surviving that
+ * would make the NEXT logout, the deliberate one the user clicked, leave server data on disk for a
+ * day. Note that this is the opposite rule from `sparedAt`, which is deliberately never reset, and
+ * the two do not contradict: resetting `sparedAt` would EXTEND a hold, dropping the veto ENDS one.
+ * The bound that results is worth stating in one line: server data is on this disk only while a
+ * session has it mounted, or within `RESCUE_VETO_GRACE_MS` of the event that stranded it.
  */
 
 import {
@@ -99,6 +133,26 @@ import {
 export const SPARE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * How long a namespace whose RESCUE FAILED is kept, before the sweep destroys it anyway.
+ *
+ * Deliberately the same day as `SPARE_GRACE_MS`, and one number rather than two because both hold
+ * exactly the same kind of residue for exactly the same kind of reason (a claim that a live user
+ * can still resolve), so a second constant would be a second thing to reason about with no second
+ * input. Shorter, and a session lost at the end of a working day takes the work with it overnight;
+ * longer, and server data outlives a dead session by more than the budget this module already
+ * spends on the spare path.
+ *
+ * REJECTED, a second bound in BOOTS ("expires after N logged-out starts"). It is tighter in the
+ * common case and wrong in the direction that costs: a user who opens the app three times without
+ * logging in would lose unsent work in minutes, and losing work is the irreversible half of this
+ * trade. The date bounds the invariant on its own.
+ */
+export const RESCUE_VETO_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/** Prefix of the `localStorage` key holding one atlas's rescue veto. */
+const RESCUE_VETO_KEY_PREFIX = 'ebgeo_rescue_veto:';
+
+/**
  * @typedef {Object} RemoteAtlasEntry
  * @property {string} atlasId - Server atlas id, the identity of the namespace.
  * @property {string} dbSuffix - Database suffix derived from it (`remote-<atlasId>`).
@@ -128,9 +182,133 @@ export const SPARE_GRACE_MS = 24 * 60 * 60 * 1000;
  *   confirmed. Their registry entry is KEPT so the next logged-out boot retries.
  * @property {string[]} adopted - Atlas ids skipped because a local atlas claims their
  *   namespace. Their data is local now and must not be touched.
+ * @property {string[]} retained - Atlas ids left ALONE because a rescue for them FAILED and its
+ *   veto has not expired. Their data and their registry entry both survive, so the next login can
+ *   still flush the work the server never received.
  * @property {boolean} deactivated - True when the active scope was one the sweep dealt with
  *   and was therefore cleared.
  */
+
+/**
+ * The ambient `localStorage`, or null when it cannot be reached.
+ *
+ * Accessing it THROWS in a sandboxed iframe and with storage disabled, so the access is guarded
+ * rather than tested: `typeof` alone is not enough. Same shape as `operation-factory.js`.
+ * @returns {Storage|null}
+ */
+function vetoStorage() {
+    try {
+        if (typeof localStorage !== 'undefined') return localStorage;
+    } catch {
+        // Storage disabled by policy. A veto cannot be recorded, and the caller is told.
+    }
+    return null;
+}
+
+/**
+ * @param {string} atlasId - Server atlas id.
+ * @returns {number} Epoch ms of the FIRST failed rescue for this atlas, or 0 when there is no
+ *   veto (and for a stored value that cannot be parsed, which names no usable instant and must
+ *   not be read as "vetoed forever").
+ */
+export function remoteAtlasRescueVetoSince(atlasId) {
+    const storage = vetoStorage();
+    if (!storage || typeof atlasId !== 'string' || atlasId.length === 0) return 0;
+    try {
+        const raw = storage.getItem(`${RESCUE_VETO_KEY_PREFIX}${atlasId}`);
+        if (!raw) return 0;
+        const since = JSON.parse(raw)?.since;
+        return Number.isFinite(since) && since > 0 ? since : 0;
+    } catch {
+        return 0;
+    }
+}
+
+/**
+ * Writes the veto stamp. Idempotent, and it NEVER moves an existing stamp: the deadline is
+ * measured from the FIRST failure, so a second failed attempt cannot buy the residue another day.
+ * @param {string} atlasId - Server atlas id.
+ * @returns {boolean} True when a stamp is on record after this call.
+ */
+function stampRescueVeto(atlasId) {
+    const storage = vetoStorage();
+    if (!storage || typeof atlasId !== 'string' || atlasId.length === 0) return false;
+    if (remoteAtlasRescueVetoSince(atlasId) > 0) return true;
+
+    try {
+        storage.setItem(
+            `${RESCUE_VETO_KEY_PREFIX}${atlasId}`,
+            JSON.stringify({ atlasId, since: Date.now() })
+        );
+    } catch (error) {
+        console.error(`[remote-atlas] could not veto the destruction of ${atlasId}:`, error);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * VETOES the destruction of one namespace, because the rescue of its unsynced work FAILED.
+ *
+ * IT DOES TWO THINGS, AND THE SECOND ONE IS NOT DECORATION. A veto only ever takes effect while
+ * the sweep VISITS the atlas, and the sweep is derived from the remote registry, so a namespace
+ * with no registry entry is not spared by a veto, it is INVISIBLE: no purge ever reaches it and
+ * the server data stays on disk forever, which is a worse outcome than the loss this path exists
+ * to stop. That state is reachable, and the read-back is what found it: `adoptRemoteAtlasAsLocal`
+ * removes the remote key as its LAST step, so a write that resolves without landing leaves the
+ * local claim absent and the remote claim already gone. The entry is therefore put back before
+ * the veto means anything.
+ *
+ * Restoring the entry is a write ONLY WHEN ONE IS MISSING, which matters because the caller is
+ * usually here BECAUSE a write failed: the ordinary failure (the adoption threw) never removed the
+ * remote key, so nothing is written and a refusing disk cannot make this path worse. It also goes
+ * deliberately around `registerRemoteAtlas`, which drops the veto: that release means "a live
+ * session mounted this atlas again", which is exactly what did NOT happen here.
+ *
+ * @param {string} atlasId - Server atlas whose namespace holds the unsynced work.
+ * @returns {Promise<boolean>} True when the work is protected, i.e. a veto is on record AND the
+ *   sweep can still see the namespace. FALSE MEANS IT IS NOT, which is a fact the caller has to be
+ *   able to log: a guard that fails silently is the failure this whole path exists to stop.
+ */
+export async function retainRemoteAtlasForRescue(atlasId) {
+    if (typeof atlasId !== 'string' || atlasId.length === 0) return false;
+    const vetoed = stampRescueVeto(atlasId);
+
+    try {
+        const key = remoteAtlasRegistryKey(atlasId);
+        const globalStore = getGlobalStore();
+        if (await globalStore.getItem(key) === null) {
+            const now = Date.now();
+            await globalStore.setItem(key, {
+                atlasId,
+                dbSuffix: remoteScope(atlasId).dbSuffix,
+                createdAt: now,
+                updatedAt: now,
+                sparedAt: 0
+            });
+        }
+    } catch (error) {
+        console.error(`[remote-atlas] could not keep ${atlasId} enumerable for the sweep:`, error);
+        return false;
+    }
+
+    return vetoed;
+}
+
+/**
+ * Drops the rescue veto of one atlas. Idempotent.
+ * @param {string} atlasId - Server atlas id.
+ * @returns {void}
+ */
+export function releaseRemoteAtlasRescueVeto(atlasId) {
+    const storage = vetoStorage();
+    if (!storage || typeof atlasId !== 'string' || atlasId.length === 0) return;
+    try {
+        storage.removeItem(`${RESCUE_VETO_KEY_PREFIX}${atlasId}`);
+    } catch (error) {
+        console.warn(`[remote-atlas] could not release the rescue veto of ${atlasId}:`, error);
+    }
+}
 
 /**
  * Reads every remote registry entry straight from the global database.
@@ -213,6 +391,14 @@ export async function registerRemoteAtlas(atlasId) {
     };
 
     await globalStore.setItem(key, entry);
+
+    // THE RESCUE VETO DIES HERE, and only here. Registering means a live session is mounting this
+    // atlas again, so its unsynced work is no longer stranded and the reason to keep the namespace
+    // past a logout is spent. Leaving the veto standing would make the NEXT logout, the deliberate
+    // one the user clicked, keep server data readable for a day for a failure that was already
+    // resolved. This is the opposite of the `sparedAt` rule two lines up, and on purpose: carrying
+    // `sparedAt` over refuses to EXTEND a hold, dropping the veto ENDS one.
+    releaseRemoteAtlasRescueVeto(atlasId);
     return { entry, scope };
 }
 
@@ -344,9 +530,15 @@ async function stampSparedAt(entry) {
  * @param {number} [options.dropTimeoutMs] - Bound on each database delete.
  * @param {number} [options.spareGraceMs=SPARE_GRACE_MS] - How long a mounted namespace may be
  *   spared before it is destroyed anyway.
+ * @param {number} [options.rescueGraceMs=RESCUE_VETO_GRACE_MS] - How long a namespace whose rescue
+ *   failed is retained before it is destroyed anyway.
  * @returns {Promise<RemotePurgeReport>}
  */
-export async function purgeAllRemoteAtlases({ dropTimeoutMs, spareGraceMs = SPARE_GRACE_MS } = {}) {
+export async function purgeAllRemoteAtlases({
+    dropTimeoutMs,
+    spareGraceMs = SPARE_GRACE_MS,
+    rescueGraceMs = RESCUE_VETO_GRACE_MS
+} = {}) {
     const entries = await listRemoteAtlases();
     const report = {
         // EVERY ATLAS THE REGISTRY KNEW, captured BEFORE anything is destroyed. This is the
@@ -366,6 +558,7 @@ export async function purgeAllRemoteAtlases({ dropTimeoutMs, spareGraceMs = SPAR
         dropped: [],
         blocked: [],
         adopted: [],
+        retained: [],
         deactivated: false
     };
     if (entries.length === 0) return report;
@@ -376,7 +569,9 @@ export async function purgeAllRemoteAtlases({ dropTimeoutMs, spareGraceMs = SPAR
 
     for (const entry of entries) {
         try {
-            await purgeOneRemoteAtlas(entry, { report, claimed, now, dropTimeoutMs, spareGraceMs });
+            await purgeOneRemoteAtlas(entry, {
+                report, claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs
+            });
         } catch (error) {
             // ONE ATLAS FAILING MUST NOT ABORT THE SWEEP. Without this, an entry that throws
             // (a database another process holds in a state localforage rejects, a quota error
@@ -413,15 +608,41 @@ export async function purgeAllRemoteAtlases({ dropTimeoutMs, spareGraceMs = SPAR
  * @param {number} ctx.now - Epoch ms, read once so every entry is judged against one instant.
  * @param {number} [ctx.dropTimeoutMs] - Bound on each database delete.
  * @param {number} ctx.spareGraceMs - How long a mounted namespace may be spared.
+ * @param {number} ctx.rescueGraceMs - How long a failed rescue's veto holds.
  * @returns {Promise<void>}
  */
-async function purgeOneRemoteAtlas(entry, { report, claimed, now, dropTimeoutMs, spareGraceMs }) {
+async function purgeOneRemoteAtlas(
+    entry,
+    { report, claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs }
+) {
     if (claimed.has(entry.dbSuffix)) {
         // A local atlas owns these databases now (the unsynced-work rescue). The data
         // is local by decision, so only the stale remote claim goes.
         await getGlobalStore().removeItem(remoteAtlasRegistryKey(entry.atlasId));
         report.adopted.push(entry.atlasId);
         return;
+    }
+
+    // A RESCUE FAILED HERE, so the namespace holds the only copy of work the server never got.
+    // The veto is asked BEFORE the mount lock because it does not depend on anyone being alive:
+    // the tab that failed the rescue is typically gone, and asking the lock first would report an
+    // ordinary unmounted namespace as destroyed before this branch ever ran.
+    const vetoedAt = remoteAtlasRescueVetoSince(entry.atlasId);
+    if (vetoedAt > 0) {
+        if ((now - vetoedAt) < rescueGraceMs) {
+            report.retained.push(entry.atlasId);
+            return;
+        }
+        // The reprieve ran out, and it had to be bounded: the only collector of remote residue
+        // runs while nobody is authenticated, so a veto with no expiry would not delay the
+        // residue, it would make it permanent. Dropped here rather than after the destruction so
+        // a delete that throws cannot leave a hold that outlives its own deadline.
+        console.warn(
+            `[remote-atlas] the rescue of atlas ${entry.atlasId} failed on `
+            + `${new Date(vetoedAt).toISOString()} and its retention expired; `
+            + 'destroying the namespace with the unsynced work in it'
+        );
+        releaseRemoteAtlasRescueVeto(entry.atlasId);
     }
 
     // THE LOCK IS ASKED FIRST EVEN WHEN THE DEADLINE HAS PASSED, so `forced` means exactly
@@ -469,7 +690,8 @@ async function purgeOneRemoteAtlas(entry, { report, claimed, now, dropTimeoutMs,
  * `spared` COUNTS AS REACHED, and leaving it out would have been a new way to lose data: a spared
  * namespace appears in neither `atlases` nor `adopted`, so the predicate would answer false and
  * the guard would run its second wipe over the legacy bridge, emptying the user's local slot #1
- * at boot, without an error.
+ * at boot, without an error. `retained` (a rescue that failed) is the same case for the same
+ * reason, and it arrived later.
  *
  * `empty` COUNTS TOO, and it did not always: the answer is EVERY BRANCH of the sweep, which is
  * the same thing as saying the question is "was this atlas registered", asked of a report that is
@@ -511,8 +733,8 @@ export function purgeReachedAtlas(report, atlasId) {
     // Fallback for a report built before `registered` existed (an older cached report, a test
     // double). Summing every outcome branch is the same question asked indirectly, and it was
     // the previous implementation.
-    return inList(report.atlases) || inList(report.empty)
-        || inList(report.adopted) || inList(report.spared) || inList(report.forced);
+    return inList(report.atlases) || inList(report.empty) || inList(report.adopted)
+        || inList(report.spared) || inList(report.forced) || inList(report.retained);
 }
 
 /**

@@ -23,6 +23,11 @@ import {
     adoptRemoteAtlasAsLocal
 } from '@store/store.js';
 import { remoteScope, readLocalAtlasRegistry } from '@store/atlas-namespace.js';
+import {
+    retainRemoteAtlasForRescue,
+    releaseRemoteAtlasRescueVeto,
+    remoteAtlasRescueVetoSince
+} from '@store/remote-atlas.api.js';
 import { getControl } from '@store';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
 import {
@@ -137,10 +142,18 @@ export function rescuedAtlasName(atlasName) {
  * here would abort the teardown (the lock retraction, the intent reset, the re-render) over a
  * rescue that has already failed.
  *
+ * AND A FAILURE NO LONGER MEANS THE WORK DIES. Returning false stopped the toast from lying, and
+ * that was only half of it: nobody claimed the namespace, so the next logged-out sweep destroyed
+ * the only copy of work the server never received, and the user was accurately informed of a loss
+ * instead of being deceived about it. Every exit that fails now VETOES that destruction
+ * (`retainRemoteAtlasForRescue`), which keeps the namespace for a bounded time so the login the
+ * error toast asks for still finds the work. The veto is recorded outside IndexedDB on purpose,
+ * and its deadline is not optional; the reasoning for both is in `remote-atlas.api.js`.
+ *
  * @param {string|null} atlasId - Server atlas whose namespace holds the work, or null when this
  *   tab had none mounted (then there is nothing to adopt and only the marker changes).
  * @param {string|null} [atlasName] - Display name of that atlas, for the local registry.
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} True when the work is on record as a LOCAL atlas.
  */
 export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
     if (typeof atlasId !== 'string' || atlasId.length === 0) {
@@ -163,7 +176,7 @@ export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
         // remoto e o próximo boot ainda pode tentar de novo. Perder o trabalho é
         // irreversível; deixar dado remoto um boot a mais no disco não é.
         console.error('[AccountControl] rescuing unsynced work as a local atlas failed:', error);
-        return false;
+        return failedRescueKeepsNamespace(atlasId);
     }
 
     // READ-BACK, do DISCO, antes de declarar sucesso. `adoptRemoteAtlasAsLocal` não lançar
@@ -174,11 +187,41 @@ export async function preserveUnsyncedWorkAsLocal(atlasId, atlasName = null) {
     const adotado = (await readLocalAtlasRegistry()).some(e => e.dbSuffix === dbSuffix);
     if (!adotado) {
         console.error('[AccountControl] rescue reported success but the slot is not on disk');
-        return false;
+        return failedRescueKeepsNamespace(atlasId);
     }
 
+    // The work IS a local atlas now, so the namespace is claimed by the local registry and the
+    // sweep skips it on that account. A veto left over from an earlier failed attempt would only
+    // add a second, weaker reason to keep databases that are no longer server data at all.
+    releaseRemoteAtlasRescueVeto(atlasId);
     await markStoreLocal();
     return true;
+}
+
+/**
+ * The one exit of a FAILED rescue: keep the namespace instead of letting the next sweep destroy
+ * the only copy of unsent work, and always answer false.
+ *
+ * It exists as a function because the rescue fails in two different places (the adoption throwing,
+ * and the read-back finding no slot on disk) and both have to take this exit. When they returned a
+ * bare false, the second one was the easy one to forget, and forgetting it loses exactly the data
+ * the read-back was added to protect.
+ *
+ * @param {string} atlasId - Server atlas whose namespace holds the unsynced work.
+ * @returns {Promise<false>} Always false: the caller must not mark the store LOCAL nor tell the
+ *   user the work was kept as a project. Retention buys time for a retry, it is not a rescue.
+ */
+async function failedRescueKeepsNamespace(atlasId) {
+    if (!await retainRemoteAtlasForRescue(atlasId)) {
+        // No storage to record the veto in, so the next logged-out sweep WILL destroy the work.
+        // Said out loud because the alternative is the class this whole path exists to remove: a
+        // guard that fails silently in the one moment it is needed.
+        console.error(
+            `[AccountControl] the unsynced work of atlas ${atlasId} could not be protected `
+            + 'from the next logged-out sweep'
+        );
+    }
+    return false;
 }
 
 /**
@@ -1074,12 +1117,21 @@ export class AccountControl {
                     // estava salvo. O usuário fechava a aba tranquilo e o dado ia embora no
                     // boot seguinte.
                     //
-                    // "Não feche esta aba" não é dramatização: o dado ainda está no disco e a
-                    // sessão ainda pode voltar, mas nada aqui consegue garantir isso sozinho.
+                    // E AGORA HÁ DUAS FALHAS DIFERENTES, então há duas mensagens. Com o veto
+                    // gravado o trabalho sobrevive a fechar a aba, por prazo, e mandar não fechar
+                    // seria assustar sem motivo; sem ele (armazenamento indisponível) a aba viva é
+                    // de fato a última garantia. Ler o veto é o que separa as duas: uma frase fixa
+                    // teria que estar errada num dos dois casos, que é a forma de mentira que este
+                    // caminho inteiro existe para remover.
                     showError(
-                        'Sua sessão terminou e NÃO foi possível guardar as alterações pendentes '
-                        + 'como projeto local. Não feche esta aba: entre novamente para que elas '
-                        + 'sejam enviadas ao servidor.',
+                        remoteAtlasRescueVetoSince(mountedAtlasId) > 0
+                            ? 'Sua sessão terminou e NÃO foi possível guardar as alterações '
+                                + 'pendentes como projeto local. Elas continuam neste computador '
+                                + 'por tempo limitado: entre novamente o quanto antes para que '
+                                + 'sejam enviadas ao servidor.'
+                            : 'Sua sessão terminou e NÃO foi possível guardar as alterações '
+                                + 'pendentes como projeto local. Não feche esta aba: entre '
+                                + 'novamente para que elas sejam enviadas ao servidor.',
                         { duration: 0 }
                     );
                 }
