@@ -332,7 +332,7 @@ export const GlobalKey = Object.freeze({
      */
     LOCAL_ATLAS_PREFIX: 'local_atlas:',
     /**
-     * THE HAND-OVER SLOT of a `.ebgeo` chosen on `projetos.html` and imported by the map.
+     * THE HAND-OVER SLOT of a `.ebgeo` chosen on `atlas.html` and imported by the map.
      *
      * It is a KEY of the global database and not a store descriptor of its own, and that is the
      * whole decision. A new object store INSIDE an existing database is an IndexedDB version

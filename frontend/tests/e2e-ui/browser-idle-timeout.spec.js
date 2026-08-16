@@ -41,7 +41,7 @@ async function seedUserAtlas(page, baseUrl) {
  * WHY NOT THE OBVIOUS TWO WAYS
  * ---------------------------------------------------------------------------
  * 1. Mutating the loaded `config` object after boot (what this file did until 2026-08-16)
- *    stopped working when login became a NAVIGATION: it lands on `projetos.html`, and every
+ *    stopped working when login became a NAVIGATION: it lands on `atlas.html`, and every
  *    document boot re-hydrates `config` from `GET /api/config` — the backend is the single
  *    source and there is no static fallback. The mutation was thrown away before the idle
  *    detector read it, so both cases waited for a warning that was still minutes away. The

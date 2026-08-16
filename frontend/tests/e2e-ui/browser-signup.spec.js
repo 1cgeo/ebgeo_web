@@ -79,7 +79,7 @@ describeOrSkip('Signup → create account + confirm e-mail (real browser + real 
         await page.locator('[data-testid="login-password"]').fill(password);
         await page.locator('[data-testid="login-submit"]').click();
         // Login hands over to the project chooser PAGE — wait for the navigation, not just the element.
-        await page.waitForURL('**/projetos.html', { timeout: 20000 });
+        await page.waitForURL('**/atlas.html', { timeout: 20000 });
         await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 15000 });
     });
 

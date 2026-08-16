@@ -180,7 +180,7 @@ opens `context.newPage()` twice on ONE profile and adds the reads that go with i
   never counts as destruction; folding it into "gone" made a navigation look like a wipe.
 - `tabDiagnostic(page)` — blocked, sync state, WHICH PAGE, map loaded, url, title, in one round
   trip. A gate asserting only "the badge is not online" cannot tell a blocked tab from one that
-  fell through to `projetos.html` from one that never booted; measured, all three happened.
+  fell through to `atlas.html` from one that never booted; measured, all three happened.
 - `pendingGate(testInfo, { setup, gate, marca })` — see below.
 - `activeScopeOf` is **diagnostic only**: it imports an app module through the dev server and can
   receive a second instance (HMR `?t=`), so it may report a scope that is not the app's.

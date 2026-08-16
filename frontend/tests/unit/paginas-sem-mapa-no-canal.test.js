@@ -3,7 +3,7 @@
 /**
  * @fileoverview The three pages WITHOUT a map join the tab-lock channel holding NOTHING.
  *
- * `projetos.html`, `admin.html` and `calibracao.html` hold no atlas: they have no store, no
+ * `atlas.html`, `admin.html` and `calibracao.html` hold no atlas: they have no store, no
  * `initServices()` and no map. By the owner's rule (two tabs collide only when they hold the SAME
  * atlas) a tab holding NOTHING collides with nobody, and blocking them would break a flow people use on
  * purpose, which is opening the Painel do Administrador in a second tab while the map stays in

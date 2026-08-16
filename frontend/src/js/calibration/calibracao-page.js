@@ -35,7 +35,7 @@ import { mountCalibrationWorkspace, setSessionHandlers } from './app.js';
 /** Para onde vai quem nao e admin (ou quem esta deslogado). Relativo: o app pode servir de subpath. */
 const MAP_URL = './';
 /** "Sair da calibracao" devolve ao seletor de projetos, que e de onde se chega a Administracao. */
-const PROJECTS_URL = './projetos.html';
+const PROJECTS_URL = './atlas.html';
 
 const CONFIG_BOOT_ATTEMPTS = 3;
 const CONFIG_BOOT_RETRY_MS = 1000;

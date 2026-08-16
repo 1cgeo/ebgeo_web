@@ -292,7 +292,7 @@ export async function showConfirm(title, options = {}) {
  * @returns {Promise<string|null>} The chosen `id`, or `null` if dismissed.
  *
  * @example
- * const choice = await showChoice('Este projeto tem trabalho resgatado neste computador', {
+ * const choice = await showChoice('Este atlas tem trabalho resgatado neste computador', {
  *     choices: [
  *         { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
  *         { id: 'discard', label: 'Descartar o resgate e abrir', variant: 'danger' },

@@ -88,7 +88,7 @@ export class AtlasSettingsModal extends ModalBase {
     constructor(atlasId, { atlasName, canManage = false } = {}) {
         super({
             id: 'atlas-settings-modal',
-            title: atlasName ? `Configurações de ${atlasName}` : 'Configurações do projeto',
+            title: atlasName ? `Configurações de ${atlasName}` : 'Configurações do atlas',
             destroyOnHide: true,
         });
         this._atlasId = atlasId || null;
@@ -192,8 +192,8 @@ export class AtlasSettingsModal extends ModalBase {
             <div class="atlas-config__actions">
                 <span class="atlas-config__scope" data-testid="atlas-settings-scope">${
     this._canRestrict
-        ? 'Vale para todos os participantes deste projeto.'
-        : 'Vale para este projeto, neste computador e para quem o compartilha.'
+        ? 'Vale para todos os participantes deste atlas.'
+        : 'Vale para este atlas, neste computador e para quem o compartilha.'
 }</span>
                 <button type="button" class="atlas-config__btn-cancel" data-action="cancel">Cancelar</button>
                 <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm"
@@ -244,7 +244,7 @@ export class AtlasSettingsModal extends ModalBase {
                 <section class="atlas-config__section">
                     <div class="atlas-config__section-head">
                         <h3 class="atlas-config__section-title">Projeção do mapa 2D</h3>
-                        <p class="atlas-config__section-desc">O globo mostra a curvatura da Terra; o plano é a projeção tradicional. Todo projeto começa como globo.</p>
+                        <p class="atlas-config__section-desc">O globo mostra a curvatura da Terra; o plano é a projeção tradicional. Todo atlas começa como globo.</p>
                     </div>
                     <div class="atlas-config__segmented" role="group" aria-label="Projeção do mapa">${options}</div>
                     <p class="atlas-config__note">Ao ligar o terreno 3D o mapa vira plano de qualquer forma: globo e relevo não convivem.</p>
@@ -274,7 +274,7 @@ export class AtlasSettingsModal extends ModalBase {
                 <section class="atlas-config__section">
                     <div class="atlas-config__section-head">
                         <h3 class="atlas-config__section-title">Recursos disponíveis</h3>
-                        <p class="atlas-config__section-desc">Desligue uma categoria inteira para quem abrir este projeto. Nada aqui liga o que o sistema já desabilitou.</p>
+                        <p class="atlas-config__section-desc">Desligue uma categoria inteira para quem abrir este atlas. Nada aqui liga o que o sistema já desabilitou.</p>
                     </div>
                     <ul class="atlas-config__list">${rows}</ul>
                 </section>
@@ -624,7 +624,7 @@ export class AtlasSettingsModal extends ModalBase {
                 showSuccess('Configurações salvas.');
                 this.hide();
             } catch {
-                showError('Não foi possível salvar as configurações do projeto.');
+                showError('Não foi possível salvar as configurações do atlas.');
             }
         } finally {
             this._busy = false;

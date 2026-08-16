@@ -110,7 +110,7 @@ export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permis
 /**
  * Logs in through the real account UI and lands on the project chooser.
  *
- * Since 2026-08-05 the chooser is a PAGE (`projetos.html`), so login is followed by a real
+ * Since 2026-08-05 the chooser is a PAGE (`atlas.html`), so login is followed by a real
  * navigation — waiting only for the element would race the document swap and fail unreadably.
  * The `project-picker-*` testids are unchanged (kept verbatim through the move).
  */
@@ -121,7 +121,7 @@ export async function loginUI(page, username, password) {
     await page.locator('[data-testid="login-username"]').fill(username);
     await page.locator('[data-testid="login-password"]').fill(password);
     await page.locator('[data-testid="login-submit"]').click();
-    await page.waitForURL('**/projetos.html', { timeout: 20000 });
+    await page.waitForURL('**/atlas.html', { timeout: 20000 });
     await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 10000 });
 }
 

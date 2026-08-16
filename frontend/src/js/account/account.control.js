@@ -29,6 +29,7 @@ import {
     remoteAtlasRescueVetoSince
 } from '@store/remote-atlas.api.js';
 import { getControl } from '@store';
+import { getCurrentLocalAtlasId, getLocalAtlas } from '@store/local-atlas.api.js';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
 import {
     openRemoteAtlas,
@@ -282,11 +283,11 @@ export class AccountControl {
         this._logoutBtn = null;
         /** @type {HTMLButtonElement|null} The "Compartilhar" menu item (owner/admin only). */
         this._shareBtn = null;
-        /** @type {HTMLButtonElement|null} The "Seus projetos" menu item (any signed-in user). */
+        /** @type {HTMLButtonElement|null} The "Seus atlas" menu item (any signed-in user). */
         this._projectsBtn = null;
         /** @type {HTMLButtonElement|null} The "Enviar ao servidor" menu item (logged-in + local store). */
         this._saveToServerBtn = null;
-        /** @type {HTMLButtonElement|null} The "Excluir projeto" menu item (owner/admin + connected). */
+        /** @type {HTMLButtonElement|null} The "Excluir atlas" menu item (owner/admin + connected). */
         this._deleteAtlasBtn = null;
         /** @type {boolean} Whether the account menu is open. */
         this._open = false;
@@ -357,7 +358,7 @@ export class AccountControl {
         this._atlasLabel.appendChild(this._atlasNameEl);
         this._menu.appendChild(this._atlasLabel);
 
-        // "Seus projetos" — back to the chooser page. Shown to anyone signed in: it is the way
+        // "Seus atlas" — back to the chooser page. Shown to anyone signed in: it is the way
         // OUT of the current atlas (and out of the local map) without logging out, which the menu
         // previously offered no route to at all.
         this._projectsBtn = document.createElement('button');
@@ -365,7 +366,7 @@ export class AccountControl {
         this._projectsBtn.className = 'account-control__btn account-control__btn--projects';
         this._projectsBtn.setAttribute('role', 'menuitem');
         this._projectsBtn.setAttribute('data-testid', 'account-projects-btn');
-        setMenuButtonContent(this._projectsBtn, ICON_PROJECTS, 'Seus projetos');
+        setMenuButtonContent(this._projectsBtn, ICON_PROJECTS, 'Seus atlas');
         this._projectsBtn.hidden = true;
         this._menu.appendChild(this._projectsBtn);
 
@@ -391,14 +392,14 @@ export class AccountControl {
         this._shareBtn.hidden = true;
         this._menu.appendChild(this._shareBtn);
 
-        // "Excluir projeto" — delete the connected atlas (owner/admin only). The server broadcasts
+        // "Excluir atlas" — delete the connected atlas (owner/admin only). The server broadcasts
         // `atlas_deleted` so every connected client tears down and returns to the picker (§item-1.4).
         this._deleteAtlasBtn = document.createElement('button');
         this._deleteAtlasBtn.type = 'button';
         this._deleteAtlasBtn.className = 'account-control__btn account-control__btn--delete-atlas';
         this._deleteAtlasBtn.setAttribute('role', 'menuitem');
         this._deleteAtlasBtn.setAttribute('data-testid', 'account-delete-atlas-btn');
-        setMenuButtonContent(this._deleteAtlasBtn, ICON_TRASH, 'Excluir projeto');
+        setMenuButtonContent(this._deleteAtlasBtn, ICON_TRASH, 'Excluir atlas');
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
@@ -611,7 +612,7 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Seus projetos" to anyone signed in — connected or on the local map. It is the only
+     * Shows "Seus atlas" to anyone signed in — connected or on the local map. It is the only
      * route from the map back to the chooser that is not "log out".
      * @private
      */
@@ -638,7 +639,7 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Excluir projeto" only when connected to a server atlas the user can delete — the atlas
+     * Shows "Excluir atlas" only when connected to a server atlas the user can delete — the atlas
      * owner, or a global admin. The backend enforces owner-level on `DELETE /atlas/:id`.
      * @private
      */
@@ -732,6 +733,9 @@ export class AccountControl {
      * @returns {Promise<void>}
      */
     async saveLocalToServer() {
+        // O nome do atlas local, lido do REGISTRO e nao do cabecalho da aba: a aba pode nem estar
+        // montada, e o registro e a mesma fonte que ela desenha.
+        const nomeSugerido = getLocalAtlas(getCurrentLocalAtlasId())?.name || '';
         if (!(await hasAnyMapFeatures())) {
             showError('Não há dados locais para salvar no servidor.');
             return;
@@ -748,6 +752,9 @@ export class AccountControl {
         // below, right before the wipe, is the whole check now.
         this._closeMenu();
         showCreateAtlasModal({
+            // O atlas local ja tem nome, e ele e o que a pessoa acabou de ver na aba Mapas: sugerir
+            // outra coisa (ou nada) faz digitar de novo o que a tela ja sabia.
+            defaultName: nomeSugerido,
             onCreate: async (name, sharing) => {
                 try {
                     // Defensive: this action only shows when NOT connected, but close any socket first.
@@ -769,9 +776,9 @@ export class AccountControl {
                     if (!claim.granted) {
                         retractAtlasClaim();
                         showWarning(
-                            'O projeto foi criado no servidor, mas outra aba assumiu este projeto '
+                            'O atlas foi criado no servidor, mas outra aba assumiu este atlas '
                             + 'enquanto isso. Seus dados locais continuam aqui, intactos: feche a '
-                            + 'outra aba e abra o projeto em "Seus projetos".',
+                            + 'outra aba e abra o atlas em "Seus atlas".',
                             { duration: 10000 }
                         );
                         return;
@@ -796,9 +803,9 @@ export class AccountControl {
                         // say exactly that instead of leaving the user guessing.
                         retractAtlasClaim();
                         showWarning(
-                            'O projeto foi criado no servidor, mas não foi possível abri-lo agora. '
-                            + 'Seus dados locais continuam aqui, intactos: abra o projeto em '
-                            + '"Seus projetos".',
+                            'O atlas foi criado no servidor, mas não foi possível abri-lo agora. '
+                            + 'Seus dados locais continuam aqui, intactos: abra o atlas em '
+                            + '"Seus atlas".',
                             { duration: 10000 }
                         );
                         console.error('[AccountControl] activateRemoteAtlas failed:', error);
@@ -842,12 +849,12 @@ export class AccountControl {
         this._closeMenu();
 
         const first = await showConfirm(
-            'Excluir este projeto do servidor? Todos os colaboradores conectados serão desconectados.',
+            'Excluir este atlas do servidor? Todos os colaboradores conectados serão desconectados.',
             { destructive: true, confirmText: 'Excluir' }
         );
         if (!first) return;
         const second = await showConfirm(
-            'Confirmação final: o projeto será excluído para todos. Deseja prosseguir?',
+            'Confirmação final: o atlas será excluído para todos. Deseja prosseguir?',
             { destructive: true, confirmText: 'Excluir definitivamente' }
         );
         if (!second) return;
@@ -858,7 +865,7 @@ export class AccountControl {
             // receiving our own `atlas_deleted` before the socket closes.
             await this._handleRemoteAtlasDeleted('excluido');
         } catch (error) {
-            showError('Falha ao excluir o projeto');
+            showError('Falha ao excluir o atlas');
             console.error('[AccountControl] deleteAtlas failed:', error);
         }
     }
@@ -938,13 +945,13 @@ export class AccountControl {
                     try {
                         const opened = await openRemoteAtlas(pending.atlasId, { mapId: pending.mapId });
                         if (opened) {
-                            showSuccess('Projeto carregado do servidor');
+                            showSuccess('Atlas carregado do servidor');
                             return;
                         }
                         // User declined the "replace local work" confirm → fall through to the picker.
                     } catch (error) {
                         console.warn('[AccountControl] pending atlas resume failed:', error);
-                        showError('Não foi possível abrir o projeto pedido. Escolha um projeto.');
+                        showError('Não foi possível abrir o atlas pedido. Escolha um atlas.');
                     }
                 }
                 // The modal closes on resolve; advance to project selection.
@@ -990,7 +997,7 @@ export class AccountControl {
     }
 
     /**
-     * Leaves the map for the "Seus projetos" PAGE (`projetos.html`).
+     * Leaves the map for the "Seus atlas" PAGE (`atlas.html`).
      *
      * This used to build the chooser as an overlay AND own the whole open pipeline (disconnect →
      * wipe → markRemote → connect → activate → switchMap → auto-flush) in two duplicated branches.
@@ -1009,8 +1016,8 @@ export class AccountControl {
     async openProjectPicker({ notice } = {}) {
         clearLocalMapIntent();
         window.location.assign(notice
-            ? `./projetos.html?aviso=${encodeURIComponent(notice)}`
-            : './projetos.html');
+            ? `./atlas.html?aviso=${encodeURIComponent(notice)}`
+            : './atlas.html');
     }
 
     /**
@@ -1055,7 +1062,7 @@ export class AccountControl {
                 if (resgatado) {
                     showWarning(
                         'Sua sessão terminou com alterações que ainda não foram enviadas ao servidor. '
-                        + 'Elas foram mantidas neste computador como projeto local — entre novamente e '
+                        + 'Elas foram mantidas neste computador como atlas local — entre novamente e '
                         + 'use "Enviar ao servidor".',
                         { duration: 10000 }
                     );
@@ -1074,11 +1081,11 @@ export class AccountControl {
                     showError(
                         remoteAtlasRescueVetoSince(mountedAtlasId) > 0
                             ? 'Sua sessão terminou e NÃO foi possível guardar as alterações '
-                                + 'pendentes como projeto local. Elas continuam neste computador '
+                                + 'pendentes como atlas local. Elas continuam neste computador '
                                 + 'por tempo limitado: entre novamente o quanto antes para que '
                                 + 'sejam enviadas ao servidor.'
                             : 'Sua sessão terminou e NÃO foi possível guardar as alterações '
-                                + 'pendentes como projeto local. Não feche esta aba: entre '
+                                + 'pendentes como atlas local. Não feche esta aba: entre '
                                 + 'novamente para que elas sejam enviadas ao servidor.',
                         { duration: 0 }
                     );

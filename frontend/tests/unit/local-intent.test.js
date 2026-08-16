@@ -4,7 +4,7 @@
 // seletor de projetos. Ela já quebrou uma vez de um jeito que só o comportamento revelava: o
 // redirecionamento da fase -1 respeitava a intenção, mas `openAtlasChooserOnBoot()`, que roda no
 // FIM do boot, não — então o mapa carregava, parecia certo, e só depois se mandava para
-// `projetos.html`. Estes testes fixam o contrato do módulo; a fiação do boot é do e2e.
+// `atlas.html`. Estes testes fixam o contrato do módulo; a fiação do boot é do e2e.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { LOCAL_INTENT_KEY, hasLocalMapIntent, clearLocalMapIntent } from '@js/deep-link/local-intent.js';

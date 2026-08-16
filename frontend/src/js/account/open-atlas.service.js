@@ -246,7 +246,7 @@ export function retractAtlasClaim() {
  * overlapped ours, its main thread was busy, its message was dropped), so there is nobody to ask
  * for a handoff and the honest thing is to name the situation and stop.
  */
-const OCCUPIED_MESSAGE = 'Este projeto já está aberto em outra aba deste navegador. '
+const OCCUPIED_MESSAGE = 'Este atlas já está aberto em outra aba deste navegador. '
     + 'Nada foi apagado: continue por lá, ou feche a outra aba e tente de novo.';
 
 /**
@@ -408,11 +408,11 @@ export async function clearMountedAtlasIfGranted(replay = null) {
  * @returns {Promise<boolean>} True when the user chose to discard the rescue and open.
  */
 async function confirmDiscardingRescuedWork(rescued) {
-    const choice = await showChoice('Este projeto tem trabalho resgatado neste computador', {
+    const choice = await showChoice('Este atlas tem trabalho resgatado neste computador', {
         message:
             `Quando sua sessão caiu, as alterações que ainda não tinham subido para o servidor foram `
-            + `guardadas aqui como o projeto local "${rescued.name}". Ele ocupa o mesmo espaço deste `
-            + `projeto do servidor, então abrir agora apaga o resgate.\n\n`
+            + `guardadas aqui como o atlas local "${rescued.name}". Ele ocupa o mesmo espaço deste `
+            + `atlas do servidor, então abrir agora apaga o resgate.\n\n`
             + `Para não perder nada: cancele, volte ao mapa local e use "Enviar ao servidor".`,
         choices: [
             { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
@@ -572,7 +572,7 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
  * PARTIAL FAILURE, and what survives it. If anything after step 1 throws, NOTHING has been
  * destroyed: the server atlas's databases were never the wipe's target and no operation was
  * pushed. The user may end up on an empty local atlas with the server project closed, which is
- * recoverable by reopening it from "Seus projetos"; the caller is expected to say so.
+ * recoverable by reopening it from "Seus atlas"; the caller is expected to say so.
  *
  * @param {string} name - Display name for the new atlas, pt-BR. Duplicates are suffixed.
  * @returns {Promise<import('@store/local-atlas.api.js').LocalAtlasResult>} `{ ok: true, atlas }`,

@@ -70,7 +70,7 @@ describeOrSkip('abrir projeto do servidor', () => {
         expect(await readFeatures(page, 'points')).toHaveLength(0);
 
         // METADE 2: o ponto continua no atlas local, alcançável pelo caminho do usuário.
-        await page.goto('/projetos.html');
+        await page.goto('/atlas.html');
         await expect(page.locator('[data-testid="local-atlas-item"]').first())
             .toBeVisible({ timeout: 20000 });
         await page.locator('[data-testid="local-atlas-item"]').first().click();

@@ -57,7 +57,7 @@ import {
 import { activateRemoteAtlas } from './remote-atlas.api.js';
 // From the FILE, never from the `@utils` barrel, for the reason `store.js` states at its own copy
 // of this import: the barrel reaches `@store` transitively, and this module is loaded by
-// `projetos.html`, which exists in order not to load the store's map half.
+// `atlas.html`, which exists in order not to load the store's map half.
 import { announceTabLockTeardown, TeardownReason } from '@utils/tab-lock.js';
 
 /**
@@ -794,7 +794,7 @@ async function pointAtLocalAtlas(id, mount) {
  *
  * Same protocol as the logout sweep (`utilities/tab-lock.js`, section 8, and `store.js`
  * `announceRemoteNamespaceTeardown` on the remote side), addressed by the slot's `dbSuffix` and
- * never by a key: a tab deleting an atlas in `projetos.html` holds NOTHING (`noneKey`), so it
+ * never by a key: a tab deleting an atlas in `atlas.html` holds NOTHING (`noneKey`), so it
  * collides with nobody and a notice routed through `keysCollide` would reach no one. That tab is
  * also never on the receiving end, because it installs no `onTeardown` effect: it announces and
  * is never announced to.

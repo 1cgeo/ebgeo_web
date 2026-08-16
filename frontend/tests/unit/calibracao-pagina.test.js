@@ -105,7 +105,7 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
         expect(bloco, 'bloco `input:` nao encontrado em vite.config.js').not.toBeNull();
 
         const paginas = [...bloco[1].matchAll(/resolve\(__dirname,\s*'([^']+\.html)'\)/g)].map((m) => m[1]);
-        expect(paginas.sort()).toEqual(['admin.html', 'calibracao.html', 'index.html', 'projetos.html']);
+        expect(paginas.sort()).toEqual(['admin.html', 'atlas.html', 'calibracao.html', 'index.html']);
 
         for (const pagina of paginas) {
             expect(existsSync(join(PACOTE, pagina)), `entrada declarada e inexistente: ${pagina}`).toBe(true);

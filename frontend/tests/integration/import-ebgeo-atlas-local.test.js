@@ -454,7 +454,7 @@ describe('import de .ebgeo com atlas de SERVIDOR montado', () => {
         await importar(await arquivoEbgeo('Operação Alfa.ebgeo'), { aditivo: true });
 
         expect(toasts.error).toHaveLength(1);
-        expect(toasts.error[0]).toContain('Importar projeto');
+        expect(toasts.error[0]).toContain('Importar .ebgeo');
         // Nada aconteceu: nem slot novo, nem desconexão, nem escrita em lugar nenhum.
         expect(slotsNoDisco()).toHaveLength(1);
         expect(calls).toEqual([]);
@@ -582,7 +582,7 @@ describe('marcador LOCAL sobre um namespace de SERVIDOR montado', () => {
         await importar(await arquivoEbgeo('Operação Alfa.ebgeo'), { aditivo: true });
 
         expect(toasts.error).toHaveLength(1);
-        expect(toasts.error[0]).toContain('Importar projeto');
+        expect(toasts.error[0]).toContain('Importar .ebgeo');
         expect(ondeOMapaEstaLegivel()).toEqual([]);
         expect(slotsNoDisco()).toHaveLength(1);
     });

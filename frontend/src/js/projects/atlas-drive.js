@@ -5,7 +5,7 @@
  * atlases as a card grid with tabs (Recentes / Meus / Compartilhados / Públicos / Lixeira) and a name
  * search, plus per-card actions (renomear / duplicar / lixeira / restaurar).
  *
- * It is the BODY of `projetos.html`, not a modal: it used to be a full-screen overlay stacked on the
+ * It is the BODY of `atlas.html`, not a modal: it used to be a full-screen overlay stacked on the
  * booted map (`modals/project-picker.modal.js`), which meant choosing a project happened on top of a
  * map you had not chosen yet, and closing it dropped you on a blank local workspace nobody asked for.
  * As a page it has its own URL, its own back/forward, and no map behind it. The `project-picker-*`
@@ -78,7 +78,7 @@ export class AtlasDrive {
      * @param {Object} options
      * @param {Array<Object>} [options.projects] - Atlas records from `apiClient.listAtlas()`.
      * @param {Function} options.onPick - Called with the picked atlas id.
-     * @param {Function} [options.onCreate] - Called with (name, sharing) for "Novo projeto".
+     * @param {Function} [options.onCreate] - Called with (name, sharing) for "Novo atlas".
      * @param {Function} [options.onImport] - Called with the chosen `.ebgeo` File.
      * @param {{atlases: Object[], covers: Object, presence: Object}} [options.overview] - The card
      *   extras from `apiClient.getAtlasOverview()`. Omitted, cards draw name and permission alone,
@@ -181,7 +181,7 @@ export class AtlasDrive {
         grid.className = 'atlas-drive__grid';
         grid.dataset.testid = 'project-picker-list';
         grid.setAttribute('role', 'listbox');
-        grid.setAttribute('aria-label', 'Projetos do servidor');
+        grid.setAttribute('aria-label', 'Atlas do servidor');
         root.appendChild(grid);
 
         this._root = root;
@@ -189,7 +189,7 @@ export class AtlasDrive {
         this._renderGrid();
     }
 
-    /** @private Content toolbar: title + search + "Novo projeto" (no close — this is a page). */
+    /** @private Content toolbar: title + search + "Novo atlas" (no close — this is a page). */
     _buildTopbar() {
         const bar = document.createElement('header');
         bar.className = 'atlas-drive__topbar';
@@ -202,7 +202,7 @@ export class AtlasDrive {
         h.textContent = 'No servidor';
         const sub = document.createElement('p');
         sub.className = 'atlas-drive__subtitle';
-        sub.textContent = 'Projetos sincronizados, abertos por você e por quem você convidar';
+        sub.textContent = 'Atlas sincronizados, abertos por você e por quem você convidar';
         title.append(h, sub);
         bar.appendChild(title);
 
@@ -217,7 +217,7 @@ export class AtlasDrive {
         const search = document.createElement('input');
         search.type = 'search';
         search.className = 'atlas-drive__search-input';
-        search.placeholder = 'Buscar projeto…';
+        search.placeholder = 'Buscar atlas…';
         search.dataset.testid = 'project-picker-search';
         addDomListener(this, search, 'input', () => { this._query = search.value; this._renderGrid(); });
         searchWrap.append(sIcon, search);
@@ -243,7 +243,7 @@ export class AtlasDrive {
             importBtn.type = 'button';
             importBtn.className = 'atlas-drive__btn atlas-drive__btn--ghost';
             importBtn.dataset.testid = 'project-picker-import';
-            importBtn.title = 'Criar um projeto a partir de um arquivo .ebgeo';
+            importBtn.title = 'Criar um atlas a partir de um arquivo .ebgeo';
             importBtn.innerHTML = ICONS.upload; // static icon
             const importLabel = document.createElement('span');
             importLabel.textContent = 'Importar .ebgeo';
@@ -261,7 +261,7 @@ export class AtlasDrive {
             newBtn.dataset.testid = 'project-picker-create';
             newBtn.innerHTML = ICONS.plus; // static icon
             const t = document.createElement('span');
-            t.textContent = 'Novo projeto';
+            t.textContent = 'Novo atlas';
             newBtn.appendChild(t);
             addDomListener(this, newBtn, 'click', () => this._handleCreate());
             tools.appendChild(newBtn);
@@ -372,8 +372,8 @@ export class AtlasDrive {
             empty.className = 'atlas-drive__empty';
             empty.dataset.testid = 'project-picker-empty';
             empty.textContent = isTrash
-                ? (this._query ? 'Nenhum projeto na lixeira corresponde à busca.' : 'A lixeira está vazia.')
-                : (this._query ? 'Nenhum projeto corresponde à busca.' : 'Nenhum projeto nesta categoria.');
+                ? (this._query ? 'Nenhum atlas na lixeira corresponde à busca.' : 'A lixeira está vazia.')
+                : (this._query ? 'Nenhum atlas corresponde à busca.' : 'Nenhum atlas nesta categoria.');
             this._gridEl.appendChild(empty);
             return;
         }
@@ -436,7 +436,7 @@ export class AtlasDrive {
         // different fact from being signed in, and the card sits next to projects nobody is in.
         label.textContent = list.length === 1 ? '1 no mapa' : `${list.length} no mapa`;
         node.appendChild(label);
-        node.title = `Agora no projeto: ${list.map((u) => u?.nome || 'Alguém').join(', ')}`;
+        node.title = `Agora no atlas: ${list.map((u) => u?.nome || 'Alguém').join(', ')}`;
     }
 
     /**
@@ -752,7 +752,7 @@ export class AtlasDrive {
             const row = this._members.get(id);
             if (row) row.has_cover = true;
             this._renderGrid();
-            showSuccess('Imagem do projeto atualizada.');
+            showSuccess('Imagem do atlas atualizada.');
         } catch (error) {
             console.error('[projects] cover upload failed:', error);
             showError(error?.message || 'Não foi possível usar esta imagem.');
@@ -776,27 +776,27 @@ export class AtlasDrive {
 
     /** @private Rename via a prompt → PUT /atlas/:id. */
     async _rename(project) {
-        const name = await showPrompt('Renomear projeto', project?.name ?? '');
+        const name = await showPrompt('Renomear atlas', project?.name ?? '');
         if (name == null) return;
         const trimmed = name.trim();
         if (!trimmed || trimmed === project?.name) return;
         try {
             await apiClient.updateAtlas(project.id, { name: trimmed });
-            showSuccess('Projeto renomeado.');
+            showSuccess('Atlas renomeado.');
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao renomear o projeto.');
+            showError(error?.message || 'Falha ao renomear o atlas.');
         }
     }
 
     /** @private Make a copy → POST /atlas/:id/clone. */
     async _duplicate(project) {
         try {
-            await apiClient.cloneAtlas(project.id, { name: `${project?.name ?? 'Projeto'} (cópia)` });
+            await apiClient.cloneAtlas(project.id, { name: `${project?.name ?? 'Atlas'} (cópia)` });
             showSuccess('Cópia criada.');
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao duplicar o projeto.');
+            showError(error?.message || 'Falha ao duplicar o atlas.');
         }
     }
 
@@ -813,11 +813,11 @@ export class AtlasDrive {
         if (!ok) return;
         try {
             await apiClient.deleteAtlas(project.id);
-            showSuccess('Projeto movido para a lixeira.');
+            showSuccess('Atlas movido para a lixeira.');
             this._trashedLoaded = false; // re-fetch the trash next time it is opened
             await this._refresh();
         } catch (error) {
-            showError(error?.message || 'Falha ao mover o projeto para a lixeira.');
+            showError(error?.message || 'Falha ao mover o atlas para a lixeira.');
         }
     }
 
@@ -856,7 +856,7 @@ export class AtlasDrive {
     async _restore(project) {
         try {
             await apiClient.restoreAtlas(project.id);
-            showSuccess('Projeto restaurado.');
+            showSuccess('Atlas restaurado.');
             this._trashed = (this._trashed || []).filter((p) => p.id !== project.id);
             try {
                 const list = await apiClient.listAtlas();
@@ -864,7 +864,7 @@ export class AtlasDrive {
             } catch { /* keep the cached list */ }
             this._renderGrid();
         } catch (error) {
-            showError(error?.message || 'Falha ao restaurar o projeto.');
+            showError(error?.message || 'Falha ao restaurar o atlas.');
         }
     }
 
@@ -1249,7 +1249,7 @@ export function createServerInvite({ onLogin }) {
 
     const text = document.createElement('p');
     text.className = 'server-invite__text';
-    text.textContent = 'Entre para abrir os projetos do servidor, colaborar em tempo real e compartilhar '
+    text.textContent = 'Entre para abrir os atlas do servidor, colaborar em tempo real e compartilhar '
         + 'com sua equipe. Os atlas deste computador continuam funcionando sem conta.';
     section.appendChild(text);
 

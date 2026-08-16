@@ -10,7 +10,7 @@
 //    zero, and a link must never be built with the literal "NaN" in it.
 //
 // 2. `shouldRouteToProjects`. The phase -1 redirect is
-//    `window.location.replace('./projetos.html')`, which carries NO fragment: a
+//    `window.location.replace('./atlas.html')`, which carries NO fragment: a
 //    signed-in visitor opening `/#view=fp&scene=…` landed on "Seus projetos" and
 //    the payload of the link evaporated, silently. That was already true for
 //    `#view=360` and `#view=3d`. Behaviour was the only witness, which is why the

@@ -101,7 +101,7 @@ async function registerTileset(page) {
     ).toBeLessThan(300);
 
     // Drop the admin session before the app boots. This spec is about LOCAL controls with no
-    // login, and a live session on a bare URL is routed to `projetos.html` by design
+    // login, and a live session on a bare URL is routed to `atlas.html` by design
     // (`shouldRouteToProjects`, `index.js`) — the page that follows has no map at all, so
     // `bootApp` would wait for a zoom button that page never renders.
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });

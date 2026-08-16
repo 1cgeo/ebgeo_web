@@ -41,7 +41,7 @@ export class ExportModal extends ModalBase {
     constructor(options = {}) {
         super({
             id: 'export-modal',
-            title: 'Exportar Projeto',
+            title: 'Exportar Atlas',
             icon: ICONS.download,
             destroyOnHide: true
         });

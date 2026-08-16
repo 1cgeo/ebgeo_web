@@ -21,6 +21,7 @@ import {
     resolveComment,
     removeComment,
 } from '@store';
+import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getInitials, getPresenceColor } from '@js/presence/presence-colors.js';
@@ -121,9 +122,17 @@ export class CommentOverlay {
         if (next === this._placement) return this._placement;
         if (next) {
             if (!this._canComment()) {
-                showWarning(sessionContext.isAuthenticated()
-                    ? 'Você não tem permissão para comentar neste atlas.'
-                    : 'Faça login para adicionar comentários.');
+                // A frase nomeia o motivo REAL, e sao tres diferentes: um "faca login" dito a
+                // quem esta num atlas local manda a pessoa fazer algo que nao resolve nada.
+                let motivo;
+                if (!isRemoteStoreSync()) {
+                    motivo = 'Comentários existem só em atlas do servidor. Envie este atlas ao servidor para comentar.';
+                } else if (!sessionContext.isAuthenticated()) {
+                    motivo = 'Entre na sua conta para adicionar comentários.';
+                } else {
+                    motivo = 'Você não tem permissão para comentar neste atlas.';
+                }
+                showWarning(motivo);
                 return false;
             }
             if (this._toolManager) this._toolManager.setActiveTool(this);
@@ -161,10 +170,19 @@ export class CommentOverlay {
         }
     }
 
-    /** @private Whether the session may create comments. Requires a logged-in user (a comment needs
-     * an author) AND comment permission (Comentarista+ on a remote atlas; always on the local store). */
+    /**
+     * @private Se a sessao pode criar comentario.
+     *
+     * TRES CONDICOES, e a primeira entrou em 2026-08-16 por decisao do dono: comentario e uma
+     * conversa, e num atlas LOCAL nao ha com quem conversar. Ele ficava disponivel ali, deslogado
+     * inclusive, e produzia uma anotacao que ninguem jamais leria e que nem sequer sobe ao servidor
+     * quando o atlas e enviado. As outras duas seguem: comentario tem autor (exige login) e o papel
+     * precisa alcancar Comentarista.
+     */
     _canComment() {
-        return sessionContext.isAuthenticated() && checkPermission(GuardAction.CREATE_COMMENT).allowed;
+        return isRemoteStoreSync()
+            && sessionContext.isAuthenticated()
+            && checkPermission(GuardAction.CREATE_COMMENT).allowed;
     }
 
     /** @private Whether the session may edit/resolve/delete THIS comment: an Editor+ may act on any,

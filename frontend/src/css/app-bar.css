@@ -1,7 +1,7 @@
 /* Path: src/css/app-bar.css */
 
 /*
- * Shared top bar of the map-less PAGES (admin.html, projetos.html). Brand on the left; page
+ * Shared top bar of the map-less PAGES (admin.html, atlas.html). Brand on the left; page
  * actions, identity and "Sair" on the right. BEM block: .app-bar.
  * Built by src/js/ui/app-bar.js — the two pages must not grow separate headers.
  */
@@ -37,7 +37,7 @@
     color: #fff;
 }
 
-/* A marca em imagem (projetos.html). Altura fixa e largura automática: o WebP do EBGeo é largo,
+/* A marca em imagem (atlas.html). Altura fixa e largura automática: o WebP do EBGeo é largo,
    e travar a largura o deformaria. Sem fundo nem caixa — a logo já tem a sua. */
 .app-bar__brand-logo {
     flex-shrink: 0;

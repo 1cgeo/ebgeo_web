@@ -52,7 +52,7 @@
  * token is a read (`getPublicAtlas`), it destroys nothing, and the claim is taken with the
  * real UUID before the first destructive step. See `index.js openPublicAtlasFromUrl`.
  *
- * The pages without a map (`projetos.html`, `admin.html`, `calibracao.html`) hold no atlas.
+ * The pages without a map (`atlas.html`, `admin.html`, `calibracao.html`) hold no atlas.
  * They join the channel with `kind: 'none'`, are visible to everyone, and NEVER collide.
  * Blocking Map plus Administracao would break a deliberate flow: people open the admin panel
  * in a second tab on purpose.
@@ -375,11 +375,11 @@
  * TODAY's behaviour (spare), never to a wipe under a live writer.
  *
  * TWO THINGS DESTROY A NAMESPACE, AND THE NOTICE CARRIES WHICH (`reason`). One is the logout
- * sweep described above; the other is a user deleting a named LOCAL atlas on `projetos.html`
+ * sweep described above; the other is a user deleting a named LOCAL atlas on `atlas.html`
  * (`store/local-atlas.api.js deleteLocalAtlas`). The protocol is the same for both, and so is the
  * effect: the receiver stops and KEEPS its mount lock. What differs is the only thing the receiver
  * shows a human, the overlay, and it was WRONG for the second case — "outra aba saiu da conta" and
- * "projeto do servidor" are both false for a local atlas somebody deleted. The field is ADDITIVE,
+ * "atlas do servidor" are both false for a local atlas somebody deleted. The field is ADDITIVE,
  * so it does NOT bump the protocol version, for the reason `adoptedFrom` did not: a tab from an
  * older deploy reads a notice with no reason as the session-ended case, which is that deploy's only
  * case, whereas invisibility would cost it the freeze entirely.
@@ -548,7 +548,7 @@ const Msg = Object.freeze({
 export const TeardownReason = Object.freeze({
     /** A logout (or the logged-out boot guard) sweeping every server namespace on this machine. */
     SESSION_ENDED: 'session-ended',
-    /** The user deleted a named LOCAL atlas on `projetos.html`. */
+    /** The user deleted a named LOCAL atlas on `atlas.html`. */
     LOCAL_ATLAS_DELETED: 'local-atlas-deleted'
 });
 
@@ -566,8 +566,8 @@ const MONITOR_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24
     + '<line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
 
 const OVERLAY_TEXT = Object.freeze({
-    [TabLockKeyKind.REMOTE]: 'Este projeto do servidor já está aberto em outra aba. Um mesmo '
-        + 'projeto só pode ser editado em uma aba por vez.',
+    [TabLockKeyKind.REMOTE]: 'Este atlas do servidor já está aberto em outra aba. Um mesmo '
+        + 'atlas só pode ser editado em uma aba por vez.',
     [TabLockKeyKind.LOCAL]: 'Este atlas local já está aberto em outra aba. Continue o trabalho '
         + 'por lá, ou traga o controle para cá.'
 });
@@ -581,10 +581,10 @@ const OVERLAY_TEXT = Object.freeze({
  * that tells someone to press the button that discards their unsent work is worse than no message.
  */
 const TEARDOWN_OVERLAY = Object.freeze({
-    title: 'Este projeto foi encerrado em outra aba',
-    message: 'Outra aba saiu da conta, então este projeto do servidor não pode mais ser editado '
+    title: 'Este atlas foi encerrado em outra aba',
+    message: 'Outra aba saiu da conta, então este atlas do servidor não pode mais ser editado '
         + 'aqui: esta aba parou de gravar. O que ainda não foi enviado continua guardado neste '
-        + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o projeto para '
+        + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o atlas para '
         + 'enviá-lo; recarregar esta aba antes disso descarta esse trabalho.',
     button: 'Recarregar'
 });
@@ -628,8 +628,8 @@ const TEARDOWN_OVERLAY_BY_REASON = Object.freeze({
 const DEGRADED_NOTICE = Object.freeze({
     title: 'Proteção contra abas duplicadas indisponível',
     message: 'Este navegador não deixa as abas do EBGeo se enxergarem, então nada impede que o '
-        + 'mesmo projeto seja aberto duas vezes aqui. Feche as outras abas do EBGeo e trabalhe '
-        + 'em uma só: duas abas no mesmo projeto gravam nos mesmos dados, e a última a gravar '
+        + 'mesmo atlas seja aberto duas vezes aqui. Feche as outras abas do EBGeo e trabalhe '
+        + 'em uma só: duas abas no mesmo atlas gravam nos mesmos dados, e a última a gravar '
         + 'apaga o trabalho da outra.',
     button: 'Entendi'
 });

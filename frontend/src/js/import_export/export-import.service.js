@@ -192,8 +192,8 @@ export class ExportImportService {
     createSaveButton() {
         const saveButton = document.createElement('button');
         saveButton.className = 'map-action-button save-action';
-        saveButton.innerHTML = `<img src="./images/icon_save_black.svg" alt="Exportar projeto" />`;
-        saveButton.title = 'Exportar projeto';
+        saveButton.innerHTML = `<img src="./images/icon_save_black.svg" alt="Exportar atlas" />`;
+        saveButton.title = 'Exportar atlas';
 
         saveButton.onclick = () => {
             this.showExportModal();
@@ -218,8 +218,8 @@ export class ExportImportService {
     createLoadButton() {
         const loadButton = document.createElement('button');
         loadButton.className = 'map-action-button load-action';
-        loadButton.innerHTML = `<img src="./images/icon_load_black.svg" alt="Importar projeto" />`;
-        loadButton.title = 'Importar projeto (substitui atual)';
+        loadButton.innerHTML = `<img src="./images/icon_load_black.svg" alt="Importar atlas" />`;
+        loadButton.title = 'Importar atlas (substitui atual)';
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -244,8 +244,8 @@ export class ExportImportService {
     createLoadAdditiveButton() {
         const loadAdditiveButton = document.createElement('button');
         loadAdditiveButton.className = 'map-action-button load-action';
-        loadAdditiveButton.innerHTML = `<img src="./images/icon_folder_plus_black.svg" alt="Adicionar ao projeto" />`;
-        loadAdditiveButton.title = 'Adicionar ao projeto atual';
+        loadAdditiveButton.innerHTML = `<img src="./images/icon_folder_plus_black.svg" alt="Adicionar ao atlas" />`;
+        loadAdditiveButton.title = 'Adicionar ao atlas atual';
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -470,7 +470,7 @@ export class ExportImportService {
             const url = URL.createObjectURL(finalBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `projeto-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.ebgeo`;
+            a.download = `atlas-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.ebgeo`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -502,8 +502,8 @@ export class ExportImportService {
         // uma rodada de sync por entidade. A recusa nomeia a saída, que existe logo ao lado.
         if (isAdditiveImport && writingIntoServerAtlas()) {
             showError(
-                'Não é possível adicionar um arquivo ao projeto do servidor que está aberto. '
-                + 'Use "Importar projeto", que abre o arquivo em um atlas local novo.',
+                'Não é possível adicionar um arquivo ao atlas do servidor que está aberto. '
+                + 'Use "Importar .ebgeo", que abre o arquivo em um atlas local novo.',
                 { duration: 10000 }
             );
             event.target.value = '';
@@ -735,7 +735,7 @@ export class ExportImportService {
             if (newLocalAtlasName) {
                 showToast(
                     `Importado em um atlas local novo, "${newLocalAtlasName}". `
-                    + 'O projeto do servidor foi fechado e continua intacto em "Seus projetos".',
+                    + 'O atlas do servidor foi fechado e continua intacto em "Seus atlas".',
                     'info',
                     8000
                 );
@@ -755,7 +755,7 @@ export class ExportImportService {
      * TWO TARGETS, and the difference is whose data is at stake.
      *
      * On a LOCAL atlas the import replaces it IN PLACE, which is literally what the button says
-     * ("Importar projeto (substitui atual)") and what it has always done. Minting a slot per
+     * ("Importar atlas (substitui atual)") and what it has always done. Minting a slot per
      * import instead would burn the cap of 10 in ten imports, for a wipe the user asked for on
      * their own workspace.
      *
@@ -794,14 +794,14 @@ export class ExportImportService {
             return {
                 ok: false,
                 message: 'Não foi possível preparar um atlas local para receber a importação. '
-                    + 'Nada foi importado; reabra o projeto em "Seus projetos" e tente de novo.'
+                    + 'Nada foi importado; reabra o atlas em "Seus atlas" e tente de novo.'
             };
         }
 
         if (!result.ok) {
             return {
                 ok: false,
-                message: `${result.message} O projeto do servidor continua aberto e nada foi alterado.`
+                message: `${result.message} O atlas do servidor continua aberto e nada foi alterado.`
             };
         }
         return { ok: true, atlasName: result.atlas.name };

@@ -4,7 +4,7 @@
  * @fileoverview As duas metades do passo 3, medidas em Chromium de verdade porque nenhuma delas
  * existe dentro de UM processo.
  *
- * A. ABRIR UM `.ebgeo` PELA TELA, DESLOGADO. O produtor (`projetos.html`) e o consumidor (o boot do
+ * A. ABRIR UM `.ebgeo` PELA TELA, DESLOGADO. O produtor (`atlas.html`) e o consumidor (o boot do
  *    mapa) são DUAS PÁGINAS, e o que as liga é uma chave do banco global mais uma navegação. Um
  *    teste de nó pode provar `savePendingImport`/`takePendingImport` (e prova, em
  *    `tests/unit/atlas-namespace.test.js`), mas não pode provar que a tela grava, navega, e que o
@@ -63,7 +63,7 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         test.setTimeout(180000);
 
         // Deslogado: a metade local é o produto inteiro para quem não tem conta.
-        await page.goto('/projetos.html');
+        await page.goto('/atlas.html');
         await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 20000 });
         await expect(page.locator('[data-testid="local-atlas-open-file"]')).toBeVisible();
         await expect(page.locator('[data-testid="server-invite"]')).toBeVisible();
@@ -72,7 +72,7 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         await page.locator('[data-testid="local-atlas-file-input"]').setInputFiles(FIXTURE);
 
         // A tela NAVEGA; quem importa é o mapa.
-        await page.waitForURL((url) => !url.pathname.endsWith('projetos.html'), { timeout: 30000 });
+        await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
         await esperarMapa(page);
         await abrirAbaMapas(page);
         // O importador reconstrói a lista de mapas ao terminar. ONZE, não doze: a fixture traz
@@ -148,7 +148,7 @@ describeOrSkip('atlas local: excluir avisa a aba irmã', () => {
 
         // Aba 1: a tela, que cria um slot.
         const tela = await context.newPage();
-        await tela.goto('/projetos.html');
+        await tela.goto('/atlas.html');
         await expect(tela.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 20000 });
         await tela.locator('[data-testid="local-atlas-create"]').click();
         await tela.locator('[data-testid="local-atlas-name-input"]').fill('Alvo do aviso');
@@ -158,7 +158,7 @@ describeOrSkip('atlas local: excluir avisa a aba irmã', () => {
 
         // Aba 2: o mapa, DENTRO desse slot.
         const mapa = await context.newPage();
-        await mapa.goto('/projetos.html');
+        await mapa.goto('/atlas.html');
         await mapa.locator('[data-testid="local-atlas-item"]', { hasText: 'Alvo do aviso' }).click();
         await esperarMapa(mapa);
         await abrirAbaMapas(mapa);

@@ -26,5 +26,5 @@
 export function atlasNameFromFilename(filename) {
     const base = String(filename || '').split(/[\\/]/).pop() || '';
     const stem = base.replace(/\.ebgeo$/i, '').trim();
-    return stem || 'Projeto importado';
+    return stem || 'Atlas importado';
 }

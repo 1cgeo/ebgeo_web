@@ -175,7 +175,7 @@ describe('o .ebgeo pendente: a entrega some também quando NÃO é importada', (
         expect(processFileDirectly).not.toHaveBeenCalled();
         expect(entregaNoDisco()).toBe(false);
         expect(avisos[0].level).toBe('warning');
-        expect(avisos[0].message).toContain('outro projeto');
+        expect(avisos[0].message).toContain('outro atlas');
     });
 
     it('escopo REMOTO montado: declina e apaga', async () => {

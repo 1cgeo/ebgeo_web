@@ -2,7 +2,7 @@
 
 /**
  * @module deep-link/route-decision
- * @description The boot's phase -1 decision: hand this visit over to `projetos.html`,
+ * @description The boot's phase -1 decision: hand this visit over to `atlas.html`,
  * or build the map?
  *
  * It lives here, out of `index.js`, for one reason: `index.js` calls `initApp()` at
@@ -28,8 +28,8 @@ import { hasLocalMapIntent } from './local-intent.js';
  *   - anonymous — the map IS the product for someone not signed in.
  *
  * The hash clause is a BUG FIX, not a new feature of the first-person link. The redirect
- * is `window.location.replace('./projetos.html')`, which carries no fragment: a signed-in
- * visitor opening a shared `#view=…` link landed on "Seus projetos" and the payload of the
+ * is `window.location.replace('./atlas.html')`, which carries no fragment: a signed-in
+ * visitor opening a shared `#view=…` link landed on "Seus atlas" and the payload of the
  * link was gone, with nothing logged and nothing to retry. It was already true for
  * `#view=360` and `#view=3d`; the first-person scene made it intolerable, because
  * "Compartilhar esta posição" is one of the three tools inside the scene — the link IS the

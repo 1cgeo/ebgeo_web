@@ -35,7 +35,7 @@ export default defineConfig(({ mode: _mode }) => ({
 
     // Code splitting
     rollupOptions: {
-      // Multi-page: the map is `index.html`; "Seus projetos" (`projetos.html`), Administração
+      // Multi-page: the map is `index.html`; "Seus atlas" (`atlas.html`), Administração
       // (`admin.html`) and Calibração 360 (`calibracao.html`) are pages of their own, each with its
       // own entry module and CSS manifest. None loads the map bundle — see the codeSplitting note
       // below for what enforces that.
@@ -45,7 +45,7 @@ export default defineConfig(({ mode: _mode }) => ({
       // ESLint e do Stylelint da casa, como qualquer outra página.
       input: {
         main: resolve(__dirname, 'index.html'),
-        projetos: resolve(__dirname, 'projetos.html'),
+        atlas: resolve(__dirname, 'atlas.html'),
         admin: resolve(__dirname, 'admin.html'),
         calibracao: resolve(__dirname, 'calibracao.html')
       },

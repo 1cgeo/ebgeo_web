@@ -59,7 +59,7 @@ import { PhoneLayout } from './phone';
 import { AccountControl, SyncStatusControl, AtlasNameControl } from '@js/account/index.js';
 import { OnlineUsersControl, RemoteCursorsLayer, RemoteSelectionsLayer, startPresence } from '@js/presence/index.js';
 import { CommentOverlay } from '@js/comment_tool/index.js';
-import { LockedBannerControl, mapLockController } from '@js/locking/index.js';
+import { mapLockController } from '@js/locking/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { ConnectionStates } from '@store/sync/connection-state.js';
 
@@ -665,12 +665,15 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     keyboardShortcuts.controls.commentOverlay = commentOverlay;
 
     // ===== MAP LOCK UX (Slice 3: on-map "Mapa bloqueado" banner + state controller) =====
-    // Additive: the banner only appears while the active map is locked; the
-    // controller mirrors remote lock changes (MAP_MODIFIED -> MAP_LOCK_CHANGED)
-    // and gates the toggle by role. Offline/anonymous users keep full local
-    // control (they can lock locally; no network is touched).
-    const lockedBannerControl = new LockedBannerControl();
-    map.addControl(lockedBannerControl, 'top-left');
+    // O BANNER "Mapa bloqueado" SAIU DA TELA em 2026-08-16, por decisao do dono: ele ocupava o
+    // topo do mapa o tempo todo em que o mapa estivesse bloqueado, que e um estado normal e
+    // duradouro, nao um alerta. O cadeado da aba Mapas continua dizendo o mesmo, no lugar onde se
+    // vai para mudar isso, e toda tentativa de desenhar num mapa bloqueado ja e recusada com
+    // mensagem propria — a informacao nao se perde, so deixa de ocupar o mapa.
+    //
+    // O CONTROLADOR CONTINUA (`mapLockController.start()`), e a distincao importa: ele e quem
+    // espelha o bloqueio remoto e gateia o botao por papel. Tirar o controlador junto teria
+    // desligado o bloqueio, nao a faixa.
     mapLockController.start();
 
     // ===== REGISTER CONTROLS IN CONTROL REGISTRY (declarative) =====
@@ -731,7 +734,6 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['remoteCursors', remoteCursorsLayer],
         ['remoteSelections', remoteSelectionsLayer],
         // Map lock UX (on-map "Mapa bloqueado" banner)
-        ['lockedBanner', lockedBannerControl],
         // Spatial comments (pin overlay; managed from the Maps panel or via Shift+C)
         ['commentOverlay', commentOverlay],
     ];

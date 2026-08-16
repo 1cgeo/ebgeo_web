@@ -60,7 +60,7 @@ describeOrSkip('Login → open project flow (real browser + real backend)', () =
         await page.locator('[data-testid="login-submit"]').click();
 
         // 5. Pick the seeded atlas on the project chooser PAGE (login navigates there).
-        await page.waitForURL('**/projetos.html', { timeout: 20000 });
+        await page.waitForURL('**/atlas.html', { timeout: 20000 });
         await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 10000 });
         await page
             .locator(`[data-testid="project-picker-item"][data-atlas-id="${seed.atlasId}"]`)

@@ -89,7 +89,7 @@ O mesmo princípio governa a ficha do item: `createMarkerPanelFpContent` monta *
 
 ## O link compartilhado achou um defeito de boot que existia havia meses
 
-`shouldRouteToProjects` (`frontend/src/js/deep-link/route-decision.js`) manda um visitante com sessão numa URL nua para `projetos.html` por `window.location.replace`, que **não carrega fragmento**. Um link `#view=` aberto por quem estava logado caía em "Seus projetos" e o payload do link evaporava, sem log e sem retentativa.
+`shouldRouteToProjects` (`frontend/src/js/deep-link/route-decision.js`) manda um visitante com sessão numa URL nua para `atlas.html` por `window.location.replace`, que **não carrega fragmento**. Um link `#view=` aberto por quem estava logado caía em "Seus projetos" e o payload do link evaporava, sem log e sem retentativa.
 
 O defeito valia para `#view=3d` e `#view=360` desde sempre e ninguém viu, porque nenhuma das duas superfícies tinha "compartilhar" como ferramenta de primeira classe. Na cena o link **é** o produto (é uma das três ferramentas de dentro), e o defeito ficou intolerável na primeira semana. A correção decide por `parseDeepLink()` em vez de "o hash não está vazio", para que os três viewers e o roteador leiam a mesma gramática: hash que não nomeia viewer não é razão para pular o seletor.
 

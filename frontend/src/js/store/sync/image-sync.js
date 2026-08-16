@@ -54,7 +54,7 @@ export function isImageSyncOnline() {
 export function imageUploadFailureNotice(error) {
     const status = error?.status ?? error?.statusCode;
     if (status === 403) {
-        return 'Você não tem permissão para enviar imagens neste projeto: a imagem ficará visível '
+        return 'Você não tem permissão para enviar imagens neste atlas: a imagem ficará visível '
             + 'apenas para você.';
     }
     if (status === 413) {

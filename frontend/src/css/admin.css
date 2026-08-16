@@ -27,7 +27,7 @@
     color: var(--gray-800);
 }
 
-/* O cabeçalho da página vive em app-bar.css (.app-bar), compartilhado com projetos.html. */
+/* O cabeçalho da página vive em app-bar.css (.app-bar), compartilhado com atlas.html. */
 
 .admin-panel__main {
     flex: 1;

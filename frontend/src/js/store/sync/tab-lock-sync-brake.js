@@ -231,7 +231,7 @@ export async function releaseSyncBrake() {
             console.warn('[tab-lock] reconnect after takeover failed:', error);
             try {
                 showWarning(
-                    'Esta aba assumiu o projeto, mas não conseguiu reconectar ao servidor. '
+                    'Esta aba assumiu o atlas, mas não conseguiu reconectar ao servidor. '
                     + 'Recarregue a página para voltar a sincronizar.',
                     { duration: 8000 }
                 );

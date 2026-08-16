@@ -1,7 +1,7 @@
 // Path: tests/unit/projetos-nao-arrasta-a-store.test.js
 
 /**
- * @fileoverview `projetos.html` mede ~140 kB contra ~3,3 MB do mapa, e essa diferença é uma
+ * @fileoverview `atlas.html` mede ~140 kB contra ~3,3 MB do mapa, e essa diferença é uma
  * propriedade de IMPORT, não de intenção: um único `from '@store'`, `from '@utils'` ou
  * `from '@modals'` em qualquer arquivo de `src/js/projects/` traz a store inteira de volta pelo
  * caminho transitivo (`@utils` → `feature_navigation_utils` → `@store`). Nada estoura, nada
@@ -176,7 +176,7 @@ const RAIZES = execFileSync(
     .filter((linha) => linha.endsWith('.js'))
     .map((rel) => NORM(resolve(FRONT, rel)));
 
-describe('projetos.html: o inventário vem do git, não de uma lista escrita aqui', () => {
+describe('atlas.html: o inventário vem do git, não de uma lista escrita aqui', () => {
     it('acha os arquivos de src/js/projects/ e nenhum deles some da varredura', () => {
         // Cobertura vazia é o modo de falha desta classe: um `git ls-files` que devolvesse nada
         // deixaria todos os casos abaixo verdes sem verificar arquivo nenhum.
@@ -188,7 +188,7 @@ describe('projetos.html: o inventário vem do git, não de uma lista escrita aqu
     });
 });
 
-describe('projetos.html: o grafo de imports não alcança a store do mapa', () => {
+describe('atlas.html: o grafo de imports não alcança a store do mapa', () => {
     const grafo = percorrer(RAIZES);
 
     it('o caminhador resolveu TUDO (um alias quebrado esconderia o proibido)', () => {

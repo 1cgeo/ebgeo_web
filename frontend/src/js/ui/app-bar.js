@@ -1,7 +1,7 @@
 // Path: js/ui/app-bar.js
 
 /**
- * @fileoverview The top bar shared by the app's map-less PAGES (`admin.html`, `projetos.html`):
+ * @fileoverview The top bar shared by the app's map-less PAGES (`admin.html`, `atlas.html`):
  * brand on the left, then page actions, the signed-in identity, and "Sair".
  *
  * It exists because those pages cannot reuse `AccountControl` — that one is a MapLibre `IControl`

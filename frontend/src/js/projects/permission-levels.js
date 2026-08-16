@@ -10,7 +10,7 @@
  * atlas creator), and keeps the Drive's own 'Proprietário'.
  *
  * PURE DATA MODULE, deliberately dependency-free. It is consumed by
- * `projects/atlas-drive.js`, the body of `projetos.html`, a page that boots
+ * `projects/atlas-drive.js`, the body of `atlas.html`, a page that boots
  * WITHOUT the map, without `@store` and without `initServices()`. Importing
  * anything here that reaches the store (the `@utils` or `@modals` barrels do, via
  * transitive paths) would drag ~3 MB of map bundle into a ~140 kB page. Keep the

@@ -32,7 +32,7 @@ import { mountAdminPage } from './index.js';
 const MAP_URL = './';
 /** Where "Voltar" goes. Administração is reached FROM the chooser, so back means back to it — not
  *  to the map, which would skip the level the user came from. */
-const PROJECTS_URL = './projetos.html';
+const PROJECTS_URL = './atlas.html';
 
 const CONFIG_BOOT_ATTEMPTS = 3;
 const CONFIG_BOOT_RETRY_MS = 1000;

@@ -61,7 +61,7 @@ describeOrSkip('aparência do atlas', () => {
             await api.login(user.username, user.password);
             await api.createAtlas({ name: 'Projeto com aparência' });
             // OS TOKENS SAEM DAQUI. `login()` os persiste no localStorage, e o boot do mapa manda
-            // um visitante COM sessão numa URL nua para `projetos.html` — o reload da metade LOCAL
+            // um visitante COM sessão numa URL nua para `atlas.html` — o reload da metade LOCAL
             // deste caso nunca chegaria ao mapa. A conta continua existindo no servidor, que é
             // tudo o que a segunda metade precisa.
             api.clearTokens();

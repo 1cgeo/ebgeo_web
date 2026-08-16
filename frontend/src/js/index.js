@@ -65,16 +65,16 @@ async function initApp() {
 
     // Phase -1: page routing. A signed-in visitor arriving at a bare `/` is here to CHOOSE a
     // project, so send them to the chooser page BEFORE building a map they did not ask for — that
-    // is the whole point of `projetos.html` being a page. Everything else stays on the map: a deep
+    // is the whole point of `atlas.html` being a page. Everything else stays on the map: a deep
     // link (`?atlas`/`?atlasPublico`, or a `#view=` viewer link), a one-shot `?verify`, an explicit
     // "Mapa local", or nobody signed in at all. The rule itself lives in `route-decision.js`, where
     // a test can reach it.
     //
-    // Reads the token WITHOUT validating it: validation costs a round trip, and `projetos.html`
+    // Reads the token WITHOUT validating it: validation costs a round trip, and `atlas.html`
     // validates on arrival anyway — a token the server rejects is cleared there and the page sends
     // the user back here, now anonymous. That is what keeps the two redirects from ping-ponging.
     if (shouldRouteToProjects(bootAtlasLink, bootPublicLink, apiClient.hasStoredTokens())) {
-        window.location.replace('./projetos.html');
+        window.location.replace('./atlas.html');
         return;
     }
 
@@ -298,12 +298,12 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         // O 404 aqui cobre DOIS casos que o servidor não distingue de propósito: o atlas
         // não existe, e o atlas existe mas quem pede não tem nenhum vínculo com ele
         // (`resolvePermission` sem linha em `atlas_shares` responde NotFound, para não
-        // confirmar a existência a quem não deveria saber). "Projeto não encontrado" seco
+        // confirmar a existência a quem não deveria saber). "Atlas não encontrado" seco
         // manda o usuário procurar um erro de digitação num link que está correto; o 403
         // sobrou para o caso estreito de ter compartilhamento com nível insuficiente.
-        if (status === 403) showToast('Você não tem acesso a este projeto.', 'error');
-        else if (status === 404) showToast('Projeto não encontrado ou sem acesso.', 'error');
-        else showToast('Não foi possível abrir o projeto do servidor.', 'error');
+        if (status === 403) showToast('Você não tem acesso a este atlas.', 'error');
+        else if (status === 404) showToast('Atlas não encontrado ou sem acesso.', 'error');
+        else showToast('Não foi possível abrir o atlas do servidor.', 'error');
         console.warn('[boot] atlas open from URL failed:', error);
         clearAtlasUrl();
         return false; // origin reverted to local in openRemoteAtlas → reconnect is a no-op; land local

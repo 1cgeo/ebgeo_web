@@ -172,7 +172,7 @@ async function waitAtlasTabReady(page, atlas) {
  * @param {{id: string, mapName: string}} atlas
  */
 async function trocarDeProjeto(page, atlas) {
-    await page.goto('/projetos.html');
+    await page.goto('/atlas.html');
     const item = page.locator(`[data-testid="project-picker-item"][data-atlas-id="${atlas.id}"]`);
     await expect(item, `o projeto "${atlas.mapName}" aparece no seletor`).toBeVisible({ timeout: 20000 });
     await item.click();
@@ -275,7 +275,7 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         // Uma navegação de documento para fora e a volta pelo histórico, que é exatamente o gesto
         // que o bfcache serve.
         //
-        // O DESTINO NÃO PODE REDIRECIONAR, e a primeira versão usava `/projetos.html`, que
+        // O DESTINO NÃO PODE REDIRECIONAR, e a primeira versão usava `/atlas.html`, que
         // redireciona conforme a sessão (`shouldRouteToProjects`, `src/js/index.js`): a volta pelo
         // histórico caía numa navegação já cancelada e o `goBack` estourava
         // `net::ERR_ABORTED; maybe frame was detached?`. Isso reprovava o caso por um detalhe do
@@ -336,7 +336,7 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         // --- O GESTO: a aba B abre um projeto, e depois TROCA para outro. As duas metades
         //     rodam o wipe de entrada de `openRemoteAtlas`; a segunda é a troca atlas→atlas, que
         //     é o gesto exato do defeito. ---
-        const tabB = await openTab(ctx, '/projetos.html');
+        const tabB = await openTab(ctx, '/atlas.html');
         await trocarDeProjeto(tabB, X);
         await trocarDeProjeto(tabB, Y);
 

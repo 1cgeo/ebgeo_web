@@ -1,7 +1,7 @@
 /* Path: src/css/atlas-drive.css */
 
 /*
- * Atlas Drive — the project chooser ("Google Drive of maps"), the BODY of projetos.html. Content
+ * Atlas Drive — the project chooser ("Google Drive of maps"), the BODY of atlas.html. Content
  * toolbar (title + search + new) + filter tabs + a responsive card grid. BEM block: .atlas-drive.
  * The page's green top bar is .app-bar (app-bar.css), shared with admin.html.
  *
@@ -11,8 +11,7 @@
 /* Fills what the app bar leaves, as a flex child of <body> (base.css makes body a full-height flex
    column). NOT `position: fixed` — this is the page itself, so it must scroll and size like one. */
 .atlas-drive {
-    flex: 1;
-    min-height: 0;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     background: var(--gray-50);
@@ -146,10 +145,10 @@
     font-weight: var(--font-weight-semibold);
 }
 
+/* Sem rolagem própria: a página tem UMA barra, em `.projects-body`. A barra de tópico e a busca
+   ficam junto do conteúdo em vez de coladas, que é o preço, e é o preço certo — duas áreas de
+   rolagem faziam a roda do mouse agir diferente conforme onde o ponteiro estava. */
 .atlas-drive__grid {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: var(--space-4);

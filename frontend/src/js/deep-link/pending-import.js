@@ -2,7 +2,7 @@
 
 /**
  * @module deep-link/pending-import
- * @description The map's half of "Abrir arquivo .ebgeo": consume the archive that `projetos.html`
+ * @description The map's half of "Abrir arquivo .ebgeo": consume the archive that `atlas.html`
  * left in the global database, or decline and hand the boot back to the ordinary routing chain.
  *
  * IT LIVES HERE, out of `index.js`, for the reason `route-decision.js` states about its own rule:
@@ -23,7 +23,7 @@ import { getActiveScope, takePendingImport, StoreScopeKind } from '@store/atlas-
 /**
  * Imports the `.ebgeo` that "Seus atlas" left in the global database, if there is one.
  *
- * THE PAGE CANNOT IMPORT, AND THE MAP CANNOT CHOOSE. `projetos.html` has no store and no importer
+ * THE PAGE CANNOT IMPORT, AND THE MAP CANNOT CHOOSE. `atlas.html` has no store and no importer
  * (loading either is what makes it a ~140 kB page instead of a 3,3 MB one), so it creates the local
  * slot, points at it, parks the bytes under `GlobalKey.PENDING_IMPORT` and navigates. This is the
  * other half. The importer is the one that already exists — nothing about the archive is parsed
@@ -58,7 +58,7 @@ export async function consumePendingEbgeoImport({ hasDeepLink, getImporter, noti
     if (hasDeepLink || !landed) {
         notify(
             'O arquivo .ebgeo escolhido em "Seus atlas" não foi aberto porque esta aba entrou em '
-            + 'outro projeto. Escolha o arquivo novamente.',
+            + 'outro atlas. Escolha o arquivo novamente.',
             'warning'
         );
         return false;

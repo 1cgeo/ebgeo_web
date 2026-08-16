@@ -40,7 +40,7 @@ async function loginAndOpenCatalog(page, baseUrl, creds) {
     await page.locator('[data-testid="login-submit"]').click();
     // Login lands on the project chooser PAGE; "Mapa local" is a page's replacement for the old
     // picker close button.
-    await page.waitForURL('**/projetos.html', { timeout: 20000 });
+    await page.waitForURL('**/atlas.html', { timeout: 20000 });
     await page.locator('[data-testid="projects-local-map"]').click();
     await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
     await page.locator('[data-testid="account-control"] .account-control__identity').click();

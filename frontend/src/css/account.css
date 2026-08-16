@@ -13,7 +13,7 @@
  *   - .sync-status-badge   (connection-state badge, [data-state] driven)
  */
 
-/* The login dialog's own rules live in a file of their own: `projetos.html` shows the same
+/* The login dialog's own rules live in a file of their own: `atlas.html` shows the same
    dialog and must not import this control's stylesheet to get them. */
 @import url('./login-modal.css');
 

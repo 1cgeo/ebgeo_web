@@ -94,15 +94,15 @@ export function classifyFlushFailure(error) {
     if (status === 404 || status === 410) {
         return {
             kind: 'gone',
-            message: 'Este projeto não está mais disponível no servidor. Suas alterações '
+            message: 'Este atlas não está mais disponível no servidor. Suas alterações '
                 + 'continuam guardadas neste computador e não serão enviadas.',
         };
     }
     if (status === 403) {
         return {
             kind: 'permission',
-            message: 'Suas alterações não estão sendo salvas no servidor: seu acesso a este projeto '
-                + 'não permite mais edição. Peça permissão ao gestor do projeto.',
+            message: 'Suas alterações não estão sendo salvas no servidor: seu acesso a este atlas '
+                + 'não permite mais edição. Peça permissão ao gestor do atlas.',
         };
     }
     if (status === 401) {

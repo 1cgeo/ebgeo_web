@@ -35,6 +35,7 @@ import {
     getOrderedMapBadgeColors,
     isRemoteStoreSync,
 } from '@store/index.js';
+import config from '@js/config.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
 import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js';
@@ -230,6 +231,9 @@ export class MapsTab {
         // Comments section — the current map's spatial comments (open + resolved), where a
         // resolved comment can still be reviewed, plus the show/hide-all toggle and "new" button.
         this._commentsPanel = new CommentsPanel();
+        // Quem esconde a secao num atlas local e o PROPRIO painel (`comments-panel.js`), que ja e
+        // o dono do `hidden` daquele elemento e o reescreve a cada refresh. Um segundo escritor
+        // aqui era apagado no primeiro evento de comentario.
         this._container.appendChild(this._commentsPanel.render());
 
         // Settings button
@@ -272,7 +276,7 @@ export class MapsTab {
             { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao atlas atual' },
             // "Exportar", not "Salvar": it saves nothing, it generates a `.ebgeo` for download.
             { id: 'save', icon: MAPS_ICONS.save, label: 'Exportar', handler: () => this._handleSaveProject(), title: 'Exportar este atlas como arquivo .ebgeo' },
-            { id: 'share', icon: MAPS_ICONS.share, label: 'Compartilhar', handler: () => this._handleShare(), title: 'Escolher quem pode ver e editar este projeto', testid: 'maps-share' },
+            { id: 'share', icon: MAPS_ICONS.share, label: 'Compartilhar', handler: () => this._handleShare(), title: 'Escolher quem pode ver e editar este atlas', testid: 'maps-share' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar tudo', handler: () => this._handleClearAll(), title: 'Apagar todo o conteúdo deste atlas' },
         ];
 
@@ -414,6 +418,15 @@ export class MapsTab {
 
         const name = onRemote ? await this._resolveRemoteAtlasName() : this._resolveLocalAtlasName();
         this._atlasName = name;
+        // O TITULO DA JANELA leva o nome do atlas, e e daqui porque esta funcao ja resolve o nome
+        // nos DOIS casos (local pelo registro, remoto pela lista) e ja roda em toda troca que
+        // muda a resposta: conectar, desconectar, limpar, renomear. Um modulo proprio para isso
+        // repetiria a resolucao e as quatro assinaturas.
+        //
+        // Serve para escolher a aba certa entre varias abertas, que e onde o nome do arquivo
+        // sozinho nao ajuda ninguem.
+        const appTitle = config?.app?.title || 'EBGeo';
+        document.title = name ? `${appTitle} - ${name}` : appTitle;
 
         // Do not stomp on what the user is typing: a refresh triggered by a background event
         // (a peer connecting, a session refresh) would otherwise discard the edit in progress.
@@ -1302,7 +1315,7 @@ export class MapsTab {
      * Handles clearing all data.
      *
      * BEHAVIOUR IS UNCHANGED (`clearAllDataStore` empties the MOUNTED atlas and only it); the
-     * TEXT is what changed. "TODO o projeto" dates from when local and remote shared one set of
+     * TEXT is what changed. "TODO o atlas" dates from when local and remote shared one set of
      * databases, and with several named local atlases it reads as "everything on this machine".
      * Naming the atlas is the whole fix. The button is hidden on a server atlas, so the name
      * shown is always a local slot's; with no name available the wording degrades to the generic
@@ -1573,7 +1586,7 @@ export class MapsTab {
      * Abre as configurações DO PROJETO.
      *
      * Uma tela só, para qualquer atlas. Até 2026-08-16 este botão abria um modal exclusivo do
-     * exagero vertical, enquanto "Configurar projeto" (recursos, mapas base, catálogo) vivia
+     * exagero vertical, enquanto "Configurar atlas" (recursos, mapas base, catálogo) vivia
      * escondido no menu da conta e só existia para o Gestor de um atlas de servidor. Eram duas
      * telas chamadas "Configurações", e a que o usuário local alcançava tinha um controle.
      *

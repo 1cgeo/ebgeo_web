@@ -136,7 +136,7 @@ describe('quem pode MONTAR um escopo de atlas', () => {
     });
 
     // DOIS chamadores, e o segundo entrou de propósito em 2026-08-16, quando "Seus atlas"
-    // (`projetos.html`) passou a ser a UI dos atlas locais nomeados.
+    // (`atlas.html`) passou a ser a UI dos atlas locais nomeados.
     //
     // POR QUE ELE NÃO PODE PASSAR PELO DONO ANTIGO: `account/open-atlas.service.js` importa a store
     // inteira, e a página de projetos existe para não carregá-la (~140 kB contra ~3,3 MB do mapa).

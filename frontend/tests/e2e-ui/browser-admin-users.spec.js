@@ -44,7 +44,7 @@ async function loginThroughUi(page, baseUrl, creds) {
     await page.locator('[data-testid="login-submit"]').click();
     // Login lands on the project chooser PAGE (no atlas needed for admin work). A page has no
     // close button, so the way back to the map is its "Mapa local" action.
-    await page.waitForURL('**/projetos.html', { timeout: 20000 });
+    await page.waitForURL('**/atlas.html', { timeout: 20000 });
     await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 15000 });
     await page.locator('[data-testid="projects-local-map"]').click();
     await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });

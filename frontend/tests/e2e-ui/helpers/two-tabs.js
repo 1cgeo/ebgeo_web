@@ -468,7 +468,7 @@ export function classifySamples(samples) {
  * A gate asserting only "the badge is not online" cannot tell a BLOCKED tab from a tab that
  * fell through to the project picker from a tab that never booted; all three end on the same
  * assertion. This returns every one of those facts at once, so the assertion diff names which
- * happened. MEASURED: in one of six serial runs tab B landed on `projetos.html`, and the
+ * happened. MEASURED: in one of six serial runs tab B landed on `atlas.html`, and the
  * error read "element(s) not found" — an answer that pointed nowhere.
  *
  * `overlayTitle` is what separates the two states of that one overlay (blocked vs frozen); it is
@@ -501,7 +501,7 @@ export function tabDiagnostic(page) {
  *
  * IT NEVER THROWS, and that is the whole reason it exists instead of a
  * `expect(locator).toHaveText(...)`. The scenario that uses it (a sibling tab logging out) can
- * legitimately end with this tab on `projetos.html`, with its execution context destroyed
+ * legitimately end with this tab on `atlas.html`, with its execution context destroyed
  * mid-read, or still online — and a locator assertion reports all of those as "element(s) not
  * found", which points nowhere. The caller asserts on the returned snapshot, so the diff names
  * the state instead of the selector. A read that could not run at all comes back as `error`,

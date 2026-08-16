@@ -106,7 +106,7 @@ describe('permission-levels — pureza de módulo', () => {
         'utf8',
     );
 
-    it('não importa nada: projetos.html não carrega a store nem o mapa', () => {
+    it('não importa nada: atlas.html não carrega a store nem o mapa', () => {
         // Any import here (a @utils/@modals barrel above all) drags @store, and with it
         // MapLibre, into a page measured at ~140 kB against the map's ~3,3 MB.
         const imports = SOURCE.match(/^\s*import[\s{'"*]/gm) ?? [];

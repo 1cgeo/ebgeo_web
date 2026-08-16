@@ -1,7 +1,7 @@
 /* Path: src/css/projects-sections.css */
 
 /*
- * "Seus atlas" (projetos.html), the two sections and the column that holds them.
+ * "Seus atlas" (atlas.html), the two sections and the column that holds them.
  *
  * BEM blocks: .projects-body (the column), .local-atlas ("Neste computador") and .server-invite
  * (what stands where the server list goes while nobody is signed in). The server list itself is
@@ -12,10 +12,14 @@
  * never by colour alone; the styling below is emphasis, not information.
  */
 
-/* The page column: app bar above, these sections inside. */
+/* A coluna da página: barra superior acima, estas seções dentro.
+   UMA BARRA DE ROLAGEM SÓ, e ela é daqui. Antes cada metade rolava por dentro (a local com
+   `max-height`, a do servidor com a grade em `overflow-y`), então a roda do mouse fazia coisas
+   diferentes conforme onde o ponteiro estava, e a página inteira nunca rolava. */
 .projects-body {
     flex: 1;
     min-height: 0;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     background: var(--gray-50);
@@ -25,11 +29,9 @@
 
 /* ===== Neste computador ===== */
 
-/* Content height, capped: ten slots must not push the server list off the screen. */
+/* Altura de conteúdo, sem teto: quem rola é a página. */
 .local-atlas {
     flex: 0 0 auto;
-    max-height: 45vh;
-    overflow-y: auto;
     padding: var(--space-5) var(--space-6);
     background: #fff;
     border-bottom: var(--border-width) solid var(--border-color);

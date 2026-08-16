@@ -3,7 +3,7 @@
 // O GUARDA DE CODIGO MORTO PRECISA CONHECER AS QUATRO PAGINAS.
 //
 // O `knip.json` declarava uma unica entrada, `src/js/index.js`. O plugin do
-// Vite dentro do knip acha `index.html` sozinho, mas NAO acha `projetos.html`,
+// Vite dentro do knip acha `index.html` sozinho, mas NAO acha `atlas.html`,
 // `admin.html` nem `calibracao.html`. Consequencia: tudo que so essas tres
 // paginas alcancam ficava sem consumidor conhecido, e o knip reportava 18
 // arquivos "sem uso", dos quais 16 eram as tres paginas INTEIRAS, entry point
@@ -59,7 +59,7 @@ describe('o knip conhece todas as paginas do bundler', () => {
             `esperava as quatro paginas, o vite.config.js devolveu: ${paginas.join(', ')}`);
         assert.ok(paginas.includes('index.html'));
         assert.ok(paginas.includes('admin.html'));
-        assert.ok(paginas.includes('projetos.html'));
+        assert.ok(paginas.includes('atlas.html'));
         assert.ok(paginas.includes('calibracao.html'));
     });
 

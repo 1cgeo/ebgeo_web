@@ -802,7 +802,7 @@ describe('ATAQUE 3 - a ordem contra o clearAllDataStore', () => {
 
     it('3.6 CONFIRMADO: a cadeia de alcance da aba duplicada segue toda no codigo, e e por isso '
         + 'que o pre-voo tem de ficar', () => {
-        // (a) "Mapa local" em projetos.html grava a intencao e navega para o mapa.
+        // (a) "Mapa local" em atlas.html grava a intencao e navega para o mapa.
         expect(read('projects/projects-page.js'))
             .toMatch(/sessionStorage\.setItem\(LOCAL_INTENT_KEY, '1'\)/);
         // (b) origem REMOTE + sessao viva -> a aba nova ATIVA o namespace daquele atlas remoto.

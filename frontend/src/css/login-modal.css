@@ -5,7 +5,7 @@
  * actions and the secondary "Criar conta" link. BEM block: .login-modal.
  *
  * A FILE OF ITS OWN because the dialog now has TWO hosts. It lived inside `account.css`, which is
- * the map's account control (a MapLibre IControl), so `projetos.html` could only reach these rules
+ * the map's account control (a MapLibre IControl), so `atlas.html` could only reach these rules
  * by importing the whole control's stylesheet — and the chooser page has no account control at all.
  * `account.css` imports this file, so the map is unchanged and there is still ONE copy of the rules.
  *

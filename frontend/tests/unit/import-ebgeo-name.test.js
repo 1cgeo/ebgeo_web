@@ -38,7 +38,7 @@ describe('atlasNameFromFilename', () => {
         // é o que impede um 422 no meio do import.
         for (const entrada of ['', '   ', '.ebgeo', null, undefined]) {
             expect(atlasNameFromFilename(entrada), `entrada ${JSON.stringify(entrada)}`)
-                .toBe('Projeto importado');
+                .toBe('Atlas importado');
         }
     });
 });

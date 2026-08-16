@@ -57,14 +57,17 @@ export class CreateAtlasModal extends ModalBase {
      * @param {Function} [options.onCreate] - Called with (name, { isPublic, members }); returns
      *   a Promise (resolve closes the modal, reject keeps it open).
      */
-    constructor({ onCreate } = {}) {
+    constructor({ onCreate, defaultName = '' } = {}) {
         super({
             id: 'create-atlas-modal',
-            title: 'Novo projeto',
+            title: 'Novo atlas',
             icon: ICONS.folder,
             destroyOnHide: true,
         });
         this._onCreate = typeof onCreate === 'function' ? onCreate : null;
+        /** Nome sugerido. Enviar um atlas local ao servidor ja sabe como ele se chama, e fazer a
+         *  pessoa digitar de novo o nome que esta na tela e trabalho que a tela podia poupar. */
+        this._defaultName = typeof defaultName === 'string' ? defaultName : '';
         /** @type {boolean} */
         this._isPublic = false;
         /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
@@ -102,12 +105,12 @@ export class CreateAtlasModal extends ModalBase {
             <div class="sharing">
                 <section class="sharing-section">
                     <div class="settings-field">
-                        <label class="settings-field__label" for="create-atlas-name">Nome do projeto</label>
+                        <label class="settings-field__label" for="create-atlas-name">Nome do atlas</label>
                         <div class="sharing-search">
                             <input type="text" id="create-atlas-name" class="sharing-search__input"
                                    data-action="name" data-testid="create-atlas-name"
                                    placeholder="Ex.: Operação Fronteira" autocomplete="off" maxlength="120"
-                                   aria-label="Nome do projeto">
+                                   aria-label="Nome do atlas">
                         </div>
                     </div>
                 </section>
@@ -269,6 +272,11 @@ export class CreateAtlasModal extends ModalBase {
             addScopedDomListener(this, 'body', nameInput, 'keydown', (e) => {
                 if (e.key === 'Enter') this._handleCreate();
             });
+            if (this._defaultName) {
+                nameInput.value = this._defaultName;
+                // Selecionado, nao so preenchido: aceitar e Enter, e trocar e digitar por cima.
+                nameInput.select();
+            }
             nameInput.focus();
         }
 

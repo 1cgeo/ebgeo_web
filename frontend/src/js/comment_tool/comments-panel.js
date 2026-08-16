@@ -13,6 +13,7 @@
 
 import { getComments, getCurrentMapNameSync, getAllMapNamesStore, setCurrentMap } from '@store';
 import { getControl } from '@store/control.registry.js';
+import { isRemoteStoreSync } from '@store/store-origin.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
@@ -143,9 +144,18 @@ export class CommentsPanel {
 
         const hasComments = Object.values(this._comments).some((c) => c && !c.parentId);
         const canComment = this._canComment();
-        // Logged out with NO comments → hide the whole section. With comments (e.g. from an imported
-        // .ebgeo) → show it READ-ONLY (no "+"). Logged in → show it with the "+" to add.
-        const shouldShow = canComment || hasComments;
+        // ATLAS LOCAL NAO TEM COMENTARIO, e a condicao vem primeiro porque manda em todas as
+        // outras: comentario e conversa, e ali nao ha com quem conversar (decisao do dono,
+        // 2026-08-16). Vale ate com comentarios ja no banco, vindos de um `.ebgeo` importado --
+        // mostra-los seria oferecer uma discussao que nao existe mais.
+        //
+        // O GATE MORA AQUI, e nao em quem monta a aba, porque este metodo e o DONO do `hidden`
+        // deste elemento: um segundo escritor la fora era sobrescrito no primeiro refresh, e o
+        // painel voltava sozinho. Dois donos do mesmo atributo e sempre o de dentro que ganha.
+        //
+        // Sem atlas remoto → esconde. Com atlas remoto e deslogado SEM comentario → esconde. Com
+        // comentario → mostra em leitura (sem "+"). Logado com permissao → mostra com o "+".
+        const shouldShow = isRemoteStoreSync() && (canComment || hasComments);
         this._container.hidden = !shouldShow;
         if (!shouldShow) return;
         if (this._newBtn) this._newBtn.hidden = !canComment;

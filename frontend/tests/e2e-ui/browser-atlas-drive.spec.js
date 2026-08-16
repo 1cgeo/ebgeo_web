@@ -1,7 +1,7 @@
 // Path: e2e-ui/browser-atlas-drive.spec.js
 
 /**
- * Frente 1 (Drive) — card actions. On the atlas Drive page (`projetos.html`), each card's ⋯ menu
+ * Frente 1 (Drive) — card actions. On the atlas Drive page (`atlas.html`), each card's ⋯ menu
  * drives rename / "make a copy" / move-to-trash against the existing atlas endpoints
  * (PUT /atlas/:id, POST /atlas/:id/clone, DELETE /atlas/:id). Real browser + real backend.
  */
@@ -34,7 +34,7 @@ async function openDrive(page, atlasNames) {
     await page.locator('[data-testid="login-submit"]').click();
     // The Drive is a PAGE since 2026-08-05: login navigates to it. The `project-picker-*` testids
     // were kept verbatim through the move, so everything below this line is unchanged.
-    await page.waitForURL('**/projetos.html', { timeout: 20000 });
+    await page.waitForURL('**/atlas.html', { timeout: 20000 });
     await expect(page.locator('[data-testid="project-picker-modal"]')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('[data-testid="project-picker-item"]').first()).toBeVisible({ timeout: 10000 });
     return creds;

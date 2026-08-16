@@ -3,7 +3,7 @@
 /**
  * @module deep-link/local-intent
  * @description "I chose to work on the local map" — the one escape hatch from the boot rule that
- * sends a signed-in user to `projetos.html`.
+ * sends a signed-in user to `atlas.html`.
  *
  * Without it a signed-in user can never reach the local workspace, and the local workspace is a real
  * state: it is the only place "Enviar ao servidor" applies, and the only thing an `.ebgeo` file

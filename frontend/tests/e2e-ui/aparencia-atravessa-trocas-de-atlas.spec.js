@@ -17,7 +17,7 @@ import { readState } from './state.js';
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-const PROJETOS = '/projetos.html';
+const PROJETOS = '/atlas.html';
 
 function lerAparencia(page) {
     return page.evaluate(async () => {

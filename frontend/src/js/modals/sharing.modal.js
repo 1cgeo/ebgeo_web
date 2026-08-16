@@ -649,7 +649,7 @@ export class SharingModal extends ModalBase {
     async _handleTransfer(userId, nome) {
         if (this._busy || !userId) return;
         const ok = await showConfirm(
-            `Tornar ${nome || 'este membro'} o novo dono do projeto? Você deixará de ser o dono e passará a Gestor.`,
+            `Tornar ${nome || 'este membro'} o novo dono do atlas? Você deixará de ser o dono e passará a Gestor.`,
             { destructive: true, confirmText: 'Transferir' }
         );
         if (!ok) return;

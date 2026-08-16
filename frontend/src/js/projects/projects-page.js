@@ -2,7 +2,7 @@
 
 /**
  * @module projects/projects-page
- * @description Entry point of `projetos.html` — "Seus atlas", the one place that lists BOTH halves
+ * @description Entry point of `atlas.html` — "Seus atlas", the one place that lists BOTH halves
  * of the product: the atlases stored in this browser and the projects on the server.
  *
  * Signing in used to drop you on the map with a full-screen chooser floating over it; the map you
@@ -137,8 +137,8 @@ function clearSplash() {
 
 /** Why the map sent the user here, and how to say it. */
 const ARRIVAL_NOTICES = Object.freeze({
-    excluido: 'Projeto excluído.',
-    'excluido-por-outro': 'Este projeto foi excluído pelo proprietário.',
+    excluido: 'Atlas excluído.',
+    'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
 });
 
 /**
@@ -545,7 +545,7 @@ function buildActions() {
         label: 'Mapa local',
         icon: ICON_MAP,
         testid: 'projects-local-map',
-        title: 'Trabalhar no mapa local, sem projeto do servidor',
+        title: 'Trabalhar no mapa local, sem atlas do servidor',
         onClick: goToLocalMap,
     }];
     if (sessionContext.isAdmin()) {
@@ -598,7 +598,7 @@ async function initProjectsPage() {
         const [list, extras] = await Promise.all([
             apiClient.listAtlas().catch((error) => {
                 console.error('[projects] listAtlas failed:', error);
-                showError('Não foi possível carregar a lista de projetos.');
+                showError('Não foi possível carregar a lista de atlas.');
                 return null;
             }),
             apiClient.getAtlasOverview().catch((error) => {

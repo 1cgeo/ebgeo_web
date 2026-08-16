@@ -36,7 +36,7 @@ function truncateName(name, max = 30) {
 
 /** Overlay theme per file type. */
 const OVERLAY_THEME = {
-    EBGEO:      { bg: 'rgba(40, 167, 69, 0.85)',  border: '#28a745', icon: '', label: 'Importar Projeto' },
+    EBGEO:      { bg: 'rgba(40, 167, 69, 0.85)',  border: '#28a745', icon: '', label: 'Importar Atlas' },
     GEO_IMPORT: { bg: 'rgba(0, 123, 255, 0.85)',  border: '#007bff', icon: '', label: 'Importar Geometrias' },
     IMAGE:      { bg: 'rgba(255, 193, 7, 0.85)',   border: '#ffc107', icon: '', label: 'Adicionar Imagem' },
     INVALID:    { bg: 'rgba(220, 53, 69, 0.85)',   border: '#dc3545', icon: '', label: 'Arquivo não suportado' },
@@ -232,11 +232,11 @@ class DragDropHandler {
 
         const title = document.createElement('h3');
         title.className = 'import-mode-modal__title';
-        title.textContent = 'Importar Projeto';
+        title.textContent = 'Importar Atlas';
 
         const description = document.createElement('p');
         description.className = 'import-mode-modal__description';
-        description.textContent = 'Como deseja importar este projeto?';
+        description.textContent = 'Como deseja importar este atlas?';
 
         const actions = document.createElement('div');
         actions.className = 'import-mode-modal__actions';
