@@ -1154,8 +1154,22 @@ export class AccountControl {
                 // safe from the SWEEP. It is here for the call in between: `clearAllDataStore`
                 // empties the namespace THIS tab has mounted, and a notice sent from inside the
                 // sweep would arrive after that.
+                //
+                // E O WIPE SÓ ALCANÇA UM ATLAS DE SERVIDOR. `clearAllDataStore` esvazia o atlas
+                // que ESTA aba montou, e depois do namespace por atlas esse atlas pode ser LOCAL:
+                // basta o usuário ter importado um `.ebgeo` (que agora cria um slot local e troca
+                // para ele) ou estar em "Mapa local". Nesse estado, sair da conta apagava o
+                // projeto LOCAL do usuário, que nunca teve nada a ver com a sessão que terminou.
+                //
+                // O que a saída da conta precisa destruir é dado de SERVIDOR, e disso já cuida
+                // `discardRemoteAtlasNamespaces`, que é derivado do registro remoto e alcança
+                // inclusive o namespace que outra aba abriu. Com o atlas montado sendo local não
+                // há o que este wipe termine: ele só destrói trabalho que ninguém pediu para
+                // destruir.
                 await announceRemoteNamespaceTeardown();
-                await clearAllDataStore();
+                if (isRemoteStoreSync()) {
+                    await clearAllDataStore();
+                }
                 await discardRemoteAtlasNamespaces();
             }
             // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop

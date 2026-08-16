@@ -1135,16 +1135,23 @@ describe('resgate de trabalho não sincronizado no logout involuntário', () => 
  * @returns {Promise<void>}
  */
 async function importarComAtlasDeServidorAberto() {
+    // `switchToNewLocalAtlas` passa por `clearAllDataStore`, que precisa do container de
+    // serviços montado (ele toca o layerManager). É o mesmo boot que os outros grupos usam.
+    await iniciarServicos();
     await localApi.initLocalAtlases();
     await remoteApi.activateRemoteAtlas(X);
     await origem.markStoreRemote(X);
 
-    // O que `clearAllDataStore` faz AUTENTICADO: esvazia o escopo ativo e marca LOCAL.
-    const { clearAllAtlasStores } = await import('@store/repository.js');
-    await clearAllAtlasStores();
-    await origem.markStoreLocal();
+    // O IMPORT REAL, e não um `setItem` no escopo ativo. Modelar o import como uma escrita crua
+    // era fiel ao código de quando este helper foi escrito, e deixou de ser: o import de
+    // `.ebgeo` dentro de um atlas de servidor passou a CRIAR um slot local e TROCAR para ele
+    // (`switchToNewLocalAtlas`, o único caminho até um atlas local novo). Um helper que ainda
+    // escreve no escopo montado mede o defeito que o produto já não tem, e por isso este caso
+    // continuava vermelho depois de a correção existir.
+    const { switchToNewLocalAtlas } = await import('@js/account/open-atlas.service.js');
+    await switchToNewLocalAtlas('Projeto Importado');
 
-    // O import escreve no escopo ativo.
+    // E aí sim o import escreve, no escopo que a troca montou.
     await ns.getStore(ns.StoreName.MAPS).setItem(SENT_LOCAL, { origem: 'ebgeo' });
 }
 
@@ -1184,25 +1191,45 @@ describe('import .ebgeo sob namespace', () => {
         expect(await vivo('ebgeo_maps', SENT_LOCAL)).toBe(true);
     });
 
-    // VERMELHO SE: o import deixa de escrever no escopo do atlas de servidor. Este é o "antes"
-    // do caso abaixo: o projeto importado EXISTE, e existe dentro do namespace remoto.
-    it('CONTROLE: o projeto importado nasce dentro do namespace do atlas de servidor', async () => {
+    // CONTROLE, REESCRITO em 2026-08-15 junto com o helper. Ele afirmava que o projeto importado
+    // nasce DENTRO do namespace do atlas de servidor, que era o defeito, e o helper o produzia
+    // escrevendo à mão no escopo montado. Hoje o import cria um slot LOCAL e troca para ele
+    // (`switchToNewLocalAtlas`), então o "antes" do caso seguinte é outro: o projeto existe, e
+    // existe num banco que NÃO é o do servidor.
+    //
+    // VERMELHO SE: o import voltar a escrever no escopo montado, ou deixar de escrever.
+    it('CONTROLE: o projeto importado nasce em um slot LOCAL próprio, fora do namespace do servidor', async () => {
         await importarComAtlasDeServidorAberto();
 
+        const onde = await ondeEstaLegivel(SENT_LOCAL);
+        // Existe em algum lugar (senão "sobreviveu" abaixo seria satisfeito por nunca ter havido
+        // nada), e esse lugar NÃO é o namespace do atlas de servidor.
+        expect(onde).toHaveLength(1);
+        expect(onde).not.toContain(remoteMapsDb(X));
+        expect(onde[0]).toMatch(/^ebgeo_maps__/);
+        // E a origem é LOCAL: a troca de atlas declarou o que montou.
         expect(origem.isRemoteStoreSync()).toBe(false);
-        expect(ns.resolveDbName(ns.StoreName.MAPS)).toBe(remoteMapsDb(X));
-        expect(await ondeEstaLegivel(SENT_LOCAL)).toEqual([remoteMapsDb(X)]);
     });
 
-    // FECHA EM: E3 (o import não-aditivo cria um atlas LOCAL novo). VERDE HOJE porque a
-    // varredura do logout é derivada do registro remoto e ignora o marcador de origem: ela
-    // apaga o namespace inteiro, e com ele o projeto que o usuário acabou de importar.
-    it.fails('o projeto importado sobrevive à próxima carga deslogada', async () => {
+    // FECHADO POR E3 + P4, promovido de `it.fails` em 2026-08-15. Era verde-como-defeito porque
+    // o import escrevia no escopo montado (o do servidor) e a varredura do logout, derivada do
+    // registro remoto, apagava o namespace inteiro e com ele o projeto recém-importado.
+    //
+    // AO PROMOVER foi preciso consertar o HELPER antes: ele modelava o import como um `setItem`
+    // cru no escopo ativo, que é exatamente o que o import deixou de fazer, então o caso
+    // continuava vermelho depois de a correção existir. Um teste que modela o mundo antigo não
+    // reconhece o conserto.
+    it('o projeto importado sobrevive à próxima carga deslogada', async () => {
         await importarComAtlasDeServidorAberto();
 
-        await remoteApi.purgeAllRemoteAtlases();
+        const relatorio = await remoteApi.purgeAllRemoteAtlases();
 
+        // O projeto importado continua legível...
         expect(await ondeEstaLegivel(SENT_LOCAL)).not.toEqual([]);
+        // ...e a varredura REALMENTE rodou, senão "sobreviveu" não distingue a correção de uma
+        // varredura que não varreu nada.
+        expect(relatorio.registered).toContain(X);
+        expect(await databaseState(remoteMapsDb(X))).toBe('absent');
     });
 });
 

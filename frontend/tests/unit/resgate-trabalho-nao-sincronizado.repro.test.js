@@ -354,6 +354,40 @@ describe('_handleLogout :: o resgate está ligado', () => {
         expect(aindaComTrabalho(ATLAS)).toEqual([]);
         expect(localApi.listLocalAtlases().map(a => a.name)).not.toContain('Operação Alfa');
     });
+
+    // SAIR DA CONTA NÃO PODE APAGAR O PROJETO LOCAL DO USUÁRIO.
+    //
+    // `clearAllDataStore` esvazia o atlas que ESTA aba montou, e depois do namespace por atlas
+    // esse atlas pode perfeitamente ser LOCAL: basta o usuário ter importado um `.ebgeo` (que
+    // cria um slot local e troca para ele) ou estar em "Mapa local". Nesse estado o logout
+    // apagava um projeto que nunca teve relação com a sessão que terminou.
+    //
+    // O que a saída da conta deve destruir é dado de SERVIDOR, e disso cuida
+    // `discardRemoteAtlasNamespaces`, que é derivado do registro remoto. Com um atlas LOCAL
+    // montado não há o que aquele wipe termine.
+    it('logout com um atlas LOCAL montado NÃO apaga o projeto local', async () => {
+        await localApi.initLocalAtlases();
+        const { atlas } = await localApi.createLocalAtlas('Projeto Importado');
+        await localApi.setCurrentLocalAtlas(atlas.id);
+        ns.activateScope(localApi.scopeOfLocalAtlas(atlas));
+        await origem.markStoreLocal();
+
+        const bancoLocal = ns.resolveDbName(ns.StoreName.MAPS);
+        await ns.getStore(ns.StoreName.MAPS).setItem('__trabalho_local__', { do: 'usuário' });
+        // ANTES (positivo): sem isto, "o trabalho sobreviveu" não se distingue de "nunca existiu".
+        expect(await ns.getStore(ns.StoreName.MAPS).getItem('__trabalho_local__')).toBeTruthy();
+
+        const control = await controleSemDOM();
+        engine.atlasId = null;   // a aba não tem atlas de servidor montado
+        await control._handleLogout({ involuntary: false });
+
+        expect(
+            await ns.getStoreFor(ns.StoreName.MAPS, localApi.scopeOfLocalAtlas(atlas))
+                .getItem('__trabalho_local__'),
+            `sair da conta esvaziou o projeto LOCAL do usuário (${bancoLocal})`,
+        ).toEqual({ do: 'usuário' });
+        expect(localApi.listLocalAtlases().map(a => a.name)).toContain('Projeto Importado');
+    });
 });
 
 // ============================================================================
