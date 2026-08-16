@@ -72,6 +72,8 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { utimes } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
 import {
@@ -250,25 +252,49 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         // (`ReferenceError: localforage is not defined` num módulo `?t=`, `Execution context was
         // destroyed` em dois casos que não navegam, e `Failed to fetch` na semeadura).
         //
-        // "Não recarregou" e "recarrega, mas não nesta rodada" dariam a mesma leitura, então o que
-        // se assere é a AUSÊNCIA DO CANAL: nenhum WebSocket de volta para a origem do app (o do
-        // app vai para o backend, outra origem) e nenhum módulo buscado com o cache-bust de HMR.
+        // A ASSERÇÃO MUDOU DEPOIS DE UMA MEDIÇÃO, e a versão anterior era forte demais. Ela exigia
+        // a AUSÊNCIA DO CANAL (nenhum WebSocket de volta para a origem do app), e isso é
+        // inalcançável no Vite 8: medido em 2026-08-15, `curl` no dev server servido por
+        // `vite.e2e.config.js` devolve um HTML que injeta `/@vite/client` MESMO com `hmr: false`,
+        // e o cliente abre `ws://localhost:<porta>/?token=...`. Ou seja, `hmr: false` desliga o
+        // HMR sem remover o canal.
+        //
+        // O QUE PROTEGE A MEDIÇÃO, ENTÃO, É `watch: null`: sem watcher, nada dispara invalidação e
+        // o canal não tem o que empurrar. Como isso é uma afirmação sobre COMPORTAMENTO e não
+        // sobre topologia, ela é provada pelo EXPERIMENTO em vez de por proxy: tocamos um arquivo
+        // de `src/` durante a medição, que é exatamente o gesto que derrubou 6 de 10 casos deste
+        // arquivo, e exigimos que nada seja re-servido e que a página não navegue.
+        //
+        // O toque é um `utimes` (só o mtime muda, byte nenhum), então ele não pode quebrar nada
+        // nem sujar a árvore, e é o sinal que um watcher escuta.
         test.setTimeout(60000);
 
         const ctx = await createTabContext(browser, state.baseUrl);
         const tab = await openTab(ctx, '/');
         await waitMapLoaded(tab);
-        // A janela de reconexão do cliente de HMR é de ~1 s; sem ela o socket poderia
-        // simplesmente ainda não ter sido aberto quando o mapa carrega.
         await tab.waitForTimeout(3000);
 
-        const eventos = hmrEventsOf(tab);
-        expect(eventos.navigations.length, 'o instrumento registrou a navegação inicial (não está cego)')
+        const navegacoesAntes = hmrEventsOf(tab).navigations.length;
+        expect(navegacoesAntes, 'o instrumento registrou a navegação inicial (não está cego)')
             .toBeGreaterThan(0);
-        expect(eventos.sockets, 'nenhum WebSocket de HMR: o servidor do e2e não tem canal para empurrar reload')
-            .toEqual([]);
-        expect(eventos.modules, 'nenhum módulo re-servido com ?t=<epoch>: nada foi invalidado durante a medição')
-            .toEqual([]);
+
+        // O ATO: tocar um arquivo que a página TEM carregado, para que uma invalidação, se
+        // houvesse watcher, alcançasse esta aba.
+        const alvo = fileURLToPath(new URL('../../src/js/store/atlas-namespace.js', import.meta.url));
+        const agora = new Date();
+        await utimes(alvo, agora, agora);
+        await tab.waitForTimeout(4000);
+
+        const eventos = hmrEventsOf(tab);
+        expect(
+            eventos.modules,
+            'um arquivo de src foi TOCADO durante a medição e nenhum módulo foi re-servido com '
+            + '?t=<epoch>: o watcher está mesmo desligado',
+        ).toEqual([]);
+        expect(
+            eventos.navigations.length,
+            'e a página não navegou por conta própria depois do toque',
+        ).toBe(navegacoesAntes);
     });
 
     test('A0a — duas abas no MESMO atlas LOCAL colidem (a regra do ENDEREÇO, sem a espera)', async ({ browser }) => {
@@ -397,12 +423,20 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
     });
 
     test('A1 — duas abas em atlas DISTINTOS: as duas vivem e não vazam uma na outra', async ({ browser }, testInfo) => {
-        // PENDENTE (E7). `keysCollide` still returns true for any remote x remote pair
-        // (`src/js/utilities/tab-lock.js`, the "TWO REMOTE ATLASES STILL COLLIDE" block), so tab B
-        // is blocked instead of going online. The gate is a SINGLE composite assertion about what
-        // tab B became, so "blocked", "fell through to the project picker" and "never booted" are
-        // three different diffs instead of one shared "badge is not online". E7 deletes the marker.
-        test.fail();
+        // FECHADO POR E7, e este é o portão da fase inteira: a retenção remoto x remoto saiu de
+        // `keysCollide`, e duas abas em atlas de servidor DIFERENTES passaram a coexistir de
+        // verdade, em navegador, com os dois conjuntos de bancos no disco. Medido na primeira
+        // rodada em que o marcador caiu: `ebgeo__remote-6bbceb76…` e `ebgeo__remote-d155ac8c…`
+        // lado a lado, e a aba B online no atlas Y.
+        //
+        // O gate continua sendo uma asserção COMPOSTA sobre o que a aba B virou, e isso não é
+        // estilo: "bloqueada", "caiu no seletor de projetos" e "nunca bootou" produzem três
+        // diffs diferentes, em vez de um único "o badge não está online" que não diria qual dos
+        // três aconteceu.
+        //
+        // O CONTROLE NEGATIVO DESTE CASO É O A2 (duas abas no MESMO atlas, a segunda BLOQUEADA).
+        // Sem ele, "as duas abas passaram" seria indistinguível de um predicado que virou
+        // sempre-falso, que é literalmente a mudança que E7 fez.
         test.setTimeout(120000);
 
         const resultado = await pendingGate(testInfo, {
@@ -633,11 +667,15 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
     });
 
     test('A4 — visitante de link público não polui o atlas LOCAL', async ({ browser }, testInfo) => {
-        // PENDENTE (E1). `openPublicAtlasFromUrl` (`src/js/index.js`) activates the remote namespace
-        // and then calls `clearAllDataStore()`, which — with nobody authenticated — purges the
-        // remote registry and re-points the store at a LOCAL slot, so the public snapshot is written
-        // into the visitor's own atlas. Closed by E1 (a varredura sai do wipe).
-        test.fail();
+        // FECHADO POR E1, e este caso é a prova em navegador daquela etapa. O defeito:
+        // `openPublicAtlasFromUrl` (`src/js/index.js`) ativava o namespace remoto e chamava
+        // `clearAllDataStore()` três linhas depois; sem ninguém autenticado, aquele wipe varria o
+        // registro remoto e re-apontava a store para um slot LOCAL, então o snapshot público era
+        // escrito dentro do atlas do próprio visitante e ficava lá.
+        //
+        // E1 tirou a varredura de dentro do wipe: ela passou a ser chamada POR NOME, nos dois
+        // caminhos que significam "a sessão acabou". Um visitante anônimo de link público não é
+        // um deles.
         test.setTimeout(120000);
 
         await pendingGate(testInfo, {

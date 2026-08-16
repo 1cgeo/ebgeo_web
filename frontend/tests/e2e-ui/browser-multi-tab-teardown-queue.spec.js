@@ -272,9 +272,17 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
             'controle positivo: o marcador existe ANTES da navegação',
         ).toBe('vivo');
 
-        // Uma navegação de documento para fora e a volta pelo histórico, que é exatamente o
-        // gesto que o bfcache serve.
-        await tab.goto('/projetos.html');
+        // Uma navegação de documento para fora e a volta pelo histórico, que é exatamente o gesto
+        // que o bfcache serve.
+        //
+        // O DESTINO NÃO PODE REDIRECIONAR, e a primeira versão usava `/projetos.html`, que
+        // redireciona conforme a sessão (`shouldRouteToProjects`, `src/js/index.js`): a volta pelo
+        // histórico caía numa navegação já cancelada e o `goBack` estourava
+        // `net::ERR_ABORTED; maybe frame was detached?`. Isso reprovava o caso por um detalhe do
+        // roteamento do produto, não pelo que ele mede. `/` com outra query é navegação de
+        // DOCUMENTO (nova entrada no histórico, documento reexecutado) e, anônimo, fica no mapa.
+        await tab.goto('/?bfcache-probe=1');
+        await tab.waitForLoadState('domcontentloaded');
         await tab.goBack();
         await tab.waitForLoadState('domcontentloaded');
 
