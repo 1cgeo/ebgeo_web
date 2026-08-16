@@ -49,7 +49,7 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - *Snapshot do mapa ao fechar o atlas*: obriga a renderizar fora da tela num momento em que o usuário está saindo, e produz miniatura que envelhece sem aviso: o cartão passaria a mostrar um mapa que já não é aquele.
   - *Upload manual de miniatura*: mais infraestrutura (armazenamento, limite, invalidação) para um identificador que a faixa colorida já dá de graça e sem envelhecer.
 - **Consequências:** o Drive não tem dependência de imagem por atlas. A miniatura que EXISTE no projeto é outra coisa e continua valendo: é a do **catálogo** (basemaps, modelos 3D e camadas), embutida como data URL no `config` do recurso com teto de 256 KB. Confundir as duas leva a procurar infraestrutura que não existe. Se um dia a miniatura de atlas voltar, ela precisa resolver o envelhecimento, que é o motivo real da recusa.
-- **Status:** aceita. O resumo operativo (uma linha, na lista de decisões menores) vive em [`../wiki/sintese-decisoes-arquiteturais.md`](../wiki/sintese-decisoes-arquiteturais.md); aqui fica a alternativa rejeitada, que é o que não cabe lá.
+- **Status:** SUPERADA em 2026-08-16 pela decisão "capa de atlas enviada pelo usuário", abaixo. A metade que **continua valendo** é a que a recusa protegia: nada de snapshot automático do mapa. O resumo operativo (uma linha, na lista de decisões menores) vive em [`../wiki/sintese-decisoes-arquiteturais.md`](../wiki/sintese-decisoes-arquiteturais.md); aqui fica a alternativa rejeitada, que é o que não cabe lá.
 
 ---
 
@@ -113,3 +113,16 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - **O que NÃO muda:** o vocabulário continua quádruplo (tipo, chave de armazenamento, id de ferramenta e nome da classe do control), `frontend/src/js/map_sig.js` continua com três registries, a ordem das chamadas de `frontend/src/js/layers/layer_setup.js` continua sendo o z-order escrito à mão, e o backend continua exigindo quatro edições manuais por tipo novo. O custo cai; não vai a zero.
   - **O preço do desenho do guarda:** a checagem de completude é por PRESENÇA do nome no texto do arquivo, não por extrator ancorado por arquivo. Nove regexes seriam nove maneiras de parar de extrair em silêncio, e este repositório já pagou por extrator que virou "as listas divergiram" quando a verdade era "a âncora quebrou". Em troca, um nome citado só num comentário conta como presente.
 - **Status:** aceita. Não supera decisão anterior nenhuma.
+
+---
+
+### 2026-08-16: capa de atlas enviada pelo usuário (supera a recusa de 2026-07-25)
+
+- **Contexto:** a recusa de 2026-07-25 tratou "miniatura" como uma coisa só e mediu as duas pelo mesmo critério, o envelhecimento. Isso vale para o snapshot automático do mapa, que apodrece sozinho, e **não** vale para uma imagem que uma pessoa escolheu: ela envelhece quando quem a escolheu quiser. O dono reabriu pedindo mais informação no cartão de projeto, e o argumento de custo ("infraestrutura para o que a faixa colorida já dá de graça") também mudou de valor: o cartão passou a carregar participantes e presença, então a faixa deixou de ser o único identificador e virou o fundo de tudo isso.
+- **Decisão:** o atlas ganha uma **capa opcional**, enviada pela tela de projetos (`PUT /atlas/:id/cover`, gate `write`, o mesmo de renomear). Os bytes vivem em `atlas_covers` (tabela à parte, `BYTEA`), e o cliente reduz a imagem antes de subir (`frontend/src/js/projects/cover-image.js`, teto de 120 kB por capa contra 512 kB de guarda no servidor). Sem capa, a faixa colorida com iniciais continua sendo a identidade, sem mudança nenhuma. **Continua descartado o snapshot automático do mapa**, pela razão original, que ninguém contestou.
+- **Alternativas rejeitadas:**
+  - *Coluna em `atlas`*: quatro superfícies do cliente chamam `listAtlas()` e três delas só querem id e nome; `SELECT a.*` faria a imagem viajar em toda troca de mapa. Tabela à parte é o que mantém a listagem do tamanho que era.
+  - *Guardar a data URI como `TEXT`*: 33% maior e, pior, guarda sem conferir. Em `BYTEA` o serviço decodifica na borda e casa o número mágico com o mime declarado, que é a mesma allowlist do upload de imagem (png/jpeg/webp, sem svg) — sem isso `image/webp` é um rótulo que qualquer cliente digita sobre qualquer coisa.
+  - *Rota de imagem por atlas (`GET /atlas/:id/cover` servindo bytes)*: a tela autentica por cabeçalho `Bearer` e `<img src>` não manda cabeçalho, então cada cartão precisaria de um `fetch` para object URL. As capas voltam como data URI num pedido só.
+- **Consequências:** existe agora infraestrutura de imagem POR ATLAS, que não existia (a do catálogo é outra coisa, e continua sendo). O `GET /atlas/overview` que carrega as capas carrega também participantes e presença, e é a única rota da família cujo escopo mora **dentro da consulta** em vez de vir de `requireAtlasPermission`, porque ela não fala de um atlas. Quem mexer nela precisa manter o predicado de escopo, coberto por `backend/tests/integration/atlas-cartao-projeto.test.js`.
+- **Status:** aceita. Supera a metade "sem upload de miniatura" da decisão de 2026-07-25.

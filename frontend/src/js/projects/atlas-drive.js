@@ -26,6 +26,7 @@ import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showPrompt } from '@modals/prompt.modal.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { fileToCoverPayload } from './cover-image.js';
 import {
     setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
 } from '@utils/event-cleanup.js';
@@ -39,7 +40,11 @@ const ICONS = {
     globe: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
     search: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
     upload: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>`,
+    lock: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
 };
+
+/** Avatars drawn on a card before the rest collapses into "+N". */
+const MAX_CARD_AVATARS = 4;
 
 const FILTERS = [
     { key: 'recentes', label: 'Recentes' },
@@ -75,6 +80,10 @@ export class AtlasDrive {
      * @param {Function} options.onPick - Called with the picked atlas id.
      * @param {Function} [options.onCreate] - Called with (name, sharing) for "Novo projeto".
      * @param {Function} [options.onImport] - Called with the chosen `.ebgeo` File.
+     * @param {{atlases: Object[], covers: Object, presence: Object}} [options.overview] - The card
+     *   extras from `apiClient.getAtlasOverview()`. Omitted, cards draw name and permission alone,
+     *   which is what they did before this existed — the page must stay usable when the extra
+     *   request fails.
      */
     constructor(options = {}) {
         this._projects = Array.isArray(options.projects) ? options.projects : [];
@@ -90,7 +99,45 @@ export class AtlasDrive {
         this._root = null;
         this._gridEl = null;
         this._tabButtons = new Map();
+        /** atlasId → `{member_count, members, has_cover}`; atlasId → data URI; atlasId → users. */
+        this._members = new Map();
+        this._covers = new Map();
+        this._presence = new Map();
+        /** atlasId → the node that shows who is connected, so a refresh can redraw ONLY it. */
+        this._presenceNodes = new Map();
+        this._coverInput = null;
+        this._coverTarget = null;
+        this.setOverview(options.overview);
         setupCleanup(this);
+    }
+
+    /**
+     * Replaces the card extras (members, covers, presence) and redraws if already mounted.
+     * @param {{atlases: Object[], covers: Object, presence: Object}} [overview]
+     */
+    setOverview(overview) {
+        this._members = new Map(
+            (Array.isArray(overview?.atlases) ? overview.atlases : []).map((row) => [String(row.id), row])
+        );
+        this._covers = new Map(Object.entries(overview?.covers || {}));
+        this._presence = new Map(Object.entries(overview?.presence || {}));
+        if (this._gridEl) this._renderGrid();
+    }
+
+    /**
+     * Refreshes ONLY who is connected — the one fact that changes without the user doing anything.
+     *
+     * It patches the existing nodes instead of redrawing the grid, and that is not an optimisation:
+     * this runs on a timer, and a rebuild would close an open ⋯ menu, drop hover, and reset the
+     * scroll position of somebody who was reading the list.
+     *
+     * @param {Object<string, Array<Object>>} presence - Atlas id → connected users.
+     */
+    setPresence(presence) {
+        this._presence = new Map(Object.entries(presence || {}));
+        for (const [atlasId, node] of this._presenceNodes) {
+            this._fillPresence(node, this._presence.get(atlasId) || []);
+        }
     }
 
     /**
@@ -114,6 +161,9 @@ export class AtlasDrive {
         removeElement(this._root);
         this._root = null;
         this._gridEl = null;
+        this._coverInput = null;
+        this._coverTarget = null;
+        this._presenceNodes.clear();
         this._tabButtons.clear();
     }
 
@@ -308,6 +358,9 @@ export class AtlasDrive {
         // Release the previous cards' listeners before detaching them — _renderGrid runs on every
         // keystroke/tab-switch/refresh, so without this the tracked-listener bucket grows unbounded.
         clearScopedListeners(this, 'grid');
+        // The presence nodes belong to cards that are about to be dropped; keeping them would make
+        // the next poll write into detached DOM and leak a node per atlas per redraw.
+        this._presenceNodes.clear();
         this._gridEl.replaceChildren();
         const isTrash = this._filter === 'lixeira';
         const q = this._query.trim().toLowerCase();
@@ -329,6 +382,130 @@ export class AtlasDrive {
         }
     }
 
+    /**
+     * @private The cover of an atlas: the picture somebody chose, or the coloured initials.
+     *
+     * The initials are NOT a placeholder waiting to be replaced — they are the deterministic
+     * identity this app gives every atlas and every person (`presence-colors.js`), so the same
+     * project is the same colour on every machine. The cover only takes their place.
+     */
+    _thumb(project, id) {
+        const cover = this._covers.get(id);
+        const thumb = document.createElement('div');
+        thumb.className = 'atlas-drive__thumb';
+        if (cover) {
+            thumb.classList.add('atlas-drive__thumb--cover');
+            const img = document.createElement('img');
+            img.className = 'atlas-drive__thumb-img';
+            img.src = cover;
+            img.alt = '';
+            img.setAttribute('aria-hidden', 'true');
+            thumb.appendChild(img);
+        } else {
+            // Runtime-computed colour, so it belongs in JS; everything else is a class.
+            thumb.style.backgroundColor = getPresenceColor(id);
+            thumb.textContent = getInitials(project?.name ?? '');
+        }
+        return thumb;
+    }
+
+    /**
+     * @private Writes "who is on this map right now" into `node`, avatars and all.
+     *
+     * Called on every draw AND on every presence poll, which is why it is a fill rather than a
+     * build: {@link setPresence} reuses the same node.
+     * @param {HTMLElement} node
+     * @param {Array<{id: string, nome: string}>} users
+     */
+    _fillPresence(node, users) {
+        node.replaceChildren();
+        const list = Array.isArray(users) ? users : [];
+        node.hidden = list.length === 0;
+        if (list.length === 0) return;
+
+        const dot = document.createElement('span');
+        dot.className = 'atlas-drive__live-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        node.appendChild(dot);
+
+        node.appendChild(this._avatars(list, 'atlas-drive__live-avatar'));
+
+        const label = document.createElement('span');
+        label.className = 'atlas-drive__live-label';
+        // "no mapa" and not "online": these are people INSIDE this project right now, which is a
+        // different fact from being signed in, and the card sits next to projects nobody is in.
+        label.textContent = list.length === 1 ? '1 no mapa' : `${list.length} no mapa`;
+        node.appendChild(label);
+        node.title = `Agora no projeto: ${list.map((u) => u?.nome || 'Alguém').join(', ')}`;
+    }
+
+    /**
+     * @private A stack of initial-avatars, capped, with a "+N" for the rest.
+     * @param {Array<{id: string, nome: string}>} people
+     * @param {string} className - BEM element class of each avatar.
+     * @returns {HTMLElement}
+     */
+    _avatars(people, className) {
+        const stack = document.createElement('span');
+        stack.className = 'atlas-drive__avatars';
+        stack.setAttribute('aria-hidden', 'true'); // the sentence next to it carries the meaning
+        for (const person of people.slice(0, MAX_CARD_AVATARS)) {
+            const avatar = document.createElement('span');
+            avatar.className = className;
+            avatar.textContent = getInitials(person?.nome || '?');
+            avatar.style.backgroundColor = getPresenceColor(String(person?.id || person?.nome || ''));
+            stack.appendChild(avatar);
+        }
+        if (people.length > MAX_CARD_AVATARS) {
+            const more = document.createElement('span');
+            more.className = `${className} ${className}--more`;
+            more.textContent = `+${people.length - MAX_CARD_AVATARS}`;
+            stack.appendChild(more);
+        }
+        return stack;
+    }
+
+    /**
+     * @private The sharing footer: who takes part, in words and in avatars.
+     *
+     * IT SAYS SOMETHING EVEN WITH NO DATA. When the overview request failed there is no row for
+     * this atlas, and a footer that simply vanished would read as "this project is private" —
+     * a wrong fact, silently. So the absent case draws nothing at all and the caller keeps the
+     * old card, while the KNOWN solitary case says so out loud.
+     */
+    _sharingFooter(project, id) {
+        const row = this._members.get(id);
+        if (!row) return null;
+
+        const foot = document.createElement('div');
+        foot.className = 'atlas-drive__share';
+        foot.dataset.testid = 'project-card-sharing';
+
+        const members = Array.isArray(row.members) ? row.members : [];
+        const count = Number.isFinite(row.member_count) ? row.member_count : members.length;
+
+        if (count <= 1) {
+            const solo = document.createElement('span');
+            solo.className = 'atlas-drive__share-label';
+            solo.innerHTML = ICONS.lock; // static icon
+            const text = document.createElement('span');
+            text.textContent = project?.is_public ? 'Só você e o link público' : 'Só você';
+            solo.appendChild(text);
+            foot.appendChild(solo);
+            return foot;
+        }
+
+        foot.appendChild(this._avatars(members, 'atlas-drive__member-avatar'));
+        const label = document.createElement('span');
+        label.className = 'atlas-drive__share-label';
+        label.textContent = `${count} pessoas`;
+        foot.appendChild(label);
+        // The names live in the tooltip: four avatars and a number fit a card, six names do not.
+        foot.title = `Com acesso: ${members.map((m) => m?.nome || 'Alguém').join(', ')}`
+            + (count > members.length ? ` e mais ${count - members.length}` : '');
+        return foot;
+    }
+
     /** @private A single atlas card (the `project-picker-item`) wrapped with its actions menu button. */
     _card(project) {
         const id = String(project?.id ?? '');
@@ -344,11 +521,19 @@ export class AtlasDrive {
         const sub = this._subtitle(project);
         btn.setAttribute('aria-label', sub ? `${project?.name ?? ''} — ${sub}` : (project?.name ?? ''));
 
-        const thumb = document.createElement('div');
-        thumb.className = 'atlas-drive__thumb';
-        thumb.style.backgroundColor = getPresenceColor(id);
-        thumb.textContent = getInitials(project?.name ?? '');
-        btn.appendChild(thumb);
+        const thumbWrap = document.createElement('div');
+        thumbWrap.className = 'atlas-drive__thumb-wrap';
+        thumbWrap.appendChild(this._thumb(project, id));
+
+        // Presence rides ON the thumbnail: it is the most perishable fact on the card, and the
+        // corner of the picture is where the eye lands before it reads anything.
+        const live = document.createElement('span');
+        live.className = 'atlas-drive__live';
+        live.dataset.testid = 'project-card-live';
+        this._fillPresence(live, this._presence.get(id) || []);
+        thumbWrap.appendChild(live);
+        this._presenceNodes.set(id, live);
+        btn.appendChild(thumbWrap);
 
         const body = document.createElement('div');
         body.className = 'atlas-drive__card-body';
@@ -391,6 +576,9 @@ export class AtlasDrive {
             tags.appendChild(pub);
         }
         body.appendChild(tags);
+
+        const sharing = this._sharingFooter(project, id);
+        if (sharing) body.appendChild(sharing);
 
         btn.appendChild(body);
         addScopedDomListener(this, 'grid', btn, 'click', () => this._handlePick(id));
@@ -451,6 +639,20 @@ export class AtlasDrive {
         };
 
         if (canWrite) addItem('Renomear', 'project-picker-rename', false, () => this._rename(project));
+        if (canWrite) {
+            // Same gate as renaming, and for the same reason: cover and name are the identity of
+            // the project, and 'manage' is the ruler of sharing, which is a different question.
+            const hasCover = this._covers.has(String(project?.id ?? ''));
+            addItem(
+                hasCover ? 'Trocar imagem' : 'Escolher imagem',
+                'project-picker-cover',
+                false,
+                () => this._pickCover(project),
+            );
+            if (hasCover) {
+                addItem('Remover imagem', 'project-picker-cover-remove', false, () => this._removeCover(project));
+            }
+        }
         addItem('Fazer uma cópia', 'project-picker-duplicate', false, () => this._duplicate(project));
         if (canOwn) addItem('Mover para lixeira', 'project-picker-trash', true, () => this._trash(project));
 
@@ -477,15 +679,99 @@ export class AtlasDrive {
         if (this._menuOutside) { document.removeEventListener('mousedown', this._menuOutside); this._menuOutside = null; }
     }
 
-    /** @private Re-fetches the atlas list and re-renders the grid (after an action). */
+    /**
+     * @private Re-fetches the atlas list AND the card extras, then redraws.
+     *
+     * Both, because the actions that call this create and destroy atlases: a copy made from a card
+     * arrives with no cover and one member, and a list refreshed without the overview would draw it
+     * with the previous atlas's footer for as long as the page stayed open.
+     */
     async _refresh() {
+        const [list, overview] = await Promise.all([
+            apiClient.listAtlas().catch((error) => {
+                showError(error?.message || 'Não foi possível atualizar a lista.');
+                return null;
+            }),
+            // Silent on failure, deliberately: the extras are an enrichment, and a second red
+            // toast about a detail nobody asked for would bury the first one, which is the real news.
+            apiClient.getAtlasOverview().catch(() => null),
+        ]);
+        if (Array.isArray(list)) this._projects = list;
+        if (overview) this.setOverview(overview);
+        else this._renderGrid();
+    }
+
+    /**
+     * @private The hidden file input the cover actions drive.
+     *
+     * ONE input for the whole grid, living in the Drive's root rather than in a card: the ⋯ menu is
+     * destroyed the moment an item is clicked, so an input owned by the menu would be gone before
+     * the file picker returned, and its `change` would fire into nothing.
+     */
+    _ensureCoverInput() {
+        if (this._coverInput) return this._coverInput;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/jpeg,image/webp';
+        input.hidden = true;
+        input.dataset.testid = 'project-picker-cover-input';
+        addDomListener(this, input, 'change', () => {
+            const file = input.files?.[0];
+            const target = this._coverTarget;
+            // Reset BEFORE the await: picking the same file twice must fire `change` again, which
+            // is exactly what a retry after a failed upload needs.
+            input.value = '';
+            this._coverTarget = null;
+            if (file && target) this._applyCover(target, file);
+        });
+        this._root.appendChild(input);
+        this._coverInput = input;
+        return input;
+    }
+
+    /** @private Opens the file picker for this project's cover. */
+    _pickCover(project) {
+        const input = this._ensureCoverInput();
+        this._coverTarget = project;
+        input.value = '';
+        input.click();
+    }
+
+    /**
+     * @private Shrinks the picture in the browser and stores it.
+     *
+     * The resize is NOT an optimisation to skip when in doubt: a phone photo is megabytes, the card
+     * draws it 320 px wide, and every visit to this page would download all of them.
+     */
+    async _applyCover(project, file) {
+        const id = String(project?.id ?? '');
         try {
-            const list = await apiClient.listAtlas();
-            this._projects = Array.isArray(list) ? list : [];
+            const payload = await fileToCoverPayload(file);
+            await apiClient.setAtlasCover(id, payload);
+            this._covers.set(id, payload.image);
+            const row = this._members.get(id);
+            if (row) row.has_cover = true;
+            this._renderGrid();
+            showSuccess('Imagem do projeto atualizada.');
         } catch (error) {
-            showError(error?.message || 'Não foi possível atualizar a lista.');
+            console.error('[projects] cover upload failed:', error);
+            showError(error?.message || 'Não foi possível usar esta imagem.');
         }
-        this._renderGrid();
+    }
+
+    /** @private Drops the cover, putting the coloured initials back. */
+    async _removeCover(project) {
+        const id = String(project?.id ?? '');
+        try {
+            await apiClient.deleteAtlasCover(id);
+            this._covers.delete(id);
+            const row = this._members.get(id);
+            if (row) row.has_cover = false;
+            this._renderGrid();
+            showSuccess('Imagem removida.');
+        } catch (error) {
+            showError(error?.message || 'Não foi possível remover a imagem.');
+        }
     }
 
     /** @private Rename via a prompt → PUT /atlas/:id. */
@@ -542,12 +828,8 @@ export class AtlasDrive {
         card.className = 'atlas-drive__card atlas-drive__card--trash';
         card.dataset.testid = 'project-picker-trash-item';
         card.dataset.atlasId = id;
-
-        const thumb = document.createElement('div');
-        thumb.className = 'atlas-drive__thumb';
-        thumb.style.backgroundColor = getPresenceColor(id);
-        thumb.textContent = getInitials(project?.name ?? '');
-        card.appendChild(thumb);
+        // The same face it had before being trashed — recognising it is the whole job of this card.
+        card.appendChild(this._thumb(project, id));
 
         const body = document.createElement('div');
         body.className = 'atlas-drive__card-body';

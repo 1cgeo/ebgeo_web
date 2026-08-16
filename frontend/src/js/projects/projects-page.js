@@ -79,6 +79,9 @@ import {
 // with `import JSZip`, and this path never parses the archive (the map's importer does).
 import { atlasNameFromFilename } from './ebgeo-filename.js';
 import { LOCAL_INTENT_KEY } from '../deep-link/local-intent.js';
+// The logo the boot splash of this very page already fetched — a URL, not the Base64 the name
+// still promises (see the module's own note). By FILE, like everything else here.
+import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 
 /** The map page. Relative — the app may be served from a subpath. */
 const MAP_URL = './';
@@ -87,7 +90,6 @@ const ADMIN_URL = './admin.html';
 const CONFIG_BOOT_ATTEMPTS = 3;
 const CONFIG_BOOT_RETRY_MS = 1000;
 
-const ICON_DRIVE = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`;
 const ICON_MAP = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" opacity="0"/><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>`;
 const ICON_ADMIN = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 
@@ -496,6 +498,47 @@ async function applyAtlasSharing(atlasId, sharing) {
     }
 }
 
+/** How often the cards re-ask who is inside each project. */
+const PRESENCE_REFRESH_MS = 20000;
+
+/**
+ * Keeps the "N no mapa" badges honest while the page sits open.
+ *
+ * A POLL, not a socket, and the reason is the page's whole shape: the collaboration socket is per
+ * ATLAS, so live presence for a grid of twenty projects would mean twenty connections opened by a
+ * page that has entered none of them. One small request every {@link PRESENCE_REFRESH_MS} is the
+ * cheap and honest answer to a fact that only ever decorates a card.
+ *
+ * It stops itself while the tab is hidden: a chooser left open in a background tab for an afternoon
+ * would otherwise wake the server every twenty seconds to be told what nobody is looking at.
+ *
+ * @param {AtlasDrive} drive
+ */
+function startPresenceRefresh(drive) {
+    let timer = null;
+    const tick = async () => {
+        try {
+            drive.setPresence(await apiClient.getAtlasPresence());
+        } catch {
+            // A failed poll keeps the last known state rather than emptying every badge: "nobody is
+            // there" and "I could not ask" are different facts, and only one of them is worth
+            // showing. The next tick corrects it.
+        }
+    };
+    const start = () => {
+        if (timer == null) timer = setInterval(tick, PRESENCE_REFRESH_MS);
+    };
+    const stop = () => {
+        if (timer != null) { clearInterval(timer); timer = null; }
+    };
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { stop(); return; }
+        tick();   // coming back, the badges are already stale — refresh before waiting a full cycle
+        start();
+    });
+    start();
+}
+
 /** @returns {AppBarAction[]} The page actions: back to the local map, and Administração for admins. */
 function buildActions() {
     const actions = [{
@@ -547,13 +590,24 @@ async function initProjectsPage() {
     initTabLock({ key: noneKey(), overlayHost: null });
 
     let projects = [];
+    let overview = null;
     if (signedIn) {
-        try {
-            projects = await apiClient.listAtlas();
-        } catch (error) {
-            console.error('[projects] listAtlas failed:', error);
-            showError('Não foi possível carregar a lista de projetos.');
-        }
+        // The two in parallel, and they fail apart: the list IS the page, while the overview is
+        // what the cards draw on top of it. A grid without covers is a smaller loss than a page
+        // that shows nothing because an enrichment request timed out.
+        const [list, extras] = await Promise.all([
+            apiClient.listAtlas().catch((error) => {
+                console.error('[projects] listAtlas failed:', error);
+                showError('Não foi possível carregar a lista de projetos.');
+                return null;
+            }),
+            apiClient.getAtlasOverview().catch((error) => {
+                console.warn('[projects] atlas overview failed:', error);
+                return null;
+            }),
+        ]);
+        if (Array.isArray(list)) projects = list;
+        overview = extras;
     }
 
     let local = { atlases: [], currentId: null };
@@ -569,9 +623,8 @@ async function initProjectsPage() {
     explainArrivalFromUrl();
 
     const appBar = createAppBar({
-        icon: ICON_DRIVE,
-        title: 'Seus atlas',
-        subtitle: config?.app?.title || 'EBGeo',
+        logo: EBGEO_LOGO_BASE64,
+        title: config?.app?.title || 'EBGeo',
         user: signedIn ? { id: sessionContext.userId, name: sessionContext.username } : null,
         actions: buildActions(),
         onLogout: signedIn ? () => { endSession(); } : null,
@@ -597,8 +650,9 @@ async function initProjectsPage() {
     localSection.mount(body);
 
     if (signedIn) {
-        new AtlasDrive({
+        const drive = new AtlasDrive({
             projects,
+            overview,
             onPick: (atlasId) => openAtlas(atlasId),
             onCreate: async (name, sharing) => {
                 const atlas = await apiClient.createAtlas({ name });
@@ -606,7 +660,9 @@ async function initProjectsPage() {
                 openAtlas(atlas.id);
             },
             onImport: (file) => importProjectFromFile(file),
-        }).mount(body);
+        });
+        drive.mount(body);
+        startPresenceRefresh(drive);
 
         apiClient.setAuthLostHandler(() => { endSession('encerrada'); });
         startIdleWatch({ onExpire: () => { endSession('inatividade'); } });

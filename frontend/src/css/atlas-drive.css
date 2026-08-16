@@ -151,7 +151,7 @@
     min-height: 0;
     overflow-y: auto;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: var(--space-4);
     align-content: start;
     padding: var(--space-6);
@@ -182,15 +182,159 @@
     transform: translateY(-2px);
 }
 
+/* A moldura da capa. `position: relative` porque a presença ("2 no mapa") se apoia nela. */
+.atlas-drive__thumb-wrap {
+    position: relative;
+}
+
 .atlas-drive__thumb {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 104px;
+    height: 120px;
     color: #fff;
     font-size: var(--font-size-xl);
     font-weight: var(--font-weight-bold);
     letter-spacing: 0.04em;
+}
+
+/* Com imagem: o xadrez claro aparece enquanto o WebP decodifica, e continua visível atrás de uma
+   capa com transparência. Melhor que branco, que pareceria uma capa que não carregou. */
+.atlas-drive__thumb--cover {
+    background: var(--gray-200);
+}
+
+/* `object-fit: cover` é onde a proporção do cartão é decidida. Guardamos a imagem inteira,
+   reduzida (cover-image.js), e o recorte é decisão de layout, não de bytes. */
+.atlas-drive__thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* ----- Quem está no projeto agora ----- */
+
+.atlas-drive__live {
+    position: absolute;
+    bottom: var(--space-2);
+    left: var(--space-2);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: calc(100% - var(--space-4));
+    padding: 3px var(--space-2) 3px var(--space-2);
+    border-radius: var(--radius-full);
+    background: rgb(17 24 39 / 72%);
+    color: #fff;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    backdrop-filter: blur(2px);
+}
+
+/* `hidden` é atributo, e o `display: none` que ele traz vem da folha do navegador: qualquer
+   `display` declarado acima o anula. Sem esta linha, o projeto sem ninguém dentro mostra uma
+   pílula preta vazia, que foi o que a primeira captura pegou. */
+.atlas-drive__live[hidden] {
+    display: none;
+}
+
+.atlas-drive__live-dot {
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+    background: #4ade80;
+    box-shadow: 0 0 0 0 rgb(74 222 128 / 70%);
+    animation: atlas-drive-pulse 2s ease-out infinite;
+}
+
+@keyframes atlas-drive-pulse {
+    70% { box-shadow: 0 0 0 6px rgb(74 222 128 / 0%); }
+    100% { box-shadow: 0 0 0 0 rgb(74 222 128 / 0%); }
+}
+
+/* Um ponto que pulsa sem parar é exatamente o que a preferência existe para desligar. */
+@media (prefers-reduced-motion: reduce) {
+    .atlas-drive__live-dot {
+        animation: none;
+    }
+}
+
+.atlas-drive__live-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* ----- Avatares empilhados (participantes e conectados) ----- */
+
+.atlas-drive__avatars {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.atlas-drive__live-avatar,
+.atlas-drive__member-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+    color: #fff;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.02em;
+}
+
+/* A margem negativa é o empilhamento; o anel separa um avatar do vizinho embaixo dele. */
+.atlas-drive__live-avatar {
+    width: 20px;
+    height: 20px;
+    margin-right: -6px;
+    box-shadow: 0 0 0 2px rgb(17 24 39 / 72%);
+    font-size: 9px;
+}
+
+.atlas-drive__member-avatar {
+    width: 24px;
+    height: 24px;
+    margin-right: -7px;
+    box-shadow: 0 0 0 2px #fff;
+    font-size: 10px;
+}
+
+/* Sem a margem negativa no último, a pilha deixaria um vão à direita do que ela mesma abriu. */
+.atlas-drive__avatars > :last-child {
+    margin-right: 0;
+}
+
+.atlas-drive__live-avatar--more,
+.atlas-drive__member-avatar--more {
+    background: var(--gray-500);
+}
+
+/* ----- Rodapé de compartilhamento ----- */
+
+.atlas-drive__share {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: var(--border-width) solid var(--gray-100);
+}
+
+.atlas-drive__share-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    overflow: hidden;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .atlas-drive__card-body {

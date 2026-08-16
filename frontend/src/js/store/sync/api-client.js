@@ -1272,6 +1272,51 @@ export class ApiClient {
     }
 
     /**
+     * Everything the PROJECT CARDS draw beyond the plain listing: who takes part in each atlas,
+     * the covers, and who is connected right now.
+     *
+     * Separate from {@link listAtlas} on purpose — that one is on the boot path of the map's
+     * account control, the Maps tab and the atlas-name control, none of which draw any of this.
+     *
+     * @returns {Promise<{atlases: Object[], covers: Object<string,string>,
+     *   presence: Object<string, Object[]>}>}
+     */
+    async getAtlasOverview() {
+        return this._request('GET', '/atlas/overview');
+    }
+
+    /**
+     * Who is connected to each of the caller's atlases, right now. The light half of
+     * {@link getAtlasOverview}, for periodic refresh: it is the only one of the three that changes
+     * on its own, and repeating the covers every cycle would send hundreds of kB to learn that
+     * nobody joined.
+     * @returns {Promise<Object<string, Array<{id: string, nome: string, status: string}>>>}
+     */
+    async getAtlasPresence() {
+        return this._request('GET', '/atlas/presence');
+    }
+
+    /**
+     * Sets the atlas cover (the image that replaces the coloured initials on its card).
+     * @param {string} atlasId
+     * @param {{image: string, width?: number, height?: number}} payload - `image` is a base64
+     *   data URI of a png/jpeg/webp; the server re-checks the bytes against the declared type.
+     * @returns {Promise<Object>} The stored cover's metadata (never the bytes).
+     */
+    async setAtlasCover(atlasId, payload) {
+        return this._request('PUT', `/atlas/${atlasId}/cover`, { body: payload });
+    }
+
+    /**
+     * Removes the atlas cover. Idempotent — removing an absent cover succeeds.
+     * @param {string} atlasId
+     * @returns {Promise<null>}
+     */
+    async deleteAtlasCover(atlasId) {
+        return this._request('DELETE', `/atlas/${atlasId}/cover`);
+    }
+
+    /**
      * Creates an atlas.
      * @param {Object} payload - Per the backend createAtlasSchema (e.g. { name }).
      * @returns {Promise<Object>} The created atlas.

@@ -31,12 +31,17 @@ const LOGOUT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none"
  * @param {string} options.title - Page title (pt-BR).
  * @param {string} [options.subtitle] - Small caption under the title.
  * @param {string} [options.icon] - Static SVG for the brand mark.
+ * @param {string} [options.logo] - URL of a brand IMAGE, used instead of `icon` when both are
+ *   given. Root-relative (`/images/…`), never a data URI: the same asset the boot splash already
+ *   fetched, so it comes from the HTTP cache.
  * @param {{ id?: string, name?: string }} [options.user] - Signed-in identity; omitted when unknown.
  * @param {AppBarAction[]} [options.actions] - Page actions, rendered left to right before the identity.
  * @param {function(): void} [options.onLogout] - Renders "Sair" when provided.
  * @returns {{ element: HTMLElement, destroy: function(): void }}
  */
-export function createAppBar({ title, subtitle, icon, user = null, actions = [], onLogout = null }) {
+export function createAppBar({
+    title, subtitle, icon, logo = null, user = null, actions = [], onLogout = null,
+}) {
     /** Cleanup host — `addDomListener` tracks against any object. */
     const scope = {};
     setupCleanup(scope);
@@ -47,7 +52,15 @@ export function createAppBar({ title, subtitle, icon, user = null, actions = [],
     // ----- Brand -----
     const brand = document.createElement('div');
     brand.className = 'app-bar__brand';
-    if (icon) {
+    if (logo) {
+        // An <img>, not the SVG mark: the logo is a raster asset, and the page's own boot splash
+        // already loaded it, so this costs no request.
+        const mark = document.createElement('img');
+        mark.className = 'app-bar__brand-logo';
+        mark.src = logo;
+        mark.alt = title;
+        brand.appendChild(mark);
+    } else if (icon) {
         const mark = document.createElement('span');
         mark.className = 'app-bar__brand-mark';
         mark.innerHTML = icon; // static icon, no user data

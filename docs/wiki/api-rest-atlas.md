@@ -123,8 +123,26 @@ Acoplamento a vigiar: o enum de `feature_type` do schema (`backend/src/modules/a
 
 O seletor de projetos (`frontend/src/js/projects/atlas-drive.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
 
-- Em 2026-08-05 deixou de ser modal e virou o **corpo de `projetos.html`** (entry `frontend/src/js/projects/projects-page.js`). Os `data-testid` `project-picker-*`, incluindo o raiz `project-picker-modal`, cujo nome ficou mentindo de propósito, foram **preservados verbatim**: são contrato de teste, e renomear qualquer um quebra e2e. Sumiram na mudança o botão de fechar e o Esc-para-fechar (página não fecha). O componente **não toca no store nem no sync engine**: abrir é navegar para `./?atlas=<uuid>` e deixar o roteador de boot do mapa fazer o resto, inclusive perguntar o que fazer com trabalho local não salvo.
+- Em 2026-08-05 deixou de ser modal e virou o **corpo de `projetos.html`** (entry `frontend/src/js/projects/projects-page.js`). Os `data-testid` `project-picker-*`, incluindo o raiz `project-picker-modal`, cujo nome ficou mentindo de propósito, foram **preservados verbatim**: são contrato de teste, e renomear qualquer um quebra e2e. Sumiram na mudança o botão de fechar e o Esc-para-fechar (página não fecha). O componente **não toca no store nem no sync engine**: abrir é navegar para `./?atlas=<uuid>` e deixar o roteador de boot do mapa fazer o resto. O que ele NÃO faz mais é perguntar sobre trabalho local: desde o namespace por atlas o wipe de entrada cai no namespace que está sendo aberto, e o aviso que dizia o contrário saiu em 2026-08-16 ([[sessao-boot-e-ciclo-de-vida]]).
 - As abas são filtros client-side sobre a **mesma** resposta de `GET /atlas` (exceto a Lixeira, com endpoint próprio e carga lazy). Três dos cinco filtros dependem de `user_permission`, que só existe em `LIST_USER_ATLAS`, daí a aba "Públicos" mostrar apenas atlas públicos aos quais você já tem acesso, nunca os demais.
-- **Não há thumbnail nem snapshot do mapa** nos cards; a identidade visual é faixa colorida determinística do nome. Decisão de escopo, ver [[sintese-decisoes-arquiteturais]].
+- **A identidade visual do cartão é a faixa colorida com as iniciais**, cor determinística do nome, e desde 2026-08-16 uma **capa** enviada pelo usuário toma o lugar dela quando existe. Continua não havendo snapshot automático do mapa, e essa metade da recusa de 2026-07-25 é que segue valendo: snapshot apodrece sozinho, imagem escolhida por alguém não. Ver a seção seguinte e [[sintese-decisoes-arquiteturais]].
 
 Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-ciclo-de-vida]].
+
+## O que o cartão de projeto mostra além do nome
+
+Três fatos chegam por rotas que **não existem para o resto do app** e cujo desenho só se entende junto (`backend/src/modules/atlas/atlas.routes.js`, consumidas por `frontend/src/js/projects/atlas-drive.js`):
+
+- `GET /atlas/overview` — participantes, contagem e capas de todos os atlas que o chamador alcança, num pedido só.
+- `GET /atlas/presence` — só quem está conectado agora, para a atualização periódica.
+- `PUT` / `DELETE /atlas/:id/cover` — a capa, gate `write`.
+
+**Por que não crescer o `GET /atlas`.** A listagem simples é chamada por quatro superfícies do cliente (controle de conta, aba Mapas, nome do atlas e esta tela), e três delas só querem id e nome. Agregar participante ali faria toda troca de mapa pagar dois subselects por atlas, e a capa viajaria por acidente em `SELECT a.*`. Daí também a capa morar em `atlas_covers`, tabela à parte.
+
+**As duas rotas de listagem não passam por `requireAtlasPermission`**, e não é esquecimento: elas não falam de UM atlas, então o middleware não tem sujeito. O escopo (dono ou compartilhado com o chamador) mora **dentro da consulta**, que é onde ele não escapa. Um filtro perdido ali não dá erro, devolve os projetos alheios com cara de resposta certa, e é por isso que `backend/tests/integration/atlas-cartao-projeto.test.js` grava uma capa antes de afirmar que o estranho não a recebe: sem o dado no lugar, o caso passaria verde provando nada.
+
+**A lista de participantes é mais frouxa que `GET /sharing`**, que exige `manage`. Qualquer nível vê com quem divide o projeto, porque é o que o mapa já mostra no primeiro instante de colaboração; o que ela não devolve é username, e-mail ou o nível de acesso alheio. É decisão de produto, não descuido, e o caso que a fixa está nomeado naquele arquivo.
+
+**Presença é POLL, e por uma razão estrutural:** o socket de colaboração é por atlas ([[canal-collab-websocket]]), então presença ao vivo numa grade de vinte projetos seria vinte conexões abertas por uma página que não entrou em nenhum deles. A fonte é o registro de salas em memória (`getRoomUsers`), o que traz dois limites: a resposta é **por processo**, e conta a PESSOA, não o socket, senão duas abas de alguém virariam "2 no mapa". Ver [[presenca-colaborativa]].
+
+**A capa é `BYTEA` no banco e data URI no fio.** O cliente reduz a imagem antes de subir (`frontend/src/js/projects/cover-image.js`); o servidor decodifica na borda e casa o **número mágico** com o mime declarado, porque o mime é texto que o cliente escolhe e a allowlist (png/jpeg/webp, sem svg) valeria zero sem essa conferência. Volta como data URI, e não por uma rota de imagem, porque a tela autentica por cabeçalho `Bearer` e `<img src>` não manda cabeçalho.

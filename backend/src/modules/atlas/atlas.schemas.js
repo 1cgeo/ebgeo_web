@@ -68,6 +68,22 @@ export const atlasIdParamsSchema = Joi.object({
   atlasId: Joi.string().uuid().required(),
 });
 
+// Capa do atlas (PUT /atlas/:id/cover). O `max` é do TEXTO base64: 700.000 caracteres decodificam
+// para ~512 kB, que é o teto real conferido em `setAtlasCover`. Os dois existem e cobrem coisas
+// diferentes: este barra o corpo gigante ANTES de decodificar, aquele barra o payload que passou
+// aqui por pouco. O regex prova só o FORMATO; quem confere se os bytes são mesmo um PNG/JPEG/WebP
+// é o número mágico no serviço, porque o mime declarado é texto que o cliente escolhe.
+export const atlasCoverSchema = Joi.object({
+  image: Joi.string().required().max(700000)
+    .pattern(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/)
+    .messages({
+      'string.pattern.base': 'Imagem deve ser uma data URI base64 de PNG, JPEG ou WebP.',
+    }),
+  // Dimensões da miniatura, guardadas para quem for desenhá-la sem decodificar os bytes.
+  width: Joi.number().integer().min(1).max(4096),
+  height: Joi.number().integer().min(1).max(4096),
+});
+
 export const idParamsSchema = Joi.object({
   id: Joi.string().uuid().required(),
 });

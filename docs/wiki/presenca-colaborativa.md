@@ -94,6 +94,12 @@ Não construa "quem está online" a partir dela: a verdade é, e sempre foi, o `
 
 Existe classificação adaptativa de qualidade (`backend/src/modules/collab/collab.quality.js`) e o cliente reemite a resposta como `adaptiveSettings` (`frontend/src/js/store/sync/ws-client.js`), mas **nenhum módulo do frontend assina esse evento hoje**: o gancho existe, o consumidor não ([[qualidade-conexao-adaptativa]]).
 
+## O segundo leitor das salas: o cartão de projeto
+
+Desde 2026-08-16 o `Map` em memória tem um consumidor fora do WebSocket. `GET /atlas/presence` (`backend/src/modules/atlas/atlas.service.js`) lê `getRoomUsers` para dizer quantas pessoas estão dentro de cada projeto na tela "Seus atlas", e ela **pergunta de novo a cada 20 s** em vez de assinar coisa alguma, porque o socket é por atlas: presença ao vivo numa grade de vinte projetos seria vinte conexões abertas por uma página que não entrou em nenhum deles.
+
+Duas diferenças em relação ao roster do mapa, e as duas são de propósito. O cartão **deduplica por pessoa**, enquanto o roster é por aba: aqui a chave por `clientId` que o resto desta página defende produziria "2 no mapa" para alguém com duas abas, que é um número verdadeiro respondendo à pergunta errada. E `away` conta como presente, porque a carência existe justamente para o par que caiu e vai voltar. O limite de instância única desta seção seguinte vale igual: dois processos, dois `Map`, e o cartão reporta só a metade que atendeu o pedido. Ver [[api-rest-atlas]].
+
 ## Limite operacional: uma instância
 
 Salas, presença e `awayTimers` são `Map` em memória por processo, sem Redis nem pub/sub. Com duas réplicas, `broadcastToRoom` alcança só os clientes daquela instância e a presença fica partida; sem sticky session, um socket reconectado pode cair em outra instância que não conhece o timer, e o peer some depois de 2 min pela instância antiga e aparece duplicado pela nova. Caminho de menor risco: **uma instância, escala vertical**; alternativa é sticky sessions mais backplane. O WS vive no mesmo processo HTTP, então não dá para escalar WS separado. No NGINX, sem `proxy_http_version 1.1` mais `Upgrade`/`Connection "upgrade"` e sem rotear exatamente `/api/v1/collab`, a presença simplesmente não existe. Ver [[deploy-backend]] e [[sintese-limites-collab]].

@@ -152,6 +152,92 @@ export const UPDATE_PUBLIC_LINK = `
   RETURNING *
 `;
 
+// ============================================================================
+// Cartão do atlas: quem participa e se há capa.
+//
+// SEPARADA de LIST_USER_ATLAS de propósito. Aquela lista é chamada por quatro superfícies do
+// cliente (controle de conta, aba Mapas, nome do atlas, tela de projetos) e três delas só querem
+// id e nome; agregar participante ali faria toda troca de mapa pagar dois subselects por atlas.
+// Esta roda uma vez, na tela que desenha os cartões.
+//
+// QUEM VÊ A LISTA DE PARTICIPANTES: todo mundo que já tem acesso ao atlas, em qualquer dos cinco
+// níveis. É mais frouxo que `GET /sharing`, que exige `manage`, e a diferença é deliberada: aquela
+// rota ENTREGA o controle (adicionar, promover, remover) e esta responde "com quem eu divido este
+// projeto", que qualquer membro descobre no primeiro instante de colaboração, quando os avatares
+// aparecem no mapa. Não devolve e-mail, username nem nível de acesso alheio: nome, posto e id.
+//
+// O dono entra na lista SEMPRE e em primeiro lugar (`ord = 0`), porque ele não tem linha em
+// `atlas_shares`. O teto de dez existe para o payload; a contagem verdadeira vai em `member_count`,
+// e é ela que o cartão soma no "+N".
+export const LIST_USER_ATLAS_MEMBERS = `
+  SELECT a.id,
+         1 + (SELECT COUNT(*) FROM atlas_shares sc WHERE sc.atlas_id = a.id)::int AS member_count,
+         COALESCE((
+           SELECT json_agg(
+                    json_build_object('id', m.id, 'nome', m.nome, 'posto_graduacao', m.posto_graduacao)
+                    ORDER BY m.ord, m.nome
+                  )
+           FROM (
+             SELECT ow.id, ow.nome, orank.nome AS posto_graduacao, 0 AS ord
+             FROM users ow
+             LEFT JOIN ranks orank ON orank.id = ow.rank_id
+             WHERE ow.id = a.owner_id
+             UNION ALL
+             SELECT mu.id, mu.nome, mrank.nome AS posto_graduacao, 1 AS ord
+             FROM atlas_shares ms
+             JOIN users mu ON mu.id = ms.user_id
+             LEFT JOIN ranks mrank ON mrank.id = mu.rank_id
+             WHERE ms.atlas_id = a.id
+             ORDER BY ord, nome
+             LIMIT 10
+           ) m
+         ), '[]'::json) AS members,
+         (c.atlas_id IS NOT NULL) AS has_cover,
+         c.updated_at AS cover_updated_at
+  FROM atlas a
+  LEFT JOIN atlas_covers c ON c.atlas_id = a.id
+  LEFT JOIN atlas_shares s ON s.atlas_id = a.id AND s.user_id = $1
+  WHERE a.deleted_at IS NULL
+    AND (
+      a.owner_id = $1
+      OR s.user_id = $1
+    )
+`;
+
+// As capas dos atlas que o chamador alcança, num pedido só. O escopo é o MESMO predicado de
+// LIST_USER_ATLAS (dono ou compartilhado com ele): sem isso a rota entregaria a capa de qualquer
+// atlas a quem soubesse o id, que é o vazamento clássico de rota de listagem sem filtro.
+export const LIST_USER_ATLAS_COVERS = `
+  SELECT c.atlas_id, c.mime_type, c.bytes, c.updated_at
+  FROM atlas_covers c
+  JOIN atlas a ON a.id = c.atlas_id
+  LEFT JOIN atlas_shares s ON s.atlas_id = a.id AND s.user_id = $1
+  WHERE a.deleted_at IS NULL
+    AND (
+      a.owner_id = $1
+      OR s.user_id = $1
+    )
+`;
+
+export const UPSERT_ATLAS_COVER = `
+  INSERT INTO atlas_covers (atlas_id, mime_type, bytes, width, height, updated_by)
+  VALUES ($1, $2, $3, $4, $5, $6)
+  ON CONFLICT (atlas_id) DO UPDATE
+    SET mime_type = EXCLUDED.mime_type,
+        bytes = EXCLUDED.bytes,
+        width = EXCLUDED.width,
+        height = EXCLUDED.height,
+        updated_at = NOW(),
+        updated_by = EXCLUDED.updated_by
+  RETURNING atlas_id, mime_type, width, height, updated_at
+`;
+
+export const DELETE_ATLAS_COVER = `
+  DELETE FROM atlas_covers
+  WHERE atlas_id = $1
+  RETURNING atlas_id
+`;
+
 export const GET_ATLAS_MAPS_SUMMARY = `
   SELECT id, name, created_at, updated_at
   FROM maps

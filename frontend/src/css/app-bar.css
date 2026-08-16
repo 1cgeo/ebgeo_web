@@ -37,6 +37,14 @@
     color: #fff;
 }
 
+/* A marca em imagem (projetos.html). Altura fixa e largura automática: o WebP do EBGeo é largo,
+   e travar a largura o deformaria. Sem fundo nem caixa — a logo já tem a sua. */
+.app-bar__brand-logo {
+    flex-shrink: 0;
+    height: 34px;
+    width: auto;
+}
+
 .app-bar__title {
     margin: 0;
     font-size: var(--font-size-lg);

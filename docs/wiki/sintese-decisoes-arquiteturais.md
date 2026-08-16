@@ -96,7 +96,7 @@ A permissão por atlas é um **terceiro** eixo, resolvido em waterfall (owner, d
 - **Visualizador não recebe comentários do servidor**: é **filtro de transmissão** (snapshot e broadcast não enviam), não esconde-UI. Ver [[comentario-espacial]].
 - **"A permissão padrão abaixa, nunca eleva"**: convite concede Leitura por padrão; elevar é ação deliberada.
 - **Config por atlas é interseção, nunca expansão**: um `atlas.settings` só desliga o que o deploy suporta, jamais liga o que não existe, e é revertido ao desconectar. Ver [[atlas-settings]], [[resources-catalogo]] e [[modos-operacao]].
-- **Sem thumbnail/snapshot de atlas** nos cards do Atlas Drive (faixa colorida com iniciais, cor determinística do nome). Decisão de escopo.
+- **Sem snapshot automático do mapa** nos cards do Atlas Drive: a faixa colorida com iniciais (cor determinística do nome) é a identidade padrão, e desde 2026-08-16 o usuário pode pôr uma **capa** no lugar dela (`PUT /atlas/:id/cover`, gate `write`). A recusa de 2026-07-25 media as duas coisas pelo envelhecimento, que só vale para o snapshot: imagem escolhida por alguém envelhece quando essa pessoa quiser. Ver [[api-rest-atlas]].
 - **Mídia do catálogo embutida em base64** no config, porque não há static público no backend e `deploy/` é protegido.
 - **Ex-dono vira Gestor** na transferência de propriedade, transação atômica, nunca existe estado "sem dono". Ver [[clone-atlas]] e [[gestao-usuarios]].
 - **Sem CI no GitHub** no backend: nada roda lint/test/build em PR. Não há rede de segurança no servidor, rode local antes de publicar a imagem.

@@ -8,6 +8,39 @@ export const listAtlas = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// Tudo que o CARTÃO de projeto desenha além do que `listAtlas` já devolve: participantes, capa e
+// quem está conectado agora. Um pedido só, porque a tela desenha os três juntos e três viagens
+// deixariam o cartão montando aos pedaços na frente do usuário.
+//
+// Fora de `listAtlas` de propósito: aquela rota é chamada por quatro superfícies do cliente que
+// não desenham nada disto (o controle de conta, a aba Mapas, o nome do atlas), e engordá-la faria
+// toda troca de mapa pagar por esta tela.
+export const listAtlasOverview = asyncHandler(async (req, res) => {
+  const [atlases, covers, presence] = await Promise.all([
+    atlasService.listUserAtlasMembers(req.user.id),
+    atlasService.listUserAtlasCovers(req.user.id),
+    atlasService.listUserAtlasPresence(req.user.id),
+  ]);
+  res.json({ data: { atlases, covers, presence } });
+});
+
+// Só a presença, para a atualização periódica: é o único dos três que muda sozinho, e repetir as
+// capas a cada ciclo seria mandar centenas de kB para descobrir que ninguém entrou.
+export const listAtlasPresence = asyncHandler(async (req, res) => {
+  const presence = await atlasService.listUserAtlasPresence(req.user.id);
+  res.json({ data: presence });
+});
+
+export const setAtlasCover = asyncHandler(async (req, res) => {
+  const cover = await atlasService.setAtlasCover(req.atlasId, req.body, req.user.id);
+  res.json({ data: cover });
+});
+
+export const deleteAtlasCover = asyncHandler(async (req, res) => {
+  await atlasService.deleteAtlasCover(req.atlasId);
+  res.status(204).send();
+});
+
 export const createAtlas = asyncHandler(async (req, res) => {
   const atlas = await atlasService.createAtlas(req.user.id, req.body);
   res.status(201).json({ data: atlas });

@@ -55,6 +55,7 @@ const FIELD_LABELS = Object.freeze({
   slug: 'identificador',
   sigla: 'sigla',
   label: 'rótulo',
+  image: 'imagem',
 });
 
 /**

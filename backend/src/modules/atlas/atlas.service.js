@@ -7,6 +7,9 @@ import { query, tx, pgp } from '../../database/index.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../utils/errors.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
+// The live room registry (in memory, per process). Read-only here: `listUserAtlasPresence` turns
+// "who has a socket open" into a field of the project card. No cycle — collab never imports atlas.
+import { getRoomUsers } from '../collab/collab.rooms.js';
 import * as Q from './atlas.queries.js';
 
 // ---------------------------------------------------------------------------
@@ -276,6 +279,147 @@ export async function createAtlas(userId, data) {
 export async function listUserAtlas(userId) {
   const { rows } = await query(Q.LIST_USER_ATLAS, [userId]);
   return rows;
+}
+
+/**
+ * The card-level extras of every atlas the user reaches: who takes part, how many, and whether
+ * there is a cover. One row per atlas, keyed by id.
+ *
+ * SEPARATE FROM `listUserAtlas` on purpose — see the comment on LIST_USER_ATLAS_MEMBERS: the plain
+ * listing is on the hot path of four client surfaces, and only this page draws members.
+ *
+ * @param {string} userId
+ * @returns {Promise<Object[]>} `{ id, member_count, members, has_cover, cover_updated_at }`.
+ */
+export async function listUserAtlasMembers(userId) {
+  const { rows } = await query(Q.LIST_USER_ATLAS_MEMBERS, [userId]);
+  return rows;
+}
+
+/**
+ * Who is CONNECTED right now to each atlas the user reaches.
+ *
+ * The source is the in-memory room registry, not the database: a collaborator is "online" for
+ * exactly as long as their socket is in the room, and no table records that. Two consequences the
+ * caller must not forget — the answer is per PROCESS (a multi-process deployment would under-report
+ * without a shared registry), and it is a snapshot with no subscription, so a page that wants it
+ * fresh polls.
+ *
+ * DEDUPED BY USER, unlike the room itself: two tabs of the same person are two sockets and one
+ * collaborator, and a card that said "2 online" for one person would be lying. `away` (the grace
+ * window after an abnormal close) counts as present, which is what the map's roster already shows.
+ *
+ * The scope is the caller's own atlases, resolved from the database FIRST: reading a room by id
+ * without that check would answer "who is in this project" to anybody holding a token.
+ *
+ * @param {string} userId
+ * @returns {Promise<Object<string, Array<{id: string, nome: string, posto_graduacao: string|null,
+ *   status: string}>>>} Atlas id → connected users. Atlases with nobody online are omitted.
+ */
+export async function listUserAtlasPresence(userId) {
+  const { rows } = await query(Q.LIST_USER_ATLAS, [userId]);
+  const presence = {};
+  for (const atlas of rows) {
+    const byUser = new Map();
+    for (const client of getRoomUsers(atlas.id)) {
+      if (!client?.id) continue;
+      const previous = byUser.get(String(client.id));
+      // 'online' wins over 'away': one live tab makes the person present.
+      if (previous && previous.status === 'online') continue;
+      byUser.set(String(client.id), {
+        id: String(client.id),
+        nome: client.nome || '',
+        posto_graduacao: client.posto_graduacao || null,
+        status: client.status === 'away' ? 'away' : 'online',
+      });
+    }
+    if (byUser.size > 0) presence[atlas.id] = [...byUser.values()];
+  }
+  return presence;
+}
+
+/**
+ * The covers of every atlas the user reaches, as data URIs keyed by atlas id.
+ *
+ * ONE REQUEST FOR THE WHOLE GRID, and a data URI rather than a URL, because the alternative does
+ * not work here: the page authenticates with a Bearer header, and an `<img src>` sends no header,
+ * so a per-atlas image route would need either a cookie or a fetch-into-object-URL per card. The
+ * thumbnails are capped at {@link COVER_MAX_BYTES} each by the write path.
+ *
+ * @param {string} userId
+ * @returns {Promise<Object<string, string>>} Atlas id → `data:image/webp;base64,...`.
+ */
+export async function listUserAtlasCovers(userId) {
+  const { rows } = await query(Q.LIST_USER_ATLAS_COVERS, [userId]);
+  const covers = {};
+  for (const row of rows) {
+    covers[row.atlas_id] = `data:${row.mime_type};base64,${row.bytes.toString('base64')}`;
+  }
+  return covers;
+}
+
+/** Ceiling for a stored cover, in decoded bytes. The client downscales well below it. */
+export const COVER_MAX_BYTES = 512 * 1024;
+
+/**
+ * The magic numbers of the three formats the product accepts anywhere (`images.routes.js` allows
+ * exactly these, and deliberately NOT svg, which is a script container).
+ */
+const COVER_SIGNATURES = Object.freeze({
+  'image/png': (b) => b.length > 8 && b.toString('binary', 0, 8) === '\x89PNG\r\n\x1a\n',
+  'image/jpeg': (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/webp': (b) => b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF'
+    && b.toString('ascii', 8, 12) === 'WEBP',
+});
+
+/**
+ * Stores (or replaces) an atlas cover from a data URI.
+ *
+ * THE DECLARED TYPE IS NOT TRUSTED. The Joi schema only proves the string has the SHAPE of a data
+ * URI; what actually lands in the column is checked against the format's magic number here, the
+ * same rule the file-upload route enforces with multer's `fileFilter`. Without it, `image/webp` is
+ * a label anybody can type over any bytes at all.
+ *
+ * @param {string} atlasId
+ * @param {{image: string, width?: number, height?: number}} payload
+ * @param {string} userId - Who set it (audit trail on the row).
+ * @returns {Promise<Object>} The stored row's metadata (never the bytes).
+ * @throws {BadRequestError} On a payload whose bytes do not match the declared image type.
+ */
+export async function setAtlasCover(atlasId, payload, userId) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(payload.image);
+  if (!match) throw new BadRequestError('Cover must be a base64 data URI (png, jpeg or webp)');
+
+  const [, mimeType, base64] = match;
+  const bytes = Buffer.from(base64, 'base64');
+  if (bytes.length === 0) throw new BadRequestError('Cover image is empty');
+  if (bytes.length > COVER_MAX_BYTES) {
+    throw new BadRequestError(`Cover image too large (max ${Math.round(COVER_MAX_BYTES / 1024)} kB)`);
+  }
+  if (!COVER_SIGNATURES[mimeType](bytes)) {
+    throw new BadRequestError(`Cover image is not a valid ${mimeType} file`);
+  }
+
+  const { rows } = await query(Q.UPSERT_ATLAS_COVER, [
+    atlasId,
+    mimeType,
+    bytes,
+    Number.isInteger(payload.width) ? payload.width : null,
+    Number.isInteger(payload.height) ? payload.height : null,
+    userId,
+  ]);
+  return rows[0];
+}
+
+/**
+ * Removes an atlas cover. Idempotent: removing an absent cover is a success, because the caller
+ * asked for a state ("no cover"), not for a row to disappear.
+ * @param {string} atlasId
+ * @returns {Promise<boolean>} True when a row was actually deleted.
+ */
+export async function deleteAtlasCover(atlasId) {
+  const { rows } = await query(Q.DELETE_ATLAS_COVER, [atlasId]);
+  return rows.length > 0;
 }
 
 /**
