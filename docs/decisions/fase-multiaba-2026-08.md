@@ -1,4 +1,21 @@
-# PLANO FINAL — namespace por atlas, fila por atlas, multi-aba
+# Fase multi-aba (agosto de 2026): o plano, como executado
+
+> **Este documento e o REGISTRO DA FASE, nao uma proposta viva.** Ele foi escrito como plano,
+> executado entre 2026-08-15 e 2026-08-16, e mora aqui porque o codigo o CITA: as sete decisoes
+> de desenho, os degraus (E0 a E7) e os defeitos numerados (D1 a D5) sao o vocabulario que
+> `frontend/tests/e2e-ui/browser-multi-tab-*.spec.js`, `frontend/tests/unit/multiaba-invariantes.test.js`
+> e `frontend/tests/e2e-ui/helpers/two-tabs.js` usam para dizer o que estao provando. Apagar o
+> documento deixaria nove citacoes penduradas.
+>
+> **O que decidiu esta fase esta condensado em [`decisions-2026.md`](decisions-2026.md)**, nas
+> entradas de 2026-08-15 (namespace por atlas; fila por atlas). Onde os dois divergirem, vale a
+> entrada de decisao, e acima dela o codigo. O que sobra aqui e a alternativa rejeitada por
+> extenso, a ordem de execucao e as medicoes, que nao cabem numa entrada de log.
+>
+> Ele viveu no proprio pacote do frontend, como _PLANO-multiaba.md, ate 2026-08-16, junto de tres relatorios de sessao
+> (_AUDITORIA-FINAL.md, _E0-relatorio.md e _ESTADO-DA-FASE.md) que foram apagados no mesmo
+> commit: o que eles tinham de durável ja estava em `frontend/tests/TESTING-BACKLOG.md` (os
+> furos abertos, com escopo declarado) e no [`livro-razao.md`](../livro-razao.md).
 
 > **Revisado em 2026-08-15 após decisão do dono.** Duas mudanças, ambas registradas no corpo:
 > não existe hipótese de revert do deploy (§4), e a fila vai para banco separado NESTE ciclo,
@@ -117,7 +134,7 @@ E8 foi ABSORVIDA por E2B: não existe mais uma etapa opcional de "mover os bytes
 
 **Faz:**
 1. `fake-indexeddb` nas devDependencies e ligado no setup do vitest para os testes de namespace. É a única forma de `blocked`, `versionchange` e a recriação silenciosa pelo localforage saírem do campo da suposição.
-2. Re-medir a Decisão 4 (`atlas-namespace.js:121-142`, "21 de 21 pendentes") com o localforage real segurando o banco. O `localforage` instala `db.onversionchange = e => e.target.close()` (`node_modules/localforage/dist/localforage.js:653-659`) e reconecta/recria em `createTransaction` (`:808-820`), o que contradiz a medição citada. **Resultado e data vão para o `@fileoverview`; se a válvula não disparar, a Decisão 4 é reescrita como não medida e nada no plano pode depender de `blocked`.**
+2. Re-medir a Decisão 4 (`atlas-namespace.js:121-142`, "21 de 21 pendentes") com o localforage real segurando o banco. O `localforage` instala `db.onversionchange = e => e.target.close()` (`node_modules/localforage/dist/localforage.js:653-659`) e reconecta e recria a transacao logo em seguida (localforage, linhas 808-820), o que contradiz a medição citada. **Resultado e data vão para o `@fileoverview`; se a válvula não disparar, a Decisão 4 é reescrita como não medida e nada no plano pode depender de `blocked`.**
 3. Dividir o ATAQUE 1b: hoje ele morre na primeira linha (`_refutacao-fiacao.test.js:146`, o `keysCollide`), então a carga útil (`:152-163`, a varredura de uma aba apagando o namespace vivo da outra) NUNCA foi executada. O furo que motiva metade do plano é hipótese derivada de leitura, não reprodução. A asserção do predicado sai para o arquivo do predicado; o ataque roda com duas ativações diretas.
 4. Substituir o ATAQUE 1a (`:93-101`): medi que, quebrando a âncora final, o corpo recortado passa de 4407 para 19315 caracteres e as quatro asserções continuam verdes. É verificador que quebra calado. Trocar por asserção de efeito (`getStore(MAPS).__dbName` + `listRemoteAtlases()`).
 5. Corrigir a tautologia do ATAQUE 4 (`:366-367`: a MESMA expressão dos dois lados, que nenhuma implementação pode reprovar).
@@ -239,7 +256,7 @@ mira (E1/E3) e que a migração alcança cada slot (E5). Inverter isso é o cen�
 **Arquivos:** ~12.
 
 **Portão, em duas metades, e a estrutural sozinha não vale.**
-Estrutural (`tests/unit/portao-atlas.test.js`): varredura de TODO `src/js/**` mirando `activateScope`, com remoção de comentários provada por fixture inline (1 chamada comentada + 1 real → 1 acerto), controle positivo por símbolo, `files.length` absoluto, allowlist ESTRITA nos dois sentidos, e asserção de ORDEM dentro do portão com cada marco asserido como encontrado antes de comparar índices.
+Estrutural (`frontend/tests/unit/portao-de-montagem.test.js`): varredura de TODO `src/js/**` mirando `activateScope`, com remoção de comentários provada por fixture inline (1 chamada comentada + 1 real → 1 acerto), controle positivo por símbolo, `files.length` absoluto, allowlist ESTRITA nos dois sentidos, e asserção de ORDEM dentro do portão com cada marco asserido como encontrado antes de comparar índices.
 Comportamental: dirigir CADA entrada com fake-indexeddb e asserir os três fatos (nome do banco, entrada no registro, endereço da chave do lock), mais um caso que zera o escopo e assere que o banco resultante NÃO é `ebgeo_maps` (a ponte `ensureAtlasScope`, `local.repository.js:68-72`, faz "activate esquecido" cair silenciosamente ali, e é por isso que o furo do `saveLocalToServer` sobreviveu à revisão).
 **Controle negativo obrigatório:** reverter o `activateRemoteAtlas` do `saveLocalToServer` e confirmar que a metade comportamental fica vermelha. A estrutural sozinha não prova que o portão faz a coisa certa.
 
@@ -263,7 +280,7 @@ Comportamental: dirigir CADA entrada com fake-indexeddb e asserir os três fatos
 - `detectMigrationNeeded(scope)` usando `getStoreFor(SETTINGS|ATLAS, scope)` em vez dos dois `createInstance` fixos (`migration.service.js:17-18`), e `safelyMigrate` iterando os slots do registro mais o escopo remoto montado. Hoje a detecção é single-slot, ancorada em nomes fixos, e roda uma vez por boot (`repository.js:258`) contra o slot LEGADO, que pode não ser o montado. Isso é literalmente o defeito que a Decisão 2 da fábrica diz ter evitado (`atlas-namespace.js:90-93`): o marcador do slot legado É o marcador global.
 - Os quatro degraus antigos continuam ancorados nos nomes fixos SÓ para o slot legado (allowlist, como `repository-namespace.test.js` já concede às quatro migrações).
 - `initializeRepository` (`repository.js:298-302`) separa o catch em dois: falha de MIGRAÇÃO propaga e o boot mostra a tela de indisponibilidade com a mensagem pt-BR que já existe (`migration.service.js:109-111`); todo o resto continua engolido. Hoje o usuário vê um "Principal" em branco e nenhuma mensagem, e o comentário de `v1-to-v2.migration.js:26` já registra isso como fato conhecido desde sempre.
-- Toda mudança de forma sobe `ATLAS_SCHEMA_VERSION` (`atlas/atlas.entity.js:12`) no MESMO commit. O plano original não menciona isso em nenhuma das seis fases, e sem ele `detectMigrationNeeded` devolve `needed:false` e a migração não roda, sem erro.
+- Toda mudança de forma sobe `ATLAS_SCHEMA_VERSION` (`frontend/src/js/store/atlas/atlas.entity.js`) no MESMO commit. O plano original não menciona isso em nenhuma das seis fases, e sem ele `detectMigrationNeeded` devolve `needed:false` e a migração não roda, sem erro.
 
 **Arquivos:** ~7.
 

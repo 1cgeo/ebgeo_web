@@ -18,7 +18,6 @@ import { expect } from '@playwright/test';
 import { waitForRemoteEntity } from './trace-helpers.js';
 import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
-import { DEFAULT_MAP_NAME } from '../../../src/js/store/store.constants.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -192,11 +191,17 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
     // flaked, both on their first line, both reading "Principal", and neither passed the
     // option. So the wait is now the DEFAULT and `expectMapName` only sharpens it.
     //
-    // The default condition is caller-independent: leave the LOCAL default map. Its one
-    // limit, stated instead of discovered: an atlas whose initial map is itself named
-    // `Principal` cannot be distinguished this way and would burn the timeout — such a
-    // caller passes `expectMapName` (or a seed with another name, which is what
-    // `seedSharedAtlas` does).
+    // THE DEFAULT CONDITION READS THE MAP KEY, NOT THE NAME, and the first version of it read
+    // the name — "leave the map called `Principal`" — with the limit written down as a
+    // hypothetical. It was not hypothetical: `browser-p11-roundtrip` saves A's LOCAL workspace
+    // to the server, so the resulting atlas legitimately carries a map named `Principal`, and B
+    // burned the whole timeout sitting on exactly the map it was supposed to reach. A guard
+    // whose stated limit is reachable by an existing spec is a guard that will fire on correct
+    // behavior.
+    //
+    // The key is exact and name-independent: the local default map is KEY-ED BY ITS NAME, while
+    // an atlas map is keyed by a UUID (`getCurrentMapIdSync`, `store/map.operations.js`). So
+    // "the atlas map is active" is "the active map id is a UUID", whatever it is called.
     if (expectMapName) {
         await expect
             .poll(() => currentMapName(page), {
@@ -206,12 +211,13 @@ export async function openClient(browser, baseUrl, atlasId, creds, { expectMapNa
             .toBe(expectMapName);
     } else {
         await expect
-            .poll(() => currentMapName(page), {
+            .poll(() => currentMapKeyIsUuid(page), {
                 timeout: 20000,
-                message: 'o cliente continua no mapa local depois de abrir o atlas: a ativacao '
-                    + `do mapa do atlas nao aconteceu (mapa local: "${DEFAULT_MAP_NAME}")`,
+                message: 'o cliente continua num mapa LOCAL depois de abrir o atlas (mapa local '
+                    + 'e chaveado pelo nome, mapa de atlas por UUID): a ativacao do mapa do '
+                    + 'atlas nao aconteceu',
             })
-            .not.toBe(DEFAULT_MAP_NAME);
+            .toBe(true);
     }
     return page;
 }
@@ -228,6 +234,19 @@ export function readFeatures(page, type) {
 
 export const currentMapName = (page) =>
     page.evaluate(async () => (await import('/src/js/store/index.js')).getCurrentMapNameSync());
+
+/**
+ * True when the ACTIVE map is keyed by a UUID, i.e. it is a map of an opened atlas rather than
+ * the name-keyed local default. This is the name-independent way to ask "did the atlas map
+ * activate", which matters because an atlas can carry a map named `Principal` too.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<boolean>}
+ */
+export const currentMapKeyIsUuid = (page) =>
+    page.evaluate(async () => {
+        const id = (await import('/src/js/store/index.js')).getCurrentMapIdSync();
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id ?? ''));
+    });
 
 /**
  * @private Shared draw driver, exactly like a user: fit the map to the coords, activate the tool
@@ -252,15 +271,32 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     const btn = page.locator(`.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="${toolId}"]`);
     await btn.click();
     await expect(btn).toHaveAttribute('data-active', 'true', { timeout: 5000 });
-    // The button flips data-active immediately, but the tool CONTROL's activate() (which wires its
-    // map 'click' handler) lags — in a back-to-back draw loop the first vertex clicks can fire
-    // before the handler is attached, so only some register and the draw never finishes. Wait for
-    // the control to actually report active before clicking.
+
+    // THE BUTTON FLIPPING IS NOT THE TOOL BEING READY. `data-active` is set on click, while the
+    // control's `activate()` — which wires the map 'click' handler — runs after; in a
+    // back-to-back draw loop the first vertex clicks can land before the handler exists, so only
+    // some register and the draw never finishes.
+    //
+    // THE WAIT THAT USED TO BE HERE COULD NEVER PASS. It asked `getControl(toolId)?.isActive`,
+    // but the registry is keyed by CONTROL CLASS NAME (`AddPointControl`), never by the
+    // toolbar's `data-tool-id` (`point`) — so the lookup always returned null, the predicate was
+    // always false, the 5s timeout always expired, and `.catch(() => {})` swallowed it. Every UI
+    // draw in this suite silently burned five seconds on a check that could not pass, and the
+    // only real protection was the 150 ms sleep that followed — which is why the draws flaked
+    // under full-suite load and passed in isolation.
+    //
+    // The signal used now is the one the tool manager itself publishes AFTER `activate()`
+    // returns (`_syncToStateManager`, `tool_manager/tool_manager.js`), and it is NOT swallowed:
+    // a tool that never reports active is a real failure and says so.
     await page.waitForFunction(async (id) => {
         const s = await import('/src/js/store/index.js');
-        return s.getControl?.(id)?.isActive === true;
-    }, toolId, { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(150);
+        const active = s.getStateManager?.()?.getActiveTool?.();
+        if (!active) return false;
+        // `AddMilitarySymbolControl` becomes `militarysymbol` while the toolbar id is
+        // `militarySymbol`: compare case-insensitively, ignoring separators.
+        const norm = (v) => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
+        return norm(active) === norm(id);
+    }, toolId, { timeout: 15000 });
 
     // Project each lng/lat to a viewport pixel (map projection + canvas offset).
     const pts = await page.evaluate((cs) => {

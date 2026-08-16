@@ -76,7 +76,7 @@ const UI_DRAWERS = Object.freeze({
 
 collabTest.describe('Every feature type syncs cross-client (UI draws + store op, full chain)', () => {
     collabTest('A creates one feature of every type → each traverses the whole chain to B', async ({ collab }) => {
-        collabTest.setTimeout(180000);
+        collabTest.setTimeout(300000);
         const A = collab.author;
 
         // Guard against silent drift from the app: our table must match getStorageTypeFromSource()
@@ -127,7 +127,14 @@ collabTest.describe('Every feature type syncs cross-client (UI draws + store op,
                 continue;
             }
             try {
-                await collab.expectFullSync({ entityId: item.id, type: item.storage, operationType: 'create', skipRender: true, timeout: 12000 });
+                // 25s per type, not 12s, and the number is measured rather than picked: at 12s
+                // `military_symbol` broke at LINK 5 (peer IndexedDB) in roughly 2 of 9 serial
+                // runs, always that type and always that link. It is the heaviest op of the
+                // sweep and the last of the three drawn through the real toolbar, so its op
+                // enqueues latest while the verification budget stays the same for everyone.
+                // Nothing is blocked — the remote apply never awaits an image — so the 12s was
+                // simply the arbitrary part.
+                await collab.expectFullSync({ entityId: item.id, type: item.storage, operationType: 'create', skipRender: true, timeout: 25000 });
             } catch (e) {
                 failures.push(`${item.source} → ${item.storage}: ${String(e.message).split('\n')[0]}`);
             }

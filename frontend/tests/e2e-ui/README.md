@@ -198,7 +198,7 @@ case pass, and Playwright reports a fail-marked test that passes as a run failur
 evidence is attached. So "expected failure" can only mean the named assertion, and the day the
 defect closes the case also goes red, which is what forces the marker out in the same commit.
 
-Reference spec: `browser-multi-tab-namespace.spec.js` (E0 of `frontend/_PLANO-multiaba.md`). It
+Reference spec: `browser-multi-tab-namespace.spec.js` (E0 of `docs/decisions/fase-multiaba-2026-08.md`). It
 pins `retries: 0` via `test.describe.configure`, because retrying a real two-tab race reports it
 as "flaky", which is a green run. Read the block comment at the top of that file for the list of
 what the cases DO NOT cover, which is as load-bearing as the cases themselves.

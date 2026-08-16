@@ -59,3 +59,4 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-15 | Namespace de IndexedDB por atlas, com expurgo derivado de registro (supera P12) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-15 | A fila de saída vira um banco por atlas (reverte a alternativa rejeitada da entrada acima) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-16 | Um registro único de tipo de feição, e a recusa do modelo de source por camada | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-15 | Fase multi-aba: o plano como executado (registro, com as sete decisões de desenho por extenso) | [fase-multiaba-2026-08.md](fase-multiaba-2026-08.md) |

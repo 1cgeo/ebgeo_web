@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview E0 — DUAS ABAS do mesmo usuário, um contexto só. The gates of the multi-tab
- * plan (`frontend/_PLANO-multiaba.md`, E0 item 6 and E7's Portão).
+ * plan (`docs/decisions/fase-multiaba-2026-08.md`, E0 item 6 and E7's Portão).
  *
  * The requirement being instrumented: two tabs in DIFFERENT atlases work; two tabs in the
  * SAME atlas collide; one tab never holds two atlases. Until this file, that requirement had
@@ -35,7 +35,7 @@
  * A4  a public-link visitor must not pollute the LOCAL atlas databases. EXPECTED TO FAIL (E1).
  *
  * A3 WAS REMOVED, NOT FORGOTTEN. It asserted that tab B's work "never disappears during tab A's
- * logout", and the recorded decision says the opposite in as many words (`_PLANO-multiaba.md`,
+ * logout", and the recorded decision says the opposite in as many words (`docs/decisions/fase-multiaba-2026-08.md`,
  * E2: "O logout NÃO poupa depois do aviso confirmado. Sem sessão não existe aba legítima
  * segurando dado de servidor"). The implemented design agrees: the warned tab stops, RELEASES
  * its mount lock and clears its scope (`store/sync/tab-lock-sync-brake.js`), and only then does
@@ -572,7 +572,7 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
     });
 
     test('A2b — o bloqueio PARA a aba bloqueada, não apenas a cobre', async ({ browser }, testInfo) => {
-        // PENDENTE — ACHADO NOVO DESTE INSTRUMENTO, não previsto no `_PLANO-multiaba.md`.
+        // PENDENTE — ACHADO NOVO DESTE INSTRUMENTO, não previsto no `docs/decisions/fase-multiaba-2026-08.md`.
         //
         // MEDIDO (2026-08-15, com o código de hoje): a segunda aba no MESMO atlas mostra o overlay
         // e, cerca de dois segundos depois, CONECTA assim mesmo. Amostras da sonda na aba B:

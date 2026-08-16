@@ -6,7 +6,7 @@
  * test that asserts the bug is what cements it.
  *
  * THE CONTRACT OF THIS FILE. A case that already holds is a plain `it`; a case that still fails
- * because the defect is open is `it.fails`, with the stage of `_PLANO-multiaba.md` that closes it
+ * because the defect is open is `it.fails`, with the stage of `docs/decisions/fase-multiaba-2026-08.md` that closes it
  * named in the comment. `it.fails` is green while the defect lives and turns RED on the commit
  * that fixes it, which is what forces the promotion to `it` instead of letting the file rot.
  *
