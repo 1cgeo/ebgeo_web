@@ -355,24 +355,18 @@ describe('_handleLogout :: o resgate está ligado', () => {
         expect(localApi.listLocalAtlases().map(a => a.name)).not.toContain('Operação Alfa');
     });
 
-    // AINDA ABERTO, E O CONSERTO FOI TENTADO E REVERTIDO em 2026-08-16.
+    // DECISÃO DE PRODUTO, 2026-08-16: "o uso dos dados locais não depende de estar logado.
+    // Deslogado se acessa todos os locais; estar logado só dá acesso aos remotos. Ao deslogar,
+    // tira-se o acesso aos remotos, e não se sai de repositório local nem se apaga nada local."
     //
-    // O PROBLEMA É REAL: `clearAllDataStore` esvazia o atlas que ESTA aba montou, e depois do
-    // namespace por atlas esse atlas pode ser LOCAL (um `.ebgeo` importado nasce num slot
-    // próprio, e "Mapa local" é um slot). Nesse estado, sair da conta apaga um projeto que
-    // nunca teve relação com a sessão que terminou.
-    //
-    // POR QUE A CORREÇÃO ÓBVIA NÃO SERVE: condicionar o wipe a `isRemoteStoreSync()` faz este
-    // caso passar e quebra `tests/e2e-ui/browser-logout-clears-map.repro.spec.js`, que é um
-    // repro de bug relatado por USUÁRIO ("após Sair, as feições do mapa antigo continuam
-    // desenhadas no canvas") e que exige o workspace limpo depois do logout. Medido: com a
-    // guarda, aquele spec reprova com `storeFeatures` 1 onde espera 0.
-    //
-    // As duas expectativas são legítimas e se contradizem no mesmo gesto, então a saída é de
-    // PRODUTO e tem dono: provavelmente fazer o projeto importado viver num slot que o logout
-    // não tem por que tocar, em vez de desligar o wipe. Enquanto isso este caso fica `it.fails`
-    // para não sumir, e o spec de navegador segue verde.
-    it.fails('logout com um atlas LOCAL montado NÃO apaga o projeto local', async () => {
+    // Este caso já foi `it.fails` por um dia: a correção tinha sido revertida porque quebrava
+    // `tests/e2e-ui/browser-logout-clears-map.repro.spec.js`, um repro de bug relatado por
+    // usuário. A contradição era aparente: aquele repro foi escrito quando local e remoto
+    // dividiam os mesmos dez bancos, então o "mapa antigo" que continuava desenhado no canvas
+    // era o do SERVIDOR, e esvaziar tudo era a única forma de alcançá-lo. Com um namespace por
+    // atlas, o dado do servidor morre em `discardRemoteAtlasNamespaces` e o wipe do atlas
+    // montado deixou de ter função quando esse atlas é local.
+    it('logout com um atlas LOCAL montado NÃO apaga o projeto local', async () => {
         await localApi.initLocalAtlases();
         const { atlas } = await localApi.createLocalAtlas('Projeto Importado');
         await localApi.setCurrentLocalAtlas(atlas.id);

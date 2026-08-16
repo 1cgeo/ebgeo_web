@@ -1155,22 +1155,34 @@ export class AccountControl {
                 // empties the namespace THIS tab has mounted, and a notice sent from inside the
                 // sweep would arrive after that.
                 //
-                // O WIPE ALCANÇA O ATLAS MONTADO, INCLUSIVE QUANDO ELE É LOCAL, e isso é
-                // deliberado apesar de parecer perda: sair da conta devolve o workspace ao estado
-                // limpo, e há um repro de bug de USUÁRIO que exige exatamente isso
-                // (`tests/e2e-ui/browser-logout-clears-map.repro.spec.js`: "após Sair, as feições
-                // do mapa antigo continuam desenhadas no canvas").
+                // O WIPE SÓ ALCANÇA UM ATLAS DE SERVIDOR, e isso é decisão de produto tomada em
+                // 2026-08-16, depois de a contradição aparecer duas vezes:
                 //
-                // ISTO FOI ALTERADO E REVERTIDO em 2026-08-16, e a razão fica para quem tentar de
-                // novo. A tentativa condicionou o wipe a `isRemoteStoreSync()`, para que sair da
-                // conta não apagasse um projeto LOCAL (o caso do `.ebgeo` importado, que hoje
-                // nasce num slot próprio). O argumento continua de pé, e o teste de nó que o
-                // pediu está em `resgate-trabalho-nao-sincronizado.repro.test.js`. Mas a mudança
-                // quebra o repro acima, que descreve comportamento pedido por usuário: o alvo do
-                // conserto não é desligar este wipe, é fazer o projeto importado viver num slot
-                // que o logout não tem por que tocar. Decisão de produto, com dono.
+                //   "O uso dos dados locais não depende de estar logado. Deslogado se acessa
+                //    todos os locais; estar logado só dá acesso aos remotos. Ao deslogar, tira-se
+                //    o acesso aos remotos, e não se sai de repositório local nem se apaga nada
+                //    local."
+                //
+                // `clearAllDataStore` esvazia o atlas que ESTA aba montou, e com um namespace por
+                // atlas esse atlas pode perfeitamente ser LOCAL: um `.ebgeo` importado nasce num
+                // slot próprio, e "Mapa local" é um slot. Apagá-lo ao sair da conta destrói
+                // trabalho que nunca teve relação com a sessão que terminou.
+                //
+                // O QUE A SAÍDA DA CONTA PRECISA DESTRUIR é dado de SERVIDOR, e disso cuida
+                // `discardRemoteAtlasNamespaces`, derivado do registro remoto e capaz de alcançar
+                // até o namespace que outra aba abriu. Com um atlas local montado não há o que
+                // este wipe termine.
+                //
+                // O REPRO DE USUÁRIO QUE PARECIA EXIGIR O CONTRÁRIO
+                // (`tests/e2e-ui/browser-logout-clears-map.repro.spec.js`, "após Sair, as feições
+                // do mapa antigo continuam desenhadas no canvas") foi escrito quando local e
+                // remoto dividiam os mesmos dez bancos: o "mapa antigo" dele era o do SERVIDOR, e
+                // esvaziar tudo era a única forma de alcançá-lo. Aquele spec foi reescrito para
+                // afirmar o que o usuário de fato relatou.
                 await announceRemoteNamespaceTeardown();
-                await clearAllDataStore();
+                if (isRemoteStoreSync()) {
+                    await clearAllDataStore();
+                }
                 await discardRemoteAtlasNamespaces();
             }
             // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop
