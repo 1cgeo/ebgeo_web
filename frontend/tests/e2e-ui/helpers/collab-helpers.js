@@ -319,12 +319,25 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     }
 
     // Return the freshly-created feature id (the one absent before the draw).
+    //
+    // THE MESSAGE NAMES THE TOOL, and the previous one did not: a timeout here read only
+    // "expect(received).toBeTruthy() / Received: null", inside a shared helper called for three
+    // different tools in one sweep, so the first question a reader has — WHICH draw failed —
+    // could not be answered from the report. A helper used in a loop owes its failure the loop
+    // variable.
+    //
+    // 20s, not 10s: measured under sustained full-suite load, where this is the last draw of a
+    // 20-type sweep. It passes 5 of 5 in isolation at either budget, so the number was the
+    // arbitrary part, not the behaviour.
     let id = null;
     await expect.poll(async () => {
         const fresh = (await readFeatures(page, storage)).find((f) => !before.has(f.id));
         id = fresh?.id ?? null;
         return id;
-    }, { timeout: 10000 }).toBeTruthy();
+    }, {
+        timeout: 20000,
+        message: `a ferramenta "${toolId}" nao criou feicao em "${storage}" depois dos cliques`,
+    }).toBeTruthy();
     return id;
 }
 
