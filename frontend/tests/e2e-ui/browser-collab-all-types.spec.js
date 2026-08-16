@@ -2,11 +2,11 @@
 
 /**
  * EVERY FEATURE TYPE syncs cross-client — TWO real browsers + real backend, on the
- * full-chain harness. Client A creates ONE feature of EACH of the 18 backend-valid types
+ * full-chain harness. Client A creates ONE feature of EACH backend-valid type
  * (ALL_FEATURE_SOURCES) and EACH is verified through the ENTIRE sync chain to B via
  * `collab.expectFullSync` (skipRender: many types render via non-GeoJSON layers, so link 6
  * relies on remote.applied + the peer IDB read). Any type that fails is collected with the
- * link it broke at, so a failure lists EXACTLY which of the 18 (and where) did not sync.
+ * link it broke at, so a failure lists EXACTLY which type (and where) did not sync.
  *
  * UI-first: point/polygon/military_symbol are drawn with the REAL toolbar tools; the rest
  * go through the store op with a documented no-UI reason (see UI_DRAWERS).
@@ -17,17 +17,20 @@
 import { collabTest, expect, drawPointUI, drawPolygonUI, readFeatures } from './helpers/collab.fixtures.js';
 import { realFeature, ALL_FEATURE_SOURCES } from '../helpers/real-fixtures.js';
 
-/** Source → storage-bucket map, matching the real store (getStorageTypeFromSource). */
-const SOURCE_TO_STORAGE = Object.freeze({
-    point: 'points', line: 'lines', polygon: 'polygons', text: 'texts', image: 'images',
-    circle: 'circles', rectangle: 'rectangles', ellipse: 'ellipses', brush: 'brushes',
-    arrow: 'arrows', boundary: 'boundarys', occupied_front: 'occupied_fronts',
-    military_symbol: 'military_symbols', coordination_measure: 'coordination_measures',
-    los: 'los', visibility: 'visibility', processed_los: 'processed_los', processed_visibility: 'processed_visibility',
-});
+/**
+ * Source → storage-bucket map, taken from the store itself.
+ *
+ * It used to be eighteen pairs written out here, next to a header announcing "the 18
+ * backend-valid types", while the store, the Joi schema and the database CHECK all agreed on
+ * TWENTY: `sector` and `magnetic_declination` were missing. A sweep that names itself "every
+ * feature type" and covers a subset is the most dangerous copy in the repository, because it
+ * wears the clothes of a verification. `FEATURE_TYPE_MAPPINGS` is itself derived from
+ * `store/feature-type.registry.js`, so a type born there arrives here with no edit.
+ */
+import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
 
 function sourceToStorage(source) {
-    const storage = SOURCE_TO_STORAGE[source];
+    const storage = FEATURE_TYPE_MAPPINGS[source];
     if (!storage) throw new Error(`No storage bucket mapped for source "${source}"`);
     return storage;
 }
@@ -71,7 +74,7 @@ const UI_DRAWERS = Object.freeze({
     military_symbol: (page) => drawMilitarySymbolUI(page),
 });
 
-collabTest.describe('All 18 feature types sync cross-client (UI draws + store op, full chain)', () => {
+collabTest.describe('Every feature type syncs cross-client (UI draws + store op, full chain)', () => {
     collabTest('A creates one feature of every type → each traverses the whole chain to B', async ({ collab }) => {
         collabTest.setTimeout(180000);
         const A = collab.author;
@@ -113,7 +116,7 @@ collabTest.describe('All 18 feature types sync cross-client (UI draws + store op
             }
             created.push({ source, storage, id, landedOnA });
         }
-        expect(created).toHaveLength(18);
+        expect(created).toHaveLength(ALL_FEATURE_SOURCES.length);
 
         // VERIFY: each type traverses the WHOLE chain to B. Collect every failure (with the link
         // it broke at) so the assertion lists exactly which types did not fully sync.

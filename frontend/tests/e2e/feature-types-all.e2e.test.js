@@ -1,7 +1,7 @@
 // Path: tests/e2e/feature-types-all.e2e.test.js
 
 /**
- * @fileoverview E2E: round-trips a feature of EVERY backend feature type through a
+ * @fileoverview E2E: round-trips a feature of EVERY backend feature type (list DERIVED, never counted) through a
  * real HTTP push and asserts the server's snapshot buckets each one under the right
  * collection. Drives the live backend only via the public ApiClient + createOperation.
  */
@@ -15,32 +15,27 @@ import {
     E2E_SKIP,
 } from './helpers/harness.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
+import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
 
 /**
- * The 18 frontend feature types and the snapshot collection each lands in.
- * Mirrors the backend's `transformFeaturesToFrontend` typeToCollection map.
+ * Every frontend feature type and the snapshot collection it lands in, DERIVED.
+ *
+ * It used to be eighteen pairs written out by hand, under a JSDoc that said "the 18
+ * frontend feature types" and a case named "buckets each of the 18 feature types". The map
+ * it claimed to mirror (`transformFeaturesToFrontend`, `backend/src/modules/sync/sync.service.js`)
+ * has TWENTY: `sector` and `magnetic_declination` were missing here and present there, and
+ * both sides of the round trip handled them correctly the whole time. So the sweep announced
+ * completeness over a subset and reported success — a false green inside the very command
+ * the Definition of Done names, and the most dangerous kind of copy, because it wears the
+ * clothes of a verification.
+ *
+ * `FEATURE_TYPE_MAPPINGS` is itself derived from `store/feature-type.registry.js`, so a type
+ * born there reaches this sweep with no edit here. The absolute floor below is what keeps
+ * the derivation from failing silently: a broken import that yielded `{}` would make every
+ * loop below iterate zero times and pass.
  * @type {Array<[string, string]>}
  */
-const TYPE_TO_COLLECTION = [
-    ['point', 'points'],
-    ['line', 'lines'],
-    ['polygon', 'polygons'],
-    ['text', 'texts'],
-    ['image', 'images'],
-    ['circle', 'circles'],
-    ['rectangle', 'rectangles'],
-    ['ellipse', 'ellipses'],
-    ['brush', 'brushes'],
-    ['arrow', 'arrows'],
-    ['boundary', 'boundarys'],
-    ['occupied_front', 'occupied_fronts'],
-    ['military_symbol', 'military_symbols'],
-    ['coordination_measure', 'coordination_measures'],
-    ['los', 'los'],
-    ['visibility', 'visibility'],
-    ['processed_los', 'processed_los'],
-    ['processed_visibility', 'processed_visibility'],
-];
+const TYPE_TO_COLLECTION = Object.entries(FEATURE_TYPE_MAPPINGS);
 
 /**
  * Builds a raw GeoJSON Feature whose type travels in properties.source, tagged with a
@@ -106,7 +101,27 @@ describe.skipIf(E2E_SKIP)('e2e: feature-types-all', () => {
         expect(map.features).toBeTruthy();
     });
 
-    it('buckets each of the 18 feature types into its own collection', async () => {
+    it('the sweep covers every bucket the LIVE server declares, so it cannot silently shrink', async () => {
+        // The floor that the old hand-written list did not have. `transformFeaturesToFrontend`
+        // (backend) builds one bucket per type it knows; a type present there and absent from
+        // this sweep is exactly the hole that lived here for months, and comparing against a
+        // NUMBER would only have frozen it. Comparing against the live snapshot closes it
+        // against the server itself, which is the authority.
+        const pulled = await api.pullSync(atlasId, 0);
+        const map = pulled.snapshot.maps.find((m) => m.id === mapId);
+
+        const doServidor = Object.keys(map.features).filter((k) => Array.isArray(map.features[k])).sort();
+        const daVarredura = TYPE_TO_COLLECTION.map(([, collection]) => collection).sort();
+
+        // Absolute, so a derivation that broke and yielded `{}` cannot pass by being a
+        // subset of everything.
+        expect(daVarredura.length, 'the derived type list came back empty or truncated')
+            .toBeGreaterThanOrEqual(20);
+        expect(doServidor, 'the server declares a bucket this sweep never pushes into')
+            .toEqual(daVarredura);
+    });
+
+    it('buckets each feature type into its own collection', async () => {
         const pulled = await api.pullSync(atlasId, 0);
         const map = pulled.snapshot.maps.find((m) => m.id === mapId);
         const buckets = map.features;

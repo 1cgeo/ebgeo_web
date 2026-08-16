@@ -2,8 +2,8 @@
 
 /**
  * @fileoverview "Golden" feature fixtures mirroring EXACTLY what the real frontend
- * draw/military tools emit — the SAME shapes as
- * `ebgeo_web/tests/helpers/real-fixtures.js`, so the frontend producer tests and the
+ * draw/military tools emit, the SAME shapes as
+ * `frontend/tests/helpers/real-fixtures.js`, so the frontend producer tests and the
  * backend consumer (sync) tests share ONE contract.
  *
  * The real shape carries gotchas that minimal constructed fixtures never had and that
@@ -12,11 +12,75 @@
  *     must NOT become the row id (the row id is the op's targetId);
  *   - `properties.id` = the canonical UUID;
  *   - `properties.source` = the type (the backend derives feature_type from it);
- *   - `properties.layerId` = 'default' (the implicit layer — a NON-UUID sentinel that
+ *   - `properties.layerId` = 'default' (the implicit layer, a NON-UUID sentinel that
  *     must be coerced to null on `features.layer_id`, a UUID column).
+ *
+ * `ALL_FEATURE_SOURCES` USED TO BE A HAND-WRITTEN LIST, AND IT LIED.
+ * It carried 18 types and called them "all" while the Joi allowlist, the CHECK
+ * constraint and the client agreed on 20: `sector` and `magnetic_declination` were
+ * missing. Every sweep over it therefore proved less than its reader believed, which is
+ * the most dangerous kind of copy in the repository, because it wears the clothes of
+ * verification. It is now DERIVED, by reading `VALID_FEATURE_TYPES` out of
+ * `src/modules/atlas/atlas.schemas.js`.
+ *
+ * WHY THE JOI LIST AND NOT THE CHECK CONSTRAINT: the test database is built by running
+ * the very migrations that declare the CHECK, so a sweep derived from the CHECK and
+ * asserted against the database would be checking a file against itself. Deriving from
+ * Joi and pushing every type through the real sync path makes the sweep a genuine
+ * cross-check of two independent copies, and it is why the sweep is worth running at
+ * all. Text plus anchored regex, no AST: `acorn` is declared in no `package.json` here,
+ * and declaring it touches the lockfile, which is a decision with an owner.
  */
 
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+/** `new URL` + `import.meta.url`, never a slash-joined path: this repo is developed on Windows. */
+const ARQ_JOI = fileURLToPath(new URL('../../src/modules/atlas/atlas.schemas.js', import.meta.url));
+
+/**
+ * Pulls the members of `const VALID_FEATURE_TYPES = [ ... ];` out of source text.
+ * Returns [] when the anchor is gone, so the caller's floor (not a comparison against an
+ * empty list) reports the breakage. Exported for the positive control in
+ * `tests/integration/features-real-shape.test.js`: a guard that has never been seen
+ * seeing something is indistinguishable from a blind one.
+ * @param {string} fonte - the file's source text
+ * @returns {string[]}
+ */
+export function extractJoiFeatureTypes(fonte) {
+  const abertura = 'const VALID_FEATURE_TYPES = [';
+  const i = fonte.indexOf(abertura);
+  if (i === -1) return [];
+  const j = fonte.indexOf('];', i + abertura.length);
+  if (j === -1) return [];
+  return [...fonte.slice(i, j).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
+
+/**
+ * The derivation, with its floors. They run at MODULE LOAD and throw, on purpose: an
+ * empty or truncated list would make every sweep over it green while verifying nothing,
+ * which is exactly the defect this file used to embody.
+ * @returns {readonly string[]} sorted, so this array is literally identical to the
+ *   frontend twin, which derives the same set from the store's own mapping.
+ */
+function deriveAllFeatureSources() {
+  const tipos = extractJoiFeatureTypes(readFileSync(ARQ_JOI, 'utf8'));
+  if (tipos.length === 0) {
+    throw new Error(
+      `real-fixtures: no feature type parsed from ${ARQ_JOI}. The VALID_FEATURE_TYPES anchor `
+      + 'broke (renamed, or no longer a literal array of quoted strings); the list did not shrink.',
+    );
+  }
+  if (new Set(tipos).size !== tipos.length) {
+    throw new Error('real-fixtures: VALID_FEATURE_TYPES repeats a type.');
+  }
+  // Absolute anchor beside the comparative checks: the oldest type of all must be there.
+  if (!tipos.includes('point')) {
+    throw new Error("real-fixtures: the parsed list has no 'point'; it is not the feature-type list.");
+  }
+  return Object.freeze([...tipos].sort());
+}
 
 const NUMERIC_TOP_ID = 1782053337250;
 const C = [-43.2, -22.9];
@@ -93,13 +157,7 @@ export function realFeature(source, overrides = {}) {
   return feature({ type: 'Point', coordinates: C }, baseProps(source, id, over));
 }
 
-/** The 18 backend-valid feature types (CHECK constraint on features.feature_type). */
-export const ALL_FEATURE_SOURCES = Object.freeze([
-  'point', 'line', 'polygon', 'text', 'image',
-  'circle', 'rectangle', 'ellipse', 'brush',
-  'arrow', 'boundary', 'occupied_front',
-  'military_symbol', 'coordination_measure',
-  'los', 'visibility', 'processed_los', 'processed_visibility',
-]);
+/** Every feature type the import Joi allowlist accepts (for "every type" contract sweeps). */
+export const ALL_FEATURE_SOURCES = deriveAllFeatureSources();
 
 export { NUMERIC_TOP_ID };

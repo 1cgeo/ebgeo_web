@@ -2,111 +2,80 @@
 
 /**
  * @fileoverview Store constants and feature type mappings.
+ *
+ * The six feature-type constants below are DERIVED, one pass each, from
+ * `feature-type.registry.js`. They keep the exact names, shapes and key order they had
+ * when they were written out by hand, so no consumer changed: what changed is that a type
+ * is now born in ONE place. Do not add a type here. Add a row there.
+ *
+ * The import is relative and the registry has zero imports of its own, which is what keeps
+ * this module loadable in plain node with no alias resolution.
  */
+
+import { FEATURE_TYPE_REGISTRY } from './feature-type.registry.js';
 
 /** @constant {string} */
 export const DEFAULT_MAP_NAME = 'Principal';
 
 /**
- * Canonical list of all feature source types.
+ * Builds a frozen object from the registry rows a predicate accepts. Registry order is
+ * preserved, which is what makes the derived key order identical to the hand-written one.
+ * @param {(row: Object) => boolean} accepts
+ * @param {(row: Object) => *} value
+ * @returns {Object}
+ */
+function mapFromRegistry(accepts, value) {
+    const out = {};
+    for (const row of FEATURE_TYPE_REGISTRY) {
+        if (accepts(row)) out[row.type] = value(row);
+    }
+    return Object.freeze(out);
+}
+
+/**
+ * Canonical list of all SELECTABLE feature source types.
  * Order: drawing tools, military tools, analysis tools.
- * All lookup maps below follow this same order.
+ * Excludes the processing OUTPUT types, which are drawn but never selected by box.
  * @constant {string[]}
  */
-const SOURCE_TYPES = Object.freeze([
-    'point', 'line', 'polygon', 'circle', 'ellipse', 'rectangle', 'sector',
-    'text', 'image', 'brush',
-    'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
-    'los', 'visibility',
-    'magnetic_declination',
-]);
+const SOURCE_TYPES = Object.freeze(
+    FEATURE_TYPE_REGISTRY.filter(row => row.selectable).map(row => row.type)
+);
 
 /**
  * Mapping of feature source types to their icon paths.
+ * A type with no icon (the processing outputs) is absent, exactly as before.
  * @constant {Object<string, string>}
  */
-export const FEATURE_TYPE_ICONS = Object.freeze({
-    point: './images/icon_point_black.svg',
-    line: './images/icon_line_black.svg',
-    polygon: './images/icon_polygon_black.svg',
-    circle: './images/icon_circle_black.svg',
-    ellipse: './images/icon_ellipse_black.svg',
-    rectangle: './images/icon_rectangle_black.svg',
-    sector: './images/icon_sector_black.svg',
-    text: './images/icon_text_black.svg',
-    image: './images/icon_photo_black.svg',
-    brush: './images/icon_brush_black.svg',
-    arrow: './images/icon_arrow_black.svg',
-    boundary: './images/icon_boundary_black.svg',
-    occupied_front: './images/icon_occupied_front_black.svg',
-    military_symbol: './images/icon_military_black.svg',
-    coordination_measure: './images/icon_coordination_black.svg',
-    los: './images/icon_los_black.svg',
-    visibility: './images/icon_visibility_black.svg',
-    magnetic_declination: './images/icon_declination_black.svg',
-});
+export const FEATURE_TYPE_ICONS = mapFromRegistry(row => row.icon !== null, row => row.icon);
 
 /**
- * Mapping of source types (singular) to storage types (plural).
+ * Mapping of source types (singular) to storage types (plural, and irregular:
+ * `sector` -> `setores`, `boundary` -> `boundarys`). The processing OUTPUT types map to
+ * the source name verbatim (NOT `source + 's'`): without them, getStorageTypeFromSource
+ * fell back to 'processed_loss'/'processed_visibilitys', so a synced processing result
+ * landed in a phantom bucket on the receiving peer and never rendered.
  * @constant {Object<string, string>}
  */
-export const FEATURE_TYPE_MAPPINGS = Object.freeze({
-    point: 'points',
-    line: 'lines',
-    polygon: 'polygons',
-    circle: 'circles',
-    ellipse: 'ellipses',
-    rectangle: 'rectangles',
-    sector: 'setores',
-    text: 'texts',
-    image: 'images',
-    brush: 'brushes',
-    arrow: 'arrows',
-    boundary: 'boundarys',
-    occupied_front: 'occupied_fronts',
-    military_symbol: 'military_symbols',
-    coordination_measure: 'coordination_measures',
-    los: 'los',
-    visibility: 'visibility',
-    // Processing OUTPUT types: their store buckets are the source name verbatim (NOT
-    // `source + 's'`). Without these, getStorageTypeFromSource fell back to
-    // 'processed_loss'/'processed_visibilitys', so a synced processing result landed in
-    // a phantom bucket on the receiving peer and never rendered.
-    processed_los: 'processed_los',
-    processed_visibility: 'processed_visibility',
-    magnetic_declination: 'magnetic_declinations',
-});
+export const FEATURE_TYPE_MAPPINGS = mapFromRegistry(() => true, row => row.storage);
 
 /**
  * Display names for feature types (in Portuguese).
+ * A type with no label (the processing outputs) is absent, exactly as before: adding one
+ * would make the analysis outputs show up in the feature tab, the legend and the selection.
  * @constant {Object<string, string>}
  */
-export const FEATURE_DISPLAY_NAMES = Object.freeze({
-    point: 'Ponto',
-    line: 'Linha',
-    polygon: 'Polígono',
-    circle: 'Círculo',
-    ellipse: 'Elipse',
-    rectangle: 'Retângulo',
-    sector: 'Setor',
-    text: 'Texto',
-    image: 'Imagem',
-    brush: 'Pincel',
-    arrow: 'Seta',
-    boundary: 'Limite',
-    occupied_front: 'Frente Ocupada',
-    military_symbol: 'Símbolo Militar',
-    coordination_measure: 'Medida de Coordenação',
-    los: 'Linha de Visada',
-    visibility: 'Visibilidade',
-    magnetic_declination: 'Declinação Magnética',
-});
+export const FEATURE_DISPLAY_NAMES = mapFromRegistry(row => row.label !== null, row => row.label);
 
 /** @constant {string[]} */
-export const UNCOPYABLE_FEATURE_TYPES = Object.freeze(['los', 'visibility']);
+export const UNCOPYABLE_FEATURE_TYPES = Object.freeze(
+    FEATURE_TYPE_REGISTRY.filter(row => !row.copiable).map(row => row.type)
+);
 
 /** @constant {string[]} */
-export const IMAGE_RESOURCE_FEATURE_TYPES = Object.freeze(['image', 'military_symbol', 'coordination_measure', 'magnetic_declination']);
+export const IMAGE_RESOURCE_FEATURE_TYPES = Object.freeze(
+    FEATURE_TYPE_REGISTRY.filter(row => row.imageResource).map(row => row.type)
+);
 
 // Pre-built reverse lookup: storage type -> source type
 const STORAGE_TO_SOURCE = Object.freeze(

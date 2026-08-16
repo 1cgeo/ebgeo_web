@@ -5,7 +5,7 @@
 Um `ls frontend/src/js/` conta a estrutura melhor que qualquer árvore aqui, e a árvore que morava nesta seção provou o ponto: ficou 92 linhas desatualizadas, omitindo `admin/` e `session/` inteiros. O que segue é só o que a listagem NÃO conta.
 
 - **Entrada**: `index.js` (boot, fail-fast em `GET /api/config`) e `map_sig.js` (init do mapa e registro de controles). Toda ferramenta nova passa por `map_sig.js` em **três** registries distintos, não um: ver a skill `new-tool`.
-- **`store/`** é o núcleo. `store.js` é fachada que reexporta as `*.operations.js`; `services.js` é o container de DI e precisa de `initServices()` antes de qualquer componente. Dois arquivos que a árvore antiga omitia e são load-bearing: `store.constants.js` (`SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`, editado a cada ferramenta nova) e `store-origin.js` (o marcador que separa local de remoto, base de quase todo comportamento de sync).
+- **`store/`** é o núcleo. `store.js` é fachada que reexporta as `*.operations.js`; `services.js` é o container de DI e precisa de `initServices()` antes de qualquer componente. Dois arquivos que a árvore antiga omitia e são load-bearing: `feature-type.registry.js` (onde um tipo de feição NASCE, e de onde `store.constants.js` deriva; ver §Registro de tipo de feição) e `store-origin.js` (o marcador que separa local de remoto, base de quase todo comportamento de sync).
 - **Barrel por pasta**: cada pasta de módulo expõe `index.js`, e é por ele que os aliases resolvem.
 - **Colocações que surpreendem** (a pasta não sugere o chunk): `measurement_tool` e `keyboard-service-3d` caem em `core`, não nos seus chunks óbvios. A ordem das regras dentro de `codeSplitting.groups[0].name` (`vite.config.js`) existe para evitar ciclo e está comentada lá, que é onde a explicação pertence.
 - **Páginas sem mapa**: `projects/` e `admin/` são entries HTML próprios (`projetos.html`, `admin.html`), não telas do mapa — ver §Páginas e chunks antes de importar qualquer coisa delas.
@@ -29,7 +29,17 @@ O metadado de sync **não é uniforme entre entidades**, e tratá-lo como unifor
 - **Comentário espacial** (colaboração): threads root/reply/resolve em `store/comment.operations.js`; `Shift+C` alterna a colocação.
 - **Dado temporal** (opcional, por feição): `temporalInicio`/`temporalFim` (janela de validade em epoch ms; ausente = permanente) e `trajetoria` (keypoints `{t, lng, lat}`; point/military_symbol/coordination_measure). A config temporal por mapa é persistida à parte.
 
-A lista de tipos de feição é `SOURCE_TYPES` (`frontend/src/js/store/store.constants.js`). Ela morava copiada aqui; a cópia estava certa e mesmo assim saiu, porque a skill `new-tool` manda editar aquela constante a cada ferramenta nova e nada mandava editar esta linha. Lista duplicada só espera a próxima ferramenta para ficar errada.
+A lista de tipos de feição não mora aqui, e o motivo é histórico: ela morava, a cópia estava certa e mesmo assim saiu, porque a skill `new-tool` manda editar a constante a cada ferramenta nova e nada mandava editar esta linha. Lista duplicada só espera a próxima ferramenta para ficar errada. Onde ela mora hoje é a seção seguinte.
+
+## Registro de tipo de feição
+
+Desde 2026-08-16 um tipo de feição **nasce em um lugar só**: `frontend/src/js/store/feature-type.registry.js`, uma linha por tipo (decisão em [`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md), com a alternativa recusada por extenso). O `fileoverview` daquele arquivo é a fonte: o que segue é só o que morde quem escreve código sem abri-lo.
+
+- **Não acrescente tipo em `store.constants.js`.** As seis constantes de tipo de lá (`FEATURE_TYPE_ICONS`, `FEATURE_TYPE_MAPPINGS`, `FEATURE_DISPLAY_NAMES`, `UNCOPYABLE_FEATURE_TYPES`, `IMAGE_RESOURCE_FEATURE_TYPES` e o `SOURCE_TYPES` privado) são **derivadas** do registro, com uma passada cada, e mantêm nome, forma e ordem de chave. Nenhum consumidor mudou.
+- **Duas propriedades do arquivo são contrato, não estilo:** ele tem **zero imports** (é o que o mantém carregável em node puro sem resolução de alias) e fica **fora dos dois barrels** do store (`store/index.js` e `store/store.js`), porque barrel de store arrasta a store inteira. As duas são asseridas por `frontend/tests/unit/registro-tipos-feicao.test.js`.
+- **Rótulo e ícone nulos são um estado legítimo**, não linha pela metade: as duas saídas de processamento (`processed_los`, `processed_visibility`) são desenhadas e nunca nomeadas. Dar rótulo a elas as faz aparecer na aba de feições, na legenda do PDF e na seleção por caixa. As três derivações são independentes de propósito (`label !== null`, `icon !== null`, `selectable`).
+- **As listas periféricas NÃO foram migradas**, e essa é a parte que envelhece se não for lida: hoje **um** arquivo deriva do registro. Os outros 32 estão **censados**, com motivo escrito, em `frontend/tests/unit/registro-tipos-cobertura.test.js`, cujo inventário vem de `git ls-files` e não de alvos escritos à mão. Nove deles se declaram completos e são cobrados como tais: acrescentar linha ao registro e não tocar em mais nada deixa os nove vermelhos numa mensagem só.
+- **O censo registra buraco conhecido, e cinco entradas dizem isso em voz alta** (a declinação magnética some da legenda do PDF; setor e declinação faltam nos rótulos de agrupar por tipo, no chip de ferramenta ativa e nos ícones do celular). Cada um migra no commit do **bug que causa**, com repro próprio, nunca por arrumação.
 
 ## Application Modes
 

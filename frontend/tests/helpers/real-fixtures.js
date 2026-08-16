@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview "Golden" fixtures that mirror EXACTLY what the real draw/military
- * tools emit — NOT minimal idealized features. Built after a 2-browser collaboration
+ * tools emit, NOT minimal idealized features. Built after a 2-browser collaboration
  * harness exposed bugs that every minimal-fixture test missed, because the real shape
  * carries gotchas the constructed fixtures never had:
  *
@@ -10,15 +10,36 @@
  *     is NOT the canonical id and must never be treated as a UUID;
  *   - `properties.id` = the canonical UUID;
  *   - `properties.source` = the feature type (the backend derives feature_type from it);
- *   - `properties.layerId` = 'default' (the implicit layer — a NON-UUID sentinel that
+ *   - `properties.layerId` = 'default' (the implicit layer, a NON-UUID sentinel that
  *     broke the backend's UUID layer_id column);
  *   - the full per-type style/attribute property set.
  *
- * The SAME shapes exist in `ebgeo_backend/tests/helpers/real-fixtures.js` so the
- * frontend producer tests and the backend consumer tests share one contract.
+ * The SAME shapes exist in `backend/tests/helpers/real-fixtures.js` so the frontend
+ * producer tests and the backend consumer tests share one contract.
  *
  * Pass a UUID for `id` via overrides to keep `properties.id` deterministic in a test.
+ *
+ * `ALL_FEATURE_SOURCES` USED TO BE A HAND-WRITTEN LIST, AND IT LIED.
+ * It carried 18 types and announced itself as "all" while the store, the client
+ * allowlist, the Joi schema and the database CHECK had 20: `sector` and
+ * `magnetic_declination` were missing. Everything that swept it (a spec whose title
+ * says "every feature type") therefore proved less than its reader believed. It is now
+ * DERIVED from the store's own mapping, so the next tool is covered the day the store
+ * learns it (`FEATURE_TYPE_MAPPINGS`), and never again by remembering to edit this file.
+ *
+ * WHY A RELATIVE IMPORT AND NOT `@store/`: this helper is loaded by the Playwright
+ * specs in `tests/e2e-ui/` too, and that runner has no Vite alias resolution.
+ * `store.constants.js` resolves with no alias and pulls in no app machinery (no store
+ * singleton, no MapLibre), which is what makes it loadable from plain node, from vitest
+ * and from Playwright alike. Keep it that way: an import added there that needs an alias
+ * breaks every Playwright spec that touches this file, and the error names neither.
  */
+
+import {
+    FEATURE_TYPE_MAPPINGS,
+    getAllStorageTypes,
+    getStorageTypeFromSource,
+} from '../../src/js/store/store.constants.js';
 
 /** A non-UUID numeric top-level id like the tools assign (intentionally NOT a UUID). */
 const NUMERIC_TOP_ID = 1782053337250;
@@ -108,8 +129,8 @@ export function realRectangleFeature({ id = crypto.randomUUID(), ...over } = {})
 }
 
 /**
- * Factory by source/type — returns the matching real fixture, or a generic Point
- * feature carrying the same gotchas for any other of the 18 types.
+ * Factory by source/type: returns the matching real fixture, or a generic Point
+ * feature carrying the same gotchas for any other type.
  * @param {string} source - properties.source / feature type
  * @param {Object} [overrides]
  */
@@ -128,13 +149,59 @@ export function realFeature(source, overrides = {}) {
     return feature({ type: 'Point', coordinates: C }, baseProps(source, id, over));
 }
 
-/** The 18 backend-valid feature types (for "every type" contract sweeps). */
-export const ALL_FEATURE_SOURCES = Object.freeze([
-    'point', 'line', 'polygon', 'text', 'image',
-    'circle', 'rectangle', 'ellipse', 'brush',
-    'arrow', 'boundary', 'occupied_front',
-    'military_symbol', 'coordination_measure',
-    'los', 'visibility', 'processed_los', 'processed_visibility',
-]);
+/**
+ * Every feature source type the store knows how to place, DERIVED from
+ * `FEATURE_TYPE_MAPPINGS` (whose KEYS are exactly the source types) instead of copied.
+ * A type added to the store is swept without anyone editing this file.
+ *
+ * NOT derived by reading `getAllStorageTypes()` and mapping each bucket BACK to a source,
+ * which was the first version and is a trap: `getStorageTypeFromSource` falls back to
+ * `source + 's'`, so a wrong singular ('setore' for 'setores') maps forward to the right
+ * bucket and the round-trip validates a name that does not exist. Measured, not reasoned:
+ * that control passed while the list was wrong. The keys need no round-trip.
+ *
+ * The floors below run at MODULE LOAD and throw, on purpose: this list is consumed by
+ * sweeps whose failure mode, if it silently shrank, is proving less while still reporting
+ * success. A throw here names the breakage; a short array would not.
+ *
+ * @returns {readonly string[]} sorted, so this array is literally identical to the
+ *   backend twin (`backend/tests/helpers/real-fixtures.js`), which derives the same set
+ *   from the backend's own Joi allowlist. Divergence between the twins is the same
+ *   defect wearing different clothes, and sorting is what makes it visible at a glance.
+ */
+function deriveAllFeatureSources() {
+    const sources = Object.keys(FEATURE_TYPE_MAPPINGS);
+    if (sources.length === 0) {
+        throw new Error(
+            'real-fixtures: FEATURE_TYPE_MAPPINGS yielded no feature type. The derivation broke; '
+            + 'the type list did not shrink.',
+        );
+    }
+    // Ties the table to the accessors the app actually calls, so a future refactor that moves
+    // one without the other is caught here instead of shrinking the sweep in silence.
+    const buckets = new Set(getAllStorageTypes());
+    for (const source of sources) {
+        const bucket = FEATURE_TYPE_MAPPINGS[source];
+        if (getStorageTypeFromSource(source) !== bucket || !buckets.has(bucket)) {
+            throw new Error(
+                `real-fixtures: '${source}' maps to '${bucket}' in FEATURE_TYPE_MAPPINGS but to `
+                + `'${getStorageTypeFromSource(source)}' through the accessors.`,
+            );
+        }
+    }
+    // Absolute anchor next to the comparative checks: the oldest tool of all must be there.
+    if (!sources.includes('point')) {
+        throw new Error("real-fixtures: the derived source list has no 'point'; it is not the type list.");
+    }
+    return Object.freeze([...sources].sort());
+}
+
+/**
+ * Every feature source type the store can produce, which is the universe the "every type"
+ * contract sweeps must cover. Deliberately NOT phrased as "backend-valid": nothing here
+ * asks the backend, and a store type the server does not accept SHOULD make the sync
+ * sweep red rather than quietly stay out of it.
+ */
+export const ALL_FEATURE_SOURCES = deriveAllFeatureSources();
 
 export { NUMERIC_TOP_ID };

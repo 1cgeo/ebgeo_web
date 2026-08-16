@@ -74,7 +74,27 @@ frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 6. **Wire up in `map_sig.js`** — `registerControl()` alone does NOT make a toolbar button work. Instantiate (`new Add<Name>Control(toolManager)`), then add the instance to: `SELECTION_CONTROLS` (→ `selectionManager.registerControl`), `CONTROL_REGISTRY` (keyed by class name, e.g. `'Add<Name>Control'`), and the `controls:` object passed to both `ToolbarControl` and `KeyboardShortcuts` (keyed by `controlKey`, e.g. `<name>Control`). The toolbar resolves its button via `controlKey` against that `controls` map.
 
-7. **Add feature type** to `store` if new type (`store.constants.js` mappings — `SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`).
+7. **Add the feature type — ONE row, in ONE file.** Since 2026-08-16 a type is born in
+   `frontend/src/js/store/feature-type.registry.js`: append a row with `type`, `storage`,
+   `label` (pt-BR), `icon`, and the four capability flags. **Do not edit
+   `store.constants.js`**: its six type constants are derived from that row, so the icon,
+   the display name, the singular/plural mapping, box selection, clipboard and the image
+   resource all follow for free. `getAllStorageTypes()` picks it up too.
+
+   Then run `npx vitest run tests/unit/registro-tipos-cobertura.test.js` from `frontend/`.
+   It goes RED and hands you the rest of the work: it names, in one message, every list
+   that promises to carry all types and has not heard of yours (the empty map shape, the
+   live MapLibre sources, the feature tab, the import gate, the KMZ classifier, the three
+   registries of `map_sig.js`, the feature panel header and the feature dropdown). That
+   red list is the checklist; there is no second copy of it to keep in sync here, on
+   purpose. If your tool touches a file the census does not know, the same test says so
+   and asks for a written reason.
+
+   What the census does NOT cover, and you still have to think about: the z-order of the
+   calls in `frontend/src/js/layers/layer_setup.js` (ordered by hand, and the symptom of
+   getting it wrong is visual), the snapping targets, and the backend, where a type new to
+   the SERVER costs four manual edits across two packages (see
+   `frontend/tests/unit/tipos-feicao-paridade-pacotes.test.js`).
 
 8. **Add to `vite.config.js`** manual chunks if tool is large.
 
