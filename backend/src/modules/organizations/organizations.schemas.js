@@ -4,7 +4,7 @@ import Joi from 'joi';
 export const createOrganizationSchema = Joi.object({
   nome: Joi.string().max(255).required(),
   slug: Joi.string().max(100).pattern(/^[a-z0-9-]+$/).required().messages({
-    'string.pattern.base': 'slug can only contain lowercase letters, numbers and hyphens',
+    'string.pattern.base': 'Identificador aceita apenas letras minúsculas, números e hífen.',
   }),
   sigla: Joi.string().max(50).allow(null, ''),
 });

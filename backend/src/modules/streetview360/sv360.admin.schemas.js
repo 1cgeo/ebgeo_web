@@ -57,7 +57,7 @@ const dbFilename = Joi.string()
   .max(255)
   .pattern(/[/\\]/, { invert: true })
   .messages({
-    'string.pattern.invert.base': 'db_filename must be a basename (no path separator)',
+    'string.pattern.invert.base': 'db_filename deve ser um nome de arquivo, sem separador de caminho.',
   });
 
 // capture_date — the photo's capture INSTANT (sv360.photos.capture_date is
@@ -95,7 +95,10 @@ const projectSchema = Joi.object({
     .pattern(/^[a-z0-9_-]+$/)
     .min(1)
     .max(255)
-    .required(),
+    .required()
+    .messages({
+      'string.pattern.base': 'Identificador do projeto aceita apenas letras minúsculas, números, hífen e sublinhado.',
+    }),
   name: Joi.string().trim().min(1).max(512).required(),
   // OPTIONAL: resolved to organization_id by the service (global admin may set
   // any OM; an om_data_admin is forced to its own org). Default org if omitted.

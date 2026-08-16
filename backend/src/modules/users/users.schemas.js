@@ -34,7 +34,7 @@ export const listUsersQuerySchema = Joi.object({
 export const createUserAdminSchema = Joi.object({
   username: Joi.string().required().min(3).max(100).pattern(/^[a-zA-Z0-9._-]+$/)
     .messages({
-      'string.pattern.base': 'Username can only contain letters, numbers, dots, underscores and hyphens',
+      'string.pattern.base': 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.',
     }),
   password: Joi.string().required().min(6).max(100),
   nome: Joi.string().required().max(255),
@@ -47,7 +47,10 @@ export const createUserAdminSchema = Joi.object({
 });
 
 export const updateUserAdminSchema = Joi.object({
-  username: Joi.string().min(3).max(100).pattern(/^[a-zA-Z0-9._-]+$/),
+  username: Joi.string().min(3).max(100).pattern(/^[a-zA-Z0-9._-]+$/)
+    .messages({
+      'string.pattern.base': 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.',
+    }),
   nome: Joi.string().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),

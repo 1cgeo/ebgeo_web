@@ -55,7 +55,10 @@ export const thumbnailSlugParamSchema = Joi.object({
     .pattern(/^[a-z0-9_-]+$/)
     .min(1)
     .max(255)
-    .required(),
+    .required()
+    .messages({
+      'string.pattern.base': 'Identificador do projeto aceita apenas letras minúsculas, números, hífen e sublinhado.',
+    }),
 });
 
 // :z/:x/:y path params for GET /tiles/:z/:x/:y.pbf — MVT tile coordinates. z is a

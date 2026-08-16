@@ -44,6 +44,33 @@ describe('Auth API', () => {
       .expect(401);
   });
 
+  it('POST /auth/login — a SHORT wrong password is a failed login, not a policy lecture', async () => {
+    // Until 2026-08-16 the login schema carried the registration minimum, so a five-character
+    // guess was refused with 422 `"password" length must be at least 6 characters long`. The
+    // user reads that as "my account needs a longer password" instead of "wrong password", and
+    // the differing status leaks the policy to an anonymous caller. See `auth.schemas.js`.
+    const res = await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username: user.username, password: '123' })
+      .expect(401);
+
+    assert.equal(res.body.error.code, 'UNAUTHORIZED');
+    assert.ok(
+      !/caracteres|characters/i.test(JSON.stringify(res.body)),
+      `the refusal must not name the length policy: ${JSON.stringify(res.body)}`
+    );
+  });
+
+  it('POST /auth/login — an ABSENT password is still a malformed request (422)', async () => {
+    // The negative half of the case above: dropping `min(6)` must not drop `required()`.
+    const res = await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username: user.username })
+      .expect(422);
+
+    assert.equal(res.body.error.details[0].field, 'password');
+  });
+
   it('POST /auth/refresh — rotates refresh token', async () => {
     const login = await supertest(app)
       .post('/api/v1/auth/login')
@@ -222,8 +249,8 @@ describe('Auth API', () => {
         .expect(200);
     });
 
-    it('rejects password shorter than 6 characters', async () => {
-      await supertest(app)
+    it('rejects password shorter than 6 characters, in pt-BR', async () => {
+      const res = await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           username: 'short_pwd_user',
@@ -231,6 +258,14 @@ describe('Auth API', () => {
           nome: 'Short Password User',
         })
         .expect(422);
+
+      // REGISTRATION is where the minimum belongs, and the message is what the user reads:
+      // the web client folds `details[].message` into the text it shows (`buildApiErrorMessage`).
+      assert.equal(res.body.error.details[0].field, 'password');
+      assert.equal(
+        res.body.error.details[0].message,
+        'Senha deve ter ao menos 6 caracteres.'
+      );
     });
 
     it('rejects username shorter than 3 characters', async () => {

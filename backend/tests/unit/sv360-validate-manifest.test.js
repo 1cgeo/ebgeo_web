@@ -134,9 +134,24 @@ describe('sv360 validateManifest — the non-object and empty inputs', () => {
   });
 
   it('rejects a db_filename carrying a path separator (traversal guard)', () => {
+    // The message is the custom pt-BR one on the `string.pattern.invert.base` key of
+    // sv360.admin.schemas.js. Asserting the KEY's rendered text (and not just the
+    // error class) is what proves the invert-pattern rule fired, and not some other
+    // rule of the same schema: `../other.db` also has to survive min/max and the
+    // string type, so a bare `ValidationError` assertion would stay green if the
+    // separator guard were deleted and, say, the max length were lowered.
     assert.throws(
       () => validateManifest(manifest({ project: { slug: 'p', name: 'P', db_filename: '../other.db' } })),
-      /basename/
+      (err) => {
+        assert.ok(err instanceof ValidationError);
+        assert.match(err.message, /^db_filename deve ser um nome de arquivo, sem separador de caminho\.$/);
+        return true;
+      }
+    );
+    // Control: the same name WITHOUT a separator passes the rule (so the assertion
+    // above is about the separator, not about the field being present at all).
+    assert.doesNotThrow(() =>
+      validateManifest(manifest({ project: { slug: 'p', name: 'P', db_filename: 'other.db' } }))
     );
   });
 });

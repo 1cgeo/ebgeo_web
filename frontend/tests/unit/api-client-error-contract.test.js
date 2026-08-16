@@ -18,7 +18,8 @@ import {
  *    can be pinned here, in node, without a server.
  *
  * 2. WHAT a 422 tells the user. The backend names the offending field only inside
- *    `error.details`; the top-level message is the constant 'Validation failed'.
+ *    `error.details`, as a finished pt-BR sentence; the top-level message is the constant
+ *    'Falha na validação'.
  */
 
 /** Builds a fetch Response-like object. */
@@ -160,13 +161,16 @@ describe('ApiClient.refresh — a sessão só morre quando o servidor recusa a c
 
 describe('ApiError — o campo que o servidor nomeou chega ao usuário', () => {
     it('composes the message from `details` on a 422 and keeps `details` on the error', async () => {
+        // The envelope is what the server really sends since 2026-08-16: `message` is a
+        // complete pt-BR sentence naming the field in Portuguese, `field` stays the wire key
+        // (`backend/src/utils/validation-messages.js`).
         const fetchImpl = vi.fn(async () => resp(422, {
             error: {
                 code: 'VALIDATION_ERROR',
-                message: 'Validation failed',
+                message: 'Falha na validação',
                 details: [
-                    { field: 'username', message: 'Username can only contain letters, numbers, dots, underscores and hyphens' },
-                    { field: 'password', message: '"password" length must be at least 6 characters long' },
+                    { field: 'username', message: 'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.' },
+                    { field: 'password', message: 'Senha deve ter ao menos 6 caracteres.' },
                 ],
             },
         }));
@@ -178,12 +182,14 @@ describe('ApiError — o campo que o servidor nomeou chega ao usuário', () => {
         expect(error).toBeInstanceOf(ApiError);
         expect(error.status).toBe(422);
         expect(error.details).toHaveLength(2);
+        // The wire key survives on `details` for anything that needs it...
         expect(error.details[0].field).toBe('username');
-        // The generic 'Validation failed' is gone; the field is named. The second entry keeps
-        // Joi's own text, which already quotes the field, without saying it twice.
+        // ...while the message the user reads is the server's sentence, verbatim. The generic
+        // 'Falha na validação' is gone, and no `password:` prefix is bolted onto a sentence
+        // that already says "Senha".
         expect(error.message).toBe(
-            'username: Username can only contain letters, numbers, dots, underscores and hyphens'
-            + '; "password" length must be at least 6 characters long'
+            'Usuário aceita apenas letras, números, ponto, hífen e sublinhado.'
+            + '; Senha deve ter ao menos 6 caracteres.'
         );
     });
 

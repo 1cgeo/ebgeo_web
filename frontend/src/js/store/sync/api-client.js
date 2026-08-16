@@ -52,18 +52,20 @@ function formatValidationDetails(details) {
     return details.map((d) => {
         const message = typeof d?.message === 'string' ? d.message.trim() : '';
         const field = typeof d?.field === 'string' ? d.field.trim() : '';
-        if (!message) return field;
-        // Joi's default messages already quote the field ('"nome" is not allowed to be
-        // empty'); a schema with a custom `.messages()` override does not. Prefix only
-        // when the field is not named already, so the line never says it twice.
-        return field && !message.includes(field) ? `${field}: ${message}` : message;
+        // The message is shown AS IS, never prefixed with the field. Since 2026-08-16 the
+        // server renders each detail as a complete pt-BR sentence that already names the
+        // field in Portuguese (`backend/src/utils/validation-messages.js`), so prefixing put
+        // the English wire name in front of a finished sentence: `password: Senha deve ter ao
+        // menos 6 caracteres.` The wire name survives on `error.details[].field` for anything
+        // that needs the key. Only a detail with no message at all falls back to it.
+        return message || field;
     }).filter(Boolean).join('; ');
 }
 
 /**
  * Builds the message carried by an {@link ApiError} from the backend error envelope.
  *
- * For a 422 the top-level message is the constant `'Validation failed'`
+ * For a 422 the top-level message is the constant `'Falha na validação'`
  * (`backend/src/middleware/error-handler.js`) and the offending FIELD is named only inside
  * `details`. Every form in the app shows `error.message`, so without composing it here the
  * naming work the server already did never reaches the user.

@@ -31,7 +31,10 @@ export const uploadFileSchema = Joi.object({
 // save-local-atlas.service.js), so nothing in the app is rejected by this.
 const bulkImageItemSchema = Joi.object({
   localId: Joi.string().uuid().required(), // Client-side ID for mapping
-  filename: Joi.string().max(255).pattern(/^[^/\\\0]+$/).required(),
+  filename: Joi.string().max(255).pattern(/^[^/\\\0]+$/).required()
+    .messages({
+      'string.pattern.base': 'Nome do arquivo não pode conter barra nem contrabarra.',
+    }),
   mimeType: Joi.string().valid('image/png', 'image/jpeg', 'image/webp').required(),
   data: Joi.string().required(), // Base64 encoded image data
 });

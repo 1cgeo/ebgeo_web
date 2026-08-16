@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import { AppError, ValidationError } from '../utils/errors.js';
 import { redactUrl } from '../utils/redact-url.js';
 import config from '../config.js';
+import { toValidationDetails } from '../utils/validation-messages.js';
 
 /**
  * Centralized error handler middleware.
@@ -43,16 +44,15 @@ export function errorHandler(err, req, res, next) {
     return next(err);
   }
 
-  // Handle Joi validation errors
+  // Handle Joi validation errors. The per-field `message` is rendered in pt-BR
+  // (`validation-messages.js`) because the web client folds these strings straight into what
+  // the user reads; `field` and `code` stay on the wire in English, as machine keys.
   if (err.isJoi) {
     return res.status(422).json({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Validation failed',
-        details: err.details.map(d => ({
-          field: d.path.join('.'),
-          message: d.message,
-        })),
+        message: 'Falha na validação',
+        details: toValidationDetails(err.details),
       },
     });
   }
