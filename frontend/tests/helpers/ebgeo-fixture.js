@@ -240,30 +240,49 @@ export function legacyDbNames(names) {
 }
 
 /**
- * Writes one loaded archive into the PRE-NAMESPACE databases, at the given schema version.
+ * Turns one loaded archive into the KEY/VALUE CONTENT of each pre-namespace database.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS SEPARATE FROM THE WRITING
+ * ---------------------------------------------------------------------------
+ * The key layout below (`layers_<map>`, `cesium3d_<map>`, briefings by id, `custom_icons`,
+ * `mapOrder` in two homes) is a hand-mirror of `local.repository.js`, and the fileoverview
+ * explains why every test that uses it must read back through the real repository. There is
+ * now a SECOND consumer that cannot call `seedDatabase`: `tests/e2e-ui/browser-migracao-2.2.spec.js`
+ * seeds inside a Chromium page, where the writing has to happen through the app's own
+ * `getStoreFor` and the node-side `localforage` is not in reach.
+ *
+ * Two copies of this layout would drift, and the drift would be invisible: the node harness
+ * would keep passing on the old shape while the browser one seeded a repository no user has.
+ * So the layout is built ONCE, here, as plain data, and each caller writes it its own way.
+ *
+ * The result is keyed by `StoreName` VALUE (`maps`, `layers`, ...), never by database name:
+ * names come from `resolveDbName()`, and this file builds none.
  *
  * @param {{ data: Object, images: Map<string, Uint8Array> }} fixture - Loaded archive.
- * @param {Object} names - Absolute database names, keyed by `StoreName` value. Built by the
- *   caller with `resolveDbName()` so no naming rule is reimplemented here.
  * @param {Object} [options]
  * @param {string} [options.schemaVersion='2.2'] - Version stamp to write.
  * @param {string} [options.atlasName='Meu Atlas'] - Name of the seeded atlas record.
  * @param {string} [options.atlasId] - Id of the seeded atlas record.
- * @returns {Promise<void>}
+ * @param {(bytes: Uint8Array) => *} [options.imageValue] - How to wrap image bytes. Defaults
+ *   to `IMAGE_VALUE_FORM`; the browser seeder overrides it because a `Uint8Array` does not
+ *   survive the trip into a page and a real browser can hold a real `Blob`.
+ * @param {number} [options.now] - Epoch ms for the sync metadata.
+ * @returns {Object<string, Object<string, *>>} Entries per `StoreName` value.
  */
-export async function seedLegacyWorkspace(fixture, names, {
+export function buildLegacyEntries(fixture, {
     schemaVersion = '2.2',
     atlasName = 'Meu Atlas',
-    atlasId = 'seeded-atlas'
+    atlasId = 'seeded-atlas',
+    imageValue = asImageBlob,
+    now = Date.now()
 } = {}) {
     const { data, images } = fixture;
-    const now = Date.now();
 
     const maps = {};
     for (const [mapName, mapData] of Object.entries(data.maps ?? {})) {
         maps[mapName] = mapRecord(mapName, mapData, now);
     }
-    await seedDatabase(names.maps, maps);
 
     // `mapOrder` has TWO homes and the archive only shows one of them. `main` reads it from
     // the settings database (`getSettingCompat('mapOrder')`); the atlas record below carries
@@ -286,7 +305,6 @@ export async function seedLegacyWorkspace(fixture, names, {
     if ((data.customIcons ?? []).length > 0) {
         settings.custom_icons = data.customIcons;
     }
-    await seedDatabase(names.settings, settings);
 
     const layers = {};
     for (const [mapName, list] of Object.entries(data.layers ?? {})) {
@@ -294,46 +312,64 @@ export async function seedLegacyWorkspace(fixture, names, {
         // No `activeLayer_<map>`: the archive does not export it, and inventing 'default'
         // for a map with seven layers writes a value no user has. Absence is faithful.
     }
-    await seedDatabase(names.layers, layers);
-
-    await seedDatabase(names.groups, { ...(data.groups ?? {}) });
 
     const cesium3d = {};
     for (const [mapName, value] of Object.entries(data.cesium3d ?? {})) {
         cesium3d[`cesium3d_${mapName}`] = value;
     }
-    await seedDatabase(names.cesium3d, cesium3d);
 
     const streetview360 = {};
     for (const [mapName, value] of Object.entries(data.streetview360 ?? {})) {
         streetview360[`streetview360_${mapName}`] = value;
     }
-    await seedDatabase(names.streetview360, streetview360);
-
-    // NO `ebgeo_comments`: `main` has nine stores and none of them is comments. Creating it
-    // here would hand every existence-based gate a database no 2.2 user has.
 
     const briefings = {};
     for (const briefing of data.briefings ?? []) {
         briefings[briefing.id] = briefing;
     }
-    await seedDatabase(names.briefings, briefings);
 
     const imageEntries = {};
     for (const [id, bytes] of images) {
-        imageEntries[id] = asImageBlob(bytes);
+        imageEntries[id] = imageValue(bytes);
     }
-    await seedDatabase(names.images, imageEntries);
 
-    await seedDatabase(names.atlas, {
-        current_atlas: {
-            id: atlasId,
-            name: atlasName,
-            sync: { createdAt: now, updatedAt: now, version: 1, ownerId: null, dirty: true, deleted: false, deletedAt: null },
-            schemaVersion,
-            mapOrder: data.mapOrder ?? [],
-            lastActiveMapId: null,
-            settings: { terrainExaggeration: 1.5 }
+    // NO `ebgeo_comments`: `main` has nine stores and none of them is comments. Creating it
+    // here would hand every existence-based gate a database no 2.2 user has.
+    return {
+        maps,
+        settings,
+        layers,
+        groups: { ...(data.groups ?? {}) },
+        cesium3d,
+        streetview360,
+        briefings,
+        images: imageEntries,
+        atlas: {
+            current_atlas: {
+                id: atlasId,
+                name: atlasName,
+                sync: { createdAt: now, updatedAt: now, version: 1, ownerId: null, dirty: true, deleted: false, deletedAt: null },
+                schemaVersion,
+                mapOrder: data.mapOrder ?? [],
+                lastActiveMapId: null,
+                settings: { terrainExaggeration: 1.5 }
+            }
         }
-    });
+    };
+}
+
+/**
+ * Writes one loaded archive into the PRE-NAMESPACE databases, at the given schema version.
+ *
+ * @param {{ data: Object, images: Map<string, Uint8Array> }} fixture - Loaded archive.
+ * @param {Object} names - Absolute database names, keyed by `StoreName` value. Built by the
+ *   caller with `resolveDbName()` so no naming rule is reimplemented here.
+ * @param {Object} [options] - See `buildLegacyEntries`.
+ * @returns {Promise<void>}
+ */
+export async function seedLegacyWorkspace(fixture, names, options = {}) {
+    const byStore = buildLegacyEntries(fixture, options);
+    for (const storeId of LEGACY_STORE_IDS) {
+        await seedDatabase(names[storeId], byStore[storeId]);
+    }
 }
