@@ -24,5 +24,12 @@
 @import url('./modals-redesign.css');
 @import url('./sharing.css');
 
+/* "Entrar" happens HERE now, not on the map: signing in is what turns the
+   server half of this page on, and bouncing through the map to type a password
+   would load the whole map bundle for a form. Only the dialog's own rules,
+   never account.css (that is the map's account control). */
+@import url('./login-modal.css');
+
 /* ===== The page itself ===== */
+@import url('./projects-sections.css');
 @import url('./atlas-drive.css');

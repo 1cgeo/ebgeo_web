@@ -14,6 +14,14 @@ import {
 // database a write landed in, so the fake must distinguish databases by name.
 // ============================================================================
 
+/**
+ * The ORDER of the two destructive halves of a deletion, recorded as it happens.
+ *
+ * A pair of `toHaveBeenCalled` assertions cannot tell "warned, then destroyed" from "destroyed,
+ * then warned", and the second is a notice that arrives when there is nothing left to stop.
+ */
+const { ordem, teardownCalls } = vi.hoisted(() => ({ ordem: [], teardownCalls: [] }));
+
 const { databases, makeStore, resetFake, uuidCounter } = vi.hoisted(() => {
     const databases = new Map();
     const uuidCounter = { value: 0 };
@@ -48,12 +56,28 @@ vi.mock('localforage', () => ({
     default: {
         createInstance: vi.fn(makeStore),
         dropInstance: vi.fn(async ({ name }) => {
+            ordem.push(`drop:${name}`);
             for (const key of [...databases.keys()]) {
                 if (key.startsWith(`${name}::`)) databases.delete(key);
             }
         })
     }
 }));
+
+// PARTIAL, not a stand-in: `TeardownReason` comes from the REAL module, so a test that asserts the
+// reason cannot agree with a constant it invented itself. Only the announcement is intercepted,
+// because it would otherwise open a BroadcastChannel and wait for peers that do not exist here.
+vi.mock('@utils/tab-lock.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        announceTabLockTeardown: vi.fn(async (addresses, options) => {
+            ordem.push('aviso');
+            teardownCalls.push({ addresses, options });
+            return { addresses, peers: 0, acked: 0, frozen: 0, timedOut: false, degraded: false };
+        })
+    };
+});
 
 vi.mock('../../src/js/utilities/uuid.js', () => ({
     generateUUID: vi.fn(() => {
@@ -73,6 +97,8 @@ let clock;
 beforeEach(async () => {
     vi.resetModules();
     resetFake();
+    ordem.length = 0;
+    teardownCalls.length = 0;
 
     // Monotonic clock so createdAt/updatedAt never tie: "the most recently updated
     // remaining atlas" is a real ordering assertion, not a coin flip.
@@ -591,6 +617,64 @@ describe('local-atlas.api :: excluir atlas', () => {
         expect(resultado.ok).toBe(false);
         expect(resultado.error).toBe(api.LocalAtlasError.NOT_FOUND);
         expect(api.listLocalAtlases()).toHaveLength(2);
+    });
+
+    // ------------------------------------------------------------------ o aviso entre abas
+    //
+    // Excluir um atlas local destrói bancos que OUTRA ABA pode ter montados. O lock de montagem não
+    // arbitra isto (nada nunca reexecuta um drop local, então poupar aqui seria abandonar os bancos
+    // fora do registro para sempre), então o que o aviso compra é diferente do lado remoto: a irmã
+    // PARA antes de o drop acontecer. Sem isso, o drop completa (o localforage fecha em
+    // `versionchange`) e a próxima escrita da irmã RECRIA os dez bancos sob um nome que registro
+    // nenhum menciona, que é o resíduo inalcançável que o namespace existe para impedir.
+
+    it('AVISA as outras abas ANTES de destruir, com o endereço do slot e o motivo', async () => {
+        const tabLock = await import('@utils/tab-lock.js');
+        const alvo = (await api.createLocalAtlas('Alfa')).atlas;
+
+        const resultado = await api.deleteLocalAtlas(alvo.id);
+
+        expect(resultado.ok).toBe(true);
+        expect(teardownCalls).toHaveLength(1);
+        // O ENDEREÇO é o `dbSuffix` do registro, nunca o id do slot: um slot adotado carrega
+        // sufixo `remote-<id>`, e é por ele que a irmã se reconhece.
+        expect(teardownCalls[0].addresses).toEqual([api.scopeOfLocalAtlas(alvo).dbSuffix]);
+        expect(teardownCalls[0].options.reason).toBe(tabLock.TeardownReason.LOCAL_ATLAS_DELETED);
+        // Controle de que o motivo não é uma string que este teste inventou: o valor existe no
+        // módulo real e é o do atlas local, não o da sessão encerrada.
+        expect(tabLock.TeardownReason.LOCAL_ATLAS_DELETED)
+            .not.toBe(tabLock.TeardownReason.SESSION_ENDED);
+
+        // A ORDEM, que é a propriedade: avisar depois do drop é avisar quando já não há o que parar.
+        expect(ordem[0]).toBe('aviso');
+        expect(ordem.filter(passo => passo.startsWith('drop:'))).toHaveLength(11);
+    });
+
+    it('NÃO avisa quando a exclusão é recusada (nenhum banco vai ser destruído)', async () => {
+        // Congelar uma aba irmã por causa de um atlas que ninguém excluiu é o erro simétrico, e o
+        // freio não tem volta: só recarregando.
+        const unico = api.listLocalAtlases()[0];
+        expect(await api.deleteLocalAtlas(unico.id)).toMatchObject({ ok: false });
+        expect(await api.deleteLocalAtlas('id-que-nao-existe')).toMatchObject({ ok: false });
+
+        expect(teardownCalls).toEqual([]);
+        expect(ordem).toEqual([]);
+    });
+
+    it('avisar não pode abortar a exclusão: um canal que LANÇA custa um console.warn', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const tabLock = await import('@utils/tab-lock.js');
+        tabLock.announceTabLockTeardown.mockRejectedValueOnce(new Error('canal morto'));
+        const alvo = (await api.createLocalAtlas('Alfa')).atlas;
+
+        const resultado = await api.deleteLocalAtlas(alvo.id);
+
+        // O silêncio degrada para o comportamento anterior ao aviso: exclui do mesmo jeito, porque
+        // quem autoriza a destruição é o gesto do usuário e não o ack.
+        expect(resultado.ok).toBe(true);
+        expect(dbNamesWithSuffix(alvo.dbSuffix)).toHaveLength(0);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
     });
 });
 

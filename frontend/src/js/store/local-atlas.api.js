@@ -23,6 +23,12 @@
  * This module owns persistence and scope selection ONLY. It does not touch the memory
  * store, the layer caches or the outbound queue, so a caller that switches or deletes an
  * atlas must unmount the current one first (the wipe/unmount path stays in `store.js`).
+ *
+ * THE ONE THING IT REACHES OUTSIDE PERSISTENCE is the tab-lock channel, and only on the one
+ * operation that DESTROYS databases: `deleteLocalAtlas` announces the unmount notice before it
+ * drops anything, exactly as `store.js` does for the remote sweep. It is bound to the destruction
+ * and not to the caller for the reason written there: two callers and one of them remembering is
+ * the shape of defect that comes back.
  */
 
 import { createAtlas, ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
@@ -49,6 +55,10 @@ import {
     remoteScope
 } from './atlas-namespace.js';
 import { activateRemoteAtlas } from './remote-atlas.api.js';
+// From the FILE, never from the `@utils` barrel, for the reason `store.js` states at its own copy
+// of this import: the barrel reaches `@store` transitively, and this module is loaded by
+// `projetos.html`, which exists in order not to load the store's map half.
+import { announceTabLockTeardown, TeardownReason } from '@utils/tab-lock.js';
 
 /**
  * Ceiling of named local atlases. Owner decision, and deliberately low: every slot is 10
@@ -663,6 +673,61 @@ export async function createLocalAtlas(name) {
 }
 
 /**
+ * Renames a local atlas.
+ *
+ * THE NAME LIVES IN TWO PLACES THAT ARE BORN EQUAL, and a rename that writes only one of them
+ * produces a UI that contradicts itself: the registry (this module's source of truth, what the
+ * project chooser lists) and the slot's OWN atlas record, seeded from it by `seedAtlasRecord`
+ * and read by the map. Renaming only the registry leaves the chooser showing the new name and
+ * the map showing the old one, with nothing erroring.
+ *
+ * The DATABASES ARE NOT TOUCHED: `dbSuffix` is the id precisely so a rename never has to rename
+ * a database (IndexedDB has no rename). The slot's record is written through an EXPLICIT scope,
+ * so renaming a slot this client does not have mounted neither mounts it nor takes its lock.
+ *
+ * Duplicates are SUFFIXED, never refused, for the reason `uniqueName` spells out; the entry
+ * being renamed is excluded from the comparison, so re-confirming the same name is a no-op
+ * instead of turning "Alfa" into "Alfa (2)".
+ *
+ * Disk first, mirror after, the rule `adoptRemoteAtlasAsLocal` writes out: a mirror updated
+ * before the write lands announces a name no boot would honour.
+ *
+ * @param {string} id - Local atlas id.
+ * @param {string} name - New display name, pt-BR.
+ * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }`, or a named refusal.
+ * @throws {Error} When `name` is not a non-empty string (caller bug).
+ */
+export async function renameLocalAtlas(id, name) {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+        throw new Error('renameLocalAtlas: name must be a non-empty string');
+    }
+    const entries = requireEntries();
+    const entry = entries.find(e => e.id === id);
+    if (!entry) {
+        return refuse(LocalAtlasError.NOT_FOUND, { atlasId: id });
+    }
+
+    const renamed = {
+        ...entry,
+        name: uniqueName(name.trim(), entries.filter(e => e.id !== id)),
+        updatedAt: Date.now()
+    };
+    await persistRegistryEntry(renamed);
+    entry.name = renamed.name;
+    entry.updatedAt = renamed.updatedAt;
+
+    const store = getStoreFor(StoreName.ATLAS, scopeOfLocalAtlas(entry));
+    const record = await store.getItem(ATLAS_RECORD_KEY);
+    // A slot with no record yet (the legacy slot before its first boot) needs no mirror: the
+    // record is seeded from the registry when it is finally written, already carrying this name.
+    if (record) {
+        await store.setItem(ATLAS_RECORD_KEY, { ...record, name: renamed.name });
+    }
+
+    return { ok: true, atlas: { ...renamed } };
+}
+
+/**
  * Switches the current local atlas. The caller must have unmounted the previous atlas
  * (memory store, layer caches, outbound queue) BEFORE calling this.
  *
@@ -725,12 +790,52 @@ async function pointAtLocalAtlas(id, mount) {
 }
 
 /**
+ * WARNS EVERY OTHER TAB THAT THESE DATABASES ARE ABOUT TO GO, and waits for them to stop.
+ *
+ * Same protocol as the logout sweep (`utilities/tab-lock.js`, section 8, and `store.js`
+ * `announceRemoteNamespaceTeardown` on the remote side), addressed by the slot's `dbSuffix` and
+ * never by a key: a tab deleting an atlas in `projetos.html` holds NOTHING (`noneKey`), so it
+ * collides with nobody and a notice routed through `keysCollide` would reach no one. That tab is
+ * also never on the receiving end, because it installs no `onTeardown` effect: it announces and
+ * is never announced to.
+ *
+ * WHAT IT BUYS, AND WHAT IT DOES NOT. It is NOT what authorises the deletion, and it never blocks
+ * it: a peer that cannot answer costs the timeout and nothing more, and with no transport at all
+ * the delete behaves exactly as it did before this existed. What it buys is that a sibling tab
+ * with this slot MOUNTED stops writing BEFORE `dropAtlasDatabases` lands. Without that, the drop
+ * completes anyway (localforage closes on `versionchange`) and the sibling's next write RECREATES
+ * the ten databases under a name no registry mentions, which is unreachable residue: the exact
+ * defect the namespace registry exists to prevent, and the reason this notice was worth wiring.
+ *
+ * IT IS DERIVED HERE, next to the destruction, for the reason the remote announcer gives: a copy
+ * of this derivation in the caller is a list that drifts from the one actually destroyed.
+ *
+ * @param {LocalAtlasEntry} entry - The slot about to be deleted.
+ * @returns {Promise<void>} Never rejects: failing to warn must not abort a deletion the user asked
+ *   for, and the silent case is the behaviour that preceded the notice.
+ */
+async function announceLocalAtlasTeardown(entry) {
+    try {
+        await announceTabLockTeardown([scopeOfLocalAtlas(entry).dbSuffix], {
+            reason: TeardownReason.LOCAL_ATLAS_DELETED
+        });
+    } catch (error) {
+        console.warn('[local-atlas] announcing the deletion failed:', error);
+    }
+}
+
+/**
  * Deletes a local atlas and its databases.
  *
- * Order matters and is deliberate: pointer first, then the registry, then the databases.
- * A crash after the pointer moved leaves a consistent installation; a crash after the
- * registry write leaves orphan databases, which are inert garbage. The reverse order
+ * Order matters and is deliberate: warn the other tabs, then the pointer, then the registry, then
+ * the databases. A crash after the pointer moved leaves a consistent installation; a crash after
+ * the registry write leaves orphan databases, which are inert garbage. The reverse order
  * would leave the pointer aimed at a half deleted atlas.
+ *
+ * THE WARNING COMES BEFORE ANY MUTATION AND AFTER BOTH REFUSALS, which is the only placement that
+ * is right in both directions: announcing a destruction that is then refused (the cap, a stale id)
+ * would freeze a sibling tab over an atlas nobody deleted, and announcing after the drop would be
+ * a warning that arrives once there is nothing left to stop. See {@link announceLocalAtlasTeardown}.
  *
  * @param {string} id - Local atlas id.
  * @returns {Promise<LocalAtlasResult & { droppedDatabases?: string[], blockedDatabases?: string[] }>}
@@ -749,6 +854,8 @@ export async function deleteLocalAtlas(id) {
         // needs one). Emptying an atlas is the existing "Limpar todos os dados" action.
         return refuse(LocalAtlasError.LAST_ATLAS, { atlasId: id });
     }
+
+    await announceLocalAtlasTeardown(entries[index]);
 
     const [entry] = entries.splice(index, 1);
     const wasCurrent = _currentId === entry.id;

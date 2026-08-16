@@ -36,6 +36,7 @@ import {
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
 import { shouldRouteToProjects } from './deep-link/route-decision.js';
+import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
@@ -211,11 +212,23 @@ async function initApp() {
     // `setEffects` is late-safe: a tab that lost the arbitration in the microtask before this line
     // is stopped right here, and this is where that stop finishes.
     await installTabLockSyncBrake({ replay: resumeDeferredAtlasOpen });
-    // The atlas changes LIVE in four flows (login with a pending link, "Salvar no servidor",
+    // The atlas changes LIVE in four flows (login with a pending link, "Enviar ao servidor",
     // logout, a session lost to a 401). These are the same two signals `deep-link/atlas-url-sync.js`
     // listens to, reading the same `syncEngine.atlasId`, so the URL and the lock cannot disagree.
     getEventBus().on(EventTypes.CONNECTION_STATE_CHANGED, syncAtlasLockKey);
     getEventBus().on(EventTypes.SESSION_CHANGED, syncAtlasLockKey);
+
+    // A `.ebgeo` handed over by "Seus atlas" comes FIRST, and it is not a fifth entry in the chain
+    // below: it is the completion of a gesture that already chose an atlas (the page created the
+    // slot and moved the pointer), so there is nothing left for the chain to route. It runs after
+    // the lock is up, because importing wipes the mounted scope; and it declines to the chain when
+    // a deep link is present, because a `?atlas=` boot is going to open a SERVER atlas and a file
+    // must never be imported into one.
+    if (await consumePendingEbgeoImport({
+        hasDeepLink: Boolean(bootPublicLink || bootAtlasLink),
+        getImporter: () => getControl('exportImport'),
+        notify: showToast,
+    })) return;
 
     if (await openPublicAtlasFromUrl(bootPublicLink)) return;
     if (await openAtlasFromUrl(bootAtlasLink)) return;

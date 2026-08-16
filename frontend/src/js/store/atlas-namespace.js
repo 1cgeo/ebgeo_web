@@ -330,7 +330,23 @@ export const GlobalKey = Object.freeze({
      * them. It is reachable by a plain gesture: two tabs whose session dies together both
      * run the rescue (`adoptRemoteAtlasAsLocal`), and the second overwrites the first.
      */
-    LOCAL_ATLAS_PREFIX: 'local_atlas:'
+    LOCAL_ATLAS_PREFIX: 'local_atlas:',
+    /**
+     * THE HAND-OVER SLOT of a `.ebgeo` chosen on `projetos.html` and imported by the map.
+     *
+     * It is a KEY of the global database and not a store descriptor of its own, and that is the
+     * whole decision. A new object store INSIDE an existing database is an IndexedDB version
+     * upgrade (the opening block of this file), and a thirteenth database would be a namespace
+     * for something that belongs to no atlas. A key inherits exactly the treatment this needs
+     * from `ebgeo_global`'s flags: `perAtlas:false` keeps it out of `clearAtlasDatabases` /
+     * `dropAtlasDatabases`, `atlasData:false` keeps it out of `listAtlasStores` (hence out of
+     * every atlas wipe), and `getStoreFor` resolves it with NO active scope, which is what lets a
+     * page that mounts nothing write it.
+     *
+     * The flip side is that NO wipe collects it, so it must collect itself: see
+     * {@link takePendingImport}, which removes before it validates, and expires by age.
+     */
+    PENDING_IMPORT: 'pending_import'
 });
 
 /**
@@ -720,6 +736,107 @@ export function getStore(storeId) {
  */
 export function getGlobalStore() {
     return getStoreFor(StoreName.GLOBAL);
+}
+
+// ===========================================================================================
+// THE PENDING `.ebgeo` (GlobalKey.PENDING_IMPORT)
+// ===========================================================================================
+
+/**
+ * Shape version of the stored hand-over. A record written by another version reads as ABSENT,
+ * for the same reason the tab pointer does: this one decides which bytes get imported into an
+ * atlas, and guessing at an unknown shape is how a file lands in the wrong slot.
+ */
+const PENDING_IMPORT_VERSION = 1;
+
+/**
+ * How long a hand-over may sit unclaimed. It exists because the producer and the consumer are two
+ * PAGE LOADS: the user can pick a file and close the tab before the map ever boots, and no wipe in
+ * this codebase reaches the global database. A day is generous for a navigation that normally takes
+ * milliseconds, and short enough that a file cannot surprise its owner weeks later.
+ */
+export const PENDING_IMPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Hands a `.ebgeo` over to the next map boot IN THIS BROWSER.
+ *
+ * The producer is the chooser page, which has no store and no importer; the consumer is the map,
+ * which has both. Passing the bytes through the global database is what keeps the importer from
+ * being written a second time (`import_export/export-import.service.js` stays the only one).
+ *
+ * THE BYTES TRAVEL AS AN ArrayBuffer, never as a `File`. A `File`/`Blob` is structured-cloneable
+ * and IndexedDB does store it, but the name and the type are carried in the record instead, so the
+ * consumer rebuilds a `File` it can reason about rather than trusting whatever a previous deploy
+ * wrote. `atlasId` travels too, and it is not decoration: the map must refuse to import into an
+ * atlas that is not the one the page created for this file.
+ *
+ * @param {Object} record
+ * @param {string} record.atlasId - Local slot this file was created for.
+ * @param {string} record.name - Atlas name, i.e. the file name minus its extension.
+ * @param {ArrayBuffer} record.data - Raw archive bytes.
+ * @returns {Promise<void>}
+ */
+export async function savePendingImport({ atlasId, name, data }) {
+    if (typeof atlasId !== 'string' || atlasId.length === 0) {
+        throw new Error('savePendingImport: atlasId must be a non-empty string');
+    }
+    if (!(data instanceof ArrayBuffer)) {
+        throw new Error('savePendingImport: data must be an ArrayBuffer');
+    }
+    await getGlobalStore().setItem(GlobalKey.PENDING_IMPORT, {
+        version: PENDING_IMPORT_VERSION,
+        atlasId,
+        name: typeof name === 'string' ? name : '',
+        savedAt: Date.now(),
+        data
+    });
+}
+
+/**
+ * Takes the pending `.ebgeo`, if there is one, AND REMOVES IT EITHER WAY.
+ *
+ * READ-AND-REMOVE, in that order and unconditionally, is the whole contract. The record lives in
+ * the one database no wipe reaches (`GlobalKey.PENDING_IMPORT` says why), so a reader that removed
+ * only on success would leave megabytes of a file that failed to parse behind forever, and would
+ * retry that same failure on every reload. The consumer therefore gets ONE attempt, which is the
+ * right number: the user still has the file on disk.
+ *
+ * A record of an unknown version, of the wrong shape, or older than `PENDING_IMPORT_MAX_AGE_MS`
+ * is dropped and reported as absent rather than repaired.
+ *
+ * @returns {Promise<{atlasId: string, name: string, savedAt: number, data: ArrayBuffer}|null>}
+ */
+export async function takePendingImport() {
+    const globalStore = getGlobalStore();
+    const stored = await globalStore.getItem(GlobalKey.PENDING_IMPORT);
+    if (stored === null || stored === undefined) return null;
+
+    await globalStore.removeItem(GlobalKey.PENDING_IMPORT);
+
+    if (typeof stored !== 'object'
+        || stored.version !== PENDING_IMPORT_VERSION
+        || typeof stored.atlasId !== 'string'
+        || !(stored.data instanceof ArrayBuffer)) {
+        return null;
+    }
+    const savedAt = Number(stored.savedAt);
+    if (!Number.isFinite(savedAt) || Date.now() - savedAt > PENDING_IMPORT_MAX_AGE_MS) return null;
+
+    return {
+        atlasId: stored.atlasId,
+        name: typeof stored.name === 'string' ? stored.name : '',
+        savedAt,
+        data: stored.data
+    };
+}
+
+/**
+ * Drops a hand-over the producer decided not to make after all (the slot it needed was refused).
+ * Separate from {@link takePendingImport} because the producer is not consuming anything.
+ * @returns {Promise<void>}
+ */
+export async function clearPendingImport() {
+    await getGlobalStore().removeItem(GlobalKey.PENDING_IMPORT);
 }
 
 /**

@@ -40,7 +40,7 @@ Esse é também o motivo de P11 ser verificado com **dois usuários** (`frontend
 
 ## Lacunas conhecidas de P9/P11
 
-- **Comentários offline se perdem no "Salvar no servidor".** Entram e voltam no `.ebgeo` e voltam do snapshot, mas o payload de mapa que o transform monta (`frontend/src/js/import_export/local-atlas-to-server.js`) não tem campo de comentário. Comentário criado **ao vivo** sincroniza normal, pela via de operação; comentário criado offline e enviado em lote some. Ver [[comentario-espacial]].
+- **Comentários offline se perdem no "Enviar ao servidor".** Entram e voltam no `.ebgeo` e voltam do snapshot, mas o payload de mapa que o transform monta (`frontend/src/js/import_export/local-atlas-to-server.js`) não tem campo de comentário. Comentário criado **ao vivo** sincroniza normal, pela via de operação; comentário criado offline e enviado em lote some. Ver [[comentario-espacial]].
 - **Ícone customizado SVG não sobe.** O exportador do `.ebgeo` aceita `image/svg+xml`, a allowlist do upload não (`ALLOWED_IMAGE_MIME`, `frontend/src/js/import_export/atlas-image-upload.js`). O SVG é contado como `skipped` e o `markerSymbol` fica apontando para um id sem blob no servidor. Ver [[imagens-atlas]].
 - **O conjunto `usedImages` do ZIP é amplo**, não uma lista de imagens: entra o `properties.id` de **toda** feição (`frontend/src/js/import_export/export-import.service.js`). Ids sem blob apenas falham no `getImage` e são ignorados. Não leia esse conjunto como inventário.
 - Import aditivo tem teto de **100 mapas no total**, o que surpreende quem faz merge repetido.

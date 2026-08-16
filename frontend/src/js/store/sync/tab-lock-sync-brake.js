@@ -54,8 +54,20 @@
  *
  * THE THIRD EFFECT IS THE FREEZE, and it answers a different question from the other two. Blocking
  * means "another tab holds this atlas" and is reversible; freezing means "the databases this tab
- * writes to are being DESTROYED" (a logout in a sibling tab sweeps every remote namespace on the
- * machine, including the one mounted here) and is not. The notice arrives on the lock's channel
+ * writes to are being DESTROYED" and is not. TWO gestures produce that notice, and this module
+ * answers both with the SAME code on purpose: a logout in a sibling tab, which sweeps every remote
+ * namespace on the machine including the one mounted here, and a named LOCAL atlas deleted in
+ * "Seus atlas" (`store/local-atlas.api.js deleteLocalAtlas`). The notice carries WHICH
+ * (`TeardownReason`), and the lock uses it for the overlay's wording; nothing here branches on it,
+ * because the answer to "am I one of the writers, and have I stopped" does not depend on why.
+ *
+ * The local case exercises less of this module and it is worth saying so rather than letting a
+ * reader assume otherwise: an anonymous tab in a local atlas has no socket and no flush loop, so
+ * `applySyncBrake` records that it stopped nothing and stops nothing. The load-bearing half there
+ * is the lock's overlay, which is what keeps the USER's gestures from producing a write that would
+ * recreate databases the deletion has just dropped.
+ *
+ * The notice arrives on the lock's channel
  * addressed by a set of database addresses, and matching it is this module's job precisely because
  * the lock may not import the store: only here can `getActiveScope()` be read.
  *

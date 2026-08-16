@@ -1,0 +1,179 @@
+/* Path: src/css/login-modal.css */
+
+/*
+ * The "Entrar" dialog (`js/modals/login.modal.js`): container, brand, form, fields, inline error,
+ * actions and the secondary "Criar conta" link. BEM block: .login-modal.
+ *
+ * A FILE OF ITS OWN because the dialog now has TWO hosts. It lived inside `account.css`, which is
+ * the map's account control (a MapLibre IControl), so `projetos.html` could only reach these rules
+ * by importing the whole control's stylesheet — and the chooser page has no account control at all.
+ * `account.css` imports this file, so the map is unchanged and there is still ONE copy of the rules.
+ *
+ * It relies on the shared dialog primitives: `.modal-*` and `.prompt-modal-btn*`
+ * (modals-redesign.css) plus `.settings-field*`. Any page that shows the dialog imports those too.
+ */
+
+/* =========================================================================
+   LOGIN MODAL (container + form + fields + inline error + actions)
+   ========================================================================= */
+
+.login-modal__container {
+    max-width: 460px;
+}
+
+/* Logo-centric login: hide the default green header bar and lead with the EBGeo brand. */
+.login-modal__container .modal-header {
+    display: none;
+}
+
+/* The signup form can overflow (7 fields) — give its scroll area the app green scrollbar. */
+.login-modal__container .modal-body {
+    padding-top: var(--space-6);
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: var(--radius-full);
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-hover);
+}
+
+/* Controlled-value combo boxes (posto/OM) reuse the input chrome. */
+.login-modal__select {
+    cursor: pointer;
+    appearance: auto;
+}
+
+.login-modal__brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+    text-align: center;
+}
+
+.login-modal__logo {
+    width: 72px;
+    height: 72px;
+    margin-bottom: var(--space-2);
+    object-fit: contain;
+}
+
+.login-modal__brand-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.02em;
+    color: var(--gray-900);
+}
+
+.login-modal__brand-tagline {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+}
+
+.login-modal__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Field wrapper reuses .settings-field (label + control stack); this only
+   tightens the per-field internal gap. */
+.login-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* The real input — previously had NO styles at all. */
+.login-modal__input {
+    width: 100%;
+    height: var(--touch-target-min);
+    padding: 0 var(--space-3);
+    box-sizing: border-box;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    color: var(--gray-900);
+    outline: none;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.login-modal__input::placeholder {
+    color: var(--gray-400);
+}
+
+/* Focus ring matches the settings/prompt inputs across the app. */
+.login-modal__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+/* Inline error — soft red surface, NOT green. */
+.login-modal__error {
+    padding: var(--space-2) var(--space-3);
+    background: rgb(239 68 68 / 10%);
+    border: var(--border-width) solid var(--color-error);
+    border-radius: var(--radius-md);
+    color: var(--color-error);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.login-modal__error[hidden],
+.login-modal__error:empty {
+    display: none;
+}
+
+/* Actions row: cancel (neutral) on the left, confirm (green) on the right. */
+.login-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.login-modal__actions .prompt-modal-btn {
+    min-width: 96px;
+}
+
+.login-modal__actions .prompt-modal-btn-confirm:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Secondary affordance row: "Criar conta" (login) / "Já tenho conta" (signup) link. */
+.login-modal__secondary {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-1);
+}
+
+.login-modal__link {
+    padding: var(--space-2);
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.login-modal__link:hover {
+    text-decoration: underline;
+}

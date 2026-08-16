@@ -135,12 +135,30 @@ describe('quem pode MONTAR um escopo de atlas', () => {
         expect(chamadores).toEqual(['account/open-atlas.service.js']);
     });
 
+    // DOIS chamadores, e o segundo entrou de propósito em 2026-08-16, quando "Seus atlas"
+    // (`projetos.html`) passou a ser a UI dos atlas locais nomeados.
+    //
+    // POR QUE ELE NÃO PODE PASSAR PELO DONO ANTIGO: `account/open-atlas.service.js` importa a store
+    // inteira, e a página de projetos existe para não carregá-la (~140 kB contra ~3,3 MB do mapa).
+    // Chamar `switchToNewLocalAtlas` de lá arrastaria o mapa de volta pelo caminho transitivo.
+    //
+    // POR QUE ISSO É SEGURO, e é a pergunta que este portão faz: criar um slot NÃO monta nada.
+    // `createLocalAtlas` escreve o registro e semeia o registro do slot por escopo EXPLÍCITO
+    // (`getStoreFor(..., scope)`), sem `activateScope`, então nenhuma escrita subsequente muda de
+    // endereço por causa dele. O passo que MONTA continua com um dono só (`mountLocalAtlas`, no
+    // caso acima), e a tela troca de atlas por `setCurrentLocalAtlas`, que se recusa a montar por
+    // cima de um atlas de servidor vivo. O que ele gasta é o teto de 10, e o teto degrada para
+    // recusa nomeada, nunca para exceção nem para perda.
+    //
+    // A entrada é `projects/projects-page.js` e não `projects/atlas-drive.js` de propósito: o
+    // componente de UI recebe tudo por callback, então a página é o ÚNICO arquivo dali que fala com
+    // o registro local, e é esse o arquivo que se revisa quando esta lista mudar.
     it('`createLocalAtlas` idem: criar um slot é o passo que gasta o teto de 10', () => {
         const chamadores = callersOf('createLocalAtlas')
             .filter(rel => rel !== 'store/local-atlas.api.js');
 
         expect(chamadores.length).toBeGreaterThan(0);
-        expect(chamadores).toEqual(['account/open-atlas.service.js']);
+        expect(chamadores).toEqual(['account/open-atlas.service.js', 'projects/projects-page.js']);
     });
 
     it('`markStoreRemote` só é chamado onde um namespace remoto foi ativado antes', () => {

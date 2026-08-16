@@ -949,3 +949,91 @@ describe('atlas-namespace :: o ponteiro guardado NÃO é confiado, é REFEITO', 
         expect(ns.readTabMountPointer()).toBeNull();
     });
 });
+
+// ============================================================================
+// O `.ebgeo` PENDENTE (GlobalKey.PENDING_IMPORT)
+//
+// A entrega entre DUAS PÁGINAS: "Seus atlas" grava os bytes, o boot do mapa os consome. O banco
+// global é o único lugar que as duas alcançam sem montar atlas nenhum, e é também o único que
+// NENHUM expurgo deste repositório varre, o que faz do "remove antes de validar" a propriedade
+// central aqui: sem ela, um arquivo que falha ao abrir fica preso para sempre e refalha a cada F5.
+// ============================================================================
+
+describe('atlas-namespace :: o .ebgeo pendente', () => {
+    const GLOBAL_DISK = 'ebgeo_global::keyvaluepairs';
+    const bytes = () => new Uint8Array([1, 2, 3, 4]).buffer;
+
+    it('grava no banco GLOBAL, e em nenhum banco por atlas', async () => {
+        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Operação Alfa', data: bytes() });
+
+        const global = databases.get(GLOBAL_DISK);
+        expect(global.has(ns.GlobalKey.PENDING_IMPORT)).toBe(true);
+        // Controle absoluto: nenhum outro banco foi sequer aberto por causa disto.
+        expect([...databases.keys()]).toEqual([GLOBAL_DISK]);
+        // E a chave é do banco global por DECLARAÇÃO, não por acidente do escopo ativo: não há
+        // escopo ativo nenhum neste teste, e a escrita mesmo assim resolveu.
+        expect(ns.getActiveScope()).toBeNull();
+    });
+
+    it('a leitura devolve o registro e o APAGA, na primeira vez e só na primeira', async () => {
+        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Operação Alfa', data: bytes() });
+
+        const primeiro = await ns.takePendingImport();
+
+        expect(primeiro).toMatchObject({ atlasId: 'slot-1', name: 'Operação Alfa' });
+        expect(new Uint8Array(primeiro.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+        expect(await ns.takePendingImport()).toBeNull();
+    });
+
+    it('um registro ILEGÍVEL some do disco em vez de voltar a cada boot', async () => {
+        // O caso que motiva "apagar antes de validar": nada mais neste código varre o banco
+        // global, então um registro que a validação recusa e o leitor não apaga é lixo eterno.
+        for (const podre of [{ version: 99, atlasId: 'x', data: bytes() }, 'texto solto', 42]) {
+            await ns.getGlobalStore().setItem(ns.GlobalKey.PENDING_IMPORT, podre);
+
+            expect(await ns.takePendingImport()).toBeNull();
+            expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+        }
+    });
+
+    it('expira por idade, e o limite é o do módulo (não um número copiado aqui)', async () => {
+        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Velho', data: bytes() });
+        const registro = databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT);
+
+        // Um milissegundo DENTRO do prazo ainda é lido: sem este controle positivo, o caso abaixo
+        // passaria também contra um leitor que recusa tudo.
+        registro.savedAt = Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS + 1000;
+        expect(await ns.takePendingImport()).not.toBeNull();
+
+        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Velho', data: bytes() });
+        databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).savedAt =
+            Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS - 1000;
+
+        expect(await ns.takePendingImport()).toBeNull();
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+    });
+
+    it('recusa um registro sem atlas ou sem bytes, que é bug do chamador', async () => {
+        await expect(ns.savePendingImport({ atlasId: '', name: 'x', data: bytes() })).rejects.toThrow();
+        await expect(ns.savePendingImport({ atlasId: 'slot-1', name: 'x', data: 'nao e buffer' }))
+            .rejects.toThrow();
+        expect(databases.get(GLOBAL_DISK)?.has(ns.GlobalKey.PENDING_IMPORT) ?? false).toBe(false);
+    });
+
+    it('`clearPendingImport` é o desistir do PRODUTOR, e não consome nada', async () => {
+        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Alfa', data: bytes() });
+
+        await ns.clearPendingImport();
+
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+        expect(await ns.takePendingImport()).toBeNull();
+    });
+
+    it('a chave NÃO ganhou um descritor: continuam 12 bancos', () => {
+        // O caminho recusado por escrito no `GlobalKey`: um 13º banco, ou um object store novo
+        // dentro do banco global (que seria upgrade de versão do IndexedDB).
+        expect(ns.STORE_DESCRIPTORS).toHaveLength(12);
+        expect(ns.GlobalKey.PENDING_IMPORT).toBe('pending_import');
+    });
+});

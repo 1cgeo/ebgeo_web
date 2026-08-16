@@ -6,7 +6,7 @@
  * sends a signed-in user to `projetos.html`.
  *
  * Without it a signed-in user can never reach the local workspace, and the local workspace is a real
- * state: it is the only place "Salvar no servidor" applies, and the only thing an `.ebgeo` file
+ * state: it is the only place "Enviar ao servidor" applies, and the only thing an `.ebgeo` file
  * loads into. With it, the rule stays simple — bare `/` means "choose a project", unless you said
  * otherwise on this tab.
  *

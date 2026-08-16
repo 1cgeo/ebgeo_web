@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Seus projetos — EBGeo</title>
+    <title>Seus atlas — EBGeo</title>
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
 
     <!-- CSS da página de projetos (manifesto próprio, sem o mapa) -->
@@ -45,8 +45,9 @@
 </head>
 
 <body>
-    <!-- Splash de boot: a sessão é validada antes de qualquer conteúdo aparecer, porque um visitante
-         sem sessão é redirecionado para o mapa em vez de ver a lista. -->
+    <!-- Splash de boot: a página só aparece depois de ler a configuração do servidor e de tentar
+         restaurar a sessão. Sem sessão ela NÃO redireciona: mostra os atlas deste computador e um
+         convite para entrar no lugar da lista do servidor. -->
     <div class="loading-background" id="initial-loader">
         <img src="/images/logo_ebgeo.webp" alt="EBGeo" width="240" fetchpriority="high">
     </div>

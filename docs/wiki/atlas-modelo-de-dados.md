@@ -54,7 +54,7 @@ Consequências que causam bug se ignoradas:
 Mapas de atlas remoto são chaveados por UUID; o `Principal` local é chaveado por nome e não tem UUID. Isso atravessa três arquivos, e cada um só enxerga o próprio terço:
 
 1. Op cujo `mapId` de contexto não é UUID é descartada **antes da fila** (`frontend/src/js/store/sync/operation-dispatcher.js`). Sem isso o Postgres rejeita com 22P02 e **uma** op inválida derruba o lote inteiro do flush, travando toda a sincronização. Op de `SETTING` escapa apenas com UUID ou o sentinela literal `'atlas'`.
-2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`frontend/src/js/store/map.operations.js`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
+2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`frontend/src/js/store/map.operations.js`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Enviar ao servidor", cairia num mapa vazio.
 3. A resolução de mapa é por **nome**, não pela chave de armazenamento: presença e cursor viajam com o nome, e peers filtram o que vier com UUID cru.
 
 ## Dois mundos de mutação, escolha explícita

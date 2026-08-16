@@ -3,7 +3,7 @@
 /**
  * @fileoverview Browser E2E for P11 (round-trip fidelity `.ebgeo` -> server -> `.ebgeo`).
  *
- * Canonical flow: user A builds a local map, "Salvar no servidor", shares the atlas with user B;
+ * Canonical flow: user A builds a local map, "Enviar ao servidor", shares the atlas with user B;
  * B opens it from the server and exports. The two `.ebgeo` payloads must carry the SAME content.
  *
  * We compare NORMALIZED export summaries (the `.ebgeo` `data` object that the exporter serializes,

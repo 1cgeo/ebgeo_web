@@ -42,6 +42,16 @@ import { mapLockController } from '@js/locking/index.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
 import { resolveRedirectTarget } from './remote-map-redirect.js';
 import { sessionContext } from '@store/sync/session-context.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import { apiClient } from '@store/sync/api-client.js';
+// DIRECT import, not the `@store` barrel: the barrel re-exports only `adoptRemoteAtlasAsLocal`
+// from this module, so the three readers below are simply not reachable through it.
+import {
+    getCurrentLocalAtlasId,
+    getLocalAtlas,
+    renameLocalAtlas
+} from '@store/local-atlas.api.js';
 import { CommentsPanel } from '@js/comment_tool/comments-panel.js';
 
 /**
@@ -49,6 +59,39 @@ import { CommentsPanel } from '@js/comment_tool/comments-panel.js';
  * getAllMapBadgeColors() normally assigns every existing map a color, so this is rarely hit.
  */
 const MAP_BADGE_FALLBACK = '#2563eb';
+
+/**
+ * The three states the actions grid distinguishes.
+ * @readonly @enum {string}
+ */
+const AtlasTabState = Object.freeze({
+    /** No session, so necessarily on a local atlas. */
+    LOCAL_ANON: 'local-anon',
+    /** Signed in, still working on a LOCAL atlas (not connected to a server project). */
+    LOCAL_SIGNED_IN: 'local-signed-in',
+    /** Connected to a server atlas (a public-link visitor counts, session or not). */
+    REMOTE: 'remote'
+});
+
+/**
+ * THE approved visibility table, in one place, so the reader sees the three columns instead of
+ * reconstructing them from scattered booleans. Reasons a row is missing an action:
+ *
+ * - `save-server` needs a session (there is nowhere to send to) AND a local atlas: it PROMOTES
+ *   this workspace to a new server project, which is meaningless while already connected to one.
+ * - `clear` is hidden on a server atlas because clearing would only empty THIS client's copy of
+ *   a project that lives on the server; leaving a server atlas is the project screen or logout.
+ *   It stays for a signed-in user working locally: it used to vanish the moment you signed in,
+ *   which stranded that user with no way to wipe their own workspace.
+ *
+ * `open`, `import` and `save` are in every row: they belong to the atlas you have, whatever it is.
+ * @type {Object<string, string[]>}
+ */
+const ACTIONS_BY_STATE = Object.freeze({
+    [AtlasTabState.LOCAL_ANON]: ['open', 'import', 'save', 'clear'],
+    [AtlasTabState.LOCAL_SIGNED_IN]: ['open', 'save-server', 'import', 'save', 'clear'],
+    [AtlasTabState.REMOTE]: ['open', 'import', 'save']
+});
 
 /**
  * Icons specific to maps tab.
@@ -92,7 +135,6 @@ const MAPS_ICONS = {
 
     gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 
-    cloudDownload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
     cloudUpload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
 
     users: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
@@ -122,6 +164,17 @@ export class MapsTab {
         this._sortableInstance = null;
         this._isLoadingMaps = false;
 
+        // Atlas header (name + origin chip) and the action buttons, keyed by action id so the
+        // per-state visibility table can be applied by name instead of by hand-held references.
+        this._atlasHeader = null;
+        this._atlasNameInput = null;
+        this._atlasOriginChip = null;
+        /** @type {string|null} Name of the mounted atlas, as last resolved. */
+        this._atlasName = null;
+        this._actionButtons = new Map();
+        /** @type {{ id: string, name: string|null }|null} Cached server-atlas name, by atlas id. */
+        this._remoteAtlasNameCache = null;
+
         setupCleanup(this);
     }
 
@@ -132,6 +185,10 @@ export class MapsTab {
     render() {
         this._container = document.createElement('div');
         this._container.className = 'sidebar-tab-content maps-tab';
+
+        // Atlas header — WHICH atlas you are working in, and its origin.
+        this._atlasHeader = this._createAtlasHeader();
+        this._container.appendChild(this._atlasHeader);
 
         // Actions grid
         const actionsGrid = this._createActionsGrid();
@@ -187,7 +244,12 @@ export class MapsTab {
     }
 
     /**
-     * Creates the actions grid (Abrir, Importar, Salvar, Limpar Tudo).
+     * Creates the actions grid.
+     *
+     * WHAT THIS GRID IS FOR, and what it deliberately no longer holds: "what I do WITH this
+     * atlas". Choosing WHERE to work (which atlas) is the project screen's job, and the grid
+     * keeps exactly one way back to it ("Abrir"). The list used to mix both natures and grew by
+     * accretion to six buttons.
      * @private
      * @returns {HTMLElement}
      */
@@ -196,14 +258,18 @@ export class MapsTab {
         grid.className = 'sidebar-actions-grid';
 
         const actions = [
-            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Abrir projeto (substitui atual)' },
-            { id: 'open-backend', icon: MAPS_ICONS.cloudDownload, label: 'Abrir do servidor', handler: () => this._handleOpenBackendProject(), title: 'Abrir projeto do servidor (substitui atual)', testid: 'maps-open-backend' },
-            { id: 'save-server', icon: MAPS_ICONS.cloudUpload, label: 'Salvar no servidor', handler: () => this._handleSaveToServer(), title: 'Salvar este projeto local como um projeto do servidor', testid: 'maps-save-server' },
-            { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao projeto atual' },
-            { id: 'save', icon: MAPS_ICONS.save, label: 'Salvar', handler: () => this._handleSaveProject(), title: 'Salvar projeto' },
-            { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar Tudo', handler: () => this._handleClearAll(), title: 'Limpar todos os dados' },
+            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Escolher outro atlas' },
+            // Label is "Enviar", not "Salvar": this PROMOTES the local atlas to a server project
+            // and leaves you connected to it. It is not a "save as", and while it sat next to
+            // another button starting with "Salvar" the two were indistinguishable by name.
+            { id: 'save-server', icon: MAPS_ICONS.cloudUpload, label: 'Enviar ao servidor', handler: () => this._handleSaveToServer(), title: 'Enviar este atlas local para o servidor', testid: 'maps-save-server' },
+            { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao atlas atual' },
+            // "Exportar", not "Salvar": it saves nothing, it generates a `.ebgeo` for download.
+            { id: 'save', icon: MAPS_ICONS.save, label: 'Exportar', handler: () => this._handleSaveProject(), title: 'Exportar este atlas como arquivo .ebgeo' },
+            { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar tudo', handler: () => this._handleClearAll(), title: 'Apagar todo o conteúdo deste atlas' },
         ];
 
+        this._actionButtons.clear();
         actions.forEach(action => {
             const button = document.createElement('button');
             button.className = 'sidebar-action-btn';
@@ -216,11 +282,7 @@ export class MapsTab {
 
             addDomListener(this, button, 'click', action.handler);
             grid.appendChild(button);
-
-            // Refs to the actions gated by session + store origin (see _updateActionsVisibility).
-            if (action.id === 'open-backend') this._openBackendBtn = button;
-            if (action.id === 'save-server') this._saveToServerBtn = button;
-            if (action.id === 'clear') this._clearAllBtn = button;
+            this._actionButtons.set(action.id, button);
         });
 
         this._updateActionsVisibility();
@@ -228,30 +290,261 @@ export class MapsTab {
     }
 
     /**
-     * Gates the server-related actions on the session AND the store ORIGIN:
+     * WHICH of the three states the tab is in. There are three, not two: "logged out" and
+     * "signed in on the local store" differ by one action, and a signed-in user working locally
+     * used to be treated as if they were connected.
      *
-     * - "Abrir do servidor" — needs a session (the chooser requires auth).
-     * - "Salvar no servidor" — needs a session AND a LOCAL store: it packages this workspace as a
-     *   new server project, which is meaningless while already connected to one. It duplicates the
-     *   account menu deliberately; buried in a dropdown, nobody found it.
-     * - "Limpar Tudo" — gated on the ORIGIN, not on being logged in. It used to disappear the
-     *   moment you signed in, which stranded a signed-in user working locally with no way to wipe.
-     *   A CONNECTED atlas still hides it: a server project is left via the chooser or logout, never
-     *   wiped through a local "clear all" (that would only clear this client's copy).
+     * A public-link visitor (anonymous ON a server atlas) lands in REMOTE, which is right: the
+     * question each row below asks is about the store, not about the person.
      * @private
+     * @returns {string} A key of {@link ACTIONS_BY_STATE}.
      */
-    _updateActionsVisibility() {
-        const loggedIn = sessionContext.isAuthenticated();
-        const onRemote = isRemoteStoreSync();
-        if (this._openBackendBtn) this._openBackendBtn.hidden = !loggedIn;
-        if (this._saveToServerBtn) this._saveToServerBtn.hidden = !loggedIn || onRemote;
-        if (this._clearAllBtn) this._clearAllBtn.hidden = onRemote;
+    _atlasState() {
+        if (isRemoteStoreSync()) return AtlasTabState.REMOTE;
+        return sessionContext.isAuthenticated() ? AtlasTabState.LOCAL_SIGNED_IN : AtlasTabState.LOCAL_ANON;
     }
 
     /**
-     * "Salvar no servidor" — delegates to the AccountControl orchestrator, which owns the whole
+     * Applies {@link ACTIONS_BY_STATE}. Every button is set on every pass (never only the ones
+     * that disappear), so a state change can only ever produce the row the table declares.
+     * @private
+     */
+    _updateActionsVisibility() {
+        const visible = ACTIONS_BY_STATE[this._atlasState()];
+        for (const [id, button] of this._actionButtons) {
+            button.hidden = !visible.includes(id);
+        }
+    }
+
+    /**
+     * Builds the atlas header: the NAME of the mounted atlas plus an origin chip.
+     *
+     * WHY IT EXISTS. Until now the atlas name appeared only inside the account menu, and only for
+     * a SERVER atlas (`account.control.js`, `_renderAtlasName`, gated on `syncEngine.atlasId`).
+     * Working locally you could not see which atlas you were in, and with several named local
+     * atlases that stopped being acceptable.
+     *
+     * The name is EDITABLE, which is how an atlas is renamed: no button spent on it. Same commit
+     * shape as the current-map name right below it (blur + Enter), so the two read as one idiom.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createAtlasHeader() {
+        const header = document.createElement('div');
+        header.className = 'atlas-header';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'atlas-header__name';
+        input.id = 'current-atlas-name-input';
+        input.placeholder = 'Nome do atlas';
+        input.setAttribute('data-testid', 'atlas-name-input');
+        input.setAttribute('aria-label', 'Nome do atlas');
+        header.appendChild(input);
+
+        const chip = document.createElement('span');
+        chip.className = 'atlas-header__chip';
+        chip.setAttribute('data-testid', 'atlas-origin-chip');
+        header.appendChild(chip);
+
+        this._atlasNameInput = input;
+        this._atlasOriginChip = chip;
+
+        addDomListener(this, input, 'blur', () => this._handleRenameAtlas(input.value));
+        addDomListener(this, input, 'keydown', (e) => {
+            if (e.key === 'Enter') input.blur();
+            // Escape abandons the edit; without it the only way out of a typo is to retype the
+            // old name exactly, because blur commits.
+            if (e.key === 'Escape') {
+                input.value = this._atlasName ?? '';
+                input.blur();
+            }
+        });
+
+        this._refreshAtlasHeader();
+        return header;
+    }
+
+    /**
+     * May the user rename the atlas that is mounted?
+     *
+     * A LOCAL atlas is the user's own workspace: always. On a SERVER atlas the gate is the
+     * HIERARCHY, never a closed list of role names — `role === 'owner' || role === 'write'`
+     * silently drops `manage`, and that exact bug shipped twice in this repository. The manage
+     * rung of the ladder is expressed on the client as the `canManageUsers` capability, which
+     * `ROLE_PERMISSIONS` (`session-context.js`) derives for every role at once, so a role added
+     * above editor inherits this gate without anybody editing this line.
+     *
+     * Deliberately STRICTER than the server, which accepts `write` on `PUT /atlas/:atlasId`: an
+     * Editor sees the real name, read-only. Offering less than the server allows is safe; the
+     * reverse (a button the server refuses) is what freezes the outbound queue.
+     * @private
+     * @returns {boolean}
+     */
+    _canRenameAtlas() {
+        if (!isRemoteStoreSync()) return true;
+        return checkPermission('MANAGE_USERS').allowed;
+    }
+
+    /**
+     * Resolves the mounted atlas's name and repaints the header.
+     *
+     * The LOCAL name comes from the local registry (its single source of truth) and the id is
+     * read FIRST because `getCurrentLocalAtlasId()` is the one reader that cannot throw before
+     * `initLocalAtlases()`; `getLocalAtlas` can, so it stays inside the try.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _refreshAtlasHeader() {
+        if (!this._atlasNameInput || !this._atlasOriginChip) return;
+
+        const onRemote = isRemoteStoreSync();
+        this._atlasOriginChip.textContent = onRemote ? 'Servidor' : 'Local';
+        this._atlasOriginChip.classList.toggle('atlas-header__chip--remote', onRemote);
+        this._atlasOriginChip.title = onRemote
+            ? 'Atlas do servidor, compartilhado e sincronizado'
+            : 'Atlas local, só neste navegador';
+
+        const name = onRemote ? await this._resolveRemoteAtlasName() : this._resolveLocalAtlasName();
+        this._atlasName = name;
+
+        // Do not stomp on what the user is typing: a refresh triggered by a background event
+        // (a peer connecting, a session refresh) would otherwise discard the edit in progress.
+        if (document.activeElement !== this._atlasNameInput) {
+            this._atlasNameInput.value = name ?? '';
+        }
+
+        const canRename = this._canRenameAtlas();
+        this._atlasNameInput.readOnly = !canRename;
+        this._atlasNameInput.classList.toggle('atlas-header__name--readonly', !canRename);
+        this._atlasNameInput.title = canRename
+            ? 'Renomear este atlas'
+            : 'Você não tem permissão para renomear este atlas';
+    }
+
+    /**
+     * @private
+     * @returns {string|null} Name of the mounted LOCAL atlas, or null when unknown.
+     */
+    _resolveLocalAtlasName() {
+        const id = getCurrentLocalAtlasId();
+        if (!id) return null;
+        try {
+            return getLocalAtlas(id)?.name ?? null;
+        } catch (_error) {
+            // The registry was never loaded (no boot ran). Nameless header, not a broken tab.
+            return null;
+        }
+    }
+
+    /**
+     * Name of the connected SERVER atlas, from the project list, cached by atlas id — the same
+     * lazy resolution the account menu uses, for the same reason: the snapshot the sync engine
+     * holds does not carry the atlas name.
+     * @private
+     * @returns {Promise<string|null>}
+     */
+    async _resolveRemoteAtlasName() {
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId) return null;
+        if (this._remoteAtlasNameCache?.id === atlasId) return this._remoteAtlasNameCache.name;
+
+        try {
+            const projects = await apiClient.listAtlas();
+            const name = Array.isArray(projects)
+                ? (projects.find(p => p && p.id === atlasId)?.name ?? null)
+                : null;
+            this._remoteAtlasNameCache = { id: atlasId, name };
+            return name;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    /**
+     * Commits a rename of the mounted atlas, routed by origin: the local registry, or the server.
+     *
+     * A refused local rename (a stale id) already carries its own pt-BR message; a rejected
+     * server call does not, so it gets one here. Either way the input is put back to the name
+     * that is actually stored, never left showing a name nothing agrees with.
+     * @private
+     * @param {string} newName - Raw input value.
+     * @returns {Promise<void>}
+     */
+    async _handleRenameAtlas(newName) {
+        const input = this._atlasNameInput;
+        if (!input) return;
+
+        const trimmed = (newName ?? '').trim();
+        if (!trimmed || trimmed === this._atlasName || !this._canRenameAtlas()) {
+            input.value = this._atlasName ?? '';
+            return;
+        }
+
+        if (isRemoteStoreSync()) {
+            await this._renameRemoteAtlas(trimmed);
+        } else {
+            await this._renameLocalAtlas(trimmed);
+        }
+    }
+
+    /**
+     * @private
+     * @param {string} name - Trimmed, non-empty.
+     * @returns {Promise<void>}
+     */
+    async _renameLocalAtlas(name) {
+        const id = getCurrentLocalAtlasId();
+        if (!id) {
+            this._atlasNameInput.value = this._atlasName ?? '';
+            return;
+        }
+        try {
+            const result = await renameLocalAtlas(id, name);
+            if (!result.ok) {
+                showWarning(result.message);
+                this._atlasNameInput.value = this._atlasName ?? '';
+                return;
+            }
+            // The stored name may differ from what was typed: duplicates are SUFFIXED, not
+            // refused, so show what was actually written.
+            this._atlasName = result.atlas.name;
+            this._atlasNameInput.value = result.atlas.name;
+            showSuccess('Atlas renomeado');
+        } catch (_error) {
+            showError('Erro ao renomear o atlas');
+            this._atlasNameInput.value = this._atlasName ?? '';
+        }
+    }
+
+    /**
+     * @private
+     * @param {string} name - Trimmed, non-empty.
+     * @returns {Promise<void>}
+     */
+    async _renameRemoteAtlas(name) {
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId) {
+            this._atlasNameInput.value = this._atlasName ?? '';
+            return;
+        }
+        try {
+            await apiClient.updateAtlas(atlasId, { name });
+            this._atlasName = name;
+            this._remoteAtlasNameCache = { id: atlasId, name };
+            this._atlasNameInput.value = name;
+            showSuccess('Atlas renomeado');
+        } catch (error) {
+            console.error('Failed to rename the server atlas:', error);
+            showError('Falha ao renomear o atlas no servidor');
+            this._atlasNameInput.value = this._atlasName ?? '';
+        }
+    }
+
+    /**
+     * "Enviar ao servidor" — delegates to the AccountControl orchestrator, which owns the whole
      * flow (name + sharing dialog, upload, swap the store for the new remote atlas). Same
-     * delegation shape as `_handleOpenBackendProject`; the logic must not exist twice.
+     * delegation shape as `_handleOpenProject`; the logic must not exist twice.
      * @private
      */
     async _handleSaveToServer() {
@@ -406,18 +699,25 @@ export class MapsTab {
         // Re-evaluate the owner-only "Compartilhar" button AND the read-only padlock state when the
         // session (login/role) or the connection (connect/disconnect an atlas) changes — becoming a
         // viewer/commenter/visitor must immediately lock the padlock and forbid toggling it.
+        // The atlas header rides along with these three for the same reason the grid does: the
+        // atlas you are IN, its origin and your permission on it all change here and nowhere else.
         subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => {
             this._updateActionsVisibility();
+            this._refreshAtlasHeader();
             if (this._currentMapCard) this._updateCurrentMapCard();
         });
         subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => {
             this._updateActionsVisibility();
+            this._refreshAtlasHeader();
             if (this._currentMapCard) this._updateCurrentMapCard();
         });
         // A full wipe re-marks the store LOCAL, which changes what the origin-gated actions should
         // show. Connection events do NOT cover this: clearing while already disconnected (logout,
         // "Mapa local") flips the origin without any connection transition.
-        subscribe(this, this._eventBus, EventTypes.ALL_DATA_CLEARED, () => this._updateActionsVisibility());
+        subscribe(this, this._eventBus, EventTypes.ALL_DATA_CLEARED, () => {
+            this._updateActionsVisibility();
+            this._refreshAtlasHeader();
+        });
     }
 
     /**
@@ -936,97 +1236,30 @@ export class MapsTab {
     }
 
     /**
-     * Handles opening a project file (replaces current project).
+     * "Abrir" — leaves for the atlas screen, which is now the ONE place where you choose where to
+     * work (local atlases and server projects side by side, plus opening a `.ebgeo`).
+     *
+     * It used to be a `.ebgeo` file picker that replaced the current project, guarded by a
+     * destructive confirm. Both are gone: navigating loses nothing, and confirming a harmless
+     * action is how a user is trained to click through the confirms that do matter.
+     *
+     * Delegated to AccountControl rather than a fresh `location.assign` — that path already
+     * clears the local-map intent, and a second copy would drift from it.
      * @private
      */
     async _handleOpenProject() {
-        if (!this._exportImportService) return;
-
-        // Check if there are existing features that would be lost
-        const hasExistingFeatures = await this._checkForExistingFeatures();
-        if (hasExistingFeatures) {
-            const confirmed = await showConfirm(
-                'Ao abrir um novo projeto, todos os dados atuais serão perdidos. Deseja continuar?',
-                { destructive: true }
-            );
-            if (!confirmed) return;
-        }
-
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.ebgeo';
-        fileInput.onchange = async (e) => {
-            if (e.target.files[0]) {
-                await this._exportImportService.processFileDirectly(e.target.files[0], false);
-                this._loadMaps();
-            }
-        };
-        fileInput.click();
-    }
-
-    /**
-     * Handles opening a project from the backend (replaces current project).
-     * Delegates the login → project-picker → connect flow to the AccountControl
-     * orchestrator. Mirrors the destructive-confirm guard of _handleOpenProject:
-     * opening a backend project wipes the local store via the picker's onPick.
-     * @private
-     */
-    async _handleOpenBackendProject() {
-        // The local-data warning + .ebgeo offer is centralized in AccountControl.openProjectPicker
-        // (so it also covers the login→picker path), gated on the store being local with content.
         const accountControl = getControl('account');
         if (!accountControl || typeof accountControl.openProjectPicker !== 'function') {
-            showError('Integração com o servidor indisponível');
+            showError('Tela de atlas indisponível');
             return;
         }
 
         try {
             await accountControl.openProjectPicker();
         } catch (error) {
-            console.error('Failed to open backend project:', error);
-            showError('Falha ao abrir o projeto do servidor');
-        } finally {
-            this._loadMaps();
+            console.error('Failed to open the atlas screen:', error);
+            showError('Falha ao abrir a tela de atlas');
         }
-    }
-
-    /**
-     * Checks if any map has existing features in IndexedDB.
-     * @returns {Promise<boolean>} True if features exist.
-     * @private
-     */
-    async _checkForExistingFeatures() {
-        try {
-            // Fast path: check current map first (most common case)
-            const currentMap = await getCurrentMapName();
-            if (currentMap && this._mapHasFeatures(await getMapDataStore(currentMap))) {
-                return true;
-            }
-
-            const mapNames = await getAllMapNamesStore();
-            for (const mapName of mapNames) {
-                if (mapName === currentMap) continue;
-                if (this._mapHasFeatures(await getMapDataStore(mapName))) {
-                    return true;
-                }
-            }
-        } catch (error) {
-            console.error('Failed to check for existing features:', error);
-        }
-        return false;
-    }
-
-    /**
-     * Checks if a single map data object contains any features.
-     * @param {object} mapData
-     * @returns {boolean}
-     * @private
-     */
-    _mapHasFeatures(mapData) {
-        if (!mapData?.features) return false;
-        return Object.values(mapData.features).some(
-            arr => Array.isArray(arr) && arr.length > 0
-        );
     }
 
     /**
@@ -1060,11 +1293,24 @@ export class MapsTab {
 
     /**
      * Handles clearing all data.
+     *
+     * BEHAVIOUR IS UNCHANGED (`clearAllDataStore` empties the MOUNTED atlas and only it); the
+     * TEXT is what changed. "TODO o projeto" dates from when local and remote shared one set of
+     * databases, and with several named local atlases it reads as "everything on this machine".
+     * Naming the atlas is the whole fix. The button is hidden on a server atlas, so the name
+     * shown is always a local slot's; with no name available the wording degrades to the generic
+     * sentence, never to "undefined".
      * @private
      */
     async _handleClearAll() {
-        const confirmed = await showConfirm('Limpar TODOS os dados?', {
-            message: 'Isso apaga TODO o projeto e NÃO pode ser desfeito:\n- Todos os mapas serão deletados\n- Todas as feições serão removidas\n- Posições e notas salvas serão perdidas\n\nEsta ação é irreversível.',
+        const name = this._resolveLocalAtlasName();
+        const title = name ? `Limpar o atlas "${name}"?` : 'Limpar TODOS os dados deste atlas?';
+        const scope = name
+            ? `Isso apaga TODO o conteúdo do atlas "${name}" e NÃO pode ser desfeito:`
+            : 'Isso apaga TODO o conteúdo deste atlas e NÃO pode ser desfeito:';
+
+        const confirmed = await showConfirm(title, {
+            message: `${scope}\n- Todos os mapas serão deletados\n- Todas as feições serão removidas\n- Posições e notas salvas serão perdidas\n\nOs seus outros atlas não são afetados. Esta ação é irreversível.`,
             confirmText: 'Apagar tudo',
             cancelText: 'Cancelar',
             destructive: true
@@ -1344,9 +1590,11 @@ export class MapsTab {
     }
 
     /**
-     * Refreshes the tab content.
+     * Refreshes the tab content. The atlas header is re-read too: the atlas may have been
+     * renamed from the project screen in another tab while this one sat on a different tab.
      */
     refresh() {
+        this._refreshAtlasHeader();
         this._loadMaps();
     }
 
@@ -1366,5 +1614,9 @@ export class MapsTab {
         cleanup(this);
         removeElement(this._container);
         this._container = null;
+        this._actionButtons.clear();
+        this._atlasHeader = null;
+        this._atlasNameInput = null;
+        this._atlasOriginChip = null;
     }
 }

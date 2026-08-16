@@ -4,11 +4,11 @@
  * @fileoverview "Importar .ebgeo" on the chooser page: turns a `.ebgeo` file straight into a NEW
  * server atlas, without ever loading it into the local store.
  *
- * The pre-existing route to the server was "open the file on the map, then Salvar no servidor" —
+ * The pre-existing route to the server was "open the file on the map, then Enviar ao servidor" —
  * which destroys whatever the local workspace held, just to pass a file through it. Here the file
  * IS the source: a `.ebgeo` is a ZIP carrying `data.json` (the very shape
  * `buildExportDataObject` produces) plus `images/<id>.<ext>`, so the same pure transform that
- * powers "Salvar no servidor" applies directly.
+ * powers "Enviar ao servidor" applies directly.
  *
  * Store-free by construction — this page has no map. It is loaded on demand (dynamic import) so
  * neither JSZip nor the transform is part of the page's initial payload.
@@ -17,6 +17,7 @@
 import JSZip from 'jszip';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads, uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
+import { atlasNameFromFilename } from './ebgeo-filename.js';
 
 /** Matches `images/<id>.<ext>` entries inside the archive. */
 const IMAGE_ENTRY = /^images\/(.+)\.(png|jpe?g|svg|webp)$/i;
@@ -36,20 +37,11 @@ const MIME_BY_EXT = {
 };
 
 /**
- * The project name carried by the file: its own name, minus the extension.
- *
- * A `.ebgeo` has no atlas-name field — the format predates server atlases and only names MAPS. The
- * filename is what the user themself called this project when they saved it, so it is the closest
- * thing to an authored name; `currentMap` would name one map inside it instead. Falls back to a
- * generic label for an empty/odd filename, and the card menu can rename afterwards.
- * @param {string} filename
- * @returns {string}
+ * Re-exported from a module with no imports, so the signed-out `.ebgeo` path of "Seus atlas" can
+ * name a file without dragging JSZip in (see `ebgeo-filename.js`). Every existing call site keeps
+ * importing it from here.
  */
-export function atlasNameFromFilename(filename) {
-    const base = String(filename || '').split(/[\\/]/).pop() || '';
-    const stem = base.replace(/\.ebgeo$/i, '').trim();
-    return stem || 'Projeto importado';
-}
+export { atlasNameFromFilename };
 
 /**
  * Imports a `.ebgeo` file as a new server atlas.

@@ -211,7 +211,7 @@ export function sameAtlasClaim(a, b) {
 /**
  * Reconciles the announced key with the live atlas. Wired to `CONNECTION_STATE_CHANGED` +
  * `SESSION_CHANGED` (index.js), which is what makes the lock follow the FOUR flows that change
- * atlas without a reload: login with a pending link, "Salvar no servidor", logout, and a session
+ * atlas without a reload: login with a pending link, "Enviar ao servidor", logout, and a session
  * lost to a 401.
  *
  * Two guards, both load-bearing. It never re-announces an unchanged claim (see `sameAtlasClaim`),
@@ -480,7 +480,7 @@ async function confirmDiscardingRescuedWork(rescued) {
             `Quando sua sessão caiu, as alterações que ainda não tinham subido para o servidor foram `
             + `guardadas aqui como o projeto local "${rescued.name}". Ele ocupa o mesmo espaço deste `
             + `projeto do servidor, então abrir agora apaga o resgate.\n\n`
-            + `Para não perder nada: cancele, volte ao mapa local e use "Salvar no servidor".`,
+            + `Para não perder nada: cancele, volte ao mapa local e use "Enviar ao servidor".`,
         choices: [
             { id: 'cancel', label: 'Cancelar', variant: 'ghost' },
             { id: 'discard', label: 'Descartar o resgate e abrir', variant: 'danger' },

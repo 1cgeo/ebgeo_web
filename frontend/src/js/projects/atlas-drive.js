@@ -14,6 +14,12 @@
  * Opening is a NAVIGATION (`./?atlas=<uuid>`), so this component never touches the store or the sync
  * engine — the map page owns those, and its `openRemoteAtlas` already handles wipe/connect plus the
  * unsaved-local-work question. Dynamic text goes through textContent; icons are static SVG.
+ *
+ * The file also exports {@link LocalAtlasSection}, the "Neste computador" half of the page. It is a
+ * SEPARATE component, not a sixth tab of this one: the five tabs (Recentes / Meus / Compartilhados /
+ * Públicos / Lixeira) are all server concepts, and a local atlas has no owner, no permission and no
+ * trash. It is equally store-free — every local operation arrives as a callback from
+ * `projects-page.js`, which is the single file on this page allowed to call the local-atlas API.
  */
 
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
@@ -141,10 +147,12 @@ export class AtlasDrive {
         const title = document.createElement('div');
         const h = document.createElement('h2');
         h.className = 'atlas-drive__title';
-        h.textContent = 'Seus projetos';
+        // Section heading, not the page heading: the page is "Seus atlas" and this is its server
+        // half, sitting under the local one.
+        h.textContent = 'No servidor';
         const sub = document.createElement('p');
         sub.className = 'atlas-drive__subtitle';
-        sub.textContent = 'Abra um mapa do servidor ou crie um novo';
+        sub.textContent = 'Projetos sincronizados, abertos por você e por quem você convidar';
         title.append(h, sub);
         bar.appendChild(title);
 
@@ -605,4 +613,371 @@ export class AtlasDrive {
         const onCreate = this._onCreate;
         showCreateAtlasModal({ onCreate: (name, sharing) => onCreate(name, sharing) });
     }
+}
+
+/**
+ * "Neste computador" — the named LOCAL atlases, as a card grid with a create tile.
+ *
+ * It renders what it is GIVEN and calls back for everything else: the local-atlas API lives one
+ * import away, but keeping it out of here means the page has exactly one file that talks to the
+ * store's local registry (`projects-page.js`), which is the file the mount gate names.
+ *
+ * The local/remote distinction is NEVER carried by colour alone: each card states in words that
+ * the atlas stays in this browser, the way a server card states owner and permission.
+ */
+export class LocalAtlasSection {
+    /**
+     * @param {Object} options
+     * @param {Array<{id: string, name: string, updatedAt: number, createdAt: number}>} [options.atlases]
+     * @param {string|null} [options.currentId] - The slot the map will open by default.
+     * @param {number} [options.max] - Ceiling of local atlases (`MAX_LOCAL_ATLASES`).
+     * @param {Function} options.onOpen - Called with the id to open.
+     * @param {Function} options.onCreate - Called with no arguments; owns the name dialog.
+     * @param {Function} options.onRename - Called with the entry to rename.
+     * @param {Function} options.onDelete - Called with the entry to delete.
+     * @param {Function} [options.onOpenFile] - Called with the chosen `.ebgeo` `File`. Omitted
+     *   leaves the button out entirely, rather than showing one that does nothing.
+     */
+    constructor(options = {}) {
+        this._atlases = Array.isArray(options.atlases) ? options.atlases : [];
+        this._currentId = options.currentId ?? null;
+        this._max = Number.isFinite(options.max) ? options.max : null;
+        this._onOpen = options.onOpen || (() => {});
+        this._onCreate = options.onCreate || (() => {});
+        this._onRename = options.onRename || (() => {});
+        this._onDelete = options.onDelete || (() => {});
+        this._onOpenFile = options.onOpenFile || null;
+        this._root = null;
+        this._gridEl = null;
+        this._countEl = null;
+        this._fileInput = null;
+        this._busy = false;
+        this._menu = null;
+        this._menuAnchor = null;
+        this._menuOutside = null;
+        this._menuTimer = null;
+        setupCleanup(this);
+    }
+
+    /**
+     * Builds the section into `host`.
+     * @param {HTMLElement} [host]
+     */
+    mount(host = document.body) {
+        if (this._root) return;
+        this._build();
+        host.appendChild(this._root);
+    }
+
+    /** Removes the section + its listeners. */
+    destroy() {
+        if (!this._root) return;
+        this._closeMenu();
+        clearScopedListeners(this, 'local-cards');
+        cleanup(this);
+        removeElement(this._root);
+        this._root = null;
+        this._gridEl = null;
+        this._countEl = null;
+        this._fileInput = null;
+    }
+
+    /**
+     * Replaces the list after a create/rename/delete and redraws.
+     * @param {Array<Object>} atlases
+     * @param {string|null} currentId
+     */
+    setAtlases(atlases, currentId) {
+        this._atlases = Array.isArray(atlases) ? atlases : [];
+        this._currentId = currentId ?? null;
+        this._busy = false;
+        this._render();
+    }
+
+    /** @private */
+    _build() {
+        const root = document.createElement('section');
+        root.className = 'local-atlas';
+        root.dataset.testid = 'local-atlas-section';
+
+        const header = document.createElement('header');
+        header.className = 'local-atlas__header';
+
+        const heading = document.createElement('div');
+        const h = document.createElement('h2');
+        h.className = 'local-atlas__title';
+        h.textContent = 'Neste computador';
+        const sub = document.createElement('p');
+        sub.className = 'local-atlas__subtitle';
+        sub.textContent = 'Atlas guardados neste navegador. Nada aqui vai para o servidor nem é visto por outras pessoas.';
+        heading.append(h, sub);
+        header.appendChild(heading);
+
+        const actions = document.createElement('div');
+        actions.className = 'local-atlas__actions';
+
+        if (this._onOpenFile) actions.appendChild(this._fileButton());
+
+        const count = document.createElement('span');
+        count.className = 'local-atlas__count';
+        count.dataset.testid = 'local-atlas-count';
+        actions.appendChild(count);
+        this._countEl = count;
+
+        header.appendChild(actions);
+        root.appendChild(header);
+
+        const grid = document.createElement('div');
+        grid.className = 'local-atlas__grid';
+        grid.dataset.testid = 'local-atlas-list';
+        grid.setAttribute('role', 'list');
+        grid.setAttribute('aria-label', 'Atlas neste computador');
+        root.appendChild(grid);
+
+        this._root = root;
+        this._gridEl = grid;
+        this._render();
+    }
+
+    /**
+     * @private "Abrir arquivo .ebgeo", plus the hidden input it drives.
+     *
+     * Both live in the HEADER and not in the grid, so `_render` (which runs on every create,
+     * rename and delete) never rebuilds them: an `<input type="file">` replaced while its picker
+     * is open loses the `change` that was about to arrive. The input is reset before every open,
+     * or picking the same file twice in a row fires no event at all.
+     */
+    _fileButton() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.ebgeo';
+        input.hidden = true;
+        input.dataset.testid = 'local-atlas-file-input';
+        addDomListener(this, input, 'change', () => {
+            const file = input.files?.[0];
+            input.value = '';
+            if (file) this._onOpenFile(file);
+        });
+        this._fileInput = input;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'local-atlas__btn';
+        btn.dataset.testid = 'local-atlas-open-file';
+        btn.title = 'Abrir um arquivo .ebgeo como um atlas novo neste computador';
+        btn.textContent = 'Abrir arquivo .ebgeo';
+        addDomListener(this, btn, 'click', () => {
+            this._fileInput.value = '';
+            this._fileInput.click();
+        });
+
+        const wrap = document.createElement('span');
+        wrap.className = 'local-atlas__action';
+        wrap.append(btn, input);
+        return wrap;
+    }
+
+    /** @private Rebuilds the cards + the create tile. */
+    _render() {
+        if (!this._gridEl) return;
+        // Same reason as the server grid: this runs again on every create/rename/delete, so the
+        // previous cards' listeners are released before their nodes are dropped.
+        clearScopedListeners(this, 'local-cards');
+        this._closeMenu();
+        this._gridEl.replaceChildren();
+
+        for (const atlas of this._atlases) {
+            this._gridEl.appendChild(this._card(atlas));
+        }
+        this._gridEl.appendChild(this._createTile());
+
+        if (this._countEl) {
+            this._countEl.textContent = this._max
+                ? `${this._atlases.length} de ${this._max}`
+                : String(this._atlases.length);
+        }
+    }
+
+    /** @private One local atlas. */
+    _card(atlas) {
+        const id = String(atlas?.id ?? '');
+        const isCurrent = id !== '' && id === this._currentId;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'local-atlas__card-wrap';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `local-atlas__card${isCurrent ? ' local-atlas__card--current' : ''}`;
+        btn.dataset.testid = 'local-atlas-item';
+        btn.dataset.localAtlasId = id;
+        btn.setAttribute('role', 'listitem');
+        if (isCurrent) btn.setAttribute('aria-current', 'true');
+
+        const name = document.createElement('div');
+        name.className = 'local-atlas__name';
+        name.textContent = atlas?.name ?? '';
+        btn.appendChild(name);
+
+        const meta = document.createElement('div');
+        meta.className = 'local-atlas__meta';
+        const when = formatRelativeTime(atlas?.updatedAt);
+        meta.textContent = when ? `aberto ${when}` : '';
+        btn.appendChild(meta);
+
+        const tags = document.createElement('div');
+        tags.className = 'local-atlas__tags';
+        const chip = document.createElement('span');
+        chip.className = 'local-atlas__chip';
+        chip.textContent = 'Local';
+        tags.appendChild(chip);
+        if (isCurrent) {
+            const currentChip = document.createElement('span');
+            currentChip.className = 'local-atlas__chip local-atlas__chip--current';
+            currentChip.dataset.testid = 'local-atlas-current';
+            currentChip.textContent = 'Atual';
+            tags.appendChild(currentChip);
+        }
+        btn.appendChild(tags);
+
+        // The written half of the distinction: the chip's colour says nothing to a colour-blind
+        // reader, and nothing at all to a screen reader used to server cards.
+        const note = document.createElement('p');
+        note.className = 'local-atlas__note';
+        note.textContent = 'Fica só neste navegador';
+        btn.appendChild(note);
+
+        addScopedDomListener(this, 'local-cards', btn, 'click', () => this._open(atlas));
+        wrap.appendChild(btn);
+
+        const menuBtn = document.createElement('button');
+        menuBtn.type = 'button';
+        menuBtn.className = 'local-atlas__menu-btn';
+        menuBtn.dataset.testid = 'local-atlas-menu';
+        menuBtn.setAttribute('aria-label', `Mais ações de ${atlas?.name ?? 'atlas local'}`);
+        menuBtn.innerHTML = ICONS.dots; // static icon
+        addScopedDomListener(this, 'local-cards', menuBtn, 'click', (e) => {
+            e.stopPropagation();
+            this._openMenu(atlas, menuBtn);
+        });
+        wrap.appendChild(menuBtn);
+
+        return wrap;
+    }
+
+    /** @private The dashed "+ Novo atlas local" tile, always last. */
+    _createTile() {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'local-atlas__add';
+        tile.dataset.testid = 'local-atlas-create';
+        tile.innerHTML = ICONS.plus; // static icon
+        const label = document.createElement('span');
+        label.textContent = 'Novo atlas local';
+        tile.appendChild(label);
+        // NOT disabled at the ceiling: the refusal carries a pt-BR message that explains what to
+        // do, and a dead button explains nothing.
+        addScopedDomListener(this, 'local-cards', tile, 'click', () => this._onCreate());
+        return tile;
+    }
+
+    /** @private */
+    _open(atlas) {
+        if (this._busy) return;
+        this._busy = true;
+        // Opening navigates away, so nothing resets `_busy` on success; a caller that stays on
+        // the page (a refusal) calls `setAtlases`, which clears it.
+        this._onOpen(atlas);
+    }
+
+    /** @private Card actions, anchored to the ⋯ button. */
+    _openMenu(atlas, anchorBtn) {
+        if (this._menu && this._menuAnchor === anchorBtn) {
+            this._closeMenu();
+            return;
+        }
+        this._closeMenu();
+
+        const menu = document.createElement('div');
+        menu.className = 'local-atlas__menu';
+        menu.dataset.testid = 'local-atlas-menu-popup';
+        const rect = anchorBtn.getBoundingClientRect();
+        menu.style.top = `${Math.round(rect.bottom + 4)}px`;
+        menu.style.left = `${Math.round(rect.right - 200)}px`;
+
+        const addItem = (label, testid, danger, fn) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = `local-atlas__menu-item${danger ? ' local-atlas__menu-item--danger' : ''}`;
+            item.dataset.testid = testid;
+            item.textContent = label;
+            item.addEventListener('click', () => { this._closeMenu(); fn(); });
+            menu.appendChild(item);
+        };
+
+        addItem('Abrir', 'local-atlas-open', false, () => this._open(atlas));
+        addItem('Renomear', 'local-atlas-rename', false, () => this._onRename(atlas));
+        addItem('Excluir', 'local-atlas-delete', true, () => this._onDelete(atlas));
+
+        this._root.appendChild(menu);
+        this._menu = menu;
+        this._menuAnchor = anchorBtn;
+        this._menuOutside = (e) => {
+            // contains(): the click may land on the button's inner <svg>, which is not the button.
+            if (!menu.contains(e.target) && !anchorBtn.contains(e.target)) this._closeMenu();
+        };
+        this._menuTimer = setTimeout(() => {
+            this._menuTimer = null;
+            document.addEventListener('mousedown', this._menuOutside);
+        }, 0);
+    }
+
+    /** @private */
+    _closeMenu() {
+        if (this._menuTimer != null) { clearTimeout(this._menuTimer); this._menuTimer = null; }
+        if (this._menu) { this._menu.remove(); this._menu = null; }
+        this._menuAnchor = null;
+        if (this._menuOutside) {
+            document.removeEventListener('mousedown', this._menuOutside);
+            this._menuOutside = null;
+        }
+    }
+}
+
+/**
+ * The signed-out invitation that stands where the server section goes.
+ *
+ * Its own component so the page never has to render a half-alive Drive: with no session there is
+ * no list to filter, no trash to open and no create to offer, and a disabled copy of all of that
+ * would be a promise the page cannot keep.
+ *
+ * @param {Object} options
+ * @param {Function} options.onLogin - Called when the visitor asks to sign in.
+ * @returns {HTMLElement}
+ */
+export function createServerInvite({ onLogin }) {
+    const section = document.createElement('section');
+    section.className = 'server-invite';
+    section.dataset.testid = 'server-invite';
+
+    const h = document.createElement('h2');
+    h.className = 'server-invite__title';
+    h.textContent = 'No servidor';
+    section.appendChild(h);
+
+    const text = document.createElement('p');
+    text.className = 'server-invite__text';
+    text.textContent = 'Entre para abrir os projetos do servidor, colaborar em tempo real e compartilhar '
+        + 'com sua equipe. Os atlas deste computador continuam funcionando sem conta.';
+    section.appendChild(text);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'atlas-drive__btn atlas-drive__btn--primary';
+    btn.dataset.testid = 'projects-login';
+    btn.textContent = 'Entrar';
+    btn.addEventListener('click', () => onLogin());
+    section.appendChild(btn);
+
+    return section;
 }

@@ -5,7 +5,7 @@
  * couldn't be auto-tested at the unit/transport layer.
  *
  * A logged-in user working on the LOCAL store draws a feature, opens the account menu, clicks
- * "Salvar no servidor", names the atlas, and confirms. We then assert — by reading the connected
+ * "Enviar ao servidor", names the atlas, and confirms. We then assert — by reading the connected
  * atlas id and pulling a FRESH snapshot from the backend over HTTP — that the local store was
  * packaged into a NEW server atlas (feature present) AND that the app went live on it (sync online).
  *
@@ -27,7 +27,7 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
  * Drives the whole UI flow: register → login → local map → draw a point → account menu →
- * "Salvar no servidor" → name + confirm → the app is LIVE on the new atlas.
+ * "Enviar ao servidor" → name + confirm → the app is LIVE on the new atlas.
  * @returns {Promise<{ctx: import('@playwright/test').BrowserContext,
  *   page: import('@playwright/test').Page, creds: {username:string,password:string},
  *   featureId: string}>}
@@ -72,7 +72,7 @@ async function driveSaveLocalToServer(browser, baseUrl) {
     expect(localCount.points).toBeGreaterThan(0);
     expect(localCount.connected).toBe(false);
 
-    // Open the account menu → "Salvar no servidor" (visible only when logged in + local).
+    // Open the account menu → "Enviar ao servidor" (visible only when logged in + local).
     await page.locator('[data-testid="account-control"] .account-control__identity').click();
     const saveBtn = page.locator('[data-testid="account-save-server-btn"]');
     await expect(saveBtn).toBeVisible();
@@ -179,7 +179,7 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
                 setup: async () => {
                     const driven = await driveSaveLocalToServer(browser, state.baseUrl);
                     const names = await idbDatabaseNames(driven.page);
-                    await testInfo.attach('indexedDB.databases() depois do "Salvar no servidor"', {
+                    await testInfo.attach('indexedDB.databases() depois do "Enviar ao servidor"', {
                         body: names.join('\n'),
                         contentType: 'text/plain',
                     });

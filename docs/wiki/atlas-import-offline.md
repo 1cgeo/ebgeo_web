@@ -35,7 +35,7 @@ O servidor insere com o id que recebe. Só que o payload que chega já foi remap
 
 ## O teto que impede a operação inteira: 10 MB de corpo
 
-O import cai no parser JSON global, `express.json({ limit: '10mb' })` (`backend/src/app.js`); só `/images/bulk` ganha um parser próprio com limite maior. Como a rota é transação única, sem chunking e sem retry seguro, esse teto é o teto prático de "Salvar no servidor": acima dele o atlas recebe 413 `PAYLOAD_TOO_LARGE` e **não tem caminho nenhum** para o servidor. É a única perda desta página que não é parcial. A saída é reduzir o atlas local ou dividi-lo em atlas menores, não repetir o envio.
+O import cai no parser JSON global, `express.json({ limit: '10mb' })` (`backend/src/app.js`); só `/images/bulk` ganha um parser próprio com limite maior. Como a rota é transação única, sem chunking e sem retry seguro, esse teto é o teto prático de "Enviar ao servidor": acima dele o atlas recebe 413 `PAYLOAD_TOO_LARGE` e **não tem caminho nenhum** para o servidor. É a única perda desta página que não é parcial. A saída é reduzir o atlas local ou dividi-lo em atlas menores, não repetir o envio.
 
 ## Feições que somem em silêncio
 
@@ -56,7 +56,7 @@ Nada disso **previne** a divergência: um tipo novo continua custando quatro edi
 
 `POST /atlas/import` tem agora **duas** origens no cliente, e a diferença entre elas é de onde vêm os blobs:
 
-- **"Salvar no servidor"** (`import_export/save-local-atlas.service.js`) lê o store local: `buildExportDataObject` monta o `.ebgeo` em memória e `getImage(id)` traz cada blob do IndexedDB.
+- **"Enviar ao servidor"** (`import_export/save-local-atlas.service.js`) lê o store local: `buildExportDataObject` monta o `.ebgeo` em memória e `getImage(id)` traz cada blob do IndexedDB.
 - **"Importar .ebgeo"** na página de projetos (`projects/import-ebgeo.service.js`) lê um ARQUIVO: descompacta o ZIP, usa o `data.json` direto e tira os blobs das entradas `images/<id>.<ext>`. **Não toca no store**, e é por isso que existe: a rota antiga para subir um `.ebgeo` era abri-lo no mapa e então salvar, o que destruía o workspace local só para o arquivo passar por ele.
 
 O que os dois compartilham (`buildServerImportPayload` + `atlas-image-upload.js`) foi extraído justamente para não virar duas implementações. A armadilha específica do caminho por arquivo: **JSZip devolve Blob com `type` vazio**, e o uploader trata tipo vazio como PNG, e um JPEG subiria anunciando-se PNG e um SVG passaria pela allowlist que existe para recusá-lo. A extensão da entrada do ZIP é a única informação de tipo que existe ali, então o blob é recarimbado com ela antes de subir.

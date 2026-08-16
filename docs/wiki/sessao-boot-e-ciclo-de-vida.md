@@ -12,7 +12,7 @@ O seletor virou página (`projetos.html`), e com isso o boot ganhou uma fase **-
 
 - **A decisão lê o token sem validar** (`apiClient.hasStoredTokens()`). Validar custaria um round trip antes de qualquer pixel. Quem valida é o destino: `projetos.html` chama `getMe`, e no fracasso **limpa os tokens** e devolve para `/`. É esse `clearTokens` que impede o pingue-pongue entre os dois redirecionamentos: remova-o e o boot entra em laço.
 - **A escapatória é `sessionStorage`, não URL** (`deep-link/local-intent.js`). "Mapa local" é escolha desta aba e desta sessão; na URL ela viajaria em todo link compartilhado e imporia a decisão de um a quem abrisse. É limpa no logout, senão a próxima identidade herda a opção de sair do seletor.
-- **Sem sessão não há login na página de projetos**: quem chega deslogado é mandado para o mapa, que é onde "Entrar" mora. A página não duplica autenticação.
+- **Deslogado a página ABRE, e essa linha dizia o contrário até 2026-08-16** ("quem chega deslogado é mandado para o mapa, que é onde Entrar mora"). Ela valia enquanto a página só listava projeto de servidor. Com os atlas locais listados ali, mandar o visitante embora seria trancar o trabalho local atrás de um login que ele não precisa fazer, então a página passou a mostrar a seção local e a oferecer "Entrar" no lugar da seção de servidor. O `clearTokens` do parágrafo acima continua sendo o que impede o pingue-pongue: o que mudou é o destino de quem NÃO tem token, não o de quem tem um inválido.
 
 O `openAtlasChooserOnBoot()` continua existindo para o **fallthrough**: um `?atlas=` que falhou ao abrir, ou uma aba "Mapa local" cuja sessão sobreviveu à intenção. Ele agora navega em vez de abrir modal.
 

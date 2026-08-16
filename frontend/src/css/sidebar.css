@@ -427,18 +427,70 @@
     flex-shrink: 0;
 }
 
-/* Primary action emphasis: "Abrir do servidor" reads as the lead action while the
-   rest stay secondary/neutral. Subtle (tinted), not a full solid button. */
-.maps-tab .sidebar-action-btn[data-testid="maps-open-backend"] {
-    background: var(--primary-50);
-    border-color: var(--primary-200);
-    color: var(--primary-700);
-    font-weight: var(--font-weight-semibold);
+/* =========================================================================
+   ATLAS HEADER — which atlas is mounted, and its origin.
+   The name is an input because renaming the atlas IS editing this field; it is
+   styled to read as a heading until hovered/focused, the same idiom the
+   current-map name below it uses.
+   ========================================================================= */
+
+.atlas-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-color);
 }
 
-.maps-tab .sidebar-action-btn[data-testid="maps-open-backend"]:hover {
-    background: var(--primary-100);
-    border-color: var(--primary);
+.atlas-header__name {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+    padding: var(--space-1) var(--space-2);
+    margin-left: calc(var(--space-2) * -1);
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.atlas-header__name:hover:not(.atlas-header__name--readonly) {
+    background: var(--gray-50);
+}
+
+.atlas-header__name:focus {
+    outline: none;
+    background: white;
+    box-shadow: 0 0 0 2px var(--primary-200, var(--primary-100));
+}
+
+/* Read-only (no permission to rename a server atlas): still shows the real name,
+   but nothing invites an edit that would be refused. */
+.atlas-header__name--readonly {
+    color: var(--gray-600);
+    cursor: default;
+}
+
+.atlas-header__chip {
+    flex-shrink: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    border: 1px solid var(--border-color);
+}
+
+.atlas-header__chip--remote {
+    background: var(--primary-50);
+    color: var(--primary-700);
+    border-color: var(--primary-200);
 }
 
 /* Section Header */

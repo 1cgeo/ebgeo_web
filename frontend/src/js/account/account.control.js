@@ -286,7 +286,7 @@ export class AccountControl {
         this._shareBtn = null;
         /** @type {HTMLButtonElement|null} The "Seus projetos" menu item (any signed-in user). */
         this._projectsBtn = null;
-        /** @type {HTMLButtonElement|null} The "Salvar no servidor" menu item (logged-in + local store). */
+        /** @type {HTMLButtonElement|null} The "Enviar ao servidor" menu item (logged-in + local store). */
         this._saveToServerBtn = null;
         /** @type {HTMLButtonElement|null} The "Excluir projeto" menu item (owner/admin + connected). */
         this._deleteAtlasBtn = null;
@@ -373,14 +373,14 @@ export class AccountControl {
         this._projectsBtn.hidden = true;
         this._menu.appendChild(this._projectsBtn);
 
-        // "Salvar no servidor" — package the LOCAL store as a new server atlas (§item2). Shown only
+        // "Enviar ao servidor" — package the LOCAL store as a new server atlas (§item2). Shown only
         // when logged in and NOT connected to a server atlas (i.e. still working on the local store).
         this._saveToServerBtn = document.createElement('button');
         this._saveToServerBtn.type = 'button';
         this._saveToServerBtn.className = 'account-control__btn account-control__btn--save-server';
         this._saveToServerBtn.setAttribute('role', 'menuitem');
         this._saveToServerBtn.setAttribute('data-testid', 'account-save-server-btn');
-        setMenuButtonContent(this._saveToServerBtn, ICON_SAVE_SERVER, 'Salvar no servidor');
+        setMenuButtonContent(this._saveToServerBtn, ICON_SAVE_SERVER, 'Enviar ao servidor');
         this._saveToServerBtn.hidden = true;
         this._menu.appendChild(this._saveToServerBtn);
 
@@ -646,7 +646,7 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Salvar no servidor" only when the user is logged in AND not connected to a server
+     * Shows "Enviar ao servidor" only when the user is logged in AND not connected to a server
      * atlas — i.e. still working on the LOCAL store, which is what this action packages and uploads.
      * @private
      */
@@ -1108,7 +1108,7 @@ export class AccountControl {
                     showWarning(
                         'Sua sessão terminou com alterações que ainda não foram enviadas ao servidor. '
                         + 'Elas foram mantidas neste computador como projeto local — entre novamente e '
-                        + 'use "Salvar no servidor".',
+                        + 'use "Enviar ao servidor".',
                         { duration: 10000 }
                     );
                 } else {

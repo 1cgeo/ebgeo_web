@@ -33,7 +33,8 @@ import {
     noneKey,
     localAtlasKey,
     remoteAtlasKey,
-    TabLockKeyKind
+    TabLockKeyKind,
+    TeardownReason
 } from '@utils/tab-lock.js';
 
 /**
@@ -905,6 +906,61 @@ describe('tab-lock: two tabs', () => {
             expect(relatorio.peers).toBe(0);
         }
         expect(irma.frozen).toBe(false);
+    });
+
+    // O MOTIVO (`TeardownReason`), acrescentado quando excluir um atlas LOCAL passou a usar este
+    // mesmo aviso. Ele decide UMA coisa: o texto do overlay da aba freada, que dizia "outra aba
+    // saiu da conta" e "projeto do servidor" — duas frases falsas para um atlas local excluído.
+    // O efeito do receptor não muda, e é por isso que o campo é aditivo e NÃO bumpa a versão.
+
+    it('o motivo viaja no aviso e chega ao efeito', async () => {
+        const vistos = [];
+        const emissor = makeLock({ key: noneKey() });
+        makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async (enderecos, contexto) => {
+                vistos.push(contexto);
+                return true;
+            }
+        });
+
+        await emissor.announceTeardown([ENDERECO_B], {
+            reason: TeardownReason.LOCAL_ATLAS_DELETED
+        });
+
+        expect(vistos).toEqual([{ reason: TeardownReason.LOCAL_ATLAS_DELETED }]);
+        // Controle de que o valor não é uma string inventada aqui: os dois motivos existem e são
+        // diferentes, senão a asserção acima passaria contra um default.
+        expect(TeardownReason.LOCAL_ATLAS_DELETED).not.toBe(TeardownReason.SESSION_ENDED);
+    });
+
+    it('sem motivo declarado (e vindo de um deploy anterior) lê como sessão encerrada', async () => {
+        const vistos = [];
+        const emissor = makeLock({ key: noneKey() });
+        const irma = makeLock({
+            key: remoteAtlasKey(ATLAS_B),
+            onTeardown: async (enderecos, contexto) => {
+                vistos.push(contexto.reason);
+                return true;
+            }
+        });
+
+        // O caminho normal, sem opção nenhuma.
+        await emissor.announceTeardown([ENDERECO_B]);
+        // E o envelope de um deploy que ainda não tinha o campo: MESMA versão de protocolo (o
+        // campo é aditivo de propósito), sem `reason`.
+        irma._frozen = false;
+        emissor._transport.post({
+            v: 3,
+            type: 'TEARDOWN',
+            tabId: emissor.tabId,
+            key: { kind: 'none', atlasId: null, adoptedFrom: null },
+            claimedAt: 1,
+            addresses: [ENDERECO_B]
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(vistos).toEqual([TeardownReason.SESSION_ENDED, TeardownReason.SESSION_ENDED]);
     });
 
     it('um aviso do dialeto ANTIGO é ignorado, em vez de ser lido pela metade', async () => {

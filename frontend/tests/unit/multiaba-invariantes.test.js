@@ -111,7 +111,7 @@ engine.connect = vi.fn(async (atlasId) => { engine.atlasId = atlasId; });
 vi.mock('@store/sync/sync-engine.js', () => ({ syncEngine: engine }));
 vi.mock('@store/sync/sync-flush.js', () => ({ startAutoFlush: vi.fn(), stopAutoFlush: vi.fn() }));
 
-/** The upload half of "Salvar no servidor": the network, and nothing else. */
+/** The upload half of "Enviar ao servidor": the network, and nothing else. */
 const upload = vi.hoisted(() => ({ fn: null }));
 upload.fn = vi.fn();
 vi.mock('@js/import_export/save-local-atlas.service.js', () => ({
@@ -319,7 +319,7 @@ describe('o timer órfão do boot', () => {
 // =====================================================================================
 
 /**
- * Runs the whole "Salvar no servidor" flow the way the menu item does.
+ * Runs the whole "Enviar ao servidor" flow the way the menu item does.
  * @returns {Promise<Object>} The `AccountControl` instance, after the flow settled.
  */
 async function correrSaveLocalToServer() {
@@ -1256,7 +1256,7 @@ describe('a chave do tab-lock contra o banco realmente montado', () => {
     // `remote:X` com o escopo ativo ainda no slot LOCAL, então as duas abas escreviam em
     // `ebgeo_maps` enquanto o predicado as considerava independentes. Era a única combinação
     // que o requisito proíbe. Agora os endereços divergem, e a independência é verdadeira.
-    it('CONTROLE: depois do "Salvar no servidor" as duas abas endereçam bancos DIFERENTES', async () => {
+    it('CONTROLE: depois do "Enviar ao servidor" as duas abas endereçam bancos DIFERENTES', async () => {
         await correrSaveLocalToServer();
         const slot = localApi.listLocalAtlases()[0];
 

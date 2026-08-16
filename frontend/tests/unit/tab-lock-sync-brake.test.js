@@ -68,6 +68,7 @@ import {
 import {
     StoreName,
     remoteScope,
+    localScope,
     activateScope,
     getActiveScope,
     clearActiveScope,
@@ -94,6 +95,7 @@ import {
     keysCollide,
     localAtlasKey,
     remoteAtlasKey,
+    TeardownReason,
 } from '@utils/tab-lock.js';
 
 const ATLAS_A = '11111111-1111-4111-8111-111111111111';
@@ -995,6 +997,58 @@ describe('tab-lock brake: o aviso atravessa o protocolo até o freio REAL', () =
         await getScopedStore(StoreName.MAPS).setItem('depois-do-freio', { nome: 'tarde demais' });
         expect(await databaseExists(DB_MAPAS_A)).toBe(true);
         expect(await databaseExists('ebgeo_maps')).toBe(false);
+    });
+
+    // O SEGUNDO GESTO QUE DESTRÓI UM NAMESPACE: excluir um atlas LOCAL em "Seus atlas"
+    // (`store/local-atlas.api.js deleteLocalAtlas`). O protocolo é o mesmo, e o efeito TEM que ser
+    // o mesmo — nada aqui pode passar a depender do motivo, porque "eu sou um dos escritores e
+    // parei" não muda com o porquê. O que este caso prende, e é a decisão que carrega o desenho: a
+    // aba freada MANTÉM o lock de montagem e o escopo ativo também no caminho local. Soltar o
+    // escopo mandaria a escrita perdida seguinte para os bancos LEGADOS pela ponte
+    // (`ensureAtlasScope`), isto é, para o slot #1 do próprio usuário.
+    it('a exclusão de um atlas LOCAL freia pelo mesmo fio, e o freio segue mantendo a montagem', async () => {
+        const slot = localScope('slot-alfa', 'slot-alfa');
+        let clock = 1000;
+        activateScope(slot);
+        // Esta aba é o MAPA num atlas local: anônima, sem socket e sem drenagem.
+        const page = initTabLock({
+            key: localAtlasKey('slot-alfa'),
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        await installTabLockSyncBrake({ replay: async () => false });
+
+        // A irmã é a PÁGINA de atlas: chave nula, então as duas não colidem — o aviso teria que
+        // ser endereçado por endereço mesmo que o par fosse outro.
+        clock += 5;
+        const pagina = createTabLock({
+            key: { kind: 'none', atlasId: null },
+            createTransport: () => hub.connect(),
+            now: () => clock,
+            overlayHost: null,
+            autoPulse: false,
+            settleMs: 0,
+        });
+        peers.push(pagina);
+        expect(keysCollide(pagina.key, page.key)).toBe(false);
+
+        const relatorio = await pagina.announceTeardown([slot.dbSuffix], {
+            reason: TeardownReason.LOCAL_ATLAS_DELETED,
+        });
+
+        expect(relatorio).toMatchObject({ peers: 1, acked: 1, frozen: 1, timedOut: false });
+        expect(page.frozen).toBe(true);
+        // Nada de sync foi parado, porque não havia nada rodando: o freio real desta aba é o
+        // overlay, e o registro do freio fica vazio em vez de guardar um atlas para reconectar.
+        expect(h.disconnect).not.toHaveBeenCalled();
+        expect(getSyncBrakeState().engaged).toBe(false);
+        // A montagem CONTINUA de pé (invariante do desenho, e o que impede a ponte legada), e o
+        // escopo ativo também.
+        expect(getActiveScope()?.dbSuffix).toBe(slot.dbSuffix);
+        expect((await withExclusiveAtlasLock(slot, async () => 'destruiu')).granted).toBe(false);
     });
 
     it('CONTROLE NEGATIVO: um aviso sobre OUTRO endereço atravessa o mesmo fio e NÃO freia', async () => {

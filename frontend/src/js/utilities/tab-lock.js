@@ -114,7 +114,7 @@
  *   TAKEOVER  the sender asks every holder of a colliding key to yield ("Usar aqui").
  *   YIELD     `target`ed ack: "I have already stopped, the claim is yours".
  *   TEARDOWN  the sender is about to DESTROY a set of database addresses. It carries
- *             `addresses` (a list of `dbSuffix`), never a key. See section 8.
+ *             `addresses` (a list of `dbSuffix`) plus a `reason`, never a key. See section 8.
  *   TEARDOWN_ACK  `target`ed ack: "I read it, and here is whether I stopped" (`frozen`).
  *
  * `v` (protocol version) makes tabs from two different deploys mutually INVISIBLE rather than
@@ -374,6 +374,24 @@
  * destruction that follows is still gated by the exclusive mount lock, so silence degrades to
  * TODAY's behaviour (spare), never to a wipe under a live writer.
  *
+ * TWO THINGS DESTROY A NAMESPACE, AND THE NOTICE CARRIES WHICH (`reason`). One is the logout
+ * sweep described above; the other is a user deleting a named LOCAL atlas on `projetos.html`
+ * (`store/local-atlas.api.js deleteLocalAtlas`). The protocol is the same for both, and so is the
+ * effect: the receiver stops and KEEPS its mount lock. What differs is the only thing the receiver
+ * shows a human, the overlay, and it was WRONG for the second case — "outra aba saiu da conta" and
+ * "projeto do servidor" are both false for a local atlas somebody deleted. The field is ADDITIVE,
+ * so it does NOT bump the protocol version, for the reason `adoptedFrom` did not: a tab from an
+ * older deploy reads a notice with no reason as the session-ended case, which is that deploy's only
+ * case, whereas invisibility would cost it the freeze entirely.
+ *
+ * WHAT THE NOTICE BUYS ON THE LOCAL PATH IS DIFFERENT, and saying so is the point of writing it
+ * down. On the remote path the mount lock is what SPARES the sibling's databases, and the notice
+ * merely tells it. A local deletion is not gated by that lock (`deleteLocalAtlas` drops the
+ * databases, and nothing ever retries a local drop, so sparing there would mean abandoning them
+ * outside the registry forever) — so what the notice buys is that the sibling STOPS BEFORE the
+ * drop lands. Without it the sibling's next write RECREATES those databases, now named by no
+ * registry, which is exactly the residue this whole design exists to prevent.
+ *
  * A FROZEN TAB DOES NOT COME BACK. It retracts its key (it no longer holds that atlas, so keeping
  * the claim would lock everyone else out of an atlas nobody has), shows an overlay that offers a
  * reload, and is pinned out of `_leaveBlocked` forever: the session behind that atlas is over, so
@@ -417,7 +435,8 @@
  * ===========================================================================
  * 10. PUBLIC API (other agents wire this; nothing here integrates itself)
  * ===========================================================================
- * Pure, for callers and tests: `TabLockKeyKind`, `noneKey`, `localAtlasKey`, `remoteAtlasKey`,
+ * Pure, for callers and tests: `TabLockKeyKind`, `TeardownReason`, `noneKey`, `localAtlasKey`,
+ * `remoteAtlasKey`,
  * `keysCollide`, `compareClaims`, `findBlockingPeer`, `otherClientHoldsLock` (the witness
  * primitive of section 5; the caller supplies the LockManager and the lock name, so this module
  * still knows nothing about databases).
@@ -520,6 +539,19 @@ const Msg = Object.freeze({
     TEARDOWN_ACK: 'TEARDOWN_ACK'
 });
 
+/**
+ * WHY a set of database addresses is about to be destroyed (section 8). It travels in the notice
+ * and decides the wording of the frozen overlay, nothing else: the receiver's effect is the same
+ * for both, and a receiver that does not recognise the value falls back to the session-ended
+ * wording, which is the one an older deploy would have shown anyway.
+ */
+export const TeardownReason = Object.freeze({
+    /** A logout (or the logged-out boot guard) sweeping every server namespace on this machine. */
+    SESSION_ENDED: 'session-ended',
+    /** The user deleted a named LOCAL atlas on `projetos.html`. */
+    LOCAL_ATLAS_DELETED: 'local-atlas-deleted'
+});
+
 /** What a tab can be holding. */
 export const TabLockKeyKind = Object.freeze({
     NONE: 'none',
@@ -555,6 +587,29 @@ const TEARDOWN_OVERLAY = Object.freeze({
         + 'computador enquanto esta aba ficar aberta. Entre novamente e abra o projeto para '
         + 'enviá-lo; recarregar esta aba antes disso descarta esse trabalho.',
     button: 'Recarregar'
+});
+
+/**
+ * Wording of the OTHER destruction, a named local atlas deleted in "Seus atlas".
+ *
+ * It says the opposite of the one above about what a reload costs, and correctly: there is no
+ * unsent work to preserve here, because the user asked for these very databases to go and the
+ * deletion is not waiting on this tab's mount lock. Reusing the session-ended text told the user
+ * their session had ended (it had not) and that reloading would discard work (there is none),
+ * which is worse than saying nothing.
+ */
+const TEARDOWN_OVERLAY_LOCAL_DELETED = Object.freeze({
+    title: 'Este atlas local foi excluído',
+    message: 'Outra aba deste navegador excluiu o atlas que estava aberto aqui, então esta aba '
+        + 'parou de gravar: o que ainda aparece na tela já não existe neste computador. Recarregue '
+        + 'para continuar em outro atlas.',
+    button: 'Recarregar'
+});
+
+/** Frozen-overlay wording by `TeardownReason`. An unknown reason falls back to session-ended. */
+const TEARDOWN_OVERLAY_BY_REASON = Object.freeze({
+    [TeardownReason.SESSION_ENDED]: TEARDOWN_OVERLAY,
+    [TeardownReason.LOCAL_ATLAS_DELETED]: TEARDOWN_OVERLAY_LOCAL_DELETED
 });
 
 /**
@@ -932,9 +987,11 @@ class TabLock {
      *   `syncEngine.disconnect()`. It MUST NOT clear any store (fileoverview, 7).
      * @param {() => (void|Promise<void>)} [options.onResumed] - Called when this tab regains
      *   the claim (peer died, peer yielded, key changed to a free one).
-     * @param {((addresses: string[]) => (boolean|Promise<boolean>))} [options.onTeardown] - Wire
-     *   it to `applyTeardownFreeze` (`store/sync/tab-lock-sync-brake.js`). It answers whether
-     *   this tab held one of those database addresses AND has stopped writing (section 8).
+     * @param {((addresses: string[], context: {reason: string}) => (boolean|Promise<boolean>))}
+     *   [options.onTeardown] - Wire it to `applyTeardownFreeze`
+     *   (`store/sync/tab-lock-sync-brake.js`). It answers whether this tab held one of those
+     *   database addresses AND has stopped writing (section 8). `reason` is a `TeardownReason`,
+     *   passed for the effect's own diagnostics; the overlay wording is decided here.
      * @param {HTMLElement|null} [options.overlayHost] - Where the blocking overlay is mounted;
      *   null disables the overlay (headless/tests).
      * @param {(name: string) => (TabLockTransport|null)} [options.createTransport]
@@ -993,6 +1050,8 @@ class TabLock {
         this._button = null;
         /** True once an unmount notice froze this tab. Only a reload clears it (section 8). */
         this._frozen = false;
+        /** @type {{title: string, message: string, button: string}|null} Frozen wording, by reason. */
+        this._teardownText = null;
         /** @type {Map<string, boolean>|null} Acks of the notice in flight, by peer tab id. */
         this._teardownAcks = null;
         /** @type {Promise<void>|null} The stop currently running, or the one that already ran. */
@@ -1278,12 +1337,16 @@ class TabLock {
      * behaviour of the deploy that had no notice at all.
      *
      * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
-     * @param {{timeoutMs?: number}} [options]
+     * @param {{timeoutMs?: number, reason?: string}} [options] - `reason` is a `TeardownReason`;
+     *   it decides the frozen overlay's wording in the receiver and nothing else.
      * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
      *   timedOut: boolean, degraded: boolean}>} `frozen` counts the peers that reported they held
      *   one of the addresses and stopped.
      */
-    async announceTeardown(addresses, { timeoutMs = this._teardownTimeoutMs } = {}) {
+    async announceTeardown(addresses, {
+        timeoutMs = this._teardownTimeoutMs,
+        reason = TeardownReason.SESSION_ENDED
+    } = {}) {
         const list = normalizeTeardownAddresses(addresses);
         const report = emptyTeardownReport(list, this._degraded);
         if (this._degraded || this._destroyed || list.length === 0) return report;
@@ -1292,7 +1355,7 @@ class TabLock {
         report.peers = pending.size;
         const acks = new Map();
         this._teardownAcks = acks;
-        this._post(Msg.TEARDOWN, null, { addresses: list });
+        this._post(Msg.TEARDOWN, null, { addresses: list, reason });
 
         // Counting STEPS instead of reading the clock: `_now` is injectable and a frozen clock
         // must still let this return.
@@ -1559,11 +1622,15 @@ class TabLock {
     async _handleTeardown(message) {
         const addresses = (Array.isArray(message.addresses) ? message.addresses : [])
             .filter(address => typeof address === 'string');
+        // An older deploy sends no reason, and reads as the case that deploy had (section 8).
+        const reason = typeof message.reason === 'string'
+            ? message.reason
+            : TeardownReason.SESSION_ENDED;
 
         let frozen = false;
         if (addresses.length > 0 && this._onTeardown && !this._frozen) {
             try {
-                frozen = (await this._onTeardown(addresses)) === true;
+                frozen = (await this._onTeardown(addresses, { reason })) === true;
             } catch (error) {
                 // A freeze that throws must not ack as if it had stopped: `frozen` stays false,
                 // the sender finds the namespace still mounted, and spares it.
@@ -1574,7 +1641,7 @@ class TabLock {
         if (this._destroyed) return;
 
         this._post(Msg.TEARDOWN_ACK, message.tabId, { frozen });
-        if (frozen) this._enterFrozen(message);
+        if (frozen) this._enterFrozen(message, reason);
     }
 
     /**
@@ -1582,10 +1649,15 @@ class TabLock {
      * (it holds no atlas any more, and keeping the claim would lock every other tab out of an
      * atlas nobody has), shows the frozen overlay, and never leaves the blocked state again.
      * @param {Object} message - The notice that caused it, for the blocker record.
+     * @param {string} reason - A `TeardownReason`, which picks the overlay's wording.
      * @returns {void}
      */
-    _enterFrozen(message) {
+    _enterFrozen(message, reason = TeardownReason.SESSION_ENDED) {
         const surrendered = this._key;
+        // Resolved HERE and not in the renderer, because the renderer runs again later (a resize,
+        // a second render) with no message in hand, and a fallback computed twice is a fallback
+        // that can differ between the two.
+        this._teardownText = TEARDOWN_OVERLAY_BY_REASON[reason] ?? TEARDOWN_OVERLAY;
         this._frozen = true;
         this._blocked = true;
         this._blocker = {
@@ -1861,11 +1933,12 @@ class TabLock {
     _renderOverlay(key) {
         if (!this._overlayHost) return;
         if (!this._overlay) this._overlay = this._buildOverlay();
-        this._title.textContent = this._frozen ? TEARDOWN_OVERLAY.title : BLOCKED_OVERLAY.title;
+        const frozenText = this._teardownText ?? TEARDOWN_OVERLAY;
+        this._title.textContent = this._frozen ? frozenText.title : BLOCKED_OVERLAY.title;
         this._message.textContent = this._frozen
-            ? TEARDOWN_OVERLAY.message
+            ? frozenText.message
             : (OVERLAY_TEXT[key?.kind] ?? OVERLAY_TEXT[TabLockKeyKind.REMOTE]);
-        this._button.textContent = this._frozen ? TEARDOWN_OVERLAY.button : BLOCKED_OVERLAY.button;
+        this._button.textContent = this._frozen ? frozenText.button : BLOCKED_OVERLAY.button;
         this._button.disabled = false;
         this._overlay.classList.add('tab-lock-overlay--visible');
     }
@@ -2098,7 +2171,7 @@ export function setTabLockEffects(handlers = {}) {
  * the whole protocol is built on (section 8).
  *
  * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
- * @param {{timeoutMs?: number}} [options]
+ * @param {{timeoutMs?: number, reason?: string}} [options] - `reason` is a `TeardownReason`.
  * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
  *   timedOut: boolean, degraded: boolean}>}
  */
@@ -2131,11 +2204,11 @@ const PEER_DISCOVERY_TURNS = 20;
 /**
  * The throwaway announcer described in {@link announceTabLockTeardown}.
  * @param {string[]} addresses - `dbSuffix` values about to be destroyed.
- * @param {{timeoutMs?: number}} [options]
+ * @param {{timeoutMs?: number, reason?: string}} [options] - `reason` is a `TeardownReason`.
  * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
  *   timedOut: boolean, degraded: boolean}>}
  */
-async function announceTeardownWithoutPage(addresses, { timeoutMs } = {}) {
+async function announceTeardownWithoutPage(addresses, { timeoutMs, reason } = {}) {
     const list = normalizeTeardownAddresses(addresses);
     // Nothing to say, so nothing is built: this is the ordinary case (no server namespace has
     // ever been registered on this machine) and it must cost neither a channel nor a turn.
@@ -2148,10 +2221,13 @@ async function announceTeardownWithoutPage(addresses, { timeoutMs } = {}) {
         for (let turn = 0; turn < PEER_DISCOVERY_TURNS && announcer.peers().length === 0; turn++) {
             await nextTurn();
         }
-        return await announcer.announceTeardown(
-            list,
-            timeoutMs === undefined ? {} : { timeoutMs }
-        );
+        return await announcer.announceTeardown(list, {
+            // Omitted rather than passed as undefined: the parameter defaults live in
+            // `announceTeardown`, and forwarding `undefined` would work today only because
+            // destructuring happens to treat it the same way.
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            ...(reason === undefined ? {} : { reason })
+        });
     } finally {
         announcer.destroy();
     }

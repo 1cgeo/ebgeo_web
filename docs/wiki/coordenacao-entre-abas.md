@@ -42,7 +42,7 @@ São quatro apagamentos assim, e os dois de boot são o pior caso, não o óbvio
 
 ## A chave muda em vida, então o protocolo é de N tempos
 
-O atlas troca sem recarregar em quatro fluxos (login com link pendente, "Salvar no servidor", logout com a aba ficando no mapa, e sessão perdida por 401). Um protocolo de dois tempos, do tipo "confere uma vez no boot", não expressa nenhum deles. Daí `setTabLockKey` e `releaseTabLock` serem movimentos de primeira classe, e a retratação (403/404, atlas que não abre) não ser um caso especial de descarregamento de página.
+O atlas troca sem recarregar em quatro fluxos (login com link pendente, "Enviar ao servidor", logout com a aba ficando no mapa, e sessão perdida por 401). Um protocolo de dois tempos, do tipo "confere uma vez no boot", não expressa nenhum deles. Daí `setTabLockKey` e `releaseTabLock` serem movimentos de primeira classe, e a retratação (403/404, atlas que não abre) não ser um caso especial de descarregamento de página.
 
 O `?atlasPublico=` merece nota, porque a saída NÃO tomada é instrutiva: o parâmetro é um **token** de link, e o UUID só existe depois que o servidor responde. Reivindicar cedo sob um id provisório erraria duas vezes, colidindo duas abas que abrem links públicos diferentes (colisão falsa) e não colidindo duas abas que abrem o mesmo atlas por rotas diferentes (colisão perdida), e o recarimbo posterior ainda jogaria a aba para o FIM da ordem total, entregando uma reivindicação que ela já tinha. Por isso a reivindicação é **adiada**: resolver o token é leitura, não destrói nada, e a chave é tomada com o UUID real antes do primeiro passo destrutivo.
 
