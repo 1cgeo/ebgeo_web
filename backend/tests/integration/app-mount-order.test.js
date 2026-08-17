@@ -54,8 +54,9 @@ const PROBES = [
   { prefix: '/api/v1/audit', path: '/api/v1/audit' },
   { prefix: '/api/v1/zones', path: '/api/v1/zones' },
   { prefix: '/api/v1/sv360', path: '/api/v1/sv360/projects' },
-  // O módulo só tem rota PATCH, então a sonda bate num caminho que o sub-router
-  // reconhece e responde (401 sem token) em vez do 404 do catch-all.
+  // Desde F3 o módulo TAMBÉM tem GET (`/visible`), mas a sonda continua no PATCH
+  // de propósito: é a única que exercita a opção `method`, e opção de guarda que
+  // nenhum caso usa é opção que ninguém percebe quebrar.
   { prefix: '/api/v1/resource-access', path: '/api/v1/resource-access/tileset/x/visibility', method: 'patch' },
   { prefix: '/api/v1/debug', path: '/api/v1/debug/trace' },
 ];

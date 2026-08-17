@@ -1,6 +1,27 @@
 // Path: src/modules/resource-access/resource-access.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { principalUserId } from '../../utils/principal.js';
 import * as svc from './resource-access.service.js';
+
+/**
+ * GET /api/v1/resource-access/visible?atlasId=
+ *
+ * O payload ADITIVO. `atlasId` é OPCIONAL: sem ele o segundo braço da resolução
+ * (o empréstimo) não contribui, e sobram papel global e concessão pessoal.
+ *
+ * `principalUserId` (e não `req.user.id`) porque o visitante de link público
+ * carrega um sub sintético `public-<uuid>`, que num cast `::uuid` levanta 22P02 e
+ * volta como um HTTP 400 sem relação aparente com a causa. NULL ali é o valor
+ * CORRETO para ele, não uma degradação (R4).
+ */
+export const visible = asyncHandler(async (req, res) => {
+  const data = await svc.listVisiblePrivateResources({
+    userId: principalUserId(req.user),
+    atlasId: req.params.atlasId ?? null,
+    orgId: req.user?.organization_id ?? null,
+  });
+  res.json({ data });
+});
 
 export const setVisibility = asyncHandler(async (req, res) => {
   const data = await svc.setResourceVisibility({
@@ -11,4 +32,33 @@ export const setVisibility = asyncHandler(async (req, res) => {
     req,
   });
   res.json({ data });
+});
+
+export const listGrants = asyncHandler(async (req, res) => {
+  const data = await svc.listGrantsForResource(req.params.type, req.params.id);
+  res.json({ data });
+});
+
+export const createGrant = asyncHandler(async (req, res) => {
+  const data = await svc.grantResource({
+    type: req.params.type,
+    resourceId: req.params.id,
+    granteeId: req.body.granteeId,
+    grantLevel: req.body.grantLevel,
+    actor: req.user,
+    // Calculado por `requireResourceShare`, que acabou de rodar. Reconsultar aqui
+    // seria uma segunda leitura do mesmo fato, e é assim que uma requisição passa
+    // a ter duas respostas para a mesma pergunta.
+    hasGlobalAccess: req.hasGlobalDataAccess === true,
+    req,
+  });
+  res.status(201).json({ data });
+});
+
+export const revokeGrant = asyncHandler(async (req, res) => {
+  const revoked = await svc.revokeGrant({ grantId: req.params.grantId, actor: req.user, req });
+  // A LISTA DOS DERRUBADOS É O PRODUTO, não um detalhe: quem revogou precisa ver
+  // que a subárvore caiu junto, e a UI usa a contagem para confirmar antes de
+  // fechar o modal.
+  res.json({ data: { revoked } });
 });

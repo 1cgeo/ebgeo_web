@@ -1513,6 +1513,67 @@ export class ApiClient {
         return this._request('DELETE', `/atlas/${atlasId}/sharing/users/${userId}`);
     }
 
+    // ===== RECURSOS PRIVADOS (acesso a recurso do catálogo) =====
+    //
+    // Eixo distinto do de atlas: aqui a pergunta é "quem vê ESTE recurso", e não
+    // "quem mexe NESTE atlas". `/api/config` continua sendo o documento PÚBLICO,
+    // igual para todo chamador; o que a pessoa ganha por concessão chega por
+    // `getVisibleResources` e o cliente SOMA.
+
+    /**
+     * Os recursos PRIVADOS que este usuário enxerga (o payload ADITIVO).
+     *
+     * `atlasId` é opcional e MUDA a resposta: com ele entram também os recursos
+     * que o atlas em foco empresta. Sem ele, só papel global e concessão pessoal.
+     * @param {string|null} [atlasId]
+     * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}>}
+     */
+    async getVisibleResources(atlasId = null) {
+        const qs = atlasId ? `?atlasId=${encodeURIComponent(atlasId)}` : '';
+        return this._request('GET', `/resource-access/visible${qs}`);
+    }
+
+    /**
+     * Quem tem acesso a um recurso privado (exige `view_share` ou papel global).
+     * @param {string} type - tileset | data_layer | analysis_layer | sv360_project
+     * @param {string} id
+     * @returns {Promise<Array>}
+     */
+    async listResourceGrants(type, id) {
+        return this._request('GET', `/resource-access/${type}/${encodeURIComponent(id)}/grants`);
+    }
+
+    /**
+     * Concede acesso a um recurso privado.
+     * @param {string} type @param {string} id
+     * @param {{granteeId: string, grantLevel: 'view'|'view_share'}} payload
+     */
+    async grantResource(type, id, payload) {
+        return this._request('POST', `/resource-access/${type}/${encodeURIComponent(id)}/grants`, { body: payload });
+    }
+
+    /**
+     * Revoga uma concessão E TODA a subárvore que dela deriva.
+     * A resposta traz a lista dos derrubados, que é o que a UI mostra para
+     * confirmar o alcance da poda.
+     * @param {string} grantId
+     * @returns {Promise<{revoked: Array}>}
+     */
+    async revokeResourceGrant(grantId) {
+        return this._request('DELETE', `/resource-access/grants/${encodeURIComponent(grantId)}`);
+    }
+
+    /**
+     * Marca um recurso como público ou privado (só administrador).
+     * @param {string} type @param {string} id
+     * @param {'public'|'private'} accessLevel
+     */
+    async setResourceVisibility(type, id, accessLevel) {
+        return this._request('PATCH', `/resource-access/${type}/${encodeURIComponent(id)}/visibility`, {
+            body: { accessLevel },
+        });
+    }
+
     // ===== USERS =====
 
     /**

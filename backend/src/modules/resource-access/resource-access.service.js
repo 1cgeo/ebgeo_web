@@ -3,12 +3,14 @@
 // funções SQL da migração 017. É o que permite dizer "o dado não vaza nem com bug
 // de app" — um erro nesta camada não abre nada que o SQL feche.
 
-import { tx } from '../../database/index.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { query, one, oneOrNone, tx } from '../../database/index.js';
+import { NotFoundError, ForbiddenError, ConflictError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
 import * as Q from './resource-access.queries.js';
-import { assertResourceType, tableOf } from './resource-access.types.js';
+import {
+  RESOURCE_TYPES, PAYLOAD_KEY_BY_TYPE, assertResourceType, tableOf, assertCatalogTableOf,
+} from './resource-access.types.js';
 
 /**
  * Marca um recurso como público ou privado (gate de administrador na rota).
@@ -58,4 +60,178 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
 
   invalidateAppConfigCache();
   return row;
+}
+
+// --- o payload aditivo -----------------------------------------------------
+
+/**
+ * Os recursos PRIVADOS que este principal enxerga, por tipo.
+ *
+ * ADITIVO é a palavra que define o desenho. `GET /api/config` continua servindo o
+ * documento PÚBLICO, igual para todo chamador e memoizado como UM só; o que a
+ * pessoa ganha por papel global, concessão ou empréstimo chega por aqui e o
+ * cliente SOMA. Filtrar o `/api/config` por usuário destruiria aquele memo (ele
+ * passaria a ser por conjunto de visibilidade, que é ilimitado) no único endpoint
+ * cuja falha impede o produto de subir.
+ *
+ * Repare que o payload devolve SÓ o privado: ele é o delta, não o conjunto.
+ *
+ * @param {Object} params
+ * @param {string|null} params.userId - null para o visitante de link público (R4).
+ * @param {string|null} params.atlasId - O atlas em foco (empresta), ou null.
+ * @param {string|null} [params.orgId] - OM do chamador (o ramo dono do 360, D6).
+ * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}>}
+ */
+export async function listVisiblePrivateResources({ userId, atlasId, orgId = null }) {
+  const catalogTypes = RESOURCE_TYPES.filter((t) => tableOf(t) !== null);
+
+  const catalogRows = await Promise.all(catalogTypes.map(async (type) => {
+    const table = assertCatalogTableOf(type);
+    const { rows } = await query(Q.listVisiblePrivate(table), [userId, atlasId, type]);
+    // A MESMA REPROJEÇÃO DE `config.service.js` (`{ id, name, ...config }`), e não
+    // a linha crua: o cliente soma isto dentro dos mesmos arrays de `config`, e um
+    // item com shape diferente dos vizinhos quebra o consumidor no ponto de USO,
+    // longe daqui.
+    return [PAYLOAD_KEY_BY_TYPE[type], rows.map((r) => ({ id: r.id, name: r.name, ...(r.config || {}) }))];
+  }));
+
+  const { rows: rows360 } = await query(Q.LIST_VISIBLE_PRIVATE_360, [userId, atlasId, orgId]);
+
+  return {
+    ...Object.fromEntries(catalogRows),
+    [PAYLOAD_KEY_BY_TYPE.sv360_project]: rows360,
+  };
+}
+
+/** O nível de acesso de um recurso, ou null quando ele não existe (ou está inativo). */
+async function accessLevelOf(type, resourceId) {
+  const table = tableOf(assertResourceType(type));
+  const row = table
+    ? await oneOrNone(Q.getCatalogAccessLevel(table), [resourceId])
+    : await oneOrNone(Q.GET_360_ACCESS_LEVEL, [resourceId]);
+  return row ? row.access_level : null;
+}
+
+/**
+ * O gate PONTUAL: este principal enxerga este recurso? Wrapper de
+ * `fn_can_see_resource`, que é COMPOSTA das outras duas — não há aqui uma segunda
+ * cópia da regra.
+ *
+ * Recurso inexistente devolve `false`, não erro: quem chama isto está decidindo se
+ * mostra ou esconde, e "não existe" e "não pode ver" precisam ser a mesma resposta
+ * para não virarem um oráculo de existência.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function canSeeResource({ userId, atlasId = null, type, resourceId }) {
+  const level = await accessLevelOf(type, resourceId);
+  if (level === null) return false;
+  const row = await one(Q.CAN_SEE_RESOURCE, [userId, atlasId, assertResourceType(type), resourceId, level]);
+  return row.ok === true;
+}
+
+// --- concessões ------------------------------------------------------------
+
+/** As concessões vivas do ator sobre um recurso, maior nível primeiro (D3). */
+export async function liveGrantsOfActor(actorId, type, resourceId) {
+  if (!actorId) return [];
+  const { rows } = await query(Q.LIVE_GRANTS_OF_ACTOR, [actorId, assertResourceType(type), resourceId]);
+  return rows;
+}
+
+/** As concessões vivas de um recurso, com beneficiário e concedente. */
+export async function listGrantsForResource(type, resourceId) {
+  const { rows } = await query(Q.LIST_GRANTS_FOR_RESOURCE, [assertResourceType(type), resourceId]);
+  return rows;
+}
+
+/**
+ * Concede acesso a um recurso, pendurando a concessão nova na do ATOR.
+ *
+ * `parent_grant_id` é o que faz a árvore existir, e é fixado AQUI, no INSERT — a
+ * única escrita dele em todo o sistema. Nenhuma rota expõe UPDATE dele, e é por
+ * isso que ciclo é impossível por construção (R7).
+ *
+ * Quem tem papel global concede de RAIZ (`parent_grant_id = NULL`): a concessão
+ * dele não deriva de ninguém, então não há de quem pendurar — e é por isso que
+ * revogar a concessão de um administrador não pode ser feito derrubando "o pai".
+ *
+ * O gate de nível é reafirmado aqui e não só no middleware, de propósito: o
+ * middleware protege a ROTA, esta função protege a REGRA. Quem tem `view` não
+ * concede nada; quem tem `view_share` concede `view` ou `view_share`.
+ */
+export async function grantResource({ type, resourceId, granteeId, grantLevel, actor, hasGlobalAccess, req }) {
+  const t = assertResourceType(type);
+
+  if (await accessLevelOf(t, resourceId) === null) throw new NotFoundError('Resource');
+
+  const grantee = await oneOrNone(Q.GET_ACTIVE_USER, [granteeId]);
+  if (!grantee) throw new NotFoundError('User');
+  if (granteeId === actor.id) throw new ConflictError('Não é possível conceder acesso a si mesmo.');
+
+  let parentGrantId = null;
+  if (!hasGlobalAccess) {
+    const mine = await liveGrantsOfActor(actor.id, t, resourceId);
+    const sharer = mine.find((g) => g.grant_level === 'view_share');
+    if (!sharer) {
+      throw new ForbiddenError('É preciso ter acesso com permissão de compartilhar para conceder este recurso.');
+    }
+    parentGrantId = sharer.id;
+  }
+
+  const jaDei = await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
+  if (jaDei) throw new ConflictError('Este usuário já recebeu acesso a este recurso de você.');
+
+  return tx(async (trx) => {
+    const row = await trx.one(Q.INSERT_GRANT, [t, resourceId, granteeId, grantLevel, actor.id, parentGrantId]);
+    await createAudit(req, {
+      // O ALVO VIAJA EM `details` pelo mesmo motivo de `setResourceVisibility`:
+      // `target_id` é UUID e o id de catálogo é slug textual, e o CHECK de
+      // `target_type` não prevê tipo de recurso. Aqui `target_id` PODE carregar o
+      // beneficiário, que é UUID de verdade e é o alvo humano da ação.
+      action: 'PERMISSION_GRANT',
+      actorId: actor.id,
+      targetType: 'USER',
+      targetId: granteeId,
+      targetName: grantee.username,
+      details: { resourceType: t, resourceId, grantLevel, grantId: row.id, parentGrantId },
+    }, trx);
+    return row;
+  });
+}
+
+/**
+ * Revoga uma concessão E TODA a subárvore que dela deriva.
+ *
+ * A auditoria emite UMA LINHA POR CONCESSÃO DERRUBADA, com o `parent_grant_id` e a
+ * raiz da poda nos detalhes. Sem isso "por que Fulano perdeu acesso" não tem
+ * resposta: só a raiz apareceria no registro, e quem caiu junto seria invisível —
+ * que é exatamente a razão de a revogação ser soft e não um DELETE em cascata (D2).
+ *
+ * Revogar duas vezes devolve lista vazia em vez de erro: `revoked_at IS NULL` no
+ * âncora torna a operação idempotente, e a data da PRIMEIRA revogação é a que vale.
+ */
+export async function revokeGrant({ grantId, actor, req }) {
+  const alvo = await oneOrNone(Q.GET_GRANT, [grantId]);
+  if (!alvo) throw new NotFoundError('Grant');
+
+  return tx(async (trx) => {
+    const podados = await trx.any(Q.REVOKE_GRANT_SUBTREE, [grantId, actor.id]);
+    for (const p of podados) {
+      await createAudit(req, {
+        action: 'PERMISSION_REVOKE',
+        actorId: actor.id,
+        targetType: 'USER',
+        targetId: p.grantee_id,
+        details: {
+          resourceType: p.resource_type,
+          resourceId: p.resource_id,
+          grantId: p.id,
+          parentGrantId: p.parent_grant_id,
+          rootGrantId: grantId,
+        },
+      }, trx);
+    }
+    return podados;
+  });
 }

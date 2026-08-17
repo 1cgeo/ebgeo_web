@@ -70,7 +70,11 @@ const h = vi.hoisted(() => {
         },
         enableOperationLogging: vi.fn(),
         disableOperationLogging: vi.fn(),
-        sessionContextMock: { setSession: vi.fn(), clearSession: vi.fn() },
+        // `isAuthenticated` entrou junto com a soma dos recursos concedidos: o
+        // `disconnect` a consulta para decidir se re-soma a concessão PESSOAL (que
+        // não depende de atlas nenhum). Um mock sem ela derruba o disconnect inteiro
+        // num TypeError, que é o modo de falha que um mock parcial sempre teve.
+        sessionContextMock: { setSession: vi.fn(), clearSession: vi.fn(), isAuthenticated: vi.fn(() => false) },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
         setRemoteHandlerEventBus: vi.fn(),

@@ -42,6 +42,7 @@ import { syncGateway } from './sync-gateway.js';
 import { connectionState } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
+import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
@@ -225,6 +226,10 @@ class SyncEngine {
             globalRole: user.role || 'user',
             username: user.username || user.nome || username,
         });
+        // A soma dos recursos privados concedidos, ainda SEM atlas em foco: o que a
+        // pessoa tem por papel global ou por concessao pessoal ja vale no mapa local.
+        // Best-effort de proposito — uma falha aqui nao pode derrubar o login.
+        await refreshVisibleResources(null);
         return user;
     }
 
@@ -344,6 +349,12 @@ class SyncEngine {
      * @param {Object} [snapshotSettings] - atlas.settings from the pulled snapshot, if any.
      */
     async _applyAtlasSettingsOverlay(atlasId, snapshotSettings) {
+        // D1 — SOMAR PRIMEIRO, INTERSECTAR DEPOIS, e a ordem esta aqui de proposito.
+        // O baseline passa a ser publico(deploy) uniao concedido(pessoal) uniao
+        // emprestado(atlas), e so entao a allowlist do atlas intersecta por cima. A
+        // ordem inversa faria o recurso EMPRESTADO escapar da restricao que o
+        // Gestor configurou no mesmo atlas.
+        await refreshVisibleResources(atlasId);
         try {
             const settings = snapshotSettings ?? await apiClient.getAtlasSettings(atlasId);
             applyAtlasSettings(settings);
@@ -549,11 +560,25 @@ class SyncEngine {
      * Closes the WebSocket (no reconnect). Local state is retained.
      * @returns {void}
      */
-    disconnect() {
+    disconnect({ resumeGranted = true } = {}) {
         wsClient.disconnect();
         // The per-atlas config overlay no longer applies — restore the deploy-level config and
         // re-gate the UI back to its defaults.
+        //
+        // As DUAS chamadas, e nao uma: `revertAtlasSettings` restaura o baseline por
+        // cima do `config`, e o baseline CONTEM os recursos concedidos (e o que
+        // impede o revert de apaga-los). Quem os tira e `clearVisibleResources`.
+        // Chamar so uma deixa metade do trabalho feito.
+        clearVisibleResources();
         revertAtlasSettings();
+        // Quem continua LOGADO nao perde a concessao PESSOAL ao sair do atlas: ela
+        // nao depende de atlas nenhum. O que cai e so o EMPRESTIMO, e a forma de
+        // dizer isso e re-somar sem atlas em foco. Sem `await` de proposito —
+        // `disconnect` e sincrono e nenhum chamador espera por ele; o logout, que
+        // chama este metodo antes de limpar a sessao, apaga a soma logo em seguida.
+        if (resumeGranted && sessionContext.isAuthenticated()) {
+            refreshVisibleResources(null).catch(() => {});
+        }
         try {
             getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: null });
         } catch {
@@ -567,10 +592,15 @@ class SyncEngine {
      * @returns {Promise<void>}
      */
     async logoutAndDisconnect() {
-        this.disconnect();
+        // `resumeGranted: false` NAO e microotimizacao: a re-soma de `disconnect` sai
+        // sem `await`, entao no logout ela poderia aterrissar DEPOIS do
+        // `clearVisibleResources` e re-somar o que acabara de ser apagado. Desligar a
+        // re-soma na origem torna a ordem deterministica em vez de provavel.
+        this.disconnect({ resumeGranted: false });
         setImageSyncAtlas(null);
         await apiClient.logout();
         sessionContext.clearSession();
+        clearVisibleResources();
         disableOperationLogging();
         // Forget the atlas so a subsequent boot/connect starts clean and nothing thinks
         // a server atlas is still open.
