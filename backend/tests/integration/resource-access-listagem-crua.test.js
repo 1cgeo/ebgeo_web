@@ -118,29 +118,44 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
     );
   });
 
-  it('R1 MEDIDO: marcada privada, a linha AINDA vaza pela rota crua para o usuário comum', async () => {
-    let vazaram = 0;
+  it('R1 FECHADO: marcada privada, a linha SOME para o usuario comum e FICA para o admin', async () => {
+    let medidas = 0;
     for (const [rota, tabela] of ROTAS) {
+      const antesUsuario = (await como(userToken, 'get', `/api/v1/${rota}`).expect(200))
+        .body.data.map((r) => r.id);
+      assert.ok(antesUsuario.includes(idDe(rota)), 'guarda: publica, a linha aparece (mede o DELTA)');
+
       await db.query(`UPDATE ${tabela} SET access_level = 'private' WHERE id = $1`, [idDe(rota)]);
       try {
-        const doUsuario = await como(userToken, 'get', `/api/v1/${rota}`).expect(200);
-        const ids = doUsuario.body.data.map((r) => r.id);
+        const doUsuario = (await como(userToken, 'get', `/api/v1/${rota}`).expect(200)).body.data.map((r) => r.id);
+        const doAdmin = (await como(adminToken, 'get', `/api/v1/${rota}`).expect(200)).body.data.map((r) => r.id);
 
-        // ESTE É O BURACO. A fase F2 inverte a asserção: `ok(!ids.includes(...))`,
-        // e o admin continua vendo, com a contagem diferindo de exatamente 1.
-        assert.ok(
-          ids.includes(idDe(rota)),
-          `${rota}: hoje a rota crua entrega a linha PRIVADA a qualquer autenticado (R1, aberto até F2)`
+        assert.ok(!doUsuario.includes(idDe(rota)), `${rota}: o usuario comum NAO pode ver a linha privada`);
+        assert.ok(doAdmin.includes(idDe(rota)), `${rota}: o admin continua vendo`);
+        assert.equal(
+          doAdmin.length - doUsuario.length, 1,
+          `${rota}: a diferenca entre as duas listas precisa ser de EXATAMENTE uma linha`
         );
 
-        // E por GET /:id também — o plano nomeia só a listagem, e o item
-        // individual vaza pelo mesmo caminho.
-        await como(userToken, 'get', `/api/v1/${rota}/${idDe(rota)}`).expect(200);
-        vazaram += 1;
+        // GET /:id fecha junto. 404, nao 403: um recurso que o chamador nao
+        // enxerga precisa ser indistinguivel de um que nao existe.
+        await como(userToken, 'get', `/api/v1/${rota}/${idDe(rota)}`).expect(404);
+        await como(adminToken, 'get', `/api/v1/${rota}/${idDe(rota)}`).expect(200);
+        medidas += 1;
       } finally {
         await db.query(`UPDATE ${tabela} SET access_level = 'public' WHERE id = $1`, [idDe(rota)]);
       }
     }
-    assert.equal(vazaram, 3, 'guarda: as três rotas precisam ter sido medidas');
+    assert.equal(medidas, 3, 'guarda: as tres rotas precisam ter sido medidas');
+  });
+
+  it('a rota de visibilidade e de ADMIN, e o usuario comum recebe 403', async () => {
+    await como(userToken, 'patch', `/api/v1/resource-access/tileset/${idDe('tilesets')}/visibility`)
+      .send({ accessLevel: 'private' }).expect(403);
+    // Discriminacao: o admin passa no MESMO corpo.
+    await como(adminToken, 'patch', `/api/v1/resource-access/tileset/${idDe('tilesets')}/visibility`)
+      .send({ accessLevel: 'private' }).expect(200);
+    await como(adminToken, 'patch', `/api/v1/resource-access/tileset/${idDe('tilesets')}/visibility`)
+      .send({ accessLevel: 'public' }).expect(200);
   });
 });

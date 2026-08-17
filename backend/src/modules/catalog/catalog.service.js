@@ -15,6 +15,40 @@ import { assertTable } from './catalog.tables.js';
 
 const COLS = 'id, name, description, config, active, sort_order, created_at, updated_at';
 
+// `access_level` fica FORA de COLS de propósito, numa segunda constante. A string
+// COLS é amarrada ao schema por `catalog-tabelas-paridade.test.js`, que afirma
+// literalmente que ela lista OITO colunas; esticá-la reprova aquele teste, e
+// afrouxar o teste custaria a guarda que ele dá. Quem precisa do nível de acesso
+// pede por aqui.
+const COLS_COM_ACESSO = `${COLS}, access_level`;
+
+/**
+ * O predicado de visibilidade de recurso, na forma de fragmento de WHERE.
+ *
+ * FECHA POR PADRÃO, e essa é a propriedade que importa: sem principal, só o
+ * público. A lista de chamadores de `listCatalog` cresce, e o esquecimento
+ * provável é "não passei o principal" — que aqui degrada para MENOS dado, nunca
+ * para vazamento. O contrário (default aberto, filtro opcional) é a forma que
+ * transforma um esquecimento em incidente.
+ *
+ * Semi-join (`IN (SELECT ...)`), nunca `fn_can_see_resource` por linha: é uma
+ * consulta em vez de uma por linha (R8).
+ *
+ * @param {{userId: string|null, atlasId: string|null}|null} visibleTo
+ * @param {number} base - Índice do último parâmetro já usado.
+ * @returns {{sql: string, params: Array}}
+ */
+function accessPredicate(visibleTo, base) {
+  if (!visibleTo) return { sql: `AND t.access_level = 'public'`, params: [] };
+  return {
+    sql: `AND ( t.access_level = 'public'
+                OR fn_has_global_data_access($${base + 1}::uuid)
+                OR t.id IN (SELECT resource_id
+                              FROM fn_granted_resource_ids($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}::text)) )`,
+    params: [visibleTo.userId ?? null, visibleTo.atlasId ?? null, visibleTo.resourceType],
+  };
+}
+
 /**
  * Rejects an invalid MapLibre `config.style` (basemap style override) before it is persisted and
  * later served verbatim in the public GET /config basemapStyles.
@@ -28,19 +62,53 @@ function assertValidStyle(config) {
   }
 }
 
-/** Lists active items of a catalog table. */
-export async function listCatalog(table) {
+/**
+ * Lists active items of a catalog table, filtered by ACCESS LEVEL.
+ *
+ * Sem `visibleTo`, devolve só o público — é o que `GET /api/config` quer, e é o
+ * que mantém aquele payload igual para todo chamador (o memo de documento único
+ * depende disso). Com `visibleTo`, soma o que aquele principal enxerga por papel
+ * global ou concessão.
+ *
+ * @param {string} table - One of CATALOG_TABLES.
+ * @param {{userId: string|null, atlasId: string|null, resourceType: string}} [visibleTo]
+ * @returns {Promise<Array>}
+ */
+export async function listCatalog(table, visibleTo = null) {
   const t = assertTable(table);
-  const { rows } = await query(`SELECT ${COLS} FROM ${t} WHERE active = true ORDER BY sort_order, name`);
+  const pred = accessPredicate(visibleTo, 0);
+  const { rows } = await query(
+    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.active = true ${pred.sql} ORDER BY t.sort_order, t.name`,
+    pred.params,
+  );
   return rows;
 }
 
-export async function getCatalogItem(table, id) {
+/**
+ * One catalog item by id, filtered by ACCESS LEVEL like the listing.
+ *
+ * O MESMO GATE DA LISTAGEM, e não por simetria estética: `GET /api/v1/tilesets/:id`
+ * é `auth` e mais nada, exatamente como a rota de lista, então um recurso privado
+ * vazava por aqui pelo id mesmo depois de sumir da listagem. Foi medido em
+ * `resource-access-listagem-crua.test.js` antes de ser fechado.
+ *
+ * 404, não 403: um recurso que o chamador não enxerga precisa ser indistinguível
+ * de um que não existe, senão o proprio 403 confirma a existência.
+ *
+ * @param {string} table
+ * @param {string} id
+ * @param {{userId: string|null, atlasId: string|null, resourceType: string}} [visibleTo]
+ */
+export async function getCatalogItem(table, id, visibleTo = null) {
   const t = assertTable(table);
   // L12 — `active = true`, matching listCatalogItems. Without it a soft-deleted
   // item stayed readable by direct id: gone from every listing, yet still served
   // (and still editable, since updateCatalogItem does not filter either).
-  const row = await oneOrNone(`SELECT ${COLS} FROM ${t} WHERE id = $1 AND active = true`, [id]);
+  const pred = accessPredicate(visibleTo, 1);
+  const row = await oneOrNone(
+    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.id = $1 AND t.active = true ${pred.sql}`,
+    [id, ...pred.params],
+  );
   if (!row) throw new NotFoundError('Catalog item');
   return row;
 }
