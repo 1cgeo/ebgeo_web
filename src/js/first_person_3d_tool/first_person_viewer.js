@@ -51,6 +51,7 @@ import { createDistanceResultsPanel } from '@js/measurement_tool/measurement-res
 
 import { FP_DEFAULTS } from './walk/constants.js';
 import { WalkMode } from './walk/walk-mode.js';
+import { PointerLock } from './walk/pointer-lock.js';
 import { FpMarkersLayer } from './components/markers-layer-fp.js';
 import { FpMeasurementTool } from './tools/measurement_tool_fp.js';
 import {
@@ -80,14 +81,40 @@ const DOM_IDS = {
     toolbar: 'toolbar-fp',
     measureButton: 'measure-fp',
     labelsButton: 'labels-fp',
+    immersiveButton: 'immersive-fp',
     shareButton: 'share-fp',
     map2d: 'map-sig'
 };
+
+/** Elements of the immersive mode, found by class inside the container. */
+const IMMERSIVE_SELECTORS = {
+    crosshair: '.fp3d-crosshair',
+    badge: '.fp3d-immersive-badge'
+};
+
+/**
+ * How far from the crosshair a label still counts as aimed at, in pixels.
+ *
+ * Generous on purpose: the labels never overlap, so a wide radius cannot pick
+ * the wrong one, and a crosshair that demands a direct hit turns looking at a
+ * display case into hunting for a pixel. It is about a label's own height.
+ */
+const CROSSHAIR_RADIUS_PX = 90;
+
+/**
+ * How long, after the right button leaves the immersive mode, a context menu is
+ * still that click's menu. In milliseconds.
+ *
+ * Chrome dispatches it on the button RELEASE, so the window only has to cover
+ * one press — it is short enough that nothing else can fall inside it.
+ */
+const CONTEXT_MENU_GUARD_MS = 200;
 
 /** Class names owned by `src/css/first-person-3d.css`. */
 const CSS = {
     containerOpen: 'fp3d-container--open',
     containerMeasuring: 'fp3d-container--measuring',
+    containerImmersive: 'fp3d-container--immersive',
     toolbarVisible: 'toolbar-fp--visible',
     closeButtonVisible: 'close-first-person-button--visible',
     buttonActive: 'button-tool-fp--active',
@@ -126,6 +153,10 @@ const fpState = {
     walk: null,
     markers: null,
     measurement: null,
+    /** PointerLock instance, built with the container. Null before the viewer opens. */
+    pointerLock: null,
+    /** Deadline for swallowing the context menu of the click that left the mode. */
+    contextMenuGuardUntil: 0,
 
     animationId: null,
     lastFrameTime: 0,
@@ -455,6 +486,14 @@ async function initScene(scene, dom) {
 
     fpState.measurement = new FpMeasurementTool(dom.container, fov, voxels);
 
+    // Locked to the SAME element the walk controller listens on, and not to the
+    // outer container: it is the one the mouse events already arrive at, so the
+    // locked and unlocked paths agree on who the scene is.
+    fpState.pointerLock = new PointerLock(
+        viewer.canvasContainer ?? dom.canvas,
+        onPointerLockChange
+    );
+
     observeResize(dom);
     syncToolButtons();
 }
@@ -532,6 +571,38 @@ function onSceneMouseLeave() {
 
 /** @param {MouseEvent} event - Mouse down over the scene */
 function onSceneMouseDown(event) {
+    // IMMERSIVE MODE TAKES THE BUTTONS FIRST, and it never falls through to the
+    // drag bookkeeping below: with the pointer locked there is no cursor to have
+    // moved, so `pointerDownX/Y` would be recording a position that means
+    // nothing and the click-versus-drag test downstream is dead code.
+    //
+    // THE RIGHT BUTTON EXITS FROM HERE, and the two failed attempts before this
+    // one are the whole reason the guard below exists.
+    //
+    // It cannot be handled on `contextmenu`: MEASURED, Chrome does not dispatch
+    // that event at all while the pointer is locked — it suppresses the menu
+    // below the page, so a handler waiting there never runs and the right button
+    // simply stopped working.
+    //
+    // And handling it here has a consequence that has to be paid for: releasing
+    // the lock restores the cursor AT THE POSITION IT HAD BEFORE the lock —
+    // normally the toolbar button the visitor pressed to get in — and the
+    // `contextmenu` that Chrome dispatches once the pointer is free then fires on
+    // the TOOLBAR, a sibling of this container and not a child, where no
+    // `preventDefault` of this viewer reaches it. That is the browser menu that
+    // opened over the scene. So the exit ARMS a guard, and the document-level
+    // handler spends it on the next menu.
+    if (fpState.pointerLock?.locked) {
+        if (event.button === 2) {
+            fpState.contextMenuGuardUntil = performance.now() + CONTEXT_MENU_GUARD_MS;
+            toggleImmersive(false);
+            return;
+        }
+        if (event.button === 0) {
+            pickWithCrosshair();
+        }
+        return;
+    }
     fpState.pointerDownX = event.clientX;
     fpState.pointerDownY = event.clientY;
 }
@@ -552,6 +623,40 @@ function onSceneMouseDown(event) {
  *
  * @param {MouseEvent} event - Context menu event over the scene
  */
+/**
+ * Suppresses the browser menu anywhere on the page while the pointer is locked,
+ * and leaves the mode if the scene's own handler did not already.
+ *
+ * It exists because the menu is unrecoverable inside this mode: it opens without
+ * a cursor to dismiss it.
+ *
+ * @param {MouseEvent} event - Context menu event
+ */
+function onDocumentContextMenu(event) {
+    // The menu that belongs to the right click that JUST left the immersive
+    // mode. It is addressed by TIME and not by target because the target is the
+    // problem: the cursor came back wherever it had been parked, which is
+    // usually the toolbar, outside anything this viewer can listen on.
+    //
+    // A WINDOW AND NOT A FLAG, deliberately. A flag set here and cleared by the
+    // menu assumes the menu always arrives; on a platform where it does not, the
+    // flag would sit armed and swallow some unrelated right click much later. A
+    // window expires on its own, and the wrong outcome is bounded to a fifth of
+    // a second.
+    if (performance.now() < (fpState.contextMenuGuardUntil ?? 0)) {
+        fpState.contextMenuGuardUntil = 0;
+        event.preventDefault();
+        return;
+    }
+    // Still locked: the menu would open with no cursor to dismiss it. Not
+    // expected to be reached in Chrome, which does not dispatch this event under
+    // pointer lock at all — it is here for the browser that does.
+    if (fpState.pointerLock?.locked) {
+        event.preventDefault();
+        toggleImmersive(false);
+    }
+}
+
 function onSceneContextMenu(event) {
     event.preventDefault();
 
@@ -725,6 +830,123 @@ function hideMeasurementResults() {
     fpState.resultsPanel = null;
 }
 
+// =============================================================================
+// INPUT — immersive mode (pointer lock)
+// =============================================================================
+//
+// THE MODE THIS MODULE ONCE REMOVED, back on the user's terms. The prototype
+// captured the pointer on any click, and PRIMEIRA-PESSOA-3D.md records why that
+// was cut: the visitor needs the cursor for the labels, the tape, the toolbar
+// and the side panel, and a captured pointer was "a mode you enter by accident
+// and leave by accident". Both halves of that objection are answered by making
+// it DELIBERATE rather than by refusing it: it is entered from a toolbar button
+// and from nowhere else, it says on screen that it is on, and it names its own
+// exits. What it buys is the one thing dragging cannot give — looking around
+// without holding a button, which is how anybody who has played a game expects
+// to look around a room.
+//
+// WHAT THE LOCK COSTS, and it is not negotiable: while the pointer is locked the
+// browser hides the cursor and sends every mouse event to the locked element. No
+// button, panel or label can be clicked. That is why the crosshair exists (the
+// aim replaces the cursor, resolved by `markers.pickAtCenter`) and why the badge
+// can only be a sign while the mode is on.
+
+/**
+ * Turn the immersive mode on or off.
+ *
+ * IT ONLY ASKS. The pointer lock is granted by the browser, asynchronously and
+ * refusably, so nothing here draws the mode as on: the drawing happens in
+ * `onPointerLockChange`, which runs when the browser has actually done it. A
+ * version that lit the button on the click would light it for a lock that was
+ * refused.
+ *
+ * The tape is turned OFF on the way in, and that is a rule, not a courtesy: it
+ * is a tool driven by a cursor that is about to stop existing, and it also owns
+ * the right button, which is one of the two exits from this mode.
+ *
+ * @param {boolean} [force] - Desired state; omit to toggle
+ * @returns {void}
+ */
+function toggleImmersive(force) {
+    const lock = fpState.pointerLock;
+    if (!lock?.supported) return;
+
+    const next = typeof force === 'boolean' ? force : !lock.locked;
+    if (!next) {
+        lock.exit();
+        return;
+    }
+    if (fpState.measurement?.active) {
+        toggleMeasure(false);
+    }
+    lock.request();
+}
+
+/**
+ * The browser said the lock changed — this is the only place the mode is drawn.
+ *
+ * It runs for the exits nobody asked for too (Escape, Alt+Tab, a tab switch, the
+ * window losing focus), which is exactly why the state is read from here and not
+ * written by whoever called `toggleImmersive`.
+ *
+ * @param {boolean} locked - True when the pointer is now locked to the scene
+ */
+function onPointerLockChange(locked) {
+    fpState.walk?.setPointerLook(locked);
+    // The aim highlight, on the same radius the click uses, so the label that
+    // lights up is by construction the one a click opens.
+    fpState.markers?.setAim(locked, CROSSHAIR_RADIUS_PX);
+
+    const dom = getDom();
+    dom.container?.classList.toggle(CSS.containerImmersive, locked);
+
+    const crosshair = dom.container?.querySelector(IMMERSIVE_SELECTORS.crosshair);
+    const badge = dom.container?.querySelector(IMMERSIVE_SELECTORS.badge);
+    crosshair?.classList.toggle(CSS.hidden, !locked);
+    badge?.classList.toggle(CSS.hidden, !locked);
+
+    syncToolButtons();
+}
+
+/**
+ * A click while the pointer is locked: fire the crosshair.
+ *
+ * The ordinary click path (`onSceneClick`) is useless here — it starts from
+ * `event.target`, and with the pointer locked every event lands on the container
+ * no matter what the visitor is looking at. It also measures a drag, and there
+ * is no drag when the mouse never moves a cursor.
+ *
+ * @returns {void}
+ */
+function pickWithCrosshair() {
+    const markers = fpState.markers;
+    if (!markers) return;
+
+    // The very same reading the frame loop feeds `markers.update`, so the aim is
+    // resolved against the space the labels were actually placed in.
+    const { width, height } = readViewportSize();
+    const picked = markers.pickAtCenter(width, height, CROSSHAIR_RADIUS_PX);
+
+    // A PILE GIVES THE CURSOR BACK, and this is the one place the immersive mode
+    // ends itself. Aiming at a label that covers others opens a LIST to choose
+    // from, and a list is rows to be clicked — with the pointer locked there is
+    // no cursor to click them with, so the mode had produced a panel the visitor
+    // could read and not use. Leaving is not a consolation prize here: choosing
+    // among items is a cursor task, and the button puts the mode back in one
+    // click.
+    if (picked === 'pile') {
+        toggleImmersive(false);
+        return;
+    }
+    if (picked !== 'none') return;
+
+    // Nothing under the crosshair: same meaning a click on the clean scene has
+    // outside this mode, which is "close whatever card is open".
+    if (markers.panelOpen) {
+        markers.closePanel();
+    }
+}
+
 /**
  * Toggle the curated labels (L).
  * @returns {boolean} True when the labels are now visible
@@ -757,8 +979,17 @@ function syncToolButtons() {
     setToolButtonState(dom.measureButton, fpState.measurement?.active === true);
     // Labels start ON, so the button starts lit.
     setToolButtonState(dom.labelsButton, fpState.markers?.labelsVisible !== false);
+    // Read from the LOCK and not from a flag of ours: the browser drops it on
+    // its own (Escape, Alt+Tab, tab switch), and a button still lit after that
+    // would be the only thing on screen claiming the mode is running.
+    setToolButtonState(dom.immersiveButton, fpState.pointerLock?.locked === true);
     if (dom.measureButton) {
         dom.measureButton.disabled = fpState.measurement?.available === false;
+    }
+    if (dom.immersiveButton) {
+        // Absent in a few embedded browsers and blocked in a sandboxed iframe.
+        // Offering a mode that cannot start is worse than not offering it.
+        dom.immersiveButton.disabled = fpState.pointerLock?.supported === false;
     }
 }
 
@@ -770,6 +1001,22 @@ function syncToolButtons() {
 // these three in order and stops at the first one that returns a truthy value:
 // an open card first, then a measurement still being drawn, then the tape
 // itself.
+
+/**
+ * Escape 0 — leave the immersive mode.
+ *
+ * Expected to be dead code in Chrome, which exits pointer lock on Escape itself
+ * and never delivers that keydown to the page. It is the safety net for a
+ * browser that does deliver it: without it, one Escape would leave the mode and
+ * close the card behind it in the same press.
+ *
+ * @returns {boolean} True when the mode was on
+ */
+function exitImmersive() {
+    if (!fpState.pointerLock?.locked) return false;
+    toggleImmersive(false);
+    return true;
+}
 
 /**
  * Escape 1 — close the marker card.
@@ -832,12 +1079,26 @@ function bindListeners(dom) {
     addDomListener(fpState, dom.container, 'mousedown', onSceneMouseDown);
     addDomListener(fpState, dom.container, 'mouseup', onSceneMouseUp);
     addDomListener(fpState, dom.container, 'contextmenu', onSceneContextMenu);
+    // The safety net for the menu, on the DOCUMENT. The handler above suppresses
+    // it for events aimed at the scene, which is where the spec says they go
+    // while the pointer is locked — but the browser menu opening over a locked
+    // scene is a dead end for the visitor (no cursor to dismiss it with), so the
+    // suppression does not rest on that one reading alone.
+    addDomListener(fpState, document, 'contextmenu', onDocumentContextMenu);
     addDomListener(fpState, dom.container, 'dblclick', onSceneDblClick);
 
     addDomListener(fpState, dom.closeButton, 'click', closeFirstPersonViewer);
     addDomListener(fpState, dom.measureButton, 'click', () => toggleMeasure());
     addDomListener(fpState, dom.labelsButton, 'click', () => toggleLabels());
+    addDomListener(fpState, dom.immersiveButton, 'click', () => toggleImmersive());
     addDomListener(fpState, dom.shareButton, 'click', onShareClick);
+
+    // The badge. It cannot be clicked while the pointer is locked — nothing can —
+    // so this listener serves the case the browser creates for us: the lock
+    // dropped (tab switch, lost focus) and the badge is on its way out anyway.
+    // Cheap, and it keeps the badge honest about being a button.
+    const badge = dom.container?.querySelector(IMMERSIVE_SELECTORS.badge);
+    addDomListener(fpState, badge, 'click', () => toggleImmersive(false));
 
     fpState.listenersBound = true;
 }
@@ -858,6 +1119,7 @@ function registerKeyboardCallbacks() {
             hideMeasurementResults();
             fpState.measurement?.clear();
         },
+        exitImmersive,
         closeMarkerPanel,
         finishMeasurement,
         disableMeasurement
@@ -1142,8 +1404,13 @@ export function cleanupFirstPersonFeatures() {
         fpState.resizeObserver = null;
     }
 
+    // The lock goes FIRST, and it is given back rather than just forgotten: a
+    // viewer torn down with the pointer still captured leaves the whole page
+    // with no cursor, and the user has no idea what to press.
+    fpState.pointerLock?.exit();
+
     // Every DOM listener this module registered (scene pointer events, close
-    // button and the three toolbar buttons).
+    // button and the four toolbar buttons).
     cleanup(fpState);
     fpState.listenersBound = false;
 
@@ -1151,9 +1418,11 @@ export function cleanupFirstPersonFeatures() {
     fpState.measurement?.destroy();
     fpState.markers?.destroy();
     fpState.walk?.destroy();
+    fpState.pointerLock?.destroy();
     fpState.measurement = null;
     fpState.markers = null;
     fpState.walk = null;
+    fpState.pointerLock = null;
 
     // The splat is the heavy GPU object; drop it before the engine goes, so the
     // textures are released rather than orphaned.

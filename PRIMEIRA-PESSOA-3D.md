@@ -318,18 +318,66 @@ para a trena. O cursor fica sempre visível sobre a cena.
 
 Clicar num rótulo abre a ficha do item; clicar na cena limpa fecha a ficha aberta.
 
-**Não existe modo de ponteiro preso.** O protótipo tinha um: o clique capturava o
-ponteiro, o olhar passava a seguir o mouse sem botão nenhum e uma mira no centro da
-tela substituía o cursor, no estilo de jogo em primeira pessoa. Foi removido. O
-visitante deste viewer precisa do cursor o tempo todo — para os rótulos, para a trena,
-para a barra de ferramentas e para o painel lateral — e ponteiro preso é um modo que
-se descobre por acidente e do qual se sai por acidente.
+### O modo imersivo, e por que ele voltou
+
+**Existe um modo de ponteiro preso, e ele é opcional.** O protótipo tinha um que ligava
+sozinho: o clique capturava o ponteiro, o olhar passava a seguir o mouse sem botão
+nenhum e uma mira substituía o cursor. Aquele foi removido, e a razão continua de pé:
+o visitante precisa do cursor para os rótulos, para a trena, para a barra de
+ferramentas e para o painel lateral, e um modo que se descobre por acidente e do qual
+se sai por acidente é pior do que não ter modo nenhum.
+
+O que voltou em 2026-08-17 não é aquele. **A diferença inteira é que este é
+deliberado**, e cada peça responde a uma metade daquela objeção:
+
+| peça | responde a |
+| --- | --- |
+| botão próprio na barra (o alvo), e nenhuma outra entrada | "se descobre por acidente" |
+| aviso fixo no topo, dizendo o modo e nomeando as saídas | "se sai por acidente" |
+| mira no centro, com o clique resolvido por `markers.pickAtCenter` | "precisa do cursor para os rótulos" |
+| a trena desliga ao entrar | "precisa do cursor para a trena" |
+
+Sai-se com **ESC**, com o **botão direito**, ou clicando num rótulo que cobre outros.
+
+O ESC é do navegador, não deste código: ele solta o ponteiro sozinho e, no Chrome, nem
+entrega esse `keydown` para a página. O botão direito pode ser a segunda saída
+justamente porque a trena — a outra dona daquele botão — está desligada dentro do modo.
+
+**O botão direito é tratado no `mousedown`, e não no `contextmenu`.** Medido: o Chrome
+não dispara `contextmenu` nenhum enquanto o ponteiro está preso, porque suprime o menu
+abaixo da página. Um handler esperando ali nunca roda. A consequência de tratar no
+`mousedown` é que soltar a trava devolve o cursor na posição que ele tinha ANTES dela
+(em geral o botão da barra por onde se entrou), e o menu que o Chrome dispara depois cai
+sobre a barra, que é irmã do container e não filha. Por isso a saída arma uma janela de
+200 ms e um handler no documento engole esse menu — endereçado por TEMPO, porque o alvo
+é justamente o que não se pode prever.
+
+**Mirar numa pilha sai do modo.** Um rótulo com "+N" abre a lista daquela pilha, e lista
+é linha para clicar: com o ponteiro preso não há cursor para clicar nenhuma. Então esse
+clique devolve o cursor junto com a lista. Escolher entre itens é tarefa de cursor, e o
+botão da barra repõe o modo num clique.
+
+**O que o ponteiro preso custa, e não é negociável:** enquanto ele está preso o
+navegador esconde o cursor e entrega TODO evento de mouse ao elemento travado. Nada na
+tela é clicável, o aviso do topo incluído. Ele é botão de verdade e desliga o modo, mas
+só alcança o clique depois que o ponteiro se solta — o que acontece sozinho ao trocar
+de aba ou perder o foco. Dentro do modo, quem serve são o ESC e o botão direito, que é
+o que o próprio aviso diz.
+
+**O sinal do mouse é outro dentro do modo, de propósito.** Fora dele, girar é arrastar,
+e arrasto move o conteúdo sob a mão que o segura (a mesma regra do mapa 2D e do 360).
+Preso, não há mão segurando nada: o mouse É a cabeça, e a vista vai na direção do
+movimento. `walk-mode.js` inverte os dois eixos junto, porque virar um só deixa as duas
+metades do mesmo gesto discordando.
 
 O **botão direito não gira nada**, e isso é deliberado: ele é só de fechar a medição,
 como no mapa 2D. O protótipo girava com os dois, mas um botão que gira a câmera e
 também encerra a medição transforma todo arrasto com ele numa aposta sobre se a trena
 percebeu o movimento. Por isso o `contextmenu` do viewer nem testa arrasto: qualquer
 soltar do botão direito sobre a cena quer dizer "fecha a medição".
+
+Dentro do **modo imersivo** aquele mesmo botão significa "sair do modo", e as duas
+leituras não colidem porque não coexistem: entrar no modo desliga a trena.
 
 A caminhada anda a 2,4 m/s. O padrão do `walk-demo` do motor, 7 m/s, é uma corrida de
 25 km/h que passa reto pelas vitrines.
@@ -378,7 +426,8 @@ não herdada desta.
 | `src/js/first_person_3d_tool/first_person_viewer.js` | monta a cena, carrega splat e octree, liga o laço de quadro. **Lazy** |
 | `src/js/first_person_3d_tool/scene-config.service.js` | lê o `config.js`, deriva as URLs do `basePath`, carrega marcadores e colisão |
 | `src/js/first_person_3d_tool/walk/voxel-collision.js` | o octree: `queryRay`, `queryCapsule`. Módulo **puro**, sem DOM e sem o motor — é o único testável em node |
-| `src/js/first_person_3d_tool/walk/walk-mode.js` | física da caminhada, olhar, pointer lock, teclas de movimento |
+| `src/js/first_person_3d_tool/walk/walk-mode.js` | física da caminhada, olhar (arrasto e preso), teclas de movimento |
+| `src/js/first_person_3d_tool/walk/pointer-lock.js` | a Pointer Lock API e as quatro armadilhas dela: assíncrona, recusável, revogada pelo navegador, e com carência para repetir |
 | `src/js/first_person_3d_tool/walk/constants.js` | `FP_DEFAULTS` e as constantes numéricas do porte |
 | `src/js/first_person_3d_tool/components/markers-layer-fp.js` | rótulos projetados sobre o canvas, com oclusão por raio |
 | `src/js/first_person_3d_tool/components/marker-panel-fp.js` | o CONTEÚDO da ficha do item. Não é um painel: o clique no rótulo emite `MARKER_FP_CLICKED` e o `sidebar.control.js` monta este conteúdo no painel de feição da aplicação — o mesmo que abre no 2D, no Cesium e no 360, na mesma posição e com a mesma moldura. Somente leitura: marcador de cena é conteúdo curado da pasta, não feição editável |

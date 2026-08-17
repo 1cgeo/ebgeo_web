@@ -197,6 +197,25 @@ body.first-person-active .modal-overlay {
     display: none;
 }
 
+/* UNDER THE CROSSHAIR, in the immersive mode. It is the `:hover` of a mode that
+   has no cursor to hover with, and it is written by JS every frame
+   (`markers-layer-fp.js`, `setAim`) against the SAME radius the click uses — so
+   what lights up is what a click opens.
+
+   Louder than a hover on purpose: the visitor is aiming across a room, not
+   resting a cursor on a word, and the ring of the crosshair sits on top of it. */
+.fp3d-label--aimed {
+    background: var(--primary-dark);
+    outline: 2px solid rgb(255 255 255 / 90%);
+    outline-offset: 1px;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 60%);
+
+    /* Grows from its own centre, which is where the projection pinned it: the
+       label is positioned by `translate(-50%, -50%)`, so the scale composes with
+       it and the tag does not drift off the piece while it is lit. */
+    transform: translate(-50%, -50%) scale(1.06);
+}
+
 /* NO STYLE OF ITS OWN FOR THE "+N" LABEL, and that was a decision, not an
    omission. It briefly carried a dashed underline and a heavier weight, to
    announce that clicking it opens the pile rather than its own card. Rejected on
@@ -616,6 +635,135 @@ body.first-person-active .modal-overlay {
     font-size: 9px;
     line-height: 1;
     opacity: 0.65;
+}
+
+/* =========================================================================
+   IMMERSIVE MODE — CROSSHAIR AND BADGE
+
+   The mode the pointer lock buys: the view follows the mouse with no button
+   held. It costs the CURSOR, which the browser hides and refuses to give back
+   until the lock drops — so these two exist to replace what the cursor was
+   doing. The crosshair says where the aim is (and `markers.pickAtCenter`
+   resolves a click against it, because a locked pointer cannot hit-test a
+   label); the badge says the mode is on and names the way out.
+
+   Neither is decoration. A pointer-lock mode with no crosshair leaves the
+   visitor clicking at nothing, and one with no badge is the "mode you leave by
+   accident" this viewer removed once already.
+   ========================================================================= */
+
+/* Dead centre, and never clickable: this is exactly where the aim is, and a
+   clickable target here would eat the click meant for the item behind it. */
+.fp3d-crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: var(--fp3d-layer-overlay);
+}
+
+/* A ring with a dot, not a cross of two bars: over a photographic scene a thin
+   cross disappears into whatever is behind it, and a ring keeps its shape
+   against both the dark corners and a lit display case. */
+.fp3d-crosshair::before {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid rgb(255 255 255 / 85%);
+    border-radius: 50%;
+
+    /* The dark halo is what makes it survive a white wall. */
+    box-shadow:
+        0 0 0 1px rgb(0 0 0 / 45%),
+        inset 0 0 0 1px rgb(0 0 0 / 45%);
+}
+
+.fp3d-crosshair__dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 2px rgb(0 0 0 / 80%);
+}
+
+/* Top centre: out of the way of the aim, and the first place the eye goes when
+   something changed. */
+.fp3d-immersive-badge {
+    position: absolute;
+    top: var(--space-4);
+    left: 50%;
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2) var(--space-4);
+    transform: translateX(-50%);
+    border: 1px solid rgb(255 255 255 / 25%);
+    border-radius: 999px;
+    background: rgb(0 0 0 / 55%);
+    color: var(--fp3d-text);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    backdrop-filter: blur(2px);
+    z-index: var(--fp3d-layer-overlay);
+}
+
+/* IT TAKES THE POINTER, even though a locked pointer can never reach it. The
+   browser gives the lock back on its own (a tab switch, a lost focus) and the
+   badge is the click that finishes leaving. Styling it as inert would be lying
+   about the half of its life when it works. */
+.fp3d-immersive-badge:hover {
+    border-color: rgb(255 255 255 / 45%);
+    background: rgb(0 0 0 / 70%);
+}
+
+.fp3d-immersive-badge:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+/* Breathing, because a badge that never moves is read once and then stops being
+   seen — and this one has to stay legible as "you are in a mode". */
+.fp3d-immersive-badge__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 6px var(--primary);
+    animation: fp3d-badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fp3d-badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+/* The exits, spelled out. They are the whole reason this is not the mode that
+   got removed: ESC and the right button are what the visitor has while the
+   cursor is gone, so they are written where the mode is announced. */
+.fp3d-immersive-badge__hint {
+    padding-left: var(--space-2);
+    border-left: 1px solid rgb(255 255 255 / 20%);
+    opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fp3d-immersive-badge__dot {
+        animation: none;
+    }
+}
+
+/* The key legend goes while the mode is on: the same corner now carries the
+   badge's job, and the walker who turned this on knows how to walk. */
+.fp3d-container--immersive .fp3d-keyhints {
+    opacity: 0.25;
 }
 
 /* =========================================================================

@@ -96,6 +96,8 @@ export class WalkMode {
         this._mouseLookDragging = false;
         /** Whether a right-drag turns the camera. The measuring tape borrows it. */
         this._lookWithRightButton = true;
+        /** True while the pointer is LOCKED: the view follows the mouse with no button. */
+        this._pointerLook = false;
 
         /** Remaining time with the ground spring disabled, so the jump can leave the floor. */
         this._jumpLockout = 0;
@@ -321,6 +323,26 @@ export class WalkMode {
         if (!this._lookWithRightButton) {
             this._mouseLookDragging = false;
         }
+    }
+
+    /**
+     * Turn free mouse-look on or off — the camera half of the immersive mode.
+     *
+     * IT DOES NOT TOUCH THE POINTER LOCK, and that separation is the point: the
+     * lock is granted and revoked by the BROWSER (`walk/pointer-lock.js` lists
+     * the four ways), so this class must be told what happened rather than
+     * decide it. Called from the viewer's `pointerlockchange` handler, which is
+     * the one place that knows the truth.
+     *
+     * Any drag in flight is cancelled, for the same reason the right-button
+     * lender above cancels one: leaving `_mouseLookDragging` set would have the
+     * camera still following the mouse after the rule that moved it changed.
+     *
+     * @param {boolean} enabled - True while the pointer is locked to the scene
+     */
+    setPointerLook(enabled) {
+        this._pointerLook = enabled === true;
+        this._mouseLookDragging = false;
     }
 
     /**
@@ -723,10 +745,26 @@ export class WalkMode {
         if (!this._enabled) {
             return;
         }
-        // Turning is ALWAYS a drag: there is no captured-pointer mode. The
-        // button has to still be down (bit 1 left, bit 2 right) — a release that
-        // happened outside the window never reaches _onMouseUp, and without this
-        // check the camera would keep turning with no button held.
+        // IMMERSIVE MODE: the pointer is locked, so there is no button to hold
+        // and no cursor to grab anything with — the view simply follows the
+        // mouse, and the SIGN FLIPS with it.
+        //
+        // This is not an inconsistency, it is the same rule read twice. A drag
+        // moves the CONTENT under a hand that is holding it, which is why the
+        // drag path below adds (and why the 2D map and the 360 do the same). A
+        // locked pointer holds nothing: the mouse IS the head, and every game
+        // that ever captured a pointer turns the head toward the movement. Using
+        // the drag sign here is what makes a pointer-lock mode feel broken.
+        if (this._pointerLook) {
+            this._yaw -= e.movementX * LOOK_SENSITIVITY;
+            this._pitch -= e.movementY * LOOK_SENSITIVITY;
+            this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch));
+            return;
+        }
+        // Outside it, turning is a drag. The button has to still be down (bit 1
+        // left, bit 2 right) — a release that happened outside the window never
+        // reaches _onMouseUp, and without this check the camera would keep
+        // turning with no button held.
         if (!this._mouseLookDragging || (e.buttons & 3) === 0) {
             this._mouseLookDragging = false;
             return;
