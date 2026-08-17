@@ -26,10 +26,11 @@
  * Duplicating that pipeline here is what the page removes.
  *
  * A `.ebgeo` FILE FOLLOWS THE SAME RULE, and it is the reason this page can be the whole product
- * for somebody with no account: "Abrir arquivo .ebgeo" creates a local atlas, leaves the bytes in
- * the global database and navigates. It does not parse the archive — the map's importer does, on
- * the other side of the navigation (`openEbgeoFileAsLocalAtlas`). The signed-in "Importar .ebgeo"
- * of the server section is a DIFFERENT operation (it creates a server atlas) and stays where it is.
+ * for somebody with no account: "Abrir arquivo .ebgeo" leaves the bytes in the global database and
+ * navigates. It neither parses the archive nor creates the atlas — the map's importer does the
+ * first and the map's boot does the second, on the other side of the navigation
+ * (`openEbgeoFileAsLocalAtlas`). The signed-in "Importar .ebgeo" of the server section is a
+ * DIFFERENT operation (it creates a server atlas) and stays where it is.
  */
 
 import config from '@js/config.js';
@@ -54,12 +55,12 @@ import {
     initLocalAtlases,
     listLocalAtlases,
     renameLocalAtlas,
+    duplicateLocalAtlas,
     setCurrentLocalAtlas,
     MAX_LOCAL_ATLASES,
 } from '@store/local-atlas.api.js';
 import {
     clearActiveScope,
-    clearPendingImport,
     getActiveScope,
     savePendingImport,
 } from '@store/atlas-namespace.js';
@@ -263,6 +264,38 @@ async function pointAtLocalAtlasAndGo(atlas) {
     return true;
 }
 
+/**
+ * "Fazer uma cópia" de um atlas local.
+ *
+ * ACONTECE AQUI MESMO, sem navegar: copiar é uma operação sobre bancos que ninguém tem montado
+ * (`duplicateLocalAtlas` cria o slot e copia chave por chave), então não há por que arrastar o
+ * usuário para o mapa. A primeira tentativa fazia o contrário — apontava para a origem, navegava e
+ * deixava o mapa copiar por export/import — e cada efeito colateral daquele caminho (o mapa vazio
+ * que o wipe cria, a memória do atlas anterior, o reload para desfazer os dois) foi um defeito
+ * medido antes de o desenho ser trocado.
+ * @param {{id: string, name: string}} atlas
+ */
+async function duplicateLocalAtlasFromPage(atlas) {
+    const name = await askAtlasName({
+        title: 'Fazer uma cópia',
+        defaultValue: `${atlas?.name ?? 'Atlas'} (cópia)`,
+        confirmText: 'Copiar',
+    });
+    if (name === null) return;
+    try {
+        const result = await duplicateLocalAtlas(atlas.id, name);
+        if (!result.ok) {
+            tell(refusalNotice(result));
+            return;
+        }
+        showSuccess(`Cópia criada: "${result.atlas.name}".`);
+        refreshLocalSection();
+    } catch (error) {
+        console.error('[projects] local atlas duplicate failed:', error);
+        showError('Não foi possível copiar este atlas.');
+    }
+}
+
 /** Card click / "Abrir": the ordinary way into a local atlas. */
 async function openLocalAtlas(atlas) {
     try {
@@ -275,7 +308,16 @@ async function openLocalAtlas(atlas) {
 }
 
 /**
- * "Abrir arquivo .ebgeo": turns a file on disk into a NEW local atlas, signed out included.
+ * Said when the ten slots are already taken and the file therefore has nowhere to land. The page's
+ * own sentence, not a copy of the API's: the API's ends in "antes de criar outro", and this refusal
+ * is about opening a file. The NUMBER comes from the constant, which is the half that could drift.
+ */
+const SEM_SLOT_PARA_O_ARQUIVO =
+    `Limite de ${MAX_LOCAL_ATLASES} atlas locais atingido. Exclua um atlas antes de abrir um arquivo.`;
+
+/**
+ * "Abrir arquivo .ebgeo": hands a file on disk to the map, which turns it into a NEW local atlas.
+ * Signed out included.
  *
  * THE FILE IS NOT PARSED HERE, and that is the whole shape of this function. The map already owns
  * a `.ebgeo` importer (`import_export/export-import.service.js`, which validates the version,
@@ -283,44 +325,33 @@ async function openLocalAtlas(atlas) {
  * one on a page with no store would be a copy that drifts. So the bytes are handed over through
  * the global database (`savePendingImport`) and the map's boot consumes them.
  *
- * WHY A NEW SLOT RATHER THAN THE CURRENT ONE: a non-additive import REPLACES the atlas it lands in
- * (`_prepareNonAdditiveTarget`), so importing into the atlas the user happens to have open would
- * silently destroy it. A slot created for this file is empty, so the same wipe costs nothing.
+ * AND THE SLOT IS NOT CREATED HERE EITHER, since 2026-08-16. It used to be, and every boot that
+ * declined the hand-over (a deep link in the URL, an importer that never registered, a file that
+ * fails to parse) left that slot behind — never empty, because the store boot writes a blank
+ * `Principal` into it before the decision is even reached, so nothing downstream could tell it from
+ * an atlas the user made. The map creates it at the moment it is going to import
+ * (`deep-link/pending-import.js` → `switchToNewLocalAtlas`), which is also the pipeline that knows
+ * how to leave a SERVER atlas on the way in.
  *
- * ORDER, and each step is placed where its failure costs the least:
- *   1. read the bytes — an unreadable file must not spend one of the ten slots;
- *   2. create the slot — the ONLY refusable step (the cap), and it refuses with a message;
- *   3. store the hand-over — on failure the slot just created is rolled back, so a quota error
- *      does not leave a phantom empty atlas in the list;
- *   4. point + navigate, exactly as opening any local atlas does (`pointAtLocalAtlasAndGo`), and
- *      the hand-over is dropped if that last step refuses, or the file would be imported into
- *      whatever atlas the map opens instead.
+ * WHAT STAYS HERE IS THE CAP, and only as a READ. `listLocalAtlases()` spends nothing, and asking
+ * before navigating is the difference between a refusal on the screen the user is looking at and a
+ * refusal shouted from a map they were sent to for no reason. The authority is still the API's:
+ * `createLocalAtlas` re-checks on the other side, so a race with another tab is refused there.
  *
  * @param {File} file
  */
 async function openEbgeoFileAsLocalAtlas(file) {
-    let created = null;
     try {
         const data = await file.arrayBuffer();
 
-        created = await createLocalAtlas(atlasNameFromFilename(file?.name));
-        if (!created.ok) {
-            tell(refusalNotice(created));
+        if (listLocalAtlases().length >= MAX_LOCAL_ATLASES) {
+            showError(SEM_SLOT_PARA_O_ARQUIVO);
             return;
         }
 
-        try {
-            await savePendingImport({ atlasId: created.atlas.id, name: created.atlas.name, data });
-        } catch (error) {
-            console.error('[projects] handing the .ebgeo over failed:', error);
-            await deleteLocalAtlas(created.atlas.id).catch(() => undefined);
-            clearActiveScope();
-            showError('Não foi possível preparar o arquivo. Nenhum atlas foi criado.');
-            return;
-        }
-
-        if (await pointAtLocalAtlasAndGo(created.atlas)) return;
-        await clearPendingImport();
+        await savePendingImport({ name: atlasNameFromFilename(file?.name), data });
+        goToLocalMap();
+        return;
     } catch (error) {
         console.error('[projects] .ebgeo open as local atlas failed:', error);
         showError('Não foi possível abrir este arquivo .ebgeo.');
@@ -644,6 +675,7 @@ async function initProjectsPage() {
         onOpen: (atlas) => openLocalAtlas(atlas),
         onCreate: () => createLocalAtlasFromPage(),
         onRename: (atlas) => renameLocalAtlasFromPage(atlas),
+        onDuplicate: (atlas) => duplicateLocalAtlasFromPage(atlas),
         onDelete: (atlas) => deleteLocalAtlasFromPage(atlas),
         onOpenFile: (file) => openEbgeoFileAsLocalAtlas(file),
     });

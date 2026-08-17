@@ -2,6 +2,8 @@
 
 `POST /atlas/:atlasId/clone` duplica o conteúdo de um atlas sob nova posse, copiando **estado** e deliberadamente descartando **história**, permissões e imagens.
 
+O mesmo rótulo, "Fazer uma cópia", aparece nos dois tipos de cartão da tela de atlas e chama DUAS máquinas sem nada em comum: no atlas de servidor é esta rota; no atlas local é uma cópia banco a banco entre dois namespaces de IndexedDB (`copyAtlasDatabases`, [[namespace-por-atlas]]), que não descarta nada, preserva os ids e nem toca na rede. As perdas descritas nesta página (imagens, comentários, ordem de mapas) são do clone de SERVIDOR e não valem para a cópia local.
+
 ## A decisão que define a operação: gate `read`
 
 O clone exige permissão mínima **`read`** (`backend/src/modules/atlas/atlas.routes.js`), enquanto duplicar um mapa *dentro* do atlas exige `write` (`backend/src/modules/atlas/atlas.routes.js`). Não é descuido: duplicar dentro do atlas é escrita no atlas alheio; clonar é escrita num atlas novo, seu. A consequência é forte e precisa ser entendida antes de compartilhar qualquer coisa: **quem consegue ler um atlas pode forkar o conteúdo inteiro e virar `owner` da cópia** (`cloneAtlas`, `backend/src/modules/atlas/atlas.controller.js`, usa `req.user.id`, não o dono original). Não trate clone como operação privilegiada; ver [[permissoes-atlas]].

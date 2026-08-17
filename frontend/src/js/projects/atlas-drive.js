@@ -916,6 +916,7 @@ export class LocalAtlasSection {
      * @param {Function} options.onOpen - Called with the id to open.
      * @param {Function} options.onCreate - Called with no arguments; owns the name dialog.
      * @param {Function} options.onRename - Called with the entry to rename.
+     * @param {Function} [options.onDuplicate] - Called with the entry to copy.
      * @param {Function} options.onDelete - Called with the entry to delete.
      * @param {Function} [options.onOpenFile] - Called with the chosen `.ebgeo` `File`. Omitted
      *   leaves the button out entirely, rather than showing one that does nothing.
@@ -927,6 +928,7 @@ export class LocalAtlasSection {
         this._onOpen = options.onOpen || (() => {});
         this._onCreate = options.onCreate || (() => {});
         this._onRename = options.onRename || (() => {});
+        this._onDuplicate = options.onDuplicate || (() => {});
         this._onDelete = options.onDelete || (() => {});
         this._onOpenFile = options.onOpenFile || null;
         this._root = null;
@@ -1199,6 +1201,10 @@ export class LocalAtlasSection {
 
         addItem('Abrir', 'local-atlas-open', false, () => this._open(atlas));
         addItem('Renomear', 'local-atlas-rename', false, () => this._onRename(atlas));
+        // Mesmo rótulo do cartão de servidor: é a mesma ação para o usuário, ainda que por baixo
+        // uma seja uma rota do backend e a outra uma cópia banco a banco entre dois namespaces de
+        // IndexedDB (`copyAtlasDatabases`).
+        addItem('Fazer uma cópia', 'local-atlas-duplicate', false, () => this._onDuplicate(atlas));
         addItem('Excluir', 'local-atlas-delete', true, () => this._onDelete(atlas));
 
         this._root.appendChild(menu);

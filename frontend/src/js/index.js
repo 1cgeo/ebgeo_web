@@ -32,6 +32,7 @@ import {
     retractAtlasClaim,
     clearMountedAtlasIfGranted,
     remoteMountWitness,
+    switchToNewLocalAtlas,
 } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
@@ -219,14 +220,20 @@ async function initApp() {
     getEventBus().on(EventTypes.SESSION_CHANGED, syncAtlasLockKey);
 
     // A `.ebgeo` handed over by "Seus atlas" comes FIRST, and it is not a fifth entry in the chain
-    // below: it is the completion of a gesture that already chose an atlas (the page created the
-    // slot and moved the pointer), so there is nothing left for the chain to route. It runs after
-    // the lock is up, because importing wipes the mounted scope; and it declines to the chain when
-    // a deep link is present, because a `?atlas=` boot is going to open a SERVER atlas and a file
-    // must never be imported into one.
+    // below: it is the completion of a gesture the user already made on the other page, so there is
+    // nothing left for the chain to route. It runs after the lock is up, because it both creates an
+    // atlas and wipes the mounted scope; and it declines to the chain when a deep link is present,
+    // because a `?atlas=` boot is going to open a SERVER atlas and a file must never be imported
+    // into one.
+    //
+    // `createAtlas` IS THE ENTRY INTO A NEW ATLAS, injected rather than imported over there because
+    // `pending-import.js` is unit-tested in bare node and this pipeline drags the whole store. It
+    // is the same one the in-map import uses when it has to leave a server atlas
+    // (`_prepareNonAdditiveTarget`), which is what keeps "who may mount an atlas" a list of one.
     if (await consumePendingEbgeoImport({
         hasDeepLink: Boolean(bootPublicLink || bootAtlasLink),
         getImporter: () => getControl('exportImport'),
+        createAtlas: (name) => switchToNewLocalAtlas(name),
         notify: showToast,
     })) return;
 

@@ -964,7 +964,7 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
     const bytes = () => new Uint8Array([1, 2, 3, 4]).buffer;
 
     it('grava no banco GLOBAL, e em nenhum banco por atlas', async () => {
-        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Operação Alfa', data: bytes() });
+        await ns.savePendingImport({ name: 'Operação Alfa', data: bytes() });
 
         const global = databases.get(GLOBAL_DISK);
         expect(global.has(ns.GlobalKey.PENDING_IMPORT)).toBe(true);
@@ -976,11 +976,14 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
     });
 
     it('a leitura devolve o registro e o APAGA, na primeira vez e só na primeira', async () => {
-        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Operação Alfa', data: bytes() });
+        await ns.savePendingImport({ name: 'Operação Alfa', data: bytes() });
 
         const primeiro = await ns.takePendingImport();
 
-        expect(primeiro).toMatchObject({ atlasId: 'slot-1', name: 'Operação Alfa' });
+        expect(primeiro).toMatchObject({ name: 'Operação Alfa' });
+        // O registro NÃO nomeia mais um slot: quem cria o atlas é o consumidor, no instante em que
+        // vai importar, e é isso que impede um boot que RECUSA de deixar um atlas órfão na lista.
+        expect(primeiro.atlasId).toBeUndefined();
         expect(new Uint8Array(primeiro.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
         expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
         expect(await ns.takePendingImport()).toBeNull();
@@ -989,7 +992,16 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
     it('um registro ILEGÍVEL some do disco em vez de voltar a cada boot', async () => {
         // O caso que motiva "apagar antes de validar": nada mais neste código varre o banco
         // global, então um registro que a validação recusa e o leitor não apaga é lixo eterno.
-        for (const podre of [{ version: 99, atlasId: 'x', data: bytes() }, 'texto solto', 42]) {
+        // A PRIMEIRA da lista é o shape v1, o do deploy anterior: ele nomeava um slot que a TELA
+        // criava antes de navegar. Aceitá-lo hoje faria o consumidor criar um segundo atlas ao lado
+        // daquele, então ele é lixo pela mesma porta dos outros dois.
+        const podres = [
+            { version: 1, atlasId: 'slot-da-tela-antiga', name: 'Alfa', savedAt: Date.now(), data: bytes() },
+            { version: 99, name: 'x', data: bytes() },
+            'texto solto',
+            42
+        ];
+        for (const podre of podres) {
             await ns.getGlobalStore().setItem(ns.GlobalKey.PENDING_IMPORT, podre);
 
             expect(await ns.takePendingImport()).toBeNull();
@@ -998,7 +1010,7 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
     });
 
     it('expira por idade, e o limite é o do módulo (não um número copiado aqui)', async () => {
-        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Velho', data: bytes() });
+        await ns.savePendingImport({ name: 'Velho', data: bytes() });
         const registro = databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT);
 
         // Um milissegundo DENTRO do prazo ainda é lido: sem este controle positivo, o caso abaixo
@@ -1006,7 +1018,7 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
         registro.savedAt = Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS + 1000;
         expect(await ns.takePendingImport()).not.toBeNull();
 
-        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Velho', data: bytes() });
+        await ns.savePendingImport({ name: 'Velho', data: bytes() });
         databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).savedAt =
             Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS - 1000;
 
@@ -1014,15 +1026,17 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
         expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
     });
 
-    it('recusa um registro sem atlas ou sem bytes, que é bug do chamador', async () => {
-        await expect(ns.savePendingImport({ atlasId: '', name: 'x', data: bytes() })).rejects.toThrow();
-        await expect(ns.savePendingImport({ atlasId: 'slot-1', name: 'x', data: 'nao e buffer' }))
-            .rejects.toThrow();
+    it('recusa um registro sem nome ou sem bytes, que é bug do chamador', async () => {
+        // O nome virou obrigatório e não-vazio quando o slot deixou de ser criado pela tela: ele é
+        // o NOME COM QUE O ATLAS VAI NASCER, e `createLocalAtlas` lança em nome em branco.
+        await expect(ns.savePendingImport({ name: '', data: bytes() })).rejects.toThrow();
+        await expect(ns.savePendingImport({ name: '   ', data: bytes() })).rejects.toThrow();
+        await expect(ns.savePendingImport({ name: 'x', data: 'nao e buffer' })).rejects.toThrow();
         expect(databases.get(GLOBAL_DISK)?.has(ns.GlobalKey.PENDING_IMPORT) ?? false).toBe(false);
     });
 
     it('`clearPendingImport` é o desistir do PRODUTOR, e não consome nada', async () => {
-        await ns.savePendingImport({ atlasId: 'slot-1', name: 'Alfa', data: bytes() });
+        await ns.savePendingImport({ name: 'Alfa', data: bytes() });
 
         await ns.clearPendingImport();
 

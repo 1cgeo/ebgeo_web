@@ -161,6 +161,34 @@ describe('quem pode MONTAR um escopo de atlas', () => {
         expect(chamadores).toEqual(['account/open-atlas.service.js', 'projects/projects-page.js']);
     });
 
+    // A LISTA ACIMA NÃO MUDOU EM 2026-08-16, E É POR ISSO QUE ESTE CASO EXISTE.
+    //
+    // "Abrir arquivo .ebgeo" parou de criar o slot na tela: ele passou a nascer no consumidor do
+    // boot, no instante em que a importação vai mesmo rodar. O motivo é que os cinco ramos de
+    // recusa daquele consumidor deixavam o slot para trás — e não vazio, porque a inicialização do
+    // repositório escreve um `Principal` nele antes de a decisão ser tomada, o que torna um guarda
+    // "apague se estiver vazio" impossível de disparar.
+    //
+    // `projects/projects-page.js` continua na lista por OUTRO chamador ("+ Novo atlas local"), que
+    // é exatamente por que o portão de cima ficaria calado nesta mudança: a lista de arquivos é a
+    // mesma antes e depois. O que mudou foi QUAL função daquele arquivo gasta o teto, e é isso que
+    // se afirma aqui, por recorte da função e com controle positivo dos dois lados.
+    it('`openEbgeoFileAsLocalAtlas` entrega o arquivo e não gasta mais um slot', () => {
+        const fonte = stripComments(read('projects/projects-page.js'));
+        const inicio = fonte.indexOf('async function openEbgeoFileAsLocalAtlas');
+        expect(inicio, 'a função sumiu ou foi renomeada').toBeGreaterThan(-1);
+        const corpo = fonte.slice(inicio, fonte.indexOf('\n}', inicio));
+
+        // Controle positivo do recorte: sem ele, um `indexOf` que casasse um trecho vazio faria o
+        // `not.toMatch` abaixo passar provando nada.
+        expect(corpo).toMatch(/(^|[^\w.])savePendingImport\s*\(/m);
+        expect(corpo).not.toMatch(/(^|[^\w.])createLocalAtlas\s*\(/m);
+
+        // Controle NEGATIVO do recorte: o outro chamador (o botão "+ Novo atlas local") continua
+        // no arquivo, então "não achei `createLocalAtlas` aqui" não é "sumiu do arquivo".
+        expect(fonte).toMatch(/(^|[^\w.])createLocalAtlas\s*\(/m);
+    });
+
     it('`markStoreRemote` só é chamado onde um namespace remoto foi ativado antes', () => {
         const chamadores = callersOf('markStoreRemote')
             .filter(rel => rel !== 'store/store-origin.js' && rel !== 'store/store.js');

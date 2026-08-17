@@ -46,6 +46,7 @@ import {
     activateScope,
     getActiveScope,
     getGlobalStore,
+    copyAtlasDatabases,
     getStoreFor,
     dropAtlasDatabases,
     localScope,
@@ -889,4 +890,57 @@ export async function deleteLocalAtlas(id) {
  */
 function getActiveScopeKind() {
     return getActiveScope()?.kind ?? null;
+}
+
+/**
+ * Duplica um atlas local: cria um slot novo e copia os bancos, chave por chave.
+ *
+ * NÃO MONTA NEM TROCA NADA. A tela de atlas chama isto e continua onde está — copiar é uma
+ * operação sobre o REGISTRO e sobre bancos que ninguém tem aberto, não uma entrada no atlas. Foi
+ * a lição de tentar o caminho contrário: copiar via export/import obrigava a montar o slot novo,
+ * o que trazia junto o wipe, a memória do atlas anterior e um reload para desfazer os dois.
+ *
+ * A ORDEM PROTEGE OS DOIS LADOS: criar vem primeiro porque é o único passo refusável (o teto de
+ * dez slots), e uma recusa ali não tocou em byte nenhum. Se a CÓPIA falhar depois, o slot criado é
+ * apagado — um atlas vazio com nome de cópia é pior que nenhum, porque parece ter funcionado.
+ *
+ * O REGISTRO DE ATLAS DO DESTINO É REESCRITO no fim, e é o que impede a cópia de se apresentar
+ * como o original: os bancos copiados trazem o `id` e o `name` da origem, e sem esta correção a
+ * tela mostraria dois cartões com o mesmo nome, e o cabeçalho do mapa também.
+ *
+ * @param {string} sourceId - Id do atlas local de origem, no registro.
+ * @param {string} name - Nome do atlas novo.
+ * @returns {Promise<LocalAtlasResult>} `{ ok: true, atlas }` com o slot criado, ou a recusa nomeada.
+ */
+export async function duplicateLocalAtlas(sourceId, name) {
+    const source = getLocalAtlas(sourceId);
+    if (!source) return refuse(LocalAtlasError.NOT_FOUND, { atlasId: sourceId });
+
+    const created = await createLocalAtlas(name);
+    if (!created.ok) return created;
+
+    const destino = scopeOfLocalAtlas(created.atlas);
+    try {
+        // Zero chaves é um resultado legítimo (copiar um atlas vazio), então não há verificação
+        // sobre a contagem aqui — quem quiser distinguir os dois casos que leia a origem antes.
+        await copyAtlasDatabases(scopeOfLocalAtlas(source), destino);
+
+        // O registro de atlas veio da origem junto com o resto: reescreve com a identidade do
+        // destino. `setItem` e não merge, porque as duas outras chaves do registro (mapOrder,
+        // lastActiveMapId) pertencem à cópia e devem vir da origem.
+        const atlasStore = getStoreFor(StoreName.ATLAS, destino);
+        const registro = await atlasStore.getItem(ATLAS_RECORD_KEY);
+        await atlasStore.setItem(ATLAS_RECORD_KEY, {
+            ...(registro || createAtlas(created.atlas.name)),
+            id: created.atlas.id,
+            name: created.atlas.name,
+        });
+        return created;
+    } catch (error) {
+        // A cópia falhou no meio: o slot fica pela metade e mentiria na lista. Apagar é o único
+        // desfazer honesto, e ele não pode ser o motivo de a função lançar.
+        console.error('[local-atlas] duplicate failed, removing the half-written slot:', error);
+        await deleteLocalAtlas(created.atlas.id).catch(() => undefined);
+        throw error;
+    }
 }

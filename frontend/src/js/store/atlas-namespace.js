@@ -747,7 +747,17 @@ export function getGlobalStore() {
  * for the same reason the tab pointer does: this one decides which bytes get imported into an
  * atlas, and guessing at an unknown shape is how a file lands in the wrong slot.
  */
-const PENDING_IMPORT_VERSION = 1;
+/**
+ * Shape version of the hand-over record.
+ *
+ * BUMPED TO 2 IN 2026-08-16, when the slot stopped being created by the producer. A v1 record
+ * named a local slot (`atlasId`) that `atlas.html` had already created for it; a v2 record names
+ * only the FILE, and the consumer creates the slot. Reading a v1 record with the v2 consumer would
+ * create a SECOND slot and leave the producer's one behind — exactly the orphan this phase removes
+ * — so the old shape is dropped rather than accepted. The cost is one lost hand-over for whoever
+ * was mid-navigation across the deploy, and the file is still on their disk.
+ */
+const PENDING_IMPORT_VERSION = 2;
 
 /**
  * How long a hand-over may sit unclaimed. It exists because the producer and the consumer are two
@@ -767,26 +777,33 @@ export const PENDING_IMPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  * THE BYTES TRAVEL AS AN ArrayBuffer, never as a `File`. A `File`/`Blob` is structured-cloneable
  * and IndexedDB does store it, but the name and the type are carried in the record instead, so the
  * consumer rebuilds a `File` it can reason about rather than trusting whatever a previous deploy
- * wrote. `atlasId` travels too, and it is not decoration: the map must refuse to import into an
- * atlas that is not the one the page created for this file.
+ * wrote.
+ *
+ * THE RECORD NAMES THE FILE, NEVER A SLOT. It used to carry `atlasId` as well, because the page
+ * created the local slot before navigating; a boot that then DECLINED the import (a deep link in
+ * the URL, an importer that never registered, a file that fails to parse) left that slot behind,
+ * populated with the blank `Principal` the store boot writes, and no guard could tell it from an
+ * atlas the user made. The slot is now born on the consuming side, at the moment the import is
+ * actually going to run (`deep-link/pending-import.js`), so a refused hand-over costs nothing.
+ *
+ * The name is REQUIRED and non-empty for the same reason: it is no longer decoration on a slot
+ * that already exists, it is the name the new atlas will be created with.
  *
  * @param {Object} record
- * @param {string} record.atlasId - Local slot this file was created for.
  * @param {string} record.name - Atlas name, i.e. the file name minus its extension.
  * @param {ArrayBuffer} record.data - Raw archive bytes.
  * @returns {Promise<void>}
  */
-export async function savePendingImport({ atlasId, name, data }) {
-    if (typeof atlasId !== 'string' || atlasId.length === 0) {
-        throw new Error('savePendingImport: atlasId must be a non-empty string');
+export async function savePendingImport({ name, data }) {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+        throw new Error('savePendingImport: name must be a non-empty string');
     }
     if (!(data instanceof ArrayBuffer)) {
         throw new Error('savePendingImport: data must be an ArrayBuffer');
     }
     await getGlobalStore().setItem(GlobalKey.PENDING_IMPORT, {
         version: PENDING_IMPORT_VERSION,
-        atlasId,
-        name: typeof name === 'string' ? name : '',
+        name: name.trim(),
         savedAt: Date.now(),
         data
     });
@@ -804,7 +821,7 @@ export async function savePendingImport({ atlasId, name, data }) {
  * A record of an unknown version, of the wrong shape, or older than `PENDING_IMPORT_MAX_AGE_MS`
  * is dropped and reported as absent rather than repaired.
  *
- * @returns {Promise<{atlasId: string, name: string, savedAt: number, data: ArrayBuffer}|null>}
+ * @returns {Promise<{name: string, savedAt: number, data: ArrayBuffer}|null>}
  */
 export async function takePendingImport() {
     const globalStore = getGlobalStore();
@@ -815,7 +832,10 @@ export async function takePendingImport() {
 
     if (typeof stored !== 'object'
         || stored.version !== PENDING_IMPORT_VERSION
-        || typeof stored.atlasId !== 'string'
+        // Non-empty, because the consumer creates an atlas WITH this name and `createLocalAtlas`
+        // throws on a blank one — a record that cannot name an atlas is not repairable here.
+        || typeof stored.name !== 'string'
+        || stored.name.length === 0
         || !(stored.data instanceof ArrayBuffer)) {
         return null;
     }
@@ -823,8 +843,7 @@ export async function takePendingImport() {
     if (!Number.isFinite(savedAt) || Date.now() - savedAt > PENDING_IMPORT_MAX_AGE_MS) return null;
 
     return {
-        atlasId: stored.atlasId,
-        name: typeof stored.name === 'string' ? stored.name : '',
+        name: stored.name,
         savedAt,
         data: stored.data
     };
@@ -1404,4 +1423,50 @@ export async function dropAtlasDatabases(scope, { timeoutMs = DROP_TIMEOUT_MS } 
 
     clearStoreCache(scope);
     return { dropped, blocked };
+}
+
+/**
+ * Copia TODOS os bancos de dados de um atlas para outro, chave por chave.
+ *
+ * É A OPERAÇÃO QUE "FAZER UMA CÓPIA" DE UM ATLAS LOCAL PRECISA, e a alternativa tentada antes
+ * mostra por que ela existe: um round-trip de `.ebgeo` (exportar em memória, criar o slot,
+ * importar) reusa código pronto, mas arrasta tudo o que o import carrega — um `clearAllDataStore`
+ * que deixa um mapa "Principal" vazio ao lado do importado, a memória do app apontando para o
+ * atlas anterior, e a necessidade de recarregar a página para desfazer os dois. Copiar os bancos
+ * não interpreta nada: o que estava lá passa a estar aqui, com as mesmas chaves e os mesmos ids.
+ *
+ * SÓ OS BANCOS DE DADO DO ATLAS (`atlasData: true`), que é o mesmo conjunto que o wipe de entrada
+ * alcança. A fila de saída fica de fora de propósito: ela é por atlas mas NÃO é dado do atlas, e
+ * copiar operações pendentes faria a cópia tentar sincronizar como se fosse o original.
+ *
+ * O DESTINO É PRESUMIDO VAZIO (um slot recém-criado). A cópia não apaga o que houver lá antes:
+ * escrever por cima chave a chave é o que preserva a semântica de "cópia" mesmo se o chamador
+ * errar, em vez de destruir dado alheio por conta de um argumento trocado.
+ *
+ * @param {StoreScope} from - Escopo de origem.
+ * @param {StoreScope} to - Escopo de destino.
+ * @returns {Promise<{stores: number, keys: number}>} Quanto foi copiado — o chamador usa isso para
+ *   não anunciar sucesso sobre uma cópia que não moveu nada.
+ */
+export async function copyAtlasDatabases(from, to) {
+    if (!from || !to) throw new Error('copyAtlasDatabases: both scopes are required');
+    if (scopeKey(from) === scopeKey(to)) {
+        throw new Error('copyAtlasDatabases: source and destination are the same namespace');
+    }
+
+    let keys = 0;
+    const descriptors = STORE_DESCRIPTORS.filter(d => d.perAtlas && d.atlasData);
+    for (const descriptor of descriptors) {
+        const origem = getStoreFor(descriptor.id, from);
+        const destino = getStoreFor(descriptor.id, to);
+        // `iterate` em vez de `keys()` + `getItem`: uma passada só por banco, e o localforage já
+        // devolve o valor desserializado (Blob de imagem incluso).
+        const pares = [];
+        await origem.iterate((value, key) => { pares.push([key, value]); });
+        for (const [key, value] of pares) {
+            await destino.setItem(key, value);
+            keys += 1;
+        }
+    }
+    return { stores: descriptors.length, keys };
 }

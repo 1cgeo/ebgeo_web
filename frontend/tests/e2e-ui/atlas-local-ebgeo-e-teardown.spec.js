@@ -11,6 +11,12 @@
  *    boot do OUTRO documento acha aquilo e importa. É a mesma razão pela qual a migração 2.2 tem um
  *    arquivo aqui além dos 22 casos de nó.
  *
+ *    DESDE 2026-08-16 A TELA NÃO CRIA MAIS O ATLAS: ela entrega o arquivo e navega, e quem cria o
+ *    slot é o consumidor do boot, imediatamente antes de importar. O contador de slots deste caso
+ *    (`slotsAntes + 1`, cobrado ANTES e DEPOIS do reload) é o que prova que a mudança de lado não
+ *    virou uma criação a mais nem uma a menos: era exatamente daquele lado que nascia o "slot
+ *    órfão" de todo boot que recusava a entrega.
+ *
  * B. EXCLUIR UM ATLAS LOCAL AVISA A ABA IRMÃ. O protocolo é medido em
  *    `tests/unit/tab-lock.test.js` e o freio em `tests/unit/tab-lock-sync-brake.test.js`, cada um
  *    com o outro lado dublado. Aqui são duas ABAS de verdade, com BroadcastChannel de verdade e
@@ -114,9 +120,21 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // os onze mapas pela UI, que lê `getAllMapNamesStore`; esta prova a MESMA coisa pela
         // fonte que o controle realmente compara, e um repositório apontado para o slot errado
         // devolveria [] sem contradizer nenhuma delas.
-        expect(estado.idsDeMapa.length).toBe(11);
-        // O slot é NOVO: o atlas que o usuário tinha aberto não foi substituído. É a razão de a
-        // tela criar um slot em vez de deixar o import não-aditivo cair no atlas corrente.
+        //
+        // DOZE CHAVES PARA ONZE NOMES, e a diferença é a de-duplicação que o poll de cima já
+        // explica: os onze mapas da fixture entram com CHAVE UUID (`addMap` keya por UUID sempre
+        // que o log de operações está ligado, o que `initServices` faz no boot), e ao lado deles
+        // fica o `Principal` em branco, keyado pelo NOME, que `initializeRepository` escreve no
+        // slot recém-esvaziado. O `Principal` da fixture e o em branco colidem por NOME e somem
+        // um no outro na lista da UI; por CHAVE são dois.
+        //
+        // (Esta linha dizia ONZE e estava vermelha ANTES desta mudança: medido em 2026-08-16
+        // rodando este mesmo caso contra o fluxo antigo, que devolveu as mesmas doze chaves.
+        // Não é regressão da criação do slot ter mudado de lado.)
+        expect(estado.idsDeMapa.length).toBe(12);
+        expect(estado.idsDeMapa).toContain('Principal');
+        // O slot é NOVO: o atlas que o usuário tinha aberto não foi substituído. É a razão de o
+        // boot criar um slot em vez de deixar o import não-aditivo cair no atlas corrente.
         expect(estado.nomes.length).toBe(slotsAntes + 1);
 
         // E UM SEGUNDO BOOT NÃO REIMPORTA — que é o controle de que `pendente: null` significa
@@ -133,11 +151,16 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
             const { getRepository } = await import('/src/js/store/repositories/index.js');
             return {
                 pendente: await ns.getGlobalStore().getItem(ns.GlobalKey.PENDING_IMPORT),
+                nomes: (await ns.readLocalAtlasRegistry()).map((slot) => slot.name),
                 idsDeMapa: (await getRepository().getAllMapIds()).slice().sort(),
             };
         });
         expect(depois.pendente).toBeNull();
         expect(depois.idsDeMapa).toEqual(estado.idsDeMapa);
+        // E O SEGUNDO BOOT NÃO CRIA UM SEGUNDO SLOT. O consumidor é quem cria agora, e o passo que
+        // o impede de criar de novo é o mesmo que impede a reimportação (a entrega já não existe):
+        // um consumidor que criasse ANTES de ler a entrega gastaria um dos dez atlas a cada F5.
+        expect(depois.nomes.length).toBe(slotsAntes + 1);
     });
 });
 
