@@ -88,6 +88,31 @@ export const LIST_VISIBLE_PRIVATE_360 = `
    ORDER BY name
 `;
 
+/**
+ * Os recursos que ESTE ator pode repassar adiante: aqueles em que ele tem uma
+ * concessão VIVA de nível `view_share`.
+ *
+ * Existe para a INTERFACE, e é a razão de ele viajar no payload aditivo em vez de
+ * ser perguntado por recurso. O cartão do catálogo precisa decidir se mostra a
+ * ação "Compartilhar" ANTES de qualquer clique, e as duas alternativas eram
+ * piores: uma chamada por cartão (dezenas de requisições ao abrir o catálogo), ou
+ * oferecer o botão a todo mundo e deixar o 403 explicar depois — que é oferecer um
+ * formulário que responde 403, exatamente o que o modal de configuração do atlas
+ * já recusa fazer por escrito.
+ *
+ * NÃO cobre o papel global: quem é administrador ou curador concede de RAIZ, sem
+ * concessão nenhuma, e o cliente já sabe disso por `hasGlobalDataAccess()`. Somar
+ * o papel aqui seria uma segunda definição da mesma regra.
+ *   $1 = grantee_id
+ */
+export const LIST_SHAREABLE_OF_ACTOR = `
+  SELECT DISTINCT resource_type, resource_id
+    FROM resource_grants
+   WHERE revoked_at IS NULL
+     AND grantee_id = $1::uuid
+     AND grant_level = 'view_share'
+`;
+
 // --- concessões ------------------------------------------------------------
 
 /**

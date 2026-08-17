@@ -907,6 +907,85 @@
 }
 
 /* =========================================================================
+   COMPARTILHAR UM RECURSO PRIVADO DO CATÁLOGO
+
+   Reaproveita as classes `sharing-*` (a linha de membro, a busca, os resultados)
+   porque a anatomia é a mesma; o que muda é o que cada linha PRECISA dizer, e é
+   só isso que ganha regra própria: o nível da concessão e o alcance da poda.
+   ========================================================================= */
+
+.sharing-section__hint {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* O nível da concessão (Ver / Ver e compartilhar). É um RÓTULO, não um seletor:
+   trocar o nível de uma concessão viva não é operação que o servidor ofereça —
+   revoga-se e concede-se de novo, para que a árvore registre o ato. */
+.resource-share__level {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+/* Quantas concessões caem junto com esta. Âmbar porque é aviso de consequência,
+   a mesma família do selo "Privado" no cartão e do chip "Curador". */
+.resource-share__cascade {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+.resource-share__level-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.resource-share__level-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.resource-share__level-row .settings-field__description {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+/* ----- Empréstimo por atlas (seção do modal de configuração) ----- */
+
+.atlas-config__lend-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.atlas-config__lend-picker select {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+.atlas-config__item--empty {
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    justify-content: center;
+}
+
+/* =========================================================================
    RESPONSIVE — TOUCH
    ========================================================================= */
 

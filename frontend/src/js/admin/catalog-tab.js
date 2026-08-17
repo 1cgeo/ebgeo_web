@@ -33,6 +33,28 @@ const THUMB_KEY = {
  * compression silently no-ops (returns the original) on a decode failure. A 420px WebP is ~10-40 KB. */
 const MAX_THUMBNAIL_DATAURL = 256 * 1024;
 
+/**
+ * Categoria da tela -> tipo do eixo de ACESSO A RECURSO (`resource_grants.resource_type`).
+ *
+ * `basemap` está ausente de propósito, e não por esquecimento: ele carrega a coluna
+ * `access_level` por PARIDADE DE SCHEMA (as cinco tabelas de catálogo nasceram de
+ * `LIKE basemaps INCLUDING ALL` e um teste exige conjuntos idênticos de coluna) e
+ * nenhuma consulta a lê. Oferecer o seletor ali seria um controle que grava numa
+ * coluna que ninguém consulta.
+ */
+const ACCESS_TYPE_BY_CATEGORY = Object.freeze({
+    tileset: 'tileset',
+    data_layer: 'data_layer',
+    analysis_layer: 'analysis_layer',
+    sv360: 'sv360_project',
+});
+
+/** As duas respostas do eixo de acesso, na ordem em que a tela as oferece. */
+const ACCESS_LEVELS = [
+    { value: 'public', label: 'Público (qualquer pessoa vê)' },
+    { value: 'private', label: 'Privado (só quem recebeu acesso)' },
+];
+
 /** UI categories. `sv360` is special (sv360 admin routes); the rest are `resources` categories. */
 const CATEGORIES = [
     { key: 'tileset', label: '3D (modelos)' },
@@ -189,11 +211,15 @@ class CatalogTab {
             wrap.appendChild(empty);
             return;
         }
+        const temAcesso = !!ACCESS_TYPE_BY_CATEGORY[category];
         const table = document.createElement('table');
         table.className = 'admin-users__table';
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['ID', 'Nome', 'Ordem', 'Ações']) {
+        const cabecalhos = temAcesso
+            ? ['ID', 'Nome', 'Ordem', 'Acesso', 'Ações']
+            : ['ID', 'Nome', 'Ordem', 'Ações'];
+        for (const h of cabecalhos) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -209,6 +235,7 @@ class CatalogTab {
             tr.appendChild(cell(r.id || ''));
             tr.appendChild(cell(r.name || ''));
             tr.appendChild(cell(String(r.sort_order ?? '')));
+            if (temAcesso) tr.appendChild(accessCell(r.access_level));
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
             actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
@@ -250,6 +277,25 @@ class CatalogTab {
         const nameInput = textField(form, 'Nome', 'admin-catalog-name', resource?.name ?? '');
         const descInput = textField(form, 'Descrição', 'admin-catalog-desc', resource?.description ?? '');
         const sortInput = textField(form, 'Ordem', 'admin-catalog-sort', String(resource?.sort_order ?? 0), 'number');
+
+        // O EIXO DE ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
+        // abaixo: ele mora numa rota própria (`PATCH /resource-access/:type/:id/
+        // visibility`), que é `requireAdmin` e invalida o memo do `/api/config`.
+        // Marcar como privado é ato de ADMINISTRAÇÃO do catálogo, não de
+        // compartilhamento: quem tem concessão repassa acesso, e não decide que o
+        // recurso deixou de ser público para todo mundo.
+        const accessType = ACCESS_TYPE_BY_CATEGORY[category];
+        const accessBefore = resource?.access_level ?? 'public';
+        const accessInput = accessType
+            ? selectField(form, 'Visibilidade', 'admin-catalog-access', ACCESS_LEVELS, accessBefore)
+            : null;
+        if (accessInput) {
+            const hint = document.createElement('p');
+            hint.className = 'admin-form__hint';
+            hint.textContent = 'Privado tira o item do catálogo público. Ele continua visível para administradores, '
+                + 'curadores, quem recebeu concessão e quem abrir um atlas que o empreste.';
+            form.appendChild(hint);
+        }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
         // in config (config is anonymous-readable, no out-of-band serving needed). `pendingThumbnail`
@@ -410,16 +456,33 @@ class CatalogTab {
             try {
                 if (isEdit) {
                     await apiClient.updateResource(category, resource.id, payload);
-                    showSuccess('Item atualizado.');
                 } else {
                     await apiClient.createResource(category, { id, ...payload });
-                    showSuccess('Item criado.');
                 }
-                if (this._alive) this._selectCategory(category);
             } catch (err) {
                 showFormError(error, err?.message || 'Falha ao salvar o item.');
                 saveBtn.disabled = false;
+                return;
             }
+
+            // A visibilidade vai DEPOIS e numa chamada própria, e o erro dela é
+            // relatado à parte de propósito: o item já foi gravado quando ela falha,
+            // e um "falha ao salvar" genérico faria o administrador salvar de novo
+            // achando que perdeu tudo. Só chama quando o valor MUDOU — um PATCH a
+            // cada gravação invalidaria o memo do /api/config sem motivo.
+            const accessAfter = accessInput ? accessInput.value : accessBefore;
+            if (accessType && accessAfter !== accessBefore) {
+                try {
+                    await apiClient.setResourceVisibility(accessType, isEdit ? resource.id : id, accessAfter);
+                } catch (err) {
+                    showError(err?.message || 'O item foi salvo, mas a visibilidade não pôde ser alterada.');
+                    if (this._alive) this._selectCategory(category);
+                    return;
+                }
+            }
+
+            showSuccess(isEdit ? 'Item atualizado.' : 'Item criado.');
+            if (this._alive) this._selectCategory(category);
         };
         saveBtn.addEventListener('click', onSave);
 
@@ -490,7 +553,12 @@ class CatalogTab {
         const hrow = document.createElement('tr');
         // The OM column is not decoration: a slug is unique per organization, not globally, so two
         // rows of different OMs are otherwise indistinguishable here.
-        for (const h of ['Nome', 'Slug', 'OM', 'Fotos', 'Status', 'Ações']) {
+        //
+        // "Status" e "Acesso" são DOIS EIXOS, e a tabela os separa por isso: `disabled`
+        // oculta o projeto de todo mundo fora da OM dona (é o soft-delete do 360),
+        // enquanto `private` restringe só quem está de FORA — a OM dona continua vendo
+        // (D6). Um projeto pode ser Ativo e Privado ao mesmo tempo, que é o caso novo.
+        for (const h of ['Nome', 'Slug', 'OM', 'Fotos', 'Status', 'Acesso', 'Ações']) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -517,10 +585,15 @@ class CatalogTab {
             statusCell.appendChild(badge);
             tr.appendChild(statusCell);
 
+            const privado = (p.access_level ?? 'public') === 'private';
+            tr.appendChild(accessCell(p.access_level));
+
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
             actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
                 () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
+            actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
+                'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
             actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
                 () => this._delete360(p)));
             tr.appendChild(actions);
@@ -549,6 +622,26 @@ class CatalogTab {
             // the console and the screen gets fixed pt-BR microcopy.
             console.warn('[catalog-tab] falha ao alterar o status do projeto 360:', err);
             showError('Não foi possível atualizar o status do projeto 360°.');
+        }
+    }
+
+    /**
+     * @private Alterna o eixo de ACESSO do projeto 360, que não é o de status.
+     *
+     * A rota é a mesma dos outros três tipos (`/resource-access/:type/:id/visibility`)
+     * e a chave é o UUID do projeto, não o slug: o slug é único por OM, não
+     * globalmente, e o eixo de acesso é resolvido por id.
+     * @param {Object} project
+     * @param {'public'|'private'} accessLevel
+     */
+    async _toggle360Access(project, accessLevel) {
+        try {
+            await apiClient.setResourceVisibility('sv360_project', project.id, accessLevel);
+            showSuccess(accessLevel === 'private' ? 'Projeto 360° agora é privado.' : 'Projeto 360° agora é público.');
+            if (this._alive) this._render360List();
+        } catch (err) {
+            console.warn('[catalog-tab] falha ao alterar a visibilidade do projeto 360:', err);
+            showError('Não foi possível alterar a visibilidade do projeto 360°.');
         }
     }
 
@@ -592,6 +685,23 @@ function cell(textValue) {
     return td;
 }
 
+/**
+ * A célula do eixo de acesso. Ausência de valor lê-se como PÚBLICO, que é o default
+ * da coluna e o comportamento de toda linha que existia antes do eixo.
+ * @param {string} [accessLevel]
+ * @returns {HTMLElement}
+ */
+function accessCell(accessLevel) {
+    const td = document.createElement('td');
+    const privado = accessLevel === 'private';
+    const chip = document.createElement('span');
+    chip.className = `admin-chip admin-chip--${privado ? 'private' : 'public'}`;
+    chip.dataset.testid = 'admin-catalog-access-chip';
+    chip.textContent = privado ? 'Privado' : 'Público';
+    td.appendChild(chip);
+    return td;
+}
+
 function button(label, className, testid, onClick) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -617,6 +727,37 @@ function textField(form, label, testid, value, type = 'text') {
     field.appendChild(input);
     form.appendChild(field);
     return input;
+}
+
+/**
+ * Um <select> de opções fixas (mesma forma do helper da aba de usuários).
+ * @param {HTMLElement} form
+ * @param {string} label
+ * @param {string} testid
+ * @param {Array<{value: string, label: string}>} options
+ * @param {string} value
+ * @returns {HTMLSelectElement}
+ */
+function selectField(form, label, testid, options, value) {
+    const field = document.createElement('div');
+    field.className = 'admin-form__field';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.setAttribute('for', testid);
+    field.appendChild(lab);
+    const select = document.createElement('select');
+    select.id = testid;
+    select.dataset.testid = testid;
+    for (const opt of options) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === value) o.selected = true;
+        select.appendChild(o);
+    }
+    field.appendChild(select);
+    form.appendChild(field);
+    return select;
 }
 
 function checkboxField(form, label, testid, checked) {

@@ -208,6 +208,27 @@ describe('F6 — projeto 360 enabled+private', () => {
     await getProjeto(tokenBeneficiario).expect(200);
   });
 
+  it('a listagem do PAINEL entrega os dois eixos, para que o administrador possa vê-los', async () => {
+    // O painel do administrador mostra "Status" e "Acesso" lado a lado, e sem esta
+    // coluna na resposta ele teria de adivinhar um deles — que é como um eixo de
+    // acesso fica invisível justamente para quem o administra. Repare que a
+    // listagem administrativa NÃO filtra por privacidade de propósito: ela existe
+    // para administrar, e o gate dela é `requireAdmin`, não o eixo de recurso.
+    const res = await supertest(app)
+      .get('/api/v1/sv360/admin/projects')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .expect(200);
+    const linhas = res.body.projects ?? res.body;
+    const privado = linhas.find((p) => p.slug === SLUG);
+    const publico = linhas.find((p) => p.slug === `${SLUG}-pub`);
+    assert.ok(privado, 'guarda: o projeto privado precisa estar na listagem administrativa');
+    assert.ok(publico, 'guarda: e o vizinho público também');
+    // Os dois juntos: um só não distingue "traz a coluna" de "traz sempre o mesmo".
+    assert.equal(privado.access_level, 'private');
+    assert.equal(publico.access_level, 'public');
+    assert.equal(privado.status, 'enabled', 'e o eixo de status continua chegando separado');
+  });
+
   it('remarcado público, volta a ser público — e a concessão fica DORMENTE, não apagada', async () => {
     await db.query(`UPDATE sv360.projects SET access_level = 'public' WHERE id = $1`, [projetoId]);
     try {

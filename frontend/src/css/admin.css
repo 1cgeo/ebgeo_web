@@ -199,6 +199,20 @@
     color: #b45309;
 }
 
+/* O eixo de ACESSO do recurso, que não é o de papel logo acima nem o de status
+   (Ativo/Inativo) ao lado dele na tabela do 360. Privado herda o mesmo âmbar do
+   Curador e do selo do cartão do catálogo, porque os três falam da mesma coisa;
+   público fica neutro, que é o estado de toda linha que existia antes do eixo. */
+.admin-chip--private {
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
+.admin-chip--public {
+    background: var(--gray-100);
+    color: var(--gray-500);
+}
+
 .admin-chip--user {
     background: var(--gray-100);
     color: var(--gray-600);

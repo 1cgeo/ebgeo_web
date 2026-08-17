@@ -2,6 +2,13 @@
 
 /**
  * @fileoverview Individual catalog card component.
+ *
+ * O EIXO PRIVADO NÃO VEM DO ITEM, e é o que surpreende quem lê este arquivo: um
+ * item de `config` não carrega `access_level`, porque `/api/config` é o documento
+ * PÚBLICO e igual para todo chamador. O que o cartão sabe é que aquele id chegou
+ * pelo payload aditivo (`GET /resource-access/visible`), que devolve só o privado
+ * visível — daí `isPrivateResource`, que é uma consulta ao que o servidor entregou,
+ * nunca uma leitura de propriedade.
  */
 
 import { escapeHtml } from '@utils/html-escape.js';
@@ -9,22 +16,40 @@ import {
     CATALOG_ITEM_TYPES,
     CATALOG_TYPE_CONFIG,
     DEFAULT_THUMBNAILS,
-    CATALOG_UI_ICONS
+    CATALOG_UI_ICONS,
+    RESOURCE_ACCESS_BY_CATALOG_TYPE
 } from '../catalog.constants.js';
 import { formatCatalogDate } from '../catalog.service.js';
+import { isPrivateResource, canShareResource } from '@store/sync/resource-access.service.js';
 
 /** Icons used in catalog card */
-const { CALENDAR, MAP_PIN, CHEVRON_RIGHT } = CATALOG_UI_ICONS;
+const { CALENDAR, MAP_PIN, CHEVRON_RIGHT, LOCK, SHARE } = CATALOG_UI_ICONS;
+
+/**
+ * O par (grupo, tipo) do eixo de acesso e o id CRU deste item, ou null quando o
+ * item não é uma linha de catálogo (sombreamento).
+ * @param {CatalogItem} item
+ * @returns {{grupo: string, tipo: string, id: string}|null}
+ */
+export function resourceAccessRefOf(item) {
+    const mapa = RESOURCE_ACCESS_BY_CATALOG_TYPE[item?.type];
+    const id = item?.originalData?.id;
+    if (!mapa || id == null) return null;
+    return { ...mapa, id: String(id) };
+}
 
 /**
  * Creates an individual catalog card.
  * @param {Object} options
  * @param {CatalogItem} options.item - Catalog item
  * @param {Function} options.onClick - Click callback
+ * @param {Function} [options.onShare] - Abre o modal de compartilhar deste recurso.
  * @returns {HTMLElement}
  */
-export function createCatalogCard({ item, onClick, mapLocked = false, selectable = false, selected = false, onToggle }) {
+export function createCatalogCard({ item, onClick, mapLocked = false, selectable = false, selected = false, onToggle, onShare }) {
     const typeConfig = CATALOG_TYPE_CONFIG[item.type];
+    const acesso = resourceAccessRefOf(item);
+    const privado = !!acesso && isPrivateResource(acesso.grupo, acesso.id);
 
     const card = document.createElement('article');
     card.className = 'catalog-card';
@@ -49,6 +74,18 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     badge.className = 'catalog-card-badge';
     badge.innerHTML = `${typeConfig.icon}<span>${typeConfig.label}</span>`;
     thumbnailWrapper.appendChild(badge);
+
+    // Selo de recurso PRIVADO. Ele aparece também na aba "Catálogo" da configuração
+    // do atlas (modo `selectable`), de propósito: é lá que o Gestor decide o que
+    // restringir, e é lá que ele mais precisa saber que um item não é público.
+    if (privado) {
+        const selo = document.createElement('span');
+        selo.className = 'catalog-card-badge catalog-card-badge--private';
+        selo.dataset.testid = 'catalog-card-private';
+        selo.title = 'Recurso privado: só quem recebeu acesso enxerga este item.';
+        selo.innerHTML = `${LOCK}<span>Privado</span>`;
+        thumbnailWrapper.appendChild(selo);
+    }
 
     card.appendChild(thumbnailWrapper);
 
@@ -139,6 +176,26 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     }
 
     footer.appendChild(openBtn);
+
+    // "Compartilhar": só em recurso PRIVADO e só para quem pode repassar
+    // (papel global, ou concessão de nível `view_share`). Quem só recebeu `view`
+    // não vê o botão — oferecê-lo seria oferecer um formulário que o servidor
+    // recusa. O mapa bloqueado NÃO o esconde: compartilhar não mexe no mapa.
+    if (privado && acesso && onShare && canShareResource(acesso.grupo, acesso.id)) {
+        footer.classList.add('catalog-card-footer--split');
+        const shareBtn = document.createElement('button');
+        shareBtn.className = 'catalog-card-btn catalog-card-btn--share';
+        shareBtn.dataset.testid = 'catalog-card-share';
+        shareBtn.title = `Compartilhar ${item.name}`;
+        shareBtn.setAttribute('aria-label', `Compartilhar ${item.name}`);
+        shareBtn.innerHTML = `${SHARE}<span>Compartilhar</span>`;
+        shareBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onShare(item);
+        });
+        footer.appendChild(shareBtn);
+    }
+
     card.appendChild(footer);
 
     // Click on card also opens (only when not blocked by lock)

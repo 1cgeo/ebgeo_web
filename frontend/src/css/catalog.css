@@ -258,6 +258,16 @@
     height: 12px;
 }
 
+/* Selo de recurso PRIVADO — canto oposto ao do tipo, para que os dois convivam num
+   cartão só. Âmbar é a mesma família do chip "Curador" no painel do administrador,
+   e pela mesma razão: os dois falam do eixo de acesso privado, e a cor os liga sem
+   texto. Os tokens de design não têm família de aviso, então o valor é literal. */
+.catalog-card-badge--private {
+    left: auto;
+    right: var(--space-2);
+    background: rgb(180 83 9 / 88%);
+}
+
 /* Content */
 .catalog-card-content {
     padding: var(--space-3);
@@ -333,6 +343,36 @@
 .catalog-card-btn:hover {
     background: var(--primary);
     color: white;
+}
+
+/* Rodapé com DUAS ações (Abrir + Compartilhar). O "Abrir" continua sendo o maior:
+   compartilhar é o gesto raro, e um rodapé meio a meio faria os dois parecerem
+   igualmente prováveis. */
+.catalog-card-footer--split {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.catalog-card-footer--split .catalog-card-btn {
+    flex: 1 1 auto;
+}
+
+.catalog-card-btn--share {
+    flex: 0 0 auto;
+    width: auto;
+    padding-inline: var(--space-3);
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+.catalog-card-btn--share:hover {
+    background: var(--gray-600);
+    color: white;
+}
+
+.catalog-card-btn--share svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* ==========================================================================

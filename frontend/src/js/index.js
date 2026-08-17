@@ -23,6 +23,7 @@ import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, acti
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
+import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
 import {
     openRemoteAtlas,
     currentAtlasLockKey,
@@ -463,6 +464,20 @@ async function restoreSessionFromStorage() {
             globalRole: user.role || 'user',
             username: user.username || user.nome,
         });
+        // A SOMA DOS RECURSOS PRIVADOS TAMBÉM PRECISA SOBREVIVER AO F5.
+        //
+        // `syncEngine.login()` a faz no gesto de entrar, e só ali: um recarregamento
+        // restaura a sessão por este caminho, que não passa por `login()`. Sem esta
+        // linha, o catálogo de quem tem papel global ou concessão perdia todo o
+        // privado a cada F5 e só voltava com um logout seguido de login — um sumiço
+        // que não deixa erro nenhum e que o usuário lê como "o recurso foi tirado
+        // de mim". Sem atlas em foco de propósito: o empréstimo entra depois, em
+        // `_applyAtlasSettingsOverlay`, quando houver atlas.
+        //
+        // Best-effort como todo o resto deste caminho: `refreshVisibleResources`
+        // engole a própria falha e devolve `false`, então o boot anônimo/offline
+        // continua intocado.
+        await refreshVisibleResources(null);
     } catch (error) {
         if (isCredentialFailure(error)) {
             apiClient.clearTokens();

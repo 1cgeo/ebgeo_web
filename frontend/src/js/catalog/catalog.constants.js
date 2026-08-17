@@ -125,6 +125,43 @@ export const CATALOG_MODAL_FILTERS = Object.freeze([
 ]);
 
 /**
+ * Ponte entre o vocabulário do CATÁLOGO e o do eixo de ACESSO A RECURSO.
+ *
+ * São dois vocabulários distintos e a tradução tem de morar em um lugar só:
+ *   - `grupo` é a chave do payload aditivo (`GET /resource-access/visible`), que
+ *     é também a chave dos arrays de `config` onde a soma aterrissa;
+ *   - `tipo` é o valor do `CHECK` de `resource_grants.resource_type` e o que vai
+ *     na URL das rotas de concessão.
+ *
+ * DUAS AUSÊNCIAS SÃO DELIBERADAS, e nenhuma é esquecimento:
+ *   - `HILLSHADE` não é linha de catálogo nenhuma (vem de `config.map2d`), então
+ *     não tem marca de acesso e nunca terá cartão privado;
+ *   - `FIRST_PERSON_SCENE` está presente e aponta para `tileset` porque uma cena
+ *     É uma linha de `tilesets`, distinguida só pelo discriminador `viewer`. O
+ *     eixo de acesso enxerga a tabela, não o visualizador.
+ * @readonly
+ */
+export const RESOURCE_ACCESS_BY_CATALOG_TYPE = Object.freeze({
+    [CATALOG_ITEM_TYPES.MODEL_3D]: { grupo: 'tilesets', tipo: 'tileset' },
+    [CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]: { grupo: 'tilesets', tipo: 'tileset' },
+    [CATALOG_ITEM_TYPES.PANORAMIC_360]: { grupo: 'views360', tipo: 'sv360_project' },
+    [CATALOG_ITEM_TYPES.ANALYSIS_LAYER]: { grupo: 'analysisLayers', tipo: 'analysis_layer' },
+    [CATALOG_ITEM_TYPES.DATA_LAYER]: { grupo: 'dataLayers', tipo: 'data_layer' },
+});
+
+/**
+ * Rótulos dos dois níveis de concessão (`resource_grants.grant_level`).
+ *
+ * A ordem é ASCENDENTE e o primeiro é o padrão do modal: a permissão padrão
+ * abaixa, nunca eleva. Dar poder de repassar adiante é um ato explícito.
+ * @readonly
+ */
+export const GRANT_LEVELS = Object.freeze([
+    { value: 'view', label: 'Ver' },
+    { value: 'view_share', label: 'Ver e compartilhar' },
+]);
+
+/**
  * Placeholder SVG data URIs for missing thumbnails.
  * @readonly
  */
@@ -212,5 +249,7 @@ export const CATALOG_UI_ICONS = Object.freeze({
     VISIBLE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
     HIDDEN: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
     REMOVE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-    EMPTY: `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`
+    EMPTY: `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    LOCK: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+    SHARE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`
 });

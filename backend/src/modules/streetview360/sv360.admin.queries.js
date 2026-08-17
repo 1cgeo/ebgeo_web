@@ -279,9 +279,14 @@ export const DELETE_PROJECT = `
 //   - $1 = isAdmin (boolean): when true, no org restriction unless $3 is given;
 //   - $2 = userOrgId (uuid, nullable): the non-admin caller's org;
 //   - $3 = filterOrgId (uuid, nullable): optional ?orgId for a global admin.
+// `access_level` viaja junto com `status` e é um EIXO DISTINTO dele: `disabled`
+// oculta de todo mundo fora da OM dona, `private` restringe quem está de fora
+// (D6). O painel do administrador mostra os dois lado a lado, e sem esta coluna
+// ele teria de adivinhar um deles — que é como um eixo de acesso vira invisível
+// para quem o administra.
 export const LIST_PROJECTS_ADMIN = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status,
+         entry_photo_id, photo_count, db_filename, status, access_level,
          created_at, updated_at
   FROM sv360.projects
   WHERE (
