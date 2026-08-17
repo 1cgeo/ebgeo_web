@@ -9,8 +9,9 @@
  * ÚNICO que nenhum expurgo deste repositório alcança (nem o wipe de atlas, nem a destruição de
  * namespace, nem a varredura de logout). Um consumidor que só apagasse a entrega no SUCESSO deixaria
  * um arquivo de megabytes preso ali para sempre e o re-tentaria a cada F5, falhando igual. Por isso
- * `takePendingImport` lê-e-apaga incondicionalmente, e por isso o consumo tem UMA tentativa: o
- * arquivo continua no disco do usuário.
+ * `takePendingImport` lê-e-apaga, e por isso o consumo tem UMA tentativa: o arquivo continua no
+ * disco do usuário. A ÚNICA exceção é a entrega endereçada a OUTRA aba, que este boot não abre e
+ * não apaga; a idade (24h) é conferida antes do dono, então nem essa vira lixo eterno.
  *
  * O SEGUNDO RESÍDUO, e o motivo deste arquivo ter mudado de forma em 2026-08-16. Até então a TELA
  * criava o atlas local antes de navegar, e todo ramo que recusa aqui o deixava para trás. Ele nem
@@ -195,10 +196,15 @@ describe('o .ebgeo pendente: o caminho feliz', () => {
 // ============================================================================
 // OS RAMOS QUE RECUSAM ANTES DE CRIAR
 //
-// A propriedade é uma só e vale para os cinco: a entrega some do disco E nenhum atlas local nasce.
-// A segunda metade é a que este arquivo passou a cobrar, e é a que não tem erro quando quebra —
-// um slot a mais na lista do usuário, com um mapa `Principal` dentro, indistinguível de um atlas
-// que ele mesmo criou.
+// A propriedade central vale para os sete: NENHUM atlas local nasce. É a que não tem erro quando
+// quebra — um slot a mais na lista do usuário, com um mapa `Principal` dentro, indistinguível de
+// um atlas que ele mesmo criou.
+//
+// As outras duas colunas são o conserto de 2026-08-17, e cada uma corta para um lado:
+//   - a entrega some do disco em SEIS deles, e o sétimo (a de outra aba) é o único que a deixa
+//     de pé, porque a aba dona ainda vem buscá-la;
+//   - QUATRO deles falam. Antes, três dos sete devolviam `null` iguais e o consumidor calava em
+//     todos: o usuário clicava "Abrir arquivo .ebgeo", era levado ao mapa, e nada acontecia.
 // ============================================================================
 
 const RAMOS_DE_RECUSA = [
@@ -221,17 +227,42 @@ const RAMOS_DE_RECUSA = [
         aviso: null
     },
     {
-        nome: 'registro de OUTRO DEPLOY (o shape v1, que nomeava um slot): descartado calado',
+        nome: 'registro de OUTRO DEPLOY (o shape v1, que nomeava um slot): descartado, e DITO',
         preparar: async () => {
-            // Nem toast: não houve gesto do usuário NESTA aba a que responder. E o descarte é o que
-            // impede o pior dos dois mundos na virada de versão — o slot que a tela antiga criou
-            // sobreviveria à navegação, e o consumidor novo criaria um SEGUNDO ao lado dele.
+            // O descarte é o que impede o pior dos dois mundos na virada de versão: o slot que a
+            // tela antiga criou sobreviveria à navegação, e o consumidor novo criaria um SEGUNDO ao
+            // lado dele. O que mudou em 2026-08-17 foi o silêncio, não o descarte. Quem clicou
+            // "Abrir arquivo" segundos antes está OLHANDO para esta aba, e o arquivo não abriu.
             await ns.getGlobalStore().setItem('pending_import', {
                 version: 1, atlasId: 'slot-da-tela-antiga', name: NOME, savedAt: Date.now(), data: BYTES
             });
         },
         opcoes: {},
-        aviso: null
+        aviso: { nivel: 'warning', trecho: 'Escolha o arquivo novamente' }
+    },
+    {
+        nome: 'entrega EXPIRADA (mais de 24h): os bytes se perderam, e o usuário ouve isso',
+        preparar: async () => {
+            await entregaPronta();
+            databases.get(GLOBAL_DISK).get('pending_import').savedAt =
+                Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS - 1000;
+        },
+        opcoes: {},
+        aviso: { nivel: 'warning', trecho: 'Escolha o arquivo novamente' }
+    },
+    {
+        nome: 'entrega de OUTRA ABA: cala, e é o único ramo que NÃO apaga',
+        preparar: async () => {
+            // O `tabId` é uma string e este boot não tem `sessionStorage` (node), então o dono
+            // nunca bate: é exatamente a segunda aba que recarrega no meio do boot da primeira.
+            await ns.getGlobalStore().setItem('pending_import', {
+                version: 2, name: NOME, tabId: 'aba-que-pediu', savedAt: Date.now(), data: BYTES
+            });
+        },
+        opcoes: {},
+        // Calado de propósito: a aba dona vai avisar, e dois toasts para um arquivo é um a mais.
+        aviso: null,
+        deixaNoDisco: true
     },
     {
         nome: 'banco global ilegível: o boot segue, em vez de morrer numa leitura opcional',
@@ -243,7 +274,7 @@ const RAMOS_DE_RECUSA = [
 ];
 
 describe('o .ebgeo pendente: nenhum ramo de recusa gasta um atlas local', () => {
-    it.each(RAMOS_DE_RECUSA)('$nome', async ({ preparar, opcoes, aviso, calaWarn }) => {
+    it.each(RAMOS_DE_RECUSA)('$nome', async ({ preparar, opcoes, aviso, calaWarn, deixaNoDisco }) => {
         const warn = calaWarn ? vi.spyOn(console, 'warn').mockImplementation(() => {}) : null;
         await preparar();
         const { service, processFileDirectly } = importadorFalso();
@@ -261,7 +292,8 @@ describe('o .ebgeo pendente: nenhum ramo de recusa gasta um atlas local', () => 
         expect(processFileDirectly).not.toHaveBeenCalled();
         // E o log compartilhado confirma que NADA aconteceu, não só que estes dois não aconteceram.
         expect(chamadas).toEqual([]);
-        expect(entregaNoDisco()).toBe(false);
+        // A entrega some em todo ramo MENOS um: a de outra aba fica de pé, para a aba dona.
+        expect(entregaNoDisco()).toBe(Boolean(deixaNoDisco));
 
         if (aviso === null) {
             expect(avisos).toEqual([]);
@@ -273,10 +305,14 @@ describe('o .ebgeo pendente: nenhum ramo de recusa gasta um atlas local', () => 
         warn?.mockRestore();
     });
 
-    it('controle: os cinco ramos são ramos DISTINTOS, e não a mesma linha cinco vezes', () => {
-        // Uma tabela cujas entradas colapsassem no mesmo caminho passaria cinco vezes provando uma.
-        expect(new Set(RAMOS_DE_RECUSA.map(r => r.nome)).size).toBe(5);
-        expect(RAMOS_DE_RECUSA.filter(r => r.aviso !== null)).toHaveLength(2);
+    it('controle: os sete ramos são ramos DISTINTOS, e não a mesma linha sete vezes', () => {
+        // Uma tabela cujas entradas colapsassem no mesmo caminho passaria sete vezes provando uma.
+        expect(new Set(RAMOS_DE_RECUSA.map(r => r.nome)).size).toBe(7);
+        // QUATRO falam e três calam, e a divisão é a regra inteira: fala quem perdeu o arquivo do
+        // usuário (deep link, importador ausente, deploy anterior, expirada); cala quem não tinha
+        // arquivo nenhum (boot comum, banco ilegível) e quem tem dono conhecido (outra aba).
+        expect(RAMOS_DE_RECUSA.filter(r => r.aviso !== null)).toHaveLength(4);
+        expect(RAMOS_DE_RECUSA.filter(r => r.deixaNoDisco)).toHaveLength(1);
     });
 });
 

@@ -344,7 +344,8 @@ export const GlobalKey = Object.freeze({
      * page that mounts nothing write it.
      *
      * The flip side is that NO wipe collects it, so it must collect itself: see
-     * {@link takePendingImport}, which removes before it validates, and expires by age.
+     * {@link takePendingImport}, which removes an unreadable or expired record on sight, and
+     * leaves standing ONLY a record still inside its 24 h window and addressed to another tab.
      */
     PENDING_IMPORT: 'pending_import'
 });
@@ -789,6 +790,18 @@ export const PENDING_IMPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  * The name is REQUIRED and non-empty for the same reason: it is no longer decoration on a slot
  * that already exists, it is the name the new atlas will be created with.
  *
+ * AND IT NAMES THE TAB THAT ASKED (`tabId`, added 2026-08-17). The key is global, so every tab in
+ * the browser can see the record; before the stamp, the FIRST map boot to come along took it, which
+ * with two tabs open meant a second tab reloading in the seconds this boot takes would consume the
+ * file, create the atlas over there and yank its user into it, while the tab the user was actually
+ * looking at booted onto nothing and said nothing. The stamp is written HERE and not by the page,
+ * so the producer stays ignorant of it; `currentTabId()` explains why sessionStorage can carry it.
+ *
+ * THE VERSION IS NOT BUMPED FOR IT, deliberately. `tabId` is optional on the way in and missing
+ * means "any tab may claim it", which is exactly how the previous deploy's records behave and how a
+ * browser with storage disabled behaves. A bump would have turned every in-flight hand-over across
+ * a deploy into a silent drop, to buy nothing.
+ *
  * @param {Object} record
  * @param {string} record.name - Atlas name, i.e. the file name minus its extension.
  * @param {ArrayBuffer} record.data - Raw archive bytes.
@@ -804,31 +817,60 @@ export async function savePendingImport({ name, data }) {
     await getGlobalStore().setItem(GlobalKey.PENDING_IMPORT, {
         version: PENDING_IMPORT_VERSION,
         name: name.trim(),
+        tabId: currentTabId(),
         savedAt: Date.now(),
         data
     });
 }
 
 /**
- * Takes the pending `.ebgeo`, if there is one, AND REMOVES IT EITHER WAY.
+ * Why a read of the pending `.ebgeo` ended the way it did.
  *
- * READ-AND-REMOVE, in that order and unconditionally, is the whole contract. The record lives in
- * the one database no wipe reaches (`GlobalKey.PENDING_IMPORT` says why), so a reader that removed
- * only on success would leave megabytes of a file that failed to parse behind forever, and would
- * retry that same failure on every reload. The consumer therefore gets ONE attempt, which is the
- * right number: the user still has the file on disk.
+ * IT IS AN OUTCOME AND NOT A BOOLEAN because four different things used to arrive at the consumer
+ * as the same `null`: nothing was there, the record was unreadable, it had expired, and (since the
+ * tab stamp) it belongs to somebody else. Only the FIRST is ordinary — it is what every boot in the
+ * world returns. The other three are a file the user chose and did not get, and a caller holding a
+ * `null` cannot tell them apart, so it stayed quiet through all four.
+ */
+export const PendingImportOutcome = Object.freeze({
+    /** No hand-over at all: the ordinary boot. */
+    NONE: 'none',
+    /** A valid record, addressed to this tab (or to nobody), now removed. */
+    TAKEN: 'taken',
+    /** A valid, fresh record that names ANOTHER tab. THE ONLY OUTCOME THAT LEAVES IT ON DISK. */
+    OTHER_TAB: 'other-tab',
+    /** Older than `PENDING_IMPORT_MAX_AGE_MS`. Removed. */
+    STALE: 'stale',
+    /** Unknown version or broken shape (the previous deploy's records land here). Removed. */
+    UNREADABLE: 'unreadable'
+});
+
+/**
+ * Takes the pending `.ebgeo` if it is THIS TAB'S, and collects the garbage either way.
  *
- * A record of an unknown version, of the wrong shape, or older than `PENDING_IMPORT_MAX_AGE_MS`
- * is dropped and reported as absent rather than repaired.
+ * READ-AND-REMOVE is still the contract, and the reason has not moved: the record lives in the one
+ * database no wipe reaches (`GlobalKey.PENDING_IMPORT` says why), so a reader that removed only on
+ * success would leave megabytes of a file that failed to parse behind forever and would retry that
+ * same failure on every reload. The consumer gets ONE attempt, which is the right number, because
+ * the user still has the file on disk.
  *
- * @returns {Promise<{name: string, savedAt: number, data: ArrayBuffer}|null>}
+ * WHAT CHANGED IS THAT ONE BRANCH NOW DECLINES WITHOUT REMOVING: a record that is valid, fresh and
+ * stamped with ANOTHER tab's id is left exactly where it is, for the tab it was meant for. That is
+ * the whole two-tab fix, and it is bounded rather than open-ended — the age check runs BEFORE the
+ * owner check, so a record nobody ever comes back for is collected by whoever boots after 24 h.
+ *
+ * THE VALIDATION MOVED IN FRONT OF THE REMOVAL for the same reason, and gives up nothing: every
+ * branch that rejects a record still removes it, in the same turn, with no await in between.
+ *
+ * @returns {Promise<{outcome: string, record: {name: string, savedAt: number,
+ *   data: ArrayBuffer}|null}>} The outcome, and the record on `TAKEN` only.
  */
 export async function takePendingImport() {
     const globalStore = getGlobalStore();
     const stored = await globalStore.getItem(GlobalKey.PENDING_IMPORT);
-    if (stored === null || stored === undefined) return null;
-
-    await globalStore.removeItem(GlobalKey.PENDING_IMPORT);
+    if (stored === null || stored === undefined) {
+        return { outcome: PendingImportOutcome.NONE, record: null };
+    }
 
     if (typeof stored !== 'object'
         || stored.version !== PENDING_IMPORT_VERSION
@@ -836,16 +878,34 @@ export async function takePendingImport() {
         // throws on a blank one — a record that cannot name an atlas is not repairable here.
         || typeof stored.name !== 'string'
         || stored.name.length === 0
-        || !(stored.data instanceof ArrayBuffer)) {
-        return null;
+        || !(stored.data instanceof ArrayBuffer)
+        // Absent is legal (it means "anyone may claim"); anything that is neither absent nor a
+        // string is a shape this reader does not know, and guessing is how a file lands elsewhere.
+        || !(stored.tabId == null || typeof stored.tabId === 'string')) {
+        await globalStore.removeItem(GlobalKey.PENDING_IMPORT);
+        return { outcome: PendingImportOutcome.UNREADABLE, record: null };
     }
-    const savedAt = Number(stored.savedAt);
-    if (!Number.isFinite(savedAt) || Date.now() - savedAt > PENDING_IMPORT_MAX_AGE_MS) return null;
 
+    const savedAt = Number(stored.savedAt);
+    if (!Number.isFinite(savedAt) || Date.now() - savedAt > PENDING_IMPORT_MAX_AGE_MS) {
+        await globalStore.removeItem(GlobalKey.PENDING_IMPORT);
+        return { outcome: PendingImportOutcome.STALE, record: null };
+    }
+
+    // An UNSTAMPED record is claimable by anyone: it is what the previous deploy wrote, and what a
+    // browser with no sessionStorage writes. Refusing it would strand those hand-overs for 24 h.
+    if (typeof stored.tabId === 'string' && stored.tabId !== currentTabId()) {
+        return { outcome: PendingImportOutcome.OTHER_TAB, record: null };
+    }
+
+    await globalStore.removeItem(GlobalKey.PENDING_IMPORT);
     return {
-        name: stored.name,
-        savedAt,
-        data: stored.data
+        outcome: PendingImportOutcome.TAKEN,
+        record: {
+            name: stored.name,
+            savedAt,
+            data: stored.data
+        }
     };
 }
 
@@ -904,6 +964,62 @@ function tabStorage() {
     } catch {
         // Accessing `sessionStorage` THROWS (not returns null) in a cross-origin iframe with
         // storage blocked, so the guard has to be a try, not a truthiness test.
+        return null;
+    }
+}
+
+/** sessionStorage key holding the id of THIS TAB (Decision 6b). */
+export const TAB_ID_KEY = 'ebgeo_tab_id';
+
+/**
+ * A practically unique id for one tab. Inlined rather than imported from `utilities/uuid.js`
+ * because this module sits at the bottom of the store and imports nothing but `localforage`.
+ *
+ * `crypto.randomUUID` is ABSENT in a non-secure context (plain HTTP), which this app supports —
+ * the same fact that makes `navigator.locks` optional in Decision 5. The fallback is not a
+ * security token and never travels: it only has to tell two tabs of one browser apart.
+ * @returns {string}
+ */
+function mintTabId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/**
+ * WHO THIS TAB IS, minted on the first ask and stable until the tab closes.
+ *
+ * IT EXISTS FOR THE `.ebgeo` HAND-OVER, and `sessionStorage` is what makes it possible at all.
+ * The producer (`atlas.html`) and the consumer (the map) are two page loads OF THE SAME TAB, and
+ * sessionStorage is the one store that survives a same-tab navigation without being shared with
+ * every other tab. Decision 6 above already rests on exactly that property.
+ *
+ * IT IS NOT `utilities/tab-lock.js`'s TAB ID, which is a different thing wearing the same name:
+ * that one is minted per PAGE LOAD and lives in memory, so it is already gone by the time the map
+ * boots. Handing it over would compare a tab with itself and never match.
+ *
+ * NULL IS A SUPPORTED ANSWER, and it degrades to the behaviour that preceded this: a hand-over
+ * stamped `null` may be claimed by ANY tab (see {@link takePendingImport}). That is what a browser
+ * with storage disabled gets, and what a record written by the previous deploy gets.
+ *
+ * THE DUPLICATED TAB INHERITS IT, like every other sessionStorage value (Decision 6 says so of the
+ * mount pointer). A tab duplicated between choosing the file and the map's boot would therefore be
+ * accepted as the owner. Telling it apart needs a live probe, not a stamp, and the cost of being
+ * wrong here is the file landing in a tab the user themself cloned.
+ *
+ * @returns {string|null} The id, or null where sessionStorage does not exist or refuses to write.
+ */
+export function currentTabId() {
+    const storage = tabStorage();
+    if (!storage) return null;
+    try {
+        const known = storage.getItem(TAB_ID_KEY);
+        if (typeof known === 'string' && known.length > 0) return known;
+        const born = mintTabId();
+        storage.setItem(TAB_ID_KEY, born);
+        return born;
+    } catch {
+        // A storage that throws on write (quota, blocked): the hand-over falls back to
+        // "claimable by anyone" instead of becoming claimable by nobody.
         return null;
     }
 }

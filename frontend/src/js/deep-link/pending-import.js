@@ -8,10 +8,19 @@
  * IT LIVES HERE, out of `index.js`, for the reason `route-decision.js` states about its own rule:
  * `index.js` calls `initApp()` at import time, so nothing inside it can be exercised by a test. And
  * this one has a property worth a guard that no eye catches on review — the hand-over is REMOVED
- * from the global database on every path, the failed import included. The global database is the
- * one no wipe in this codebase reaches (`atlas-namespace.js`, `GlobalKey.PENDING_IMPORT`), so a
- * record kept "until the import succeeds" is megabytes surviving forever and re-failing on every
- * reload. One attempt is the right number: the user still has the file on disk.
+ * from the global database on every path this function returns through, the failed import included.
+ * The global database is the one no wipe in this codebase reaches (`atlas-namespace.js`,
+ * `GlobalKey.PENDING_IMPORT`), so a record kept "until the import succeeds" is megabytes surviving
+ * forever and re-failing on every reload. One attempt is the right number: the user still has the
+ * file on disk. The single exception is a record addressed to ANOTHER tab, which this boot never
+ * touches and never reads the bytes of (`PendingImportOutcome.OTHER_TAB`).
+ *
+ * AND EVERY LOSS IS SAID OUT LOUD, since 2026-08-17. `takePendingImport` used to answer four
+ * different questions with one `null` — nothing was there, the record was from another deploy, it
+ * had expired, it is somebody else's — and only the first is ordinary. The other three are a file
+ * the user chose and did not get, and they went by in silence: the boot fell through to the routing
+ * chain, landed the tab on some atlas, and never mentioned the file. The outcome is now named, and
+ * the two that mean "your file is gone" get a sentence.
  *
  * The effects the map owns (the importer control, the toast, and the creation of the atlas) arrive
  * as arguments; the reading and the erasing do not, and that is deliberate — they ARE the subject,
@@ -21,11 +30,23 @@
  * node against a doubled `localforage`.
  */
 
-import { takePendingImport } from '@store/atlas-namespace.js';
+import { takePendingImport, PendingImportOutcome } from '@store/atlas-namespace.js';
 
 /** Said when a `?atlas=` deep link wins over the file. */
 const RECUSA_DEEP_LINK = 'O arquivo .ebgeo escolhido em "Seus atlas" não foi aberto porque esta '
     + 'aba abriu outro atlas. Escolha o arquivo novamente.';
+
+/**
+ * Said when the hand-over was found but could not be used: it expired (the tab that asked for it
+ * never came back within the day), or it was written by another version of the app.
+ *
+ * IT DOES NOT EXPLAIN WHICH, on purpose. The two causes are the same event for the person reading
+ * it — the file did not open — and the only useful half of the sentence is the instruction. The
+ * distinction is in the console-free path above and in `PendingImportOutcome`, for whoever is
+ * reading the code.
+ */
+const RECUSA_ENTREGA_PERDIDA = 'O arquivo .ebgeo escolhido em "Seus atlas" não chegou a ser '
+    + 'aberto. Escolha o arquivo novamente.';
 
 /** Said when the map booted without its import/export control. */
 const RECUSA_SEM_IMPORTADOR = 'Não foi possível abrir o arquivo .ebgeo escolhido em "Seus atlas".';
@@ -53,9 +74,10 @@ const RECUSA_SEM_SLOT = 'Não foi possível criar um atlas local para este arqui
  * slot and wipes THAT one.
  *
  * SO THE STEPS ARE ORDERED BY WHAT THEY COST. Reading and erasing the hand-over first (it is the
- * one thing that must happen on every path); then the two refusals that cost nothing (a deep link,
- * a missing importer); and the creation LAST, because it is the only step that consumes one of the
- * ten local slots. A refused creation (the cap) imports nothing and says why.
+ * one thing that must happen on every path that reads the bytes); then the outcomes that are not an
+ * import at all (somebody else's file, a lost one); then the two refusals that cost nothing (a deep
+ * link, a missing importer); and the creation LAST, because it is the only step that consumes one of
+ * the ten local slots. A refused creation (the cap) imports nothing and says why.
  *
  * @param {Object} options
  * @param {boolean} options.hasDeepLink - Whether the URL names a server atlas (`?atlas` /
@@ -70,14 +92,23 @@ const RECUSA_SEM_SLOT = 'Não foi possível criar um atlas local para este arqui
  * @returns {Promise<boolean>} True when this boot WAS the import (the routing chain must not run).
  */
 export async function consumePendingEbgeoImport({ hasDeepLink, getImporter, createAtlas, notify }) {
+    let outcome = PendingImportOutcome.NONE;
     let pending = null;
     try {
-        pending = await takePendingImport();
+        ({ outcome, record: pending } = await takePendingImport());
     } catch (error) {
         console.warn('[boot] reading the pending .ebgeo failed:', error);
         return false;
     }
-    if (!pending) return false;
+
+    // A file that another tab is coming for. This boot never saw its bytes and must not report on
+    // it: the tab it belongs to is about to, and two toasts for one file is one too many.
+    if (outcome === PendingImportOutcome.OTHER_TAB) return false;
+    if (outcome === PendingImportOutcome.STALE || outcome === PendingImportOutcome.UNREADABLE) {
+        notify(RECUSA_ENTREGA_PERDIDA, 'warning');
+        return false;
+    }
+    if (outcome !== PendingImportOutcome.TAKEN || !pending) return false;
 
     if (hasDeepLink) {
         notify(RECUSA_DEEP_LINK, 'warning');

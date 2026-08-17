@@ -980,31 +980,39 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
 
         const primeiro = await ns.takePendingImport();
 
-        expect(primeiro).toMatchObject({ name: 'Operação Alfa' });
+        expect(primeiro.outcome).toBe(ns.PendingImportOutcome.TAKEN);
+        expect(primeiro.record).toMatchObject({ name: 'Operação Alfa' });
         // O registro NÃO nomeia mais um slot: quem cria o atlas é o consumidor, no instante em que
         // vai importar, e é isso que impede um boot que RECUSA de deixar um atlas órfão na lista.
-        expect(primeiro.atlasId).toBeUndefined();
-        expect(new Uint8Array(primeiro.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
+        expect(primeiro.record.atlasId).toBeUndefined();
+        expect(new Uint8Array(primeiro.record.data)).toEqual(new Uint8Array([1, 2, 3, 4]));
         expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
-        expect(await ns.takePendingImport()).toBeNull();
+        // E a segunda leitura é NONE, não uma recusa qualquer: distinguir "não havia nada" de
+        // "havia e se perdeu" é o que decide se o usuário ouve alguma coisa.
+        expect(await ns.takePendingImport())
+            .toEqual({ outcome: ns.PendingImportOutcome.NONE, record: null });
     });
 
-    it('um registro ILEGÍVEL some do disco em vez de voltar a cada boot', async () => {
-        // O caso que motiva "apagar antes de validar": nada mais neste código varre o banco
-        // global, então um registro que a validação recusa e o leitor não apaga é lixo eterno.
+    it('um registro ILEGÍVEL some do disco em vez de voltar a cada boot, e diz que sumiu', async () => {
+        // O caso que motiva a coleta: nada mais neste código varre o banco global, então um
+        // registro que a validação recusa e o leitor não apaga é lixo eterno.
         // A PRIMEIRA da lista é o shape v1, o do deploy anterior: ele nomeava um slot que a TELA
         // criava antes de navegar. Aceitá-lo hoje faria o consumidor criar um segundo atlas ao lado
-        // daquele, então ele é lixo pela mesma porta dos outros dois.
+        // daquele, então ele é lixo pela mesma porta dos outros.
+        // A ÚLTIMA é o `tabId` de tipo errado: ausente é legal (vale "qualquer aba"), mas um número
+        // é um shape que este leitor não conhece, e adivinhar é como um arquivo cai na aba errada.
         const podres = [
             { version: 1, atlasId: 'slot-da-tela-antiga', name: 'Alfa', savedAt: Date.now(), data: bytes() },
             { version: 99, name: 'x', data: bytes() },
             'texto solto',
-            42
+            42,
+            { version: 2, name: 'Alfa', tabId: 7, savedAt: Date.now(), data: bytes() }
         ];
         for (const podre of podres) {
             await ns.getGlobalStore().setItem(ns.GlobalKey.PENDING_IMPORT, podre);
 
-            expect(await ns.takePendingImport()).toBeNull();
+            expect(await ns.takePendingImport())
+                .toEqual({ outcome: ns.PendingImportOutcome.UNREADABLE, record: null });
             expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
         }
     });
@@ -1016,13 +1024,16 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
         // Um milissegundo DENTRO do prazo ainda é lido: sem este controle positivo, o caso abaixo
         // passaria também contra um leitor que recusa tudo.
         registro.savedAt = Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS + 1000;
-        expect(await ns.takePendingImport()).not.toBeNull();
+        expect((await ns.takePendingImport()).outcome).toBe(ns.PendingImportOutcome.TAKEN);
 
         await ns.savePendingImport({ name: 'Velho', data: bytes() });
         databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).savedAt =
             Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS - 1000;
 
-        expect(await ns.takePendingImport()).toBeNull();
+        // STALE e não NONE: quem escolheu o arquivo e não voltou em 24h perdeu os bytes, e o
+        // consumidor precisa poder dizer isso.
+        expect(await ns.takePendingImport())
+            .toEqual({ outcome: ns.PendingImportOutcome.STALE, record: null });
         expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
     });
 
@@ -1041,7 +1052,17 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
         await ns.clearPendingImport();
 
         expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
-        expect(await ns.takePendingImport()).toBeNull();
+        expect((await ns.takePendingImport()).outcome).toBe(ns.PendingImportOutcome.NONE);
+    });
+
+    it('sem sessionStorage o registro nasce SEM dono, e qualquer aba o consome', async () => {
+        // O node da suíte não tem `sessionStorage`, que é o mesmo caso do navegador com
+        // armazenamento desligado. O degrade tem de ser para o comportamento ANTIGO (qualquer aba
+        // leva), nunca para "ninguém leva", que prenderia a entrega por 24h.
+        await ns.savePendingImport({ name: 'Sem dono', data: bytes() });
+
+        expect(databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).tabId).toBeNull();
+        expect((await ns.takePendingImport()).outcome).toBe(ns.PendingImportOutcome.TAKEN);
     });
 
     it('a chave NÃO ganhou um descritor: continuam 12 bancos', () => {
@@ -1049,5 +1070,121 @@ describe('atlas-namespace :: o .ebgeo pendente', () => {
         // dentro do banco global (que seria upgrade de versão do IndexedDB).
         expect(ns.STORE_DESCRIPTORS).toHaveLength(12);
         expect(ns.GlobalKey.PENDING_IMPORT).toBe('pending_import');
+    });
+});
+
+// ============================================================================
+// A ENTREGA ENDEREÇADA À ABA (Decisão 6b)
+//
+// O DEFEITO QUE ISTO PRENDE, e ele é de gesto simples: a chave é GLOBAL, então toda aba do
+// navegador enxerga a entrega. Enquanto ela não tinha dono, quem levava era o PRIMEIRO boot de
+// mapa a passar, e o boot da aba certa leva segundos (controles, `bootRendered`, o tab-lock).
+// Um F5 numa segunda aba nesse intervalo consumia o arquivo, criava o atlas LÁ e arrancava
+// aquele usuário para dentro dele, enquanto a aba onde o usuário clicou "Abrir arquivo" pousava
+// em nada, calada.
+//
+// A DUPLA QUE DÁ SENTIDO A ESTE BLOCO é o par "outra aba não leva" / "e a dona ainda encontra":
+// um leitor que simplesmente recusasse tudo passaria na primeira e falharia na segunda, e um
+// que apagasse ao recusar passaria na primeira e faria a dona achar NONE.
+// ============================================================================
+
+describe('atlas-namespace :: a entrega endereçada à aba', () => {
+    const GLOBAL_DISK = 'ebgeo_global::keyvaluepairs';
+    const bytes = () => new Uint8Array([9, 8, 7]).buffer;
+
+    /**
+     * Entra numa aba: instala um `sessionStorage` próprio dela. Chamar duas vezes com o mesmo
+     * respaldo é a MESMA aba depois de navegar (o caso `atlas.html` -> mapa); com respaldos
+     * diferentes, são duas abas.
+     * @param {Map<string, string>} [backing]
+     * @returns {Map<string, string>} O respaldo, para voltar a esta aba depois.
+     */
+    function naAba(backing = new Map()) {
+        vi.stubGlobal('sessionStorage', fakeTabStorage(backing));
+        return backing;
+    }
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('o id da aba é estável dentro da aba, e diferente entre abas', () => {
+        const abaA = naAba();
+        const primeiro = ns.currentTabId();
+
+        expect(primeiro).toEqual(expect.any(String));
+        expect(primeiro.length).toBeGreaterThan(0);
+        // Estável: a segunda pergunta na mesma aba não cunha outro id, senão a navegação de
+        // `atlas.html` para o mapa já trocaria de identidade no meio do caminho.
+        expect(ns.currentTabId()).toBe(primeiro);
+        // E ele mora numa chave só, com este nome: um id guardado com outro nome seria invisível
+        // para a aba depois da navegação, e este teste não veria diferença.
+        expect([...abaA.keys()]).toEqual([ns.TAB_ID_KEY]);
+
+        naAba();
+        expect(ns.currentTabId()).not.toBe(primeiro);
+    });
+
+    it('a MESMA aba, depois de navegar, leva a entrega que ela mesma deixou', async () => {
+        const aba = naAba();
+        await ns.savePendingImport({ name: 'Operação Alfa', data: bytes() });
+        const dono = databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).tabId;
+
+        // A navegação: mesma aba, outro page load. `sessionStorage` sobrevive, e é essa a
+        // propriedade toda em que o endereçamento se apoia.
+        naAba(aba);
+
+        expect(dono).toBe(ns.currentTabId());
+        const levou = await ns.takePendingImport();
+        expect(levou.outcome).toBe(ns.PendingImportOutcome.TAKEN);
+        expect(new Uint8Array(levou.record.data)).toEqual(new Uint8Array([9, 8, 7]));
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+    });
+
+    it('OUTRA aba recusa E NÃO APAGA, e a aba dona ainda encontra o arquivo', async () => {
+        const aba = naAba();
+        await ns.savePendingImport({ name: 'Operação Alfa', data: bytes() });
+
+        naAba();
+        const intrusa = await ns.takePendingImport();
+
+        expect(intrusa).toEqual({ outcome: ns.PendingImportOutcome.OTHER_TAB, record: null });
+        // A metade que não pode faltar: recusar apagando perderia o arquivo do mesmo jeito, só
+        // que com um nome mais bonito.
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(true);
+
+        naAba(aba);
+        const levou = await ns.takePendingImport();
+        expect(levou.outcome).toBe(ns.PendingImportOutcome.TAKEN);
+        expect(new Uint8Array(levou.record.data)).toEqual(new Uint8Array([9, 8, 7]));
+    });
+
+    it('a entrega de uma aba que nunca voltou é coletada por QUALQUER aba, depois de 24h', async () => {
+        // O contrapeso de "recusar sem apagar": a aba dona pode ter fechado. A idade é conferida
+        // ANTES do dono exatamente para isso, senão o registro de uma aba morta seria lixo eterno
+        // no único banco que nenhum expurgo deste código varre.
+        naAba();
+        await ns.savePendingImport({ name: 'Órfã', data: bytes() });
+        databases.get(GLOBAL_DISK).get(ns.GlobalKey.PENDING_IMPORT).savedAt =
+            Date.now() - ns.PENDING_IMPORT_MAX_AGE_MS - 1000;
+
+        naAba();
+
+        expect(await ns.takePendingImport())
+            .toEqual({ outcome: ns.PendingImportOutcome.STALE, record: null });
+        expect(databases.get(GLOBAL_DISK).has(ns.GlobalKey.PENDING_IMPORT)).toBe(false);
+    });
+
+    it('registro SEM dono (o deploy anterior) continua sendo de quem chegar primeiro', async () => {
+        // Sem bump de versão, de propósito: um registro v2 sem `tabId` é o que a versão anterior
+        // gravou, e recusá-lo transformaria toda entrega em trânsito no deploy em perda calada.
+        naAba();
+        await ns.getGlobalStore().setItem(ns.GlobalKey.PENDING_IMPORT, {
+            version: 2, name: 'Do deploy antigo', savedAt: Date.now(), data: bytes()
+        });
+
+        naAba();
+
+        expect((await ns.takePendingImport()).outcome).toBe(ns.PendingImportOutcome.TAKEN);
     });
 });
