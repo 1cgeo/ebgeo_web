@@ -1,6 +1,6 @@
 // Path: tests/integration/resource-access-listagem-crua.test.js
 //
-// R1 — O BURACO REGISTRADO POR ESCRITO ANTES DE SER ABERTO (fase F0).
+// R1 — O BURACO, ESCRITO ANTES DE SER ABERTO (F0) E MEDIDO DEPOIS (F1).
 //
 // `catalog.routes.js` monta `router.get('/', auth, ctrl.list(table))`: leitura de
 // catálogo exige token e mais nada. Enquanto todo recurso é público isso é
@@ -97,18 +97,50 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
     assert.equal(exercidas, 3);
   });
 
-  it('a coluna access_level ainda NÃO existe: este arquivo documenta o pré-estado', async () => {
+  // A partir de F1 a coluna EXISTE, então o buraco deixa de ser previsão e passa a
+  // ser mensurável: dá para marcar uma linha como privada e ver a rota entregá-la
+  // a quem não deveria. É o que este caso faz. Ele fica VERDE em F1 (afirmando o
+  // vazamento) e é reescrito em F2 para a asserção inversa, quando o filtro entrar.
+  //
+  // Medir vale mais que prever: um teste que só dissesse "quando a coluna existir,
+  // vai vazar" nunca seria confrontado com o produto.
+  it('a coluna access_level existe nas três tabelas (F1 entrou)', async () => {
     const { rows } = await db.query(
       `SELECT table_name FROM information_schema.columns
         WHERE table_schema = 'public' AND column_name = 'access_level'
           AND table_name = ANY($1::text[])`,
       [ROTAS.map(([, t]) => t)]
     );
-    // Quando a fase F1 entrar, este caso vira vermelho de propósito: é o sinal de
-    // que os casos marcados acima precisam ser reescritos para a asserção inversa.
     assert.deepEqual(
-      rows.map((r) => r.table_name).sort(), [],
-      'access_level já existe — a fase F1 entrou. Reescreva os casos marcados neste arquivo (R1).'
+      rows.map((r) => r.table_name).sort(),
+      ROTAS.map(([, t]) => t).sort(),
+      'a migração 017 precisa ter posto access_level nas três tabelas de catálogo em uso'
     );
+  });
+
+  it('R1 MEDIDO: marcada privada, a linha AINDA vaza pela rota crua para o usuário comum', async () => {
+    let vazaram = 0;
+    for (const [rota, tabela] of ROTAS) {
+      await db.query(`UPDATE ${tabela} SET access_level = 'private' WHERE id = $1`, [idDe(rota)]);
+      try {
+        const doUsuario = await como(userToken, 'get', `/api/v1/${rota}`).expect(200);
+        const ids = doUsuario.body.data.map((r) => r.id);
+
+        // ESTE É O BURACO. A fase F2 inverte a asserção: `ok(!ids.includes(...))`,
+        // e o admin continua vendo, com a contagem diferindo de exatamente 1.
+        assert.ok(
+          ids.includes(idDe(rota)),
+          `${rota}: hoje a rota crua entrega a linha PRIVADA a qualquer autenticado (R1, aberto até F2)`
+        );
+
+        // E por GET /:id também — o plano nomeia só a listagem, e o item
+        // individual vaza pelo mesmo caminho.
+        await como(userToken, 'get', `/api/v1/${rota}/${idDe(rota)}`).expect(200);
+        vazaram += 1;
+      } finally {
+        await db.query(`UPDATE ${tabela} SET access_level = 'public' WHERE id = $1`, [idDe(rota)]);
+      }
+    }
+    assert.equal(vazaram, 3, 'guarda: as três rotas precisam ter sido medidas');
   });
 });
