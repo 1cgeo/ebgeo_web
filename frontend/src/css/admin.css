@@ -190,6 +190,15 @@
     color: var(--primary-700);
 }
 
+/* Âmbar, o mesmo par do selo "Pendente" logo abaixo: o Curador fica ENTRE
+   Usuário (cinza) e Admin (verde), e a cor precisa dizer isso sem ler o texto.
+   Os tokens de design não têm família de aviso, então o valor é literal aqui
+   como já é lá. */
+.admin-chip--curator {
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
 .admin-chip--user {
     background: var(--gray-100);
     color: var(--gray-600);

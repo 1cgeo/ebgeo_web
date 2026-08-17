@@ -108,8 +108,8 @@ const CENSO = [
   },
   {
     arquivo: 'src/modules/users/users.schemas.js',
-    trecho: "role: Joi.string().valid('user', 'admin')", n: 2, classe: PODER,
-    motivo: 'A borda de escrita do papel (criar e editar usuário). É o sítio que a fase F4 PRECISA mudar, e o único: acrescentar o valor aqui é o que dá ao painel do admin o poder de nomear um curador. Enquanto não muda, o valor é inalcançável por API.',
+    trecho: "role: Joi.string().valid('user', 'admin', 'curator')", n: 2, classe: PODER,
+    motivo: 'A borda de escrita do papel (criar e editar usuário), e o ÚNICO sítio que a fase F4 mudou: acrescentar o valor aqui é o que dá ao painel do admin o poder de nomear um curador. Continua classificado como PODER porque é a borda que decide quem recebe qual papel, e não um gate de acesso a dado.',
   },
   {
     arquivo: 'src/modules/users/users.service.js',
@@ -304,6 +304,32 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
       .filter((e) => ![PODER, DADO, ORG].includes(e.classe) || !e.motivo || e.motivo.length < 40)
       .map((e) => `${e.arquivo} :: ${e.trecho}`);
     assert.deepEqual(ruins, [], 'entrada de censo sem classe válida ou sem motivo escrito');
+  });
+
+  it('o valor `curator` NÃO entrou em nenhum gate de PODER', () => {
+    // O RISCO DESTA FASE É O INVERSO DO USUAL. A lista fechada de papel costuma
+    // errar por EXCLUIR o nível de cima; aqui o perigo é alguém escrever
+    // `role === 'admin' || role === 'curator'` num gate de administração e promover
+    // o curador em silêncio. Esta varredura é independente do censo: ela olha o
+    // CÓDIGO dos arquivos classificados como PODER e cobra que `curator` só apareça
+    // na borda de ESCRITA do papel, que é onde ele nasce.
+    const deEscritaDePapel = 'src/modules/users/users.schemas.js';
+    const arquivosDePoder = [...new Set(CENSO.filter((e) => e.classe === PODER).map((e) => e.arquivo))]
+      .filter((a) => a !== deEscritaDePapel);
+    assert.ok(arquivosDePoder.length >= 8, `esperava >= 8 arquivos de poder, achei ${arquivosDePoder.length}`);
+
+    const contaminados = arquivosDePoder
+      .filter((a) => /'curator'|"curator"/.test(semComentarios(fs.readFileSync(path.join(RAIZ, a), 'utf8'))))
+      .map((a) => `${a} cita 'curator' num arquivo classificado como gate de PODER`);
+    assert.deepEqual(contaminados, [], 'o curador não pode aparecer em gate de administração do sistema');
+
+    // Discriminação: a borda de escrita CITA o valor, senão o papel seria
+    // inalcançável por API e este caso passaria verde num sistema sem curador.
+    assert.match(
+      semComentarios(fs.readFileSync(path.join(RAIZ, deEscritaDePapel), 'utf8')),
+      /'curator'/,
+      'a borda de escrita do papel precisa aceitar `curator`, senão ninguém pode nomear um'
+    );
   });
 
   it('os gates de PODER continuam sendo maioria e nomeiam require-admin', () => {

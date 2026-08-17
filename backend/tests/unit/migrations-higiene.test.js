@@ -49,6 +49,12 @@ const EXCECOES_DESTRUTIVAS = [
   { arquivo: '006_catalog_layer_text_id.sql', trecho: 'ALTER TABLE catalog_layers ALTER COLUMN id TYPE TEXT' },
   { arquivo: '006_catalog_layer_text_id.sql', trecho: 'ALTER TABLE catalog_layers DROP CONSTRAINT catalog_layers_pkey' },
   { arquivo: '007_audit_zone_actions.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check' },
+  // ALARGAR um CHECK é compatível para trás — todo valor aceito antes continua
+  // aceito — mas Postgres não tem `ALTER CONSTRAINT` para expressão de CHECK, então
+  // o constraint precisa cair e voltar. Mesmo alargamento de 007, e o custo é esta
+  // linha: sem ela a suíte fica vermelha com uma mensagem sobre "DDL destrutiva não
+  // documentada", que não parece ter relação nenhuma com permissões.
+  { arquivo: '018_user_role_curator.sql', trecho: 'ALTER TABLE users DROP CONSTRAINT users_role_check' },
 ];
 
 const PADROES_DESTRUTIVOS = [

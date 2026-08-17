@@ -156,8 +156,8 @@ class SessionContext {
     }
 
     /**
-     * Global system role ('user' | 'admin'), independent of the per-atlas `role`. Null when offline
-     * or for an anonymous visitor.
+     * Global system role ('user' | 'admin' | 'curator'), independent of the per-atlas `role`. Null
+     * when offline or for an anonymous visitor.
      * @returns {string|null}
      */
     get globalRole() {
@@ -171,6 +171,28 @@ class SessionContext {
      */
     isAdmin() {
         return this._globalRole === UserRole.ADMIN;
+    }
+
+    /**
+     * Se este usuário enxerga TODO recurso privado do catálogo por PAPEL GLOBAL
+     * (administrador ou curador).
+     *
+     * EIXO SEPARADO DE `isAdmin()`, e a separação é o ponto da fase inteira: o
+     * curador vê dado privado e NÃO administra nada — não abre o painel do admin,
+     * não vira dono de atlas, não marca recurso como privado. Juntar os dois numa
+     * função só é exatamente a promoção silenciosa que o censo do backend existe
+     * para impedir.
+     *
+     * `UserRole` e `ROLE_PERMISSIONS` NÃO são tocados de propósito: aquele é o
+     * vocabulário POR ATLAS (owner/admin/manager/editor/commenter/viewer) e este
+     * eixo é global. São homônimos sem parentesco.
+     *
+     * Isto é só para a UI decidir o que MOSTRAR. Quem decide o que ENTREGAR é o
+     * servidor, e ele resolve o papel no banco em vez de aceitar o do token.
+     * @returns {boolean}
+     */
+    hasGlobalDataAccess() {
+        return this._globalRole === UserRole.ADMIN || this._globalRole === 'curator';
     }
 
     /**

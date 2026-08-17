@@ -18,6 +18,18 @@ import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
 
 /**
+ * O selo do papel GLOBAL na tabela. Mapa em vez de ternário porque o eixo deixou de
+ * ser binário quando o Curador entrou, e um ternário com três valores é a forma que
+ * silenciosamente mostra "Usuário" para o papel novo.
+ * @type {Object<string, {rotulo: string, variante: string}>}
+ */
+const ROLE_CHIP = {
+    admin: { rotulo: 'Admin', variante: 'admin' },
+    curator: { rotulo: 'Curador', variante: 'curator' },
+    user: { rotulo: 'Usuário', variante: 'user' },
+};
+
+/**
  * Builds <select> options from a backend controlled list (config.postos /
  * config.organizacoesMilitares). The option VALUE is the row id (FK); a leading
  * "(nenhum)" allows clearing, and the user's current id is preserved (labelled with
@@ -202,8 +214,8 @@ class UsersTab {
 
             const roleTd = document.createElement('td');
             const roleChip = document.createElement('span');
-            roleChip.className = `admin-chip admin-chip--${u.role === 'admin' ? 'admin' : 'user'}`;
-            roleChip.textContent = u.role === 'admin' ? 'Admin' : 'Usuário';
+            roleChip.className = `admin-chip admin-chip--${ROLE_CHIP[u.role]?.variante ?? 'user'}`;
+            roleChip.textContent = ROLE_CHIP[u.role]?.rotulo ?? 'Usuário';
             roleTd.appendChild(roleChip);
             tr.appendChild(roleTd);
 
@@ -277,8 +289,16 @@ class UsersTab {
         const om = selectField(form, 'Organização Militar', 'admin-userform-om',
             buildDomainOptions(config.organizacoesMilitares, user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
 
+        // O CURADOR FICA ENTRE OS DOIS, e o rótulo diz o que ele é para que ninguém o
+        // escolha achando que está dando poder de administração: ele enxerga todo
+        // recurso privado do catálogo e não administra nada — não abre este painel,
+        // não vira dono de atlas alheio, não marca recurso como privado.
         const role = selectField(form, 'Papel', 'admin-userform-role',
-            [{ value: 'user', label: 'Usuário' }, { value: 'admin', label: 'Admin (sistema)' }],
+            [
+                { value: 'user', label: 'Usuário' },
+                { value: 'curator', label: 'Curador (vê todo recurso privado)' },
+                { value: 'admin', label: 'Admin (sistema)' },
+            ],
             user?.role || 'user');
 
         // Papel DENTRO da OM, distinto do papel global acima. Sem este campo a coluna

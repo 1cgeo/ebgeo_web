@@ -40,7 +40,13 @@ export const createUserAdminSchema = Joi.object({
   nome: Joi.string().required().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
-  role: Joi.string().valid('user', 'admin').default('user'),
+  // 'curator' (D5) e o papel GLOBAL que enxerga todo recurso privado do catalogo
+  // SEM ser administrador do sistema. Esta borda e o unico lugar do backend que
+  // precisou mudar para o papel existir na pratica — nenhum gate de PODER foi
+  // tocado, e e assim que eles tem de continuar. O censo
+  // (tests/unit/papel-global-censo.test.js) classifica cada sitio e reprova o que
+  // aparecer sem classificacao.
+  role: Joi.string().valid('user', 'admin', 'curator').default('user'),
   // See the note on updateUserAdminSchema.org_role: the column had no writer at all
   // until 2026-07-19, which left the sv360 org-scoped write gate permanently closed.
   org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer').default('viewer'),
@@ -54,7 +60,7 @@ export const updateUserAdminSchema = Joi.object({
   nome: Joi.string().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
-  role: Joi.string().valid('user', 'admin'),
+  role: Joi.string().valid('user', 'admin', 'curator'),
   is_active: Joi.boolean(),
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.
