@@ -36,11 +36,24 @@ describeOrSkip('Atlas config — Dados/Análise restriction gates the catalog', 
             expect(before).toContain('data-limites-municipais');
             expect(before).toContain('analysis-declividade');
 
-            // Owner restricts the "Rodovias Federais" data layer via the atlas-config "Catálogo" tab.
-            await owner.locator('[data-testid="account-control"] .account-control__identity').click();
-            await owner.locator('[data-testid="account-settings-btn"]').click();
-            await expect(owner.locator('.atlas-config--tabbed')).toBeVisible({ timeout: 10000 });
-            await owner.locator('[data-tab="catalogo"]').click();
+            // Owner restricts the "Rodovias Federais" data layer via the atlas-config "Catálogo" section.
+            //
+            // TRÊS coisas mudaram aqui em 2026-08-16 (7ac710cc), e as três são de gesto, não de
+            // propriedade. (1) O modal deixou de ser alcançado pelo menu da conta: "Configurar atlas"
+            // e o modal do exagero viraram UMA tela só, e o único caminho até ela é o botão
+            // "Configurações" da aba Mapas (`.sidebar-settings-btn` → `showAtlasSettingsModal`);
+            // `account-settings-btn` não existe mais em `src/`. (2) As abas viraram navegação
+            // lateral, então `[data-tab="catalogo"]` deu lugar a `atlas-settings-nav-catalogo`.
+            // (3) A classe do contêiner `.atlas-config--tabbed` sumiu; esperar pelo item de
+            // navegação prova a mesma coisa que ela provava, que o corpo passou do "Carregando…".
+            //
+            // A propriedade sob teste é a de sempre: um Gestor restringe uma camada de dados e o
+            // catálogo do PAR deixa de listá-la, com as outras intactas.
+            await owner.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+            await owner.locator('.sidebar-settings-btn').click();
+            const navCatalogo = owner.locator('[data-testid="atlas-settings-nav-catalogo"]');
+            await expect(navCatalogo).toBeVisible({ timeout: 10000 });
+            await navCatalogo.click();
             const card = owner.locator('[data-catalog-id="rodovias-federais"]');
             await expect(card).toBeVisible({ timeout: 5000 });
             // The card's toggle input is visually hidden (0-size) — flip it + fire change so onToggle runs.

@@ -206,7 +206,12 @@ describeOrSkip('atlas local: excluir avisa a aba irmã', () => {
         // O CONTROLE que o campo `reason` existe para dar: a frase da sessão encerrada mentiria
         // duas vezes aqui (ninguém saiu da conta, e não há trabalho não enviado a descartar).
         await expect(overlay).not.toContainText('saiu da conta');
-        await expect(overlay).not.toContainText('projeto do servidor');
+        // "projeto do servidor" até 2026-08-16; a frase da sessão encerrada em `tab-lock.js` diz
+        // hoje "este ATLAS do servidor". Enquanto a palavra antiga ficou aqui, este controle era
+        // VACUO: a frase procurada não existia em estado nenhum do produto, então ele passava verde
+        // sem distinguir nada, inclusive se o overlay errado fosse mostrado. Ele não ficou vermelho
+        // com a troca de vocabulário, e é por isso que só uma varredura o encontra.
+        await expect(overlay).not.toContainText('atlas do servidor');
 
         // E o slot sumiu da tela, que é o efeito que o usuário pediu.
         await expect(tela.locator('[data-testid="local-atlas-item"]', { hasText: 'Alvo do aviso' }))

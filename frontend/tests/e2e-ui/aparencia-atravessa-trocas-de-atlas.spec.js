@@ -109,16 +109,24 @@ describeOrSkip('aparência atravessa as trocas de atlas', () => {
         };
 
         await abrirServidor('AAA Servidor um');
-        expect((await lerAparencia(page)).globoEfetivo, 'o local vazou para o servidor').toBe(true);
+        // POLL: o badge online NÃO significa aparência relida. Em `openRemoteAtlas` o
+        // `syncEngine.connect()` (que acende o badge) vem ANTES de `reapplyAtlasAppearance()`, e
+        // `globoEfetivo` lê um cache de módulo que até lá guarda a escolha do atlas anterior. O
+        // irmão `aparencia-do-atlas-persiste.spec.js` reprovou exatamente assim numa máquina rápida.
+        await expect
+            .poll(async () => (await lerAparencia(page)).globoEfetivo, { timeout: 20000 })
+            .toBe(true); // o local vazou para o servidor
         await configurarPlano(page, 1.9);
         await page.waitForTimeout(3000); // a op precisa subir antes de trocar de atlas
 
         // ---------- REMOTO → REMOTO ----------
         await page.goto(PROJETOS);
         await abrirServidor('ZZZ Servidor dois');
-        const segundoRemoto = await lerAparencia(page);
-        expect(segundoRemoto.globoEfetivo, 'um projeto de servidor herdou a projeção do outro').toBe(true);
-        expect(segundoRemoto.globoNoDisco).toBe(null);
+        // Mesma corrida da leitura acima, mesmo motivo: espere a releitura, não o badge.
+        await expect
+            .poll(async () => (await lerAparencia(page)).globoEfetivo, { timeout: 20000 })
+            .toBe(true); // um projeto de servidor herdou a projeção do outro
+        expect((await lerAparencia(page)).globoNoDisco).toBe(null);
 
         // ---------- REMOTO → REMOTO (de volta ao que escolheu plano) ----------
         await page.goto(PROJETOS);

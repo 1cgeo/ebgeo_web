@@ -96,7 +96,21 @@ describeOrSkip('aparência do atlas', () => {
 
         // O atlas do servidor nasce sem escolha: globo, e NÃO o "plano" do slot local — o que
         // também prova que a preferência é por atlas e não por instalação.
-        expect((await lerAparencia(page)).efetivoGlobo).toBe(true);
+        //
+        // POLL, NÃO LEITURA ÚNICA, e a razão é a ORDEM em `openRemoteAtlas`
+        // (`account/open-atlas.service.js`): `syncEngine.connect()` vem PRIMEIRO, e é ele que acende
+        // o badge; `reapplyAtlasAppearance()` só roda depois, atrás de `activateAtlasInitialMap` e
+        // da troca de camada base. O badge online, portanto, NÃO significa que a aparência do atlas
+        // novo já foi relida, e `currentGlobeProjection()` lê um cache de módulo que até lá ainda
+        // guarda a escolha do atlas ANTERIOR. Uma leitura única aqui mede essa janela, não o
+        // produto: reprovou duas vezes seguidas numa máquina rápida (~9 s) e passou numa lenta
+        // (~15 s), que é a assinatura de corrida, não de defeito.
+        //
+        // O poll não afrouxa a asserção: se a preferência realmente vazasse entre atlas, o valor
+        // nunca viraria `true` e o caso reprovaria igual, só que pelo motivo certo.
+        await expect
+            .poll(async () => (await lerAparencia(page)).efetivoGlobo, { timeout: 20000 })
+            .toBe(true);
 
         await abrirConfiguracoes(page);
         await page.locator('[data-testid="atlas-settings-projection-plano"]').click();

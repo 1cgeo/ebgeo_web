@@ -90,11 +90,23 @@ async function loginAndOpen(page, seed) {
     await page.goto('/');
     // Positive control on the instrument itself: without it, a patch that silently stopped
     // applying would come back as "the idle warning is broken" all over again.
-    const applied = await page.evaluate(async () => {
-        const config = (await import('/src/js/config.js')).default;
-        return config.features?.idle_timeout_minutes ?? null;
-    });
-    expect(applied, 'a janela de inatividade encurtada nao chegou ao config do app')
+    //
+    // POLL, NÃO LEITURA ÚNICA: `page.goto` volta no load, mas o app HIDRATA o config de forma
+    // assíncrona, a partir do `GET /api/config` (o servidor é a fonte única; `config.js` é só o
+    // formato). Ler uma vez logo depois do goto mede, às vezes, o objeto ainda vazio e devolve
+    // `null` — foi assim que este controle reprovou em 1,8 s, acusando o instrumento de não ter
+    // aplicado a janela quando ele só ainda não tinha sido consultado.
+    //
+    // O controle continua sendo controle: se o patch de fato nunca chegar ao config, o valor nunca
+    // vira `IDLE_MINUTES` e o caso reprova com a mesma mensagem, só que pelo motivo certo.
+    await expect
+        .poll(async () => page.evaluate(async () => {
+            const config = (await import('/src/js/config.js')).default;
+            return config.features?.idle_timeout_minutes ?? null;
+        }), {
+            timeout: 15000,
+            message: 'a janela de inatividade encurtada nao chegou ao config do app',
+        })
         .toBe(IDLE_MINUTES);
     await loginUI(page, seed.username, seed.password);
     await openAtlasUI(page, seed.atlasId); // last interaction; from here we stay idle

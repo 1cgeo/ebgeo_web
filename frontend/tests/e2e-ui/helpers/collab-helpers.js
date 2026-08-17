@@ -298,24 +298,148 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         return norm(active) === norm(id);
     }, toolId, { timeout: 15000 });
 
-    // Project each lng/lat to a viewport pixel (map projection + canvas offset).
-    const pts = await page.evaluate((cs) => {
+    // O MAPA PRECISA ESTAR ASSENTADO ANTES DE SER DIRIGIDO, e "o tool está ativo" não diz isso.
+    //
+    // Quem abre um atlas de servidor (`openRemoteAtlas`) segue trabalhando DEPOIS do ponto em que
+    // `openClient` libera o teste: o helper espera o mapa do atlas ficar ativo (chave UUID), mas
+    // ainda vêm `BaseLayerControl.switchMap()`, que RECARREGA O ESTILO, e
+    // `reapplyAtlasAppearance()`, que chama `map.setProjection(...)`. Trocar a projeção muda o que
+    // `map.project()` devolve, e recarregar o estilo derruba as fontes sob o desenho em curso. Um
+    // desenho iniciado nessa janela clica em pixels que já não correspondem ao lng/lat pedido, ou
+    // perde o vértice, e o sintoma é o mesmo timeout mudo lá embaixo — foi assim que o §14.9
+    // reprovava na PRIMEIRA linha, logo após `openClient`, e não na segunda.
+    //
+    // `isStyleLoaded()` cobre a recarga de estilo e `isMoving()` cobre câmera/projeção em
+    // transição. Isto é espera por ESTADO do mapa, não por prazo.
+    await page.waitForFunction(() => {
         const map = globalThis.__ebgeoMap;
-        const rect = map.getCanvas().getBoundingClientRect();
-        return cs.map(([lng, lat]) => {
-            const p = map.project([lng, lat]);
-            return { x: Math.round(rect.left + p.x), y: Math.round(rect.top + p.y) };
-        });
-    }, coords);
+        return !!map && map.isStyleLoaded?.() === true && map.isMoving?.() === false;
+    }, null, { timeout: 20000 });
+
+    /**
+     * Projeta UM lng/lat para pixel de viewport, NO INSTANTE DO CLIQUE.
+     *
+     * Projetar todos os pontos de uma vez, antes do primeiro clique, era uma foto que envelhecia
+     * durante o desenho. O que a invalida é o próprio produto: ao terminar uma feição,
+     * `createFeature` chama `selectionManager.toggleFeatureSelection` + `updateUI()`, que ABRE o
+     * painel de atributos e REDIMENSIONA o canvas do mapa. Num spec que desenha duas linhas
+     * seguidas (o caso §14.9), a segunda projeta seus pixels enquanto o painel da primeira ainda
+     * está animando, e os cliques caem em lng/lat que não são os pedidos — às vezes fora da tela,
+     * às vezes perto demais um do outro, e aí `isPointTooClose` descarta o vértice final e a linha
+     * de um ponto só é jogada fora SEM erro nenhum. O sintoma é sempre o mesmo timeout mudo de 20 s
+     * apontando para o tool, que está certo.
+     *
+     * Reprojetar por clique custa um round-trip por vértice e remove a premissa inteira.
+     * @param {[number, number]} lngLat
+     * @returns {Promise<{x: number, y: number}>}
+     */
+    const projetar = ([lng, lat]) => page.evaluate(([lo, la]) => {
+        const map = globalThis.__ebgeoMap;
+        const canvas = map.getCanvas();
+        const rect = canvas.getBoundingClientRect();
+        const p = map.project([lo, la]);
+        const x = Math.round(rect.left + p.x);
+        const y = Math.round(rect.top + p.y);
+        // QUEM ESTÁ POR CIMA DESTE PIXEL? O clique vai para o elemento do TOPO, e os handlers de
+        // desenho estão no CANVAS: o de finalizar (`contextmenu`) é registrado nele diretamente.
+        // Terminar uma feição abre o painel de atributos (`toggleFeatureSelection` + `updateUI`),
+        // que cobre parte do mapa, então num spec que desenha várias feições seguidas um vértice
+        // pode cair SOB o painel. Aí o evento é do painel, o canvas nunca o vê, e o desenho fica
+        // pendurado: tool ativo, vértices de menos, nenhuma feição e nenhum erro. Nomear o
+        // elemento que interceptou transforma esse silêncio em diagnóstico.
+        const topo = document.elementFromPoint(x, y);
+        const coberto = topo && topo !== canvas && !canvas.contains(topo);
+        return {
+            x,
+            y,
+            coberto: !!coberto,
+            porQuem: coberto ? `${topo.tagName.toLowerCase()}.${String(topo.className || '').slice(0, 60)}` : null,
+        };
+    }, [lng, lat]);
+
+
+    /** Pontos de clique que tinham outro elemento por cima, para o diagnóstico da falha. */
+    const cobertos = [];
+
+    /**
+     * Clica num lng/lat, anotando se havia outro elemento por cima do ponto.
+     * @param {[number, number]} lngLat
+     * @param {{button?: 'left'|'right'}} [opcoes]
+     * @returns {Promise<void>}
+     */
+    const clicarNoMapa = async (lngLat, { button = 'left' } = {}) => {
+        // ESPERE O PONTO FICAR ALCANÇÁVEL ANTES DE CLICAR.
+        //
+        // MEDIDO, não suposto: o diagnóstico de uma falha real trouxe
+        // `drawPoints: 1, isActive: true` com `[-43.18,-22.89] <- div.toolbar-popup-grid`, isto é, o
+        // clique de finalizar caiu na PALETA DE FERRAMENTAS que este mesmo helper abre para escolher
+        // o tool. A paleta fecha por `visibility: hidden`, que não recebe clique, mas a regra tem
+        // `transition: ... visibility 200ms`: durante a transição ela ainda é alvo. Clicar dentro
+        // dessa janela entrega o evento à paleta, o canvas nunca vê, e o desenho fica pendurado sem
+        // erro nenhum.
+        //
+        // A espera é pela CONDIÇÃO de que se precisa (o ponto pertence ao canvas), não pelo modelo
+        // de quem o cobre: serve para a paleta, para o painel de atributos e para o próximo overlay
+        // que alguém acrescentar. Se não liberar, clica assim mesmo e ANOTA, porque um clique a
+        // menos com diagnóstico é melhor que uma espera que reprova sozinha (a versão anterior disto
+        // era um `throw` e reprovou de imediato um caso que estava verde).
+        await page.waitForFunction((ll) => {
+            const map = globalThis.__ebgeoMap;
+            const canvas = map.getCanvas();
+            const rect = canvas.getBoundingClientRect();
+            const pt = map.project(ll);
+            const topo = document.elementFromPoint(
+                Math.round(rect.left + pt.x),
+                Math.round(rect.top + pt.y),
+            );
+            return !!topo && (topo === canvas || canvas.contains(topo));
+        }, lngLat, { timeout: 5000 }).catch(() => { /* anotado abaixo */ });
+
+        const p = await projetar(lngLat);
+        // ANOTA, NÃO REPROVA. A cobertura é uma PISTA forte para um desenho que não acontece, e foi
+        // ela que explicou o polígono pendurado; mas ela não é prova de que o clique se perdeu, e
+        // transformá-la em erro reprovou de imediato um caso que estava verde
+        // (`browser-collab-maps-layers`, cujo primeiro vértice cai sob `.features-tab-content` e
+        // ainda assim desenha). Guarda que reprova comportamento correto é pior que guarda nenhum:
+        // vira ruído e alguém o desliga. Então isto entra no diagnóstico da falha lá embaixo, onde
+        // responde a pergunta certa ("o clique chegou ao canvas?") sem inventar um veredito.
+        if (p.coberto) cobertos.push(`[${lngLat}] <- ${p.porQuem}`);
+        await page.mouse.click(p.x, p.y, button === 'right' ? { button: 'right' } : undefined);
+    };
 
     if (!multi) {
-        await page.mouse.click(pts[0].x, pts[0].y); // single click places a point
+        await clicarNoMapa(coords[0]);
     } else {
-        for (let i = 0; i < pts.length - 1; i++) {
-            await page.mouse.click(pts[i].x, pts[i].y);
-            await page.waitForTimeout(120);
+        // CADA VÉRTICE É CONFIRMADO ANTES DO PRÓXIMO CLIQUE, e o que estava aqui era um
+        // `waitForTimeout(120)` — um palpite, não uma espera.
+        //
+        // A interleaving perdedora: o clique-direito que FINALIZA chega antes de o último clique
+        // esquerdo ter sido processado pelo handler de 'click' do mapa. A linha fecha com menos
+        // vértices do que o teste desenhou e é DESCARTADA (uma linha de um ponto não vira feição),
+        // então nada aparece na store e o `expect.poll` abaixo queima 20 s para dizer só que não
+        // apareceu. É por isso que o caso de 2 vértices era o mais frágil da suíte: ele tem UM
+        // clique esquerdo, então essa corrida é a única coisa entre desenhar e não desenhar.
+        //
+        // `drawPoints` é o array de vértices em progresso do próprio controle, então esperá-lo
+        // crescer é esperar o efeito REAL do clique, não um prazo. Line e polygon são os dois
+        // únicos `multi` da suíte e ambos o expõem; a chave do registro é o nome da classe
+        // (`AddLineControl`), nunca o id da barra (`line`), que é a confusão que já custou uma
+        // espera impossível neste mesmo arquivo.
+        const controlKey = `Add${toolId.charAt(0).toUpperCase()}${toolId.slice(1)}Control`;
+        for (let i = 0; i < coords.length - 1; i++) {
+            await clicarNoMapa(coords[i]);
+            await page.waitForFunction(async ({ key, n }) => {
+                const s = await import('/src/js/store/index.js');
+                const control = s.getControl?.(key);
+                // Sem o controle no registro a espera não tem sujeito: falhar aqui é honesto,
+                // porque o silêncio devolveria a corrida que esta espera existe para fechar.
+                if (!control || !Array.isArray(control.drawPoints)) {
+                    throw new Error(`drawViaToolUI: "${key}" nao expoe drawPoints para confirmar o vertice`);
+                }
+                return control.drawPoints.length >= n;
+            }, { key: controlKey, n: i + 1 }, { timeout: 10000 });
         }
-        await page.mouse.click(pts[pts.length - 1].x, pts[pts.length - 1].y, { button: 'right' }); // finish
+        await clicarNoMapa(coords[coords.length - 1], { button: 'right' }); // finish
     }
 
     // Return the freshly-created feature id (the one absent before the draw).
@@ -330,14 +454,44 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     // 20-type sweep. It passes 5 of 5 in isolation at either budget, so the number was the
     // arbitrary part, not the behaviour.
     let id = null;
-    await expect.poll(async () => {
-        const fresh = (await readFeatures(page, storage)).find((f) => !before.has(f.id));
-        id = fresh?.id ?? null;
-        return id;
-    }, {
-        timeout: 20000,
-        message: `a ferramenta "${toolId}" nao criou feicao em "${storage}" depois dos cliques`,
-    }).toBeTruthy();
+    try {
+        await expect.poll(async () => {
+            const fresh = (await readFeatures(page, storage)).find((f) => !before.has(f.id));
+            id = fresh?.id ?? null;
+            return id;
+        }, {
+            timeout: 20000,
+            message: `a ferramenta "${toolId}" nao criou feicao em "${storage}" depois dos cliques`,
+        }).toBeTruthy();
+    } catch (erro) {
+        // O TIMEOUT MUDO NÃO DIZ POR QUE, e este é o ponto exato onde a informação existe e some.
+        // Um desenho pode não virar feição por motivos que a store não distingue: o tool foi
+        // desativado no meio, os vértices não chegaram, ou chegaram e o clique-direito descartou o
+        // último por proximidade (`isPointTooClose`), caso em que a linha fica com um ponto só e é
+        // jogada fora SEM erro. Ler o estado do controle aqui separa os três em uma linha, em vez
+        // de custar uma sessão de investigação por hipótese.
+        const diag = await page.evaluate(async ({ key }) => {
+            const s = await import('/src/js/store/index.js');
+            const c = s.getControl?.(key);
+            const map = globalThis.__ebgeoMap;
+            return {
+                controleAchado: !!c,
+                isActive: c?.isActive ?? null,
+                drawPoints: Array.isArray(c?.drawPoints) ? c.drawPoints.length : null,
+                toolAtivo: s.getStateManager?.()?.getActiveTool?.() ?? null,
+                zoom: map?.getZoom?.() ?? null,
+                projecao: map?.getProjection?.()?.type ?? null,
+                estiloCarregado: map?.isStyleLoaded?.() ?? null,
+            };
+        }, { key: `Add${toolId.charAt(0).toUpperCase()}${toolId.slice(1)}Control` }).catch(() => null);
+        erro.message += `\n  [diagnóstico do tool] ${JSON.stringify(diag)}`;
+        // `isActive: true` com `drawPoints` abaixo do mínimo do tipo é a assinatura de um clique
+        // que não chegou ao canvas; a lista abaixo diz QUAL elemento estava por cima de cada ponto.
+        if (cobertos.length > 0) {
+            erro.message += `\n  [pontos cobertos por outro elemento] ${cobertos.join(' | ')}`;
+        }
+        throw erro;
+    }
     return id;
 }
 

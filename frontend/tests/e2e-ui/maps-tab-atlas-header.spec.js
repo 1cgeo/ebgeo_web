@@ -11,7 +11,7 @@
  * in on a local atlas, and connected to a real server atlas.
  *
  * WHAT WOULD BREAK SILENTLY WITHOUT IT:
- *   - the visibility table (4 / 5 / 3 actions). It was six buttons in one state and four in
+ *   - the visibility table (4 / 5 / 4 actions). It was six buttons in one state and four in
  *     another, grown by accretion; a new action added without a table row is invisible here;
  *   - "Limpar tudo" reappearing on a server atlas, where clearing would empty only THIS client's
  *     copy of a shared project;
@@ -61,6 +61,19 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         await nameInput.press('Enter');
         await expect(nameInput).toHaveValue('Operação Serra');
 
+        // ESPERE A GRAVAÇÃO ANTES DE RECARREGAR, e não pelo valor do input, que mostra o que foi
+        // DIGITADO e valeria o mesmo com a persistência quebrada. `Enter` só chama `blur`, e o
+        // commit é assíncrono (`renameLocalAtlas` grava o registro e só então atualiza a memória),
+        // então um `reload()` logo em seguida corre contra a escrita: medido, este caso reprovava
+        // de forma intermitente exatamente aqui, lendo "Meu Atlas" depois do F5.
+        //
+        // O toast é o sinal certo porque é estritamente POSTERIOR ao `await renameLocalAtlas(...)`,
+        // isto é, ao `await persistRegistryEntry(...)` lá dentro. Esperar por ele é esperar pelo
+        // disco, sem `waitForTimeout` e sem ler estado por `import()` (que no dev server pode
+        // devolver outra instância do módulo).
+        await expect(page.locator('.toast', { hasText: 'Atlas renomeado' }))
+            .toBeVisible({ timeout: 10000 });
+
         await page.reload();
         await expect(page.locator('#nav-btn-zoom-in')).toBeAttached({ timeout: 20000 });
         await openMapsTab(page);
@@ -84,7 +97,7 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         await expect(dialog).toContainText('outros atlas não são afetados');
     });
 
-    test('logado no local: 5 ações; conectado ao servidor: 3, sem "Limpar tudo"', async ({ browser, page }) => {
+    test('logado no local: 5 ações; conectado ao servidor: 4, com "Compartilhar" e sem "Limpar tudo"', async ({ browser, page }) => {
         const seed = await seedSharedAtlas(browser, state.baseUrl, { permission: 'write' });
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
@@ -103,7 +116,11 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
 
         const owner = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         await openMapsTab(owner);
-        expect(await actionLabels(owner)).toEqual(['Abrir', 'Importar', 'Exportar']);
+        // "Compartilhar" entrou NESTA linha em 2026-08-16 (7ac710cc): antes ele morava no cabeçalho
+        // do atlas, e a linha remota tinha três botões. O estado remoto é o único que o oferece, e a
+        // tela deliberadamente NÃO o esconde por papel (quem não tem `manage` é recusado pelo
+        // backend), então ele aparece também para o colaborador `write` logo abaixo.
+        expect(await actionLabels(owner)).toEqual(['Abrir', 'Importar', 'Exportar', 'Compartilhar']);
         await expect(owner.locator('[data-testid="atlas-origin-chip"]')).toHaveText('Servidor');
 
         // The owner reaches the manage rung, so the field is writable and the rename goes to the

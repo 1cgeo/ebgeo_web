@@ -335,7 +335,17 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
             await waitForAcked(page, enq.opId, 25000);
         }
 
-        const winner = await convergedValue(collab.db, [A, B, C], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()));
+        // 60s AQUI, contra os 25s do padrão, e o número é do CASO, não do helper: este é o único
+        // ponto da suíte com TRÊS navegadores disputando a mesma feição, então a convergência
+        // precisa de duas rodadas de broadcast a mais que a de dois, e cada cliente ainda re-renderiza
+        // sob a carga da suíte inteira. Medido: reprovou UMA vez numa rodada completa
+        // (`servidor=#0000ff clientes=#0000ff,#00ff00,#0000ff`, isto é, um cliente ainda não
+        // corrigido no instante da amostra), passou no retry da mesma rodada e 6 de 6 isolado com
+        // `--retries=0 --workers=1`. Um verde de 6/6 não seria prova sozinho, mas a leitura que
+        // reprovou mostra divergência TRANSITÓRIA, e o predicado exige acordo NUM INSTANTE: uma
+        // divergência permanente nunca o satisfaz, por mais largo que seja o prazo. Alargar aqui
+        // não afrouxa a afirmação, só para de cobrá-la cedo demais.
+        const winner = await convergedValue(collab.db, [A, B, C], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()), 60000);
         expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
 
         // As TRÊS chegaram ao log append-only. A coluna é `op_type`

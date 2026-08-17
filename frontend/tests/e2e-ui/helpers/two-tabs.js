@@ -98,7 +98,11 @@ export const queueDbOf = (dbSuffix) => (dbSuffix === '' ? 'ebgeo' : `ebgeo__${db
  * (final, offers a reload). The TEXT is the only signal that separates them in the DOM, and a
  * test that read it from the source module would agree with a renamed string by construction.
  */
-export const TEARDOWN_OVERLAY_TITLE = 'Este projeto foi encerrado em outra aba';
+// "projeto" → "atlas" em 2026-08-16 (0bbc3aee), quando o vocabulário da UI inteiro trocou. A cópia
+// deliberada acima é o que fez a troca aparecer: ela reprovou com `overlayTitle` recebido e esperado
+// diferindo por UMA palavra, que é exatamente o sinal que um import teria engolido. Ao mexer no
+// título em `utilities/tab-lock.js`, mexa aqui no MESMO commit.
+export const TEARDOWN_OVERLAY_TITLE = 'Este atlas foi encerrado em outra aba';
 
 /** Wording of the ordinary blocked overlay (`BLOCKED_OVERLAY.title`), same reasoning. */
 export const BLOCKED_OVERLAY_TITLE = 'EBGeo está aberto em outra aba';
@@ -487,7 +491,11 @@ export function tabDiagnostic(page) {
             blocked: !!overlay && overlay.classList.contains('tab-lock-overlay--visible'),
             overlayTitle: overlay?.querySelector('.tab-lock-overlay__title')?.textContent ?? null,
             syncState: badge ? badge.getAttribute('data-state') : null,
-            page: path.includes('projetos') ? 'projetos' : (path.includes('admin') ? 'admin' : 'mapa'),
+            // `atlas.html` desde 2026-08-16 (era `projetos.html`). Enquanto dizia `projetos`, este
+            // rótulo classificava a tela de atlas como `mapa`, isto é, o diagnóstico que existe para
+            // orientar a investigação de uma falha apontava para a página errada. Nenhum caso
+            // reprovou por isso, porque nada assere este campo: instrumento errado e calado.
+            page: path.includes('atlas.html') ? 'atlas' : (path.includes('admin') ? 'admin' : 'mapa'),
             mapLoaded: !!(globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.loaded === 'function'
                 && globalThis.__ebgeoMap.loaded()),
             url: window.location.href,

@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
+import { loginUI, goToLocalMapUI, drawPointUI, readFeatures } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -62,7 +62,8 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         expect(url.searchParams.get('map')).toBe(seed.mapIds['Mapa Dois']);
     });
 
-    test('logged in WITH unsaved local work: the deep link OFFERS save/discard before replacing it', async ({ page }) => {
+    test('logged in WITH unsaved local work: the deep link opens the atlas and PRESERVES the local work', async ({ page }) => {
+        test.setTimeout(180000);
         await page.goto('/');
         const seed = await seedUserAtlas(page, state.baseUrl, ['Servidor']);
 
@@ -73,22 +74,41 @@ describeOrSkip('Atlas deep link (?atlas=&map=)', () => {
         await goToLocalMapUI(page); // logged in, local store
 
         // Create unsaved local work, then hit the deep link via a reload.
-        await drawPointUI(page, [-43.2, -22.9]);
+        const pontoId = await drawPointUI(page, [-43.2, -22.9]);
+        expect(await readFeatures(page, 'points')).toHaveLength(1);
         await page.goto(`/?atlas=${seed.atlasId}`);
 
-        // The boot must ASK, not wipe silently — and the answer set has three members. Until
-        // 2026-08-05 this was a two-button confirm that only told the user to go download a .ebgeo
-        // first; "Salvar e continuar" is what makes keeping the work an option inside the flow.
-        const dialog = page.locator('.confirm-modal-overlay');
-        await expect(dialog).toBeVisible({ timeout: 20000 });
-        await expect(dialog.locator('[data-testid="confirm-choice-cancel"]')).toBeVisible();
-        await expect(dialog.locator('[data-testid="confirm-choice-save"]')).toBeVisible();
-        await expect(dialog.locator('[data-testid="confirm-choice-discard"]')).toBeVisible();
-
-        // Cancelling leaves the local work alone: no connection, and the point is still on the map.
-        await dialog.locator('[data-testid="confirm-choice-cancel"]').click();
+        // Este caso pedia um diálogo de três botões (cancelar / salvar / descartar) antes de o deep
+        // link "substituir" o trabalho local. Ele foi REMOVIDO em 2026-08-16 junto com a ameaça que
+        // enunciava: desde o namespace por atlas, `activateRemoteAtlas` monta `remote-<atlasId>`
+        // ANTES do `clearAllDataStore`, então o wipe esvazia o atlas que está sendo ABERTO e o slot
+        // local guarda todos os bytes. Os três `data-testid` de escolha não existem mais em `src/`,
+        // então as asserções antigas eram impassáveis.
+        //
+        // A propriedade que valia a pena continua a mesma, e é ela que ficou: entrar por deep link
+        // com trabalho local não salvo NÃO destrói esse trabalho. O irmão
+        // `abrir-servidor-preserva-local.spec.js` afirma isto para a entrada pelo menu da conta; a
+        // entrada por URL é outro caminho de boot (`openAtlasFromUrl`), e é por isso que este caso
+        // segue ganhando o seu lugar em vez de ser apagado.
+        await expect(page.locator('.modal-container', { hasText: 'trabalho local não salvo' }))
+            .toHaveCount(0);
         await expect(page.locator('[data-testid="sync-status-badge"]'))
-            .not.toHaveAttribute('data-state', 'online', { timeout: 10000 });
+            .toHaveAttribute('data-state', 'online', { timeout: 30000 });
+
+        // Premissa: o atlas do servidor abriu VAZIO. Sem ela o ponto encontrado no fim poderia ser
+        // o do próprio atlas remoto, e o caso passaria medindo a coisa errada.
+        expect(await readFeatures(page, 'points')).toHaveLength(0);
+
+        // O ponto continua no atlas local, alcançável pelo caminho do usuário.
+        await page.goto('/atlas.html');
+        await expect(page.locator('[data-testid="local-atlas-item"]').first())
+            .toBeVisible({ timeout: 20000 });
+        await page.locator('[data-testid="local-atlas-item"]').first().click();
+        await page.waitForFunction(() => globalThis.__ebgeoMap?.loaded?.(), null, { timeout: 30000 });
+
+        const local = await readFeatures(page, 'points');
+        expect(local).toHaveLength(1);
+        expect(local[0].id).toBe(pontoId);
     });
 
     test('logged out: prompts login, then resumes straight to the atlas', async ({ page }) => {

@@ -96,32 +96,44 @@ describeOrSkip('§24.1-2,8 Static modals (real browser, local pure-UI)', () => {
 
         await settingsBtn.click();
 
-        const overlay = page.locator('[data-testid="settings-modal"]');
+        // O modal exclusivo do exagero (`modals/settings.modal.js`) foi APAGADO em 2026-08-16
+        // (7ac710cc) e fundido na tela única de configurações do atlas. Os três `data-testid` que
+        // este caso usava não existem mais em `src/`. A propriedade continua a mesma, e é dela que o
+        // caso vive: o controle de exagero abre, o número espelhado acompanha o slider, e o modal
+        // fecha. Duas diferenças de forma valem o comentário: o overlay agora é
+        // `atlas-settings-modal`, e o número espelhado virou um `<output>` (texto "1.5x"), não um
+        // input, então lê-se por texto e não por `inputValue()`.
+        const overlay = page.locator('[data-testid="atlas-settings-modal"]');
         await expect(overlay).toHaveAttribute('data-visible', 'true', { timeout: 5000 });
         await expect(overlay).toBeVisible();
 
-        // The exaggeration slider + mirrored numeric value render.
-        const slider = page.locator('[data-testid="settings-exaggeration-slider"]');
-        const valueInput = page.locator('[data-testid="settings-exaggeration-value"]');
-        await expect(slider).toBeVisible();
-        await expect(valueInput).toBeVisible();
+        // O corpo é montado depois de um carregamento assíncrono: esperar pelo slider é o que
+        // separa "o modal abriu" de "o modal terminou de se desenhar".
+        const slider = page.locator('[data-testid="atlas-settings-exaggeration"]');
+        const valueOutput = page.locator('[data-testid="atlas-settings-exaggeration-value"]');
+        await expect(slider).toBeVisible({ timeout: 10000 });
+        await expect(valueOutput).toBeVisible();
 
         // Move the slider with the keyboard (ArrowRight steps it up) and assert the
-        // mirrored numeric input reflects the new, higher value.
-        const before = parseFloat(await valueInput.inputValue());
+        // mirrored numeric display reflects the new, higher value.
+        const before = parseFloat(await valueOutput.innerText());
+        expect(Number.isFinite(before), 'o valor espelhado é um número').toBe(true);
         await slider.focus();
         await slider.press('ArrowRight');
         await slider.press('ArrowRight');
         await expect
-            .poll(async () => parseFloat(await valueInput.inputValue()), { timeout: 5000 })
+            .poll(async () => parseFloat(await valueOutput.innerText()), { timeout: 5000 })
             .toBeGreaterThan(before);
         // The slider's own value moved in lockstep with the mirrored display.
         expect(parseFloat(await slider.inputValue())).toBe(
-            parseFloat(await valueInput.inputValue()),
+            parseFloat(await valueOutput.innerText()),
         );
 
-        // Close via the X button.
+        // Close via the X button. A tela de configurações do atlas é `destroyOnHide: true` (instância
+        // nova a cada abertura), então fechar REMOVE o overlay do DOM em vez de deixá-lo em
+        // `data-visible="false"`, que é o que o modal antigo, persistente, fazia. Asserir o atributo
+        // aqui reprova por "element not found": vermelho verdadeiro, pela razão errada.
         await overlay.locator('.modal-close-btn').click();
-        await expect(overlay).toHaveAttribute('data-visible', 'false', { timeout: 5000 });
+        await expect(overlay).toHaveCount(0, { timeout: 5000 });
     });
 });

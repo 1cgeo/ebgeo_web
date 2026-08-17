@@ -128,8 +128,21 @@ describeOrSkip('§1.15-16,18 + §2.9 Maps-tab navigation (real browser, local UI
 
         // Click the FIRST map's recent shortcut → it becomes active, the second drops.
         // Dispatch the real listener (the shortcut sits in the collapsed rail and can be
-        // overlapped by the expanded panel).
-        await firstShortcut.evaluate((el) => el.click());
+        // overlapped by the expanded panel, so um clique de verdade do Playwright reprovaria na
+        // checagem de hit-target).
+        //
+        // A BUSCA E O CLIQUE PRECISAM ACONTECER NA MESMA TAREFA DA PÁGINA. `updateRecentMaps`
+        // reconstrói a trilha inteira com `innerHTML = ''`, criando botões NOVOS, e o handler é
+        // delegado no contêiner com a guarda `container.contains(button)`. Um botão resolvido pelo
+        // Playwright (no Node) e clicado depois pode já estar DESTACADO quando o clique chega, e aí
+        // a guarda o descarta em SILÊNCIO: nada acontece, `data-active` nunca vira "true" e o caso
+        // reprova a 5 s apontando para a troca de mapa, que está certa. Medido em série: 5/8 com
+        // `firstShortcut.evaluate(el => el.click())`, que resolvia num tique e clicava noutro.
+        // Fazendo `querySelector` + `click()` dentro do MESMO `evaluate`, a reconstrução não tem
+        // como se interpor, e a interleaving perdedora deixa de existir em vez de ficar rara.
+        await page.evaluate((name) => {
+            document.querySelector(`.recent-map-btn[data-map-name="${name}"]`)?.click();
+        }, firstName);
         await expect(firstShortcut).toHaveAttribute('data-active', 'true', { timeout: 5000 });
         await expect(secondShortcut).not.toHaveAttribute('data-active', 'true', { timeout: 5000 });
 

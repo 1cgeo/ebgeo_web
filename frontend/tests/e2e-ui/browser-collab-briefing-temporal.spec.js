@@ -121,9 +121,26 @@ async function enableTemporalUI(page) {
     await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
     const clock = page.locator('#current-map-temporal-btn');
     await expect(clock).toBeVisible({ timeout: 10000 });
+
+    // ESPERE O CARTÃO SABER QUAL É O MAPA, ANTES DE CLICAR. `_handleToggleTemporal` começa com
+    // `if (!this._currentMapName) return;`, isto é, um clique que chegue antes de a aba resolver o
+    // mapa corrente não faz NADA: sem erro, sem toast, sem mudança de atributo. Medido, o caso
+    // reprovava com 43 leituras seguidas de `data-temporal="false"` ao longo de 20 s — não é
+    // lentidão, é um clique que caiu no vazio, e por isso aumentar o orçamento não consertava.
+    //
+    // A pré-condição que estava aqui, `toHaveAttribute('data-temporal', 'false')`, NÃO protegia
+    // disso: `false` é o valor escrito no HTML inicial do botão (`_createCurrentMapCard`), então
+    // ela passa de imediato, antes de qualquer refresh, e não distingue "o cartão está pronto e o
+    // temporal está desligado" de "o cartão ainda não sabe de nada". Asserção que casa com o valor
+    // de fábrica não é asserção.
+    //
+    // O nome do mapa é o sinal certo porque é a MESMA propriedade que o handler exige, preenchida
+    // pelo mesmo refresh assíncrono.
+    await expect(page.locator('.maps-tab #current-map-name-input'))
+        .not.toHaveValue('', { timeout: 15000 });
     await expect(clock).toHaveAttribute('data-temporal', 'false');
     await clock.click();
-    await expect(clock).toHaveAttribute('data-temporal', 'true', { timeout: 5000 });
+    await expect(clock).toHaveAttribute('data-temporal', 'true', { timeout: 15000 });
 }
 
 collabTest.describe('Briefing + temporal collaboration cross-client (full chain)', () => {
