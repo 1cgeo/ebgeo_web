@@ -64,6 +64,40 @@ describe('deepClone', () => {
         cloned.geometry.coordinates[0] = -44.0;
         expect(feature.geometry.coordinates[0]).toBe(-43.2);
     });
+
+    // A chave `__proto__` não é exotismo de teste: é uma string numa sacola de
+    // propriedades, então chega por GeoJSON importado como qualquer outro nome de campo.
+    // O construtor precisa ser `JSON.parse`, e essa é a parte que engana: no literal
+    // `{ __proto__: x }` a sintaxe é especial e troca o PROTÓTIPO, então o literal não
+    // consegue sequer montar o caso sob teste.
+    //
+    // O que este verde estaria provando se o código estivesse errado: com a atribuição
+    // crua (`copy[key] = ...`), a linha roda o setter herdado de Object.prototype, a
+    // cópia volta SEM a chave e com o protótipo trocado. Por isso as duas asserções,
+    // valor e protótipo: sozinha, a primeira já bastaria, mas a segunda nomeia o
+    // mecanismo para quem ler a falha.
+    it('preserva uma chave de DADO `__proto__` e não mexe no protótipo da cópia', () => {
+        const vindoDeArquivo = JSON.parse('{"__proto__": [1, 2], "nome": "A"}');
+        const cloned = deepClone(vindoDeArquivo);
+
+        expect(Object.keys(cloned).sort()).toEqual(['__proto__', 'nome']);
+        expect(Object.getOwnPropertyDescriptor(cloned, '__proto__')?.value).toEqual([1, 2]);
+        expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype);
+        expect(Array.isArray(cloned)).toBe(false);
+    });
+
+    it('preserva `__proto__` dentro de properties de feição, sem poluir Object.prototype', () => {
+        const feature = {
+            type: 'Feature',
+            properties: JSON.parse('{"nome": "Ponto A", "__proto__": {"poluido": true}}')
+        };
+        const cloned = deepClone(feature);
+
+        expect(Object.keys(cloned.properties).sort()).toEqual(['__proto__', 'nome']);
+        expect(Object.getOwnPropertyDescriptor(cloned.properties, '__proto__')?.value)
+            .toEqual({ poluido: true });
+        expect({}.poluido).toBeUndefined();
+    });
 });
 
 // ============================================================================
@@ -140,6 +174,28 @@ describe('setByPath', () => {
         expect(result.x).toBe(2);
         expect(original.x).toBe(1);
     });
+
+    // `UNSAFE_PATH_KEYS`. O caso `a.constructor.prototype.x` existe porque a recusa é por
+    // SEGMENTO, em qualquer posição, não só no primeiro.
+    //
+    // A asserção de PROTÓTIPO é a que tem dentes, e ela entrou porque o controle negativo
+    // reprovou a primeira versão deste teste: sem o guarda, `setByPath({}, '__proto__.x', 1)`
+    // NÃO polui `Object.prototype` global (o passo intermediário copia o protótipo antes de
+    // escrever), então `expect({}.poluido).toBeUndefined()` passava com e sem o fix — verde
+    // que não provava nada. O que muda de fato é o protótipo do objeto devolvido: com o
+    // guarda ele continua sendo `Object.prototype`; sem, vira uma cópia solta.
+    for (const caminho of ['__proto__.poluido', 'constructor.prototype.poluido', 'a.constructor.prototype.poluido']) {
+        it(`recusa o caminho poluidor "${caminho}" e devolve o objeto intacto`, () => {
+            const original = { a: { b: 1 } };
+            const result = setByPath(original, caminho, true);
+
+            expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+            expect({}.poluido).toBeUndefined();
+            expect(result).toEqual(original);
+            expect(result).not.toBe(original);
+            expect(original).toEqual({ a: { b: 1 } });
+        });
+    }
 });
 
 // ============================================================================

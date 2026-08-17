@@ -55,12 +55,24 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
 - **Escrita INCREMENTAL de entidade colaborativa é só via sync** (`POST /atlas/:id/sync` ou WS
   `operation`). **Não crie rotas REST de escrita** para feature/group/layer/map/briefing/slide/
   cesium3d/streetview360: elas viajam como operações. `briefings` é de fato GET-only; `maps`
-  **não é**, e três exceções estruturais são deliberadas.
-  - `POST /maps/:mapId/merge` (`maps.routes.js:23`, `manage`): re-parenteia seis tabelas filhas.
-  - `POST /atlas/import` (`atlas.routes.js:22`): cria atlas inteiro a partir de um `.ebgeo`.
-  - `POST /atlas/:atlasId/maps/:mapId/duplicate` (`atlas.routes.js:44`, `write`).
+  **não é**, e QUATRO exceções estruturais são deliberadas.
+  - `POST /maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js`, `manage`): re-parenteia
+    seis tabelas filhas.
+  - `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js`): cria atlas inteiro a partir
+    de um `.ebgeo`.
+  - `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js`, `write`).
+  - `POST /atlas/:atlasId/clone` (`backend/src/modules/atlas/atlas.routes.js`, `read` na ORIGEM):
+    `cloneAtlas` copia imagens, mapas, sub-entidades, briefings e slides para um atlas NOVO, do
+    chamador. Gate de leitura porque o efeito não toca a origem; o destino nasce do requisitante.
 
-  O que as três têm em comum, e é o critério real: são operações de ENTIDADE INTEIRA, cujo efeito
+  Esta lista disse "três" e omitiu o `clone` por tempo suficiente para a contagem virar premissa,
+  enquanto o `clone` tem método no cliente (`apiClient.cloneAtlas`) e cinco arquivos de teste. E as
+  três primeiras eram citadas por `arquivo:linha` sem o caminho, forma que o guarda de doc **não
+  consegue** verificar: sua regex de caminho exige ao menos uma barra, então `atlas.routes.js:44`
+  escapava da checagem e seguiu apontando para linha em branco depois que a rota andou. Cite o
+  caminho inteiro, sem número de linha.
+
+  O que as quatro têm em comum, e é o critério real: são operações de ENTIDADE INTEIRA, cujo efeito
   não é representável como uma sequência de ops incrementais. Duas armadilhas conhecidas: escrita
   por REST não avança `atlas.current_version`, então o peer offline não recebe nada no replay (o
   merge resolve isso emitindo uma op MARCADORA na mesma transação); e o gate do merge protege uma

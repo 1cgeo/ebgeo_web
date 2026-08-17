@@ -52,9 +52,11 @@ function arquivos(dir, aceita) {
  * Os testids que os specs de NAVEGADOR miram.
  *
  * Só `*.spec.js` e os helpers que eles compartilham: o que o Playwright de fato carrega
- * (`testMatch: '**‍/*.spec.js'`). Isso deixa de fora, corretamente, scripts de captura temporários
- * como `_capture-comments.mjs`, que ninguém roda e cujos seletores morrem engolidos por um
- * `.catch(() => {})`.
+ * (`testMatch: '**‍/*.spec.js'`). O recorte é pela FORMA, não por nomes: qualquer arquivo que o
+ * `testMatch` não case fica de fora por construção, porque um seletor que nenhum runner exercita
+ * não é promessa que este guarda deva cobrar. (Esta frase citava um script de captura solto pelo
+ * nome; ele foi apagado em 2026-08-17, e citar arquivo por nome numa isenção faz a isenção
+ * apodrecer junto com ele.)
  */
 const usados = (() => {
     const alvos = arquivos(dirE2E, (n) => n.endsWith('.spec.js') || n.endsWith('helpers.js') || n.endsWith('two-tabs.js'));

@@ -121,10 +121,24 @@ export function applyDeclination(azimuthDeg, declination, northRef) {
 }
 
 /**
- * Normalize azimuth to 0-360 range.
+ * Normalize azimuth to the [0, 360) range.
+ *
+ * WHY NOT THE ONE-LINER. `((a % 360) + 360) % 360` is not idempotent near the top
+ * of the circle: for a = 359.99999999999994 the sum has no double, rounds to
+ * exactly 720, and 720 % 360 is 0 — a bearing one hair short of north snapping TO
+ * north. The circle is added only to a remainder that is actually negative, which
+ * is the only case that needs it.
+ *
+ * The `>= 360` guard catches the mirror image of the same rounding: for
+ * a = -1e-14 the sum rounds up to exactly 360, and 360 is not in [0, 360).
+ *
+ * `-0` IS FOLDED TO `0`, and it is not cosmetic: `-0` reaches here from any
+ * negative multiple of a full circle (`-720 % 360`) and from a plain `-0` input,
+ * and it survives every arithmetic path downstream, so it travels into readings,
+ * exports and `Object.is` comparisons unchanged. The fold costs one branch.
  *
  * @param {number} azimuth - Azimuth in degrees
- * @returns {number} Normalized azimuth (0-360)
+ * @returns {number} Normalized azimuth in [0, 360), or NaN if the input is not finite
  */
 export function normalizeAzimuth(azimuth) {
     let result = azimuth % DEGREES_PER_CIRCLE;
@@ -133,6 +147,8 @@ export function normalizeAzimuth(azimuth) {
     // exactly 360 — keep the result strictly in [0, 360) so the op stays idempotent
     // (re-normalizing an already-normalized value returns it unchanged).
     if (result >= DEGREES_PER_CIRCLE) result -= DEGREES_PER_CIRCLE;
+    // Folds -0 (and only -0: `0 === -0` is true, so this never touches a real value).
+    if (result === 0) return 0;
     return result;
 }
 

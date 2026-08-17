@@ -36,10 +36,44 @@ describe('normalizeAzimuth', () => {
         }));
     });
 
-    it('property: idempotent', () => {
+    // Idempotência EXATA, não `toBeCloseTo`. A folga de 9 casas que morava aqui aceitava
+    // desvio de 5e-10, e o modo de falha real desta função é da ordem de 5e-14: a
+    // propriedade passaria verde com o azimute pulando para o norte. Uma tolerância mais
+    // larga que o defeito que se quer pegar é cobertura vazia com cara de rigor.
+    it('property: idempotent (exatamente, incluindo o sinal do zero)', () => {
         fc.assert(fc.property(fc.double({ min: -100000, max: 100000, noNaN: true }), (a) => {
-            expect(normalizeAzimuth(normalizeAzimuth(a))).toBeCloseTo(normalizeAzimuth(a), 9);
+            const uma = normalizeAzimuth(a);
+            expect(Object.is(normalizeAzimuth(uma), uma)).toBe(true);
         }));
+    });
+
+    // Os três casos abaixo levam asserção ABSOLUTA, não comparação com outra chamada:
+    // comparar a função consigo mesma passaria igual se ela estivesse errada dos dois lados.
+    it('é idempotente a um fio do norte', () => {
+        // O maior double abaixo de 360. Com `((a % 360) + 360) % 360` a soma rounda para
+        // exatamente 720 e o resultado vira 0: norte, errado por 5,7e-14.
+        const a = 359.99999999999994;
+        expect(normalizeAzimuth(a)).toBe(a);
+        expect(normalizeAzimuth(normalizeAzimuth(a))).toBe(a);
+    });
+
+    it('dobra um fio negativo para zero, nunca para 360', () => {
+        // -1e-14 + 360 rounda para exatamente 360, que está fora de [0, 360).
+        expect(normalizeAzimuth(-1e-14)).toBe(0);
+    });
+
+    it('devolve zero POSITIVO, e não -0', () => {
+        // `toBe(0)` não serve aqui: `expect(-0).toBe(0)` passa. Só `Object.is` distingue,
+        // e é essa distinção que o zero negativo atravessa intacto até a leitura e o export.
+        expect(Object.is(normalizeAzimuth(-0), 0)).toBe(true);
+        expect(Object.is(normalizeAzimuth(-720), 0)).toBe(true);
+        expect(Object.is(normalizeAzimuth(-360), 0)).toBe(true);
+    });
+
+    it('entrada não finita permanece não finita', () => {
+        expect(normalizeAzimuth(NaN)).toBeNaN();
+        expect(normalizeAzimuth(Infinity)).toBeNaN();
+        expect(normalizeAzimuth(-Infinity)).toBeNaN();
     });
 });
 

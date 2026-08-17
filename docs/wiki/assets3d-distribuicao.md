@@ -50,7 +50,11 @@ Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire`. Rev
 
 ## Divergência plantada no Content-Type
 
-O mapa de extensão para Content-Type existe duas vezes: `backend/src/modules/nomes/assets3d.service.js` e, copiado, em `scripts/assets3d-import.js`. Pior: o service **exporta** `contentTypeForPath` e essa função **não tem nenhum chamador** em todo o repositório. Ou seja, o helper feito para unificar existe e ninguém usa, enquanto o CLI mantém a cópia. Adicionar uma extensão em só um dos dois produz assets importados com o tipo errado, e o ramo SQLite serve o `content_type` gravado na importação, sem recalcular no request: o erro fica congelado no banco até reimportar.
+O mapa de extensão para Content-Type existe duas vezes: `CONTENT_TYPES` em `backend/src/modules/nomes/assets3d.service.js` e, copiado, em `backend/scripts/assets3d-import.js`. A duplicação é deliberada (o CLI não carrega o módulo do service), e o que a torna segura é um guarda: `backend/tests/unit/assets3d-content-types.test.js` importa **os dois** mapas e exige igualdade exata, então acrescentar extensão num só reprova em `npm test`.
+
+O que NÃO tem guarda, e é a parte durável desta seção: o ramo SQLite serve o `content_type` **gravado na importação** (`backend/src/modules/nomes/assets3d.store.js`, lido em `backend/src/modules/nomes/assets3d.controller.js`), sem recalcular no request. Um tipo errado que chegue ao banco fica congelado ali até reimportar, e o teste de paridade não alcança dado já gravado. O ramo filesystem recalcula por request e não sofre disso.
+
+> **Esta seção afirmava o contrário e envelheceu.** Ela dizia que `contentTypeForPath` "não tem nenhum chamador em todo o repositório" e que "o helper feito para unificar existe e ninguém usa". As duas deixaram de valer: `resolveAsset` delega para ela no mesmo arquivo, com comentário registrando que ANTES repetia a busca inline, e o teste de paridade acima nasceu junto. O guarda de doc não pega esta classe, porque caminho e símbolo continuam existindo; só a afirmação envelheceu. É o caso que [[wiki-schema]] descreve como lista de furos que vence por trabalho alheio.
 
 ## Notas de integração
 
