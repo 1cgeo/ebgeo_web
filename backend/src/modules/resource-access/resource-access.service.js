@@ -235,3 +235,79 @@ export async function revokeGrant({ grantId, actor, req }) {
     return podados;
   });
 }
+
+// --- empréstimo por atlas --------------------------------------------------
+
+/** O que este atlas empresta (vivos). @returns {Promise<Array>} */
+export async function listAtlasResources(atlasId) {
+  const { rows } = await query(Q.LIST_ATLAS_RESOURCES, [atlasId]);
+  return rows;
+}
+
+/**
+ * Anexa um recurso ao atlas: ele passa a EMPRESTAR acesso, no escopo dele.
+ *
+ * O GATE É DUPLO e os dois lados são necessários: `manage` no atlas (quem pode
+ * configurá-lo) E ver o recurso (para que um co-Gestor não empreste por adivinhação
+ * de id um recurso que ele mesmo não pode abrir). O segundo mora no middleware
+ * `assertCanSeeResource`, porque é ele que responde 404 — e 404, não 403, para que
+ * um recurso invisível seja indistinguível de um inexistente.
+ *
+ * O que SUSTENTA o empréstimo depois de criado é outra condição, e é de propósito
+ * que ela não seja esta: D4 diz que ele vive enquanto o DONO do atlas vir o
+ * recurso, e essa checagem mora dentro de `fn_granted_resource_ids`, avaliada a
+ * cada leitura. Aqui só se valida quem anexa.
+ */
+export async function attachAtlasResource({ atlasId, type, resourceId, actor, req }) {
+  const t = assertResourceType(type);
+  if (await accessLevelOf(t, resourceId) === null) throw new NotFoundError('Resource');
+
+  return tx(async (trx) => {
+    const row = await trx.oneOrNone(Q.ATTACH_ATLAS_RESOURCE, [atlasId, t, resourceId, actor.id]);
+    if (!row) throw new ConflictError('Este recurso já está emprestado por este atlas.');
+    await createAudit(req, {
+      action: 'SHARING_CHANGE',
+      actorId: actor.id,
+      targetType: 'ATLAS',
+      targetId: atlasId,
+      details: { attached: { resourceType: t, resourceId } },
+    }, trx);
+    return row;
+  });
+}
+
+/**
+ * Desfaz o empréstimo (soft). Não exige ver o recurso: quem tem `manage` no atlas
+ * precisa poder RETIRAR o que outro Gestor anexou, inclusive um recurso que ele
+ * mesmo não enxerga — exigir visibilidade aqui deixaria o empréstimo preso.
+ */
+export async function detachAtlasResource({ atlasId, type, resourceId, actor, req }) {
+  const t = assertResourceType(type);
+  return tx(async (trx) => {
+    const row = await trx.oneOrNone(Q.DETACH_ATLAS_RESOURCE, [atlasId, t, resourceId, actor.id]);
+    if (!row) throw new NotFoundError('Atlas resource');
+    await createAudit(req, {
+      action: 'SHARING_CHANGE',
+      actorId: actor.id,
+      targetType: 'ATLAS',
+      targetId: atlasId,
+      details: { detached: { resourceType: t, resourceId } },
+    }, trx);
+    return row;
+  });
+}
+
+/**
+ * Apaga concessões e empréstimos de um recurso, NA TRANSAÇÃO DO CHAMADOR (R6).
+ *
+ * Existe para o único hard-delete do sistema, `DELETE /sv360/admin/projects/:slug`
+ * — o plano de origem dizia `sv360.write.service.js` e estava errado; quem apaga é
+ * `deleteProject` em `sv360.admin.service.js`. Recebe o `trx` porque uma limpeza
+ * fora da transação sobrevive ao rollback do projeto.
+ * @param {object} trx - A transação de quem está apagando.
+ */
+export async function purgeResourceLinks(trx, type, resourceId) {
+  const t = assertResourceType(type);
+  await trx.none(Q.PURGE_GRANTS_OF_RESOURCE, [t, resourceId]);
+  await trx.none(Q.PURGE_ATLAS_LINKS_OF_RESOURCE, [t, resourceId]);
+}

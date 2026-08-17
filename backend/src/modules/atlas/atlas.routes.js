@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
+import { assertCanSeeResource } from '../../middleware/resource-access.js';
 import { publicLinkLimiter } from '../../middleware/rate-limit.js';
 import * as ctrl from './atlas.controller.js';
 import * as schemas from './atlas.schemas.js';
@@ -47,6 +48,41 @@ router.post('/:atlasId/transfer', auth, requireAtlasPermission('owner'), validat
 // que é outra coisa.
 router.put('/:atlasId/cover', auth, requireAtlasPermission('write'), validate({ body: schemas.atlasCoverSchema }), ctrl.setAtlasCover);
 router.delete('/:atlasId/cover', auth, requireAtlasPermission('write'), ctrl.deleteAtlasCover);
+
+// Recursos EMPRESTADOS pelo atlas (o eixo AMPLIATIVO).
+//
+// Irmao de `/settings`, e por opcao: os dois sao metadado de atlas, escritos por
+// PATCH/POST sob `requireAtlasPermission('manage')`, e ficam FORA do log de
+// operacoes pelo mesmo raciocinio — nao tem representacao local, nao viajam no
+// `.ebgeo`, nao participam do snapshot, e sao autoridade do servidor.
+//
+// A diferenca com `settings.available_*` e a DIRECAO, e ela e o motivo de a tabela
+// ser separada: la lista vazia significa "sem restricao" (contrato congelado), aqui
+// significa "nao empresta nada". A mesma estrutura nao carrega as duas semanticas.
+//
+// Ler exige so `read`: quem abre o atlas ja RECEBE os recursos emprestados, entao
+// esconder dele a lista do que recebeu nao protege nada.
+router.get('/:atlasId/resources', auth, requireAtlasPermission('read'), ctrl.listResources);
+// Anexar leva gate DUPLO: `manage` no atlas E ver o recurso. Sem o segundo, um
+// co-Gestor emprestaria por adivinhacao de id um recurso que ele mesmo nao abre.
+router.post(
+  '/:atlasId/resources',
+  auth,
+  requireAtlasPermission('manage'),
+  validate({ body: schemas.atlasResourceSchema }),
+  assertCanSeeResource,
+  ctrl.attachResource,
+);
+// Remover NAO exige ver o recurso: quem tem `manage` precisa poder retirar o que
+// outro Gestor anexou, inclusive algo que ele proprio nao enxerga — exigir
+// visibilidade aqui deixaria o emprestimo preso.
+router.delete(
+  '/:atlasId/resources/:type/:id',
+  auth,
+  requireAtlasPermission('manage'),
+  validate({ params: schemas.atlasResourceParamsSchema }),
+  ctrl.detachResource,
+);
 
 // Clone
 router.post('/:atlasId/clone', auth, requireAtlasPermission('read'), validate({ body: schemas.cloneAtlasSchema }), ctrl.cloneAtlas);

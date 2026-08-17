@@ -362,6 +362,13 @@ export class WsClient {
             case 'atlas_settings_updated':
                 this._emit('atlasSettings', msg);
                 break;
+            case 'atlas_resources_updated':
+                // O frame NAO carrega os recursos: o conjunto visivel e diferente
+                // por pessoa, entao mandar a lista de um no frame de todos seria
+                // vazamento pelo canal de tempo real. Ele so avisa "mudou"; quem
+                // recebe pede o proprio payload aditivo.
+                this._emit('atlasResources', msg);
+                break;
             case 'atlas_updated':
             case 'map_duplicated':
             case 'maps_merged':

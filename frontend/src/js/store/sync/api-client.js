@@ -1574,6 +1574,33 @@ export class ApiClient {
         });
     }
 
+    /**
+     * O que ESTE atlas empresta (exige `read` no atlas).
+     * @param {string} atlasId
+     * @returns {Promise<Array>}
+     */
+    async listAtlasResources(atlasId) {
+        return this._request('GET', `/atlas/${atlasId}/resources`);
+    }
+
+    /**
+     * Anexa um recurso ao atlas (exige `manage` E ver o recurso).
+     * @param {string} atlasId
+     * @param {{resourceType: string, resourceId: string}} payload
+     */
+    async addAtlasResource(atlasId, payload) {
+        return this._request('POST', `/atlas/${atlasId}/resources`, { body: payload });
+    }
+
+    /**
+     * Desfaz o empréstimo (exige `manage`; NÃO exige ver o recurso, senão um
+     * empréstimo anexado por outro Gestor ficaria preso).
+     * @param {string} atlasId @param {string} type @param {string} id
+     */
+    async removeAtlasResource(atlasId, type, id) {
+        return this._request('DELETE', `/atlas/${atlasId}/resources/${type}/${encodeURIComponent(id)}`);
+    }
+
     // ===== USERS =====
 
     /**

@@ -1,5 +1,6 @@
 // Path: src/modules/atlas/atlas.schemas.js
 import Joi from 'joi';
+import { RESOURCE_TYPES } from '../resource-access/resource-access.types.js';
 
 export const createAtlasSchema = Joi.object({
   name: Joi.string().required().max(255),
@@ -212,4 +213,23 @@ export const importSchema = Joi.object({
   }).required(),
   maps: Joi.array().items(mapSchema).default([]),
   briefings: Joi.array().items(briefingSchema).default([]),
+});
+
+/**
+ * Corpo do anexo de recurso ao atlas (POST /atlas/:atlasId/resources).
+ *
+ * `resourceType` é validado na BORDA porque ele escolhe nome de tabela mais
+ * adiante. A lista vem de `resource-access.types.js`, e não é recopiada aqui: uma
+ * segunda cópia dos quatro tipos só espera o quinto para ficar errada.
+ */
+export const atlasResourceSchema = Joi.object({
+  resourceType: Joi.string().valid(...RESOURCE_TYPES).required(),
+  resourceId: Joi.string().min(1).max(255).required(),
+});
+
+/** `:atlasId/resources/:type/:id` da remoção. */
+export const atlasResourceParamsSchema = Joi.object({
+  atlasId: Joi.string().uuid().required(),
+  type: Joi.string().valid(...RESOURCE_TYPES).required(),
+  id: Joi.string().min(1).max(255).required(),
 });

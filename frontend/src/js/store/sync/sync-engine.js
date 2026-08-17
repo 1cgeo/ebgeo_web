@@ -727,6 +727,31 @@ class SyncEngine {
             }
         });
 
+        // O atlas passou a emprestar (ou deixou de emprestar) um recurso privado.
+        // Re-pede o payload ADITIVO, que e pessoal: o frame so avisa que mudou.
+        wsClient.on('atlasResources', () => {
+            // O MESMO guard do frame de settings, e pela mesma razao: um frame que
+            // chega atrasado, depois do disconnect, re-somaria num escopo que ja nao
+            // existe. `refreshVisibleResources` mexe no baseline, entao a janela
+            // disconnect -> revert e exatamente onde o dano apareceria.
+            if (!connectionState.isOnline()) return;
+            refreshVisibleResources(this._atlasId).then((ok) => {
+                if (!ok) return;
+                try {
+                    // O MESMO evento do overlay, e nao um novo, porque os tres
+                    // assinantes (catalogo, seletor de base e barra inferior) IGNORAM
+                    // o payload: os tres apenas releem o `config`, que e exatamente o
+                    // que precisa acontecer aqui. Um evento novo obrigaria os tres a
+                    // assinarem duas coisas para reagir ao mesmo fato. Vai sem chave
+                    // `settings` de proposito: nao houve mudanca de settings, e
+                    // mandar `undefined` ali seria afirmar que houve.
+                    getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_resources' });
+                } catch {
+                    // No UI bus (headless).
+                }
+            }).catch(() => {});
+        });
+
         // A peer created/altered server-side data OUTSIDE the CRDT op log (duplicate/merge a map,
         // rename the atlas). The entities never arrive as ops, so re-pull a fresh snapshot to pick
         // them up, then refresh the UI. (These events were silently dropped before.)

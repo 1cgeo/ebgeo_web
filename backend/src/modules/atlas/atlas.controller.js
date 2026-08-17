@@ -2,6 +2,7 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as atlasService from './atlas.service.js';
 import { broadcastToRoom, closeRoom } from '../collab/collab.rooms.js';
+import * as resourceAccessService from '../resource-access/resource-access.service.js';
 
 export const listAtlas = asyncHandler(async (req, res) => {
   const result = await atlasService.listUserAtlas(req.user.id);
@@ -119,4 +120,38 @@ export const transferOwnership = asyncHandler(async (req, res) => {
   // heartbeat reconcile is the fallback that adjusts each live socket's cached permission.
   broadcastToRoom(req.atlasId, { type: 'atlas_owner_changed', atlasId: req.atlasId, newOwnerId: req.body.newOwnerId });
   res.json({ data: atlas });
+});
+
+// ===== Recursos EMPRESTADOS pelo atlas =====
+
+export const listResources = asyncHandler(async (req, res) => {
+  res.json({ data: await resourceAccessService.listAtlasResources(req.atlasId) });
+});
+
+export const attachResource = asyncHandler(async (req, res) => {
+  const data = await resourceAccessService.attachAtlasResource({
+    atlasId: req.atlasId,
+    type: req.body.resourceType,
+    resourceId: req.body.resourceId,
+    actor: req.user,
+    req,
+  });
+  // O broadcast e o que faz o par que ja esta com o atlas aberto ver o recurso
+  // novo sem F5. Ele NAO carrega o recurso em si: quem o recebe pede o proprio
+  // payload aditivo, porque o conjunto visivel e diferente por pessoa — mandar a
+  // lista de um no frame de todos seria vazamento pelo canal de tempo real.
+  broadcastToRoom(req.atlasId, { type: 'atlas_resources_updated' });
+  res.status(201).json({ data });
+});
+
+export const detachResource = asyncHandler(async (req, res) => {
+  const data = await resourceAccessService.detachAtlasResource({
+    atlasId: req.atlasId,
+    type: req.params.type,
+    resourceId: req.params.id,
+    actor: req.user,
+    req,
+  });
+  broadcastToRoom(req.atlasId, { type: 'atlas_resources_updated' });
+  res.json({ data });
 });

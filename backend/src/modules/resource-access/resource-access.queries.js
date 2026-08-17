@@ -203,3 +203,60 @@ UPDATE resource_grants g
  WHERE g.id = s.id
 RETURNING g.id, g.grantee_id, g.resource_type, g.resource_id, g.parent_grant_id
 `;
+
+// --- empréstimo por atlas --------------------------------------------------
+
+/** O que este atlas empresta (vivos). $1 = atlas_id. */
+export const LIST_ATLAS_RESOURCES = `
+  SELECT ar.id, ar.resource_type, ar.resource_id, ar.added_by, ar.added_at,
+         u.username AS added_by_username
+    FROM atlas_resources ar
+    LEFT JOIN users u ON u.id = ar.added_by
+   WHERE ar.atlas_id = $1::uuid AND ar.removed_at IS NULL
+   ORDER BY ar.resource_type, ar.added_at
+`;
+
+/**
+ * Anexa um recurso ao atlas.
+ *
+ * `uq_atlas_resources_live` faz a segunda tentativa VIVA colidir; o
+ * `ON CONFLICT DO NOTHING` a transforma num retorno vazio em vez de um 500, e o
+ * chamador distingue os dois casos por ele. Repare que o índice é PARCIAL
+ * (`WHERE removed_at IS NULL`), então reanexar depois de remover volta a passar —
+ * sem isso um empréstimo removido ocuparia a vaga para sempre, que é o beco sem
+ * saída de catalog-soft-delete-resurrect.
+ *   $1 = atlas_id, $2 = type, $3 = resource_id, $4 = added_by
+ */
+export const ATTACH_ATLAS_RESOURCE = `
+  INSERT INTO atlas_resources (atlas_id, resource_type, resource_id, added_by)
+  VALUES ($1::uuid, $2, $3, $4::uuid)
+  ON CONFLICT DO NOTHING
+  RETURNING id, atlas_id, resource_type, resource_id, added_at
+`;
+
+/** Remove (soft) o empréstimo. $1 = atlas_id, $2 = type, $3 = resource_id, $4 = removed_by. */
+export const DETACH_ATLAS_RESOURCE = `
+  UPDATE atlas_resources
+     SET removed_at = NOW(), removed_by = $4::uuid
+   WHERE atlas_id = $1::uuid AND resource_type = $2 AND resource_id = $3 AND removed_at IS NULL
+   RETURNING id, resource_type, resource_id
+`;
+
+// --- higiene ---------------------------------------------------------------
+
+/**
+ * Apaga concessões e empréstimos de um recurso (R6).
+ *
+ * Existe para o ÚNICO hard-delete do sistema, e aqui o DELETE é FÍSICO de
+ * propósito: a linha alvo deixou de existir, então a concessão não referencia mais
+ * nada e guardá-la só polui a tela "quem tem acesso" com um id que nenhuma
+ * listagem devolve. Precisa rodar na transação de quem apaga, senão a concessão
+ * sobrevive a um rollback.
+ *   $1 = resource_type, $2 = resource_id
+ */
+export const PURGE_GRANTS_OF_RESOURCE = `
+  DELETE FROM resource_grants WHERE resource_type = $1 AND resource_id = $2
+`;
+export const PURGE_ATLAS_LINKS_OF_RESOURCE = `
+  DELETE FROM atlas_resources WHERE resource_type = $1 AND resource_id = $2
+`;

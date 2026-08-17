@@ -370,9 +370,12 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 7 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
-        // 'atlasSettings','serverResync') wired exactly once total.
-        expect(wsClientMock.on).toHaveBeenCalledTimes(7);
+        // 8 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
+        // 'atlasSettings','atlasResources','serverResync') wired exactly once total.
+        // 'atlasResources' entrou com o empréstimo por atlas: o frame só avisa que
+        // mudou, e o receptor re-pede o próprio payload aditivo (o conjunto visível é
+        // diferente por pessoa, então mandá-lo no frame de todos seria vazamento).
+        expect(wsClientMock.on).toHaveBeenCalledTimes(8);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);
