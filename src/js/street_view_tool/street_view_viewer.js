@@ -4,10 +4,22 @@
  * @fileoverview Core Street View 360 viewer using Three.js.
  * Manages the 3D panoramic viewer state, rendering, and lifecycle.
  * Based on the patterns from 3d_models_viewer_tool/map_3d.js
+ *
+ * A FONTE DA TEXTURA TEM DOIS CAMINHOS, e so isso muda por causa da piramide.
+ * `loadTexture` pinta o preview, sonda o `tiles.json` da foto e, quando a
+ * piramide existe, compoe a panoramica por tiles (ver tile-loader.js).
+ * Sem piramide cai no full de sempre, e o 404 e o caminho NORMAL: 28 dos 29
+ * projetos ainda nao tem tiles gerados.
+ *
+ * O QUE NAO MUDA: a esfera invertida, a ordem de rotacao ZXY da malha, a camera
+ * YXZ, o navigator e todo o overlay 2D. A UV tem de continuar identica, e e por
+ * isso que o carregador entrega UMA textura de canvas, e nunca uma grade de
+ * quadros.
  */
 
 import * as THREE from '../../vendor/three/three.module.js';
 import config from '../config.js';
+import { createTileLoader } from './tile-loader.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import {
@@ -469,11 +481,280 @@ async function blobToTexture(blob) {
     return texture;
 }
 
+// ===== PIRAMIDE DE TILES =====
+
+/**
+ * Estado do caminho por tiles.
+ *
+ * `carregador` e UM so, criado na primeira foto com piramide e reaproveitado por
+ * todas as outras: ele guarda bitmaps, fila e requisicoes em voo, e um por foto
+ * vazaria tudo isso a cada troca.
+ *
+ * `controlador` e o AbortController da carga que mandou compor. Ele identifica a
+ * carga, e nao a foto: e ele que reprova um tile que chega depois de o operador
+ * ja ter andado para a proxima foto.
+ *
+ * `dados` guarda os metadados da foto em composicao. Eles alimentam DUAS contas:
+ * a rotacao da malha que `applyTexture` aplica, e a conversao de camera de
+ * `informarCameraAoTiles`.
+ */
+const tiles = {
+    carregador: null,
+    texturaPendente: null,
+    controlador: null,
+    dados: null,
+    naEsfera: false
+};
+
+// Reaproveitados a cada frame para converter a direcao da camera em coordenada
+// da IMAGEM. Alocar no laco de render geraria lixo 60 vezes por segundo.
+const _dirImagem = new THREE.Vector3();
+const _rotacaoMalha = new THREE.Quaternion();
+const _eulerMalha = new THREE.Euler();
+
+/**
+ * Cria, uma unica vez, o carregador de tiles deste visualizador.
+ *
+ * Tardio de proposito: ele le MAX_TEXTURE_SIZE do contexto WebGL, que so existe
+ * depois de initThreeJS montar o renderer.
+ *
+ * A raiz da API NAO vai como parametro: o carregador ja a tira de
+ * `config.streetView360.serviceUrl`, a mesma que endereca a foto e a planta.
+ * Repeti-la aqui criaria uma segunda maneira de descobri-la, e duas maneiras
+ * divergem em silencio.
+ *
+ * @returns {Object|null} o carregador, ou null se o renderer ainda nao subiu
+ */
+function garantirCarregadorTiles() {
+    if (tiles.carregador) return tiles.carregador;
+
+    const renderer = streetViewState.renderer;
+    if (!renderer) return null;
+
+    tiles.carregador = createTileLoader({
+        gl: renderer.getContext(),
+        onTextura: (textura) => {
+            // A textura NAO entra na esfera aqui. O canvas acaba de nascer em
+            // branco, e aplica-lo agora piscaria preto ate o preview pintar,
+            // justo onde hoje a foto anterior segura a tela. Fica pendente.
+            //
+            // `deTiles` marca a POSSE: enquanto ela vale, quem descarta a
+            // textura e o carregador, que ja troca a sua a cada nivel novo.
+            textura.userData = { isFull: true, deTiles: true };
+            tiles.texturaPendente = textura;
+        },
+        onEstatisticas: (estat) => {
+            // Ha pintura no canvas: agora ele pode substituir a esfera. O
+            // carregador publica estatistica depois do preview e depois de cada
+            // tile, entao este e o primeiro instante seguro.
+            if (tiles.texturaPendente && estat.msPrimeiraPintura !== null) {
+                aplicarTexturaDeTiles();
+            }
+        }
+    });
+
+    // Cache HTTP normal, e nao o `no-store` com que o carregador nasce. Aquele
+    // existe para o piloto medir rede; aqui o tile sai `immutable` por um ano e
+    // reler do disco e exatamente o ganho que se quer.
+    tiles.carregador.ignorarCache('default');
+    return tiles.carregador;
+}
+
+/**
+ * Poe a textura de tiles na esfera.
+ *
+ * ELA NAO ENTRA NO `textureCache`, e isso nao e esquecimento. O LRU guarda
+ * TEXTURE_CACHE_MAX_SIZE = 30 texturas e foi dimensionado para imagens de 30 a
+ * 50 MB no TOTAL. A textura de tiles e um canvas: 6144x3072 RGBA custa 75 MB
+ * CADA, e o nivel mais fino da piramide do museu_cms (7680x3840) chega a
+ * 118 MB. Trinta delas passariam de 2 GB, e o navegador morre. O canvas ainda
+ * se refaz a cada troca de nivel, entao guardar a versao velha seria guardar
+ * lixo caro.
+ */
+function aplicarTexturaDeTiles() {
+    const nova = tiles.texturaPendente;
+    tiles.texturaPendente = null;
+    if (!nova || !tiles.dados) return;
+
+    // Carga obsoleta: o operador ja andou para outra foto. A condicao cobra um
+    // controlador nao nulo porque `largarTiles` o zera, e `activeTextureAbort`
+    // tambem termina nulo depois de um full bem sucedido: dois nulos iguais
+    // deixariam passar justamente a textura que se quer barrar.
+    if (!tiles.controlador || tiles.controlador !== activeTextureAbort) return;
+
+    tiles.naEsfera = true;
+    applyTexture(nova, tiles.dados);
+}
+
+/**
+ * Diz se a esfera ja mostra a composicao por tiles DESTA carga.
+ * O preview nao pode entrar por cima dela: ele chegaria depois e rebaixaria uma
+ * imagem que ja esta detalhada.
+ * @param {AbortController} controlador - controlador da carga em curso
+ * @returns {boolean}
+ */
+function tilesJaNaEsfera(controlador) {
+    return tiles.naEsfera && tiles.controlador === controlador;
+}
+
+/**
+ * Larga a foto do carregador de tiles e recolhe a textura que ele renuncia.
+ * Chamado quando a piramide nao existe, ou falhou, e a esfera volta ao full.
+ *
+ * O contrato de posse do carregador nao admite descarte em dobro: `soltarFoto`
+ * devolve a textura VIVA, e so dai em diante ela e nossa.
+ */
+function largarTiles() {
+    tiles.texturaPendente = null;
+    tiles.controlador = null;
+    tiles.dados = null;
+    tiles.naEsfera = false;
+    if (!tiles.carregador) return;
+
+    const orfa = tiles.carregador.soltarFoto();
+    if (!orfa) return;
+
+    if (streetViewState.material?.map === orfa) {
+        // Ainda na esfera: descartar agora deixaria uma textura morta na tela
+        // durante a carga inteira do full. `orfaDeTiles` marca que ela nao tem
+        // mais dono, e `applyTexture` a descarta ao tomar o lugar dela. Sem essa
+        // marca ninguem a descartaria, porque ela nunca entrou no LRU.
+        orfa.userData.deTiles = false;
+        orfa.userData.orfaDeTiles = true;
+        return;
+    }
+    orfa.dispose();
+}
+
+/**
+ * Destroi o carregador de tiles e o estado dele. So para o teardown da cena.
+ */
+function descartarCarregadorTiles() {
+    tiles.texturaPendente = null;
+    tiles.controlador = null;
+    tiles.dados = null;
+    tiles.naEsfera = false;
+    if (!tiles.carregador) return;
+
+    tiles.carregador.dispose();
+    tiles.carregador = null;
+}
+
+/**
+ * Diz ao carregador de tiles para onde a camera olha, em coordenada da IMAGEM.
+ *
+ * A CONVERSAO E OBRIGATORIA, e nao um refinamento. A malha carrega as rotacoes
+ * da calibracao (mesh_rotation_y vale 180 por padrao), entao o `lon` da camera e
+ * a longitude da equirretangular diferem por essa rotacao: entregar o lon cru
+ * pediria a coluna errada de tiles, e o sintoma seria borrao nas costas do
+ * operador, sem erro nenhum no console. Desfazer a rotacao da malha pelo
+ * quaternion inverso resolve os tres eixos de uma vez, e nao so o Y.
+ *
+ * A rotacao sai dos METADADOS, e nao de `mesh.rotation`. As duas sao a mesma
+ * coisa depois que a foto entra na esfera, mas durante a troca de foto a malha
+ * ainda carrega a calibracao da ANTERIOR, e e justo ai que o carregador escolhe
+ * o primeiro conjunto de tiles. A ordem de Euler tem de ser a mesma ZXY que
+ * `applyTexture` usa, senao as duas contas divergem quando X ou Z nao sao zero.
+ *
+ * Chamado a cada frame: a comparacao la dentro e barata e o recalculo pesado
+ * fica no debounce do carregador.
+ */
+function informarCameraAoTiles() {
+    const carregador = tiles.carregador;
+    const renderer = streetViewState.renderer;
+    const camera = streetViewState.camera;
+    if (!carregador || !renderer || !camera || !tiles.dados) return;
+
+    const phi = THREE.MathUtils.degToRad(90 - lat);
+    const theta = THREE.MathUtils.degToRad(lon);
+    _dirImagem.set(
+        Math.sin(phi) * Math.cos(theta),
+        Math.cos(phi),
+        Math.sin(phi) * Math.sin(theta)
+    );
+
+    _eulerMalha.set(
+        THREE.MathUtils.degToRad(getMeshRotationX(tiles.dados)),
+        THREE.MathUtils.degToRad(getMeshRotationY(tiles.dados)),
+        THREE.MathUtils.degToRad(getMeshRotationZ(tiles.dados)),
+        'ZXY'
+    );
+    _rotacaoMalha.setFromEuler(_eulerMalha).invert();
+    _dirImagem.applyQuaternion(_rotacaoMalha);
+
+    // O acos pede o argumento preso em [-1, 1]: erro de ponto flutuante devolve
+    // 1.0000000000000002 no zenite, e o NaN que sai daqui contamina a escolha.
+    const y = Math.min(1, Math.max(-1, _dirImagem.y));
+    const latImagem = 90 - THREE.MathUtils.radToDeg(Math.acos(y));
+    const lonImagem = THREE.MathUtils.radToDeg(Math.atan2(_dirImagem.z, _dirImagem.x));
+
+    // A largura do BUFFER, que ja inclui o devicePixelRatio, e nao a do
+    // container: e o numero que a conta de largura necessaria pede.
+    //
+    // E AQUI QUE O ZOOM MANDA NO NIVEL. A fov cai de 75 para 10, a largura
+    // necessaria cresce quase sete vezes, e o carregador sobe de nivel assim que
+    // a histerese dele solta. Sem esta linha o zoom ficaria borrado justo onde o
+    // full de hoje mostra detalhe.
+    carregador.atualizarCamera({
+        lon: lonImagem,
+        lat: latImagem,
+        fov: camera.fov,
+        largura: renderer.domElement.width,
+        altura: renderer.domElement.height
+    });
+}
+
+/**
+ * Tenta compor a panoramica pela piramide de tiles.
+ *
+ * @param {string} photoId - uuid da foto
+ * @param {Object} data - metadados da foto, para rotacao e conversao de camera
+ * @param {AbortController} controlador - controlador desta carga
+ * @returns {Promise<boolean>} true quando o full NAO deve ser carregado, ou
+ *   porque os tiles assumiram, ou porque uma carga mais nova mandou
+ */
+async function tentarTiles(photoId, data, controlador) {
+    const carregador = garantirCarregadorTiles();
+    if (!carregador || !photoId) return false;
+
+    tiles.controlador = controlador;
+    tiles.dados = data;
+    tiles.naEsfera = false;
+    tiles.texturaPendente = null;
+
+    // A camera vai ANTES do pedido. O carregador escolhe nivel e conjunto
+    // visivel na hora em que le o descritor, e sem esta linha a primeira foto da
+    // sessao usaria a camera padrao dele (1920x1080, fov 75, olhando o meridiano
+    // zero) e baixaria tiles que o operador nao esta vendo.
+    informarCameraAoTiles();
+
+    try {
+        // Devolve o descritor, ou null quando outra foto tomou o lugar desta no
+        // meio do caminho. Os dois casos mandam a mesma coisa aqui: o full desta
+        // carga nao entra, ou desenharia a foto velha por cima da nova.
+        await carregador.carregarFoto(photoId);
+        return true;
+    } catch (error) {
+        // Carga obsoleta: o carregador ja e de outra foto, e mexer nele agora
+        // atrapalharia quem chegou depois. O abort da foto anterior tambem cai
+        // aqui, e e este o ramo certo para ele.
+        if (error?.name === 'AbortError' || activeTextureAbort !== controlador) return true;
+
+        // 404 e o CAMINHO NORMAL, e nao excecao: 28 dos 29 projetos nao tem
+        // piramide gerada. So o que nao for 404 merece barulho no console.
+        if (error?.status !== 404) {
+            console.warn('[street-view-viewer] Tiles indisponiveis, caindo no full:', error);
+        }
+        largarTiles();
+        return false;
+    }
+}
+
 /**
  * Loads a texture for the panorama sphere with progressive loading.
  * When the API service is available, loads a low-res preview first
- * for instant feedback, then replaces it with the full-res image.
- * Cancels any in-flight fetch when a new load is requested.
+ * for instant feedback, then tiles (when the photo has a pyramid) or the
+ * full-res image. Cancels any in-flight fetch when a new load is requested.
  */
 async function loadTexture(data) {
     // Cancel previous in-flight download
@@ -490,6 +771,10 @@ async function loadTexture(data) {
 
     // Full-res cache hit — no network needed
     if (streetViewState.textureCache.has(fullCacheKey)) {
+        // O carregador tem de largar a foto ANTERIOR aqui. Sem isso ele seguiria
+        // baixando os tiles dela, e o debounce da camera repintaria o canvas
+        // velho por cima desta foto.
+        largarTiles();
         const texture = streetViewState.textureCache.get(fullCacheKey);
         applyTexture(texture, data);
         return;
@@ -500,10 +785,17 @@ async function loadTexture(data) {
 
     const { getPhotoImageUrl } = await import('./streetview-api.service.js');
 
+    // A sonda do tiles.json parte JUNTO do preview, e nao depois dele. Ela
+    // responde 404 na esmagadora maioria das fotos, e enfileira-la atras do
+    // preview atrasaria o full de todo mundo em uma volta de rede inteira.
+    const sonda = tentarTiles(photoId, data, controller);
+
     // Phase 1: Load preview for instant feedback
     try {
         if (streetViewState.textureCache.has(previewCacheKey)) {
-            applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
+            if (!tilesJaNaEsfera(controller)) {
+                applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
+            }
         } else {
             const previewUrl = getPhotoImageUrl(photoId, 'preview');
             const previewBlob = await fetchBlobWithRetry(previewUrl, { signal: controller.signal });
@@ -512,7 +804,10 @@ async function loadTexture(data) {
             const previewTexture = await blobToTexture(previewBlob);
             streetViewState.textureCache.set(previewCacheKey, previewTexture);
 
-            if (activeTextureAbort === controller) {
+            // A composicao por tiles pode ter vencido a corrida com o preview: os
+            // dois partiram juntos, e o fundo do carregador e um WebP de 13 KB.
+            // Aplicar o preview por cima dela rebaixaria a imagem.
+            if (activeTextureAbort === controller && !tilesJaNaEsfera(controller)) {
                 applyTexture(previewTexture, data);
             }
         }
@@ -522,7 +817,18 @@ async function loadTexture(data) {
         console.warn('[street-view-viewer] Preview load failed (continuing to full-res):', error);
     }
 
-    // Phase 2: Load full-resolution image
+    // Phase 2: a piramide, quando a foto tiver uma. O carregador ja assumiu a
+    // esfera, e o full nao entra: baixa-lo pagaria os 2,5 MB que os tiles
+    // existem para nao pagar.
+    if (await sonda) {
+        if (activeTextureAbort !== controller) return;
+        if (data.targets) {
+            prefetchTargetPreviews(data.targets);
+        }
+        return;
+    }
+
+    // Phase 3: Load full-resolution image. Sem piramide, o caminho de sempre.
     try {
         const fullUrl = getPhotoImageUrl(photoId, 'full');
         const blob = await fetchBlobWithRetry(fullUrl, { signal: controller.signal });
@@ -577,6 +883,25 @@ async function prefetchTargetPreviews(targets) {
 }
 
 /**
+ * Descarta a textura que SAI da esfera, e so ela.
+ *
+ * Quase nenhuma textura passa por aqui: preview e full vivem no `textureCache`,
+ * que ja descarta sozinho o que despeja, e descartar de novo mataria uma textura
+ * que o LRU ainda considera viva. A textura de tiles e a excecao, porque nunca
+ * entra no cache (ver `aplicarTexturaDeTiles`). Enquanto o carregador for dono
+ * dela quem descarta e ele; depois de `largarTiles` ela fica marcada como orfa,
+ * e ai ninguem mais a descartaria.
+ *
+ * @param {THREE.Texture|null} antiga - textura que estava na esfera
+ * @param {THREE.Texture} nova - textura que assume
+ */
+function descartarSeOrfaDeTiles(antiga, nova) {
+    if (!antiga || antiga === nova) return;
+    if (!antiga.userData?.orfaDeTiles) return;
+    antiga.dispose();
+}
+
+/**
  * Applies a texture to the panorama sphere.
  *
  * The equirectangular image center (U=0.5) already points at the camera heading.
@@ -589,6 +914,7 @@ async function prefetchTargetPreviews(targets) {
 function applyTexture(texture, data) {
     if (streetViewState.mesh) {
         // Update existing mesh
+        descartarSeOrfaDeTiles(streetViewState.material.map, texture);
         streetViewState.material.map = texture;
         streetViewState.material.needsUpdate = true;
     } else {
@@ -1115,6 +1441,18 @@ function cameraChangedSinceLastFrame() {
  * on the tablets used in the field.
  */
 function update() {
+    // Os dois passos dos tiles ficam ANTES da guarda de frame parado, e nao
+    // depois: o carregador precisa saber da camera mesmo quando nada mudou, e o
+    // tile que chega com a camera parada tem de acender a cena sozinho, senao
+    // ele fica invisivel ate o operador encostar no mouse.
+    informarCameraAoTiles();
+
+    // Uma unica subida de textura por frame: por tile, cada needsUpdate
+    // reenviaria o canvas INTEIRO para a GPU.
+    if (tiles.carregador?.aplicarAtualizacoes()) {
+        streetViewState.needsRender = true;
+    }
+
     if (!cameraChangedSinceLastFrame() && !streetViewState.needsRender && !ALWAYS_RENDER) {
         return;
     }
@@ -1982,6 +2320,14 @@ export function cleanupStreetViewFeatures() {
     if (streetViewState.navigator) {
         streetViewState.navigator.dispose();
         streetViewState.navigator = null;
+    }
+
+    // O carregador de tiles sai ANTES da malha, e o `dispose()` dele ja descarta
+    // a textura que ainda for sua. Soltar a referencia em seguida impede o
+    // descarte em dobro logo abaixo, que mataria a mesma textura duas vezes.
+    descartarCarregadorTiles();
+    if (streetViewState.material?.map?.userData?.deTiles) {
+        streetViewState.material.map = null;
     }
 
     // Cleanup Three.js resources
