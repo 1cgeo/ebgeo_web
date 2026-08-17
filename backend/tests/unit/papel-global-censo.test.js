@@ -137,11 +137,6 @@ const CENSO = [
     motivo: 'canWriteProject: escrita de projeto 360. Curador não escreve.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.write.service.js',
-    trecho: "const isAdmin = user?.role === 'admin'", n: 1, classe: PODER,
-    motivo: 'canWriteProject na forma de booleano local, para a listagem administrativa de escrita. Mesmo eixo da linha acima, e conta separado porque o texto difere.',
-  },
-  {
     arquivo: 'src/utils/roles.js',
     trecho: "if (globalRole === 'admin') return 'admin'", n: 1, classe: PODER,
     motivo: 'toFrontendRole: o curto-circuito que devolve o papel de CLIENTE. É o sítio mais perigoso do censo inteiro, porque mapear curador para \'admin\' aqui lhe daria a interface de administrador sem passar por nenhum gate de servidor. A fase F4 precisa deixá-lo intocado, e o teste dela afirma isso por nome.',
@@ -183,18 +178,18 @@ const CENSO = [
   {
     arquivo: 'src/modules/streetview360/sv360.service.js',
     trecho: "if (user.role === 'admin') return true", n: 1, classe: DADO,
-    motivo: 'isProjectReadable: LEITURA de projeto 360. A fase F6 troca este eixo por fn_has_global_data_access, e é aqui que o curador passa a enxergar o 360 privado.',
+    motivo: 'isProjectReadable, e SÓ o eixo de `status`: `disabled` oculta de todo mundo fora da OM dona, inclusive do curador. O eixo de PRIVACIDADE saiu daqui na fase F6 e mora no SQL (sv360AccessPredicate), que é onde ele pode consultar concessão e empréstimo sem uma segunda cópia da regra.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.service.js',
-    trecho: "const isAdmin = user?.role === 'admin'", n: 7, classe: DADO,
-    motivo: 'As SETE cópias que viram $1::boolean nas queries de leitura do 360. A contagem está escrita porque é ela que impede que F6 converta seis e esqueça a sétima — o booleano TRUE curto-circuita a disjunção inteira, então a cópia esquecida não erra: ela abre.',
+    trecho: "if (user?.role === 'admin')", n: 1, classe: PODER,
+    motivo: 'publicProjectView: acrescenta `db_filename` e `organization_id` ao payload, que são o vocabulário da SUPERFÍCIE ADMINISTRATIVA (ela gerencia os stores em disco por nome). Reclassificado de DADO para PODER na fase F6: não é acesso ao projeto, é a visão de administração dele, e o curador não a recebe.',
   },
-  {
-    arquivo: 'src/modules/streetview360/sv360.service.js',
-    trecho: "if (user?.role === 'admin')", n: 1, classe: DADO,
-    motivo: 'Leitura administrativa de foto por nome. Mesmo eixo das sete acima, forma diferente.',
-  },
+  // AS SETE CÓPIAS DE `const isAdmin = user?.role === 'admin'` EM sv360.service.js
+  // SAÍRAM NA FASE F6, e a contagem que morava aqui foi o que cobrou a conversão
+  // completa: converter seis e esquecer a sétima não daria erro, daria ABERTURA (o
+  // booleano TRUE curto-circuitava a disjunção inteira). Hoje as cinco consultas de
+  // leitura recebem o UUID e o SQL resolve o papel sozinho.
 ];
 
 // ============================================================================
@@ -268,8 +263,12 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     const achados = sitios(arquivosVersionados());
 
     // Guarda de discriminação: censo comparado contra varredura vazia passaria
-    // verde sem verificar nada.
-    assert.ok(achados.length >= 30, `esperava >= 20 sítios, achei ${achados.length}`);
+    // verde sem verificar nada. O piso caiu de 30 para 20 na fase F6, quando NOVE
+    // sítios saíram de uma vez — as sete cópias de `const isAdmin = ...` de
+    // `sv360.service.js` mais duas irmãs — porque o predicado de leitura do 360
+    // deixou de receber um booleano do JS e passou a resolver o papel no banco.
+    // Um piso que não acompanha a redução vira uma reprovação que não é regressão.
+    assert.ok(achados.length >= 20, `esperava >= 20 sítios, achei ${achados.length}`);
 
     const naoClassificados = achados
       .filter((a) => !CENSO.some((e) => e.arquivo === a.arquivo && a.texto.includes(e.trecho)))
@@ -285,7 +284,7 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
 
   it('a contagem por entrada bate: apagar uma cópia é tão vermelho quanto acrescentar', () => {
     const achados = sitios(arquivosVersionados());
-    assert.ok(achados.length >= 30);
+    assert.ok(achados.length >= 20);
 
     const divergentes = CENSO
       .map((e) => {
@@ -299,7 +298,11 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
   });
 
   it('toda entrada do censo tem motivo escrito e classe válida', () => {
-    assert.ok(CENSO.length >= 18, `esperava >= 15 entradas no censo, achei ${CENSO.length}`);
+    // Piso ajustado na fase F6, quando duas entradas saíram (as sete cópias do
+    // booleano de leitura do 360 e a irmã dela na escrita). Os pisos deste arquivo
+    // são guardas de "a varredura rodou", não metas — quando o código encolhe de
+    // propósito, quem não acompanha é o piso.
+    assert.ok(CENSO.length >= 15, `esperava >= 15 entradas no censo, achei ${CENSO.length}`);
     const ruins = CENSO
       .filter((e) => ![PODER, DADO, ORG].includes(e.classe) || !e.motivo || e.motivo.length < 40)
       .map((e) => `${e.arquivo} :: ${e.trecho}`);
@@ -336,7 +339,10 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     const poder = CENSO.filter((e) => e.classe === PODER);
     const dado = CENSO.filter((e) => e.classe === DADO);
     assert.ok(poder.length >= 10, `esperava >= 10 entradas de poder, achei ${poder.length}`);
-    assert.ok(dado.length >= 4, `esperava >= 4 entradas de dado, achei ${dado.length}`);
+    // Duas, e não quatro: a fase F6 tirou do JS o eixo de leitura do 360 e o pôs no
+    // SQL. É a direção certa — quanto menos decisão de acesso a dado no JS, melhor —
+    // e o piso acompanha em vez de cobrar de volta o que se acabou de remover.
+    assert.ok(dado.length >= 2, `esperava >= 2 entradas de dado, achei ${dado.length}`);
     assert.ok(
       poder.some((e) => e.arquivo === 'src/middleware/require-admin.js'),
       'require-admin.js é o gate de poder por excelência e precisa estar classificado como tal'

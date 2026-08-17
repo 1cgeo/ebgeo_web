@@ -5,14 +5,54 @@
 // lon/lat are exposed via ST_X(geom)/ST_Y(geom) so callers never read the column
 // directly. Tombstoned photos (sv360.deleted_photos) are excluded everywhere.
 
+/**
+ * O PREDICADO DE LEITURA DO 360, numa definição só.
+ *
+ * Ele já vivia dentro do SQL — o cabeçalho de `sv360.tiles.queries.js` chama isso
+ * de "defense in depth", e diz por quê: o dado do 360 já vazou duas vezes por
+ * rotas em que o acesso morava só na camada de aplicação. O que mudou na fase F6
+ * foi a FORMA do primeiro termo, e a mudança é de segurança:
+ *
+ *   ANTES  `$1::boolean` — um `isAdmin` calculado no JS. `TRUE` curto-circuita a
+ *          disjunção INTEIRA, então um erro naquele cálculo não erra: ele ABRE. E
+ *          `flexibleAuth` (que autentica este caminho) não reconcilia contra o
+ *          banco, então um admin rebaixado carregava o papel por até 15 min.
+ *   DEPOIS `fn_has_global_data_access($U::uuid)` — o SQL resolve o papel a partir
+ *          do UUID. A janela some por construção, e o curador entra no mesmo passo.
+ *
+ * TRÊS PROPRIEDADES PRESERVADAS DE PROPÓSITO (D6):
+ *   - a OM DONA continua vendo o próprio projeto, inclusive privado e inclusive
+ *     desabilitado: privacidade restringe quem está de FORA, não quem é dono do dado;
+ *   - `status = 'disabled'` continua ocultando de todo mundo fora da OM, e agora
+ *     também de quem tem concessão — os dois eixos são ORTOGONAIS;
+ *   - `enabled + public` continua sendo público para o anônimo.
+ *
+ * Escrito como FUNÇÃO e não como constante porque o número do placeholder muda por
+ * consulta. Uma segunda cópia do predicado é a dívida que o schema `ng` já paga.
+ *
+ * @param {number} pUser - Índice do parâmetro do userId (uuid, nullable).
+ * @param {number} pOrg - Índice do parâmetro da OM do chamador (uuid, nullable).
+ * @param {number} pAtlas - Índice do parâmetro do atlas em foco (uuid, nullable).
+ * @param {string} [alias=''] - Prefixo da tabela de projetos (ex.: 'pr.').
+ * @returns {string} Fragmento de WHERE, já entre parênteses.
+ */
+export const sv360AccessPredicate = (pUser, pOrg, pAtlas, alias = '') => `(
+        fn_has_global_data_access($${pUser}::uuid)
+        OR ${alias}organization_id = $${pOrg}::uuid
+        OR ( ${alias}status = 'enabled'
+             AND ( ${alias}access_level = 'public'
+                   OR ${alias}id::text IN (SELECT resource_id
+                                    FROM fn_granted_resource_ids($${pUser}::uuid, $${pAtlas}::uuid, 'sv360_project')) ) )
+      )`;
+
 // List projects. `enabled` is always public; disabled projects are visible only
 // to a global admin or to a member of the owning organization.
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+//   $1 = userId (uuid, nullable), $2 = userOrgId (uuid, nullable), $3 = atlasId (uuid, nullable)
 export const LIST_PROJECTS = `
   SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
          capture_date
   FROM sv360.projects
-  WHERE ($1::boolean OR status = 'enabled' OR organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 2, 3)}
   ORDER BY name
 `;
 
@@ -21,13 +61,24 @@ export const LIST_PROJECTS = `
 // non-deterministic rows[0]). Anon ($2 false, $3 null) matches only enabled; a
 // member/admin also matches their own/any org. ORDER prefers the caller's OWN org,
 // then enabled, for a deterministic single row (no cross-org thumbnail/data leak).
-//   $1 = slug, $2 = isAdmin (boolean), $3 = userOrgId (uuid, nullable)
+//   $1 = slug, $2 = userId (uuid, nullable), $3 = userOrgId (uuid, nullable),
+//   $4 = atlasId (uuid, nullable)
+//
+// O `access_level` viaja no SELECT porque `isProjectReadable` (o cinto de
+// seguranca na camada de aplicacao) precisa do eixo novo, e sem a coluna ele
+// decidiria por dois eixos onde existem tres.
+//
+// O ORDER BY E O DESEMPATE CROSS-ORG, e nao enfeite: um slug e UNIQUE so POR
+// ORGANIZACAO, entao duas OMs podem ter o mesmo, e sem esta ordenacao o `rows[0]`
+// seria nao-deterministico — o que ja seria vazamento de miniatura entre OMs.
+// Reescrever o WHERE e exatamente quando um ORDER BY vizinho se perde, e por isso
+// ele esta nomeado aqui.
 export const GET_PROJECT_BY_SLUG = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status, capture_date
+         entry_photo_id, photo_count, db_filename, status, capture_date, access_level
   FROM sv360.projects
   WHERE slug = $1
-    AND ($2::boolean OR status = 'enabled' OR organization_id = $3::uuid)
+    AND ${sv360AccessPredicate(2, 3, 4)}
   ORDER BY (organization_id = $3::uuid) DESC, (status = 'enabled') DESC, organization_id
   LIMIT 1
 `;
@@ -160,16 +211,16 @@ export const NEARBY_PHOTOS = `
 // TILES_GEOJSON_MAX_FEATURES). Without them one anonymous request scanned and
 // materialized the whole table, holding a pool connection for the duration. The `&&`
 // operator is index-backed by idx_sv360_photos_geom (GiST).
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable),
+//   $1 = userId (uuid, nullable), $2 = userOrgId (uuid, nullable),
 //   $3..$6 = minLon/minLat/maxLon/maxLat (double precision, nullable),
-//   $7 = limit (int)
+//   $7 = limit (int), $8 = atlasId (uuid, nullable)
 export const TILES_PHOTOS = `
   SELECT p.id, ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
          p.original_name, p.display_name, p.sequence_number, p.heading,
          pr.slug AS project_slug
   FROM sv360.photos p
   JOIN sv360.projects pr ON pr.id = p.project_id
-  WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 2, 8, 'pr.')}
     AND p.geom IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
     AND (
@@ -343,7 +394,7 @@ export const REVIEW_STATS_BY_PROJECT = `
 // also the only case where this endpoint and GET /projects/:slug (which prefers the
 // caller's own org) describe different sets, and there is no cross-org slug
 // collision in the current corpus.
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+//   $1 = userId (uuid, nullable), $2 = userOrgId (uuid, nullable), $3 = atlasId (uuid, nullable)
 export const REVIEW_STATS_ALL_PROJECTS = `
   SELECT pr.slug,
          COUNT(p.id)::int AS total,
@@ -352,7 +403,7 @@ export const REVIEW_STATS_ALL_PROJECTS = `
   LEFT JOIN sv360.photos p
     ON p.project_id = pr.id
    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
-  WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 2, 3, 'pr.')}
   GROUP BY pr.slug
   ORDER BY pr.slug
 `;

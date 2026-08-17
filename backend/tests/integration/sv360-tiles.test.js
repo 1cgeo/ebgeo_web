@@ -111,8 +111,20 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
     );
 
     // Tokens: a GLOBAL admin and a member of the OTHER (owning) org.
+    // O ADMIN PRECISA EXISTIR NO BANCO, e essa exigencia e nova (fase F6).
+    // O predicado de leitura do 360 deixou de receber um `isAdmin` calculado no JS
+    // e passou a resolver o papel a partir do UUID (`fn_has_global_data_access`).
+    // Um token forjado com `sub` sem linha em `users` continua sendo um token
+    // valido e deixou de ser um admin — que e exatamente a propriedade desejada:
+    // o token sozinho nao concede mais nada.
+    const adminId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO users (id, username, password_hash, nome, role, organization_id)
+       VALUES ($1, $2, 'x', 'Admin 360', 'admin', $3)`,
+      [adminId, `sv360_admin_${adminId.slice(0, 8)}`, defaultOrgId]
+    );
     adminToken = jwt.sign(
-      { sub: crypto.randomUUID(), role: 'admin', organization_id: defaultOrgId, org_role: 'admin' },
+      { sub: adminId, role: 'admin', organization_id: defaultOrgId, org_role: 'admin' },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );

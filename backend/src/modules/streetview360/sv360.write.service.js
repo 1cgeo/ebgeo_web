@@ -17,6 +17,7 @@ import { query, tx } from '../../database/index.js';
 import * as WQ from './sv360.write.queries.js';
 import * as Q from './sv360.queries.js';
 import { buildPhotoMetadata, isProjectReadable } from './sv360.service.js';
+import { principalUserId } from '../../utils/principal.js';
 import { ForbiddenError, NotFoundError, ConflictError } from '../../utils/errors.js';
 import { safeErrorMessage } from '../../utils/safe-error-message.js';
 import logger from '../../utils/logger.js';
@@ -279,11 +280,16 @@ export async function batchCalibration(items, user) {
 // collision deterministically (own org first, then enabled). Resolving it any other
 // way would let a writer address another org's project by slug.
 async function loadWritableProject(slug, user, executor = query) {
-  const isAdmin = user?.role === 'admin';
+  // Os TRES parametros de escopo que `GET_PROJECT_BY_SLUG` passou a exigir na fase
+  // F6 ([userId, orgId, atlasId]) — antes eram dois, e o primeiro era um booleano.
+  // `atlasId` e NULL aqui de proposito: emprestimo de atlas amplia LEITURA, e este
+  // e um caminho de ESCRITA, cuja escada de posse (`enforceProjectWritable`) nao
+  // conhece nem deve conhecer esse eixo.
   const { rows } = await executor(Q.GET_PROJECT_BY_SLUG, [
     slug,
-    isAdmin,
+    principalUserId(user),
     user?.organization_id ?? null,
+    null,
   ]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');

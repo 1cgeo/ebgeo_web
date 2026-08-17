@@ -1,4 +1,5 @@
 // Path: src/modules/streetview360/sv360.tiles.queries.js
+import { sv360AccessPredicate } from './sv360.queries.js';
 // Vector-tile (MVT) SQL for the StreetView 360 module (Fase 9, Tarefa 7).
 // PostGIS generates the protobuf tile server-side (ST_AsMVT + ST_AsMVTGeom +
 // ST_TileEnvelope). The frontend consumes this as a MapLibre VECTOR source — it
@@ -18,15 +19,22 @@
 //
 // ACCESS CONTROL (CRITICAL — embedded in the SQL, defense in depth; the 360 data
 // has leaked twice in other routes when access lived only in the app layer): the
-// SAME predicate as TILES_PHOTOS — ($isAdmin OR pr.status='enabled' OR
-// pr.organization_id=$orgId) — gates BOTH layers; tombstoned photos are excluded
-// via NOT EXISTS sv360.deleted_photos. An anon caller (isAdmin=false, orgId=null)
-// NEVER sees a disabled project.
+// SAME predicate as TILES_PHOTOS, e agora LITERALMENTE o mesmo — `sv360AccessPredicate`
+// (sv360.queries.js) é uma definição só, importada aqui. Ele gateia AS DUAS
+// camadas, porque a CTE `visible` alimenta pontos e linhas: um filtro aplicado só
+// nos pontos deixaria a trajetória do projeto invisível desenhada no mapa, que é o
+// negativo que `sv360-mvt.test.js` já cobrava.
+//
+// O primeiro termo deixou de ser um booleano do JS: `$isAdmin` valia TRUE e
+// curto-circuitava a disjunção inteira, então um erro no cálculo não errava, ABRIA.
+// Agora o SQL resolve o papel a partir do UUID. Tombstoned photos continuam
+// excluídas via NOT EXISTS sv360.deleted_photos, e um chamador anônimo
+// (userId=null, orgId=null) NUNCA vê projeto disabled nem privado.
 //
 // PERFORMANCE: the bbox is computed ONCE in 4326 (ST_Transform of the tile
 // envelope) and used with the `&&` operator against p.geom so the GiST index on
 // sv360.photos(geom) is used to prune rows BEFORE ST_AsMVTGeom transforms the
-// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=isAdmin, $5=orgId.
+// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=userId, $5=orgId, $6=atlasId.
 //
 // ZOOM FLOOR for the 'fotos' layer only. Below this zoom the tile still carries
 // 'fotos_linha' and simply omits the points.
@@ -67,7 +75,7 @@ export const MVT_TILE = `
            pr.slug AS project_slug
     FROM sv360.photos p
     JOIN sv360.projects pr ON pr.id = p.project_id
-    WHERE ($4::boolean OR pr.status = 'enabled' OR pr.organization_id = $5::uuid)
+    WHERE ${sv360AccessPredicate(4, 5, 6, 'pr.')}
       AND p.geom IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id

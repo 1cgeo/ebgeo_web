@@ -133,7 +133,18 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
 
     ownerToken = mintToken({ orgId: ownOrgId, orgRole: 'owner' });
     viewerToken = mintToken({ orgId: ownOrgId, orgRole: 'viewer' });
-    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin' });
+    // O ADMIN PRECISA EXISTIR NO BANCO (fase F6): o predicado de leitura do 360
+    // resolve o papel a partir do UUID em vez de aceitar o booleano do token, entao
+    // um `sub` sem linha em `users` e um token valido que nao e admin — que e a
+    // propriedade desejada. Repare que `mintToken` usa por padrao um sub que nem
+    // sequer e UUID, o que tornava a falha ainda mais silenciosa.
+    const adminId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO users (id, username, password_hash, nome, role, organization_id)
+       VALUES ($1, $2, 'x', 'Admin cal', 'admin', $3)`,
+      [adminId, `sv360cal_admin_${adminId.slice(0, 8)}`, otherOrgId]
+    );
+    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin', sub: adminId });
     crossOrgToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
   });
 
@@ -148,6 +159,10 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
     await db.query(`DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])`, [
       [projectId, hiddenProjectId],
     ]);
+    // O admin criado no `before` referencia uma das OMs, e o FK bloqueia o DELETE
+    // dela. Isolado o arquivo passava assim mesmo (o erro cai num after-hook que
+    // ninguém lê); na suíte completa ele derruba a suíte inteira.
+    await db.query(`DELETE FROM users WHERE organization_id = ANY($1::uuid[])`, [[ownOrgId, otherOrgId]]);
     await db.query(`DELETE FROM public.organizations WHERE id = ANY($1::uuid[])`, [
       [ownOrgId, otherOrgId],
     ]);

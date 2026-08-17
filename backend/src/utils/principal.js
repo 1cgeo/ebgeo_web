@@ -25,3 +25,19 @@ export function principalUserId(user) {
   const id = user?.id;
   return typeof id === 'string' && PRINCIPAL_UUID_RE.test(id) ? id : null;
 }
+
+/**
+ * Um `atlasId` vindo do request, quando ele é um UUID de verdade, senão null.
+ *
+ * MESMA BARREIRA DE TIPO de `principalUserId`, e pela mesma razão: o valor vai
+ * para um cast `::uuid` e qualquer outra coisa levanta 22P02, que o errorHandler
+ * traduz num HTTP 400 sem relação aparente com a causa. Null é "sem atlas em
+ * foco", que é um estado legítimo — quem lê o 360 direto pela URL não tem atlas
+ * nenhum aberto.
+ *
+ * @param {*} value - Tipicamente `req.query.atlasId`.
+ * @returns {string|null}
+ */
+export function atlasScopeId(value) {
+  return typeof value === 'string' && PRINCIPAL_UUID_RE.test(value) ? value : null;
+}

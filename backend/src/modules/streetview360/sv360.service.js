@@ -19,6 +19,7 @@ import * as blobstore from './sv360.blobstore.js';
 import { TILES_GEOJSON_MAX_FEATURES } from './sv360.schemas.js';
 import config from '../../config.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { principalUserId, atlasScopeId } from '../../utils/principal.js';
 
 const DEFAULT_NEARBY_RADIUS_M = 500;
 const NEARBY_LIMIT = 100;
@@ -31,7 +32,43 @@ const NEARBY_LIMIT = 100;
  * @param {Object} [user]  - req.user ({ role, organization_id }) or undefined
  * @returns {boolean}
  */
+/**
+ * O escopo de LEITURA do 360, na ordem que `sv360AccessPredicate` espera.
+ *
+ * `principalUserId` e nao `user.id`: o visitante de link publico carrega
+ * `public-<uuid>`, que num cast `::uuid` levanta 22P02 e volta como HTTP 400 sem
+ * relacao aparente com a causa. NULL ali e o valor CORRETO para ele — o ramo de
+ * concessao pessoal morre e sobra o de emprestimo, que depende do atlas.
+ *
+ * @param {Object} [user] - req.user
+ * @param {string} [atlasId] - `req.query.atlasId`, cru.
+ * @returns {[string|null, string|null, string|null]} [userId, orgId, atlasId]
+ */
+function readScope(user, atlasId) {
+  return [principalUserId(user), user?.organization_id ?? null, atlasScopeId(atlasId)];
+}
+
 export function isProjectReadable(project, user) {
+  // OS DOIS EIXOS SAO ORTOGONAIS, e esta funcao cobre UM deles.
+  //
+  //   `status`        — `disabled` oculta de todo mundo fora da OM dona, inclusive
+  //                     de quem tem concessao e inclusive do curador. E o eixo de
+  //                     OCULTACAO, e e este que a funcao decide.
+  //   `access_level`  — `private` restringe quem esta de FORA, nunca a OM dona
+  //                     (D6). E o eixo de PRIVACIDADE, e ele NAO e decidido aqui.
+  //
+  // POR QUE O SEGUNDO EIXO NAO MORA AQUI, e isto e limite declarado e nao
+  // esquecimento: decidi-lo exige saber de CONCESSAO e de EMPRESTIMO, que sao
+  // duas tabelas e um atlas em foco. Fazer isso no JS custaria uma consulta por
+  // chamada nos caminhos mais quentes do modulo (foto, thumbnail, tile) e, pior,
+  // criaria uma SEGUNDA definicao da regra — exatamente a divida que
+  // `sv360AccessPredicate` acabou de pagar. A garantia de privacidade e do SQL,
+  // que e onde o cabecalho de sv360.tiles.queries.js sempre disse que ela mora
+  // ("embedded in the SQL, defense in depth"), e nenhuma linha chega a esta
+  // funcao sem ter passado por ele.
+  //
+  // Consequencia pratica: um projeto `enabled + private` e considerado legivel
+  // aqui. Quem o entregou foi o SQL, que so o entrega a quem pode ve-lo.
   if (project.status === 'enabled') return true;
   if (!user) return false;
   if (user.role === 'admin') return true;
@@ -55,9 +92,8 @@ function enforceProjectReadable(project, user, resource = 'Project') {
  * @param {Object} [user]
  * @returns {Promise<Array>} projects in the frozen public shape
  */
-export async function listProjects(user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.LIST_PROJECTS, [isAdmin, user?.organization_id ?? null]);
+export async function listProjects(user, atlasId = null) {
+  const { rows } = await query(Q.LIST_PROJECTS, readScope(user, atlasId));
   return rows.map((r) => publicProjectView(r, user));
 }
 
@@ -68,9 +104,8 @@ export async function listProjects(user) {
  * @returns {Promise<Object>} project row
  * @throws {NotFoundError} if missing or hidden from the caller
  */
-export async function getProject(slug, user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, isAdmin, user?.organization_id ?? null]);
+export async function getProject(slug, user, atlasId = null) {
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId)]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');
   enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
@@ -121,9 +156,8 @@ function floorPlanToGeoJson(planCoords, level) {
  * @returns {Promise<Object>} the sv360.projects row (NOT the public view)
  * @throws {NotFoundError} if missing or hidden from the caller
  */
-async function resolveReadableProject(slug, user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, isAdmin, user?.organization_id ?? null]);
+async function resolveReadableProject(slug, user, atlasId = null) {
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId)]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');
   enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
@@ -503,12 +537,8 @@ export async function projectCalibrationPhotos(slug, user) {
  * @param {Object} [user]
  * @returns {Promise<Object>} { <slug>: { total, reviewed } }
  */
-export async function reviewStatsAllProjects(user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.REVIEW_STATS_ALL_PROJECTS, [
-    isAdmin,
-    user?.organization_id ?? null,
-  ]);
+export async function reviewStatsAllProjects(user, atlasId = null) {
+  const { rows } = await query(Q.REVIEW_STATS_ALL_PROJECTS, readScope(user, atlasId));
   const stats = {};
   for (const row of rows) {
     stats[row.slug] = { total: row.total, reviewed: row.reviewed };
@@ -628,16 +658,11 @@ export async function projectRuns(slug, user) {
  * @param {number} [opts.limit] - row ceiling (already capped by the schema)
  * @returns {Promise<Object>} GeoJSON FeatureCollection
  */
-export async function tilesFeatureCollection(user, { bbox, limit } = {}) {
-  const isAdmin = user?.role === 'admin';
+export async function tilesFeatureCollection(user, { bbox, limit, atlasId } = {}) {
   const box = Array.isArray(bbox) && bbox.length === 4 ? bbox : [null, null, null, null];
   const cap = Number.isInteger(limit) && limit > 0 ? limit : TILES_GEOJSON_MAX_FEATURES;
-  const { rows } = await query(Q.TILES_PHOTOS, [
-    isAdmin,
-    user?.organization_id ?? null,
-    ...box,
-    cap,
-  ]);
+  const [userId, orgId, atlas] = readScope(user, atlasId);
+  const { rows } = await query(Q.TILES_PHOTOS, [userId, orgId, ...box, cap, atlas]);
   return {
     type: 'FeatureCollection',
     features: rows.map((r) => ({
@@ -670,9 +695,8 @@ export async function tilesFeatureCollection(user, { bbox, limit } = {}) {
  * @param {Object} [user] - req.user ({ role, organization_id }) or undefined
  * @returns {Promise<Buffer>} the MVT protobuf (possibly empty)
  */
-export async function mvtTile(z, x, y, user) {
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(TQ.MVT_TILE, [z, x, y, isAdmin, user?.organization_id ?? null]);
+export async function mvtTile(z, x, y, user, atlasId = null) {
+  const { rows } = await query(TQ.MVT_TILE, [z, x, y, ...readScope(user, atlasId)]);
   const tile = rows[0]?.tile;
   // pg returns bytea as a Node Buffer; normalize null/undefined to an empty tile.
   return Buffer.isBuffer(tile) ? tile : Buffer.alloc(0);
@@ -696,16 +720,11 @@ export async function mvtTile(z, x, y, user) {
  *   campo que decide escopo de cache: quem programasse contra o JSDoc trataria o retorno
  *   como caminho e publicaria um thumbnail de projeto desabilitado.
  */
-export async function resolveThumbnailPath(slug, user) {
+export async function resolveThumbnailPath(slug, user, atlasId = null) {
   // basename strips any directory component (../, absolute) before it ever hits
   // the DB lookup or the filesystem — defense in depth on top of the route param.
   const safeSlug = path.basename(String(slug));
-  const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [
-    safeSlug,
-    isAdmin,
-    user?.organization_id ?? null,
-  ]);
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [safeSlug, ...readScope(user, atlasId)]);
   const project = rows[0];
   // Project missing OR hidden from the caller → indistinguishable 404 (no leak).
   if (!project || !isProjectReadable(project, user)) return null;
