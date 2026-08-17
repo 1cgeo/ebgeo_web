@@ -197,6 +197,14 @@ body.first-person-active .modal-overlay {
     display: none;
 }
 
+/* NO STYLE OF ITS OWN FOR THE "+N" LABEL, and that was a decision, not an
+   omission. It briefly carried a dashed underline and a heavier weight, to
+   announce that clicking it opens the pile rather than its own card. Rejected on
+   sight (2026-08-17): the labels sit over the scene in a row, and one of them
+   wearing a different shape reads as damage, not as an affordance. The "+N"
+   suffix already says there is more, and the hover title says what the click
+   does. */
+
 /* =========================================================================
    MARKER CARD — NOT DEFINED HERE, ON PURPOSE
 
@@ -249,6 +257,167 @@ body.first-person-active .modal-overlay {
    is the lesser cost. */
 .marker-fp-panel-content .marker-fp-photo-card img {
     object-fit: contain;
+}
+
+/* =========================================================================
+   ITEM LIST — SAME PANEL, OTHER CONTENT
+
+   Built by components/items-list-fp.js and mounted in the very feature panel
+   the card uses, so it inherits the panel's chrome and needs only its rows.
+
+   It exists because the card was a leaf: an item could only be reached by
+   walking up to its label, and the labels the layer collapses (pieces
+   centimeters apart in a case) could not be reached at all.
+   ========================================================================= */
+
+/* The button that widens: "Ver todos os itens da cena", on the card and on a
+   scoped list. Full width and quiet — it is a way out, not the point of the
+   panel. */
+.fp3d-list__widen {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-700);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition:
+        background var(--transition-fast),
+        border-color var(--transition-fast);
+}
+
+.fp3d-list__widen:hover {
+    border-color: var(--primary);
+    background: var(--gray-100);
+    color: var(--primary-dark);
+}
+
+.fp3d-list__widen:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.fp3d-list__search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: var(--space-3) 0 var(--space-2);
+}
+
+.fp3d-list__search-icon {
+    position: absolute;
+    left: var(--space-2);
+    display: flex;
+    color: var(--gray-500);
+    pointer-events: none;
+}
+
+.fp3d-list__search-input {
+    width: 100%;
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-8);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--gray-800);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+}
+
+.fp3d-list__search-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.fp3d-list__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* A row is a BUTTON, so the keyboard reaches every item the mouse does. */
+.fp3d-list__row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    width: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--gray-800);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+/* THE FILTER'S `hidden` NEEDS THIS LINE TO MEAN ANYTHING, and leaving it out is
+   how the search box came out inert on the first try: the browser hides
+   `[hidden]` with a `display: none` from its OWN stylesheet, and ANY author rule
+   beats the whole user-agent sheet regardless of specificity — so the
+   `display: flex` above simply kept every row on screen while
+   `applyFilter` dutifully marked them hidden. Typing filtered nothing, and
+   nothing in the console said so. */
+.fp3d-list__row[hidden] {
+    display: none;
+}
+
+.fp3d-list__row:hover {
+    background: var(--gray-100);
+}
+
+.fp3d-list__row:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
+/* The item whose card was open before the list. Without it, coming back from a
+   card lands the visitor in 78 identical rows with no idea where they were. */
+.fp3d-list__row--current {
+    background: var(--gray-100);
+    box-shadow: inset 3px 0 0 var(--primary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* Fixed square, so 78 photos of different proportions still make a straight
+   column of text beside them. */
+.fp3d-list__thumb {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-500);
+}
+
+/* `cover` here and `contain` on the card, on purpose: at 40 px the crop reads as
+   a swatch of the object, and letterboxing would leave a stamp of background. */
+.fp3d-list__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.fp3d-list__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.fp3d-list__empty {
+    padding: var(--space-4) var(--space-2);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
 }
 
 /* =========================================================================
@@ -340,7 +509,7 @@ body.first-person-active .modal-overlay {
 }
 
 /* =========================================================================
-   MOVEMENT KEY HINTS — BOTTOM LEFT
+   MOVEMENT KEY HINTS — BOTTOM RIGHT
 
    The corner the walker never looks at, telling them the only thing the scene
    cannot show: which keys move them. Deliberately quiet — no panel chrome, no
@@ -348,8 +517,14 @@ body.first-person-active .modal-overlay {
    then stops seeing it, which is why it is worth 0.6 of an opacity and not a
    card.
 
-   The corner is the LEFT one because the right belongs to the toolbar and to
-   the close button, and stacking a fourth thing there would crowd the exit.
+   THE CORNER IS THE RIGHT ONE, and it moved there in 2026-08-17 by request.
+   The earlier note here argued for the left because "the right belongs to the
+   toolbar and to the close button" — but neither is in this corner: the
+   toolbar hangs from `top: 80px` down the right EDGE and the close button sits
+   top-right, so the bottom-right was empty and the controls now read as one
+   column. The one place they would collide is the narrow layout, where the
+   toolbar drops to `bottom right`; there the hints are already `display: none`
+   (see RESPONSIVE), because a device with no keyboard has no use for them.
 
    The direction keys are DRAWN as the pad they are, with each cap carrying its
    arrow, and the two modifiers sit beside it. That shape is the caption: it
@@ -359,8 +534,8 @@ body.first-person-active .modal-overlay {
 
 .fp3d-keyhints {
     position: absolute;
+    right: var(--space-4);
     bottom: var(--space-4);
-    left: var(--space-4);
     display: flex;
     align-items: center;
     gap: var(--space-3);

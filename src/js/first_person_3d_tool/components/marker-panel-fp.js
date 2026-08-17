@@ -44,6 +44,8 @@
 // The app's one lightbox: styled close, download button, Escape and arrow keys.
 // The 3D panel carries an older, plainer copy — this is the one to use.
 import { openImageViewer } from '@sidebar/components/feature-photo-gallery.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 /** Item icon, at the weight the other feature panels use. */
 const ICON_ITEM = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
@@ -71,11 +73,42 @@ export function createMarkerPanelFpContent(marker, sceneName, photoUrl = null) {
 
     buildDescriptionSection(container, marker);
 
+    const listCleanup = buildAllItemsButton(container);
+
     const cleanup = () => {
         photoCleanup?.();
+        listCleanup();
     };
 
     return { element: container, cleanup };
+}
+
+/**
+ * "Ver todos os itens": the way OUT of a single item and into the whole set.
+ *
+ * The card used to be a leaf. Every item was reachable only by walking up to its
+ * own label, and the labels the layer collapses (pieces centimeters apart in a
+ * display case) were not reachable at all. From here the visitor opens the list
+ * and picks any of them, without touring the room.
+ *
+ * IT ASKS RATHER THAN ACTS. This module is built inside the sidebar and knows
+ * nothing about the scene's markers, which live in the viewer's marker layer, so
+ * the button emits MARKER_FP_LIST_REQUESTED and the layer answers with the list.
+ *
+ * @param {HTMLElement} container - Parent container.
+ * @returns {Function} Teardown that detaches the listener.
+ */
+function buildAllItemsButton(container) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'fp3d-list__widen';
+    button.textContent = 'Ver todos os itens da cena';
+
+    const onClick = () => getEventBus().emit(EventTypes.MARKER_FP_LIST_REQUESTED, {});
+    button.addEventListener('click', onClick);
+    container.appendChild(button);
+
+    return () => button.removeEventListener('click', onClick);
 }
 
 /**
@@ -105,11 +138,15 @@ function buildIdentificationSection(container, marker, sceneName) {
     name.textContent = marker.titulo || 'Sem nome';
     nameContainer.appendChild(name);
 
+    // NO ITEM NUMBER, since 2026-08-17. It used to read "Tipo: Item 100 do
+    // acervo", and the number is the catalog's own index — it addresses a paper
+    // ficha in the Sala Histórica that the visitor has no way to consult. What
+    // is left is the TYPE, which is what this line of every other feature panel
+    // carries. The number is still in the data (`marker.item`) for whoever
+    // curates the scene.
     const type = document.createElement('div');
     type.className = 'feature-identification-type';
-    type.textContent = Number.isFinite(marker.item)
-        ? `Tipo: Item ${marker.item} do acervo`
-        : 'Tipo: Item do acervo';
+    type.textContent = 'Tipo: Item do acervo';
 
     info.appendChild(nameContainer);
     info.appendChild(type);

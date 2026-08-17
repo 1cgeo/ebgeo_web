@@ -158,6 +158,28 @@ export const EventTypes = Object.freeze({
     MARKER_FP_CLICKED: 'markerFp:clicked',
     /** Payload: { sceneId } */
     MARKER_FP_DESELECTED: 'markerFp:deselected',
+    /**
+     * The item LIST is on its way to the feature panel. Emitted by the marker
+     * layer, which is the only holder of the scene's markers.
+     * Payload: { items: Array<{marker: FpMarker, photoUrl: string|null}>, sceneId,
+     *   sceneName, title: string, openId: string|null }
+     */
+    MARKER_FP_LIST_CLICKED: 'markerFp:listClicked',
+    /**
+     * Somebody wants that list. Emitted by the open item's panel ("Ver todos os
+     * itens"); the marker layer answers with MARKER_FP_LIST_CLICKED. It travels
+     * through the bus, and not as a callback in the panel's payload, because the
+     * panel is built in the sidebar and the markers live in the viewer: an event
+     * is the one wire those two already share. Payload: none.
+     */
+    MARKER_FP_LIST_REQUESTED: 'markerFp:listRequested',
+    /**
+     * A row of the list was chosen. The LAYER handles it rather than the list
+     * opening the card itself, because the layer is what knows which marker is
+     * open (`_openId`), and a card opened behind its back would leave the label
+     * highlight lying. Payload: { id: string }
+     */
+    MARKER_FP_PICKED: 'markerFp:picked',
 
     // ===== MAP LIFECYCLE =====
     /** Payload: { mapId, map } */

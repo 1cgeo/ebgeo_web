@@ -41,6 +41,7 @@ import {
     MOVEMENT_KEYS
 } from './constants.js';
 import { VoxelCollision } from './voxel-collision.js';
+import { isTypingTarget } from '@utils/typing-target.js';
 
 /** Mouse-look sensitivity, in radians per pixel of pointer movement. */
 const LOOK_SENSITIVITY = 0.002;
@@ -570,6 +571,20 @@ export class WalkMode {
         if (!this._enabled) {
             return;
         }
+        // TYPING IS NOT WALKING, and this listener is on the DOCUMENT, so every
+        // text field on the page is in its reach. Four of the six keys it tracks
+        // are letters (W, A, S, D) and a fifth is the space bar, and it calls
+        // `preventDefault()` on all of them — so without this guard a field could
+        // not receive those characters at all while the viewer was open, and the
+        // camera walked as the visitor typed. The scene's own item search
+        // (`components/items-list-fp.js`) is a field open at exactly that moment,
+        // which is how this was found.
+        //
+        // The keyboard SERVICE of this viewer already made the same test for the
+        // tool keys; this class was the one that never did.
+        if (isTypingTarget(e.target)) {
+            return;
+        }
         // With ctrl, alt or meta the key belongs to the BROWSER, not to the
         // walk. Without this guard walk mode was swallowing the visitor's
         // Ctrl+S and Ctrl+A.
@@ -716,8 +731,22 @@ export class WalkMode {
             this._mouseLookDragging = false;
             return;
         }
-        this._yaw -= e.movementX * LOOK_SENSITIVITY;
-        this._pitch -= e.movementY * LOOK_SENSITIVITY;
+        // THE SIGN IS "GRAB THE SCENE", NOT "AIM THE HEAD", and it was the other
+        // way round until 2026-08-17. Turning here is a DRAG, and a drag in this
+        // app means the content follows the hand: MapLibre pans the map under
+        // the cursor, and the 360 viewer computes its yaw as
+        // `(pointerDownX - clientX) * sensitivity` (street_view_viewer.js), so
+        // dragging right swings the view LEFT in both. This viewer subtracted
+        // instead, which is the first-person-shooter convention — right and
+        // correct where the pointer is CAPTURED and there is no hand holding
+        // anything, and backwards here, where the same gesture is a drag. Adding
+        // `movementX` to the yaw makes the three viewers agree.
+        //
+        // The vertical sign follows for the same reason and must move WITH it:
+        // flipping one axis alone is worse than either convention, because the
+        // two halves of one gesture then disagree.
+        this._yaw += e.movementX * LOOK_SENSITIVITY;
+        this._pitch += e.movementY * LOOK_SENSITIVITY;
         this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch));
     }
 }

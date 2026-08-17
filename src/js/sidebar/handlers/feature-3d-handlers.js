@@ -22,8 +22,9 @@ let viewshedPanel3dModule = null;
 // 360 panel modules (lazy imported)
 let markerPanel360Module = null;
 
-// First-person panel module (lazy imported)
+// First-person panel modules (lazy imported)
 let markerPanelFpModule = null;
+let itemsListFpModule = null;
 
 // ============================================================================
 // 3D MARKER HANDLERS
@@ -391,6 +392,66 @@ export async function handleMarkerFpClick({
         element,
         cleanup,
         title: marker.titulo || 'Item do acervo'
+    };
+}
+
+/**
+ * Handles the first-person item LIST, in the same panel the card uses.
+ *
+ * The list is the scene's way out of a dead end: a card used to be a leaf, and
+ * the items whose labels the layer collapses had no way in at all. It arrives
+ * here already resolved (markers and photo URLs) because the marker layer is
+ * what holds the scene folder.
+ *
+ * IT REGISTERS AS `markerFp`, the same feature type the card does, and that is
+ * deliberate: the list and the card are two faces of one selection, and every
+ * closing path already written (Esc, the viewer closing, a base-layer change)
+ * asks for that type. A type of its own would be a second thing to remember in
+ * five places, and forgetting it in one leaves a panel behind.
+ *
+ * @param {Object} options - Options
+ * @param {Array<{marker: Object, photoUrl: string|null}>} options.items - Items to list
+ * @param {string} options.sceneName - Scene display name
+ * @param {string} options.title - Header title of the list
+ * @param {boolean} options.scoped - True when the list is a subset of the scene
+ * @param {string|null} options.openId - Id of the item whose card was open
+ * @param {Object} options.stateManager - State manager instance
+ * @param {Function} options.cleanupPrevious - Cleanup function for previous content
+ * @returns {Promise<{ element: HTMLElement, cleanup: Function, title: string }|null>}
+ */
+export async function handleMarkerFpListClick({
+    items,
+    sceneName,
+    title,
+    scoped,
+    openId,
+    stateManager,
+    cleanupPrevious
+}) {
+    if (!Array.isArray(items) || items.length === 0) return null;
+
+    stateManager.openFeaturePanel('markerFpList', 'markerFp');
+
+    if (!itemsListFpModule) {
+        itemsListFpModule = await import(
+            '../../first_person_3d_tool/components/items-list-fp.js'
+        );
+    }
+
+    cleanupPrevious();
+
+    const { element, cleanup } = itemsListFpModule.createItemsListFpContent({
+        items,
+        sceneName,
+        title,
+        scoped,
+        openId
+    });
+
+    return {
+        element,
+        cleanup,
+        title: title || 'Itens do acervo'
     };
 }
 

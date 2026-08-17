@@ -20,6 +20,7 @@
 
 import {
     setupCleanup,
+    subscribe,
     addScopedDomListener,
     clearScopedListeners,
     cleanup
@@ -81,13 +82,26 @@ export class FpMarkersLayer {
         this._openId = null;
         this._interactive = true;
         this._labelsVisible = true;
-        /** How many labels each visible label is covering, in the current frame. */
+        /**
+         * WHICH labels each visible label is covering, in the current frame.
+         * It used to be a COUNT, enough to write the "+N" suffix. It is the ids
+         * now because clicking that suffix opens the pile
+         * (`_openPile`), and a count cannot say what is in it.
+         * @type {Map<HTMLButtonElement, string[]>}
+         */
         this._covered = new Map();
 
         this._root = document.createElement('div');
         this._root.className = 'fp3d-labels';
         container.appendChild(this._root);
 
+        // The two ways INTO this layer from the feature panel, which is built in
+        // the sidebar and holds no reference to us. The list asks us to open an
+        // item because `_openId` lives here; the open item's panel asks for the
+        // full list because the markers live here.
+        const bus = getEventBus();
+        subscribe(this, bus, EventTypes.MARKER_FP_PICKED, ({ id } = {}) => this._openById(id));
+        subscribe(this, bus, EventTypes.MARKER_FP_LIST_REQUESTED, () => this.openAllItems());
     }
 
     /**
@@ -224,7 +238,7 @@ export class FpMarkersLayer {
         // ray is left for later, because it is expensive (up to 140 octree steps)
         // and most markers never even get drawn.
         const onScreen = [];
-        for (const { marker, el } of this._items.values()) {
+        for (const [id, { marker, el }] of this._items) {
             const dx = marker.x - px;
             const dy = marker.y - py;
             const dz = marker.z - pz;
@@ -245,6 +259,7 @@ export class FpMarkersLayer {
                 continue;
             }
             onScreen.push({
+                id,
                 el,
                 sx: ((nx + 1) / 2) * width,
                 sy: ((1 - ny) / 2) * height,
@@ -291,10 +306,15 @@ export class FpMarkersLayer {
             );
             if (conflict) {
                 // The hidden label does not vanish without a trace: the one on top
-                // counts how many pieces it covers, so the visitor knows there is
-                // more there and walks closer.
+                // lists what it covers, which writes the "+N" suffix below AND is
+                // what that suffix opens when clicked (`_toggleMarker`).
                 c.el.classList.add('fp3d-label--hidden');
-                this._covered.set(conflict.owner, (this._covered.get(conflict.owner) ?? 0) + 1);
+                const pile = this._covered.get(conflict.owner);
+                if (pile) {
+                    pile.push(c.id);
+                } else {
+                    this._covered.set(conflict.owner, [c.id]);
+                }
                 continue;
             }
             placed.push(box);
@@ -302,9 +322,16 @@ export class FpMarkersLayer {
         }
 
         for (const box of placed) {
-            const n = this._covered.get(box.owner) ?? 0;
+            const n = this._covered.get(box.owner)?.length ?? 0;
             const base = box.owner.dataset.title ?? '';
             box.owner.textContent = n > 0 ? `${base}  +${n}` : base;
+            // The suffix changes what the click DOES (the pile, not the card), and
+            // the HOVER TITLE is the whole of how that is announced. A visual
+            // treatment was tried and rejected: see the note in
+            // first-person-3d.css, next to the marker labels.
+            box.owner.title = n > 0
+                ? `${base} e mais ${n} ${n === 1 ? 'item' : 'itens'} neste ponto. Clique para escolher.`
+                : '';
         }
     }
 
@@ -323,15 +350,69 @@ export class FpMarkersLayer {
     }
 
     /**
+     * Opens EVERY item of the scene as a list, in the feature panel.
+     *
+     * The way in that does not depend on walking up to a label: it answers the
+     * "Ver todos os itens" button of an open item, and the widen button of a pile.
+     *
+     * ALPHABETICAL, not the JSON's authoring order. The authoring order groups
+     * pieces by display case, which is the right order for someone WALKING the
+     * room — and the wrong one for someone reading a list of 78 lines looking for
+     * a name, because it is an order the reader cannot see. `localeCompare` with
+     * pt-BR and `sensitivity: 'base'` is what puts "Álidade" next to "Alidade"
+     * instead of after "Z", and half these titles carry an accent.
+     */
+    openAllItems() {
+        const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+        const all = [...this._items.values()]
+            .map(({ marker }) => marker)
+            .sort((a, b) => collator.compare(a.titulo ?? '', b.titulo ?? ''));
+        this._emitList(all, 'Itens do acervo', false);
+    }
+
+    /**
      * Opens the card of a marker, or closes it when it is already the open one.
+     *
+     * A LABEL THAT COVERS OTHERS OPENS THE PILE INSTEAD. In the display cases the
+     * pieces sit centimeters apart, so the layer keeps the nearest label and
+     * hides the rest behind a "+N" suffix. That suffix used to be a dead end: it
+     * announced there was more and, clicked, opened only the one item whose name
+     * was showing. Now it opens the list of exactly what it is covering, itself
+     * included, and the visitor picks.
+     *
      * @param {string} id - Marker id.
      * @param {FpMarker} marker - Marker data.
      */
     _toggleMarker(id, marker) {
+        const coveredIds = this._covered.get(this._items.get(id)?.el) ?? [];
+        if (coveredIds.length > 0) {
+            this._emitList([marker, ...this._markersOf(coveredIds)], 'Itens neste ponto', true);
+            return;
+        }
         if (this._openId === id) {
             this.closePanel();
             return;
         }
+        this._open(id, marker);
+    }
+
+    /**
+     * Opens a marker by id, whatever is open now. Serves the list, where picking
+     * a row means "show me this one", never "toggle it".
+     * @param {string} id - Marker id.
+     */
+    _openById(id) {
+        const entry = this._items.get(id);
+        if (!entry) return;
+        this._open(id, entry.marker);
+    }
+
+    /**
+     * Announces the open card. The single writer of `_openId`.
+     * @param {string} id - Marker id.
+     * @param {FpMarker} marker - Marker data.
+     */
+    _open(id, marker) {
         this._openId = id;
         getEventBus().emit(EventTypes.MARKER_FP_CLICKED, {
             marker,
@@ -339,6 +420,45 @@ export class FpMarkersLayer {
             sceneName: this._sceneName,
             photoUrl: marker.foto ? this._resolvePhotoUrl(marker.foto) : null
         });
+    }
+
+    /**
+     * Sends a set of markers to the feature panel as a list.
+     *
+     * The photo URLs are resolved HERE, for the same reason the card's is: the
+     * resolver knows the scene folder and the panel does not.
+     *
+     * `_openId` is NOT cleared. The list is a way to choose an item, not a way to
+     * deselect one, and it marks the open row — clearing it would also make Esc
+     * skip the deselect the viewer expects.
+     *
+     * @param {ReadonlyArray<FpMarker>} markers - Markers to list.
+     * @param {string} title - Header title of the list.
+     * @param {boolean} scoped - True when this is a subset of the scene.
+     */
+    _emitList(markers, title, scoped) {
+        const items = markers
+            .filter(Boolean)
+            .map((marker) => ({
+                marker,
+                photoUrl: marker.foto ? this._resolvePhotoUrl(marker.foto) : null
+            }));
+        getEventBus().emit(EventTypes.MARKER_FP_LIST_CLICKED, {
+            items,
+            sceneId: this._sceneId,
+            sceneName: this._sceneName,
+            title,
+            scoped,
+            openId: this._openId
+        });
+    }
+
+    /**
+     * @param {ReadonlyArray<string>} ids - Marker ids.
+     * @returns {FpMarker[]} The markers still present, in the given order.
+     */
+    _markersOf(ids) {
+        return ids.map((id) => this._items.get(id)?.marker).filter(Boolean);
     }
 
     /**
