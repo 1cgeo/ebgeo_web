@@ -115,6 +115,10 @@ import {
 } from '../../src/js/store/catalog.operations.js';
 
 import { CATALOG_ITEM_TYPES } from '../../src/js/catalog/catalog.constants.js';
+import {
+    catalogLayerDisplayName,
+    resolveCatalogLayerDefinition
+} from '../../src/js/catalog/catalog-layer.ref.js';
 import { getMapDataCompat, updateMapDataCompat } from '../../src/js/store/repositories/index.js';
 import { logCatalogLayerOperation, OperationType } from '../../src/js/store/sync/index.js';
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
@@ -179,7 +183,9 @@ describe('addCatalogLayer', () => {
 
         const stored = savedData.catalogLayers[0];
         expect(stored.id).toBe('cl-1');
-        expect(stored.name).toBe('Layer cl-1');
+        // The DEFINITION never lands: `name` and `config` are the catalog's, resolved on read.
+        expect(stored.name).toBeUndefined();
+        expect(stored.config).toBeUndefined();
         // sync metadata is stamped by createSyncMetadata
         expect(h.createSyncMetadata).toHaveBeenCalledWith(null);
         expect(stored.sync).toEqual({ version: 1, dirty: true, stub: 'created' });
@@ -300,12 +306,12 @@ describe('updateCatalogLayer', () => {
         });
         h.mockMapData.value = emptyMapData([layer]);
 
-        await updateCatalogLayer('cl-1', { opacity: 0.3, name: 'Renamed' });
+        await updateCatalogLayer('cl-1', { opacity: 0.3, visible: false });
 
         expect(updateMapDataCompat).toHaveBeenCalledOnce();
         const stored = updateMapDataCompat.mock.calls[0][1].catalogLayers[0];
         expect(stored.opacity).toBe(0.3);
-        expect(stored.name).toBe('Renamed');
+        expect(stored.visible).toBe(false);
 
         expect(logCatalogLayerOperation).toHaveBeenCalledOnce();
         const [op, id, mapId, newVal, oldVal] = logCatalogLayerOperation.mock.calls[0];
@@ -313,9 +319,9 @@ describe('updateCatalogLayer', () => {
         expect(id).toBe('cl-1');
         expect(mapId).toBe('map-uuid-123');
         // new value reflects the applied changes
-        expect(newVal).toMatchObject({ id: 'cl-1', opacity: 0.3, name: 'Renamed' });
+        expect(newVal).toMatchObject({ id: 'cl-1', opacity: 0.3, visible: false });
         // old value is the pre-update snapshot
-        expect(oldVal).toMatchObject({ id: 'cl-1', opacity: 1, name: 'Layer cl-1' });
+        expect(oldVal).toMatchObject({ id: 'cl-1', opacity: 1, visible: true });
     });
 
     it('touches sync metadata when the layer carries it', async () => {
@@ -437,6 +443,127 @@ describe('hasCatalogLayer', () => {
 
         expect(await hasCatalogLayer('cl-1')).toBe(true);
         expect(await hasCatalogLayer('cl-2')).toBe(false);
+    });
+});
+
+// ============================================================================
+// F11 — REFERÊNCIA, NÃO CÓPIA
+//
+// O defeito que estes casos prendem tinha dois sintomas de uma desnormalização só: a
+// linha guardada carregava a DEFINIÇÃO da camada (o `config` inteiro, com `source.url`),
+// e essa cópia (a) viajava no snapshot de sync até chamador anônimo de atlas com link
+// público e (b) nunca era atualizada, então uma correção de URL feita pelo administrador
+// não alcançava nenhum atlas que já tivesse a camada.
+//
+// A asserção NEGATIVA sozinha (`config` não está gravado) passaria idêntica se a operação
+// deixasse de gravar qualquer coisa, então cada caso traz o par: o que sai E o que fica.
+// ============================================================================
+
+describe('a definição não é gravada nem enfileirada (F11)', () => {
+    it('CREATE: grava referência + estado local, e a op leva o mesmo', async () => {
+        await addCatalogLayer({
+            id: 'analysis-declividade',
+            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+            name: 'Declividade',
+            visible: true,
+            opacity: 1,
+            config: { id: 'declividade', source: { url: 'https://interno/privado/{z}/{x}/{y}.png' } }
+        });
+
+        const stored = updateMapDataCompat.mock.calls[0][1].catalogLayers[0];
+        // NEGATIVO: nem a URL nem o rótulo do catálogo entram no documento.
+        expect(stored.config).toBeUndefined();
+        expect(stored.name).toBeUndefined();
+        expect(JSON.stringify(stored)).not.toContain('interno');
+        // POSITIVO: a referência e o estado por atlas ficam, senão nada desenharia.
+        expect(stored).toMatchObject({
+            id: 'analysis-declividade',
+            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+            visible: true,
+            opacity: 1
+        });
+
+        // E a op de sync carrega exatamente o que foi gravado.
+        const [, , , payload] = logCatalogLayerOperation.mock.calls[0];
+        expect(payload.config).toBeUndefined();
+        expect(payload.id).toBe('analysis-declividade');
+    });
+
+    it('UPDATE de linha LEGADA: a definição embutida é podada, e a referência sobrevive', async () => {
+        // O documento antigo do usuário, com a cópia dentro e um id SEM prefixo — a forma
+        // que um `.ebgeo` antigo produz. O código novo não pode quebrar ao encontrá-la, e
+        // não pode perder a única referência que ela tem (`config.id`).
+        h.mockMapData.value = emptyMapData([{
+            id: 'legado-1',
+            type: CATALOG_ITEM_TYPES.DATA_LAYER,
+            name: 'Moldura',
+            visible: true,
+            config: { id: 'molduras', source: { url: 'https://interno/privado.pbf' } },
+            sync: { version: 3 }
+        }]);
+
+        await toggleCatalogLayerVisibility('legado-1', false);
+
+        const stored = updateMapDataCompat.mock.calls[0][1].catalogLayers[0];
+        expect(stored.config).toBeUndefined();
+        expect(stored.name).toBeUndefined();
+        // A referência migra para `originalId`, que é onde o resolvedor a procura quando o
+        // id não carrega prefixo. Perdê-la deixaria a camada indisponível para sempre.
+        expect(stored.originalId).toBe('molduras');
+        expect(stored.visible).toBe(false);
+
+        // O `previousData` também sai do documento e também é podado.
+        const [, , , , anterior] = logCatalogLayerOperation.mock.calls[0];
+        expect(anterior.config).toBeUndefined();
+        expect(anterior.originalId).toBe('molduras');
+    });
+
+    it('DELETE de linha legada: a definição não re-publica na saída', async () => {
+        h.mockMapData.value = emptyMapData([{
+            id: 'analysis-declividade',
+            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+            name: 'Declividade',
+            config: { id: 'declividade', source: { url: 'https://interno/privado.png' } }
+        }]);
+
+        await removeCatalogLayer('analysis-declividade');
+
+        const [, , , novo, anterior] = logCatalogLayerOperation.mock.calls[0];
+        expect(novo).toBeNull();
+        expect(anterior.config).toBeUndefined();
+        expect(anterior.id).toBe('analysis-declividade');
+    });
+
+    it('a linha legada continua LEGÍVEL: o documento antigo não quebra nada', async () => {
+        // A decisão de migração desta fase: as chaves extras são IGNORADAS, não varridas.
+        // O que prova que ignorar basta é que a camada legada resolve e se declara ativa.
+        h.config.analysisLayers = { enabled: true, layers: [{ id: 'declividade', name: 'Declividade' }] };
+
+        const legada = {
+            id: 'analysis-declividade',
+            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+            name: 'Nome velho, do catálogo de ontem',
+            config: { id: 'declividade', source: { url: 'https://endereco/velho.png' } }
+        };
+
+        expect(validateCatalogLayerAvailability(legada)).toBe('active');
+        // E a definição que vale é a VIVA, não a embutida.
+        expect(resolveCatalogLayerDefinition(legada)).toEqual({ id: 'declividade', name: 'Declividade' });
+        expect(catalogLayerDisplayName(legada)).toBe('Declividade');
+    });
+
+    it('perder o acesso ao recurso privado derruba a camada para "indisponível"', async () => {
+        // O caso novo desta fase: o recurso some do singleton (concessão expirou, ou o
+        // empréstimo era de outro atlas). Não há erro; há um estado, e ele já existe.
+        const camada = { id: 'data-restrito', type: CATALOG_ITEM_TYPES.DATA_LAYER };
+
+        h.config.dataLayers = { enabled: true, layers: [{ id: 'restrito', name: 'Restrito' }] };
+        expect(validateCatalogLayerAvailability(camada)).toBe('active');
+
+        h.config.dataLayers = { enabled: true, layers: [] };
+        expect(validateCatalogLayerAvailability(camada)).toBe('unavailable');
+        // O que sobra na tela é a referência, nunca a URL.
+        expect(catalogLayerDisplayName(camada)).toBe('restrito');
     });
 });
 

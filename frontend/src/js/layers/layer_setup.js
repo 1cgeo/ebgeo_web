@@ -7,6 +7,7 @@
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
+import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
 import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
@@ -274,7 +275,8 @@ async function restoreTerrainState() {
  * @param {Object} dataLayersManager - Data layers manager
  */
 async function restoreCatalogLayer(layer, terrainControl, analysisLayersManager, dataLayersManager) {
-    const innerId = layer.config?.id;
+    // The stored entry is a reference; the manager resolves the definition from `/api/config`.
+    const innerId = catalogLayerReferenceId(layer);
 
     if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
         terrainControl?.setHillshadeVisibility?.(true);

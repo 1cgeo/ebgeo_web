@@ -1,20 +1,43 @@
 # Distribuição de binários 3D (/assets3d)
 
-Rota pública que serve tilesets e binários 3D como arquivos imutáveis, com dois backends de armazenamento (SQLite e filesystem) que expõem o mesmo contrato HTTP. O contrato está no código; esta página cobre o que ele não conta.
+Rota que serve tilesets e binários 3D como arquivos imutáveis, com dois backends de armazenamento (SQLite e filesystem) que expõem o mesmo contrato HTTP. O contrato está no código; esta página cobre o que ele não conta.
 
-## A rota é pública por decisão, não por esquecimento
+## O regime segue o RECURSO, não a rota
 
-O subsistema é partido em descoberta (autenticada, `GET /api/v1/nomes/catalogo3d`, ver [[catalogo-3d]]) e distribuição (pública, `/api/v1/assets3d/*`). A rota de assets é montada antes das autenticadas (`assets3dRoutes`, `backend/src/app.js`) e o router não tem middleware próprio (`backend/src/modules/nomes/assets3d.routes.js`). O único auth no caminho é o `flexibleAuth` global (`backend/src/app.js`), que é não bloqueante.
+Esta seção dizia "a rota é pública por decisão, não por esquecimento", e dizia junto que a proteção era "quem não conhece a URL não baixa". Era verdade e era o buraco: a URL do modelo viaja no payload aditivo de `/api/v1/resource-access/visible`, e quem a recebe legitimamente pode repassar o caminho. A fase F11 fechou isso sem tirar do anônimo o que ele precisa.
 
-Consequência congelada: **`/assets3d/*` nunca retorna 401/403 por falta de token.** A proteção é "quem não conhece a URL não baixa", com a descoberta gateada por [[autenticacao-jwt]] e [[zonas-acesso-geografico]]. Isso não é controle de acesso ao binário. Se um modelo for sigiloso, a URL dele é o segredo, e URL não é segredo bom.
+Continua havendo **um caminho só**, e ele decide o regime por requisição a partir de um índice EM MEMÓRIA que mapeia caminho servido para linha de catálogo (`regimeDoCaminho`, `backend/src/modules/nomes/assets3d-regime.js`):
 
-Por que assim: o Cesium busca milhares de tiles por sessão, muitos via `<script>`/fetch sem controle fino de header, e revalidação com `immutable` precisa passar por CDN e proxy. Auth por request no tile mataria o cache de borda. Ver [[hardening-borda-api]] e [[sintese-cache-http-imutavel]].
+- **modelo público**: 200 sem credencial nenhuma, `public, max-age=31536000, immutable`, ETag e Range exatamente como sempre foram. Vale também para todo caminho que nenhuma linha de catálogo reivindica;
+- **modelo privado**: passa por `gateDeAsset3d` (`backend/src/modules/nomes/assets3d-acesso.js`) e volta `private` e imutável, com `Vary`: cacheável no navegador e nunca num cache compartilhado. Quem não o alcança recebe **404**, não 403, porque modelo escondido precisa ser indistinguível de modelo inexistente, que é a mesma escada de `enforceProjectReadable` no 360.
+
+O que autoriza um privado são dois braços, e o cliente manda os dois quando os tem (`descritorDeAsset`, `frontend/src/js/store/sync/assets3d-request.js`): `?atlasId=` diz QUAL empréstimo o chamador quer usar, e `Authorization: Bearer` diz quem ele é. O UUID do atlas **não é senha**, porque o servidor roda `requireAtlasPermission` sobre ele, o mesmo gate do 360 e do payload aditivo. É por esse braço que o visitante ANÔNIMO de um atlas de link público continua vendo o tileset que aquele atlas empresta.
+
+**Nenhuma consulta ao banco por requisição de asset.** É a restrição que dá forma ao desenho: o Cesium abre uma requisição por tile por LOD, e pôr essa explosão no pool de dez conexões a faria competir com o sync, com o socket de colaboração e com o `GET /api/config`, cuja falha impede o boot. Caminho público é resolvido só em memória; caminho privado paga UMA decisão por par (chamador, recurso), memoizada. Medido em `backend/tests/integration/assets3d-privado.test.js` com o contador de pool: 20 requisições públicas e 20 privadas do mesmo chamador custam zero consultas.
+
+**O casamento do índice dobra a SOLETRAÇÃO do caminho**, e a razão é que os dois lados da
+decisão não falam a mesma língua: o índice normaliza em posix, e quem serve os bytes no ramo
+de filesystem é `path.resolve`, cuja semântica é a do HOST. Em Windows e macOS a pasta em caixa
+alta, a mesma em caixa baixa e a mesma escrita com barra invertida endereçam o MESMO arquivo, então
+enquanto a comparação era de string crua essas grafias não casavam linha nenhuma, o regime
+saía PÚBLICO e o anônimo recebia o tileset privado com um ano de cache compartilhado. Medido
+e fechado em `chaveDeCasamento` (`backend/src/modules/nomes/assets3d-regime.js`); o erro só
+pode cair para o lado fechado, porque dobrar caixa e barra faz MAIS caminhos casarem uma linha
+privada, nunca menos. Repare que a busca por `rel_path` no SQLite continua de igualdade EXATA:
+são perguntas diferentes (quem PODE ver contra onde ESTÃO os bytes) e vivem em lugares
+diferentes de propósito.
+
+O índice é invalidado por `invalidateAppConfigCache` (`backend/src/modules/config/config.cache.js`), que toda escrita de catálogo e de visibilidade já chamava.
+
+**O que continua aberto, e por quê.** Só o que esta rota não vê: prefixo de catálogo servido por outro processo (a URL canônica `/3d/...` sai do nginx, ou do Vite em desenvolvimento, e nunca chega aqui) e o segundo catálogo de modelos 3D, `ng.catalogo_3d`, que tem eixo de acesso próprio (`ng.model_permissions`) e nenhum chamador no frontend. Os dois estão nomeados no `fileoverview` de `backend/src/modules/nomes/assets3d-regime.js`. E o endereço que o NAVEGADOR busca sozinho (uma imagem, um vídeo, um loader de terceiro) não carrega cabeçalho: para um recurso privado ele depende do braço de empréstimo, isto é, de haver um atlas em foco que o empreste. Fechar esse último caso exigiria cookie de sessão emitido no login, que é o eixo de autenticação e não o desta fase.
+
+Ver [[hardening-borda-api]] e [[sintese-cache-http-imutavel]].
 
 Fora do sync: sem operação, sem fila. Ver [[sintese-modulos-fora-do-sync]].
 
 ## Nunca hardcode o prefixo da URL
 
-O catálogo guarda caminho relativo; a URL final é `assets3dBaseUrl + url`, servido pelo `/api/config` (`assets3dBaseUrl`, `backend/src/modules/config/config.service.js`). Hardcodar `/api/v1/assets3d` no cliente quebra qualquer deploy que aponte os assets para um host estático ou CDN. Contrato congelado, ver [[config-runtime-urls-relativas]], [[config-dinamico]] e [[sintese-contratos-congelados]].
+A regra vale; o mecanismo que esta seção descrevia, não. Ela dizia que a URL final era a junção de `assets3dBaseUrl` com o caminho do catálogo, e o frontend nunca fez essa concatenação: `assets3dBaseUrl` é publicado pelo `/api/config` e **não tem um leitor sequer** em `frontend/src/`. O catálogo guarda a URL de site pronta e o cliente a usa verbatim. Ou seja, hardcodar `/api/v1/assets3d` no cliente continua errado, e quem decide o prefixo é a LINHA DE CATÁLOGO, não uma junção em tempo de execução. Contrato congelado, ver [[config-runtime-urls-relativas]], [[config-dinamico]] e [[sintese-contratos-congelados]].
 
 ## Rodar o import com o servidor no ar corrompe o serviço
 
@@ -36,6 +59,8 @@ Só o ramo SQLite tem semáforo (`backend/src/modules/nomes/assets3d.controller.
 
 Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire`. Revalidação de cache nunca fica na fila atrás de leituras de BLOB. Se alguém mover o `acquire` para o topo do handler "por clareza", a latência de 304 passa a depender da carga.
 
+E uma ordem que puxa para o lado contrário, pela razão contrária: o gate de recurso roda **antes** do 304, e não depois. Responder 304 a quem não pode ver o modelo confirma a existência dele e ainda entrega o ETag. O que torna isso pagável é o gate não custar nada no caminho quente: caminho público é uma consulta a um índice em memória, caminho privado é uma decisão memoizada. Medido em série, 60 amostras por caso, o 304 público ficou em 0,47 ms (era 0,64 na mesma máquina antes da mudança, dentro do ruído) e o 304 privado em 0,53 ms.
+
 ## Armadilhas de ETag e de chave
 
 **mtime.** O ETag do filesystem é derivado do `fs.stat` (`backend/src/modules/nomes/assets3d.service.js`). Um `rsync` que preserva mtime mantém o ETag; um `cp` sem `-p` muda o mtime e invalida o cache do mundo inteiro sem que um byte tenha mudado. No SQLite isso não ocorre, porque o ETag é sha1 do conteúdo (`backend/src/modules/nomes/assets3d.store.js`). Republicar o mesmo caminho com conteúdo novo funciona nos dois modos.
@@ -50,11 +75,11 @@ Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire`. Rev
 
 ## Divergência plantada no Content-Type
 
-O mapa de extensão para Content-Type existe duas vezes: `backend/src/modules/nomes/assets3d.service.js` e, copiado, em `scripts/assets3d-import.js`. Pior: o service **exporta** `contentTypeForPath` e essa função **não tem nenhum chamador** em todo o repositório. Ou seja, o helper feito para unificar existe e ninguém usa, enquanto o CLI mantém a cópia. Adicionar uma extensão em só um dos dois produz assets importados com o tipo errado, e o ramo SQLite serve o `content_type` gravado na importação, sem recalcular no request: o erro fica congelado no banco até reimportar.
+O mapa de extensão para Content-Type existe duas vezes: `backend/src/modules/nomes/assets3d.service.js` e, copiado, em `backend/scripts/assets3d-import.js`. Metade desta seção envelheceu, e vale registrar o que ela afirmava: que `contentTypeForPath` não tinha chamador nenhum. Hoje `resolveAsset` delega para ela, então um teste sobre a função prova algo sobre o que a rota manda. A duplicação com o CLI continua, agora com teste de paridade (`backend/tests/unit/assets3d-content-types.test.js`). Adicionar uma extensão em só um dos dois produz assets importados com o tipo errado, e o ramo SQLite serve o `content_type` gravado na importação, sem recalcular no request: o erro fica congelado no banco até reimportar.
 
 ## Notas de integração
 
 - O terrain do mapa 3D **não** sai desta rota por padrão: é URL configurável em `map3d.providers.terrain.url`. A infra sabe servir `.terrain`/`layer.json` se um dia se decidir hospedá-lo aqui.
-- Nunca `401` aqui. O `401` só aparece na descoberta. Formato de erro em [[erros-api]].
+- Nunca `401` aqui, e desde a F11 a frase precisa do sujeito: **modelo PÚBLICO** nunca responde 401 nem 403 por falta de token. Modelo privado que o chamador não alcança responde **404**, que é a escada da casa e não vaza existência. Formato de erro em [[erros-api]].
 - Para blobs de usuário, que **são** sincronizados, o caminho é outro: [[imagens-atlas]].
 - Ver também [[sintese-decisoes-arquiteturais]].

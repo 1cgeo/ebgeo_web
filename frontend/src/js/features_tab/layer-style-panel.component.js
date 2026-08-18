@@ -28,6 +28,7 @@ import {
 import { DebouncedPersist } from '@utils/debounced-persist.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { CATALOG_ITEM_TYPES } from '@catalog/catalog.constants.js';
+import { catalogLayerDisplayName, catalogLayerReferenceId } from '@catalog/catalog-layer.ref.js';
 import { updateCatalogLayer } from '@store';
 import {
     VECTOR_SUBLAYERS,
@@ -154,7 +155,7 @@ export class LayerStylePanel {
 
     /** Resolves the manager, inner config id, descriptor and schema. @private */
     _resolveTarget() {
-        this._innerId = this._layer.config?.id || null;
+        this._innerId = catalogLayerReferenceId(this._layer);
 
         if (this._layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER) {
             this._manager = this._analysisLayersManager;
@@ -200,8 +201,9 @@ export class LayerStylePanel {
 
         const title = document.createElement('h3');
         title.className = 'layer-style-panel__title';
-        title.textContent = `Estilo · ${this._layer.name}`;
-        title.title = this._layer.name;
+        const layerName = catalogLayerDisplayName(this._layer);
+        title.textContent = `Estilo · ${layerName}`;
+        title.title = layerName;
         header.appendChild(title);
 
         return header;

@@ -21,6 +21,7 @@ import {
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
 import { hideLoading3DScreen } from '@ui/loading-screen-3d.js';
+import { descritorDeAsset } from '@store/sync/assets3d-request.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -254,9 +255,29 @@ async function initCesiumMap() {
 }
 
 
+/**
+ * O endereco do modelo como um `Cesium.Resource`, ja identificado.
+ *
+ * NAO passe a URL crua para o Cesium a partir daqui. Desde a fase F11 os bytes de um modelo
+ * PRIVADO sao gateados no servidor, e o que o autoriza viaja na requisicao: o escopo de
+ * atlas na query e a credencial no cabecalho. Um `Resource` os propaga para todo filho que
+ * o tileset derivar (`getDerivedResource` funde `headers` e `queryParameters`), enquanto uma
+ * string nua faria o `tileset.json` passar e cada `.b3dm` levar 404 — que na tela e um modelo
+ * que aparece vazio, sem erro nenhum.
+ *
+ * Modelo publico nao muda de comportamento: sem sessao e sem atlas em foco o descritor e so
+ * a URL, e o `Resource` resultante e equivalente ao que o Cesium montaria sozinho.
+ *
+ * @param {string} url
+ * @returns {Promise<Object>} Um Cesium.Resource.
+ */
+async function recursoDeAsset3d(url) {
+    return new Cesium.Resource(await descritorDeAsset(url));
+}
+
 async function createOptimizedTileset(viewer, tilesetConfig) {
     // Cesium 1.107+ uses fromUrl() instead of constructor + readyPromise
-    const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetConfig.url, {
+    const tileset = await Cesium.Cesium3DTileset.fromUrl(await recursoDeAsset3d(tilesetConfig.url), {
         maximumScreenSpaceError: tilesetConfig.maximumScreenSpaceError ?? 16,
         preferLeaves: false,
         skipLevelOfDetail: true,
@@ -318,7 +339,7 @@ async function createGlbModel(viewer, tilesetConfig) {
     }
 
     const modelOptions = {
-        url: tilesetConfig.url,
+        url: await recursoDeAsset3d(tilesetConfig.url),
         modelMatrix,
         minimumPixelSize: tilesetConfig.minimumPixelSize ?? 0,
         allowPicking: true,

@@ -21,6 +21,7 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 import { openWritable, putAsset, closeStore } from '../../src/modules/nomes/assets3d.store.js';
+import { invalidateAppConfigCache } from '../../src/modules/config/config.cache.js';
 
 const u = (p) => `gap_${p}_${randomUUID().slice(0, 8)}`;
 
@@ -418,13 +419,37 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
       assert.notEqual(res.status, 200, 'a path escaping ROOT must never be served');
     });
 
-    it('the asset route is PUBLIC (no Authorization header → 200, never 401)', async () => {
+    // Until F11 these two blocks said "the asset route is PUBLIC". That sentence stopped
+    // being true of the ROUTE and stayed true of the PUBLIC MODEL, which is the property
+    // they existed to guard: the regime now follows the resource. They were NOT deleted and
+    // they were not left as they were either — as written they would have gone on passing
+    // while proving only "an uncatalogued path is public", which is a weaker claim than the
+    // one anybody reading the title would take from them. Each now names its own subject,
+    // and the private half lives in `assets3d-privado.test.js`, with its negative pair.
+    it('a PUBLIC catalog model is served with no Authorization header (200, never 401/403)', async () => {
+      const idPublico = `gapcat_${randomUUID().slice(0, 8)}`;
+      await db.query(
+        `INSERT INTO tilesets (id, name, config, sort_order, access_level)
+         VALUES ($1, $2, $3::jsonb, 0, 'public')`,
+        [idPublico, 'Gap public model', JSON.stringify({ url: `/api/v1/assets3d/${fsBase}/tileset.json` })],
+      );
+      invalidateAppConfigCache(); // the row went in by raw SQL, which no service sees
+
       const res = await supertest(app).get(`/api/v1/assets3d/${fsBase}/range.glb`).expect(200);
       assert.notEqual(res.status, 401);
       assert.notEqual(res.status, 403);
+      assert.equal(
+        res.headers['cache-control'], 'public, max-age=31536000, immutable',
+        'a public model stays publicly cacheable: that is what makes LOD streaming viable',
+      );
     });
 
-    it('a missing asset is 404 (never 401 — public route, no auth gate)', async () => {
+    it('a path NO catalog row claims stays public (the route did not become authenticated)', async () => {
+      const res = await supertest(app).get(`/api/v1/assets3d/${fsBase}/x.b3dm`).expect(200);
+      assert.equal(res.headers['cache-control'], 'public, max-age=31536000, immutable');
+    });
+
+    it('a missing asset is 404 (never 401 — no auth gate on a public path)', async () => {
       const res = await supertest(app).get(`/api/v1/assets3d/${fsBase}/does-not-exist.json`);
       assert.equal(res.status, 404);
     });

@@ -32,7 +32,7 @@ vi.mock('@store', () => ({
 }));
 
 import { ExportImportService } from '../../src/js/import_export/export-import.service.js';
-import { getMapGroups } from '@store';
+import { getCatalogLayers, getMapGroups } from '@store';
 
 function makeService() {
     return new ExportImportService(/* baseLayerControl */ {}, /* toolManager */ { deactivateCurrentTool: vi.fn() }, /* mapManager */ {}, null);
@@ -79,6 +79,78 @@ describe('ExportImportService.buildExportDataObject — .ebgeo coverage (P9/P11)
         const data = await makeService().buildExportDataObject(['Mapa A']);
         const coords = data.maps['Mapa A'].features.points[0].geometry.coordinates;
         expect(coords).toEqual([-43.212346, -22.912346]);
+    });
+
+    // ------------------------------------------------------------------------
+    // F11 — O DOCUMENTO ANTIGO DO USUÁRIO SAINDO PELO ARQUIVO.
+    //
+    // Até a F11 o mapa guardava uma CÓPIA da linha de catálogo (`name` + o `config` inteiro,
+    // com `source.url`), e o `.ebgeo` viajava com ela: um arquivo trocado por e-mail levava a
+    // URL de toda camada privada em texto claro, para quem não tem concessão nenhuma. A
+    // decisão de migração da fase foi NÃO varrer os documentos guardados (a cópia é inerte,
+    // apagá-la seria irreversível para nada), e o preço dessa decisão é que a garantia passa a
+    // ser de FRONTEIRA: o documento antigo continua existindo, e é na saída que ele é podado.
+    //
+    // Esta é uma das DUAS saídas de documento inteiro (a outra é
+    // `buildServerImportPayload`, em `local-atlas-to-server.test.js`), e nenhuma das duas
+    // tinha teste de catálogo nenhum.
+    // ------------------------------------------------------------------------
+    it('F11: o `.ebgeo` leva a REFERÊNCIA, nunca a definição — inclusive de documento antigo', async () => {
+        const URL_PRIVADA = 'https://interno.eb.mil.br/tiles/restrito/{z}/{x}/{y}.pbf';
+        getCatalogLayers.mockResolvedValueOnce([
+            // A forma dominante do documento pré-F11: id PREFIXADO e a cópia dentro.
+            {
+                id: 'analysis-declividade',
+                type: 'analysis_layer',
+                name: 'Declividade (rótulo de 2025)',
+                visible: false,
+                opacity: 0.7,
+                styleOverrides: { raster: { 'raster-opacity': 0.3 } },
+                config: { id: 'declividade', source: { url: URL_PRIVADA }, bounds: [0, 0, 1, 1] },
+            },
+            // A forma que um `.ebgeo` ANTIGO produz: id sem prefixo, e a única referência que
+            // ela tem mora dentro do `config` que está prestes a ser removido.
+            {
+                id: 'legado-1',
+                type: 'data_layer',
+                name: 'Molduras',
+                visible: true,
+                config: { id: 'molduras', source: { url: URL_PRIVADA } },
+            },
+            // O relevo sombreado, que NÃO é recurso de catálogo: a referência dele é o id.
+            { id: 'hillshade', type: 'hillshade', name: 'Sombreamento do Relevo', visible: true },
+        ]);
+
+        const data = await makeService().buildExportDataObject(['Mapa A']);
+        const exportadas = data.maps['Mapa A'].catalogLayers;
+
+        expect(exportadas).toHaveLength(3);
+        for (const camada of exportadas) {
+            expect(camada.config, `${camada.id} não pode levar config`).toBeUndefined();
+            expect(camada.name, `${camada.id} não pode levar nome`).toBeUndefined();
+        }
+
+        // A REFERÊNCIA sobrevive nas três formas, senão o arquivo importado traria camadas
+        // que nunca mais resolvem — troca de um vazamento por perda de dado.
+        expect(exportadas[0].id).toBe('analysis-declividade');
+        expect(exportadas[1].originalId).toBe('molduras');
+        expect(exportadas[2].id).toBe('hillshade');
+
+        // E o estado POR ATLAS continua no arquivo: é dele que o mapa é feito.
+        expect(exportadas[0].visible).toBe(false);
+        expect(exportadas[0].opacity).toBe(0.7);
+        expect(exportadas[0].styleOverrides).toEqual({ raster: { 'raster-opacity': 0.3 } });
+
+        // A busca no documento INTEIRO, não só no item: a mesma cópia poderia reaparecer por
+        // outra chave do `.ebgeo`, e conferir só o item já deixou meio buraco aberto nesta fase.
+        expect(JSON.stringify(data)).not.toContain(URL_PRIVADA);
+    });
+
+    it('F11: e o caminho sem camada de catálogo nenhuma continua omitindo a chave', async () => {
+        // O par do caso acima, e ele não é decoração: a poda recebe o que o store devolver, e
+        // um `[]` que virasse `[]` no arquivo mudaria o shape do `.ebgeo` de todo mundo.
+        const data = await makeService().buildExportDataObject(['Mapa A']);
+        expect(data.maps['Mapa A'].catalogLayers).toBeUndefined();
     });
 });
 

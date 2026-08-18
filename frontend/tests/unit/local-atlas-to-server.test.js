@@ -201,4 +201,67 @@ describe('buildServerImportPayload', () => {
         }, { name: 'A', imageIdMap: { [localImg]: serverImg } });
         expect(payload.maps[0].cesium3dData[0].data.images).toEqual([serverImg]);
     });
+
+    // ------------------------------------------------------------------------
+    // F11 — O DOCUMENTO ANTIGO SUBINDO PARA O SERVIDOR.
+    //
+    // Esta é a segunda saída de documento INTEIRO (a outra é o `.ebgeo`), e ela é a que menos
+    // perdoa: `POST /atlas/import` é uma das três exceções estruturais de escrita por REST, e
+    // grava o `catalog_layers` que recebe VERBATIM. Ela não passa pelo gate de escrita do sync,
+    // então uma entrada legada que ainda carregasse a cópia plantaria no servidor uma definição
+    // obsoleta — e ela ficaria lá até alguém tocar naquela camada.
+    //
+    // O documento antigo continua existindo em disco, de propósito (a fase decidiu não varrer o
+    // IndexedDB), então quem garante é a fronteira. Sem este caso, o único guarda de catálogo
+    // deste arquivo seria não haver nenhum.
+    // ------------------------------------------------------------------------
+    it('F11: sobe REFERÊNCIA e estado por atlas, nunca a definição do catálogo', () => {
+        const URL_PRIVADA = 'https://interno.eb.mil.br/tiles/restrito/{z}/{x}/{y}.pbf';
+        const { payload } = buildServerImportPayload({
+            maps: {
+                M: {
+                    features: {},
+                    catalogLayers: [
+                        {
+                            id: 'analysis-declividade',
+                            type: 'analysis_layer',
+                            name: 'Declividade (rótulo de 2025)',
+                            visible: false,
+                            opacity: 0.7,
+                            config: { id: 'declividade', source: { url: URL_PRIVADA } },
+                        },
+                        {
+                            id: 'legado-1',
+                            type: 'data_layer',
+                            name: 'Molduras',
+                            visible: true,
+                            config: { id: 'molduras', source: { url: URL_PRIVADA } },
+                        },
+                    ],
+                },
+            },
+        }, { name: 'A' });
+
+        const subiram = payload.maps[0].catalog_layers;
+        expect(subiram).toHaveLength(2);
+        for (const camada of subiram) {
+            expect(camada.config).toBeUndefined();
+            expect(camada.name).toBeUndefined();
+        }
+        // A referência sobrevive nas duas formas: pelo prefixo do id, e por `originalId` na
+        // entrada legada, cuja única referência morava dentro do `config` removido.
+        expect(subiram[0].id).toBe('analysis-declividade');
+        expect(subiram[0].visible).toBe(false);
+        expect(subiram[0].opacity).toBe(0.7);
+        expect(subiram[1].originalId).toBe('molduras');
+
+        expect(JSON.stringify(payload)).not.toContain(URL_PRIVADA);
+    });
+
+    it('F11: mapa sem camada de catálogo sobe um array vazio, como sempre subiu', () => {
+        // O par: a poda recebe `undefined` do documento que nunca teve catálogo, e o contrato
+        // da rota de import é um array. Devolver `undefined` aqui viraria `23502` no servidor.
+        const { payload } = buildServerImportPayload({ maps: { M: { features: {} } } }, { name: 'A' });
+        expect(payload.maps[0].catalog_layers).toEqual([]);
+    });
 });

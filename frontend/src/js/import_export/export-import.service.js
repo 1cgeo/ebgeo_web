@@ -64,6 +64,7 @@ import { getActiveScope, StoreScopeKind } from '@store/atlas-namespace.js';
 import { atlasNameFromFilename } from '@js/projects/import-ebgeo.service.js';
 import JSZip from 'jszip';
 import config from '@js/config.js';
+import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 
 /**
  * Whether an import right now would be writing into a SERVER atlas's databases.
@@ -293,7 +294,9 @@ export class ExportImportService {
             const mapData = await getCurrentMapFeatures(mapName);
             if (mapData) {
                 const position = await getMapPosition(mapName);
-                const catalogLayers = await getCatalogLayers(mapName);
+                // The `.ebgeo` carries the REFERENCE, never the catalog row: an exported file
+                // used to travel with `source.url` of every private layer in clear text.
+                const catalogLayers = pruneCatalogLayerDefinitions(await getCatalogLayers(mapName));
                 const fullMapData = {
                     baseLayer: await getCurrentBaseLayer(mapName),
                     hillshadeEnabled: true,
@@ -373,7 +376,7 @@ export class ExportImportService {
                 const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
                     const position = await getMapPosition(mapName);
-                    const catalogLayers = await getCatalogLayers(mapName);
+                    const catalogLayers = pruneCatalogLayerDefinitions(await getCatalogLayers(mapName));
 
                     const fullMapData = {
                         baseLayer: await getCurrentBaseLayer(mapName),

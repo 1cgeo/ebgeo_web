@@ -11,6 +11,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../../utils/error
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
 import { assertTable, assertProductionTypeOf } from './catalog.tables.js';
+import { catalogAuthorizationPredicate } from './catalog.queries.js';
 
 const COLS = 'id, name, description, config, active, sort_order, created_at, updated_at';
 
@@ -35,7 +36,9 @@ const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
  * transforma um esquecimento em incidente.
  *
  * Semi-join (`IN (SELECT ...)`), nunca `fn_can_see_resource` por linha: é uma
- * consulta em vez de uma por linha (R8).
+ * consulta em vez de uma por linha (R8). A COMPOSIÇÃO dos três braços saiu daqui
+ * para `catalog.queries.js` quando a reidratação do snapshot (F11) precisou dela:
+ * o que esta função ainda decide é o termo `public` e a NUMERAÇÃO dos parâmetros.
  *
  * O RAMO DE PRODUÇÃO ENTRA AQUI, e não é simetria estética: sem ele o produtor
  * levava 404 no GET da própria camada privada e sucesso no PUT, que é a mesma linha
@@ -52,18 +55,17 @@ const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
  */
 function accessPredicate(visibleTo, base, tipoProducao) {
   if (!visibleTo) return { sql: `AND t.access_level = 'public'`, params: [] };
-  const termos = [
-    `t.access_level = 'public'`,
-    `fn_has_global_data_access($${base + 1}::uuid)`,
-    `fn_can_produce_resource($${base + 1}::uuid, $${base + 2}::text, t.id)`,
-  ];
   const params = [visibleTo.userId ?? null, tipoProducao];
-  if (visibleTo.resourceType) {
-    termos.push(`t.id IN (SELECT resource_id
-                              FROM fn_granted_resource_ids($${base + 1}::uuid, $${base + 3}::uuid, $${base + 4}::text))`);
-    params.push(visibleTo.atlasId ?? null, visibleTo.resourceType);
-  }
-  return { sql: `AND ( ${termos.join('\n                OR ')} )`, params };
+  const comConcessao = Boolean(visibleTo.resourceType);
+  if (comConcessao) params.push(visibleTo.atlasId ?? null, visibleTo.resourceType);
+  const autorizacao = catalogAuthorizationPredicate({
+    alias: 't',
+    userParam: `$${base + 1}::uuid`,
+    produceTypeExpr: `$${base + 2}::text`,
+    atlasParam: comConcessao ? `$${base + 3}::uuid` : null,
+    grantTypeExpr: comConcessao ? `$${base + 4}::text` : null,
+  });
+  return { sql: `AND ( t.access_level = 'public'\n                OR ${autorizacao} )`, params };
 }
 
 /**

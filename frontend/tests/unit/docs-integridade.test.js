@@ -355,7 +355,21 @@ describe('integridade da documentação', () => {
         // carregado como instrução em toda sessão de agente.
         const tokens = new Set();
         for (const f of FONTES_DE_CODIGO) {
-            const texto = semComentarios(readFileSync(join(RAIZ, f), 'utf8'), f);
+            // O arquivo pode SUMIR entre a listagem (feita no load do módulo) e esta leitura,
+            // e some de verdade: `superficies-de-recurso-censo.test.js` escreve um
+            // `tmp-nao-rastreado.js` sob `tests/fixtures/` e o apaga no `finally`, e o Vitest
+            // roda os arquivos de teste em paralelo. Medido: 1 vermelho em 7 rodadas da suíte
+            // inteira, um ENOENT que não tinha nada a ver com documentação. Pular o que sumiu
+            // erra para o lado ESTRITO (o índice fica menor, então símbolo pendurado continua
+            // sendo acusado), que é o único lado em que pular é seguro.
+            let bruto;
+            try {
+                bruto = readFileSync(join(RAIZ, f), 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') continue;
+                throw err;
+            }
+            const texto = semComentarios(bruto, f);
             for (const m of texto.matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) tokens.add(m[0]);
         }
         for (const p of ['package.json', 'frontend/package.json', 'backend/package.json']) {

@@ -144,8 +144,12 @@ const C_AUSENTE = 'sem-cabecalho-declarado';
 // --- fragmentos de predicado que se repetem ---------------------------------
 const P_360 = 'sv360AccessPredicate(';
 const P_CATALOGO = 'accessPredicate(';
+// A COMPOSIÇÃO dos três braços de autorização de catálogo (papel global, produção, concessão),
+// que desde a fase F11 tem UMA definição — `catalog/catalog.queries.js` — em vez de estar
+// escrita à mão em cada consulta. Ela é fragmento de builder como `P_360`, e não nome de função
+// SQL como `P_CONCESSAO`: quem carrega a regra agora é a chamada.
+const P_CATALOGO_AUTZ = 'catalogAuthorizationPredicate(';
 const P_PRODUCAO = 'fn_can_produce_resource';
-const P_CONCESSAO = 'fn_granted_resource_ids';
 const P_3D = 'ng.model_permissions';
 
 // --- unidades SQL citadas por várias entradas DERIVADO ----------------------
@@ -244,10 +248,11 @@ const CENSO_CONSULTA = [
   // ================= acesso a recurso privado ================================
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'listVisiblePrivate',
-    n: 1, classe: SQL, predicado: P_CONCESSAO,
+    n: 1, classe: SQL, predicado: P_CATALOGO_AUTZ,
     motivo: 'O payload ADITIVO (`GET /resource-access/visible`): lista SÓ o que é `private` e o '
       + 'chamador alcança. A ausência do termo `public` é deliberada e é o que o separa da listagem '
-      + 'crua — somar o público aqui duplicaria o que o /api/config já entregou.',
+      + 'crua — somar o público aqui duplicaria o que o /api/config já entregou. Os três braços de '
+      + 'autorização deixaram de estar escritos aqui na fase F11 e vêm do builder compartilhado.',
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
@@ -273,6 +278,25 @@ const CENSO_CONSULTA = [
     n: 1, classe: ESCRITA, predicado: 'requireAdmin',
     motivo: 'A leitura do valor anterior, para a auditoria da mesma rota de escrita registrar de-para. '
       + 'Não é superfície de leitura de recurso: devolve uma coluna e nenhum conteúdo.',
+  },
+
+  // ================= o snapshot de sync: a camada de catálogo no mapa ========
+  {
+    arquivo: 'src/modules/sync/sync.queries.js', unidade: 'catalogDefinitionsOf', n: 1, classe: SQL,
+    predicado: P_CATALOGO_AUTZ,
+    motivo: 'A REIDRATAÇÃO da definição de uma camada de catálogo posta num mapa (fase F11). A linha '
+      + 'de `catalog_layers` guarda referência e estado local; nome e `config` (a URL inclusive) vêm '
+      + 'DAQUI, pelo predicado do CHAMADOR, na leitura. Enquanto a definição era uma cópia no JSONB, '
+      + 'ela saía no snapshot para chamador ANÔNIMO em atlas `is_public`, sem atravessar gate nenhum. '
+      + 'Só os DOIS tipos que são recurso de catálogo aparecem: `hillshade` é embutido e não tem linha.',
+  },
+  {
+    arquivo: 'src/modules/sync/sync.queries.js', unidade: 'canSeeCatalogResource', n: 1,
+    classe: ESCRITA, predicado: 'unseenCatalogResourceDenialReason',
+    motivo: 'O gate de ESCRITA de camada de catálogo: quem cria ou atualiza precisa ENXERGAR o '
+      + 'recurso referenciado. Endurecimento, não a defesa principal (essa é a leitura acima), e pela '
+      + 'mesma razão de `assertCanSeeResource` no empréstimo: sem ele um co-Gestor referencia por '
+      + 'adivinhação de id um recurso que não pode abrir. Recusa POR OPERAÇÃO, nunca por lote.',
   },
 
   // ================= catálogo 3D (schema ng): um eixo PARALELO ===============
@@ -569,6 +593,21 @@ const CENSO_CONSULTA = [
       + 'Escreve, não lê.',
   },
 
+  // ================= o índice de regime do /assets3d =========================
+  {
+    arquivo: 'src/modules/nomes/assets3d-regime.js', unidade: 'INDICE_SQL', n: 1, classe: PUBLICO,
+    motivo: 'A consulta que inverte CAMINHO -> RECURSO para o `/assets3d`, e ela lê as quatro '
+      + 'tabelas SEM filtro nenhum, de propósito e nos dois sentidos: sem `active` (porque apagar '
+      + 'um tileset privado não pode publicar os bytes dele) e sem princípio (porque o índice é '
+      + 'construído uma vez para TODOS os chamadores, e é justamente isso que permite decidir o '
+      + 'regime de uma requisição de asset sem consultar o banco). O RISCO é o de qualquer '
+      + 'estrutura sem recorte: ela carrega em memória o id, o nível de acesso e o caminho de todo '
+      + 'recurso de catálogo, e um chamador futuro que a EXPONHA (uma rota de diagnóstico, um log) '
+      + 'entregaria o inventário privado inteiro. Hoje ela tem um leitor só, `regimeDoCaminho`, que '
+      + 'devolve um booleano e o par (tipo, id) daquele caminho — nunca a lista. Quem decide o '
+      + 'acesso continua sendo `fn_can_see_resource`, em `assets3d-acesso.js`.',
+  },
+
   // ================= o padrão largo que casou outra coisa ====================
   {
     arquivo: 'src/modules/maps/maps.service.js', unidade: 'mergeMaps', n: 1, classe: NAO_RECURSO,
@@ -686,12 +725,16 @@ const CENSO_ROTA = [
       + 'inclusão.',
   },
   {
-    arquivo: 'src/modules/nomes/assets3d.routes.js', rota: 'GET /*', classe: R_PUBLICA, gate: 'router',
-    motivo: 'OS BYTES do tileset 3D, servidos SEM autenticação nenhuma. O RISCO está aberto e é '
-      + 'conhecido: o comentário da rota diz que "a descoberta é gateada pelo catálogo autenticado", '
-      + 'o que com tileset PRIVADO é segurança por obscuridade — a `url` viaja no payload aditivo e '
-      + 'quem a receber legitimamente pode repassar o caminho. Fica NOMEADO aqui para não passar '
-      + 'por coberto; fechá-lo é trabalho próprio, com o repro do vazamento que o causar.',
+    arquivo: 'src/modules/nomes/assets3d.routes.js', rota: 'GET /*', classe: R_FILTRADA,
+    gate: 'gateDeAsset3d',
+    motivo: 'OS BYTES do modelo 3D. Era a entrada PÚBLICA deste censo, com o RISCO escrito («a '
+      + 'descoberta é gateada pelo catálogo autenticado», que com tileset privado é segurança por '
+      + 'obscuridade), e a fase F11 a fechou: o regime segue o RECURSO e não a rota. Modelo público '
+      + 'continua 200 sem credencial e `public, immutable`; modelo privado passa por '
+      + '`gateDeAsset3d`, que compõe `requireAtlasPermission(read)` para o `?atlasId=` e '
+      + '`fn_can_see_resource` para o recurso, e responde 404. O que resta aberto está NOMEADO em '
+      + '`assets3d-regime.js` e não é alcançável por esta rota: prefixo de catálogo servido por '
+      + 'nginx (`/3d/…`) e o segundo catálogo `ng.catalogo_3d`, que tem eixo de acesso próprio.',
   },
 
   // ---------------- 360 -------------------------------------------------------
@@ -757,12 +800,25 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'GET /:mapId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   {
-    arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /:version', classe: R_OUTRA,
+    arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /:version', classe: R_FILTRADA,
     gate: 'requireAtlasPermission',
-    motivo: `${CONTEUDO_DE_ATLAS} O snapshot carrega \`maps.catalog_layers\`, que guarda a `
-      + 'CONFIGURAÇÃO ORIGINAL de uma camada de catálogo acrescentada ao mapa (URL inclusive). Um '
-      + 'Gestor que enxerga uma camada privada e a põe no mapa a entrega a todo membro, FORA do '
-      + 'braço de empréstimo. Está nomeado aqui em vez de coberto; fechá-lo é trabalho próprio.',
+    motivo: `${CONTEUDO_DE_ATLAS} E DESDE A FASE F11 ELA TAMBÉM SERVE RECURSO, com filtro: as camadas `
+      + 'de catálogo do mapa viajam como REFERÊNCIA, e o snapshot reidrata a definição (nome e '
+      + '`config`, URL inclusive) pelo predicado do chamador. Este buraco esteve NOMEADO aqui por uma '
+      + 'fase, e o teto declarado estava errado por baixo: dizia "a todo membro", quando o alcance '
+      + 'real era o visitante de link público — `resolvePermission` devolve `read` para userId NULO em '
+      + 'atlas `is_public`, e a op nunca passava perto de um gate de recurso. As DUAS superfícies '
+      + 'foram fechadas (a tabela dedicada e a coluna legada `maps.catalog_layers`), e o par de '
+      + 'comportamento é `tests/integration/sync-catalog-layer-privado.test.js`. RESTA UM TETO, '
+      + 'medido e não fechado: o servidor resolve a referência SÓ pelo prefixo do id '
+      + '(`data-`/`analysis-`), enquanto o cliente aceita três carregadores (prefixo, `originalId`, '
+      + '`config.id`). Uma linha PRÉ-PREFIXO, escrita por cliente antigo e nunca mais tocada, não '
+      + 'produz referência para o servidor e atravessa verbatim, cópia inclusive — logo continua '
+      + 'entregando a URL de um recurso que só depois virou privado. Fechá-la não é uma linha: o '
+      + 'servidor teria de adotar os três degraus E preservar a referência ao podar, como '
+      + '`pruneCatalogLayerDefinition` faz no cliente, senão a entrada filtrada perde o único '
+      + 'endereço que tinha. Está pinada como TETO, sem afirmar o vazamento, no último caso de '
+      + '`tests/integration/catalog-layer-cadeia-de-vazamento.test.js`.',
   },
   {
     arquivo: 'src/modules/debug/debug.routes.js', rota: 'GET /trace', classe: R_OUTRA,
@@ -817,26 +873,32 @@ const CENSO_CACHE = [
   },
   {
     arquivo: 'src/modules/nomes/assets3d.controller.js', trecho: 'function setImmutableHeaders(',
-    n: 1, classe: C_PUBLICO_FIXO,
-    motivo: 'Os bytes do tileset 3D saem `public, immutable` SEM eixo de acesso nenhum, porque a '
-      + 'rota inteira é pública. É coerente com a rota, e o RISCO é o mesmo dela: um tileset privado '
-      + 'cujo caminho vaze é reposto por qualquer cache compartilhado pelo ano seguinte.',
+    n: 1, classe: C_CONDICIONAL,
+    motivo: 'Os bytes do modelo 3D. Esta entrada era `publico-fixo` e saía `public, immutable` sem '
+      + 'eixo de acesso nenhum, porque a rota inteira era pública; a fase F11 fez o regime seguir o '
+      + 'RECURSO. Modelo público continua `public, immutable`, que é o que torna o streaming por LOD '
+      + 'viável; modelo privado sai `private, immutable` com `Vary`, cacheável no navegador e nunca '
+      + 'num cache compartilhado. Mesmo desenho de `sv360.controller.js`, que tomou a decisão antes.',
   },
   {
-    arquivo: 'src/modules/nomes/assets3d.controller.js', trecho: "'Cache-Control', IMMUTABLE", n: 1,
-    classe: C_PUBLICO_FIXO,
-    motivo: 'A linha que grava o cabeçalho da entrada acima, com o mesmo RISCO. Entra separada porque a contagem é o '
-      + 'que discrimina remoção, e apagar a chamada sem apagar a função passaria despercebido.',
+    arquivo: 'src/modules/nomes/assets3d.controller.js',
+    trecho: "'Cache-Control', privado ? IMMUTABLE_PRIVADO : IMMUTABLE", n: 1, classe: C_CONDICIONAL,
+    motivo: 'A linha que grava o cabeçalho da entrada acima, e a que carrega a condição. Entra '
+      + 'separada porque a contagem é o que discrimina remoção: apagar o ramo sem apagar a função '
+      + 'devolveria o `public` fixo sem que nada mais mudasse de forma.',
   },
   {
     arquivo: 'src/modules/nomes/assets3d.controller.js', trecho: 'setImmutableHeaders(res, meta.etag',
-    n: 1, classe: C_PUBLICO_FIXO,
-    motivo: 'A chamada no caminho do metadado do tileset. Mesmo regime publico da rota e mesmo RISCO: quem tiver o caminho recebe.',
+    n: 1, classe: C_CONDICIONAL,
+    motivo: 'A chamada no ramo do SQLite, que passa adiante o `privado` decidido por `gateDeAsset3d`. '
+      + 'Sem esse argumento o ramo continuaria público, e o 304 deste caminho é justamente o que um '
+      + 'cache compartilhado reporia para o chamador seguinte.',
   },
   {
     arquivo: 'src/modules/nomes/assets3d.controller.js', trecho: 'setImmutableHeaders(res, fmeta.etag',
-    n: 1, classe: C_PUBLICO_FIXO,
-    motivo: 'A chamada no caminho dos BYTES do arquivo do tileset. Mesmo regime publico e mesmo RISCO, agora sobre o conteudo em si.',
+    n: 1, classe: C_CONDICIONAL,
+    motivo: 'A chamada no ramo do FILESYSTEM, com o mesmo argumento e a mesma razão. As duas entram '
+      + 'porque os dois ramos servem o mesmo recurso e um deles esquecer o eixo é invisível no outro.',
   },
   {
     arquivo: 'src/utils/cache-scope.js', trecho: "'private, no-cache'", n: 1,
@@ -962,6 +1024,18 @@ const CENSO_REGIME = [
     arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /visible',
     handler: 'visible', controller: 'src/modules/resource-access/resource-access.controller.js',
     classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+
+  {
+    arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /:version', handler: 'pullOperations',
+    controller: 'src/modules/sync/sync.controller.js', classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+
+  // ---------------- os bytes do 3D ------------------------------------------
+  {
+    arquivo: 'src/modules/nomes/assets3d.routes.js', rota: 'GET /*', handler: 'serveAsset',
+    controller: 'src/modules/nomes/assets3d.controller.js', classe: C_CONDICIONAL,
+    marcador: 'setImmutableHeaders(',
   },
 
   // ---------------- os buracos, nomeados e com teto --------------------------
@@ -1503,8 +1577,16 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
       .map((e) => `${e.arquivo} :: ${e.rota}`);
     assert.deepEqual(ruins, [], 'entrada de rota sem classe válida ou sem motivo escrito');
 
+    // SOBROU UMA. A outra era o `/assets3d`, fechada na fase F11, e o piso de `>= 2` foi
+    // trocado pela afirmação que ele aproximava: qual rota é a pública, pelo nome. Um piso
+    // numérico aqui teria o efeito perverso de premiar a próxima superfície sem filtro.
     const publicas = CENSO_ROTA.filter((e) => e.classe === R_PUBLICA);
-    assert.ok(publicas.length >= 2, 'a classe pública precisa estar em uso, senão não discrimina nada');
+    assert.deepEqual(
+      publicas.map((e) => `${e.arquivo} :: ${e.rota}`),
+      ['src/modules/config/config.routes.js :: GET /'],
+      'a única rota de leitura pública por desenho é o documento de boot; qualquer outra precisa '
+      + 'ser classificada de novo, com o RISCO escrito'
+    );
     const semRisco = publicas.filter((e) => !e.motivo.includes('RISCO'))
       .map((e) => `${e.arquivo} :: ${e.rota}`);
     assert.deepEqual(semRisco, [], 'rota pública por desenho precisa dizer qual é o RISCO');
@@ -1573,11 +1655,26 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
       .map((e) => `${e.arquivo} :: ${e.trecho}`);
     assert.deepEqual(ruins, [], 'entrada de cache sem classe válida ou sem motivo escrito');
 
+    // A CLASSE `publico-fixo` FICOU VAZIA NA FASE F11, e a troca desta linha é o registro
+    // disso. Ela cobrava `>= 1` para que a classe discriminasse alguma coisa, e as quatro
+    // entradas que a habitavam eram as do `/assets3d` — as últimas respostas do backend que
+    // saíam `public, immutable` sem olhar para o recurso. Manter o piso obrigaria alguém a
+    // reabrir um buraco para satisfazer o censo. O que entra no lugar não é menos: é a
+    // afirmação ESPECÍFICA que o piso servia de proxy para, e ela nomeia o arquivo.
     const fixas = CENSO_CACHE.filter((e) => e.classe === C_PUBLICO_FIXO);
-    assert.ok(fixas.length >= 1, 'a classe pública fixa precisa estar em uso');
     const semRisco = fixas.filter((e) => !e.motivo.includes('RISCO'))
       .map((e) => `${e.arquivo} :: ${e.trecho}`);
     assert.deepEqual(semRisco, [], 'cabeçalho público fixo precisa dizer qual é o RISCO');
+
+    const doAssets3d = CENSO_CACHE.filter(
+      (e) => e.arquivo === 'src/modules/nomes/assets3d.controller.js'
+    );
+    assert.equal(doAssets3d.length, 4, `esperava as 4 decisões de cache do /assets3d, achei ${doAssets3d.length}`);
+    assert.deepEqual(
+      doAssets3d.filter((e) => e.classe !== C_CONDICIONAL).map((e) => e.trecho), [],
+      'nenhuma resposta do /assets3d pode ter escopo de cache FIXO: um modelo pode virar privado a '
+      + 'qualquer momento, e o cabeçalho precisa acompanhar — é a mesma compra que a F9 fez no 360'
+    );
 
     // O 360 SERVE RECURSO RESTRITO E NENHUM CABEÇALHO DELE PODE SER `public` FIXO. É a
     // afirmação que a fase F9 comprou: os dois eixos decidem, sempre.

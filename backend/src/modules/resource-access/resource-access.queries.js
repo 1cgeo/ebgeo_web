@@ -4,6 +4,7 @@
 // definição só, que é a dívida que o schema `ng` já paga por não ter feito assim.
 // O do 360 é composto e vem de `sv360.queries.js` pelo mesmo motivo.
 import { sv360AccessPredicate } from '../streetview360/sv360.queries.js';
+import { catalogAuthorizationPredicate } from '../catalog/catalog.queries.js';
 
 /**
  * Marca um recurso de CATÁLOGO como público ou privado.
@@ -50,6 +51,12 @@ export const CAN_SEE_RESOURCE = `
  * linha: uma consulta em vez de uma por linha (R8). O nome da tabela é
  * INTERPOLADO pelo chamador a partir de `assertCatalogTableOf`, nunca do request.
  *
+ * OS TRÊS BRAÇOS DE AUTORIZAÇÃO vêm de `catalogAuthorizationPredicate`
+ * (`catalog/catalog.queries.js`) desde a fase F11, e não estão mais escritos aqui: a
+ * mesma composição existia em `catalog.service.js` e ia ganhar uma terceira cópia na
+ * reidratação do snapshot. O que continua sendo decisão DESTA consulta é a ausência
+ * do termo `public`, logo abaixo.
+ *
  * `access_level = 'private'` não é otimização, é o contrato do endpoint: o que
  * ele devolve é o DELTA sobre o `/api/config` público, e o cliente SOMA. Trazer
  * o público aqui duplicaria cada item no baseline do cliente.
@@ -79,9 +86,13 @@ export const listVisiblePrivate = (table) => `
     FROM ${table} t
    WHERE t.active = true
      AND t.access_level = 'private'
-     AND ( fn_has_global_data_access($1::uuid)
-           OR fn_can_produce_resource($1::uuid, $3::text, t.id)
-           OR t.id IN (SELECT resource_id FROM fn_granted_resource_ids($1::uuid, $2::uuid, $3::text)) )
+     AND ${catalogAuthorizationPredicate({
+    alias: 't',
+    userParam: '$1::uuid',
+    produceTypeExpr: '$3::text',
+    atlasParam: '$2::uuid',
+    grantTypeExpr: '$3::text',
+  })}
    ORDER BY t.sort_order, t.name
 `;
 

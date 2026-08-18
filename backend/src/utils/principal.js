@@ -22,7 +22,21 @@ const PRINCIPAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
  * @returns {string|null}
  */
 export function principalUserId(user) {
-  const id = user?.id;
+  return principalIdOrNull(user?.id);
+}
+
+/**
+ * O MESMO teste, para quando o id do principal já vem SOLTO.
+ *
+ * Existe porque nem todo caminho carrega um `req.user`: o socket de colaboração guarda
+ * `ws.userId` (`collab.gateway.js`), e o `pushOperations` recebe o id como argumento. Sem
+ * esta função, cada um deles reescreveria a regex — que é como `sync.service.js` já ficou
+ * com duas cópias dela (`FEATURE_UUID_RE`, `COMMENT_UUID_RE`).
+ *
+ * @param {*} id
+ * @returns {string|null}
+ */
+export function principalIdOrNull(id) {
   return typeof id === 'string' && PRINCIPAL_UUID_RE.test(id) ? id : null;
 }
 

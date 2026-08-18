@@ -5,6 +5,11 @@ import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 import logger from '../../utils/logger.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
+import { principalIdOrNull } from '../../utils/principal.js';
+import {
+  catalogLayerResourceRef, catalogRefKey, CATALOG_LAYER_DEFINITION_KEYS,
+} from '../catalog/catalog-layer.ref.js';
+import { assertCatalogTableOf } from '../resource-access/resource-access.types.js';
 
 /**
  * Whitelisted `setting` op keys whose value is a KEYED OBJECT that must be
@@ -749,11 +754,111 @@ export async function getAtlasSyncInfo(atlasId) {
   return result.rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// F11 — catalog layers travel as REFERENCE + per-atlas state; the DEFINITION is rehydrated.
+//
+// The three functions below are the read half of that change. The write half is
+// `unseenCatalogResourceDenialReason`, further down with the other per-op refusals.
+//
+// THE DELIVERED SHAPE DOES NOT MOVE, and that is a hard constraint: `map.catalogLayers` is an
+// array, each item spreads the stored keys at the TOP level next to `id` and `sync`, and the
+// client writes it into IndexedDB verbatim (`reshapeSnapshotMap` passes it through `...rest`).
+// What changes is where `name`/`config` come from and how fresh they are.
+// ---------------------------------------------------------------------------
+
+/**
+ * The resource ids referenced by a set of catalog-layer entries, grouped by type.
+ *
+ * Both snapshot surfaces feed this: the dedicated `catalog_layers` table AND the legacy
+ * `maps.catalog_layers` column, which carries the SAME copy and also goes out in the snapshot
+ * (via GET_ATLAS_MAPS). Closing only the table would leave half the hole open.
+ *
+ * @param {{id: *, entry: *}[]} entradas
+ * @returns {{analysis_layer: Set<string>, data_layer: Set<string>}}
+ */
+function collectCatalogRefs(entradas) {
+  const porTipo = { analysis_layer: new Set(), data_layer: new Set() };
+  for (const { id, entry } of entradas) {
+    const ref = catalogLayerResourceRef(id, entry?.type);
+    if (ref) porTipo[ref.resourceType].add(ref.resourceId);
+  }
+  return porTipo;
+}
+
+/**
+ * The catalog definitions this caller may see, for the referenced ids, in ONE query.
+ *
+ * Returns an EMPTY map without touching the database when nothing is referenced, which is the
+ * common case (most atlases have no catalog layer at all) and keeps the snapshot's query count
+ * where `snapshot-n-mais-1.repro.test.js` left it for those.
+ *
+ * @param {Object} t - Task/transaction context.
+ * @param {{analysis_layer: Set<string>, data_layer: Set<string>}} refs
+ * @param {string|null} userId - The principal, already normalised (null for a public visitor).
+ * @param {string} atlasId - The atlas being synced: the scope its LOAN applies in.
+ * @returns {Promise<Map<string, {id: string, name: string, config: Object}>>}
+ */
+async function loadCatalogDefinitions(t, refs, userId, atlasId) {
+  const analysis = [...refs.analysis_layer];
+  const data = [...refs.data_layer];
+  if (analysis.length === 0 && data.length === 0) return new Map();
+
+  const rows = await t.query(Q.GET_VISIBLE_CATALOG_DEFINITIONS, [userId, atlasId, analysis, data]);
+  return new Map(rows.map((r) => [
+    catalogRefKey(r.resource_type, r.id),
+    { id: r.id, name: r.name, config: r.config || {} },
+  ]));
+}
+
+/**
+ * One catalog-layer entry with its definition refreshed from the catalog, or stripped.
+ *
+ * Three outcomes, and the middle one is the decision this phase had to make:
+ *   - the entry refers to NO catalog resource (hillshade, a legacy entry with no `type`, an id
+ *     without the prefix): returned untouched. Hillshade is built-in and static; applying the
+ *     predicate to it would take the shaded relief off everyone's map.
+ *   - it refers to one the caller MAY see: definition replaced by the LIVE row, reprojected
+ *     exactly as `/api/config` does it (`{ id, name, ...config }`), so the stale copy stops
+ *     going out and an admin's URL fix reaches every atlas at once.
+ *   - it refers to one the caller may NOT see: the reference and the per-atlas state survive,
+ *     the definition does not. OMITTING the layer instead was rejected for two reasons: the
+ *     client already renders this exact state as "camada indisponível" (with a working Remove
+ *     button), whereas a missing layer just vanishes; and the snapshot is AUTHORITATIVE over the
+ *     client's document, so omitting would destroy the per-atlas state (visible, styleOverrides)
+ *     of a user whose access merely lapsed, permanently, on the next connect. What survives is
+ *     the id, never the URL — and the id is what the client already prints in the unavailable
+ *     popover.
+ *
+ * @param {*} entry - The stored payload (`catalog_layers.data` or a legacy array item).
+ * @param {*} id - The catalog-layer id.
+ * @param {Map<string, {id: string, name: string, config: Object}>} definitions
+ * @returns {*} The entry to serve.
+ */
+function rehydrateCatalogLayer(entry, id, definitions) {
+  const ref = catalogLayerResourceRef(id, entry?.type);
+  if (!ref) return entry;
+
+  const local = {};
+  for (const [chave, valor] of Object.entries(entry)) {
+    if (!CATALOG_LAYER_DEFINITION_KEYS.includes(chave)) local[chave] = valor;
+  }
+
+  const def = definitions.get(catalogRefKey(ref.resourceType, ref.resourceId));
+  if (!def) return local;
+  return { ...local, name: def.name, config: { id: def.id, name: def.name, ...def.config } };
+}
+
 /**
  * Generates a full snapshot of the atlas state.
  * Used when client requests version 0 or version < min_version.
+ *
+ * `userId` IS PART OF THE ANSWER since F11, not decoration: the catalog definitions embedded in
+ * `map.catalogLayers` are filtered by what this caller may see, through the same (principal,
+ * atlas) pair `/resource-access/visible` uses — so the layer the client can draw is exactly the
+ * layer whose definition it receives. It defaults to null (public only), which is fail-closed:
+ * a caller that forgets to thread it gets LESS data, never a leak.
  */
-export async function getAtlasSnapshot(atlasId, permission = 'owner') {
+export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = null) {
   return task(async (t) => {
     // Get atlas metadata
     const atlasResult = await t.query(Q.GET_ATLAS_METADATA, [atlasId]);
@@ -811,10 +916,26 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
     const featuresByMap = agrupar(await t.query(Q.GET_ATLAS_FEATURES, [atlasId]));
     const cesium3dByMap = agrupar(await t.query(Q.GET_ATLAS_CESIUM3D, [atlasId]));
     const streetview360ByMap = agrupar(await t.query(Q.GET_ATLAS_STREETVIEW360, [atlasId]));
-    const catalogLayersByMap = agrupar(await t.query(Q.GET_ATLAS_CATALOG_LAYERS, [atlasId]));
+    const rawAllCatalogLayers = await t.query(Q.GET_ATLAS_CATALOG_LAYERS, [atlasId]);
+    const catalogLayersByMap = agrupar(rawAllCatalogLayers);
     const layersByMap = agrupar(await t.query(Q.GET_ATLAS_LAYERS, [atlasId]));
     const groupsByMap = agrupar(await t.query(Q.GET_ATLAS_GROUPS, [atlasId]));
     const groupFeaturesByMap = agrupar(await t.query(Q.GET_ATLAS_GROUP_FEATURES, [atlasId]));
+
+    // F11 — the catalog definitions this caller may see, for BOTH surfaces that carry the copy:
+    // the dedicated table and the legacy `maps.catalog_layers` column (which GET_ATLAS_MAPS
+    // already returned above and which goes out in the snapshot too). One query for the whole
+    // atlas, collected before the per-map loop so it can never become one query per layer.
+    const definicoesDeCatalogo = await loadCatalogDefinitions(
+      t,
+      collectCatalogRefs([
+        ...rawAllCatalogLayers.map((c) => ({ id: c.id, entry: c.data })),
+        ...maps.flatMap((m) => (Array.isArray(m.catalog_layers) ? m.catalog_layers : [])
+          .map((e) => ({ id: e?.id, entry: e }))),
+      ]),
+      principalIdOrNull(userId),
+      atlasId,
+    );
 
     // Transform to frontend format
     for (const map of maps) {
@@ -829,11 +950,22 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
       map.streetview360 = transformStreetview360ToFrontend(rawStreetview360);
       // Per-layer catalog layers (new). The legacy `catalog_layers` column is
       // still returned by GET_ATLAS_MAPS for backward compatibility.
+      //
+      // The spread is unchanged — same keys, same top level, same `sync` — but what it spreads
+      // is the entry with its DEFINITION refreshed (or withheld) instead of the copy the client
+      // stored. See rehydrateCatalogLayer.
       map.catalogLayers = rawCatalogLayers.map((c) => ({
         id: c.id,
-        ...c.data,
+        ...rehydrateCatalogLayer(c.data, c.id, definicoesDeCatalogo),
         sync: buildSyncMetadata(c),
       }));
+      // The legacy column carries the SAME copy and is served by the same snapshot; it gets the
+      // same treatment, item by item. Entries that refer to no catalog resource (the array form
+      // has no `type` at all) pass through untouched.
+      if (Array.isArray(map.catalog_layers)) {
+        map.catalog_layers = map.catalog_layers
+          .map((e) => rehydrateCatalogLayer(e, e?.id, definicoesDeCatalogo));
+      }
 
       // Spatial comments (prefetched once above, grouped by map_id); empty for read-only viewers.
       map.comments = commentsByMap[map.id] || [];
@@ -1119,6 +1251,51 @@ async function lockedMapDenialReason(t, op) {
 }
 
 /**
+ * Refusal for a catalog-layer write whose actor cannot SEE the resource the layer refers to.
+ *
+ * HARDENING, NOT THE MAIN DEFENCE. The main defence is on the read side: the snapshot no longer
+ * serves a definition the caller may not see, so a forged payload never comes back out. This gate
+ * exists so that a private resource is not silently referenced into an atlas by someone who
+ * cannot open it — the same reason `assertCanSeeResource` guards the atlas-loan route.
+ *
+ * NO SECOND COPY OF THE RULE: it asks `fn_can_see_resource`, composed of the same three SQL
+ * functions everything else uses, against the row's own `access_level` in one statement.
+ *
+ * SCOPE, and each exclusion is load-bearing:
+ *   - only `create`/`update`. A DELETE must always be allowed: a user who LOST access to a
+ *     resource still has to be able to take the dead layer off the map, and refusing that would
+ *     be the dead end this file has fixed three times already.
+ *   - only entries that REFER to a catalog resource. Hillshade is built-in (no row anywhere) and
+ *     the legacy whole-array form carries no per-layer type; both return null from the ref
+ *     resolver and are not this gate's business.
+ *
+ * Returns a reason instead of throwing, like every other per-op refusal here: throwing aborts the
+ * batch tx and the client, which does not dequeue a non-2xx, replays the poisoned batch every
+ * 1.5s forever.
+ *
+ * @param {Object} t - Transaction context.
+ * @param {Object} op - Normalized operation.
+ * @param {string|null} userId - The pusher, already normalised to a bare uuid or null.
+ * @param {string} atlasId - The atlas of the ROUTE: the scope its loan applies in.
+ * @returns {Promise<string|null>} Refusal reason, or null when the write may proceed.
+ */
+async function unseenCatalogResourceDenialReason(t, op, userId, atlasId) {
+  if (op.target !== 'catalog_layer') return null;
+  if (op.type !== 'create' && op.type !== 'update') return null;
+
+  const payload = op.changes ?? op.data ?? {};
+  const ref = catalogLayerResourceRef(op.targetId, payload?.type);
+  if (!ref) return null;
+
+  const row = await t.oneOrNone(
+    Q.canSeeCatalogResource(assertCatalogTableOf(ref.resourceType)),
+    [userId, atlasId, ref.resourceType, ref.resourceId],
+  );
+  if (row && row.ok === true) return null;
+  return 'Alteração descartada: você não tem acesso a esta camada de catálogo.';
+}
+
+/**
  * SQLSTATE → motivo de recusa, em pt-BR e GENÉRICO.
  *
  * O texto do driver não pode chegar ao cliente: ele carrega nome de constraint e de
@@ -1223,13 +1400,15 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       assertOperationAllowed(op, permission);
 
       // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
-      // locked map): refuse THIS operation without aborting the transaction, so one
-      // denied op cannot freeze the client's queue. The unknown-target check runs first
-      // because it is the cheapest and needs no database round-trip.
+      // locked map, catalog layer whose resource the actor cannot see): refuse THIS
+      // operation without aborting the transaction, so one denied op cannot freeze the
+      // client's queue. The unknown-target check runs first because it is the cheapest
+      // and needs no database round-trip; the two that DO need one come last.
       const denialReason = foreignAtlasDenialReason(op, atlasId)
         ?? unknownTargetDenialReason(op)
         ?? operationDenialReason(op, permission)
-        ?? await lockedMapDenialReason(t, op);
+        ?? await lockedMapDenialReason(t, op)
+        ?? await unseenCatalogResourceDenialReason(t, op, principalIdOrNull(userId), atlasId);
       if (denialReason) {
         acks.push({
           opId: rawOp.id,
@@ -1419,8 +1598,17 @@ export async function pushOperations(atlasId, operations, userId, permission = '
  * Uses hybrid approach:
  * - If sinceVersion == 0 or sinceVersion < min_version → returns full snapshot
  * - Otherwise → returns incremental operations
+ *
+ * `userId` is threaded down to the snapshot, where it filters the catalog definitions embedded
+ * in `map.catalogLayers` (F11). It is the RAW principal id: the normalisation to a bare uuid
+ * (a public-link visitor carries `public-<uuid>`, which is not one) happens in the snapshot, in
+ * one place, so no caller has to remember it.
+ * @param {string} atlasId
+ * @param {number} sinceVersion
+ * @param {string} [permission]
+ * @param {string|null} [userId]
  */
-export async function pullOperations(atlasId, sinceVersion, permission = 'owner') {
+export async function pullOperations(atlasId, sinceVersion, permission = 'owner', userId = null) {
   // Get sync info to check min_version
   const syncInfo = await getAtlasSyncInfo(atlasId);
   if (!syncInfo) {
@@ -1432,7 +1620,7 @@ export async function pullOperations(atlasId, sinceVersion, permission = 'owner'
 
   // If client is too far behind or starting fresh, return snapshot (comments filtered by tier).
   if (sinceVersion === 0 || sinceVersion < minVersion) {
-    const snapshot = await getAtlasSnapshot(atlasId, permission);
+    const snapshot = await getAtlasSnapshot(atlasId, permission, userId);
     if (!snapshot) {
       return { operations: [], currentVersion: 0, isSnapshot: false };
     }

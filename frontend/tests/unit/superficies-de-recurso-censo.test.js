@@ -167,13 +167,16 @@ const CENSO = [
             + 'alcance a outra.',
     },
     {
-        arquivo: 'src/js/store/catalog.operations.js', gatilho: 'catalogo', n: 3, classe: BASELINE,
-        motivo: 'A operação de store que acrescenta uma camada de catálogo ao mapa, e ela guarda a '
-            + 'CONFIGURAÇÃO ORIGINAL da camada (URL inclusive) dentro do mapa, que viaja no sync '
-            + 'para todo membro do atlas. É um BURACO CONHECIDO e é o simétrico exato do que a '
-            + 'entrada de `GET /sync/:version` nomeia no censo de backend: um Gestor que enxerga uma '
-            + 'camada privada a entrega assim a quem não tem concessão nenhuma, FORA do braço de '
-            + 'empréstimo. Fica nomeado aqui em vez de coberto.',
+        arquivo: 'src/js/catalog/catalog-layer.ref.js', gatilho: 'catalogo', n: 3, classe: BASELINE,
+        motivo: 'O RESOLVEDOR de referência de camada de catálogo, e ele fechou o buraco que esta '
+            + 'linha declarava até a F11. O mapa guardava uma CÓPIA da linha de catálogo (URL '
+            + 'inclusive) dentro de `catalogLayers`, e a cópia viajava no snapshot de sync até '
+            + 'chamador ANÔNIMO de atlas com link público (o teto declarado aqui dizia "todo '
+            + 'membro" e era menor que o real). Hoje o mapa guarda referência mais estado por '
+            + 'atlas, e nome, `config` e legenda são resolvidos AQUI, contra o singleton, a cada '
+            + 'leitura: o recurso que o overlay não somou simplesmente não resolve, e a camada cai '
+            + 'no estado "indisponível" que a UI já tinha. Guardar cópia é justamente o que a '
+            + 'classe existe para tornar visível, e este arquivo é quem a impede.',
     },
     {
         arquivo: 'src/js/store/map.operations.js', gatilho: 'catalogo', n: 1, classe: BASELINE,

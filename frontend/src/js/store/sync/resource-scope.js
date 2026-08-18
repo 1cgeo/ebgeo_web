@@ -51,6 +51,25 @@ export function currentResourceScope() {
 }
 
 /**
+ * The atlas half of the scope in force, or null.
+ *
+ * Exists so that a caller who has to SEND the atlas to the server does not parse the opaque
+ * stamp itself. The one that needs it is the 3D asset route: since F11 the bytes of a private
+ * model are gated, and the borrowing arm of the server predicate only yields the model while
+ * that atlas is the one being asked about — so the request has to name it. Reading it from
+ * here rather than from the sync engine is what keeps the two from disagreeing: this is the
+ * atlas under which the private catalog entries currently in `config` were actually granted.
+ *
+ * The atlas UUID is NOT a credential and this function does not treat it as one: the server
+ * runs `requireAtlasPermission('read')` on whatever arrives.
+ * @returns {string|null}
+ */
+export function currentResourceAtlasId() {
+    const atlasId = _scope.slice(_scope.indexOf('|') + 1);
+    return atlasId || null;
+}
+
+/**
  * Declares the scope in force. Called BEFORE the additive payload is fetched, on purpose: the scope
  * changes when the caller says it changed, not when the network agrees. A fetch that fails must not
  * leave the previous scope's caches readable.

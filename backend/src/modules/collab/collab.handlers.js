@@ -346,7 +346,14 @@ export function handleBriefingEditEnd(ws, data) {
  */
 export async function handleSyncRequest(ws, data) {
   try {
-    const result = await syncService.pullOperations(ws.atlasId, data.lastVersion || 0, ws.permission);
+    // `ws.userId` travels for the same reason the HTTP pull threads `req.user.id`: since F11 the
+    // snapshot embeds catalog-layer definitions filtered by what THIS principal may see, and the
+    // WS `sync_request` returns the very same snapshot. Omitting it here would have made the two
+    // transports disagree about a permission — with the socket being the LESS restrictive of the
+    // two, since a snapshot without a principal is public-only.
+    const result = await syncService.pullOperations(
+      ws.atlasId, data.lastVersion || 0, ws.permission, ws.userId ?? null,
+    );
 
     if (result.isSnapshot) {
       ws.send(JSON.stringify({

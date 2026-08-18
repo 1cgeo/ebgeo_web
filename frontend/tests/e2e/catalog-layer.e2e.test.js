@@ -145,6 +145,76 @@ describe.skipIf(E2E_SKIP)('e2e: catalogLayer sync', () => {
         expect(perLayerIds).not.toContain('legacy-b');
     });
 
+    // -----------------------------------------------------------------------
+    // O SHAPE É CONTRATO CONGELADO ATRAVÉS DA FRONTEIRA DOS DOIS PACOTES: o item
+    // entregue em `maps[].catalogLayers` é escrito no IndexedDB verbatim
+    // (`reshapeSnapshotMap` o passa dentro do `...rest`). Os casos acima afirmam
+    // chave a chave, o que pega uma chave que SOME e não pega uma que APARECE nem
+    // uma que sobrevive por acidente. A F11 mudou de ONDE `name`/`config` vêm, e a
+    // única defesa contra ela ter mexido no FORMATO junto é comparar o CONJUNTO,
+    // daqui, com o cliente real dirigindo o backend real.
+    // -----------------------------------------------------------------------
+    it('freezes the delivered key set (nothing added, nothing dropped)', async () => {
+        const layerId = generateUUID();
+        const payload = {
+            type: 'wms',
+            name: 'Limites',
+            visible: true,
+            opacity: 0.4,
+            status: 'active',
+            styleOverrides: { line: { 'line-width': 2 } },
+            sourceId: 'limites-src'
+        };
+        await api.pushOperations(atlasId, [
+            createOperation('catalogLayer', 'create', layerId, mapId, payload)
+        ]);
+
+        const map = await snapshotMap(api, atlasId, mapId);
+        const layer = map.catalogLayers.find((l) => l.id === layerId);
+        expect(Object.keys(layer).sort()).toEqual(
+            Object.keys({ ...payload, id: layerId, sync: null }).sort()
+        );
+        expect(layer.styleOverrides).toEqual(payload.styleOverrides);
+        expect(layer.sourceId).toBe('limites-src');
+    });
+
+    it('refuses a catalog-layer op whose reference the caller cannot see (F11 write gate)', async () => {
+        // O gate de escrita da F11, medido de fora: um id com o prefixo `analysis-`
+        // e o `type` correspondente RESOLVE uma referência de recurso, e um recurso
+        // que este chamador não enxerga (aqui, um que não existe — "ausente" e
+        // "proibido" são indistinguíveis por decisão da casa) faz a op ser recusada
+        // POR OP, com o lote sobrevivendo. É o par cruzado do caso acima: entrada
+        // que não referencia recurso passa, entrada que referencia é julgada.
+        const inexistente = `analysis-${generateUUID()}`;
+        const inocente = generateUUID();
+        const opGateada = createOperation('catalogLayer', 'create', inexistente, mapId, {
+            type: 'analysis_layer',
+            visible: true
+        });
+        const opVizinha = createOperation('catalogLayer', 'create', inocente, mapId, {
+            type: 'wms',
+            name: 'Sem referência nenhuma',
+            visible: true
+        });
+
+        const res = await api.pushOperations(atlasId, [opGateada, opVizinha]);
+
+        // O ack de uma op RECUSADA não carrega `entityId` (nada foi gravado): a chave de
+        // junção dos dois lados é o `opId`, como no resto do sync.
+        const recusada = res.acks.find((a) => a.opId === opGateada.id);
+        expect(recusada, 'a op referenciando o recurso invisível foi acked').toBeTruthy();
+        expect(recusada.rejected).toBe(true);
+        // O motivo é texto de UI, em pt-BR: o cliente o mostra ao usuário.
+        expect(recusada.reason).toMatch(/não tem acesso/);
+
+        const passou = res.acks.find((a) => a.opId === opVizinha.id);
+        expect(passou.rejected, 'a irmã do mesmo lote não pode ser arrastada').toBeUndefined();
+
+        const map = await snapshotMap(api, atlasId, mapId);
+        expect(map.catalogLayers.some((l) => l.id === inexistente)).toBe(false);
+        expect(map.catalogLayers.some((l) => l.id === inocente)).toBe(true);
+    });
+
     it('ignores a cross-map per-layer create (atlas/map scoping guard)', async () => {
         // Per-layer rows are pinned to a map of THIS atlas via mapId. A bogus mapId
         // must be a no-op: the row is never created, so nothing surfaces anywhere.
