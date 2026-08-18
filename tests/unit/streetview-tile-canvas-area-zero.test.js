@@ -156,7 +156,7 @@ describe('largura do canvas com a tela sem area', () => {
         }
     });
 
-    it('sem canvas ainda, pega o menor degrau e nao o teto', async () => {
+    it('sem canvas ainda, o canvas para no nivel 0 e nao no nativo', async () => {
         // Primeira foto com o container ja recolhido: nao ha canvas para segurar.
         const descritor = descritorDe(5760, 2880, 2);
         instalarNavegador(descritor);
@@ -167,9 +167,42 @@ describe('largura do canvas com a tela sem area', () => {
             await carregador.carregarFoto('foto-2');
 
             // O nivel escolhido e o 0, o mais grosso, porque `nivelDesejado` ja
-            // segurava esse caso. A largura antiga era o TETO desse nivel, 1440.
+            // segurava esse caso.
+            //
+            // A ESCADA DESCEU E O NUMERO MUDOU. Em 2026-08-18 a parada virou
+            // `w > tileSize`, entao 5760 razao 2 da cinco niveis
+            // [360, 720, 1440, 2880, 5760] e nao mais tres. O nivel 0 era 1440 e
+            // agora e 360, ou seja um tile so. A conta sob teste nao mudou: o
+            // canvas continua sendo `min(teto do nivel, degrau de 1024)`, e o
+            // 360 vem do teto, que agora e menor que o degrau.
             expect(carregador.getEstatisticas().nivel).toBe(0);
-            expect(descritor.levels[0].width).toBe(1440);
+            expect(descritor.levels[0].width).toBe(360);
+            expect(carregador.getTextura().image.width).toBe(360);
+            // O que este caso reprova continua sendo o mesmo: ir ao nativo.
+            expect(carregador.getTextura().image.width).not.toBe(5760);
+        } finally {
+            carregador.dispose();
+        }
+    });
+
+    it('com o nivel fixado a mao e a tela sem area, o degrau de 1024 segura', async () => {
+        // ESTE CASO GUARDA A OUTRA METADE DA CONTA, a que a escada nova tirou do
+        // caso acima. Com nivel automatico o nivel 0 agora cabe em um tile, entao
+        // o teto e sempre pequeno e o degrau de 1024 nunca corta nada: a versao
+        // com o defeito (devolver o teto) passaria naquele teste. Aqui o operador
+        // fixou o nivel nativo no seletor do demo e o painel recolheu, entao o
+        // teto volta a ser 7680 e o degrau e quem impede a textura de 118 MB.
+        const descritor = descritorDe(7680, 3840, 1.6);
+        instalarNavegador(descritor);
+        const carregador = await novoCarregador();
+
+        try {
+            carregador.fixarNivel(descritor.levels.length - 1);
+            carregador.atualizarCamera({ lon: 0, lat: 0, fov: 75, largura: 0, altura: 0 });
+            await carregador.carregarFoto('foto-4');
+
+            expect(carregador.getEstatisticas().nivel).toBe(6);
+            expect(descritor.levels[6].width).toBe(7680);
             expect(carregador.getTextura().image.width).toBe(1024);
         } finally {
             carregador.dispose();
@@ -186,11 +219,18 @@ describe('largura do canvas com a tela sem area', () => {
             // O notebook do piloto, 1350x673, pede 4264 px. O degrau sobe para
             // 5120, e o TETO do nivel escolhido, o de 4800, e quem corta: canvas
             // nunca passa do nivel que o enche, senao o tile sairia esticado.
+            //
+            // O NIVEL DE 4800 CONTINUA SENDO O ESCOLHIDO, e so o INDICE dele
+            // andou. A escada de 7680 razao 1,6 ganhou tres degraus por baixo
+            // ([458, 733, 1172, 1875, 3000, 4800, 7680] contra os quatro de
+            // antes), entao o mesmo nivel, com a mesma largura, passou de 2 para
+            // 5. O teste segue apontando a largura junto do indice, para uma
+            // renumeracao futura falhar aqui e nao passar em silencio.
             carregador.atualizarCamera({ lon: 0, lat: 0, fov: 75, largura: 1350, altura: 673 });
             await carregador.carregarFoto('foto-3');
 
-            expect(carregador.getEstatisticas().nivel).toBe(2);
-            expect(descritor.levels[2].width).toBe(4800);
+            expect(carregador.getEstatisticas().nivel).toBe(5);
+            expect(descritor.levels[5].width).toBe(4800);
             expect(carregador.getTextura().image.width).toBe(4800);
         } finally {
             carregador.dispose();

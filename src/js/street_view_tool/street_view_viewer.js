@@ -6,10 +6,16 @@
  * Based on the patterns from 3d_models_viewer_tool/map_3d.js
  *
  * A FONTE DA TEXTURA TEM DOIS CAMINHOS, e so isso muda por causa da piramide.
- * `loadTexture` pinta o preview, sonda o `tiles.json` da foto e, quando a
- * piramide existe, compoe a panoramica por tiles (ver tile-loader.js).
- * Sem piramide cai no full de sempre, e o 404 e o caminho NORMAL: 28 dos 29
- * projetos ainda nao tem tiles gerados.
+ * `loadTexture` sonda o `tiles.json` da foto ANTES de baixar imagem nenhuma.
+ * Com piramide, a panoramica se compoe por tiles (ver tile-loader.js) e nenhum
+ * pedido a `image?quality=preview` ou `image?quality=full` sai da maquina. Sem
+ * piramide cai no preview e depois no full de sempre, e o 404 e o caminho
+ * NORMAL: 28 dos 29 projetos ainda nao tem tiles gerados.
+ *
+ * A ORDEM E O CONTRATO, e nao uma otimizacao. O `preview_webp` e o `full_webp`
+ * vao sair do disco, entao o caminho com piramide nao pode tocar em nenhum dos
+ * dois. O mesmo desenho vale no ebgeo_360, em `viewer.js` e em
+ * `preview-viewer.js`: sonda esperada, imagem legada so no ramo sem piramide.
  *
  * O QUE NAO MUDA: a esfera invertida, a ordem de rotacao ZXY da malha, a camera
  * YXZ, o navigator e todo o overlay 2D. A UV tem de continuar identica, e e por
@@ -502,8 +508,7 @@ const tiles = {
     carregador: null,
     texturaPendente: null,
     controlador: null,
-    dados: null,
-    naEsfera: false
+    dados: null
 };
 
 // Reaproveitados a cada frame para converter a direcao da camera em coordenada
@@ -582,19 +587,7 @@ function aplicarTexturaDeTiles() {
     // deixariam passar justamente a textura que se quer barrar.
     if (!tiles.controlador || tiles.controlador !== activeTextureAbort) return;
 
-    tiles.naEsfera = true;
     applyTexture(nova, tiles.dados);
-}
-
-/**
- * Diz se a esfera ja mostra a composicao por tiles DESTA carga.
- * O preview nao pode entrar por cima dela: ele chegaria depois e rebaixaria uma
- * imagem que ja esta detalhada.
- * @param {AbortController} controlador - controlador da carga em curso
- * @returns {boolean}
- */
-function tilesJaNaEsfera(controlador) {
-    return tiles.naEsfera && tiles.controlador === controlador;
 }
 
 /**
@@ -608,7 +601,6 @@ function largarTiles() {
     tiles.texturaPendente = null;
     tiles.controlador = null;
     tiles.dados = null;
-    tiles.naEsfera = false;
     if (!tiles.carregador) return;
 
     const orfa = tiles.carregador.soltarFoto();
@@ -633,7 +625,6 @@ function descartarCarregadorTiles() {
     tiles.texturaPendente = null;
     tiles.controlador = null;
     tiles.dados = null;
-    tiles.naEsfera = false;
     if (!tiles.carregador) return;
 
     tiles.carregador.dispose();
@@ -719,7 +710,6 @@ async function tentarTiles(photoId, data, controlador) {
 
     tiles.controlador = controlador;
     tiles.dados = data;
-    tiles.naEsfera = false;
     tiles.texturaPendente = null;
 
     // A camera vai ANTES do pedido. O carregador escolhe nivel e conjunto
@@ -752,9 +742,11 @@ async function tentarTiles(photoId, data, controlador) {
 
 /**
  * Loads a texture for the panorama sphere with progressive loading.
- * When the API service is available, loads a low-res preview first
- * for instant feedback, then tiles (when the photo has a pyramid) or the
- * full-res image. Cancels any in-flight fetch when a new load is requested.
+ * Cancels any in-flight fetch when a new load is requested.
+ *
+ * A ORDEM E UMA SO: sonda do `tiles.json`, e dai um dos dois ramos. Com
+ * piramide, a composicao por tiles assume a esfera e nenhuma imagem legada e
+ * pedida. Sem piramide, o preview pinta primeiro e o full entra depois.
  */
 async function loadTexture(data) {
     // Cancel previous in-flight download
@@ -785,17 +777,33 @@ async function loadTexture(data) {
 
     const { getPhotoImageUrl } = await import('./streetview-api.service.js');
 
-    // A sonda do tiles.json parte JUNTO do preview, e nao depois dele. Ela
-    // responde 404 na esmagadora maioria das fotos, e enfileira-la atras do
-    // preview atrasaria o full de todo mundo em uma volta de rede inteira.
-    const sonda = tentarTiles(photoId, data, controller);
+    // FASE 1: A SONDA DO tiles.json, E ELA VEM ANTES DE QUALQUER IMAGEM.
+    //
+    // Ela partia JUNTO do preview, para o 404 das fotos sem piramide nao custar
+    // uma volta de rede. So que assim TODA foto pedia `image?quality=preview`,
+    // inclusive a que tem piramide. O `preview_webp` (1,03 GB) e o `full_webp`
+    // (62,6 GB) vao ser apagados do disco, e a prova que libera a poda e um log
+    // de rede sem um pedido sequer a `quality=preview` ou a `quality=full`.
+    // Baixar o preview e so nao pintar nao serve: o pedido continua no log, e o
+    // dado continua tendo de existir no disco.
+    //
+    // O PRECO E UMA VOLTA DE REDE, e so no ramo sem piramide: `carregarFoto`
+    // rejeita assim que o `tiles.json` responde 404, sem pedir tile nenhum. Na
+    // foto COM piramide nao ha preco: o fundo e o tile de nivel 0, um WebP de
+    // 11 a 18 KB, que custa menos que o preview que ele substitui.
+    //
+    // O PREFETCH DOS VIZINHOS SAI DESTE RAMO pelo mesmo motivo. Ele enchia o
+    // `textureCache` com o preview das fotos vizinhas, e o caminho com piramide
+    // nao le mais esse cache: seriam bytes que ninguem consome, de um dado que
+    // vai deixar de existir. Vizinha sem piramide continua atendida, so que sem
+    // o cache quente, e paga preview e full ao chegar.
+    if (await tentarTiles(photoId, data, controller)) return;
 
-    // Phase 1: Load preview for instant feedback
+    // Phase 2: Load preview for instant feedback. So aqui, porque esta foto nao
+    // tem piramide e o full que vem depois demora de 500 KB a 2,5 MB.
     try {
         if (streetViewState.textureCache.has(previewCacheKey)) {
-            if (!tilesJaNaEsfera(controller)) {
-                applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
-            }
+            applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
         } else {
             const previewUrl = getPhotoImageUrl(photoId, 'preview');
             const previewBlob = await fetchBlobWithRetry(previewUrl, { signal: controller.signal });
@@ -804,10 +812,14 @@ async function loadTexture(data) {
             const previewTexture = await blobToTexture(previewBlob);
             streetViewState.textureCache.set(previewCacheKey, previewTexture);
 
-            // A composicao por tiles pode ter vencido a corrida com o preview: os
-            // dois partiram juntos, e o fundo do carregador e um WebP de 13 KB.
-            // Aplicar o preview por cima dela rebaixaria a imagem.
-            if (activeTextureAbort === controller && !tilesJaNaEsfera(controller)) {
+            // A CORRIDA CONTRA OS TILES ACABOU, e por isso so a geracao guarda
+            // aqui. Enquanto a sonda corria junto do preview, a composicao por
+            // tiles podia ganhar dela e o preview rebaixaria a esfera; havia um
+            // `tilesJaNaEsfera` para barrar isso. Agora o preview so existe
+            // depois de a sonda dizer que NAO ha piramide, e o carregador ja
+            // largou a foto. A guarda saiu junto: guarda que nao pode reprovar
+            // nada nao guarda coisa nenhuma.
+            if (activeTextureAbort === controller) {
                 applyTexture(previewTexture, data);
             }
         }
@@ -815,17 +827,6 @@ async function loadTexture(data) {
         // Preview is best-effort; continue to full-res load
         if (error.name === 'AbortError') return;
         console.warn('[street-view-viewer] Preview load failed (continuing to full-res):', error);
-    }
-
-    // Phase 2: a piramide, quando a foto tiver uma. O carregador ja assumiu a
-    // esfera, e o full nao entra: baixa-lo pagaria os 2,5 MB que os tiles
-    // existem para nao pagar.
-    if (await sonda) {
-        if (activeTextureAbort !== controller) return;
-        if (data.targets) {
-            prefetchTargetPreviews(data.targets);
-        }
-        return;
     }
 
     // Phase 3: Load full-resolution image. Sem piramide, o caminho de sempre.
@@ -856,6 +857,11 @@ async function loadTexture(data) {
 /**
  * Prefetches preview textures for navigation targets in the background.
  * Uses low-priority fetch to avoid competing with the current photo load.
+ *
+ * SO O RAMO SEM PIRAMIDE CHEGA AQUI. Este e o ultimo emissor de
+ * `image?quality=preview` do visualizador, e ele existe para aquecer o
+ * `textureCache`, que a foto com piramide nao le mais. Quando o acervo inteiro
+ * tiver piramide, a funcao morre junto do `preview_webp`.
  */
 async function prefetchTargetPreviews(targets) {
     const { getPhotoImageUrl } = await import('./streetview-api.service.js');
