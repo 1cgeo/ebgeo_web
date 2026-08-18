@@ -13,9 +13,14 @@
 // does NOT have permission.
 //
 // The status codes encode a deliberate distinction and are asserted as such:
-//   anon                -> 401 (strict `auth`)
-//   same-org viewer     -> 403 (it exists, you may look, you may not write)
-//   member of ANOTHER org -> 404 (org scoping; existence is not leaked)
+//   anon                        -> 401 (strict `auth`)
+//   LOTADO na OM dona, sem cracha -> 403 (existe, voce pode olhar, nao pode escrever)
+//   produtor de OUTRA OM          -> 404 (escopo de producao; a existencia nao vaza)
+//
+// O EIXO MUDOU NESTA FASE e a fixture com ele: quem autoriza deixou de ser
+// `organization_id` + `org_role` (lotacao AUTO-DECLARADA no auto-cadastro) e passou a
+// ser `producer_org_id`, o escopo de producao, que so um administrador concede. O ator
+// do 403 e justamente o que o modelo antigo deixava ESCREVER.
 // Every negative also asserts the ABSENCE OF EFFECT — the row and the .db file — so
 // a "4xx that still deleted" cannot pass.
 
@@ -27,15 +32,19 @@ import supertest from 'supertest';
 import path from 'node:path';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
 const JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-testing-purposes-only-32chars';
 
-function mintToken({ orgId, role = 'user', orgRole = 'viewer' }) {
+function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub: crypto.randomUUID(), username: `aauth_${RID}_${orgRole}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `aauth_${RID}_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -67,10 +76,18 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     );
     otherOrgId = org2.rows[0].id;
 
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    viewerToken = mintToken({ orgId: defaultOrgId, orgRole: 'viewer' });
-    foreignEditorToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
-    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', orgRole: 'admin' });
+    // O PRODUTOR e o ADMINISTRADOR precisam de LINHA EM `users`, e nao so de claim:
+    // a listagem administrativa recorta por `fn_can_produce_resource`, que resolve
+    // papel e escopo a partir do UUID no banco. Um `sub` sintetico escreve (o gate de
+    // escrita e JS) e nao LE nada, o que produziria um 404 que parece autorizacao e e
+    // fixture.
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `aauth_prod_${RID}` });
+    const administrador = await createAdminUser(db, { username: `aauth_admin_${RID}` });
+
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    viewerToken = mintToken({ orgId: defaultOrgId });
+    foreignEditorToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId });
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: administrador.id });
 
     const dbFilename = `${defaultOrgId}__${SLUG}.db`;
     dbPath = path.join(config.sv360.dbDir, dbFilename);
@@ -116,17 +133,17 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     assert.equal(await statusOf(), 'enabled');
   });
 
-  it('a same-org VIEWER PATCH status -> 403, status unchanged', async () => {
+  it('LOTADO na OM dona, sem cracha, PATCH status -> 403, status inalterado', async () => {
     const res = await supertest(app)
       .patch(url(`/admin/projects/${SLUG}/status`))
       .set('Authorization', `Bearer ${viewerToken}`)
       .send({ status: 'disabled' })
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
-    assert.equal(await statusOf(), 'enabled', 'a viewer must not flip visibility');
+    assert.equal(await statusOf(), 'enabled', 'lotacao auto-declarada nao vira visibilidade');
   });
 
-  it('an editor of ANOTHER org PATCH status -> 404 (org scope, no existence leak)', async () => {
+  it('produtor de OUTRA OM PATCH status -> 404 (escopo de producao, sem vazar existencia)', async () => {
     // 404 rather than 403 is deliberate: a foreign OM must not learn the slug exists.
     await supertest(app)
       .patch(url(`/admin/projects/${SLUG}/status`))
@@ -136,7 +153,7 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     assert.equal(await statusOf(), 'enabled');
   });
 
-  it('the owner CAN flip the status — positive control, so the negatives are not over a dead route', async () => {
+  it('o PRODUTOR da OM dona vira o status — controle positivo, para os negativos nao serem sobre rota morta', async () => {
     await supertest(app)
       .patch(url(`/admin/projects/${SLUG}/status`))
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -161,7 +178,7 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     assert.equal(existsSync(dbPath), true, 'the SQLite file must survive');
   });
 
-  it('a same-org VIEWER DELETE -> 403; row and file intact', async () => {
+  it('LOTADO na OM dona, sem cracha, DELETE -> 403; linha e arquivo intactos', async () => {
     await supertest(app)
       .delete(url(`/admin/projects/${SLUG}`))
       .set('Authorization', `Bearer ${viewerToken}`)
@@ -170,7 +187,7 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     assert.equal(existsSync(dbPath), true);
   });
 
-  it('an editor of ANOTHER org DELETE -> 404; row and file intact', async () => {
+  it('produtor de OUTRA OM DELETE -> 404; linha e arquivo intactos', async () => {
     await supertest(app)
       .delete(url(`/admin/projects/${SLUG}`))
       .set('Authorization', `Bearer ${foreignEditorToken}`)

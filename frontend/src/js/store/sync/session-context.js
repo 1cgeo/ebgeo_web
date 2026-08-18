@@ -20,6 +20,32 @@ export const SessionMode = Object.freeze({
 });
 
 /**
+ * GLOBAL role vocabulary (backend `users.role`).
+ *
+ * IT IS NOT A LADDER. None of the four contains another and comparing them by order
+ * is forbidden — they are four different jobs, not four levels of one:
+ *   user        — the ordinary account.
+ *   producer    — MAINTAINS every resource produced by ONE organization (the
+ *                 `producerOrgId` below): catalog rows and 360 projects of that OM,
+ *                 and nothing outside it.
+ *   credenciado — READS every private resource in the system and writes nothing.
+ *   admin       — system administration.
+ * Display names (pt-BR): Usuário / Produtor / Credenciado / Administrador.
+ *
+ * `UserRole` below is a HOMONYM WITHOUT KINSHIP: it is the PER-ATLAS vocabulary
+ * (owner/manager/editor/commenter/viewer, plus an 'admin' that matches this one only
+ * by accident of history). Both predicates of this axis compare against THIS enum,
+ * so the two axes no longer share a single word of source.
+ * @readonly @enum {string}
+ */
+export const GlobalRole = Object.freeze({
+    USER: 'user',
+    PRODUCER: 'producer',
+    CREDENCIADO: 'credenciado',
+    ADMIN: 'admin'
+});
+
+/**
  * Frontend role vocabulary (mapped from the backend's per-atlas permission +
  * global role by `toFrontendRole`). Display names (pt-BR):
  *   admin → "Admin do sistema", owner/manager → "Gestor", editor → "Editor",
@@ -110,8 +136,17 @@ class SessionContext {
         /** @type {string|null} */
         this._role = null;
 
-        /** @type {string|null} Global system role ('user' | 'admin'), independent of per-atlas role. */
+        /** @type {string|null} Global system role (a `GlobalRole` value), independent of per-atlas role. */
         this._globalRole = null;
+
+        /**
+         * @type {string|null} The organization this user PRODUCES for (backend
+         * `users.producer_org_id`). Non-null only for `GlobalRole.PRODUCER` — the backend
+         * CHECK is bidirectional, so badge-without-scope and scope-without-badge are both
+         * impossible states there, and mirroring that here keeps a half-hydrated session from
+         * degrading into "producer of everything".
+         */
+        this._producerOrgId = null;
 
         /** @type {Object} */
         this._permissions = { ...FULL_PERMISSIONS };
@@ -156,12 +191,20 @@ class SessionContext {
     }
 
     /**
-     * Global system role ('user' | 'admin' | 'curator'), independent of the per-atlas `role`. Null
-     * when offline or for an anonymous visitor.
+     * Global system role (a `GlobalRole` value: 'user' | 'producer' | 'credenciado' | 'admin'),
+     * independent of the per-atlas `role`. Null when offline or for an anonymous visitor.
      * @returns {string|null}
      */
     get globalRole() {
         return this._globalRole;
+    }
+
+    /**
+     * The organization this user produces for, or null. Only a `producer` has one.
+     * @returns {string|null}
+     */
+    get producerOrgId() {
+        return this._producerOrgId;
     }
 
     /**
@@ -170,18 +213,52 @@ class SessionContext {
      * @returns {boolean}
      */
     isAdmin() {
-        return this._globalRole === UserRole.ADMIN;
+        return this._globalRole === GlobalRole.ADMIN;
+    }
+
+    /**
+     * Se este usuário MANTÉM os recursos de uma OM (papel global `producer`).
+     *
+     * O `producerOrgId` faz parte do predicado, e não é zelo: no banco o par é um
+     * bicondicional (crachá sem escopo e escopo sem crachá são estados impossíveis),
+     * e um cliente que aceitasse o crachá sozinho leria "produtor de tudo" — a
+     * degradação exatamente ao contrário da que se quer.
+     * @returns {boolean}
+     */
+    isProducer() {
+        return this._globalRole === GlobalRole.PRODUCER && this._producerOrgId != null;
+    }
+
+    /**
+     * Se este usuário mantém os recursos DESTA OM.
+     *
+     * É a única pergunta que a interface precisa fazer sobre o eixo de produção, e
+     * nenhuma tela deve reimplementar a comparação: administrador mantém qualquer
+     * uma, produtor mantém a dele, e o resto não mantém nenhuma. OM ausente (recurso
+     * institucional, `owner_org_id` nulo) é de administrador e de mais ninguém.
+     *
+     * @param {string|null|undefined} orgId - A OM dona do recurso.
+     * @returns {boolean}
+     */
+    canProduceFor(orgId) {
+        if (this.isAdmin()) return true;
+        if (orgId == null || orgId === '') return false;
+        return this.isProducer() && String(orgId) === String(this._producerOrgId);
     }
 
     /**
      * Se este usuário enxerga TODO recurso privado do catálogo por PAPEL GLOBAL
-     * (administrador ou curador).
+     * (administrador ou credenciado).
      *
      * EIXO SEPARADO DE `isAdmin()`, e a separação é o ponto da fase inteira: o
-     * curador vê dado privado e NÃO administra nada — não abre o painel do admin,
-     * não vira dono de atlas, não marca recurso como privado. Juntar os dois numa
-     * função só é exatamente a promoção silenciosa que o censo do backend existe
-     * para impedir.
+     * credenciado LÊ todo dado privado e NÃO ESCREVE NADA — não abre o painel do
+     * admin, não vira dono de atlas, não marca recurso como privado. Juntar os dois
+     * numa função só é exatamente a promoção silenciosa que o censo do backend
+     * existe para impedir.
+     *
+     * O PRODUTOR FICA DE FORA daqui de propósito: ele não lê o privado de todo
+     * mundo, lê o da OM dele, e isso chega pelo payload aditivo de
+     * `/resource-access/visible`, não por papel de leitura global.
      *
      * `UserRole` e `ROLE_PERMISSIONS` NÃO são tocados de propósito: aquele é o
      * vocabulário POR ATLAS (owner/admin/manager/editor/commenter/viewer) e este
@@ -192,7 +269,7 @@ class SessionContext {
      * @returns {boolean}
      */
     hasGlobalDataAccess() {
-        return this._globalRole === UserRole.ADMIN || this._globalRole === 'curator';
+        return this._globalRole === GlobalRole.ADMIN || this._globalRole === GlobalRole.CREDENCIADO;
     }
 
     /**
@@ -261,9 +338,13 @@ class SessionContext {
     /**
      * Sets an authenticated session.
      * Transitions from offline to online mode.
-     * @param {{ userId: string, role: string, globalRole?: string, username?: string, permissions?: Object }} userInfo
-     *   `globalRole` is the system role ('user'|'admin'); when omitted it is PRESERVED, so per-atlas
-     *   role re-sets (e.g. `connect`) do not wipe the admin bit established at login.
+     * @param {{ userId: string, role: string, globalRole?: string, producerOrgId?: string|null,
+     *   username?: string, permissions?: Object }} userInfo
+     *   `globalRole` is the system role (a `GlobalRole` value) and `producerOrgId` its production
+     *   scope; when omitted BOTH are PRESERVED, so per-atlas role re-sets (e.g. `connect`) do not
+     *   wipe the global bits established at login. The scope follows the same rule as the role
+     *   because it is half of the same fact: preserving one and clearing the other would leave the
+     *   impossible state the backend CHECK forbids.
      */
     setSession(userInfo) {
         if (!userInfo || !userInfo.userId) {
@@ -278,6 +359,9 @@ class SessionContext {
         this._role = role;
         if (userInfo.globalRole !== undefined) {
             this._globalRole = userInfo.globalRole;
+        }
+        if (userInfo.producerOrgId !== undefined) {
+            this._producerOrgId = userInfo.producerOrgId ?? null;
         }
         this._username = userInfo.username || null;
         this._permissions = userInfo.permissions
@@ -298,6 +382,7 @@ class SessionContext {
         this._userId = null;
         this._role = UserRole.VIEWER;
         this._globalRole = null;
+        this._producerOrgId = null;
         this._username = null;
         this._isVisitor = true;
         this._permissions = { ...ROLE_PERMISSIONS[UserRole.VIEWER] };
@@ -313,6 +398,7 @@ class SessionContext {
         this._userId = null;
         this._role = null;
         this._globalRole = null;
+        this._producerOrgId = null;
         this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
@@ -357,6 +443,7 @@ class SessionContext {
             clientId: this.clientId,
             role: this._role,
             globalRole: this._globalRole,
+            producerOrgId: this._producerOrgId,
             permissions: { ...this._permissions }
         };
     }
@@ -381,11 +468,41 @@ class SessionContext {
         this._userId = null;
         this._role = null;
         this._globalRole = null;
+        this._producerOrgId = null;
         this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
         this._listeners.clear();
     }
+}
+
+/**
+ * Shapes a backend user record (`GET /users/me`, `POST /auth/login`) into the argument
+ * `setSession` expects.
+ *
+ * THE FIVE HYDRATION SITES SHARE THIS ONE FUNCTION on purpose. The shape was copied
+ * five times (map boot, atlas chooser, admin page, calibration page, sync engine) and had
+ * already drifted between the copies; the production scope is the field where drift is
+ * expensive, because a missing `producerOrgId` makes `isProducer()` silently false and the
+ * screen simply disappears for a producer, with no error anywhere.
+ *
+ * `producer_org_id` may be absent (legacy token, older backend): it degrades to null,
+ * which reads as "produces for nobody" — the closed direction.
+ *
+ * @param {Object} user - The backend user record.
+ * @param {string} [fallbackUsername] - Used when the record carries no display name (the
+ *   login form knows what was typed even if the response omits it).
+ * @returns {{ userId: string, role: string, globalRole: string, producerOrgId: string|null,
+ *   username: string }}
+ */
+export function sessionUserInfoFromMe(user, fallbackUsername) {
+    return {
+        userId: user.id,
+        role: user.org_role || UserRole.VIEWER,
+        globalRole: user.role || GlobalRole.USER,
+        producerOrgId: user.producer_org_id ?? null,
+        username: user.username || user.nome || fallbackUsername
+    };
 }
 
 /** @type {SessionContext} */

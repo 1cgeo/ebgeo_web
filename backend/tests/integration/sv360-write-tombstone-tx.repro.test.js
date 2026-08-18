@@ -20,6 +20,7 @@ import crypto, { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8);
@@ -50,13 +51,15 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
 
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     orgId = org.rows[0].id;
+    // Produtor de verdade da OM dona: `org_role` deixou de autorizar escrita de 360.
+    const produtor = await createProducerUser(db, orgId, { username: `wtomb_${RID}` });
     token = jwt.sign(
       {
-        sub: randomUUID(),
+        sub: produtor.id,
         username: `wtomb_${RID}`,
-        role: 'user',
+        role: 'producer',
         organization_id: orgId,
-        org_role: 'editor',
+        producer_org_id: orgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

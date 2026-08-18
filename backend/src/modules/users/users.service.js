@@ -1,11 +1,64 @@
 // Path: src/modules/users/users.service.js
 import bcrypt from 'bcrypt';
 import { query, tx } from '../../database/index.js';
-import { NotFoundError, UnauthorizedError, ConflictError, ForbiddenError } from '../../utils/errors.js';
+import {
+  NotFoundError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError,
+} from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import * as Q from './users.queries.js';
 
 const SALT_ROUNDS = 12;
+
+/**
+ * Normaliza um campo opcional de uuid: `''` e `undefined` viram null.
+ * @param {*} v
+ * @returns {string|null}
+ */
+function uuidOuNulo(v) {
+  return v === '' || v === undefined ? null : (v ?? null);
+}
+
+/**
+ * Cobra o BICONDICIONAL do escopo de producao sobre o estado EFETIVO da conta, e
+ * devolve o par (papel, escopo) que deve ir para o banco.
+ *
+ * POR QUE AQUI E NAO SO NO CHECK. `users_producer_scope_check` e a guarda que vale,
+ * e ela nao pode sair; mas quando ela dispara o driver levanta 23514, que o
+ * `errorHandler` traduz num 400 generico ("Value violates a constraint") de
+ * proposito, porque o texto do driver expoe nome de coluna e de constraint. O
+ * administrador que tentasse promover alguem a Produtor sem OM leria um erro que nao
+ * diz o que corrigir. Esta funcao devolve a mesma recusa com a frase certa.
+ *
+ * POR QUE O REBAIXAMENTO LIMPA EM VEZ DE RECUSAR. Trocar o papel para qualquer outro
+ * significa "esta pessoa nao produz mais"; exigir que quem edita tambem se lembre de
+ * mandar `producer_org_id: null` transformaria a operacao mais comum (rebaixar) num
+ * 400. O caminho inverso NAO tem simetria: promover a Produtor exige a OM, porque
+ * nao ha valor que o servidor possa adivinhar sem escolher a OM de alguem.
+ *
+ * @param {{role?: string, producer_org_id?: string|null}} data - O corpo (parcial).
+ * @param {{role: string, producer_org_id?: string|null}} existing - A linha atual.
+ * @returns {{role: string|null, producerOrgId: string|null, producerProvided: boolean}}
+ */
+function resolveProducerScope(data, existing) {
+  const papel = data.role || null;
+  const papelEfetivo = papel ?? existing.role;
+  const pediuEscopo = data.producer_org_id !== undefined;
+  const escopoPedido = uuidOuNulo(data.producer_org_id);
+  const escopoEfetivo = pediuEscopo ? escopoPedido : (existing.producer_org_id ?? null);
+
+  if (papelEfetivo === 'producer') {
+    if (!escopoEfetivo) {
+      throw new BadRequestError('O papel Produtor exige uma OM de produção.');
+    }
+    return { role: papel, producerOrgId: escopoEfetivo, producerProvided: pediuEscopo };
+  }
+
+  if (escopoEfetivo && pediuEscopo) {
+    throw new BadRequestError('A OM de produção só se define para o papel Produtor.');
+  }
+  // Rebaixou (ou ja nao era produtor): o escopo cai junto, sempre.
+  return { role: papel, producerOrgId: null, producerProvided: true };
+}
 
 /**
  * Gets user profile by ID.
@@ -158,6 +211,9 @@ export async function createUser(data, req = null, actorId = null) {
       data.organization_id || null,
       data.role || 'user',
       data.org_role || null, // SQL COALESCEs to 'viewer'
+      // O bicondicional ja foi cobrado pelo Joi da criacao (onde o corpo e completo
+      // e o `when` alcanca os dois lados); aqui basta normalizar '' para null.
+      uuidOuNulo(data.producer_org_id),
     ]);
 
     if (actorId) {
@@ -166,7 +222,11 @@ export async function createUser(data, req = null, actorId = null) {
         targetId: criado.id, targetName: criado.nome,
         // O papel criado é o dado que interessa numa revisão: uma conta nascida
         // 'admin' é o evento que se quer achar depois.
-        details: { role: criado.role, org_role: criado.org_role, organization_id: criado.organization_id },
+        details: {
+          role: criado.role, org_role: criado.org_role,
+          organization_id: criado.organization_id,
+          producer_org_id: criado.producer_org_id,
+        },
       }, t);
     }
 
@@ -221,6 +281,11 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
     }
   }
 
+  // O par (papel, escopo) e resolvido ANTES do UPDATE, sobre o estado efetivo: o
+  // corpo e parcial, e so a mistura dele com a linha existente diz se a conta vai
+  // terminar com cracha sem escopo ou escopo sem cracha.
+  const escopo = resolveProducerScope(data, existing);
+
   return tx(async (t) => {
     const rows = await t.any(Q.UPDATE_USER_ADMIN, [
       userId,
@@ -230,10 +295,12 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       data.rank_id !== undefined,
       data.organization_id === '' ? null : (data.organization_id ?? null),
       data.organization_id !== undefined,
-      data.role || null,
+      escopo.role,
       data.is_active !== undefined ? data.is_active : null,
       data.email_verified !== undefined ? data.email_verified : null,
       data.org_role || null,
+      escopo.producerOrgId,
+      escopo.producerProvided,
     ]);
 
     if (rows.length === 0) {
@@ -253,6 +320,30 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
           action: 'ROLE_CHANGE', actorId: actingUserId, targetType: 'USER',
           targetId: userId, targetName: atualizado.nome,
           details: { from: existing.role, to: atualizado.role },
+        }, t);
+      }
+
+      // PRODUCER_SCOPE_CHANGE é ação PRÓPRIA, e não um detalhe de ROLE_CHANGE, por
+      // uma razão que o CHECK bicondicional de 018 torna concreta: transferir um
+      // produtor de uma OM para outra é mudança de ESCOPO sem mudança de PAPEL, e
+      // nesse evento não existe ROLE_CHANGE nenhum para carregar o detalhe. Como
+      // `producer_org_id` decide todo recurso que a conta MANTÉM, isso ficaria sem
+      // nada para filtrar — que é o mesmo buraco de LOGIN/ATLAS_DELETE, só que
+      // silencioso desde o primeiro dia.
+      //
+      // A comparação é contra a LINHA GRAVADA (`atualizado`), nunca contra o corpo
+      // do request: rebaixar de Produtor limpa o escopo como EFEITO (o serviço
+      // resolve o par), sem `producer_org_id` no corpo, e comparar com o corpo
+      // perderia exatamente essa revogação.
+      if ((existing.producer_org_id ?? null) !== (atualizado.producer_org_id ?? null)) {
+        await createAudit(req, {
+          action: 'PRODUCER_SCOPE_CHANGE', actorId: actingUserId, targetType: 'USER',
+          targetId: userId, targetName: atualizado.nome,
+          details: {
+            from: existing.producer_org_id ?? null,
+            to: atualizado.producer_org_id ?? null,
+            role: atualizado.role,
+          },
         }, t);
       }
 
@@ -411,12 +502,30 @@ export async function rotateApiKey(userId, actorId, req = null) {
 
 /**
  * Reactivates a previously deactivated user.
+ *
+ * AUDITA, e a assimetria que isso corrige é literal: `deleteUser` (a desativação)
+ * emite `USER_DELETE` desde sempre, e o ato que devolve a conta ao ar não deixava
+ * nada. Meia história é pior do que nenhuma numa trilha de acesso — quem filtra por
+ * `USER_DELETE` conclui que a conta continua desativada.
+ *
+ * Uma query só, então não há transação a que aderir; a trilha vem depois do UPDATE.
+ * @param {string} userId
+ * @param {string|null} [actorId] - Administrador que reativou.
+ * @param {object} [req]
  */
-export async function reactivateUser(userId) {
+export async function reactivateUser(userId, actorId = null, req = null) {
   const { rows } = await query(Q.REACTIVATE_USER, [userId]);
 
   if (rows.length === 0) {
     throw new NotFoundError('User');
+  }
+
+  if (actorId) {
+    await createAudit(req, {
+      action: 'USER_REACTIVATE', actorId, targetType: 'USER',
+      targetId: userId, targetName: rows[0].nome,
+      details: { role: rows[0].role },
+    });
   }
 
   return rows[0];

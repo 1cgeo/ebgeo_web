@@ -1133,6 +1133,34 @@ describe('tab-lock: o transporte REAL, sem o hub em processo', () => {
     // sorteio pelo sufixo aleatorio do `tabId` (foi assim que o flake do sync-brake nasceu).
     const uniqueChannel = () => `ebgeo-tab-lock-teste-${Math.random().toString(36).slice(2)}`;
 
+    /**
+     * Waits for the EVIDENCE to arrive instead of for a fixed slice of wall clock.
+     *
+     * The settle window of `acquire()` is real time, and this is the ONE case in the file that
+     * cannot inject a hub around it, because the transport under test is the real
+     * BroadcastChannel. Measured in series, `settleMs: 30` failed 1 run in 6 under the loaded
+     * parallel suite: when the peer's answer lands at 35 ms the tab hears silence, reads it as
+     * "nobody there" and grants, and the case fails on an assertion about arbitration while the
+     * arbitration was never exercised. Widening the window would only move the coin toss, which
+     * is the statistics the house rule refuses.
+     *
+     * So the anchor is the message itself. The deadline below is a CEILING for "it never came",
+     * never the quantity being measured: an answer at 35 ms and an answer at 3 ms produce the
+     * same run. `acquire()` still runs its own settle afterwards — it simply no longer decides
+     * the outcome, which is the whole point.
+     * @param {() => boolean} predicate - True once the awaited message has been registered.
+     * @param {string} label - Named in the timeout, so a real regression says WHAT never arrived.
+     * @returns {Promise<void>}
+     */
+    async function aguardarEvidencia(predicate, label) {
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+            if (predicate()) return;
+            await new Promise((resolve) => setTimeout(resolve, 2));
+        }
+        throw new Error(`tab-lock: a evidência nunca chegou pelo canal real (${label})`);
+    }
+
     it('usa o BroadcastChannel de verdade, e arbitra por ele', async () => {
         expect(typeof BroadcastChannel).toBe('function');
         const channelName = uniqueChannel();
@@ -1160,6 +1188,10 @@ describe('tab-lock: o transporte REAL, sem o hub em processo', () => {
             // (em vez de a aba simplesmente nao ter ouvido nada) e o `blockedBy` nomear a primeira.
             clock += 5;
             const b = mk();
+            await aguardarEvidencia(
+                () => b.peers().some(peer => peer.tabId === a.tabId),
+                'b ouve a reivindicacao de a'
+            );
             const disputa = await b.acquire(remoteAtlasKey(ATLAS_A));
             expect(disputa.granted).toBe(false);
             expect(disputa.blockedBy?.tabId).toBe(a.tabId);
@@ -1168,10 +1200,19 @@ describe('tab-lock: o transporte REAL, sem o hub em processo', () => {
             // Controle negativo no MESMO canal: outro atlas de servidor passa...
             clock += 5;
             const c = mk();
+            // ...e a espera aqui e o que torna o controle honesto: `c` so pede DEPOIS de ter
+            // ouvido as duas, entao o `granted` abaixo e arbitragem por chave, nunca surdez.
+            await aguardarEvidencia(
+                () => c.peers().length === 2,
+                'c ouve as reivindicacoes de a e b'
+            );
             expect((await c.acquire(remoteAtlasKey(ATLAS_B))).granted).toBe(true);
             expect(c.blocked).toBe(false);
-            // ...e as tres se enxergam mesmo, senao o `granted` acima seria surdez e nao
-            // arbitragem: o roster de `a` tem as outras duas, vindas so pelo canal real.
+            // O roster de `a` tem as outras duas, vindas so pelo canal real.
+            await aguardarEvidencia(
+                () => a.peers().length === 2,
+                'a ouve as reivindicacoes de b e c'
+            );
             expect(a.peers().map(peer => peer.tabId).sort())
                 .toEqual([b.tabId, c.tabId].sort());
         } finally {

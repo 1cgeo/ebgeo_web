@@ -54,7 +54,15 @@ const EXCECOES_DESTRUTIVAS = [
   // o constraint precisa cair e voltar. Mesmo alargamento de 007, e o custo é esta
   // linha: sem ela a suíte fica vermelha com uma mensagem sobre "DDL destrutiva não
   // documentada", que não parece ter relação nenhuma com permissões.
-  { arquivo: '018_user_role_curator.sql', trecho: 'ALTER TABLE users DROP CONSTRAINT users_role_check' },
+  { arquivo: '018_papeis_globais.sql', trecho: 'ALTER TABLE users DROP CONSTRAINT users_role_check' },
+  // 020 dispara TRÊS padrões ao mesmo tempo: dois CHECK que precisam cair para
+  // alargar (mesmo caso de 007) e o `target_id` UUID -> TEXT, que é o mesmo
+  // alargamento de 006 pelo mesmo motivo — o id do domínio nunca foi UUID (slug
+  // de catálogo, chave textual de config). Nenhuma das três perde linha nem
+  // invalida consulta; `idx_audit_target` é reconstruído pelo próprio ALTER.
+  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check' },
+  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_target_type_check' },
+  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail ALTER COLUMN target_id TYPE TEXT' },
 ];
 
 const PADROES_DESTRUTIVOS = [

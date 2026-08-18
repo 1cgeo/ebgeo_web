@@ -1,7 +1,9 @@
 // Path: src/modules/resource-access/resource-access.queries.js
 // SQL nomeado do módulo de acesso a recurso. O PREDICADO de acesso não mora aqui:
-// ele mora nas três funções da migração 017, e estas consultas as CHAMAM. Uma
+// ele mora nas funções SQL das migrações 017/019, e estas consultas as CHAMAM. Uma
 // definição só, que é a dívida que o schema `ng` já paga por não ter feito assim.
+// O do 360 é composto e vem de `sv360.queries.js` pelo mesmo motivo.
+import { sv360AccessPredicate } from '../streetview360/sv360.queries.js';
 
 /**
  * Marca um recurso de CATÁLOGO como público ou privado.
@@ -51,6 +53,21 @@ export const CAN_SEE_RESOURCE = `
  * `access_level = 'private'` não é otimização, é o contrato do endpoint: o que
  * ele devolve é o DELTA sobre o `/api/config` público, e o cliente SOMA. Trazer
  * o público aqui duplicaria cada item no baseline do cliente.
+ *
+ * O RAMO DE PRODUÇÃO ENTRA AQUI PELA MESMA RAZÃO QUE ENTROU EM `catalog.service.js`,
+ * e a falta dele era uma incoerência entre dois caminhos de LEITURA do mesmo dado: o
+ * produtor via a própria camada privada em `GET /api/v1/analysis-layers` (que já
+ * tinha o ramo) e NÃO a via aqui — ou seja, ela existia no painel que a edita e
+ * faltava no payload aditivo com que o mapa boota, sem erro em lugar nenhum. É o
+ * espelho exato do que o comentário de `LIST_VISIBLE_PRIVATE_360` (logo abaixo)
+ * descreve como já corrigido para o 360.
+ *
+ * `$3` SERVE AOS DOIS PREDICADOS de propósito: para as três tabelas de catálogo que
+ * participam do eixo de concessão, o vocabulário de `resource_grants.resource_type` e
+ * o de `fn_can_produce_resource` coincidem palavra por palavra (`tileset`,
+ * `data_layer`, `analysis_layer`). Se algum dia divergirem, este parâmetro precisa se
+ * partir em dois — e a coincidência está escrita aqui para que a divergência não
+ * passe despercebida.
  *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type (text)
  * @param {string} table - Já validado por assertCatalogTableOf.
  * @returns {string}
@@ -61,6 +78,7 @@ export const listVisiblePrivate = (table) => `
    WHERE t.active = true
      AND t.access_level = 'private'
      AND ( fn_has_global_data_access($1::uuid)
+           OR fn_can_produce_resource($1::uuid, $3::text, t.id)
            OR t.id IN (SELECT resource_id FROM fn_granted_resource_ids($1::uuid, $2::uuid, $3::text)) )
    ORDER BY t.sort_order, t.name
 `;
@@ -70,21 +88,20 @@ export const listVisiblePrivate = (table) => `
  * `sv360.projects` tem chave UUID, coluna `status` e `organization_id`, e nenhum
  * `active`/`sort_order`.
  *
- * O ramo da OM dona é preservado (D6): privacidade restringe quem está de FORA,
- * e `status = 'disabled'` continua sendo o eixo de ocultação, inclusive para quem
- * tem concessão.
- *   $1 = userId, $2 = atlasId, $3 = orgId do chamador
+ * O PREDICADO É O MESMO DO MÓDULO 360, importado e não copiado. Enquanto ele morava
+ * aqui escrito à mão, corrigir um lado e esquecer o outro dava um produtor que via o
+ * projeto em `/sv360/projects` e não via em `/resource-access/visible`, com as duas
+ * suítes verdes. O ramo da OM dona virou o de PRODUÇÃO (a OM deixou de ser
+ * auto-declarada), e `status = 'disabled'` continua sendo o eixo de ocultação,
+ * inclusive para quem tem concessão.
+ *   $1 = userId, $2 = atlasId
  */
 export const LIST_VISIBLE_PRIVATE_360 = `
   SELECT id::text AS id, slug, name, center_lat, center_long, entry_photo_id,
          photo_count, status, capture_date
     FROM sv360.projects
    WHERE access_level = 'private'
-     AND ( fn_has_global_data_access($1::uuid)
-           OR organization_id = $3::uuid
-           OR ( status = 'enabled'
-                AND id::text IN (SELECT resource_id
-                                   FROM fn_granted_resource_ids($1::uuid, $2::uuid, 'sv360_project')) ) )
+     AND ${sv360AccessPredicate(1, 2)}
    ORDER BY name
 `;
 
@@ -109,6 +126,7 @@ export const LIST_SHAREABLE_OF_ACTOR = `
   SELECT DISTINCT resource_type, resource_id
     FROM resource_grants
    WHERE revoked_at IS NULL
+     AND expires_at > NOW()
      AND grantee_id = $1::uuid
      AND grant_level = 'view_share'
 `;
@@ -121,12 +139,14 @@ export const LIST_SHAREABLE_OF_ACTOR = `
  */
 export const LIST_GRANTS_FOR_RESOURCE = `
   SELECT g.id, g.resource_type, g.resource_id, g.grant_level, g.parent_grant_id, g.created_at,
+         g.expires_at,
          g.grantee_id, gu.username AS grantee_username, gu.nome AS grantee_nome,
          g.granted_by, bu.username AS granted_by_username, bu.nome AS granted_by_nome
     FROM resource_grants g
     JOIN users gu ON gu.id = g.grantee_id
     LEFT JOIN users bu ON bu.id = g.granted_by
    WHERE g.revoked_at IS NULL
+     AND g.expires_at > NOW()
      AND g.resource_type = $1 AND g.resource_id = $2
    ORDER BY g.created_at
 `;
@@ -139,12 +159,20 @@ export const LIST_GRANTS_FOR_RESOURCE = `
  * D3: pode devolver mais de uma linha, de propósito — a estrutura é um DAG. O
  * chamador escolhe a de maior nível, e é isso que faz `view_share` em QUALQUER
  * concessão viva bastar para compartilhar adiante.
+ *
+ * "VIVA" PASSOU A INCLUIR O PRAZO. Sem `expires_at > NOW()` aqui, quem já não VÊ o
+ * recurso (o predicado de leitura mora em `fn_granted_resource_ids`, que conhece o
+ * prazo) continuaria podendo REPASSÁ-LO: o gate `requireResourceShare` se alimenta
+ * desta consulta, e a concessão nova nasceria pendurada num pai morto.
+ *
+ * `expires_at` viaja no SELECT porque o INSERT do filho o usa como TETO.
  *   $1 = grantee_id, $2 = resource_type, $3 = resource_id
  */
 export const LIVE_GRANTS_OF_ACTOR = `
-  SELECT id, grant_level
+  SELECT id, grant_level, expires_at
     FROM resource_grants
    WHERE revoked_at IS NULL
+     AND expires_at > NOW()
      AND grantee_id = $1::uuid AND resource_type = $2 AND resource_id = $3
    ORDER BY (grant_level = 'view_share') DESC, created_at
 `;
@@ -158,11 +186,17 @@ export const LIVE_GRANTS_OF_ACTOR = `
  * derruba o outro). Duas linhas do MESMO concedente não carregam nada, e a
  * segunda só cria uma subárvore irmã que a revogação da primeira não alcança —
  * ou seja, um jeito silencioso de tornar a própria revogação incompleta.
+ *
+ * O PRAZO ENTRA AQUI PARA QUE A RENOVAÇÃO SEJA POSSÍVEL. Uma concessão EXPIRADA
+ * continua com `revoked_at IS NULL`, então sem `expires_at > NOW()` o concedente
+ * levaria 409 "já recebeu acesso de você" sobre um acesso que não existe mais — um
+ * beco sem saída da mesma classe do id de catálogo soft-deletado.
  *   $1 = granted_by, $2 = grantee_id, $3 = resource_type, $4 = resource_id
  */
 export const LIVE_GRANT_FROM_ACTOR_TO_GRANTEE = `
   SELECT id, grant_level FROM resource_grants
    WHERE revoked_at IS NULL
+     AND expires_at > NOW()
      AND granted_by = $1::uuid AND grantee_id = $2::uuid
      AND resource_type = $3 AND resource_id = $4
    LIMIT 1
@@ -173,12 +207,32 @@ export const GET_ACTIVE_USER = `
   SELECT id, username, nome FROM users WHERE id = $1::uuid AND is_active = true
 `;
 
-/** Insere uma concessão. $1..$6 = tipo, recurso, beneficiário, nível, concedente, pai. */
+/**
+ * Insere uma concessão.
+ *
+ * O PRAZO É CALCULADO AQUI, NO MESMO STATEMENT DA ESCRITA, e não no JS. Três tetos
+ * incidem sobre ele e o `LEAST` os aplica todos de uma vez:
+ *   - o pedido do concedente (`$7`), ou um ano quando ele não pediu nada;
+ *   - o TETO DA CASA (um ano), que o CHECK da tabela também cobra — calculá-lo com
+ *     o `NOW()` do banco é o que impede um relógio de cliente adiantado de virar
+ *     23514 (`Value violates a constraint`) em vez de uma data válida;
+ *   - o prazo do PAI (`$8`, nulo na concessão de raiz), porque filho nunca pode
+ *     sobreviver a quem o autorizou. `'infinity'` é o neutro do LEAST para a raiz.
+ * `GREATEST` não aparece: o piso (`expires_at > created_at`) é cobrado na borda.
+ *   $1..$6 = tipo, recurso, beneficiário, nível, concedente, pai
+ *   $7 = prazo pedido (timestamptz|null), $8 = prazo do pai (timestamptz|null)
+ */
 export const INSERT_GRANT = `
   INSERT INTO resource_grants
-    (resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id)
-  VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6::uuid)
-  RETURNING id, resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id, created_at
+    (resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id, expires_at)
+  VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6::uuid,
+          LEAST(
+            COALESCE($7::timestamptz, NOW() + INTERVAL '1 year'),
+            NOW() + INTERVAL '1 year',
+            COALESCE($8::timestamptz, 'infinity'::timestamptz)
+          ))
+  RETURNING id, resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id,
+            created_at, expires_at
 `;
 
 /** Uma concessão por id, viva ou não (para o gate de revogação). $1 = id. */
@@ -279,9 +333,20 @@ export const DETACH_ATLAS_RESOURCE = `
  * sobrevive a um rollback.
  *   $1 = resource_type, $2 = resource_id
  */
+// AS DUAS PURGAS TÊM `RETURNING`, e não é conveniência: é o ÚNICO instante em que
+// estas linhas ainda existem. Elas são hard-delete (o resto do sistema é soft), então
+// depois do COMMIT não há de onde reconstruir quem tinha acesso ao recurso que
+// sumiu. Sem o RETURNING, `PERMISSION_PURGE` seria uma linha dizendo "apaguei
+// alguma coisa".
+//
+// O RETURNING traz TAMBÉM as linhas já mortas (`revoked_at`/`removed_at` não nulos):
+// o DELETE não filtra, e a trilha precisa contar o que de fato saiu da tabela, não o
+// que estava vivo. O estado de cada uma viaja no detalhe.
 export const PURGE_GRANTS_OF_RESOURCE = `
   DELETE FROM resource_grants WHERE resource_type = $1 AND resource_id = $2
+  RETURNING id, grantee_id, granted_by, grant_level, parent_grant_id, revoked_at, expires_at
 `;
 export const PURGE_ATLAS_LINKS_OF_RESOURCE = `
   DELETE FROM atlas_resources WHERE resource_type = $1 AND resource_id = $2
+  RETURNING id, atlas_id, added_by, removed_at
 `;

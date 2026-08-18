@@ -23,6 +23,7 @@ import { VectorTile } from '@mapbox/vector-tile';
 // decoder VectorTile expects.
 import { PbfReader } from 'pbf';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 
 // Deterministic UUID v5 (node:crypto), fixed namespace (same as sv360-tiles).
@@ -168,8 +169,16 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );
+    // A OM QUE VE O PROJETO OCULTO E A PRODUTORA, nao a de LOTACAO: `organization_id`
+    // e auto-declarado no auto-cadastro, entao escolher a OM na tela de cadastro
+    // entregava o acervo oculto dela. `producer_org_id` so um administrador concede, e
+    // o predicado o resolve NO SQL a partir do UUID — dai o usuario de verdade.
+    const produtorSegunda = await createProducerUser(db, secondOrgId, { username: `mvt_prod_${crypto.randomUUID().slice(0, 8)}` });
     otherOrgToken = jwt.sign(
-      { sub: crypto.randomUUID(), role: 'user', organization_id: secondOrgId, org_role: 'viewer' },
+      {
+        sub: produtorSegunda.id, role: 'producer',
+        organization_id: secondOrgId, org_role: 'viewer', producer_org_id: secondOrgId,
+      },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );
@@ -183,6 +192,10 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
     await db.query(`DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])`, [
       [enabledProjectId, disabledProjectId],
     ]);
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [secondOrgId]);
     await db.query(`DELETE FROM public.organizations WHERE id = $1`, [secondOrgId]);
     await teardownTestEnv(db);
   });

@@ -7,14 +7,20 @@
  *
  * O QUE E OBRA NOVA AQUI. A app de calibracao veio do ebgeo_360, onde ela NAO TEM AUTENTICACAO
  * NENHUMA: la ela escreve direto, sem credencial. Neste backend toda escrita do modulo 360 passa
- * por `auth` estrito, e a decisao do chefe e que so o papel `admin` calibra. Este arquivo e o
- * unico lugar onde essa regra existe, e ele nao veio da origem.
+ * por `auth` estrito, e quem escreve e o administrador global OU o PRODUTOR da OM dona do projeto
+ * (`canWriteProject`, eixo de producao). Este arquivo e o unico lugar onde essa regra existe do
+ * lado do cliente, e ele nao veio da origem.
+ *
+ * O gate daqui e o par de PAPEIS; a OM e decidida projeto a projeto pelo servidor, que so lista e
+ * so aceita escrita no que aquele operador mantem. Um gate por OM aqui seria uma segunda copia do
+ * predicado, e a copia e que envelhece errado. (Ate esta fase a regra era `admin` e mais nada,
+ * porque a escrita do 360 dependia de `org_role`, que deixou de autorizar.)
  *
  * Boot, na ordem (o mesmo encadeamento de `admin-page.js`):
  *   1. Config — `GET /api/config`, fail-fast com tentativas. E dele que sai o
  *      `streetView360.serviceUrl` que o cliente da calibracao usa como prefixo.
  *   2. Sessao — recupera os tokens persistidos e valida contra o backend.
- *   3. Gate — so admin global; qualquer outro vai para o mapa.
+ *   3. Gate — admin global ou produtor; qualquer outro vai para o mapa.
  *   4. Monta — levanta a area de trabalho e liga o ciclo de vida da sessao.
  *
  * Sem `@store` alem do cliente HTTP e do contexto de sessao, e sem `initServices()`: a pagina nao
@@ -25,14 +31,14 @@
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
-import { sessionContext } from '@store/sync/session-context.js';
+import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
 import { mountCalibrationWorkspace, setSessionHandlers } from './app.js';
 
-/** Para onde vai quem nao e admin (ou quem esta deslogado). Relativo: o app pode servir de subpath. */
+/** Para onde vai quem nao calibra (ou quem esta deslogado). Relativo: o app pode servir de subpath. */
 const MAP_URL = './';
 /** "Sair da calibracao" devolve ao seletor de projetos, que e de onde se chega a Administracao. */
 const PROJECTS_URL = './atlas.html';
@@ -66,12 +72,7 @@ async function restoreSession() {
     try {
         if (!apiClient.loadStoredTokens()) return false;
         const user = await apiClient.getMe();
-        sessionContext.setSession({
-            userId: user.id,
-            role: user.org_role || 'viewer',
-            globalRole: user.role || 'user',
-            username: user.username || user.nome,
-        });
+        sessionContext.setSession(sessionUserInfoFromMe(user));
         return true;
     } catch {
         apiClient.clearTokens();
@@ -115,11 +116,14 @@ async function initCalibracaoPage() {
     document.title = `Calibração 360 — ${config?.app?.title || 'EBGeo'}`;
 
     await restoreSession();
-    // Gate: a pagina inteira e para admin global. Qualquer outro — deslogado, ou usuario comum que
-    // digitou a URL — vai para o mapa, em vez de olhar uma area de trabalho cuja escrita 403.
-    // O gate e do CLIENTE e serve a experiencia; quem de fato recusa a escrita e o `auth` do
-    // backend, e e ele que continua valendo se alguem contornar esta pagina.
-    if (!sessionContext.isAdmin()) {
+    // Gate: admin global calibra qualquer projeto; PRODUTOR calibra os da OM que ele mantem.
+    // Qualquer outro — deslogado, ou usuario comum que digitou a URL — vai para o mapa, em vez de
+    // olhar uma area de trabalho cuja escrita 403.
+    // O gate e do CLIENTE e serve a experiencia; quem de fato recusa a escrita e `canWriteProject`
+    // no backend, POR OM DONA DO PROJETO, e e ele que continua valendo se alguem contornar esta
+    // pagina. Por isso o gate aqui e o par de papeis, e nao a OM: um produtor que abra a area de
+    // trabalho ve so os projetos que o servidor lhe entrega.
+    if (!sessionContext.isAdmin() && !sessionContext.isProducer()) {
         window.location.replace(MAP_URL);
         return;
     }
@@ -137,7 +141,7 @@ async function initCalibracaoPage() {
     setSessionHandlers({
         // Um 401 numa escrita significa que a sessao morreu de vez (o refresh tambem falhou).
         onAuthLost: () => { endSession('encerrada'); },
-        // O operador perdeu o papel `admin` com a sessao aberta e escolheu sair.
+        // O operador perdeu o papel que calibra (admin ou produtor) com a sessao aberta e saiu.
         onLeave: () => { window.location.assign(PROJECTS_URL); },
     });
 

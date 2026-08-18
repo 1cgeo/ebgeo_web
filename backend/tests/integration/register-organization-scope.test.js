@@ -1,25 +1,22 @@
 // Path: tests/integration/register-organization-scope.test.js
-// Self-registration accepts a client-chosen `organization_id` (the OM dropdown).
+// O auto-cadastro aceita um `organization_id` escolhido pelo cliente (o seletor de OM).
 //
-// The value went into the INSERT with only a UUID FORMAT check (auth.schemas.js:29),
-// never a check that the organization exists or is active. Membership is not
-// decorative: `isProjectReadable` (sv360.service.js:33-38) grants read of an org's
-// `disabled` — unpublished — 360 projects to anyone whose `organization_id` matches,
-// and every active org's UUID is handed out by the ANONYMOUS GET /api/config to
-// populate that very dropdown.
+// O valor ia para o INSERT com uma checagem de FORMATO de UUID e nada mais, nunca com
+// uma checagem de que a organização existe ou está ativa. Este arquivo fecha essa
+// metade: OM inexistente ou desativada é recusada.
 //
-// WHAT THIS FIXES AND WHAT IT DOES NOT — recorded so the residual risk is not
-// mistaken for a closed hole. Rejecting nonexistent/inactive orgs is the whole of
-// the change. Someone can still self-declare a real, active OM they do not belong
-// to and read its unpublished 360 projects, because the dropdown IS a
-// self-declaration; closing that needs an approval step, deliberately deferred (see
-// bugs-backend.md #33). Exposure is limited to deployments with
-// ALLOW_SELF_REGISTRATION enabled, which is off in production.
+// A OUTRA METADE FOI FECHADA EM OUTRO LUGAR, e é por isso que este cabeçalho mudou.
+// Ele dizia que a lotação declarada dava leitura dos projetos 360 não publicados
+// daquela OM — o que era verdade e virou a razão de a coluna perder todo poder.
+// `users.organization_id` é LOTAÇÃO e exibição; quem autoriza é o ESCOPO DE PRODUÇÃO
+// (`users.producer_org_id`), que só um administrador concede. Manter a frase antiga
+// aqui seria pior que não ter cabeçalho: ela descreveria como fato uma escalação que
+// não existe mais, e um agente a leria como verdade.
 //
-// The last test below asserts the hole that is knowingly left open. It is written
-// as an explicit expectation, not left untested, so that if the approval step ever
-// lands, this test fails and forces the decision to be revisited rather than
-// silently contradicted.
+// O ÚLTIMO CASO ABAIXO mede o que sobrou: a declaração ainda é aceita sem aprovação
+// (o furo de ENTRADA continua aberto de propósito, porque fechá-lo pede um fluxo de
+// aprovação) e agora é INÓCUA. A prova de inocuidade, com o acervo 360 e de catálogo
+// da OM alheia, mora em `auto-cadastro-om-nao-autoriza.repro.test.js`.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -112,11 +109,12 @@ describe('self-registration validates the chosen organization', () => {
     assert.equal(rows[0].organization_id, DEFAULT_ORG, 'COALESCE still routes to the default org');
   });
 
-  it('KNOWN GAP: still allows self-declaring a real org the user does not belong to', async () => {
-    // Not an endorsement — a marker. Accepted deliberately (bugs-backend.md #33)
-    // because the OM dropdown is a self-declaration and closing it requires an
-    // approval workflow. If that workflow lands, THIS test breaks, which is the
-    // point: the decision gets revisited instead of quietly reversed.
+  it('a declaração continua sem aprovação — e agora nasce SEM poder nenhum', async () => {
+    // O QUE ESTE CASO PASSOU A MEDIR. Ele era um KNOWN GAP: marcava que a declaração
+    // era aceita e, na época, que ela COMPRAVA acesso. A primeira metade continua
+    // valendo de propósito (fechá-la pede um fluxo de aprovação); a segunda foi
+    // removida do produto, e a asserção nova é o que registra isso: a conta nasce sem
+    // crachá de produção, que é a única coluna que autoriza alguma coisa.
     const username = `reg_gap_${randomUUID().slice(0, 8)}`;
     await supertest(app)
       .post('/api/v1/auth/register')
@@ -124,9 +122,15 @@ describe('self-registration validates the chosen organization', () => {
       .expect(201);
 
     const { rows } = await db.query(
-      'SELECT organization_id, org_role FROM users WHERE username = $1', [username]
+      'SELECT organization_id, org_role, role, producer_org_id FROM users WHERE username = $1',
+      [username]
     );
-    assert.equal(rows[0].organization_id, activeOrgId, 'membership is immediate, with no approval');
-    assert.equal(rows[0].org_role, 'viewer', 'but only at the lowest org role');
+    assert.equal(rows[0].organization_id, activeOrgId, 'a lotação é imediata, sem aprovação');
+    assert.equal(rows[0].org_role, 'viewer', 'e no papel de organização mais baixo');
+    assert.equal(rows[0].role, 'user', 'o auto-cadastro nunca cunha papel global');
+    assert.equal(
+      rows[0].producer_org_id, null,
+      'E O CRACHÁ NÃO ACOMPANHA A LOTAÇÃO: é ele que autoriza, e só administrador o concede'
+    );
   });
 });

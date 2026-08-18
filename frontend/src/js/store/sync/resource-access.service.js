@@ -54,8 +54,8 @@ let _privados = conjuntosVazios();
 
 /**
  * Os ids que este usuário pode REPASSAR (concessão viva de `view_share`), por grupo.
- * Papel global fica de FORA daqui de propósito — quem é administrador ou curador
- * concede de raiz, e quem sabe disso é `sessionContext`.
+ * Papel global fica de FORA daqui de propósito — quem tem acesso global concede de
+ * raiz, e quem sabe disso é `sessionContext`.
  * @type {Object<string, Set<string>>}
  */
 let _repassaveis = conjuntosVazios();
@@ -125,10 +125,22 @@ export function isPrivateResource(grupo, id) {
 /**
  * Se este usuário pode CONCEDER acesso a este recurso.
  *
- * DUAS ORIGENS, e a soma delas é a regra inteira: papel global (administrador ou
- * curador concedem de raiz, sem concessão nenhuma) OU uma concessão viva de
+ * DUAS ORIGENS, e a soma delas é a regra inteira: papel global (quem tem acesso
+ * global concede de raiz, sem concessão nenhuma) OU uma concessão viva de
  * `view_share`. Quem só tem `view` recebe `false`, e é o que tira a ação
  * "Compartilhar" do cartão em vez de oferecê-la para o servidor recusar.
+ *
+ * ESTA FUNÇÃO ESPELHA O SERVIDOR, INCLUSIVE ONDE ELE AINDA DIVERGE DA REGRA NOVA.
+ * `hasGlobalDataAccess()` passou a incluir o CREDENCIADO, que por definição lê tudo
+ * e não escreve nada — e conceder é escrita. O gate do servidor
+ * (`requireResourceShare`, `fn_has_global_data_access`) ainda o aceita, então
+ * fechá-lo só aqui não fecharia nada: esconderia o botão de uma pessoa que continua
+ * podendo conceder pela API, e tornaria o buraco mais difícil de ver. Quando nascer
+ * o predicado próprio no banco, esta linha vira `sessionContext.isAdmin()`.
+ *
+ * O PRODUTOR NÃO ENTRA AQUI e a razão é de contrato: o payload aditivo não diz de
+ * qual OM é cada item, então o cliente não tem como saber que aquele privado é da OM
+ * que ele mantém. Ele fica sem o botão e o servidor é quem decide — seguro, e mudo.
  *
  * ISTO É SÓ PARA A INTERFACE DECIDIR O QUE MOSTRAR. Quem decide o que ENTREGAR é
  * o servidor: `requireResourceShare` protege a rota e `grantResource` reafirma a

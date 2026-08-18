@@ -37,6 +37,10 @@ export function verifyAndMapUser(token) {
       // Legacy tokens (pre-org claim) fall back gracefully.
       organization_id: payload.organization_id ?? null,
       org_role: payload.org_role || 'viewer',
+      // Escopo de PRODUCAO. Ausente (token legado) = null, que e o valor certo:
+      // quem nao carrega a claim nao produz. Reconciliado abaixo, no caminho
+      // estrito. Mantido em sincronia com flexible-auth.js mapPayload.
+      producer_org_id: payload.producer_org_id ?? null,
       // Atlas scope of a public-link visitor token. See the note in
       // flexible-auth.js mapPayload — both mappers must carry this, since either
       // one can be the path that populates req.user.
@@ -169,6 +173,15 @@ export async function auth(req, res, next) {
       // viewer/null by design — see auth-gaps auth-05), and tenant moves stay
       // bounded by the ≤15min token window as previously accepted.
       req.user.role = live.role;
+
+      // O ESCOPO DE PRODUCAO E ADOTADO INCONDICIONALMENTE, ao contrario das claims
+      // de org. As duas razoes: produzir e FUNCAO, nao favor, entao revogar precisa
+      // valer na hora (a lotacao nao autoriza mais nada, e por isso a janela do
+      // token para ela continua aceitavel); e nao existe token legado a preservar
+      // aqui — a claim e nova, e a ausencia dela significa "nao produz", que e o
+      // mesmo que o banco diz de quem nao tem escopo. Sem esta linha um produtor
+      // rebaixado seguiria produzindo por ate 15 min TAMBEM no caminho estrito.
+      req.user.producer_org_id = live.producerOrgId;
     } else if (req.user.organization_id && !(await orgIsActive(req.user.organization_id))) {
       // No user row to reconcile — fall back to the original org-only gate.
       return next(new ForbiddenError('Organization is inactive'));

@@ -26,10 +26,10 @@ const NEARBY_LIMIT = 100;
 
 /**
  * Read-access predicate for a project. `enabled` projects are PUBLIC (anon-
- * visible). A `disabled` project is visible only to a global admin or to a
- * member of the owning organization.
+ * visible). A `disabled` project is visible only to a global admin or to the
+ * PRODUCING organization (`users.producer_org_id`).
  * @param {Object} project - row with { status, organization_id }
- * @param {Object} [user]  - req.user ({ role, organization_id }) or undefined
+ * @param {Object} [user]  - req.user ({ role, producer_org_id }) or undefined
  * @returns {boolean}
  */
 /**
@@ -40,21 +40,39 @@ const NEARBY_LIMIT = 100;
  * relacao aparente com a causa. NULL ali e o valor CORRETO para ele — o ramo de
  * concessao pessoal morre e sobra o de emprestimo, que depende do atlas.
  *
+ * A OM SAIU DAQUI. Ela era o segundo termo do predicado e autorizava por LOTAÇÃO
+ * auto-declarada; o eixo continua existindo, resolvido no SQL pelo escopo de
+ * PRODUÇÃO a partir do mesmo `userId`. Uma tupla a menos é uma renumeração a menos.
+ *
  * @param {Object} [user] - req.user
  * @param {string} [atlasId] - `req.query.atlasId`, cru.
- * @returns {[string|null, string|null, string|null]} [userId, orgId, atlasId]
+ * @returns {[string|null, string|null]} [userId, atlasId]
  */
 function readScope(user, atlasId) {
-  return [principalUserId(user), user?.organization_id ?? null, atlasScopeId(atlasId)];
+  return [principalUserId(user), atlasScopeId(atlasId)];
+}
+
+/**
+ * A OM PREFERIDA do chamador, para DESEMPATE de slug/nome colidente entre OMs.
+ *
+ * NÃO É AUTORIZAÇÃO, e está separada de `readScope` para que continue óbvio que não
+ * é: ela só entra em `ORDER BY`. Produção primeiro (é a OM em que o chamador
+ * trabalha de fato), lotação depois (que preserva o desempate que todo usuário comum
+ * já tinha). Nula para o anônimo, que simplesmente perde a preferência.
+ * @param {Object} [user] - req.user
+ * @returns {string|null}
+ */
+function preferredOrgId(user) {
+  return user?.producer_org_id ?? user?.organization_id ?? null;
 }
 
 export function isProjectReadable(project, user) {
   // OS DOIS EIXOS SAO ORTOGONAIS, e esta funcao cobre UM deles.
   //
-  //   `status`        — `disabled` oculta de todo mundo fora da OM dona, inclusive
-  //                     de quem tem concessao e inclusive do curador. E o eixo de
-  //                     OCULTACAO, e e este que a funcao decide.
-  //   `access_level`  — `private` restringe quem esta de FORA, nunca a OM dona
+  //   `status`        — `disabled` oculta de todo mundo fora da OM PRODUTORA,
+  //                     inclusive de quem tem concessao e inclusive do credenciado.
+  //                     E o eixo de OCULTACAO, e e este que a funcao decide.
+  //   `access_level`  — `private` restringe quem esta de FORA, nunca a OM produtora
   //                     (D6). E o eixo de PRIVACIDADE, e ele NAO e decidido aqui.
   //
   // POR QUE O SEGUNDO EIXO NAO MORA AQUI, e isto e limite declarado e nao
@@ -69,10 +87,17 @@ export function isProjectReadable(project, user) {
   //
   // Consequencia pratica: um projeto `enabled + private` e considerado legivel
   // aqui. Quem o entregou foi o SQL, que so o entrega a quem pode ve-lo.
+  //
+  // A OM COMPARADA E A DE PRODUCAO, nunca mais a de lotacao: `organization_id` do
+  // usuario e auto-declarado no auto-cadastro, entao compara-lo aqui era escolher a
+  // OM na tela de cadastro e receber o acervo oculto dela. `producer_org_id` chega
+  // pelo token e e RECONCILIADO contra o banco no `auth` estrito; nos caminhos de
+  // leitura, que correm sob `flexibleAuth` (que nao reconcilia), quem garante e o
+  // SQL — nenhuma linha chega aqui sem ter passado pelo predicado.
   if (project.status === 'enabled') return true;
   if (!user) return false;
   if (user.role === 'admin') return true;
-  return Boolean(user.organization_id) && user.organization_id === project.organization_id;
+  return Boolean(user.producer_org_id) && user.producer_org_id === project.organization_id;
 }
 
 /**
@@ -105,7 +130,7 @@ export async function listProjects(user, atlasId = null) {
  * @throws {NotFoundError} if missing or hidden from the caller
  */
 export async function getProject(slug, user, atlasId = null) {
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId)]);
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId), preferredOrgId(user)]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');
   enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
@@ -157,7 +182,7 @@ function floorPlanToGeoJson(planCoords, level) {
  * @throws {NotFoundError} if missing or hidden from the caller
  */
 async function resolveReadableProject(slug, user, atlasId = null) {
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId)]);
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [slug, ...readScope(user, atlasId), preferredOrgId(user)]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');
   enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
@@ -302,7 +327,7 @@ export async function getPhoto(uuid, user, { includeHidden = false } = {}) {
  * @throws {NotFoundError} if missing/tombstoned or its project is hidden
  */
 export async function photoByName(nome, user) {
-  const { rows } = await query(Q.GET_PHOTO_BY_NAME, [nome, user?.organization_id ?? null]);
+  const { rows } = await query(Q.GET_PHOTO_BY_NAME, [nome, preferredOrgId(user)]);
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(photo), user, 'Photo');
@@ -661,8 +686,8 @@ export async function projectRuns(slug, user) {
 export async function tilesFeatureCollection(user, { bbox, limit, atlasId } = {}) {
   const box = Array.isArray(bbox) && bbox.length === 4 ? bbox : [null, null, null, null];
   const cap = Number.isInteger(limit) && limit > 0 ? limit : TILES_GEOJSON_MAX_FEATURES;
-  const [userId, orgId, atlas] = readScope(user, atlasId);
-  const { rows } = await query(Q.TILES_PHOTOS, [userId, orgId, ...box, cap, atlas]);
+  const [userId, atlas] = readScope(user, atlasId);
+  const { rows } = await query(Q.TILES_PHOTOS, [userId, ...box, cap, atlas]);
   return {
     type: 'FeatureCollection',
     features: rows.map((r) => ({
@@ -692,7 +717,7 @@ export async function tilesFeatureCollection(user, { bbox, limit, atlasId } = {}
  * @param {number} z - tile zoom
  * @param {number} x - tile column
  * @param {number} y - tile row
- * @param {Object} [user] - req.user ({ role, organization_id }) or undefined
+ * @param {Object} [user] - req.user (only the principal id reaches the SQL) or undefined
  * @returns {Promise<Buffer>} the MVT protobuf (possibly empty)
  */
 export async function mvtTile(z, x, y, user, atlasId = null) {
@@ -724,7 +749,7 @@ export async function resolveThumbnailPath(slug, user, atlasId = null) {
   // basename strips any directory component (../, absolute) before it ever hits
   // the DB lookup or the filesystem — defense in depth on top of the route param.
   const safeSlug = path.basename(String(slug));
-  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [safeSlug, ...readScope(user, atlasId)]);
+  const { rows } = await query(Q.GET_PROJECT_BY_SLUG, [safeSlug, ...readScope(user, atlasId), preferredOrgId(user)]);
   const project = rows[0];
   // Project missing OR hidden from the caller → indistinguishable 404 (no leak).
   if (!project || !isProjectReadable(project, user)) return null;

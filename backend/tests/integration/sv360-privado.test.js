@@ -8,9 +8,16 @@
 // verificação desta fase; este arquivo é a outra.
 //
 // DOIS EIXOS ORTOGONAIS, e a confusão entre eles é o defeito provável:
-//   `status`       — `disabled` OCULTA, inclusive de quem tem concessão e do curador;
-//   `access_level` — `private` RESTRINGE quem está de fora, nunca a OM dona (D6).
+//   `status`       — `disabled` OCULTA, inclusive de quem tem concessão e do credenciado;
+//   `access_level` — `private` RESTRINGE quem está de fora, nunca a OM PRODUTORA (D6).
 // O caso novo é `enabled + private`.
+//
+// A TERCEIRA MUDANÇA DE FORMA, desta fase: "a OM dona" deixou de significar
+// `users.organization_id`. Aquela coluna é LOTAÇÃO auto-declarada no auto-cadastro
+// (`POST /auth/register` aceita qualquer OM ativa e a conta sem e-mail nasce ativa na
+// hora), então escolher a OM numa tela abria o acervo oculto e privado dela. Quem vê
+// o próprio acervo agora é a OM PRODUTORA (`users.producer_org_id`), que só um
+// administrador concede — e o predicado a resolve no SQL, a partir do UUID.
 //
 // E uma propriedade de forma, não de conteúdo: o primeiro termo do predicado
 // deixou de ser um booleano do JS. `TRUE` curto-circuitava a disjunção inteira, de
@@ -26,7 +33,7 @@ import supertest from 'supertest';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
+import { createUser, createAdminUser, createProducerUser, loginUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 
 const ORG_DONA = '00000000-0000-0000-0000-000000000001';
@@ -69,8 +76,8 @@ function fetchTile(app, token) {
 }
 
 describe('F6 — projeto 360 enabled+private', () => {
-  let app, db, admin, curador, beneficiario, forasteiro, daOrgDona;
-  let tokenAdmin, tokenCurador, tokenBeneficiario, tokenForasteiro, tokenOrgDona;
+  let app, db, admin, credenciado, beneficiario, forasteiro, daOrgProdutora, soLotado;
+  let tokenAdmin, tokenCredenciado, tokenBeneficiario, tokenForasteiro, tokenOrgProdutora, tokenSoLotado;
   let projetoId, projetoPublicoId;
   const fotoPrivadaId = crypto.randomUUID();
   const fotoPublicaId = crypto.randomUUID();
@@ -103,15 +110,22 @@ describe('F6 — projeto 360 enabled+private', () => {
     outraOrgId = orgs[0].id;
 
     admin = await createAdminUser(db, { username: `p360_admin_${sufixo}` });
-    curador = await createUser(db, { username: `p360_cur_${sufixo}`, role: 'curator' });
+    credenciado = await createUser(db, { username: `p360_cred_${sufixo}`, role: 'credenciado' });
     beneficiario = await createUser(db, { username: `p360_ben_${sufixo}` });
     forasteiro = await createUser(db, { username: `p360_fora_${sufixo}` });
-    daOrgDona = await createUser(db, { username: `p360_om_${sufixo}`, organization_id: outraOrgId });
+    // A OM PRODUTORA (crachá concedido) e, ao lado dela, alguém apenas LOTADO na
+    // MESMA OM: é o par que separa produzir de se declarar daquela OM, e o segundo é
+    // exatamente o ator que o modelo antigo autorizava.
+    daOrgProdutora = await createProducerUser(db, outraOrgId, {
+      username: `p360_prod_${sufixo}`, organization_id: outraOrgId,
+    });
+    soLotado = await createUser(db, { username: `p360_lot_${sufixo}`, organization_id: outraOrgId });
     tokenAdmin = await loginUser(app, admin.username, admin.password);
-    tokenCurador = await loginUser(app, curador.username, curador.password);
+    tokenCredenciado = await loginUser(app, credenciado.username, credenciado.password);
     tokenBeneficiario = await loginUser(app, beneficiario.username, beneficiario.password);
     tokenForasteiro = await loginUser(app, forasteiro.username, forasteiro.password);
-    tokenOrgDona = await loginUser(app, daOrgDona.username, daOrgDona.password);
+    tokenOrgProdutora = await loginUser(app, daOrgProdutora.username, daOrgProdutora.password);
+    tokenSoLotado = await loginUser(app, soLotado.username, soLotado.password);
 
     // enabled + private, de uma OM que NÃO é a dos forasteiros: o caso novo.
     const { rows } = await db.query(
@@ -155,7 +169,7 @@ describe('F6 — projeto 360 enabled+private', () => {
   after(async () => {
     await db.query('DELETE FROM resource_grants WHERE resource_id = $1', [projetoId]);
     await db.query('DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])', [[projetoId, projetoPublicoId]]);
-    await db.query('DELETE FROM users WHERE organization_id = $1', [outraOrgId]);
+    await db.query('DELETE FROM users WHERE organization_id = $1 OR producer_org_id = $1', [outraOrgId]);
     await db.query('DELETE FROM organizations WHERE id = $1', [outraOrgId]);
     await teardownTestEnv(db);
   });
@@ -167,13 +181,26 @@ describe('F6 — projeto 360 enabled+private', () => {
     assert.ok(!(await listaSlugs(tokenForasteiro)).includes(SLUG));
   });
 
-  it('POSITIVO — 200 para a OM DONA, para o admin e para o curador (D6)', async () => {
-    // A OM dona vê o PRÓPRIO dado inclusive privado: privacidade restringe quem
+  it('POSITIVO — 200 para a OM PRODUTORA, para o admin e para o credenciado (D6)', async () => {
+    // A OM produtora vê o PRÓPRIO dado inclusive privado: privacidade restringe quem
     // está de FORA. Sem este caso, a mudança poderia ter fechado o dono junto.
-    for (const [quem, token] of [['OM dona', tokenOrgDona], ['admin', tokenAdmin], ['curador', tokenCurador]]) {
+    for (const [quem, token] of [
+      ['OM produtora', tokenOrgProdutora], ['admin', tokenAdmin], ['credenciado', tokenCredenciado],
+    ]) {
       await getProjeto(token).expect(200);
       assert.ok((await listaSlugs(token)).includes(SLUG), `${quem} precisa ver na listagem`);
     }
+  });
+
+  it('NEGATIVO — quem só está LOTADO na OM produtora NÃO vê (o furo que a fase fecha)', async () => {
+    // O PAR DO CASO ACIMA, e o coração desta fase no 360. Esta conta declara a mesma
+    // OM que produziu o projeto, e no modelo antigo (`organization_id = $2` no
+    // predicado) isso bastava para ler o privado e o oculto dela. Hoje a lotação é
+    // só rótulo: sem crachá de produção, ela é indistinguível de um forasteiro.
+    await getProjeto(tokenSoLotado).expect(404);
+    assert.ok(!(await listaSlugs(tokenSoLotado)).includes(SLUG));
+    // Discriminação: o produtor da MESMA OM, no mesmo instante, vê.
+    await getProjeto(tokenOrgProdutora).expect(200);
   });
 
   it('POSITIVO — concedido, o beneficiário passa a ver; o forasteiro continua fora', async () => {
@@ -198,8 +225,11 @@ describe('F6 — projeto 360 enabled+private', () => {
     await db.query(`UPDATE sv360.projects SET status = 'disabled' WHERE id = $1`, [projetoId]);
     try {
       await getProjeto(tokenBeneficiario).expect(404);
-      // …e continua visível para a OM dona, que é o significado de `disabled`.
-      await getProjeto(tokenOrgDona).expect(200);
+      // …e continua visível para a OM PRODUTORA, que é o significado de `disabled`.
+      await getProjeto(tokenOrgProdutora).expect(200);
+      // E some para quem só está lotado nela — os dois eixos passaram a ser o mesmo
+      // predicado de produção, e este é o negativo que o prova no eixo de status.
+      await getProjeto(tokenSoLotado).expect(404);
     } finally {
       await db.query(`UPDATE sv360.projects SET status = 'enabled' WHERE id = $1`, [projetoId]);
     }

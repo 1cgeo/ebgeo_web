@@ -21,6 +21,7 @@ import Database from 'better-sqlite3';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
@@ -35,9 +36,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, role = 'user', orgRole = 'viewer' }) {
+// A LEITURA DE PROJETO OCULTO/PRIVADO passou de `organization_id` (LOTACAO
+// auto-declarada no auto-cadastro) para `producer_org_id` (ESCOPO DE PRODUCAO,
+// concedido por administrador) e e resolvida NO SQL, a partir do UUID — por isso o
+// `sub` destes tokens precisa ser um usuario de VERDADE.
+function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub: crypto.randomUUID(), username: `cache_${RID}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `cache_${RID}_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -88,8 +96,10 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     );
     otherOrgId = org2.rows[0].id;
 
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    otherOrgToken = mintToken({ orgId: otherOrgId, orgRole: 'owner' });
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `cache_pa_${RID}` });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `cache_pb_${RID}` });
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    otherOrgToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
 
     // ── ENABLED project (public) in the default org ──
     const enabledDb = `${defaultOrgId}__${ENABLED_SLUG}.db`;

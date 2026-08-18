@@ -22,7 +22,7 @@ import { cleanupFirstPersonFeatures } from '@js/first_person_3d_tool/index.js';
 import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, activateRemoteAtlas, getControl, getEventBus } from './store';
 import { installTabLockSyncBrake } from '@store/sync/tab-lock-sync-brake.js';
 import { EventTypes } from '@events/event_types.js';
-import { sessionContext } from '@store/sync/session-context.js';
+import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
 import {
     openRemoteAtlas,
@@ -458,12 +458,7 @@ async function restoreSessionFromStorage() {
     try {
         if (!apiClient.loadStoredTokens()) return;
         const user = await apiClient.getMe();
-        sessionContext.setSession({
-            userId: user.id,
-            role: user.org_role || 'viewer',
-            globalRole: user.role || 'user',
-            username: user.username || user.nome,
-        });
+        sessionContext.setSession(sessionUserInfoFromMe(user));
         // A SOMA DOS RECURSOS PRIVADOS TAMBÉM PRECISA SOBREVIVER AO F5.
         //
         // `syncEngine.login()` a faz no gesto de entrar, e só ali: um recarregamento

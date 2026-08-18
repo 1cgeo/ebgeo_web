@@ -4,9 +4,11 @@
 // closeStore() before .db cleanup on Windows). Covers, beyond happy path:
 //   - calibration: PUT updates the columns, DB reflects, response is the rebuilt
 //     frozen shape; an out-of-range value (heading > 360) → 422 (negative-by-range);
-//   - ownership ladder: owner/editor writes (200); cross-org user → 403 on an
-//     enabled (readable) project, 404 on a disabled (hidden) one; same-org viewer
-//     → 403 (read OK, write denied); anonymous → 401 (strict auth);
+//   - ownership ladder, hoje no eixo de PRODUÇÃO (era `organization_id` + `org_role`,
+//     que autorizava por LOTAÇÃO auto-declarada): produtor da OM dona escreve (200);
+//     produtor de OUTRA OM → 403 num projeto legível (enabled) e 404 num oculto
+//     (disabled); quem está apenas LOTADO na OM dona → 403 (lê e não escreve, que é o
+//     caso que o modelo antigo deixava passar); anônimo → 401 (strict auth);
 //   - targets: visibility reflects in DB + frozen shape; create + delete;
 //     delete of a nonexistent target → idempotent 204; write on a missing link
 //     → 404;
@@ -42,12 +44,27 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-// Mints a synthetic access token. The STRICT auth middleware trusts JWT claims
-// (no DB user load), and the write service reads role/organization_id/org_role
-// off req.user — so no users row is needed.
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = crypto.randomUUID() }) {
+// Mints a synthetic access token.
+//
+// O EIXO DE ESCRITA MUDOU, e a fixture com ele. `canWriteProject` comparava
+// `organization_id` + `org_role` — LOTAÇÃO auto-declarada no auto-cadastro mais o
+// papel dentro dela, o que fazia "escolher a OM na tela de cadastro" virar direito
+// de editar o acervo dela. Hoje ele compara `producer_org_id`, o ESCOPO DE PRODUÇÃO,
+// que só um administrador concede. `organization_id` continua viajando porque ainda
+// é lotação e exibição; ele apenas não decide mais nada.
+//
+// O `sub` continua sintético e sem linha em `users`: o `auth` estrito não encontra
+// nada para reconciliar e preserva as claims, que é o que mantém esta fixture barata.
+// Repare no limite disso, que é real: as rotas de LEITURA resolvem produção no SQL
+// (`fn_can_produce_resource`), e ali um `sub` sem linha não é produtor de nada. Por
+// isso este arquivo, que é de ESCRITA, pode mintar; os de leitura de projeto oculto
+// precisam de usuário de verdade.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub, username: `u_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `u_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -68,7 +85,7 @@ const disabledPhotoId = uuidv5('default/proj-write-disabled-sv360/d-foto001.jpg'
 describe('StreetView 360 — write/calibration contract', () => {
   let app, db, dbPath;
   let defaultOrgId, otherOrgId, enabledProjectId, disabledProjectId;
-  let ownerToken, editorToken, adminToken, viewerToken, crossOrgToken;
+  let produtorToken, outroProdutorToken, adminToken, soLotadoToken, produtorDeOutraOmToken;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -105,15 +122,16 @@ describe('StreetView 360 — write/calibration contract', () => {
 
     await seedPhotos();
 
-    // Tokens. owner/editor/viewer are in the default (owning) org; admin is global;
-    // crossOrg is an editor in the OTHER org (can read enabled, not write it; cannot
-    // read the disabled one it does not own... it DOES own the disabled one — so use
-    // a SEPARATE default-org user for the disabled 404 case below).
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    editorToken = mintToken({ orgId: defaultOrgId, orgRole: 'editor' });
-    viewerToken = mintToken({ orgId: defaultOrgId, orgRole: 'viewer' });
-    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin' });
-    crossOrgToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
+    // OS CINCO ATORES, no eixo de PRODUÇÃO. Os dois primeiros produzem para a OM
+    // dona do projeto; `soLotado` está LOTADO nela e não produz nada (é o ator que
+    // o modelo antigo autorizava e o novo recusa, e por isso ele é o negativo mais
+    // importante do arquivo); o administrador é global e escreve qualquer OM; o
+    // último produz para a OUTRA OM, que é dona do projeto desabilitado.
+    produtorToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId });
+    outroProdutorToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId });
+    soLotadoToken = mintToken({ orgId: defaultOrgId });
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin' });
+    produtorDeOutraOmToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId });
 
     // Build the per-project {slug}.db with the WebP blobs (for any image read; the
     // write tests don't read images but keep the store consistent with the row).
@@ -204,7 +222,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('owner updates calibration; DB reflects and response is the rebuilt frozen shape', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 45, height: 2.2, distance_scale: 3, calibration_reviewed: true })
       .expect(200);
 
@@ -231,7 +249,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('rejects a non-numeric calibration value with 422 + flat error envelope', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 'north' }) // type violation, not a range
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
@@ -244,7 +262,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // value the live client already sends. This guards against that regression.
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 400, distance_scale: 0, mesh_rotation_x: -3.5 })
       .expect(200);
     const { rows } = await db.query(
@@ -257,7 +275,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // Restore so later assertions on this shared photo are unaffected.
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 45, distance_scale: 3, mesh_rotation_x: 0 })
       .expect(200);
   });
@@ -265,16 +283,16 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('rejects an empty calibration body (.min(1)) with 422', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({})
       .expect(422);
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('editor (same org) can write calibration (200)', async () => {
+  it('outro PRODUTOR da mesma OM escreve calibração (200)', async () => {
     await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(editorToken))
+      .set(...auth(outroProdutorToken))
       .send({ floor_level: 4 })
       .expect(200);
     const { rows } = await db.query(`SELECT floor_level FROM sv360.photos WHERE id = $1`, [photoId]);
@@ -301,25 +319,27 @@ describe('StreetView 360 — write/calibration contract', () => {
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('same-org viewer can READ but write → 403 + flat error envelope', async () => {
-    // viewer reads fine.
+  it('LOTADO na OM dona lê, e NÃO escreve → 403 + envelope plano', async () => {
+    // O NEGATIVO QUE ESTA FASE CRIOU. Esta conta está lotada na OM que produziu o
+    // projeto e, no modelo antigo, bastava `org_role` para escrever. Hoje a lotação é
+    // auto-declarada e não decide nada: sem crachá de produção, ela lê e para aí.
     await supertest(app)
       .get(url(`/photos/${photoId}`))
-      .set(...auth(viewerToken))
+      .set(...auth(soLotadoToken))
       .expect(200);
     // ...but cannot write.
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(viewerToken))
+      .set(...auth(soLotadoToken))
       .send({ heading: 10 })
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('cross-org user on an ENABLED (readable) project → 403 on write', async () => {
+  it('produtor de OUTRA OM num projeto legível (enabled) → 403 na escrita', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/calibration`))
-      .set(...auth(crossOrgToken))
+      .set(...auth(produtorDeOutraOmToken))
       .send({ heading: 10 })
       .expect(403);
     assert.equal(typeof res.body.error, 'string');
@@ -329,7 +349,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // A default-org user cannot even READ the other-org disabled project → 404.
     const res = await supertest(app)
       .put(url(`/photos/${disabledPhotoId}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 10 })
       .expect(404);
     assert.equal(typeof res.body.error, 'string');
@@ -339,7 +359,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     const missing = uuidv5('default/proj-write-sv360/nope.jpg');
     await supertest(app)
       .put(url(`/photos/${missing}/calibration`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ heading: 10 })
       .expect(404);
   });
@@ -354,7 +374,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('write on a missing link → 404', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/targets/${thirdId}/visibility`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ hidden: true })
       .expect(404);
     assert.equal(typeof res.body.error, 'string');
@@ -363,7 +383,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('hiding a target removes it from the read targets array', async () => {
     const res = await supertest(app)
       .put(url(`/photos/${photoId}/targets/${targetId}/visibility`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ hidden: true })
       .expect(200);
     assert.equal(res.body.targets.find((x) => x.id === targetId), undefined);
@@ -378,7 +398,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('creates a new target (201) then deletes it (204, idempotent)', async () => {
     const create = await supertest(app)
       .post(url(`/photos/${photoId}/targets`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ target_id: thirdId, is_next: false, distance_m: 33, bearing_deg: 200 })
       .expect(201);
     assert.ok(create.body.targets.some((x) => x.id === thirdId));
@@ -391,7 +411,7 @@ describe('StreetView 360 — write/calibration contract', () => {
 
     await supertest(app)
       .delete(url(`/photos/${photoId}/targets/${thirdId}`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(204);
 
     const { rows: gone } = await db.query(
@@ -403,14 +423,14 @@ describe('StreetView 360 — write/calibration contract', () => {
     // Re-delete is idempotent (204).
     await supertest(app)
       .delete(url(`/photos/${photoId}/targets/${thirdId}`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(204);
   });
 
   it('creating a duplicate link → 409', async () => {
     const res = await supertest(app)
       .post(url(`/photos/${photoId}/targets`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ target_id: targetId })
       .expect(409);
     assert.equal(typeof res.body.error, 'string');
@@ -421,7 +441,7 @@ describe('StreetView 360 — write/calibration contract', () => {
   it('soft-deletes a photo (204): tombstone written, photo 404s on read, re-delete 404', async () => {
     await supertest(app)
       .delete(url(`/photos/${photoId}`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(204);
 
     const { rows } = await db.query(`SELECT 1 FROM sv360.deleted_photos WHERE photo_id = $1`, [
@@ -436,7 +456,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     assert.equal(stillThere.length, 1);
 
     // Read now 404s (excluded via NOT EXISTS deleted_photos).
-    await supertest(app).get(url(`/photos/${photoId}`)).set(...auth(ownerToken)).expect(404);
+    await supertest(app).get(url(`/photos/${photoId}`)).set(...auth(produtorToken)).expect(404);
 
     // The image blob of a tombstoned photo must ALSO 404 (GET_PHOTO_SIZES excludes
     // deleted_photos) — otherwise a soft-deleted photo's full-res image keeps being
@@ -444,12 +464,12 @@ describe('StreetView 360 — write/calibration contract', () => {
     await supertest(app)
       .get(url(`/photos/${photoId}/image`))
       .query({ quality: 'full' })
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(404);
     await supertest(app)
       .get(url(`/photos/${photoId}/image`))
       .query({ quality: 'preview' })
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(404);
     // Anonymous request too (no auth header).
     await supertest(app)
@@ -462,7 +482,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // the tombstone INSERT is a no-op → 204 (documented idempotent path).
     await supertest(app)
       .delete(url(`/photos/${photoId}`))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .expect(204);
   });
 
@@ -472,7 +492,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     const missing = uuidv5('default/proj-write-sv360/batch-missing.jpg');
     const res = await supertest(app)
       .post(url('/photos/batch-calibration'))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({
         photos: [
           { uuid: photoId, heading: 33, marker_scale: 5 },
@@ -501,7 +521,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // viewer cannot write photoId, but the good item belongs to the owner token.
     const res = await supertest(app)
       .post(url('/photos/batch-calibration'))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({ photos: [{ uuid: photoId, floor_level: 7 }] })
       .expect(200);
     assert.equal(res.body.updated.length, 1);
@@ -517,7 +537,7 @@ describe('StreetView 360 — write/calibration contract', () => {
     // drop every other item; per-item savepoints must isolate the bad one.
     const res = await supertest(app)
       .post(url('/photos/batch-calibration'))
-      .set(...auth(ownerToken))
+      .set(...auth(produtorToken))
       .send({
         photos: [
           { uuid: photoId, heading: 21 },        // before the bad item

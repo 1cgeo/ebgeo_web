@@ -5,6 +5,7 @@ import { join, extname, dirname } from 'path';
 import jwt from 'jsonwebtoken';
 import { query, tx, pgp } from '../../database/index.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../utils/errors.js';
+import { createAudit } from '../../utils/audit.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 // The live room registry (in memory, per process). Read-only here: `listUserAtlasPresence` turns
@@ -464,6 +465,13 @@ export async function updateAtlas(atlasId, data) {
 
 /**
  * Soft-deletes an atlas.
+ *
+ * DEVOLVE A LINHA (`id, name, owner_id`) e não `true`: `ATLAS_DELETE` estava
+ * declarado no CHECK de `audit_trail.action` desde a migração 001 e nunca teve
+ * emissor, e o booleano era exatamente o que faltava para o emissor ter um
+ * `target_name`. Quem só precisa do sucesso continua servido — a função lança em
+ * vez de devolver falso.
+ * @returns {Promise<{id: string, name: string, owner_id: string}>}
  */
 export async function deleteAtlas(atlasId) {
   const { rows } = await query(Q.SOFT_DELETE_ATLAS, [atlasId]);
@@ -472,7 +480,7 @@ export async function deleteAtlas(atlasId) {
     throw new NotFoundError('Atlas');
   }
 
-  return true;
+  return rows[0];
 }
 
 /**
@@ -960,14 +968,24 @@ export async function disablePublicSharing(atlasId) {
  * management access and never silently loses the project. Rejects self-transfer and
  * non-member targets.
  *
+ * A TRILHA ENTRA NA MESMA TRANSAÇÃO, e é obrigatório que entre: a corrida acima
+ * termina em ConflictError e ROLLBACK, então uma auditoria emitida fora registraria
+ * uma transferência que não aconteceu. É o caso literal de "auditoria fora da
+ * transação sobrevive ao rollback e mente".
+ *
+ * O `from` auditado é `currentOwnerId`, NUNCA `req.user`: quem age pode ser um
+ * administrador global mexendo em atlas alheio, e gravar o ator no lugar do dono
+ * anterior apagaria da trilha justamente quem perdeu a posse.
+ *
  * @param {string} atlasId
  * @param {string} currentOwnerId - The atlas's current owner (req.atlasOwnerId)
  * @param {string} newOwnerId
+ * @param {object} [req] - Express req, para ip/user-agent e o ator da trilha.
  * @returns {Promise<Object>} The updated atlas (with maps summary)
  * @throws {ConflictError} When ownership no longer matches `currentOwnerId` — i.e. another
  *   transfer won the race. Losing here is a full rollback, never a partial transfer.
  */
-export async function transferOwnership(atlasId, currentOwnerId, newOwnerId) {
+export async function transferOwnership(atlasId, currentOwnerId, newOwnerId, req = null) {
   if (newOwnerId === currentOwnerId) {
     throw new BadRequestError('O novo dono já é o dono atual do atlas.');
   }
@@ -1029,6 +1047,15 @@ export async function transferOwnership(atlasId, currentOwnerId, newOwnerId) {
        ON CONFLICT (atlas_id, user_id) DO UPDATE SET permission = 'manage'`,
       [atlasId, currentOwnerId, newOwnerId]
     );
+
+    await createAudit(req, {
+      action: 'ATLAS_TRANSFER',
+      actorId: req?.user?.id ?? currentOwnerId,
+      targetType: 'ATLAS',
+      targetId: atlasId,
+      targetName: atlas.name,
+      details: { from: currentOwnerId, to: newOwnerId },
+    }, t);
   });
 
   return getAtlasById(atlasId);

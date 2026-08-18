@@ -236,18 +236,25 @@ describe('F3 — revogar poda a subárvore, e só ela', () => {
       .expect(200);
 
     const { rows } = await db.query(
-      `SELECT target_id, details FROM audit_trail
+      `SELECT target_type, target_id, details FROM audit_trail
         WHERE action = 'PERMISSION_REVOKE' AND details->>'rootGrantId' = $1`,
       [gA.id]
     );
     assert.equal(rows.length, 2, 'a raiz e o filho, uma linha cada');
-    const porBeneficiario = new Map(rows.map((r) => [r.target_id, r.details]));
+    // O ALVO É O RECURSO nas duas linhas (migração 020): as duas contam a história
+    // do MESMO acesso, e é por ele que se investiga. O beneficiário desceu para
+    // `details`, que é onde a linha diz de QUEM foi o acesso derrubado.
+    for (const r of rows) {
+      assert.equal(r.target_type, 'TILESET');
+      assert.equal(r.target_id, TILESET);
+    }
+    const porBeneficiario = new Map(rows.map((r) => [r.details.granteeId, r.details]));
     assert.ok(porBeneficiario.has(atores.a.id), 'a raiz aparece com o beneficiário dela');
     assert.ok(porBeneficiario.has(atores.b.id), 'o filho aparece com o beneficiário dele');
     // O `parentGrantId` é o que responde "por que Fulano perdeu acesso".
     assert.equal(porBeneficiario.get(atores.b.id).parentGrantId, gA.id);
     assert.equal(porBeneficiario.get(atores.b.id).grantId, gB.id);
-    assert.equal(porBeneficiario.get(atores.b.id).resourceId, TILESET);
+    assert.equal(porBeneficiario.get(atores.b.id).resourceType, 'tileset');
   });
 
   it('quem não concedeu não revoga (e a linha continua viva)', async () => {

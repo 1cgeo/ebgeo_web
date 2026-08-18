@@ -18,7 +18,6 @@ export const visible = asyncHandler(async (req, res) => {
   const data = await svc.listVisiblePrivateResources({
     userId: principalUserId(req.user),
     atlasId: req.params.atlasId ?? null,
-    orgId: req.user?.organization_id ?? null,
   });
   res.json({ data });
 });
@@ -45,6 +44,9 @@ export const createGrant = asyncHandler(async (req, res) => {
     resourceId: req.params.id,
     granteeId: req.body.granteeId,
     grantLevel: req.body.grantLevel,
+    // Ausente = o default da coluna (um ano). O teto e o prazo do pai são aplicados
+    // no INSERT, não aqui.
+    expiresAt: req.body.expiresAt ?? null,
     actor: req.user,
     // Calculado por `requireResourceShare`, que acabou de rodar. Reconsultar aqui
     // seria uma segunda leitura do mesmo fato, e é assim que uma requisição passa

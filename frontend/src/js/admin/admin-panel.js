@@ -36,10 +36,13 @@ export class AdminPanel {
      * @param {{ id?: string, name?: string }} [options.user] - Identity shown in the top bar.
      * @param {function(): void} [options.onBack] - "Voltar" (the page above this one).
      * @param {function(): void} [options.onLogout] - "Sair".
+     * @param {string} [options.title] - Top-bar title. A producer reaches this shell with the
+     *   Catálogo tab only, and calling that "Administração" would promise a panel they do not get.
      */
-    constructor(tabs = [], { user = null, onBack = null, onLogout = null } = {}) {
+    constructor(tabs = [], { user = null, onBack = null, onLogout = null, title = 'Administração' } = {}) {
         this._tabs = tabs;
         this._user = user;
+        this._title = title;
         this._onBack = onBack;
         this._onLogout = onLogout;
         this._root = null;
@@ -105,7 +108,7 @@ export class AdminPanel {
     _buildHeader() {
         this._appBar = createAppBar({
             icon: SHIELD_ICON,
-            title: 'Administração',
+            title: this._title,
             subtitle: 'Sistema EBGeo',
             user: this._user,
             actions: [{

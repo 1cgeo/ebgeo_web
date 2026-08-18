@@ -13,6 +13,8 @@
 // removing the leftover tmp is safe; on failure all tmp files are removed.
 import { existsSync, rmSync } from 'node:fs';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { createAudit } from '../../utils/audit.js';
+import { principalUserId } from '../../utils/principal.js';
 import * as asvc from './sv360.admin.service.js';
 import { BadRequestError } from '../../utils/errors.js';
 
@@ -47,6 +49,28 @@ export const uploadProject = asyncHandler(async (req, res) => {
       imagesDbPath,
       thumbnailPath,
     });
+    // A TRILHA FICA AQUI, FORA DO INGEST, e é decisão e não descuido: a transação do
+    // ingest vive dentro de `ingestBundle`, cujo desenho é swap-ENTÃO-commit (o
+    // arquivo é trocado no PASSO 1 e o Postgres só fecha no PASSO 2). Enfiar a
+    // auditoria lá dentro obrigaria a arrastar `req` por três camadas para ganhar
+    // atomicidade sobre um efeito que já não é atômico — o `.db` no disco não volta
+    // com o rollback. Aqui a linha só nasce depois de o ingest ter resolvido.
+    //
+    // Tudo o que ela precisa já vem do retorno, então não há segunda consulta.
+    await createAudit(req, {
+      action: 'SV360_INGEST',
+      actorId: principalUserId(req.user),
+      targetType: 'SV360_PROJECT',
+      targetId: result.projectId,
+      targetName: result.slug,
+      details: {
+        slug: result.slug,
+        dbFilename: result.dbFilename,
+        photoCount: result.photoCount,
+        source: 'upload',
+        hasThumbnail: Boolean(thumbnailPath),
+      },
+    });
     res.status(201).json(result);
   } finally {
     // manifest + thumbnail tmp are always disposable; the images.db tmp was
@@ -65,7 +89,7 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
   const project = await asvc.setStatus(req.params.slug, req.body.status, req.user, {
     orgId: req.query.orgId,
     orgSlug: req.query.orgSlug,
-  });
+  }, req);
   res.json(project);
 });
 
@@ -77,7 +101,7 @@ export const deleteProject = asyncHandler(async (req, res) => {
   await asvc.deleteProject(req.params.slug, req.user, {
     orgId: req.query.orgId,
     orgSlug: req.query.orgSlug,
-  });
+  }, req);
   res.status(204).end();
 });
 

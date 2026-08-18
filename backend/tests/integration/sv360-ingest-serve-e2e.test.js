@@ -35,6 +35,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
@@ -51,9 +52,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = randomUUID() }) {
+// O EIXO DE ESCRITA/OCULTACAO DO 360 e o ESCOPO DE PRODUCAO (`producer_org_id`),
+// concedido por administrador. `organization_id` + `org_role` — lotacao
+// AUTO-DECLARADA no auto-cadastro — deixou de autorizar qualquer coisa, e continua
+// viajando so como exibicao.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = randomUUID() }) {
   return jwt.sign(
-    { sub, username: `e2e_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `e2e_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -154,8 +162,13 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
 
     // owner: default-org writer (ingests). otherOrgViewer: member of a DIFFERENT org
     // (the lifecycle project is NOT theirs -> must 404, no leak).
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    otherOrgViewerToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer' });
+    // OS ATORES COM PODER PRECISAM DE LINHA EM `users`, e nao so de claim: as rotas de
+    // LEITURA do 360 resolvem papel e producao no SQL, a partir do UUID. Um `sub`
+    // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
+    // de autorizacao que e, na verdade, fixture.
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `e2e_prod_${RID}` });
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    otherOrgViewerToken = mintToken({ orgId: otherOrgId });
 
     tmpRoot = path.join(os.tmpdir(), `sv360-e2e-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });

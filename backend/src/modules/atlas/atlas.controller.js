@@ -1,8 +1,32 @@
 // Path: src/modules/atlas/atlas.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { createAudit } from '../../utils/audit.js';
 import * as atlasService from './atlas.service.js';
 import { broadcastToRoom, closeRoom } from '../collab/collab.rooms.js';
 import * as resourceAccessService from '../resource-access/resource-access.service.js';
+
+/**
+ * O CICLO DE VIDA DO ATLAS É AUDITADO AQUI, no controller, porque as quatro escritas
+ * envolvidas (criar, importar, clonar, apagar, restaurar) são cada uma UMA query ou
+ * uma transação que já fechou quando o controller retoma — não há transação a que
+ * aderir. A exceção é a transferência de posse, cuja trilha entra na transação do
+ * serviço, onde a corrida pode terminar em rollback.
+ *
+ * `ATLAS_CREATE` é emitida pelos TRÊS caminhos que criam atlas (criar, importar de
+ * um `.ebgeo`, clonar), distinguidos por `details.via`. Uma ação por caminho
+ * deixaria "quantos atlas nasceram" dependendo de somar três filtros, e o terceiro
+ * seria esquecido: os três produzem a mesma coisa, com origens diferentes.
+ */
+function auditAtlasCreated(req, atlas, via) {
+  return createAudit(req, {
+    action: 'ATLAS_CREATE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: atlas.id,
+    targetName: atlas.name,
+    details: { via },
+  });
+}
 
 export const listAtlas = asyncHandler(async (req, res) => {
   const result = await atlasService.listUserAtlas(req.user.id);
@@ -44,6 +68,7 @@ export const deleteAtlasCover = asyncHandler(async (req, res) => {
 
 export const createAtlas = asyncHandler(async (req, res) => {
   const atlas = await atlasService.createAtlas(req.user.id, req.body);
+  await auditAtlasCreated(req, atlas, 'create');
   res.status(201).json({ data: atlas });
 });
 
@@ -59,7 +84,20 @@ export const updateAtlas = asyncHandler(async (req, res) => {
 });
 
 export const deleteAtlas = asyncHandler(async (req, res) => {
-  await atlasService.deleteAtlas(req.atlasId);
+  const atlas = await atlasService.deleteAtlas(req.atlasId);
+  // A TRILHA ANTES DO `closeRoom`: derrubar a sala é efeito colateral irreversível
+  // sobre sockets vivos, e ordená-la depois deixaria a exclusão sem registro se a
+  // trilha falhasse — mas com todo mundo já expulso.
+  await createAudit(req, {
+    action: 'ATLAS_DELETE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: atlas.id,
+    targetName: atlas.name,
+    // Soft-delete: o atlas vai para a lixeira e `ATLAS_RESTORE` é o inverso. Dizer
+    // `soft` impede a leitura de que a exclusão foi definitiva.
+    details: { soft: true, ownerId: atlas.owner_id },
+  });
   closeRoom(req.atlasId, { type: 'atlas_deleted', atlasId: req.atlasId });
   res.status(204).send();
 });
@@ -74,9 +112,19 @@ export const listTrash = asyncHandler(async (req, res) => {
 });
 
 export const restoreAtlas = asyncHandler(async (req, res) => {
-  const atlas = await atlasService.restoreAtlas(
-    req.params.atlasId, req.user.id, req.user.role === 'admin'
-  );
+  const byAdmin = req.user.role === 'admin';
+  const atlas = await atlasService.restoreAtlas(req.params.atlasId, req.user.id, byAdmin);
+  await createAudit(req, {
+    action: 'ATLAS_RESTORE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: atlas.id,
+    targetName: atlas.name,
+    // `byAdmin` separa o dono desfazendo a própria exclusão do administrador global
+    // desatolando um atlas cujo dono foi desativado — duas histórias diferentes com
+    // a mesma ação, e só o detalhe as distingue.
+    details: { byAdmin, ownerId: atlas.owner_id },
+  });
   res.json({ data: atlas });
 });
 
@@ -93,6 +141,17 @@ export const updateSettings = asyncHandler(async (req, res) => {
 
 export const cloneAtlas = asyncHandler(async (req, res) => {
   const atlas = await atlasService.cloneAtlas(req.atlasId, req.user.id, req.body);
+  await createAudit(req, {
+    action: 'ATLAS_CREATE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: atlas.id,
+    targetName: atlas.name,
+    // `sourceAtlasId` só existe neste ramo: um clone carrega o conteúdo de um atlas
+    // que o autor podia LER, e é o único caminho de criação em que a pergunta "de
+    // onde veio este dado" tem resposta.
+    details: { via: 'clone', sourceAtlasId: req.atlasId },
+  });
   res.status(201).json({ data: atlas });
 });
 
@@ -103,6 +162,16 @@ export const getPublicAtlas = asyncHandler(async (req, res) => {
 
 export const importAtlas = asyncHandler(async (req, res) => {
   const result = await atlasService.importAtlas(req.user.id, req.body);
+  await createAudit(req, {
+    action: 'ATLAS_CREATE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: result.id,
+    targetName: result.name,
+    // O resumo da importação já vem pronto do serviço e é o que diz o TAMANHO do
+    // que entrou por uma rota que não passa pelo sync.
+    details: { via: 'import', summary: result.summary ?? null },
+  });
   res.status(201).json({ data: result });
 });
 
@@ -115,7 +184,11 @@ export const duplicateMap = asyncHandler(async (req, res) => {
 export const transferOwnership = asyncHandler(async (req, res) => {
   // req.atlasOwnerId is the CURRENT owner (set by the owner-only guard); req.user may be a
   // global admin acting on someone else's atlas, so we demote req.atlasOwnerId, not req.user.
-  const atlas = await atlasService.transferOwnership(req.atlasId, req.atlasOwnerId, req.body.newOwnerId);
+  // `req` desce ao serviço porque a trilha de `ATLAS_TRANSFER` participa da MESMA
+  // transação da troca de posse, que pode terminar em ConflictError e rollback.
+  const atlas = await atlasService.transferOwnership(
+    req.atlasId, req.atlasOwnerId, req.body.newOwnerId, req
+  );
   // Notify the room so clients re-resolve their role + re-gate the UI immediately; the WS
   // heartbeat reconcile is the fallback that adjusts each live socket's cached permission.
   broadcastToRoom(req.atlasId, { type: 'atlas_owner_changed', atlasId: req.atlasId, newOwnerId: req.body.newOwnerId });

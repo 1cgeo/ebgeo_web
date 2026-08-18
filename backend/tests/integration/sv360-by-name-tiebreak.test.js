@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = crypto.randomUUID().slice(0, 8);
@@ -50,9 +51,16 @@ const url = (p) => `/api/v1/sv360${p}`;
 describe('StreetView 360 — by-name: a org do chamador desempata ANTES do status', () => {
   let app, db, orgA, orgB, tokenA, tokenB, tokenAdmin;
 
-  function token({ organization_id, role = 'user', org_role = 'viewer' }) {
+  // A LEITURA DE PROJETO OCULTO/PRIVADO passou de `organization_id` (LOTACAO
+  // auto-declarada no auto-cadastro) para `producer_org_id` (ESCOPO DE PRODUCAO,
+  // concedido por administrador) e e resolvida NO SQL, a partir do UUID — por isso o
+  // `sub` destes tokens precisa ser um usuario de VERDADE.
+  function token({ organization_id, role = 'user', producer_org_id = null, sub = crypto.randomUUID() }) {
     return jwt.sign(
-      { sub: crypto.randomUUID(), username: `bn_${RID}`, role, organization_id, org_role },
+      {
+        sub, username: `bn_${RID}_${sub.slice(0, 8)}`, role,
+        organization_id, org_role: 'viewer', producer_org_id,
+      },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }
     );
@@ -91,14 +99,21 @@ describe('StreetView 360 — by-name: a org do chamador desempata ANTES do statu
       [fotoA, pa.rows[0].id, NOME, fotoB, pb.rows[0].id]
     );
 
-    tokenA = token({ organization_id: orgA });
-    tokenB = token({ organization_id: orgB });
-    tokenAdmin = token({ organization_id: orgB, role: 'admin' });
+    const produtorA = await createProducerUser(db, orgA, { username: `bn_pa_${RID}` });
+    const produtorB = await createProducerUser(db, orgB, { username: `bn_pb_${RID}` });
+    const administrador = await createAdminUser(db, { username: `bn_adm_${RID}` });
+    tokenA = token({ organization_id: orgA, producer_org_id: orgA, sub: produtorA.id });
+    tokenB = token({ organization_id: orgB, producer_org_id: orgB, sub: produtorB.id });
+    tokenAdmin = token({ organization_id: orgB, role: 'admin', sub: administrador.id });
   });
 
   after(async () => {
     await db.query(`DELETE FROM sv360.photos WHERE id = ANY($1::text[])`, [[fotoA, fotoB]]);
     await db.query(`DELETE FROM sv360.projects WHERE slug = ANY($1::text[])`, [[SLUG_A, SLUG_B]]);
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = ANY($1::uuid[])', [[orgA, orgB]]);
     await db.query(`DELETE FROM public.organizations WHERE id = ANY($1::uuid[])`, [[orgA, orgB]]);
     await teardownTestEnv(db);
   });

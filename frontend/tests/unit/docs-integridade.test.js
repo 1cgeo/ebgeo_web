@@ -329,6 +329,17 @@ describe('integridade da documentação', () => {
         ).toEqual([]);
     });
 
+    // O TETO DE TEMPO É EXPLÍCITO, e não é folga preventiva: sem ele este caso reprovava
+    // por `Test timed out in 5000ms` exatamente na rodada que mais importa. Ele lê ~1300
+    // arquivos de código de forma síncrona, e o custo depende do cache de arquivo do SO:
+    // com o cache quente são ~0,5 s (medido seis vezes sob a suíte inteira em paralelo:
+    // 493, 535, 588, 602, 621 e 868 ms), mas na PRIMEIRA rodada depois de uma escrita em
+    // `frontend/src` o cache está frio e ele estoura os 5 s do padrão. Reproduzido: seis
+    // ciclos de "reescreve um arquivo de src, roda a suíte" deram vermelho na rodada 1 e
+    // verde nas cinco seguintes, sem nada mudar entre elas. Ou seja, o guarda reprovava o
+    // laço editar-e-verificar, que é o único laço que este repositório roda, e o vermelho
+    // não dizia nada sobre a documentação. O que se mede aqui é o símbolo pendurado, nunca
+    // a duração; o teto abaixo é limite para "travou", não para "demorou".
     it('todo símbolo citado entre crases existe em algum lugar do código', () => {
         // As outras regras validam o CAMINHO citado e nunca o que ele contém, então
         // uma citação a uma FUNÇÃO inexistente atravessava tudo em silêncio. Esta
@@ -363,7 +374,7 @@ describe('integridade da documentação', () => {
                 + ' cita o nome JUSTAMENTE para dizer que ele não existe, declare-o em'
                 + ` SIMBOLO_INEXISTENTE_DE_PROPOSITO com o motivo:\n${[...new Set(pendurados)].join('\n')}`
         ).toEqual([]);
-    });
+    }, 30000);
 
     it('slug de wikilink é ASCII, sem acento', () => {
         // O slug é nome de arquivo; acento dentro de [[..]] diverge do arquivo

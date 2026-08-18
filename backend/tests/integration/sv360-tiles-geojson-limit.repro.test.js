@@ -19,6 +19,7 @@ import crypto, { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser } from '../helpers/fixtures.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const RID = randomUUID().slice(0, 8);
@@ -52,8 +53,14 @@ describe('StreetView 360 — fotos.geojson tem teto, bbox e cache (achado 65)', 
 
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     orgId = org.rows[0].id;
+    // Ator com LINHA EM `users`: a escrita do 360 passou a exigir o ESCOPO DE
+    // PRODUCAO (`producer_org_id`), e a leitura o resolve no SQL a partir do UUID.
+    const administrador = await createAdminUser(db, { username: `geoj_adm_${RID}` });
     adminToken = jwt.sign(
-      { sub: randomUUID(), username: `geoj_${RID}`, role: 'admin', organization_id: orgId, org_role: 'admin' },
+      {
+        sub: administrador.id, username: `geoj_${RID}`, role: 'admin',
+        organization_id: orgId, org_role: 'viewer',
+      },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }
     );

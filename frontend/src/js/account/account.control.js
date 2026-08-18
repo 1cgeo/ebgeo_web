@@ -403,9 +403,9 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
-        // "Administração" — global system-admin panel (users, config, catalog). Visible ONLY to a
-        // GLOBAL admin (sessionContext.isAdmin()), independent of any connected atlas. The backend
-        // gates every admin route with requireAdmin; this is purely a UI affordance.
+        // "Administração" — the admin page (users, config, catalog). Visible to a GLOBAL admin and,
+        // labelled "Catálogo", to a PRODUCER (`_updateAdminVisibility`), independent of any
+        // connected atlas. The backend gates every admin route; this is purely a UI affordance.
         this._adminBtn = document.createElement('button');
         this._adminBtn.type = 'button';
         this._adminBtn.className = 'account-control__btn account-control__btn--admin';
@@ -651,14 +651,19 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Administração" only to a GLOBAL system admin (sessionContext.isAdmin()). Unlike the
-     * atlas-scoped items above, this is NOT predicated on a connected atlas — the admin panel is
-     * global. The backend gates every admin route with requireAdmin.
+     * Shows the admin entry to a GLOBAL system admin, and to a PRODUCER — who lands on the same
+     * page holding the Catálogo tab alone, so the item is relabelled "Catálogo": "Administração"
+     * would promise a panel the producer does not get. Unlike the atlas-scoped items above, this is
+     * NOT predicated on a connected atlas — the page is global. The backend gates every admin route
+     * with requireAdmin, and the catalog writes with the production gate.
      * @private
      */
     _updateAdminVisibility() {
         if (!this._adminBtn) return;
-        this._adminBtn.hidden = !sessionContext.isAdmin();
+        const admin = sessionContext.isAdmin();
+        this._adminBtn.hidden = !admin && !sessionContext.isProducer();
+        const label = this._adminBtn.querySelector('.account-control__btn-label');
+        if (label) label.textContent = admin ? 'Administração' : 'Catálogo';
     }
 
     /**

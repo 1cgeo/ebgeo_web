@@ -27,14 +27,15 @@ import { sv360AccessPredicate } from './sv360.queries.js';
 //
 // O primeiro termo deixou de ser um booleano do JS: `$isAdmin` valia TRUE e
 // curto-circuitava a disjunção inteira, então um erro no cálculo não errava, ABRIA.
-// Agora o SQL resolve o papel a partir do UUID. Tombstoned photos continuam
-// excluídas via NOT EXISTS sv360.deleted_photos, e um chamador anônimo
-// (userId=null, orgId=null) NUNCA vê projeto disabled nem privado.
+// Agora o SQL resolve o papel a partir do UUID, e o termo da OM resolve o ESCOPO DE
+// PRODUÇÃO (a lotação auto-declarada deixou de autorizar). Tombstoned photos
+// continuam excluídas via NOT EXISTS sv360.deleted_photos, e um chamador anônimo
+// (userId=null) NUNCA vê projeto disabled nem privado.
 //
 // PERFORMANCE: the bbox is computed ONCE in 4326 (ST_Transform of the tile
 // envelope) and used with the `&&` operator against p.geom so the GiST index on
 // sv360.photos(geom) is used to prune rows BEFORE ST_AsMVTGeom transforms the
-// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=userId, $5=orgId, $6=atlasId.
+// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=userId, $5=atlasId.
 //
 // ZOOM FLOOR for the 'fotos' layer only. Below this zoom the tile still carries
 // 'fotos_linha' and simply omits the points.
@@ -75,7 +76,7 @@ export const MVT_TILE = `
            pr.slug AS project_slug
     FROM sv360.photos p
     JOIN sv360.projects pr ON pr.id = p.project_id
-    WHERE ${sv360AccessPredicate(4, 5, 6, 'pr.')}
+    WHERE ${sv360AccessPredicate(4, 5, 'pr.')}
       AND p.geom IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id

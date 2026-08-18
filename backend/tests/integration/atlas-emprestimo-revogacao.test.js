@@ -131,9 +131,9 @@ describe('F5/D4 — o empréstimo vive enquanto o DONO do atlas vê o recurso', 
       .expect(200);
     assert.equal(await veLayer(tokenMembro, atlas.id), false, 'piso: sem concessão, o empréstimo cai');
 
-    await db.query('UPDATE users SET role = $1 WHERE id = $2', ['curator', dono.id]);
+    await db.query('UPDATE users SET role = $1 WHERE id = $2', ['credenciado', dono.id]);
     try {
-      assert.equal(await veLayer(tokenMembro, atlas.id), true, 'dono curador sustenta o empréstimo');
+      assert.equal(await veLayer(tokenMembro, atlas.id), true, 'dono credenciado sustenta o empréstimo');
     } finally {
       await db.query('UPDATE users SET role = $1 WHERE id = $2', ['user', dono.id]);
     }

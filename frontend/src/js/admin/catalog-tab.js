@@ -14,12 +14,13 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
-import config from '@js/config.js';
 import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
+import { orgLabel } from './org-options.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -34,6 +35,21 @@ const THUMB_KEY = {
 const MAX_THUMBNAIL_DATAURL = 256 * 1024;
 
 /**
+ * OS TRÊS EIXOS DESTA ABA, que a tela mistura com facilidade e o texto separa de propósito.
+ * Nenhum deles é o outro, e nenhum implica o outro:
+ *
+ *   1. VISIBILIDADE (`access_level`): Público ou Privado. Privado tira o item do catálogo
+ *      público e o entrega só a quem tem papel global, concessão, empréstimo de atlas ou é
+ *      da OM produtora. Só o administrador o move.
+ *   2. STATUS (`active`, e no 360 `status`): Ativo ou Inativo. É ocultação/soft-delete, vale
+ *      para TODO MUNDO, e um item pode ser Ativo e Privado ao mesmo tempo.
+ *   3. OM DONA (`owner_org_id`, `organization_id` no 360): quem MANTÉM o item. Decide quem
+ *      edita, e mais nada — não esconde nem revela item nenhum.
+ *
+ * A frase que a tela precisa repetir: privado não é inativo, e OM dona não é privacidade.
+ */
+
+/**
  * Categoria da tela -> tipo do eixo de ACESSO A RECURSO (`resource_grants.resource_type`).
  *
  * `basemap` está ausente de propósito, e não por esquecimento: ele carrega a coluna
@@ -41,6 +57,10 @@ const MAX_THUMBNAIL_DATAURL = 256 * 1024;
  * `LIKE basemaps INCLUDING ALL` e um teste exige conjuntos idênticos de coluna) e
  * nenhuma consulta a lê. Oferecer o seletor ali seria um controle que grava numa
  * coluna que ninguém consulta.
+ *
+ * A AUSÊNCIA É DO EIXO DE ACESSO, NUNCA DO DE PRODUÇÃO: `basemaps` tem OM dona como as
+ * outras quatro, e o produtor daquela OM mantém seus basemaps. Ler este mapa como "basemap
+ * fica de fora das permissões" é a conclusão errada que este parágrafo existe para impedir.
  */
 const ACCESS_TYPE_BY_CATEGORY = Object.freeze({
     tileset: 'tileset',
@@ -134,6 +154,17 @@ class CatalogTab {
             subtitle: 'Recursos globais — 3D, 360, dados, análises e basemaps (metadados)',
         }));
 
+        // A legenda dos três eixos fica NA TELA, e não só no código: eles se parecem o
+        // bastante para que "desativei e continua aparecendo para a OM" vire chamado.
+        const legenda = document.createElement('p');
+        legenda.className = 'admin-form__hint admin-catalog__legend';
+        legenda.textContent = sessionContext.isAdmin()
+            ? 'Três eixos independentes: Acesso (Público/Privado) diz QUEM VÊ; Status (Ativo/Inativo) '
+              + 'diz se o item aparece para alguém; OM dona diz QUEM MANTÉM. Um item pode ser Ativo e Privado.'
+            : 'Você mantém os recursos da sua OM. Acesso (Público/Privado) e a OM dona são do '
+              + 'administrador; Status (Ativo/Inativo) e a edição dos metadados são seus.';
+        c.appendChild(legenda);
+
         const nav = document.createElement('nav');
         nav.className = 'admin-catalog__nav';
         this._navButtons = new Map();
@@ -216,12 +247,16 @@ class CatalogTab {
         table.className = 'admin-users__table';
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
+        // A coluna "OM dona" entra para TODA categoria (as cinco tabelas têm a coluna): sem
+        // ela o produtor não distingue o que mantém do que apenas enxerga, já que a listagem
+        // traz também o acervo público das outras OMs.
         const cabecalhos = temAcesso
-            ? ['ID', 'Nome', 'Ordem', 'Acesso', 'Ações']
-            : ['ID', 'Nome', 'Ordem', 'Ações'];
+            ? ['ID', 'Nome', 'Ordem', 'OM dona', 'Acesso', 'Ações']
+            : ['ID', 'Nome', 'Ordem', 'OM dona', 'Ações'];
         for (const h of cabecalhos) {
             const th = document.createElement('th');
             th.textContent = h;
+            if (h === 'OM dona') th.title = 'Quem mantém o recurso. Não é o eixo de acesso.';
             hrow.appendChild(th);
         }
         thead.appendChild(hrow);
@@ -235,13 +270,25 @@ class CatalogTab {
             tr.appendChild(cell(r.id || ''));
             tr.appendChild(cell(r.name || ''));
             tr.appendChild(cell(String(r.sort_order ?? '')));
+            tr.appendChild(ownerOrgCell(r.owner_org_id));
             if (temAcesso) tr.appendChild(accessCell(r.access_level));
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
-            actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
-                () => this._renderResourceForm(category, r)));
-            actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
-                () => this._deleteResource(r)));
+            // O GATE REAL É O DO SERVIDOR (`fn_can_produce_resource` dentro do WHERE de cada
+            // escrita, que devolve 404 para linha de outra OM). Aqui só não se oferece o botão
+            // que o servidor recusaria — inclusive o do acervo institucional (`owner_org_id`
+            // nulo), que é de administrador.
+            if (sessionContext.canProduceFor(r.owner_org_id)) {
+                actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
+                    () => this._renderResourceForm(category, r)));
+                actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
+                    () => this._deleteResource(r)));
+            } else {
+                const nota = document.createElement('span');
+                nota.className = 'admin-users__status';
+                nota.textContent = 'Mantido por outra OM';
+                actions.appendChild(nota);
+            }
             tr.appendChild(actions);
             tbody.appendChild(tr);
         }
@@ -278,23 +325,46 @@ class CatalogTab {
         const descInput = textField(form, 'Descrição', 'admin-catalog-desc', resource?.description ?? '');
         const sortInput = textField(form, 'Ordem', 'admin-catalog-sort', String(resource?.sort_order ?? 0), 'number');
 
-        // O EIXO DE ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
+        // EIXO 3 — A OM DONA, SÓ DE LEITURA, e a razão de não haver seletor aqui é do
+        // servidor: `owner_org_id` nunca é lido do corpo da requisição, nem para
+        // administrador. Na criação ele é CARIMBADO com o escopo de produção de quem cria
+        // (nulo para administrador = acervo institucional), e nenhuma das três escritas o põe
+        // no SET. Oferecer um seletor seria um controle que não grava em lugar nenhum — o
+        // defeito clássico de um campo que parece autorizar e não autoriza.
+        const ownerOrgId = isEdit
+            ? (resource?.owner_org_id ?? null)
+            : (sessionContext.isAdmin() ? null : sessionContext.producerOrgId);
+        const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
+            ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
+        ownerField.title = 'A OM que mantém este recurso.';
+        form.appendChild(hintParagraph(isEdit
+            ? 'A OM dona é definida na criação e não muda por esta tela. Transferir um recurso '
+              + 'entre OMs é ato de administrador, fora do painel.'
+            : (sessionContext.isAdmin()
+                ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
+                  + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
+                : 'O servidor carimba a sua OM como dona deste item. Ela não vem deste formulário.')));
+
+        // EIXO 1 — O ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
         // abaixo: ele mora numa rota própria (`PATCH /resource-access/:type/:id/
         // visibility`), que é `requireAdmin` e invalida o memo do `/api/config`.
         // Marcar como privado é ato de ADMINISTRAÇÃO do catálogo, não de
         // compartilhamento: quem tem concessão repassa acesso, e não decide que o
-        // recurso deixou de ser público para todo mundo.
+        // recurso deixou de ser público para todo mundo. Daí o campo SUMIR para o produtor,
+        // em vez de aparecer cinza: um controle desabilitado sem explicação vira chamado, e
+        // este eixo não é dele nem quando o recurso é.
         const accessType = ACCESS_TYPE_BY_CATEGORY[category];
         const accessBefore = resource?.access_level ?? 'public';
-        const accessInput = accessType
-            ? selectField(form, 'Visibilidade', 'admin-catalog-access', ACCESS_LEVELS, accessBefore)
+        const accessInput = (accessType && sessionContext.isAdmin())
+            ? selectField(form, 'Acesso (visibilidade)', 'admin-catalog-access', ACCESS_LEVELS, accessBefore)
             : null;
         if (accessInput) {
-            const hint = document.createElement('p');
-            hint.className = 'admin-form__hint';
-            hint.textContent = 'Privado tira o item do catálogo público. Ele continua visível para administradores, '
-                + 'curadores, quem recebeu concessão e quem abrir um atlas que o empreste.';
-            form.appendChild(hint);
+            form.appendChild(hintParagraph('Privado tira o item do catálogo público. Ele continua visível '
+                + 'para administradores, credenciados, produtores da OM dona, quem recebeu concessão e quem '
+                + 'abrir um atlas que o empreste. Isto NÃO é o Status: um item pode ser Ativo e Privado.'));
+        } else if (accessType) {
+            form.appendChild(hintParagraph(`Acesso: ${accessBefore === 'private' ? 'Privado' : 'Público'} `
+                + '(quem vê o recurso). Só o administrador altera este eixo.'));
         }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
@@ -590,12 +660,28 @@ class CatalogTab {
 
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
-            actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
-                () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
-            actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
-                'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
-            actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
-                () => this._delete360(p)));
+            // `organization_id` JÁ É a OM dona do projeto 360 (não existe uma segunda coluna
+            // para o eixo de produção aqui), então é ela que responde `canProduceFor`.
+            const mantem = sessionContext.canProduceFor(p.organization_id ?? p.organizationId);
+            if (mantem) {
+                actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
+                    () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
+            }
+            // O eixo de ACESSO continua sendo do administrador, mesmo no projeto que o
+            // produtor mantém: a rota de visibilidade é `requireAdmin`.
+            if (sessionContext.isAdmin()) {
+                actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
+                    'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
+            }
+            if (mantem) {
+                actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
+                    () => this._delete360(p)));
+            } else {
+                const nota = document.createElement('span');
+                nota.className = 'admin-users__status';
+                nota.textContent = 'Mantido por outra OM';
+                actions.appendChild(nota);
+            }
             tr.appendChild(actions);
             tbody.appendChild(tr);
         }
@@ -664,19 +750,6 @@ class CatalogTab {
     }
 }
 
-/**
- * Resolves an organization id to its display name using the backend-served list in
- * `/api/config` (the same one the users tab uses), falling back to the raw id.
- * @param {string} [orgId]
- * @returns {string}
- */
-function orgLabel(orgId) {
-    if (!orgId) return '—';
-    const list = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
-    const found = list.find((o) => o && o.id === orgId);
-    return found?.name || orgId;
-}
-
 // ===== small DOM builders (shared shape with users-tab) =====
 
 function cell(textValue) {
@@ -702,6 +775,21 @@ function accessCell(accessLevel) {
     return td;
 }
 
+/**
+ * A célula da OM DONA. Sem OM é acervo INSTITUCIONAL, e a palavra importa: um travessão
+ * ali se lê como "faltou preencher", quando o estado é legítimo e significa "de ninguém
+ * em particular, mantido pelo administrador".
+ * @param {string} [ownerOrgId]
+ * @returns {HTMLElement}
+ */
+function ownerOrgCell(ownerOrgId) {
+    const td = document.createElement('td');
+    td.dataset.testid = 'admin-catalog-owner-org-cell';
+    td.textContent = ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional';
+    if (!ownerOrgId) td.title = 'Sem OM produtora: acervo institucional, mantido pelo administrador.';
+    return td;
+}
+
 function button(label, className, testid, onClick) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -710,6 +798,47 @@ function button(label, className, testid, onClick) {
     btn.textContent = label;
     if (onClick) btn.addEventListener('click', onClick);
     return btn;
+}
+
+/**
+ * Um parágrafo de ajuda do formulário (devolvido, não anexado: o chamador decide a posição).
+ * @param {string} texto
+ * @returns {HTMLParagraphElement}
+ */
+function hintParagraph(texto) {
+    const p = document.createElement('p');
+    p.className = 'admin-form__hint';
+    p.textContent = texto;
+    return p;
+}
+
+/**
+ * Um campo de LEITURA: rótulo + valor, sem controle nenhum.
+ *
+ * Não é um `<input disabled>`, e a diferença importa: um input cinza promete que existe uma
+ * forma de habilitá-lo, e aqui não existe — este valor não vem deste formulário nem em
+ * nenhum papel.
+ * @param {HTMLElement} form
+ * @param {string} label
+ * @param {string} testid
+ * @param {string} value
+ * @returns {HTMLElement} O campo, para o chamador anotar um `title`.
+ */
+function readOnlyField(form, label, testid, value) {
+    const field = document.createElement('div');
+    field.className = 'admin-form__field admin-form__field--readonly';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.setAttribute('for', testid);
+    field.appendChild(lab);
+    const out = document.createElement('output');
+    out.id = testid;
+    out.dataset.testid = testid;
+    out.className = 'admin-form__readonly-value';
+    out.textContent = value;
+    field.appendChild(out);
+    form.appendChild(field);
+    return field;
 }
 
 function textField(form, label, testid, value, type = 'text') {

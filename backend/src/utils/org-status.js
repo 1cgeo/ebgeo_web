@@ -41,6 +41,7 @@ const LIVE_AUTH_STATE = `
          u.role,
          u.org_role,
          u.organization_id,
+         u.producer_org_id,
          u.sessions_valid_from,
          COALESCE(o.is_active, true) AS org_is_active
   FROM users u
@@ -57,7 +58,7 @@ const LIVE_AUTH_STATE = `
  *
  * @param {string} userId
  * @returns {Promise<{userIsActive: boolean, role: string, orgRole: string,
- *   organizationId: string|null, orgIsActive: boolean,
+ *   organizationId: string|null, producerOrgId: string|null, orgIsActive: boolean,
  *   sessionsValidFrom: Date|null}|null>} null when no such user.
  */
 export async function getLiveAuthState(userId) {
@@ -70,6 +71,7 @@ export async function getLiveAuthState(userId) {
     role: r.role || 'user',
     orgRole: r.org_role || 'viewer',
     organizationId: r.organization_id ?? null,
+    producerOrgId: r.producer_org_id ?? null,
     orgIsActive: r.org_is_active === true,
     sessionsValidFrom: r.sessions_valid_from ?? null,
   };

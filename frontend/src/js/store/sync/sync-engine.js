@@ -29,7 +29,7 @@ import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
-import { sessionContext } from './session-context.js';
+import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
     applyRemoteOperation,
     applyRemoteSnapshot,
@@ -220,12 +220,7 @@ class SyncEngine {
      */
     async login({ username, password }) {
         const user = await apiClient.login(username, password);
-        sessionContext.setSession({
-            userId: user.id,
-            role: user.org_role || 'viewer',
-            globalRole: user.role || 'user',
-            username: user.username || user.nome || username,
-        });
+        sessionContext.setSession(sessionUserInfoFromMe(user, username));
         // A soma dos recursos privados concedidos, ainda SEM atlas em foco: o que a
         // pessoa tem por papel global ou por concessao pessoal ja vale no mapa local.
         // Best-effort de proposito — uma falha aqui nao pode derrubar o login.

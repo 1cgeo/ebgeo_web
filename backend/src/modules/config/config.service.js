@@ -5,6 +5,7 @@
 //  - static UI: app/features/map2d/map3d defaults from config.static
 import config from '../../config.js';
 import { ValidationError } from '../../utils/errors.js';
+import { createAudit } from '../../utils/audit.js';
 import { query, tx } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
 import { readThroughAppConfigCache, invalidateAppConfigCache } from './config.cache.js';
@@ -83,30 +84,77 @@ function assertEffectiveInvariants(merged) {
  * that window would rebuild the memo from the OLD row and re-cache it — reopening, as a stale
  * cache entry, precisely the window the lock just closed.
  *
+ * A TRILHA ENTRA DENTRO DA TRANSAÇÃO, com o `t`, e é a mesma lição do lock acima: o
+ * payload pode ser recusado por `assertEffectiveInvariants` DEPOIS do UPSERT, e uma
+ * auditoria emitida fora registraria uma alteração que o rollback desfez.
+ *
+ * `details` carrega SÓ AS CHAVES DE TOPO do que foi enviado, nunca os valores: o
+ * documento de override guarda URL de serviço (tiles, terreno, imagery 3D) e a
+ * trilha é lida por qualquer administrador. Quem precisa do valor efetivo lê
+ * `GET /config/admin`, que é a fonte, em vez de uma cópia envelhecida no log.
+ *
+ * `targetId` é a chave `app_config` — um dos dois sítios que só existem porque a
+ * migração 020 alargou `target_id` para TEXT (a chave nunca foi UUID).
+ *
  * @param {Object} partial - Validated partial config.
  * @param {string|null} userId
+ * @param {object} [req] - Express req, para ip/user-agent da trilha.
  */
-export async function updateConfigOverrides(partial, userId) {
+export async function updateConfigOverrides(partial, userId, req = null) {
   const merged = await tx(async (t) => {
     const current = (await t.one(Q.LOCK_CONFIG_OVERRIDES, [OVERRIDES_KEY])).value ?? {};
     const next = deepMerge(current, partial);
     // Inside the transaction: a rejected payload rolls back the placeholder row too, so a failed
     // save never leaves a `{}` document behind where there was none.
     assertEffectiveInvariants(next);
-    return (await t.one(Q.UPSERT_CONFIG_OVERRIDES, [
+    const value = (await t.one(Q.UPSERT_CONFIG_OVERRIDES, [
       OVERRIDES_KEY,
       JSON.stringify(next),
       userId ?? null,
     ])).value;
+    if (userId) {
+      await createAudit(req, {
+        action: 'CONFIG_UPDATE',
+        actorId: userId,
+        targetType: 'CONFIG',
+        targetId: OVERRIDES_KEY,
+        details: { sections: Object.keys(partial || {}) },
+      }, t);
+    }
+    return value;
   });
   invalidateAppConfigCache();
   return merged;
 }
 
-/** Clears ALL config overrides (the revert valve — config reverts to STATIC/ENV on next boot). */
-export async function clearConfigOverrides() {
-  await query(Q.CLEAR_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
+/**
+ * Clears ALL config overrides (the revert valve — config reverts to STATIC/ENV on next boot).
+ *
+ * AÇÃO PRÓPRIA (`CONFIG_CLEAR`) e não um `CONFIG_UPDATE` com corpo vazio: uma edita
+ * seções, a outra apaga o documento inteiro de uma vez, e conflatá-las tiraria da
+ * trilha a distinção que é o propósito da coluna `action`.
+ *
+ * Não é transacional porque a escrita é uma query só; a trilha vem DEPOIS do DELETE
+ * pelo mesmo motivo, e por isso ela pode registrar as seções que sumiram.
+ *
+ * @param {string|null} [userId]
+ * @param {object} [req]
+ */
+export async function clearConfigOverrides(userId = null, req = null) {
+  const { rows } = await query(Q.CLEAR_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
   invalidateAppConfigCache();
+  if (userId) {
+    await createAudit(req, {
+      action: 'CONFIG_CLEAR',
+      actorId: userId,
+      targetType: 'CONFIG',
+      targetId: OVERRIDES_KEY,
+      // `cleared: false` é o registro honesto de uma reversão que não tinha o que
+      // reverter: a ação foi pedida e não mudou nada, e isso é diferente de não ter
+      // acontecido.
+      details: { cleared: rows.length > 0, sections: Object.keys(rows[0]?.value ?? {}) },
+    });
+  }
   return {};
 }
 

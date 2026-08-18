@@ -49,6 +49,23 @@ function grantLevelLabel(value) {
 }
 
 /**
+ * A data de vencimento de uma concessão, em pt-BR, ou string vazia quando não há.
+ *
+ * TODA CONCESSÃO VENCE (no máximo um ano, e nunca depois da de quem concedeu), e a morte
+ * mora no PREDICADO: no dia seguinte o recurso simplesmente não vem mais, sem evento, sem
+ * aviso e sem nada para o usuário ler. Mostrar o prazo na linha é a única coisa que separa
+ * isso de "o recurso sumiu do meu catálogo".
+ * @param {*} valor - `expires_at` do servidor (ISO).
+ * @returns {string}
+ */
+function expiryLabel(valor) {
+    if (!valor) return '';
+    const data = new Date(valor);
+    if (Number.isNaN(data.getTime())) return '';
+    return data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/**
  * A mensagem de uma falha: a do SERVIDOR quando ela existe, a frase genérica
  * quando não. `_request` inventa `HTTP <status>` para resposta sem mensagem, e
  * essa string é para o console, nunca para o usuário.
@@ -188,7 +205,8 @@ export class ResourceShareModal extends ModalBase {
             <section class="sharing-section">
                 <h3 class="sharing-section__title">Quem tem acesso</h3>
                 <p class="sharing-section__hint">
-                    Administradores e curadores enxergam todo recurso privado e não aparecem nesta lista.
+                    Administradores, credenciados e produtores da OM dona enxergam este recurso
+                    por papel, sem concessão, e não aparecem nesta lista.
                 </p>
                 <div class="sharing-members" data-testid="resource-share-grants">${linhas}</div>
             </section>
@@ -216,6 +234,11 @@ export class ResourceShareModal extends ModalBase {
         const origem = concedente
             ? `<span class="sharing-member__username">recebido de ${escapeHtml(concedente)}</span>`
             : '<span class="sharing-member__username">concedido pela administração</span>';
+        const vence = expiryLabel(grant?.expires_at);
+        const prazo = vence
+            ? `<span class="resource-share__expiry" data-testid="resource-share-expiry"
+                     title="Depois desta data o acesso deixa de valer sozinho, sem aviso.">expira em ${escapeHtml(vence)}</span>`
+            : '';
 
         return `
             <div class="sharing-member" data-testid="resource-share-grant" data-grant-id="${escapeHtml(id)}">
@@ -224,6 +247,7 @@ export class ResourceShareModal extends ModalBase {
                     <span class="sharing-member__name">${escapeHtml(nome)}${username ? ` <span class="sharing-member__username">@${escapeHtml(username)}</span>` : ''}</span>
                     ${origem}
                 </div>
+                ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>
                 <button type="button" class="sharing-member__remove" data-action="revoke"
@@ -250,6 +274,11 @@ export class ResourceShareModal extends ModalBase {
                         "Ver e compartilhar" deixa a pessoa conceder este recurso a outras.
                     </span>
                 </div>
+                <p class="sharing-section__hint">
+                    Todo acesso concedido vence em até um ano, e nunca depois do acesso de quem
+                    concedeu. Vencido, ele deixa de valer sozinho, sem aviso: para manter, conceda
+                    de novo antes da data.
+                </p>
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${CATALOG_UI_ICONS.SEARCH}</span>
                     <input type="text" class="sharing-search__input" data-action="search"

@@ -35,6 +35,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
@@ -76,12 +77,15 @@ const PNG_BYTES = Buffer.concat([
 const url = (p) => `/api/v1/sv360${p}`;
 
 describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (achado 112)', () => {
-  let app, db, tmpRoot, orgId;
+  let app, db, tmpRoot, orgId, administradorId;
   const criados = [];
 
   function adminToken() {
     return jwt.sign(
-      { sub: crypto.randomUUID(), username: `thumb_${RID}`, role: 'admin', org_role: 'admin', organization_id: orgId },
+      {
+        sub: administradorId, username: `thumb_${RID}`, role: 'admin',
+        org_role: 'viewer', organization_id: orgId,
+      },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }
     );
@@ -134,6 +138,9 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
     db = env.db;
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     orgId = org.rows[0].id;
+    // Administrador com LINHA EM `users`: a superficie administrativa do 360 recorta
+    // por `fn_can_produce_resource`, que resolve papel a partir do UUID no banco.
+    administradorId = (await createAdminUser(db, { username: `thumb_adm_${RID}` })).id;
     tmpRoot = path.join(os.tmpdir(), `sv360-thumb-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });
     mkdirSync(config.sv360.dbDir, { recursive: true });

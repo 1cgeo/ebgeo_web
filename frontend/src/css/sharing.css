@@ -935,7 +935,7 @@
 }
 
 /* Quantas concessões caem junto com esta. Âmbar porque é aviso de consequência,
-   a mesma família do selo "Privado" no cartão e do chip "Curador". */
+   a mesma família do selo "Privado" no cartão e do chip "Credenciado". */
 .resource-share__cascade {
     flex-shrink: 0;
     padding: 2px var(--space-2);
@@ -944,6 +944,19 @@
     color: #b45309;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+/* O PRAZO DA CONCESSÃO. Neutro de propósito: ele não é um aviso (toda concessão tem
+   prazo, é o estado normal), enquanto o âmbar ao lado marca o que surpreende — quantas
+   pessoas caem junto numa revogação. */
+.resource-share__expiry {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
     white-space: nowrap;
 }
 

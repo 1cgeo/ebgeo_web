@@ -21,10 +21,18 @@
 // O que este arquivo NAO cobre, de proposito: o contrato de rede do cliente, que
 // e assunto de `tests/unit/calibracao-api.test.js`.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// O contexto de sessao entra REAL neste arquivo (e o sujeito do gate); so o cliente de
+// identidade vira duble, porque `getClientId()` fala com `localStorage`, que nao existe em node.
+vi.mock('../../src/js/store/sync/operation-factory.js', () => ({
+    getClientId: () => 'calibracao-test-client'
+}));
+
+import { SessionContext, GlobalRole, UserRole } from '../../src/js/store/sync/session-context.js';
 
 // Raiz do PACOTE (frontend/), dois niveis acima: tudo o que este arquivo vigia
 // (calibracao.html, vite.config.js, src/, public/) e do pacote, nao do monorepo.
@@ -87,6 +95,50 @@ function linhasQueCasam(regex, { ignorarComentarios = false } = {}) {
         });
     }
     return achados;
+}
+
+/**
+ * A CONDICAO do `if` que manda o operador de volta para o mapa, recortada do arquivo.
+ *
+ * Recortar e avaliar, em vez de casar uma regex com o texto: uma regex por `isProducer` prova que
+ * a PALAVRA esta la, e continuaria verde com a condicao invertida. O recorte e ancorado no efeito
+ * (`window.location.replace(MAP_URL)` na linha seguinte), que e o que da nome ao gate; se ele
+ * mudar de forma, o `null` reprova em voz alta em vez de deixar os casos passarem sem alvo.
+ * @type {string|null}
+ */
+const GATE = (() => {
+    const fonte = MODULOS.find((m) => m.nome.endsWith('calibracao-page.js'));
+    if (!fonte) return null;
+    const achado = semComentarios(fonte.texto)
+        .match(/\bif\s*\((.+)\)\s*\{\s*\r?\n\s*window\.location\.replace\(MAP_URL\);/);
+    return achado ? achado[1].trim() : null;
+})();
+
+/**
+ * Avalia a condicao RECORTADA contra um contexto de sessao real.
+ * @param {Object} sessionContext - O contexto que faz as vezes do singleton da pagina.
+ * @returns {boolean} Se aquela sessao seria mandada para o mapa.
+ */
+function mandaParaOMapa(sessionContext) {
+    // Avaliar a condicao do proprio arquivo e o ponto deste bloco: a alternativa (copiar o
+    // predicado para ca) e a copia que envelhece calada. O texto avaliado sai do disco, deste
+    // repositorio, num teste.
+    // eslint-disable-next-line no-new-func
+    return new Function('sessionContext', `return Boolean(${GATE});`)(sessionContext);
+}
+
+/**
+ * Uma sessao online com um papel GLOBAL, que e o eixo que este gate consulta.
+ * @param {string} globalRole
+ * @param {string|null} [producerOrgId]
+ * @returns {Object}
+ */
+function sessaoCom(globalRole, producerOrgId = null) {
+    const ctx = new SessionContext();
+    // O papel POR ATLAS fica no minimo de proposito: se o gate passasse a olhar para ele, os
+    // positivos abaixo ficariam vermelhos, que e o aviso que se quer.
+    ctx.setSession({ userId: 'operador', role: UserRole.VIEWER, globalRole, producerOrgId });
+    return ctx;
 }
 
 describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
@@ -245,6 +297,47 @@ describe('pagina de calibracao 360 (porte do ebgeo_360)', () => {
             'mencao a PMTiles que nao diz que ele NAO e usado. Se a linha afirma o'
                 + ` PMTiles, ela contradiz o backend; se apenas o descarta, diga isso na linha:\n${semNegar.join('\n')}`
         ).toEqual([]);
+    });
+
+    it('o gate de acesso e o par de PAPEIS, e nao mais `admin` sozinho', () => {
+        // REPROVA a versao anterior desta pagina, cujo gate era `!sessionContext.isAdmin()`: a
+        // escrita do 360 deixou de depender de `org_role` e passou a ser eixo de PRODUCAO, entao
+        // um produtor que calibra a OM dele batia num redirecionamento para o mapa.
+        //
+        // A assercao nao le o texto do gate: ela AVALIA a condicao recortada do arquivo contra
+        // contextos de sessao reais. Uma regex casando `isProducer` provaria que a palavra esta
+        // la; isto prova o que a linha FAZ, e continua valendo se ela for reescrita de outro jeito.
+        expect(GATE, 'a condicao que manda para o mapa sumiu de calibracao-page.js').not.toBeNull();
+        expect(GATE.length, `condicao grande demais para ser o gate: ${GATE}`).toBeLessThan(200);
+        expect(GATE, 'o gate deixou de perguntar ao contexto de sessao').toContain('sessionContext');
+    });
+
+    it('aceita o produtor com escopo e o administrador', () => {
+        expect(mandaParaOMapa(sessaoCom(GlobalRole.PRODUCER, 'om-a')), 'produtor barrado').toBe(false);
+        expect(mandaParaOMapa(sessaoCom(GlobalRole.ADMIN)), 'administrador barrado').toBe(false);
+    });
+
+    it('recusa o usuario comum, o deslogado e o visitante', () => {
+        // O par discriminante dos casos acima: sem estes, um gate que deixasse TODO MUNDO entrar
+        // passaria nos dois positivos.
+        expect(mandaParaOMapa(sessaoCom(GlobalRole.USER)), 'usuario comum entrou').toBe(true);
+        expect(mandaParaOMapa(new SessionContext()), 'deslogado entrou').toBe(true);
+
+        const visitante = new SessionContext();
+        visitante.setVisitorSession();
+        expect(mandaParaOMapa(visitante), 'visitante de link publico entrou').toBe(true);
+    });
+
+    it('recusa o credenciado: ele LE todo o privado e nao escreve nada', () => {
+        // Calibrar e ESCREVER. Este e o caso que separa o eixo de leitura global do de producao, e
+        // o que ficaria verde por acidente se o gate usasse `hasGlobalDataAccess()`.
+        expect(mandaParaOMapa(sessaoCom(GlobalRole.CREDENCIADO))).toBe(true);
+    });
+
+    it('recusa o cracha de produtor SEM escopo (degrada fechado)', () => {
+        // Estado impossivel no banco (o CHECK e bicondicional), possivel num token pela metade. A
+        // degradacao tem de ser a fechada: "produtor de nada", nunca "produtor de tudo".
+        expect(mandaParaOMapa(sessaoCom(GlobalRole.PRODUCER, null))).toBe(true);
     });
 
     it('o CSS saiu do HTML: existe calibracao.css e o <style> que sobrou e so o splash', () => {

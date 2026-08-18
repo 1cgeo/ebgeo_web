@@ -130,9 +130,16 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     disableOperationLogging: h.disableOperationLogging,
 }));
 
-vi.mock('../../src/js/store/sync/session-context.js', () => ({
-    sessionContext: h.sessionContextMock,
-}));
+// Só o SINGLETON é dublê. `sessionUserInfoFromMe` vem do módulo REAL de propósito: ele é a
+// forma do payload de hidratação (papel por atlas, papel global e escopo de produção), e uma
+// cópia escrita aqui deixaria de acompanhar a de produção sem ficar vermelha.
+vi.mock('../../src/js/store/sync/session-context.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        sessionContext: h.sessionContextMock,
+    };
+});
 
 // The engine imports SIX names from this module. Stubbing only three left the other three
 // `undefined`, and the two code paths that use them (the push-ack version seeding and the
@@ -229,6 +236,7 @@ describe('login', () => {
             userId: 'user-1',
             role: 'editor',
             globalRole: 'user',
+            producerOrgId: null,
             username: 'alice',
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
@@ -241,6 +249,7 @@ describe('login', () => {
             userId: 'user-9',
             role: 'viewer',
             globalRole: 'user',
+            producerOrgId: null,
             username: 'bob',
         });
     });
@@ -252,6 +261,7 @@ describe('login', () => {
             userId: 'user-7',
             role: 'editor',
             globalRole: 'admin',
+            producerOrgId: null,
             username: 'root',
         });
     });

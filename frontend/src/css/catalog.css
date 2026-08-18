@@ -259,7 +259,7 @@
 }
 
 /* Selo de recurso PRIVADO — canto oposto ao do tipo, para que os dois convivam num
-   cartão só. Âmbar é a mesma família do chip "Curador" no painel do administrador,
+   cartão só. Âmbar é a mesma família do chip "Credenciado" no painel do administrador,
    e pela mesma razão: os dois falam do eixo de acesso privado, e a cor os liga sem
    texto. Os tokens de design não têm família de aviso, então o valor é literal. */
 .catalog-card-badge--private {

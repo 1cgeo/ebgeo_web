@@ -9,9 +9,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  *   - "este item é PRIVADO?" — `config` não carrega `access_level`, porque aquele
  *     documento é o PÚBLICO e igual para todo chamador. O que o cliente sabe é que
  *     o id veio pelo payload aditivo, que devolve SÓ o privado visível.
- *   - "eu posso REPASSAR este item?" — papel global (admin/curador concedem de
- *     raiz) OU concessão viva de `view_share`. Errar para MENOS esconde um botão;
+ *   - "eu posso REPASSAR este item?" — papel global (admin e credenciado concedem
+ *     de raiz) OU concessão viva de `view_share`. Errar para MENOS esconde um botão;
  *     errar para MAIS oferece um formulário que o servidor recusa em 403.
+ *
+ * O papel global entra aqui por UM predicado só, `hasGlobalDataAccess()`, e é ele que o
+ * duplo abaixo estampa. Quem responde por QUAIS papéis esse predicado cobre (hoje
+ * administrador e credenciado, e deliberadamente NÃO o produtor) é
+ * `tests/unit/session-context.test.js`: um duplo que trocasse de papel aqui estaria
+ * medindo a segunda cópia da regra, e é a segunda cópia que envelhece errada.
  */
 
 const h = vi.hoisted(() => ({

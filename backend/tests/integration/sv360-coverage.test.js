@@ -46,6 +46,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
@@ -62,9 +63,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = randomUUID() }) {
+// O EIXO DE ESCRITA/OCULTACAO DO 360 e o ESCOPO DE PRODUCAO (`producer_org_id`),
+// concedido por administrador. `organization_id` + `org_role` — lotacao
+// AUTO-DECLARADA no auto-cadastro — deixou de autorizar qualquer coisa, e continua
+// viajando so como exibicao.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = randomUUID() }) {
   return jwt.sign(
-    { sub, username: `cov_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `cov_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -149,10 +157,19 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
     );
     otherOrgId = org2.rows[0].id;
 
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin' });
-    otherOrgViewerToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer' });
-    otherOrgEditorToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
+    // OS ATORES COM PODER PRECISAM DE LINHA EM `users`, e nao so de claim: as rotas de
+    // LEITURA do 360 resolvem papel e producao no SQL, a partir do UUID. Um `sub`
+    // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
+    // de autorizacao que e, na verdade, fixture.
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `cov_prod_${RID}` });
+    const administrador = await createAdminUser(db, { username: `cov_admin_${RID}` });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `cov_prodb_${RID}` });
+
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: administrador.id });
+    // Apenas LOTADO na outra OM: e o ator que o modelo antigo autorizava.
+    otherOrgViewerToken = mintToken({ orgId: otherOrgId });
+    otherOrgEditorToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
 
     tmpRoot = path.join(os.tmpdir(), `sv360-cov-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });
@@ -233,6 +250,10 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
     await db.query(`DELETE FROM sv360.projects WHERE organization_id = ANY($1::uuid[])`, [
       [defaultOrgId, otherOrgId],
     ]);
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [otherOrgId]);
     await db.query(`DELETE FROM public.organizations WHERE id = $1`, [otherOrgId]);
     await teardownTestEnv(db);
   });
@@ -251,13 +272,24 @@ describe('StreetView 360 — coverage of genuinely-untested behavior', () => {
     assert.ok(!Buffer.from(res.body.error).includes('SECRET'));
   });
 
-  it('image route: the owning org and a global admin CAN read the disabled-project image (200, real bytes)', async () => {
+  it('image route: a OM PRODUTORA e o admin global LEEM a imagem do projeto oculto (200, bytes reais)', async () => {
+    // QUEM LE O OCULTO MUDOU NESTA FASE, e o ator deste caso com ele: era "membro da
+    // OM" (`organization_id`, LOTACAO auto-declarada no auto-cadastro) e passou a ser
+    // a OM PRODUTORA (`producer_org_id`, concedido por administrador). O par negativo
+    // logo abaixo e o que torna a troca visivel: a conta apenas LOTADA na mesma OM,
+    // que o modelo antigo deixava entrar, hoje leva 404.
     const member = await supertest(app)
       .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
-      .set(...authHdr(otherOrgViewerToken))
+      .set(...authHdr(otherOrgEditorToken))
       .expect(200);
     assert.equal(member.headers['content-type'], 'image/webp');
-    assert.ok(Buffer.from(member.body).equals(disFullBuf), 'owning org gets the real disabled blob');
+    assert.ok(Buffer.from(member.body).equals(disFullBuf), 'a OM produtora recebe o blob oculto de verdade');
+
+    // O NEGATIVO NO MESMO CORPO: lotado na OM produtora, sem cracha, nao le.
+    await supertest(app)
+      .get(url(`/photos/${disabledPhotoId}/image?quality=full`))
+      .set(...authHdr(otherOrgViewerToken))
+      .expect(404);
 
     const admin = await supertest(app)
       .get(url(`/photos/${disabledPhotoId}/image?quality=full`))

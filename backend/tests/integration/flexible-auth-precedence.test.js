@@ -56,6 +56,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser,
   createAdminUser,
+  createProducerUser,
   createAtlas,
   createMap,
   loginUser,
@@ -409,28 +410,53 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(decoded.sub, u.id);
     });
 
-    it('consequência observável: com o cookie renovado, o upload sv360 é 403', async () => {
-      const u = await createUser(db, { username: `fx_up_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
-      const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
+    it('consequência observável: revogar o CRACHÁ DE PRODUÇÃO fecha o upload sv360', async () => {
+      // ESTE CASO FOI INVERTIDO NESTA FASE, e a inversão é o produto dela. Ele dizia
+      // "um editor tem de passar da capability": um `org_role: 'editor'` sobre uma
+      // LOTAÇÃO auto-declarada no auto-cadastro abria a ingestão de 360 daquela OM.
+      // Era a escalação de privilégio que a fase fecha, e a asserção que a chamava de
+      // contrato. Quem abre o upload agora é `producer_org_id`, concedido por
+      // administrador; o que continua sendo medido aqui é o MESMO fato observável —
+      // que a revogação vale na requisição seguinte, sem esperar o token expirar.
+      const u = await createProducerUser(db, DEFAULT_ORG, { username: `fx_up_${SFX}` });
+      const stale = nearExpiryToken(u, {
+        organization_id: DEFAULT_ORG, org_role: 'viewer', producer_org_id: DEFAULT_ORG,
+      });
 
-      // Enquanto editor: passa do requireUploadCapability (o 4xx que vem depois é do
+      // Enquanto produtor: passa do requireUploadCapability (o 4xx que vem depois é do
       // multer/serviço, não do gate — o que importa é NÃO ser 403).
       const antes = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
         .set('Cookie', `token=${stale}`);
-      assert.notEqual(antes.status, 403, 'um editor tem de passar da capability');
+      assert.notEqual(antes.status, 403, 'um produtor tem de passar da capability');
 
-      await db.query(`UPDATE users SET org_role = 'viewer' WHERE id = $1`, [u.id]);
+      await db.query(
+        `UPDATE users SET role = 'user', producer_org_id = NULL WHERE id = $1`, [u.id]
+      );
 
       const depois = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
         .set('Cookie', `token=${stale}`)
         .expect(403);
       assert.equal(depois.body.error?.code ?? 'FORBIDDEN', 'FORBIDDEN');
+    });
+
+    it('e o LOTADO com `org_role: editor` NÃO abre o upload (o furo, escrito ao contrário)', async () => {
+      // O par negativo do caso acima, e o repro em miniatura da fase: esta conta se
+      // declarou desta OM no cadastro e recebeu o papel interno mais alto que a borda
+      // de escrita de perfil aceita. Antes, isso bastava para ingerir 360 no acervo
+      // dela; hoje ela é indistinguível de qualquer visitante autenticado.
+      const u = await createUser(db, { username: `fx_lot_${SFX}` });
+      await db.query(
+        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
+        [DEFAULT_ORG, u.id]
+      );
+      const tok = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
+
+      await supertest(app)
+        .post('/api/v1/sv360/admin/projects/upload')
+        .set('Cookie', `token=${tok}`)
+        .expect(403);
     });
 
     it('controle positivo (não super-corrigir): uma PROMOÇÃO também propaga', async () => {

@@ -25,18 +25,26 @@ import logger from '../../utils/logger.js';
 /**
  * Write-access predicate for a project.
  *   (a) global admin (user.role === 'admin'); OR
- *   (b) same-org writer: user.organization_id matches project.organization_id
- *       AND user.org_role ∈ {owner, admin, editor}.
- * A same-org `viewer` can READ (stage 1) but NOT write.
- * @param {Object} [user]    - req.user ({ role, organization_id, org_role })
+ *   (b) PRODUCER of the owning OM: user.producer_org_id === project.organization_id.
+ *
+ * O EIXO `org_role` SAIU DAQUI INTEIRO, e a troca não é de nome. `organization_id`
+ * é lotação AUTO-DECLARADA (o auto-cadastro aceita qualquer OM ativa) e `org_role`
+ * é papel dentro dela, então a combinação dizia "quem se declarou desta OM e tem
+ * crachá interno escreve o acervo dela". `producer_org_id` só um administrador
+ * concede, é UM por pessoa, e vale para TODOS os tipos daquela OM: produzir é
+ * função, não favor.
+ *
+ * `producer_org_id` chega pelo token, mas TODA rota de escrita do 360 corre sob o
+ * `auth` estrito, que reconcilia o escopo contra o banco a cada requisição — então
+ * um produtor rebaixado perde a escrita na hora, não em até 15 min.
+ * @param {Object} [user]    - req.user ({ role, producer_org_id })
  * @param {Object} project   - { organization_id }
  * @returns {boolean}
  */
 export function canWriteProject(user, project) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  if (!user.organization_id || user.organization_id !== project.organization_id) return false;
-  return ['owner', 'admin', 'editor'].includes(user.org_role);
+  return Boolean(user.producer_org_id) && user.producer_org_id === project.organization_id;
 }
 
 /**
@@ -280,16 +288,19 @@ export async function batchCalibration(items, user) {
 // collision deterministically (own org first, then enabled). Resolving it any other
 // way would let a writer address another org's project by slug.
 async function loadWritableProject(slug, user, executor = query) {
-  // Os TRES parametros de escopo que `GET_PROJECT_BY_SLUG` passou a exigir na fase
-  // F6 ([userId, orgId, atlasId]) — antes eram dois, e o primeiro era um booleano.
-  // `atlasId` e NULL aqui de proposito: emprestimo de atlas amplia LEITURA, e este
-  // e um caminho de ESCRITA, cuja escada de posse (`enforceProjectWritable`) nao
-  // conhece nem deve conhecer esse eixo.
+  // Os parametros de escopo de `GET_PROJECT_BY_SLUG`: [userId, atlasId] e, a parte,
+  // a OM PREFERIDA (que so entra no ORDER BY). `atlasId` e NULL aqui de proposito:
+  // emprestimo de atlas amplia LEITURA, e este e um caminho de ESCRITA, cuja escada
+  // de posse (`enforceProjectWritable`) nao conhece nem deve conhecer esse eixo.
+  //
+  // A preferencia usa o escopo de PRODUCAO, que e a OM em que quem escreve trabalha:
+  // sem ela, um slug repetido em duas OMs resolveria arbitrariamente e a escada de
+  // posse recusaria a linha errada com 404 sobre um projeto que o autor possui.
   const { rows } = await executor(Q.GET_PROJECT_BY_SLUG, [
     slug,
     principalUserId(user),
-    user?.organization_id ?? null,
     null,
+    user?.producer_org_id ?? null,
   ]);
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');

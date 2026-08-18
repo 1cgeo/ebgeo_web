@@ -136,21 +136,26 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
     assert.ok(revertido.includes(idDe('tilesets')), 'e volta já no pedido seguinte');
   });
 
-  it('a auditoria registra a mudança com tipo e id em details (o alvo não cabe nas colunas)', async () => {
+  it('a auditoria registra a mudança com o alvo nas COLUNAS de alvo', async () => {
     await marcar('tileset', idDe('tilesets'), 'private');
+    // A CONSULTA É A ASSERÇÃO PRINCIPAL: ela filtra por (target_type, target_id),
+    // que é exatamente a pergunta que o schema antigo não sabia responder. Enquanto
+    // `target_id` era UUID e o CHECK de `target_type` não previa tipo de recurso, o
+    // alvo viajava em `details` e esta busca não existia. Migração 020.
     const { rows } = await db.query(
-      `SELECT action, target_type, target_id, details FROM audit_trail
-        WHERE action = 'SHARING_CHANGE' AND details->>'resourceId' = $1
+      `SELECT action, target_type, target_id, target_name, details FROM audit_trail
+        WHERE action = 'SHARING_CHANGE' AND target_type = 'TILESET' AND target_id = $1
         ORDER BY created_at DESC LIMIT 1`,
       [idDe('tilesets')]
     );
     assert.equal(rows.length, 1, 'a marca precisa deixar UMA linha de auditoria');
     assert.equal(rows[0].details.accessLevel, 'private');
     assert.equal(rows[0].details.resourceType, 'tileset');
-    // `target_id` é UUID e o id de catálogo é slug textual; `target_type` tem CHECK
-    // que não prevê tipo de recurso. Por isso o alvo viaja em `details`.
-    assert.equal(rows[0].target_id, null);
-    assert.equal(rows[0].target_type, 'SYSTEM');
+    assert.equal(rows[0].target_id, idDe('tilesets'));
+    assert.equal(rows[0].target_type, 'TILESET');
+    // O id de catálogo é SLUG, não UUID: gravá-lo aqui é o que a 020 destravou, e
+    // afirmar isso é o que impede a coluna de voltar a ser UUID sem ninguém notar.
+    assert.ok(!/^[0-9a-f-]{36}$/i.test(rows[0].target_id), 'o alvo é um slug, não um UUID');
     await marcar('tileset', idDe('tilesets'), 'public');
   });
 

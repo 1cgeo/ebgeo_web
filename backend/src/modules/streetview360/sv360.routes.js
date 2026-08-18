@@ -344,16 +344,20 @@ function authDraining(req, res, next) {
 }
 
 // FIX-4: reject (403) BEFORE multer streams up to SV360_MAX_UPLOAD_BYTES to disk
-// anyone with NO write capability at all — a same-org viewer / a bare `user`. This
-// is a cheap pre-filter (NOT the per-org ownership check, which still runs in the
-// service): a global admin or any org_role ∈ {owner, admin, editor} passes here;
-// everyone else gets a drained 403 with no bytes written to disk. Closes the
-// authenticated disk-fill DoS.
+// anyone with NO write capability at all — a bare `user`. This is a cheap
+// pre-filter (NOT the per-org ownership check, which still runs in the service): a
+// global admin or a PRODUCER passes here; everyone else gets a drained 403 with no
+// bytes written to disk. Closes the authenticated disk-fill DoS.
+//
+// A troca de `org_role` por `producer_org_id` FECHA o pré-filtro em vez de só
+// renomeá-lo: `org_role` é crachá dentro de uma OM auto-declarada, então qualquer
+// conta que se dissesse editora de qualquer OM passava por aqui e escrevia até 2 GiB
+// em disco antes do 403 do serviço. O escopo de produção só um administrador
+// concede. O papel é o do token, e este é caminho de `auth` estrito, que o
+// reconcilia contra o banco antes de chegar aqui.
 function requireUploadCapability(req, res, next) {
   const u = req.user;
-  const ok =
-    !!u &&
-    (u.role === 'admin' || ['owner', 'admin', 'editor'].includes(u.org_role));
+  const ok = !!u && (u.role === 'admin' || Boolean(u.producer_org_id));
   if (ok) return next();
   drainThen(req, new ForbiddenError('Upload requires write capability'), next);
 }

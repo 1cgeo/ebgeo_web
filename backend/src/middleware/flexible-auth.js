@@ -24,6 +24,7 @@ function mapDbUser(row) {
     role: row.role || 'user',
     organization_id: row.organization_id ?? null,
     org_role: row.org_role || 'viewer',
+    producer_org_id: row.producer_org_id ?? null,
   };
 }
 
@@ -36,6 +37,9 @@ function mapPayload(p) {
     role: p.role || 'user',
     organization_id: p.organization_id ?? null,
     org_role: p.org_role || 'viewer',
+    // Escopo de PRODUCAO. Ausente (token legado) = null. Mantido em sincronia com
+    // o mapeamento identico de middleware/auth.js.
+    producer_org_id: p.producer_org_id ?? null,
     // A public-link visitor token is scoped to ONE atlas by its `atlasId` claim.
     // Dropping it here is what let a visitor of atlas A read atlas B: the claim
     // existed and was honoured by the WS gateway, but never reached
@@ -145,6 +149,10 @@ export async function flexibleAuth(req, res, next) {
           req.user.org_role = live.orgRole;
           req.user.organization_id = live.organizationId;
         }
+        // Incondicional, como no `auth` estrito e pela mesma razao: sem isto o
+        // cookie re-emitido carregaria o escopo de producao antigo indefinidamente,
+        // que foi exatamente o defeito de `org_role` descrito acima.
+        req.user.producer_org_id = live.producerOrgId;
       }
       res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
     }

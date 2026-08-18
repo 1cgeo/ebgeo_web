@@ -31,13 +31,30 @@ export async function createUser(db, overrides = {}) {
     ? data.organization_id
     : '00000000-0000-0000-0000-000000000001';
 
+  // O ESCOPO DE PRODUÇÃO É BICONDICIONAL NO SCHEMA (`users_producer_scope_check`):
+  // `(role = 'producer') = (producer_org_id IS NOT NULL)`. Sem este campo aqui,
+  // `createUser(db, { role: 'producer' })` violaria o CHECK e todo teste de produtor
+  // nasceria vermelho no `before()` — falha que se lê como regressão de código e é de
+  // fixture. `organization_id` (LOTAÇÃO) continua independente e não autoriza nada.
+  const producerOrgId = data.producer_org_id !== undefined ? data.producer_org_id : null;
+
   const { rows } = await db.query(
-    `INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [data.username, hash, data.nome, rankId, orgId, data.role]
+    `INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role, producer_org_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::uuid) RETURNING *`,
+    [data.username, hash, data.nome, rankId, orgId, data.role, producerOrgId]
   );
 
   return { ...rows[0], password: data.password };
+}
+
+/**
+ * Creates a PRODUCER user scoped to one organization (the production badge).
+ *
+ * Atalho com propósito: o par (papel, escopo) é bicondicional, e escrever os dois
+ * campos à mão em cada teste é onde metade deles erraria um dos lados.
+ */
+export async function createProducerUser(db, producerOrgId, overrides = {}) {
+  return createUser(db, { ...overrides, role: 'producer', producer_org_id: producerOrgId });
 }
 
 /**

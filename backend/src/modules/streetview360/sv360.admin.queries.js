@@ -274,11 +274,21 @@ export const DELETE_PROJECT = `
 `;
 
 // List projects for the admin view INCLUDING disabled. Unlike the public
-// LIST_PROJECTS, a global admin sees every OM (optionally filtered by ?orgId);
-// an om_data_admin is scoped to their own organization_id. The predicate:
-//   - $1 = isAdmin (boolean): when true, no org restriction unless $3 is given;
-//   - $2 = userOrgId (uuid, nullable): the non-admin caller's org;
-//   - $3 = filterOrgId (uuid, nullable): optional ?orgId for a global admin.
+// LIST_PROJECTS, a global admin sees every OM (optionally filtered by ?orgId); a
+// PRODUCER is scoped to the OM it produces for.
+//
+// O PREDICADO DEIXOU DE SER UM BOOLEANO DO JS (`$1::boolean AND ...`), que era a
+// última cópia daquela forma no módulo: TRUE curto-circuitava a disjunção inteira,
+// então um erro no cálculo não errava, ABRIA. `fn_can_produce_resource` resolve
+// papel e escopo a partir do UUID, no banco, e diz as duas coisas de uma vez —
+// administrador em qualquer linha, produtor nas da própria OM.
+//
+// REPARE QUE ELE NÃO É `fn_has_global_data_access`: esta é a superfície de
+// ADMINISTRAÇÃO (devolve `db_filename`, o nome do store em disco), e o credenciado
+// é papel de LEITURA de dado, não de administração do acervo.
+//   - $1 = userId (uuid): quem pergunta;
+//   - $2 = filterOrgId (uuid, nullable): o ?orgId OPCIONAL do administrador, que é
+//     refinamento de listagem e nunca autorização.
 // `access_level` viaja junto com `status` e é um EIXO DISTINTO dele: `disabled`
 // oculta de todo mundo fora da OM dona, `private` restringe quem está de fora
 // (D6). O painel do administrador mostra os dois lado a lado, e sem esta coluna
@@ -289,9 +299,7 @@ export const LIST_PROJECTS_ADMIN = `
          entry_photo_id, photo_count, db_filename, status, access_level,
          created_at, updated_at
   FROM sv360.projects
-  WHERE (
-          ($1::boolean AND ($3::uuid IS NULL OR organization_id = $3::uuid))
-          OR (NOT $1::boolean AND organization_id = $2::uuid)
-        )
+  WHERE fn_can_produce_resource($1::uuid, 'sv360_project', id::text)
+    AND ($2::uuid IS NULL OR organization_id = $2::uuid)
   ORDER BY name
 `;

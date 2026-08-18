@@ -30,6 +30,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 import * as svc from '../../src/modules/streetview360/sv360.service.js';
@@ -47,9 +48,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = randomUUID() }) {
+// O EIXO DE ESCRITA/OCULTACAO DO 360 e o ESCOPO DE PRODUCAO (`producer_org_id`),
+// concedido por administrador. `organization_id` + `org_role` — lotacao
+// AUTO-DECLARADA no auto-cadastro — deixou de autorizar qualquer coisa, e continua
+// viajando so como exibicao.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = randomUUID() }) {
   return jwt.sign(
-    { sub, username: `gap_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `gap_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -71,6 +79,9 @@ describe('StreetView 360 — audit gap coverage', () => {
   let defaultOrgId, otherOrgId;
   let enabledProjectId, disabledProjectId;
   let ownerToken, adminToken, otherOrgWriterToken;
+  // Os PRINCIPAIS, e nao so os tokens: `nearby()` e chamado direto no servico, e o
+  // predicado de leitura resolve papel e producao no SQL a partir do UUID.
+  let produtorOutraId, administradorId;
   let tmpRoot;
   // Track created on-disk .db/.webp paths to clean in teardown.
   const diskPaths = new Set();
@@ -138,9 +149,19 @@ describe('StreetView 360 — audit gap coverage', () => {
     );
     otherOrgId = org2.rows[0].id;
 
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin' });
-    otherOrgWriterToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
+    // OS ATORES COM PODER PRECISAM DE LINHA EM `users`, e nao so de claim: as rotas de
+    // LEITURA do 360 resolvem papel e producao no SQL, a partir do UUID. Um `sub`
+    // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
+    // de autorizacao que e, na verdade, fixture.
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `gap_prod_${RID}` });
+    const administrador = await createAdminUser(db, { username: `gap_admin_${RID}` });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `gap_prodb_${RID}` });
+    administradorId = administrador.id;
+    produtorOutraId = produtorOutra.id;
+
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: administrador.id });
+    otherOrgWriterToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
 
     tmpRoot = path.join(os.tmpdir(), `sv360-gaps-${RID}`);
     mkdirSync(tmpRoot, { recursive: true });
@@ -231,6 +252,10 @@ describe('StreetView 360 — audit gap coverage', () => {
       `DELETE FROM sv360.projects WHERE organization_id = ANY($1::uuid[])`,
       [[defaultOrgId, otherOrgId]]
     );
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [otherOrgId]);
     await db.query(`DELETE FROM public.organizations WHERE id = $1`, [otherOrgId]);
     await teardownTestEnv(db);
   });
@@ -302,16 +327,30 @@ describe('StreetView 360 — audit gap coverage', () => {
       'anon must NOT see a disabled-project photo via nearby'
     );
 
-    // Owning-org member sees the disabled-project photo in its cluster.
+    // A OM PRODUTORA ve a foto do projeto oculto no cluster dela. O ator mudou nesta
+    // fase: era `organization_id` (LOTACAO auto-declarada no auto-cadastro) e passou a
+    // ser `producer_org_id`, resolvido no SQL a partir do UUID — daí o `id` real.
     const memberB = await svc.nearby(-50.0, -10.0, 5000, {
+      id: produtorOutraId,
+      role: 'producer',
+      producer_org_id: otherOrgId,
+    });
+    const memberBIds = memberB.map((r) => r.id);
+    assert.ok(memberBIds.includes(disabledCollidePhotoId), 'a OM produtora ve a foto oculta');
+
+    // O NEGATIVO QUE A FASE CRIOU: apenas LOTADO na mesma OM, sem cracha, nao ve.
+    const lotadoB = await svc.nearby(-50.0, -10.0, 5000, {
+      id: randomUUID(),
       role: 'user',
       organization_id: otherOrgId,
     });
-    const memberBIds = memberB.map((r) => r.id);
-    assert.ok(memberBIds.includes(disabledCollidePhotoId), 'owning-org member sees disabled photo');
+    assert.ok(
+      !lotadoB.map((r) => r.id).includes(disabledCollidePhotoId),
+      'lotacao auto-declarada nao enxerga projeto oculto'
+    );
 
     // Global admin sees it too.
-    const adminB = await svc.nearby(-50.0, -10.0, 5000, { role: 'admin' });
+    const adminB = await svc.nearby(-50.0, -10.0, 5000, { id: administradorId, role: 'admin' });
     const adminBIds = adminB.map((r) => r.id);
     assert.ok(adminBIds.includes(disabledCollidePhotoId), 'admin sees disabled photo');
   });

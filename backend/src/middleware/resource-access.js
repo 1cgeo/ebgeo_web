@@ -12,6 +12,7 @@
 import { ForbiddenError, NotFoundError, BadRequestError } from '../utils/errors.js';
 import { one, oneOrNone } from '../database/index.js';
 import { principalUserId } from '../utils/principal.js';
+import { assertProductionTypeOf } from '../modules/catalog/catalog.tables.js';
 import * as svc from '../modules/resource-access/resource-access.service.js';
 
 /**
@@ -98,6 +99,73 @@ export function requireGrantRevoker(req, res, next) {
 
     return next(new ForbiddenError('Só quem concedeu esta permissão (ou um administrador) pode revogá-la.'));
   }).catch(next);
+}
+
+/**
+ * O ator de uma escrita de CATÁLOGO, resolvido NO BANCO numa consulta só.
+ *
+ * `produz_este` é `fn_can_produce_resource` sobre a linha apontada pela rota — a
+ * MESMA função que gateia o `WHERE` da escrita, e não uma segunda cópia da regra.
+ * `producer_org_id` é o escopo, lido do banco e não do token, porque `flexibleAuth`
+ * não reconcilia: um produtor rebaixado carregaria o crachá antigo por até 15 min.
+ *   $1 = userId (uuid, nullable), $2 = tipo de produção, $3 = id do recurso (texto)
+ */
+const CATALOG_PRODUCER_ACTOR = `
+  SELECT fn_can_produce_resource($1::uuid, $2::text, $3::text) AS produz_este,
+         (SELECT u.producer_org_id
+            FROM users u
+            LEFT JOIN organizations o ON o.id = u.organization_id
+           WHERE u.id = $1::uuid
+             AND u.is_active = true
+             AND COALESCE(o.is_active, true) = true) AS producer_org_id
+`;
+
+/**
+ * Gate de ESCRITA de catálogo: administrador OU produtor.
+ *
+ * SÃO DOIS GATES EM CAMADAS DIFERENTES, e nenhum duplica o predicado do outro.
+ * Este pergunta "esta pessoa produz alguma coisa?" e recusa cedo (403) quem não
+ * produz nada, para que a rota inteira nem rode. QUAL linha é dela é decidido pelo
+ * `WHERE` da própria escrita (`catalog.service.js`), na mesma consulta que muta —
+ * o que fecha a janela entre ler o dono e escrever, e devolve 404 (não 403) para a
+ * linha de outra OM, pela mesma escada de `assertCanSeeResource`.
+ *
+ * O tipo vem da TABELA com que o router foi fabricado, nunca do request.
+ *
+ * Deixa em `req.catalogActor` o escopo de produção, que a criação usa para FORÇAR
+ * `owner_org_id`. Ele é conveniência para o INSERT, nunca o gate.
+ *
+ * @param {string} table - Uma de CATALOG_TABLES.
+ * @returns {import('express').RequestHandler}
+ */
+export function requireCatalogProducer(table) {
+  const tipo = assertProductionTypeOf(table);
+  return (req, res, next) => {
+    Promise.resolve().then(async () => {
+      const userId = principalUserId(req.user);
+      // O id da rota (PUT/DELETE) ou o do corpo (POST, que ainda não passou pelo
+      // Joi). AUSENTE VIRA STRING VAZIA, NUNCA NULL, e a distinção não é estética:
+      // `fn_can_produce_resource` sai cedo com FALSE para argumento nulo, antes de
+      // olhar o papel, então um POST sem `id` (que o Joi vai recusar com 422 na
+      // linha seguinte) fazia o ADMINISTRADOR levar 403 aqui. Um id vazio é um id
+      // que não existe, e para esse a função responde a pergunta certa: verdadeiro
+      // para administrador, falso para todo o resto.
+      const bruto = req.params?.id ?? req.body?.id;
+      const resourceId = typeof bruto === 'string' ? bruto : '';
+
+      const linha = userId
+        ? await one(CATALOG_PRODUCER_ACTOR, [userId, tipo, resourceId])
+        : null;
+      const producerOrgId = linha?.producer_org_id ?? null;
+
+      if (!linha || (linha.produz_este !== true && !producerOrgId)) {
+        return next(new ForbiddenError('É preciso ser administrador ou produtor para alterar o catálogo.'));
+      }
+
+      req.catalogActor = { id: userId, producerOrgId };
+      return next();
+    }).catch(next);
+  };
 }
 
 /**

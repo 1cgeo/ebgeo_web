@@ -46,6 +46,40 @@ export const TYPE_BY_TABLE = Object.freeze({
   analysis_layers: 'analysis_layer',
 });
 
+/**
+ * Tipo de domínio -> `audit_trail.target_type` (migração 020).
+ *
+ * ANTES DA 020 ESTE MAPA NÃO PODIA EXISTIR: o CHECK de `target_type` só conhecia
+ * USER/GROUP/MODEL/ZONE/SYSTEM/ATLAS/ORG, e é por isso que a auditoria de
+ * visibilidade e de concessão gravava 'SYSTEM' com o recurso escondido em `details`
+ * — o que deixava `idx_audit_target` mudo para a pergunta "o que já foi feito com
+ * este recurso". Com o CHECK alargado e `target_id` em TEXT (o id de catálogo é
+ * slug), o alvo volta a ser coluna.
+ *
+ * Um valor fora do CHECK levanta 23514 no INSERT da trilha; como a auditoria de
+ * concessão é TRANSACIONAL, isso derrubaria a concessão junto. Por isso a whitelist.
+ */
+export const AUDIT_TARGET_TYPE_BY_TYPE = Object.freeze({
+  tileset: 'TILESET',
+  data_layer: 'DATA_LAYER',
+  analysis_layer: 'ANALYSIS_LAYER',
+  sv360_project: 'SV360_PROJECT',
+});
+
+/**
+ * O `target_type` de auditoria de um tipo de recurso, validado.
+ * @param {string} type
+ * @returns {string}
+ * @throws {Error} Quando o tipo está fora da whitelist.
+ */
+export function assertAuditTargetTypeOfResource(type) {
+  const alvo = AUDIT_TARGET_TYPE_BY_TYPE[assertResourceType(type)];
+  if (!alvo) {
+    throw new Error(`Resource type without audit target type: ${type}`);
+  }
+  return alvo;
+}
+
 /** Tipo de domínio -> chave do payload aditivo servido ao cliente. */
 export const PAYLOAD_KEY_BY_TYPE = Object.freeze({
   tileset: 'tilesets',

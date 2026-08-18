@@ -10,6 +10,7 @@ import { invalidateAppConfigCache } from '../config/config.cache.js';
 import * as Q from './resource-access.queries.js';
 import {
   RESOURCE_TYPES, PAYLOAD_KEY_BY_TYPE, assertResourceType, tableOf, assertCatalogTableOf,
+  assertAuditTargetTypeOfResource,
 } from './resource-access.types.js';
 
 /**
@@ -33,27 +34,23 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
       ? await trx.oneOrNone(Q.setCatalogAccessLevel(table), [accessLevel, resourceId])
       : await trx.oneOrNone(Q.SET_360_ACCESS_LEVEL, [accessLevel, resourceId]);
     if (!updated) throw new NotFoundError('Resource');
-    // O ALVO VIAJA EM `details`, E NÃO NAS COLUNAS DE ALVO. Duas restrições do
-    // schema de auditoria (001_core.sql) obrigam a isso, e o plano de origem só
-    // conferiu a primeira das três colunas:
-    //   - `action` tem CHECK, e 'SHARING_CHANGE' já está reservado. Essa parte bate.
-    //   - `target_type` tem CHECK PRÓPRIO, limitado a USER/GROUP/MODEL/ZONE/
-    //     SYSTEM/ATLAS/ORG. Não existe valor para "camada de dados", e 'MODEL'
-    //     seria mentira para três dos quatro tipos.
-    //   - `target_id` é UUID, e o id de recurso de catálogo é um SLUG TEXTUAL.
-    //     Gravá-lo ali levanta 22P02, que o errorHandler devolve como HTTP 400 —
-    //     foi exatamente assim que este defeito apareceu, com a rota respondendo
-    //     400 sem nenhuma relação aparente com auditoria.
-    // Alargar os dois exigiria DDL destrutiva (DROP CONSTRAINT e ALTER COLUMN
-    // TYPE) por uma linha de log. `SYSTEM` + `details` é aditivo e não perde
-    // informação nenhuma: o tipo e o id continuam consultáveis, em JSONB.
+    // O ALVO É COLUNA DE PRIMEIRA CLASSE desde a migração 020, e esta é a linha que
+    // motivou aquela migração. Até ela, as duas restrições do schema de 001_core.sql
+    // empurravam tipo e id para dentro de `details` — o CHECK de `target_type` não
+    // tinha valor para "camada de dados" ('MODEL' seria mentira para três dos quatro
+    // tipos) e `target_id` era UUID enquanto o id de catálogo é um SLUG TEXTUAL
+    // (gravá-lo ali levantava 22P02, que a borda devolvia como HTTP 400, numa rota
+    // sem relação aparente com auditoria). A consequência era que `idx_audit_target`
+    // não respondia "tudo que já foi feito com este recurso" e 'SYSTEM' virava
+    // depósito de alvo que não coube. As duas caíram; 'SYSTEM' volta a significar
+    // sistema.
     await createAudit(req, {
       action: 'SHARING_CHANGE',
       actorId: actor.id,
-      targetType: 'SYSTEM',
-      targetId: null,
+      targetType: assertAuditTargetTypeOfResource(t),
+      targetId: resourceId,
       targetName: updated.name,
-      details: { resourceType: t, resourceId, accessLevel },
+      details: { resourceType: t, accessLevel },
     }, trx);
     return updated;
   });
@@ -83,12 +80,15 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
  * `mergeGrantedIntoBaseline` despeja nos arrays do `config`.
  *
  * @param {Object} params
+ * A OM DO CHAMADOR NÃO É MAIS PARÂMETRO. Ela era auto-declarada no auto-cadastro e
+ * mesmo assim abria o privado daquela OM; o eixo continua existindo, resolvido no
+ * SQL pelo escopo de PRODUÇÃO, que só um administrador concede.
+ *
  * @param {string|null} params.userId - null para o visitante de link público (R4).
  * @param {string|null} params.atlasId - O atlas em foco (empresta), ou null.
- * @param {string|null} [params.orgId] - OM do chamador (o ramo dono do 360, D6).
  * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object}>}
  */
-export async function listVisiblePrivateResources({ userId, atlasId, orgId = null }) {
+export async function listVisiblePrivateResources({ userId, atlasId }) {
   const catalogTypes = RESOURCE_TYPES.filter((t) => tableOf(t) !== null);
 
   const catalogRows = await Promise.all(catalogTypes.map(async (type) => {
@@ -101,7 +101,7 @@ export async function listVisiblePrivateResources({ userId, atlasId, orgId = nul
     return [PAYLOAD_KEY_BY_TYPE[type], rows.map((r) => ({ id: r.id, name: r.name, ...(r.config || {}) }))];
   }));
 
-  const { rows: rows360 } = await query(Q.LIST_VISIBLE_PRIVATE_360, [userId, atlasId, orgId]);
+  const { rows: rows360 } = await query(Q.LIST_VISIBLE_PRIVATE_360, [userId, atlasId]);
 
   return {
     ...Object.fromEntries(catalogRows),
@@ -193,8 +193,16 @@ export async function listGrantsForResource(type, resourceId) {
  * O gate de nível é reafirmado aqui e não só no middleware, de propósito: o
  * middleware protege a ROTA, esta função protege a REGRA. Quem tem `view` não
  * concede nada; quem tem `view_share` concede `view` ou `view_share`.
+ *
+ * O PRAZO DO PAI VIAJA JUNTO PARA O INSERT, que é onde ele vira teto. Comparar as
+ * duas datas aqui e recusar seria pior de duas maneiras: a comparação usaria o
+ * relógio do processo (e o CHECK usa o do banco), e recusar transforma um pedido
+ * razoável ("um ano") em erro quando o pai vence antes — o certo é entregar o que
+ * dá para entregar e dizer, na resposta e na auditoria, até quando vale.
  */
-export async function grantResource({ type, resourceId, granteeId, grantLevel, actor, hasGlobalAccess, req }) {
+export async function grantResource({
+  type, resourceId, granteeId, grantLevel, expiresAt = null, actor, hasGlobalAccess, req,
+}) {
   const t = assertResourceType(type);
 
   if (await accessLevelOf(t, resourceId) === null) throw new NotFoundError('Resource');
@@ -204,6 +212,7 @@ export async function grantResource({ type, resourceId, granteeId, grantLevel, a
   if (granteeId === actor.id) throw new ConflictError('Não é possível conceder acesso a si mesmo.');
 
   let parentGrantId = null;
+  let parentExpiresAt = null;
   if (!hasGlobalAccess) {
     const mine = await liveGrantsOfActor(actor.id, t, resourceId);
     const sharer = mine.find((g) => g.grant_level === 'view_share');
@@ -211,24 +220,40 @@ export async function grantResource({ type, resourceId, granteeId, grantLevel, a
       throw new ForbiddenError('É preciso ter acesso com permissão de compartilhar para conceder este recurso.');
     }
     parentGrantId = sharer.id;
+    parentExpiresAt = sharer.expires_at ?? null;
   }
 
   const jaDei = await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
   if (jaDei) throw new ConflictError('Este usuário já recebeu acesso a este recurso de você.');
 
   return tx(async (trx) => {
-    const row = await trx.one(Q.INSERT_GRANT, [t, resourceId, granteeId, grantLevel, actor.id, parentGrantId]);
+    const row = await trx.one(Q.INSERT_GRANT, [
+      t, resourceId, granteeId, grantLevel, actor.id, parentGrantId,
+      expiresAt ?? null, parentExpiresAt,
+    ]);
     await createAudit(req, {
-      // O ALVO VIAJA EM `details` pelo mesmo motivo de `setResourceVisibility`:
-      // `target_id` é UUID e o id de catálogo é slug textual, e o CHECK de
-      // `target_type` não prevê tipo de recurso. Aqui `target_id` PODE carregar o
-      // beneficiário, que é UUID de verdade e é o alvo humano da ação.
+      // O ALVO É O RECURSO, não o beneficiário, e a escolha é deliberada: o que
+      // mudou foi o ACESSO A ESTA COISA, e é por ela que se investiga ("quem mexeu
+      // no acesso deste tileset?"), pelo mesmo `idx_audit_target` que a auditoria de
+      // zona já usa (`ZONE` + zoneId). O beneficiário desce para `details` com o
+      // nome junto, para que a linha continue legível sem um JOIN.
+      //
+      // A escolha é a MESMA em `revokeGrant`: os dois lados de um par
+      // conceder/revogar precisam apontar para o mesmo alvo, senão a história de um
+      // acesso se parte em duas listas que não se cruzam.
       action: 'PERMISSION_GRANT',
       actorId: actor.id,
-      targetType: 'USER',
-      targetId: granteeId,
-      targetName: grantee.username,
-      details: { resourceType: t, resourceId, grantLevel, grantId: row.id, parentGrantId },
+      targetType: assertAuditTargetTypeOfResource(t),
+      targetId: resourceId,
+      // `expiresAt` é o prazo EFETIVO (já podado pelo teto da casa e pelo do pai),
+      // não o pedido: a auditoria da expiração acontece na CONCESSÃO, porque não há
+      // varredura que aplique a expiração depois — a morte mora no predicado, e sem
+      // esta linha nada no registro diria até quando aquele acesso valeu.
+      details: {
+        resourceType: t, grantLevel, grantId: row.id, parentGrantId,
+        granteeId, granteeUsername: grantee.username,
+        expiresAt: row.expires_at,
+      },
     }, trx);
     return row;
   });
@@ -253,13 +278,18 @@ export async function revokeGrant({ grantId, actor, req }) {
     const podados = await trx.any(Q.REVOKE_GRANT_SUBTREE, [grantId, actor.id]);
     for (const p of podados) {
       await createAudit(req, {
+        // O RECURSO É O ALVO, igual ao `PERMISSION_GRANT` — ver a nota lá. UMA LINHA
+        // POR CONCESSÃO DERRUBADA continua valendo: aqui cada linha é sobre uma
+        // PESSOA que perdeu acesso, e o `granteeId` de cada uma é o que responde
+        // "por que Fulano perdeu acesso" quando ele caiu por poda da subárvore e
+        // não por revogação direta.
         action: 'PERMISSION_REVOKE',
         actorId: actor.id,
-        targetType: 'USER',
-        targetId: p.grantee_id,
+        targetType: assertAuditTargetTypeOfResource(p.resource_type),
+        targetId: p.resource_id,
         details: {
           resourceType: p.resource_type,
-          resourceId: p.resource_id,
+          granteeId: p.grantee_id,
           grantId: p.id,
           parentGrantId: p.parent_grant_id,
           rootGrantId: grantId,
@@ -338,10 +368,75 @@ export async function detachAtlasResource({ atlasId, type, resourceId, actor, re
  * — o plano de origem dizia `sv360.write.service.js` e estava errado; quem apaga é
  * `deleteProject` em `sv360.admin.service.js`. Recebe o `trx` porque uma limpeza
  * fora da transação sobrevive ao rollback do projeto.
+ *
+ * ESTA FUNÇÃO FICOU SEM CHAMADOR NENHUM POR UMA FASE INTEIRA, enquanto o comentário
+ * da migração 017 afirmava por escrito que `deleteProject` a chamava na mesma
+ * transação. Não chamava: apagar um projeto 360 deixava `resource_grants` e
+ * `atlas_resources` apontando para um UUID que não existia mais. A ligação foi
+ * feita em `deleteProject`, e é ela que dá sentido à trilha abaixo.
+ *
+ * UMA LINHA POR CONCESSÃO E UMA POR EMPRÉSTIMO, e não uma linha com contagens: este
+ * é o ÚNICO hard-delete do sistema, então depois do COMMIT não existe mais nada de
+ * onde reconstruir quem tinha acesso ao recurso apagado. Uma linha por vínculo é a
+ * última fotografia possível — a mesma razão de `revokeGrant` emitir por concessão
+ * podada, e aqui o argumento é mais forte, porque lá a linha sobrevive com
+ * `revoked_at`.
+ *
+ * ANTES do DELETE do recurso e DENTRO da transação do chamador: fora dela, uma
+ * ingestão que falhasse depois deixaria a trilha afirmando uma destruição que o
+ * rollback desfez.
+ *
  * @param {object} trx - A transação de quem está apagando.
+ * @param {string} type - Tipo de recurso (whitelist).
+ * @param {string} resourceId
+ * @param {string|null} [actorId] - Quem disparou a exclusão do recurso.
+ * @param {object} [req] - Express req, para ip/user-agent.
+ * @returns {Promise<{grants: number, atlasLinks: number}>}
  */
-export async function purgeResourceLinks(trx, type, resourceId) {
+export async function purgeResourceLinks(trx, type, resourceId, actorId = null, req = null) {
   const t = assertResourceType(type);
-  await trx.none(Q.PURGE_GRANTS_OF_RESOURCE, [t, resourceId]);
-  await trx.none(Q.PURGE_ATLAS_LINKS_OF_RESOURCE, [t, resourceId]);
+  const alvo = assertAuditTargetTypeOfResource(t);
+  const grants = await trx.any(Q.PURGE_GRANTS_OF_RESOURCE, [t, resourceId]);
+  const links = await trx.any(Q.PURGE_ATLAS_LINKS_OF_RESOURCE, [t, resourceId]);
+
+  if (actorId) {
+    for (const g of grants) {
+      await createAudit(req, {
+        action: 'PERMISSION_PURGE',
+        actorId,
+        targetType: alvo,
+        targetId: resourceId,
+        details: {
+          kind: 'grant',
+          resourceType: t,
+          grantId: g.id,
+          granteeId: g.grantee_id,
+          grantedBy: g.granted_by,
+          grantLevel: g.grant_level,
+          parentGrantId: g.parent_grant_id,
+          // `wasLive` separa a concessão que ainda valia da que já estava revogada
+          // ou vencida: só a primeira significa que alguém perdeu acesso agora.
+          wasLive: g.revoked_at === null,
+        },
+      }, trx);
+    }
+    for (const l of links) {
+      await createAudit(req, {
+        action: 'PERMISSION_PURGE',
+        actorId,
+        targetType: alvo,
+        targetId: resourceId,
+        details: {
+          kind: 'atlas_link',
+          resourceType: t,
+          atlasResourceId: l.id,
+          atlasId: l.atlas_id,
+          addedBy: l.added_by,
+          wasLive: l.removed_at === null,
+        },
+      }, trx);
+    }
+  }
+
+  return { grants: grants.length, atlasLinks: links.length };
 }
