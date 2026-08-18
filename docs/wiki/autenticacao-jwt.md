@@ -8,10 +8,11 @@ O access token não tem estado no servidor, só assinatura, e não carrega `jti`
 
 - o middleware estrito reconcilia o token contra o banco a cada requisição (`auth`, `backend/src/middleware/auth.js`, via `getLiveAuthState`);
 - o `role` **global** é sobrescrito pelo valor vivo, para que um admin rebaixado não continue admin durante a janela do token;
-- `org_role` e `organization_id` **não** são sobrescritos de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`;
+- o escopo de produção `producer_org_id` é sobrescrito **incondicionalmente**, porque é ele que autoriza escrever catálogo e acervo 360, e função se tira por ato de administração, não por relógio ([[acesso-a-recurso-privado]]);
+- `org_role` e `organization_id` **não** são sobrescritos na rota estrita, de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`. Eles não autorizam nada, então a janela continua aceitável;
 - desde 2026-07-25 essa mesma leitura traz `users.sessions_valid_from`, um corte por CONTA (não por token): a revogação em massa carimba a hora, e todo token com `iat` anterior a ela é recusado. É o que dá efeito real a "trocar a senha derruba as outras sessões" e a "reuso de refresh detectado encerra a sessão roubada", porque antes disso as duas frases eram falsas. Mecanismo, fronteira de um segundo e limites em [[refresh-token-rotacao]].
 
-Consequência que morde: **mudança de papel global vale na hora; mudança de OM ou de papel org-scoped leva até 15 minutos para valer.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
+Consequência que morde: **papel global e escopo de produção valem na hora; lotação e `org_role` levam até 15 minutos para valer, e não decidem nada enquanto isso.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 A sessão deslizante do cookie (`backend/src/middleware/flexible-auth.js`) tinha um furo pior: reassinar as claims antigas transformava "≤15 min desatualizado" em "para sempre", porque um usuário desativado que mantivesse uma requisição a cada 15 min renovava a sessão indefinidamente. Por isso a renovação **consulta o banco antes** de reemitir. Não reintroduza reemissão cega. O mesmo furo existia para sessão revogada, e por muito mais tempo: até 2026-07-25 só desativação de conta ou de OM interrompia a renovação, então um token roubado se reemitia para sempre **depois** de a detecção de reuso ter disparado. Hoje o corte de sessão também a interrompe, e derruba o cookie. Ver [[auth-flexivel]].
 
@@ -86,7 +87,7 @@ Um socket já aberto **não** revalida o token depois do handshake: a sessão do
 - `422 VALIDATION_ERROR`, não `401`: senha de **5 caracteres no login** (o mínimo de 6 do `loginSchema` vale para autenticar, não só para cadastrar) e `token` de verificação fora do formato UUID. Se a UI trata "erro no login" como "credenciais inválidas", a mensagem sai errada.
 - `401`, `403` e `429` são coisas distintas: `401` aciona refresh (uma vez) e depois login; `403` de OM inativa **não** se resolve com refresh ([[organizacoes-om]]); `429` é só espera.
 - Não use `GET /health` para decidir online/offline no boot; o boot é fail-fast em `GET /api/config` ([[config-runtime-urls-relativas]]).
-- Login e logout **não** aparecem hoje na trilha de auditoria, apesar de constarem no CHECK da tabela ([[auditoria]]).
+- Login e logout **aparecem** na trilha desde 2026-08-17, e estão entre as poucas chamadas best-effort dela (`createAuditBestEffort`): uma falha de escrita da trilha não pode derrubar a entrada nem a saída de ninguém. Login **falho** continua fora, por impossibilidade estrutural (`audit_trail.actor_id` é NOT NULL e uma tentativa recusada não tem ator identificado). Ver [[auditoria]].
 - **Nunca case por string de mensagem, use o `code` do envelope.** O idioma varia por camada e sem regra: o serviço de auth emite português (`Usuário ou senha inválidos`, `Conta desativada`, `Sessão inválida. Entre novamente.`), o middleware de JWT emite inglês (`Token expired`, `Account is inactive`). Uma UI que casa texto quebra ao atravessar essa fronteira.
 
 Ver [[erros-api]] e [[sintese-contrato-erros-http]].

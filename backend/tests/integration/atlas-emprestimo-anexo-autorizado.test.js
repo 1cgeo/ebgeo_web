@@ -1,10 +1,16 @@
 // Path: tests/integration/atlas-emprestimo-anexo-autorizado.test.js
 //
-// O GATE DE ANEXAR É DUPLO (fase F5).
+// O GATE DE ANEXAR É TRIPLO (fase F5, terceiro degrau na revisão da F9).
 //
 // `manage` no atlas NÃO basta. Quem anexa precisa também VER o recurso, senão um
 // co-Gestor emprestaria por adivinhação de id um recurso que ele mesmo não pode
 // abrir — e o empréstimo o entregaria a todos os membros do atlas.
+//
+// ESTE ARQUIVO MEDE O SEGUNDO DEGRAU (ver o recurso, 404). O TERCEIRO — ter
+// autoridade para REPASSAR o recurso, 403 — mora em
+// `atlas-emprestimo-repasse-autorizado.test.js`, e é por causa dele que as concessões
+// daqui são `view_share` e não `view`: com `view` toda chamada que este arquivo espera
+// em 201 responde 403, pelo gate do outro arquivo.
 //
 // A resposta é 404 e não 403, e a escolha é deliberada: um recurso que o ator não
 // enxerga precisa ser indistinguível de um que não existe, senão o próprio 403
@@ -59,7 +65,7 @@ describe('F5 — anexar exige `manage` E ver o recurso', () => {
     await supertest(app)
       .post(`/api/v1/resource-access/tileset/${TILESET}/grants`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ granteeId: dono.id, grantLevel: 'view' })
+      .send({ granteeId: dono.id, grantLevel: 'view_share' })
       .expect(201);
   });
 
@@ -83,7 +89,7 @@ describe('F5 — anexar exige `manage` E ver o recurso', () => {
     await supertest(app)
       .post(`/api/v1/resource-access/tileset/${TILESET}/grants`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ granteeId: coGestor.id, grantLevel: 'view' })
+      .send({ granteeId: coGestor.id, grantLevel: 'view_share' })
       .expect(201);
 
     const res = await anexar(tokenCoGestor).expect(201);

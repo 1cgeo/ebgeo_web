@@ -10,9 +10,15 @@ A frase que circula, "uma organização representa a OM dona dos dados" (origem:
 
 Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/004_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
 
-O único lugar onde a org de fato particiona dados é `sv360.projects.organization_id` com `UNIQUE (organization_id, slug)` (`backend/src/database/migrations/005_sv360.sql`). O único lugar onde `org_role` decide alguma coisa no backend é a escrita no 360 (`backend/src/modules/streetview360/sv360.write.service.js`). Ver [[streetview-360]] e [[ingestao-projetos-360]].
+A org de fato particiona dados em `sv360.projects.organization_id`, com `UNIQUE (organization_id, slug)` (`backend/src/database/migrations/005_sv360.sql`), e desde 2026-08-17 também em `owner_org_id` nas quatro tabelas de catálogo. Essas colunas dizem **quem produziu**; elas não são consultadas contra a lotação de ninguém.
 
-**Consequência prática:** nunca use `org_role` para decidir escrita em atlas. No frontend ele vira o papel de sessão no login e no restore de boot, mas o papel **por atlas** do payload do WS o sobrescreve ao conectar (`frontend/src/js/store/sync/sync-engine.js`). `org_role` é só o default de UI enquanto não há atlas conectado. Ver [[sessao-boot-e-ciclo-de-vida]] e [[sintese-eixos-de-permissao]].
+## São DUAS colunas de OM no usuário, e só uma autoriza
+
+`users.organization_id` é **lotação e exibição, sem poder nenhum**. `users.producer_org_id` é o escopo de PRODUÇÃO, escrito só por administrador, e é ele que autoriza manter o catálogo e o acervo 360 daquela OM. `org_role` **não decide nada** em nenhum arquivo do backend.
+
+Isso é uma inversão recente, e conhecê-la evita diagnóstico errado: até 2026-08-17 a lotação era auto-declarada no cadastro anônimo e **autorizava** a leitura dos projetos 360 ocultos e privados da OM escolhida, com `org_role` autorizando a escrita. Era escalação de privilégio por formulário, e o `CHECK` bicondicional de 018 (`(role='producer') = (producer_org_id IS NOT NULL)`) existe para que crachá sem escopo e escopo sem crachá sejam estados impossíveis. Ver [[acesso-a-recurso-privado]], [[streetview-360]] e [[ingestao-projetos-360]].
+
+**Consequência prática:** `org_role` não serve para decidir coisa nenhuma. No frontend ele ainda vira o papel de sessão no login e no restore de boot, mas o papel **por atlas** do payload do WS o sobrescreve ao conectar (`frontend/src/js/store/sync/sync-engine.js`), então ele é só o default de UI enquanto não há atlas conectado. Ver [[sessao-boot-e-ciclo-de-vida]] e [[sintese-eixos-de-permissao]].
 
 ## Por que o gate roda contra o banco, e não contra o JWT
 
@@ -29,7 +35,7 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 
 **Fura o gate por design:** principais de [[link-publico]]. O `auth` estrito faz early-return para qualquer `sub` que não seja UUID (guarda `PRINCIPAL_UUID_RE`, `backend/src/middleware/auth.js`), porque o token público sintético não tem linha em `users`. A autoridade dele vem do token assinado mais a flag `is_public` do atlas, e desde 2026-07-24 o visitante ainda é confinado ao atlas que emitiu o token, antes da isenção.
 
-**Não fura, mas escapa:** o mesmo middleware adota o `role` **global** ao vivo (para que um admin rebaixado não passe em `requireAdmin`), mas deliberadamente **não** sobrescreve `org_role`/`organization_id` (`backend/src/middleware/auth.js`, no bloco que atribui `req.user.role = live.role`). Mover um usuário de OM só vale de fato após o próximo refresh.
+**Não fura, mas escapa:** o mesmo middleware adota ao vivo o `role` **global** e o `producer_org_id` (`backend/src/middleware/auth.js`, no bloco que atribui `req.user.role = live.role`), mas deliberadamente **não** sobrescreve `org_role`/`organization_id`. Ou seja, tirar o crachá de produtor vale no pedido seguinte; mover alguém de OM só aparece depois do próximo refresh, e não muda autorização nenhuma enquanto isso.
 
 ## Armadilhas do CRUD
 
@@ -43,13 +49,13 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 ## Contratos congelados
 
 - **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_core.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
-- **Trocar de OM é ação de admin, nunca self-service.** `updateProfileSchema` omite `organization_id` de propósito (`backend/src/modules/users/users.schemas.js`): permitir daria ao usuário leitura dos projetos 360 privados da OM alvo e o faria passar nos gates org-scoped.
+- **Trocar de OM é ação de admin, nunca self-service**, e o mesmo vale com muito mais força para `producer_org_id`: `updateProfileSchema` omite os dois (`backend/src/modules/users/users.schemas.js`). A justificativa mudou de peso, o que importa para quem for mexer no schema: a lotação é recusada porque alimenta o gate de liveness e é identidade institucional, não porque compre acesso (não compra mais); o escopo de produção é recusado porque **é** autorização, e aceitá-lo ali seria auto-cadastro de crachá. Ver [[gestao-usuarios]].
 - **Aliases `org` e `login`** no access token são consumidos as-is pelo módulo 360 (`issueAccessToken`, `backend/src/modules/auth/auth.service.js`). Ver [[jwt-emissor-unico]], [[autenticacao-jwt]] e [[api-keys]].
 - `organization_id` é **nullable** e o fallback de token legado é `?? null` (`verifyAndMapUser`, `backend/src/middleware/auth.js`). Só o autocadastro garante org; contas por outros caminhos podem ficar sem OM. Não presuma a default.
 - OMs são **lista plana**: não há coluna de hierarquia. Subordinação militar não é representável.
 
 ## Auditoria fora da transação
 
-`ORG_CREATE`/`ORG_UPDATE`/`ORG_DELETE` chamam `createAudit` **sem** o terceiro argumento de transação (`backend/src/modules/organizations/organizations.controller.js`), e `createAudit` só entra em `t.none` quando esse argumento existe (`backend/src/utils/audit.js`). Se o insert de auditoria falhar, a org já foi criada ou desativada e a trilha não registra. É o último módulo assim: `users` e `zones` migraram para a chamada dentro do `tx` do service, e é para lá que uma auditoria nova de OM deve ir. No `ORG_DELETE` o `targetName` nem é preenchido, então a trilha guarda só o UUID. Ver [[auditoria]].
+`ORG_CREATE`/`ORG_UPDATE`/`ORG_DELETE` chamam `createAudit` **sem** o terceiro argumento de transação (`backend/src/modules/organizations/organizations.controller.js`), e `createAudit` só entra em `t.none` quando esse argumento existe (`backend/src/utils/audit.js`). Se o insert de auditoria falhar, a org já foi criada ou desativada e a trilha não registra. É o último módulo que audita fora de uma transação **que existe**, e a distinção importa desde que o catálogo passou a auditar: lá as três escritas são uma query cada, então não há transação a que aderir e a chamada no controller é a única forma possível ([[resources-catalogo]]). Aqui há, e `users` e `zones` já migraram para dentro do `tx` do service; é para lá que uma auditoria nova de OM deve ir. No `ORG_DELETE` o `targetName` nem é preenchido, então a trilha guarda só o UUID. Ver [[auditoria]].
 
 Ver [[api-rest-atlas]] para o padrão do cliente REST.

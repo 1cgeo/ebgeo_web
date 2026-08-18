@@ -1,5 +1,6 @@
 // Path: src/modules/resource-access/resource-access.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { principalUserId } from '../../utils/principal.js';
 import * as svc from './resource-access.service.js';
 
@@ -13,12 +14,20 @@ import * as svc from './resource-access.service.js';
  * carrega um sub sintético `public-<uuid>`, que num cast `::uuid` levanta 22P02 e
  * volta como um HTTP 400 sem relação aparente com a causa. NULL ali é o valor
  * CORRETO para ele, não uma degradação (R4).
+ *
+ * É O CORPO MAIS SENSÍVEL DO SISTEMA a um cache compartilhado: ele é, por definição,
+ * o delta privado deste chamador (concessão pessoal mais empréstimo do atlas em
+ * foco). Marcar escopo aqui usa a MESMA peça do 360 (`utils/cache-scope.js`), porque
+ * uma terceira definição de "esta resposta dependeu de quem pediu" é a forma que este
+ * defeito tem de voltar. Ausência de `Cache-Control` autoriza heurística, e a isenção
+ * do RFC 9111 para `Authorization` não vale sob `flexibleAuth`, que também lê cookie.
  */
 export const visible = asyncHandler(async (req, res) => {
   const data = await svc.listVisiblePrivateResources({
     userId: principalUserId(req.user),
     atlasId: req.params.atlasId ?? null,
   });
+  marcarEscopoJson(req, res);
   res.json({ data });
 });
 

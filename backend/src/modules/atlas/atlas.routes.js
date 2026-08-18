@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
-import { assertCanSeeResource } from '../../middleware/resource-access.js';
+import { assertCanSeeResource, requireResourceRelay } from '../../middleware/resource-access.js';
 import { publicLinkLimiter } from '../../middleware/rate-limit.js';
 import * as ctrl from './atlas.controller.js';
 import * as schemas from './atlas.schemas.js';
@@ -63,14 +63,22 @@ router.delete('/:atlasId/cover', auth, requireAtlasPermission('write'), ctrl.del
 // Ler exige so `read`: quem abre o atlas ja RECEBE os recursos emprestados, entao
 // esconder dele a lista do que recebeu nao protege nada.
 router.get('/:atlasId/resources', auth, requireAtlasPermission('read'), ctrl.listResources);
-// Anexar leva gate DUPLO: `manage` no atlas E ver o recurso. Sem o segundo, um
-// co-Gestor emprestaria por adivinhacao de id um recurso que ele mesmo nao abre.
+// Anexar leva gate TRIPLO: `manage` no atlas, VER o recurso e ter autoridade para
+// REPASSA-LO. O segundo impede o co-Gestor de emprestar, por adivinhacao de id, um
+// recurso que ele mesmo nao abre (404). O terceiro impede que EMPRESTAR seja uma
+// forma de repassar sem ter direito de repassar (403): `fn_can_see_resource` nao
+// distingue NIVEL de concessao, entao quem tinha so `view` — o nivel definido como
+// "ve e NAO repassa" — entregava o recurso a todo membro do atlas, e a um chamador
+// anonimo depois de o atlas virar publico. A ORDEM e contrato: o 404 do que nao se
+// enxerga vem ANTES do 403 do que nao se pode repassar, senao o segundo confirmaria
+// a existencia do recurso que o primeiro esconde.
 router.post(
   '/:atlasId/resources',
   auth,
   requireAtlasPermission('manage'),
   validate({ body: schemas.atlasResourceSchema }),
   assertCanSeeResource,
+  requireResourceRelay,
   ctrl.attachResource,
 );
 // Remover NAO exige ver o recurso: quem tem `manage` precisa poder retirar o que

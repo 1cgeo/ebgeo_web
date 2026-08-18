@@ -18,6 +18,7 @@ import { stat } from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { asyncHandler } from '../../utils/async-handler.js';
 import { streamFileToResponse } from '../../utils/stream-file.js';
+import { respostaEscopada, marcarEscopoJson } from '../../utils/cache-scope.js';
 import { NotFoundError } from '../../utils/errors.js';
 import { createSemaphore } from '../../utils/semaphore.js';
 import config from '../../config.js';
@@ -38,41 +39,13 @@ import * as blobstore from './sv360.blobstore.js';
 const IMMUTABLE_PUBLIC = 'public, max-age=31536000, immutable';
 const IMMUTABLE_PRIVATE = 'private, max-age=31536000, immutable';
 
-// A RESPOSTA DEPENDEU DE QUEM PEDIU?
-//
-// Duas fontes, e a segunda nasceu na fase F9. `req.user` sempre valeu: o corpo de um
-// tile embute papel e escopo de produção, então marcá-lo `public` autorizaria um cache
-// compartilhado a repor o tile de um membro para um anônimo. `req.atlasId` é o atlas em
-// foco DEPOIS de `requireAtlasScopeWhenPresent` tê-lo confirmado — e ele é a fonte que
-// alcança o caso que `req.user` sozinho NÃO alcança: um atlas `is_public` dá `read` a
-// chamador ANÔNIMO, então, com o empréstimo ligado, uma resposta anônima pode carregar
-// panorama emprestado. Sem este segundo termo, essa resposta sairia `public` e o
-// empréstimo vazaria pelo cache, que é a porta dos fundos exata que a fase fecha.
-//
-// A propriedade que isto preserva, e que vale escrever por extenso: RESPOSTA QUE
-// DEPENDEU DE EMPRÉSTIMO NUNCA É PUBLICAMENTE CACHEÁVEL. O teste conservador (todo
-// atlas em foco fecha o cache, mesmo quando o empréstimo não acrescentou nada) é
-// deliberado: o alternativo exigiria o SQL devolver "esta linha veio do braço de
-// empréstimo", uma segunda definição do predicado dentro da consulta que ele mesmo é.
-function respostaEscopada(req) {
-  return Boolean(req.user) || Boolean(req.atlasId);
-}
+// O ESCOPO DE CACHE das respostas JSON e dos tiles mora em `utils/cache-scope.js`
+// desde que a mesma pergunta apareceu no catalogo e no payload aditivo. O porque de
+// `req.atlasId` entrar na conta (um atlas `is_public` da `read` a chamador ANONIMO, e
+// com o emprestimo ligado a resposta anonima pode carregar recurso privado) esta la,
+// escrito uma vez.
 
-// Rotas JSON: `private, no-cache` quando a resposta dependeu de quem pediu.
-//
-// Elas nunca emitiram Cache-Control nenhum, o que autoriza um proxy compartilhado a
-// aplicar cache HEURÍSTICO — aceitável enquanto o corpo era o mesmo para todos, e não
-// mais depois que ele passa a variar por concessão e por empréstimo. `no-cache` (e não
-// `no-store`) de propósito: o navegador continua guardando e REVALIDANDO pelo ETag
-// fraco que o Express deriva do CORPO, que já incorpora o conjunto de visibilidade por
-// construção. Resposta pública continua sem cabeçalho, como sempre esteve.
-function marcarEscopoJson(req, res) {
-  if (!respostaEscopada(req)) return;
-  res.setHeader('Cache-Control', 'private, no-cache');
-  res.setHeader('Vary', 'Authorization, Cookie');
-}
-
-// Tiles (MVT e o geojson legado): 60 s, `public` só quando nada na resposta dependeu
+// Tiles (MVT e o geojson legado): 60 s, `public` so quando nada na resposta dependeu
 // de quem pediu.
 function marcarEscopoDeTile(req, res, maxAge) {
   if (respostaEscopada(req)) {

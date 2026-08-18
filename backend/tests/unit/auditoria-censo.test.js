@@ -12,14 +12,20 @@
 //
 // COMO ELE FUNCIONA, em dois níveis (o molde é `tests/unit/papel-global-censo.test.js`):
 //
-//   A VARREDURA. O inventário vem do VERSIONAMENTO (`git ls-files` sobre `src/`),
-//   nunca de uma lista de alvos escrita à mão: "conferir um subconjunto e tratar
-//   como o conjunto" é a classe mais repetida de `docs/livro-razao.md`. Toda
-//   chamada `router.post/put/patch/delete` de todo `*.routes.js` precisa aparecer
-//   no censo. Rota nova não classificada REPROVA, e isso é PROVADO por um caso
-//   deste arquivo, que aponta a mesma varredura para uma fixture com uma rota de
-//   escrita sem classificação (`tests/fixtures/censo-auditoria/`) e exige que ela
-//   seja acusada. Um guarda que afirma sobre si mesmo não é guarda.
+//   A VARREDURA. O inventário vem do VERSIONAMENTO (`git ls-files -co
+//   --exclude-standard` sobre `src/`), nunca de uma lista de alvos escrita à mão:
+//   "conferir um subconjunto e tratar como o conjunto" é a classe mais repetida de
+//   `docs/livro-razao.md`. As duas bandeiras não são detalhe: com `git ls-files`
+//   puro o inventário era só o RASTREADO, e o guarda ficava cego exatamente onde o
+//   trabalho novo aparece — a rota escrita há cinco minutos, que é a que ninguém
+//   classificou, ficava fora da varredura até alguém dar `git add`, e o censo
+//   passava verde sem tê-la olhado. Toda chamada `router.post/put/patch/delete` de
+//   todo `*.routes.js` precisa aparecer no censo. Rota nova não classificada
+//   REPROVA, e isso é PROVADO por DOIS casos deste arquivo: um aponta a mesma
+//   varredura para uma fixture com uma rota de escrita sem classificação
+//   (`tests/fixtures/censo-auditoria/`) e exige que ela seja acusada; o outro cria um
+//   arquivo NÃO RASTREADO e exige que o inventário o alcance. Um guarda que afirma
+//   sobre si mesmo não é guarda.
 //
 //   O CENSO. Uma entrada por rota, em exatamente uma de TRÊS classes:
 //     - AUDITADA: emite trilha. A entrada nomeia a AÇÃO e o ARQUIVO EMISSOR, e o
@@ -259,9 +265,27 @@ function semComentarios(src) {
   return semBloco.split('\n').map((linha) => linha.replace(/\/\/.*/, '')).join('\n');
 }
 
-function arquivosVersionados() {
-  return execFileSync('git', ['ls-files', 'src'], { cwd: RAIZ, encoding: 'utf8' })
-    .split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
+/**
+ * O INVENTÁRIO: rastreado MAIS não rastreado não ignorado.
+ *
+ * `git ls-files src` sozinho lista só o que já passou por `git add`. O efeito é um
+ * ponto cego posicionado no pior lugar possível: o arquivo que a fase corrente acabou
+ * de escrever é o que ainda não foi classificado, e era o único que a varredura não
+ * via. O censo respondia verde sobre um inventário que não continha o trabalho novo,
+ * que é cobertura vazia com cara de aprovação.
+ *
+ * `--others --exclude-standard` acrescenta o NÃO RASTREADO e mantém fora o IGNORADO
+ * (`node_modules/`, `coverage/`, `data/`). As duas metades são MEDIDAS — a segunda
+ * pelo caso-piso, a primeira pelo controle negativo do fim deste arquivo — e nenhuma
+ * delas fica afirmada aqui em prosa.
+ * @param {string} [pathspec] - Relativo à raiz do pacote.
+ * @returns {string[]} Caminhos relativos, só `.js`.
+ */
+function arquivosDoInventario(pathspec = 'src') {
+  return execFileSync(
+    'git', ['ls-files', '--cached', '--others', '--exclude-standard', pathspec],
+    { cwd: RAIZ, encoding: 'utf8' }
+  ).split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
 /**
@@ -297,7 +321,7 @@ function naoClassificadas(achadas) {
     .map((a) => `${a.arquivo}:${a.linha} ${a.rota}`);
 }
 
-const arquivosDeRota = () => arquivosVersionados().filter((a) => a.endsWith('.routes.js'));
+const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.routes.js'));
 
 /** As ações declaradas no CHECK da 020, lidas do .sql (nunca de uma terceira cópia). */
 function acoesDoCheck() {
@@ -325,7 +349,7 @@ function alvosDoCheck() {
 
 /** O CÓDIGO (sem comentário) de todo arquivo versionado de `src/`, por caminho. */
 function fontesDeSrc() {
-  return new Map(arquivosVersionados().map((a) => [
+  return new Map(arquivosDoInventario().map((a) => [
     a, semComentarios(fs.readFileSync(path.join(RAIZ, a), 'utf8')),
   ]));
 }
@@ -342,6 +366,19 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
       );
     }
     assert.ok(arquivos.length >= 15, `esperava >= 15 arquivos de rota, achei ${arquivos.length}`);
+
+    // A OUTRA METADE DO INVENTÁRIO: `--others` SEM `--exclude-standard` arrastaria
+    // `node_modules/` inteiro, e um censo com dezenas de milhares de arquivos de
+    // terceiro é um censo que ninguém fecha. A medição é sobre o PACOTE inteiro, e não
+    // sobre `src/`, porque em `src/` não há nada ignorado: medir ali seria vácuo.
+    assert.ok(
+      fs.existsSync(path.join(RAIZ, 'node_modules')),
+      'sem `node_modules` no disco esta medição não prova nada: instale as dependências'
+    );
+    const doPacote = arquivosDoInventario('.');
+    assert.ok(doPacote.length >= 100, `esperava >= 100 arquivos .js no pacote, achei ${doPacote.length}`);
+    const lixo = doPacote.filter((a) => /(^|[/])(node_modules|coverage|dist|data)[/]/.test(a));
+    assert.deepEqual(lixo, [], '`--exclude-standard` deixou entrar arquivo ignorado no inventário');
     assert.ok(arquivos.includes('src/modules/atlas/atlas.routes.js'), 'a varredura precisa alcançar o atlas');
     assert.ok(arquivos.includes('src/modules/catalog/catalog.routes.js'), 'e o catálogo');
 
@@ -500,5 +537,63 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     // Um par, e não duas afirmações soltas: sem o lado positivo, "acusa" também
     // seria o comportamento de uma função que acusa tudo.
     assert.deepEqual(naoClassificadas(rotasDeEscrita(arquivosDeRota())), []);
+  });
+
+  it('o inventário ENXERGA arquivo NOVO ainda não rastreado (provado, não afirmado)', () => {
+    // O SEGUNDO CEGO DESTE ARQUIVO, e o mais fácil de não ver, porque ele não erra a
+    // classificação: erra o CONJUNTO. `git ls-files` sozinho enumera o índice, então a
+    // rota de escrita escrita há cinco minutos — a que ninguém classificou ainda —
+    // ficava fora da varredura até alguém dar `git add`, e o censo passava verde sem
+    // tê-la olhado. Provar a correção exige um arquivo que EXISTA e NÃO esteja
+    // rastreado: ele nasce aqui e morre no `finally`.
+    const dir = 'tests/fixtures/censo-auditoria';
+    const relativo = `${dir}/tmp-nao-rastreado.routes.js`;
+    const abs = path.join(RAIZ, relativo);
+    fs.writeFileSync(abs, [
+      `// Path: ${relativo}`,
+      '// Temporário: criado e apagado pelo controle negativo de `auditoria-censo.test.js`.',
+      "router.post('/rota-de-escrita-recem-nascida', ctrl.qualquer);",
+      '',
+    ].join('\n'));
+
+    try {
+      // CONTROLE: o git precisa CONCORDAR que ele não está rastreado, e precisa
+      // enxergar a fixture rastreada nos dois modos. Sem este par, o caso passaria
+      // verde num mundo em que alguém tivesse dado `git add` no arquivo temporário, e
+      // aí ele não provaria nada sobre `--others`.
+      const soRastreados = execFileSync('git', ['ls-files', dir], { cwd: RAIZ, encoding: 'utf8' });
+      assert.ok(
+        !soRastreados.includes('tmp-nao-rastreado'),
+        'a fixture temporária não pode estar rastreada, senão este caso não distingue os dois modos'
+      );
+      assert.ok(
+        soRastreados.includes('exemplo-nao-classificado.routes.js'),
+        'o pathspec precisa alcançar a fixture rastreada'
+      );
+
+      const inventario = arquivosDoInventario(dir);
+      assert.ok(
+        inventario.includes(relativo),
+        'o inventário precisa enxergar o arquivo NÃO RASTREADO: é ele que representa o trabalho da '
+        + 'fase corrente, e era exatamente o que `git ls-files` sozinho deixava de fora'
+      );
+      assert.ok(
+        inventario.includes(`${dir}/exemplo-nao-classificado.routes.js`),
+        'e o rastreado precisa continuar dentro: a correção SOMA, não troca'
+      );
+
+      // E A CADEIA INTEIRA, que é o que transforma "o inventário vê" em "o guarda
+      // pega": o arquivo novo é varrido e a rota dele é ACUSADA, pela MESMA função dos
+      // casos acima.
+      const acusadas = naoClassificadas(
+        rotasDeEscrita(inventario.filter((a) => a.endsWith('.routes.js')))
+      );
+      assert.ok(
+        acusadas.some((a) => a.includes('rota-de-escrita-recem-nascida')),
+        `a rota do arquivo não rastreado precisa ser ACUSADA; acusadas: ${acusadas.join(' | ')}`
+      );
+    } finally {
+      fs.rmSync(abs, { force: true });
+    }
   });
 });

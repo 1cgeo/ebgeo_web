@@ -1,12 +1,18 @@
 # Resources (catálogo global de camadas e assets)
 
-Registro global versionado por categoria, legível por qualquer autenticado e escrito só por admin, que alimenta o `GET /api/v1/config` de todo cliente.
+Registro global versionado por categoria, filtrado na leitura pelo eixo de acesso a recurso e escrito por administrador ou pela OM produtora, que alimenta o `GET /api/v1/config` de todo cliente.
 
 ## A distinção que mais confunde
 
 O catálogo diz **o que existe no servidor**; o [[atlas-settings]] diz **o que aquele atlas pode usar** (subconjunto). Remover do catálogo some para todos; tirar de `available_data_layers` some só naquele atlas. São eixos independentes: nunca "conserte" visibilidade de um mexendo no outro.
 
-O papel que destrava a escrita é `role = admin` **global de usuário**, não permissão de atlas: um `owner` de atlas não edita catálogo ([[permissoes-atlas]], [[gestao-usuarios]]).
+## O gate de escrita são DUAS camadas, e nenhuma duplica a outra
+
+Escrever no catálogo deixou de ser só-admin: passa também o **produtor**, dentro do escopo de `users.producer_org_id` ([[acesso-a-recurso-privado]]). Nenhuma permissão de atlas destrava nada aqui, e um `owner` de atlas continua sem editar catálogo ([[permissoes-atlas]], [[gestao-usuarios]]).
+
+A divisão do trabalho é o que importa, porque as duas camadas parecem redundantes e não são. `requireCatalogProducer` (`backend/src/middleware/resource-access.js`) só pergunta "esta pessoa produz **alguma** coisa?" e recusa cedo, com 403, quem não produz nada. **Qual linha** é dela é decidido dentro do `WHERE` da própria escrita (`backend/src/modules/catalog/catalog.service.js`), na mesma consulta que muta: é isso que fecha a janela entre ler o dono e escrever, e é por isso que a linha de outra OM devolve **404**, não 403, pela mesma escada de "o que você não vê não existe".
+
+Duas consequências que o código não anuncia: o tipo de produção vem da **tabela com que o router foi fabricado**, nunca do request (é o mesmo cuidado de `assertTable`); e `owner_org_id` **nunca é lido do corpo** na criação, senão o produtor escolheria de quem é o que ele acabou de criar.
 
 ## Quatro tabelas dedicadas, não uma `resources` genérica
 
@@ -33,7 +39,7 @@ Nasceram CINCO e são QUATRO desde a migração 021: `streetview_markers` foi ap
 ## O que não existe (e parece que existe)
 
 - **Catálogo não passa pelo sync.** É REST puro e global, fora de [[sintese-rest-vs-sync]] e [[sync-admin-operacoes]]. Um admin trocando basemap não gera evento: quem está com o app aberto continua com o config do boot dele. O `no-cache` do `/config` só garante que o **próximo** boot vê a mudança, o oposto do regime de [[sintese-cache-http-imutavel]]. Desde 2026-07-25 o payload do `/config` é memoizado no servidor, e é por isso que **toda** escrita daqui chama `invalidateAppConfigCache()` (`backend/src/modules/catalog/catalog.service.js`): o `no-cache` continua valendo porque a invalidação é na escrita, não por TTL. Escrever nessas tabelas por SQL cru contorna isso, ver [[config-dinamico]].
-- **Escritas de catálogo não são auditadas.** `createAudit` é chamado por `users`, `organizations` e `zones`, e por nenhum arquivo de `modules/catalog/`. Troca de basemap global não deixa rastro em [[auditoria]]. Trabalho a fazer, não algo existente.
+- **As escritas de catálogo passaram a ser auditadas** (`CATALOG_CREATE`/`UPDATE`/`DELETE`, [[auditoria]]), e a razão é o produtor: enquanto o autor era sempre o admin, a trilha era quase adivinhável; com N autores por OM deixou de ser. O detalhe que morde ao acrescentar tabela: o `target_type` da trilha é um **terceiro** vocabulário, nem o das tabelas nem o do `CHECK` de `resource_grants`, e os três mapas moram juntos em `backend/src/modules/catalog/catalog.tables.js` de propósito. Valor fora do `CHECK` levanta 23514 no INSERT da trilha, e como a auditoria é transacional isso derruba a escrita inteira.
 - **`streetview_markers` NÃO EXISTE MAIS.** Ela ficou órfã desde que nasceu (`LIKE basemaps INCLUDING ALL`, 003): `backend/src/modules/config/config.service.js` nunca a incluiu, nenhum código de frontend chamou a rota dela, nenhum seed a populou, e o 360 real usa o schema próprio `sv360.*`. A migração 021 apagou a tabela, o mount e a categoria, sem depreciação — não havia o que depreciar. O que sobrevive é o valor `STREETVIEW_MARKER` no `CHECK` de `audit_trail.target_type`, hoje sem escritor e censado como buraco conhecido em `backend/tests/unit/auditoria-censo.test.js`. Os marcadores 360 do mapa continuam vindo do módulo de verdade ([[streetview-360]], [[ingestao-projetos-360]]).
 - **`basemap` é o quinto tipo de recurso privado desde a 021.** Antes dela a camada de base já tinha `access_level` e já era filtrada (marcar privado a escondia de todo mundo), mas não existia `basemap` no `CHECK` de `resource_grants.resource_type`, então não havia como devolvê-la a quem tem direito. Era meia regra: fechava e não abria. A superfície é o SELETOR DE CAMADA BASE, e o item concedido chega pelo payload aditivo, somado em `config.basemaps` (e o estilo em `config.basemapStyles`) por `mergeGrantedIntoBaseline`. Duas consequências que a leitura do catálogo não entrega: o botão **Compartilhar** de um basemap mora no SELETOR (`frontend/src/js/base-layer-selector/base-layer-selector.control.js`), e não nesta aba de administração, porque `admin.html` boota sem a store e o modal de concessão arrasta o motor de sync; e o estilo de um basemap criado pelo painel só desenha porque o controle resolve `config.basemapStyles` quando não tem estilo embutido para o id (`frontend/src/js/baselayers/basemap-style.js`) — antes disso ele aparecia na lista e o clique caía noutra camada.
 - **Metadata, não bytes.** Criar um `tileset` com `config.url` para caminho inexistente produz item que aparece na UI e falha ao abrir. Publique o asset primeiro ([[assets3d-distribuicao]], [[catalogo-3d]]).
@@ -72,5 +78,6 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 - [[config-dinamico]], [[config-runtime-urls-relativas]]: como o catálogo chega ao cliente.
 - [[atlas-settings]]: recorte por atlas sobre o catálogo global.
 - [[catalogo-3d]], [[assets3d-distribuicao]], [[streetview-360]]: consumidores de `tileset` e 360.
-- [[gestao-usuarios]], [[permissoes-atlas]], [[organizacoes-om]]: o papel `admin`.
+- [[acesso-a-recurso-privado]]: a marca público/privado, quem a destrava na leitura e o escopo de produção que destrava a escrita.
+- [[gestao-usuarios]], [[permissoes-atlas]], [[organizacoes-om]]: os papéis globais e quem os escreve.
 - [[api-rest-atlas]], [[erros-api]], [[autenticacao-jwt]]: convenções REST, erro e auth.

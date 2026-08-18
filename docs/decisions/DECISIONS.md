@@ -59,4 +59,16 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-15 | Namespace de IndexedDB por atlas, com expurgo derivado de registro (supera P12) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-15 | A fila de saída vira um banco por atlas (reverte a alternativa rejeitada da entrada acima) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-16 | Um registro único de tipo de feição, e a recusa do modelo de source por camada | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-16 | Capa de atlas enviada pelo usuário (supera a recusa de 2026-07-25) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-16 | Recursos privados do catálogo, concessão em árvore e empréstimo por atlas (D1 a D6) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-17 | O escopo de produção é uma coluna em `users`, não uma tabela de vínculos (supera D6) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-17 | O prazo da concessão morre no predicado, nunca em varredura | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-17 | A trilha de auditoria é completa e vive fora do atlas | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-18 | `streetview_markers` sai do sistema, sem depreciação | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-18 | O empréstimo por atlas alcança o 360, e o UUID do atlas não é senha | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-18 | Concessão expira, escopo de produção não (assimetria deliberada) | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-15 | Fase multi-aba: o plano como executado (registro, com as sete decisões de desenho por extenso) | [fase-multiaba-2026-08.md](fase-multiaba-2026-08.md) |
+
+As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
+do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
+não erra, ele só encolhe). Quem escrever a próxima entrada confere a contagem dos dois lados.

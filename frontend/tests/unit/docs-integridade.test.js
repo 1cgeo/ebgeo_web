@@ -177,7 +177,11 @@ const FONTES_DE_CODIGO = [
     ...['frontend/scripts', 'backend/scripts', 'scripts', 'deploy'].flatMap((d) =>
         coletarPorExtensao(d, ['.js', '.mjs', '.yml', '.yaml', '.sh', '.conf'])
     ),
-    ...['frontend/vite.config.js', 'frontend/vitest.config.js', 'frontend/eslint.config.js', 'backend/eslint.config.js'],
+    // `playwright.config.js` entrou em 2026-08-18 pela mesma razão dos três acima: o
+    // guarda acusava `reuseExistingServer`, opção REAL e citada por um registro do
+    // livro-razão, só porque o único arquivo que a declara ficava fora do índice.
+    ...['frontend/vite.config.js', 'frontend/vitest.config.js', 'frontend/eslint.config.js',
+        'frontend/playwright.config.js', 'backend/eslint.config.js'],
 ].filter((f) => existsSync(join(RAIZ, f)));
 
 function coletarPorExtensao(dir, exts, acc = []) {
@@ -243,6 +247,7 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],
     ['manualChunks', 'opção depreciada do Rollup que o vite.config.js DEIXOU de usar em 2026-08-05 (trocada por codeSplitting.groups + entriesAware quando admin.html virou um segundo entry); a doc a nomeia justamente para dizer que não está mais lá'],
     ['showProjectPickerModal', 'export que sumiu em 2026-08-05, quando o seletor de projetos deixou de ser modal e virou atlas.html; a doc o nomeia para dizer o que deixou de existir na mudança'],
+    ['ROLE_ORDER', 'contra-exemplo deliberado: os quatro papéis globais NÃO formam escada, e a constituição do backend nomeia essa constante inexistente justamente para dizer que comparar papel global por ordem é erro de leitura (migração 018_papeis_globais.sql)'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
 ]);
 

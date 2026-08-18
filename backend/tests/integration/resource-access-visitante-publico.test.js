@@ -63,7 +63,12 @@ describe('R4 — o visitante de link público herda o empréstimo, e só o do at
     await supertest(app)
       .post(`/api/v1/resource-access/tileset/${TILESET}/grants`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ granteeId: dono.id, grantLevel: 'view' })
+      // `view_share` e não `view`: ANEXAR exige autoridade de REPASSE, porque
+      // emprestar É repassar (o negativo mora em
+      // `atlas-emprestimo-repasse-autorizado.test.js`). O nível não muda nada do que
+      // ESTE arquivo mede — D4 sustenta o empréstimo com qualquer concessão viva do
+      // dono, e é o escopo por atlas que está sob medição aqui.
+      .send({ granteeId: dono.id, grantLevel: 'view_share' })
       .expect(201);
     // SÓ o atlas A empresta.
     await supertest(app)

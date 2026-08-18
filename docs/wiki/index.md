@@ -60,7 +60,8 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 - [[organizacoes-om]] - a Organização Militar como tenant de primeira classe.
 - [[gestao-usuarios]] - ciclo de vida administrativo das contas, incluindo desativação com transferência de atlas.
-- [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito só por admin.
+- [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito por administrador ou pela OM produtora.
+- [[acesso-a-recurso-privado]] - a marca público/privado nos cinco tipos de recurso, a concessão em árvore com prazo e o empréstimo que um atlas faz do que anexou.
 - [[auditoria]] - a trilha de eventos de negócio e sua consulta administrativa.
 - [[config-dinamico]] - o endpoint público que substitui o config.js estático e monta o payload em runtime.
 
@@ -96,7 +97,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[sintese-rest-vs-sync]] - o que muda por REST e o que só muda por operações de sync.
 - [[sintese-modulos-fora-do-sync]] - os módulos REST que ficam fora do sync e o que isso exige do frontend.
 - [[sintese-limites-collab]] - os limites conhecidos da colaboração hoje.
-- [[sintese-eixos-de-permissao]] - os três eixos ortogonais de permissão e quem decide o quê.
+- [[sintese-eixos-de-permissao]] - os eixos ortogonais de permissão e quem decide o quê, incluindo o que deixou de decidir.
 - [[sintese-capacidades-por-papel]] - onde cada papel realmente muda de comportamento.
 - [[sintese-contrato-erros-http]] - o mapa consolidado dos status HTTP e a reação esperada do cliente.
 - [[sintese-contratos-congelados]] - os envelopes divergentes e os shapes que não podem mudar.

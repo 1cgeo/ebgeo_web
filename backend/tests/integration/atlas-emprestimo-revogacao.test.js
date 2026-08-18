@@ -68,8 +68,14 @@ describe('F5/D4 — o empréstimo vive enquanto o DONO do atlas vê o recurso', 
     );
 
     // O DONO recebe a concessão; o GESTOR também, senão ele não poderia anexar.
+    //
+    // OS NÍVEIS SÃO DIFERENTES DE PROPÓSITO, e a diferença é o que este arquivo
+    // discrimina: ANEXAR exige autoridade de REPASSE (`view_share`), então é isso que
+    // o gestor recebe; SUSTENTAR o empréstimo (D4) não olha nível nenhum, só exige uma
+    // concessão viva do DONO, e por isso ele fica com `view`. Dar `view_share` aos dois
+    // faria o arquivo medir uma condição só.
     grantDoDono = (await conceder(tokenAdmin, dono.id, 'view').expect(201)).body.data;
-    await conceder(tokenAdmin, gestor.id, 'view').expect(201);
+    await conceder(tokenAdmin, gestor.id, 'view_share').expect(201);
 
     // Quem ANEXA é o co-Gestor, e não o dono: é o que separa "quem criou" de "o que
     // sustenta". Se as duas condições fossem a mesma, este arquivo mediria uma só.

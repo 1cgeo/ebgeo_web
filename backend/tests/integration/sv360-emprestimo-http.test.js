@@ -175,10 +175,17 @@ describe('F9 — o empréstimo por atlas alcança o 360 sobre HTTP', () => {
     // O EMPRÉSTIMO. A concessão ao DONO é o que o sustenta (D4: o empréstimo vive
     // enquanto o dono do atlas vê o recurso), e é o dono quem anexa — `assertCanSeeResource`
     // recusaria quem não enxerga o recurso que está emprestando.
+    //
+    // O NÍVEL É `view_share` E NÃO `view`, e não é detalhe de fixture: ANEXAR passou a
+    // exigir autoridade de REPASSE (`requireResourceRelay`), porque emprestar É
+    // repassar. Com `view` esta chamada é 403, e o par que este arquivo mede (um atlas
+    // PÚBLICO entregando o panorama emprestado a um anônimo) só é defensável porque a
+    // cadeia começa em alguém que podia repassar. O caso negativo mora em
+    // `atlas-emprestimo-repasse-autorizado.test.js`.
     await supertest(app)
       .post(`/api/v1/resource-access/sv360_project/${projetoId}/grants`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ granteeId: dono.id, grantLevel: 'view' })
+      .send({ granteeId: dono.id, grantLevel: 'view_share' })
       .expect(201);
     await supertest(app)
       .post(`/api/v1/atlas/${atlasComEmprestimo.id}/resources`)

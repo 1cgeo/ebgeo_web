@@ -31,7 +31,10 @@ npm run dev            # node --watch
 npm run db:migrate     # aplica migrações | npm run db:seed
 npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws). Sem
                        #   argumento auto-eleva para c8 e verifica o PISO de cobertura; com
-                       #   argumento não, e o runner usa só o PRIMEIRO pattern que receber.
+                       #   argumento não, e o runner usa só o PRIMEIRO pattern que receber:
+                       #   `npm test -- a.test.js b.test.js` roda SÓ o `a` e reporta verde
+                       #   pelos dois (`args.find(a => !a.startsWith('--'))`). Já recorreu duas
+                       #   vezes; passe UM alvo por comando, e um comando por alvo.
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run test:fast -- tests/integration/x.test.js  # laço apertado: reaproveita o banco
@@ -72,8 +75,39 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
 - **Geometria do atlas é JSONB** (schema `public`, mesmo formato do IndexedDB). **PostGIS vive só nos
   schemas `ng`** (nomes/edificações/catálogo 3D) **e `sv360`**. **Nunca** adicione PostGIS ao schema
   do atlas (decisão: filtro espacial do atlas seria bbox em JS, não `ST_Intersects`).
-- **Controle de acesso embutido na query SQL** (`ng`/`sv360`): o dado privado não vaza nem com bug de
-  app. Toda query com filtro de acesso **exige um teste negativo** (usuário sem permissão não vê).
+- **Controle de acesso embutido na query SQL** (`ng`, `sv360` e, desde a 017, o catálogo): o dado
+  privado não vaza nem com bug de app. Toda query com filtro de acesso **exige o par completo**, o
+  teste negativo (quem não tem permissão não vê) **e o positivo do mesmo par** (quem tem, vê): o
+  negativo sozinho passa idêntico se a fixture não existir, se a rota sumir ou se o filtro passar a
+  negar tudo.
+- **DOIS eixos de permissão, e eles NÃO compartilham uma palavra.** O eixo GLOBAL (`users.role`) tem
+  quatro valores que **não são uma escada**: `user`, `producer`, `credenciado`, `admin`. Nenhum
+  contém o outro, então comparar papel global por ordem (`>=`, índice em array, um `ROLE_ORDER`) é
+  erro de leitura, não otimização, e `role !== 'user'` num gate de administração promove o
+  credenciado em silêncio, que é o risco INVERSO ao da lista fechada por atlas. O eixo POR ATLAS
+  (`read < comment < write < manage < owner`) **é** escada e se gateia pela hierarquia. Vocabulário:
+  `producer` MANTÉM o que a OM dele produziu (escopo em `users.producer_org_id`, escrito só por
+  administrador, com CHECK bicondicional contra `role`); `credenciado` LÊ todo recurso privado e
+  **não escreve nada**. Censo em `tests/unit/papel-global-censo.test.js`, que reprova sítio novo
+  não classificado.
+- **`users.organization_id` é LOTAÇÃO e não autoriza nada** (migração 019). Ele é auto-declarado no
+  auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, e conta sem e-mail nasce ativa na
+  hora), e enquanto autorizava era escalação de privilégio por formulário público: escolher a OM
+  alheia num `<select>` entregava todo projeto 360 oculto e privado dela. Todo ramo de autorização
+  que lia lotação lê hoje o escopo de PRODUÇÃO. Repro em
+  `tests/integration/auto-cadastro-om-nao-autoriza.repro.test.js`.
+- **Recurso de catálogo: QUATRO tabelas, CINCO tipos concedíveis.** As tabelas são `basemaps`,
+  `data_layers`, `analysis_layers` e `tilesets` (a `streetview_markers` foi apagada na 021, por
+  nunca ter tido leitor); os tipos de concessão e de empréstimo somam `sv360_project` às quatro.
+  O predicado de acesso é **uma definição só**, em função SQL (`fn_can_access_resource` e as duas de
+  baixo), chamada de dentro das queries e nunca reimplementada em JS. **O papel é resolvido no
+  BANCO, nunca lido do JWT**: `flexibleAuth` não reconcilia, então um credenciado rebaixado
+  carregaria o papel antigo por até 15 min.
+- **Concessão tem PRAZO obrigatório, teto de um ano, e ele morre no PREDICADO** (`expires_at >
+  NOW()` em toda query de concessão viva), nunca por varredura: um sweeper de expiração seria mais
+  um verificador quebrando calado. Filho nunca expira depois do pai (clamp por `LEAST` no INSERT).
+  A assimetria com o escopo de produção é deliberada: concessão vence sozinha, `producer_org_id`
+  não vence e só sai por ato de administrador (com `PRODUCER_SCOPE_CHANGE` na trilha).
 - **Permissão por atlas tem CINCO níveis**: `read < comment < write < manage < owner`
   (`PERMISSION_LEVELS` em `middleware/permissions.js`; `owner` é sintetizado de `atlas.owner_id`, o
   CHECK da coluna é `read|comment|write|manage`). Sempre gate pela **hierarquia** ou por
@@ -83,12 +117,24 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
 - **Soft-delete sempre** (`deleted_at`, ou `is_active` p/ usuários; tombstone p/ fotos 360). **Nunca**
   faça hard-DELETE de entidade principal. `atlas.owner_id`/`images.uploaded_by`/`atlas_shares.added_by`
   são FK **sem `ON DELETE`** → reatribua (`?transferTo`) antes de qualquer hard-delete de usuário.
+- **A trilha de auditoria (`audit_trail`) é global e vive FORA do atlas**: ela não é entidade
+  colaborativa, não viaja em op de sync e não tem namespace por atlas. Desde a 020 o alvo é coluna
+  de primeira classe (`target_id` virou TEXT, porque id de catálogo é slug e gravar slug em coluna
+  UUID levanta `22P02`, que a borda traduz num 400 sem relação aparente com o assunto), e `'SYSTEM'`
+  voltou a significar sistema em vez de depósito do alvo que não coube. **Ação declarada no CHECK
+  sem emissor lê como "isto é auditado" e não é**: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` viveram assim
+  desde a 001. Quem cobra hoje é `tests/unit/auditoria-censo.test.js`, com piso decrescente de
+  buracos conhecidos.
 - **Contratos congelados do frontend**: mudar o *shape* exige teste de contrato e alinhamento:
   `GET /api/config` (config.js), `GET /nomes/busca` (array nu), metadado de foto `sv360` (câmera plana,
   `previewThumbnail` relativo), envelope de operação de sync, e o snapshot (estrutura idêntica ao IndexedDB).
-- **Identidade = JWT de emissor único**: `sub`, `role ∈ {user,admin}` (global), `organization_id`,
-  `org_role ∈ {owner,editor,viewer,admin}` + aliases `org`/`login`. Tokens legados degradam
-  (`org_role→viewer`, `organization_id→null`). `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
+- **Identidade = JWT de emissor único**: `sub`, `role ∈ {user,producer,credenciado,admin}` (global),
+  `organization_id` (lotação, só exibição), `org_role ∈ {owner,editor,viewer,admin}`,
+  `producer_org_id` (escopo de produção, `null` = não produz) + aliases `org`/`login`. Tokens
+  legados degradam (`org_role→viewer`, `organization_id→null`, `producer_org_id→null`, que é o valor
+  certo: quem não tem a claim não produz). **Nenhum ramo de autorização deve LER
+  `producer_org_id` do token**: ele alimenta INSERT e pré-filtro, e a garantia fica no SQL.
+  `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
   `x-api-key`, preserva anônimo); rotas de escrita usam o middleware `auth` **estrito** (401 sem token).
   `flexibleAuth` faz **sliding session**: renova o cookie `token` quando faltam <5 min p/ expirar.
 - **Lifecycle de socket de colaboração é CLIENT-DRIVEN** (contrato p/ o frontend): `auth.logout` só revoga o
@@ -128,6 +174,15 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
 qual é com `ls src/database/migrations/`, nunca por esta linha: ela já afirmou um head duas vezes, e
 das duas estava desatualizada, porque número fixo em prosa envelhece a cada migração.
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
+
+**DDL destrutiva** (`DROP CONSTRAINT`, `DROP TABLE`, `ALTER COLUMN ... TYPE`) exige **uma linha por
+ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`), **no mesmo
+commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
+da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
+Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
+como destrutivo. **Forward-only vale a partir do momento em que a migração sai daqui**: reescrever
+um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse caso o `UPDATE`
+defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.
 
 ## Segurança (baseline)
 

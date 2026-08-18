@@ -14,9 +14,11 @@ Segunda armadilha, no mesmo par de campos: só `rank_id` e `organization_id` pod
 
 Os demais campos são `COALESCE` puro, mas o modo de falha que isso sugere (mandar `null` e receber 200 com o valor antigo, parecendo que gravou) **não é alcançável pela API**, e esta página o afirmou por um tempo. `updateUserAdminSchema` declara os outros campos como `Joi.string()`/`Joi.boolean()` **sem** `.allow(null)` (`backend/src/modules/users/users.schemas.js`), o `validate` roda na borda da rota e devolve o erro Joi antes de qualquer SQL: `PUT /users/:id {"nome": null}` responde **422**, nunca 200. A assimetria real, e a que morde numa UI, é outra: o mesmo gesto de "limpar campo" apaga em dois campos e é recusado em todos os demais.
 
-## Perfil próprio não pode trocar de organização
+## Perfil próprio não pode trocar de organização, e a razão mudou
 
-`updateProfileSchema` omite `organization_id` de propósito (`backend/src/modules/users/users.schemas.js`). Não é esquecimento: com auto-serviço de tenant, o próximo refresh emitiria um token com a claim da org alvo e o usuário passaria os portões org-scoped (projetos privados de sv360, login, WS). Movimentação de tenant é ação de admin. Ver [[jwt-emissor-unico]].
+`updateProfileSchema` omite `organization_id` de propósito (`backend/src/modules/users/users.schemas.js`). A justificativa original **caducou e vale registrar por quê**: ela era que trocar de OM comprava os projetos 360 privados da OM alvo. Isso era verdade, e era uma escalação de privilégio alcançável também pelo auto-cadastro, onde a OM é escolhida livremente entre UUIDs que o próprio `/api/config` publica. Fechada em 2026-08-17: `organization_id` virou lotação e exibição, e quem autoriza produção é `producer_org_id`, campo que **só o caminho de admin escreve** e que carrega ação de auditoria própria (`PRODUCER_SCOPE_CHANGE`, separada de `ROLE_CHANGE` porque um produtor pode mudar de OM sem mudar de papel). Ver [[acesso-a-recurso-privado]] e [[jwt-emissor-unico]].
+
+A omissão continua certa por uma razão mais fraca e suficiente: a lotação alimenta o gate de liveness (OM desativada barra a conta, ver [[organizacoes-om]]), então auto-mover-se entre tenants é escrita de identidade, não de perfil. `producer_org_id` é recusado ali com muito mais força, porque ele **é** autorização: aceitá-lo no perfil próprio seria auto-cadastro de crachá, o defeito que a fase inteira existe para fechar.
 
 ## Ordem de rotas é contrato congelado
 
@@ -64,7 +66,7 @@ Desativar e rebaixar valem na hora, apesar dos 15 minutos do access token, porqu
 
 **São dois mecanismos, não um, e o segundo não é HTTP.** O sweep de heartbeat do canal colaborativo chama `reconcileAuthorization` (`backend/src/modules/collab/collab.gateway.js`), que consulta o mesmo `getLiveAuthState` e fecha o socket com código `4003` quando a conta ou a organização estão inativas, além de adotar o papel global vivo antes de reresolver a permissão do atlas. Sem isso um socket **já aberto** sobrevivia indefinidamente à desativação, porque `deleteUser` revoga refresh token e o handshake nunca é refeito. A janela aqui é a do sweep (~30s), não a do token. Ver [[canal-collab-websocket]] e [[presenca-colaborativa]].
 
-O que **não** é reconciliado, e por isso continua limitado à janela do token: `org_role` e `organization_id`. Também não confunda linha ausente com revogação, o sistema só faz soft-delete, linha sumida é anomalia. Principais de link público (`sub` no formato `public-<uuid>`) saem antes da reconciliação por não terem linha em `users`, ver [[link-publico]] e [[autenticacao-jwt]].
+**São dois os campos reconciliados**, não um: o papel global e o escopo de produção `producer_org_id`, este último incondicionalmente e nos dois middlewares, porque é ele que autoriza escrever catálogo e acervo 360 ([[acesso-a-recurso-privado]]). O que **não** é reconciliado na rota estrita, e por isso continua limitado à janela do token: `org_role` e `organization_id`, que desde 2026-08-17 não autorizam nada. Também não confunda linha ausente com revogação, o sistema só faz soft-delete, linha sumida é anomalia. Principais de link público (`sub` no formato `public-<uuid>`) saem antes da reconciliação por não terem linha em `users`, ver [[link-publico]] e [[autenticacao-jwt]].
 
 ## Senha e limites de busca
 

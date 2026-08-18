@@ -102,6 +102,44 @@ async function hasGlobalDataAccess(req) {
 }
 
 /**
+ * true quando o ator MANTÉM este recurso (o eixo de PRODUÇÃO).
+ *
+ * Wrapper de `fn_can_produce_resource`, a MESMA função que gateia o `WHERE` de toda
+ * escrita de catálogo e que `fn_can_see_resource` compõe — não há aqui uma segunda
+ * cópia da regra. Ela levanta para tipo fora da whitelist, e é por isso que o
+ * chamador roda depois do Joi da rota.
+ * @param {string|null} userId
+ * @param {string} type
+ * @param {string} resourceId
+ * @returns {Promise<boolean>}
+ */
+async function producesResource(userId, type, resourceId) {
+  if (!userId) return false;
+  const row = await one(
+    'SELECT fn_can_produce_resource($1::uuid, $2::text, $3::text) AS ok',
+    [userId, type, resourceId],
+  );
+  return row.ok === true;
+}
+
+/**
+ * true quando o ator tem uma concessão VIVA de nível `view_share` neste recurso.
+ *
+ * "Viva" inclui o PRAZO, e não é este arquivo que o afirma: `LIVE_GRANTS_OF_ACTOR`
+ * carrega `expires_at > NOW()`, de modo que quem já não VÊ o recurso também não o
+ * repassa. D3: a estrutura é um DAG, então basta UMA concessão `view_share` entre as
+ * vivas.
+ * @param {string|null} userId
+ * @param {string} type
+ * @param {string} resourceId
+ * @returns {Promise<boolean>}
+ */
+async function hasShareGrant(userId, type, resourceId) {
+  const vivas = await svc.liveGrantsOfActor(userId, type, resourceId);
+  return vivas.some((g) => g.grant_level === 'view_share');
+}
+
+/**
  * Gate de COMPARTILHAR: papel global de dado, ou uma concessão viva com
  * `grant_level = 'view_share'` naquele recurso.
  *
@@ -114,6 +152,13 @@ async function hasGlobalDataAccess(req) {
  * precisa dele logo em seguida (é quem decide `parent_grant_id = NULL`), e
  * reconsultar seria uma segunda leitura do mesmo fato — que é como duas respostas
  * diferentes para a mesma pergunta aparecem numa requisição só.
+ *
+ * ELE NÃO TEM O RAMO DE PRODUÇÃO, e a assimetria com `requireResourceRelay` é
+ * deliberada: quem passa por aqui vai CONCEDER, e `grantResource` pendura a concessão
+ * nova num `parent_grant_id` que só existe quando o ator tem papel global (raiz) ou
+ * uma concessão `view_share` de onde derivar. Deixar o produtor entrar aqui trocaria
+ * um 403 do gate por um 403 do serviço, com outra mensagem; dar-lhe concessão de raiz
+ * é decisão de produto, não conserto de segurança.
  */
 export function requireResourceShare(req, res, next) {
   Promise.resolve().then(async () => {
@@ -121,11 +166,66 @@ export function requireResourceShare(req, res, next) {
     req.hasGlobalDataAccess = await hasGlobalDataAccess(req);
     if (req.hasGlobalDataAccess) return next();
 
-    const userId = principalUserId(req.user);
-    const vivas = await svc.liveGrantsOfActor(userId, type, id);
-    if (vivas.some((g) => g.grant_level === 'view_share')) return next();
+    if (await hasShareGrant(principalUserId(req.user), type, id)) return next();
 
     return next(new ForbiddenError('É preciso ter acesso com permissão de compartilhar para esta ação.'));
+  }).catch(next);
+}
+
+/**
+ * Gate de REPASSAR um recurso a um atlas: o segundo degrau de
+ * `POST /atlas/:atlasId/resources`.
+ *
+ * EMPRESTAR É REPASSAR, e é essa a leitura que faltava. O gate era `manage` no atlas
+ * mais `assertCanSeeResource`, e `fn_can_see_resource` não distingue NÍVEL de
+ * concessão: quem tinha só `view` — o nível cuja definição é "vê e NÃO repassa" —
+ * anexava o recurso ao atlas dele e, com isso, o entregava a todo membro daquele
+ * atlas. A distinção `view`/`view_share` continuava escrita em
+ * `requireResourceShare`, e o caminho do empréstimo passava por fora dela.
+ *
+ * A AUTORIDADE EXIGIDA É A DE REPASSAR, com um ramo a mais: papel global de dado,
+ * PRODUÇÃO daquele recurso, ou concessão viva `view_share`. Os ramos são os mesmos
+ * objetos de `requireResourceShare` (`hasGlobalDataAccess`, `hasShareGrant`) mais
+ * `producesResource`, que delega ao `fn_can_produce_resource` do banco: nenhuma regra
+ * é redefinida aqui. O produtor entra porque o acervo da OM dele é dele — exigir que
+ * um administrador lhe conceda acesso ao que ele mantém inverte a relação, e o
+ * argumento está por extenso na migração 019.
+ *
+ * 403 E NÃO 404, ao contrário do gate irmão: `assertCanSeeResource` roda ANTES e já
+ * respondeu 404 para o que este ator não enxerga, então quem chega aqui JÁ sabe que o
+ * recurso existe. Um 404 nesta linha não esconderia nada e mentiria sobre a causa.
+ *
+ * O CASO ANÔNIMO EM ATLAS `is_public`, nomeado aqui porque é o extremo do eixo e não
+ * estava escrito em lugar nenhum: `requireAtlasScopeWhenPresent` resolve `read` para
+ * `userId` NULO quando o atlas é público (R4), e o braço de empréstimo de
+ * `fn_granted_resource_ids` exige `p_atlas_id IS NOT NULL` sem pedir nada sobre
+ * `p_user_id`. Logo um recurso PRIVADO anexado a um atlas que depois vira público é
+ * entregue a chamador SEM CREDENCIAL NENHUMA, por `GET /sv360/projects?atlasId=`, por
+ * `GET /resource-access/visible` e pelas listagens de catálogo. Isso é CONSEQUÊNCIA
+ * ACEITA, não defeito: o visitante de link público herdar o empréstimo é decisão
+ * registrada (R4), e o que a torna defensável é justamente este gate — a cadeia
+ * inteira passa a começar em alguém com autoridade para repassar aquele recurso, e
+ * publicar o atlas depois é ato deliberado de quem já a tinha. Sem ele, a mesma cadeia
+ * começava em `view`, o nível definido como "não repassa", e terminava em acesso
+ * anônimo.
+ */
+export function requireResourceRelay(req, res, next) {
+  Promise.resolve().then(async () => {
+    const type = req.body?.resourceType ?? req.params?.type;
+    const resourceId = req.body?.resourceId ?? req.params?.id;
+    if (!type || !resourceId) {
+      return next(new BadRequestError('resourceType e resourceId são obrigatórios'));
+    }
+
+    if (await hasGlobalDataAccess(req)) return next();
+
+    const userId = principalUserId(req.user);
+    if (await producesResource(userId, type, resourceId)) return next();
+    if (await hasShareGrant(userId, type, resourceId)) return next();
+
+    return next(new ForbiddenError(
+      'É preciso ter acesso com permissão de compartilhar para emprestar este recurso.',
+    ));
   }).catch(next);
 }
 

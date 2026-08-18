@@ -20,11 +20,15 @@
 //
 // A lição é sempre a mesma e é a mais repetida de `docs/livro-razao.md`: conferir um
 // subconjunto e tratá-lo como o conjunto. Este arquivo troca a conferência à mão pelo
-// INVENTÁRIO, e o inventário vem do VERSIONAMENTO (`git ls-files`), nunca de uma lista
-// de alvos escrita aqui — uma lista escrita à mão envelhece na primeira superfície nova,
-// que é exatamente o caso que ela precisaria pegar.
+// INVENTÁRIO, e o inventário vem do VERSIONAMENTO (`git ls-files -co
+// --exclude-standard`), nunca de uma lista de alvos escrita aqui — uma lista escrita à
+// mão envelhece na primeira superfície nova, que é exatamente o caso que ela precisaria
+// pegar. As duas bandeiras não são detalhe: `git ls-files` puro enumera só o RASTREADO,
+// e o guarda ficava cego exatamente onde o trabalho novo aparece — a consulta escrita há
+// cinco minutos, que é a que ninguém classificou, só entrava na varredura depois de um
+// `git add`.
 //
-// TRÊS VARREDURAS INDEPENDENTES, e a independência é o ponto:
+// QUATRO VARREDURAS INDEPENDENTES, e a independência é o ponto:
 //
 //   1. CONSULTA — toda linha de código (comentário removido antes) que TOCA uma tabela
 //      de recurso (`sv360.projects`/`sv360.photos`, `ng.catalogo_3d`, as quatro tabelas
@@ -39,6 +43,30 @@
 //      passou a depender de concessão ou de empréstimo e continua marcada `public`, que
 //      um cache compartilhado repõe para quem não a alcança. Foi um defeito REAL: a
 //      imagem de um projeto `enabled + private` saía `public, max-age=1ano, immutable`.
+//   4. REGIME DE CACHE POR SUPERFÍCIE ESCOPADA — toda rota classificada
+//      `recurso-com-filtro` na varredura 2 precisa DECLARAR seu regime, e a declaração
+//      é conferida contra o CORPO do handler que a rota monta.
+//
+// POR QUE A VARREDURA 4 EXISTE, e ela é a correção de um cego da própria varredura 3.
+// A varredura 3 é de PRESENÇA: ela acha `Cache-Control` e `setImmutableHeaders(` e
+// exige que cada achado esteja classificado. Um cabeçalho AUSENTE não casa com nada, e
+// portanto é INVISÍVEL para ela — um censo que só vê o que existe não pode cobrar o que
+// falta. Isso não é hipótese: era exatamente o estado pré-F9 das rotas JSON do 360
+// (nenhum `Cache-Control`, cache heurístico autorizado num corpo que varia por
+// concessão e por empréstimo), e continuou sendo o estado das listagens de catálogo e
+// do payload aditivo de `/resource-access/visible` DEPOIS de a F9 ter fechado o 360 —
+// verde nas duas rodadas, porque a ausência não tinha como ficar vermelha.
+//
+// A varredura 4 inverte o ônus: quem manda no conjunto é a lista de superfícies
+// ESCOPADAS (as `recurso-com-filtro` da varredura 2), e cada uma precisa dizer o que
+// faz de cache. Quem não diz REPROVA. Um buraco continua podendo existir, mas agora só
+// como `sem-cabecalho-declarado`, com o RISCO por escrito e dentro de um TETO — e se o
+// código fechar o buraco sem o censo acompanhar, isso também fica vermelho.
+//
+// O ALCANCE DELA, que é estreito de propósito e precisa estar escrito: ela prende a
+// LIGAÇÃO rota -> handler -> marcador -> `Cache-Control`, por texto, e não o cabeçalho
+// que sai no fio. Que a imagem de projeto privado saia `private` é comportamento e mora
+// em `tests/integration/sv360-cache-scope.test.js` e `sv360-tiles-cache-scope.test.js`.
 //
 // AS CLASSES DA VARREDURA 1, e por que a classe importa mais que a contagem. A contagem
 // diz que algo mudou; a classe diz o que a mudança SIGNIFICA, e é ela que transforma
@@ -108,6 +136,10 @@ const C_CONDICIONAL = 'escopo-decidido-por-resposta';
 const C_PRIVADO = 'privado-sempre';
 const C_PUBLICO_FIXO = 'publico-fixo';
 const C_SEM = 'sem-cache';
+// A classe que só a varredura 4 usa: a superfície escopada que não emite cabeçalho
+// nenhum. Ela existe para que a AUSÊNCIA tenha nome, teto e RISCO escrito, em vez de
+// ser o silêncio que a varredura de presença produzia.
+const C_AUSENTE = 'sem-cabecalho-declarado';
 
 // --- fragmentos de predicado que se repetem ---------------------------------
 const P_360 = 'sv360AccessPredicate(';
@@ -807,11 +839,14 @@ const CENSO_CACHE = [
     motivo: 'A chamada no caminho dos BYTES do arquivo do tileset. Mesmo regime publico e mesmo RISCO, agora sobre o conteudo em si.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: "'private, no-cache'", n: 1,
+    arquivo: 'src/utils/cache-scope.js', trecho: "'private, no-cache'", n: 1,
     classe: C_CONDICIONAL,
-    motivo: 'As rotas JSON do 360 passaram a marcar escopo quando a resposta DEPENDEU de quem pediu. '
-      + 'Elas não emitiam Cache-Control nenhum, o que autoriza cache heurístico — aceitável enquanto '
-      + 'o corpo era igual para todos, e não depois que ele varia por concessão e por empréstimo. '
+    motivo: 'A ÚNICA definição de escopo de cache para resposta JSON que variou por chamador, e ela '
+      + 'serve TRÊS superfícies: as rotas JSON do 360, as quatro listagens de catálogo e o payload '
+      + 'aditivo de /resource-access/visible. Nenhuma das três emitia Cache-Control, o que autoriza '
+      + 'cache heurístico — aceitável enquanto o corpo era igual para todos, e não depois que ele '
+      + 'varia por concessão e por empréstimo. Nasceu no 360 e saiu de lá quando o mesmo buraco '
+      + 'apareceu nas outras duas: uma terceira cópia da regra é como este defeito volta. '
       + '`no-cache` e não `no-store`, para preservar a revalidação pelo ETag do corpo.',
   },
   {
@@ -859,6 +894,112 @@ const CENSO_CACHE = [
   },
 ];
 
+/**
+ * @typedef {Object} EntradaDeRegime
+ * @property {string} arquivo - O `*.routes.js`, como na varredura 2.
+ * @property {string} rota - `GET caminho`, idem.
+ * @property {string} handler - O nome que a rota monta; conferido contra a declaração.
+ * @property {string} controller - O arquivo que DECLARA o handler (relativo a `backend/`).
+ * @property {C_CONDICIONAL|C_PRIVADO|C_PUBLICO_FIXO|C_SEM|C_AUSENTE} classe
+ * @property {string} [marcador] - Trecho exigido no CORPO do handler (proibido em C_AUSENTE).
+ * @property {string} [motivo] - Obrigatório em C_AUSENTE, e precisa conter a palavra RISCO.
+ */
+
+const SV360_ROTAS = 'src/modules/streetview360/sv360.routes.js';
+const SV360_CTRL = 'src/modules/streetview360/sv360.controller.js';
+const M_JSON = 'marcarEscopoJson(';
+const M_TILE = 'marcarEscopoDeTile(';
+const M_BYTES = 'setImmutableHeaders(';
+
+/** Uma rota JSON do 360, que são onze e têm todas o mesmo regime. */
+const json360 = (rota, handler) => ({
+  arquivo: SV360_ROTAS, rota, handler, controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_JSON,
+});
+
+/** @type {EntradaDeRegime[]} */
+const CENSO_REGIME = [
+  // ---------------- 360: JSON ------------------------------------------------
+  json360('GET /projects', 'listProjects'),
+  json360('GET /projects/:slug', 'getProject'),
+  json360('GET /projects/review-stats', 'reviewStats'),
+  json360('GET /projects/:slug/floors', 'getProjectFloors'),
+  json360('GET /projects/:slug/photos', 'getProjectPhotos'),
+  json360('GET /projects/:slug/map', 'getProjectMap'),
+  json360('GET /projects/:slug/runs', 'getProjectRuns'),
+  json360('GET /photos/:uuid', 'getPhoto'),
+  json360('GET /photos/by-name/:nome', 'getPhotoByName'),
+  json360('GET /photos/nearest', 'nearestPhoto'),
+  json360('GET /photos/:uuid/nearby', 'nearbyPhotos'),
+
+  // ---------------- 360: tiles e bytes ---------------------------------------
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /tiles/:z/:x/:y.pbf', handler: 'mvtTile',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_TILE,
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /tiles/fotos.geojson', handler: 'tilesGeojson',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_TILE,
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /thumbnails/:slug.webp', handler: 'getThumbnail',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_BYTES,
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /photos/:uuid/image', handler: 'getPhotoImage',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_BYTES,
+  },
+
+  // ---------------- catálogo e payload aditivo -------------------------------
+  {
+    arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'GET /', handler: 'list',
+    controller: 'src/modules/catalog/catalog.controller.js', classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'GET /:id', handler: 'get',
+    controller: 'src/modules/catalog/catalog.controller.js', classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /visible',
+    handler: 'visible', controller: 'src/modules/resource-access/resource-access.controller.js',
+    classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+
+  // ---------------- os buracos, nomeados e com teto --------------------------
+  {
+    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /busca', handler: 'busca',
+    controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
+    motivo: 'A busca do gazetteer recorta por ZONA no SQL, então o corpo VARIA por chamador, e ela '
+      + 'não emite cabeçalho nenhum. O RISCO é o de qualquer resposta escopada sem `Cache-Control`: '
+      + 'o RFC 9111 autoriza um cache compartilhado a guardá-la por heurística e repor a resposta de '
+      + 'quem enxerga zona restrita para quem não enxerga. Fica nomeada em vez de coberta porque o '
+      + 'eixo do gazetteer é PARALELO (users.role + ng.model_permissions) e mexer nele é trabalho '
+      + 'próprio, com o repro do vazamento que o causar.',
+  },
+  {
+    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /feicoes', handler: 'feicoes',
+    controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
+    motivo: 'As edificações do gazetteer, pelo mesmo eixo de zona da busca e com o mesmo RISCO: '
+      + 'resposta que varia por chamador e sai sem `Cache-Control`, portanto guardável por heurística '
+      + 'num cache compartilhado.',
+  },
+  {
+    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /catalogo3d', handler: 'catalogo3d',
+    controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
+    motivo: 'O catálogo de modelos 3D do schema `ng`, recortado por `ng.model_permissions`. Mesmo '
+      + 'RISCO das duas irmãs, e um agravante: o corpo carrega a `url` do tileset, e os BYTES do '
+      + 'tileset já saem por uma rota pública. Uma resposta desta reposta por cache compartilhado '
+      + 'entrega o caminho de um modelo privado a quem não o alcança.',
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /admin/projects', handler: 'listProjects',
+    controller: 'src/modules/streetview360/sv360.admin.controller.js', classe: C_AUSENTE,
+    motivo: 'A listagem ADMINISTRATIVA do 360, recortada por PRODUÇÃO (`fn_can_produce_resource`): o '
+      + 'corpo depende da OM do produtor e sai sem `Cache-Control`. O RISCO é o mesmo das três acima, '
+      + 'com alcance menor (é `auth` estrito, então nenhum anônimo chega), e é o que a mantém como '
+      + 'buraco declarado e não como isenção.',
+  },
+];
+
 // ============================================================================
 // AS VARREDURAS
 // ============================================================================
@@ -878,9 +1019,26 @@ function semComentarios(src) {
   return semBloco.split('\n').map((linha) => linha.replace(/\/\/.*/, '')).join('\n');
 }
 
-function arquivosVersionados() {
-  return execFileSync('git', ['ls-files', 'src'], { cwd: RAIZ, encoding: 'utf8' })
-    .split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
+/**
+ * O INVENTÁRIO: rastreado MAIS não rastreado não ignorado.
+ *
+ * `git ls-files src` sozinho lista só o que já passou por `git add`, e o ponto cego que
+ * isso abre fica no pior lugar possível: o arquivo que a fase corrente acabou de
+ * escrever é o que ainda não foi classificado, e era o único que a varredura não via. O
+ * censo respondia verde sobre um inventário que não continha o trabalho novo — cobertura
+ * vazia com cara de aprovação.
+ *
+ * `--others --exclude-standard` acrescenta o NÃO RASTREADO e mantém fora o IGNORADO
+ * (`node_modules/`, `coverage/`, `data/`). As duas metades são MEDIDAS — a segunda pelo
+ * caso-piso, a primeira pelo controle negativo do fim deste arquivo.
+ * @param {string} [pathspec] - Relativo à raiz do pacote.
+ * @returns {string[]} Caminhos relativos, só `.js`.
+ */
+function arquivosDoInventario(pathspec = 'src') {
+  return execFileSync(
+    'git', ['ls-files', '--cached', '--others', '--exclude-standard', pathspec],
+    { cwd: RAIZ, encoding: 'utf8' }
+  ).split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
 const lerCodigo = (arquivo) => semComentarios(fs.readFileSync(path.join(RAIZ, arquivo), 'utf8'));
@@ -957,7 +1115,7 @@ function consultasNaoClassificadas(unidades) {
     .map((u) => `${u.arquivo}:${u.linhas.join(',')} :: ${u.unidade}`);
 }
 
-const arquivosDeRota = () => arquivosVersionados().filter((a) => a.endsWith('.routes.js'));
+const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.routes.js'));
 
 /**
  * Toda rota de LEITURA, com o texto da própria declaração e os middlewares de router.use.
@@ -1009,6 +1167,101 @@ function sitiosDeCache(arquivos) {
   return achados;
 }
 
+/**
+ * O CORPO de uma declaração de topo (`function X`, `const X =`), da linha que a declara
+ * até a próxima declaração de topo.
+ *
+ * Deliberadamente textual, e o limite é o mesmo do resto do arquivo: não é um parser. A
+ * direção do erro é levar corpo A MAIS (até a próxima declaração), nunca de menos, o que
+ * mantém a checagem de marcador conservadora e a de buraco estrita.
+ * @param {string} codigo - Já sem comentário.
+ * @param {string} nome
+ * @returns {string|null}
+ */
+function corpoDeclarado(codigo, nome) {
+  const linhas = codigo.split('\n');
+  const abre = new RegExp(`^(?:export )?(?:const|function|async function) ${nome}[ (=]`);
+  const topo = /^(?:export )?(?:const|let|function|async function|class) /;
+  const inicio = linhas.findIndex((l) => abre.test(l));
+  if (inicio === -1) return null;
+  let fim = linhas.length;
+  for (let i = inicio + 1; i < linhas.length; i += 1) {
+    if (topo.test(linhas[i])) { fim = i; break; }
+  }
+  return linhas.slice(inicio, fim).join('\n');
+}
+
+/**
+ * Qualquer forma de emitir cabeçalho de cache, larga de propósito.
+ *
+ * Ela só é usada na direção "este buraco ainda está aberto?", onde o falso POSITIVO
+ * custa uma releitura e o falso NEGATIVO deixa o censo descrevendo um sistema que já
+ * mudou. O nome `marcarEscopo` entra porque é como as duas peças da casa se chamam.
+ */
+const EMITE_CACHE = /Cache-Control|setImmutableHeaders[(]|marcarEscopo/;
+
+/**
+ * Os problemas de regime de cache, no formato de mensagem de erro.
+ *
+ * Recebe o censo, as rotas achadas e as fontes por caminho, para que o controle negativo
+ * possa apontar a MESMA função para uma fixture.
+ * @param {EntradaDeRegime[]} censo
+ * @param {Map<string, {bloco: string}>} rotasPorChave
+ * @param {Map<string, string>} fontes - caminho -> código sem comentário.
+ * @returns {string[]}
+ */
+function regimesQuebrados(censo, rotasPorChave, fontes) {
+  const problemas = [];
+  for (const e of censo) {
+    const chave = `${e.arquivo} :: ${e.rota}`;
+    const rota = rotasPorChave.get(chave);
+    if (!rota) { problemas.push(`${chave} não existe mais como rota de leitura`); continue; }
+    if (!rota.bloco.includes(`.${e.handler}`)) {
+      problemas.push(`${chave} declara o handler '${e.handler}', ausente da declaração da rota`);
+      continue;
+    }
+    const codigo = fontes.get(e.controller);
+    if (codigo === undefined) {
+      problemas.push(`${chave} aponta para o controller '${e.controller}', que não está no inventário`);
+      continue;
+    }
+    const corpo = corpoDeclarado(codigo, e.handler);
+    if (corpo === null) {
+      problemas.push(`${chave} nomeia o handler '${e.handler}', que ${e.controller} não declara`);
+      continue;
+    }
+    if (e.classe === C_AUSENTE) {
+      // A DIREÇÃO INVERSA, e ela é metade do valor desta varredura: um buraco fechado no
+      // código e não acompanhado pelo censo faz o censo descrever um sistema que não
+      // existe mais, e é assim que uma lacuna volta a ser invisível — desta vez por
+      // estar declarada.
+      if (EMITE_CACHE.test(corpo)) {
+        problemas.push(`${chave} está declarada como '${C_AUSENTE}' e o corpo de ${e.handler} JÁ emite cache`);
+      } else if (codigo.includes('Cache-Control')) {
+        problemas.push(`${chave} está declarada como '${C_AUSENTE}' e ${e.controller} JÁ escreve Cache-Control`);
+      }
+      continue;
+    }
+    if (!e.marcador) { problemas.push(`${chave} declara o regime '${e.classe}' e não nomeia marcador`); continue; }
+    if (!corpo.includes(e.marcador)) {
+      problemas.push(`${chave} declara o marcador '${e.marcador}', ausente do corpo de ${e.handler} em ${e.controller}`);
+      continue;
+    }
+    // E O MARCADOR PRECISA MESMO ESCREVER O CABEÇALHO. Sem esta última perna, bastaria
+    // nomear uma função de nome sugestivo para a rota passar coberta, que é o carimbo
+    // que a classe DERIVADO da varredura 1 já teve de aprender a recusar.
+    const nome = e.marcador.replace('(', '');
+    const emite = [...fontes.values()].some((texto) => {
+      const def = corpoDeclarado(texto, nome);
+      return def !== null && def.includes('Cache-Control');
+    });
+    if (!emite) {
+      problemas.push(`${chave} declara o marcador '${e.marcador}', que não escreve Cache-Control em lugar nenhum`);
+    }
+  }
+  return problemas;
+}
+
 describe('Censo das superfícies de recurso (fase F9)', () => {
   // ==========================================================================
   // PISO
@@ -1016,7 +1269,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
   it('piso: o inventário vem do git e alcança os módulos que servem recurso', () => {
     let arquivos;
     try {
-      arquivos = arquivosVersionados();
+      arquivos = arquivosDoInventario();
     } catch (err) {
       assert.fail(
         `o inventário deste censo vem de \`git ls-files\` e o comando FALHOU (${err.message}). `
@@ -1041,13 +1294,26 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     assert.ok(rotas.length >= 50, `esperava >= 50 rotas de leitura, achei ${rotas.length}`);
     const cache = sitiosDeCache(arquivos);
     assert.ok(cache.length >= 10, `esperava >= 10 sítios de cache, achei ${cache.length}`);
+
+    // A OUTRA METADE DO INVENTÁRIO: `--others` SEM `--exclude-standard` arrastaria
+    // `node_modules/` inteiro para dentro do censo, e um censo com dezenas de milhares
+    // de arquivos de terceiro é um censo que ninguém fecha. A medição é sobre o PACOTE,
+    // e não sobre `src/`, porque em `src/` não há nada ignorado: medir ali seria vácuo.
+    assert.ok(
+      fs.existsSync(path.join(RAIZ, 'node_modules')),
+      'sem `node_modules` no disco esta medição não prova nada: instale as dependências'
+    );
+    const doPacote = arquivosDoInventario('.');
+    assert.ok(doPacote.length >= 100, `esperava >= 100 arquivos .js no pacote, achei ${doPacote.length}`);
+    const lixo = doPacote.filter((a) => /(^|[/])(node_modules|coverage|dist|data)[/]/.test(a));
+    assert.deepEqual(lixo, [], '`--exclude-standard` deixou entrar arquivo ignorado no inventário');
   });
 
   // ==========================================================================
   // VARREDURA 1 — CONSULTA
   // ==========================================================================
   it('toda unidade que toca uma tabela de recurso está no censo, com classe e motivo', () => {
-    const unidades = unidadesDeContato(arquivosVersionados());
+    const unidades = unidadesDeContato(arquivosDoInventario());
     assert.ok(unidades.size >= 50, 'guarda: censo comparado contra varredura vazia passaria verde');
 
     assert.deepEqual(
@@ -1060,7 +1326,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
   });
 
   it('a contagem por unidade bate: apagar um predicado é tão vermelho quanto acrescentar consulta', () => {
-    const unidades = unidadesDeContato(arquivosVersionados());
+    const unidades = unidadesDeContato(arquivosDoInventario());
     assert.ok(unidades.size >= 50);
 
     const divergentes = CENSO_CONSULTA
@@ -1087,7 +1353,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     // opinião escrita ao lado do código, e foi exatamente uma opinião dessas (o
     // comentário de `isProjectReadable` afirmando que o SQL cobria tudo) que deixou as
     // quatro consultas de foto abertas por uma fase inteira.
-    const unidades = unidadesDeContato(arquivosVersionados());
+    const unidades = unidadesDeContato(arquivosDoInventario());
     const doSql = CENSO_CONSULTA.filter((e) => e.classe === SQL);
     assert.ok(doSql.length >= 15, `esperava >= 15 unidades SQL, achei ${doSql.length}`);
 
@@ -1137,7 +1403,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
   });
 
   it('unidade JS nomeia o eixo que decide, e ESCRITA nomeia um gate do próprio módulo', () => {
-    const unidades = unidadesDeContato(arquivosVersionados());
+    const unidades = unidadesDeContato(arquivosDoInventario());
 
     const doJs = CENSO_CONSULTA.filter((e) => e.classe === JS);
     assert.ok(doJs.length >= 2, `esperava >= 2 unidades decididas no JS, achei ${doJs.length}`);
@@ -1149,7 +1415,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
 
     const deEscrita = CENSO_CONSULTA.filter((e) => e.classe === ESCRITA);
     assert.ok(deEscrita.length >= 10, `esperava >= 10 unidades de escrita, achei ${deEscrita.length}`);
-    const versionados = arquivosVersionados();
+    const versionados = arquivosDoInventario();
     const escritaQuebradas = deEscrita.flatMap((e) => {
       if (!e.predicado) return [`${e.arquivo} :: ${e.unidade} é ESCRITA e não nomeia gate`];
       const dir = path.posix.dirname(e.arquivo);
@@ -1278,7 +1544,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
   // VARREDURA 3 — CABEÇALHO DE CACHE
   // ==========================================================================
   it('toda decisão de cache está no censo, e nenhuma resposta escopada sai `public` fixo', () => {
-    const achados = sitiosDeCache(arquivosVersionados());
+    const achados = sitiosDeCache(arquivosDoInventario());
     assert.ok(achados.length >= 10, `esperava >= 10 sítios de cache, achei ${achados.length}`);
 
     const naoClassificados = achados
@@ -1327,6 +1593,90 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
   });
 
   // ==========================================================================
+  // VARREDURA 4 — REGIME DE CACHE DA SUPERFÍCIE ESCOPADA
+  // ==========================================================================
+  it('toda superfície ESCOPADA declara seu regime de cache, e não declarar REPROVA', () => {
+    // O CEGO QUE ESTA VARREDURA FECHA. A varredura 3 é de PRESENÇA: ela acha o cabeçalho
+    // e cobra classificação. Um cabeçalho AUSENTE não casa com nada e é invisível para
+    // ela — e essa é a razão de as rotas JSON do 360 terem passado uma fase inteira sem
+    // `Cache-Control`, e de as listagens de catálogo e o payload aditivo terem passado
+    // MAIS uma depois disso. Aqui quem manda no conjunto é a lista de rotas escopadas, e
+    // não a lista de cabeçalhos encontrados.
+    const escopadas = CENSO_ROTA.filter((e) => e.classe === R_FILTRADA)
+      .map((e) => `${e.arquivo} :: ${e.rota}`);
+    assert.ok(escopadas.length >= 20, `esperava >= 20 superfícies escopadas, achei ${escopadas.length}`);
+
+    const declaradas = CENSO_REGIME.map((e) => `${e.arquivo} :: ${e.rota}`);
+    assert.equal(new Set(declaradas).size, declaradas.length, 'rota duplicada no censo de regime');
+
+    assert.deepEqual(
+      escopadas.filter((k) => !declaradas.includes(k)), [],
+      'superfície ESCOPADA sem regime de cache declarado. Toda resposta que varia por chamador '
+      + `precisa dizer o que faz: '${C_CONDICIONAL}', '${C_PRIVADO}', '${C_SEM}' (com o marcador que `
+      + `o escreve) ou '${C_AUSENTE}' (buraco, com o RISCO escrito e dentro do teto). Ausência de `
+      + 'declaração é vermelho, e não silêncio.'
+    );
+    assert.deepEqual(
+      declaradas.filter((k) => !escopadas.includes(k)), [],
+      'entrada de regime para uma rota que não é (ou não é mais) `recurso-com-filtro`: ou a rota '
+      + 'mudou de classe na varredura 2, ou o caminho está escrito diferente'
+    );
+  });
+
+  it('o regime declarado bate com o CORPO do handler, nas duas direções', () => {
+    // AS DUAS DIREÇÕES, e as duas importam. Declarar um regime que o handler não cumpre é
+    // o defeito original (o censo afirma um cabeçalho que não existe); declarar buraco
+    // num handler que já emite é o defeito espelho (o censo descreve um sistema que
+    // mudou, e a lacuna volta a ser invisível, agora por estar escrita).
+    const inventario = arquivosDoInventario();
+    const fontes = new Map(inventario.map((a) => [a, lerCodigo(a)]));
+    const rotas = rotasDeLeitura(arquivosDeRota());
+    assert.ok(rotas.length >= 50, 'guarda: regime conferido contra varredura vazia passaria verde');
+    const porChave = new Map(rotas.map((a) => [`${a.arquivo} :: ${a.rota}`, a]));
+
+    assert.deepEqual(
+      regimesQuebrados(CENSO_REGIME, porChave, fontes), [],
+      'regime de cache declarado que o código não cumpre'
+    );
+  });
+
+  it('os buracos de cache têm RISCO escrito, teto, e nenhuma escopada sai `public` fixo', () => {
+    const buracos = CENSO_REGIME.filter((e) => e.classe === C_AUSENTE);
+    assert.ok(buracos.length >= 1, 'a classe precisa estar em uso, senão ela não discrimina nada');
+
+    const semRisco = buracos.filter((e) => !e.motivo || !e.motivo.includes('RISCO'))
+      .map((e) => `${e.arquivo} :: ${e.rota}`);
+    assert.deepEqual(
+      semRisco, [],
+      'buraco de cache sem o RISCO escrito é a mesma coisa que cabeçalho ausente, com uma linha a mais'
+    );
+
+    // O TETO. Sem ele, a saída fácil para uma superfície nova sem cabeçalho seria
+    // declará-la buraco e seguir em frente — que é como a ausência sobreviveu invisível
+    // por duas fases.
+    assert.ok(
+      buracos.length <= 4,
+      `os buracos de cache são 4 (as três do gazetteer e a listagem administrativa do 360) e não `
+      + `podem crescer sem decisão; achei ${buracos.length}`
+    );
+
+    // E A AFIRMAÇÃO CENTRAL: resposta que variou por chamador NUNCA sai com escopo
+    // público fixo. Ela é o simétrico do caso da varredura 3, agora do lado da rota.
+    assert.deepEqual(
+      CENSO_REGIME.filter((e) => e.classe === C_PUBLICO_FIXO).map((e) => e.rota), [],
+      'superfície escopada não pode declarar cabeçalho `public` fixo: um cache compartilhado a '
+      + 'reporia para quem não a alcança'
+    );
+
+    const ruins = CENSO_REGIME
+      .filter((e) => ![C_CONDICIONAL, C_PRIVADO, C_PUBLICO_FIXO, C_SEM, C_AUSENTE].includes(e.classe)
+        || (e.classe === C_AUSENTE && e.marcador)
+        || (e.classe !== C_AUSENTE && !e.marcador))
+      .map((e) => `${e.arquivo} :: ${e.rota}`);
+    assert.deepEqual(ruins, [], 'entrada de regime com classe inválida, ou buraco que declara marcador');
+  });
+
+  // ==========================================================================
   // O CONTROLE NEGATIVO — provado, não afirmado
   // ==========================================================================
   it('a varredura REPROVA uma CONSULTA nova não classificada (provado com fixture)', () => {
@@ -1348,7 +1698,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
 
     // E a DISCRIMINAÇÃO, sem a qual "acusa" também seria o comportamento de uma função
     // que acusa tudo: a mesma função, sobre o código REAL, não acusa ninguém.
-    assert.deepEqual(consultasNaoClassificadas(unidadesDeContato(arquivosVersionados())), []);
+    assert.deepEqual(consultasNaoClassificadas(unidadesDeContato(arquivosDoInventario())), []);
   });
 
   it('a varredura REPROVA uma ROTA de leitura nova não classificada (provado com fixture)', () => {
@@ -1364,5 +1714,138 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     assert.match(acusadas[0], /GET \/rota-de-leitura-sem-classificacao/);
 
     assert.deepEqual(rotasNaoClassificadas(rotasDeLeitura(arquivosDeRota())), []);
+  });
+
+  it('a varredura 4 REPROVA a superfície escopada SEM cabeçalho (provado com fixture)', () => {
+    // O CONTROLE DO CEGO 2, e ele é o mais importante deste arquivo, porque prova uma
+    // AUSÊNCIA. A fixture tem duas rotas escopadas de comportamento conhecido: uma cujo
+    // handler não emite cabeçalho nenhum e outra cujo handler emite. As CINCO pernas
+    // abaixo medem que a MESMA função usada nos casos reais acusa as combinações erradas
+    // e deixa passar as certas — sem o par, "acusa" também seria o comportamento de uma
+    // função que acusa tudo.
+    const rotas = 'tests/fixtures/censo-superficies/exemplo-sem-regime-de-cache.routes.js';
+    const semCtrl = 'tests/fixtures/censo-superficies/exemplo-sem-regime-de-cache.controller.js';
+    const comCtrl = 'tests/fixtures/censo-superficies/exemplo-com-regime-de-cache.controller.js';
+    const achadas = rotasDeLeitura([rotas]);
+    assert.deepEqual(
+      achadas.map((a) => a.rota),
+      ['GET /rota-escopada-sem-cabecalho', 'GET /rota-escopada-com-cabecalho'],
+      'a varredura precisa ENXERGAR as duas rotas da fixture; se ela deixar de casar, este caso '
+      + 'passa verde sem verificar nada'
+    );
+    const porChave = new Map(achadas.map((a) => [`${rotas} :: ${a.rota}`, a]));
+    const fontes = new Map([semCtrl, comCtrl].map((a) => [a, lerCodigo(a)]));
+
+    // A MEDIÇÃO DO CEGO, e ela cabe em duas linhas: a varredura 3 (PRESENÇA) não acha
+    // NADA no controller sem cabeçalho — não há linha para casar —, então ela não teria
+    // o que classificar e passaria verde sobre exatamente a superfície que está
+    // desprotegida; no irmão COM cabeçalho ela acha. É a diferença entre ver o que existe
+    // e cobrar o que falta, e é a razão de a varredura 4 existir.
+    assert.deepEqual(
+      sitiosDeCache([semCtrl]), [],
+      'a varredura de PRESENÇA não pode achar nada no handler sem cabeçalho: é justamente isso que '
+      + 'a torna cega, e se ela passar a achar algo aqui esta medição deixou de medir o cego'
+    );
+    assert.ok(
+      sitiosDeCache([comCtrl]).length >= 1,
+      'e ela precisa achar no irmão COM cabeçalho, senão o silêncio acima seria só uma varredura quebrada'
+    );
+
+    const semCabecalho = {
+      arquivo: rotas, rota: 'GET /rota-escopada-sem-cabecalho', handler: 'semCabecalho',
+      controller: semCtrl,
+    };
+    const comCabecalho = {
+      arquivo: rotas, rota: 'GET /rota-escopada-com-cabecalho', handler: 'comCabecalho',
+      controller: comCtrl,
+    };
+    const marcador = 'marcarEscopoDaFixture(';
+
+    // 1. O CEGO EM PESSOA: a rota escopada declara um regime e o handler não emite nada.
+    //    A varredura de PRESENÇA não tinha como ver isto — não há linha para casar.
+    const acusado = regimesQuebrados(
+      [{ ...semCabecalho, classe: C_CONDICIONAL, marcador }], porChave, fontes
+    );
+    assert.equal(acusado.length, 1, `esperava UMA acusação, achei: ${acusado.join(' | ')}`);
+    assert.match(acusado[0], /ausente do corpo de semCabecalho/);
+
+    // 2. DISCRIMINAÇÃO: a MESMA rota, declarada como buraco, NÃO é acusada. É o que
+    //    separa "a ausência é vermelha" de "tudo é vermelho".
+    assert.deepEqual(
+      regimesQuebrados([{ ...semCabecalho, classe: C_AUSENTE, motivo: 'RISCO conhecido' }], porChave, fontes),
+      []
+    );
+
+    // 3. A DIREÇÃO INVERSA: buraco declarado sobre um handler que JÁ emite é acusado.
+    const buracoFechado = regimesQuebrados(
+      [{ ...comCabecalho, classe: C_AUSENTE, motivo: 'RISCO conhecido' }], porChave, fontes
+    );
+    assert.equal(buracoFechado.length, 1, `esperava UMA acusação, achei: ${buracoFechado.join(' | ')}`);
+    assert.match(buracoFechado[0], /JÁ emite cache|JÁ escreve Cache-Control/);
+
+    // 4. E o par correto passa, com a resolução marcador -> `Cache-Control` exercida.
+    assert.deepEqual(
+      regimesQuebrados([{ ...comCabecalho, classe: C_CONDICIONAL, marcador }], porChave, fontes), []
+    );
+
+    // 5. E o carimbo recusado: marcador que existe no corpo e não escreve cabeçalho
+    //    nenhum (`res.json(` está no corpo e não escreve cabeçalho). Sem esta perna,
+    //    bastaria nomear uma função sugestiva ao lado da rota para ela passar coberta.
+    const carimbo = regimesQuebrados(
+      [{ ...comCabecalho, classe: C_CONDICIONAL, marcador: 'res.json(' }], porChave, fontes
+    );
+    assert.equal(carimbo.length, 1, `esperava UMA acusação, achei: ${carimbo.join(' | ')}`);
+    assert.match(carimbo[0], /não escreve Cache-Control/);
+  });
+
+  it('o inventário ENXERGA arquivo NOVO ainda não rastreado (provado, não afirmado)', () => {
+    // O CONTROLE DO CEGO 1, e ele não é de classificação: é de CONJUNTO. `git ls-files`
+    // sozinho enumera o índice, então a consulta escrita há cinco minutos — a que
+    // ninguém classificou ainda — ficava fora da varredura até alguém dar `git add`, e o
+    // censo passava verde sem tê-la olhado. Provar a correção exige um arquivo que EXISTA
+    // e NÃO esteja rastreado: ele nasce aqui e morre no `finally`.
+    const dir = 'tests/fixtures/censo-superficies';
+    const relativo = `${dir}/tmp-nao-rastreado.queries.js`;
+    const abs = path.join(RAIZ, relativo);
+    fs.writeFileSync(abs, [
+      `// Path: ${relativo}`,
+      '// Temporário: criado e apagado pelo controle negativo deste censo.',
+      'export const TMP_SUPERFICIE_NAO_RASTREADA = `SELECT id FROM sv360.projects`;',
+      '',
+    ].join('\n'));
+
+    try {
+      // CONTROLE: o git precisa CONCORDAR que ele não está rastreado, e precisa enxergar
+      // a fixture RASTREADA do mesmo pathspec. Sem este par, o caso passaria verde num
+      // mundo em que alguém tivesse dado `git add` no temporário.
+      const soRastreados = execFileSync('git', ['ls-files', dir], { cwd: RAIZ, encoding: 'utf8' });
+      assert.ok(!soRastreados.includes('tmp-nao-rastreado'), 'a fixture temporária não pode estar rastreada');
+      assert.ok(
+        soRastreados.includes('exemplo-nao-classificado.queries.js'),
+        'o pathspec precisa alcançar a fixture rastreada'
+      );
+
+      const inventario = arquivosDoInventario(dir);
+      assert.ok(
+        inventario.includes(relativo),
+        'o inventário precisa enxergar o arquivo NÃO RASTREADO: é ele que representa o trabalho da '
+        + 'fase corrente, e era exatamente o que `git ls-files` sozinho deixava de fora'
+      );
+      assert.ok(
+        inventario.includes(`${dir}/exemplo-nao-classificado.queries.js`),
+        'e o rastreado precisa continuar dentro: a correção SOMA, não troca'
+      );
+
+      // E A CADEIA INTEIRA, que é o que transforma "o inventário vê" em "o guarda pega":
+      // o arquivo novo é varrido e a consulta dele é ACUSADA, pela MESMA função dos casos
+      // acima.
+      const acusadas = consultasNaoClassificadas(unidadesDeContato(inventario));
+      assert.ok(
+        acusadas.some((a) => a.includes('TMP_SUPERFICIE_NAO_RASTREADA')),
+        `a consulta do arquivo não rastreado precisa ser ACUSADA; acusadas: ${acusadas.join(' | ')}`
+      );
+    } finally {
+      fs.rmSync(abs, { force: true });
+    }
   });
 });

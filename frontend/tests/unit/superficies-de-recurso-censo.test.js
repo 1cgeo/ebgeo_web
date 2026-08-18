@@ -24,9 +24,14 @@
 // recurso emprestado por um atlas continua visível depois de sair dele, e nada fica
 // vermelho porque uma lista é uma resposta bem-formada nos dois casos.
 //
-// A VARREDURA VEM DO VERSIONAMENTO (`git ls-files src/js`), nunca de uma lista escrita
-// aqui: conferir um subconjunto e tratá-lo como o conjunto é a lição mais repetida de
-// `docs/livro-razao.md`. Cada par (arquivo, gatilho) precisa de entrada, e o par existe
+// A VARREDURA VEM DO VERSIONAMENTO (`git ls-files -co --exclude-standard src/js`), nunca
+// de uma lista escrita aqui: conferir um subconjunto e tratá-lo como o conjunto é a lição
+// mais repetida de `docs/livro-razao.md`. As duas bandeiras não são detalhe: `git ls-files`
+// puro enumera só o RASTREADO, e o guarda ficava cego exatamente onde o trabalho novo
+// aparece — o consumidor escrito há cinco minutos, que é o que ninguém classificou, só
+// entrava na varredura depois de um `git add`.
+//
+// Cada par (arquivo, gatilho) precisa de entrada, e o par existe
 // porque três arquivos leem AS DUAS fontes — contá-los uma vez só faria a classe de um
 // deles cobrir a do outro.
 //
@@ -47,7 +52,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -244,9 +249,26 @@ function semComentarios(src) {
 
 const lerCodigo = (arquivo) => semComentarios(readFileSync(path.join(RAIZ, arquivo), 'utf8'));
 
-function arquivosVersionados() {
-    return execFileSync('git', ['ls-files', 'src/js'], { cwd: RAIZ, encoding: 'utf8' })
-        .split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
+/**
+ * O INVENTÁRIO: rastreado MAIS não rastreado não ignorado.
+ *
+ * `git ls-files src/js` sozinho lista só o que já passou por `git add`, e o ponto cego
+ * que isso abre fica no pior lugar possível: o arquivo que a fase corrente acabou de
+ * escrever é o que ainda não foi classificado, e era o único que a varredura não via. O
+ * censo respondia verde sobre um inventário que não continha o trabalho novo.
+ *
+ * `--others --exclude-standard` acrescenta o NÃO RASTREADO e mantém fora o IGNORADO
+ * (`node_modules/`, `dist/`, `test-results/`, `coverage/`). As duas metades são MEDIDAS —
+ * a segunda pelo caso-piso, a primeira pelo controle negativo do fim deste arquivo.
+ * @param {string} [pathspec] - Relativo a `frontend/`.
+ * @returns {string[]} Caminhos relativos, só `.js`.
+ */
+function arquivosDoInventario(pathspec = 'src/js') {
+    return execFileSync(
+        'git',
+        ['ls-files', '--cached', '--others', '--exclude-standard', pathspec],
+        { cwd: RAIZ, encoding: 'utf8' }
+    ).split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
 /** As cinco chaves de catálogo de `config`, e o par de nomes do cache de projetos. */
@@ -294,7 +316,7 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
     it('piso: o inventário vem do git e alcança as duas fontes', () => {
         let arquivos;
         try {
-            arquivos = arquivosVersionados();
+            arquivos = arquivosDoInventario();
         } catch (err) {
             throw new Error(
                 `o inventário deste censo vem de \`git ls-files\` e o comando FALHOU (${err.message}). `
@@ -307,17 +329,70 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
 
         const achados = contatos(arquivos);
         expect(achados.size).toBeGreaterThanOrEqual(20);
+
+        // A OUTRA METADE DO INVENTÁRIO: `--others` SEM `--exclude-standard` arrastaria
+        // `node_modules/` e `dist/` inteiros para dentro do censo. A medição é sobre o
+        // PACOTE, e não sobre `src/js`, porque ali não há nada ignorado: medir naquele
+        // recorte seria vácuo.
+        expect(existsSync(path.join(RAIZ, 'node_modules')), 'sem `node_modules` no disco a medição é vácua').toBe(true);
+        const doPacote = arquivosDoInventario('.');
+        expect(doPacote.length).toBeGreaterThanOrEqual(300);
+        expect(doPacote.filter((a) => /(^|[/])(node_modules|dist|coverage|test-results)[/]/.test(a))).toEqual([]);
+    });
+
+    it('o inventário ENXERGA arquivo NOVO ainda não rastreado (provado, não afirmado)', () => {
+        // O CEGO QUE ESTE CASO FECHA, e ele não é de classificação: é de CONJUNTO.
+        // `git ls-files` sozinho enumera o índice, então o consumidor escrito há cinco
+        // minutos — que é justamente o que ninguém classificou — ficava fora da varredura
+        // até alguém dar `git add`, e o censo passava verde sem tê-lo olhado. Provar a
+        // correção exige um arquivo que EXISTA e NÃO esteja rastreado: ele nasce aqui e
+        // morre no `finally`. Fica em `tests/fixtures/`, longe de `src/js`, para não
+        // aparecer no inventário de nenhum outro guarda enquanto existe.
+        const dir = 'tests/fixtures/censo-superficies';
+        const relativo = `${dir}/tmp-nao-rastreado.js`;
+        const abs = path.join(RAIZ, relativo);
+        writeFileSync(abs, [
+            `// Path: ${relativo}`,
+            '// Temporário: criado e apagado pelo controle negativo deste censo.',
+            'export const listar = () => config.tilesets;',
+            '',
+        ].join('\n'));
+
+        try {
+            // CONTROLE: o git precisa CONCORDAR que ele não está rastreado, e precisa
+            // enxergar a fixture RASTREADA do mesmo pathspec. Sem este par, o caso passaria
+            // verde num mundo em que alguém tivesse dado `git add` no temporário.
+            const soRastreados = execFileSync('git', ['ls-files', dir], { cwd: RAIZ, encoding: 'utf8' });
+            expect(soRastreados).not.toContain('tmp-nao-rastreado');
+            expect(soRastreados).toContain('consumidor-nao-classificado.js');
+
+            const inventario = arquivosDoInventario(dir);
+            expect(inventario, 'o inventário precisa enxergar o arquivo NÃO RASTREADO').toContain(relativo);
+            expect(inventario, 'e o rastreado precisa continuar dentro: a correção SOMA, não troca')
+                .toContain(`${dir}/consumidor-nao-classificado.js`);
+
+            // E A CADEIA INTEIRA, que é o que transforma "o inventário vê" em "o guarda
+            // pega": o arquivo novo é varrido e o consumidor dele é ACUSADO, pela MESMA
+            // função do caso de classificação acima.
+            const acusados = naoClassificados(contatos(inventario));
+            expect(acusados.some((a) => a.includes('tmp-nao-rastreado'))).toBe(true);
+
+            // DISCRIMINAÇÃO: a mesma função, sobre o código REAL, não acusa ninguém.
+            expect(naoClassificados(contatos(arquivosDoInventario()))).toEqual([]);
+        } finally {
+            rmSync(abs, { force: true });
+        }
     });
 
     it('todo par (arquivo, fonte) está no censo, com classe e motivo', () => {
-        const achados = contatos(arquivosVersionados());
+        const achados = contatos(arquivosDoInventario());
         expect(achados.size).toBeGreaterThanOrEqual(20);
 
         expect(naoClassificados(achados)).toEqual([]);
     });
 
     it('a contagem por entrada bate: apagar uma leitura é tão vermelho quanto acrescentar', () => {
-        const achados = contatos(arquivosVersionados());
+        const achados = contatos(arquivosDoInventario());
         const divergentes = CENSO
             .map((e) => {
                 const a = achados.get(`${e.arquivo}\t${e.gatilho}`);
@@ -356,7 +431,7 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
         // das linhas que a varredura achou. Um grupo novo que alguém passe a ler e que o
         // overlay não trate é um recurso concedido que NUNCA CHEGA (e um revogado que
         // nunca sai) — falha silenciosa, na direção de mostrar dado velho.
-        const achados = contatos(arquivosVersionados());
+        const achados = contatos(arquivosDoInventario());
         const consumidores = CENSO.filter((e) => e.classe === BASELINE);
         expect(consumidores.length).toBeGreaterThanOrEqual(14);
 
@@ -414,6 +489,6 @@ describe('Censo das superfícies de recurso no cliente (fase F9)', () => {
         expect(acusados[0]).toContain('consumidor-nao-classificado.js');
 
         // E a discriminação: a mesma função, sobre o código REAL, não acusa ninguém.
-        expect(naoClassificados(contatos(arquivosVersionados()))).toEqual([]);
+        expect(naoClassificados(contatos(arquivosDoInventario()))).toEqual([]);
     });
 });

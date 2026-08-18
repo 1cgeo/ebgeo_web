@@ -1,6 +1,7 @@
 // Path: src/modules/catalog/catalog.controller.js
 // Controllers are curried by `table` so one set serves every per-type router.
 import { asyncHandler } from '../../utils/async-handler.js';
+import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { createAudit } from '../../utils/audit.js';
 import { principalUserId } from '../../utils/principal.js';
 import { TYPE_BY_TABLE } from '../resource-access/resource-access.types.js';
@@ -40,12 +41,26 @@ function producerActor(req) {
   return req.catalogActor ?? { id: principalUserId(req.user), producerOrgId: null };
 }
 
+/**
+ * AS DUAS LEITURAS MARCAM ESCOPO DE CACHE, pela mesma peça do 360
+ * (`utils/cache-scope.js`), e não por simetria: o corpo delas varia por papel global,
+ * por escopo de produção, por concessão pessoal e pelo empréstimo do `?atlasId=`.
+ * Elas não emitiam `Cache-Control` NENHUM, o que autoriza um cache compartilhado a
+ * guardar por heurística e repor a resposta de um membro para quem não a alcança.
+ *
+ * A isenção do RFC 9111 para `Authorization` não cobre isto: `flexibleAuth` também
+ * autentica por cookie, e a requisição de cookie chega sem aquele cabeçalho.
+ */
 export const list = (table) => asyncHandler(async (req, res) => {
-  res.json({ data: await svc.listCatalog(table, visibleTo(req, table)) });
+  const data = await svc.listCatalog(table, visibleTo(req, table));
+  marcarEscopoJson(req, res);
+  res.json({ data });
 });
 
 export const get = (table) => asyncHandler(async (req, res) => {
-  res.json({ data: await svc.getCatalogItem(table, req.params.id, visibleTo(req, table)) });
+  const data = await svc.getCatalogItem(table, req.params.id, visibleTo(req, table));
+  marcarEscopoJson(req, res);
+  res.json({ data });
 });
 
 /**

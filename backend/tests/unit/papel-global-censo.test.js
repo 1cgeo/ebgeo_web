@@ -14,9 +14,13 @@
 //
 // COMO ESTE ARQUIVO FUNCIONA, EM DOIS NÍVEIS.
 //
-//   A VARREDURA. O inventário vem do VERSIONAMENTO (`git ls-files` sobre `src/`),
-//   nunca de uma lista de alvos escrita à mão: "conferir um subconjunto e tratar
-//   como o conjunto" é a classe mais repetida de `docs/livro-razao.md`. Toda linha
+//   A VARREDURA. O inventário vem do VERSIONAMENTO (`git ls-files -co
+//   --exclude-standard` sobre `src/`), nunca de uma lista de alvos escrita à mão:
+//   "conferir um subconjunto e tratar como o conjunto" é a classe mais repetida de
+//   `docs/livro-razao.md`. As duas bandeiras não são detalhe: `git ls-files` puro
+//   enumera só o RASTREADO, e o guarda ficava cego exatamente onde o trabalho novo
+//   aparece — a comparação de papel escrita há cinco minutos, que é a que ninguém
+//   classificou, só entrava na varredura depois de um `git add`. Toda linha
 //   de CÓDIGO (comentário removido antes da varredura) que fale de `role` e cite
 //   `'admin'`, mais toda linha com `role IN (`, precisa aparecer no censo abaixo.
 //   Sítio novo não classificado reprova.
@@ -251,8 +255,25 @@ function semComentarios(src) {
     .join('\n');
 }
 
-function arquivosVersionados() {
-  const saida = execFileSync('git', ['ls-files', 'src'], { cwd: RAIZ, encoding: 'utf8' });
+/**
+ * O INVENTÁRIO: rastreado MAIS não rastreado não ignorado.
+ *
+ * `git ls-files src` sozinho lista só o que já passou por `git add`, e o ponto cego
+ * que isso abre fica no pior lugar possível: o arquivo que a fase corrente acabou de
+ * escrever é o que ainda não foi classificado, e era o único que a varredura não via.
+ * O censo respondia verde sobre um inventário que não continha o trabalho novo.
+ *
+ * `--others --exclude-standard` acrescenta o NÃO RASTREADO e mantém fora o IGNORADO
+ * (`node_modules/`, `coverage/`, `data/`). As duas metades são MEDIDAS — a segunda
+ * pelo caso-piso, a primeira pelo controle negativo que vem logo depois dele.
+ * @param {string} [pathspec] - Relativo à raiz do pacote.
+ * @returns {string[]} Caminhos relativos, só `.js`.
+ */
+function arquivosDoInventario(pathspec = 'src') {
+  const saida = execFileSync(
+    'git', ['ls-files', '--cached', '--others', '--exclude-standard', pathspec],
+    { cwd: RAIZ, encoding: 'utf8' }
+  );
   return saida.split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.js'));
 }
 
@@ -279,11 +300,18 @@ function sitios(arquivos) {
   return achados;
 }
 
+/** Os sítios sem entrada no censo, no formato de mensagem de erro. */
+function naoClassificados(achados) {
+  return achados
+    .filter((a) => !CENSO.some((e) => e.arquivo === a.arquivo && a.texto.includes(e.trecho)))
+    .map((a) => `${a.arquivo}:${a.n} ${a.texto}`);
+}
+
 describe('Censo do papel global (fase F0 de recursos privados)', () => {
   it('piso: o inventário vem do git e alcança o backend inteiro', () => {
     let arquivos;
     try {
-      arquivos = arquivosVersionados();
+      arquivos = arquivosDoInventario();
     } catch (err) {
       assert.fail(
         `o inventário deste censo vem de \`git ls-files\` e o comando FALHOU (${err.message}). `
@@ -292,10 +320,82 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     }
     assert.ok(arquivos.length >= 100, `esperava >= 100 arquivos versionados em src/, achei ${arquivos.length}`);
     assert.ok(arquivos.includes('src/middleware/require-admin.js'), 'a varredura precisa alcançar o gate de admin');
+
+    // A OUTRA METADE DO INVENTÁRIO: `--others` SEM `--exclude-standard` arrastaria
+    // `node_modules/` inteiro para dentro do censo. A medição é sobre o PACOTE, e não
+    // sobre `src/`, porque em `src/` não há nada ignorado: medir ali seria vácuo.
+    assert.ok(
+      fs.existsSync(path.join(RAIZ, 'node_modules')),
+      'sem `node_modules` no disco esta medição não prova nada: instale as dependências'
+    );
+    const doPacote = arquivosDoInventario('.');
+    assert.ok(doPacote.length >= 100, `esperava >= 100 arquivos .js no pacote, achei ${doPacote.length}`);
+    const lixo = doPacote.filter((a) => /(^|[/])(node_modules|coverage|dist|data)[/]/.test(a));
+    assert.deepEqual(lixo, [], '`--exclude-standard` deixou entrar arquivo ignorado no inventário');
+  });
+
+  it('o inventário ENXERGA arquivo NOVO ainda não rastreado (provado, não afirmado)', () => {
+    // O CEGO QUE ESTE CASO FECHA, e ele não é de classificação: é de CONJUNTO.
+    // `git ls-files` sozinho enumera o índice, então o arquivo escrito há cinco minutos
+    // — que é justamente o que ninguém classificou — ficava fora da varredura até
+    // alguém dar `git add`, e o censo passava verde sem tê-lo olhado. Provar a correção
+    // exige um arquivo que EXISTA e NÃO esteja rastreado: ele nasce aqui e morre no
+    // `finally`. Fica em `tests/fixtures/` de propósito, longe de `src/`, para não
+    // aparecer no inventário dos outros censos enquanto existe.
+    const dir = 'tests/fixtures';
+    const relativo = `${dir}/tmp-nao-rastreado-papel-global.js`;
+    const abs = path.join(RAIZ, relativo);
+    fs.writeFileSync(abs, [
+      `// Path: ${relativo}`,
+      '// Temporário: criado e apagado pelo controle negativo de `papel-global-censo.test.js`.',
+      "export const podeAdministrar = (u) => u.globalRole === 'admin';",
+      '',
+    ].join('\n'));
+
+    try {
+      // CONTROLE: o git precisa CONCORDAR que ele não está rastreado, e precisa
+      // enxergar um arquivo rastreado no mesmo pathspec. Sem este par, o caso passaria
+      // verde num mundo em que alguém tivesse dado `git add` no temporário.
+      const soRastreados = execFileSync('git', ['ls-files', dir], { cwd: RAIZ, encoding: 'utf8' });
+      assert.ok(
+        !soRastreados.includes('tmp-nao-rastreado-papel-global'),
+        'a fixture temporária não pode estar rastreada, senão este caso não distingue os dois modos'
+      );
+      assert.ok(
+        soRastreados.includes('exemplo-nao-classificado.routes.js'),
+        'o pathspec precisa alcançar pelo menos uma fixture RASTREADA'
+      );
+
+      const inventario = arquivosDoInventario(dir);
+      assert.ok(
+        inventario.includes(relativo),
+        'o inventário precisa enxergar o arquivo NÃO RASTREADO: é ele que representa o trabalho da '
+        + 'fase corrente, e era exatamente o que `git ls-files` sozinho deixava de fora'
+      );
+      assert.ok(
+        inventario.some((a) => a.includes('exemplo-nao-classificado')),
+        'e o rastreado precisa continuar dentro: a correção SOMA, não troca'
+      );
+
+      // E A CADEIA INTEIRA, que é o que transforma "o inventário vê" em "o guarda
+      // pega": o arquivo novo é varrido e o sítio dele é ACUSADO, pela MESMA função do
+      // caso de classificação acima.
+      const acusados = naoClassificados(sitios(inventario));
+      assert.ok(
+        acusados.some((a) => a.includes('tmp-nao-rastreado-papel-global')),
+        `o sítio do arquivo não rastreado precisa ser ACUSADO; acusados: ${acusados.join(' | ')}`
+      );
+
+      // DISCRIMINAÇÃO: a MESMA função, sobre o código REAL, não acusa ninguém — sem
+      // isto, "acusa" também seria o comportamento de uma função que acusa tudo.
+      assert.deepEqual(naoClassificados(sitios(arquivosDoInventario())), []);
+    } finally {
+      fs.rmSync(abs, { force: true });
+    }
   });
 
   it('todo sítio de comparação de papel global está no censo, com classe e motivo', () => {
-    const achados = sitios(arquivosVersionados());
+    const achados = sitios(arquivosDoInventario());
 
     // Guarda de discriminação: censo comparado contra varredura vazia passaria
     // verde sem verificar nada. O piso caiu de 30 para 20 na fase F6, quando NOVE
@@ -305,12 +405,8 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     // Um piso que não acompanha a redução vira uma reprovação que não é regressão.
     assert.ok(achados.length >= 20, `esperava >= 20 sítios, achei ${achados.length}`);
 
-    const naoClassificados = achados
-      .filter((a) => !CENSO.some((e) => e.arquivo === a.arquivo && a.texto.includes(e.trecho)))
-      .map((a) => `${a.arquivo}:${a.n} ${a.texto}`);
-
     assert.deepEqual(
-      naoClassificados, [],
+      naoClassificados(achados), [],
       'sítio de comparação de papel global fora do censo. Classifique-o em '
       + `'${PODER}' (gate de administração — nem credenciado nem produtor entram), `
       + `'${DADO}' (acesso a dado — credenciado entra), `
@@ -320,7 +416,7 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
   });
 
   it('a contagem por entrada bate: apagar uma cópia é tão vermelho quanto acrescentar', () => {
-    const achados = sitios(arquivosVersionados());
+    const achados = sitios(arquivosDoInventario());
     assert.ok(achados.length >= 20);
 
     const divergentes = CENSO
