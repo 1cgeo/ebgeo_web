@@ -27,8 +27,17 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 
-/** As três rotas que servem os tipos de recurso que ganham marca de acesso. */
+/**
+ * As quatro rotas de catálogo, todas com marca de acesso.
+ *
+ * `basemaps` entrou na lista com a migração 021. A marca ela já tinha desde a 017 e
+ * o filtro público-por-padrão já valia; o que faltava era o tipo de CONCESSÃO, sem
+ * o qual um basemap privado sumia para todo mundo e não havia como devolvê-lo a
+ * ninguém. Antes disso este arquivo media três rotas e a quarta ficava sem par
+ * negativo nenhum.
+ */
 const ROTAS = [
+  ['basemaps', 'basemaps'],
   ['tilesets', 'tilesets'],
   ['data-layers', 'data_layers'],
   ['analysis-layers', 'analysis_layers'],
@@ -66,13 +75,13 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
 
   const como = (token, m, p) => supertest(app)[m](p).set('Authorization', `Bearer ${token}`);
 
-  it('a rota exige token: sem Authorization é 401, nas três', async () => {
+  it('a rota exige token: sem Authorization é 401, nas quatro', async () => {
     let exercidas = 0;
     for (const [rota] of ROTAS) {
       await supertest(app).get(`/api/v1/${rota}`).expect(401);
       exercidas += 1;
     }
-    assert.equal(exercidas, 3, 'guarda: as três rotas precisam ter sido exercidas');
+    assert.equal(exercidas, 4, 'guarda: as quatro rotas precisam ter sido exercidas');
   });
 
   // ESTE É O CASO QUE A FASE F2 REESCREVE. Hoje ele afirma o buraco; depois de F2
@@ -94,7 +103,7 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
       assert.deepEqual(idsUsuario, idsAdmin, `${rota}: hoje as duas listas são idênticas — não há filtro de acesso`);
       exercidas += 1;
     }
-    assert.equal(exercidas, 3);
+    assert.equal(exercidas, 4);
   });
 
   // A partir de F1 a coluna EXISTE, então o buraco deixa de ser previsão e passa a
@@ -104,7 +113,7 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
   //
   // Medir vale mais que prever: um teste que só dissesse "quando a coluna existir,
   // vai vazar" nunca seria confrontado com o produto.
-  it('a coluna access_level existe nas três tabelas (F1 entrou)', async () => {
+  it('a coluna access_level existe nas quatro tabelas (F1 entrou)', async () => {
     const { rows } = await db.query(
       `SELECT table_name FROM information_schema.columns
         WHERE table_schema = 'public' AND column_name = 'access_level'
@@ -114,7 +123,7 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
     assert.deepEqual(
       rows.map((r) => r.table_name).sort(),
       ROTAS.map(([, t]) => t).sort(),
-      'a migração 017 precisa ter posto access_level nas três tabelas de catálogo em uso'
+      'a migração 017 precisa ter posto access_level nas quatro tabelas de catálogo'
     );
   });
 
@@ -146,7 +155,7 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
         await db.query(`UPDATE ${tabela} SET access_level = 'public' WHERE id = $1`, [idDe(rota)]);
       }
     }
-    assert.equal(medidas, 3, 'guarda: as tres rotas precisam ter sido medidas');
+    assert.equal(medidas, 4, 'guarda: as quatro rotas precisam ter sido medidas');
   });
 
   it('a rota de visibilidade e de ADMIN, e o usuario comum recebe 403', async () => {

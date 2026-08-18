@@ -1,9 +1,9 @@
 // Path: src/modules/config/config.cache.js
 // In-process memoization of the GET /api/config payload, INVALIDATED ON WRITE.
 //
-// Why this exists: `getAppConfig()` fans out to eight independent SELECTs (five catalog
-// tables — basemaps is read twice — plus ranks, organizations and the admin override
-// document). The route is anonymous, has no auth to slow anyone down, and is the ONE
+// Why this exists: `getAppConfig()` fans out to eight independent SELECTs (five over the
+// four catalog tables — basemaps is read twice, once for the metadata and once for the
+// MapLibre styles — plus ranks, organizations and the admin override document). The route is anonymous, has no auth to slow anyone down, and is the ONE
 // endpoint whose failure stops the product: the frontend boot is fail-fast on it, with no
 // static fallback, and it retries three times before giving up — so a burst amplifies
 // itself against a pool of ten connections (bugs-backend.md #64).

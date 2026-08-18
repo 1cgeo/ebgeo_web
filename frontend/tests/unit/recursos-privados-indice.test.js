@@ -22,11 +22,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
     payload: {
+        basemaps: [{ id: 'priv-bm', name: 'Base restrita' }],
         tilesets: [{ id: 'priv-3d', name: 'Modelo restrito' }],
         dataLayers: [{ id: 'priv-data', name: 'Camada restrita' }],
         analysisLayers: [],
         views360: [{ id: 'uuid-360', name: 'Panorama restrito' }],
-        shareable: { tilesets: ['priv-3d'], dataLayers: [], analysisLayers: [], views360: [] },
+        shareable: {
+            basemaps: [], tilesets: ['priv-3d'], dataLayers: [], analysisLayers: [], views360: [],
+        },
     },
     global: { valor: false },
 }));
@@ -68,6 +71,7 @@ describe('índice dos recursos privados visíveis', () => {
     it('depois da soma, só os ids que o servidor mandou são privados', async () => {
         expect(await refreshVisibleResources(null)).toBe(true);
 
+        expect(isPrivateResource('basemaps', 'priv-bm')).toBe(true);
         expect(isPrivateResource('tilesets', 'priv-3d')).toBe(true);
         expect(isPrivateResource('dataLayers', 'priv-data')).toBe(true);
         expect(isPrivateResource('views360', 'uuid-360')).toBe(true);

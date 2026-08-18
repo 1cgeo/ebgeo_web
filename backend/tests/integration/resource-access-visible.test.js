@@ -23,8 +23,17 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 
-/** [tipo, tabela, chave no payload aditivo, caminho no /api/config]. */
+/**
+ * [tipo, tabela, chave no payload aditivo, caminho no /api/config].
+ *
+ * `basemap` entrou na migração 021 e é o único cujo caminho no `/api/config` é um
+ * OBJETO indexado por id (contrato congelado do `config.js`) enquanto a chave do
+ * payload aditivo é um ARRAY, como as outras. A reprojeção de uma forma para a
+ * outra é do CLIENTE (`mergeGrantedIntoBaseline`), e o `Object.keys` aqui é só o
+ * que permite os mesmos casos medirem os quatro tipos.
+ */
 const TIPOS = [
+  ['basemap', 'basemaps', 'basemaps', (c) => Object.keys(c.basemaps ?? {}).map((id) => ({ id }))],
   ['tileset', 'tilesets', 'tilesets', (c) => c.tilesets],
   ['data_layer', 'data_layers', 'dataLayers', (c) => c.dataLayers.layers],
   ['analysis_layer', 'analysis_layers', 'analysisLayers', (c) => c.analysisLayers.layers],
@@ -86,7 +95,7 @@ describe('F3 — /resource-access/visible entrega o privado concedido, e só a e
     await supertest(app).get('/api/v1/resource-access/visible').expect(401);
   });
 
-  it('o forasteiro não vê nenhum dos três; o admin vê os três (papel global)', async () => {
+  it('o forasteiro não vê nenhum dos quatro; o admin vê os quatro (papel global)', async () => {
     const dele = await visiveis(tokenForasteiro);
     const doAdmin = await visiveis(tokenAdmin);
     let medidos = 0;
@@ -95,10 +104,10 @@ describe('F3 — /resource-access/visible entrega o privado concedido, e só a e
       assert.ok(doAdmin[chave].map((r) => r.id).includes(idDe(tabela)), `${tabela}: admin vê por papel global`);
       medidos += 1;
     }
-    assert.equal(medidos, 3, 'guarda: os três tipos precisam ter sido medidos');
+    assert.equal(medidos, 4, 'guarda: os quatro tipos precisam ter sido medidos');
   });
 
-  it('concedido, o beneficiário passa a ver os três — e o forasteiro continua sem ver', async () => {
+  it('concedido, o beneficiário passa a ver os quatro — e o forasteiro continua sem ver', async () => {
     const antes = await visiveis(tokenBeneficiario);
     for (const [, tabela, chave] of TIPOS) {
       assert.ok(!antes[chave].map((r) => r.id).includes(idDe(tabela)), `piso: ${tabela} ausente antes`);
@@ -167,10 +176,48 @@ describe('F3 — /resource-access/visible entrega o privado concedido, e só a e
     assert.equal(item.config, undefined, 'e `config` não viaja aninhado');
   });
 
-  it('as quatro chaves existem sempre, mesmo vazias — o cliente itera sem checar', async () => {
+  it('as cinco chaves existem sempre, mesmo vazias — o cliente itera sem checar', async () => {
     const dele = await visiveis(tokenForasteiro);
-    for (const chave of ['tilesets', 'dataLayers', 'analysisLayers', 'views360']) {
+    let checadas = 0;
+    for (const chave of ['basemaps', 'tilesets', 'dataLayers', 'analysisLayers', 'views360']) {
       assert.ok(Array.isArray(dele[chave]), `${chave} precisa ser um array`);
+      assert.ok(Array.isArray(dele.shareable?.[chave]), `shareable.${chave} precisa ser um array`);
+      checadas += 1;
+    }
+    assert.equal(checadas, 5, 'guarda: as cinco chaves precisam ter sido medidas');
+  });
+
+  // O ESTILO MapLibre É A SEGUNDA SUPERFÍCIE DO BASEMAP, e ela sai por uma chave
+  // SEPARADA do `/api/config` (`basemapStyles`, montada por `listBasemapStyles`).
+  // Medir só `config.basemaps` deixaria o estilo de um basemap privado vazando por
+  // uma porta que nenhum caso olhava — é a mesma forma do defeito do MVT, em que a
+  // suíte media privacidade na listagem e nunca no tile.
+  it('o estilo de um basemap privado não vaza por `basemapStyles`', async () => {
+    const id = idDe('basemaps');
+    await db.query(
+      `UPDATE basemaps SET config = $2::jsonb WHERE id = $1`,
+      [id, JSON.stringify({ url: '/x', style: { version: 8, sources: {}, layers: [] } })]
+    );
+    try {
+      // Discriminação: público, o estilo APARECE. Sem esta metade, a ausência
+      // seguinte seria indistinguível de `listBasemapStyles` nunca emitir a chave.
+      await db.query(`UPDATE basemaps SET access_level = 'public' WHERE id = $1`, [id]);
+      const publico = await config(null);
+      assert.ok(publico.basemapStyles?.[id], 'guarda: público, o estilo sai em basemapStyles');
+
+      await db.query(`UPDATE basemaps SET access_level = 'private' WHERE id = $1`, [id]);
+      for (const [quem, token] of [['anônimo', null], ['beneficiário', tokenBeneficiario], ['admin', tokenAdmin]]) {
+        const c = await config(token);
+        assert.equal(
+          c.basemapStyles?.[id], undefined,
+          `privado, o estilo não pode sair em basemapStyles nem para ${quem}`
+        );
+      }
+    } finally {
+      await db.query(
+        `UPDATE basemaps SET access_level = 'private', config = '{"url":"/x"}'::jsonb WHERE id = $1`,
+        [id]
+      );
     }
   });
 

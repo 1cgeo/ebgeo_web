@@ -241,7 +241,6 @@ const CATEGORY_TABLE = {
   data_layer: 'data_layers',
   analysis_layer: 'analysis_layers',
   tileset: 'tilesets',
-  streetview_marker: 'streetview_markers',
 };
 
 /**

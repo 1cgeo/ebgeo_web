@@ -139,13 +139,20 @@ describe('O Credenciado vê o privado, não administra e não escreve', () => {
   });
 
   it('BURACO CONHECIDO — o credenciado ainda CONCEDE de raiz, e isso é escrita', async () => {
-    // MARCADOR, NÃO ENDOSSO. `requireResourceShare` e `requireGrantRevoker` passam por
-    // `fn_has_global_data_access`, que inclui o credenciado — então o papel definido
-    // como "lê tudo e não escreve nada" concede e revoga acesso de terceiros. Fechar
-    // isso exige um predicado próprio (`fn_can_grant_resource`) e é decisão de
-    // produto, não arrumação. Fica escrito como expectativa explícita: se o predicado
-    // nascer, ESTE caso fica vermelho, que é o ponto — a decisão volta à mesa em vez
-    // de ser contradita em silêncio.
+    // MARCADOR, NÃO ENDOSSO, E JÁ PELA METADE. `requireResourceShare` continua passando
+    // por `fn_has_global_data_access`, que inclui o credenciado — então o papel definido
+    // como "lê tudo e não escreve nada" CONCEDE acesso de terceiros. Fechar isso exige
+    // um predicado próprio (`fn_can_grant_resource`) e é decisão de produto, não
+    // arrumação. Fica escrito como expectativa explícita: se o predicado nascer, ESTE
+    // caso fica vermelho, que é o ponto — a decisão volta à mesa em vez de ser
+    // contradita em silêncio.
+    //
+    // A METADE QUE FECHOU (fase F9): REVOGAR não passa mais pelo papel de dado.
+    // `requireGrantRevoker` pergunta por ADMINISTRAÇÃO no ramo largo e por AUTORIA no
+    // estreito, então o credenciado deixou de derrubar a concessão (e a subárvore) de
+    // outra pessoa. Ele continua revogando a que ele mesmo deu, que é o que a linha
+    // final deste caso exercita — e é por isso que ela continua verde.
+    // O par negativo mora em `resource-grants-revogação-credenciado.test.js`.
     const res = await supertest(app)
       .post(`/api/v1/resource-access/tileset/${TILESET}/grants`)
       .set('Authorization', `Bearer ${tokenCredenciado}`)

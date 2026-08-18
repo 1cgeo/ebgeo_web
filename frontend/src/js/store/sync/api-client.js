@@ -991,7 +991,6 @@ export class ApiClient {
             data_layer: 'data-layers',
             analysis_layer: 'analysis-layers',
             tileset: 'tilesets',
-            streetview_marker: 'streetview-markers',
         }[category];
         if (!ep) throw new Error(`Unknown catalog category: ${category}`);
         return ep;
@@ -1004,7 +1003,7 @@ export class ApiClient {
      * (public/private — WHO SEES it) and `owner_org_id` (the producing organization — WHO
      * MAINTAINS it, null for the institutional collection). They are independent, and the
      * admin panel renders them as separate columns for that reason.
-     * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'|'streetview_marker'
+     * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'
      * @returns {Promise<Array<Object>>}
      */
     async listResources(category) {

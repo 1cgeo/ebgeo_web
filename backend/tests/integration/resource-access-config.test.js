@@ -27,8 +27,16 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 
-/** [tipo de recurso, tabela, caminho dentro do payload de config]. */
+/**
+ * [tipo de recurso, tabela, caminho dentro do payload de config].
+ *
+ * `basemap` entrou na migração 021 e é o único cuja chave no payload é um OBJETO
+ * indexado por id, não um array — daí o `Object.keys`. A forma diferente é o
+ * contrato congelado do `config.js` (o frontend indexa basemap por id), e reprojetá-la
+ * aqui é o que permite os mesmos casos medirem os quatro tipos.
+ */
 const TIPOS = [
+  ['basemap', 'basemaps', (c) => Object.keys(c.basemaps ?? {}).map((id) => ({ id }))],
   ['tileset', 'tilesets', (c) => c.tilesets],
   ['data_layer', 'data_layers', (c) => c.dataLayers.layers],
   ['analysis_layer', 'analysis_layers', (c) => c.analysisLayers.layers],
@@ -82,7 +90,7 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
       .send({ accessLevel })
       .expect(200);
 
-  it('piso: o payload público carrega as três fixtures antes de qualquer marca', async () => {
+  it('piso: o payload público carrega as quatro fixtures antes de qualquer marca', async () => {
     const c = await config(null);
     let vistos = 0;
     for (const [, tabela, pega] of TIPOS) {
@@ -90,7 +98,7 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
       assert.ok(ids.includes(idDe(tabela)), `${tabela}: a fixture precisa estar no payload público`);
       vistos += 1;
     }
-    assert.equal(vistos, 3, 'guarda: os três tipos precisam ter sido medidos');
+    assert.equal(vistos, 4, 'guarda: os quatro tipos precisam ter sido medidos');
   });
 
   it('marcado privado, o recurso SAI do /api/config — anônimo, usuário comum e admin', async () => {
@@ -118,7 +126,7 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
         await db.query(`UPDATE ${tabela} SET access_level = 'public' WHERE id = $1`, [idDe(tabela)]);
       }
     }
-    assert.equal(medidos, 3);
+    assert.equal(medidos, 4);
   });
 
   it('R3: a marca vale no PRÓXIMO pedido, sem TTL — o memo foi invalidado', async () => {

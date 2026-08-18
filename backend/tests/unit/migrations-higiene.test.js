@@ -63,6 +63,22 @@ const EXCECOES_DESTRUTIVAS = [
   { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check' },
   { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_target_type_check' },
   { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail ALTER COLUMN target_id TYPE TEXT' },
+  // 021 dispara três: um `DROP TABLE` de verdade e dois CHECK que caem para alargar.
+  //
+  // O `DROP TABLE` é o ÚNICO desta lista que apaga dados, e por isso é o único que
+  // precisa de mais do que "alargar é compatível para trás" como justificativa.
+  // `streetview_markers` nasceu de `LIKE basemaps INCLUDING ALL` em 003 e nunca teve
+  // consumidor: não alimentava `GET /api/config`, nenhum código do frontend chamava a
+  // rota dela, nenhum seed a populava, e as únicas escritas que já existiram foram de
+  // teste. O que ela custava era ambiguidade — existe um ARQUIVO homônimo no frontend
+  // (`street_view_tool/streetview_markers.js`) que é a camada VIVA de marcadores do
+  // 360 e lê de `sv360.projects`.
+  //
+  // Os dois CHECK caem para receber `basemap` como quinto tipo de recurso: mesmo
+  // alargamento de 007/018/020, e todo valor aceito antes continua aceito.
+  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'DROP TABLE streetview_markers' },
+  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE resource_grants DROP CONSTRAINT resource_grants_resource_type_check' },
+  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE atlas_resources DROP CONSTRAINT atlas_resources_resource_type_check' },
 ];
 
 const PADROES_DESTRUTIVOS = [

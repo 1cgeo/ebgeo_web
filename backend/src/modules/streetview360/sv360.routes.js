@@ -18,6 +18,9 @@ import { mkdirSync } from 'node:fs';
 import { flexibleAuth } from '../../middleware/flexible-auth.js';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
+import {
+  liftOptionalAtlasId, requireAtlasScopeWhenPresent,
+} from '../../middleware/resource-access.js';
 import { BadRequestError, ForbiddenError } from '../../utils/errors.js';
 import config from '../../config.js';
 import * as ctrl from './sv360.controller.js';
@@ -94,6 +97,38 @@ const uploadBundle = multer({
 router.use(flexibleAuth);
 
 // --- reads (stage 1) -------------------------------------------------------
+//
+// O ESCOPO DE ATLAS (`?atlasId=`), E POR QUE SÃO TRÊS MIDDLEWARES E NÃO UM.
+//
+// O predicado de leitura do 360 (`sv360AccessPredicate`) sempre teve DOIS bracos de
+// concessão: a pessoal (`resource_grants`) e a de EMPRÉSTIMO (`atlas_resources`), e o
+// segundo depende de um atlas em foco. Até a fase F9 nenhum controller preenchia esse
+// parâmetro, então o braco estava morto sobre HTTP e um panorama emprestado a um atlas
+// nunca aparecia para os membros dele.
+//
+// Ligar o eixo exige DUAS condições, e nenhuma é opcional:
+//
+//   1. O UUID DO ATLAS NÃO AUTORIZA. `validate` fecha a borda (não-UUID vira 422 antes
+//      de qualquer cast), `liftOptionalAtlasId` sobe o parâmetro para `req.params`
+//      (que é onde os gates de atlas leem) e `requireAtlasScopeWhenPresent` roda o
+//      `requireAtlasPermission('read')` de verdade quando ha atlas — dono, share,
+//      `is_public`, e o CONFINAMENTO do visitante de link público ao atlas do próprio
+//      token. Sem o terceiro, saber o UUID seria o modelo de segurança.
+//
+//   2. NADA QUE DEPENDEU DO EMPRÉSTIMO E PUBLICAMENTE CACHEÁVEL. Quem cuida disso e o
+//      controller (`respostaEscopada`), porque a decisão é por RESPOSTA e não por
+//      rota; e o ETag do tile passa a ser derivado do CORPO, que incorpora o conjunto
+//      de visibilidade por construção.
+//
+// A ORDEM DOS TRÊS E CONTRATO, e e a mesma de `GET /resource-access/visible`.
+//
+// AS ROTAS DE FOTO (`/photos/...`) ENTRARAM DEPOIS, e a ordem importou: enquanto as
+// consultas delas (GET_PHOTO_BY_ID, GET_PHOTO_BY_NAME, GET_PHOTO_SIZES, NEARBY_PHOTOS)
+// não carregavam `sv360AccessPredicate` nenhum, fiar um `atlasId` ali teria sido fiar um
+// parâmetro num predicado inexistente — cobertura aparente. As quatro ganharam o
+// predicado no mesmo trabalho que pôs estes três middlewares aqui, então o eixo é real:
+// um panorama privado só sai por foto para quem o alcança, e o empréstimo por atlas vale
+// para a foto como já valia para a listagem e para o tile.
 
 // STATIC read routes (tiles / thumbnails) declared BEFORE any ':param' route so
 // 'tiles' / 'thumbnails' are never captured as a slug/uuid. Both are flexibleAuth
@@ -106,6 +141,8 @@ router.use(flexibleAuth);
 router.get(
   '/tiles/fotos.geojson',
   validate({ query: schemas.tilesGeojsonQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.tilesGeojson
 );
 
@@ -114,25 +151,52 @@ router.get(
 // integers (z 0..24; x/y < 2^z) → a malformed tile coord is a clean 400 BEFORE the
 // query (validateTileParams throws BadRequestError, NOT the Joi→422 path). Declared
 // alongside the static reads, BEFORE '/photos/:uuid', so 'tiles' is never a slug.
-router.get('/tiles/:z/:x/:y.pbf', validateTileParams, ctrl.mvtTile);
+router.get(
+  '/tiles/:z/:x/:y.pbf',
+  validate({ query: schemas.atlasScopeQuerySchema }),
+  validateTileParams,
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.mvtTile
+);
 
 // Express strips the literal '.webp' suffix; :slug holds just the project slug.
 router.get(
   '/thumbnails/:slug.webp',
-  validate({ params: schemas.thumbnailSlugParamSchema }),
+  validate({ params: schemas.thumbnailSlugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getThumbnail
 );
 
-router.get('/projects', ctrl.listProjects);
+router.get(
+  '/projects',
+  validate({ query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.listProjects
+);
 
 // STATIC path, and it MUST stay above '/projects/:slug'. Express matches routes in
 // DECLARATION ORDER and has no preference for a literal segment over a parametric
 // one — unlike the origin's Fastify (find-my-way), whose comment on this same route
 // says order does not matter. Declared after, 'review-stats' would be captured as a
 // :slug and answer 404 'Project not found' for a slug nobody asked about.
-router.get('/projects/review-stats', ctrl.reviewStats);
+router.get(
+  '/projects/review-stats',
+  validate({ query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.reviewStats
+);
 
-router.get('/projects/:slug', validate({ params: schemas.slugParamSchema }), ctrl.getProject);
+router.get(
+  '/projects/:slug',
+  validate({ params: schemas.slugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.getProject
+);
 
 // Floors of a project (the floor selector). Same flexibleAuth read policy as
 // '/projects/:slug'. The service resolves the project through the access-filtered
@@ -141,7 +205,9 @@ router.get('/projects/:slug', validate({ params: schemas.slugParamSchema }), ctr
 // load-bearing here; it sits next to its sibling for readability.
 router.get(
   '/projects/:slug/floors',
-  validate({ params: schemas.slugParamSchema }),
+  validate({ params: schemas.slugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getProjectFloors
 );
 
@@ -154,14 +220,18 @@ router.get(
 // The calibration list of a project + its review counters.
 router.get(
   '/projects/:slug/photos',
-  validate({ params: schemas.slugParamSchema }),
+  validate({ params: schemas.slugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getProjectPhotos
 );
 
 // Everything the calibration map draws for one project.
 router.get(
   '/projects/:slug/map',
-  validate({ params: schemas.slugParamSchema }),
+  validate({ params: schemas.slugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getProjectMap
 );
 
@@ -169,7 +239,9 @@ router.get(
 // from original_name has an ETL behind it.
 router.get(
   '/projects/:slug/runs',
-  validate({ params: schemas.slugParamSchema }),
+  validate({ params: schemas.slugParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getProjectRuns
 );
 
@@ -183,19 +255,25 @@ router.get(
 router.get(
   '/photos/nearest',
   validate({ query: schemas.nearestQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.nearestPhoto
 );
 
 // Declared before '/photos/:uuid' so 'by-name' is not matched as a uuid.
 router.get(
   '/photos/by-name/:nome',
-  validate({ params: schemas.nomeParamSchema }),
+  validate({ params: schemas.nomeParamSchema, query: schemas.atlasScopeQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getPhotoByName
 );
 
 router.get(
   '/photos/:uuid',
   validate({ params: schemas.uuidParamSchema, query: schemas.photoQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getPhoto
 );
 
@@ -203,12 +281,16 @@ router.get(
 router.get(
   '/photos/:uuid/nearby',
   validate({ params: schemas.uuidParamSchema, query: schemas.nearbyPhotosQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.nearbyPhotos
 );
 
 router.get(
   '/photos/:uuid/image',
   validate({ params: schemas.uuidParamSchema, query: schemas.imageQuerySchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
   ctrl.getPhotoImage
 );
 

@@ -1,12 +1,11 @@
 // Path: src/modules/catalog/catalog.service.js
 // Generic CRUD over the per-type catalog tables (basemaps / data_layers / analysis_layers /
-// tilesets / streetview_markers). The `table` arg is whitelisted (assertTable) before interpolation.
+// tilesets). The `table` arg is whitelisted (assertTable) before interpolation.
 //
-// Every write here drops the memoized GET /api/config payload (config.cache.js). Four of the
-// five tables feed that payload; `streetview_markers` does not, and is invalidated anyway
-// because the alternative — a per-table condition — is the kind of partial invalidation that
-// makes an admin watch an edit vanish and blame the database. Invalidating one extra table
-// costs one rebuild of a document that is rebuilt on every write regardless.
+// Every write here drops the memoized GET /api/config payload (config.cache.js). All four
+// tables feed that payload, so the invalidation is never wasted. It used to cover a fifth,
+// `streetview_markers`, which fed nothing and was invalidated anyway; that table was dropped
+// in migration 021 for having had no consumer at all.
 import { query, oneOrNone, one } from '../../database/index.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
@@ -40,10 +39,11 @@ const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
  *
  * O RAMO DE PRODUÇÃO ENTRA AQUI, e não é simetria estética: sem ele o produtor
  * levava 404 no GET da própria camada privada e sucesso no PUT, que é a mesma linha
- * existindo para a escrita e não existindo para a leitura. Ele vale para AS CINCO
- * tabelas; o ramo de concessão só para as que têm tipo de concessão (`basemaps` e
- * `streetview_markers` não recebem concessão individual e por isso `resourceType`
- * chega nulo para elas).
+ * existindo para a escrita e não existindo para a leitura. Desde a migração 021 as
+ * QUATRO tabelas de catálogo têm os DOIS ramos: `basemaps` ganhou tipo de concessão
+ * e deixou de chegar aqui com `resourceType` nulo. O `??` do chamador continua
+ * existindo porque `visibleTo` é montado a partir de um mapa, e um mapa que perde
+ * uma entrada precisa degradar para menos dado, nunca para vazamento.
  *
  * @param {{userId: string|null, atlasId: string|null, resourceType: string|null}|null} visibleTo
  * @param {number} base - Índice do último parâmetro já usado.

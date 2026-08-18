@@ -89,8 +89,15 @@ async function loadWritablePhoto(uuid, user, executor = query) {
 
 // Re-reads the photo + its targets via the stage-1 read queries and rebuilds the
 // FROZEN photoMetadataShape — the single source of truth for the write response.
-async function rebuildPhotoShape(uuid, executor = query) {
-  const { rows } = await executor(Q.GET_PHOTO_BY_ID, [uuid]);
+//
+// O `user` ENTRA AQUI DESDE A FASE F9, e não é opcional: `GET_PHOTO_BY_ID` passou a
+// carregar `sv360AccessPredicate`, então relê-la sem principal devolve zero linha para
+// todo projeto privado e a escrita responderia 404 DEPOIS de gravar. Quem chega aqui já
+// passou por `loadWritablePhoto`, ou seja, já escreve o projeto — o predicado só confirma
+// pelo mesmo caminho que a leitura usa, sem uma segunda definição da regra. O atlas em
+// foco é NULO de propósito: empréstimo autoriza LER, nunca escrever.
+async function rebuildPhotoShape(uuid, user, executor = query) {
+  const { rows } = await executor(Q.GET_PHOTO_BY_ID, [uuid, principalUserId(user), null]);
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   const { rows: targets } = await executor(Q.GET_TARGETS_FOR_PHOTO, [photo.id]);
@@ -137,7 +144,7 @@ export async function updateCalibration(uuid, fields, user) {
     await loadWritablePhoto(uuid, user, exec);
     const update = buildCalibrationUpdate(uuid, fields);
     if (update) await exec(update.sql, update.params);
-    return rebuildPhotoShape(uuid, exec);
+    return rebuildPhotoShape(uuid, user, exec);
   });
 }
 
@@ -158,7 +165,7 @@ export async function updateTargetVisibility(uuid, targetId, hidden, user) {
     const { rows: link } = await exec(WQ.GET_TARGET_LINK, [uuid, targetId]);
     if (!link[0]) throw new NotFoundError('Target');
     await exec(WQ.UPDATE_TARGET_VISIBILITY, [uuid, targetId, hidden]);
-    return rebuildPhotoShape(uuid, exec);
+    return rebuildPhotoShape(uuid, user, exec);
   });
 }
 
@@ -198,7 +205,7 @@ export async function createTarget(uuid, body, user) {
       body.override_height ?? null,
       body.hidden ?? false,
     ]);
-    return rebuildPhotoShape(uuid, exec);
+    return rebuildPhotoShape(uuid, user, exec);
   });
 }
 
@@ -266,7 +273,7 @@ export async function batchCalibration(items, user) {
           await loadWritablePhoto(uuid, user, exec);
           const update = buildCalibrationUpdate(uuid, fields);
           if (update) await exec(update.sql, update.params);
-          return rebuildPhotoShape(uuid, exec);
+          return rebuildPhotoShape(uuid, user, exec);
         });
         updated.push(shape);
       } catch (err) {

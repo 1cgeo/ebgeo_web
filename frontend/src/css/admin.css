@@ -199,11 +199,15 @@
 }
 
 /* O Produtor tem COR PRÓPRIA de propósito. Os quatro papéis globais não são uma
-   escada, então nada de degradê entre eles: azul-esverdeado diz "outro eixo", não
-   "um degrau acima do Credenciado". */
+   escada, então nada de degradê entre eles: azul diz "outro eixo", não "um degrau
+   acima do Credenciado".
+   O par sai de `--color-info`, e não de um literal como o âmbar acima: aqui a
+   família EXISTE nos tokens, e o par literal anterior (sky-500 / sky-700) só
+   repetia à mão uma cor que o design já nomeia. A receita do `color-mix` é a mesma
+   já usada em `account.css` para o mesmo token, para que os dois não divirjam. */
 .admin-chip--producer {
-    background: rgb(14 165 233 / 15%);
-    color: #0369a1;
+    background: color-mix(in srgb, var(--color-info) 15%, transparent);
+    color: color-mix(in srgb, var(--color-info) 78%, var(--gray-900));
 }
 
 /* O eixo de ACESSO do recurso, que não é o de papel logo acima nem o de status

@@ -6,13 +6,14 @@
 //
 // O papel global é lido do BANCO (`fn_has_global_data_access`), nunca do
 // `req.user.role`, e a razão é a mesma que fez a função nascer em SQL: o token
-// vive até 15 min e `flexibleAuth` não reconcilia, então um curador rebaixado
+// vive até 15 min e `flexibleAuth` não reconcilia, então um credenciado rebaixado
 // carregaria o papel antigo por essa janela inteira.
 
 import { ForbiddenError, NotFoundError, BadRequestError } from '../utils/errors.js';
 import { one, oneOrNone } from '../database/index.js';
 import { principalUserId } from '../utils/principal.js';
 import { assertProductionTypeOf } from '../modules/catalog/catalog.tables.js';
+import { requireAtlasPermission } from './permissions.js';
 import * as svc from '../modules/resource-access/resource-access.service.js';
 
 /**
@@ -29,6 +30,13 @@ import * as svc from '../modules/resource-access/resource-access.service.js';
  * Ao contrário do `liftAtlasIdToParams` do `debug`, aqui o parâmetro é OPCIONAL:
  * "sem atlas em foco" é estado legítimo (a pessoa entrou e ainda não abriu
  * projeto nenhum), e responder 400 ali transformaria o login numa falha.
+ *
+ * SÃO DOIS CONSUMIDORES desde a fase F9, e a segunda razão acima NÃO alcança o
+ * novo: as leituras do 360 correm sob `flexibleAuth`, e `confineVisitorPrincipal`
+ * mora dentro do `auth` ESTRITO, que não roda lá. Lá quem confina o visitante é
+ * `requireAtlasPermission`, que carrega a mesma checagem — e por isso a ordem
+ * `validate` → este → gate continua sendo a mesma nos dois, por uma razão só
+ * (`req.params`) em vez de duas.
  */
 export function liftOptionalAtlasId(req, res, next) {
   const atlasId = req.query?.atlasId;
@@ -37,7 +45,52 @@ export function liftOptionalAtlasId(req, res, next) {
 }
 
 /**
- * true quando o principal tem papel global de dado (admin ou curador).
+ * O gate de atlas que roda SÓ QUANDO há atlas em foco.
+ *
+ * O UUID DO ATLAS NÃO É SENHA, e este middleware existe para que ele nunca vire uma.
+ * Receber `?atlasId=` diz apenas QUAL empréstimo o chamador quer usar; quem diz que
+ * ele pode usá-lo é `requireAtlasPermission('read')`, que resolve dono, share,
+ * `is_public` e — antes de tudo — CONFINA o visitante de link público ao atlas do
+ * próprio token. Sem esta linha, `fn_granted_resource_ids` entregaria todo recurso
+ * emprestado a qualquer um que soubesse o UUID do atlas, e o UUID viaja em toda URL
+ * de compartilhamento.
+ *
+ * POR QUE NÃO ESCREVER UM TERCEIRO GATE: `requireAtlasPermission` já carrega a
+ * confinação do visitante (o mesmo que `confineVisitorPrincipal` faz dentro do `auth`
+ * estrito, que NÃO roda nas rotas de leitura do 360, servidas por `flexibleAuth`).
+ * Duas definições de "este chamador alcança este atlas" é a dívida que este eixo
+ * inteiro existe para não contrair.
+ *
+ * O NÍVEL É `read` DE PROPÓSITO, o mais baixo da escada: o empréstimo é uma
+ * propriedade do atlas que TODO membro enxerga, inclusive o Visualizador e o
+ * visitante de link público. Exigir mais transformaria "ver o atlas" em "ver o atlas
+ * menos os recursos emprestados", que é a metade que ninguém entende na tela.
+ *
+ * O QUE ACONTECE COM ATLAS INALCANÇÁVEL, e a escolha é deliberada: o erro de
+ * `requireAtlasPermission` PROPAGA (404 para quem não tem relação nenhuma, que é o
+ * caso normal; 403 é inalcançável aqui porque `read` é o piso). A alternativa era
+ * degradar para escopo nulo e responder o conteúdo público, o que mantém a camada 360
+ * desenhada no mapa quando o share cai; foi recusada porque torna uma falha de
+ * autorização indistinguível de "este atlas não empresta nada", e um eixo de acesso
+ * que falha em silêncio é o que esta fase inteira existe para consertar. O par de
+ * testes (positivo e negativo) de `sv360-empréstimo-http.test.js` fixa a escolha.
+ *
+ * Sem `atlasId` NÃO há gate: "sem atlas em foco" é o estado normal de quem abre o 360
+ * pela URL, e cobrar atlas ali quebraria o caminho anônimo que o backend promete.
+ */
+const gateDeLeituraDeAtlas = requireAtlasPermission('read');
+export function requireAtlasScopeWhenPresent(req, res, next) {
+  if (!req.params?.atlasId) return next();
+  return gateDeLeituraDeAtlas(req, res, next);
+}
+
+/**
+ * true quando o principal tem papel global de dado (admin ou CREDENCIADO).
+ *
+ * O papel `curator` nunca chegou a existir fora de uma revisão da migração 018: ele
+ * foi SUBSTITUÍDO por `credenciado` antes de qualquer banco aplicá-lo, e o CHECK de
+ * `users.role` recusa a palavra antiga. Prosa que a repete manda quem procurar o
+ * papel no schema procurar um valor que o banco rejeita.
  * @param {object} req
  * @returns {Promise<boolean>}
  */
@@ -77,8 +130,45 @@ export function requireResourceShare(req, res, next) {
 }
 
 /**
- * Gate de REVOGAR: o ator precisa ser quem CONCEDEU aquela linha, ou ter papel
- * global.
+ * O ator de uma REVOGAÇÃO, resolvido NO BANCO numa consulta só.
+ *
+ * `administra` é o papel global de ADMINISTRAÇÃO, e não `fn_has_global_data_access`:
+ * ver todo recurso privado (o que o credenciado faz) e desfazer a concessão de
+ * outra pessoa são poderes diferentes. Resolvido a partir do UUID, como todo o
+ * resto deste arquivo, e não de `req.user.role` — aqui o caminho é `auth` estrito,
+ * que reconcilia, mas manter as duas leituras no MESMO lugar é o que impede uma
+ * segunda resposta para a mesma pergunta dentro de uma requisição só.
+ *   $1 = id da concessão (uuid), $2 = userId (uuid, nullable)
+ */
+const GRANT_REVOKER_ACTOR = `
+  SELECT g.id,
+         (g.granted_by = $2::uuid) AS concedeu,
+         EXISTS (SELECT 1
+                   FROM users u
+                   LEFT JOIN organizations o ON o.id = u.organization_id
+                  WHERE u.id = $2::uuid
+                    AND u.is_active = true
+                    AND COALESCE(o.is_active, true) = true
+                    AND u.role = 'admin') AS administra
+    FROM resource_grants g
+   WHERE g.id = $1::uuid
+`;
+
+/**
+ * Gate de REVOGAR: ADMINISTRADOR revoga qualquer linha; qualquer outro ator revoga
+ * só as que ELE concedeu.
+ *
+ * O CREDENCIADO SAIU DO RAMO CURINGA, e essa é a mudança da fase F9. O gate perguntava
+ * `fn_has_global_data_access`, que é o predicado de VER dado privado e inclui o
+ * credenciado — então o papel definido como "lê todo recurso privado e NÃO ESCREVE
+ * NADA" derrubava a concessão de terceiros, subárvore inclusa. Ele continua concedendo
+ * nos dois níveis (`requireResourceShare` não muda): o desenho é "o credenciado concede
+ * e revoga O QUE ELE DEU", e o que ele deu está em `granted_by`.
+ *
+ * Repare que isto NÃO é uma lista fechada de papel disfarçada: o ramo largo pergunta
+ * por UM papel (o que administra o sistema) e o ramo estreito não pergunta por papel
+ * nenhum — pergunta por autoria. Um papel novo entra por `granted_by` sem que ninguém
+ * precise editar este arquivo, que é o oposto do defeito que a constituição descreve.
  *
  * Não basta ter `view_share` no recurso: revogar a concessão de outra pessoa
  * derrubaria uma subárvore que não é sua, e a poda é exatamente a operação cujo
@@ -86,16 +176,12 @@ export function requireResourceShare(req, res, next) {
  */
 export function requireGrantRevoker(req, res, next) {
   Promise.resolve().then(async () => {
-    const linha = await oneOrNone(
-      'SELECT id, granted_by FROM resource_grants WHERE id = $1::uuid',
-      [req.params.grantId],
-    );
+    const linha = await oneOrNone(GRANT_REVOKER_ACTOR, [
+      req.params.grantId, principalUserId(req.user),
+    ]);
     if (!linha) return next(new NotFoundError('Grant'));
 
-    if (await hasGlobalDataAccess(req)) return next();
-
-    const userId = principalUserId(req.user);
-    if (userId && linha.granted_by === userId) return next();
+    if (linha.administra === true || linha.concedeu === true) return next();
 
     return next(new ForbiddenError('Só quem concedeu esta permissão (ou um administrador) pode revogá-la.'));
   }).catch(next);

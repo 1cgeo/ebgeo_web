@@ -317,7 +317,7 @@ async function buildAppConfig() {
  * The full config payload served by GET /api/v1/config — memoized in process.
  *
  * The memo is dropped by `invalidateAppConfigCache()` on every write that can change any of
- * the eight reads above (catalog CRUD on the five tables, ranks, organizations, and the two
+ * the eight reads above (catalog CRUD on the four tables, ranks, organizations, and the two
  * override writers in this file), which is what keeps the route's `Cache-Control: no-cache`
  * promise honest: an admin edit is visible on the very next request, not after a TTL.
  *

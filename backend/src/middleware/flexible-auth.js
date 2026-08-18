@@ -132,10 +132,19 @@ export async function flexibleAuth(req, res, next) {
       // and that half-fix left the exact hole the other half had closed. The renewal
       // re-signs `req.user`, whose org claims came from the OLD token, so while a
       // cookie client kept sliding an org demotion (editor -> viewer) NEVER propagated:
-      // not a 15-min window, an unbounded one. `org_role` is real authorization —
-      // sv360.routes.js requireUploadCapability and sv360.write.service.js decide write
-      // access by it — so "bounded by the token lifetime", the cost accepted for the
-      // strict path, was not what this path actually charged.
+      // not a 15-min window, an unbounded one.
+      //
+      // THE TWO SITES THIS PARAGRAPH USED TO CITE ARE GONE, and saying so is the point.
+      // It read "`org_role` is real authorization — sv360.routes.js
+      // requireUploadCapability and sv360.write.service.js decide write access by it".
+      // Neither decides by `org_role` any more: phase F6 replaced the self-declared
+      // posting with the GRANTED production scope (`producer_org_id`), which is the
+      // claim reconciled unconditionally a few lines below. So the reconciliation is
+      // kept for a NARROWER reason than the one written here: `org_role` still travels
+      // in the token and is still READ (display, org listings), and a claim that is
+      // re-signed forever without ever being re-read is a lie the cookie tells about
+      // the account. A justification that names dead call sites is worse than none: the
+      // next reader checks them, finds nothing, and concludes the whole block is dead.
       //
       // The reconciliation is conditional on the token ALREADY CARRYING the claim, and
       // that condition is the whole reason auth-gaps auth-05 still holds: a LEGACY token
@@ -150,7 +159,7 @@ export async function flexibleAuth(req, res, next) {
           req.user.organization_id = live.organizationId;
         }
         // Incondicional, como no `auth` estrito e pela mesma razao: sem isto o
-        // cookie re-emitido carregaria o escopo de producao antigo indefinidamente,
+        // cookie re-emitido carregaria o escopo de produção antigo indefinidamente,
         // que foi exatamente o defeito de `org_role` descrito acima.
         req.user.producer_org_id = live.producerOrgId;
       }

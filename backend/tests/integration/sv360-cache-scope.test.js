@@ -165,6 +165,45 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     assert.match(res.headers['cache-control'], /immutable/);
   });
 
+  it('O SEGUNDO EIXO: `enabled + private` também deixa de ser publicamente cacheável', async () => {
+    // O EIXO DE PRIVACIDADE NASCEU NA FASE F6 E ESTA DECISÃO NÃO O TINHA APRENDIDO.
+    // `setImmutableHeaders` decidia só por `status`, então a imagem de um projeto
+    // `enabled + private` — que só alcança quem tem concessão ou empréstimo — saía
+    // marcada `public, max-age=31536000, immutable`: um CDN podia guardá-la por um ANO
+    // e repor a qualquer um, com a aplicação nunca consultada. Corrigido na F9.
+    //
+    // A DISCRIMINAÇÃO É O MESMO BYTE. O projeto, a foto e o ETag são os mesmos nas duas
+    // metades; a única coisa que muda é a coluna `access_level`. Um caso com dois
+    // projetos diferentes não separaria "o eixo passou a contar" de "este projeto sempre
+    // foi tratado assim".
+    const publico = await supertest(app)
+      .get(url(`/photos/${enabledPhotoId}/image`))
+      .expect(200);
+    assert.match(publico.headers['cache-control'], /^public,/, 'piso: enabled+public é público');
+
+    await db.query(
+      `UPDATE sv360.projects SET access_level = 'private' WHERE slug = $1`, [ENABLED_SLUG]
+    );
+    try {
+      const privado = await supertest(app)
+        .get(url(`/photos/${enabledPhotoId}/image`))
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+      assert.match(privado.headers['cache-control'], /^private,/);
+      assert.match(privado.headers.vary ?? '', /Authorization/);
+      assert.equal(privado.headers.etag, publico.headers.etag, 'o ETag é dos BYTES e não muda');
+    } finally {
+      await db.query(
+        `UPDATE sv360.projects SET access_level = 'public' WHERE slug = $1`, [ENABLED_SLUG]
+      );
+    }
+    // E o par de volta: remarcado público, volta a ser publicamente cacheável.
+    const devolta = await supertest(app)
+      .get(url(`/photos/${enabledPhotoId}/image`))
+      .expect(200);
+    assert.match(devolta.headers['cache-control'], /^public,/);
+  });
+
   it('a DISABLED project image is NOT publicly cacheable', async () => {
     // Authorized fetch by the owning org — the bytes come back…
     const res = await supertest(app)

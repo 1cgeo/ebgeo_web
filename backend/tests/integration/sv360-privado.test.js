@@ -331,15 +331,21 @@ describe('F6 — projeto 360 enabled+private', () => {
     assert.ok(!(camadas.fotos_linha || []).some((l) => l.projectSlug === SLUG));
   });
 
-  it('`?atlasId=` é INERTE nas rotas de leitura do 360, e isso é deliberado', async () => {
-    // O EMPRÉSTIMO POR ATLAS NÃO ALCANÇA ESTAS ROTAS, e o motivo é de segurança:
-    // elas são servidas por `flexibleAuth` (não há gate de atlas nenhum) e as
-    // respostas de tile/geojson são cacheadas como PÚBLICAS para o chamador
-    // anônimo. Honrar um `atlasId` vindo da query entregaria os panoramas
-    // emprestados a qualquer um que soubesse o UUID do atlas — e ainda os deixaria
-    // num cache compartilhado. Este caso pinta o comportamento seguro de hoje: um
-    // parâmetro a mais na URL não muda a resposta. Se alguém ligar o eixo, ele
-    // fica vermelho, que é o sinal de que a autorização de atlas precisa vir junto.
+  it('`?atlasId=` DE UM ATLAS QUE O CHAMADOR NÃO ALCANÇA continua não abrindo nada', async () => {
+    // ESTE CASO MUDOU DE SIGNIFICADO NA FASE F9, e a mudança é o que ele agora mede.
+    //
+    // Ele dizia que o `atlasId` era INERTE nestas rotas — o braço de empréstimo do
+    // predicado estava morto sobre HTTP porque nenhum controller o preenchia —, e
+    // avisava que ligar o eixo sem a autorização de atlas junto entregaria os
+    // panoramas emprestados a quem soubesse o UUID. O eixo foi ligado COM a
+    // autorização (`requireAtlasScopeWhenPresent`), e o que sobra a afirmar aqui é
+    // exatamente a metade que o aviso protegia: um UUID de atlas com o qual o
+    // chamador não tem relação nenhuma não muda a resposta para melhor.
+    //
+    // Os DOIS 404 não são mais o mesmo 404 — o primeiro é do 360 ("não existe para
+    // você"), o segundo é do gate de atlas ("você não alcança este atlas") — e essa
+    // distinção é justamente o que `sv360-empréstimo-http.test.js` separa, com o par
+    // positivo do empréstimo ao lado.
     const semParam = await getProjeto(tokenForasteiro).expect(404);
     const comParam = await supertest(app)
       .get(`/api/v1/sv360/projects/${SLUG}?atlasId=${crypto.randomUUID()}`)

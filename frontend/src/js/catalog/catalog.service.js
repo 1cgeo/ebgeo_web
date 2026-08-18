@@ -273,8 +273,13 @@ export class CatalogService {
     }
 
     /**
-     * Gets panoramic 360 projects from the cached data.
-     * Never makes a network request — uses only the cache populated by preflight.
+     * Gets panoramic 360 projects, preferring the cache the preflight filled.
+     *
+     * IT MAY NOW MAKE ONE REQUEST, and the reason is the access scope: the cached list belongs to
+     * the (user, atlas) pair it was fetched under, and a change of either — a login, opening or
+     * leaving an atlas that lends a private 360 — invalidates it (`resource-scope.js`). Reading a
+     * miss as "no 360 exists" would EMPTY this section of the catalog on every atlas switch, so a
+     * miss refetches, exactly as the search provider already did.
      * @private
      * @returns {Promise<CatalogItem[]>}
      */
@@ -283,9 +288,9 @@ export class CatalogService {
         if (!config.features.imagens_panoramicas) return [];
 
         try {
-            const { getCachedProjects } = await import('../street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects } = await import('../street_view_tool/streetview-api.service.js');
 
-            const projects = getCachedProjects();
+            const projects = getCachedProjects() ?? await fetchProjects();
             if (!projects || projects.length === 0) return [];
 
             const serviceUrl = config.streetView360.serviceUrl;

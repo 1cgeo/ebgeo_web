@@ -15,7 +15,7 @@ import { auth } from '../../middleware/auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import {
-  liftOptionalAtlasId, requireResourceShare, requireGrantRevoker,
+  liftOptionalAtlasId, requireAtlasScopeWhenPresent, requireResourceShare, requireGrantRevoker,
 } from '../../middleware/resource-access.js';
 import * as ctrl from './resource-access.controller.js';
 import * as schemas from './resource-access.schemas.js';
@@ -37,12 +37,22 @@ const router = Router();
  * `confineVisitorPrincipal` confina o visitante de link público comparando com
  * `req.params` — invertido, o visitante levaria 403 na própria rota que deveria
  * lhe entregar os recursos do atlas que o convidou.
+ *
+ * O QUARTO ENTROU NA FASE F9, e ele fecha o buraco que os tres primeiros deixavam:
+ * `liftOptionalAtlasId` sobe o parametro e `auth` confina o VISITANTE DE LINK PUBLICO,
+ * mas nenhum dos dois pergunta se um usuario COMUM alcanca aquele atlas. Como
+ * `fn_granted_resource_ids` nao confere participacao (ela so casa `ar.atlas_id`), o UUID
+ * do atlas bastava para receber tudo o que ele empresta — e o UUID viaja em toda URL de
+ * compartilhamento. `requireAtlasScopeWhenPresent` roda o `requireAtlasPermission('read')`
+ * de verdade quando ha atlas em foco, e nao faz nada quando nao ha (que e o estado normal
+ * de quem acabou de entrar). Ele vem DEPOIS de `auth` porque precisa de `req.user`.
  */
 router.get(
   '/visible',
   validate({ query: schemas.visibleQuerySchema }),
   liftOptionalAtlasId,
   auth,
+  requireAtlasScopeWhenPresent,
   ctrl.visible,
 );
 

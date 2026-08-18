@@ -19,3 +19,12 @@ export const updateSchema = Joi.object({
 export const idParamsSchema = Joi.object({
   id: Joi.string().max(100).required(),
 });
+
+// ?atlasId= nas duas rotas de LEITURA — o atlas em foco, para o braco de EMPRESTIMO do
+// predicado de acesso. Declarado (e nao deixado passar de largada) para que um valor
+// malformado morra em 422 na borda, antes do cast `::uuid` la dentro. `.unknown(true)`
+// porque estas rotas sempre aceitaram query livre e apertar isso agora seria mudanca de
+// contrato sem pedido.
+export const atlasScopeQuerySchema = Joi.object({
+  atlasId: Joi.string().trim().guid(),
+}).unknown(true);

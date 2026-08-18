@@ -125,6 +125,7 @@
    ========================================================================= */
 
 .base-layer-option {
+    position: relative;
     cursor: pointer;
     text-align: center;
     transition: transform var(--transition-fast);
@@ -140,6 +141,7 @@
 }
 
 .base-layer-option-thumb {
+    position: relative;
     width: var(--_thumb-size);
     height: calc(var(--_thumb-size) * var(--_thumb-height-ratio));
     border-radius: var(--radius-md);
@@ -168,6 +170,54 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* Selo de camada base PRIVADA. Âmbar é o mesmo do selo do cartão do catálogo e do chip
+   "Credenciado" do painel, e pela mesma razão: os três falam do eixo de acesso privado, e
+   a cor os liga sem depender do texto. Os tokens de design não têm família de aviso, então
+   o valor é literal aqui como já é lá. `pointer-events: none` porque o selo é rótulo, e o
+   clique dele pertence à opção que ele decora. */
+.base-layer-option-badge {
+    position: absolute;
+    left: var(--space-1);
+    bottom: var(--space-1);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-full);
+    background: rgb(180 83 9 / 88%);
+    color: white;
+    font-size: 10px;
+    line-height: 16px;
+    pointer-events: none;
+}
+
+/* "Compartilhar" da camada base privada: o análogo do botão do cartão do catálogo, no
+   único lugar em que o basemap aparece para o usuário. Sobre a miniatura, e não abaixo do
+   nome, para não empurrar a grade de duas colunas. */
+.base-layer-option-share {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-full);
+    background: rgb(0 0 0 / 55%);
+    color: white;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.base-layer-option-share:hover {
+    background: rgb(0 0 0 / 78%);
+}
+
+.base-layer-option-share svg {
+    width: 12px;
+    height: 12px;
 }
 
 .base-layer-option-name {

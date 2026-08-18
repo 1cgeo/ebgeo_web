@@ -124,7 +124,7 @@ const CENSO = [
       + 'com limitador próprio justamente por poder ser repetida à vontade.',
   },
 
-  // ---------------- catálogo (a fábrica serve as CINCO tabelas) ---------------
+  // ---------------- catálogo (a fábrica serve as QUATRO tabelas) --------------
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'CATALOG_CREATE', emissor: 'src/modules/catalog/catalog.controller.js' },
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'PUT /:id', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: 'src/modules/catalog/catalog.controller.js' },
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'DELETE /:id', classe: AUDITADA, acao: 'CATALOG_DELETE', emissor: 'src/modules/catalog/catalog.controller.js' },
@@ -226,8 +226,8 @@ const CENSO = [
 ];
 
 /**
- * Os `target_type` DECLARADOS e sem nenhum emissor. São três, e o terceiro é uma
- * medição desta fase, não uma herança:
+ * Os `target_type` DECLARADOS e sem nenhum emissor. São QUATRO, e os dois últimos
+ * são medições, não heranças:
  *
  *   - `MODEL` e `GROUP` vêm da 001_core.sql e nunca tiveram escritor. A 020 os
  *     manteve porque removê-los seria DDL destrutiva sem ganho.
@@ -235,11 +235,18 @@ const CENSO = [
  *     depositava o alvo que não cabia nas colunas (`target_type` sem valor para
  *     recurso, `target_id` UUID contra um slug). A 020 devolveu o alvo às colunas e,
  *     com isso, 'SYSTEM' voltou a significar sistema — e ficou sem ninguém que o
- *     escreva. Está certo assim, e fica REGISTRADO aqui: um vocabulário reservado é
- *     diferente de um vocabulário esquecido, e a única forma de manter a distinção é
- *     escrevê-la.
+ *     escreva.
+ *   - `STREETVIEW_MARKER` também TINHA escritor e PERDEU, e por um motivo
+ *     diferente dos outros três: o único emissor era o mapa
+ *     `AUDIT_TARGET_TYPE_BY_TABLE` de `catalog.tables.js`, e a migração 021 apagou
+ *     a TABELA que aquela entrada nomeava. O valor sobrevive no CHECK porque
+ *     tirá-lo seria DDL destrutiva sem ganho (o mesmo argumento de `MODEL`/`GROUP`)
+ *     e porque linhas de trilha já gravadas podem carregá-lo.
+ *
+ * Está certo assim, e fica REGISTRADO aqui: um vocabulário reservado é diferente de
+ * um vocabulário esquecido, e a única forma de manter a distinção é escrevê-la.
  */
-const ALVOS_SEM_EMISSOR = ['GROUP', 'MODEL', 'SYSTEM'];
+const ALVOS_SEM_EMISSOR = ['GROUP', 'MODEL', 'STREETVIEW_MARKER', 'SYSTEM'];
 
 // ============================================================================
 // A VARREDURA
@@ -453,7 +460,7 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     );
   });
 
-  it('todo `target_type` do CHECK tem emissor, exceto os três declarados sem escritor', () => {
+  it('todo `target_type` do CHECK tem emissor, exceto os quatro declarados sem escritor', () => {
     const alvos = alvosDoCheck();
     assert.ok(alvos.length >= 14, `esperava >= 14 tipos de alvo, achei ${alvos.length}`);
 
@@ -461,9 +468,10 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     const semEmissor = alvos.filter((a) => !fontes.some((texto) => texto.includes(`'${a}'`)));
     assert.deepEqual(
       semEmissor.sort(), ALVOS_SEM_EMISSOR,
-      'a lista de alvos sem emissor mudou. `MODEL`, `GROUP` e `SYSTEM` estão declarados e sem '
-      + 'escritor por razões escritas ao lado da constante; qualquer OUTRO tipo sem emissor é '
-      + 'vocabulário que ninguém escreve, e um dos três que ganhe emissor precisa sair da lista'
+      'a lista de alvos sem emissor mudou. `MODEL`, `GROUP`, `STREETVIEW_MARKER` e `SYSTEM` estão '
+      + 'declarados e sem escritor por razões escritas ao lado da constante; qualquer OUTRO tipo '
+      + 'sem emissor é vocabulário que ninguém escreve, e um dos quatro que ganhe emissor precisa '
+      + 'sair da lista'
     );
   });
 

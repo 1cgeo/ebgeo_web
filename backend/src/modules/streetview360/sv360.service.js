@@ -82,8 +82,18 @@ export function isProjectReadable(project, user) {
   // criaria uma SEGUNDA definicao da regra — exatamente a divida que
   // `sv360AccessPredicate` acabou de pagar. A garantia de privacidade e do SQL,
   // que e onde o cabecalho de sv360.tiles.queries.js sempre disse que ela mora
-  // ("embedded in the SQL, defense in depth"), e nenhuma linha chega a esta
-  // funcao sem ter passado por ele.
+  // ("embedded in the SQL, defense in depth").
+  //
+  // "NENHUMA LINHA CHEGA AQUI SEM TER PASSADO POR ELE" e uma afirmacao que este
+  // comentario ja fez enquanto era FALSA, e o custo dela foi o buraco mais fundo do
+  // modulo: as QUATRO consultas de foto (GET_PHOTO_BY_ID, GET_PHOTO_BY_NAME,
+  // GET_PHOTO_SIZES, NEARBY_PHOTOS) nao carregavam predicado nenhum ate a fase F9,
+  // entao um projeto `enabled + private` entregava metadado, imagem e vizinhanca a
+  // quem soubesse o uuid — e por coordenada, no `/photos/nearest`. Hoje as quatro
+  // carregam, e quem cobra a propriedade e o censo de superficies
+  // (`tests/unit/superficies-de-recurso-censo.test.js`), que exige de cada consulta
+  // uma classe: uma quinta consulta de foto sem predicado reprova por nome, em vez
+  // de ser coberta por esta frase.
   //
   // Consequencia pratica: um projeto `enabled + private` e considerado legivel
   // aqui. Quem o entregou foi o SQL, que so o entrega a quem pode ve-lo.
@@ -176,8 +186,14 @@ function floorPlanToGeoJson(planCoords, level) {
  * pattern is load-bearing: the SQL already filters, and enforceProjectReadable
  * re-checks, so a hidden project answers 404 exactly like `getProject` does. A
  * second, looser way in is how a hidden project leaks.
+ * O `atlasId` É OBRIGATÓRIO DE REPASSAR, ainda que o parâmetro seja opcional: ele
+ * carrega o braço de EMPRÉSTIMO do predicado, e um chamador que o esquece devolve 404
+ * para um panorama que o atlas em foco legitimamente empresta. Foi assim que as quatro
+ * leituras derivadas (`floors`, `photos`, `map`, `runs`) ficariam para trás enquanto as
+ * irmãs diretas aprendiam o eixo.
  * @param {string} slug
  * @param {Object} [user]
+ * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
  * @returns {Promise<Object>} the sv360.projects row (NOT the public view)
  * @throws {NotFoundError} if missing or hidden from the caller
  */
@@ -206,8 +222,8 @@ async function resolveReadableProject(slug, user, atlasId = null) {
  * @returns {Promise<Array<{level:number, label:string, photoCount:number, plan:Object|null}>>}
  * @throws {NotFoundError} if the project is missing or hidden from the caller
  */
-export async function listProjectFloors(slug, user) {
-  const project = await resolveReadableProject(slug, user);
+export async function listProjectFloors(slug, user, atlasId = null) {
+  const project = await resolveReadableProject(slug, user, atlasId);
 
   const { rows } = await query(Q.LIST_PROJECT_FLOORS, [project.id]);
   return rows.map((r) => ({
@@ -302,11 +318,12 @@ function publicProjectView(project, user) {
  * @param {Object} [user]
  * @param {Object} [opts]
  * @param {boolean} [opts.includeHidden=false] - also return hidden links
+ * @param {string|null} [opts.atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
  * @returns {Promise<Object>} frozen photo metadata
- * @throws {NotFoundError} if missing/tombstoned or its project is hidden
+ * @throws {NotFoundError} if missing/tombstoned, privado fora do alcance, ou oculto
  */
-export async function getPhoto(uuid, user, { includeHidden = false } = {}) {
-  const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid]);
+export async function getPhoto(uuid, user, { includeHidden = false, atlasId = null } = {}) {
+  const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid, ...readScope(user, atlasId)]);
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(photo), user, 'Photo');
@@ -323,11 +340,15 @@ export async function getPhoto(uuid, user, { includeHidden = false } = {}) {
  * A name may collide across projects; an enabled project wins the tie (in SQL).
  * @param {string} nome - original_name
  * @param {Object} [user]
+ * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
  * @returns {Promise<Object>} frozen photo metadata
- * @throws {NotFoundError} if missing/tombstoned or its project is hidden
+ * @throws {NotFoundError} if missing/tombstoned, privado fora do alcance, ou oculto
  */
-export async function photoByName(nome, user) {
-  const { rows } = await query(Q.GET_PHOTO_BY_NAME, [nome, preferredOrgId(user)]);
+export async function photoByName(nome, user, atlasId = null) {
+  const { rows } = await query(
+    Q.GET_PHOTO_BY_NAME,
+    [nome, preferredOrgId(user), ...readScope(user, atlasId)]
+  );
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(photo), user, 'Photo');
@@ -343,11 +364,12 @@ export async function photoByName(nome, user) {
  * @param {string} uuid - photo id (TEXT uuid v5)
  * @param {'full'|'preview'} quality
  * @param {Object} [user]
+ * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
  * @returns {Promise<{dbFile:string, sizeBytes:number, etag:string, photoId:string, contentType:string}>}
- * @throws {NotFoundError} if missing/tombstoned or its project is hidden
+ * @throws {NotFoundError} if missing/tombstoned, privado fora do alcance, ou oculto
  */
-export async function getPhotoImageMeta(uuid, quality, user) {
-  const { rows } = await query(Q.GET_PHOTO_SIZES, [uuid]);
+export async function getPhotoImageMeta(uuid, quality, user, atlasId = null) {
+  const { rows } = await query(Q.GET_PHOTO_SIZES, [uuid, ...readScope(user, atlasId)]);
   const row = rows[0];
   if (!row) throw new NotFoundError('Photo');
   enforceProjectReadable(
@@ -365,9 +387,12 @@ export async function getPhotoImageMeta(uuid, quality, user) {
     etag: `"${uuid}-${quality}-${sizeBytes}"`,
     photoId: uuid,
     contentType: 'image/webp',
-    // Drives the cache scope in the controller: a `disabled` project's image is
-    // access-controlled and must never land in a shared cache (P6).
+    // OS DOIS EIXOS dirigem o escopo de cache no controller, e são dois porque um
+    // sozinho já errou: `disabled` oculta, `private` restringe, e a imagem de um
+    // projeto `enabled + private` viajava marcada `public, immutable` (P6, corrigido
+    // na fase F9).
     projectStatus: row.project_status,
+    projectAccessLevel: row.access_level,
   };
 }
 
@@ -378,11 +403,15 @@ export async function getPhotoImageMeta(uuid, quality, user) {
  * @param {number} lat
  * @param {number} [radius] - meters (default 500)
  * @param {Object} [user]
+ * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
  * @returns {Promise<Array>} nearby photo rows (with distance in meters)
  */
-export async function nearby(lon, lat, radius, user) {
+export async function nearby(lon, lat, radius, user, atlasId = null) {
   const radiusMeters = Number.isFinite(radius) && radius > 0 ? radius : DEFAULT_NEARBY_RADIUS_M;
-  const { rows } = await query(Q.NEARBY_PHOTOS, [lon, lat, radiusMeters, NEARBY_LIMIT]);
+  const { rows } = await query(
+    Q.NEARBY_PHOTOS,
+    [lon, lat, radiusMeters, NEARBY_LIMIT, ...readScope(user, atlasId)]
+  );
   return rows
     .filter((r) =>
       isProjectReadable({ status: r.project_status, organization_id: r.organization_id }, user)
@@ -440,9 +469,9 @@ const NEAREST_SEARCH_RADII_M = [330, 2200, 16700, 111000];
  * @param {Object} [user]
  * @returns {Promise<Object|null>} the nearest readable photo, or null
  */
-export async function nearestPhoto(lon, lat, user) {
+export async function nearestPhoto(lon, lat, user, atlasId = null) {
   for (const radius of NEAREST_SEARCH_RADII_M) {
-    const rows = await nearby(lon, lat, radius, user);
+    const rows = await nearby(lon, lat, radius, user, atlasId);
     // `nearby` orders by distance ascending, so the head IS the nearest one.
     if (rows.length > 0) return rows[0];
   }
@@ -468,8 +497,8 @@ export async function nearestPhoto(lon, lat, user) {
  * @returns {Promise<Array>} candidate photos, nearest first
  * @throws {NotFoundError} if the source photo is missing/tombstoned or hidden
  */
-export async function nearbyUnlinkedPhotos(uuid, { radius, floor } = {}, user) {
-  const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid]);
+export async function nearbyUnlinkedPhotos(uuid, { radius, floor } = {}, user, atlasId = null) {
+  const { rows } = await query(Q.GET_PHOTO_BY_ID, [uuid, ...readScope(user, atlasId)]);
   const source = rows[0];
   if (!source) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(source), user, 'Photo');
@@ -527,8 +556,8 @@ export async function nearbyUnlinkedPhotos(uuid, { radius, floor } = {}, user) {
  * @returns {Promise<{photos: Array, reviewStats: {total: number, reviewed: number}}>}
  * @throws {NotFoundError} if the project is missing or hidden from the caller
  */
-export async function projectCalibrationPhotos(slug, user) {
-  const project = await resolveReadableProject(slug, user);
+export async function projectCalibrationPhotos(slug, user, atlasId = null) {
+  const project = await resolveReadableProject(slug, user, atlasId);
 
   const { rows } = await query(Q.PROJECT_CALIBRATION_PHOTOS, [project.id]);
   const { rows: stats } = await query(Q.REVIEW_STATS_BY_PROJECT, [project.id]);
@@ -582,8 +611,8 @@ export async function reviewStatsAllProjects(user, atlasId = null) {
  * @returns {Promise<Object>} { slug, photos, track, bounds, reviewStats }
  * @throws {NotFoundError} if the project is missing or hidden from the caller
  */
-export async function projectMap(slug, user) {
-  const project = await resolveReadableProject(slug, user);
+export async function projectMap(slug, user, atlasId = null) {
+  const project = await resolveReadableProject(slug, user, atlasId);
 
   const { rows } = await query(Q.MAP_PHOTOS_BY_PROJECT, [project.id]);
   const { rows: trackRows } = await query(Q.TRACKS_BY_PROJECT, [project.id]);
@@ -644,8 +673,8 @@ export async function projectMap(slug, user) {
  * @returns {Promise<Array>} runs in ordinal order
  * @throws {NotFoundError} if the project is missing or hidden from the caller
  */
-export async function projectRuns(slug, user) {
-  const project = await resolveReadableProject(slug, user);
+export async function projectRuns(slug, user, atlasId = null) {
+  const project = await resolveReadableProject(slug, user, atlasId);
 
   const { rows } = await query(Q.RUNS_BY_PROJECT, [project.id]);
   return rows.map((r) => ({
@@ -735,7 +764,7 @@ export async function mvtTile(z, x, y, user, atlasId = null) {
  * OR the thumbnail file is absent (the controller maps null → 404).
  * @param {string} slug - project slug (from the :slug.webp route param)
  * @param {Object} [user]
- * @returns {Promise<{filePath: string, projectStatus: string}|null>} `filePath` is the
+ * @returns {Promise<{filePath: string, projectStatus: string, projectAccessLevel: string}|null>} `filePath` is the
  *   absolute path to the ORG-KEYED {orgId}__{slug}.webp on disk (the URL is slug-only; the
  *   file is not), and `projectStatus` is what the caller uses to decide the CACHE SCOPE
  *   (`enabled` may be publicly cached; anything else must not be). Null when the project
@@ -761,9 +790,15 @@ export async function resolveThumbnailPath(slug, user, atlasId = null) {
   const filePath = path.resolve(config.sv360.dbDir, path.basename(thumbFile));
   if (!existsSync(filePath)) return null;
 
-  // `status` travels with the path so the controller can decide the cache scope:
-  // only an `enabled` (public) project may be cached by a SHARED cache. See P6.
-  return { filePath, projectStatus: project.status };
+  // OS DOIS EIXOS viajam com o caminho, porque é com os dois que o controller decide
+  // o escopo de cache: só um projeto `enabled` E `public` pode ir para um cache
+  // COMPARTILHADO. Até a fase F9 só o `status` viajava, e a miniatura de um projeto
+  // `enabled + private` saía pública por um ano. See P6.
+  return {
+    filePath,
+    projectStatus: project.status,
+    projectAccessLevel: project.access_level,
+  };
 }
 
 // --- internal -------------------------------------------------------------

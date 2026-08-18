@@ -18,7 +18,9 @@
  *          `flexibleAuth` (que autentica este caminho) não reconcilia contra o
  *          banco, então um admin rebaixado carregava o papel por até 15 min.
  *   DEPOIS `fn_has_global_data_access($U::uuid)` — o SQL resolve o papel a partir
- *          do UUID. A janela some por construção, e o curador entra no mesmo passo.
+ *          do UUID. A janela some por construção, e o CREDENCIADO entra no mesmo
+ *          passo. (Esta linha dizia "curador": aquele valor foi substituído por
+ *          `credenciado` na 018 e o CHECK de `users.role` o recusa hoje.)
  *
  * A SEGUNDA MUDANÇA DE FORMA, e ela é da mesma família: o termo da OM era
  * `organization_id = $orgId`, com o `$orgId` vindo de `users.organization_id` — uma
@@ -80,7 +82,7 @@ export const LIST_PROJECTS = `
 // quase aconteceu aqui: o `$3` que a preferencia usava era o `orgId` do chamador,
 // que SAIU do WHERE junto com o eixo auto-declarado. Se ele tivesse ficado, passaria
 // a apontar para o `atlasId` e a comparacao seria sempre falsa, com a ordenacao
-// virando arbitraria em silencio. Por isso a preferencia ganhou PARAMETRO PROPRIO,
+// virando arbitrária em silêncio. Por isso a preferência ganhou PARAMETRO PROPRIO,
 // que NAO APARECE NO WHERE: ela e ordenacao, nunca autorizacao, e o `$4` isolado e o
 // que torna essa distincao visivel para quem editar a consulta depois.
 export const GET_PROJECT_BY_SLUG = `
@@ -93,10 +95,19 @@ export const GET_PROJECT_BY_SLUG = `
   LIMIT 1
 `;
 
+// O PREDICADO ENTROU NAS QUATRO CONSULTAS DE FOTO NA FASE F9, e a ausência dele era o
+// buraco mais fundo do módulo. Elas decidiam por `isProjectReadable`, que só conhece o
+// eixo de `status`, então um projeto `enabled + private` entregava metadado, imagem e
+// vizinhança a QUALQUER UM que soubesse o uuid ou o `original_name` — e `/photos/nearest`
+// os entregava por COORDENADA, sem precisar de identificador nenhum. O censo de
+// superfícies (`tests/unit/superficies-de-recurso-censo.test.js`) nasceu com a classe
+// que nomeava essas quatro; hoje elas são SQL-COMPLETO como as irmãs.
+
 // One photo by id, joined to its project (slug/db_filename/org/status for the
 // readability + ETag + BLOB path). lon/lat are derived from geom; ele is kept as
 // the stored column. Excludes tombstoned photos.
-//   $1 = photo id (TEXT uuid v5)
+//   $1 = photo id (TEXT uuid v5), $2 = userId (uuid, nullable),
+//   $3 = atlasId (uuid, nullable)
 export const GET_PHOTO_BY_ID = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
@@ -111,6 +122,7 @@ export const GET_PHOTO_BY_ID = `
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.id = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(2, 3, 'pr.')}
 `;
 
 // One photo by its original filename. A name may collide across projects, so an
@@ -122,7 +134,9 @@ export const GET_PHOTO_BY_ID = `
 //   $1 = original_name
 //   $2 = OM PREFERIDA do chamador (nullable; anônimo simplesmente perde a
 //        preferência). Como no GET_PROJECT_BY_SLUG, é ORDENAÇÃO e não autorização:
-//        quem autoriza esta consulta é `enforceProjectReadable`, no serviço.
+//        quem autoriza é o predicado abaixo, e o desempate só escolhe entre as linhas
+//        que ele já deixou passar.
+//   $3 = userId (uuid, nullable), $4 = atlasId (uuid, nullable)
 export const GET_PHOTO_BY_NAME = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
@@ -137,6 +151,7 @@ export const GET_PHOTO_BY_NAME = `
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.original_name = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(3, 4, 'pr.')}
   ORDER BY (pr.organization_id = $2) DESC, (pr.status = 'enabled') DESC
   LIMIT 1
 `;
@@ -144,14 +159,23 @@ export const GET_PHOTO_BY_NAME = `
 // O(1) ETag source: sizes + project context, no BLOB read. Excludes tombstoned
 // photos so a soft-deleted photo's blob is never served (same rule as
 // GET_PHOTO_BY_ID / GET_PHOTO_BY_NAME).
-//   $1 = photo id (TEXT uuid v5)
+//
+// `access_level` viaja junto DESDE A FASE F9, e não é enfeite: o controller decidia o
+// ESCOPO DE CACHE da imagem só por `status`, então a foto de um projeto
+// `enabled + private` saía com `public, max-age=1ano, immutable` — um recurso de acesso
+// restrito entregue a um cache compartilhado para repor a qualquer um pelo ano
+// seguinte. Sem esta coluna a decisão teria dois eixos e um dado.
+//   $1 = photo id (TEXT uuid v5), $2 = userId (uuid, nullable),
+//   $3 = atlasId (uuid, nullable)
 export const GET_PHOTO_SIZES = `
   SELECT p.full_size_bytes, p.preview_size_bytes,
-         pr.db_filename, pr.organization_id, pr.status AS project_status
+         pr.db_filename, pr.organization_id, pr.status AS project_status,
+         pr.access_level
   FROM sv360.photos p
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.id = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(2, 3, 'pr.')}
 `;
 
 // Directed adjacency for a photo (visible links only), joined to the target
@@ -190,7 +214,8 @@ export const GET_TARGETS_FOR_PHOTO = `
 // ANOTHER floor closer than 5 m in plan). Without the level the answer is "the
 // nearest point on the map", which is not the same thing as "the nearest photo the
 // user can be standing in", and nothing on screen says which floor was opened.
-//   $1 = lon, $2 = lat, $3 = radiusMeters, $4 = limit
+//   $1 = lon, $2 = lat, $3 = radiusMeters, $4 = limit,
+//   $5 = userId (uuid, nullable), $6 = atlasId (uuid, nullable)
 export const NEARBY_PHOTOS = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          p.floor_level, p.floor_label,
@@ -208,6 +233,7 @@ export const NEARBY_PHOTOS = `
           $3
         )
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(5, 6, 'pr.')}
   ORDER BY distance_m ASC
   LIMIT $4
 `;

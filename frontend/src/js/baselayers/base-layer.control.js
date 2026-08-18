@@ -26,6 +26,7 @@ import osmLayer from './osm_layer.js';
 import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
+import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 import { setupMapFeatures } from '../layers';
 import { wireRemoteFeatureRender } from '../layers/remote-feature-render.js';
 import { showError } from '../utilities';
@@ -54,13 +55,23 @@ class BaseLayerControl {
         this.changeDebounceTimer = null;
 
         config.validateBasemapsConfig();
+    }
 
-        this.styleUrls = {};
-        for (const [id] of config.getEnabledBasemaps()) {
-            if (STYLE_MAP[id]) {
-                this.styleUrls[id] = STYLE_MAP[id];
-            }
-        }
+    /**
+     * The style a basemap id renders with: the built-in module when there is one, else the style the
+     * server published for it (`config.basemapStyles`).
+     *
+     * RESOLVED ON DEMAND, NOT SNAPSHOTTED IN THE CONSTRUCTOR, and that is the whole point of the
+     * method. The control is built once, at map boot; a PRIVATE basemap only reaches `config` later
+     * — when the user logs in, receives a grant, or opens an atlas that lends it — and leaves it
+     * again on logout. A table built in the constructor could only ever describe the anonymous boot,
+     * so the granted basemap would be offered by the selector and switch to something else.
+     * @private
+     * @param {string} id
+     * @returns {Object|string|null}
+     */
+    _styleFor(id) {
+        return resolveBasemapStyle(id, STYLE_MAP, config.basemapStyles);
     }
 
     get currentLayer() {
@@ -197,13 +208,17 @@ class BaseLayerControl {
     }
 
     async switchLayer(layer, { skipPersist = false } = {}) {
-        // config.basemaps and STYLE_MAP are separate lists: a basemap can be
-        // enabled in config (so getValidBasemapFallback accepts it) and still
-        // have no style registered here. setStyle(undefined) never completes,
-        // so fall back to a layer that actually has one.
-        if (!this.styleUrls[layer]) {
-            const fallback = Object.keys(this.styleUrls)[0];
+        // config.basemaps and the style lists are separate: a basemap can be enabled
+        // in config (so getValidBasemapFallback accepts it) and still have no style
+        // anywhere. setStyle(undefined) never completes, so fall back to a layer that
+        // actually has one — and look for it among the OFFERED basemaps, in priority
+        // order, so the fallback is one the selector also shows as selected.
+        if (!this._styleFor(layer)) {
+            const offered = config.getEnabledBasemaps().map(([id]) => id);
+            const fallback = firstStyledBasemap(offered, STYLE_MAP, config.basemapStyles);
             console.warn(`Base layer "${layer}" has no registered style. Using "${fallback}".`);
+            // No basemap at all resolves to a style (an empty catalog): return without
+            // touching the map, exactly as before. Switching to nothing would blank it.
             if (!fallback) {
                 return;
             }
@@ -216,7 +231,7 @@ class BaseLayerControl {
 
         this.uiManager?.saveChangesAndClosePanel?.();
 
-        const styleUrl = this.styleUrls[layer];
+        const styleUrl = this._styleFor(layer);
         if (this.currentLayer !== layer) {
             const styleLoadPromise = new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {

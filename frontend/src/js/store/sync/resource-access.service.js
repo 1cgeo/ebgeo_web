@@ -23,17 +23,31 @@
 
 import { apiClient } from './api-client.js';
 import { mergeGrantedIntoBaseline, revertGrantedResources } from './atlas-settings.service.js';
+import { resetResourceScope, resourceScopeKey, setResourceScope } from './resource-scope.js';
 import { sessionContext } from './session-context.js';
 
 /**
  * O escopo da última soma, para não repetir a chamada à toa.
  * `undefined` = nunca somou; `null` = somou sem atlas em foco.
+ *
+ * NÃO CONFUNDIR com o carimbo de `resource-scope.js`, que é outra coisa e por isso
+ * mora noutro lugar: este aqui é o escopo da última soma BEM-SUCEDIDA (só muda se o
+ * servidor respondeu); aquele é o escopo DECLARADO, gravado antes da chamada, e serve
+ * para invalidar cache — uma soma que falhou não pode deixar o cache anterior legível.
  * @type {string|null|undefined}
  */
 let _escopo;
 
-/** Os quatro grupos do payload aditivo, na ordem em que o servidor os nomeia. */
-const GRUPOS = Object.freeze(['tilesets', 'dataLayers', 'analysisLayers', 'views360']);
+/**
+ * Os cinco grupos do payload aditivo, na ordem em que o servidor os nomeia
+ * (`PAYLOAD_KEY_BY_TYPE`, no backend).
+ *
+ * `basemaps` entrou junto com o quinto tipo de recurso. Repare que ali o grupo é um
+ * ARRAY, como os outros quatro, enquanto `config.basemaps` é um OBJETO indexado por
+ * id: quem reprojeta de uma forma para a outra é `mergeGrantedIntoBaseline`, e não
+ * este arquivo, que só indexa ids.
+ */
+const GRUPOS = Object.freeze(['basemaps', 'tilesets', 'dataLayers', 'analysisLayers', 'views360']);
 
 /** @returns {Object<string, Set<string>>} Um mapa de conjuntos vazios, um por grupo. */
 function conjuntosVazios() {
@@ -86,6 +100,13 @@ function indexarPayload(payload) {
  */
 export async function refreshVisibleResources(atlasId = null) {
     const escopo = atlasId ?? null;
+    // O CARIMBO DE ESCOPO VAI ANTES DA CHAMADA, e a ordem é o ponto: quem guarda
+    // resposta em cache (a lista de projetos do 360, hoje) compara o carimbo na
+    // LEITURA, então o instante em que o escopo passa a ser outro é o instante em que
+    // o chamador disse que mudou, não o em que o servidor respondeu. Carimbar depois
+    // deixaria a lista do atlas anterior legível durante a chamada, e legível para
+    // sempre se ela falhasse.
+    setResourceScope(resourceScopeKey(sessionContext.userId, escopo));
     try {
         const payload = await apiClient.getVisibleResources(escopo);
         mergeGrantedIntoBaseline(payload);
@@ -107,13 +128,19 @@ export function clearVisibleResources() {
     revertGrantedResources();
     indexarPayload(null);
     _escopo = undefined;
+    // O MESMO CICLO DE VIDA, e não um paralelo: o que sai daqui é a soma no `config`,
+    // e o que sai do carimbo é a permissão de reusar qualquer resposta decidida sob a
+    // sessão anterior. Esquecer a segunda deixaria o cache de projetos do 360 (que
+    // este arquivo não conhece, e não deve conhecer) servindo o emprestado depois do
+    // logout.
+    resetResourceScope();
 }
 
 /**
  * Se este item do catálogo é um recurso PRIVADO que o servidor entregou a este
  * usuário (por papel global, por concessão pessoal ou por empréstimo do atlas).
  *
- * @param {string} grupo - Um de `tilesets`, `dataLayers`, `analysisLayers`, `views360`.
+ * @param {string} grupo - Um de `basemaps`, `tilesets`, `dataLayers`, `analysisLayers`, `views360`.
  * @param {string} id - O id CRU do recurso (o do catálogo, não o prefixado do cartão).
  * @returns {boolean}
  */

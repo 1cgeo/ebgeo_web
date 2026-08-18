@@ -43,15 +43,19 @@ let _lastSettings = null;
  * essa lista, "tirar o concedido" viraria "tirar o que não estava no deploy", que
  * é uma pergunta que este módulo não tem como responder depois que o overlay
  * mexeu nos arrays.
- * @type {{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}}
+ * @type {{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}}
  */
-let _granted = { tilesets: [], dataLayers: [], analysisLayers: [], views360: [] };
+let _granted = { basemaps: [], tilesets: [], dataLayers: [], analysisLayers: [], views360: [] };
 
 /**
- * Os três grupos de catálogo que participam da soma, cada um com o array VIVO em
- * `config` e o campo correspondente do baseline. `views360` fica de fora: o 360
- * não mora em `config` (vem do preflight do sv360), e quem o consome é o catálogo,
- * por `getGrantedViews360()`.
+ * Os três grupos de catálogo que são ARRAY, cada um com o array VIVO em `config` e o
+ * campo correspondente do baseline.
+ *
+ * Dois grupos ficam de fora, por razões diferentes: `views360` não mora em `config`
+ * (vem do preflight do sv360) e quem o consome é o catálogo, por
+ * `getGrantedViews360()`; `basemaps` mora em `config` mas como OBJETO indexado por
+ * id, com o estilo MapLibre numa segunda chave, então tem caminho próprio em
+ * `aplicarBasemapsConcedidos`.
  */
 const GRUPOS_CONCEDIDOS = [
     { chave: 'tilesets', vivo: () => config.tilesets, campoBaseline: 'tilesets' },
@@ -195,6 +199,46 @@ function appendMissingInPlace(arr, novos) {
 }
 
 /**
+ * @private A soma dos basemaps concedidos, que é a única que não mexe num array.
+ *
+ * `config.basemaps` é um OBJETO indexado por id, e o estilo MapLibre de cada um
+ * viaja separado, em `config.basemapStyles` — é assim que o servidor entrega os
+ * públicos (`config.service.js` separa os dois na montagem do `/api/config`),
+ * enquanto o payload aditivo traz o item INTEIRO, com o estilo dentro. Reprojetar
+ * aqui é o que torna um basemap concedido indistinguível de um público para quem
+ * consome: o seletor de camada base lê `config.basemaps` e mais nada.
+ *
+ * O BASELINE GUARDA SÓ O FLAG `enabled` (é o que `captureBaseline` captura e o que
+ * `revertAtlasSettings` restaura), então o id concedido precisa entrar LÁ também,
+ * senão a interseção da allowlist do atlas nunca o alcançaria — que é o caminho
+ * pelo qual um Gestor restringe camadas base.
+ *
+ * @param {Array} anteriores - Os basemaps da soma anterior, a serem removidos.
+ * @param {Array} novos - Os desta soma.
+ */
+function aplicarBasemapsConcedidos(anteriores, novos) {
+    for (const item of anteriores) {
+        const id = item?.id;
+        if (id == null) continue;
+        delete config.basemaps?.[id];
+        delete config.basemapStyles?.[id];
+        if (_baseline) delete _baseline.basemaps[id];
+    }
+    if (!config.basemaps) return;
+    for (const item of novos) {
+        const id = item?.id;
+        if (id == null) continue;
+        const meta = { ...item };
+        const style = meta.style;
+        delete meta.id;
+        delete meta.style;
+        config.basemaps[id] = meta;
+        if (style && config.basemapStyles) config.basemapStyles[id] = style;
+        if (_baseline) _baseline.basemaps[id] = meta.enabled !== false;
+    }
+}
+
+/**
  * Soma ao baseline os recursos PRIVADOS que o servidor concedeu a este usuário
  * (`GET /api/v1/resource-access/visible`).
  *
@@ -216,17 +260,20 @@ function appendMissingInPlace(arr, novos) {
  * e não acumula: sair de um atlas que empresta e entrar noutro que não empresta
  * precisa tirar o que o primeiro deu.
  *
- * @param {{tilesets?: Array, dataLayers?: Array, analysisLayers?: Array, views360?: Array}} [payload]
+ * @param {{basemaps?: Array, tilesets?: Array, dataLayers?: Array, analysisLayers?: Array, views360?: Array}} [payload]
  * @returns {void}
  */
 export function mergeGrantedIntoBaseline(payload) {
     const anterior = _granted;
     _granted = {
+        basemaps: Array.isArray(payload?.basemaps) ? [...payload.basemaps] : [],
         tilesets: Array.isArray(payload?.tilesets) ? [...payload.tilesets] : [],
         dataLayers: Array.isArray(payload?.dataLayers) ? [...payload.dataLayers] : [],
         analysisLayers: Array.isArray(payload?.analysisLayers) ? [...payload.analysisLayers] : [],
         views360: Array.isArray(payload?.views360) ? [...payload.views360] : [],
     };
+
+    aplicarBasemapsConcedidos(anterior.basemaps, _granted.basemaps);
 
     for (const grupo of GRUPOS_CONCEDIDOS) {
         const idsAntigos = new Set(anterior[grupo.chave].map((item) => item?.id));
@@ -338,5 +385,5 @@ export function getAtlas360Allowlist() {
 export function _resetAtlasSettingsBaseline() {
     _baseline = null;
     _lastSettings = null;
-    _granted = { tilesets: [], dataLayers: [], analysisLayers: [], views360: [] };
+    _granted = { basemaps: [], tilesets: [], dataLayers: [], analysisLayers: [], views360: [] };
 }

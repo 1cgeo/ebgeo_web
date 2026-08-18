@@ -382,8 +382,12 @@ export class ReferenceValidator {
 
     /**
      * Gets available 360 photos from the cached project list.
-     * Uses getCachedProjects() to avoid extra network requests.
+     * Prefers the cache; a MISS refetches instead of answering "none".
      * When streetview feature is disabled, returns empty set — all 360 slides fail validation.
+     *
+     * The miss is not hypothetical: the cache is keyed by access scope (`resource-scope.js`), so
+     * every login and every atlas switch invalidates it. Treating that as an empty set would mark
+     * every 360 reference of the briefing as broken right after opening an atlas.
      * @private
      * @returns {Promise<Set<string>>}
      */
@@ -396,10 +400,10 @@ export class ReferenceValidator {
         }
 
         try {
-            const { getCachedProjects } = await import(
+            const { getCachedProjects, fetchProjects } = await import(
                 '@js/street_view_tool/streetview-api.service.js'
             );
-            const projects = getCachedProjects();
+            const projects = getCachedProjects() ?? await fetchProjects();
             if (projects && Array.isArray(projects)) {
                 for (const project of projects) {
                     if (project.id) photoSet.add(project.id);

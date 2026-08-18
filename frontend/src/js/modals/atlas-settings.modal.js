@@ -90,14 +90,19 @@ const FEATURE_FIELDS = [
 const ICON_LEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>';
 
 /**
- * Os quatro grupos do payload aditivo, com o tipo de domínio que viaja na URL das
+ * Os cinco grupos do payload aditivo, com o tipo de domínio que viaja na URL das
  * rotas de empréstimo e o rótulo que a tela mostra.
  *
  * A chave é a do PAYLOAD (`GET /resource-access/visible`) e o `tipo` é o do `CHECK`
  * de `atlas_resources.resource_type`. São dois vocabulários e a tradução mora aqui,
  * uma vez.
+ *
+ * `basemaps` entrou com a migração 021, que fez do basemap o quinto tipo de recurso.
+ * Deixá-lo de fora daqui manteria a metade que a 021 existe para fechar: o servidor
+ * aceitaria o empréstimo e nenhuma tela ofereceria o botão para fazê-lo.
  */
 const GRUPOS_EMPRESTAVEIS = [
+    { chave: 'basemaps', tipo: 'basemap', rotulo: 'Camadas base' },
     { chave: 'tilesets', tipo: 'tileset', rotulo: 'Modelos 3D' },
     { chave: 'views360', tipo: 'sv360_project', rotulo: 'Imagens 360°' },
     { chave: 'dataLayers', tipo: 'data_layer', rotulo: 'Dados' },
@@ -434,10 +439,13 @@ export class AtlasSettingsModal extends ModalBase {
                 thumbnail: t.previewThumbnail || DEFAULT_THUMBNAILS[T.MODEL_3D], originalData: t });
         }
         // As vistas 360 vêm do cache de preflight do sv360 (módulo lazy) — nunca filtradas pelo overlay.
+        // O cache é chaveado por escopo de acesso (`resource-scope.js`), e esta tela abre DEPOIS de
+        // entrar num atlas, ou seja, quase sempre depois de uma troca de escopo: ler o miss como
+        // "não há 360" deixaria o Gestor sem nada para restringir. Miss busca.
         try {
-            const { getCachedProjects } = await import('@js/street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects } = await import('@js/street_view_tool/streetview-api.service.js');
             const serviceUrl = config.streetView360?.serviceUrl || '';
-            for (const p of (getCachedProjects() || [])) {
+            for (const p of (getCachedProjects() ?? await fetchProjects())) {
                 items.push({ id: `360-${p.id}`, type: T.PANORAMIC_360, name: p.name, description: p.description || null,
                     thumbnail: p.previewThumbnail ? `${serviceUrl}${p.previewThumbnail}` : DEFAULT_THUMBNAILS[T.PANORAMIC_360],
                     originalData: p });

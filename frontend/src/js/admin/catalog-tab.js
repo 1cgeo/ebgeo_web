@@ -52,17 +52,23 @@ const MAX_THUMBNAIL_DATAURL = 256 * 1024;
 /**
  * Categoria da tela -> tipo do eixo de ACESSO A RECURSO (`resource_grants.resource_type`).
  *
- * `basemap` está ausente de propósito, e não por esquecimento: ele carrega a coluna
- * `access_level` por PARIDADE DE SCHEMA (as cinco tabelas de catálogo nasceram de
- * `LIKE basemaps INCLUDING ALL` e um teste exige conjuntos idênticos de coluna) e
- * nenhuma consulta a lê. Oferecer o seletor ali seria um controle que grava numa
- * coluna que ninguém consulta.
+ * `basemap` ENTROU NA MIGRAÇÃO 021, e o parágrafo que morava aqui dizia o contrário
+ * por uma premissa falsa: que `basemaps.access_level` existia só por paridade de
+ * schema e que nenhuma consulta a lia. Ela era lida desde a 017 —
+ * `listCatalog('basemaps')` sem principal aplica `access_level = 'public'`, e é
+ * por ali que `/api/config` se monta. O que faltava era o outro sentido: sem tipo
+ * de concessão, um basemap privado sumia para todo mundo e não havia como
+ * devolvê-lo a quem tem direito.
  *
- * A AUSÊNCIA É DO EIXO DE ACESSO, NUNCA DO DE PRODUÇÃO: `basemaps` tem OM dona como as
- * outras quatro, e o produtor daquela OM mantém seus basemaps. Ler este mapa como "basemap
- * fica de fora das permissões" é a conclusão errada que este parágrafo existe para impedir.
+ * A superfície do basemap é o SELETOR DE CAMADA BASE, não este catálogo: o que o
+ * seletor mostra é `config.basemaps`, somado do payload aditivo por
+ * `mergeGrantedIntoBaseline`.
+ *
+ * O EIXO DE ACESSO CONTINUA SENDO OUTRO QUE O DE PRODUÇÃO: as quatro tabelas têm OM
+ * dona, e ter OM dona nunca escondeu nem revelou item nenhum.
  */
 const ACCESS_TYPE_BY_CATEGORY = Object.freeze({
+    basemap: 'basemap',
     tileset: 'tileset',
     data_layer: 'data_layer',
     analysis_layer: 'analysis_layer',
@@ -247,7 +253,7 @@ class CatalogTab {
         table.className = 'admin-users__table';
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        // A coluna "OM dona" entra para TODA categoria (as cinco tabelas têm a coluna): sem
+        // A coluna "OM dona" entra para TODA categoria (as quatro tabelas têm a coluna): sem
         // ela o produtor não distingue o que mantém do que apenas enxerga, já que a listagem
         // traz também o acervo público das outras OMs.
         const cabecalhos = temAcesso

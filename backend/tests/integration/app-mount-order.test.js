@@ -47,7 +47,6 @@ const PROBES = [
   { prefix: '/api/v1/data-layers', path: '/api/v1/data-layers' },
   { prefix: '/api/v1/analysis-layers', path: '/api/v1/analysis-layers' },
   { prefix: '/api/v1/tilesets', path: '/api/v1/tilesets' },
-  { prefix: '/api/v1/streetview-markers', path: '/api/v1/streetview-markers' },
   { prefix: '/api/v1/nomes', path: '/api/v1/nomes/busca?q=zz&lat=-22.9&lon=-43.2' },
   { prefix: '/api/v1/organizations', path: '/api/v1/organizations' },
   { prefix: '/api/v1/ranks', path: '/api/v1/ranks' },

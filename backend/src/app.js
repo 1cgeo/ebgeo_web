@@ -184,7 +184,6 @@ export function createApp() {
   app.use('/api/v1/data-layers', makeCatalogRouter('data_layers'));
   app.use('/api/v1/analysis-layers', makeCatalogRouter('analysis_layers'));
   app.use('/api/v1/tilesets', makeCatalogRouter('tilesets'));
-  app.use('/api/v1/streetview-markers', makeCatalogRouter('streetview_markers'));
   app.use('/api/v1/nomes', nomesRoutes);
   app.use('/api/v1/organizations', organizationsRoutes);
   app.use('/api/v1/ranks', ranksRoutes);

@@ -7,7 +7,6 @@ export const CATALOG_TABLES = Object.freeze([
   'data_layers',
   'analysis_layers',
   'tilesets',
-  'streetview_markers',
 ]);
 
 export function assertTable(table) {
@@ -18,21 +17,21 @@ export function assertTable(table) {
 }
 
 /**
- * Tabela de catálogo -> tipo aceito por `fn_can_produce_resource`. AS CINCO.
+ * Tabela de catálogo -> tipo aceito por `fn_can_produce_resource`. AS QUATRO.
  *
- * DELIBERADAMENTE DISTINTO de `RESOURCE_TYPES` (resource-access.types.js), que tem
- * QUATRO valores e é o vocabulário do `CHECK` de `resource_grants.resource_type`.
- * Os dois eixos não coincidem e conflatá-los é o erro que faz `POST /basemaps`
- * responder 500: `basemaps` e `streetview_markers` não recebem concessão
- * individual, mas TÊM OM produtora (`owner_org_id` nas cinco, por paridade de
- * schema) e portanto participam do eixo de PRODUÇÃO.
+ * AINDA DISTINTO de `RESOURCE_TYPES` (resource-access.types.js), mesmo depois de
+ * `basemap` ter entrado nos dois: aquele vocabulário é o do `CHECK` de
+ * `resource_grants.resource_type` e inclui `sv360_project`, que não é tabela de
+ * catálogo e não responde ao `listCatalog` genérico. Os dois eixos coincidem hoje
+ * nos quatro nomes desta lista e continuam sendo eixos diferentes: produção é "que
+ * OM mantém este recurso", concessão é "quem recebeu acesso a ele". Conflatá-los é
+ * o erro que fazia `POST /basemaps` responder 500 em vez de 403.
  */
 export const PRODUCTION_TYPE_BY_TABLE = Object.freeze({
   basemaps: 'basemap',
   data_layers: 'data_layer',
   analysis_layers: 'analysis_layer',
   tilesets: 'tileset',
-  streetview_markers: 'streetview_marker',
 });
 
 /**
@@ -54,7 +53,7 @@ export function assertProductionTypeOf(table) {
 }
 
 /**
- * Tabela de catálogo -> `audit_trail.target_type`. AS CINCO, e um TERCEIRO
+ * Tabela de catálogo -> `audit_trail.target_type`. AS QUATRO, e um TERCEIRO
  * vocabulário: nem o das tabelas, nem o do `CHECK` de `resource_grants`.
  *
  * Mora AQUI, ao lado da whitelist que já mapeia tabela para tipo de produção, e não
@@ -63,14 +62,16 @@ export function assertProductionTypeOf(table) {
  *
  * Os valores são os declarados no `CHECK` de `audit_trail.target_type` pela migração
  * 020; um valor fora dele levanta 23514 no INSERT da trilha, o que derrubaria a
- * escrita inteira quando a auditoria é transacional.
+ * escrita inteira quando a auditoria é transacional. Aquele CHECK ainda declara
+ * `STREETVIEW_MARKER`, que perdeu o escritor quando a migração 021 apagou a tabela:
+ * virou alvo declarado sem emissor, censado como tal em
+ * `tests/unit/auditoria-censo.test.js`.
  */
 export const AUDIT_TARGET_TYPE_BY_TABLE = Object.freeze({
   basemaps: 'BASEMAP',
   data_layers: 'DATA_LAYER',
   analysis_layers: 'ANALYSIS_LAYER',
   tilesets: 'TILESET',
-  streetview_markers: 'STREETVIEW_MARKER',
 });
 
 /**

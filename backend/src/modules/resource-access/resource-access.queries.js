@@ -62,12 +62,14 @@ export const CAN_SEE_RESOURCE = `
  * espelho exato do que o comentário de `LIST_VISIBLE_PRIVATE_360` (logo abaixo)
  * descreve como já corrigido para o 360.
  *
- * `$3` SERVE AOS DOIS PREDICADOS de propósito: para as três tabelas de catálogo que
- * participam do eixo de concessão, o vocabulário de `resource_grants.resource_type` e
- * o de `fn_can_produce_resource` coincidem palavra por palavra (`tileset`,
- * `data_layer`, `analysis_layer`). Se algum dia divergirem, este parâmetro precisa se
- * partir em dois — e a coincidência está escrita aqui para que a divergência não
- * passe despercebida.
+ * `$3` SERVE AOS DOIS PREDICADOS de propósito: para as QUATRO tabelas de catálogo, o
+ * vocabulário de `resource_grants.resource_type` e o de `fn_can_produce_resource`
+ * coincidem palavra por palavra (`basemap`, `tileset`, `data_layer`,
+ * `analysis_layer`). Se algum dia divergirem, este parâmetro precisa se partir em
+ * dois — e a coincidência está escrita aqui para que a divergência não passe
+ * despercebida. Ela não é garantida por construção: são dois mapas em arquivos
+ * diferentes (`PRODUCTION_TYPE_BY_TABLE` e `TYPE_BY_TABLE`), e
+ * `catalog-tabelas-paridade.test.js` é quem os compara.
  *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type (text)
  * @param {string} table - Já validado por assertCatalogTableOf.
  * @returns {string}
@@ -84,7 +86,7 @@ export const listVisiblePrivate = (table) => `
 `;
 
 /**
- * Projetos 360 privados visíveis. Separado das três de catálogo porque
+ * Projetos 360 privados visíveis. Separado das quatro de catálogo porque
  * `sv360.projects` tem chave UUID, coluna `status` e `organization_id`, e nenhum
  * `active`/`sort_order`.
  *
@@ -117,7 +119,7 @@ export const LIST_VISIBLE_PRIVATE_360 = `
  * formulário que responde 403, exatamente o que o modal de configuração do atlas
  * já recusa fazer por escrito.
  *
- * NÃO cobre o papel global: quem é administrador ou curador concede de RAIZ, sem
+ * NÃO cobre o papel global: quem é administrador ou credenciado concede de RAIZ, sem
  * concessão nenhuma, e o cliente já sabe disso por `hasGlobalDataAccess()`. Somar
  * o papel aqui seria uma segunda definição da mesma regra.
  *   $1 = grantee_id

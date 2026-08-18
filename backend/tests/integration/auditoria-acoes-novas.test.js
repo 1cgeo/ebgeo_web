@@ -40,13 +40,18 @@ import { purgeResourceLinks } from '../../src/modules/resource-access/resource-a
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** As cinco tabelas de catálogo e o alvo de auditoria de cada uma (migração 020). */
+/**
+ * As quatro tabelas de catálogo e o alvo de auditoria de cada uma (migração 020).
+ *
+ * Eram cinco: `streetview_markers` saiu na 021. O valor `'STREETVIEW_MARKER'`
+ * continua declarado no CHECK de `audit_trail.target_type` e passa a não ter
+ * escritor nenhum — censado como tal em `tests/unit/auditoria-censo.test.js`.
+ */
 const CATALOGO = [
   ['basemaps', 'BASEMAP'],
   ['data-layers', 'DATA_LAYER'],
   ['analysis-layers', 'ANALYSIS_LAYER'],
   ['tilesets', 'TILESET'],
-  ['streetview-markers', 'STREETVIEW_MARKER'],
 ];
 
 describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalhe', () => {
@@ -189,14 +194,15 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
   });
 
   // ---------------------------------------------------------------------------
-  // (a) o CRUD de catálogo, nas CINCO tabelas
+  // (a) o CRUD de catálogo, nas QUATRO tabelas
   // ---------------------------------------------------------------------------
 
-  it('o CRUD de catálogo audita nas CINCO tabelas, com o SLUG na coluna de alvo', async () => {
-    // AS CINCO E NÃO UMA: o router é fabricado por tabela (`makeCatalogRouter`), e
+  it('o CRUD de catálogo audita nas QUATRO tabelas, com o SLUG na coluna de alvo', async () => {
+    // AS QUATRO E NÃO UMA: o router é fabricado por tabela (`makeCatalogRouter`), e
     // testar `tilesets` só reproduz o buraco que `catalog-tables.test.js` já teve de
     // fechar uma vez. Cada tabela tem seu próprio `target_type` no CHECK da 020, e
     // um mapa incompleto levanta 23514 dentro da escrita.
+    assert.equal(CATALOGO.length, 4, 'guarda: a varredura precisa saber quantas tabelas espera');
     for (const [rota, alvo] of CATALOGO) {
       const id = `aud-${rota}-${sufixo}`;
       assert.equal(await quantas('CATALOG_CREATE', alvo, id), 0, `piso: ${rota} sem trilha antes`);

@@ -347,8 +347,20 @@ describe('F1 — resolução de acesso a recurso privado (as três funções SQL
       ),
       /whitelist|invalid_parameter_value|fn_can_produce_resource/i
     );
+    // `streetview_marker` ERA legítimo e virou o CONTROLE NEGATIVO desta lista: a
+    // migração 021 apagou a tabela e tirou o ramo do `CASE`, então o tipo passa a
+    // levantar como qualquer nome inventado. Testá-lo aqui, e não apagá-lo, é o que
+    // prova que o ramo saiu MESMO — um `CASE` com o ramo de pé e a tabela ausente
+    // levantaria 42P01 (undefined_table), que não casa com este regex.
+    await assert.rejects(
+      () => db.query(
+        'SELECT fn_can_produce_resource($1::uuid, $2::text, $3::text) AS ok',
+        [produtor.id, 'streetview_marker', recurso]
+      ),
+      /whitelist|invalid_parameter_value|fn_can_produce_resource/i
+    );
     // Discriminação: os tipos legítimos NÃO levantam.
-    for (const tipo of ['basemap', 'data_layer', 'analysis_layer', 'tileset', 'streetview_marker', 'sv360_project']) {
+    for (const tipo of ['basemap', 'data_layer', 'analysis_layer', 'tileset', 'sv360_project']) {
       assert.equal(typeof (await podeProduzir(produtor.id, recurso, tipo)), 'boolean', tipo);
     }
   });

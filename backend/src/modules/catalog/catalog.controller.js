@@ -14,11 +14,12 @@ import * as svc from './catalog.service.js';
  * pede `GET /api/v1/tilesets?atlasId=...` quando quer ver também o que o atlas em
  * foco empresta. Ausente significa "sem atlas em foco", que é um estado legítimo.
  *
- * Tabelas sem tipo de CONCESSÃO (`basemaps`, `streetview_markers`) chegam com
- * `resourceType` nulo, e não com o principal inteiro nulo: elas não recebem
- * concessão individual, mas participam do eixo de PRODUÇÃO como as outras três, e
- * devolver `null` aqui apagaria esse ramo — o produtor não veria a própria linha
- * privada na listagem que ele pode editar.
+ * DESDE A MIGRAÇÃO 021 AS QUATRO TABELAS TÊM TIPO DE CONCESSÃO, então na prática
+ * `resourceType` nunca chega nulo. O `??` fica: ele é o que garante que uma tabela
+ * ausente de `TYPE_BY_TABLE` degrade para "sem eixo de concessão" (menos dado) em
+ * vez de montar um predicado com `undefined`. Repare que o nulo apaga só o ramo de
+ * CONCESSÃO, nunca o principal inteiro: o ramo de PRODUÇÃO precisa sobreviver, ou o
+ * produtor não veria a própria linha privada na listagem que ele pode editar.
  */
 function visibleTo(req, table) {
   return {

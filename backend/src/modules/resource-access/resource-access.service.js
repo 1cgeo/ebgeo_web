@@ -76,7 +76,7 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
  * `shareable` é o único campo que NÃO é recurso: é a lista de pares
  * (tipo, id) que este ator pode repassar adiante, para a interface decidir se
  * mostra a ação "Compartilhar" sem uma chamada por cartão. Ele viaja fora dos
- * quatro grupos de propósito — somá-lo dentro dos itens mudaria o shape que
+ * cinco grupos de propósito — somá-lo dentro dos itens mudaria o shape que
  * `mergeGrantedIntoBaseline` despeja nos arrays do `config`.
  *
  * @param {Object} params
@@ -86,7 +86,7 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
  *
  * @param {string|null} params.userId - null para o visitante de link público (R4).
  * @param {string|null} params.atlasId - O atlas em foco (empresta), ou null.
- * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object}>}
+ * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object}>}
  */
 export async function listVisiblePrivateResources({ userId, atlasId }) {
   const catalogTypes = RESOURCE_TYPES.filter((t) => tableOf(t) !== null);
@@ -120,7 +120,7 @@ export async function listVisiblePrivateResources({ userId, atlasId }) {
  * "o servidor não respondeu essa parte".
  *
  * @param {string|null} userId
- * @returns {Promise<{tilesets: string[], dataLayers: string[], analysisLayers: string[], views360: string[]}>}
+ * @returns {Promise<{basemaps: string[], tilesets: string[], dataLayers: string[], analysisLayers: string[], views360: string[]}>}
  */
 async function listShareableOfActor(userId) {
   const vazio = Object.fromEntries(RESOURCE_TYPES.map((t) => [PAYLOAD_KEY_BY_TYPE[t], []]));
@@ -129,7 +129,7 @@ async function listShareableOfActor(userId) {
   const { rows } = await query(Q.LIST_SHAREABLE_OF_ACTOR, [userId]);
   for (const r of rows) {
     const chave = PAYLOAD_KEY_BY_TYPE[r.resource_type];
-    // Um `resource_type` fora dos quatro é impossível pelo CHECK da tabela, mas
+    // Um `resource_type` fora dos cinco é impossível pelo CHECK da tabela, mas
     // um `undefined` como chave viraria um grupo fantasma no payload em vez de um
     // erro — descartar é a degradação certa aqui.
     if (chave) vazio[chave].push(r.resource_id);

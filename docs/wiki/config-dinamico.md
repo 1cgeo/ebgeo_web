@@ -87,7 +87,7 @@ Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-
 
 Até 2026-07-25 esta página descrevia um endpoint sem cache **nenhum**, e era verdade: montar o payload custava **oito** consultas ao banco, em toda requisição, numa rota anônima e sem teto. Isso fazia do único endpoint que impede o boot também o mais caro do conjunto anônimo. Hoje o payload é memoizado em processo (`backend/src/modules/config/config.cache.js`) e o custo medido caiu de 8 consultas por requisição para 8 por *mudança*: requisição em cache quente custa **zero**.
 
-O que **não** mudou é o que o `Cache-Control: no-cache` promete. A invalidação é feita **no ponto da escrita**, não por TTL, exatamente para preservar a propagação imediata: as três operações de CRUD do catálogo (nas cinco tabelas), as três de `ranks`, as três de `organizations` e os dois escritores de override (`PUT`/`DELETE /config/admin`) chamam `invalidateAppConfigCache()` depois de gravar. A requisição seguinte a qualquer uma delas reconstrói. Um TTL sozinho teria trocado essa propriedade por um atraso que ninguém sabe dimensionar.
+O que **não** mudou é o que o `Cache-Control: no-cache` promete. A invalidação é feita **no ponto da escrita**, não por TTL, exatamente para preservar a propagação imediata: as três operações de CRUD do catálogo (nas quatro tabelas), as três de `ranks`, as três de `organizations` e os dois escritores de override (`PUT`/`DELETE /config/admin`) chamam `invalidateAppConfigCache()` depois de gravar. A requisição seguinte a qualquer uma delas reconstrói. Um TTL sozinho teria trocado essa propriedade por um atraso que ninguém sabe dimensionar.
 
 Três coisas que decidem se isso ajuda ou atrapalha:
 

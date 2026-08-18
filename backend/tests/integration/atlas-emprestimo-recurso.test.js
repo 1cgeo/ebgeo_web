@@ -156,9 +156,20 @@ describe('F5 — o atlas empresta, e o empréstimo é de ESCOPO', () => {
   it('atlas na LIXEIRA para de emprestar, e restaurá-lo devolve o empréstimo', async () => {
     // Atlas é soft-deletado, então o `ON DELETE CASCADE` de `atlas_resources` NÃO
     // dispara: quem corta é o `a.deleted_at IS NULL` da função de resolução (R5).
+    //
+    // O CÓDIGO MUDOU DE 200-SEM-O-RECURSO PARA 404, e a mudança é da fase F9: a rota
+    // passou a rodar `requireAtlasScopeWhenPresent`, e um atlas na lixeira é
+    // inalcançável como qualquer outro que o chamador não alcança. É a mesma escolha já
+    // registrada para as leituras do 360 (o erro do gate PROPAGA, não degrada para
+    // escopo nulo), e o que ela preserva é justamente o que este caso mede: com o atlas
+    // na lixeira, o empréstimo não sai. O par de restauração continua provando que o
+    // sumiço foi a lixeira e não outra coisa.
     await db.query('UPDATE atlas SET deleted_at = NOW() WHERE id = $1', [atlas.id]);
     try {
-      assert.equal(await veTileset(tokenMembro, atlas.id), false);
+      await supertest(app)
+        .get(`/api/v1/resource-access/visible?atlasId=${atlas.id}`)
+        .set('Authorization', `Bearer ${tokenMembro}`)
+        .expect(404);
     } finally {
       await db.query('UPDATE atlas SET deleted_at = NULL WHERE id = $1', [atlas.id]);
     }

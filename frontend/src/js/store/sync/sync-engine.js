@@ -225,6 +225,18 @@ class SyncEngine {
         // pessoa tem por papel global ou por concessao pessoal ja vale no mapa local.
         // Best-effort de proposito — uma falha aqui nao pode derrubar o login.
         await refreshVisibleResources(null);
+        // E a tela precisa SABER que a soma chegou. O boot resolve isso por construcao
+        // (a soma acontece antes de qualquer controle existir), mas o login por gesto
+        // acontece com o mapa montado: sem este aviso, o recurso privado so aparecia no
+        // proximo F5 ou ao abrir um atlas. O MESMO evento do overlay, e nao um novo,
+        // pela razao ja escrita no handler de `atlasResources`: os assinantes ignoram o
+        // payload e apenas releem o `config`. Vai sem chave `settings` de proposito —
+        // nao houve mudanca de settings.
+        try {
+            getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'granted_resources' });
+        } catch {
+            // No UI bus (headless).
+        }
         return user;
     }
 

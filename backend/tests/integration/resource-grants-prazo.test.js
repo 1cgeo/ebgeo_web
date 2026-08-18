@@ -35,7 +35,9 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAdminUser, createAtlas, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAdminUser, createAtlas, createShare, loginUser,
+} from '../helpers/fixtures.js';
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const TIPO = 'tileset';
@@ -141,6 +143,12 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     }
 
     atlas = await createAtlas(db, atores.dono.id, { name: `Atlas prazo ${sufixo}` });
+    // O ESTRANHO E MEMBRO DO ATLAS, e a palavra so vale para a CONCESSAO: ele nao tem
+    // concessao nenhuma sobre o recurso, e e disso que o caso D4 trata. O share existe
+    // porque desde a fase F9 `GET /resource-access/visible` roda
+    // `requireAtlasScopeWhenPresent`: o UUID do atlas nao autoriza sozinho, entao um
+    // nao-membro leva 404 do GATE e nunca chega ao predicado que este arquivo mede.
+    await createShare(db, atlas.id, atores.estranho.id, 'read', atores.dono.id);
   });
 
   after(async () => {

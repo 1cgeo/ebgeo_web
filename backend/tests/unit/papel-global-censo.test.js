@@ -111,6 +111,11 @@ const CENSO = [
     motivo: 'Admin global é tratado como dono de QUALQUER atlas em requireAtlasPermission. Credenciado não vira dono de atlas: ele vê recurso de catálogo, não o conteúdo de projeto alheio.',
   },
   {
+    arquivo: 'src/middleware/resource-access.js',
+    trecho: "AND u.role = 'admin') AS administra", n: 1, classe: PODER,
+    motivo: 'GRANT_REVOKER_ACTOR: o ramo CURINGA de revogar concessão de terceiro, com a subárvore junto. Era `fn_has_global_data_access` (classe DADO, que inclui o credenciado) e virou papel de ADMINISTRAÇÃO na fase F9: ver todo recurso privado e desfazer a concessão de outra pessoa são poderes diferentes. O credenciado continua revogando o que ELE concedeu, por `granted_by`, que não pergunta papel nenhum.',
+  },
+  {
     arquivo: 'src/modules/atlas/atlas.controller.js',
     trecho: "req.user.role === 'admin'", n: 2, classe: PODER,
     motivo: 'Lixeira global de atlas (listar e restaurar apagados de outros). É administração, não catálogo.',

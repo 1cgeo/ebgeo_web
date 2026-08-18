@@ -18,7 +18,7 @@
 //   - a linha INSTITUCIONAL (`owner_org_id NULL`) é só do administrador;
 //   - a criação FORÇA `owner_org_id` ao escopo do produtor, ignorando o corpo;
 //   - ninguém transfere `owner_org_id` por estas rotas;
-//   - AS CINCO TABELAS, não uma: `makeCatalogRouter` fabrica cinco routers do mesmo
+//   - AS QUATRO TABELAS, não uma: `makeCatalogRouter` fabrica quatro routers do mesmo
 //     código, e testar `tilesets` sozinho já reproduziria o buraco que
 //     `catalog-tables.test.js` teve de fechar uma vez.
 //
@@ -37,15 +37,18 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createProducerUser, loginUser } from '../helpers/fixtures.js';
 
-// AS CINCO tabelas de catálogo e a rota de cada uma. A lista é escrita à mão de
+// AS QUATRO tabelas de catálogo e a rota de cada uma. A lista é escrita à mão de
 // propósito: derivá-la de `CATALOG_TABLES` faria o teste concordar com o código por
 // construção, e o que se quer aqui é a segunda opinião sobre quantas são.
+//
+// A SEGUNDA OPINIÃO SÓ VALE SE ALGUÉM A COBRAR, e até a 021 ninguém cobrava:
+// apagar uma linha desta lista passava verde, porque nenhum caso afirmava o
+// tamanho dela. O `assert` do primeiro caso é o que fecha isso.
 const TABELAS = [
   { tabela: 'basemaps', rota: 'basemaps' },
   { tabela: 'data_layers', rota: 'data-layers' },
   { tabela: 'analysis_layers', rota: 'analysis-layers' },
   { tabela: 'tilesets', rota: 'tilesets' },
-  { tabela: 'streetview_markers', rota: 'streetview-markers' },
 ];
 
 describe('O Produtor escreve o catálogo da própria OM, e só ele', () => {
@@ -103,10 +106,11 @@ describe('O Produtor escreve o catálogo da própria OM, e só ele', () => {
     await teardownTestEnv(db);
   });
 
-  it('piso: quem não produz nem administra é recusado na porta, nas CINCO rotas', async () => {
+  it('piso: quem não produz nem administra é recusado na porta, nas QUATRO rotas', async () => {
     // O gate de ROTA, antes de qualquer linha: um usuário comum não passa em
     // `requireCatalogProducer`. Sem este piso, os casos seguintes não distinguiriam
     // "o produtor alcança a linha certa" de "a rota aceita qualquer um".
+    assert.equal(TABELAS.length, 4, 'guarda: a lista escrita à mão precisa cobrar o próprio tamanho');
     for (const { tabela, rota } of TABELAS) {
       await supertest(app)
         .put(`/api/v1/${rota}/${idDe(tabela, 'a')}`)
@@ -116,7 +120,7 @@ describe('O Produtor escreve o catálogo da própria OM, e só ele', () => {
     }
   });
 
-  it('edita a linha da PRÓPRIA OM e não alcança a de outra — nas CINCO tabelas', async () => {
+  it('edita a linha da PRÓPRIA OM e não alcança a de outra — nas QUATRO tabelas', async () => {
     for (const { tabela, rota } of TABELAS) {
       const meu = idDe(tabela, 'a');
       const alheio = idDe(tabela, 'b');
