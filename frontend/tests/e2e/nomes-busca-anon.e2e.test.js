@@ -78,16 +78,16 @@ describe.skipIf(E2E_SKIP)('e2e: nomes-busca-anon', () => {
         // Public rows, clustered around the query point (SRID 4674, like the table).
         for (const [i, nome] of PUBLIC_NAMES.entries()) {
             await db.none(
-                `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, geom, access_level)
+                `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, geom)
                  VALUES ($1, $2, 'Município E2E', 'RJ',
-                         ST_SetSRID(ST_MakePoint($3, $4), 4674), 'public')`,
+                         ST_SetSRID(ST_MakePoint($3, $4), 4674))`,
                 [nome, i === 0 ? 'Cidade' : 'Morro', -43.2 + i * 0.01, -22.9 + i * 0.01]
             );
         }
         await db.none(
-            `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, geom, access_level)
+            `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, geom)
              VALUES ($1, 'Cidade', 'Município E2E', 'RJ',
-                     ST_SetSRID(ST_MakePoint(-43.2, -22.9), 4674), 'private')`,
+                     ST_SetSRID(ST_MakePoint(-43.2, -22.9), 4674))`,
             [PRIVATE_NAME]
         );
 
@@ -142,10 +142,17 @@ describe.skipIf(E2E_SKIP)('e2e: nomes-busca-anon', () => {
         expect(scores).toEqual([...scores].sort((a, b) => b - a));
     });
 
-    it('never returns a PRIVATE name to the anonymous caller', async () => {
-        // The term matches ONE row and that row is private, so the empty array here
-        // is the access filter embedded in the SQL ($5 userId null => public only),
-        // not an empty table: the previous test proves seeded rows do come back.
+    it('a busca NÃO tem eixo de acesso: o anônimo recebe todo nome semeado', async () => {
+        // ESTE CASO FOI INVERTIDO EM 2026-08-19, e a inversão é o registro da decisão.
+        // Ele afirmava que o anônimo recebia ZERO resultados para este termo, porque a
+        // linha era `access_level = 'private'` e a consulta filtrava. O eixo inteiro foi
+        // REMOVIDO (a coluna, o índice, o predicado e as zonas geográficas que o
+        // sustentavam): busca de topônimo é aberta, por decisão do dono, e era sistema
+        // antigo com API de admin e nenhuma tela.
+        //
+        // O caso fica, invertido, em vez de sair: ele é o que reprova se alguém
+        // reintroduzir um filtro aqui, e a inversão de um teste é como esta casa
+        // registra que uma propriedade mudou de sinal em vez de deixar de ser medida.
         const res = await fetch(url(`q=${PRIVATE_BASE}&lat=-22.9&lon=-43.2`), {
             headers: { Accept: 'application/json' },
         });
@@ -153,7 +160,8 @@ describe.skipIf(E2E_SKIP)('e2e: nomes-busca-anon', () => {
         expect(res.status).toBe(200);
         const body = await res.json();
         expect(Array.isArray(body)).toBe(true);
-        expect(body).toHaveLength(0);
+        expect(body.length).toBeGreaterThan(0);
+        expect(body.some((r) => r.nome === PRIVATE_NAME)).toBe(true);
     });
 
     it('rejects a too-short query (`q` min 3) with HTTP 422', async () => {

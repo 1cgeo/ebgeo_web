@@ -3,7 +3,7 @@
 
 /**
  * Absorve o gazetteer do banco ANTIGO (o `servico_nomes_geograficos`, schema `ng`)
- * para este backend: `ng.nomes_geograficos`, `ng.edificacoes` e o ACERVO 3D.
+ * para este backend: `ng.nomes_geograficos` e o ACERVO 3D.
  *
  * O ACERVO 3D MUDOU DE DESTINO. A origem guarda o catálogo de modelos em
  * `ng.catalogo_3d`, e essa tabela NÃO EXISTE mais aqui: era um segundo catálogo de
@@ -49,7 +49,7 @@
  *                          carga é ADITIVA e uma segunda execução duplica tudo.
  *   --access-level=<v>     `public` (default) ou `private`. A origem não tem a coluna;
  *                          é uma decisão de visibilidade que o destino exige.
- *   --skip=<t1,t2>         Tabelas a pular: nomes, edificacoes, catalogo3d.
+ *   --skip=<t1,t2>         Tabelas a pular: nomes, catalogo3d.
  *                          (`catalogo3d` continua sendo o nome da ORIGEM; o destino
  *                          dele é `public.tilesets`.)
  *   --batch=<n>            Linhas por INSERT (default 2000).
@@ -115,7 +115,7 @@ const SKIP = new Set(
 
 if (!SOURCE_URL) {
   console.error(`Uso: node dev/import-gazetteer.mjs --source=<postgres-url> [--apply] [--dedup]
-                 [--truncate] [--access-level=public|private] [--skip=nomes,edificacoes,catalogo3d] [--batch=2000]`);
+                 [--truncate] [--access-level=public|private] [--skip=nomes,catalogo3d] [--batch=2000]`);
   process.exit(1);
 }
 if (!['public', 'private'].includes(ACCESS_LEVEL)) {
@@ -175,20 +175,15 @@ const TABELAS = [
     ordem: 'nome, tipo, municipio, estado, geom',
   },
   {
-    chave: 'edificacoes',
-    origem: 'ng.edificacoes',
-    destino: 'ng.edificacoes',
-    colunas: ['nome', 'municipio', 'estado', 'tipo', 'altitude_base', 'altitude_topo'],
-    srid: 4326,
-    tipoGeom: 'Polygon',
-    ordem: 'nome, tipo, municipio, estado, geom',
-  },
-  {
     chave: 'catalogo3d',
     origem: 'ng.catalogo_3d',
     // O DESTINO E `public.tilesets`, e nao uma tabela homonima no `ng`: aquele
     // catalogo saiu do sistema (era o segundo, sem consumidor). Ver o cabecalho.
     destino: 'public.tilesets',
+    // `tilesets` TEM `access_level` e o gazetteer nao tem mais (o eixo de acesso do
+    // `ng` saiu em 2026-08-19, junto com as zonas: busca de toponimo nao tem
+    // restricao). Por isso a coluna e propriedade da TABELA, nao do processo.
+    temAccessLevel: true,
     // Sem geometria: o catalogo 3D da origem guarda lon/lat como numeric solto.
     colunas: [
       'name', 'description', 'municipio', 'estado', 'thumbnail', 'palavras_chave', 'url',
@@ -381,13 +376,18 @@ function insertEmLote(tabela, cols, tiposPg, linhas) {
     destinoCols += ', geom';
   }
 
-  params.push(ACCESS_LEVEL);
-  const accessParam = `$${params.length}`;
+  let colsFinais = destinoCols;
+  let projFinal = projecao;
+  if (tabela.temAccessLevel) {
+    params.push(ACCESS_LEVEL);
+    colsFinais += ', access_level';
+    projFinal += `, $${params.length}`;
+  }
 
   const unnestCols = tabela.tipoGeom ? `${alias}, geom` : alias;
   return {
-    sql: `INSERT INTO ${tabela.destino} (${destinoCols}, access_level)
-          SELECT ${projecao}, ${accessParam}
+    sql: `INSERT INTO ${tabela.destino} (${colsFinais})
+          SELECT ${projFinal}
             FROM unnest(${unnestArgs.join(', ')}) AS u(${unnestCols})
           ${tabela.onConflict ?? ''}`,
     params,
@@ -405,11 +405,14 @@ function insertLinhaALinha(tabela, cols, linha) {
     placeholders.push(`ST_GeomFromEWKB($${params.length})::geometry(${tabela.tipoGeom},${tabela.srid})`);
     destinoCols += ', geom';
   }
-  params.push(ACCESS_LEVEL);
-  placeholders.push(`$${params.length}`);
+  if (tabela.temAccessLevel) {
+    params.push(ACCESS_LEVEL);
+    placeholders.push(`$${params.length}`);
+    destinoCols += ', access_level';
+  }
 
   return {
-    sql: `INSERT INTO ${tabela.destino} (${destinoCols}, access_level) `
+    sql: `INSERT INTO ${tabela.destino} (${destinoCols}) `
        + `VALUES (${placeholders.join(', ')}) ${tabela.onConflict ?? ''}`,
     params,
   };
@@ -465,12 +468,15 @@ async function main() {
   try {
     // Guarda: o destino tem MESMO o schema da migração 004? Sem isto, um destino
     // errado (ou não-migrado) só falharia lá na frente, com metade da carga feita.
-    const temAccessLevel = await destino.oneOrNone(
-      `SELECT 1 FROM information_schema.columns
-        WHERE table_schema='ng' AND table_name='nomes_geograficos' AND column_name='access_level'`
+    // A guarda mirava a coluna access_level do gazetteer, que saiu em 2026-08-19
+    // junto com o eixo de acesso do ng. Mira agora a TABELA que ficou: um destino
+    // nao-migrado continua falhando ANTES de escrever metade da carga.
+    const temDestino = await destino.oneOrNone(
+      `SELECT 1 FROM information_schema.tables
+        WHERE table_schema='ng' AND table_name='nomes_geograficos'`
     );
-    if (!temAccessLevel) {
-      throw new Error('destino sem ng.nomes_geograficos.access_level — rode `npm run db:migrate` antes.');
+    if (!temDestino) {
+      throw new Error('destino sem ng.nomes_geograficos — rode `npm run db:migrate` antes.');
     }
 
     const planejadas = TABELAS.filter((t) => !SKIP.has(t.chave));
@@ -579,16 +585,14 @@ async function main() {
       // ter sido commitada — o script morre exatamente entre inserir e clusterizar.
       await destino.any('SELECT ng.refresh_busca()');
       await destino.none('ANALYZE ng.nomes_geograficos');
-      await destino.none('ANALYZE ng.edificacoes');
 
       const v = await destino.one(`
         SELECT (SELECT count(*)::int FROM ng.nomes_geograficos) AS nomes,
-               (SELECT count(*)::int FROM ng.edificacoes)       AS edificacoes,
                (SELECT count(*)::int FROM public.tilesets)      AS tilesets,
                (SELECT count(DISTINCT cluster_id)::int FROM ng.nomes_geograficos) AS clusters,
                (SELECT count(*)::int FROM ng.nomes_geograficos WHERE cluster_id IS NULL) AS sem_cluster,
                (SELECT round(avg(tipo_peso)::numeric,3) FROM ng.nomes_geograficos) AS peso_medio`);
-      console.log(`\nnomes=${v.nomes} edificacoes=${v.edificacoes} tilesets=${v.tilesets} ` +
+      console.log(`\nnomes=${v.nomes} tilesets=${v.tilesets} ` +
                   `clusters=${v.clusters} sem_cluster=${v.sem_cluster} peso_medio=${v.peso_medio}`);
       if (v.nomes > 0 && v.sem_cluster > 0) {
         console.log('AVISO: há linhas sem cluster_id — refresh_busca() não cobriu tudo.');

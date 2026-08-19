@@ -2,6 +2,18 @@
 
 Registro global versionado por categoria, filtrado na leitura pelo eixo de acesso a recurso e escrito por administrador ou pela OM produtora, que alimenta o `GET /api/v1/config` de todo cliente.
 
+## A taxonomia de tipo é mais pobre do que o acervo
+
+`tilesets` distingue só DUAS formas de 3D, por `config.type === 'glb'` presente ou ausente,
+e o acervo tem pelo menos três: tileset 3D, modelo isolado e nuvem de pontos. Quando o
+acervo do segundo catálogo (que vivia no schema `ng` e saiu em 2026-08-19) foi convertido,
+a NUVEM DE PONTOS foi mapeada para tileset. Isso é correto de carregamento, porque o
+formato dela é parte do 3D Tiles, e não quebra nada.
+
+O que se perde é poder DIZER na tela que aquele item é uma nuvem, e filtrar por isso.
+Declarar a taxonomia por extenso (tiles3d, glb, pointcloud, indoor) é trabalho próprio;
+inventá-la durante a conversão criaria um valor que nenhum leitor do código conhece.
+
 ## A distinção que mais confunde
 
 O catálogo diz **o que existe no servidor**; o [[atlas-settings]] diz **o que aquele atlas pode usar** (subconjunto). Remover do catálogo some para todos; tirar de `available_data_layers` some só naquele atlas. São eixos independentes: nunca "conserte" visibilidade de um mexendo no outro.
@@ -42,7 +54,7 @@ Nasceram CINCO e são QUATRO desde 2026-08-17: `streetview_markers` foi apagada 
 - **As escritas de catálogo passaram a ser auditadas** (`CATALOG_CREATE`/`UPDATE`/`DELETE`, [[auditoria]]), e a razão é o produtor: enquanto o autor era sempre o admin, a trilha era quase adivinhável; com N autores por OM deixou de ser. O detalhe que morde ao acrescentar tabela: o `target_type` da trilha é um **terceiro** vocabulário, nem o das tabelas nem o do `CHECK` de `resource_grants`, e os três mapas moram juntos em `backend/src/modules/catalog/catalog.tables.js` de propósito. Valor fora do `CHECK` levanta 23514 no INSERT da trilha, e como a auditoria é transacional isso derruba a escrita inteira.
 - **`streetview_markers` NÃO EXISTE MAIS.** Ela ficou órfã desde que nasceu, clonada da irmã num `LIKE ... INCLUDING ALL`: `backend/src/modules/config/config.service.js` nunca a incluiu, nenhum código de frontend chamou a rota dela, nenhum seed a populou, e o 360 real usa o schema próprio `sv360.*`. A tabela foi apagada, o mount e a categoria, sem depreciação — não havia o que depreciar. O que sobrevive é o valor `STREETVIEW_MARKER` no `CHECK` de `audit_trail.target_type`, hoje sem escritor e censado como buraco conhecido em `backend/tests/unit/auditoria-censo.test.js`. Os marcadores 360 do mapa continuam vindo do módulo de verdade ([[streetview-360]], [[ingestao-projetos-360]]).
 - **`basemap` é o quinto tipo de recurso privado desde 2026-08-17.** Antes disso a camada de base já tinha `access_level` e já era filtrada (marcar privado a escondia de todo mundo), mas não existia `basemap` no `CHECK` de `resource_grants.resource_type`, então não havia como devolvê-la a quem tem direito. Era meia regra: fechava e não abria. A superfície é o SELETOR DE CAMADA BASE, e o item concedido chega pelo payload aditivo, somado em `config.basemaps` (e o estilo em `config.basemapStyles`) por `mergeGrantedIntoBaseline`. Duas consequências que a leitura do catálogo não entrega: o botão **Compartilhar** de um basemap mora no SELETOR (`frontend/src/js/base-layer-selector/base-layer-selector.control.js`), e não nesta aba de administração, porque `admin.html` boota sem a store e o modal de concessão arrasta o motor de sync; e o estilo de um basemap criado pelo painel só desenha porque o controle resolve `config.basemapStyles` quando não tem estilo embutido para o id (`frontend/src/js/baselayers/basemap-style.js`) — antes disso ele aparecia na lista e o clique caía noutra camada.
-- **Metadata, não bytes.** Criar um `tileset` com `config.url` para caminho inexistente produz item que aparece na UI e falha ao abrir. Publique o asset primeiro ([[assets3d-distribuicao]], [[catalogo-3d]]).
+- **Metadata, não bytes.** Criar um `tileset` com `config.url` para caminho inexistente produz item que aparece na UI e falha ao abrir. Publique o asset primeiro ([[assets3d-distribuicao]], [[resources-catalogo]]).
 - **`sort_order` empata por nome** (`ORDER BY sort_order, name`). Deixar tudo em 0 vira ordem alfabética.
 
 O shape de cada `config` não tem validação: o Joi só exige objeto (`backend/src/modules/catalog/catalog.schemas.js`). A referência canônica de shape é o seed em `backend/src/database/migrations/005_catalogo.sql`, que o comentário do próprio DDL declara estar "já no shape de `GET /api/v1/config`". Quem consome é `backend/src/modules/config/config.service.js`.
@@ -57,7 +69,7 @@ O cliente **não** falha em silêncio, ao contrário do que o sintoma sugere: `l
 
 **Para tirar do ar, não emita migração.** `DELETE /api/v1/tilesets/PCL` faz `active = false`, e `listCatalog` filtra por `active = true` (`backend/src/modules/catalog/catalog.service.js`), então o item some do `/config` no próximo boot, sem deploy e sem DDL. Uma migração que apagasse a linha rodaria em **toda** instalação, inclusive naquela em que um admin reapontou esse `id` para um modelo real, e um `DELETE` ainda contrariaria o soft-delete da casa. O preço do caminho por admin é o descrito acima: não há rota de reativar.
 
-**Para publicar de verdade**, o destino é `/api/v1/assets3d`, alimentado por `scripts/assets3d-import.js` ([[assets3d-distribuicao]]). É esse o mecanismo desenhado para binário pesado, e ele mantém os arquivos fora do git **e** fora do `dist/`, ao contrário de `frontend/public/3d/`, que o Vite copia para o build a cada publicação (a origem do custo que motivou a retirada). Atenção ao ligar os dois: `config.tilesets` é servido verbatim e o cliente não aplica `assets3dBaseUrl` ([[catalogo-3d]]), então a `url` gravada no catálogo precisa ser o caminho final já resolvido, não o relativo que o catálogo `ng` usa.
+**Para publicar de verdade**, o destino é `/api/v1/assets3d`, alimentado por `scripts/assets3d-import.js` ([[assets3d-distribuicao]]). É esse o mecanismo desenhado para binário pesado, e ele mantém os arquivos fora do git **e** fora do `dist/`, ao contrário de `frontend/public/3d/`, que o Vite copia para o build a cada publicação (a origem do custo que motivou a retirada). Atenção ao ligar os dois: `config.tilesets` é servido verbatim e o cliente não aplica `assets3dBaseUrl` ([[resources-catalogo]]), então a `url` gravada no catálogo precisa ser o caminho final já resolvido, e não um relativo à espera de prefixo.
 
 ## A exceção deliberada: miniatura embutida em base64
 
@@ -77,7 +89,7 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 
 - [[config-dinamico]], [[config-runtime-urls-relativas]]: como o catálogo chega ao cliente.
 - [[atlas-settings]]: recorte por atlas sobre o catálogo global.
-- [[catalogo-3d]], [[assets3d-distribuicao]], [[streetview-360]]: consumidores de `tileset` e 360.
+- [[resources-catalogo]], [[assets3d-distribuicao]], [[streetview-360]]: consumidores de `tileset` e 360.
 - [[acesso-a-recurso-privado]]: a marca público/privado, quem a destrava na leitura e o escopo de produção que destrava a escrita.
 - [[gestao-usuarios]], [[permissoes-atlas]], [[organizacoes-om]]: os papéis globais e quem os escreve.
 - [[api-rest-atlas]], [[erros-api]], [[autenticacao-jwt]]: convenções REST, erro e auth.

@@ -26,6 +26,11 @@ import assert from 'node:assert/strict';
 import pgPromise from 'pg-promise';
 import { runMigrations } from '../../src/database/migrate.js';
 
+// O nome de uma migração que existia ANTES da consolidação. Montado em runtime, e não
+// escrito por extenso, porque `citacao-de-migracao.test.js` varre citações de migração
+// em `tests/` e leria um literal aqui como referência quebrada. O valor precisa ser um
+// nome que NÃO existe mais: é justamente ele que faz o runner recusar o banco.
+const NOME_PRE_CONSOLIDACAO = ['001', 'core.sql'].join('_');
 const DB_USER = process.env.DB_USER || 'ebgeo';
 const DB_PASSWORD = process.env.DB_PASSWORD || 'ebgeo_secret';
 const DB_HOST = process.env.DB_HOST || 'localhost';
@@ -126,7 +131,7 @@ describe('Guarda de banco pré-consolidação (F15)', () => {
           name VARCHAR(255) NOT NULL UNIQUE,
           applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`);
-      await db.none("INSERT INTO _migrations (name) VALUES ('001_core.sql')");
+      await db.none("INSERT INTO _migrations (name) VALUES ($1)", [NOME_PRE_CONSOLIDACAO]);
     } finally {
       await db.$pool.end();
     }
@@ -151,7 +156,7 @@ describe('Guarda de banco pré-consolidação (F15)', () => {
     const db2 = pgp(SONDA_URL);
     try {
       const { rows } = await db2.result('SELECT name FROM _migrations ORDER BY name');
-      assert.deepEqual(rows.map((r) => r.name), ['001_core.sql'],
+      assert.deepEqual(rows.map((r) => r.name), [NOME_PRE_CONSOLIDACAO],
         'a recusa não pode deixar linha nova em _migrations');
     } finally {
       await db2.$pool.end();

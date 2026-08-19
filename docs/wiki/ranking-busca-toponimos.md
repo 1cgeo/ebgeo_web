@@ -2,7 +2,7 @@
 
 `/nomes/busca` ordena por **três chaves lexicográficas**, não por soma ponderada: relevância em faixa, depois categoria, depois a combinação de importância e proximidade. Quem decide a qualidade do resultado, porém, continua sendo o corte de 500 candidatos que roda **antes** de qualquer pontuação.
 
-Para o módulo inteiro (rotas, auth assimétrica, `refresh_busca()`), ver [[gazetteer-nomes-geograficos]]. Esta página é só o ranking.
+Para o módulo inteiro (contrato de resposta, ausência de eixo de acesso, `refresh_busca()`), ver [[gazetteer-nomes-geograficos]]. Esta página é só o ranking.
 
 ## A doutrina, e por que ela não cabe numa soma
 
@@ -33,7 +33,7 @@ Implementadas em `backend/src/modules/nomes/nomes.queries.js`, CTE `pontuado`.
 
 O expoente 0.3 não é enfeite: com expoente 1 a multiplicação por `tipo_peso = 0.1` divide por dez quem está no piso, que é 29% do acervo, e a família de feições no piso desabava de 92% para 43%. É o equivalente ao `modifier: log1p`/`sqrt` do `field_value_factor` do Elasticsearch.
 
-**4. Desempate por trigrama cru.** Não melhora ranking nenhum (medido: zero efeito no conjunto dourado). Existe por **determinismo**: sem uma última chave, dois candidatos idênticos nas três primeiras ordenam pelo que o plano devolver, e plano muda com volume. É o mesmo motivo do `c.id DESC` no a consulta do catálogo 3D que este schema teve até 2026-08-19.
+**4. Desempate por trigrama cru.** Não melhora ranking nenhum (medido: zero efeito no conjunto dourado). Existe por **determinismo**: sem uma última chave, dois candidatos idênticos nas três primeiras ordenam pelo que o plano devolver, e plano muda com volume. É o mesmo motivo do `c.id DESC` na consulta do catálogo 3D que este schema teve até 2026-08-19.
 
 ## O campo `score` sobreviveu, e como
 
@@ -51,11 +51,10 @@ O normalizador é derivado da própria largura de faixa, não é literal. Mudar 
 
 A CTE `candidatos` (`backend/src/modules/nomes/nomes.queries.js`) pré-filtra por similaridade ≥ 0.25, ordena por `sim DESC, dist ASC` e corta em `LIMIT 500`. Os critérios só pontuam o que sobreviveu.
 
-Três consequências que não se leem em nenhum arquivo isoladamente:
+Duas consequências que não se leem em nenhum arquivo isoladamente:
 
 - **`dist` decide o corte, não só o desempate.** `similarity()` devolve razões de contagens de trigramas, então empates são frequentes, não raros. Na faixa marginal de similaridade (a que fica na borda dos 500), quem entra é escolhido por proximidade. O parâmetro `lat`/`lon` já está agindo antes do critério 7.
 - **A dedup vem depois do corte e não repõe orçamento.** `DISTINCT ON (nome, tipo, cluster_id)` roda sobre os 500. Um termo genérico ("rio", "santa") queima o orçamento em quase-duplicatas e pode chegar ao score com pouquíssimas linhas distintas. É aqui que a busca fica ruim em termos comuns, não nos pesos.
-- **Usuários diferentes veem rankings diferentes para o mesmo termo.** O filtro de acesso está dentro do `WHERE` de `candidatos`, logo antes do `LIMIT 500`. Para um admin, linhas privadas competem pelas 500 vagas e podem expulsar públicas que o anônimo veria. Não é bug, é consequência de embutir autorização na query. Ver [[zonas-acesso-geografico]].
 
 ## As consequências que se paga, medidas
 

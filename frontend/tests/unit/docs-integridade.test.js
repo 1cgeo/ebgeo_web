@@ -216,13 +216,35 @@ function semComentarios(texto, arquivo) {
 }
 
 /**
- * Identificador citado sozinho entre crases. Restrito a camelCase com maiúscula
- * interna (`reconnectLastAtlas`) ou SCREAMING_SNAKE (`ATLAS_SCHEMA_VERSION`): essas
- * formas são quase sempre símbolo de código, ao contrário de `atlas` ou `owner`, que
- * são palavras de prosa. Precisão medida em 1272 citações: 14 pendurados, todos
- * legítimos e listados abaixo.
+ * Identificador citado sozinho entre crases. TRÊS formas: camelCase com maiúscula
+ * interna (`reconnectLastAtlas`), SCREAMING_SNAKE (`ATLAS_SCHEMA_VERSION`) e
+ * snake_case minúsculo COM pelo menos um underscore (`fn_user_zone_geoms`,
+ * `access_level`). O que fica de fora é a palavra sozinha (`atlas`, `owner`), que é
+ * prosa, e o underscore é justamente o que separa uma da outra.
+ *
+ * A TERCEIRA FORMA ENTROU EM 2026-08-19 e é `fn_*`, o prefixo das funções SQL desta
+ * casa. Ela existe porque o guarda era CEGO a snake_case, e o vocabulário de banco é
+ * todo snake_case: uma página citava `fn_user_can_see_model`, função que NUNCA
+ * existiu, e passava verde há meses.
+ *
+ * POR QUE `fn_*` E NÃO SNAKE_CASE INTEIRO, que é a forma óbvia e foi MEDIDA antes de
+ * ser recusada: snake_case genérico acusa 21 símbolos, e 20 deles são legítimos,
+ * porque pertencem a OUTROS sistemas (catálogos do Postgres, diretivas do nginx, DSL
+ * de busca citada como alternativa recusada, nome de branch). Um achado real para
+ * vinte alarmes é a razão pela qual uma regra vira ruído e alguém a desliga, e as
+ * regras próprias deste repositório foram todas compradas com zero falso positivo,
+ * pagando em falso negativo. `fn_` é convenção que a casa POSSUI, então nenhum
+ * sistema externo colide com ela.
+ *
+ * O QUE ISSO DEIXA PASSAR, dito para não ser lido como cobertura: nome de tabela e de
+ * coluna em crase continua invisível ao guarda. Fechar isso exige distinguir "não
+ * existe aqui" de "existe em outro sistema", e não há sinal estrutural para isso.
+ *
+ * E o controle negativo desta regra tem de usar um nome `fn_*`: o anterior injetava
+ * `fnUserZoneGeoms`, camelCase, a única grafia que a regra JÁ pegava, e por isso
+ * provava que ela dispara sem provar que ela alcança o que a doc de fato cita.
  */
-const RE_SIMBOLO = /`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/g;
+const RE_SIMBOLO = /`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|fn_[a-z0-9_]+)`/g;
 
 /**
  * Símbolos que a doc cita DE PROPÓSITO sem que existam. Cada entrada carrega o

@@ -31,10 +31,6 @@ import { createAudit } from '../../src/utils/audit.js';
 const uname = (p) => `${p}_${randomUUID().slice(0, 8)}`;
 
 // A valid square zone around (-43.2, -22.9), reused for the HTTP-driven mutation.
-const ZONE = {
-  type: 'Polygon',
-  coordinates: [[[-43.3, -22.95], [-43.1, -22.95], [-43.1, -22.85], [-43.3, -22.85], [-43.3, -22.95]]],
-};
 
 describe('Audit coverage (atomicity, live req capture, action filter, anon authz)', () => {
   let app, db, admin, adminTok, user;
@@ -67,15 +63,14 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
       tx(async (t) => {
         // A real business write in the same tx (so we also prove it rolls back).
         await t.none(
-          `INSERT INTO ng.geographic_access_zones (id, name, geom)
-           VALUES ($1, 'rollback-zone', ST_SetSRID(ST_GeomFromGeoJSON($2), 4674))`,
-          [targetId, JSON.stringify(ZONE)]
+          `INSERT INTO access_groups (id, name) VALUES ($1, $2)`,
+          [targetId, 'rollback-zone']
         );
         // action must be in the audit_trail_action_check allowlist; PERMISSION_GRANT
         // is the real zones-permission action. We isolate THIS row by its unique
         // target_id (a random UUID nothing else uses).
         await createAudit({ ip: '9.9.9.9' }, {
-          action: 'PERMISSION_GRANT', actorId: admin.id, targetType: 'ZONE', targetId,
+          action: 'PERMISSION_GRANT', actorId: admin.id, targetType: 'ATLAS', targetId,
         }, t);
         // Abort the transaction AFTER the audit insert.
         throw sentinel;
@@ -92,7 +87,7 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
 
     // And the business write rolled back too (atomicity is two-sided).
     const zone = await db.query(
-      `SELECT COUNT(*)::int AS n FROM ng.geographic_access_zones WHERE id = $1`,
+      `SELECT COUNT(*)::int AS n FROM access_groups WHERE id = $1`,
       [targetId]
     );
     assert.equal(zone.rows[0].n, 0, 'business write must NOT survive the rollback either');
@@ -107,12 +102,11 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
 
     await tx(async (t) => {
       await t.none(
-        `INSERT INTO ng.geographic_access_zones (id, name, geom)
-         VALUES ($1, 'commit-zone', ST_SetSRID(ST_GeomFromGeoJSON($2), 4674))`,
-        [targetId, JSON.stringify(ZONE)]
+        `INSERT INTO access_groups (id, name) VALUES ($1, $2)`,
+        [targetId, 'commit-zone']
       );
       await createAudit({ ip: '8.8.8.8' }, {
-        action: 'PERMISSION_GRANT', actorId: admin.id, targetType: 'ZONE', targetId,
+        action: 'PERMISSION_GRANT', actorId: admin.id, targetType: 'ATLAS', targetId,
         details: { ok: true },
       }, t);
     });
@@ -127,7 +121,7 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
     assert.deepEqual(audit.rows[0].details, { ok: true });
 
     const zone = await db.query(
-      `SELECT COUNT(*)::int AS n FROM ng.geographic_access_zones WHERE id = $1`,
+      `SELECT COUNT(*)::int AS n FROM access_groups WHERE id = $1`,
       [targetId]
     );
     assert.equal(zone.rows[0].n, 1, 'business write committed alongside the audit row');
@@ -141,29 +135,25 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
   // elsewhere; the real req.get('user-agent') path was not).
   // ---------------------------------------------------------------------------
   it('audit-cov-03: HTTP-driven audited mutation captures the live ip and user-agent from req', async () => {
-    // Create a zone to grant permissions on (drives a PERMISSION_GRANT audit).
-    const created = await supertest(app)
-      .post('/api/v1/zones')
+    // A rota que dirige a mutação auditada mudou em 2026-08-19: era `/zones`, que
+    // saiu com o sistema de zonas. O que este caso mede não é a rota, é o caminho
+    // req -> createAudit (ip e user-agent VIVOS), então qualquer mutação auditada
+    // serve, e `ORG_CREATE` é a mais simples que existe.
+    const criada = await supertest(app)
+      .post('/api/v1/organizations')
       .set('Authorization', `Bearer ${adminTok}`)
       .set('User-Agent', 'EBGeoCovProbe/1.0')
-      .send({ name: uname('aud_zone'), geom: ZONE })
+      .send({ nome: uname('OM Cov'), slug: uname('om-cov').toLowerCase().replace(/[^a-z0-9-]/g, '-'), sigla: 'OMC' })
       .expect(201);
-    const zoneId = created.body.data.id;
-
-    await supertest(app)
-      .put(`/api/v1/zones/${zoneId}/permissions`)
-      .set('Authorization', `Bearer ${adminTok}`)
-      .set('User-Agent', 'EBGeoCovProbe/1.0')
-      .send({ users: [user.id] })
-      .expect(200);
+    const orgId = criada.body.data.id;
 
     const audit = await db.query(
       `SELECT actor_id, ip, user_agent FROM audit_trail
-       WHERE action = 'PERMISSION_GRANT' AND target_type = 'ZONE' AND target_id = $1
+       WHERE action = 'ORG_CREATE' AND target_id = $1
        ORDER BY created_at DESC LIMIT 1`,
-      [zoneId]
+      [orgId]
     );
-    assert.equal(audit.rows.length, 1, 'PERMISSION_GRANT audit row written by the live request');
+    assert.equal(audit.rows.length, 1, 'linha de auditoria escrita pela requisição viva');
     assert.equal(audit.rows[0].actor_id, admin.id, 'actor is the authenticated admin');
     assert.equal(audit.rows[0].user_agent, 'EBGeoCovProbe/1.0', 'live user-agent captured from req.get');
     assert.ok(audit.rows[0].ip && audit.rows[0].ip !== 'system', 'a real client ip was captured, not the system fallback');
@@ -180,7 +170,7 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
   it('audit-cov-04: GET /audit `action` filter returns only that action and includes the seeded row', async () => {
     const targetId = randomUUID();
     await createAudit({ ip: '127.0.0.1' }, {
-      action: 'PERMISSION_REVOKE', actorId: admin.id, targetType: 'ZONE', targetId,
+      action: 'PERMISSION_REVOKE', actorId: admin.id, targetType: 'ATLAS', targetId,
     });
 
     const filtered = await supertest(app)
@@ -250,7 +240,7 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
     await createAudit({ ip: '7.7.7.7' }, {
       actorId: admin.id,
       action: 'PERMISSION_GRANT',
-      targetType: 'ZONE',
+      targetType: 'ATLAS',
       targetId: alvo,
     });
 

@@ -54,7 +54,7 @@ Cursor e temporal são ungated de propósito (decisão de produto anotada no cab
 
 Detalhes que evitam bug:
 
-- O escopo por superfície (`mapId`/`tilesetId`/`photoName`) não é decoração: sem ele a seleção dentro de um modelo 3D vazaria para outro modelo ([[catalogo-3d]], [[streetview-360]]).
+- O escopo por superfície (`mapId`/`tilesetId`/`photoName`) não é decoração: sem ele a seleção dentro de um modelo 3D vazaria para outro modelo ([[resources-catalogo]], [[streetview-360]]).
 - **A geometria nunca trafega.** O overlay resolve os ids na fonte **local** e reconstrói a caixa com o mesmo `createSelectionBox` do highlight local. Só funciona porque o atlas é compartilhado; um par que ainda não recebeu a operação de criação não desenha nada.
 - **O "acompanha o arraste" não vem de presença.** A caixa segue porque o overlay re-renderiza em `LAYERS_CHANGED`, ou seja, quando a **operação** de movimento do par altera a geometria local. Presença mostra *quem*; [[envelope-operacao]] traz o *quê*. Arraste travado é suspeita de fluxo de operações, não de presença.
 - `featureMeta` viaja junto porque os ids sozinhos não carregam o tipo de ferramenta, e o peer precisa montar o destaque sem consultar o store.

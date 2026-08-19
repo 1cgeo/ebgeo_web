@@ -28,12 +28,63 @@
 -- linha fica) e o único hard-delete do sistema é
 -- `DELETE /sv360/admin/projects/:slug`, cujo service apaga as concessões na MESMA
 -- transação.
+-- ---------------------------------------------------------------------------
+-- GRUPO DE ACESSO: conceder a um COLETIVO em vez de a uma pessoa
+-- ---------------------------------------------------------------------------
+--
+-- POR QUE NAO SE CHAMA `groups`: o nome ja existe neste schema e e outra coisa
+-- (`public.groups` sao os grupos de FEICAO dentro de um mapa, do dominio do
+-- atlas). Duas coisas com o mesmo nome no mesmo schema e o defeito que este
+-- repositorio acabou de pagar em `streetview_markers`, onde uma tabela morta e um
+-- modulo vivo do 360 dividiam o nome e uma varredura por nome teria derrubado o
+-- lado vivo.
+--
+-- POR QUE SAI DO SCHEMA `ng`, onde as antecessoras moravam: aquele schema e dado
+-- de REFERENCIA, carregado por ETL externo, e por isso declara explicitamente que
+-- nao participa da integridade do schema da aplicacao (os `user_id` de la sao UUID
+-- SEM FK, de proposito). Um grupo que concede acesso e o oposto disso: ele quer FK,
+-- quer cascata, e quer morrer junto com o usuario que o compoe.
+--
+-- O QUE ELAS SUBSTITUEM: `ng.groups` e `ng.user_groups` existiam e NUNCA TIVERAM
+-- ESCRITOR, nem rota nem tela, enquanto `ng.zone_group_permissions` escrevia de
+-- verdade. Ou seja, uma zona podia ser concedida a um grupo em que ninguem podia
+-- estar, e aquele ramo do predicado nunca devolvia linha. A metade que faltava era
+-- a que fazia o mecanismo existir.
+CREATE TABLE access_groups (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_by  UUID REFERENCES users(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ
+);
+-- Nome unico entre os VIVOS. Parcial pelo mesmo motivo de `uq_atlas_resources_live`:
+-- sem o `WHERE`, um grupo apagado ocuparia o nome para sempre e recriar seria
+-- impossivel, que e o beco documentado em `catalog-soft-delete-resurrect.repro`.
+CREATE UNIQUE INDEX uq_access_groups_nome_vivo
+    ON access_groups (LOWER(name)) WHERE deleted_at IS NULL;
+
+CREATE TABLE access_group_members (
+    group_id  UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+    user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    added_by  UUID REFERENCES users(id),
+    added_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (group_id, user_id)
+);
+-- O indice que a resolucao percorre: "de que grupos esta pessoa participa?".
+CREATE INDEX idx_access_group_members_user ON access_group_members (user_id);
+
 CREATE TABLE resource_grants (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     resource_type   VARCHAR(24) NOT NULL
                       CHECK (resource_type IN ('basemap','tileset','data_layer','analysis_layer','sv360_project')),
     resource_id     TEXT NOT NULL,
-    grantee_id      UUID NOT NULL REFERENCES users(id),
+    -- O ALVO DA CONCESSAO E EXATAMENTE UM DOS DOIS, e o CHECK la embaixo e quem
+    -- garante. Pessoa e grupo sao alternativos, nunca simultaneos: uma linha que
+    -- carregasse os dois teria duas respostas para "quem recebeu", e a poda da
+    -- subarvore precisaria escolher uma.
+    grantee_id       UUID REFERENCES users(id),
+    grantee_group_id UUID REFERENCES access_groups(id),
     grant_level     VARCHAR(12) NOT NULL CHECK (grant_level IN ('view','view_share')),
     granted_by      UUID REFERENCES users(id),
     -- A ARESTA DO GRAFO. NULL = concessão de raiz (feita por admin/credenciado, que
@@ -71,7 +122,13 @@ CREATE TABLE resource_grants (
     -- precisa continuar verdadeiro para sempre, e um predicado ancorado no relógio
     -- ficaria falso amanhã e travaria qualquer UPDATE na linha.
     CONSTRAINT resource_grants_expires_at_check
-      CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '1 year')
+      CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '1 year'),
+
+    -- EXATAMENTE UM ALVO. `num_nonnulls` e a forma que diz isso sem escrever as
+    -- quatro combinacoes a mao, e sem deixar a quinta de fora quando um terceiro
+    -- tipo de beneficiario aparecer.
+    CONSTRAINT resource_grants_alvo_unico_check
+      CHECK (num_nonnulls(grantee_id, grantee_group_id) = 1)
 );
 
 -- D3: NÃO existe índice único sobre (tipo, recurso, beneficiário). Várias
@@ -81,6 +138,10 @@ CREATE TABLE resource_grants (
 -- O índice que a resolução usa: "que ids deste tipo este usuário tem vivos?"
 CREATE INDEX idx_resource_grants_grantee
     ON resource_grants (grantee_id, resource_type, resource_id) WHERE revoked_at IS NULL;
+-- O irmão do de cima, para o braço de GRUPO da resolução. Sem ele o ramo novo
+-- varreria a tabela inteira, e ele é percorrido no mesmo caminho quente.
+CREATE INDEX idx_resource_grants_grantee_group
+    ON resource_grants (grantee_group_id, resource_type, resource_id) WHERE revoked_at IS NULL;
 -- O índice da tela "quem tem acesso a este recurso"
 CREATE INDEX idx_resource_grants_resource
     ON resource_grants (resource_type, resource_id) WHERE revoked_at IS NULL;
@@ -190,6 +251,46 @@ $$;
 -- moraria em METADE do predicado, que é pior que não morar em nenhuma, porque o
 -- vazamento fica no braço que ninguém olha. As duas linhas são a mesma decisão e
 -- mudam juntas.
+-- Os grupos VIVOS de uma pessoa. Existe como função, e não copiada nos dois sítios
+-- que a consultam, porque "esta pessoa pertence a este grupo" tem de ter UMA
+-- resposta: foi o predicado duplicado verbatim entre SELECT e COUNT que este
+-- repositório acabou de apagar junto com o catálogo 3D do `ng`.
+--
+-- O `deleted_at IS NULL` do grupo é o que faz apagar um grupo REVOGAR o que ele
+-- concedia, sem tocar em `resource_grants`. A alternativa (podar as concessões do
+-- grupo ao apagá-lo) destruiria a resposta de auditoria pela mesma razão que a
+-- revogação é soft (D2).
+-- O principal está VIVO? Conta ativa e OM ativa (linha de OM AUSENTE conta como
+-- ativa: é anomalia de dado, não desativação deliberada, e é a mesma regra de
+-- `utils/org-status.js`).
+--
+-- POR QUE ISTO EXISTE COMO FUNÇÃO PRÓPRIA, e a resposta é um defeito medido em
+-- 2026-08-19: `fn_has_global_data_access` sempre checou liveness, e o ramo de
+-- CONCESSÃO nunca checou. Um admin desativado perdia o atalho na mesma consulta em
+-- que um beneficiário desativado continuava enxergando o recurso concedido. A
+-- assimetria não aparecia em teste porque cada ramo tinha o seu, e nenhum media o
+-- outro. O predicado promete não vazar "nem com bug de app"; sem isto, ele
+-- prometia menos do que entregava em metade dos ramos.
+CREATE FUNCTION fn_principal_vivo(p_user_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+    SELECT p_user_id IS NOT NULL AND EXISTS (
+        SELECT 1
+          FROM users u
+          LEFT JOIN organizations o ON o.id = u.organization_id
+         WHERE u.id = p_user_id
+           AND u.is_active = true
+           AND COALESCE(o.is_active, true) = true
+    );
+$$;
+
+CREATE FUNCTION fn_user_group_ids(p_user_id UUID)
+RETURNS TABLE (group_id UUID) LANGUAGE sql STABLE AS $$
+    SELECT gm.group_id
+      FROM access_group_members gm
+      JOIN access_groups ag ON ag.id = gm.group_id AND ag.deleted_at IS NULL
+     WHERE p_user_id IS NOT NULL AND gm.user_id = p_user_id;
+$$;
+
 CREATE FUNCTION fn_granted_resource_ids(
     p_user_id UUID, p_atlas_id UUID, p_type TEXT
 ) RETURNS TABLE (resource_id TEXT) LANGUAGE sql STABLE AS $$
@@ -198,8 +299,20 @@ CREATE FUNCTION fn_granted_resource_ids(
      WHERE g.revoked_at IS NULL
        AND g.expires_at > NOW()
        AND g.resource_type = p_type
-       AND p_user_id IS NOT NULL
+       AND fn_principal_vivo(p_user_id)
        AND g.grantee_id = p_user_id
+    UNION
+    -- O MESMO braço, pelo COLETIVO. Separado por UNION em vez de um OR dentro do
+    -- WHERE de cima porque cada metade entra por um índice parcial próprio
+    -- (`..._grantee` e `..._grantee_group`); um OR faria o planejador escolher
+    -- entre eles em vez de usar os dois.
+    SELECT g.resource_id
+      FROM resource_grants g
+     WHERE g.revoked_at IS NULL
+       AND g.expires_at > NOW()
+       AND g.resource_type = p_type
+       AND fn_principal_vivo(p_user_id)
+       AND g.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(p_user_id))
     UNION
     SELECT ar.resource_id
       FROM atlas_resources ar
@@ -215,12 +328,14 @@ CREATE FUNCTION fn_granted_resource_ids(
        -- recorre: consulta papel global e concessão DIRETA, nunca o empréstimo,
        -- então a avaliação termina em dois níveis.
        AND ( fn_has_global_data_access(a.owner_id)
-             OR EXISTS (SELECT 1 FROM resource_grants og
+             OR (fn_principal_vivo(a.owner_id) AND EXISTS (SELECT 1 FROM resource_grants og
                          WHERE og.revoked_at IS NULL
                            AND og.expires_at > NOW()
                            AND og.resource_type = ar.resource_type
                            AND og.resource_id   = ar.resource_id
-                           AND og.grantee_id    = a.owner_id) );
+                           AND ( og.grantee_id = a.owner_id
+                                 OR og.grantee_group_id IN
+                                      (SELECT group_id FROM fn_user_group_ids(a.owner_id)) ))) );
 $$;
 
 -- O gate de PRODUÇÃO: "este usuário MANTÉM este recurso?" — uma pergunta, UMA

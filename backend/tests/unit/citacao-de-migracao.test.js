@@ -51,7 +51,12 @@ const arquivosVersionados = () =>
   execFileSync('git', ['ls-files', 'src', 'tests', 'scripts'], { cwd: RAIZ, encoding: 'utf8' })
     .split('\n')
     .map((s) => s.trim())
-    .filter((s) => s.endsWith('.js'));
+    .filter((s) => s.endsWith('.js'))
+    // ESTE arquivo se EXCLUI, e a exclusão é obrigatória e não comodidade: ele carrega
+    // DE PROPÓSITO uma citação quebrada como amostra, para provar que o padrão a enxerga
+    // (o controle negativo lá embaixo). Sem a exclusão o varredor se acusa, e o jeito de
+    // calar isso seria tirar a amostra, que é justamente o que dá valor ao guarda.
+    .filter((s) => !s.endsWith('citacao-de-migracao.test.js'));
 
 describe('Citação de migração em .js aponta para arquivo que existe', () => {
   const migracoes = new Set(

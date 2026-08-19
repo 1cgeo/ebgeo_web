@@ -41,7 +41,7 @@ Os descartes viram spans `preflush.drop` no [[syncledger]]. Se algo "não sincro
 
 ## Traduções que o cliente não vê
 
-**3D/360:** o frontend usa seis tipos específicos (`marker3d`, `measurement3d`, `viewshed3d`, `cameraPosition3d`, `orientation360`, `marker360`); o backend guarda tudo em `cesium3d_data` / `streetview360_data` discriminando por `data_type`, e traduz nos dois sentidos. Consequência: **o cliente nunca vê `cesium3d` nem `streetview360` como `entityType`**; por isso o handler tem um `case` por alias, não um genérico. No snapshot, ao contrário, o formato é hierárquico e reagrupado por `data_type`. Ver [[snapshot-e-pull-incremental]], [[catalogo-3d]], [[streetview-360]].
+**3D/360:** o frontend usa seis tipos específicos (`marker3d`, `measurement3d`, `viewshed3d`, `cameraPosition3d`, `orientation360`, `marker360`); o backend guarda tudo em `cesium3d_data` / `streetview360_data` discriminando por `data_type`, e traduz nos dois sentidos. Consequência: **o cliente nunca vê `cesium3d` nem `streetview360` como `entityType`**; por isso o handler tem um `case` por alias, não um genérico. No snapshot, ao contrário, o formato é hierárquico e reagrupado por `data_type`. Ver [[snapshot-e-pull-incremental]], [[resources-catalogo]], [[streetview-360]].
 
 **Shape tolerado sem conversão no cliente:** o backend aceita o que o store real emite, não o shape canônico das colunas. Feature vai como GeoJSON cru (`{ type, geometry, properties }`, tipo em `properties.source`, camada em `properties.layerId`) e o backend deriva `feature_type`/`layer_id`; 3D/360 vão no plano camelCase e são reagrupados. Não "conserte" o cliente para emitir snake_case.
 

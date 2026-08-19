@@ -66,6 +66,6 @@ O snapshot mistura deliberadamente snake_case (herdado das colunas) com camelCas
 4. **As chaves das coleções de feição não são `tipo + 's'`.** Várias são irregulares e congeladas (`FEATURE_TYPE_MAPPINGS`, `frontend/src/js/store/store.constants.js`), incluindo um plural incorreto e tipos invariáveis. O backend materializa o snapshot já nesses buckets e o cliente grava direto; bucket com nome errado não gera erro, a feição simplesmente some da tela. Quem decide a renderização é `properties.source` (singular), não a chave do bucket.
 5. **Metadados de sync de feição vivem dentro de `properties`**, não num objeto `sync` como nas demais entidades. `dirty` e `deleted` vêm sempre `false`: são campos do modelo local, materializados só para o shape bater, e não carregam informação do servidor.
 
-Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[catalogo-3d]], [[streetview-360]].
+Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[resources-catalogo]], [[streetview-360]].
 
 Para diagnosticar um pull que não converge, o [[syncledger]] correlaciona as etapas por `op.id`/`traceId`. Desenho geral em [[modelo-conflito-lww]], [[sintese-rest-vs-websocket]] e [[sessao-boot-e-ciclo-de-vida]].

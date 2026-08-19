@@ -697,15 +697,11 @@ const CENSO_ROTA = [
   {
     arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /busca', classe: R_FILTRADA,
     gate: 'validate',
-    motivo: 'A busca do gazetteer, com filtro de ZONA embutido no SQL e contrato congelado de array '
-      + 'nu. Não é recurso de catálogo, mas é dado com eixo de acesso próprio e entra no censo por '
-      + 'isso: um censo com buraco declarado por comodidade não é censo.',
-  },
-  {
-    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /feicoes', classe: R_FILTRADA,
-    gate: 'auth',
-    motivo: 'As edificações do gazetteer, pelo mesmo eixo de zona da busca. Mesma justificativa de '
-      + 'inclusão.',
+    motivo: 'A busca do gazetteer, contrato congelado de array nu. Ela entra no censo SEM filtro de '
+      + 'acesso, e isso é DECLARAÇÃO e não omissão: o eixo de privacidade do gazetteer '
+      + '(access_level mais as zonas geográficas) foi REMOVIDO em 2026-08-19 por ser sistema '
+      + 'antigo, com API de admin e nenhuma tela. Busca de topônimo não tem restrição. Quem for '
+      + 'reintroduzir filtro aqui está ressuscitando aquilo.',
   },
   {
     arquivo: 'src/modules/nomes/assets3d.routes.js', rota: 'GET /*', classe: R_FILTRADA,
@@ -838,9 +834,6 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /admin/stats', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'GET /:id', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'GET /:id/permissions', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   {
@@ -1048,19 +1041,11 @@ const CENSO_REGIME = [
   {
     arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /busca', handler: 'busca',
     controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
-    motivo: 'A busca do gazetteer recorta por ZONA no SQL, então o corpo VARIA por chamador, e ela '
-      + 'não emite cabeçalho nenhum. O RISCO é o de qualquer resposta escopada sem `Cache-Control`: '
-      + 'o RFC 9111 autoriza um cache compartilhado a guardá-la por heurística e repor a resposta de '
-      + 'quem enxerga zona restrita para quem não enxerga. Fica nomeada em vez de coberta porque o '
-      + 'eixo do gazetteer é PARALELO (`users.role` mais as ZONAS de `ng.fn_user_zone_geoms`) e '
-      + 'mexer nele é trabalho próprio, com o repro do vazamento que o causar.',
-  },
-  {
-    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /feicoes', handler: 'feicoes',
-    controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
-    motivo: 'As edificações do gazetteer, pelo mesmo eixo de zona da busca e com o mesmo RISCO: '
-      + 'resposta que varia por chamador e sai sem `Cache-Control`, portanto guardável por heurística '
-      + 'num cache compartilhado.',
+    motivo: 'A busca do gazetteer NÃO varia mais por chamador: o eixo de acesso do gazetteer saiu '
+      + 'em 2026-08-19 e o corpo é o mesmo para todos, anônimo inclusive. O RISCO de cache '
+      + 'heurístico que esta entrada nomeava morreu com ele, porque não há resposta escopada a '
+      + 'repor. Continua sem `Cache-Control` por não ter ganho um, e isso agora é escolha de '
+      + 'desempenho, não de segurança.',
   },
   {
     arquivo: SV360_ROTAS, rota: 'GET /admin/projects', handler: 'listProjects',

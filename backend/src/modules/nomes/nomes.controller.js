@@ -31,8 +31,3 @@ export const busca = asyncHandler(async (req, res) => {
   const result = await nomesService.busca({ ...req.query, userId: principalUserId(req) });
   res.json(result);
 });
-
-export const feicoes = asyncHandler(async (req, res) => {
-  const result = await nomesService.feicoes({ ...req.query, userId: principalUserId(req) });
-  res.json(result ?? { message: 'Nenhuma edificação encontrada nas proximidades.' });
-});

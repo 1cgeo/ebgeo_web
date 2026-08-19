@@ -171,7 +171,6 @@ const CENSO_ROTA = [
   bytes('src/modules/nomes/assets3d.routes.js', 'GET /*', 'src/modules/nomes/assets3d.controller.js'),
 
   json('src/modules/nomes/nomes.routes.js', 'GET /busca'),
-  json('src/modules/nomes/nomes.routes.js', 'GET /feicoes'),
 
   json('src/modules/organizations/organizations.routes.js', 'GET /'),
   json('src/modules/organizations/organizations.routes.js', 'GET /:id'),
@@ -249,13 +248,6 @@ const CENSO_ROTA = [
   json('src/modules/users/users.routes.js', 'POST /:userId/reactivate'),
   json('src/modules/users/users.routes.js', 'POST /:userId/api-key/rotate'),
 
-  json('src/modules/zones/zones.routes.js', 'GET /'),
-  json('src/modules/zones/zones.routes.js', 'POST /'),
-  json('src/modules/zones/zones.routes.js', 'GET /:id'),
-  json('src/modules/zones/zones.routes.js', 'PUT /:id'),
-  json('src/modules/zones/zones.routes.js', 'DELETE /:id'),
-  json('src/modules/zones/zones.routes.js', 'GET /:id/permissions'),
-  json('src/modules/zones/zones.routes.js', 'PUT /:id/permissions'),
 ];
 
 const BYTES_DE_ARQUIVO = 'Bytes de arquivo (imagem, tile MVT, asset 3D, foto 360), com Content-Type '
@@ -335,9 +327,6 @@ const CENSO_EMISSOR = [
     classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
 
   { arquivo: 'src/modules/streetview360/sv360.write.controller.js', texto: 'res.status(204).end();', n: 2,
-    classe: E_SEM_CORPO, motivo: SEM_CORPO },
-
-  { arquivo: 'src/modules/zones/zones.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
 
   { arquivo: 'src/utils/stream-file.js', texto: 'rs.pipe(res);', n: 1,
@@ -614,7 +603,11 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
     // `GET /nomes/catalogo3d`, do segundo catálogo de modelo 3D. Piso decrescente só se
     // mexe junto com a remoção que o causou, e com o nome dela escrito.
     const rotas = rotasDeSaida(arquivosDeRota(inventario));
-    assert.ok(rotas.length >= 130, `esperava >= 130 declarações de rota, achei ${rotas.length}`);
+    // PISO 122, e ele BAIXOU de 130 em 2026-08-19: saíram as SETE rotas de zona e a de
+    // edificações. O piso existe para que uma varredura que deixasse de casar não
+    // passasse verde comparando vazio com vazio, então ele acompanha a remoção, com
+    // ela escrita aqui.
+    assert.ok(rotas.length >= 122, `esperava >= 122 declarações de rota, achei ${rotas.length}`);
     const porMetodo = new Set(rotas.map((r) => r.rota.split(' ')[0]));
     for (const metodo of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
       assert.ok(porMetodo.has(metodo), `a varredura precisa enxergar ${metodo}; o censo anterior só via GET`);
@@ -624,7 +617,8 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
       'a rota de duplicação precisa aparecer: foi ela que o censo anterior perdeu por varrer só `router.get(`'
     );
 
-    assert.ok(totalDe(emissoresNaoJson(inventario)) >= 29, 'a varredura de emissor precisa achar os 29 sítios medidos');
+    // PISO 26, de 29: três sítios saíram com o módulo de zonas.
+    assert.ok(totalDe(emissoresNaoJson(inventario)) >= 26, 'a varredura de emissor precisa achar os sítios medidos');
     assert.ok(totalDe(sitiosDeEnvioWs(arquivosDeCollab(inventario))) >= 18, 'a varredura de envio WS precisa achar os 18 sítios medidos');
     assert.ok(tiposDeMensagemWs(inventario).size >= 26, 'a varredura de tipo WS precisa achar os tipos existentes');
   });

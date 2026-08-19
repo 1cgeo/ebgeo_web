@@ -46,12 +46,17 @@ CREATE TABLE ng.nomes_geograficos (
   tipo         VARCHAR(255),
   cluster_id   INTEGER,
   tipo_peso    FLOAT DEFAULT 0.1,
-  geom         GEOMETRY(POINT, 4674) NOT NULL,
-  -- access_level POR ÚLTIMO, DEPOIS DE `geom`, E A POSIÇÃO É CONTRATO EXTERNO:
-  -- a carga do FME é um COPY POSICIONAL, e mover esta coluna para o meio
-  -- desalinha as colunas de todo arquivo de carga já produzido. Ordem de coluna
-  -- aqui não é estética.
-  access_level VARCHAR(20) NOT NULL DEFAULT 'public' CHECK (access_level IN ('public','private'))
+  -- A ORDEM DAS COLUNAS AQUI É CONTRATO EXTERNO, não estética: a carga do FME é um
+  -- COPY POSICIONAL, e mover uma coluna para o meio desalinha todo arquivo de carga
+  -- já produzido.
+  --
+  -- HOUVE UM `access_level` no fim desta lista, e ele saiu em 2026-08-19 com o eixo
+  -- de acesso do gazetteer inteiro (as três tabelas de zona, a função de predicado e
+  -- `ng.edificacoes`). Busca de topônimo não tem restrição: era sistema antigo, com
+  -- API de admin e nenhuma tela, e a tabela de membros de grupo que o sustentaria
+  -- nunca teve escritor. Quem for reintroduzir privacidade aqui está ressuscitando
+  -- isso, e o lugar certo passou a ser `access_groups` no schema da aplicação.
+  geom         GEOMETRY(POINT, 4674) NOT NULL
 );
 CREATE INDEX idx_ng_geom ON ng.nomes_geograficos USING GIST (geom);
 CREATE INDEX idx_ng_nome_unaccent_trgm
@@ -61,29 +66,6 @@ CREATE INDEX idx_ng_cluster ON ng.nomes_geograficos (nome, tipo, cluster_id);
 CREATE INDEX idx_ng_tipo_peso ON ng.nomes_geograficos (tipo_peso DESC);
 -- Índice parcial no lado PÚBLICO: aqui o conjunto pequeno é o outro, ao
 -- contrário do catálogo, onde o privado é que é pequeno.
-CREATE INDEX idx_nomes_public ON ng.nomes_geograficos (id) WHERE access_level = 'public';
-ALTER TABLE ng.nomes_geograficos ALTER COLUMN access_level SET STATISTICS 1000;
-
--- ============================================================================
--- 5) edificacoes (SRID 4326 — intentionally different from nomes)
--- ============================================================================
-CREATE TABLE ng.edificacoes (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  nome          VARCHAR(255),
-  municipio     VARCHAR(255),
-  estado        VARCHAR(255),
-  tipo          VARCHAR(255),
-  altitude_base NUMERIC,
-  altitude_topo NUMERIC,
-  geom          GEOMETRY(POLYGON, 4326) NOT NULL,
-  -- access_level por último (após geom): mesma razão de nomes_geograficos.
-  access_level  VARCHAR(20) NOT NULL DEFAULT 'public' CHECK (access_level IN ('public','private')),
-  CHECK (altitude_base <= altitude_topo)
-);
-CREATE INDEX idx_edif_geom ON ng.edificacoes USING GIST (geom);
-CREATE INDEX idx_edif_alt ON ng.edificacoes (altitude_base, altitude_topo);
-CREATE INDEX idx_edificacoes_public ON ng.edificacoes (id) WHERE access_level = 'public';
-ALTER TABLE ng.edificacoes ALTER COLUMN access_level SET STATISTICS 1000;
 
 -- ============================================================================
 -- 6) tipo_peso (hierarquia EDGV)
@@ -159,72 +141,3 @@ BEGIN
   PERFORM ng.recomputar_clusters();
 END; $$ LANGUAGE plpgsql;
 
--- ============================================================================
--- 9) Controle de acesso geográfico. Membership em ng.user_groups; a entidade de
---    grupos é ng.groups. A autorização é embutida na query de busca pelo
---    predicado único ng.fn_user_zone_geoms (defense in depth).
---
---    Repare que `created_by`, `user_id` e afins deste schema são UUID SEM FK para
---    `public.users`, e é deliberado: `ng` é um schema de dado de referência,
---    carregado por ETL externo, e não participa da integridade do schema da
---    aplicação. Registrado em docs/wiki/zonas-acesso-geografico.md.
--- ============================================================================
-
--- 9a) Groups entity (metadata). Membership lives in ng.user_groups.
-CREATE TABLE ng.groups (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        VARCHAR(100) NOT NULL,
-    description TEXT,
-    created_by  UUID,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 9b) Group membership (user_id, group_id).
-CREATE TABLE ng.user_groups (
-  user_id  UUID NOT NULL,
-  group_id UUID NOT NULL,
-  PRIMARY KEY (user_id, group_id)
-);
-
--- 9c) Geographic access zones (POLYGON, SRID 4674 to match nomes). ST_Contains
---     requires matching SRID; edificacoes (4326) is transformed at query time.
-CREATE TABLE ng.geographic_access_zones (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        VARCHAR(100),
-    description TEXT,
-    geom        GEOMETRY(POLYGON, 4674) NOT NULL,
-    created_by  UUID,
-    created_at  TIMESTAMPTZ DEFAULT now()
-);
-CREATE INDEX idx_zones_geom ON ng.geographic_access_zones USING GIST (geom);
-
-CREATE TABLE ng.zone_permissions (
-    zone_id    UUID NOT NULL REFERENCES ng.geographic_access_zones(id) ON DELETE CASCADE,
-    user_id    UUID NOT NULL,
-    granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (zone_id, user_id)
-);
-CREATE INDEX idx_zone_permissions_user ON ng.zone_permissions(user_id);
-
-CREATE TABLE ng.zone_group_permissions (
-    zone_id    UUID NOT NULL REFERENCES ng.geographic_access_zones(id) ON DELETE CASCADE,
-    group_id   UUID NOT NULL REFERENCES ng.groups(id) ON DELETE CASCADE,
-    granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (zone_id, group_id)
-);
-CREATE INDEX idx_zone_group_permissions_group ON ng.zone_group_permissions(group_id);
-
--- 9d) Single reusable predicate: the zone geometries visible to a user.
---     Anonymous (p_user NULL) -> empty -> only public rows survive.
-CREATE FUNCTION ng.fn_user_zone_geoms(p_user UUID)
-RETURNS TABLE(id UUID, geom geometry) LANGUAGE sql STABLE AS $$
-  SELECT z.id, z.geom
-  FROM ng.geographic_access_zones z
-  WHERE p_user IS NOT NULL AND (
-    EXISTS (SELECT 1 FROM ng.zone_permissions zp
-            WHERE zp.zone_id = z.id AND zp.user_id = p_user)
-    OR EXISTS (SELECT 1 FROM ng.zone_group_permissions zgp
-               JOIN ng.user_groups ug ON ug.group_id = zgp.group_id
-               WHERE zgp.zone_id = z.id AND ug.user_id = p_user)
-  );
-$$;

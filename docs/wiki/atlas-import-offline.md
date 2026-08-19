@@ -87,4 +87,4 @@ O toast final soma `imageStats.skipped + failed`. É a **única** sinalização 
 - Os arrays aninhados de mapa (`features`, `layers`, `groups`, `groupFeatures`, `cesium3dData`, `streetview360Data`) são **camelCase dentro de um payload snake_case**. É inconsistente e é contrato: renomear quebra cliente antigo.
 - O `SELECT` de retorno projeta oito colunas fixas (`backend/src/modules/atlas/atlas.service.js`), sem `owner_id` nem timestamps de update. `current_version` é o valor que o cliente guarda como `lastVersion` antes de abrir o socket ([[snapshot-e-pull-incremental]]).
 
-Ver também [[atlas-modelo-de-dados]], [[atlas-settings]], [[api-rest-atlas]], [[catalogo-3d]] e [[streetview-360]].
+Ver também [[atlas-modelo-de-dados]], [[atlas-settings]], [[api-rest-atlas]], [[resources-catalogo]] e [[streetview-360]].

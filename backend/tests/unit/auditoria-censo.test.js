@@ -65,7 +65,6 @@ const ATLAS_CTRL = 'src/modules/atlas/atlas.controller.js';
 const RA_SVC = 'src/modules/resource-access/resource-access.service.js';
 const SHARING_SVC = 'src/modules/sharing/sharing.service.js';
 const USERS_SVC = 'src/modules/users/users.service.js';
-const ZONES_SVC = 'src/modules/zones/zones.service.js';
 const SV360_ADMIN_SVC = 'src/modules/streetview360/sv360.admin.service.js';
 
 /** Motivos de isenção que se repetem, escritos uma vez. */
@@ -225,10 +224,6 @@ const CENSO = [
   },
 
   // ---------------- zonas geográficas (schema ng) -----------------------------
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'ZONE_CREATE', emissor: ZONES_SVC },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'PUT /:id', classe: AUDITADA, acao: 'ZONE_UPDATE', emissor: ZONES_SVC },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'DELETE /:id', classe: AUDITADA, acao: 'ZONE_DELETE', emissor: ZONES_SVC },
-  { arquivo: 'src/modules/zones/zones.routes.js', rota: 'PUT /:id/permissions', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: ZONES_SVC },
 ];
 
 /**
@@ -425,7 +420,10 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     assert.ok(auditadas.length >= 30, `esperava >= 30 rotas auditadas, achei ${auditadas.length}`);
 
     const acoes = new Set(acoesDoCheck());
-    assert.ok(acoes.size >= 30, `o CHECK da 020 devolveu só ${acoes.size} ações`);
+    // PISO 29, e ele BAIXOU de 30 em 2026-08-19: as três ações ZONE_* saíram do CHECK
+    // junto com o sistema de zonas. Piso decrescente só se justifica com a remoção
+    // escrita ao lado, senão ele vira o número que alguém abaixa quando incomoda.
+    assert.ok(acoes.size >= 29, `o CHECK devolveu só ${acoes.size} ações`);
 
     const fontes = fontesDeSrc();
     const quebradas = auditadas.flatMap((e) => {
@@ -485,7 +483,7 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     // independente do censo de rotas de propósito — ela pergunta pelo outro lado da
     // ponte (a ação existe no vocabulário, alguém a escreve?).
     const acoes = acoesDoCheck();
-    assert.ok(acoes.length >= 30, `esperava >= 30 ações no CHECK, achei ${acoes.length}`);
+    assert.ok(acoes.length >= 29, `esperava >= 29 ações no CHECK, achei ${acoes.length}`);
     assert.equal(new Set(acoes).size, acoes.length, 'ação duplicada no CHECK da 020');
 
     const fontes = [...fontesDeSrc().values()];
@@ -501,7 +499,8 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
 
   it('todo `target_type` do CHECK tem emissor, exceto os quatro declarados sem escritor', () => {
     const alvos = alvosDoCheck();
-    assert.ok(alvos.length >= 14, `esperava >= 14 tipos de alvo, achei ${alvos.length}`);
+    // PISO 13, de 14: ZONE saiu do vocabulario com o sistema de zonas.
+    assert.ok(alvos.length >= 13, `esperava >= 14 tipos de alvo, achei ${alvos.length}`);
 
     const fontes = [...fontesDeSrc().values()];
     const semEmissor = alvos.filter((a) => !fontes.some((texto) => texto.includes(`'${a}'`)));

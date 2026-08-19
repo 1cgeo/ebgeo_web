@@ -73,7 +73,6 @@ CREATE TABLE audit_trail (
                   'PASSWORD_RESET','API_KEY_ROTATE','ROLE_CHANGE',
                   'ORG_CREATE','ORG_UPDATE','ORG_DELETE',
                   'ATLAS_DELETE','SHARING_CHANGE','PERMISSION_GRANT','PERMISSION_REVOKE',
-                  'ZONE_CREATE','ZONE_UPDATE','ZONE_DELETE',
                   -- ciclo de vida do atlas: `ATLAS_DELETE` existia sozinho, sem o ato que cria
                   -- nem os dois que mudam o dono e desfazem a exclusão. Meia história.
                   'ATLAS_CREATE','ATLAS_RESTORE','ATLAS_TRANSFER',
@@ -108,7 +107,7 @@ CREATE TABLE audit_trail (
     --
     -- O valor mais longo é `STREETVIEW_MARKER` (17 caracteres); a coluna é VARCHAR(20).
     target_type VARCHAR(20) CHECK (target_type IN (
-                  'USER','GROUP','MODEL','ZONE','SYSTEM','ATLAS','ORG',
+                  'USER','GROUP','MODEL','SYSTEM','ATLAS','ORG',
                   'BASEMAP','DATA_LAYER','ANALYSIS_LAYER','TILESET','STREETVIEW_MARKER',
                   'SV360_PROJECT','CONFIG'
                 )),

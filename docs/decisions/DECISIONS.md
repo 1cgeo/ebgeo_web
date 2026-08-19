@@ -71,6 +71,7 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-18 | O cookie de sessão NÃO é emitido no login | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-18 | A coluna legada `maps.catalog_layers` sai, e a definição é podada na saída do log | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-19 | As 22 migrações viram 8 baselines por domínio, e o histórico passa a viver só no git | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-19 | O acesso geográfico por zonas sai inteiro, a busca de topônimo perde o eixo de acesso, e conceder a um coletivo renasce no schema da aplicação | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-15 | Fase multi-aba: o plano como executado (registro, com as sete decisões de desenho por extenso) | [fase-multiaba-2026-08.md](fase-multiaba-2026-08.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo

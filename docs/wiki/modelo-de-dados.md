@@ -4,7 +4,7 @@ Revisão transversal dos quatro schemas do banco (`public`, `ng`, `sv360` e o `_
 
 ## Como isto foi medido, e o que a medida não alcança
 
-A MEDIÇÃO É ANTERIOR À CONSOLIDAÇÃO das migrações, e os números abaixo refletem o schema daquele momento: um banco limpo foi criado e migrado pelas 22 migrações de então (hoje são 8 baselines por domínio, e o schema que elas produzem é o mesmo menos o catálogo 3D do `ng`, que saiu com o achado 1). A estrutura veio de `information_schema.columns`, `pg_constraint`, `pg_indexes`, `pg_proc` e `pg_trigger`, nunca da leitura dos arquivos `.sql`: prosa de migração descreve a intenção, e o que vale é o que ficou de pé. Números da estrutura: **49 tabelas, 441 colunas, 161 índices, 62 chaves estrangeiras, 13 funções e 5 triggers próprios**.
+A MEDIÇÃO É ANTERIOR À CONSOLIDAÇÃO das migrações, e os números abaixo refletem o schema daquele momento: um banco limpo foi criado e migrado pelas 22 migrações de então (hoje são 8 baselines por domínio, e o schema que elas produzem é o mesmo menos o que os achados 1, 2 e 3 derrubaram: o catálogo 3D do `ng` com as duas tabelas de permissão de modelo, as duas tabelas de grupo daquele schema com o subsistema de zonas inteiro, a tabela de edificações e o eixo de acesso do gazetteer). A estrutura veio de `information_schema.columns`, `pg_constraint`, `pg_indexes`, `pg_proc` e `pg_trigger`, nunca da leitura dos arquivos `.sql`: prosa de migração descreve a intenção, e o que vale é o que ficou de pé. Números da estrutura: **49 tabelas, 441 colunas, 161 índices, 62 chaves estrangeiras, 13 funções e 5 triggers próprios**.
 
 O uso foi medido por três caminhos independentes, porque nenhum deles sozinho decide:
 
@@ -18,63 +18,54 @@ O uso foi medido por três caminhos independentes, porque nenhum deles sozinho d
 
 ## Estado desta revisão: o que JÁ foi executado
 
-Esta página foi escrita como revisão, para o dono ler e decidir. Duas coisas foram autorizadas e
-executadas na mesma fase, e estão marcadas em cada achado:
+Esta página foi escrita como revisão, para o dono ler e decidir. Os três primeiros achados foram
+autorizados e executados na mesma fase, e cada um carrega seu desfecho no corpo:
 
 - **Achado 1 (dois catálogos de modelo 3D): FEITO.** O catálogo do schema `ng`, as duas tabelas de
   permissão de modelo, a rota e as consultas saíram; o importador foi repontado para `tilesets`.
-- **A primeira metade do achado 2: FEITO por consequência.** As duas consultas que duplicavam o
-  predicado de acesso sumiram junto. A segunda metade (o `credenciado` enxergar topônimo e
-  edificação privados) **continua sendo pergunta de produto** e não foi tocada.
+- **Achado 2 (dois resolvedores de acesso): FEITO, pela saída que não estava na mesa.** Não sobrou
+  o que unificar: o eixo de acesso do `ng` saiu inteiro, e com ele a pergunta de produto sobre o
+  `credenciado`.
+- **Achado 3 (eixo de grupo sem escritor): FEITO, e nas duas metades.** As tabelas de grupo do `ng`
+  e o subsistema de zonas que as consumia saíram; conceder a um coletivo renasceu no schema da
+  aplicação, com entidade, membros e alvo de concessão.
 
-**Todo o resto desta página segue sendo recomendação, não histórico.** Nada além do que está acima
-foi removido: a fase que produziu esta revisão executou apenas o que a especificação autorizou por
+**Todo o resto desta página segue sendo recomendação, não histórico.** Nenhum outro achado foi
+executado, e um deles (o 14) foi decidido ao contrário do que esta página recomendava, com o motivo
+registrado lá: a fase que produziu esta revisão executou apenas o que a especificação autorizou por
 escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 ---
 
 ## 1. Dois catálogos de modelo 3D, e o app usa um só
 
-**O que é.** `ng.catalogo_3d` (schema `ng`, 21 colunas, chave UUID, busca full-text própria) e `tilesets` (schema `public`, chave textual, `config` JSONB) descrevem a mesma coisa: um acervo de modelos 3D com URL, posição, orientação e miniatura.
+**O que era.** `ng.catalogo_3d` (schema `ng`, 21 colunas, chave UUID, busca full-text própria) e `tilesets` (schema `public`, chave textual, `config` JSONB) descreviam a mesma coisa: um acervo de modelos 3D com URL, posição, orientação e miniatura.
 
-**Evidência.** `tilesets` é servida no `/api/config` e é o que o visualizador resolve; ela carrega o eixo de acesso das fases F8 a F14 (`access_level`, `owner_org_id`, `resource_grants`, `atlas_resources`). `ng.catalogo_3d` sai por `GET /nomes/catalogo3d` (`backend/src/app.js`, rota `nomesRoutes`) e tem **zero consumidores no frontend**: a varredura de `frontend/src` por `catalogo3d` devolve nada. O próprio `backend/src/modules/nomes/assets3d-regime.js` a registra como buraco nomeado do censo de acesso, com o motivo escrito ("é um SEGUNDO catálogo de modelos 3D, com sua própria coluna `url` e seu próprio eixo de acesso"). As duas populações vêm de fontes diferentes: `dev/import-gazetteer.mjs` alimenta a do `ng` a partir do backup do gazetteer, e `dev/import-config-catalog.mjs` alimenta `tilesets` a partir do config legado, o que faz delas dois acervos e não duas cópias.
+**Evidência.** `tilesets` é servida no `/api/config` e é o que o visualizador resolve; ela carrega o eixo de acesso das fases F8 a F14 (`access_level`, `owner_org_id`, `resource_grants`, `atlas_resources`). `ng.catalogo_3d` saía por `GET /nomes/catalogo3d` e tinha **zero consumidores no frontend**: a varredura de `frontend/src` por `catalogo3d` não devolvia nada. O próprio `backend/src/modules/nomes/assets3d-regime.js` a registrava como buraco nomeado do censo de acesso, com o motivo escrito ("é um SEGUNDO catálogo de modelos 3D, com sua própria coluna `url` e seu próprio eixo de acesso"). As duas populações vêm de fontes diferentes: `dev/import-gazetteer.mjs` alimenta a do `ng` a partir do backup do gazetteer, e `dev/import-config-catalog.mjs` alimenta `tilesets` a partir do config legado, o que faz delas dois acervos e não duas cópias.
 
 **Custo de deixar como está.** Todo eixo novo de acesso precisa ser implementado duas vezes ou declarado buraco uma vez, que é exatamente o que a F8 fez. Um modelo marcado privado no catálogo vivo continua público no catálogo dormente, e a tela que os separa não existe.
 
-**Recomendação: SAI AGORA — e já SAIU, em 2026-08-19.** O catálogo do `ng` não foi recriado no schema consolidado, e com ele foram embora as duas tabelas de permissão de modelo, a rota `/nomes/catalogo3d`, o controller, o service, o schema Joi e o par de consultas que duplicava o predicado. O ramo do acervo 3D em `dev/import-gazetteer.mjs` foi **repontado para `tilesets`**, convertendo a forma da linha na passagem, de modo que o acervo continua carregável no catálogo que sobreviveu. Uma variante ficou sem rótulo próprio (a nuvem de pontos vira tileset, que é o carregador certo), e isso está declarado em [[catalogo-3d]] como buraco conhecido em vez de resolvido no chute. Ver também [[resources-catalogo]].
+**Recomendação: SAI AGORA, e já SAIU, em 2026-08-19.** O catálogo do `ng` não foi recriado no schema consolidado, e com ele foram embora as duas tabelas de permissão de modelo, a rota `/nomes/catalogo3d`, o controller, o service, o schema Joi e o par de consultas que duplicava o predicado. O ramo do acervo 3D em `dev/import-gazetteer.mjs` foi **repontado para `tilesets`**, convertendo a forma da linha na passagem, de modo que o acervo continua carregável no catálogo que sobreviveu. Uma variante ficou sem rótulo próprio (a nuvem de pontos vira tileset, que é o carregador certo), e isso está declarado em [[resources-catalogo]] como buraco conhecido em vez de resolvido no chute. Ver também [[resources-catalogo]].
 
 ---
 
-## 2. Dois resolvedores de acesso a recurso, e o do `ng` não conhece o `credenciado`
+## 2. Dois resolvedores de acesso a recurso, e o do `ng` não conhecia o `credenciado`
 
-**O que é.** O sistema tem dois predicados de "quem vê o quê", com vocabulários de papel **diferentes**, e a diferença não é de estilo: é uma lista fechada em SQL, a mesma classe que a constituição proíbe no cliente.
+**O que era.** O sistema tinha dois predicados de "quem vê o quê", com vocabulários de papel **diferentes**, e a diferença não era de estilo: era uma lista fechada em SQL, a mesma classe que a constituição proíbe no cliente. O eixo de `public` resolve por função composta (`fn_has_global_data_access`, somada em `fn_can_see_resource` ao ramo de produção `fn_can_produce_resource` e ao de concessão `fn_granted_resource_ids`); o do `ng` resolvia por CTE escrita à mão dentro de cada consulta, com o teste de papel global cravado como `role = 'admin'` e copiado verbatim em quatro lugares.
 
-**Evidência.** O eixo de `public` resolve por função composta: `fn_has_global_data_access` aceita `role IN ('admin','credenciado')`, e `fn_can_see_resource` soma a ela o ramo de produção (`fn_can_produce_resource`) e o de concessão (`fn_granted_resource_ids`). O eixo de `ng` resolve por CTE escrita à mão dentro da consulta, e o teste de papel global é literalmente `role = 'admin'`: está assim em `CATALOGO_SELECT` e em `CATALOGO_COUNT` (`backend/src/modules/nomes/nomes.queries.js`), e igual no ramo de admin de `BUSCA` e de `FEICOES` do mesmo arquivo.
+**Custo, que é a parte transportável.** O papel `credenciado`, cuja definição inteira na migração `backend/src/database/migrations/001_identidade.sql` é "LÊ todo recurso privado do sistema e NÃO ESCREVE NADA", não enxergava nada de privado no `ng`, e ninguém recebia erro: a resposta era uma lista bem formada, só que menor. Predicado copiado à mão é lista fechada, e cada cópia envelhece sozinha.
 
-Consequência exata: o papel `credenciado`, cuja definição inteira na migração `backend/src/database/migrations/001_identidade.sql` é "LÊ todo recurso privado do sistema e NÃO ESCREVE NADA", **não enxerga topônimo privado, edificação privada nem modelo privado do `ng`**. O papel `producer` também não, e ali isso é defensável (o `ng` não tem OM produtora); no caso do `credenciado` não é, porque é o papel inteiro que deixa de valer em três superfícies.
-
-**Custo de deixar como está.** O crachá promete uma coisa e entrega outra, em silêncio, e o silêncio é do tipo pior: a resposta é uma lista bem formada, só que menor. Ninguém recebe erro. E cada correção do predicado precisa ser aplicada em quatro lugares (as duas cópias verbatim de `CATALOGO_SELECT` e `CATALOGO_COUNT`, mais `BUSCA` e `FEICOES`), com a suíte verde em todos os caminhos que não foram tocados.
-
-**Recomendação.** **Decidir agora, aplicar depois.** Duas metades:
-
-- **FEITO em 2026-08-19.** Com a saída do catálogo do `ng` (achado 1), as duas consultas dele sumiram, e com elas a duplicação verbatim do predicado. O censo de papel global registrou a queda: o piso de `EXISTS (SELECT 1 FROM users WHERE id =` em `nomes.queries.js` caiu de quatro ocorrências para duas, e foi ele que ficou vermelho no commit que apagou as consultas.
-- Sobram `BUSCA` e `FEICOES`, que continuam com o eixo espacial de zonas e continuam com `role = 'admin'` cravado. A pergunta que o dono precisa responder é de produto, não de código: **o `credenciado` deve enxergar topônimo e edificação privados?** Se sim, o ramo passa a chamar `fn_has_global_data_access`, que é a definição única que já existe, e o `ng` deixa de ter resolvedor próprio de papel. Se não, o motivo precisa estar escrito ao lado do predicado, porque hoje a leitura natural é esquecimento. Ver [[sintese-eixos-de-permissao]] e [[zonas-acesso-geografico]].
+**Desfecho (2026-08-19), e não foi nenhuma das duas saídas que estavam na mesa.** Não sobrou resolvedor para unificar nem motivo para escrever ao lado do predicado. O catálogo do `ng` saiu com o achado 1, e o eixo de acesso do gazetteer (a marca de privacidade na linha, o índice parcial que a servia e o predicado inteiro da busca, com o parâmetro de usuário) saiu por decisão de produto: **busca de topônimo não tem restrição de acesso**. A lição sobreviveu no eixo que ficou, onde o predicado nasce como **função SQL**, uma definição só, chamada de dentro das consultas. Ver [[acesso-a-recurso-privado]], [[gazetteer-nomes-geograficos]] e [[sintese-eixos-de-permissao]].
 
 ---
 
-## 3. O eixo de permissão por grupo não tem como ser alimentado, e ele sustenta uma regra viva
+## 3. O eixo de permissão por grupo não tinha como ser alimentado, e sustentava uma regra viva
 
-**O que é.** O `ng` tem duas tabelas de agrupamento de usuário (`ng.groups` e `ng.user_groups`) e nenhuma rota que as escreva. Isso já seria só peso morto, mas elas não estão isoladas: a **membership** é o elo do meio do ramo de grupo da autorização espacial, que **está viva e tem escritor**.
+**O que era.** O `ng` tinha duas tabelas de agrupamento de usuário e nenhuma rota que as escrevesse: a varredura de escritores não achou um `INSERT` sequer em `backend/src`, `backend/scripts` ou `dev/`, só em arquivos de teste, e o Painel do Administrador nunca teve aba de grupos. Isso já seria peso morto, mas elas não estavam isoladas: a **membership** era o elo do meio do ramo de grupo da autorização espacial, e esse lado tinha escritor. Ou seja, o administrador podia conceder uma zona a um grupo em que ninguém podia estar, e aquele ramo do predicado nunca devolveu linha em produção. O mesmo elo faltante matava o ramo de grupo do catálogo do `ng`.
 
-**Evidência.** A varredura de escritores não achou nenhum `INSERT` ou `UPDATE` em `ng.groups` nem em `ng.user_groups` em `backend/src`, `backend/scripts` ou `dev/`; as únicas escritas do repositório estão em `backend/tests/integration/nomes-access.test.js` e vizinhas. Não existe rota montada para grupos (`backend/src/app.js` monta config, assets3d, auth, users, atlas, os quatro catálogos, nomes, organizations, ranks, audit, zones, sv360 e resource-access, e nada mais), e o Painel do Administrador não tem aba de grupos (`frontend/src/js/admin/` tem `catalog-tab.js`, `config-tab.js`, `personnel-tab.js` e `users-tab.js`).
+**Custo, e é a lição que vale além do caso.** Uma concessão que a interface aceita, o banco grava e a autorização nunca honra é a forma mais cara de erro de permissão, porque o operador tem prova de que fez o certo. Meio eixo não é meio recurso, é recurso que mente, e a consolidação tornou o custo visível: um schema esmagado **recria** cada tabela por escolha, não por inércia forward-only.
 
-Enquanto isso, `INSERT_ZONE_GROUP_PERMS` (`backend/src/modules/zones/zones.queries.js`) escreve `ng.zone_group_permissions` de verdade, e o schema da rota aceita a lista `groups`. Ou seja: **o administrador pode conceder uma zona a um grupo, e nenhum usuário pode estar naquele grupo.** O ramo de grupo de `fn_user_zone_geoms` faz `JOIN ng.user_groups`, então ele nunca devolve linha em produção.
-
-O mesmo elo faltante matava o ramo de grupo do catálogo do `ng`, mas ali virou ponto morto: aquelas tabelas saíram inteiras com o achado 1, em 2026-08-19.
-
-**Custo de deixar como está.** Uma concessão que a interface aceita, o banco grava e a autorização nunca honra. É a forma mais cara de erro de permissão, porque o operador tem prova de que fez o certo. E o custo cresce com a consolidação: um schema esmagado **recria** estas tabelas por escolha, não por inércia forward-only.
-
-**Recomendação.** **Decidir na F15, e a decisão é binária.** Ou o eixo de grupo ganha escritor (rota de grupos mais aba de administração, e aí `ng.groups` e `ng.user_groups` ficam com FK de verdade, ver achado 12), ou ele sai inteiro, e com ele `ng.zone_group_permissions`, o parâmetro `groups` do schema de zonas e o ramo de grupo de `fn_user_zone_geoms`. **O que não se pode é consolidar mantendo as três tabelas e a rota que promete o que elas não entregam.** A especificação da F15 manda `ng.groups` e `ng.user_groups` ficarem "porque as zonas as usam e estão vivas"; a medida diz que as zonas as **referenciam** e que a metade que as tornaria vivas nunca existiu.
+**Desfecho (2026-08-19).** Este achado foi o que decidiu a remoção: o subsistema de zonas saiu inteiro, com as duas tabelas de grupo do `ng`, e a ideia de conceder a um COLETIVO renasceu no schema da aplicação, com FK de verdade para `users` e com as DUAS metades presentes (entidade, membros e alvo de concessão). Ver [[acesso-a-recurso-privado]].
 
 ---
 
@@ -122,7 +113,7 @@ O que ele ainda faz é do outro lado da rede: `sessionUserInfoFromMe` (`frontend
 
 ## 7. `maps.analysis_layers`: o portador aberto cuja irmã foi derrubada
 
-**O que é.** JSONB livre em `maps`, publicado cru por quatro superfícies, e o único irmão declarado no mesmo bloco da baseline de atlas que sobreviveu à 022.
+**O que é.** JSONB livre em `maps`, publicado cru por quatro superfícies, e o único irmão do bloco JSONB da baseline de atlas que sobreviveu à queda de `maps.catalog_layers`.
 
 **Evidência.** A auditoria já está escrita, e por extenso, no cabeçalho de `MAP_COLUMNS` (`backend/src/modules/maps/maps.queries.js`) e no de `backend/src/modules/sync/free-field.schemas.js`. O resumo verificável: nada valida o interior (o schema de sync declara `data`/`changes` como objeto desconhecido, e o de atlas declara `analysis_layers` como objeto sem chaves, que `stripUnknown` não poda); o único produtor vivo escreve **estado de alternância**, não definição (`frontend/src/js/import_export/local-atlas-to-server.js`); e o vizinho da linha seguinte daquele mesmo enviador passa por `pruneCatalogLayerDefinition` justamente porque upload de entidade inteira contorna o gate de escrita, enquanto `analysis_layers` não ganhou equivalente.
 
@@ -158,25 +149,24 @@ O que fecha hoje é a poda por conteúdo em `backend/src/modules/catalog/resourc
 
 ---
 
-## 10. Quinze índices sobre a chave primária filtrada por bandeira, e sete deles nunca podem servir
+## 10. Doze índices sobre a chave primária filtrada por bandeira, e sete deles nunca podem servir
 
-**O que é.** Uma família inteira de índices parciais tem a forma `ON <tabela>(id) WHERE <bandeira>`. Ela se divide em três grupos, e só um deles tem argumento.
+**O que é.** Uma família inteira de índices parciais tem a forma `ON <tabela>(id) WHERE <bandeira>`. Ela se dividia em três grupos na medida, e só um deles tem argumento; o terceiro grupo (três índices "público" do `ng`) saiu em 2026-08-19 junto com as tabelas e a coluna que ele indexava.
 
 **Evidência.**
 
 - **Sete "não deletado"**: `idx_atlas_not_deleted`, `idx_maps_not_deleted`, `idx_layers_not_deleted`, `idx_groups_not_deleted`, `idx_features_not_deleted`, `idx_briefings_not_deleted`, `idx_slides_not_deleted`. Todas as consultas que os motivariam filtram pelo **pai** e adicionam `deleted_at IS NULL` como filtro secundário (`WHERE map_id = $1 AND deleted_at IS NULL`), nunca pelo `id`. Medido diretamente: com 40.000 feições, 20 mapas e 5% de soft-delete, o plano de `GET_MAP_FEATURES` é `Bitmap Index Scan on idx_features_map` com `Filter: (deleted_at IS NULL)`, e **continua sendo o mesmo com `enable_seqscan = off`**. O planner não tem como usar um índice cuja coluna líder a consulta não restringe. O contraexemplo mora no mesmo banco: `idx_catalog_layers_map` e `idx_comments_map` são `(map_id) WHERE deleted_at IS NULL`, que é a forma certa, e os dois aparecem com dezenas de scans na estatística real.
-- **Dois "público" do `ng`** (eram três até 2026-08-19; o do catálogo 3D saiu com a tabela): `idx_nomes_public` e `idx_edificacoes_public`, sobre `(id) WHERE access_level = 'public'`. Indexam o lado **grande** (o acervo é público em quase toda linha), o que é o inverso do desenho do catálogo, que indexa o lado privado justamente por ser o pequeno e escreve o motivo. `idx_edificacoes_public` e `idx_catalogo_3d_public` ficaram com `idx_scan = 0` na suíte inteira.
 - **Cinco "privado" do catálogo**: `idx_tilesets_private`, `idx_basemaps_private`, `idx_data_layers_private`, `idx_analysis_layers_private`, `idx_sv360_projects_private`. **Estes têm argumento**, escrito ao lado deles no schema, e a estatística real os confirma nos dois que têm acervo de teste (`idx_tilesets_private` com 41 scans, `idx_basemaps_private` com 53, `idx_sv360_projects_private` com 94).
 
-Fora da família, dois índices GIN com custo de manutenção alto e nenhuma consulta na forma que servem: `idx_features_properties` (GIN sobre `features.properties`, e **nenhuma** consulta do repositório usa `@>`, `->` ou `?` sobre `properties`) e `idx_audit_details_gin` (idem para `audit_trail.details`, e `LIST_AUDIT` filtra por `action`, `actor_id`, `target_type` e `target_id`, nunca por `details`). Os dois com `idx_scan = 0`. Junto com eles, `idx_edif_alt` sobre `(altitude_base, altitude_topo)`: a consulta `FEICOES` **calcula** com as duas colunas no `SELECT` e filtra por `ST_DWithin`, então não há predicado que o índice possa satisfazer.
+Fora da família, dois índices GIN com custo de manutenção alto e nenhuma consulta na forma que servem: `idx_features_properties` (GIN sobre `features.properties`, e **nenhuma** consulta do repositório usa `@>`, `->` ou `?` sobre `properties`) e `idx_audit_details_gin` (idem para `audit_trail.details`, e `LIST_AUDIT` filtra por `action`, `actor_id`, `target_type` e `target_id`, nunca por `details`). Os dois com `idx_scan = 0`.
 
 **Custo de deixar como está.** Escrita. Um GIN sobre JSONB é o índice mais caro de manter da lista, e `features` é a tabela mais escrita do sistema (1040 inserções na suíte, e em produção é uma por gesto de desenho). Os sete "não deletado" custam uma entrada de índice por linha viva em sete tabelas quentes, para nunca serem lidos. Nada disso aparece como lentidão de consulta, que é por que sobreviveu.
 
 **Recomendação.** Três decisões distintas, e a gravidade também é distinta:
 
 - **Sai agora:** os sete `*_not_deleted` sobre `(id)`. A prova é direta e reprodutível (o plano não muda nem com varredura sequencial desabilitada). Onde o soft-delete precisa de índice, a forma é `(<pai>_id) WHERE deleted_at IS NULL`, que já existe em duas tabelas.
-- **Sai agora, com controle negativo:** `idx_features_properties`, `idx_audit_details_gin` e `idx_edif_alt`. Aqui a evidência estrutural é forte (nenhuma consulta tem a forma) e a de execução concorda, mas o controle negativo é barato: derrube e confirme que nenhum plano muda.
-- **Fica:** os cinco do lado privado, pelo motivo já escrito ao lado deles no schema. Os três "público" do `ng` ficam em suspenso junto com o achado 2: se o eixo do `ng` for unificado, eles saem com o resto.
+- **Sai agora, com controle negativo:** `idx_features_properties` e `idx_audit_details_gin`. Aqui a evidência estrutural é forte (nenhuma consulta tem a forma) e a de execução concorda, mas o controle negativo é barato: derrube e confirme que nenhum plano muda.
+- **Fica:** os cinco do lado privado, pelo motivo já escrito ao lado deles no schema.
 
 ---
 
@@ -216,15 +206,15 @@ O custo, que ainda não estava medido, aparece na estatística do banco real: `p
 
 ---
 
-## 14. `audit_trail`: quatro tipos de alvo declarados sem emissor, dois deles órfãos do catálogo que está saindo
+## 14. `audit_trail`: quatro tipos de alvo declarados sem emissor
 
-**O que é.** O CHECK de `target_type` declara catorze valores e quatro nunca são emitidos.
+**O que é.** O CHECK de `target_type` declara treze valores e quatro nunca são emitidos.
 
-**Evidência.** `ALVOS_SEM_EMISSOR` (`backend/tests/unit/auditoria-censo.test.js`) já os censa por nome: `GROUP`, `MODEL`, `STREETVIEW_MARKER` e `SYSTEM`. Dois deles se explicam por este documento: `MODEL` era o alvo do catálogo `ng.catalogo_3d` e `GROUP` era o de `ng.groups`, ou seja, são a sombra dos achados 1 e 3. `STREETVIEW_MARKER` ficou órfão quando a 021 apagou a tabela, e a própria 021 registra a decisão de deixá-lo.
+**Evidência.** `ALVOS_SEM_EMISSOR` (`backend/tests/unit/auditoria-censo.test.js`) já os censa por nome: `GROUP`, `MODEL`, `STREETVIEW_MARKER` e `SYSTEM`. Dois deles se explicam por este documento: `MODEL` era o alvo do catálogo de modelo do `ng` e `GROUP` era o das tabelas de grupo daquele schema, ou seja, são a sombra dos achados 1 e 3. `STREETVIEW_MARKER` ficou órfão quando a tabela homônima foi apagada, e a baseline de auditoria (`backend/src/database/migrations/002_auditoria.sql`) registra a decisão de deixá-lo.
 
-**Custo de deixar como está.** Baixo e já contido pelo censo. Vale a menção porque a consolidação é a oportunidade de fechar sem DDL destrutiva.
+**Custo de deixar como está.** Baixo e já contido pelo censo.
 
-**Recomendação.** **Sai na consolidação, exceto `SYSTEM`.** Num CHECK que nasce do zero, declarar `MODEL` e `GROUP` é escolher declarar alvo de um catálogo que não existe mais. `STREETVIEW_MARKER` precisa de julgamento do dono: linhas de trilha antigas podem carregá-lo, e num banco recriado não podem. `SYSTEM` fica, porque é o alvo natural de ação futura de sistema. Qualquer que seja a escolha, `ALVOS_SEM_EMISSOR` acompanha no mesmo commit. Ver [[auditoria]].
+**Desfecho (2026-08-19), e ele contraria a recomendação que esta seção fazia.** A recomendação era não redeclarar `MODEL` e `GROUP` num CHECK que nasce do zero. A consolidação declarou os quatro assim mesmo, com o motivo ao lado da coluna: vocabulário reservado é diferente de vocabulário esquecido, e linha de trilha já gravada pode carregar o valor. O que ela **não** redeclarou foi `ZONE`, e é aí que mora a armadilha, porque a assimetria não é gratuita: `ZONE` teve emissor enquanto o subsistema existiu, então uma trilha exportada antes de 2026-08-19 **não reentra** num banco criado pela baseline nova. Ver [[auditoria]].
 
 ---
 
@@ -244,13 +234,12 @@ O custo, que ainda não estava medido, aparece na estatística do banco real: `p
 
 O método está na seção de medição, e o que segue é o resultado dele **depois** da triagem dos quatro tipos de falso positivo. "Sem escritor" aqui significa: nenhum `INSERT`, `UPDATE`, trigger, DEFAULT não trivial, importador ou semente de `backend/src`, `backend/scripts` ou `dev/` a preenche. Escrita **apenas por teste** conta como sem escritor, e está marcada.
 
-**Sem escritor nenhum em produção (25 colunas, 5 tabelas):**
+**Sem escritor nenhum em produção na medida (25 colunas, 5 tabelas; as quatro tabelas marcadas abaixo saíram depois):**
 
 | tabela | colunas | situação |
 |---|---|---|
 | `active_sessions` | as 9 (`id`, `user_id`, `atlas_id`, `client_id`, `connected_at`, `last_heartbeat`, `cursor_position`, `current_map_id`, `selected_features`) | morta. Achado 5. Escrita só por um caso de teste |
-| `ng.groups` | as 5 (`id`, `name`, `description`, `created_by`, `created_at`) | viva pela metade. Achado 3. Escrita só por teste |
-| `ng.user_groups` | as 2 (`user_id`, `group_id`) | viva pela metade. Achado 3. É o elo que falta ao ramo de grupo das zonas |
+| as duas tabelas de grupo do `ng` | as 5 de uma, as 2 da outra | vivas pela metade, escritas só por teste. Eram o elo que faltava ao ramo de grupo das zonas. Achado 3, e **saíram** com ele em 2026-08-19 |
 | as duas tabelas de permissão de modelo do `ng` | as 4 de cada uma | mortas, e **saíram** com o achado 1 em 2026-08-19 |
 | `ranks.code` | 1 | legítima e sem escritor **ainda**, ou morta. Achado 9. É a única desta lista que já é SERVIDA ao cliente |
 
@@ -258,21 +247,19 @@ O método está na seção de medição, e o que segue é o resultado dele **dep
 
 **Preenchidas só por DEFAULT, e isso é legítimo (não listadas uma a uma):** todo `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` do repositório, todo `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` e `operations.server_version` (`nextval`). São 43 colunas, e nenhuma é achado.
 
-**Preenchidas por TRIGGER, que é o falso positivo que mais engana (4 colunas):** `slides.is_broken` e `slides.broken_reason` (`mark_slides_broken_on_map_delete`), `sv360.photos.geom` (`fn_photos_set_geom`), `ng.nomes_geograficos.tipo_peso` (`calcular_tipo_peso`) e `ng.catalogo_3d.search_vector` (`catalogo_3d_search_update`). Um grep por qualquer uma delas nas consultas devolve zero e parece achado. **Não são.**
+**Preenchidas por TRIGGER, que é o falso positivo que mais engana (4 colunas):** `slides.is_broken` e `slides.broken_reason` (`mark_slides_broken_on_map_delete`), `sv360.photos.geom` (`fn_photos_set_geom`) e `ng.nomes_geograficos.tipo_peso` (`calcular_tipo_peso`). Um grep por qualquer uma delas nas consultas devolve zero e parece achado. **Não são.**
 
-**Preenchidas só pelo importador de acervo, e isso é o desenho (30 colunas):** todas as de `ng.nomes_geograficos` e `ng.edificacoes`, escritas por `dev/import-gazetteer.mjs` com lista de colunas montada em tempo de execução. As duas primeiras tabelas são dado de referência legítimo; a terceira sai com o achado 1.
+**Preenchidas só pelo importador de acervo, e isso é o desenho (30 colunas na medida):** todas as de `ng.nomes_geograficos` e as da tabela de edificações, escritas por `dev/import-gazetteer.mjs` com lista de colunas montada em tempo de execução. A primeira é dado de referência legítimo; a segunda saiu em 2026-08-19, com a rota que a servia.
 
 **Preenchidas por escritor dinâmico (36 colunas):** as das quatro tabelas de catálogo, escritas por `listCatalog` e vizinhas com o nome da tabela interpolado a partir de `CATALOG_TABLES` (`backend/src/modules/catalog/catalog.service.js`), mais `access_level`, escrita por `setCatalogAccessLevel`. Nenhuma é achado.
 
 **Preenchidas por cláusula montada em array (28 colunas):** `version`, `updated_at` e `deleted_at` das sete entidades de sync (`maps`, `layers`, `groups`, `features`, `briefings`, `slides`, `cesium3d_data`, `streetview360_data`), escritas por `buildUpdateQuery` e pelos comandos de soft-delete de `backend/src/modules/sync/sync.service.js`. Nenhuma é achado.
 
-**Nota sobre `granted_at`.** `ng.zone_permissions.granted_at` e `ng.zone_group_permissions.granted_at` não são escritas explicitamente (nascem do DEFAULT) **e** não são lidas por consulta nenhuma: `GET_ZONE_USER_PERMS` e `GET_ZONE_GROUP_PERMS` devolvem só os ids. São legítimas como registro forense, e a linha existe para dizer que ninguém as consulta hoje.
-
 ---
 
 ## Inventário B: o mapa das relações que existem só por convenção
 
-Trinta e duas colunas de referência não têm chave estrangeira. Elas se dividem em cinco famílias, e o que segura cada uma é diferente. Reunir tudo sob "faltou FK" é o erro de leitura que este inventário existe para impedir.
+Trinta e duas colunas de referência não tinham chave estrangeira na medida (cinco delas saíram em 2026-08-19 com as tabelas do `ng`, e são justamente as da família 5). Elas se dividem em cinco famílias, e o que segura cada uma é diferente. Reunir tudo sob "faltou FK" é o erro de leitura que este inventário existe para impedir.
 
 **Família 1: ausência DELIBERADA, com motivo escrito no schema, e acrescentar a FK é regressão.**
 
@@ -304,19 +291,13 @@ Nesta família o que **de fato** protege o usuário é o `is_broken` de `slides`
 
 `operations.client_id`, `operations.op_id`, `active_sessions.client_id`. São TEXT de formato livre por decisão, porque o cliente é a autoridade sobre esses ids. A unicidade que importa é garantida por índice (`operations_atlas_op_id_uniq`), não por FK.
 
-**Família 5: ausência que parece esquecimento, e provavelmente é.** Esta é a única família com recomendação de mudança.
+**Família 5: ausência que parecia esquecimento, e era.** As cinco colunas desta família moravam nas tabelas de grupo e de permissão de zona do `ng`: nenhuma tinha FK para `users(id)`, e a consequência era uma concessão sem titular identificável no dia em que o usuário fosse apagado de verdade. Sobra dela uma linha, que é de outra natureza:
 
 | coluna | deveria apontar para | situação |
 |---|---|---|
-| `ng.user_groups.user_id` | `users.id` | Sem FK. Repare na assimetria dentro do mesmo schema: `ng.zone_group_permissions.group_id` **tem** FK para `ng.groups`, e `ng.user_groups.group_id` não |
-| `ng.user_groups.group_id` | `ng.groups.id` | Sem FK |
-| `ng.zone_permissions.user_id` | `users.id` | Sem FK. A irmã `zone_id` tem, com `ON DELETE CASCADE` |
-| `ng.groups.created_by`, `ng.geographic_access_zones.created_by` | `users.id` | Sem FK, e sem nenhuma justificativa escrita, ao contrário de `audit_trail.actor_id`, que tem |
 | `atlas.map_order`, `briefings.slide_order`, `active_sessions.selected_features` | arrays de UUID | FK impossível sobre array. `map_order` e `slide_order` carregam ordenação e são mantidos pela aplicação; nada impede um id fantasma na lista |
 
-**O que a família 5 custa.** `ng.zone_permissions.user_id` sem FK significa que **apagar um usuário deixa concessão de zona pendurada**, e a zona não some. Como a zona é uma fronteira de acesso, uma linha pendurada é uma concessão sem titular identificável. O sistema não faz hard-delete de usuário hoje (o `USER_DELETE` desativa), o que é o que segura na prática, mas isso é propriedade da aplicação e não do schema, e não está escrito ao lado da coluna.
-
-**Recomendação para a família 5.** As FKs para `users(id)` **entram** no schema consolidado, com `ON DELETE CASCADE` nas de permissão (`ng.zone_permissions.user_id`, e `ng.user_groups.user_id` se o eixo de grupo sobreviver ao achado 3) e **sem** `ON DELETE` nas de autoria (`created_by`), que é a mesma regra que a casa já aplica em `resource_grants.granted_by` e `atlas_shares.added_by`: autoria não se apaga, se reatribui. Isto é a única alteração de estrutura que esta revisão recomenda para a Parte 2, e ela precisa de decisão explícita do dono, porque **muda o estado final do schema** e a Parte 2 promete estado idêntico. Se o dono preferir manter a identidade exata, as FKs entram numa migração seguinte, com repro próprio.
+**Desfecho da família 5 (2026-08-19).** A recomendação era simples e foi **cumprida onde o conceito sobreviveu**: quando conceder a um coletivo renasceu no schema da aplicação, as colunas de participação nasceram com FK para `users(id)` e `ON DELETE CASCADE`, e as de autoria (`created_by`, `added_by`) com FK e **sem** `ON DELETE`, que é a mesma regra de `resource_grants.granted_by` e `atlas_shares.added_by`: autoria não se apaga, se reatribui. A regra a transportar para a próxima tabela de permissão: participação cascateia, autoria fica.
 
 ---
 
@@ -324,7 +305,7 @@ Nesta família o que **de fato** protege o usuário é o `is_broken` de `slides`
 
 Nenhuma remoção além da que a especificação da F15 autoriza. Em particular, e para que o silêncio não seja lido como aprovação:
 
-- **`ng.nomes_geograficos` e `ng.edificacoes` ficam inteiras.** Elas não têm escritor em `backend/src` e isso é o desenho: são dado de referência alimentado por ETL e servido em leitura.
+- **`ng.nomes_geograficos` fica inteira.** Ela não tem escritor em `backend/src` e isso é o desenho: é dado de referência alimentado por ETL e servido em leitura. (A tabela de edificações caiu depois, com a rota que a servia, e não por este critério.)
 - **`sv360.targets.override_bearing` não entra na lista de remoção** do achado 15, porque tem leitor, ainda que só da nulidade. Medir o valor e medir a existência do valor são coisas diferentes.
 - **A distinção entre `atlas.settings.available_*` e `atlas_resources` não é para ser unificada** (achado 11), e a 017 já explica por quê.
 - **`maps.analysis_layers` não é para cair junto com `maps.catalog_layers`** (achado 7), e a diferença é contrato de cliente congelado apontando para dentro dele.
@@ -334,3 +315,4 @@ Nenhuma remoção além da que a especificação da F15 autoriza. Em particular,
 ## Histórico
 
 - 2026-08-19: página criada como entregável da Parte 1 da fase F15 (revisão do ER), medida contra o banco real migrado pelas 22 migrações e contra a estatística de execução da suíte de backend (3249 casos, verde, zero skips).
+- 2026-08-19, depois da remoção: os achados 2 e 3 tinham metade do texto no presente sobre objetos que a própria fase apagou, e a recomendação binária do 3 continuava viva depois de decidida. Os dois viraram desfecho, e as linhas dos dois inventários que apontavam para as tabelas de zona e de grupo do `ng` saíram com elas. O que a página conserva desses achados é a lição (predicado copiado é lista fechada; meio eixo de permissão mente), não o objeto.

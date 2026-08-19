@@ -12,7 +12,7 @@ Não existe upstream `:8081`: o módulo 360 foi absorvido em `/api/v1/sv360` ([[
 
 ## Banco: um cluster, três schemas
 
-`public` (atlas), `ng` (gazetteer PostGIS) e `sv360` (metadados) num cluster só. Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[zonas-acesso-geografico]], [[tabela-operations]].
+`public` (atlas), `ng` (gazetteer PostGIS) e `sv360` (metadados) num cluster só. Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[resources-catalogo]], [[tabela-operations]].
 
 PostGIS **nunca** entra no schema do atlas, e é decisão deliberada: a geometria do atlas mora em **JSONB** e o filtro espacial é bbox em JS, não `ST_Intersects`.
 
@@ -105,7 +105,7 @@ Tudo sob `/api/v1/atlas/:atlasId/**` (sharing, images, sync, maps, briefings) é
 
 A consequência é o inverso: `config`, `assets3d` e a leitura do `sv360` estão **fora** dessa árvore e são alcançáveis anonimamente por construção ([[auth-flexivel]], [[hardening-borda-api]], [[modos-operacao]]). Mover uma rota para dentro ou para fora de `/atlas/:atlasId` muda a autorização sem tocar em nenhum middleware.
 
-Três desalinhamentos entre o diagrama de arquitetura e o disco custam tempo de navegação: `catalogo3d`/`assets3d` moram em `modules/nomes/`; o diretório do 360 chama-se `streetview360/` mas monta em `/api/v1/sv360`; e `features`/`layers`/`groups`/`slides` **não têm diretório algum** (são dispatch do `sync`). O mapa completo é `backend/src/app.js`.
+Três desalinhamentos entre o diagrama de arquitetura e o disco custam tempo de navegação: `assets3d` mora em `modules/nomes/`, que é o módulo do gazetteer; o diretório do 360 chama-se `streetview360/` mas monta em `/api/v1/sv360`; e `features`/`layers`/`groups`/`slides` **não têm diretório algum** (são dispatch do `sync`). O mapa completo é `backend/src/app.js`.
 
 ## Segurança operacional
 
@@ -143,7 +143,7 @@ No restore, na ordem: habilitar PostGIS **antes** de aplicar `ng`; garantir que 
 
 Ambos os importadores são invocação direta de `node`, sem npm script (`backend/scripts/`).
 
-- `assets3d-import.js <sourceDir>`: árvore inteira numa única transação, upsert por `rel_path`, offline e idempotente. Os metadados de descoberta ficam em `ng.catalogo_3d`, não nos arquivos, então importar sem popular o catálogo entrega BLOBs invisíveis.
+- `assets3d-import.js <sourceDir>`: árvore inteira numa única transação, upsert por `rel_path`, offline e idempotente. Ele carrega **bytes**, nunca descoberta: os metadados que fazem um modelo aparecer moram na tabela de tilesets do catálogo ([[resources-catalogo]]), populada pela aba de catálogo do Painel do Administrador ou por `dev/import-config-catalog.mjs`. Importar sem popular o catálogo entrega BLOBs invisíveis, e o inverso entrega item de catálogo apontando para 404.
 - `sv360-import.js <index.db> [src] [dest]`: um `tx()` por projeto, projeto corrompido vai para `skipped[]` sem abortar o resto. **Exit code 2 significa import parcial**, trate como alerta e não como sucesso. `orgSlug` inexistente e não-legado dá 409, crie a OM antes ([[organizacoes-om]]).
 
 ## Seed de desenvolvimento: nunca em produção

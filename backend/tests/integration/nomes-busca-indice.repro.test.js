@@ -68,7 +68,7 @@ describe('busca do gazetteer usa o índice GIN trgm (repro de performance)', () 
             await db.query('SET LOCAL pg_trgm.similarity_threshold = 0.25');
             const { rows } = await db.query(
                 `EXPLAIN (FORMAT TEXT) ${Q.BUSCA}`,
-                ['porto alegre', -30.0, -51.2, null, null],
+                ['porto alegre', -30.0, -51.2, null],
             );
             const texto = rows.map((r) => r['QUERY PLAN']).join('\n');
             assert.ok(texto.includes(INDICE), `o plano deveria alcançar ${INDICE}.\n\n${texto}`);

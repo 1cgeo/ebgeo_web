@@ -42,13 +42,6 @@ describe('Gazetteer (nomes geográficos)', () => {
     // Mandatory post-load step.
     await db.query('SELECT ng.refresh_busca()');
 
-    // Edificações (SRID 4326) — a ~20m square at (-43.2,-22.9), altitude 0..100.
-    await db.query(
-      `INSERT INTO ng.edificacoes (nome, tipo, altitude_base, altitude_topo, geom)
-       VALUES ('Predio X', 'edificacao', 0, 100,
-         ST_GeomFromText('POLYGON((-43.2001 -22.9001,-43.1999 -22.9001,-43.1999 -22.8999,-43.2001 -22.8999,-43.2001 -22.9001))', 4326))`
-    );
-
   });
 
   after(async () => {
@@ -58,8 +51,6 @@ describe('Gazetteer (nomes geográficos)', () => {
   it('created the ng schema with correct SRIDs', async () => {
     const srid = await db.query(`SELECT Find_SRID('ng','nomes_geograficos','geom') AS s`);
     assert.equal(srid.rows[0].s, 4674);
-    const sridE = await db.query(`SELECT Find_SRID('ng','edificacoes','geom') AS s`);
-    assert.equal(sridE.rows[0].s, 4326);
   });
 
   it('tipo_peso trigger assigns weight by type', async () => {
@@ -124,42 +115,7 @@ describe('Gazetteer (nomes geográficos)', () => {
       .expect(422);
   });
 
-  it('GET /nomes/feicoes rejects out-of-range lat/lon with 422 (not a PostGIS 500)', async () => {
-    await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -91, lon: -43.2, z: 50 })
-      .set('Authorization', `Bearer ${token}`)
-      .expect(422);
-    await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -22.9, lon: -181, z: 50 })
-      .set('Authorization', `Bearer ${token}`)
-      .expect(422);
-  });
 
-  it('GET /nomes/feicoes finds the building and tiebreaks by altitude', async () => {
-    const inside = await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -22.9, lon: -43.2, z: 50 })
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    assert.equal(inside.body.nome, 'Predio X');
-    assert.equal(Number(inside.body.z_distance), 0);
-
-    const above = await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -22.9, lon: -43.2, z: 150 })
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    assert.equal(Number(above.body.z_distance), 50);
-
-    const far = await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -23.5, lon: -46.6, z: 50 })
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    assert.ok(far.body.message);
-  });
 
   // CONTROLE NEGATIVO da remoção: a rota do segundo catálogo 3D SUMIU, e sumiu com
   // 404 e não com 401. A distinção importa: `/catalogo3d` era auth-estrito, então um
@@ -172,12 +128,13 @@ describe('Gazetteer (nomes geográficos)', () => {
       .set('Authorization', `Bearer ${token}`);
     assert.equal(semRota.status, 404, 'a rota do catálogo 3D do `ng` foi removida na F15');
 
-    // E as irmãs continuam de pé: sem este par, "404" também é o que se mede quando o
-    // router inteiro deixou de ser montado.
+    // E A IRMÃ CONTINUA DE PÉ: sem este par, "404" também é o que se mede quando o
+    // router inteiro deixou de ser montado, e o caso passaria pelo motivo errado.
+    // A irmã aqui é `/busca`, porque `/feicoes` também saiu (com `ng.edificacoes`,
+    // em 2026-08-19) e um discriminador removido não discrimina nada.
     await supertest(app)
-      .get('/api/v1/nomes/feicoes')
-      .query({ lat: -22.9, lon: -43.2, z: 50 })
-      .set('Authorization', `Bearer ${token}`)
+      .get('/api/v1/nomes/busca')
+      .query({ q: 'Rio', lat: -22.9, lon: -43.2 })
       .expect(200);
   });
 });

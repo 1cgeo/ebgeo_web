@@ -73,7 +73,7 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
   sem requisito de produto.
 - **Geometria do atlas é JSONB** (schema `public`, mesmo formato do IndexedDB). **PostGIS vive só nos
-  schemas `ng`** (nomes e edificações) **e `sv360`**. **Nunca** adicione PostGIS ao schema
+  schemas `ng`** (gazetteer) **e `sv360`**. **Nunca** adicione PostGIS ao schema
   do atlas (decisão: filtro espacial do atlas seria bbox em JS, não `ST_Intersects`).
 - **Controle de acesso embutido na query SQL** (`ng`, `sv360` e o catálogo): o dado
   privado não vaza nem com bug de app. Toda query com filtro de acesso **exige o par completo**, o
@@ -102,10 +102,14 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   tido leitor, e o schema consolidado simplesmente não a cria: não a recrie por simetria. E existiu
   um SEGUNDO catálogo de modelo 3D, no schema `ng`, com eixo de acesso próprio que nenhuma rota
   alimentava; ele saiu inteiro em 2026-08-19 e `tilesets` é hoje a única descoberta de modelo 3D.
-  O predicado de acesso é **uma definição só**, em função SQL (`fn_can_see_resource` e as três de
+  O predicado de acesso é **uma definição só**, em função SQL (`fn_can_see_resource` e as cinco de
   baixo), chamada de dentro das queries e nunca reimplementada em JS. **O papel é resolvido no
   BANCO, nunca lido do JWT**: `flexibleAuth` não reconcilia, então um credenciado rebaixado
   carregaria o papel antigo por até 15 min.
+- **O beneficiário de uma concessão é uma pessoa OU um grupo, nunca os dois** (`CHECK
+  (num_nonnulls(grantee_id, grantee_group_id) = 1)`, com `access_groups`/`access_group_members` no
+  schema da aplicação). Gate ou tela que assuma `grantee_id` não-nulo ignora a concessão coletiva
+  sem erro, que é a lista fechada da constituição na forma nova.
 - **Concessão tem PRAZO obrigatório, teto de um ano, e ele morre no PREDICADO** (`expires_at >
   NOW()` em toda query de concessão viva), nunca por varredura: um sweeper de expiração seria mais
   um verificador quebrando calado. Filho nunca expira depois do pai (clamp por `LEAST` no INSERT).

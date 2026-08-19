@@ -10,9 +10,3 @@ export const buscaSchema = Joi.object({
   lon: Joi.number().min(-180).max(180).required(),
   zoom: Joi.number().integer().min(1).max(20).optional(),
 });
-
-export const feicoesSchema = Joi.object({
-  lat: Joi.number().min(-90).max(90).required(),
-  lon: Joi.number().min(-180).max(180).required(),
-  z: Joi.number().required(),
-});

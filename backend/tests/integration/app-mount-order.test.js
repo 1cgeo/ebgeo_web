@@ -51,7 +51,6 @@ const PROBES = [
   { prefix: '/api/v1/organizations', path: '/api/v1/organizations' },
   { prefix: '/api/v1/ranks', path: '/api/v1/ranks' },
   { prefix: '/api/v1/audit', path: '/api/v1/audit' },
-  { prefix: '/api/v1/zones', path: '/api/v1/zones' },
   { prefix: '/api/v1/sv360', path: '/api/v1/sv360/projects' },
   // Desde F3 o módulo TAMBÉM tem GET (`/visible`), mas a sonda continua no PATCH
   // de propósito: é a única que exercita a opção `method`, e opção de guarda que

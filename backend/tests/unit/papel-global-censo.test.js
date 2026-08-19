@@ -206,21 +206,6 @@ const CENSO = [
 
   // ---------------- DADO: acesso a dado. Credenciado entra. -----------------------
   {
-    // UMA entrada para as DUAS ocorrências, e não duas de uma, porque os textos são
-    // ANINHADOS quando a forma escalar existe: `SELECT EXISTS (SELECT 1 FROM users
-    // WHERE id =` contém o outro, e dois padrões encavalados contariam a mesma linha
-    // duas vezes. Padrão de censo precisa ser disjunto.
-    //
-    // ERAM QUATRO ATÉ A F15, e as duas que saíram eram a forma escalar `is_admin` de
-    // `CATALOGO_SELECT` e `CATALOGO_COUNT` — o segundo catálogo de modelo 3D, que foi
-    // REMOVIDO em vez de unificado. Este piso decrescente é o que provou a remoção:
-    // ele ficou vermelho dizendo "esperava 4, achei 2" no commit que apagou as duas
-    // consultas, que é exatamente o serviço que um censo com contagem presta.
-    arquivo: 'src/modules/nomes/nomes.queries.js',
-    trecho: "EXISTS (SELECT 1 FROM users WHERE id =", n: 2, classe: DADO,
-    motivo: 'Gazetteer (BUSCA e FEICOES): o SQL resolve o papel a partir do UUID, no banco, que é exatamente a forma que fn_has_global_data_access copia. Zona privada de nomes é DADO, então o credenciado deveria enxergá-la — e hoje NÃO enxerga, porque este eixo continua o antigo. Ver a nota de alcance no fim do arquivo.',
-  },
-  {
     arquivo: 'src/modules/streetview360/sv360.service.js',
     trecho: "if (user.role === 'admin') return true", n: 1, classe: DADO,
     motivo: 'isProjectReadable, e SÓ o eixo de `status`: `disabled` oculta de todo mundo fora da OM dona, inclusive do credenciado. O eixo de PRIVACIDADE saiu daqui na fase F6 e mora no SQL (sv360AccessPredicate), que é onde ele pode consultar concessão e empréstimo sem uma segunda cópia da regra.',
@@ -544,7 +529,10 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     // Duas, e não quatro: a fase F6 tirou do JS o eixo de leitura do 360 e o pôs no
     // SQL. É a direção certa — quanto menos decisão de acesso a dado no JS, melhor —
     // e o piso acompanha em vez de cobrar de volta o que se acabou de remover.
-    assert.ok(dado.length >= 2, `esperava >= 2 entradas de dado, achei ${dado.length}`);
+    // PISO 1, e ele BAIXOU de 2 em 2026-08-19: a entrada do gazetteer saiu porque o
+    // predicado dele deixou de decidir por papel (o eixo de acesso do `ng` foi
+    // removido inteiro). Piso decrescente com a remoção escrita ao lado.
+    assert.ok(dado.length >= 1, `esperava >= 1 entrada de dado, achei ${dado.length}`);
     assert.ok(
       poder.some((e) => e.arquivo === 'src/middleware/require-admin.js'),
       'require-admin.js é o gate de poder por excelência e precisa estar classificado como tal'

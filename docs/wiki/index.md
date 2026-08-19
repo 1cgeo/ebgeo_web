@@ -68,12 +68,11 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 ## Dados geográficos: gazetteer, 3D e 360
 
-- [[gazetteer-nomes-geograficos]] - o subsistema read-only de topônimos e identify sobre o schema isolado.
+- [[gazetteer-nomes-geograficos]] - o subsistema read-only de busca de topônimos sobre o schema isolado.
 - [[ranking-busca-toponimos]] - as três chaves lexicográficas que ordenam a busca de nomes, e por que não é uma soma.
 - [[calibracao-busca-toponimos]] - o conjunto dourado e a ablação que decidem essa ordenação com evidência.
-- [[catalogo-3d]] - nota histórica: houve um SEGUNDO catálogo de modelo 3D, e por que ele saiu.
+- [[resources-catalogo]] - nota histórica: houve um SEGUNDO catálogo de modelo 3D, e por que ele saiu.
 - [[assets3d-distribuicao]] - a rota pública que serve os binários 3D com dual-mode de armazenamento.
-- [[zonas-acesso-geografico]] - autorização espacial embutida no SQL por zonas-polígono do usuário.
 - [[primeira-pessoa-3d]] - a cena caminhável em Gaussian Splatting: por que ela é uma linha de tilesets, as opções de motor medidas (e os instrumentos que mentiram), e as armadilhas cujo sintoma é sucesso plausível.
 - [[streetview-360]] - o módulo de panoramas: projetos, metadado da foto, imagem, tiles e thumbnails.
 - [[calibracao-e-grafo-360]] - ajuste da câmera plana e dos links dirigidos entre fotos.

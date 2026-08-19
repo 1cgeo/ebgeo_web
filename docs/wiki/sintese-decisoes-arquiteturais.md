@@ -72,13 +72,13 @@ O 360 deixou de ser microsserviço separado e virou o módulo `sv360` do backend
 
 O preço da absorção foi manter um **contrato congelado**: as rotas do `sv360` respondem nuas e com envelope de erro plano, diferente do global. Quebrar isso quebra clientes existentes. Ver [[streetview-360]], [[sintese-contratos-congelados]], [[sintese-contrato-erros-http]] e [[erros-api]].
 
-Decisão correlata de armazenamento: **BLOB pesado não vai para o Postgres**. Binários WebP do 360 ficam em SQLite por projeto (~41 GB no dataset real) e assets 3D em SQLite mais fallback de FS; o Postgres guarda metadado e ponteiro. O nome do `.db` é derivado server-side de `(orgId, slug)` e o `db_filename` do manifest do cliente é **ignorado**, como guard anti-overwrite cross-OM. Ver [[assets3d-distribuicao]], [[catalogo-3d]], [[calibracao-e-grafo-360]] e [[ingestao-projetos-360]].
+Decisão correlata de armazenamento: **BLOB pesado não vai para o Postgres**. Binários WebP do 360 ficam em SQLite por projeto (~41 GB no dataset real) e assets 3D em SQLite mais fallback de FS; o Postgres guarda metadado e ponteiro. O nome do `.db` é derivado server-side de `(orgId, slug)` e o `db_filename` do manifest do cliente é **ignorado**, como guard anti-overwrite cross-OM. Ver [[assets3d-distribuicao]], [[resources-catalogo]], [[calibracao-e-grafo-360]] e [[ingestao-projetos-360]].
 
 ## Persistência: JSONB e PostGIS coexistindo isolados por schema
 
-Um banco, três schemas: `public` (atlas e features com geometria em **JSONB**, sem PostGIS), `ng` (gazetteer PostGIS, catálogo 3D, zonas) e `sv360`. PostGIS foi **aditivo**: não converteu o schema do atlas.
+Um banco, três schemas: `public` (atlas e features com geometria em **JSONB**, sem PostGIS), `ng` (só o gazetteer, desde que o eixo de acesso e o segundo catálogo 3D saíram em 2026-08-19) e `sv360`. PostGIS foi **aditivo**: não converteu o schema do atlas.
 
-Armadilha de deploy: a migração que cria a extensão PostGIS é untrusted, exige superusuário e roda **incondicionalmente**. Logo **PostGIS é pré-requisito de qualquer deploy completo, mesmo um deploy só do atlas**. Ver [[deploy-backend]], [[gazetteer-nomes-geograficos]] e [[zonas-acesso-geografico]].
+Armadilha de deploy: a migração que cria a extensão PostGIS é untrusted, exige superusuário e roda **incondicionalmente**, e roda em dois baselines independentes (`backend/src/database/migrations/006_ng.sql` e `backend/src/database/migrations/007_sv360.sql`, cada um autossuficiente de propósito). Logo **PostGIS é pré-requisito de qualquer deploy completo, mesmo um deploy só do atlas**. Ver [[deploy-backend]] e [[gazetteer-nomes-geograficos]].
 
 Migrações são **forward-only, sem rollback, rastreadas por NOME de arquivo**. Nunca renumere, renomeie ou reordene uma migração já aplicada; para corrigir defeito, adicione a próxima. A mesma convenção levou o schema de comentário a entrar **editando um baseline in-place**, não numa migração nova.
 
@@ -107,7 +107,7 @@ A permissão por atlas é um **terceiro** eixo, resolvido em waterfall (owner, d
 
 ## O que fica fora do sync
 
-Gazetteer, catálogo 3D, assets e panoramas 360 são **REST read-only** sobre PostGIS, com autorização embutida na própria query SQL. A consequência dupla: **não existe caminho de UI que contorne a autorização**, e também não existe push de invalidação, então mudança de zona não derruba resultado já entregue. Ver [[sintese-modulos-fora-do-sync]], [[ranking-busca-toponimos]], [[hardening-borda-api]] e [[zonas-acesso-geografico]]; superfícies vizinhas em [[sync-admin-operacoes]], [[atlas-import-offline]], [[api-keys]], [[auditoria]], [[client-id-estavel]] e [[modulo-temporal]].
+Gazetteer, catálogo, assets e panoramas 360 são **REST read-only**, e a autorização de quem a tem vive no próprio SQL ou num gate montado na rota, nunca numa camada de UI: **não existe caminho de cliente que a contorne**. Não existe também push de invalidação, então revogar uma concessão não derruba o resultado já entregue. O gazetteer é o caso extremo dessa família e a exceção da frase anterior: ele não tem autorização nenhuma desde 2026-08-19, quando o eixo de acesso saiu por não ter nem tela que o administrasse nem escritor que o alimentasse. Ver [[sintese-modulos-fora-do-sync]], [[ranking-busca-toponimos]], [[acesso-a-recurso-privado]] e [[hardening-borda-api]]; superfícies vizinhas em [[sync-admin-operacoes]], [[atlas-import-offline]], [[api-keys]], [[auditoria]], [[client-id-estavel]] e [[modulo-temporal]].
 
 ## Não-objetivos declarados (lista curta)
 

@@ -81,7 +81,7 @@ Armadilhas:
 - Camada de análise nova precisa de `bounds` de 4 posições ou é descartada sem aviso.
 - Nunca leia `config` antes do merge de boot.
 
-Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-cache`, para que edições de catálogo propaguem na requisição seguinte (contraste com [[canal-collab-websocket]]). Erros seguem [[erros-api]]; na prática falha aqui é banco fora, e derruba o boot do frontend inteiro. Ver também [[catalogo-3d]], [[assets3d-distribuicao]], [[autenticacao-jwt]].
+Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-cache`, para que edições de catálogo propaguem na requisição seguinte (contraste com [[canal-collab-websocket]]). Erros seguem [[erros-api]]; na prática falha aqui é banco fora, e derruba o boot do frontend inteiro. Ver também [[resources-catalogo]], [[assets3d-distribuicao]], [[autenticacao-jwt]].
 
 ## Memoização no servidor (desde 2026-07-25): invalidada na escrita, não por tempo
 

@@ -10,7 +10,14 @@
 // ============================================================================
 // BUSCA - ordenacao em TRES CHAVES LEXICOGRAFICAS, nao em soma ponderada.
 // ============================================================================
-// $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable), $5 = userId (uuid|null).
+// $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable).
+//
+// NAO HA PREDICADO DE ACESSO AQUI, e a ausencia e decisao, nao esquecimento. Ate
+// 2026-08-19 esta consulta filtrava por `access_level` e por zona geografica, e o
+// eixo inteiro foi removido como residuo: o gazetteer e busca de toponimo, e o dono
+// definiu que ela nao tem restricao nenhuma. Quem for "endurecer" isto de volta
+// esta reintroduzindo um sistema que ja foi medido como morto (as zonas tinham API
+// de admin e nenhuma tela, e a tabela de membros de grupo nunca teve escritor).
 //
 // Ate 2026-07-26 isto era uma soma de 7 criterios com pesos somando 1.00, herdada
 // verbatim do servico_nomes_geograficos. A troca nao foi opiniao: foi medida contra
@@ -111,9 +118,12 @@ candidatos AS (
     -- Liveness is part of the ACCESS FILTER, not a nicety. flexibleAuth only
     -- reconciles against the DB in the last 5 minutes of a token's life, so between a
     -- deactivation and that window a disabled account still carries a valid JWT. The
-    -- sibling routes (/feicoes, /catalogo3d) refuse it at once; this one kept serving
-    -- PRIVATE place names, contradicting the header of this very file, which assigns
-    -- the SQL the job of not leaking private data "even with an app bug".
+    -- This route kept serving PRIVATE place names to a deactivated account,
+    -- contradicting the header of this very file, which assigns the SQL the job of
+    -- not leaking private data "even with an app bug". (The two sibling routes that
+    -- this paragraph used to compare against, /feicoes and /catalogo3d, were removed
+    -- on 2026-08-19 with edificacoes and the second 3D catalog; the liveness check
+    -- now rides inside fn_has_global_data_access, which is where it belongs.)
     --
     -- A metade ORGANIZACIONAL da mesma reconciliacao faltava ate 2026-07-25: o caminho
     -- estrito responde 403 "Organization is inactive" (getLiveAuthState, em
@@ -122,14 +132,6 @@ candidatos AS (
     -- AUSENTE conta como ativa (anomalia, nao desativacao deliberada), dai o
     -- COALESCE(o.is_active, true).
     -- (No backticks in this comment: the query is a JS template literal.)
-    AND ( n.access_level = 'public'
-          OR ($5::uuid IS NOT NULL AND EXISTS (
-                SELECT 1 FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
-                 WHERE u.id = $5 AND u.is_active = true AND COALESCE(o.is_active, true) = true
-              ) AND (
-                EXISTS (SELECT 1 FROM users WHERE id = $5 AND role = 'admin' AND is_active = true)
-                OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($5) uz WHERE ST_Contains(uz.geom, n.geom))
-          )) )
   ORDER BY sim DESC, dist ASC
   LIMIT 500
 ),
@@ -186,25 +188,3 @@ ORDER BY score DESC
 LIMIT 5
 `;
 
-// /feicoes (3D building click) with EMBEDDED access filter.
-// $1 = lon, $2 = lat, $3 = z, $4 = userId (uuid|null). edificacoes is SRID 4326;
-// zones are 4674, so the zone is transformed to 4326 for ST_Contains.
-export const FEICOES = `
-SELECT e.id, e.nome, e.municipio, e.estado, e.tipo, e.altitude_base, e.altitude_topo,
-  CASE
-    WHEN $3 BETWEEN e.altitude_base AND e.altitude_topo THEN 0
-    WHEN $3 < e.altitude_base THEN e.altitude_base - $3
-    ELSE $3 - e.altitude_topo
-  END AS z_distance,
-  ST_Distance(e.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS xy_distance
-FROM ng.edificacoes e
-WHERE ST_DWithin(e.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 3)
-  AND ( e.access_level = 'public'
-        OR ($4::uuid IS NOT NULL AND (
-              EXISTS (SELECT 1 FROM users WHERE id = $4 AND role = 'admin')
-              OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($4) uz
-                         WHERE ST_Contains(ST_Transform(uz.geom, 4326), e.geom))
-        )) )
-ORDER BY z_distance ASC, xy_distance ASC
-LIMIT 1
-`;

@@ -451,8 +451,9 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     const corpo = migracao.slice(i, migracao.indexOf('$$;', i));
     const ocorrencias = corpo.match(/expires_at > NOW\(\)/g) ?? [];
     assert.equal(
-      ocorrencias.length, 2,
-      'o prazo entra no braço DIRETO e no EXISTS do D4. Só no primeiro, o empréstimo de atlas '
+      ocorrencias.length, 3,
+      'o prazo entra no braço DIRETO, no braço de GRUPO e no EXISTS do D4. Só no primeiro, o '
+      + 'empréstimo de atlas '
       + 'sobrevive à expiração da concessão do dono — a morte moraria em metade do predicado'
     );
   });

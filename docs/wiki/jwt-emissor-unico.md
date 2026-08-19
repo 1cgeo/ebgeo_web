@@ -41,13 +41,13 @@ Um token sem claims de organização é remintado como `org_role: 'viewer'` / `o
 O token de link público ([[link-publico]]) não carrega claim algum de organização, e nele convivem **dois** marcadores que é fácil confundir por serem o mesmo tipo de principal:
 
 - **O claim `isPublic` marca o TIPO** e é checado **primeiro**, para confinar o visitante ao atlas que emitiu o token (`confineVisitorPrincipal` em `backend/src/middleware/auth.js`, e o par em `backend/src/middleware/permissions.js`). Confinamento vem antes de isenção: um token que se declara público fica preso ao seu atlas seja qual for o formato do `sub`.
-- **O `sub` fora do formato UUID (`public-<uuid>`) governa a ISENÇÃO** de reconciliação viva (`backend/src/middleware/auth.js`), da renovação deslizante (`backend/src/middleware/flexible-auth.js`) e da busca em `atlas_shares` (`backend/src/middleware/permissions.js`), porque não há linha em `users` para reconciliar. O gazetteer usa a mesma convenção por outra razão: normalizar o `sub` sintético para `null` antes do cast `::uuid` ([[gazetteer-nomes-geograficos]]).
+- **O `sub` fora do formato UUID (`public-<uuid>`) governa a ISENÇÃO** de reconciliação viva (`backend/src/middleware/auth.js`), da renovação deslizante (`backend/src/middleware/flexible-auth.js`) e da busca em `atlas_shares` (`backend/src/middleware/permissions.js`), porque não há linha em `users` para reconciliar.
 
 Se você criar outro tipo de principal sintético, mantenha o `sub` fora do formato UUID. Um `sub` UUID sem linha correspondente entra no caminho de reconciliação, e as isenções falham *em silêncio* (viram consulta vazia), não com erro. Ver [[autenticacao-jwt]] e [[canal-collab-websocket]].
 
 ## Fronteiras que o JWT não decide
 
-Nada no token decide permissão de atlas: ela é resolvida contra o banco no handshake do WebSocket ([[canal-collab-websocket]], [[permissoes-atlas]], [[compartilhamento-atlas]]). São três eixos independentes, sintetizados em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
+Nada no token decide permissão de atlas: ela é resolvida contra o banco no handshake do WebSocket ([[canal-collab-websocket]], [[permissoes-atlas]], [[compartilhamento-atlas]]). São quatro eixos independentes, sintetizados em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
 
 O frontend também não decide nada com o token: ele nunca decodifica o JWT, montando a identidade a partir do objeto `user` da resposta REST. O token é opaco no cliente ([[autenticacao-jwt]], [[sessao-boot-e-ciclo-de-vida]]).
 
