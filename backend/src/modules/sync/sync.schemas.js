@@ -1,5 +1,6 @@
 // Path: src/modules/sync/sync.schemas.js
 import Joi from 'joi';
+import { scrubOperationPayloads } from './free-field.schemas.js';
 
 // Upper bound on the number of operations a single push may carry.
 // Aligned with the batch/ack contract refined in fase-1.
@@ -58,7 +59,15 @@ const operationSchema = Joi.object({
   .or('entityType', 'target')
   .or('operationType', 'type')
   .or('entityId', 'targetId')
-  .unknown(true);
+  .unknown(true)
+  // F14 — THE WRITE BORDER FOR FREE-FORM JSONB. `data`/`changes`/`previousData` are the only
+  // client-authored object graphs this server stores and republishes, and until now `.unknown(true)`
+  // meant "store the graph". The rule depends on `entityType`, a SIBLING of the payload, which is
+  // why it hangs off the whole operation instead of off each payload key. It DISCARDS what it does
+  // not accept and never rejects: a 4xx here freezes the client's outbound queue, and a queue that
+  // cannot drain is a worse defect than a field that does not persist. See
+  // `free-field.schemas.js` for the two regimes and for the ceiling.
+  .custom(scrubOperationPayloads);
 
 export const pushSchema = Joi.object({
   operations: Joi.array().items(operationSchema).min(1).max(MAX_OPS_PER_PUSH).required(),

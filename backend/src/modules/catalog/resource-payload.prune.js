@@ -16,22 +16,45 @@
 // are `middleware/prune-resource-payload.js` (every `res.json`) and `collab/collab.send.js`
 // (every `ws.send`).
 //
-// THE DECISION IS THE SHAPE OF THE NODE. Any object whose `type` claims a catalog resource
-// (`claimsCatalogResource`, i.e. `data_layer` / `analysis_layer`) loses its DEFINITION
-// (`name`/`config`) wherever it sits: as an op payload, inside a map document under
-// `catalogLayers`, inside `analysis_layers`, inside `previousData`/`changes`, at any nesting.
+// THE DECISION IS THE CLIENT'S STAMP, PLUS THE SHAPE. This line said "THE DECISION IS THE SHAPE OF
+// THE NODE", and that was false in the direction that matters: the discriminator is `node.type`, a
+// key the CLIENT writes (`claimsCatalogResource`, i.e. `data_layer` / `analysis_layer`). An object
+// with the same shape and NO `type` (`{ name, config: { source: { url } } }`) crosses this
+// boundary untouched, and that is deliberate. What IS stripped, wherever it sits (an op payload, a
+// map document under `catalogLayers`, `analysis_layers`, `previousData`/`changes`, any nesting):
+// the DEFINITION (`name`/`config`) of a node that claims a catalog type.
 //
-// HILLSHADE IS NOT A CATALOG RESOURCE, and this is the regression that would be quiet in the
-// tests and loud on the screen: it has no row in any catalog table and its definition is static.
-// `claimsCatalogResource` answers false for it, so it is never touched. Do not widen the
-// predicate to "anything with a `config`" — that takes the shaded relief off everyone's map.
+// THE CEILING OF THAT, MEASURED, so nobody re-derives it by widening the predicate. Bare shape
+// cannot be the outbound rule, because two legitimate payloads have exactly that shape. HILLSHADE
+// IS NOT A CATALOG RESOURCE, and this is the regression that would be quiet in the tests and loud
+// on the screen: it has no row in any catalog table, its definition is static, and it is written
+// `{name, config.source.url}` (`tests/integration/poda-por-conteudo.test.js`, `entradaDoRelevo`).
+// `claimsCatalogResource` answers false for it, so it is never touched. The catalog REST listing
+// has the same shape from the other side: its columns ARE `id, name, description, config`
+// (`catalog.service.js` COLS), so `GET /api/v1/data-layers` returns `{name, config}` with no
+// `type` at all. Widening the predicate to "anything with a `config`" takes the shaded relief off
+// everyone's map AND empties the catalog panel.
+//
+// WHERE THE BARE SHAPE IS ANSWERED INSTEAD: at the WRITE border
+// (`catalog/resource-definition.scrub.js` + `sync/free-field.schemas.js`, F14). What may not be
+// let OUT by shape can be refused ENTRY by shape, because no client writer nests a catalog-row
+// shaped object inside a domain field. That asymmetry is the whole reason the two files exist.
 //
 // THE ONE EXEMPTION, AND WHY IT CANNOT BE FORGED. The snapshot legitimately serves a definition:
 // `rehydrateCatalogLayer` resolves it from the catalog through the same (principal, atlas)
 // predicate `/resource-access/visible` uses, so what it puts back is what THIS caller may see.
 // That authorization is recorded by OBJECT IDENTITY, in a WeakSet, and never on the wire — a
 // wire-visible marker would be a key any client could write into its own payload to smuggle a
-// definition past the boundary. Identity has a hard consequence, stated here because it is the
+// definition past the boundary.
+//
+// THE EXEMPTION COVERS A FIELD, NEVER A NODE, and this is what the F13 review found (V-A). While
+// the served ENTRY carried the mark, the walk returned it whole, including the half the CLIENT
+// wrote: a definition planted under `styleOverrides` of a PUBLIC entry (which the visitor is
+// entitled to see, hence rehydrated, hence marked) rode out with it, measured. The invariant is
+// now narrow enough to state in one line: ONLY AN OBJECT THIS SERVER BUILT FOR THIS RESPONSE IS
+// EVER MARKED. `rehydrateCatalogLayer` marks the `config` it assembles and nothing else, so the
+// entry around it is walked like any other payload and the client's keys inside it are pruned
+// normally. Identity has a hard consequence, stated here because it is the
 // one way to break this design silently: the exemption does NOT survive
 // `JSON.parse(JSON.stringify(x))`. A producer that serialises an authorized payload ITSELF and
 // hands the boundary a string gets it pruned. That is why `handleSyncRequest` hands `ws.send` the
@@ -62,8 +85,13 @@ export const MAX_PRUNE_DEPTH = 64;
 const authorized = new WeakSet();
 
 /**
- * Records that this object's definition was resolved by the server for the current principal, so
- * the boundary must leave it alone.
+ * Records that THIS SERVER BUILT this object for the current principal, so the boundary must leave
+ * it and its subtree alone.
+ *
+ * Never call it on an object that carries a client-written key: that is exactly what reopened the
+ * boundary in F13 (V-A). Assemble the authorized value first, mark THAT, and let the surrounding
+ * payload be walked.
+ *
  * @template T
  * @param {T} node
  * @returns {T} The same object, for chaining.
@@ -94,8 +122,16 @@ const DISCRIMINADORES = Object.keys(CATALOG_LAYER_ID_PREFIX).map((t) => `"${t}"`
 
 /**
  * Does this object still hold a definition? Asked before pruning so an ALREADY pruned entry is
- * returned by identity instead of copied — the boundary runs after the op-level prune on the hot
- * relay path, and a copy per node there would be pure waste.
+ * returned by identity instead of copied.
+ *
+ * The reason used to be written as "the boundary runs after the op-level prune on the hot relay
+ * path". MEASURED, IT DOES NOT: `pruneCatalogLayerOperation` has exactly one caller in `src/`
+ * (`toFrontendOperation`, in `sync.service.js`), which serves the INCREMENTAL PULL. On the hot
+ * relay (`handleOperation` then `broadcastToRoom`, `collab.handlers.js`) this boundary is the
+ * FIRST prune, not the second. The identity check still earns its line, for an honest reason: most
+ * nodes of most payloads hold no definition at all, and copying every one of them would turn a
+ * read of the tree into a rebuild of it.
+ *
  * @param {Object} node
  * @returns {boolean}
  */
@@ -139,11 +175,18 @@ function walk(node, depth) {
     return changed ? out : node;
   }
 
-  // Server-resolved definition: left whole, children included. Its `config` IS the authorized
-  // catalog row, so descending into it could only take away what the principal is entitled to.
+  // An object the SERVER built for this response: left whole, children included. In practice it is
+  // the assembled `config`, which IS the authorized catalog row, so descending into it could only
+  // take away what the principal is entitled to. It is never an entry mixing server and client
+  // keys; see the header, THE EXEMPTION COVERS A FIELD.
   if (authorized.has(node)) return node;
 
-  if (claimsCatalogResource(node.type) && holdsDefinition(node)) {
+  // The definition survives only when the `config` in this node is the one the server just
+  // resolved. Asking about `node.config` instead of about `node` is the F14 correction: the entry
+  // is then WALKED, so whatever the client stored beside the definition is pruned like any other
+  // payload. `WeakSet.has` answers false for a primitive and for `undefined`, so a `name` with no
+  // `config`, and a client-written `config`, both fall through to the prune.
+  if (claimsCatalogResource(node.type) && holdsDefinition(node) && !authorized.has(node.config)) {
     // `pruneCatalogLayerDefinition` rescues the reference into `originalId` when the entry's own
     // id does not carry the prefix — without that rescue a pre-prefix entry would lose the
     // definition AND its only address, leaving a layer nobody can resolve.

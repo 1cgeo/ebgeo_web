@@ -10,9 +10,7 @@ import {
   catalogLayerReference, catalogRefKey, claimsCatalogResource, pruneCatalogLayerDefinition,
 } from '../catalog/catalog-layer.ref.js';
 import { assertCatalogTableOf } from '../resource-access/resource-access.types.js';
-import {
-  markResourceDefinitionAuthorized, isResourceDefinitionAuthorized,
-} from '../catalog/resource-payload.prune.js';
+import { markResourceDefinitionAuthorized } from '../catalog/resource-payload.prune.js';
 import { pruneCatalogLayerOperation } from './catalog-layer-op.js';
 
 /**
@@ -863,15 +861,24 @@ function rehydrateCatalogLayer(entry, id, definitions) {
   if (!def) return local;
   // MARKED AUTHORIZED, and this is what keeps the outbound boundary from undoing the rehydration.
   // `resource-payload.prune.js` strips a definition from every payload leaving the server; this
-  // entry is the one legitimate exception, because the definition was just resolved against what
-  // THIS principal may see (`loadCatalogDefinitions`, the same (principal, atlas) predicate
+  // definition is the one legitimate exception, because it was just resolved against what THIS
+  // principal may see (`loadCatalogDefinitions`, the same (principal, atlas) predicate
   // `/resource-access/visible` uses). The mark is object IDENTITY and never a wire field: a wire
   // field would be a key any client could write into its own payload to smuggle a definition past
   // the boundary. It therefore does not survive serialization, which is why the WS snapshot is
   // handed to `ws.send` as an object (`collab.handlers.js:handleSyncRequest`).
-  return markResourceDefinitionAuthorized({
-    ...local, name: def.name, config: { id: def.id, name: def.name, ...def.config },
-  });
+  //
+  // ONLY THE `config` THIS FUNCTION BUILT IS MARKED, never the entry around it (F14, V-A). The
+  // entry is half local state the CLIENT wrote, and marking it made the boundary return that half
+  // whole: the F13 review planted a definition of a PRIVATE layer under `styleOverrides` of a
+  // PUBLIC entry and it came out on the wire. Marking the field instead leaves the entry subject
+  // to the walk, which prunes the client's half exactly as it prunes any other payload. `name` is
+  // a string and needs no mark: the walk copies primitives through.
+  return {
+    ...local,
+    name: def.name,
+    config: markResourceDefinitionAuthorized({ id: def.id, name: def.name, ...def.config }),
+  };
 }
 
 /**
@@ -976,19 +983,18 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       // is the entry with its DEFINITION refreshed (or withheld) instead of the copy the client
       // stored. See rehydrateCatalogLayer.
       //
-      // The authorization mark is carried ACROSS the spread by hand: the spread builds a NEW
-      // object, and identity is the whole mechanism, so a rehydrated definition that is not
-      // re-marked here would be stripped again by the outbound boundary and the layer would reach
-      // an entitled user as "camada indisponível". Only the entries that actually got a definition
-      // back are marked; a stripped entry stays subject to the boundary, so a defect in the
-      // rehydration cannot ride out on an exemption it did not earn.
-      map.catalogLayers = rawCatalogLayers.map((c) => {
-        const rehidratada = rehydrateCatalogLayer(c.data, c.id, definicoesDeCatalogo);
-        const servida = { id: c.id, ...rehidratada, sync: buildSyncMetadata(c) };
-        return isResourceDefinitionAuthorized(rehidratada)
-          ? markResourceDefinitionAuthorized(servida)
-          : servida;
-      });
+      // NOTHING IS RE-MARKED HERE, and the deletion is the F14 fix (V-A). This used to re-stamp
+      // the whole SERVED entry, because the mark is object identity and the spread builds a new
+      // object; the cost was that the exemption then covered the client's half of that object too.
+      // Since `rehydrateCatalogLayer` marks the `config` OBJECT, and a spread copies the reference
+      // rather than the value, the mark survives both spreads on its own: the entry is walked by
+      // the outbound boundary, its `config` comes back by identity, and anything the client stored
+      // beside the definition is pruned.
+      map.catalogLayers = rawCatalogLayers.map((c) => ({
+        id: c.id,
+        ...rehydrateCatalogLayer(c.data, c.id, definicoesDeCatalogo),
+        sync: buildSyncMetadata(c),
+      }));
       // Spatial comments (prefetched once above, grouped by map_id); empty for read-only viewers.
       map.comments = commentsByMap[map.id] || [];
 

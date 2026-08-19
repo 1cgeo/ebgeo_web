@@ -350,10 +350,10 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
     // O GESTO QUE FECHA OS DOIS RESIDUAIS DE UMA VEZ, e ele é o gesto real do cliente: renomear o
     // mapa manda uma op carimbada `map` com o DOCUMENTO INTEIRO. Aqui o documento leva as duas
     // cargas de uma vez — `catalogLayers` (V2) e `analysis_layers` (V3, o saco JSONB livre que
-    // nenhum schema valida por dentro). A op é aceita: o servidor não recusa a carga, ele a
-    // guarda, e é na SAÍDA que a definição some.
+    // nenhum schema validava por dentro).
+    const opDoRename = randomUUID();
     await push(tokenDono, [{
-      id: randomUUID(),
+      id: opDoRename,
       entityType: 'map',
       operationType: 'update',
       entityId: mapa.id,
@@ -366,6 +366,27 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
       timestamp: Date.now(),
       clientId: `c-f13-${sufixo}`,
     }]);
+
+    // A F14 FECHOU A PORTA DE ENTRADA, e por isso o push acima NÃO deixa mais a definição em
+    // `maps.analysis_layers` nem no log: `sync/free-field.schemas.js` a retira antes da escrita.
+    // Este arquivo mede a poda de SAÍDA, que existe justamente para o que já está gravado — e é o
+    // argumento que dispensou uma migração de limpeza. Então os dois portadores são REPOSTOS aqui
+    // pelo caminho que a borda não vê, e o que eles passam a representar é a LINHA HISTÓRICA,
+    // escrita antes da F14. (Que a borda os recuse hoje é o assunto de
+    // `definicao-na-borda-de-escrita.test.js`, não deste arquivo: um teste que mede duas coisas
+    // fica verde por uma delas.)
+    await db.query('UPDATE maps SET analysis_layers = $2::jsonb WHERE id = $1', [
+      mapa.id, JSON.stringify({ camadas: [entradaComCopia(ID_PRIVADA, PRIVADA)] }),
+    ]);
+    await db.query('UPDATE operations SET changes = $2::jsonb WHERE atlas_id = $1 AND op_id = $3', [
+      atlas.id,
+      JSON.stringify({
+        name: `Mapa renomeado ${sufixo}`,
+        catalogLayers: [entradaComCopia(ID_PRIVADA, PRIVADA), entradaDoRelevo()],
+        analysis_layers: { camadas: [entradaComCopia(ID_PRIVADA, PRIVADA)] },
+      }),
+      opDoRename,
+    ]);
 
     tokenVisitante = await getPublicToken(app, await makeAtlasPublic(db, atlas.id));
 

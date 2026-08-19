@@ -15,6 +15,9 @@ import {
 import { installOutboundResourcePrune } from '../../src/modules/collab/collab.send.js';
 
 const URL_SECRETA = '/tiles/segredo/{z}/{x}/{y}.pbf';
+// A URL que o chamador TEM direito de ver. Distinta da secreta de propósito: procurar a secreta
+// numa carga que só tivesse a pública passaria verde sem discriminar nada.
+const URL_PUBLICA = '/tiles/publica/{z}/{x}/{y}.pbf';
 
 const definicao = (id = 'data-restrita', type = 'data_layer') => ({
   id,
@@ -101,17 +104,47 @@ describe('poda por conteúdo — a decisão é a FORMA do nó, nunca o carimbo',
     assert.equal(no.config, undefined);
   });
 
-  it('AUTORIZAÇÃO por identidade: passa no objeto, e NÃO sobrevive à serialização', () => {
-    const autorizada = markResourceDefinitionAuthorized(definicao());
-    assert.ok(isResourceDefinitionAuthorized(autorizada));
-    assert.equal(pruneResourcePayload({ camada: autorizada }).camada, autorizada, 'sai intacta');
+  it('AUTORIZAÇÃO por identidade: cobre o CAMPO que o servidor montou, nunca o nó inteiro (V-A)', () => {
+    // A FORMA QUE A REIDRATAÇÃO PRODUZ HOJE, e a correção da F14 em uma linha: só o `config` é
+    // montado pelo SERVIDOR, e só ele é marcado. O resto da entrada é o que o CLIENTE escreveu, e
+    // continua sujeito à poda. Enquanto a marca cobria o NÓ, uma definição plantada sob
+    // `styleOverrides` de uma entrada PÚBLICA (que o visitante tem direito de ver, logo reidratada,
+    // logo marcada) saía junto com ela — medido pela revisão adversarial da F13.
+    const servida = {
+      id: 'data-publica',
+      type: 'data_layer',
+      visible: true,
+      name: 'Camada pública',
+      config: markResourceDefinitionAuthorized({ id: 'publica', source: { url: URL_PUBLICA } }),
+      styleOverrides: {
+        raster: { 'raster-opacity': 0.5 },
+        contrabando: definicao('data-privada'),
+      },
+    };
+    assert.equal(isResourceDefinitionAuthorized(servida.config), true, 'o campo é marcado');
+    assert.equal(isResourceDefinitionAuthorized(servida), false, 'o nó ao redor, NÃO: é o invariante');
+
+    const podada = pruneResourcePayload(servida);
+    assert.equal(podada.config.source.url, URL_PUBLICA, 'a definição que o servidor resolveu passa');
+    assert.equal(podada.config, servida.config, 'e passa por IDENTIDADE, sem cópia');
+    assert.equal(podada.name, 'Camada pública', 'com o nome que veio do catálogo');
+    assert.equal(podada.visible, true, 'e o estado por atlas do cliente');
+    assert.deepEqual(podada.styleOverrides.raster, { 'raster-opacity': 0.5 }, 'e o estilo dele');
+    assert.equal(podada.styleOverrides.contrabando.config, undefined, 'a plantada pelo cliente NÃO');
+    assert.ok(!JSON.stringify(podada).includes(URL_SECRETA), 'e a URL dela não resta em lugar nenhum');
+
+    // CONTROLE NEGATIVO: a MESMA entrada, com um `config` que o servidor não montou, perde a
+    // definição inteira. Sem este par, "a autorizada passa" seria o que se mede numa poda que não
+    // poda nada.
+    const forjada = { ...servida, config: { id: 'publica', source: { url: URL_PUBLICA } } };
+    assert.equal(pruneResourcePayload(forjada).config, undefined);
 
     // A CONSEQUÊNCIA QUE PRECISA ESTAR MEDIDA, porque é o único jeito de quebrar este desenho em
-    // silêncio: uma cópia da MESMA definição, sem a marca, é podada. É o que acontece com quem
+    // silêncio: uma cópia da MESMA entrada, sem a marca, é podada. É o que acontece com quem
     // serializa antes da fronteira — e a direção da falha é segura (a camada chega sem definição),
     // nunca um vazamento.
-    const copia = JSON.parse(JSON.stringify(autorizada));
-    assert.equal(isResourceDefinitionAuthorized(copia), false);
+    const copia = JSON.parse(JSON.stringify(servida));
+    assert.equal(isResourceDefinitionAuthorized(copia.config), false);
     assert.equal(pruneResourcePayload(copia).config, undefined);
   });
 
@@ -187,12 +220,16 @@ describe('fronteira de `ws.send` — cobre quem nunca ouviu falar dela', () => {
     const ws = socketFalso();
     installOutboundResourcePrune(ws);
 
-    const autorizada = markResourceDefinitionAuthorized(definicao('data-publica'));
+    // A entrada servida, na forma da F14: o `config` marcado, o resto do nó vindo do cliente.
+    const autorizada = {
+      id: 'data-publica', type: 'data_layer', visible: true, name: 'Pública',
+      config: markResourceDefinitionAuthorized({ id: 'publica', source: { url: URL_PUBLICA } }),
+    };
     ws.send({ type: 'sync_response', snapshot: { camadas: [autorizada, definicao('data-privada')] } });
 
     const frame = JSON.parse(ws.enviados[0].data);
     assert.equal(typeof ws.enviados[0].data, 'string', 'o objeto é serializado pela fronteira');
-    assert.equal(frame.snapshot.camadas[0].config.source.url, URL_SECRETA, 'a autorizada passa inteira');
+    assert.equal(frame.snapshot.camadas[0].config.source.url, URL_PUBLICA, 'a autorizada passa inteira');
     assert.equal(frame.snapshot.camadas[1].config, undefined, 'e a que ninguém autorizou, não');
   });
 
