@@ -17,6 +17,5 @@ const router = Router();
 // malformada de graça se o teto só contar o que passa na validação.
 router.get('/busca', gazetteerLimiter, nomesAccessLog, validate({ query: schemas.buscaSchema }), ctrl.busca);
 router.get('/feicoes', auth, nomesAccessLog, validate({ query: schemas.feicoesSchema }), ctrl.feicoes);
-router.get('/catalogo3d', auth, nomesAccessLog, validate({ query: schemas.catalogoSchema }), ctrl.catalogo3d);
 
 export { router as nomesRoutes };

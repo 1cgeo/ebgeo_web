@@ -62,7 +62,7 @@ O snapshot mistura deliberadamente snake_case (herdado das colunas) com camelCas
 
 1. **`layers[]` não tem objeto `sync`**: os metadados vêm planos no topo, ao contrário de atlas/map/group/briefing/3D/360. Código genérico com `entity.sync.version` quebra só em camadas.
 2. **`currentVersion` aparece duas vezes**, dentro de `snapshot` e ao lado dele. O cursor a guardar é o de fora.
-3. **`catalogLayers[]` (entidades com `sync`) é a única forma no snapshot.** Havia também uma coluna homônima do mapa, que saía ao lado; a migração 022 a apagou ([[tipos-entidade-sync]]).
+3. **`catalogLayers[]` (entidades com `sync`) é a única forma no snapshot.** Havia também uma coluna homônima do mapa, que saía ao lado; ela foi apagada do schema em 2026-08-18 ([[tipos-entidade-sync]]).
 4. **As chaves das coleções de feição não são `tipo + 's'`.** Várias são irregulares e congeladas (`FEATURE_TYPE_MAPPINGS`, `frontend/src/js/store/store.constants.js`), incluindo um plural incorreto e tipos invariáveis. O backend materializa o snapshot já nesses buckets e o cliente grava direto; bucket com nome errado não gera erro, a feição simplesmente some da tela. Quem decide a renderização é `properties.source` (singular), não a chave do bucket.
 5. **Metadados de sync de feição vivem dentro de `properties`**, não num objeto `sync` como nas demais entidades. `dirty` e `deleted` vêm sempre `false`: são campos do modelo local, materializados só para o shape bater, e não carregam informação do servidor.
 

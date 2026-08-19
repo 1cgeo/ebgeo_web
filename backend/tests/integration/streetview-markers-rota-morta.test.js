@@ -6,7 +6,7 @@
 //
 //   (A) a TABELA de catálogo `streetview_markers` e a rota `/api/v1/streetview-markers`
 //       montadas por `makeCatalogRouter` — nascidas de um `LIKE basemaps INCLUDING ALL`
-//       em 003_sync.sql, sem alimentar o /api/config, sem consumidor no frontend e sem
+//       no catálogo (005_catalogo.sql), sem alimentar o /api/config, sem consumidor no frontend e sem
 //       seed que as populasse. É o que a 021 apagou;
 //
 //   (B) o ARQUIVO `frontend/src/js/street_view_tool/streetview_markers.js`, que é a
@@ -50,7 +50,7 @@ const ROTAS_VIVAS = Object.freeze([
   '/api/v1/tilesets',
 ]);
 
-describe('021 — a rota de streetview-markers morreu; a fonte do 360 no mapa não', () => {
+describe('a rota de streetview-markers morreu; a fonte do 360 no mapa não', () => {
   let app, db, admin, tokenAdmin;
   const sufixo = randomUUID().slice(0, 8);
   const criados = [];

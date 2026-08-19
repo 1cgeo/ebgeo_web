@@ -323,7 +323,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
   // a `req.user` (o filtro de acesso embutido recebe `$5 = req.user?.id`), então o sub
   // sintético alcançava `$5::uuid`, o Postgres levantava 22P02 e o errorHandler devolvia
   // 400. A inversão é o que denuncia o defeito: SEM credencial nenhuma dava 200, e uma
-  // credencial LEGÍTIMA dava 400. As irmãs `/feicoes` e `/catalogo3d` param antes, no 403
+  // credencial LEGÍTIMA dava 400. A irmã `/feicoes` para antes, no 403
   // do confineVisitorPrincipal (`auth` estrito), e por isso o furo vivia só aqui.
   // ==========================================================================
   describe('86 — a public-link visitor token is anonymous to the gazetteer, never a 400', () => {

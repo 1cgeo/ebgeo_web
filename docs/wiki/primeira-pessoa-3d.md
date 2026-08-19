@@ -2,7 +2,7 @@
 
 Percorrer a pé um ambiente interno capturado por Gaussian Splatting, com colisão por voxel, marcadores curados e trena, dentro do EBGeo. O módulo é `frontend/src/js/first_person_3d_tool/`; esta página guarda o que a leitura dele não entrega: as decisões medidas, os instrumentos que mentiram na medição, e as armadilhas cujo sintoma é sucesso plausível.
 
-Vizinhas: [[catalogo-3d]] (a outra descoberta 3D, que o cliente não usa), [[assets3d-distribuicao]] (por onde os bytes saem), [[peso-do-pacote-web]] (o que prende biblioteca no payload), [[streetview-360]] (o viewer irmão, e o precedente que esta cena segue).
+Vizinhas: [[catalogo-3d]] (a outra descoberta 3D, que o cliente nunca usou e que saiu do sistema), [[assets3d-distribuicao]] (por onde os bytes saem), [[peso-do-pacote-web]] (o que prende biblioteca no payload), [[streetview-360]] (o viewer irmão, e o precedente que esta cena segue).
 
 ## A cena é uma linha de `tilesets`, e a escolha compra três coisas de graça
 

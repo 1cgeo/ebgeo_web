@@ -70,7 +70,7 @@ describe('3D assets serving', () => {
     // %2e%2e decodes to '..' and Express NORMALISES the URL path before routing,
     // so this request never reaches the assets3d handler: it resolves out of the
     // mount and falls through to the 404. (The handler's own out-of-ROOT refusal
-    // is 403 — exercised in nomes-catalogo3d-gaps with %5C, which Express does
+    // is 403 — exercised below with %5C, which Express does
     // not normalise.) Either way no file is served, which is the invariant.
     assert.equal(trav.status, 404, `an encoded '..' escape must not be served, got ${trav.status}`);
     assert.notEqual(trav.status, 200, 'a path escaping ROOT must never be served');

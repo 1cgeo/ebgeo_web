@@ -34,8 +34,8 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
       ? await trx.oneOrNone(Q.setCatalogAccessLevel(table), [accessLevel, resourceId])
       : await trx.oneOrNone(Q.SET_360_ACCESS_LEVEL, [accessLevel, resourceId]);
     if (!updated) throw new NotFoundError('Resource');
-    // O ALVO É COLUNA DE PRIMEIRA CLASSE desde a migração 020, e esta é a linha que
-    // motivou aquela migração. Até ela, as duas restrições do schema de 001_core.sql
+    // O ALVO É COLUNA DE PRIMEIRA CLASSE, e esta é a linha que motivou a mudança de
+    // schema. Até ela, as duas restrições do schema de auditoria (002_auditoria.sql)
     // empurravam tipo e id para dentro de `details` — o CHECK de `target_type` não
     // tinha valor para "camada de dados" ('MODEL' seria mentira para três dos quatro
     // tipos) e `target_id` era UUID enquanto o id de catálogo é um SLUG TEXTUAL

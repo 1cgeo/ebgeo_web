@@ -2,7 +2,7 @@
 //
 // O CENSO DO PAPEL GLOBAL, E A ÚNICA LISTA FECHADA QUE JÁ ABRIU.
 //
-// `users.role` teve dois valores desde 001_core.sql (`user`, `admin`) e hoje tem
+// `users.role` teve dois valores até a fase de papéis globais (`user`, `admin`) e hoje tem
 // QUATRO: `user`, `producer`, `credenciado`, `admin`. Eles NÃO são uma escada —
 // nenhum contém o outro, e compará-los por ordem é proibido. O padrão "lista fechada
 // de papel" já causou dois bugs reais neste repositório, nos DOIS pacotes, e sempre
@@ -206,13 +206,19 @@ const CENSO = [
 
   // ---------------- DADO: acesso a dado. Credenciado entra. -----------------------
   {
-    // UMA entrada para as QUATRO ocorrências, e não duas de dois, porque os dois
-    // textos são ANINHADOS: `SELECT EXISTS (SELECT 1 FROM users WHERE id =` contém
-    // o outro, então dois padrões encavalados contariam a mesma linha duas vezes e
-    // a soma nunca fecharia. Padrão de censo precisa ser disjunto.
+    // UMA entrada para as DUAS ocorrências, e não duas de uma, porque os textos são
+    // ANINHADOS quando a forma escalar existe: `SELECT EXISTS (SELECT 1 FROM users
+    // WHERE id =` contém o outro, e dois padrões encavalados contariam a mesma linha
+    // duas vezes. Padrão de censo precisa ser disjunto.
+    //
+    // ERAM QUATRO ATÉ A F15, e as duas que saíram eram a forma escalar `is_admin` de
+    // `CATALOGO_SELECT` e `CATALOGO_COUNT` — o segundo catálogo de modelo 3D, que foi
+    // REMOVIDO em vez de unificado. Este piso decrescente é o que provou a remoção:
+    // ele ficou vermelho dizendo "esperava 4, achei 2" no commit que apagou as duas
+    // consultas, que é exatamente o serviço que um censo com contagem presta.
     arquivo: 'src/modules/nomes/nomes.queries.js',
-    trecho: "EXISTS (SELECT 1 FROM users WHERE id =", n: 4, classe: DADO,
-    motivo: 'Gazetteer, nas duas formas (o EXISTS embutido no WHERE e o escalar is_admin): o SQL resolve o papel a partir do UUID, no banco, que é exatamente a forma que fn_has_global_data_access copia. Zona privada de nomes é DADO, então o credenciado deveria enxergá-la — e hoje NÃO enxerga, porque este eixo continua o antigo. Ver a nota de alcance no fim do arquivo.',
+    trecho: "EXISTS (SELECT 1 FROM users WHERE id =", n: 2, classe: DADO,
+    motivo: 'Gazetteer (BUSCA e FEICOES): o SQL resolve o papel a partir do UUID, no banco, que é exatamente a forma que fn_has_global_data_access copia. Zona privada de nomes é DADO, então o credenciado deveria enxergá-la — e hoje NÃO enxerga, porque este eixo continua o antigo. Ver a nota de alcance no fim do arquivo.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.service.js',

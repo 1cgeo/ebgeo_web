@@ -10,7 +10,7 @@
 // So the inversion is computed once and kept, and the invalidation hangs on the same write
 // that already invalidates the /api/config memo (`config.cache.js`).
 //
-// FOUR THINGS THIS INDEX DELIBERATELY DOES NOT REACH, named here so nobody reads its
+// THREE THINGS THIS INDEX DELIBERATELY DOES NOT REACH, named here so nobody reads its
 // coverage as complete:
 //
 //  1. A catalog URL that this route does not serve. Of the three canonical prefixes in
@@ -19,15 +19,10 @@
 //     still ENTER the index (a request that arrives here with that path is gated), but a
 //     deploy that serves them from the web server bypasses this file entirely. "The
 //     private 3D bytes are closed" is true of this route, not of nginx.
-//  2. `ng.catalogo_3d`. It is a SECOND catalog of 3D models, with its own `url` column and
-//     its own access axis (`access_level` + `ng.model_permissions`), unrelated to the
-//     F8-F10 axis these four tables live on. Gating it here would mean a second
-//     authorization predicate, which is the debt this whole axis exists not to contract.
-//     It stays a NAMED hole in the census.
-//  3. A row whose path sits at the ROOT of the asset tree. Its prefix would be empty and
+//  2. A row whose path sits at the ROOT of the asset tree. Its prefix would be empty and
 //     would match every request; such an entry is dropped in BOTH directions (a private
 //     root would deny the whole route, a public root would shadow every private prefix).
-//  4. Anything the catalog does not describe. A path no row claims is PUBLIC, which is
+//  3. Anything the catalog does not describe. A path no row claims is PUBLIC, which is
 //     exactly today's behavior and is what keeps the public model from regressing.
 //
 // `active` IS NOT FILTERED, and that is not an oversight: a soft-deleted private row keeps

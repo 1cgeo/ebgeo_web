@@ -44,7 +44,7 @@ O que reter aqui, porque atravessa arquivos:
 
 ## Armadilha de SRID
 
-`ng.nomes_geograficos` é `POINT, 4674` (SIRGAS 2000) e `ng.edificacoes` é `POLYGON, 4326` (`backend/src/database/migrations/004_ng.sql`). A diferença é deliberada e coberta por teste (`backend/tests/integration/nomes.test.js`). Por isso `/busca` constrói o ponto em 4674 e `/feicoes` em 4326, e o filtro de zona de `/feicoes` precisa de `ST_Transform(uz.geom, 4326)`, já que as zonas são 4674.
+`ng.nomes_geograficos` é `POINT, 4674` (SIRGAS 2000) e `ng.edificacoes` é `POLYGON, 4326` (`backend/src/database/migrations/006_ng.sql`). A diferença é deliberada e coberta por teste (`backend/tests/integration/nomes.test.js`). Por isso `/busca` constrói o ponto em 4674 e `/feicoes` em 4326, e o filtro de zona de `/feicoes` precisa de `ST_Transform(uz.geom, 4326)`, já que as zonas são 4674.
 
 Ao mexer em qualquer query aqui, confira o SRID antes de copiar-colar de uma rota para a outra.
 
@@ -60,9 +60,9 @@ Três escolhas que valem o byte:
 
 Assimetria proposital: `catalogo_3d` tem permissão linha a linha (direta ou por grupo), mas **nenhum ramo espacial de zona**. Um comentário em `backend/src/modules/nomes/nomes.queries.js` deixa o gancho para adicioná-lo sem reescrever a query.
 
-**A armadilha mais cara do módulo:** o predicado de acesso do catálogo (CTEs `user_role` + `user_model_permissions`) está **duplicado verbatim** entre `CATALOGO_SELECT` e `CATALOGO_COUNT`, mudando só o placeholder do `userId`. Nunca foi extraído para uma função SQL. Os dois rodam em `Promise.all` justamente para que `total` não minta sobre o que o usuário pode ver (`backend/src/modules/nomes/nomes.service.js`); ao editar o filtro, edite **os dois**, ou a contagem passa a divergir da listagem.
+**A armadilha mais cara do módulo saiu com o catálogo que a carregava.** O predicado de acesso do catálogo 3D deste schema estava **duplicado verbatim** entre a consulta de listagem e a de contagem, mudando só o placeholder do id de usuário, e o comentário nomeava uma função SQL (`fn_user_can_see_model`) que nunca foi escrita: editar um sem o outro fazia a paginação divergir da listagem, e os dois rodavam em paralelo, então a divergência não aparecia como erro. Em 2026-08-19 o catálogo inteiro saiu deste schema ([[catalogo-3d]]) e as duas consultas foram removidas. O que fica de lição é o desenho que [[acesso-a-recurso-privado]] adotou por causa dela: predicado de acesso nasce como FUNÇÃO SQL, para que não exista uma segunda cópia da regra.
 
-Metadados e distribuição dos assets estão fora daqui: ver [[catalogo-3d]] e [[assets3d-distribuicao]]. `/api/v1/assets3d` serve o binário sem auth (imutável, Range/ETag) e a descoberta é que fica gated pelo catálogo autenticado; ver [[sintese-cache-http-imutavel]].
+Metadados e distribuição dos assets estão fora daqui: a descoberta é a tabela de catálogo ([[resources-catalogo]]) e os bytes saem por [[assets3d-distribuicao]]. Este schema JÁ TEVE um catálogo de modelo 3D próprio, com permissão por modelo, e ele saiu em 2026-08-19 ([[catalogo-3d]]). `/api/v1/assets3d` serve o binário público sem auth (imutável, Range/ETag) e o privado passa pelo gate do recurso; ver [[sintese-cache-http-imutavel]].
 
 ## Log sem valores, por decisão
 
@@ -76,7 +76,7 @@ A carga é externa (FME), fora da API. Depois de **cada** carga de nomes é obri
 SELECT ng.refresh_busca();
 ```
 
-**Nenhum trigger calcula `cluster_id`**: `ng.refresh_busca` é a única fonte desse campo (`backend/src/database/migrations/004_ng.sql`, via `ng.recomputar_clusters()`). Esquecer o passo não gera erro: degrada em silêncio. Ver [[deploy-backend]].
+**Nenhum trigger calcula `cluster_id`**: `ng.refresh_busca` é a única fonte desse campo (`backend/src/database/migrations/006_ng.sql`, via `ng.recomputar_clusters()`). Esquecer o passo não gera erro: degrada em silêncio. Ver [[deploy-backend]].
 
 E degrada no sentido **contrário** ao que se espera. A dedup da busca é `SELECT DISTINCT ON (nome, tipo, cluster_id)`, e `DISTINCT ON` no PostgreSQL trata NULLs como iguais. Com `cluster_id` NULL em toda a tabela, todas as ocorrências de um mesmo `nome`+`tipo` colapsam em **uma única linha** (a mais próxima), inclusive homônimos legítimos a centenas de quilômetros. O sintoma é resultado **faltando**, não duplicado.
 

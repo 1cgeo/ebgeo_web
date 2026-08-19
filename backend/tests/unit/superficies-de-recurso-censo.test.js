@@ -31,7 +31,7 @@
 // QUATRO VARREDURAS INDEPENDENTES, e a independência é o ponto:
 //
 //   1. CONSULTA — toda linha de código (comentário removido antes) que TOCA uma tabela
-//      de recurso (`sv360.projects`/`sv360.photos`, `ng.catalogo_3d`, as quatro tabelas
+//      de recurso (`sv360.projects`/`sv360.photos`, as quatro tabelas
 //      de catálogo, inclusive por interpolação `FROM ${...}`) ou que chama um dos
 //      resolvedores de leitura do 360. Cada achado é atribuído à UNIDADE que o contém
 //      (a função ou a constante SQL declarada acima dele), e cada unidade precisa de
@@ -150,7 +150,6 @@ const P_CATALOGO = 'accessPredicate(';
 // SQL como `P_CONCESSAO`: quem carrega a regra agora é a chamada.
 const P_CATALOGO_AUTZ = 'catalogAuthorizationPredicate(';
 const P_PRODUCAO = 'fn_can_produce_resource';
-const P_3D = 'ng.model_permissions';
 
 // --- unidades SQL citadas por várias entradas DERIVADO ----------------------
 const U_SLUG = 'src/modules/streetview360/sv360.queries.js::GET_PROJECT_BY_SLUG';
@@ -299,23 +298,14 @@ const CENSO_CONSULTA = [
       + 'adivinhação de id um recurso que não pode abrir. Recusa POR OPERAÇÃO, nunca por lote.',
   },
 
-  // ================= catálogo 3D (schema ng): um eixo PARALELO ===============
-  {
-    arquivo: 'src/modules/nomes/nomes.queries.js', unidade: 'CATALOGO_SELECT', n: 1, classe: SQL,
-    predicado: P_3D,
-    motivo: 'O gazetteer de modelos 3D recorta as linhas, e recorta por um eixo DIFERENTE do resto '
-      + 'da casa: resolve `users.role = admin` direto (não `fn_has_global_data_access`) e permissão '
-      + 'por `ng.model_permissions` (não `resource_grants`), então não conhece credenciado, produtor '
-      + 'nem empréstimo. Está classificado como o que É; unificar é trabalho próprio, com o repro do '
-      + 'bug que o causar, nunca por arrumação.',
-  },
-  {
-    arquivo: 'src/modules/nomes/nomes.queries.js', unidade: 'CATALOGO_COUNT', n: 1, classe: SQL,
-    predicado: P_3D,
-    motivo: 'A contagem da paginação, com o predicado DUPLICADO verbatim da consulta acima. As duas '
-      + 'entram separadas de propósito: divergirem faria a paginação prometer páginas que a listagem '
-      + 'não entrega, e é o tipo de defeito que só aparece na última página.',
-  },
+  // O SEGUNDO CATÁLOGO DE MODELO 3D SAIU DAQUI, e a ausência é o registro: `ng.catalogo_3d`
+  // tinha um eixo de acesso PARALELO (`users.role = admin` direto mais `ng.model_permissions`,
+  // nunca `fn_has_global_data_access` nem `resource_grants`), duplicado verbatim entre
+  // `CATALOGO_SELECT` e `CATALOGO_COUNT`. Ele foi REMOVIDO na F15 em vez de unificado: a
+  // tabela não tinha consumidor no frontend, as duas tabelas de permissão dela não tinham
+  // escritor nenhum em `src/` (o filtro existia e era inalcançável), e o catálogo de modelo
+  // 3D que o app usa sempre foi `public.tilesets`. Duas entradas de censo a menos porque duas
+  // superfícies a menos.
 
   // ================= 360: leitura ============================================
   {
@@ -705,13 +695,6 @@ const CENSO_ROTA = [
 
   // ---------------- gazetteer e modelos 3D ------------------------------------
   {
-    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /catalogo3d', classe: R_FILTRADA,
-    gate: 'auth',
-    motivo: 'O catálogo de modelos 3D do schema `ng`, recortado no SQL por um eixo PARALELO '
-      + '(`ng.model_permissions` + `users.role`), que não conhece credenciado, produtor nem '
-      + 'empréstimo. Está declarado como o que é, e a unificação é trabalho próprio.',
-  },
-  {
     arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /busca', classe: R_FILTRADA,
     gate: 'validate',
     motivo: 'A busca do gazetteer, com filtro de ZONA embutido no SQL e contrato congelado de array '
@@ -733,8 +716,9 @@ const CENSO_ROTA = [
       + 'continua 200 sem credencial e `public, immutable`; modelo privado passa por '
       + '`gateDeAsset3d`, que compõe `requireAtlasPermission(read)` para o `?atlasId=` e '
       + '`fn_can_see_resource` para o recurso, e responde 404. O que resta aberto está NOMEADO em '
-      + '`assets3d-regime.js` e não é alcançável por esta rota: prefixo de catálogo servido por '
-      + 'nginx (`/3d/…`) e o segundo catálogo `ng.catalogo_3d`, que tem eixo de acesso próprio.',
+      + '`assets3d-regime.js` e não é alcançável por esta rota: o prefixo de catálogo servido por '
+      + 'nginx (`/3d/…`). O segundo catálogo, que era o outro buraco nomeado ali, deixou de '
+      + 'existir na F15.',
   },
 
   // ---------------- 360 -------------------------------------------------------
@@ -1068,8 +1052,8 @@ const CENSO_REGIME = [
       + 'não emite cabeçalho nenhum. O RISCO é o de qualquer resposta escopada sem `Cache-Control`: '
       + 'o RFC 9111 autoriza um cache compartilhado a guardá-la por heurística e repor a resposta de '
       + 'quem enxerga zona restrita para quem não enxerga. Fica nomeada em vez de coberta porque o '
-      + 'eixo do gazetteer é PARALELO (users.role + ng.model_permissions) e mexer nele é trabalho '
-      + 'próprio, com o repro do vazamento que o causar.',
+      + 'eixo do gazetteer é PARALELO (`users.role` mais as ZONAS de `ng.fn_user_zone_geoms`) e '
+      + 'mexer nele é trabalho próprio, com o repro do vazamento que o causar.',
   },
   {
     arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /feicoes', handler: 'feicoes',
@@ -1077,14 +1061,6 @@ const CENSO_REGIME = [
     motivo: 'As edificações do gazetteer, pelo mesmo eixo de zona da busca e com o mesmo RISCO: '
       + 'resposta que varia por chamador e sai sem `Cache-Control`, portanto guardável por heurística '
       + 'num cache compartilhado.',
-  },
-  {
-    arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /catalogo3d', handler: 'catalogo3d',
-    controller: 'src/modules/nomes/nomes.controller.js', classe: C_AUSENTE,
-    motivo: 'O catálogo de modelos 3D do schema `ng`, recortado por `ng.model_permissions`. Mesmo '
-      + 'RISCO das duas irmãs, e um agravante: o corpo carrega a `url` do tileset, e os BYTES do '
-      + 'tileset já saem por uma rota pública. Uma resposta desta reposta por cache compartilhado '
-      + 'entrega o caminho de um modelo privado a quem não o alcança.',
   },
   {
     arquivo: SV360_ROTAS, rota: 'GET /admin/projects', handler: 'listProjects',
@@ -1146,7 +1122,6 @@ const lerCodigo = (arquivo) => semComentarios(fs.readFileSync(path.join(RAIZ, ar
  */
 const CONTATO = [
   /\b(?:FROM|JOIN|INTO|UPDATE)\s+sv360\.(?:projects|photos)\b/i,
-  /\b(?:FROM|JOIN|INTO|UPDATE)\s+ng\.catalogo_3d\b/i,
   /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:tilesets|data_layers|analysis_layers|basemaps)\b/i,
   /\bFROM\s+\$\{/,
   /\b(?:listCatalog|getCatalogItem)\(/,

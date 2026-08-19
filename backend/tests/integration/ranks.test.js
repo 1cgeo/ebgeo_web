@@ -60,7 +60,7 @@ describe('Ranks (/api/v1/ranks)', () => {
 
       const rows = res.body.data;
       assert.ok(Array.isArray(rows));
-      // 001_core.sql seeds the whole EB rank ladder; these two anchor both ends.
+      // 001_identidade.sql seeds the whole EB rank ladder; these two anchor both ends.
       assert.ok(rows.some((r) => r.nome_abrev === 'Civ'));
       assert.ok(rows.some((r) => r.nome_abrev === 'Cap'));
 

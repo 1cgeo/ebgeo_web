@@ -97,7 +97,7 @@ export const idParamsSchema = Joi.object({
 // ============================================
 
 // Valid feature types — must match the frontend SOURCE_TYPES (store.constants.js) + the
-// processing outputs, and the features.valid_feature_type CHECK (002_atlas.sql).
+// processing outputs, and the features.valid_feature_type CHECK (003_atlas.sql).
 const VALID_FEATURE_TYPES = [
   // Basic
   'point', 'line', 'polygon', 'text', 'image',

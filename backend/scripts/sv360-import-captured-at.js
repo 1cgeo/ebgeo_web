@@ -6,7 +6,7 @@
 //
 // WHERE IT LANDS, and why the column is not called what the origin calls it:
 // the origin writes `photos.captured_at`. That column does NOT exist here, by
-// decision recorded at the end of migration 013_sv360_capture_runs.sql —
+// decision recorded at the end of migration 007_sv360.sql —
 // sv360.photos.capture_date has existed since migration 005 and is the SAME
 // measurement, the instant this photo was taken. One measurement, one column,
 // and the name translation lives in the ETL. This file is that ETL.
@@ -62,7 +62,7 @@ import { epochToInstant, localToInstant, readEpoch } from './sv360-survey-clock.
 // SQL
 // ---------------------------------------------------------------------------
 
-// The slug is unique per ORGANIZATION, not globally (005_sv360.sql), so --slug
+// The slug is unique per ORGANIZATION, not globally (007_sv360.sql), so --slug
 // covers every organization that owns a project by that name.
 // $1 = slug filter (text, NULL for every project)
 const SELECT_PROJECTS = `

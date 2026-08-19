@@ -1,5 +1,5 @@
 // Path: tests/integration/sv360-floors.test.js
-// StreetView 360 — ANDARES (migration 012_sv360_floors.sql):
+// StreetView 360 — ANDARES (migration 007_sv360.sql):
 //   GET /api/v1/sv360/projects/:slug/floors,
 //   the `floor_level` / `floor_label` attributes on the MVT 'fotos' layer,
 //   `camera.floor_label` and `targets[].floor_level` / `targets[].floor_label`

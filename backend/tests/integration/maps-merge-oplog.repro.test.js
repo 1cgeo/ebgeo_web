@@ -4,7 +4,7 @@
 //
 // `mergeMaps` moved the rows of six child tables with plain UPDATEs and wrote
 // nothing to `operations`, so the trigger that maintains `atlas.current_version`
-// (003_sync.sql:54-69) never fired. The only signal was the ephemeral `maps_merged`
+// (o trigger `trg_update_atlas_version`, 004_sync.sql) never fired. The only signal was the ephemeral `maps_merged`
 // broadcast, which reaches sockets connected at that instant.
 //
 // For a peer that missed it, the reconnect replay was empty BY CONSTRUCTION:

@@ -73,9 +73,9 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
   sem requisito de produto.
 - **Geometria do atlas é JSONB** (schema `public`, mesmo formato do IndexedDB). **PostGIS vive só nos
-  schemas `ng`** (nomes/edificações/catálogo 3D) **e `sv360`**. **Nunca** adicione PostGIS ao schema
+  schemas `ng`** (nomes e edificações) **e `sv360`**. **Nunca** adicione PostGIS ao schema
   do atlas (decisão: filtro espacial do atlas seria bbox em JS, não `ST_Intersects`).
-- **Controle de acesso embutido na query SQL** (`ng`, `sv360` e, desde a 017, o catálogo): o dado
+- **Controle de acesso embutido na query SQL** (`ng`, `sv360` e o catálogo): o dado
   privado não vaza nem com bug de app. Toda query com filtro de acesso **exige o par completo**, o
   teste negativo (quem não tem permissão não vê) **e o positivo do mesmo par** (quem tem, vê): o
   negativo sozinho passa idêntico se a fixture não existir, se a rota sumir ou se o filtro passar a
@@ -90,16 +90,19 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   administrador, com CHECK bicondicional contra `role`); `credenciado` LÊ todo recurso privado e
   **não escreve nada**. Censo em `tests/unit/papel-global-censo.test.js`, que reprova sítio novo
   não classificado.
-- **`users.organization_id` é LOTAÇÃO e não autoriza nada** (migração 019). Ele é auto-declarado no
+- **`users.organization_id` é LOTAÇÃO e não autoriza nada.** Ele é auto-declarado no
   auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, e conta sem e-mail nasce ativa na
   hora), e enquanto autorizava era escalação de privilégio por formulário público: escolher a OM
   alheia num `<select>` entregava todo projeto 360 oculto e privado dela. Todo ramo de autorização
   que lia lotação lê hoje o escopo de PRODUÇÃO. Repro em
   `tests/integration/auto-cadastro-om-nao-autoriza.repro.test.js`.
 - **Recurso de catálogo: QUATRO tabelas, CINCO tipos concedíveis.** As tabelas são `basemaps`,
-  `data_layers`, `analysis_layers` e `tilesets` (a `streetview_markers` foi apagada na 021, por
-  nunca ter tido leitor); os tipos de concessão e de empréstimo somam `sv360_project` às quatro.
-  O predicado de acesso é **uma definição só**, em função SQL (`fn_can_access_resource` e as duas de
+  `data_layers`, `analysis_layers` e `tilesets`; os tipos de concessão e de empréstimo somam
+  `sv360_project` às quatro. Existiu uma quinta tabela (`streetview_markers`), apagada por nunca ter
+  tido leitor, e o schema consolidado simplesmente não a cria: não a recrie por simetria. E existiu
+  um SEGUNDO catálogo de modelo 3D, no schema `ng`, com eixo de acesso próprio que nenhuma rota
+  alimentava; ele saiu inteiro em 2026-08-19 e `tilesets` é hoje a única descoberta de modelo 3D.
+  O predicado de acesso é **uma definição só**, em função SQL (`fn_can_see_resource` e as três de
   baixo), chamada de dentro das queries e nunca reimplementada em JS. **O papel é resolvido no
   BANCO, nunca lido do JWT**: `flexibleAuth` não reconcilia, então um credenciado rebaixado
   carregaria o papel antigo por até 15 min.
@@ -123,7 +126,7 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   UUID levanta `22P02`, que a borda traduz num 400 sem relação aparente com o assunto), e `'SYSTEM'`
   voltou a significar sistema em vez de depósito do alvo que não coube. **Ação declarada no CHECK
   sem emissor lê como "isto é auditado" e não é**: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` viveram assim
-  desde a 001. Quem cobra hoje é `tests/unit/auditoria-censo.test.js`, com piso decrescente de
+  desde o primeiro dia. Quem cobra hoje é `tests/unit/auditoria-censo.test.js`, com piso decrescente de
   buracos conhecidos.
 - **Contratos congelados do frontend**: mudar o *shape* exige teste de contrato e alinhamento:
   `GET /api/config` (config.js), `GET /nomes/busca` (array nu), metadado de foto `sv360` (câmera plana,
@@ -175,14 +178,29 @@ qual é com `ls src/database/migrations/`, nunca por esta linha: ela já afirmou
 das duas estava desatualizada, porque número fixo em prosa envelhece a cada migração.
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
 
+**A base é um conjunto de BASELINES POR DOMÍNIO, escritas no ESTADO FINAL do schema** (esmagamento de
+2026-08-19, o segundo desta casa: 22 arquivos incrementais viraram 8). A ordem entre elas é a de
+dependência de FK, não cronologia, e a última é pura consumidora (nada depende dela). Consequências
+que mordem quem não sabe: um banco criado antes do esmagamento **não é alcançável por upgrade** e
+precisa ser recriado (a guarda no topo da primeira baseline detecta os nomes antigos em `_migrations`
+e levanta com a instrução, em vez do enigmático "relation already exists"); e **nenhuma baseline pode
+conter um `ALTER` que desfaça o que ela mesma criou** — se o CHECK precisa ser mais largo, ele nasce
+largo.
+
 **DDL destrutiva** (`DROP CONSTRAINT`, `DROP TABLE`, `ALTER COLUMN ... TYPE`) exige **uma linha por
 ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`), **no mesmo
 commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
 da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
 Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. **Forward-only vale a partir do momento em que a migração sai daqui**: reescrever
-um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse caso o `UPDATE`
-defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.
+como destrutivo. **A lista está VAZIA hoje**, porque num schema esmagado nada é criado para ser
+derrubado; ela só discrimina alguma coisa por causa do teste de controle negativo que roda os mesmos
+padrões contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai
+daqui**: reescrever um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse
+caso o `UPDATE` defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.
+
+**Migração roda por `t.none()`, que LANÇA se o arquivo devolver qualquer linha.** Chamar função numa
+migração é `PERFORM` dentro de um bloco `DO`, nunca um `SELECT` solto: o `SELECT` aborta a transação
+com "No return data was expected", mensagem que não aponta para o SQL culpado.
 
 ## Segurança (baseline)
 

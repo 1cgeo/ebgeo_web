@@ -18,10 +18,12 @@ import { getAtlas360Allowlist } from '@store/sync/atlas-settings.service.js';
 /**
  * Parses a catalog date into epoch ms.
  *
- * The catalog mixes two formats: 3D models carry DD/MM/YYYY (`data_captura`,
- * seeded that way in the backend) while 360 projects carry ISO (`capture_date`
- * is a TIMESTAMPTZ column). Returns null — never NaN — for anything it cannot
- * read, because a comparator that returns NaN corrupts the whole sort.
+ * The catalog mixes two formats, and both are live: 3D models carry `data_captura`
+ * as free text inside `config`, which an administrator types by hand (DD/MM/YYYY is
+ * what the legacy catalog used) and the gazetteer importer writes as ISO; 360
+ * projects carry `capture_date`, a TIMESTAMPTZ column, so always ISO. Returns null —
+ * never NaN — for anything it cannot read, because a comparator that returns NaN
+ * corrupts the whole sort.
  *
  * @param {string} dateStr
  * @returns {number|null} Epoch ms, or null when unparseable

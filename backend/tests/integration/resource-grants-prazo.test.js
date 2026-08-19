@@ -442,10 +442,12 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     );
 
     const migracao = fs.readFileSync(
-      path.join(RAIZ, 'src/database/migrations/019_escopo_de_producao.sql'), 'utf8'
+      path.join(RAIZ, 'src/database/migrations/008_acesso_a_recurso.sql'), 'utf8'
     );
-    const i = migracao.indexOf('CREATE OR REPLACE FUNCTION fn_granted_resource_ids');
-    assert.notEqual(i, -1, 'a função de resolução precisa estar na 019');
+    // `CREATE FUNCTION`, e não `CREATE OR REPLACE`: numa baseline nada está sendo
+    // substituído, e o plano falha alto numa colisão de nome em vez de sobrescrever.
+    const i = migracao.indexOf('CREATE FUNCTION fn_granted_resource_ids');
+    assert.notEqual(i, -1, 'a função de resolução precisa estar na baseline de acesso a recurso');
     const corpo = migracao.slice(i, migracao.indexOf('$$;', i));
     const ocorrencias = corpo.match(/expires_at > NOW\(\)/g) ?? [];
     assert.equal(

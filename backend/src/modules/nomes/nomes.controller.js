@@ -1,6 +1,6 @@
 // Path: src/modules/nomes/nomes.controller.js
-// NOTE: /busca and /catalogo3d return FROZEN frontend contracts that do NOT use
-// the standard { data } envelope. Do not wrap them.
+// NOTE: /busca returns a FROZEN frontend contract that does NOT use the standard
+// { data } envelope. Do not wrap it.
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as nomesService from './nomes.service.js';
 
@@ -12,7 +12,7 @@ const PRINCIPAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 /**
  * The user id these queries may receive, or null.
  *
- * Every gazetteer query casts it (`$5::uuid` in BUSCA, `$4::uuid` in FEICOES/CATALOGO), so the
+ * Every gazetteer query casts it (`$5::uuid` in BUSCA, `$4::uuid` in FEICOES), so the
  * synthetic `public-<uuid>` principal used to reach Postgres and raise 22P02 → HTTP 400. The
  * absurd part is which caller broke: NO credential resolved to null and returned 200, while a
  * LEGITIMATE public-link token turned the anonymous-capable `/busca` into a 400. `flexibleAuth`
@@ -35,10 +35,4 @@ export const busca = asyncHandler(async (req, res) => {
 export const feicoes = asyncHandler(async (req, res) => {
   const result = await nomesService.feicoes({ ...req.query, userId: principalUserId(req) });
   res.json(result ?? { message: 'Nenhuma edificação encontrada nas proximidades.' });
-});
-
-// Frozen contract: { total, page, nr_records, data }.
-export const catalogo3d = asyncHandler(async (req, res) => {
-  const result = await nomesService.catalogo3d({ ...req.query, userId: principalUserId(req) });
-  res.json(result);
 });

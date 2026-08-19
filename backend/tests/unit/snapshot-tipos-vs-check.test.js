@@ -2,7 +2,7 @@
 //
 // AS DUAS LISTAS DE TIPO DE FEICAO PRECISAM CONCORDAR.
 //
-// O CHECK `valid_feature_type` (migracao 002_atlas.sql) decide o que PODE ser
+// O CHECK `valid_feature_type` (migracao 003_atlas.sql) decide o que PODE ser
 // gravado. O mapa `typeToCollection` (sync.service.js) decide o que aparece no
 // snapshot que todo cliente le. Sao listas independentes, escritas em linguagens
 // diferentes, e nada as amarrava.
@@ -38,9 +38,9 @@ const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * @returns {string[]}
  */
 function tiposDoCheck() {
-    const sql = readFileSync(join(RAIZ, 'src/database/migrations/002_atlas.sql'), 'utf8');
+    const sql = readFileSync(join(RAIZ, 'src/database/migrations/003_atlas.sql'), 'utf8');
     const i = sql.indexOf('CONSTRAINT valid_feature_type CHECK (feature_type IN (');
-    assert.notEqual(i, -1, 'o CHECK valid_feature_type sumiu da migracao 002');
+    assert.notEqual(i, -1, 'o CHECK valid_feature_type sumiu da baseline de atlas');
     const bloco = sql.slice(i, sql.indexOf('))', i));
     return [...bloco.matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 }

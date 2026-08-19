@@ -5,6 +5,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 ## Por onde começar
 
 - [[atlas-modelo-de-dados]] - o contêiner de topo do projeto e o modelo de dados inteiro em uma página.
+- [[modelo-de-dados]] - a revisão transversal dos quatro schemas: duplicidade de conceito, coluna sem escritor, tabela sem leitor e relação sem FK, com o método de medição.
 - [[modelo-conflito-lww]] - como a colaboração funciona: mutações viram operações, o servidor ordena tudo, e por que isso não é um CRDT (o mal-entendido mais caro do projeto).
 - [[dominio-local-vs-remoto]] - a separação entre workspace local e cópia de atlas do servidor, base para entender quase todo comportamento do cliente.
 - [[sintese-decisoes-arquiteturais]] - as escolhas estruturais e os não-objetivos declarados.
@@ -70,7 +71,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[gazetteer-nomes-geograficos]] - o subsistema read-only de topônimos e identify sobre o schema isolado.
 - [[ranking-busca-toponimos]] - as três chaves lexicográficas que ordenam a busca de nomes, e por que não é uma soma.
 - [[calibracao-busca-toponimos]] - o conjunto dourado e a ablação que decidem essa ordenação com evidência.
-- [[catalogo-3d]] - a fonte única de descoberta dos modelos 3D e seu envelope próprio.
+- [[catalogo-3d]] - nota histórica: houve um SEGUNDO catálogo de modelo 3D, e por que ele saiu.
 - [[assets3d-distribuicao]] - a rota pública que serve os binários 3D com dual-mode de armazenamento.
 - [[zonas-acesso-geografico]] - autorização espacial embutida no SQL por zonas-polígono do usuário.
 - [[primeira-pessoa-3d]] - a cena caminhável em Gaussian Splatting: por que ela é uma linha de tilesets, as opções de motor medidas (e os instrumentos que mentiram), e as armadilhas cujo sintoma é sucesso plausível.

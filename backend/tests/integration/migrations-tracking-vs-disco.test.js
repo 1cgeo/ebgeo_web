@@ -78,7 +78,7 @@ describe('_migrations × arquivos em disco (item 102)', () => {
   });
 
   it('re-executar runMigrations não duplica o dado semeado pelas migrações', async () => {
-    // `INSERT INTO ranks` (001_core.sql) NÃO tem ON CONFLICT e a tabela não tem
+    // `INSERT INTO ranks` (001_identidade.sql) NÃO tem ON CONFLICT e a tabela não tem
     // UNIQUE em code/nome: se o tracking falhar, duplica em silêncio e o dropdown
     // de posto passa a mostrar 38 itens em vez de 19.
     const contar = async (tabela) => {

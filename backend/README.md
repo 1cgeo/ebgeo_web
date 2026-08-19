@@ -182,10 +182,18 @@ em um lugar só.
 - `gen_random_uuid()` para PK (não `uuid_generate_v4`). `CHECK` em todo enum textual. Soft-delete via
   `deleted_at`/`is_active`. Índice parcial para a fatia quente.
 - Migração que mexe em PostGIS exige superusuário.
-- **A migração é rastreada por NOME de arquivo, não por conteúdo.** Os 19 migrations incrementais
-  originais foram unificados em 5 baselines por domínio antes de haver produção; um banco criado
-  antes disso fica preso no schema velho com o runner reportando "already applied". Conserto em dev:
+- **A migração é rastreada por NOME de arquivo, não por conteúdo**, e o histórico já foi esmagado
+  DUAS vezes, sempre antes de haver produção: 19 arquivos incrementais viraram 5 baselines, e em
+  2026-08-19 os 22 de então viraram **8 baselines por DOMÍNIO**, escritas no ESTADO FINAL do
+  schema (sem um único `ALTER` que desfaça o que o próprio lote criou). Um banco criado antes do
+  último esmagamento **não é alcançável por upgrade** e precisa ser recriado; ele não falha com o
+  enigmático "relation already exists", porque a guarda no topo de `001_identidade.sql` detecta os
+  nomes antigos em `_migrations` e levanta com a instrução. Conserto em dev:
   `node scripts/dev-db.js recreate`.
+- **Migração roda por `t.none()`, que LANÇA se o arquivo devolver qualquer linha.** Uma migração
+  que precise chamar função usa `PERFORM` dentro de um bloco `DO`, nunca um `SELECT` solto: o
+  `SELECT` aborta a transação com "No return data was expected", que não aponta para o SQL culpado
+  e não registra a migração em `_migrations`.
 - **Carga do gazetteer:** depois de cada carga, rode `SELECT ng.refresh_busca();` (DBSCAN e re-fire
   do peso de tipo). Sem isso o `cluster_id` fica nulo e a busca degrada em silêncio. Para absorver o
   banco do serviço antigo use o `dev/import-gazetteer.mjs` da raiz do monorepo, que já faz esse

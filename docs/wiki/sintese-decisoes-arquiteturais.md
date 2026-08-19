@@ -80,7 +80,9 @@ Um banco, três schemas: `public` (atlas e features com geometria em **JSONB**, 
 
 Armadilha de deploy: a migração que cria a extensão PostGIS é untrusted, exige superusuário e roda **incondicionalmente**. Logo **PostGIS é pré-requisito de qualquer deploy completo, mesmo um deploy só do atlas**. Ver [[deploy-backend]], [[gazetteer-nomes-geograficos]] e [[zonas-acesso-geografico]].
 
-Migrações são **forward-only, sem rollback, rastreadas por NOME de arquivo**. Nunca renumere, renomeie ou reordene uma migração já aplicada; para corrigir defeito, adicione a próxima. A mesma convenção levou o schema de comentário a entrar **editando o baseline `backend/src/database/migrations/002_atlas.sql` in-place**, não numa migração nova.
+Migrações são **forward-only, sem rollback, rastreadas por NOME de arquivo**. Nunca renumere, renomeie ou reordene uma migração já aplicada; para corrigir defeito, adicione a próxima. A mesma convenção levou o schema de comentário a entrar **editando um baseline in-place**, não numa migração nova.
+
+**Errata de 2026-08-19, e ela restringe a regra em vez de contradizê-la:** "nunca renomeie" vale a partir do momento em que a migração sai deste repositório. Enquanto nenhum banco de produção a aplicou, esmagar o histórico é legítimo e já aconteceu duas vezes; da segunda, 22 arquivos incrementais viraram 8 baselines por domínio, escritas no estado final do schema. O que a regra protege é o banco que JÁ rodou os nomes antigos, e esse banco não é upgradável: ele precisa ser recriado, e o próprio schema o recusa com mensagem própria em vez de um erro de DDL. Ver [[deploy-backend]].
 
 No cliente vale o mesmo princípio, com um encadeamento próprio de versões no boot. **Invariante de migração: atualizar o app nunca pode apagar ou tornar inacessível um atlas que já estava em operação.**
 

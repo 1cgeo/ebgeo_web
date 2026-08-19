@@ -6,14 +6,22 @@
 // "Geometria do atlas é JSONB … nunca adicione PostGIS ao schema do atlas") e são
 // verificáveis por leitura dos .sql, sem banco.
 //
-// REFUTAÇÃO PARCIAL do relatório: o caso proposto era "nenhum arquivo contém
-// DROP TABLE / DROP COLUMN / TRUNCATE / ALTER COLUMN ... TYPE". Contra o HEAD isso
-// é FALSO por decisão registrada — `006_catalog_layer_text_id.sql` alarga
-// `catalog_layers.id` de UUID para TEXT e refaz a PK, e `007_audit_zone_actions.sql`
-// alarga o CHECK de `audit_trail.action`; ambas documentam por que o alargamento é
-// seguro. Uma regra literal reprovaria as duas e seria desligada no primeiro uso.
-// O invariante REAL, e o que este arquivo prende, é: DDL destrutiva só existe na
-// LISTA DE EXCEÇÕES abaixo. Um `DROP COLUMN` novo, num arquivo novo, reprova.
+// A LISTA DE EXCEÇÕES DESTRUTIVAS ESTÁ VAZIA, E ISSO É O ESTADO ESPERADO desde a
+// consolidação de 2026-08-19 (F15). As 22 migrações incrementais viraram baselines
+// por domínio, escritas no ESTADO FINAL do schema: num schema esmagado nada é criado
+// para ser derrubado depois, então não sobra `DROP` nenhum. As onze entradas que
+// esta lista teve (o `catalog_layers.id` UUID -> TEXT, os CHECK que caíam para
+// alargar, o `DROP TABLE streetview_markers`, o `DROP COLUMN maps.catalog_layers`)
+// desapareceram POR CONSTRUÇÃO: o tipo, o CHECK e a ausência da tabela nascem
+// prontos. Uma linha de volta aqui significa uma de duas coisas, e vale investigar
+// qual: ou uma migração NOVA e legítima (aí a linha é o ato explícito que a convenção
+// exige), ou uma baseline que voltou a evoluir por degraus dentro de si mesma.
+//
+// O PREÇO DA LISTA VAZIA, e ele é real: `assert.equal(achados.length, EXCECOES.length)`
+// vira `0 === 0` e não discrimina mais nada — exatamente a "cobertura vazia passa
+// verde" que a constituição nomeia. Por isso existe o teste 'controle negativo',
+// que roda OS MESMOS padrões contra um texto SQL que os contém e exige que os cinco
+// sejam detectados. Sem ele, este arquivo passaria verde com a regex quebrada.
 //
 // Cada regra devolve a LISTA de violações e afirma que ela é vazia, mais a
 // contagem do que foi inspecionado: varredura vazia que passa verde é a família de
@@ -43,53 +51,12 @@ function todasAsLinhas(arquivos = FILES) {
   return arquivos.flatMap((f) => linhasDeCodigo(SRC.get(f) ?? '').map((l) => ({ arquivo: f, ...l })));
 }
 
-// DDL destrutiva DELIBERADA, com o arquivo onde mora. Adicionar uma linha aqui é
-// o ato explícito que a convenção exige; esquecer de adicionar reprova o teste.
-const EXCECOES_DESTRUTIVAS = [
-  { arquivo: '006_catalog_layer_text_id.sql', trecho: 'ALTER TABLE catalog_layers ALTER COLUMN id TYPE TEXT' },
-  { arquivo: '006_catalog_layer_text_id.sql', trecho: 'ALTER TABLE catalog_layers DROP CONSTRAINT catalog_layers_pkey' },
-  { arquivo: '007_audit_zone_actions.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check' },
-  // ALARGAR um CHECK é compatível para trás — todo valor aceito antes continua
-  // aceito — mas Postgres não tem `ALTER CONSTRAINT` para expressão de CHECK, então
-  // o constraint precisa cair e voltar. Mesmo alargamento de 007, e o custo é esta
-  // linha: sem ela a suíte fica vermelha com uma mensagem sobre "DDL destrutiva não
-  // documentada", que não parece ter relação nenhuma com permissões.
-  { arquivo: '018_papeis_globais.sql', trecho: 'ALTER TABLE users DROP CONSTRAINT users_role_check' },
-  // 020 dispara TRÊS padrões ao mesmo tempo: dois CHECK que precisam cair para
-  // alargar (mesmo caso de 007) e o `target_id` UUID -> TEXT, que é o mesmo
-  // alargamento de 006 pelo mesmo motivo — o id do domínio nunca foi UUID (slug
-  // de catálogo, chave textual de config). Nenhuma das três perde linha nem
-  // invalida consulta; `idx_audit_target` é reconstruído pelo próprio ALTER.
-  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check' },
-  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_target_type_check' },
-  { arquivo: '020_auditoria_alvo_e_acoes.sql', trecho: 'ALTER TABLE audit_trail ALTER COLUMN target_id TYPE TEXT' },
-  // 021 dispara três: um `DROP TABLE` de verdade e dois CHECK que caem para alargar.
-  //
-  // O `DROP TABLE` é o ÚNICO desta lista que apaga dados, e por isso é o único que
-  // precisa de mais do que "alargar é compatível para trás" como justificativa.
-  // `streetview_markers` nasceu de `LIKE basemaps INCLUDING ALL` em 003 e nunca teve
-  // consumidor: não alimentava `GET /api/config`, nenhum código do frontend chamava a
-  // rota dela, nenhum seed a populava, e as únicas escritas que já existiram foram de
-  // teste. O que ela custava era ambiguidade — existe um ARQUIVO homônimo no frontend
-  // (`street_view_tool/streetview_markers.js`) que é a camada VIVA de marcadores do
-  // 360 e lê de `sv360.projects`.
-  //
-  // Os dois CHECK caem para receber `basemap` como quinto tipo de recurso: mesmo
-  // alargamento de 007/018/020, e todo valor aceito antes continua aceito.
-  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'DROP TABLE streetview_markers' },
-  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE resource_grants DROP CONSTRAINT resource_grants_resource_type_check' },
-  { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE atlas_resources DROP CONSTRAINT atlas_resources_resource_type_check' },
-  // 022 apaga uma COLUNA com dado dentro, e é a segunda desta lista (junto com o
-  // `DROP TABLE` da 021) que precisa de mais do que "alargar é compatível para
-  // trás" como justificativa.
-  //
-  // A justificativa é a materialização que vem ANTES dela no mesmo arquivo: cada
-  // item do array legado vira linha da tabela dedicada `catalog_layers`, com a
-  // linha viva vencendo por id. Nenhuma camada de catálogo se perde; o que se
-  // perde é a SEGUNDA cópia dela, que não tinha leitor e servia a definição de
-  // recurso privado por três rotas que não passam pela reidratação do snapshot.
-  { arquivo: '022_camada_de_catalogo_sem_coluna_legada.sql', trecho: 'ALTER TABLE maps DROP COLUMN catalog_layers' },
-];
+// DDL destrutiva DELIBERADA, com o arquivo onde mora. Acrescentar uma linha aqui é
+// o ato explícito que a convenção exige; esquecer de acrescentar reprova o teste.
+//
+// VAZIA desde a consolidação (F15) — ver o cabeçalho, e repare que a lista vazia
+// só discrimina alguma coisa por causa do teste 'controle negativo' abaixo.
+const EXCECOES_DESTRUTIVAS = [];
 
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
@@ -99,8 +66,12 @@ const PADROES_DESTRUTIVOS = [
   /\bDROP\s+CONSTRAINT\b/i,
 ];
 
-const NUCLEO = ['001_core.sql', '002_atlas.sql', '003_sync.sql'];
-const ESPACIAIS = { '004_ng.sql': 'ng', '005_sv360.sql': 'sv360' };
+// Os dois arquivos ESPACIAIS, por nome. Tudo que não é um deles é núcleo, e o
+// invariante do PostGIS é cobrado sobre o COMPLEMENTO: até a consolidação o teste
+// listava três arquivos de núcleo à mão, então um `GEOMETRY(` numa baseline nova
+// passava despercebido. Denylist ao invés de allowlist fecha esse buraco.
+const ESPACIAIS = { '006_ng.sql': 'ng', '007_sv360.sql': 'sv360' };
+const NUCLEO = FILES.filter((f) => !(f in ESPACIAIS));
 
 describe('Higiene das migrações (item 103)', () => {
   it('guarda: há migrações suficientes e nenhuma vazia', () => {
@@ -141,7 +112,7 @@ describe('Higiene das migrações (item 103)', () => {
     assert.deepEqual(erradas, [], 'PK UUID com DEFAULT que não usa gen_random_uuid()');
   });
 
-  it('DDL destrutiva só existe na lista de exceções deliberadas', () => {
+  it('DDL destrutiva só existe na lista de exceções deliberadas (hoje: nenhuma)', () => {
     const linhas = todasAsLinhas();
     assert.ok(linhas.length >= 400);
 
@@ -149,23 +120,57 @@ describe('Higiene das migrações (item 103)', () => {
       .filter(({ texto }) => PADROES_DESTRUTIVOS.some((re) => re.test(texto)))
       .map(({ arquivo, n, texto }) => ({ arquivo, n, texto: texto.trim() }));
 
-    // Guarda de discriminação: se este conjunto ficasse vazio, comparar com a lista
-    // de exceções não provaria nada — o teste tem de saber quantas conhece.
-    assert.equal(
-      achados.length,
-      EXCECOES_DESTRUTIVAS.length,
-      `DDL destrutiva encontrada: ${JSON.stringify(achados)}`
-    );
-
     const naoDocumentadas = achados
       .filter((a) => !EXCECOES_DESTRUTIVAS.some((e) => e.arquivo === a.arquivo && a.texto.startsWith(e.trecho)))
       .map((a) => `${a.arquivo}:${a.n} ${a.texto}`);
     assert.deepEqual(naoDocumentadas, [], 'DDL destrutiva não documentada');
+
+    // A contagem só fecha se toda exceção declarada AINDA existe no disco: uma linha
+    // que sobrevive ao arquivo que a justificava é convenção apodrecendo em silêncio.
+    assert.equal(
+      achados.length,
+      EXCECOES_DESTRUTIVAS.length,
+      `exceção declarada sem DDL correspondente, ou DDL a mais: ${JSON.stringify(achados)}`
+    );
   });
 
-  it('001/002/003 (core + atlas + sync) não tocam PostGIS nem criam schema', () => {
-    const ausentes = NUCLEO.filter((f) => !SRC.has(f));
-    assert.deepEqual(ausentes, [], 'migração de núcleo ausente');
+  it('controle negativo: os padrões destrutivos PEGAM o SQL que os contém', () => {
+    // Com `EXCECOES_DESTRUTIVAS` vazia, o teste acima é `0 === 0` sobre uma varredura
+    // que não achou nada, e um verde desses é indistinguível de uma regex quebrada.
+    // Este caso roda OS MESMOS `PADROES_DESTRUTIVOS` contra um texto que os contém,
+    // um a um, e exige que cada um seja detectado.
+    const AMOSTRAS = [
+      'DROP TABLE streetview_markers;',
+      'ALTER TABLE maps DROP COLUMN catalog_layers;',
+      'TRUNCATE features;',
+      'ALTER TABLE audit_trail ALTER COLUMN target_id TYPE TEXT USING target_id::text;',
+      'ALTER TABLE users DROP CONSTRAINT users_role_check;',
+    ];
+    assert.equal(AMOSTRAS.length, PADROES_DESTRUTIVOS.length,
+      'uma amostra por padrão: acrescentar padrão sem amostra deixa o padrão sem prova');
+
+    const naoPegos = PADROES_DESTRUTIVOS
+      .map((re, i) => ({ i, re, pego: AMOSTRAS.some((a) => re.test(a)) }))
+      .filter((r) => !r.pego)
+      .map((r) => `padrão ${r.i}: ${r.re}`);
+    assert.deepEqual(naoPegos, [], 'padrão destrutivo que não pega nem a própria amostra');
+
+    // E o inverso: linha inofensiva não pode disparar padrão nenhum, senão a lista
+    // vazia só sobrevive porque ninguém acrescenta migração.
+    const INOFENSIVAS = [
+      'CREATE TABLE atlas (id UUID PRIMARY KEY DEFAULT gen_random_uuid());',
+      'CREATE INDEX idx_atlas_owner ON atlas(owner_id);',
+      'ALTER TABLE ng.edificacoes ALTER COLUMN access_level SET STATISTICS 1000;',
+    ];
+    const falsosPositivos = INOFENSIVAS
+      .filter((l) => PADROES_DESTRUTIVOS.some((re) => re.test(l)));
+    assert.deepEqual(falsosPositivos, [], 'padrão destrutivo disparando em DDL aditiva');
+  });
+
+  it('TODA baseline que não seja uma das duas espaciais fica sem PostGIS e sem schema', () => {
+    const ausentes = Object.keys(ESPACIAIS).filter((f) => !SRC.has(f));
+    assert.deepEqual(ausentes, [], 'migração espacial ausente do disco');
+    assert.ok(NUCLEO.length >= 5, `esperava >= 5 baselines de núcleo, achei ${NUCLEO.length}`);
 
     const linhas = todasAsLinhas(NUCLEO);
     assert.ok(linhas.length >= 200, `esperava >= 200 linhas de núcleo, inspecionei ${linhas.length}`);
@@ -185,7 +190,7 @@ describe('Higiene das migrações (item 103)', () => {
     assert.deepEqual(violacoes, [], 'o domínio do atlas precisa continuar JSONB puro, sem PostGIS');
   });
 
-  it('004/005 declaram seu schema e criam TODA tabela qualificada nele', () => {
+  it('as duas espaciais declaram seu schema e criam TODA tabela qualificada nele', () => {
     const nomes = Object.keys(ESPACIAIS);
     const ausentes = nomes.filter((f) => !SRC.has(f));
     assert.deepEqual(ausentes, [], 'migração espacial ausente');

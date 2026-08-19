@@ -116,7 +116,7 @@ describe('feature types: the LIVE CHECK against the code that is deployed with i
       aceitos.length >= 20,
       `the live CHECK accepts only ${aceitos.length} types: either the migration that widens it `
       + 'has not run on THIS database (deploy skew — the whole reason this file queries the '
-      + `catalog instead of reading the .sql), or a type was dropped from 002_atlas.sql. ${checkExpr}`,
+      + `catalog instead of reading the .sql), or a type was dropped from 003_atlas.sql. ${checkExpr}`,
     );
     assert.equal(new Set(aceitos).size, aceitos.length, 'the live CHECK repeats a type');
   });

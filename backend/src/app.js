@@ -180,7 +180,7 @@ export function createApp() {
   app.use('/api/config', configRoutes); // compatibility alias
 
   // Public 3D asset serving (immutable, Range/ETag). Discovery is gated by the
-  // authenticated catalog (GET /api/v1/nomes/catalogo3d).
+  // catálogo de tilesets (`GET /api/v1/tilesets` e `GET /api/config`).
   app.use('/api/v1/assets3d', assets3dRoutes);
 
   // Route mounting

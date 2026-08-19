@@ -29,9 +29,9 @@ O servidor insere com o id que recebe. Só que o payload que chega já foi remap
 
 ## Import não é idempotente (ao contrário do sync)
 
-`features.id` é `UUID PRIMARY KEY` **global**, não escopado por atlas (`backend/src/database/migrations/002_atlas.sql`), e feições que já eram UUID são preservadas. Salvar o **mesmo** store local no servidor duas vezes colide na PK e derruba a transação inteira. Não há `op_id` nem convergence guard aqui ([[idempotencia-e-convergence-guard]]): reenviar não é seguro e não existe retry cego deste endpoint.
+`features.id` é `UUID PRIMARY KEY` **global**, não escopado por atlas (`backend/src/database/migrations/003_atlas.sql`), e feições que já eram UUID são preservadas. Salvar o **mesmo** store local no servidor duas vezes colide na PK e derruba a transação inteira. Não há `op_id` nem convergence guard aqui ([[idempotencia-e-convergence-guard]]): reenviar não é seguro e não existe retry cego deste endpoint.
 
-`images.id` tem o mesmo problema (`backend/src/database/migrations/002_atlas.sql`), com falha pior porque é **parcial**: o INSERT cai no `catch`, a imagem entra em `failed` e o atlas é criado assim mesmo, com referências quebradas.
+`images.id` tem o mesmo problema (`backend/src/database/migrations/003_atlas.sql`), com falha pior porque é **parcial**: o INSERT cai no `catch`, a imagem entra em `failed` e o atlas é criado assim mesmo, com referências quebradas.
 
 ## O teto que impede a operação inteira: 10 MB de corpo
 
@@ -45,7 +45,7 @@ A lista de 20 tipos existe em **quatro cópias manuais** que precisam mudar junt
 
 - `frontend/src/js/import_export/local-atlas-to-server.js` (o cliente): a feição é descartada **antes da rede** e só incrementa `droppedFeatures`, que não tem consumidor de interface. O usuário vê um import bem-sucedido.
 - `VALID_FEATURE_TYPES` no Joi (`backend/src/modules/atlas/atlas.schemas.js`): o import inteiro toma 400 e o atlas não nasce ([[erros-api]]). É a falha barulhenta, e por isso a benigna.
-- o CHECK `features.valid_feature_type` (`backend/src/database/migrations/002_atlas.sql`): a escrita é recusada pelo próprio banco.
+- o CHECK `features.valid_feature_type` (`backend/src/database/migrations/003_atlas.sql`): a escrita é recusada pelo próprio banco.
 - `typeToCollection` e o esqueleto de `transformFeaturesToFrontend` (`backend/src/modules/sync/sync.service.js`): **a pior das quatro**. A linha é gravada, o servidor confirma, e ela **nunca aparece em snapshot nenhum**. Invisível para todo cliente, para sempre, sem erro em lugar algum. Um atlas importado com um tipo fora deste mapa sobe inteiro e volta sem aquelas feições.
 
 A paridade das quatro é asserida por `frontend/tests/unit/tipos-feicao-paridade-pacotes.test.js`, que é um teste do **frontend lendo fonte do backend**: mudança backend-only reprova na perna do frontend, de propósito. A constraint VIVA, que nenhuma leitura de texto alcança, é conferida por `backend/tests/integration/tipos-feicao-constraint-viva.test.js`. O guarda mais antigo, `backend/tests/unit/snapshot-tipos-vs-check.test.js`, amarra duas das quatro.

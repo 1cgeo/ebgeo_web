@@ -4,7 +4,7 @@
 //
 // A migração 020 fechou catorze buracos de uma vez, e três deles eram da pior
 // espécie: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` estavam DECLARADAS no CHECK desde a
-// 001_core.sql e a contagem de emissores em `src/` era ZERO para as três. Isso não
+// 002_auditoria.sql e a contagem de emissores em `src/` era ZERO para as três. Isso não
 // é uma ação faltando — é um filtro que responde "ninguém apagou atlas nenhum" e
 // parece uma resposta. O modo de falha que este arquivo existe para impedir é o
 // mesmo, na direção do futuro: uma rota de escrita NOVA que nasce sem trilha, e
@@ -235,7 +235,7 @@ const CENSO = [
  * Os `target_type` DECLARADOS e sem nenhum emissor. São QUATRO, e os dois últimos
  * são medições, não heranças:
  *
- *   - `MODEL` e `GROUP` vêm da 001_core.sql e nunca tiveram escritor. A 020 os
+ *   - `MODEL` e `GROUP` vieram do primeiro CHECK de alvo e nunca tiveram escritor. A revisão os
  *     manteve porque removê-los seria DDL destrutiva sem ganho.
  *   - `SYSTEM` TINHA um escritor e PERDEU: era onde `setResourceVisibility`
  *     depositava o alvo que não cabia nas colunas (`target_type` sem valor para
@@ -323,26 +323,28 @@ function naoClassificadas(achadas) {
 
 const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.routes.js'));
 
-/** As ações declaradas no CHECK da 020, lidas do .sql (nunca de uma terceira cópia). */
+// A baseline que declara o vocabulário da trilha. Desde a consolidação (F15) os dois
+// CHECK nascem INLINE no `CREATE TABLE audit_trail`, e não mais por `ADD CONSTRAINT`
+// num degrau posterior: a âncora mudou junto, e as duas funções abaixo falham alto se
+// o texto que elas procuram sumir.
+const MIGRACAO_AUDITORIA = 'src/database/migrations/002_auditoria.sql';
+
+/** As ações declaradas no CHECK, lidas do .sql (nunca de uma terceira cópia). */
 function acoesDoCheck() {
-  const sql = fs.readFileSync(
-    path.join(RAIZ, 'src/database/migrations/020_auditoria_alvo_e_acoes.sql'), 'utf8'
-  );
-  const i = sql.indexOf('ADD CONSTRAINT audit_trail_action_check');
-  assert.notEqual(i, -1, 'o CHECK de `action` sumiu da migração 020');
-  const bloco = sql.slice(i, sql.indexOf('));', i));
+  const sql = fs.readFileSync(path.join(RAIZ, MIGRACAO_AUDITORIA), 'utf8');
+  const i = sql.indexOf('CHECK (action IN (');
+  assert.notEqual(i, -1, 'o CHECK de `action` sumiu da baseline de auditoria');
+  const bloco = sql.slice(i, sql.indexOf('))', i));
   const semComentario = bloco.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
   return [...semComentario.matchAll(/'([A-Z][A-Z0-9_]+)'/g)].map((m) => m[1]);
 }
 
-/** Os `target_type` declarados no CHECK da 020. */
+/** Os `target_type` declarados no CHECK, lidos do .sql. */
 function alvosDoCheck() {
-  const sql = fs.readFileSync(
-    path.join(RAIZ, 'src/database/migrations/020_auditoria_alvo_e_acoes.sql'), 'utf8'
-  );
-  const i = sql.indexOf('ADD CONSTRAINT audit_trail_target_type_check');
-  assert.notEqual(i, -1, 'o CHECK de `target_type` sumiu da migração 020');
-  const bloco = sql.slice(i, sql.indexOf('));', i));
+  const sql = fs.readFileSync(path.join(RAIZ, MIGRACAO_AUDITORIA), 'utf8');
+  const i = sql.indexOf('CHECK (target_type IN (');
+  assert.notEqual(i, -1, 'o CHECK de `target_type` sumiu da baseline de auditoria');
+  const bloco = sql.slice(i, sql.indexOf('))', i));
   const semComentario = bloco.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
   return [...semComentario.matchAll(/'([A-Z][A-Z0-9_]+)'/g)].map((m) => m[1]);
 }
@@ -462,7 +464,7 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
 
     // O TETO. Sem ele, a saída fácil para uma rota nova sem trilha seria classificá-la
     // como BURACO e seguir em frente — que é exatamente como LOGIN, LOGOUT e
-    // ATLAS_DELETE sobreviveram sem emissor desde a 001_core.sql.
+    // ATLAS_DELETE sobreviveram sem emissor desde o primeiro CHECK de ação.
     assert.ok(
       buracos.length <= 7,
       `os buracos conhecidos são 7 e não podem crescer sem decisão; achei ${buracos.length}`

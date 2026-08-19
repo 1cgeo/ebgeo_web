@@ -2,7 +2,7 @@
 // Every mutation here records an audit row IN THE SAME TRANSACTION as the change,
 // matching users/organizations/zones. Before this, none of the five did: the actions
 // 'SHARING_CHANGE', 'PERMISSION_GRANT' and 'PERMISSION_REVOKE' had been reserved in
-// the audit_trail CHECK since 001_core.sql and were emitted by nobody, so granting
+// the audit_trail CHECK (002_auditoria.sql) from the first day and were emitted by nobody, so granting
 // someone 'manage' or publishing an atlas left no trace, and an admin filtering on
 // those actions got zero rows every time — a filter that could never match, which
 // reads as "nothing happened" rather than "never wired".

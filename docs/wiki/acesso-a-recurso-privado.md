@@ -12,7 +12,7 @@ Toda afirmação de wiki no formato "o `org_role` decide X" ou "mover de OM dá 
 
 ## Os quatro papéis globais NÃO são uma escada
 
-`user`, `producer`, `credenciado` e `admin` (`CHECK` de `users.role`, `backend/src/database/migrations/018_papeis_globais.sql`) não se contêm: nenhum é "o de cima" de outro. **Ler todo privado** e **manter um acervo** são capacidades independentes, resolvidas por duas funções SQL distintas (`fn_has_global_data_access` e `fn_can_produce_resource`), nunca por comparação de ordem. O eixo POR ATLAS (`read < comment < write < manage < owner`) é escada, é gateado por hierarquia, e não compartilha uma palavra com este.
+`user`, `producer`, `credenciado` e `admin` (`CHECK` de `users.role`, `backend/src/database/migrations/001_identidade.sql`) não se contêm: nenhum é "o de cima" de outro. **Ler todo privado** e **manter um acervo** são capacidades independentes, resolvidas por duas funções SQL distintas (`fn_has_global_data_access` e `fn_can_produce_resource`), nunca por comparação de ordem. O eixo POR ATLAS (`read < comment < write < manage < owner`) é escada, é gateado por hierarquia, e não compartilha uma palavra com este.
 
 **A armadilha aqui é o INVERSO da que a constituição descreve.** Lá o perigo é a lista fechada que exclui o nível de cima (`perm === 'write' || 'owner'`); aqui é `if (role !== 'user')` num gate de PODER, que promove credenciado e produtor em silêncio. `backend/tests/unit/papel-global-censo.test.js` classifica cada sítio de papel global e reprova o não classificado.
 
@@ -20,7 +20,7 @@ O crachá e o escopo são bicondicionais no schema (`(role='producer') = (produc
 
 ## O predicado mora no SQL, e a razão não é elegância
 
-Quatro funções SQL são a **única** definição do que cada principal enxerga e do que ele mantém (nascidas em `backend/src/database/migrations/017_resource_access.sql` e `backend/src/database/migrations/019_escopo_de_producao.sql`; migração é forward-only, então elas são **redefinidas** por `CREATE OR REPLACE` a cada degrau, e a versão vigente é sempre a da migração mais alta que as toca). O papel é resolvido a partir do UUID, nunca lido de `req.user.role`. O motivo é `flexibleAuth`: ele é global, não-bloqueante, **não reconcilia**, e é justamente ele que serve `/api/config` e as leituras do 360. Decidir no JavaScript daria a um credenciado rebaixado até 15 minutos de sobrevida, e criaria uma segunda definição da regra, que é a dívida que o schema `ng` ainda paga.
+Quatro funções SQL são a **única** definição do que cada principal enxerga e do que ele mantém (nascidas em `backend/src/database/migrations/008_acesso_a_recurso.sql` e `backend/src/database/migrations/008_acesso_a_recurso.sql`; migração é forward-only, então elas são **redefinidas** por `CREATE OR REPLACE` a cada degrau, e a versão vigente é sempre a da migração mais alta que as toca). O papel é resolvido a partir do UUID, nunca lido de `req.user.role`. O motivo é `flexibleAuth`: ele é global, não-bloqueante, **não reconcilia**, e é justamente ele que serve `/api/config` e as leituras do 360. Decidir no JavaScript daria a um credenciado rebaixado até 15 minutos de sobrevida, e criaria uma segunda definição da regra, que é a dívida que o schema `ng` ainda paga.
 
 Corolário para quem escreve rota nova: a garantia é do `WHERE`, então uma consulta que devolva linha de recurso sem carregar o predicado vaza sem nada ficar vermelho. Foi exatamente esse o pior defeito que este branch encontrou em si mesmo, duas vezes. É por isso que existe o **censo de superfícies** (`backend/tests/unit/superficies-de-recurso-censo.test.js` e o irmão de cliente `frontend/tests/unit/superficies-de-recurso-censo.test.js`): ele varre o versionamento e exige classe e predicado de cada consulta, gate de cada rota de leitura e escopo de cache de cada cabeçalho. Consulta nova nasce **classificada** ou reprova por nome.
 
@@ -54,7 +54,7 @@ Ausência de `Cache-Control` **não** é neutra: o RFC 9111 autoriza cache heur�
 
 - **Privado esconde o metadado, não os bytes.** A rota de asset 3D é pública por decisão pinada em teste, então quem souber a URL baixa o `tileset.json` de um modelo marcado privado. Confidencialidade real de asset conflita com o regime `immutable` de que o streaming por LOD depende ([[assets3d-distribuicao]]). O 360 não tem esse problema.
 - **Revogação vale no próximo pedido do payload aditivo** (troca de atlas ou F5). Não há push em socket vivo.
-- **Continuam existindo dois sistemas de permissão para "modelo 3D"**: o catálogo `ng`, completo no schema e sem nenhuma API que escreva nele, e este. Convergir é decisão de produto; o sintoma enquanto isso é um administrador conceder acesso na tela errada. Ver [[catalogo-3d]].
+- **Existiram DOIS sistemas de permissão para "modelo 3D", e o outro saiu em 2026-08-19.** O do schema `ng` era completo no schema e não tinha uma única API que escrevesse nele, então o filtro existia e era inalcançável; o sintoma enquanto os dois conviveram era um administrador conceder acesso na tela errada. Hoje este eixo é o único. Ver [[catalogo-3d]].
 
 ## No cliente: soma primeiro, intersecta depois
 

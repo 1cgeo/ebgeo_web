@@ -31,7 +31,7 @@ Consequência prática, invisível em qualquer arquivo isolado: em **rotas flex�
 
 A resposta `{ apiKey }` é a **única** vez que a chave nova aparece. Não há rota de leitura, e nenhuma query do módulo `users` (perfil, listagem admin, busca) seleciona `api_key`. Perdeu, rotaciona de novo.
 
-`API_KEY_ROTATE` está na lista fechada do CHECK de `audit_trail` (`backend/src/database/migrations/001_core.sql`): é **contrato congelado**, adicionar ou renomear ação de auditoria exige migração. Ver [[auditoria]].
+`API_KEY_ROTATE` está na lista fechada do CHECK de `audit_trail` (`backend/src/database/migrations/002_auditoria.sql`): é **contrato congelado**, adicionar ou renomear ação de auditoria exige migração. Ver [[auditoria]].
 
 Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `404` para UUID bem formado sem usuário correspondente é intencional (`rotateApiKey`, `backend/src/modules/users/users.service.js`), e não uma lacuna de validação.
 

@@ -9,7 +9,7 @@
 //       atlas, purga de concessões, mudança de escopo de produção, 360 no nível do
 //       projeto. Nada a filtrar porque nada era escrito.
 //   (b) AÇÕES DECLARADAS SEM EMISSOR. `LOGIN`, `LOGOUT` e `ATLAS_DELETE` estão no
-//       CHECK desde a 001_core.sql e a contagem de emissores em `src/` era ZERO
+//       CHECK desde o primeiro dia (002_auditoria.sql) e a contagem de emissores em `src/` era ZERO
 //       para as três. Este é o pior dos dois: quem filtrasse a trilha por
 //       `ATLAS_DELETE` recebia lista vazia e concluía que ninguém apaga atlas. Um
 //       verde que não verifica nada, com cara de resposta.

@@ -10,7 +10,7 @@
 // spread of mesh_rotation_y INSIDE a run is 0,60 degree against 8,40 between the
 // run means. The boundary comes from the session id in the filename and NOT from
 // a time gap; see sv360.capture-runs.js for why, and migration
-// 013_sv360_capture_runs.sql for the schema rationale.
+// 007_sv360.sql for the schema rationale.
 //
 // ALL THE COMPUTATION LIVES IN src/modules/streetview360/sv360.capture-runs.js,
 // which is the origin's `scripts/lib/capture-runs.js` ported verbatim and covered
@@ -65,7 +65,7 @@ import { instantToLocal, localToInstant } from './sv360-survey-clock.js';
 // SQL
 // ---------------------------------------------------------------------------
 
-// The slug is unique per ORGANIZATION, not globally (005_sv360.sql), so --slug
+// The slug is unique per ORGANIZATION, not globally (007_sv360.sql), so --slug
 // covers every organization that owns a project by that name. That is the wanted
 // reading: the filter names a corpus, and the derivation is per project either
 // way. It is stated here because the flag reads like it selects one row.

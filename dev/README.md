@@ -113,7 +113,7 @@ node dev/import-gazetteer.mjs --source=... --dedup --apply
 
 ### Por que não é um `pg_restore` do dump
 
-O dump do serviço antigo traz o **DDL dele**, que não é o da migração 004: recriaria as
+O dump do serviço antigo traz o **DDL dele**, que não é o da baseline do gazetteer deste backend: recriaria as
 tabelas sem `access_level`, sem as tabelas de zona/permissão, e com a função de
 `tipo_peso` antiga. Aqui viaja só o dado; schema e regras são as do backend novo.
 
@@ -136,12 +136,27 @@ conjunto de linhas renumera dentro da partição `(nome, tipo)`. Não é efeito 
 a tabela intacta, `refresh_busca()` rodado duas vezes não altera um único `cluster_id`.
 `cluster_id` é rótulo, não identidade: nada fora do schema `ng` o persiste.
 
-### Armadilha do `--truncate`
+### O acervo 3D vai para `tilesets`, e `--truncate` NÃO o alcança
 
-`ng.catalogo_3d` é referenciada por `ng.model_permissions` e `ng.model_group_permissions`.
-Com linhas de permissão gravadas, o `TRUNCATE` **falha** (o Postgres exige `CASCADE`), e
-isso é o comportamento desejado: apagar o catálogo em cascata levaria junto as permissões.
-Limpe as permissões deliberadamente antes, ou use `--skip=catalogo3d`.
+A origem guarda o catálogo de modelos numa tabela do schema `ng`, e essa tabela **não existe
+mais neste backend**: era o segundo catálogo de modelo 3D, sem consumidor no frontend e com um
+eixo de permissão próprio que nenhuma rota escrevia. O ramo `catalogo3d` do importador foi
+repontado para `public.tilesets`, que é o catálogo servido no `/api/config`, convertendo a forma
+da linha na passagem: `type` vira o discriminador `config.type` (`glb` para modelo isolado,
+ausente para tileset), município e estado viram `config.local`, palavras-chave viram
+`config.keywords`, e o resto (URL, miniatura, posição, orientação, estilo) vai para dentro de
+`config`. O `id`, que a origem não tem, é um slug gerado a partir do nome.
+
+**`--truncate` não se aplica a esse ramo**, de propósito: `tilesets` é catálogo CURADO por
+administrador e tem outros escritores, então esvaziá-la por causa de uma flag de import de
+gazetteer apagaria trabalho que este script não fez. Lá a colisão de id é resolvida por
+`ON CONFLICT (id) DO NOTHING` (o curador vence), e o script diz na saída quando isso acontece.
+Para não carregar o acervo 3D, use `--skip=catalogo3d`.
+
+Uma **variante ficou sem rótulo**: `tilesets` distingue só modelo isolado de tileset, então a
+nuvem de pontos da origem é mapeada para tileset (o carregador certo, já que o formato é parte
+do 3D Tiles) e perde a identificação de nuvem. Declarar a taxonomia de tipo do catálogo é
+trabalho próprio.
 
 ## `import-config-catalog.mjs`
 

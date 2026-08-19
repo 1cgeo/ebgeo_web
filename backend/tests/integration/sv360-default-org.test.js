@@ -1,6 +1,6 @@
 // Path: tests/integration/sv360-default-org.test.js
 // DEFAULT_ORG_ID (sv360.merge.js) versus the organization the MIGRATION actually
-// seeds. The constant is a literal uuid duplicated from 001_core.sql; nothing binds
+// seeds. The constant is a literal uuid duplicated from 001_identidade.sql; nothing binds
 // the two. sv360-gaps.test.js sv360-11 covers an UNKNOWN orgSlug (409) and a
 // cross-org attempt (403) — never the default/legacy branch, which is the one a
 // global admin hits whenever a manifest omits project.orgSlug (the ETL backfill's

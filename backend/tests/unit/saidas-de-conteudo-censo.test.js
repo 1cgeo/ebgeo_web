@@ -172,7 +172,6 @@ const CENSO_ROTA = [
 
   json('src/modules/nomes/nomes.routes.js', 'GET /busca'),
   json('src/modules/nomes/nomes.routes.js', 'GET /feicoes'),
-  json('src/modules/nomes/nomes.routes.js', 'GET /catalogo3d'),
 
   json('src/modules/organizations/organizations.routes.js', 'GET /'),
   json('src/modules/organizations/organizations.routes.js', 'GET /:id'),
@@ -611,8 +610,11 @@ describe('Censo das saídas de conteúdo (fase F13)', () => {
     // AS CONTAGENS MEDIDAS. Sem elas, uma varredura que deixasse de casar (uma regex quebrada, um
     // pathspec errado) passaria TODOS os casos abaixo comparando conjunto vazio com conjunto
     // vazio — que é a forma mais barata de um censo virar decoração.
+    // O PISO CAIU DE 131 PARA 130 NA F15, e a queda é o registro de uma rota que saiu:
+    // `GET /nomes/catalogo3d`, do segundo catálogo de modelo 3D. Piso decrescente só se
+    // mexe junto com a remoção que o causou, e com o nome dela escrito.
     const rotas = rotasDeSaida(arquivosDeRota(inventario));
-    assert.ok(rotas.length >= 131, `esperava >= 131 declarações de rota, achei ${rotas.length}`);
+    assert.ok(rotas.length >= 130, `esperava >= 130 declarações de rota, achei ${rotas.length}`);
     const porMetodo = new Set(rotas.map((r) => r.rota.split(' ')[0]));
     for (const metodo of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
       assert.ok(porMetodo.has(metodo), `a varredura precisa enxergar ${metodo}; o censo anterior só via GET`);

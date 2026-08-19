@@ -247,7 +247,9 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],
     ['manualChunks', 'opção depreciada do Rollup que o vite.config.js DEIXOU de usar em 2026-08-05 (trocada por codeSplitting.groups + entriesAware quando admin.html virou um segundo entry); a doc a nomeia justamente para dizer que não está mais lá'],
     ['showProjectPickerModal', 'export que sumiu em 2026-08-05, quando o seletor de projetos deixou de ser modal e virou atlas.html; a doc o nomeia para dizer o que deixou de existir na mudança'],
-    ['ROLE_ORDER', 'contra-exemplo deliberado: os quatro papéis globais NÃO formam escada, e a constituição do backend nomeia essa constante inexistente justamente para dizer que comparar papel global por ordem é erro de leitura (migração 018_papeis_globais.sql)'],
+    ['ROLE_ORDER', 'contra-exemplo deliberado: os quatro papéis globais NÃO formam escada, e a constituição do backend nomeia essa constante inexistente justamente para dizer que comparar papel global por ordem é erro de leitura (o CHECK de `users.role`, na baseline de identidade)'],
+    ['CATALOGO_SELECT', 'a consulta de listagem do SEGUNDO catálogo de modelo 3D (schema ng), removida em 2026-08-19 junto com a tabela, a rota e as duas tabelas de permissão que ninguém escrevia. A entrada de decisão que a nomeia é registro histórico: ela existe para dizer que o predicado estava duplicado verbatim entre esta e a irmã, e que foi por causa dessa dívida que o eixo de acesso a recurso nasceu com o predicado em função SQL. Apagar o nome falsificaria o registro; ver catalogo-3d'],
+    ['CATALOGO_COUNT', 'a consulta de contagem irmã da acima, removida no mesmo commit e citada pelo mesmo motivo'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
 ]);
 

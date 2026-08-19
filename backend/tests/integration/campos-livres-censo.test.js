@@ -65,7 +65,6 @@ const CENSO = {
   // eram INVISIVEIS para o censo. Nenhuma e escrita por carga de cliente do atlas hoje, logo
   // nada vazava; o censo existe para que a PROXIMA coluna nao possa nascer aberta, e ele nao
   // pode fazer isso em dois dos tres schemas se nao os enxergar.
-  'ng.catalogo_3d.style': ['NOT_CLIENT', 'catalogo 3D do schema ng: escrito por ETL/admin, nunca por op de sync'],
   'sv360.project_floors.plan_coords': ['NOT_CLIENT', 'ingestao de projeto 360: escrito pelo servidor a partir do bundle'],
 };
 
@@ -100,7 +99,7 @@ describe('F14 — censo dos campos JSONB: coluna nova não nasce sem regime', ()
       ORDER BY table_schema, table_name, column_name
     `);
     // A chave fica SEM prefixo no `public` (as 25 entradas nasceram assim) e COM prefixo de schema
-    // fora dele, para que `ng.catalogo_3d` e `sv360.project_floors` nunca colidam com um homonimo
+    // fora dele, para que `sv360.project_floors` e `ng.zone_permissions` nunca colidam com um homonimo
     // de `public` que alguem venha a criar.
     const reais = rows.map((r) => (r.table_schema === 'public'
       ? `${r.table_name}.${r.column_name}`

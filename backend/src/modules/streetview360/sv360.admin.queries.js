@@ -6,11 +6,11 @@
 // Conventions (_padroes §8):
 //   - 100% parametrized ($1..$N); never string-interpolate input.
 //   - All names UPPER_SNAKE_CASE, verb + entity.
-//   - Column names are the REAL ones from 005_sv360.sql.
+//   - Column names are the REAL ones from 007_sv360.sql.
 //   - The shared merge core (sv360.merge.js) is the ONLY caller that runs the
 //     UPSERT / PURGE / INSERT_* / collision queries, inside a single tx `t`.
 //
-// Real columns (005_sv360.sql):
+// Real columns (007_sv360.sql):
 //   sv360.projects (id, organization_id, slug, name, center_lat, center_long,
 //                   entry_photo_id, photo_count, db_filename, status,
 //                   created_at, updated_at)  UNIQUE(organization_id, slug)
@@ -21,7 +21,7 @@
 //                   preview_size_bytes,
 //                   calibration_reviewed, capture_date, geom (trigger), ...)
 //   sv360.project_floors (project_id, level, label, plan_coords JSONB)
-//                   PK(project_id, level), migration 012_sv360_floors.sql
+//                   PK(project_id, level), migration 007_sv360.sql
 //   sv360.targets  (source_id, target_id, distance_m, bearing_deg, is_next,
 //                   is_original, override_bearing, override_distance,
 //                   override_height, hidden)  PK(source_id, target_id)

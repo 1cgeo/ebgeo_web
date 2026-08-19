@@ -2,7 +2,7 @@
 // Regression (achado 42): catalog layers vanished on the import/clone round-trip because the
 // schema keeps TWO homes for the same data and the writers and the reader picked different ones.
 //   - writers: importAtlas / cloneAtlas / duplicateMap wrote ONLY the legacy array column
-//     `maps.catalog_layers` (002_atlas.sql:98, whose comment claims it exists "p/ clone/import");
+//     `maps.catalog_layers` (a coluna legada, apagada na consolidação de 003_atlas.sql);
 //   - reader: buildSnapshot builds `map.catalogLayers` ONLY from the dedicated `catalog_layers`
 //     table (sync.queries.js GET_ATLAS_CATALOG_LAYERS).
 // So "enviar atlas local para o servidor" (local-atlas-to-server.js:320 sends

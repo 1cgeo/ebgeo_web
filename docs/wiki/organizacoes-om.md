@@ -2,15 +2,15 @@
 
 A OM é um tenant de alcance estreito: particiona usuários e projetos 360, nunca atlas. Desativá-la não esconde, expulsa: derruba login, refresh e sockets abertos dos membros em segundos.
 
-CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_core.sql`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
+CRUD em `backend/src/modules/organizations/`, DDL em `backend/src/database/migrations/001_identidade.sql`. Envelope de erro padrão de [[erros-api]] / [[sintese-contrato-erros-http]].
 
 ## O que a org NÃO escopa (a expectativa errada)
 
-A frase que circula, "uma organização representa a OM dona dos dados" (origem: guia *12-multiorg-identidade-auditoria*, absorvido), é **intenção de projeto e não comportamento**. `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/002_atlas.sql`); nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. O acesso vem de `atlas_shares`. Quem parte dessa frase desenha isolamento que o banco não entrega. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
+A frase que circula, "uma organização representa a OM dona dos dados" (origem: guia *12-multiorg-identidade-auditoria*, absorvido), é **intenção de projeto e não comportamento**. `atlas` tem só `owner_id` e nenhum `organization_id` (`backend/src/database/migrations/003_atlas.sql`); nem mapas, nem camadas, nem feições são escopados por org, e nenhuma consulta de atlas filtra por ela. O acesso vem de `atlas_shares`. Quem parte dessa frase desenha isolamento que o banco não entrega. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
 
-Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/004_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
+Nomes geográficos também não: são gated por concessão de zona por usuário e por grupo, resolvida em `ng.fn_user_zone_geoms` (`backend/src/database/migrations/006_ng.sql`) e consumida pelas queries de `backend/src/modules/nomes/nomes.queries.js`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
 
-A org de fato particiona dados em `sv360.projects.organization_id`, com `UNIQUE (organization_id, slug)` (`backend/src/database/migrations/005_sv360.sql`), e desde 2026-08-17 também em `owner_org_id` nas quatro tabelas de catálogo. Essas colunas dizem **quem produziu**; elas não são consultadas contra a lotação de ninguém.
+A org de fato particiona dados em `sv360.projects.organization_id`, com `UNIQUE (organization_id, slug)` (`backend/src/database/migrations/007_sv360.sql`), e desde 2026-08-17 também em `owner_org_id` nas quatro tabelas de catálogo. Essas colunas dizem **quem produziu**; elas não são consultadas contra a lotação de ninguém.
 
 ## São DUAS colunas de OM no usuário, e só uma autoriza
 
@@ -48,7 +48,7 @@ O `4003` **não** tem uma lista fixa de três gatilhos, e enumerá-lo como lista
 
 ## Contratos congelados
 
-- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_core.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
+- **O UUID da org default `00000000-0000-0000-0000-000000000001`** está escrito literalmente em três lugares independentes: o seed (`backend/src/database/migrations/001_identidade.sql`), o `COALESCE` do autocadastro (`backend/src/modules/auth/auth.queries.js`) e o `DEFAULT_ORG_ID` do ETL 360 (`backend/src/modules/streetview360/sv360.merge.js`). Só o terceiro é uma constante nomeada; os outros dois são literais soltos, e mudar o id quebra os três em silêncio. Ver [[sintese-contratos-congelados]].
 - **Trocar de OM é ação de admin, nunca self-service**, e o mesmo vale com muito mais força para `producer_org_id`: `updateProfileSchema` omite os dois (`backend/src/modules/users/users.schemas.js`). A justificativa mudou de peso, o que importa para quem for mexer no schema: a lotação é recusada porque alimenta o gate de liveness e é identidade institucional, não porque compre acesso (não compra mais); o escopo de produção é recusado porque **é** autorização, e aceitá-lo ali seria auto-cadastro de crachá. Ver [[gestao-usuarios]].
 - **Aliases `org` e `login`** no access token são consumidos as-is pelo módulo 360 (`issueAccessToken`, `backend/src/modules/auth/auth.service.js`). Ver [[jwt-emissor-unico]], [[autenticacao-jwt]] e [[api-keys]].
 - `organization_id` é **nullable** e o fallback de token legado é `?? null` (`verifyAndMapUser`, `backend/src/middleware/auth.js`). Só o autocadastro garante org; contas por outros caminhos podem ficar sem OM. Não presuma a default.

@@ -33,7 +33,7 @@ Desde `1d23ac9` (2026-07-19) a query usa flag de "campo enviado" (`description =
 
 O frontend contorna enviando sempre o bloco completo (`frontend/src/js/modals/atlas-settings.modal.js`). **Todo cliente novo deve fazer o mesmo**: ler o settings atual, mesclar em memória, mandar o objeto inteiro.
 
-Duas convenções que o schema não explicita: **lista de disponibilidade vazia significa "sem restrição"**, não "nada permitido" (`backend/src/database/migrations/002_atlas.sql`); e a validação Joi rejeita `min_zoom > max_zoom` e `default_basemap` fora de `basemaps` (`backend/src/modules/atlas/atlas.schemas.js`). Forma completa em [[atlas-settings]].
+Duas convenções que o schema não explicita: **lista de disponibilidade vazia significa "sem restrição"**, não "nada permitido" (`backend/src/database/migrations/003_atlas.sql`); e a validação Joi rejeita `min_zoom > max_zoom` e `default_basemap` fora de `basemaps` (`backend/src/modules/atlas/atlas.schemas.js`). Forma completa em [[atlas-settings]].
 
 ## DELETE, restore e por que o restore não é gateado
 
@@ -69,7 +69,7 @@ O `UPDATE` da posse é escopado por `owner_id = <o dono que autorizou o chamador
 
 `POST /:atlasId/maps/:mapId/merge` é exceção estrutural à regra "conteúdo só muda por sync". Move sub-entidades numa transação; os mapas de origem **não são deletados**, apenas esvaziados.
 
-O merge move linhas em massa, então nenhuma op por entidade descreve o que aconteceu. A saída foi gravar, **na mesma transação**, uma op MARCADORA de tipo `map_merge` (`backend/src/modules/maps/maps.service.js`): ela avança `atlas.current_version` pelo trigger existente (`backend/src/database/migrations/003_sync.sql`) e o par que a recebe resolve tomando snapshot (`STRUCTURAL_RESYNC_OPS`, `frontend/src/js/store/sync/sync-engine.js`).
+O merge move linhas em massa, então nenhuma op por entidade descreve o que aconteceu. A saída foi gravar, **na mesma transação**, uma op MARCADORA de tipo `map_merge` (`backend/src/modules/maps/maps.service.js`): ela avança `atlas.current_version` pelo trigger existente (`backend/src/database/migrations/004_sync.sql`) e o par que a recebe resolve tomando snapshot (`STRUCTURAL_RESYNC_OPS`, `frontend/src/js/store/sync/sync-engine.js`).
 
 O porquê vale mais que o mecanismo: sem a op marcadora o merge existia só como broadcast efêmero, que alcança quem está conectado naquele instante. O par offline reconectava com `sync_request {lastVersion: N}`, e como nada fora escrito o `N` ainda era o `current_version`, o pull tomava o ramo incremental e respondia `{operations: []}`. O par concluía que estava em dia e seguia mostrando as feições sob o mapa ANTIGO, indefinidamente, até um F5. O replay vinha vazio por construção. Ver [[snapshot-e-pull-incremental]].
 
@@ -79,11 +79,11 @@ Isso já disparou uma vez, com `comments`: escopada por mapa e entregue pelo sna
 
 Segunda armadilha da mesma família, e mais escondida: duas linhas de `cesium3d_data` (`camera_position`) ou de `streetview360_data` (`orientation`) que compartilhem sua chave lógica **não podem coexistir vivas no destino**, porque o snapshot as indexa por esse valor e uma sobrescreve a outra na montagem. Mover em massa criava exatamente esse par: o preset de câmera sumia depois do merge e podia voltar sozinho muito depois, quando a ordem física das linhas mudasse. Hoje `KEYED_SINGLETONS` (mesmo arquivo) resolve o choque por soft-delete ANTES de mover e reporta em `deduped`. **`data_type` novo cuja identidade no snapshot seja um valor, e não o id da linha, precisa entrar nessa lista**; os demais vão para arrays por id e deduplicá-los apagaria dado do usuário.
 
-O merge move a tabela `catalog_layers`, que desde a migração 022 é o único lugar onde uma camada de catálogo mora (a coluna legada `maps.catalog_layers` foi apagada; ver [[tipos-entidade-sync]]). Antes disso o merge ignorava a coluna, e um cliente que usasse a forma de array perdia as camadas ao mesclar em silêncio.
+O merge move a tabela `catalog_layers`, que desde 2026-08-18 é o único lugar onde uma camada de catálogo mora (a coluna legada `maps.catalog_layers` foi apagada; ver [[tipos-entidade-sync]]). Antes disso o merge ignorava a coluna, e um cliente que usasse a forma de array perdia as camadas ao mesclar em silêncio.
 
 **Não é desfazível.** A op marcadora grava só o agregado, nunca a origem linha a linha; não há `createAudit` em `backend/src/modules/maps/`; e o undo do cliente é local e só cobre op de sync. Não existe caminho de reverter, nem à mão pelo banco.
 
-Efeito de terceira ordem, que não se lê em nenhum dos três lugares sozinho: `trg_mark_slides_broken` (`backend/src/database/migrations/002_atlas.sql`) marca `is_broken` quando o mapa referenciado é **soft-deletado**, e o merge esvazia sem deletar. O slide que aponta para a origem segue `is_broken = FALSE` e passa a apresentar um mapa vazio: a detecção de slide quebrado é cega justamente para o único caminho que produz mapa vazio sem deleção.
+Efeito de terceira ordem, que não se lê em nenhum dos três lugares sozinho: `trg_mark_slides_broken` (`backend/src/database/migrations/003_atlas.sql`) marca `is_broken` quando o mapa referenciado é **soft-deletado**, e o merge esvazia sem deletar. O slide que aponta para a origem segue `is_broken = FALSE` e passa a apresentar um mapa vazio: a detecção de slide quebrado é cega justamente para o único caminho que produz mapa vazio sem deleção.
 
 Nada disso é exercitado pelo produto hoje: **nenhum cliente web chama estas rotas**. `api-client.js` não tem método de merge, e os únicos chamadores são os testes de integração do backend. O handler de `maps_merged` existe (`frontend/src/js/store/sync/ws-client.js`), mas o gesto que o dispara não, então não conclua desta seção que o ramo `serverResync` já está sendo exercitado por merge em produção.
 

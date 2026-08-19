@@ -2,7 +2,7 @@
 // Regression: granting and revoking access to an atlas left no audit trail.
 //
 // `audit_trail.action` has reserved 'SHARING_CHANGE', 'PERMISSION_GRANT' and
-// 'PERMISSION_REVOKE' since 001_core.sql:172-177, and `target_type` has allowed
+// 'PERMISSION_REVOKE' since the first day (002_auditoria.sql), and `target_type` has allowed
 // 'ATLAS'. But no sharing mutation ever emitted any of them: a sweep of `src/` shows
 // SHARING_CHANGE was emitted by NOBODY, and PERMISSION_GRANT/REVOKE only by zones
 // (zones.service.js:86). None of the five mutations in the sharing module imported

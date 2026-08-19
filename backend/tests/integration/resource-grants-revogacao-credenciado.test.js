@@ -7,7 +7,7 @@
 //
 // O QUE ERA. `requireGrantRevoker` consultava `fn_has_global_data_access` ANTES de
 // olhar `granted_by`, e aquela função inclui o CREDENCIADO — o papel definido em
-// 018_papeis_globais.sql como "LÊ todo recurso privado do sistema e NÃO ESCREVE
+// 001_identidade.sql como "LÊ todo recurso privado do sistema e NÃO ESCREVE
 // NADA". Ele derrubava, portanto, a concessão de qualquer pessoa, com a subárvore
 // junto (a poda alcança os filhos, então o estrago passa longe da linha apontada).
 //

@@ -1,38 +1,33 @@
-# Catálogo 3D (descoberta de modelos)
+# Catálogo 3D (nota histórica: o segundo catálogo saiu)
 
-`GET /api/v1/nomes/catalogo3d` lista modelos 3D com metadados de cena, sob envelope congelado próprio e filtro de acesso embutido no SQL. Contrato em `backend/src/modules/nomes/nomes.routes.js` e nos `nomes.schemas.js`/`nomes.queries.js`/`nomes.service.js` do mesmo diretório.
+**Esta página descreve algo que não existe mais.** Ela fica porque a pergunta que a criou continua sendo feita ("existem dois catálogos de modelo 3D?") e porque uma dúzia de páginas apontam para cá; o que mudou é a resposta.
 
-## Duas fontes de modelos 3D, e o cliente usa a outra
+Até 2026-08-19 havia **dois** catálogos de modelo 3D no sistema, com modelos de permissão distintos:
 
-Esta rota **não** é a fonte de descoberta do web app, ao contrário do que o nome sugere. Não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `frontend/src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`frontend/src/js/3d_models_viewer_tool/map_3d.js`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
+- `public.tilesets`, servido em `GET /api/config` e resolvido pelo visualizador (`frontend/src/js/3d_models_viewer_tool/map_3d.js`), com o eixo de acesso de [[acesso-a-recurso-privado]];
+- uma tabela de catálogo no schema `ng`, servida por uma rota `/nomes/catalogo3d`, com permissão por modelo (direta e por grupo) em duas tabelas próprias.
 
-E `config.tilesets` deixou de ser homogênea: desde 2026-08-14 a mesma lista carrega **dois tipos de linha**, separados pelo discriminador `viewer` ([[primeira-pessoa-3d]]). Quem consumir a lista precisa particionar antes de usar, porque uma cena entregue ao visualizador Cesium é um id sem tileset atrás. A escolha de reusar a tabela foi deliberada, e o que ela comprou de graça (allowlist por atlas, gate do botão "Modelos 3D") está registrado lá.
+**O segundo saiu inteiro**: a tabela, as duas tabelas de permissão, a rota, o controller, o service, o schema Joi e o par de consultas que carregava o predicado de acesso. Sobra `public.tilesets`, e a descoberta de modelo 3D passa a ter uma fonte só. Detalhe em [[resources-catalogo]] e no achado 1 de [[modelo-de-dados]].
 
-A divergência não é só de origem, é de vocabulário: o cliente discrimina por `type === 'glb'` (`frontend/src/js/3d_models_viewer_tool/map_3d.js`), enquanto `ng.catalogo_3d` tem CHECK em `'Tiles 3D' | 'Modelos 3D' | 'Nuvem de Pontos'` (`backend/src/database/migrations/004_ng.sql`). Quem integrar precisa decidir qual manda e mapear os dois vocabulários, não apenas trocar a URL do fetch. E `config.tilesets` não tem controle de acesso por modelo; `ng.catalogo_3d` tem. Migrar o cliente para o catálogo `ng` é um endurecimento de segurança, não uma refatoração cosmética.
+## Por que ele saiu em vez de ser unificado
 
-## Predicado de acesso duplicado entre SELECT e COUNT
+Três medições, e as três apontam para o mesmo lado:
 
-O filtro (admin global, ou permissão direta em `ng.model_permissions`, ou por grupo em `ng.model_group_permissions`) vive dentro do SQL, não na aplicação: dado privado não vaza nem com bug de controller. O custo dessa escolha é que `CATALOGO_SELECT` e `CATALOGO_COUNT` **duplicam o predicado verbatim**, mudando só o placeholder do `userId` (`$4` no SELECT, `$2` no COUNT) porque nunca foi extraído para uma função SQL (`backend/src/modules/nomes/nomes.queries.js`). **Ao editar o filtro, edite os dois**, ou `total` passa a mentir sobre o que o usuário vê e a paginação ganha páginas fantasma. Os dois rodam em `Promise.all` (`backend/src/modules/nomes/nomes.service.js`), então a divergência não aparece como erro, só como contagem errada.
+- **Zero consumidores.** Nenhuma referência a `catalogo3d` em `frontend/src/`. O visualizador sempre resolveu por `config.tilesets`.
+- **O filtro de acesso era inalcançável.** As duas tabelas de permissão de modelo não tinham **nenhum escritor** em `backend/src`: as únicas escritas que já existiram foram fixtures de teste. Um recurso privado que ninguém consegue conceder é um recurso que ninguém vê, e um predicado que nada alimenta é um predicado que só custa manutenção.
+- **O predicado estava duplicado verbatim** entre a consulta de listagem e a de contagem, com o comentário nomeando uma função SQL que nunca foi escrita. É a mesma classe de defeito que [[acesso-a-recurso-privado]] existe para não repetir, e que motivou o predicado daquele eixo a nascer como função.
 
-Armadilha de eixo: aqui o critério é **permissão por modelo**, não zona geográfica. As zonas (`ng.fn_user_zone_geoms`) valem para `nomes_geograficos` e `edificacoes`, não para o catálogo ([[zonas-acesso-geografico]]), e nenhum dos dois se relaciona com o papel por atlas ([[permissoes-atlas]]) ou com o papel global ([[gestao-usuarios]]). O comentário em `backend/src/modules/nomes/nomes.queries.js` deixa o `WHERE` como disjunção justamente para que a branch espacial possa ser somada depois sem reescrever a query.
+**Os dois acervos não eram cópias um do outro**, e é isso que tornava a escolha real em vez de óbvia: a tabela do `ng` era populada pelo importador do gazetteer, a partir do backup externo, e `tilesets` pelo importador do config legado. Fontes diferentes, acervos diferentes. Por isso a saída não é só apagar: `dev/import-gazetteer.mjs` teve o ramo do catálogo 3D **repontado para `tilesets`**, convertendo a forma da linha na passagem (o `type` da origem vira o discriminador `config.type === 'glb'`, município e estado viram `local`, palavras-chave viram `keywords`). O acervo continua carregável, no catálogo que sobrevive.
 
-## Contrato congelado
+## O que herda o assunto
 
-- Envelope **próprio** `{ total, page, nr_records, data }`, não o `{ data }` padrão da API. O controller devolve o objeto do service sem embrulhar, e avisa disso no topo do arquivo (`backend/src/modules/nomes/nomes.controller.js`). Ver [[sintese-contratos-congelados]].
-- `url` e `thumbnail` trafegam como as strings relativas armazenadas, **sem prefixo**, fixado por teste de contrato (`backend/tests/integration/nomes-catalogo3d-gaps.test.js`). A URL final é `assets3dBaseUrl + url`, com `assets3dBaseUrl` vindo do `/api/config` (`backend/src/modules/config/config.service.js`). Hardcodar `/api/v1/assets3d` no cliente anula o propósito do campo: apontar para um host de estáticos interno sem rebuild e sem reescrever o catálogo ([[config-runtime-urls-relativas]], [[config-dinamico]]).
+- **Descoberta e metadados de modelo 3D:** [[resources-catalogo]] (a tabela `tilesets` e as três irmãs de catálogo).
+- **Quem vê um modelo privado:** [[acesso-a-recurso-privado]]. Este eixo conhece credenciado, produtor, concessão com prazo e empréstimo por atlas, nada do que o eixo antigo conhecia.
+- **Os bytes:** [[assets3d-distribuicao]]. Descoberta nunca foi distribuição; o binário sempre saiu por outra rota, e continua saindo.
+- **A lista heterogênea:** `config.tilesets` carrega **dois tipos de linha** desde 2026-08-14, separados pelo discriminador `viewer` ([[primeira-pessoa-3d]]). Quem consome precisa particionar antes de usar, porque uma cena entregue ao visualizador Cesium é um id sem tileset atrás.
 
-Descoberta não é distribuição: o binário (`tileset.json`/`.b3dm`/`.glb`/`.pnts`) vem de outra rota, pública, com ETag/Range/`immutable` ([[assets3d-distribuicao]], [[sintese-cache-http-imutavel]]). Deixe o Cesium emitir as requisições `Range`: envolver o asset num fetch próprio descarta `Accept-Ranges` e destrói o streaming por LOD.
+## O que ficou como buraco declarado
 
-## Cuidados de consumo
+A taxonomia de tipo do catálogo que sobrevive é mais pobre que a do que saiu. O vocabulário antigo distinguia três formas (tileset 3D, modelo isolado e nuvem de pontos); `tilesets` distingue só duas, por `config.type === 'glb'` presente ou ausente. Na conversão do importador a **nuvem de pontos foi mapeada para tileset**, que é o carregador certo (o formato dela é parte do 3D Tiles) e não quebra nada — o que se perde é poder dizer na tela que aquele item é uma nuvem, e filtrar por isso. Declarar a taxonomia é trabalho próprio; inventá-la na conversão criaria um valor que nenhum leitor conhece.
 
-- `q=''` passa no Joi (`backend/src/modules/nomes/nomes.schemas.js`) e vira `null` no service (`backend/src/modules/nomes/nomes.service.js`): string vazia **lista tudo** em vez de buscar por vazio. Campo de busca que dispara a cada tecla não precisa tratar "limpou o campo".
-- Sem `q`, `rank` é a constante `0` (o `CASE` em `backend/src/modules/nomes/nomes.queries.js`) e o `ORDER BY rank DESC, data_criacao DESC` degrada para "mais recente primeiro". Não exiba `rank` como relevância quando não houve termo.
-- `page` é **1-based** e `page=0` morre no Joi com `422`, não chega ao SQL ([[erros-api]]). UI 0-based precisa somar 1 antes de enviar.
-- `total` já reflete o filtro de acesso do usuário; não é contagem global do catálogo.
-- Rota é `auth` **estrito** (`backend/src/modules/nomes/nomes.routes.js`), ao contrário de `/nomes/busca`, que preserva o caminho anônimo por decisão explícita (`backend/src/modules/nomes/nomes.routes.js`). Sem token, `401` ([[autenticacao-jwt]]).
-- Módulo read-only, sem rota de escrita, carga externa: fora do sync, sem `version`, sem broadcast, sem snapshot ([[sintese-modulos-fora-do-sync]], [[gazetteer-nomes-geograficos]]).
-- Asset ausente com catálogo apontando para ele (`404` no binário) deve ocultar e logar o modelo, não derrubar a cena.
-
-## Por que o log omite os valores da query
-
-`nomesAccessLog` registra `userId`, `ip`, `path` e apenas as **chaves** da query (`backend/src/middleware/nomes-access-log.js`). Num gazetteer militar o termo buscado e as coordenadas clicadas são o dado sensível, e logs operacionais podem seguir para agregadores. Se um dia for preciso auditoria em nível de valor, o lugar é a `audit_trail` ([[auditoria]]), não o logger.
+E o log de acesso do gazetteer continua registrando só as **chaves** da query, nunca os valores (`backend/src/middleware/nomes-access-log.js`): num gazetteer militar o termo buscado e as coordenadas clicadas são o dado sensível, e logs operacionais podem seguir para agregadores. Auditoria em nível de valor é [[auditoria]], não o logger.

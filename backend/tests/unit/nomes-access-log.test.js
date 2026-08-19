@@ -4,7 +4,7 @@
 // O invariante está declarado em prosa no próprio arquivo ("Log WHICH filters were
 // used, not their values: for a military gazetteer the raw search terms and click
 // coordinates are sensitive"), e tinha ZERO asserções: o middleware roda em
-// /busca, /feicoes e /catalogo3d e não era referenciado por nenhum teste. Trocar
+// /busca e /feicoes e não era referenciado por nenhum teste. Trocar
 // `queryKeys: Object.keys(req.query)` por `query: req.query` passaria verde e
 // mandaria termo de busca e coordenada de clique para o pipeline de log.
 //

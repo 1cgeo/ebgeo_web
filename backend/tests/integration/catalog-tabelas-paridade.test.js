@@ -2,7 +2,7 @@
 // Item 106 — paridade de shape das 4 tabelas de catálogo.
 //
 // `data_layers` / `analysis_layers` / `tilesets` são clones estruturais de
-// `basemaps`, feitos UMA ÚNICA VEZ por `LIKE ... INCLUDING ALL` (003_sync.sql), e
+// `basemaps`, que até a consolidação nasciam de um `LIKE ... INCLUDING ALL` e hoje são quatro `CREATE TABLE` escritos por extenso (005_catalogo.sql), e
 // `catalog.service.js` roda a MESMA string `COLS` e os mesmos INSERT/UPDATE contra
 // as quatro. Só o router de `basemaps` recebe request HTTP nos testes, então uma
 // migração aditiva que acrescente coluna a `basemaps` e esqueça as outras três

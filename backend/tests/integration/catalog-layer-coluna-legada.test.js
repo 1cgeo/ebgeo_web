@@ -12,34 +12,25 @@
 // rotas que alguém lembrou; a coluna seguiria servida pela próxima consulta que alguém
 // escrevesse sobre `maps`. Sem leitor, o dado não precisa de filtro: precisa não existir.
 //
-// A MATERIALIZAÇÃO É EXECUTADA A PARTIR DO ARQUIVO DA MIGRAÇÃO, não de uma cópia do SQL: o teste
-// lê `022_*.sql`, recria a coluna, planta o estado antigo, roda o INSERT de lá e confere. Uma
-// cópia do statement aqui verificaria a cópia, que é a família de verde que não verifica.
+// O QUE SAIU DAQUI NA CONSOLIDAÇÃO (F15), e por quê. Este arquivo tinha um terceiro caso, que
+// executava o INSERT DE MATERIALIZAÇÃO lido do arquivo da migração (recriava a coluna, plantava
+// o array legado e conferia que a linha viva vencia e que o tombstone não ressuscitava). Aquele
+// statement deixou de existir: no schema esmagado a coluna nunca é criada, então não há
+// materialização a fazer nem migração de onde lê-la. Reescrevê-lo com uma CÓPIA do SQL aqui
+// verificaria a cópia, que é a família de verde que não verifica, e foi exatamente o que aquele
+// caso existia para evitar.
+//
+// O QUE FICA, e continua sendo o que importa: a coluna NÃO EXISTE, e as três rotas de mapa não
+// servem definição de recurso NEM SE ELA VOLTAR — esse segundo caso é o guarda durável, porque
+// quem reabre o buraco é um `SELECT *` sobre `maps`, e um `SELECT *` não fica vermelho enquanto
+// a tabela não tiver nada a esconder.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
-
-const MIGRACAO = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../src/database/migrations/022_camada_de_catalogo_sem_coluna_legada.sql',
-);
-
-/** O statement de materialização da migração, lido do arquivo (sem o DDL que apaga a coluna). */
-function insertDaMigracao() {
-  const sql = fs.readFileSync(MIGRACAO, 'utf8');
-  const inicio = sql.indexOf('INSERT INTO catalog_layers');
-  assert.ok(inicio >= 0, 'a migração 022 precisa carregar o INSERT de materialização');
-  const fim = sql.indexOf(';', inicio);
-  assert.ok(fim > inicio);
-  return sql.slice(inicio, fim + 1);
-}
 
 describe('F12 — a coluna legada `maps.catalog_layers` sai, e nada se perde', () => {
   let app, db, dono, token;
@@ -56,7 +47,7 @@ describe('F12 — a coluna legada `maps.catalog_layers` sai, e nada se perde', (
     await teardownTestEnv(db);
   });
 
-  it('a coluna não existe no schema depois da 022', async () => {
+  it('a coluna não existe no schema', async () => {
     const { rows } = await db.query(
       `SELECT column_name FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'maps' ORDER BY column_name`,
@@ -66,55 +57,7 @@ describe('F12 — a coluna legada `maps.catalog_layers` sai, e nada se perde', (
     // que devolvesse vazio por erro de nome passaria verde afirmando nada).
     assert.ok(colunas.includes('analysis_layers'), 'a varredura vê as colunas de `maps`');
     assert.ok(colunas.includes('grid_style'));
-    assert.ok(!colunas.includes('catalog_layers'), '`maps.catalog_layers` foi apagada pela 022');
-  });
-
-  it('a materialização da 022 leva o array legado para a tabela, e a LINHA VIVA vence', async () => {
-    const atlas = await createAtlas(db, dono.id, { name: `F12 mat ${randomUUID().slice(0, 6)}` });
-    const mapa = await createMap(db, atlas.id, { name: 'Mapa com coluna antiga' });
-
-    // O estado do banco de produção no dia do deploy: três entradas no array, uma delas TAMBÉM
-    // presente na tabela (com valor diferente, para discriminar quem venceu) e outra já REMOVIDA
-    // pelo usuário (linha soft-deletada, que não pode ressuscitar).
-    const legado = [
-      { id: 'hillshade', visible: true, opacity: 0.7 },
-      { id: 'data-conflito', visible: false, name: 'Cópia velha', config: { source: { url: '/velho' } } },
-      { id: 'analysis-removida', visible: true },
-    ];
-    await db.query(`INSERT INTO catalog_layers (id, map_id, data) VALUES ($1, $2, $3::jsonb)`, [
-      'data-conflito', mapa.id, JSON.stringify({ id: 'data-conflito', visible: true, viva: true }),
-    ]);
-    await db.query(
-      `INSERT INTO catalog_layers (id, map_id, data, deleted_at)
-       VALUES ($1, $2, $3::jsonb, NOW())`,
-      ['analysis-removida', mapa.id, JSON.stringify({ id: 'analysis-removida', visible: false })],
-    );
-
-    await db.query(`ALTER TABLE maps ADD COLUMN catalog_layers JSONB NOT NULL DEFAULT '[]'`);
-    try {
-      await db.query(`UPDATE maps SET catalog_layers = $1::jsonb WHERE id = $2`, [
-        JSON.stringify(legado), mapa.id,
-      ]);
-      await db.query(insertDaMigracao());
-    } finally {
-      await db.query(`ALTER TABLE maps DROP COLUMN catalog_layers`);
-    }
-
-    const { rows } = await db.query(
-      `SELECT id, data, deleted_at FROM catalog_layers WHERE map_id = $1 ORDER BY id`, [mapa.id],
-    );
-    const porId = Object.fromEntries(rows.map((r) => [r.id, r]));
-
-    assert.deepEqual(Object.keys(porId).sort(), ['analysis-removida', 'data-conflito', 'hillshade']);
-    // 1. a entrada que só existia no array virou linha, com o payload inteiro.
-    assert.equal(porId.hillshade.data.opacity, 0.7);
-    assert.equal(porId.hillshade.deleted_at, null);
-    // 2. a LINHA VIVA venceu a cópia legada do mesmo id.
-    assert.equal(porId['data-conflito'].data.viva, true, 'a linha da tabela é a que fica');
-    assert.equal(porId['data-conflito'].data.name, undefined, 'a cópia velha não sobrescreve');
-    // 3. a camada que o usuário REMOVEU continua removida: a cópia legada, que nunca foi
-    //    atualizada, não a ressuscita.
-    assert.ok(porId['analysis-removida'].deleted_at !== null, 'o tombstone sobrevive');
+    assert.ok(!colunas.includes('catalog_layers'), '`maps.catalog_layers` não existe: a definição mora só na tabela dedicada');
   });
 
   it('as TRÊS rotas de mapa não servem definição de recurso, nem se a coluna voltar', async () => {

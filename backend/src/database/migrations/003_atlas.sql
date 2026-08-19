@@ -1,8 +1,11 @@
--- Path: src/database/migrations/002_atlas.sql
--- Baseline: domínio atlas — atlas, atlas_shares, maps, layers, groups, features,
--- group_features, catalog_layers, cesium3d_data, streetview360_data, images,
--- briefings, slides. Geometria do atlas é JSONB (mesmo formato do IndexedDB);
--- SEM PostGIS no schema public do atlas. Consolida 002/004/007/008/009/019.
+-- Path: src/database/migrations/003_atlas.sql
+-- ATLAS: a árvore da entidade colaborativa — atlas, atlas_shares, atlas_covers,
+-- maps, layers, groups, features, group_features, comments, catalog_layers,
+-- cesium3d_data, streetview360_data, images, briefings, slides.
+--
+-- Geometria do atlas é JSONB (mesmo formato do IndexedDB); SEM PostGIS no schema
+-- public do atlas. O dado espacial de referência mora em `ng`, e o do 360 em
+-- `sv360`, os dois em schema próprio e fora do CRDT.
 
 -- ============================================================================
 -- ATLAS
@@ -71,10 +74,51 @@ CREATE INDEX idx_atlas_shares_atlas ON atlas_shares(atlas_id);
 CREATE INDEX idx_atlas_shares_user ON atlas_shares(user_id);
 
 -- ============================================================================
--- MAPS
--- locked, grid_style (§26 Grade UTM) e temporal_config (§29; gated no frontend)
--- ficam no CREATE — antes eram ADD COLUMN nas migrações 004/007/009.
+-- ATLAS COVERS — a imagem que substitui as duas letras sobre cor no cartão da
+-- tela "Seus atlas".
 -- ============================================================================
+--
+-- TABELA À PARTE, e não coluna em `atlas`, por uma razão medida: `LIST_USER_ATLAS`,
+-- `FIND_ATLAS_BY_ID` e o snapshot de sync fazem `SELECT a.*`, e quatro telas do cliente
+-- chamam `listAtlas()` (o controle de conta, a aba Mapas, o nome do atlas e esta tela).
+-- Uma coluna de imagem viajaria nas quatro por acidente. Aqui a capa só sai quando
+-- alguém a pede.
+--
+-- BYTEA, não a data URI que o cliente manda: o serviço decodifica na borda, confere o
+-- número mágico contra o mime declarado (mesma regra do upload de imagem: png/jpeg/webp,
+-- SEM svg) e guarda os bytes. Base64 no banco seria 33% maior e guardaria sem conferir.
+--
+-- Sem soft-delete: "Remover imagem" apaga a linha. A regra de nunca apagar de verdade
+-- vale para entidade principal, e capa é atributo de apresentação, recriável em dois
+-- cliques.
+CREATE TABLE atlas_covers (
+    atlas_id    UUID PRIMARY KEY REFERENCES atlas(id) ON DELETE CASCADE,
+    mime_type   VARCHAR(20) NOT NULL
+                  CHECK (mime_type IN ('image/png', 'image/jpeg', 'image/webp')),
+    bytes       BYTEA NOT NULL,
+    width       INTEGER,
+    height      INTEGER,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by  UUID REFERENCES users(id)
+);
+
+COMMENT ON TABLE atlas_covers IS
+    'Capa (thumbnail) de um atlas. Uma linha por atlas, no máximo. O cliente reduz a imagem antes '
+    'de enviar; o servidor limita o tamanho no schema Joi da rota.';
+
+-- ============================================================================
+-- MAPS
+-- ============================================================================
+--
+-- NÃO EXISTE COLUNA `catalog_layers` AQUI, e a ausência é decisão, não lacuna. A
+-- camada de catálogo de um mapa mora em UM lugar só: a tabela dedicada
+-- `catalog_layers`, mais abaixo. Enquanto a coluna existiu em paralelo, ela era
+-- uma SEGUNDA cópia sem leitor, servida crua por três saídas que não passam pela
+-- reidratação do snapshot (`GET /atlas/:id/maps`, `GET /atlas/:id/maps/:id` e
+-- `POST /maps/:id/duplicate`), URL de recurso privado inclusive. Filtrar a
+-- resposta das três protegeria as rotas que alguém LEMBROU; sem leitor, o dado não
+-- precisa de filtro, precisa não existir. `POST /atlas/import` continua ACEITANDO
+-- `map.catalog_layers` no payload e materializa direto na tabela.
 CREATE TABLE maps (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
@@ -95,7 +139,6 @@ CREATE TABLE maps (
 
     -- Complex nested data stored as JSONB
     analysis_layers JSONB NOT NULL DEFAULT '{}',
-    catalog_layers  JSONB NOT NULL DEFAULT '[]',
     grid_style      JSONB NOT NULL DEFAULT '{}',
     temporal_config JSONB NOT NULL DEFAULT '{}',
 
@@ -165,7 +208,6 @@ CREATE TABLE features (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     map_id          UUID NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
 
-    -- 18 valid feature types
     feature_type    VARCHAR(50) NOT NULL,
 
     -- Geometry stored as-is from the frontend (coordinates, type, etc.)
@@ -258,18 +300,48 @@ CREATE INDEX idx_comments_map ON comments(map_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_comments_parent ON comments(parent_id) WHERE parent_id IS NOT NULL;
 
 -- ============================================================================
--- CATALOG LAYERS (§19/§2 — entidade por-camada de catálogo; entityId = layer id
--- vindo do cliente). Espelha o domínio de sync (soft-delete + version). A coluna
--- legada maps.catalog_layers (array) permanece p/ clone/import/clientes de array.
+-- CATALOG LAYERS — a entidade por-camada de catálogo de um mapa. Espelha o
+-- domínio de sync (soft-delete + version).
 -- ============================================================================
+--
+-- `id` É TEXT, E NUNCA FOI UUID. O cliente é a autoridade sobre esse id e o
+-- `CatalogService` monta ids literais (`frontend/src/js/catalog/catalog.service.js`):
+--
+--     'hillshade' | `analysis-${layer.id}` | `data-${layer.id}`
+--     `3d-${tileset.id}` | `360-${p.id}`
+--
+-- Esse valor vira o id da camada no store e viaja como entityId da operação de
+-- sync, e o handler inbound do cliente indexa `mapData.catalogLayers` por ele.
+-- Com a coluna tipada UUID o INSERT levantava 22P02 (que a borda traduz em 400);
+-- como todo o push roda num único `tx()`, o lote INTEIRO abortava, inclusive as
+-- feições que viajavam junto, e a operação permanecia na fila do IndexedDB: todo
+-- flush seguinte remontava o mesmo lote e falhava igual. Era um poison pill que
+-- matava a sincronização daquele cliente em definitivo. O mesmo raciocínio vale
+-- onde o id também vem do cliente: `operations.client_id`, `operations.op_id` e
+-- `sv360.photos.id` são TEXT.
+--
+-- A PK É `(map_id, id)`, e é consequência direta do acima. O id do cliente NÃO é
+-- globalmente único: ele é uma CONSTANTE do catálogo. Todo mapa que adicionar
+-- "Sombreamento do Relevo" usa o mesmo id `hillshade`. Com `PRIMARY KEY (id)`, o
+-- primeiro mapa ficava com a linha e todos os outros caíam no
+-- `ON CONFLICT (id) DO NOTHING` em silêncio: a camada sumia do segundo mapa em
+-- diante, sem erro, e o push ainda era acked como sucesso. Isso nunca apareceu
+-- porque toda a suíte usava `randomUUID()` como id de camada, e UUID é
+-- globalmente único por construção. O escopo real da unicidade sempre foi
+-- (map_id, id), que é como as queries de update e delete deste módulo já filtram.
+--
+-- Regressão: tests/integration/sync-catalog-layer.test.js, bloco "real catalog
+-- ids (non-UUID) round-trip".
 CREATE TABLE catalog_layers (
-    id          UUID PRIMARY KEY,            -- layer id comes from the client
+    id          TEXT NOT NULL,               -- layer id comes from the client
     map_id      UUID NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
     data        JSONB NOT NULL DEFAULT '{}',
     version     INTEGER NOT NULL DEFAULT 1,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at  TIMESTAMPTZ
+    deleted_at  TIMESTAMPTZ,
+
+    CONSTRAINT catalog_layers_pkey PRIMARY KEY (map_id, id)
 );
 
 CREATE INDEX idx_catalog_layers_map ON catalog_layers(map_id) WHERE deleted_at IS NULL;
@@ -298,7 +370,7 @@ CREATE INDEX idx_cesium3d_tileset ON cesium3d_data(tileset_id) WHERE tileset_id 
 
 -- ============================================================================
 -- STREETVIEW 360 DATA (orientação/marcadores 360 DENTRO do atlas/sync; distinto
--- do schema sv360, que é read-only e fora do CRDT — ver 005_sv360.sql)
+-- do schema sv360, que é read-only e fora do CRDT — ver 007_sv360.sql)
 -- ============================================================================
 CREATE TABLE streetview360_data (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -319,7 +391,6 @@ CREATE INDEX idx_streetview360_type ON streetview360_data(data_type);
 -- ============================================================================
 -- IMAGES
 -- mime_type alinhado à allowlist da app (png/jpeg/webp; SEM svg → anti-XSS).
--- Antes a 002 aceitava 'image/svg+xml' e a 019 apertava o CHECK.
 -- ============================================================================
 CREATE TABLE images (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -390,7 +461,7 @@ CREATE INDEX idx_slides_map ON slides(map_id) WHERE map_id IS NOT NULL;
 CREATE INDEX idx_slides_not_deleted ON slides(id) WHERE deleted_at IS NULL;
 
 -- When a map is soft-deleted, mark referencing slides as broken
-CREATE OR REPLACE FUNCTION mark_slides_broken_on_map_delete()
+CREATE FUNCTION mark_slides_broken_on_map_delete()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
