@@ -1,42 +1,41 @@
 // Path: js/store/sync/assets3d-request.js
 
 /**
- * @fileoverview Como uma requisição de ASSET 3D se identifica ao servidor.
+ * @fileoverview How a 3D ASSET request identifies itself to the server.
  *
- * Desde a fase F11 os bytes sob `/api/v1/assets3d` seguem o RECURSO e não a rota: modelo
- * público continua servido a qualquer um, modelo PRIVADO passa por um gate e responde 404
- * para quem não o alcança. O servidor decide com duas entradas, e as duas precisam viajar
- * na requisição que o Cesium (ou um `fetch`) faz:
+ * Since F11 the bytes under `/api/v1/assets3d` follow the RESOURCE and not the route: a public
+ * model is still served to anyone, a PRIVATE model goes through a gate and answers 404 to
+ * whoever cannot reach it. The server decides from two inputs, and both have to travel in the
+ * request Cesium (or a `fetch`) makes:
  *
- *   - `?atlasId=` — QUAL empréstimo o chamador quer usar. Não é senha: o servidor roda
- *     `requireAtlasPermission('read')` sobre ele. É o único dos dois que funciona para o
- *     visitante ANÔNIMO de um atlas de link público, e o único que atravessa um `<img>` ou
- *     um `<video>`, que não têm como carregar cabeçalho.
- *   - `Authorization: Bearer` — QUEM está pedindo, para o acesso que vem de papel global ou
- *     de concessão pessoal, sem atlas nenhum em foco.
+ *   - `?atlasId=` — WHICH loan the caller wants to use. It is not a password: the server runs
+ *     `requireAtlasPermission('read')` over it. It is the only one of the two that works for
+ *     the ANONYMOUS visitor of a public-link atlas, and the only one that survives an `<img>`
+ *     or a `<video>`, neither of which can carry a header.
+ *   - `Authorization: Bearer` — WHO is asking, for the access that comes from a global role or
+ *     a personal grant, with no atlas in focus at all.
  *
- * POR QUE O CABEÇALHO ATRAVESSA O CESIUM, que é o ponto que decide se isto funciona:
- * `Resource.clone()` copia `headers`, `queryParameters` e `retryCallback`, e
- * `getDerivedResource()` os funde no filho. Ou seja, carimbar o `tileset.json` alcança todo
- * tileset filho, todo `.b3dm` e todo buffer externo que ele derivar. Verificado no bundle
- * vendorizado (`public/vendors/cesium/Cesium.js`, 1.138.0) antes de o desenho depender disso.
+ * WHY THE HEADER SURVIVES CESIUM, which is what decides whether any of this works:
+ * `Resource.clone()` copies `headers`, `queryParameters` and `retryCallback`, and
+ * `getDerivedResource()` merges them into the child. So stamping the `tileset.json` reaches
+ * every child tileset, every `.b3dm` and every external buffer derived from it. Verified in the
+ * vendored bundle (`public/vendors/cesium/Cesium.js`, 1.138.0) before the design relied on it.
  *
- * O QUE ESTE MÓDULO NÃO RESOLVE, e é melhor estar escrito aqui do que ser descoberto como
- * bug: um endereço que o NAVEGADOR busca sozinho (`<img src>`, `<video src>`, um loader de
- * terceiros que não aceita cabeçalho) não carrega `Authorization`. Para esses, o acesso a
- * um recurso privado depende do braço de empréstimo, isto é, de haver um atlas em foco que
- * o empreste. Fechar o resto exigiria cookie de sessão, que é o eixo de autenticação e não
- * o desta fase.
+ * WHAT THIS MODULE DOES NOT SOLVE, and it is better written here than discovered as a bug: an
+ * address the BROWSER fetches on its own (`<img src>`, `<video src>`, a third-party loader that
+ * accepts no headers) carries no `Authorization`. For those, access to a private resource
+ * depends on the loan arm, that is, on there being an atlas in focus that lends it. Closing the
+ * rest would require a session cookie, which is the authentication axis and not this one.
  */
 
 import { apiClient } from './api-client.js';
 import { currentResourceAtlasId } from './resource-scope.js';
 
-/** Endereço de OUTRA origem: carimbar credencial nele seria vazá-la para terceiro. */
+/** A CROSS-ORIGIN address: stamping a credential on it would hand it to a third party. */
 const OUTRA_ORIGEM_RE = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i;
 
 /**
- * O escopo de atlas que deve acompanhar uma requisição de asset, ou null.
+ * The atlas scope that should accompany an asset request, or null.
  * @returns {string|null}
  */
 export function escopoDeAsset() {
@@ -44,14 +43,14 @@ export function escopoDeAsset() {
 }
 
 /**
- * A mesma URL, com `atlasId` na query quando há atlas em foco.
+ * The same URL, with `atlasId` in the query when there is an atlas in focus.
  *
- * Para o endereço que o navegador busca sozinho, este é o único carimbo possível. Endereço
- * de outra origem sai INTACTO: o empréstimo é uma afirmação sobre este servidor, e anexá-la
- * a um host de terceiro só contaria a ele em que atlas o usuário está.
+ * For an address the browser fetches on its own, this is the only stamp available. A
+ * cross-origin address comes out UNTOUCHED: the loan is a claim about THIS server, and
+ * attaching it to a third-party host would only tell that host which atlas the user is in.
  *
  * @param {string} url
- * @returns {string} A URL carimbada, ou a original quando não há o que carimbar.
+ * @returns {string} The stamped URL, or the original when there is nothing to stamp.
  */
 export function escoparUrlDeAsset(url) {
     if (typeof url !== 'string' || !url) return url;
@@ -64,32 +63,33 @@ export function escoparUrlDeAsset(url) {
 }
 
 /**
- * Os cabeçalhos de credencial de uma requisição de asset.
+ * The credential headers of an asset request.
  *
- * Delega ao `apiClient`, que renova o token antes de devolvê-lo — e devolve `{}` sem sessão,
- * porque o caminho anônimo é normal aqui: a maioria dos modelos é pública.
+ * Delegates to `apiClient`, which refreshes the token before handing it back — and returns
+ * `{}` with no session, because the anonymous path is normal here: most models are public.
  *
- * @returns {Promise<Object>} Cabeçalhos para espalhar num `fetch`.
+ * @returns {Promise<Object>} Headers to spread into a `fetch`.
  */
 export async function cabecalhosDeAsset() {
     try {
         return await apiClient.authHeader();
     } catch {
-        // Best-effort por desenho, como o resto deste eixo: sem credencial o pedido segue
-        // anônimo e o servidor decide. Falhar aqui derrubaria o modelo PÚBLICO junto.
+        // Best-effort by design, like the rest of this axis: with no credential the request
+        // goes out anonymous and the server decides. Failing here would take the PUBLIC model
+        // down with it.
         return {};
     }
 }
 
 /**
- * O descritor de uma requisição de asset, no formato que um `Cesium.Resource` aceita.
+ * The descriptor of an asset request, in the shape a `Cesium.Resource` accepts.
  *
- * Devolve dado puro, sem tocar em `Cesium`: quem monta o `Resource` é o visualizador 3D, que
- * é lazy, e este módulo é do store. `retryCallback` é a peça que impede o defeito de tempo:
- * o token de acesso vive 15 min e um tileset grande streama por muito mais, então sem ele as
- * requisições de LOD começariam a levar 404 no meio da sessão, com os tiles simplesmente
- * parando de aparecer. Ele renova e reescreve o cabeçalho DO PRÓPRIO recurso, que é o objeto
- * que os filhos clonaram.
+ * Returns plain data and never touches `Cesium`: the one that builds the `Resource` is the 3D
+ * viewer, which is lazy, and this module belongs to the store. `retryCallback` is the piece
+ * that prevents the timing defect: the access token lives 15 min and a large tileset streams
+ * for much longer, so without it the LOD requests would start taking 404s mid-session, with
+ * tiles simply ceasing to appear. It refreshes and rewrites the header ON THE RESOURCE ITSELF,
+ * which is the object the children cloned.
  *
  * @param {string} url
  * @returns {Promise<{url: string, queryParameters?: Object, headers?: Object, retryCallback?: Function, retryAttempts?: number}>}
@@ -108,9 +108,9 @@ export async function descritorDeAsset(url) {
         descritor.retryCallback = async (recurso) => {
             const renovados = await cabecalhosDeAsset();
             if (!renovados.Authorization || !recurso) return false;
-            // Uma tentativa só, e só quando a credencial MUDOU: repetir com o mesmo token
-            // transformaria um 404 legítimo (o recurso não é deste usuário) em duas
-            // requisições para a mesma resposta, vezes o número de tiles.
+            // One attempt only, and only when the credential CHANGED: retrying with the same
+            // token would turn a legitimate 404 (the resource is not this user's) into two
+            // requests for the same answer, times the number of tiles.
             if (recurso.headers?.Authorization === renovados.Authorization) return false;
             recurso.headers.Authorization = renovados.Authorization;
             return true;

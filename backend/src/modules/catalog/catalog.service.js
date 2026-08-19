@@ -27,30 +27,29 @@ const COLS = 'id, name, description, config, active, sort_order, created_at, upd
 const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
 
 /**
- * O predicado de visibilidade de recurso, na forma de fragmento de WHERE.
+ * The resource-visibility predicate, as a WHERE fragment.
  *
- * FECHA POR PADRÃO, e essa é a propriedade que importa: sem principal, só o
- * público. A lista de chamadores de `listCatalog` cresce, e o esquecimento
- * provável é "não passei o principal" — que aqui degrada para MENOS dado, nunca
- * para vazamento. O contrário (default aberto, filtro opcional) é a forma que
- * transforma um esquecimento em incidente.
+ * IT CLOSES BY DEFAULT, and that is the property that matters: with no principal, only the
+ * public rows. The list of `listCatalog` callers keeps growing and the likely oversight is
+ * "I did not pass the principal" — which here degrades to LESS data, never to a leak. The
+ * opposite shape (open by default, optional filter) is the one that turns an oversight into
+ * an incident.
  *
- * Semi-join (`IN (SELECT ...)`), nunca `fn_can_see_resource` por linha: é uma
- * consulta em vez de uma por linha (R8). A COMPOSIÇÃO dos três braços saiu daqui
- * para `catalog.queries.js` quando a reidratação do snapshot (F11) precisou dela:
- * o que esta função ainda decide é o termo `public` e a NUMERAÇÃO dos parâmetros.
+ * Semi-join (`IN (SELECT ...)`), never `fn_can_see_resource` per row: one query instead of
+ * one per row (R8). The COMPOSITION of the three arms moved out of here into
+ * `catalog.queries.js` when the snapshot rehydration (F11) needed it; what this function
+ * still decides is the `public` term and the NUMBERING of the parameters.
  *
- * O RAMO DE PRODUÇÃO ENTRA AQUI, e não é simetria estética: sem ele o produtor
- * levava 404 no GET da própria camada privada e sucesso no PUT, que é a mesma linha
- * existindo para a escrita e não existindo para a leitura. Desde a migração 021 as
- * QUATRO tabelas de catálogo têm os DOIS ramos: `basemaps` ganhou tipo de concessão
- * e deixou de chegar aqui com `resourceType` nulo. O `??` do chamador continua
- * existindo porque `visibleTo` é montado a partir de um mapa, e um mapa que perde
- * uma entrada precisa degradar para menos dado, nunca para vazamento.
+ * THE PRODUCTION ARM BELONGS HERE, and not out of aesthetic symmetry: without it a producer
+ * got a 404 on the GET of their own private layer and success on the PUT, which is the same
+ * row existing for writing and not existing for reading. Since migration 021 all FOUR catalog
+ * tables have BOTH arms: `basemaps` gained a grant type and stopped arriving here with a null
+ * `resourceType`. The caller's `??` is still there because `visibleTo` is built from a map,
+ * and a map that loses an entry must degrade to less data, never to a leak.
  *
  * @param {{userId: string|null, atlasId: string|null, resourceType: string|null}|null} visibleTo
- * @param {number} base - Índice do último parâmetro já usado.
- * @param {string} tipoProducao - O tipo desta tabela no eixo de produção.
+ * @param {number} base - Index of the last parameter already used.
+ * @param {string} tipoProducao - This table's type on the production axis.
  * @returns {{sql: string, params: Array}}
  */
 function accessPredicate(visibleTo, base, tipoProducao) {

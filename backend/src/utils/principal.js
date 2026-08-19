@@ -26,12 +26,12 @@ export function principalUserId(user) {
 }
 
 /**
- * O MESMO teste, para quando o id do principal já vem SOLTO.
+ * The SAME test, for when the principal's id arrives LOOSE.
  *
- * Existe porque nem todo caminho carrega um `req.user`: o socket de colaboração guarda
- * `ws.userId` (`collab.gateway.js`), e o `pushOperations` recebe o id como argumento. Sem
- * esta função, cada um deles reescreveria a regex — que é como `sync.service.js` já ficou
- * com duas cópias dela (`FEATURE_UUID_RE`, `COMMENT_UUID_RE`).
+ * It exists because not every path carries a `req.user`: the collaboration socket keeps
+ * `ws.userId` (`collab.gateway.js`), and `pushOperations` receives the id as an argument.
+ * Without this function each of them would rewrite the regex — which is how `sync.service.js`
+ * already ended up with two copies of it (`FEATURE_UUID_RE`, `COMMENT_UUID_RE`).
  *
  * @param {*} id
  * @returns {string|null}

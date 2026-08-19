@@ -79,7 +79,7 @@ Isso já disparou uma vez, com `comments`: escopada por mapa e entregue pelo sna
 
 Segunda armadilha da mesma família, e mais escondida: duas linhas de `cesium3d_data` (`camera_position`) ou de `streetview360_data` (`orientation`) que compartilhem sua chave lógica **não podem coexistir vivas no destino**, porque o snapshot as indexa por esse valor e uma sobrescreve a outra na montagem. Mover em massa criava exatamente esse par: o preset de câmera sumia depois do merge e podia voltar sozinho muito depois, quando a ordem física das linhas mudasse. Hoje `KEYED_SINGLETONS` (mesmo arquivo) resolve o choque por soft-delete ANTES de mover e reporta em `deduped`. **`data_type` novo cuja identidade no snapshot seja um valor, e não o id da linha, precisa entrar nessa lista**; os demais vão para arrays por id e deduplicá-los apagaria dado do usuário.
 
-O merge move a **tabela** `catalog_layers` e ignora a **coluna legada** `maps.catalog_layers`, que continua sendo o modo dual descrito em [[tipos-entidade-sync]]. Cliente que usa a forma de array perde as camadas de catálogo ao mesclar, e `moved.catalog_layers` reporta zero sem sinalizar nada.
+O merge move a tabela `catalog_layers`, que desde a migração 022 é o único lugar onde uma camada de catálogo mora (a coluna legada `maps.catalog_layers` foi apagada; ver [[tipos-entidade-sync]]). Antes disso o merge ignorava a coluna, e um cliente que usasse a forma de array perdia as camadas ao mesclar em silêncio.
 
 **Não é desfazível.** A op marcadora grava só o agregado, nunca a origem linha a linha; não há `createAudit` em `backend/src/modules/maps/`; e o undo do cliente é local e só cobre op de sync. Não existe caminho de reverter, nem à mão pelo banco.
 

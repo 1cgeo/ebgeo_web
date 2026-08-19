@@ -446,36 +446,78 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
   });
 
   // ==========================================================================
-  // 7. A COLUNA LEGADA `maps.catalog_layers` — a outra metade do mesmo buraco
+  // 7. A SEGUNDA SUPERFÍCIE — a coluna legada saiu, o LOG DE OPERAÇÕES entrou
   // ==========================================================================
 
-  it('A COLUNA LEGADA recebe o mesmo tratamento: ela também sai no snapshot', async () => {
-    // O levantamento nomeou isto: fechar só a tabela dedicada deixa metade do buraco aberto,
-    // porque `GET_ATLAS_MAPS` lista `catalog_layers` entre as colunas e o cliente a recebe
-    // dentro do `...rest` de `reshapeSnapshotMap`.
-    await db.query(
-      `UPDATE maps SET catalog_layers = $1::jsonb WHERE id = $2`,
-      [JSON.stringify([
-        { id: `analysis-${PRIVADA}`, type: 'analysis_layer', visible: true, name: 'velho', config: { id: PRIVADA, source: { url: URL_VELHA } } },
-        { id: 'legacy-sem-tipo', name: 'Camada legada', visible: false },
-      ]), mapa.id],
+  it('A COLUNA LEGADA não existe mais: o snapshot não tem onde carregar a segunda cópia', async () => {
+    // Esta era a outra metade do mesmo buraco: `GET_ATLAS_MAPS` listava `catalog_layers` entre
+    // as colunas e o cliente a recebia dentro do `...rest` de `reshapeSnapshotMap`. A F11 a
+    // reidratava junto; a F12 a apagou (migração 022), porque ela também saía por rotas que não
+    // passam pela reidratação. Sem coluna não há o que reidratar nem o que esquecer de reidratar.
+    const doMembro = await snapshot(tokenMembro);
+    const oMapa = doMembro.maps.find((m) => m.id === mapa.id);
+    // Positivo do par: é o mapa mesmo, com o estado dele.
+    assert.ok(Array.isArray(oMapa.catalogLayers), 'o mapa continua entregando `catalogLayers`');
+    assert.ok('grid_style' in oMapa, 'e o resto do estado do mapa');
+    assert.ok(!('catalog_layers' in oMapa), 'a coluna legada não sai mais no snapshot');
+  });
+
+  it('O RAMO INCREMENTAL do pull poda a definição, e o vizinho da mesma batelada passa inteiro', async () => {
+    // O log de operações é a superfície que NENHUMA migração alcança: `INSERT_OPERATION` grava a
+    // carga do cliente verbatim, então toda camada acrescentada por cliente pré-F11 está lá com
+    // `config.source.url`. E ele é ALCANÇÁVEL: `ws-client.js` dispara `requestSync(lastVersion)`
+    // e `GET /atlas/:id/sync/:version` com version > 0 cai neste ramo, gateado em `read` e sem
+    // LIMIT nenhum. A reidratação do snapshot mora dentro de `getAtlasSnapshot` e não passa aqui.
+    const antes = (await snapshot(tokenMembro)).currentVersion;
+
+    const idDaCamada = `analysis-${PRIVADA}`;
+    await push(tokenGestor, [
+      opDeCamada(idDaCamada, 'analysis_layer', {
+        id: PRIVADA, name: 'Cópia carimbada', source: { type: 'vector', url: URL_VELHA },
+      }),
+      opDeCamada('hillshade', 'hillshade', {
+        name: 'Sombreamento do Relevo', source: { type: 'raster-dem', url: URL_HILLSHADE },
+      }),
+    ]);
+
+    const incremental = async (token) => {
+      const res = await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/sync/${antes}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      assert.equal(res.body.data.isSnapshot, false, 'é o ramo incremental, não o snapshot');
+      return res.body.data.operations;
+    };
+
+    // O ramo incremental devolve o entityType JÁ NORMALIZADO (`catalog_layer`, o `target` do
+    // servidor), enquanto o relay ecoa o vocabulário do cliente (`catalogLayer`). A poda conhece
+    // os dois de propósito; este helper também, senão o caso mediria só metade dos caminhos.
+    const deCatalogo = (ops, id) => ops.find(
+      (o) => (o.entityType === 'catalogLayer' || o.entityType === 'catalog_layer') && o.data?.id === id,
     );
-    try {
-      const snapMembro = await snapshot(tokenMembro);
-      const legadas = snapMembro.maps.find((m) => m.id === mapa.id).catalog_layers;
-      assert.equal(legadas.length, 2, 'a coluna legada continua saindo, com os mesmos itens');
-      assert.equal(legadas[0].config, undefined, 'sem a definição, para quem não alcança o recurso');
-      assert.ok(!JSON.stringify(snapMembro).includes(URL_VELHA));
 
-      // DISCRIMINAÇÃO: a entrada legada SEM `type` não referencia recurso nenhum e passa inteira.
-      assert.equal(legadas[1].name, 'Camada legada');
-      assert.equal(legadas[1].visible, false);
+    for (const [quem, token] of [['membro', tokenMembro], ['gestor', tokenGestor]]) {
+      const ops = await incremental(token);
+      const daCamada = deCatalogo(ops, idDaCamada);
+      // Positivo: a op está lá, com a REFERÊNCIA e o estado por atlas dela.
+      assert.ok(daCamada, `${quem} recebe a op de catálogo`);
+      assert.equal(daCamada.data.id, idDaCamada, `${quem}: a referência sobrevive`);
+      assert.equal(daCamada.data.type, 'analysis_layer');
+      assert.equal(daCamada.data.visible, true, `${quem}: o estado por atlas sobrevive`);
+      assert.deepEqual(daCamada.data.styleOverrides, { alguma: 'coisa' });
+      // Negativo: a definição não, nem para quem alcança o recurso. O pull incremental NÃO
+      // reidrata (e não deve): o cliente resolve a definição do `/api/config` dele, que já é
+      // filtrado pelo mesmo predicado.
+      assert.equal(daCamada.data.config, undefined, `${quem}: sem \`config\``);
+      assert.equal(daCamada.data.name, undefined, `${quem}: sem \`name\``);
+      assert.ok(!JSON.stringify(ops).includes(URL_VELHA), `${quem}: a URL copiada não sai`);
 
-      const legadasDoGestor = (await snapshot(tokenGestor)).maps
-        .find((m) => m.id === mapa.id).catalog_layers;
-      assert.equal(legadasDoGestor[0].config.source.url, URL_VIVA, 'e reidratada para quem alcança');
-    } finally {
-      await db.query(`UPDATE maps SET catalog_layers = '[]'::jsonb WHERE id = $1`, [mapa.id]);
+      // DISCRIMINAÇÃO, e é ela que impede a poda de virar "apaga tudo": o hillshade viajou na
+      // MESMA batelada, não é recurso de catálogo, e sai inteiro — com a URL estática dentro.
+      const doHillshade = deCatalogo(ops, 'hillshade');
+      assert.ok(doHillshade, `${quem} recebe a op do hillshade`);
+      assert.equal(doHillshade.data.config.source.url, URL_HILLSHADE, `${quem}: o hillshade passa inteiro`);
+      assert.equal(doHillshade.data.name, 'Sombreamento do Relevo');
     }
   });
 

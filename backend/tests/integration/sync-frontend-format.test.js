@@ -465,8 +465,13 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      const { rows } = await db.query('SELECT * FROM maps WHERE id = $1', [map.id]);
-      assert.deepEqual(rows[0].catalog_layers, catalogData);
+      // The whole-array form is materialised into the dedicated `catalog_layers` table: since
+      // migration 022 there is no `maps.catalog_layers` column for it to land in.
+      const { rows } = await db.query(
+        'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL', [map.id]
+      );
+      assert.deepEqual(rows.map((r) => r.id), ['wms-layer']);
+      assert.deepEqual(rows[0].data, catalogData[0]);
     });
   });
 

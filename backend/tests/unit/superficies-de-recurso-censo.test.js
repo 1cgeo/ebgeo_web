@@ -796,6 +796,24 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/briefings/briefings.routes.js', rota: 'GET /:briefingId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/images/images.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/images/images.routes.js', rota: 'GET /:imageId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
+  // AS DUAS ESTIVERAM CLASSIFICADAS AQUI POR ENGANO, e o engano é o caso que este censo existe
+  // para pegar: elas eram `SELECT *` sobre `maps`, e `maps.catalog_layers` carregava a CÓPIA da
+  // linha de catálogo (`config.source.url` inclusive) que a F11 tirou da leitura do snapshot mas
+  // não daqui — a reidratação mora dentro de `getAtlasSnapshot` e estas rotas não passam por lá.
+  // Medido em banco limpo: membro com share `read` e visitante de link público recebiam a URL de
+  // camada privada pelas duas, e por uma terceira que este censo nem enxerga, porque a varredura
+  // 2 só lê `router.get(` — `POST /:atlasId/maps/:mapId/duplicate` (`atlas.routes.js`), que
+  // devolve a linha do mapa novo como corpo.
+  //
+  // A correção foi ESTRUTURAL, não um filtro nas respostas: a migração 022 apagou a coluna, e as
+  // três consultas passaram a listar colunas explicitamente. Um filtro protegeria as rotas que
+  // alguém lembrou e deixaria a coluna de pé para a próxima consulta sobre `maps`.
+  // São DOIS os pares de comportamento, e a divisão é de propósito:
+  // `tests/integration/catalog-layer-coluna-legada.test.js` mede a saída da coluna pelo lado do
+  // schema e da materialização, e alcança as TRÊS superfícies, a que não cabe neste censo
+  // inclusive; `tests/integration/catalog-layer-rota-de-mapas.repro.test.js` reproduz a SONDA,
+  // com os principais dela (visitante anônimo de link público e membro com share `read`) e a
+  // coluna replantada e carregada, que é o que faz o caso ficar vermelho contra o código antigo.
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/maps/maps.routes.js', rota: 'GET /:mapId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
@@ -807,19 +825,23 @@ const CENSO_ROTA = [
       + '`config`, URL inclusive) pelo predicado do chamador. Este buraco esteve NOMEADO aqui por uma '
       + 'fase, e o teto declarado estava errado por baixo: dizia "a todo membro", quando o alcance '
       + 'real era o visitante de link público — `resolvePermission` devolve `read` para userId NULO em '
-      + 'atlas `is_public`, e a op nunca passava perto de um gate de recurso. As DUAS superfícies '
-      + 'foram fechadas (a tabela dedicada e a coluna legada `maps.catalog_layers`), e o par de '
-      + 'comportamento é `tests/integration/sync-catalog-layer-privado.test.js`. RESTA UM TETO, '
-      + 'medido e não fechado: o servidor resolve a referência SÓ pelo prefixo do id '
-      + '(`data-`/`analysis-`), enquanto o cliente aceita três carregadores (prefixo, `originalId`, '
-      + '`config.id`). Uma linha PRÉ-PREFIXO, escrita por cliente antigo e nunca mais tocada, não '
-      + 'produz referência para o servidor e atravessa verbatim, cópia inclusive — logo continua '
-      + 'entregando a URL de um recurso que só depois virou privado. Fechá-la não é uma linha: o '
-      + 'servidor teria de adotar os três degraus E preservar a referência ao podar, como '
-      + '`pruneCatalogLayerDefinition` faz no cliente, senão a entrada filtrada perde o único '
-      + 'endereço que tinha. Está pinada como TETO, sem afirmar o vazamento, no último caso de '
-      + '`tests/integration/catalog-layer-cadeia-de-vazamento.test.js`.',
+      + 'atlas `is_public`, e a op nunca passava perto de um gate de recurso. O par de comportamento '
+      + 'é `tests/integration/sync-catalog-layer-privado.test.js`. '
+      + 'A ROTA TEM DOIS RAMOS, e por uma fase só um estava fechado. Com `version = 0` (ou atrás de '
+      + '`min_version`) ela devolve o SNAPSHOT, que reidrata; com version > 0 ela devolve o LOG DE '
+      + 'OPERAÇÕES, que `INSERT_OPERATION` grava com a carga do cliente verbatim e que a reidratação '
+      + 'nunca vê. O teto declarado aqui até a F12 dizia que só a linha PRÉ-PREFIXO restava, e estava '
+      + 'errado por baixo de novo: o ramo incremental entregava a definição em qualquer formato, o '
+      + 'ATUAL inclusive, que é o caso comum. E ele não é exótico — `ws-client.js` dispara '
+      + '`requestSync(lastVersion)` e o log não expira sozinho (a limpeza só é alcançável por rota de '
+      + 'administrador). A F12 fechou os dois: a definição é PODADA na saída do log '
+      + '(`sync/catalog-layer-op.js`, no pull incremental e no relay), e a resolução da referência '
+      + 'passou a ler os TRÊS carregadores do cliente (prefixo do id, `originalId`, `config.id`), '
+      + 'preservando a referência ao podar — que era o que faltava para a linha pré-prefixo. Pares de '
+      + 'comportamento: `tests/unit/catalog-layer-op-poda.test.js` e o último caso de '
+      + '`tests/integration/catalog-layer-cadeia-de-vazamento.test.js`. NÃO HÁ TETO DECLARADO AQUI.',
   },
+
   {
     arquivo: 'src/modules/debug/debug.routes.js', rota: 'GET /trace', classe: R_OUTRA,
     gate: 'requireAtlasPermission',

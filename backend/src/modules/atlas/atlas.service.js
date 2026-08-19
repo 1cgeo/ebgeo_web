@@ -12,6 +12,7 @@ import logger from '../../utils/logger.js';
 // "who has a socket open" into a field of the project card. No cycle — collab never imports atlas.
 import { getRoomUsers } from '../collab/collab.rooms.js';
 import * as Q from './atlas.queries.js';
+import { MAP_COLUMNS } from '../maps/maps.queries.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -42,7 +43,7 @@ const CS = {
   maps: new pgp.helpers.ColumnSet(
     ['id', 'atlas_id', 'name', 'base_layer', 'center_lat', 'center_long', 'zoom', 'bearing',
       'pitch', 'notes_title', 'notes_description', jsonb('analysis_layers'),
-      jsonb('catalog_layers'), 'locked', jsonb('grid_style'), jsonb('temporal_config')],
+      'locked', jsonb('grid_style'), jsonb('temporal_config')],
     { table: 'maps' }
   ),
   layers: new pgp.helpers.ColumnSet(
@@ -211,24 +212,30 @@ async function runImageCopyJobs(copyJobs) {
 }
 
 /**
- * Merges the two homes of a map's catalog layers into rows for the dedicated table (L42).
+ * Rows for the dedicated `catalog_layers` table, from the two shapes a whole-entity writer can
+ * hold them in.
  *
- * The schema keeps a legacy array column (`maps.catalog_layers`, whose comment claims it is
- * there "p/ clone/import") next to the dedicated `catalog_layers` table, and the writers and
- * the reader had drifted apart: import/clone/duplicate wrote ONLY the column, while the
- * snapshot builds `map.catalogLayers` ONLY from the table. The layers survived in Postgres
- * where no reader could reach them, and the snapshot's empty array then overwrote the client's
- * local state — silent loss, no error. The table is canonical, so every whole-entity writer
- * materialises into it; live rows win over the legacy array for the same id.
+ * `arrayForm` is the IMPORT PAYLOAD's `map.catalog_layers`, which is a frozen key of the
+ * `.ebgeo`/upload contract and is still accepted (`atlas.schemas.js`) even though migration 022
+ * removed the column of the same name. It is materialised straight into the table, which is what
+ * the snapshot reads. Clone and duplicate pass null: since 022 they have only the table.
+ *
+ * Live rows win over the array for the same id — the row carries version/updated_at/deleted_at
+ * and is the one the snapshot has been serving.
+ *
+ * (History: import/clone/duplicate used to write ONLY the legacy column while the snapshot built
+ * `map.catalogLayers` ONLY from the table, so the layers survived in Postgres where no reader
+ * could reach them and the snapshot's empty array then overwrote the client's local state —
+ * silent loss, no error, L42.)
  *
  * @param {string} mapId - Target map id
- * @param {Array<Object>} legacyArray - The `maps.catalog_layers` array
+ * @param {Array<Object>|null} arrayForm - Array-shaped entries (import payload), or null
  * @param {Array<Object>} tableRows - Live rows of the dedicated table (id, data)
  * @returns {Array<Object>} Rows ready for CS.catalogLayers
  */
-function catalogLayerRows(mapId, legacyArray, tableRows) {
+function catalogLayerRows(mapId, arrayForm, tableRows) {
   const byId = new Map();
-  for (const item of Array.isArray(legacyArray) ? legacyArray : []) {
+  for (const item of Array.isArray(arrayForm) ? arrayForm : []) {
     if (item && item.id != null) byId.set(String(item.id), item);
   }
   for (const row of tableRows) byId.set(String(row.id), row.data);
@@ -732,7 +739,7 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
     t,
     CS.catalogLayers,
     mapPairs.flatMap((pair) =>
-      catalogLayerRows(pair.newId, pair.legacyCatalogLayers, catalogBySourceMap.get(pair.sourceId) || []))
+      catalogLayerRows(pair.newId, null, catalogBySourceMap.get(pair.sourceId) || []))
   );
 
   return { layerIdMapping, groupIdMapping, featureIdMapping };
@@ -760,9 +767,6 @@ function mapRow(id, atlasId, name, map) {
     notes_title: map.notes_title,
     notes_description: map.notes_description,
     analysis_layers: JSON.stringify(map.analysis_layers || {}),
-    // The legacy array column keeps being written for array-shaped clients; the dedicated
-    // catalog_layers table (written by cloneMapSubEntities) is the canonical home (L42).
-    catalog_layers: JSON.stringify(map.catalog_layers || []),
     locked: map.locked || false,
     grid_style: JSON.stringify(map.grid_style || {}),
     temporal_config: JSON.stringify(map.temporal_config || {}),
@@ -810,7 +814,6 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     const mapPairs = maps.map((map) => ({
       sourceId: map.id,
       newId: crypto.randomUUID(),
-      legacyCatalogLayers: map.catalog_layers,
       source: map,
     }));
     const mapIdMapping = Object.fromEntries(mapPairs.map((p) => [p.sourceId, p.newId]));
@@ -907,7 +910,7 @@ export async function duplicateMap(atlasId, mapId) {
 
     await cloneMapSubEntities(
       t,
-      [{ sourceId: mapId, newId: newMapId, legacyCatalogLayers: map.catalog_layers }],
+      [{ sourceId: mapId, newId: newMapId }],
       imageIdMap
     );
 
@@ -917,7 +920,10 @@ export async function duplicateMap(atlasId, mapId) {
       [newMapId, atlasId]
     );
 
-    newMapResult = await t.one(`SELECT * FROM maps WHERE id = $1`, [newMapId]);
+    // Explicit column list: this row IS the response body of
+    // `POST /atlas/:atlasId/maps/:mapId/duplicate`, gated at `write`. Same reason as the two
+    // read routes in `maps.queries.js`, whose list this reuses.
+    newMapResult = await t.one(`SELECT ${MAP_COLUMNS} FROM maps WHERE id = $1`, [newMapId]);
   });
 
   await runImageCopyJobs(copyJobs);
@@ -1143,7 +1149,6 @@ export async function importAtlas(userId, data) {
       notes_title: map.notes_title || null,
       notes_description: map.notes_description || null,
       analysis_layers: JSON.stringify(map.analysis_layers || {}),
-      catalog_layers: JSON.stringify(map.catalog_layers || []),
       locked: map.locked === true,
       grid_style: JSON.stringify(map.grid_style || {}),
       temporal_config: JSON.stringify(map.temporal_config || {}),
@@ -1218,10 +1223,10 @@ export async function importAtlas(userId, data) {
     })));
     await insertMany(t, CS.streetview360, sv360Rows);
 
-    // 2.7 Catalog layers. The payload only carries the legacy ARRAY (`map.catalog_layers`,
-    // written above), but the snapshot reads exclusively from the dedicated table — so an
-    // import that wrote only the column came back with `catalogLayers: []` and the client
-    // applied that empty array over its own state (L42). Materialise both.
+    // 2.7 Catalog layers. The payload carries them as an ARRAY under `map.catalog_layers` (a
+    // frozen key of the import contract, kept in the Joi schema), and the snapshot reads
+    // exclusively from the dedicated table — so they are materialised into it. There is no
+    // column of that name any more (migration 022); the payload key is the only survivor.
     await insertMany(
       t,
       CS.catalogLayers,

@@ -169,12 +169,12 @@ export function resolveSceneAssets(scene) {
         const bruto = override
             ? joinScenePath(base, override)
             : `${base}/${relative}`;
-        // O ESCOPO DE ATLAS ENTRA AQUI, e não em cada consumidor, porque quatro destes sete
-        // endereços NÃO são buscados por código nosso: a foto do marcador vira `img.src`, o
-        // clipe de preview vira `<video src>` e o splat vai para um loader de terceiro.
-        // Nenhum deles tem como carregar cabeçalho, então, para uma cena PRIVADA, o
-        // empréstimo do atlas em foco é a única autorização que atravessa. Sem atlas em foco
-        // a URL sai idêntica ao que sempre foi.
+        // THE ATLAS SCOPE IS STAMPED HERE, not in each consumer, because four of these seven
+        // addresses are NOT fetched by our code: the marker photo becomes an `img.src`, the
+        // preview clip becomes a `<video src>` and the splat goes to a third-party loader.
+        // None of them can carry a header, so for a PRIVATE scene the loan of the atlas in
+        // focus is the only authorisation that gets through. With no atlas in focus the URL
+        // comes out exactly as it always did.
         assets[field] = escoparUrlDeAsset(bruto);
     }
     return assets;
@@ -195,8 +195,8 @@ export function resolveSceneAssets(scene) {
 export function resolveMarkerPhotoUrl(scene, foto) {
     if (!foto || typeof foto !== 'string' || !foto.trim()) return null;
     if (!isUsableScene(scene)) return null;
-    // Mesmo carimbo de `resolveSceneAssets`, e pela mesma razão: isto termina num `img.src`,
-    // que não carrega cabeçalho nenhum.
+    // Same stamp as `resolveSceneAssets`, for the same reason: this ends up in an `img.src`,
+    // which carries no header at all.
     return escoparUrlDeAsset(joinScenePath(normalizeBase(scene.basePath), foto.trim()));
 }
 
@@ -254,9 +254,9 @@ export async function loadSceneCollision(scene) {
     const { voxelMetaUrl, voxelBinUrl } = resolveSceneAssets(scene);
 
     try {
-        // A credencial alcança os dois arquivos que ESTE código busca. Ela é o braço que
-        // atende quem vê a cena privada por papel global ou concessão pessoal, sem atlas
-        // nenhum em foco — o caso que o carimbo de `?atlasId=` sozinho não cobre.
+        // The credential reaches the two files THIS code fetches. It is the arm that serves
+        // whoever sees the private scene through a global role or a personal grant, with no
+        // atlas in focus — the case the `?atlasId=` stamp alone does not cover.
         const headers = await cabecalhosDeAsset();
         const [metaResponse, binResponse] = await Promise.all([
             fetch(voxelMetaUrl, { headers }),

@@ -45,40 +45,38 @@ export const CAN_SEE_RESOURCE = `
 // --- o payload aditivo -----------------------------------------------------
 
 /**
- * Os recursos PRIVADOS de um tipo de catálogo que este principal enxerga.
+ * The PRIVATE resources of one catalog type that this principal can see.
  *
- * Semi-join contra `fn_granted_resource_ids`, nunca `fn_can_see_resource` por
- * linha: uma consulta em vez de uma por linha (R8). O nome da tabela é
- * INTERPOLADO pelo chamador a partir de `assertCatalogTableOf`, nunca do request.
+ * Semi-join against `fn_granted_resource_ids`, never `fn_can_see_resource` per row: one
+ * query instead of one per row (R8). The table name is INTERPOLATED by the caller from
+ * `assertCatalogTableOf`, never from the request.
  *
- * OS TRÊS BRAÇOS DE AUTORIZAÇÃO vêm de `catalogAuthorizationPredicate`
- * (`catalog/catalog.queries.js`) desde a fase F11, e não estão mais escritos aqui: a
- * mesma composição existia em `catalog.service.js` e ia ganhar uma terceira cópia na
- * reidratação do snapshot. O que continua sendo decisão DESTA consulta é a ausência
- * do termo `public`, logo abaixo.
+ * THE THREE AUTHORISATION ARMS come from `catalogAuthorizationPredicate`
+ * (`catalog/catalog.queries.js`) since F11, and are no longer written here: the same
+ * composition already existed in `catalog.service.js` and was about to get a third copy in
+ * the snapshot rehydration. What THIS query still decides is the absence of the `public`
+ * term, right below.
  *
- * `access_level = 'private'` não é otimização, é o contrato do endpoint: o que
- * ele devolve é o DELTA sobre o `/api/config` público, e o cliente SOMA. Trazer
- * o público aqui duplicaria cada item no baseline do cliente.
+ * `access_level = 'private'` is not an optimisation, it is the endpoint's contract: what it
+ * returns is the DELTA over the public `/api/config`, and the client ADDS it. Bringing the
+ * public rows in here would duplicate every item in the client's baseline.
  *
- * O RAMO DE PRODUÇÃO ENTRA AQUI PELA MESMA RAZÃO QUE ENTROU EM `catalog.service.js`,
- * e a falta dele era uma incoerência entre dois caminhos de LEITURA do mesmo dado: o
- * produtor via a própria camada privada em `GET /api/v1/analysis-layers` (que já
- * tinha o ramo) e NÃO a via aqui — ou seja, ela existia no painel que a edita e
- * faltava no payload aditivo com que o mapa boota, sem erro em lugar nenhum. É o
- * espelho exato do que o comentário de `LIST_VISIBLE_PRIVATE_360` (logo abaixo)
- * descreve como já corrigido para o 360.
+ * THE PRODUCTION ARM BELONGS HERE FOR THE SAME REASON IT BELONGS IN `catalog.service.js`, and
+ * its absence was an inconsistency between two READ paths over the same data: a producer saw
+ * their own private layer in `GET /api/v1/analysis-layers` (which already had the arm) and did
+ * NOT see it here — so it existed in the panel that edits it and was missing from the additive
+ * payload the map boots with, with no error anywhere. It is the exact mirror of what the
+ * comment on `LIST_VISIBLE_PRIVATE_360` (just below) describes as already fixed for the 360.
  *
- * `$3` SERVE AOS DOIS PREDICADOS de propósito: para as QUATRO tabelas de catálogo, o
- * vocabulário de `resource_grants.resource_type` e o de `fn_can_produce_resource`
- * coincidem palavra por palavra (`basemap`, `tileset`, `data_layer`,
- * `analysis_layer`). Se algum dia divergirem, este parâmetro precisa se partir em
- * dois — e a coincidência está escrita aqui para que a divergência não passe
- * despercebida. Ela não é garantida por construção: são dois mapas em arquivos
- * diferentes (`PRODUCTION_TYPE_BY_TABLE` e `TYPE_BY_TABLE`), e
- * `catalog-tabelas-paridade.test.js` é quem os compara.
+ * `$3` FEEDS BOTH PREDICATES on purpose: for the FOUR catalog tables the vocabulary of
+ * `resource_grants.resource_type` and that of `fn_can_produce_resource` coincide word for word
+ * (`basemap`, `tileset`, `data_layer`, `analysis_layer`). Should they ever diverge, this
+ * parameter has to split in two — and the coincidence is written here so the divergence does
+ * not go unnoticed. It is not guaranteed by construction: they are two maps in different files
+ * (`PRODUCTION_TYPE_BY_TABLE` and `TYPE_BY_TABLE`), and `catalog-tabelas-paridade.test.js` is
+ * what compares them.
  *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type (text)
- * @param {string} table - Já validado por assertCatalogTableOf.
+ * @param {string} table - Already validated by assertCatalogTableOf.
  * @returns {string}
  */
 export const listVisiblePrivate = (table) => `

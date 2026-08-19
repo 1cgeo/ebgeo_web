@@ -79,6 +79,16 @@ const EXCECOES_DESTRUTIVAS = [
   { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'DROP TABLE streetview_markers' },
   { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE resource_grants DROP CONSTRAINT resource_grants_resource_type_check' },
   { arquivo: '021_catalogo_quatro_tabelas.sql', trecho: 'ALTER TABLE atlas_resources DROP CONSTRAINT atlas_resources_resource_type_check' },
+  // 022 apaga uma COLUNA com dado dentro, e é a segunda desta lista (junto com o
+  // `DROP TABLE` da 021) que precisa de mais do que "alargar é compatível para
+  // trás" como justificativa.
+  //
+  // A justificativa é a materialização que vem ANTES dela no mesmo arquivo: cada
+  // item do array legado vira linha da tabela dedicada `catalog_layers`, com a
+  // linha viva vencendo por id. Nenhuma camada de catálogo se perde; o que se
+  // perde é a SEGUNDA cópia dela, que não tinha leitor e servia a definição de
+  // recurso privado por três rotas que não passam pela reidratação do snapshot.
+  { arquivo: '022_camada_de_catalogo_sem_coluna_legada.sql', trecho: 'ALTER TABLE maps DROP COLUMN catalog_layers' },
 ];
 
 const PADROES_DESTRUTIVOS = [

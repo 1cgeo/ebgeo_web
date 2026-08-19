@@ -256,20 +256,21 @@ async function initCesiumMap() {
 
 
 /**
- * O endereco do modelo como um `Cesium.Resource`, ja identificado.
+ * The model address as an already-identified `Cesium.Resource`.
  *
- * NAO passe a URL crua para o Cesium a partir daqui. Desde a fase F11 os bytes de um modelo
- * PRIVADO sao gateados no servidor, e o que o autoriza viaja na requisicao: o escopo de
- * atlas na query e a credencial no cabecalho. Um `Resource` os propaga para todo filho que
- * o tileset derivar (`getDerivedResource` funde `headers` e `queryParameters`), enquanto uma
- * string nua faria o `tileset.json` passar e cada `.b3dm` levar 404 — que na tela e um modelo
- * que aparece vazio, sem erro nenhum.
+ * DO NOT hand the raw URL to Cesium from here. Since F11 the bytes of a PRIVATE model are
+ * gated on the server, and what authorises them travels in the request: the atlas scope in
+ * the query and the credential in the header. A `Resource` propagates both to every child
+ * the tileset derives (`getDerivedResource` merges `headers` and `queryParameters`), whereas
+ * a bare string lets the `tileset.json` through and makes every `.b3dm` 404 — which on
+ * screen is a model that renders empty, with no error at all.
  *
- * Modelo publico nao muda de comportamento: sem sessao e sem atlas em foco o descritor e so
- * a URL, e o `Resource` resultante e equivalente ao que o Cesium montaria sozinho.
+ * A public model does not change behaviour: with no session and no atlas in focus the
+ * descriptor is just the URL, and the resulting `Resource` is equivalent to the one Cesium
+ * would build on its own.
  *
  * @param {string} url
- * @returns {Promise<Object>} Um Cesium.Resource.
+ * @returns {Promise<Object>} A Cesium.Resource.
  */
 async function recursoDeAsset3d(url) {
     return new Cesium.Resource(await descritorDeAsset(url));

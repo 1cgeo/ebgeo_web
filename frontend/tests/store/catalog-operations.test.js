@@ -698,6 +698,37 @@ describe('processCatalogLayersOnImport', () => {
         expect(unavailableCount).toBe(2);
         expect(processed.every(l => l.status === 'unavailable')).toBe(true);
     });
+
+    it('PRUNES the definition of an imported entry, and keeps its reference', () => {
+        // The path that made this matter: the processed entries go into `addMap`, which logs the
+        // WHOLE map document as one sync operation — so a legacy `.ebgeo` used to replant the
+        // definition it carried in the server's operation log, on a document nobody had touched.
+        h.config.analysisLayers = { enabled: true, layers: [{ id: 'decl', name: 'Declividade viva' }] };
+
+        const legado = {
+            id: 'legado-sem-prefixo',
+            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+            visible: true,
+            opacity: 0.4,
+            name: 'Rótulo antigo',
+            config: { id: 'decl', source: { url: '/copia/{z}/{x}/{y}.pbf' } }
+        };
+
+        const { processed } = processCatalogLayersOnImport([legado]);
+
+        expect(processed[0].name).toBeUndefined();
+        expect(processed[0].config).toBeUndefined();
+        // The per-atlas state survives...
+        expect(processed[0].visible).toBe(true);
+        expect(processed[0].opacity).toBe(0.4);
+        // ...and so does the REFERENCE, rescued into `originalId` because the id carries no
+        // prefix and `config.id` was the only address this entry had. Without the rescue the
+        // prune would leave an entry nobody can resolve.
+        expect(processed[0].originalId).toBe('decl');
+        // Which is why availability is still resolved: it was computed BEFORE the prune, and it
+        // stays resolvable after it.
+        expect(processed[0].status).toBe('active');
+    });
 });
 
 // ============================================================================
@@ -757,11 +788,14 @@ describe('revalidateCatalogLayers', () => {
         expect(saved.find(l => l.id === 'hs').sync).toEqual({ version: 3, dirty: true, stub: 'touched' });
     });
 
-    it('does not write when no status changed', async () => {
-        // hillshade already active and config keeps it active → no change
+    it('does not write when nothing changed and the entry is already pruned', async () => {
+        // hillshade already active and config keeps it active → no change. The entry carries NO
+        // definition key, which is the shape every write produces since the reference change.
         h.config.map2d.hillshade.enabled = true;
-        const layer = makeLayer('hs', CATALOG_ITEM_TYPES.HILLSHADE, { status: 'active', sync: { version: 1 } });
-        h.mockMapData.value = emptyMapData([layer]);
+        h.mockMapData.value = emptyMapData([{
+            id: 'hs', type: CATALOG_ITEM_TYPES.HILLSHADE, visible: true, opacity: 1,
+            status: 'active', sync: { version: 1 }
+        }]);
 
         const result = await revalidateCatalogLayers();
 
@@ -769,6 +803,33 @@ describe('revalidateCatalogLayers', () => {
         expect(h.touchSyncMetadata).not.toHaveBeenCalled();
         // reactivated stays empty (it was already active, not flipping from unavailable)
         expect(result.reactivated).toEqual([]);
+        expect(result.stillUnavailable).toEqual([]);
+    });
+
+    it('converges a LEGACY entry on the pruned shape even when no status changed', async () => {
+        // The invariant the file header states ("every write here goes through
+        // pruneCatalogLayerDefinition") used to be false right here: this function mutated the
+        // entry in place and persisted the legacy `name`/`config` untouched. Nothing leaked (no op
+        // is emitted), but the next author reads that sentence and trusts it.
+        //
+        // The status does NOT change in this case, and that is the point: convergence is its own
+        // reason to write. `sync` is NOT touched, because nothing semantic changed and the shape
+        // change travels in no operation.
+        h.config.map2d.hillshade.enabled = true;
+        h.mockMapData.value = emptyMapData([
+            makeLayer('hs', CATALOG_ITEM_TYPES.HILLSHADE, { status: 'active', sync: { version: 1 } })
+        ]);
+
+        const result = await revalidateCatalogLayers();
+
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+        const saved = updateMapDataCompat.mock.calls[0][1].catalogLayers[0];
+        expect(saved.name).toBeUndefined();
+        expect(saved.config).toBeUndefined();
+        expect(saved.status).toBe('active');
+        expect(saved.visible).toBe(true);
+        expect(saved.sync).toEqual({ version: 1 });
+        expect(h.touchSyncMetadata).not.toHaveBeenCalled();
         expect(result.stillUnavailable).toEqual([]);
     });
 

@@ -77,12 +77,34 @@ describe('Sync — catalogLayer (per-layer)', () => {
     assert.equal(snapMap.catalogLayers[0].name, 'Layer 1 (edited)');
   });
 
-  it('still supports the legacy whole-array form (writes maps.catalog_layers)', async () => {
-    const arr = [{ id: 'wms-a', visible: true }, { id: 'wms-b', visible: false }];
-    await push([op('update', randomUUID(), { catalog_layers: arr })]);
+  it('still accepts the legacy whole-array form, materialised into the dedicated table', async () => {
+    // Migration 022 removed `maps.catalog_layers`, so the compatibility shim writes where the
+    // reader is. It UPSERTS and never removes: the column write was a whole-array REPLACE, which
+    // was harmless while nothing read the column and would be a wipe against the canonical table.
+    // Its own map: the shim writes real rows now, so sharing the suite's map would leak into
+    // the per-layer cases above.
+    const m = await createMap(db, atlas.id, { name: 'Legacy array form' });
+    const opDoMapa = (data) => ({ ...op('update', randomUUID(), data), mapId: m.id });
 
-    const { rows } = await db.query('SELECT catalog_layers FROM maps WHERE id = $1', [map.id]);
-    assert.deepEqual(rows[0].catalog_layers, arr);
+    const arr = [{ id: 'wms-a', visible: true }, { id: 'wms-b', visible: false }];
+    await push([opDoMapa({ catalog_layers: arr })]);
+
+    const { rows } = await db.query(
+      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
+      [m.id]
+    );
+    assert.deepEqual(rows.map((r) => r.id), ['wms-a', 'wms-b']);
+    assert.deepEqual(rows.map((r) => r.data), arr);
+
+    // And it does not remove what the array omits (the destructive capability the column write
+    // never had).
+    await push([opDoMapa({ catalog_layers: [{ id: 'wms-a', visible: false }] })]);
+    const depois = await db.query(
+      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
+      [m.id]
+    );
+    assert.deepEqual(depois.rows.map((r) => r.id), ['wms-a', 'wms-b'], 'the omitted layer survives');
+    assert.equal(depois.rows[0].data.visible, false, 'and the one named was updated');
   });
 
   // ---------------------------------------------------------------------------
@@ -318,16 +340,16 @@ describe('Sync — catalogLayer (per-layer)', () => {
       }
     });
 
-    it('a coluna LEGADA continua entregando o array verbatim, chave por chave', async () => {
-      // A outra superfície do mesmo dado, que a F11 também passou a reidratar: sem `type` a
-      // entrada não referencia recurso nenhum e precisa sair exatamente como entrou, sem ganhar
-      // `sync` nem `id` (o array não é entidade: não tem envelope).
+    it('a entrada da forma LEGADA de array atravessa verbatim, `name` e `config` inclusive', async () => {
+      // O mesmo dado que morava na coluna `maps.catalog_layers` até a migração 022 e que agora é
+      // materializado na tabela dedicada. Ele não tem `type`, logo não CLAMA recurso de catálogo
+      // nenhum, e precisa sair exatamente como entrou.
       //
       // As chaves `name` e `config` estão no fixture DE PROPÓSITO, e são elas que dão poder de
-      // discriminação a este caso: são exatamente as duas que a reidratação PODA. Sem elas o
-      // array não tem nada a perder, e o `deepEqual` passaria idêntico se alguém fizesse a poda
-      // alcançar toda entrada — que é o erro mais fácil de cometer aqui (medido: com a poda
-      // incondicional, este caso continuava verde antes desta linha e ficou vermelho depois).
+      // discriminação a este caso: são exatamente as duas que a poda tira. Sem elas a entrada não
+      // tem nada a perder, e o `deepEqual` passaria idêntico se alguém fizesse a poda alcançar
+      // toda entrada — que é o erro mais fácil de cometer aqui (medido: com a poda incondicional,
+      // este caso ficava vermelho, e com o predicado por CLAIM ele continua verde).
       const m = await createMap(db, atlas.id, { name: 'Shape freeze legado' });
       const arr = [{
         id: 'wms-a',
@@ -351,8 +373,16 @@ describe('Sync — catalogLayer (per-layer)', () => {
         .get(`/api/v1/atlas/${atlas.id}/sync/0`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
-      const legado = snap.body.data.snapshot.maps.find((mm) => mm.id === m.id).catalog_layers;
-      assert.deepEqual(legado, arr, 'o array legado sai idêntico ao que entrou');
+      const item = snap.body.data.snapshot.maps
+        .find((mm) => mm.id === m.id).catalogLayers
+        .find((l) => l.id === 'wms-a');
+
+      assert.deepEqual(
+        chaves(item), chaves({ ...arr[0], sync: null }),
+        'o item entregue é a entrada legada mais `sync`, nem uma chave a mais nem a menos',
+      );
+      assert.equal(item.name, 'Camada A', '`name` sobrevive: a entrada não clama recurso');
+      assert.deepEqual(item.config, arr[0].config, 'e `config` inteiro, URL inclusive');
     });
   });
 });

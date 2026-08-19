@@ -53,7 +53,10 @@ import { CATALOG_ITEM_TYPES } from '../../src/js/catalog/catalog.constants.js';
 import {
     CATALOG_LAYER_DEFINITION_KEYS as BACKEND_DEFINITION_KEYS,
     CATALOG_LAYER_ID_PREFIX as BACKEND_PREFIX,
-    catalogLayerResourceRef as backendResourceRef
+    catalogLayerReference as backendReference,
+    catalogLayerResourceRef as backendResourceRef,
+    claimsCatalogResource as backendClaims,
+    pruneCatalogLayerDefinition as backendPrune
 } from '../../../backend/src/modules/catalog/catalog-layer.ref.js';
 
 const ANALISE = CATALOG_ITEM_TYPES.ANALYSIS_LAYER;
@@ -303,6 +306,58 @@ describe('a resolução de referência ESPELHA o backend', () => {
 
     it('a denylist de definição é a mesma', () => {
         expect([...CATALOG_LAYER_DEFINITION_KEYS]).toEqual([...BACKEND_DEFINITION_KEYS]);
+    });
+
+    it('os TRÊS carregadores de referência resolvem igual dos dois lados (F12)', () => {
+        // Até a F12 o servidor conhecia SÓ o prefixo do id, enquanto o cliente já lia os três
+        // (prefixo, `originalId`, `config.id`). A assimetria era o teto declarado da F11: um
+        // documento PRÉ-PREFIXO não produzia referência nenhuma no servidor e atravessava
+        // verbatim, com a cópia dentro, para quem só tem `read`.
+        const casos = [
+            { id: 'analysis-declividade', type: ANALISE, originalId: 'outro', config: { id: 'terceiro' } },
+            { id: 'legado', type: ANALISE, originalId: 'real', config: { id: 'copia' } },
+            { id: 'legado', type: DADOS, config: { id: 'copia' } },
+            { id: 'legado', type: ANALISE },
+            { id: 'hillshade', type: RELEVO, originalId: 'nao-vale', config: { id: 'nem-este' } },
+            { id: 'x', type: 'tipo_que_nao_existe', originalId: 'y' }
+        ];
+
+        for (const entrada of casos) {
+            const doServidor = backendReference(entrada, entrada.id);
+            const doCliente = backendClaims(entrada.type) ? catalogLayerReferenceId(entrada) : null;
+            expect(doServidor?.resourceId ?? null, `divergiram em ${JSON.stringify(entrada)}`)
+                .toBe(doCliente);
+        }
+
+        // ASSERÇÃO ABSOLUTA: as duas podem estar erradas do mesmo jeito no laço acima.
+        expect(backendReference({ id: 'legado', type: DADOS, config: { id: 'molduras' } }, 'legado'))
+            .toEqual({ resourceType: 'data_layer', resourceId: 'molduras' });
+        expect(backendReference({ id: 'hillshade', type: RELEVO, config: { id: 'x' } }, 'hillshade'))
+            .toBeNull();
+        expect(backendClaims(RELEVO)).toBe(false);
+        expect(backendClaims(ANALISE)).toBe(true);
+    });
+
+    it('a poda produz o MESMO objeto dos dois lados, resgate de referência inclusive', () => {
+        const casos = [
+            {
+                id: 'analysis-declividade', type: ANALISE, name: 'Declividade',
+                config: { id: 'declividade', source: { url: 'https://interno/privado.png' } },
+                visible: false, styleOverrides: { raster: {} }, chaveNova: 42
+            },
+            { id: 'legado-1', type: DADOS, config: { id: 'molduras', source: { url: 'https://x' } } },
+            { id: 'legado-2', type: DADOS, originalId: 'ja-tinha', name: 'Rótulo', config: { id: 'outro' } },
+            { id: 'analysis-x', type: ANALISE }
+        ];
+
+        for (const entrada of casos) {
+            expect(backendPrune(entrada, entrada.id), `divergiram em ${entrada.id}`)
+                .toEqual(pruneCatalogLayerDefinition(entrada));
+        }
+
+        // ASSERÇÃO ABSOLUTA: sem ela, duas podas que não podassem nada passariam iguais.
+        expect(backendPrune({ id: 'legado-1', type: DADOS, config: { id: 'molduras' } }, 'legado-1'))
+            .toEqual({ id: 'legado-1', type: DADOS, originalId: 'molduras' });
     });
 
     it('as duas cópias respondem igual em toda a tabela de casos', () => {

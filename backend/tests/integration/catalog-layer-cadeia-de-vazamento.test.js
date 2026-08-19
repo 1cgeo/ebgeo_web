@@ -28,11 +28,13 @@
 //     aberto se o que discrimina é o acesso ou a identidade; virar a chave de uma só fecha isso;
 //   - a linha PRÉ-F11 escrita direto na tabela e nunca mais tocada, que é o estado real do banco
 //     de produção no dia do deploy: nada migra, e mesmo assim ela não vaza;
-//   - e o formato PRÉ-PREFIXO, mais antigo ainda, que é o TETO desta fase e está nomeado no
-//     censo: o servidor resolve a referência só pelo prefixo do id, então uma entrada que a
-//     carrega em `originalId` atravessa verbatim. O último caso do arquivo afirma o que vale
-//     nos dois estados do mundo (ela não quebra o código novo, e não desliga a reidratação do
-//     vizinho no mesmo mapa), nunca o vazamento em si.
+//   - o formato PRÉ-PREFIXO, mais antigo ainda, que foi o TETO da F11 e que a F12 FECHOU: o
+//     servidor resolvia a referência só pelo prefixo do id, então uma entrada que a carrega em
+//     `originalId` atravessava verbatim, cópia inclusive. Hoje ele lê os três carregadores do
+//     cliente e PRESERVA a referência ao podar, que era a metade que faltava;
+//   - e o LOG DE OPERAÇÕES, o segundo caminho, que a reidratação do snapshot nunca vê: o pull
+//     incremental (`GET /sync/:version` com version > 0) devolve a carga do cliente como ela foi
+//     gravada. Fechado na F12 por poda na saída (`sync/catalog-layer-op.js`).
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -369,21 +371,20 @@ describe('F11 — a cadeia do vazamento: do gesto de quem só tem `view` até o 
   // O DOCUMENTO PRÉ-PREFIXO — o formato mais antigo, e o TETO desta fase
   // ==========================================================================
 
-  it('FORMATO PRÉ-PREFIXO — o documento antigo não quebra o código novo, e não contamina o vizinho', async () => {
+  it('FORMATO PRÉ-PREFIXO — a referência sobrevive à poda, e a cópia não sai (F12)', async () => {
     // O id prefixado (`data-<id>`) é o carregador de referência MODERNO. Antes dele o documento
     // guardava um id qualquer e punha a referência em `originalId` (ou só em `config.id`), forma
     // que o cliente ainda lê: `catalogLayerReferenceId` (frontend) tem os três degraus, nesta
     // ordem. O servidor resolve SÓ pelo prefixo, então uma entrada dessas não produz referência
     // nenhuma para ele e atravessa verbatim.
     //
-    // TETO CONHECIDO, MEDIDO NESTA SESSÃO E NOMEADO NO CENSO: com a linha pré-prefixo a cópia
-    // gravada continua saindo, o visitante anônimo inclusive. Não é regressão da F11 (é o estado
-    // pré-existente que ela não alcançou) e fechá-la não é uma linha: o servidor teria de
-    // adotar os três degraus do cliente E preservar a referência ao podar, como
-    // `pruneCatalogLayerDefinition` faz do outro lado, senão a entrada que perde a definição
-    // perde junto o único endereço que tinha. Este caso NÃO afirma o vazamento (afirmá-lo
-    // sancionaria o buraco e ficaria vermelho no dia em que ele fechar): ele afirma as duas
-    // propriedades que valem nos dois estados do mundo, e a segunda é a que discrimina.
+    // ERA O TETO DA F11, E A F12 O FECHOU, com as duas metades que o censo exigia: o servidor
+    // adotou os três degraus do cliente (prefixo, `originalId`, `config.id`) e PRESERVA a
+    // referência ao podar, como `pruneCatalogLayerDefinition` faz do outro lado. Sem a segunda,
+    // a entrada que perde a definição perde junto o único endereço que tinha.
+    //
+    // As duas propriedades antigas continuam medidas (não quebra, não contamina) porque valem nos
+    // dois estados do mundo; o que mudou é que agora a cópia também não sai.
     const mapaPreFixo = await createMap(db, atlas.id, { name: `Pré-prefixo ${sufixo}` });
     const idSemPrefixo = `legado-sem-prefixo-${sufixo}`;
     await db.query(
@@ -420,6 +421,15 @@ describe('F11 — a cadeia do vazamento: do gesto de quem só tem `view` até o 
     assert.equal(antiga.opacity, 0.4);
     assert.equal(antiga.originalId, PRIVADA, 'e com a referência que ela carrega, que é o originalId');
 
+    // 1b. E A CÓPIA NÃO SAI: o teto fechado. A entrada pré-prefixo é resolvida pelos três
+    //     carregadores, o visitante anônimo não alcança o recurso, e a definição fica.
+    assert.equal(antiga.config, undefined, 'a entrada pré-prefixo perdeu a definição');
+    assert.equal(antiga.name, undefined, 'e o rótulo copiado junto');
+    assert.ok(
+      !JSON.stringify(doVisitante).includes(URL_COPIADA),
+      'a URL copiada não aparece em lugar nenhum do snapshot do visitante',
+    );
+
     // 2. NÃO CONTAMINA: a vizinha moderna, no mesmo mapa e apontando para o mesmo recurso,
     //    continua sem definição para quem não alcança o recurso.
     const moderna = camada(doVisitante, idDaCamadaPrivada, mapaPreFixo.id);
@@ -428,9 +438,66 @@ describe('F11 — a cadeia do vazamento: do gesto de quem só tem `view` até o 
 
     // E o par positivo da vizinha, no mesmo mapa: para quem alcança, ela é reidratada com a
     // definição VIVA mesmo tendo uma entrada não resolvível ao lado.
-    const modernaDoEspectador = camada(
-      await snapshot(tokenEspectador), idDaCamadaPrivada, mapaPreFixo.id,
-    );
+    const doEspectador = await snapshot(tokenEspectador);
+    const modernaDoEspectador = camada(doEspectador, idDaCamadaPrivada, mapaPreFixo.id);
     assert.equal(modernaDoEspectador.config.source.url, URL_PRIVADA);
+
+    // 3. E O PAR POSITIVO DA PRÓPRIA ENTRADA PRÉ-PREFIXO: quem ALCANÇA o recurso a recebe
+    //    reidratada, pela referência que estava em `originalId`. Sem este par, "a cópia não sai"
+    //    seria também o que se mede numa poda que simplesmente apagou tudo.
+    const antigaDoEspectador = camada(doEspectador, idSemPrefixo, mapaPreFixo.id);
+    assert.equal(antigaDoEspectador.config.source.url, URL_PRIVADA, 'a definição VIVA, não a cópia');
+    assert.equal(antigaDoEspectador.name, `Camada ${PRIVADA} (nome vivo)`);
+  });
+
+  // ==========================================================================
+  // O LOG DE OPERAÇÕES — o segundo caminho, que a reidratação nunca vê
+  // ==========================================================================
+
+  it('O PULL INCREMENTAL não entrega a cópia ao visitante anônimo (F12)', async () => {
+    // O elo 5 tem uma variante que a F11 não alcançou. `GET /atlas/:id/sync/0` devolve o
+    // SNAPSHOT, que reidrata; `GET /atlas/:id/sync/N` com N > 0 devolve o LOG, que
+    // `INSERT_OPERATION` gravou com a carga do cliente verbatim — `config.source.url` inclusive,
+    // e em QUALQUER formato, o ATUAL inclusive, que é o caso comum. A rota é a mesma, o gate é o
+    // mesmo (`read`), e ela não tem LIMIT: pedir a versão 1 devolve o log inteiro. O visitante do
+    // link chega nela sem conta, e o log não expira sozinho (a limpeza só é alcançável por rota
+    // de administrador).
+    const antes = (await snapshot(tokenVisitante)).currentVersion;
+
+    // O gesto de um cliente PRÉ-F11 ainda aberto numa aba: ele carimba a cópia na op que escreve.
+    await push(tokenEspectador, [opComCopia(idDaCamadaPrivada, PRIVADA, mapa.id, 'update')]);
+
+    const res = await supertest(app)
+      .get(`/api/v1/atlas/${atlas.id}/sync/${antes}`)
+      .set('Authorization', `Bearer ${tokenVisitante}`)
+      .expect(200);
+
+    const { operations, isSnapshot } = res.body.data;
+    assert.equal(isSnapshot, false, 'é o ramo incremental, não o snapshot');
+    // Positivo: o log foi mesmo entregue (uma resposta vazia passaria em todo o resto).
+    assert.ok(operations.length > 0, 'o log do atlas sai por esta rota');
+    const daCamada = operations.find(
+      (o) => (o.entityType === 'catalogLayer' || o.entityType === 'catalog_layer')
+        && o.data?.id === idDaCamadaPrivada,
+    );
+    assert.ok(daCamada, 'e a op que acrescentou a camada privada está nele');
+    // Negativo: a referência e o estado por atlas ficam; a definição não.
+    assert.equal(daCamada.data.id, idDaCamadaPrivada);
+    assert.equal(daCamada.data.visible, true);
+    assert.deepEqual(daCamada.data.styleOverrides, { line: { 'line-width': 3 } });
+    assert.equal(daCamada.data.config, undefined);
+    assert.equal(daCamada.data.name, undefined);
+
+    // E o LOG INTEIRO, que é o que a rota entrega a quem pede a versão 1: nenhuma op dele carrega
+    // a URL copiada, seja qual for o formato em que ela foi gravada.
+    const tudo = await supertest(app)
+      .get(`/api/v1/atlas/${atlas.id}/sync/1`)
+      .set('Authorization', `Bearer ${tokenVisitante}`)
+      .expect(200);
+    assert.ok(tudo.body.data.operations.length > 0, 'o log histórico sai inteiro por esta rota');
+    assert.ok(
+      !JSON.stringify(tudo.body.data.operations).includes(URL_COPIADA),
+      'a URL copiada não sai por nenhuma op do log',
+    );
   });
 });

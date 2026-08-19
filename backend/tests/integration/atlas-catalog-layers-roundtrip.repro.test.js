@@ -11,8 +11,15 @@
 // authoritative, wiping the local state. Silent data loss, no error.
 //
 // The contract closed here: the dedicated table is canonical. Every whole-entity writer
-// (import, clone, duplicate) must materialise the array into `catalog_layers` rows. The legacy
-// column keeps being written for array-shaped clients, but it is no longer the only home.
+// (import, clone, duplicate) must materialise the array into `catalog_layers` rows.
+//
+// F12 FINISHED IT: migration 022 DROPPED `maps.catalog_layers`, so the table is not just
+// canonical, it is the only home. The import PAYLOAD key `map.catalog_layers` survives (frozen
+// contract with `local-atlas-to-server.js`) and is materialised straight into the table — which
+// is what the first case below now asserts, without a column to check afterwards. The case that
+// cloned "a map that only has the LEGACY column" describes a state the schema can no longer
+// reach and was replaced by the migration's own materialisation, asserted in
+// `catalog-layer-coluna-legada.test.js`.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -90,9 +97,13 @@ describe('achado-42 · catalog layers survive the import/clone round-trip', () =
     assert.equal(got.hillshade.opacity, 0.7);
     assert.equal(got['analysis-declividade'].visible, false);
 
-    // The legacy column keeps its array for array-shaped clients.
-    const legacy = await db.query('SELECT catalog_layers FROM maps WHERE id = $1', [mapId]);
-    assert.equal(legacy.rows[0].catalog_layers.length, 2);
+    // And the column that used to hold the second copy is gone from the schema: the payload key
+    // is accepted, the column is not re-created behind it.
+    const coluna = await db.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'maps' AND column_name = 'catalog_layers'`
+    );
+    assert.equal(coluna.rows.length, 0, '`maps.catalog_layers` não existe mais');
   });
 
   it('clone carries the catalog layers of a map that got them from LIVE sync', async () => {
@@ -121,24 +132,6 @@ describe('achado-42 · catalog layers survive the import/clone round-trip', () =
     // Copied, not moved: the source keeps its rows.
     const src = await db.query('SELECT COUNT(*)::int AS n FROM catalog_layers WHERE map_id = $1', [map.id]);
     assert.equal(src.rows[0].n, 2);
-  });
-
-  it('clone carries the catalog layers of a map that only has the LEGACY column', async () => {
-    // The shape produced by an earlier import (or an array-form sync op): array column
-    // populated, dedicated table empty. Cloning must not lose it either.
-    const atlas = await createAtlas(db, owner.id, { name: `CL42 legacy src ${randomUUID().slice(0, 6)}` });
-    const map = await createMap(db, atlas.id, { name: 'Origem legada' });
-    await db.query('UPDATE maps SET catalog_layers = $1::jsonb WHERE id = $2', [JSON.stringify(LAYERS), map.id]);
-
-    const res = await supertest(app)
-      .post(`/api/v1/atlas/${atlas.id}/clone`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(201);
-
-    const cloneMap = (await snapshotMaps(res.body.data.id))[0];
-    const got = byId(cloneMap.catalogLayers);
-    assert.equal(Object.keys(got).length, 2, 'the legacy array must be materialised in the clone');
-    assert.equal(got.hillshade.opacity, 0.7);
   });
 
   it('duplicate map carries the catalog layers to the copy', async () => {

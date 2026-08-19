@@ -3,6 +3,7 @@
 
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
+import { pruneCatalogLayerOperations } from '../sync/catalog-layer-op.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
@@ -114,9 +115,17 @@ export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } =
   const room = rooms.get(atlasId);
   if (!room || !Array.isArray(ops) || ops.length === 0) return { sent: 0, recipients: [] };
 
-  const fullPayload = JSON.stringify({ type: 'operations', userId, ops });
-  const nonComment = ops.filter((o) => o && (o.entityType || o.target) !== 'comment');
-  const hasComment = nonComment.length !== ops.length;
+  // THE CHOKE POINT OF BOTH RELAYS. `sync.controller.js` (HTTP push) and `collab.handlers.js`
+  // (WS push) each re-broadcast the pusher's payload verbatim, and a client from before F11
+  // still stamps the catalog-layer DEFINITION into the op it writes. Relayed as-is, that URL
+  // reaches every socket in the room — the anonymous public-link visitor included, who holds
+  // `read`. Pruning here instead of at each call site means a third relay caller is covered by
+  // construction. See `sync/catalog-layer-op.js`.
+  const servedOps = pruneCatalogLayerOperations(ops);
+
+  const fullPayload = JSON.stringify({ type: 'operations', userId, ops: servedOps });
+  const nonComment = servedOps.filter((o) => o && (o.entityType || o.target) !== 'comment');
+  const hasComment = nonComment.length !== servedOps.length;
   const readPayload = nonComment.length
     ? JSON.stringify({ type: 'operations', userId, ops: nonComment })
     : null;

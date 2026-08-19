@@ -42,7 +42,7 @@ export const GET_ATLAS_METADATA = `
 
 export const GET_ATLAS_MAPS = `
   SELECT id, name, base_layer, center_lat, center_long, zoom, bearing, pitch,
-         notes_title, notes_description, analysis_layers, catalog_layers,
+         notes_title, notes_description, analysis_layers,
          grid_style, temporal_config, locked, created_at, updated_at, version
   FROM maps
   WHERE atlas_id = $1 AND deleted_at IS NULL
@@ -129,9 +129,9 @@ export const GET_ATLAS_CATALOG_LAYERS = `
 // in the row; the definition comes from the catalog AT READ TIME, through the access predicate
 // of the CALLER.
 //
-// ONE query for the whole snapshot, never one per layer: the ids are collected in JS from both
-// surfaces (the dedicated table and the legacy `maps.catalog_layers` column) and arrive here as
-// two arrays. The Cesium/LOD lesson does not apply — this runs once per snapshot — but the
+// ONE query for the whole snapshot, never one per layer: the ids are collected in JS from the
+// `catalog_layers` rows (the legacy `maps.catalog_layers` column was the other surface until
+// migration 022 dropped it) and arrive here as two arrays, one per type. The Cesium/LOD lesson does not apply — this runs once per snapshot — but the
 // N+1 lesson of `snapshot-n-mais-1.repro.test.js` does, and it is why this is not a lookup
 // inside the per-map loop.
 //

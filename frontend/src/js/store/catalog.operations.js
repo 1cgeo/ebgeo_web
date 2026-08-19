@@ -8,10 +8,18 @@
  * definition (name, `config`, and the source URL inside it) belongs to the catalog and is
  * resolved on read by `@catalog/catalog-layer.ref.js`. Every write here goes through
  * `pruneCatalogLayerDefinition`, so no definition is persisted and none travels in a sync op.
+ *
+ * "EVERY WRITE" IS LITERAL, and it was not always: `revalidateCatalogLayers` mutated the entry in
+ * place and `processCatalogLayersOnImport` returned it with `config` intact. Neither of them
+ * leaked (they emit no op), but the invariant written at the top of a file is what the next
+ * author trusts in order NOT to prune, and the import path fed straight into `addMap`, which logs
+ * the WHOLE map document as one op — so an `.ebgeo` from before the change replanted the
+ * definition in the server's operation log. Both prune now; the sentence above is the contract.
  */
 
 import { generateUUID } from '../utilities/uuid.js';
 import {
+    CATALOG_LAYER_DEFINITION_KEYS,
     pruneCatalogLayerDefinition,
     resolveCatalogLayerDefinition
 } from '../catalog/catalog-layer.ref.js';
@@ -278,10 +286,13 @@ export function processCatalogLayersOnImport(layers) {
 
     let unavailableCount = 0;
 
+    // The order matters: availability is resolved from the entry AS IMPORTED (a legacy `.ebgeo`
+    // may carry its only reference in `config.id`), and only then is the definition pruned —
+    // which preserves that reference in `originalId`, so the layer stays resolvable afterwards.
     const processed = layers.map(layer => {
         const status = validateCatalogLayerAvailability(layer);
         if (status === 'unavailable') unavailableCount++;
-        return { ...layer, status };
+        return pruneCatalogLayerDefinition({ ...layer, status });
     });
 
     return { processed, unavailableCount };
@@ -316,24 +327,35 @@ export async function revalidateCatalogLayers(mapName = null) {
         const stillUnavailable = [];
         let hasChanges = false;
 
-        for (const layer of catalogLayers) {
+        // REWRITE, never mutate in place: like `updateCatalogLayer`, the entry is replaced by its
+        // pruned form, which is what makes a legacy document converge on the new shape the first
+        // time anything touches it. `hasChanges` therefore also has to fire when only the prune
+        // changed something, otherwise the old shape is recomputed on every revalidation and
+        // never persisted.
+        catalogLayers.forEach((layer, i) => {
             const oldStatus = layer.status;
             const newStatus = validateCatalogLayerAvailability(layer);
 
-            if (oldStatus !== newStatus) {
-                layer.status = newStatus;
-                if (layer.sync) {
-                    layer.sync = touchSyncMetadata(layer.sync);
-                }
+            const updated = pruneCatalogLayerDefinition({ ...layer, status: newStatus });
+            if (oldStatus !== newStatus && updated.sync) {
+                updated.sync = touchSyncMetadata(updated.sync);
+            }
+            // The prune changed something when a definition key was there to take, or when the
+            // reference had to be rescued into `originalId`. Comparing key COUNTS would miss the
+            // case that removes one key and adds one back.
+            const pruned = CATALOG_LAYER_DEFINITION_KEYS.some(key => key in layer)
+                || updated.originalId !== layer.originalId;
+            if (oldStatus !== newStatus || pruned) {
                 hasChanges = true;
             }
+            catalogLayers[i] = updated;
 
             if (newStatus === 'unavailable') {
                 stillUnavailable.push(layer.id);
             } else if (oldStatus === 'unavailable' && newStatus === 'active') {
                 reactivated.push(layer.id);
             }
-        }
+        });
 
         if (hasChanges) {
             await updateMapDataCompat(targetMap, mapData);
