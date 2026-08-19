@@ -11,6 +11,7 @@ import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { drainOnError } from './middleware/drain-on-error.js';
 import { flexibleAuth } from './middleware/flexible-auth.js';
+import { pruneResponsePayload } from './middleware/prune-resource-payload.js';
 
 // Module routes
 import { authRoutes } from './modules/auth/index.js';
@@ -125,6 +126,13 @@ export function createApp() {
   // Gate que não faz o que promete e apaga a cobertura do caminho que ele protege
   // custa mais do que rende. Removido em 2026-07-25.
   app.use(requestLogger);
+
+  // THE HTTP CHOKE POINT for catalog-resource definitions, mounted BEFORE every route (the health
+  // check below included) so that no route can reach a client without passing it. Wrapping
+  // `res.json` once here is what makes the guarantee structural instead of a list of patched call
+  // sites — the shape that let three consecutive reviews each find a new exit. See
+  // `middleware/prune-resource-payload.js` and `modules/catalog/resource-payload.prune.js`.
+  app.use(pruneResponsePayload);
 
   // Health check (no auth) — readiness: touches the DB, 503 if it is down.
   //

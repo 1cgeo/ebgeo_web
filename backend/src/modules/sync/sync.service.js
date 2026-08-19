@@ -10,6 +10,9 @@ import {
   catalogLayerReference, catalogRefKey, claimsCatalogResource, pruneCatalogLayerDefinition,
 } from '../catalog/catalog-layer.ref.js';
 import { assertCatalogTableOf } from '../resource-access/resource-access.types.js';
+import {
+  markResourceDefinitionAuthorized, isResourceDefinitionAuthorized,
+} from '../catalog/resource-payload.prune.js';
 import { pruneCatalogLayerOperation } from './catalog-layer-op.js';
 
 /**
@@ -562,11 +565,12 @@ function toFrontendOperation(op) {
     changes = unflatten3d360LogPayload(op.changes, op);
   }
 
-  // The stored payload is whatever the client wrote, so a catalog-layer op logged before F11
-  // still carries the definition (`config.source.url` of a possibly private resource). The
-  // rehydration that protects the snapshot lives inside `getAtlasSnapshot` and never sees this
-  // path; the prune is what covers it, for historical rows, without rewriting the log. See
-  // `catalog-layer-op.js`.
+  // The stored payload is whatever the client wrote, so a logged op still carries the definition
+  // (`config.source.url` of a possibly private resource) — and NOT only when it is stamped
+  // `catalogLayer`: an op stamped `map` carries the whole document, `catalogLayers` included, and
+  // that is how renaming a map re-published every definition in it. The prune below is by CONTENT,
+  // so the stamp is irrelevant to it. It is not the guarantee (the outbound boundaries are); it is
+  // the same walk applied early, for free. See `catalog-layer-op.js`.
   return pruneCatalogLayerOperation({
     // A IDENTIDADE DA OPERAÇÃO É O `op_id` DO CLIENTE, nos dois caminhos.
     //
@@ -857,7 +861,17 @@ function rehydrateCatalogLayer(entry, id, definitions) {
   const ref = catalogLayerReference(entry, id);
   const def = ref && definitions.get(catalogRefKey(ref.resourceType, ref.resourceId));
   if (!def) return local;
-  return { ...local, name: def.name, config: { id: def.id, name: def.name, ...def.config } };
+  // MARKED AUTHORIZED, and this is what keeps the outbound boundary from undoing the rehydration.
+  // `resource-payload.prune.js` strips a definition from every payload leaving the server; this
+  // entry is the one legitimate exception, because the definition was just resolved against what
+  // THIS principal may see (`loadCatalogDefinitions`, the same (principal, atlas) predicate
+  // `/resource-access/visible` uses). The mark is object IDENTITY and never a wire field: a wire
+  // field would be a key any client could write into its own payload to smuggle a definition past
+  // the boundary. It therefore does not survive serialization, which is why the WS snapshot is
+  // handed to `ws.send` as an object (`collab.handlers.js:handleSyncRequest`).
+  return markResourceDefinitionAuthorized({
+    ...local, name: def.name, config: { id: def.id, name: def.name, ...def.config },
+  });
 }
 
 /**
@@ -961,11 +975,20 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       // The spread is unchanged — same keys, same top level, same `sync` — but what it spreads
       // is the entry with its DEFINITION refreshed (or withheld) instead of the copy the client
       // stored. See rehydrateCatalogLayer.
-      map.catalogLayers = rawCatalogLayers.map((c) => ({
-        id: c.id,
-        ...rehydrateCatalogLayer(c.data, c.id, definicoesDeCatalogo),
-        sync: buildSyncMetadata(c),
-      }));
+      //
+      // The authorization mark is carried ACROSS the spread by hand: the spread builds a NEW
+      // object, and identity is the whole mechanism, so a rehydrated definition that is not
+      // re-marked here would be stripped again by the outbound boundary and the layer would reach
+      // an entitled user as "camada indisponível". Only the entries that actually got a definition
+      // back are marked; a stripped entry stays subject to the boundary, so a defect in the
+      // rehydration cannot ride out on an exemption it did not earn.
+      map.catalogLayers = rawCatalogLayers.map((c) => {
+        const rehidratada = rehydrateCatalogLayer(c.data, c.id, definicoesDeCatalogo);
+        const servida = { id: c.id, ...rehidratada, sync: buildSyncMetadata(c) };
+        return isResourceDefinitionAuthorized(rehidratada)
+          ? markResourceDefinitionAuthorized(servida)
+          : servida;
+      });
       // Spatial comments (prefetched once above, grouped by map_id); empty for read-only viewers.
       map.comments = commentsByMap[map.id] || [];
 

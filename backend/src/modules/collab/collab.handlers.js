@@ -355,20 +355,28 @@ export async function handleSyncRequest(ws, data) {
       ws.atlasId, data.lastVersion || 0, ws.permission, ws.userId ?? null,
     );
 
+    // THE OBJECT, NOT THE STRING, and this is the one place in the module where the difference is
+    // load-bearing. The outbound boundary (`collab.send.js`) prunes catalog-resource definitions,
+    // and the snapshot is the ONLY frame that legitimately carries one: `rehydrateCatalogLayer`
+    // resolved it against what this principal may see. That authorization is recorded by object
+    // IDENTITY (a wire marker would be forgeable by any client), so it does not survive a
+    // `JSON.stringify` done here — serialising before the boundary would strip the very
+    // definitions the rehydration just earned, and the layers would arrive as "camada
+    // indisponível" for someone who holds the grant. Handing the object over keeps identity.
     if (result.isSnapshot) {
-      ws.send(JSON.stringify({
+      ws.send({
         type: 'sync_response',
         isSnapshot: true,
         snapshot: result.snapshot,
         currentVersion: result.currentVersion,
-      }));
+      });
     } else {
-      ws.send(JSON.stringify({
+      ws.send({
         type: 'sync_response',
         isSnapshot: false,
         ops: result.operations,
         currentVersion: result.currentVersion,
-      }));
+      });
     }
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process sync request');

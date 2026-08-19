@@ -129,8 +129,25 @@ describe('F12 — poda da definição de catálogo na saída do log de operaçõ
     const semTipo = op({ entityId: 'wms-a', data: { id: 'wms-a', name: 'A', config: { url: '/x' } } });
     assert.equal(pruneCatalogLayerOperation(semTipo), semTipo);
 
-    const feicao = op({ entityType: 'feature', entityId: randomUUID(), data: { type: 'data_layer', config: { url: '/y' } } });
-    assert.equal(pruneCatalogLayerOperation(feicao), feicao, 'só `catalogLayer` é assunto desta poda');
+    const feicao = op({ entityType: 'feature', entityId: randomUUID(), data: { nome: 'Ponto' } });
+    assert.equal(pruneCatalogLayerOperation(feicao), feicao, 'nada de recurso na carga, nada a podar');
+
+    // A LINHA QUE ESTE CASO AFIRMAVA ATÉ A F13, E QUE ERA O BURACO EM PESSOA. Aqui estava escrito
+    // que uma op `feature` carregando `{ type: 'data_layer', config: {...} }` saía por IDENTIDADE,
+    // com o comentário "só `catalogLayer` é assunto desta poda". O teste não estava errado sobre o
+    // código: ele estava CERTO sobre um código que decidia pelo carimbo do envelope, e um teste
+    // que fixa o carimbo fixa junto o vazamento. Bastava o cliente stampar outra coisa — e ele
+    // stampa: renomear um mapa manda `map` com o documento inteiro dentro. A poda hoje é por
+    // CONTEÚDO, então o mesmo objeto muda.
+    const carimboErrado = op({
+      entityType: 'feature', entityId: randomUUID(),
+      data: { type: 'data_layer', config: { url: '/y' } },
+    });
+    const podadaPeloConteudo = pruneCatalogLayerOperation(carimboErrado);
+    assert.notEqual(podadaPeloConteudo, carimboErrado, 'o carimbo do envelope não decide mais nada');
+    assert.equal(podadaPeloConteudo.data.config, undefined);
+    assert.equal(podadaPeloConteudo.data.type, 'data_layer', 'a referência sobrevive');
+    assert.equal(podadaPeloConteudo.entityType, 'feature', 'e o envelope não é reescrito');
 
     // E o par positivo do teste de identidade: uma op que TEM o que perder muda de objeto.
     const comDefinicao = op({ entityId: 'data-restrita', data: definicaoCopiada() });

@@ -12,6 +12,7 @@ import { joinRoom, leaveRoom, getRoomUsers, getRoomClients } from './collab.room
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
+import { installOutboundResourcePrune } from './collab.send.js';
 
 // The only path this WebSocket gateway serves (matches the documented contract).
 const COLLAB_WS_PATH = '/api/v1/collab';
@@ -449,6 +450,13 @@ export function attachWebSocket(server) {
  * Handles a new WebSocket connection.
  */
 function onConnection(ws, user, atlasId, permission, providedClientId = null) {
+  // FIRST LINE OF THE CONNECTION, and the position is the contract: this replaces `ws.send` with
+  // the outbound resource prune, so every frame this socket ever emits passes it — the `connected`
+  // frame below, every relay in `collab.handlers.js`, every fan-out in `collab.rooms.js`, and
+  // whatever is written next. Installing it later would leave whatever ran before it uncovered,
+  // which is the shape of hole this phase exists to remove. See `collab.send.js`.
+  installOutboundResourcePrune(ws);
+
   // Use the client-provided stable id when present; otherwise generate one.
   const clientId = providedClientId || crypto.randomUUID();
 
