@@ -538,13 +538,25 @@ function garantirCarregadorTiles() {
 
     tiles.carregador = createTileLoader({
         gl: renderer.getContext(),
+        // O RENDERER INTEIRO, e nao so o contexto. Com ele o carregador sobe
+        // apenas o retangulo do tile que mudou, por `copyTextureToTexture`, em
+        // vez de re-especificar a textura inteira a cada lote. Medido numa troca
+        // de foto a 1904x985: 216 MB de subida na estacao e 432 MB no perfil de
+        // maquina fraca, contra cerca de 38 MB pelo caminho parcial.
+        renderer,
         onTextura: (textura) => {
             // A textura NAO entra na esfera aqui. O canvas acaba de nascer em
             // branco, e aplica-lo agora piscaria preto ate o preview pintar,
             // justo onde hoje a foto anterior segura a tela. Fica pendente.
             //
-            // `deTiles` marca a POSSE: enquanto ela vale, quem descarta a
-            // textura e o carregador, que ja troca a sua a cada nivel novo.
+            // `deTiles` marca a ORIGEM: quem tirar esta textura da esfera e
+            // quem a descarta (ver `descartarSeOrfaDeTiles`).
+            //
+            // A PENDENTE ANTERIOR MORRE AQUI, e nao vaza: se ela ainda esta
+            // pendente, nunca chegou a esfera, entao ninguem mais a tem. Dois
+            // canvas seguidos sem pintura no meio (troca de nivel em rajada)
+            // deixariam uma textura de dezenas de MB sem dono.
+            if (tiles.texturaPendente) tiles.texturaPendente.dispose();
             textura.userData = { isFull: true, deTiles: true };
             tiles.texturaPendente = textura;
         },
@@ -578,7 +590,6 @@ function garantirCarregadorTiles() {
  */
 function aplicarTexturaDeTiles() {
     const nova = tiles.texturaPendente;
-    tiles.texturaPendente = null;
     if (!nova || !tiles.dados) return;
 
     // Carga obsoleta: o operador ja andou para outra foto. A condicao cobra um
@@ -587,6 +598,12 @@ function aplicarTexturaDeTiles() {
     // deixariam passar justamente a textura que se quer barrar.
     if (!tiles.controlador || tiles.controlador !== activeTextureAbort) return;
 
+    // A pendencia so se limpa QUANDO A TROCA ACONTECE. Zera-la antes das duas
+    // guardas acima deixava a textura sem dono nenhum nos dois caminhos de
+    // desistencia: o carregador ja a tinha entregue, e nos a esqueciamos. Agora
+    // ela continua pendente ate ser aplicada, e quem a descarta e a proxima
+    // entrega ou o `largarTiles`.
+    tiles.texturaPendente = null;
     applyTexture(nova, tiles.dados);
 }
 
@@ -598,6 +615,9 @@ function aplicarTexturaDeTiles() {
  * devolve a textura VIVA, e so dai em diante ela e nossa.
  */
 function largarTiles() {
+    // A pendente nunca chegou a esfera, entao ninguem mais a tem: sai daqui
+    // descartada, e nao apenas esquecida.
+    if (tiles.texturaPendente) tiles.texturaPendente.dispose();
     tiles.texturaPendente = null;
     tiles.controlador = null;
     tiles.dados = null;
@@ -901,9 +921,29 @@ async function prefetchTargetPreviews(targets) {
  * @param {THREE.Texture|null} antiga - textura que estava na esfera
  * @param {THREE.Texture} nova - textura que assume
  */
+/**
+ * Descarta a textura que ACABOU de sair da esfera.
+ *
+ * Ela cobre os dois donos, e nao mais so o carregador que renunciou:
+ *
+ * - `orfaDeTiles`: o carregador largou a foto e nos entregou a posse.
+ * - `deTiles`: o carregador trocou de canvas e ja nos entregou uma nova por
+ *   `onTextura`. A antiga estava presa aqui, e este e o instante em que ela
+ *   deixa de estar.
+ *
+ * O CARREGADOR NAO PODE DESCARTAR A DELE, e essa e a razao de a regra ter
+ * mudado. Entre `reconstruirCanvas` e a troca do `map` passam dezenas ou
+ * centenas de milissegundos, e nesse vao o material aponta para a textura
+ * antiga. Descartada, o three a recria no proximo quadro e sobe o canvas
+ * inteiro de novo: medidas de 72 MB de alocacao e 72 MB de subida perdidos por
+ * troca de foto, sem nada errado na tela.
+ *
+ * @param {THREE.Texture|null} antiga a que estava no material
+ * @param {THREE.Texture} nova a que entra
+ */
 function descartarSeOrfaDeTiles(antiga, nova) {
     if (!antiga || antiga === nova) return;
-    if (!antiga.userData?.orfaDeTiles) return;
+    if (!antiga.userData?.orfaDeTiles && !antiga.userData?.deTiles) return;
     antiga.dispose();
 }
 
