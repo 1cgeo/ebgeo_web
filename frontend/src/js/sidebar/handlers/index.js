@@ -18,6 +18,7 @@ export {
     handleMarker360Click,
     handleMarker360Deselect,
     handleMarkerFpClick,
+    handleMarkerFpListClick,
     handleMarkerFpDeselect,
     closeAny3dPanel,
     deselect3dFeature
