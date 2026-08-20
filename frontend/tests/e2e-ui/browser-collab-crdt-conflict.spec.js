@@ -146,8 +146,6 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
         const winner = await convergedValue(collab.db, [A, B], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()));
         expect(winner, 'o servidor gravou uma das duas cores em disputa').toMatch(/^#(ff0000|0000ff)$/);
 
-        const ops = await collab.db.queryOperationsByEntity(id);
-        const maxV = Math.max(...ops.map((o) => Number(o.server_version)));
         // (4) DURABILITY: the winner is what each client persisted to IndexedDB (via the
         //     repository, not the in-memory store) — an in-memory-only agreement would not
         //     survive F5 and must not count as convergence.
@@ -159,8 +157,53 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
 
         // (5) LWW = MAX server arrival order. Cross-check the SQL `operations` log against the
         //     ledger's own conflict view (winner by serverVersion — never timestamp/lamport).
-        const spans = await collectLedger(collab.pages, { baseUrl: collab.baseUrl, token: collab.ownerToken, atlasId: collab.atlasId });
-        const conflict = reduceLedger(spans).conflicts.find((c) => c.entityId === id);
+        //
+        //     OS DOIS SÃO AMOSTRADOS JUNTOS, E ESSA É A CORREÇÃO. O `maxV` era lido do Postgres
+        //     ANTES de `collectLedger`, e as duas leituras eram comparadas como se fossem
+        //     simultâneas. Não são: uma op tardia da MESMA feição, ainda em voo quando o SQL foi
+        //     lido, chega antes de o ledger ser coletado e move o vencedor. O sintoma medido foi
+        //     `winnerServerVersion` 366 contra `maxV` 362 — o ledger via uma op que a foto do SQL
+        //     não tinha. É a mesma armadilha que o passo (3) já evita em `convergedValue`, e ela
+        //     tinha voltado aqui.
+        //
+        //     A espera é por QUIESCÊNCIA, não por prazo: lê-se o máximo, coleta-se o ledger, e
+        //     lê-se o máximo DE NOVO; enquanto o segundo diferir do primeiro, o alvo ainda está se
+        //     movendo e a medição não vale. Isto não mascara divergência real, porque uma
+        //     discordância ESTÁVEL entre ledger e SQL sobrevive à quiescência e reprova.
+        const maxVersaoDaFeicao = async () => {
+            const ops = await collab.db.queryOperationsByEntity(id);
+            return Math.max(...ops.map((o) => Number(o.server_version)));
+        };
+
+        let conflict = null;
+        let maxV = null;
+        await expect.poll(async () => {
+            const antes = await maxVersaoDaFeicao();
+            const spans = await collectLedger(collab.pages, {
+                baseUrl: collab.baseUrl, token: collab.ownerToken, atlasId: collab.atlasId,
+            });
+            const depois = await maxVersaoDaFeicao();
+            // Ainda chegando op para esta feição: a foto não vale, e o veredito seria sobre um
+            // alvo em movimento.
+            if (antes !== depois) return `em-movimento(${antes}->${depois})`;
+
+            const achado = reduceLedger(spans).conflicts.find((c) => c.entityId === id);
+            if (!achado) return 'sem-conflito-no-ledger';
+
+            conflict = achado;
+            maxV = depois;
+            // A DIVERGÊNCIA VIAJA COM OS NÚMEROS: uma discordância estável reprova por timeout, e
+            // a mensagem já traz os dois lados, em vez de só "recebido !== esperado".
+            return Number(achado.winnerServerVersion) === depois
+                ? 'concordam'
+                : `divergem(ledger=${achado.winnerServerVersion} sql=${depois})`;
+        }, {
+            timeout: 20000,
+            message: 'o ledger e o log SQL precisam concordar sobre o vencedor, medidos EM REPOUSO',
+        }).toBe('concordam');
+
+        // Absolutas, e não só a igualdade acima: sem elas um `poll` que devolvesse 'concordam' por
+        // um bug do próprio predicado passaria sem ninguém ter olhado os valores.
         expect(conflict, 'the ledger detected the same-entity conflict').toBeTruthy();
         expect(Number(conflict.winnerServerVersion)).toBe(maxV);
     });

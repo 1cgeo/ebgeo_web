@@ -316,6 +316,37 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
         return !!map && map.isStyleLoaded?.() === true && map.isMoving?.() === false;
     }, null, { timeout: 20000 });
 
+    // DESOCUPA O MAPA ANTES DE DESENHAR, e isto FECHA a corrida que a espera abaixo só sabia
+    // anotar.
+    //
+    // MEDIDO numa falha real da suíte cheia: `[-43.22,-22.92] <- div.feature-tab-content active`,
+    // com `drawPoints: 0` e o tool ativo. Terminar uma feição SELECIONA a nova
+    // (`toggleFeatureSelection` + `updateUI`) e abre o painel de atributos, que fica aberto. Numa
+    // varredura que desenha vinte tipos em sequência, o painel da feição anterior cobre o pixel do
+    // desenho seguinte, o clique vai para o painel, o canvas nunca o vê, e o desenho fica pendurado
+    // sem erro nenhum.
+    //
+    // A espera por "o ponto pertence ao canvas" (em `clicarNoMapa`) NÃO resolve este caso, e a
+    // diferença é o que justifica esta linha: ela funciona para a PALETA de ferramentas, que se
+    // fecha sozinha por transição de 200 ms, e não para o painel de atributos, que fica aberto até
+    // alguém fechá-lo. Esperar por uma condição que ninguém vai satisfazer é queimar 5 s e clicar
+    // errado do mesmo jeito.
+    //
+    // A ORDEM É CONTRATO. `closeFeaturePanel()` RESTAURA a aba de barra lateral que estava aberta
+    // antes (`sidebar.previousTab`), então fechar o painel pode ABRIR a barra e trocar um overlay
+    // por outro. Por isso o `collapseSidebar()` vem DEPOIS, e não antes.
+    //
+    // Isto não maquia o produto: o que este helper mede é DESENHAR, e o estado do painel é
+    // incidental ao desenho. O painel continua sendo exercitado por quem o testa de propósito
+    // (`selectFeatureViaTree`, o rename pelo painel), e nenhum desses caminhos passa por aqui.
+    await page.evaluate(async () => {
+        const s = await import('/src/js/store/index.js');
+        const sm = s.getStateManager?.();
+        if (!sm) return;
+        sm.closeFeaturePanel?.();
+        sm.collapseSidebar?.();
+    });
+
     /**
      * Projeta UM lng/lat para pixel de viewport, NO INSTANTE DO CLIQUE.
      *
