@@ -14,9 +14,6 @@ import {
     getImage,
     storeImage,
     setSchemaVersion,
-    getColorUsage,
-    getMapNotes,
-    getGridStyle,
     setGridStyle,
     getMapGroups,
     getLayers,
@@ -26,13 +23,9 @@ import {
     setMapOrder,
     processCatalogLayersOnImport,
     getCatalogLayers,
-    getCesium3dDataForExport,
     setCesium3dDataForImport,
-    getStreetview360DataForExport,
     setStreetview360DataForImport,
-    getMapTemporalConfig,
     setMapTemporalConfig,
-    getComments,
     setMapComments,
     getBriefingsForExport,
     importBriefings,
@@ -40,7 +33,7 @@ import {
     restoreCustomIconsFromImport,
     getGroupManager,
 } from '@store';
-import { DEFAULT_TEMPORAL_CONFIG } from '@js/temporal/temporal.constants.js';
+import { optionalSectionTasks } from './export-optional-sections.js';
 
 import { IDUtils } from '@utils/id_utils.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
@@ -1144,36 +1137,7 @@ export class ExportImportService {
      * @private
      */
     async _exportOptionalMapData(data, mapName) {
-        const tasks = [
-            { key: 'colorUsage', fn: () => getColorUsage(mapName), check: (v) => v && Object.keys(v).length > 0 },
-            { key: 'mapNotes', fn: () => getMapNotes(mapName), check: (v) => v && (v.title || v.description) },
-            // getMapGroups returns a PLAIN OBJECT keyed by group id (memoryStore.groups[map]),
-            // which is exactly what importGroupsDirectly/importMapGroups expect — so check by key
-            // count and export as-is. (A stale `.size`/`Object.fromEntries` here assumed a Map and
-            // silently dropped ALL groups from every `.ebgeo`, local and remote — P9/P11 bug.)
-            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v && Object.keys(v).length > 0 },
-            { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
-            { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
-            { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
-            // Per-map temporal config (modo/origem/unidade/bounds) so temporal-aware
-            // maps round-trip. Export whenever it differs from the default in ANY field
-            // — not only when currently active — so a configured-but-disabled relative
-            // map keeps its origem/modo/unidade/bounds across export/import.
-            {
-                key: 'temporal',
-                fn: () => getMapTemporalConfig(mapName),
-                check: (v) => !!v && Object.keys(DEFAULT_TEMPORAL_CONFIG).some((k) => v[k] !== DEFAULT_TEMPORAL_CONFIG[k]),
-            },
-            // Per-map grid/UTM-grid style so configured grids round-trip in .ebgeo (P9 symmetry
-            // with the live sync, which already persists gridStyle inbound).
-            {
-                key: 'gridStyle',
-                fn: () => getGridStyle(mapName),
-                check: (v) => !!v && typeof v === 'object' && Object.keys(v).length > 0,
-            },
-            // Spatial comments (root + replies, keyed by id) so commented maps round-trip in .ebgeo.
-            { key: 'comments', fn: () => getComments(mapName), check: (v) => v && Object.keys(v).length > 0 },
-        ];
+        const tasks = optionalSectionTasks(mapName);
 
         for (const { key, fn, check, transform } of tasks) {
             try {
