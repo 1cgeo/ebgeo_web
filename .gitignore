@@ -43,6 +43,12 @@ pids/
 # em pesquisas pontuais. O que vale para o time mora em .claude/settings.json.
 .claude/settings.local.json
 
+# Cópias de trabalho isoladas do repositório. Chegam fácil a dezenas de GB e não
+# são código: um `git add -A` distraído tentaria versionar o repositório inteiro
+# dentro dele mesmo. Hoje o caminho só é ignorado por .git/info/exclude, que não
+# viaja para outro clone.
+.claude/worktrees/
+
 # Calibração da busca (dev/tune-busca.mjs)
 # Cache da matriz de atributos: ~23 MB, derivado do acervo carregado no banco de
 # quem rodou, e reconstruível em ~30 s. O CONJUNTO DOURADO (dev/busca-golden.json)

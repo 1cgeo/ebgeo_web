@@ -131,6 +131,27 @@ describe('Config — admin overrides (F4)', () => {
     assert.deepEqual(cfg.body.data.map2d.terrainSource.tiles, ['/x/{z}/{x}/{y}']);
   });
 
+  // A SEGUNDA PORTA DA BASE DO 360. `optionalBase` (src/config.js) limpa a
+  // variável de ambiente, mas o override avançado aceita `streetView360` como
+  // objeto livre e VENCE o valor da env no deepMerge, então uma barra digitada
+  // aqui chegaria ao browser e toda URL do 360 sairia com `//`. Por isso a
+  // normalização de config.service.js roda DEPOIS do merge, e é isso que este
+  // caso prende. A porta da env é coberta em tests/unit/config-base-trailing-slash.
+  it('an ADVANCED override of the 360 base is stripped of its trailing slash', async () => {
+    await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ streetView360: { serviceUrl: '/api/v1/sv360/' } })
+      .expect(200);
+    const cfg = await supertest(app).get('/api/v1/config').expect(200);
+    const base = cfg.body.data.streetView360.serviceUrl;
+    assert.equal(base, '/api/v1/sv360', 'a barra final do override precisa sumir');
+    // O que o cliente realmente monta: sem esta linha o caso mede uma string
+    // e não o defeito (frontend concatena `${serviceUrl}${path}` com path em '/').
+    const url = `${base}/photos/abc/tiles.json`;
+    assert.ok(!url.includes('//'), `barra dupla na URL do cliente: ${url}`);
+  });
+
   it('a basemap resource config.style overrides the static basemapStyles (F6)', async () => {
     const style = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] };
     await supertest(app)

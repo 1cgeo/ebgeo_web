@@ -74,7 +74,10 @@ const ABSOLUTE_URL_RE = /^(?:https?:|\/\/|\/)/i;
  * Without this, a basePath written as '/3d/cena/' produces '/3d/cena//voxel/
  * voxel.bin'. Some servers serve that and some answer 404, so the bug only
  * shows up after deploy, and only on whichever asset the operator did not open
- * while testing. Same reasoning as STREETVIEW_360_BASE in config.js.
+ * while testing. Same reasoning as `optionalBase` in the backend's
+ * `src/config.js`, which cleans the 360 and assets3d bases at the env-var door.
+ * (This line used to cite STREETVIEW_360_BASE in config.js: that constant was
+ * the monolith's, and it does not exist here — the server hydrates the base.)
  *
  * @param {string} basePath - Raw basePath from the catalog entry
  * @returns {string} Base without trailing slashes

@@ -310,7 +310,21 @@ async function buildAppConfig() {
   };
 
   // Admin overrides (app/features/map2d/map3d/service URLs) win over the STATIC/ENV assembly.
-  return deepMerge(payload, overrides);
+  const merged = deepMerge(payload, overrides);
+
+  // Trailing-slash normalization runs AFTER the merge, not before: `optionalBase`
+  // in `src/config.js` already cleans the env var, but the admin "Avancado (JSON)"
+  // override accepts `streetView360` as a free-form object, so an operator typing
+  // `/api/v1/sv360/` there would win over the clean value and every client URL
+  // would carry `//`. The client concatenates `${serviceUrl}${path}` with paths
+  // that already lead with `/`.
+  if (typeof merged.streetView360?.serviceUrl === 'string') {
+    merged.streetView360.serviceUrl = merged.streetView360.serviceUrl.replace(/\/+$/, '');
+  }
+  if (typeof merged.assets3dBaseUrl === 'string') {
+    merged.assets3dBaseUrl = merged.assets3dBaseUrl.replace(/\/+$/, '');
+  }
+  return merged;
 }
 
 /**
