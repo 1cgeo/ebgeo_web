@@ -1,17 +1,19 @@
 // Path: tests/integration/register-tenant-claim.test.js
-// Item 53. `users.schemas.js:4-11` documents the tenant-hop threat in full and CLOSES
-// it on PUT /users/me ("a user must not be able to move themselves into another
-// tenant... that would grant read access to the target org's private sv360
-// projects"). `registerSchema` leaves the same door open: `organization_id` is a free
-// field and `email` is OPTIONAL, so an API caller (not the UI, which requires an
-// e-mail) creates an ACTIVE account inside any OM on the spot — the login gate only
-// fires when `email IS NOT NULL`.
+// Item 53. `registerSchema` deixa `organization_id` livre e `email` OPCIONAL, então um
+// chamador de API (não a UI, que exige e-mail) cria uma conta ATIVA dentro de qualquer
+// OM na hora — o gate de login só dispara quando `email IS NOT NULL`.
 //
-// The containment that DOES exist is asserted here (the org must exist and be active);
-// the residual gap — self-declaring a real, active OM you do not belong to — is
-// characterized in register-organization-scope.test.js and deliberately deferred.
-// What this file adds is the end-to-end consequence: the claim lands in the JWT and
-// the session is usable at once.
+// O QUE MUDOU NESTE CABEÇALHO, e a mudança é o assunto da fase. Ele descrevia a
+// ameaça de tenant-hop e dizia que a declaração comprava os projetos 360 privados da
+// OM alvo. Era verdade, e foi por isso que `users.organization_id` PERDEU todo poder:
+// ele é LOTAÇÃO e exibição, e quem autoriza passou a ser `users.producer_org_id`, o
+// escopo de PRODUÇÃO, concedido só por administrador. Deixar a frase antiga aqui
+// seria documentação que engana em dobro um agente, que a trata como verdade.
+//
+// O que este arquivo mede continua sendo o CAMINHO: a declaração chega ao JWT e a
+// sessão é utilizável na hora. A CONSEQUÊNCIA foi invertida no caso abaixo, e a prova
+// completa de inocuidade (360 oculto, 360 privado, catálogo privado, escrita) mora em
+// `auto-cadastro-om-nao-autoriza.repro.test.js`.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -78,14 +80,17 @@ describe('POST /auth/register: the organization the applicant claims for themsel
     assert.equal(payload.org_role, 'viewer', 'nor an elevated role inside the org');
   });
 
-  it('THE CONSEQUENCE: the self-declared claim buys the org\'s UNPUBLISHED 360 projects', async () => {
-    // This is what makes the open field a real exposure rather than untidiness.
-    // LIST_PROJECTS (sv360.queries.js:11-16) filters
-    //   status = 'enabled' OR organization_id = $2
-    // so membership — which the applicant granted themselves — is enough to see a
-    // project the owning org has deliberately NOT published. An anonymous caller sees
-    // nothing of the sort, which is the control that proves the delta comes from the
-    // claim and not from the project being public anyway.
+  it('A CONSEQUÊNCIA, INVERTIDA: a declaração NÃO compra os 360 não publicados da OM', async () => {
+    // ESTE CASO AFIRMAVA A ESCALAÇÃO, e virou o guarda contra ela. `LIST_PROJECTS`
+    // filtrava `status = 'enabled' OR organization_id = $2`, então a lotação — que o
+    // candidato concedia a si mesmo — bastava para ver um projeto que a OM dona
+    // deliberadamente NÃO publicou. O ramo de OM não sumiu: ele passou a ser
+    // `fn_can_produce_resource`, o escopo de produção, que só um administrador dá.
+    //
+    // O CONTROLE ANÔNIMO CONTINUA SENDO O MESMO, e agora ele carrega mais peso: sem
+    // ele, "o declarante não vê" é indistinguível de "o projeto não existe". O
+    // positivo que fecha o par (o MESMO usuário, promovido a produtor daquela OM,
+    // passa a ver) mora no repro, porque é lá que ele é o assunto.
     const username = `p53_sv360_${tag}`;
     await register({ username, password: 'Claim@1234', nome: 'Espião', organization_id: orgB.id })
       .expect(201);
@@ -111,9 +116,16 @@ describe('POST /auth/register: the organization the applicant claims for themsel
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     assert.ok(
-      res.body.some((p) => p.slug === slug),
-      'and visible with it — signup is currently an unapproved membership grant'
+      !res.body.some((p) => p.slug === slug),
+      'a lotação auto-declarada não enxerga projeto não publicado da OM que ela declarou'
     );
+
+    // E o DELTA medido de dentro do banco: a conta nasceu sem crachá de produção, que
+    // é a única coluna que abriria aquele projeto.
+    const { rows } = await db.query(
+      'SELECT producer_org_id FROM users WHERE username = $1', [username]
+    );
+    assert.equal(rows[0].producer_org_id, null);
   });
 
   it('a nonexistent or inactive OM is refused, and no account is created', async () => {

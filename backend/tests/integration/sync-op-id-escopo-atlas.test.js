@@ -2,7 +2,7 @@
 // Item 105 — o escopo da unicidade de op_id é (atlas_id, op_id), não op_id.
 //
 // O índice é `CREATE UNIQUE INDEX operations_atlas_op_id_uniq ON operations
-// (atlas_id, op_id)` (003_sync.sql:52) e o INSERT usa ON CONFLICT DO NOTHING.
+// (atlas_id, op_id)` (`operations_atlas_op_id_uniq`, 004_sync.sql) e o INSERT usa ON CONFLICT DO NOTHING.
 // Todos os testes de idempotência empurram para UM único atlas
 // (sync-validation.test.js:109, sync-service-coverage.test.js:71), então
 // continuariam VERDES se alguém estreitasse o índice para UNIQUE(op_id) — e a

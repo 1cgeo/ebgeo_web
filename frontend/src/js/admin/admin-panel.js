@@ -1,13 +1,14 @@
 // Path: js/admin/admin-panel.js
 
 /**
- * @fileoverview Admin page shell (global system admin only). An app-shell layout: a top bar +
+ * @fileoverview Admin page shell. An app-shell layout: a top bar +
  * a LEFT navigation rail + a scrolling content area. Each tab is a pluggable definition
  * `{ id, label, testid, icon?, mount(container) }` whose `mount` may return a cleanup function.
  *
  * This is a PAGE (`admin.html`), not an overlay over the map — it owns the viewport, so there is no
  * close button and no Esc-to-close; the top bar offers "Voltar" (to the chooser) and "Sair" instead. The
- * admin-only gate lives in the page entry (`admin-page.js`), which also owns session teardown.
+ * role gate lives in the page entry (`admin-page.js`), which also owns session teardown; which tabs
+ * each audience actually gets is decided in `index.js`.
  */
 
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
@@ -36,10 +37,14 @@ export class AdminPanel {
      * @param {{ id?: string, name?: string }} [options.user] - Identity shown in the top bar.
      * @param {function(): void} [options.onBack] - "Voltar" (the page above this one).
      * @param {function(): void} [options.onLogout] - "Sair".
+     * @param {string} [options.title] - Top-bar title. A producer reaches this shell with the
+     *   Catálogo tab only and a credenciado with the Grupos tab only; calling either
+     *   "Administração" would promise a panel they do not get.
      */
-    constructor(tabs = [], { user = null, onBack = null, onLogout = null } = {}) {
+    constructor(tabs = [], { user = null, onBack = null, onLogout = null, title = 'Administração' } = {}) {
         this._tabs = tabs;
         this._user = user;
+        this._title = title;
         this._onBack = onBack;
         this._onLogout = onLogout;
         this._root = null;
@@ -105,7 +110,7 @@ export class AdminPanel {
     _buildHeader() {
         this._appBar = createAppBar({
             icon: SHIELD_ICON,
-            title: 'Administração',
+            title: this._title,
             subtitle: 'Sistema EBGeo',
             user: this._user,
             actions: [{

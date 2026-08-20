@@ -1,5 +1,9 @@
 // Path: src/modules/atlas/atlas.schemas.js
 import Joi from 'joi';
+import { RESOURCE_TYPES } from '../resource-access/resource-access.types.js';
+import {
+  scalarObjectSchema, scrubbedObjectSchema, catalogLayerEntrySchema,
+} from '../sync/free-field.schemas.js';
 
 export const createAtlasSchema = Joi.object({
   name: Joi.string().required().max(255),
@@ -93,7 +97,7 @@ export const idParamsSchema = Joi.object({
 // ============================================
 
 // Valid feature types — must match the frontend SOURCE_TYPES (store.constants.js) + the
-// processing outputs, and the features.valid_feature_type CHECK (002_atlas.sql).
+// processing outputs, and the features.valid_feature_type CHECK (003_atlas.sql).
 const VALID_FEATURE_TYPES = [
   // Basic
   'point', 'line', 'polygon', 'text', 'image',
@@ -109,8 +113,10 @@ const VALID_FEATURE_TYPES = [
 const featureSchema = Joi.object({
   id: Joi.string().uuid().required(),
   feature_type: Joi.string().valid(...VALID_FEATURE_TYPES).required(),
-  geometry: Joi.object().required(),
-  properties: Joi.object().default({}),
+  // SCRUBBED, not closed: 21 geometry types and ~90 measured property keys are the product's own
+  // domain, so only a catalog-resource definition is taken out. See `free-field.schemas.js`.
+  geometry: scrubbedObjectSchema.required(),
+  properties: scrubbedObjectSchema.default({}),
   layer_id: Joi.string().uuid().allow(null),
 });
 
@@ -121,7 +127,9 @@ const layerSchema = Joi.object({
   locked: Joi.boolean().default(false),
   opacity: Joi.number().min(0).max(1).default(1),
   sort_order: Joi.number().integer().default(0),
-  style: Joi.object().default({}),
+  // No frontend writer at all (the `Layer` typedef has no `style`), and the two fixtures that do
+  // write it write scalars. CLOSED.
+  style: scalarObjectSchema.default({}),
 });
 
 const groupSchema = Joi.object({
@@ -129,7 +137,8 @@ const groupSchema = Joi.object({
   name: Joi.string().required(),
   visible: Joi.boolean().default(true),
   locked: Joi.boolean().default(false),
-  style: Joi.object().default({}),
+  // Same as `layers.style`: no writer, scalars only. CLOSED.
+  style: scalarObjectSchema.default({}),
   parent_id: Joi.string().uuid().allow(null),
 });
 
@@ -140,7 +149,7 @@ const cesium3dDataSchema = Joi.object({
   id: Joi.string().uuid().required(),
   data_type: Joi.string().valid(...VALID_CESIUM3D_TYPES).required(),
   tileset_id: Joi.string().allow(null),
-  data: Joi.object().default({}),
+  data: scrubbedObjectSchema.default({}),
 });
 
 // StreetView 360 data types
@@ -150,7 +159,7 @@ const streetview360DataSchema = Joi.object({
   id: Joi.string().uuid().required(),
   data_type: Joi.string().valid(...VALID_STREETVIEW360_TYPES).required(),
   photo_name: Joi.string().allow(null),
-  data: Joi.object().default({}),
+  data: scrubbedObjectSchema.default({}),
 });
 
 const groupFeatureSchema = Joi.object({
@@ -169,13 +178,24 @@ const mapSchema = Joi.object({
   pitch: Joi.number().default(0),
   notes_title: Joi.string().allow(null, ''),
   notes_description: Joi.string().allow(null, ''),
-  analysis_layers: Joi.object().default({}),
-  catalog_layers: Joi.array().default([]),
+  // The grid-domain sibling. SCRUBBED and not closed: its contract carries nested values
+  // (`{ los_result_123: { visible, data } }`, `{ grid: { type, visible } }`), so only a
+  // resource definition is taken out of it. See `free-field.schemas.js`.
+  analysis_layers: scrubbedObjectSchema.default({}),
+  // DISCARD, NEVER REJECT, which is the doctrine `free-field.schemas.js` states for the sync
+  // door and which this door has to obey too. A non-object item used to reject the WHOLE .ebgeo
+  // with 422, so one malformed entry cost the user the entire import; the two write doors
+  // disagreed on the rule the module declares. Filtering first keeps the failure direction
+  // right: an entry that quietly does not come back, never an import that can never run.
+  catalog_layers: Joi.array()
+    .custom((v) => (Array.isArray(v) ? v.filter((e) => e && typeof e === 'object' && !Array.isArray(e)) : v))
+    .items(catalogLayerEntrySchema)
+    .default([]),
   locked: Joi.boolean().default(false),
   // Per-map temporal config + grid style (maps columns). Accepted on import so a local atlas
   // saved to the server preserves the temporal module + grid (P9: sync ⊇ .ebgeo coverage).
-  grid_style: Joi.object().default({}),
-  temporal_config: Joi.object().default({}),
+  grid_style: scalarObjectSchema.default({}),
+  temporal_config: scalarObjectSchema.default({}),
   features: Joi.array().items(featureSchema).default([]),
   layers: Joi.array().items(layerSchema).default([]),
   groups: Joi.array().items(groupSchema).default([]),
@@ -192,15 +212,15 @@ const slideSchema = Joi.object({
   map_id: Joi.string().uuid().allow(null),
   model_id: Joi.string().uuid().allow(null),
   photo_id: Joi.string().uuid().allow(null),
-  position: Joi.object().default({}),
-  orientation: Joi.object().default({}),
+  position: scalarObjectSchema.default({}),
+  orientation: scalarObjectSchema.default({}),
 });
 
 const briefingSchema = Joi.object({
   id: Joi.string().uuid().required(),
   name: Joi.string().required(),
   description: Joi.string().allow(null, ''),
-  settings: Joi.object().default({}),
+  settings: scalarObjectSchema.default({}),
   slides: Joi.array().items(slideSchema).default([]),
 });
 
@@ -208,8 +228,27 @@ export const importSchema = Joi.object({
   atlas: Joi.object({
     name: Joi.string().max(255).required(),
     description: Joi.string().allow(null, ''),
-    settings: Joi.object(),
+    settings: scrubbedObjectSchema,
   }).required(),
   maps: Joi.array().items(mapSchema).default([]),
   briefings: Joi.array().items(briefingSchema).default([]),
+});
+
+/**
+ * Corpo do anexo de recurso ao atlas (POST /atlas/:atlasId/resources).
+ *
+ * `resourceType` é validado na BORDA porque ele escolhe nome de tabela mais
+ * adiante. A lista vem de `resource-access.types.js`, e não é recopiada aqui: uma
+ * segunda cópia dos quatro tipos só espera o quinto para ficar errada.
+ */
+export const atlasResourceSchema = Joi.object({
+  resourceType: Joi.string().valid(...RESOURCE_TYPES).required(),
+  resourceId: Joi.string().min(1).max(255).required(),
+});
+
+/** `:atlasId/resources/:type/:id` da remoção. */
+export const atlasResourceParamsSchema = Joi.object({
+  atlasId: Joi.string().uuid().required(),
+  type: Joi.string().valid(...RESOURCE_TYPES).required(),
+  id: Joi.string().min(1).max(255).required(),
 });

@@ -21,14 +21,23 @@
  */
 
 import config from '@js/config.js';
+import { cabecalhosDeAsset, escoparUrlDeAsset } from '@store/sync/assets3d-request.js';
+import { VIEWER_LEGADO_INDOOR, ehEntradaIndoor } from '@catalog/forma-3d.js';
 import { VoxelCollision } from './walk/voxel-collision.js';
 
 // ============================================================
 // Folder layout — relative to a scene's basePath
 // ============================================================
 
-/** Discriminator value that marks a `tilesets` row as a first-person scene. */
-export const FIRST_PERSON_VIEWER = 'firstPerson';
+/**
+ * LEGACY discriminator value that marked a `tilesets` row as a first-person scene.
+ *
+ * Re-exported, not re-declared: the literal now lives in `@catalog/forma-3d.js` next to the
+ * declared axis that supersedes it (`config.forma3d === 'indoor'`), so the compat derivation and
+ * this name cannot drift apart. Kept exported because callers and test fixtures still build
+ * legacy-shaped rows with it; a row that only carries this field still derives to `indoor`.
+ */
+export const FIRST_PERSON_VIEWER = VIEWER_LEGADO_INDOOR;
 
 /** Default asset paths inside a scene folder, keyed by the override field name. */
 const SCENE_LAYOUT = {
@@ -118,8 +127,9 @@ export function hasFirstPersonScenes() {
 /**
  * Get every usable first-person scene.
  *
- * Partitions `config.tilesets` by the `viewer` discriminator: a row without it
- * is a regular Cesium tileset and belongs to the 3D viewer, not here.
+ * Partitions `config.tilesets` by the DECLARED shape (`config.forma3d === 'indoor'`, resolved by
+ * `derivarForma3d`, which still reads the legacy `viewer` field): a row of any other shape is
+ * drawn by Cesium and belongs to the 3D viewer, not here.
  *
  * Entries missing `id` or `basePath` are dropped: they cannot be addressed nor
  * resolved, and letting them through would only fail later, inside the viewer.
@@ -129,7 +139,7 @@ export function hasFirstPersonScenes() {
 export function getFirstPersonScenes() {
     const tilesets = config.tilesets;
     if (!Array.isArray(tilesets)) return [];
-    return tilesets.filter(entry => entry?.viewer === FIRST_PERSON_VIEWER && isUsableScene(entry));
+    return tilesets.filter(entry => ehEntradaIndoor(entry) && isUsableScene(entry));
 }
 
 /**
@@ -165,9 +175,16 @@ export function resolveSceneAssets(scene) {
     const assets = {};
     for (const [field, relative] of Object.entries(SCENE_LAYOUT)) {
         const override = scene[field];
-        assets[field] = override
+        const bruto = override
             ? joinScenePath(base, override)
             : `${base}/${relative}`;
+        // THE ATLAS SCOPE IS STAMPED HERE, not in each consumer, because four of these seven
+        // addresses are NOT fetched by our code: the marker photo becomes an `img.src`, the
+        // preview clip becomes a `<video src>` and the splat goes to a third-party loader.
+        // None of them can carry a header, so for a PRIVATE scene the loan of the atlas in
+        // focus is the only authorisation that gets through. With no atlas in focus the URL
+        // comes out exactly as it always did.
+        assets[field] = escoparUrlDeAsset(bruto);
     }
     return assets;
 }
@@ -187,7 +204,9 @@ export function resolveSceneAssets(scene) {
 export function resolveMarkerPhotoUrl(scene, foto) {
     if (!foto || typeof foto !== 'string' || !foto.trim()) return null;
     if (!isUsableScene(scene)) return null;
-    return joinScenePath(normalizeBase(scene.basePath), foto.trim());
+    // Same stamp as `resolveSceneAssets`, for the same reason: this ends up in an `img.src`,
+    // which carries no header at all.
+    return escoparUrlDeAsset(joinScenePath(normalizeBase(scene.basePath), foto.trim()));
 }
 
 // ============================================================
@@ -206,7 +225,7 @@ export async function loadSceneMarkers(scene) {
     if (!isUsableScene(scene)) return [];
     const { markersUrl } = resolveSceneAssets(scene);
     try {
-        const response = await fetch(markersUrl);
+        const response = await fetch(markersUrl, { headers: await cabecalhosDeAsset() });
         if (!response.ok) {
             console.warn(`[first-person] no markers: HTTP ${response.status} at ${markersUrl}`);
             return [];
@@ -244,9 +263,13 @@ export async function loadSceneCollision(scene) {
     const { voxelMetaUrl, voxelBinUrl } = resolveSceneAssets(scene);
 
     try {
+        // The credential reaches the two files THIS code fetches. It is the arm that serves
+        // whoever sees the private scene through a global role or a personal grant, with no
+        // atlas in focus — the case the `?atlasId=` stamp alone does not cover.
+        const headers = await cabecalhosDeAsset();
         const [metaResponse, binResponse] = await Promise.all([
-            fetch(voxelMetaUrl),
-            fetch(voxelBinUrl)
+            fetch(voxelMetaUrl, { headers }),
+            fetch(voxelBinUrl, { headers })
         ]);
         if (!metaResponse.ok || !binResponse.ok) {
             console.error('[first-person] voxel unavailable',

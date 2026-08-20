@@ -279,10 +279,14 @@ describe('Sync Map Sub-entities', () => {
         })
         .expect(200);
 
-      const { rows } = await db.query('SELECT catalog_layers FROM maps WHERE id = $1', [map.id]);
-      assert.ok(Array.isArray(rows[0].catalog_layers));
-      assert.equal(rows[0].catalog_layers.length, 2);
-      assert.equal(rows[0].catalog_layers[0].id, 'wms-layer-1');
+      // One row per item in the dedicated table (the array column is gone).
+      const { rows } = await db.query(
+        'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
+        [map.id]
+      );
+      assert.equal(rows.length, 2);
+      assert.deepEqual(rows.map((r) => r.id), ['wms-layer-1', 'wms-layer-2']);
+      assert.equal(rows[0].data.url, 'https://example.com/wms');
     });
   });
 

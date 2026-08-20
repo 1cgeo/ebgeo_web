@@ -30,6 +30,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 
@@ -48,9 +49,15 @@ function uuidv5(name) {
 // UUID. A NON-UUID sub is exempt from that reconciliation by design (the same
 // convention public-share principals use), which is what lets this file mint
 // tokens without creating users.
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = `sv360cal-${crypto.randomUUID()}` }) {
+// O EIXO DE ESCRITA passou de `organization_id` + `org_role` (LOTACAO auto-declarada
+// no auto-cadastro) para `producer_org_id`, o ESCOPO DE PRODUCAO, que so um
+// administrador concede.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = `sv360cal-${crypto.randomUUID()}` }) {
   return jwt.sign(
-    { sub, username: 'u_cal', role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: 'u_cal', role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -131,10 +138,26 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
       [projectId]
     );
 
-    ownerToken = mintToken({ orgId: ownOrgId, orgRole: 'owner' });
-    viewerToken = mintToken({ orgId: ownOrgId, orgRole: 'viewer' });
-    adminToken = mintToken({ orgId: otherOrgId, orgRole: 'viewer', role: 'admin' });
-    crossOrgToken = mintToken({ orgId: otherOrgId, orgRole: 'editor' });
+    // O PRODUTOR precisa de linha em `users` pela mesma razao do administrador logo
+    // abaixo: o predicado de LEITURA resolve producao no SQL, a partir do UUID.
+    const produtor = await createProducerUser(db, ownOrgId, { username: `sv360cal_prod_${crypto.randomUUID().slice(0, 8)}` });
+    ownerToken = mintToken({ orgId: ownOrgId, producerOrgId: ownOrgId, sub: produtor.id });
+    // Apenas LOTADO na OM produtora, sem cracha: le o publico e nao escreve nada.
+    viewerToken = mintToken({ orgId: ownOrgId });
+    // O ADMIN PRECISA EXISTIR NO BANCO (fase F6): o predicado de leitura do 360
+    // resolve o papel a partir do UUID em vez de aceitar o booleano do token, entao
+    // um `sub` sem linha em `users` e um token valido que nao e admin — que e a
+    // propriedade desejada. Repare que `mintToken` usa por padrao um sub que nem
+    // sequer e UUID, o que tornava a falha ainda mais silenciosa.
+    const adminId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO users (id, username, password_hash, nome, role, organization_id)
+       VALUES ($1, $2, 'x', 'Admin cal', 'admin', $3)`,
+      [adminId, `sv360cal_admin_${adminId.slice(0, 8)}`, otherOrgId]
+    );
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: adminId });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `sv360cal_prodb_${crypto.randomUUID().slice(0, 8)}` });
+    crossOrgToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
   });
 
   beforeEach(async () => {
@@ -148,6 +171,14 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
     await db.query(`DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])`, [
       [projectId, hiddenProjectId],
     ]);
+    // O admin criado no `before` referencia uma das OMs, e o FK bloqueia o DELETE
+    // dela. Isolado o arquivo passava assim mesmo (o erro cai num after-hook que
+    // ninguém lê); na suíte completa ele derruba a suíte inteira.
+    await db.query(`DELETE FROM users WHERE organization_id = ANY($1::uuid[])`, [[ownOrgId, otherOrgId]]);
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = ANY($1::uuid[])', [[ownOrgId, otherOrgId]]);
     await db.query(`DELETE FROM public.organizations WHERE id = ANY($1::uuid[])`, [
       [ownOrgId, otherOrgId],
     ]);
@@ -472,7 +503,7 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
 
   it('rota 6: a project WITHOUT runs answers an empty list, never 404', async () => {
     // This is the state of the ENTIRE production archive: sv360.capture_runs
-    // exists (migration 013) but nothing derives runs yet. An empty list is the
+    // exists but nothing derives runs yet. An empty list is the
     // honest answer; 404 would make the panel look broken on a healthy database.
     await db.query(`UPDATE sv360.photos SET run_id = NULL WHERE project_id = $1`, [projectId]);
     await db.query(`DELETE FROM sv360.capture_runs WHERE project_id = $1`, [projectId]);

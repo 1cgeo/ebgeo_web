@@ -45,6 +45,7 @@ Outras consequências desse desenho:
 
 - **Snapshot não passa pelo LWW por-entidade.** Ele é o estado autoritativo do servidor e sobrescreve, inclusive edição local ainda não flushada. A fila outbound continua íntegra e reenvia (idempotente por `op_id`). Ver [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[fila-operacoes-outbound]].
 - **Viewer read-only recebe snapshot podado**: comentários espaciais são omitidos e ops de comentário filtradas no incremental. O side-store local fica vazio; não é bug. Ver [[permissoes-atlas]].
+- **Os dois modos entregam a camada de catálogo sem definição, por mecanismos DIFERENTES, e a diferença é contrato.** No snapshot a definição é REIDRATADA do catálogo pelo predicado de quem lê (só quem alcança o recurso a recebe). No incremental ela é apenas PODADA (`backend/src/modules/sync/catalog-layer-op.js`), sem reidratação para ninguém: a op é payload de cliente, não entidade materializada, e o cliente resolve a definição do `/api/config` dele, que já é filtrado pelo mesmo predicado. A mesma poda vale para o rebroadcast ao vivo, HTTP e WS, no ponto único `broadcastOperations`. Quem escrever um consumidor que espere `config` numa op de `catalogLayer` está lendo um formato que só clientes pré-F11 produziam.
 - **`pullSync` não tem timeout** (não passa `timeoutMs` ao `_request`). Deliberado (P6): transferência grande em rede ruim não deve ser abortada. Só as chamadas críticas de boot têm limite.
 
 ## Redistribuição para os side-stores
@@ -61,10 +62,10 @@ O snapshot mistura deliberadamente snake_case (herdado das colunas) com camelCas
 
 1. **`layers[]` não tem objeto `sync`**: os metadados vêm planos no topo, ao contrário de atlas/map/group/briefing/3D/360. Código genérico com `entity.sync.version` quebra só em camadas.
 2. **`currentVersion` aparece duas vezes**, dentro de `snapshot` e ao lado dele. O cursor a guardar é o de fora.
-3. **`catalog_layers` (coluna do mapa) e `catalogLayers[]` (entidades com `sync`) coexistem** no mesmo mapa; não assuma que só um está preenchido ([[tipos-entidade-sync]]).
+3. **`catalogLayers[]` (entidades com `sync`) é a única forma no snapshot.** Havia também uma coluna homônima do mapa, que saía ao lado; ela foi apagada do schema em 2026-08-18 ([[tipos-entidade-sync]]).
 4. **As chaves das coleções de feição não são `tipo + 's'`.** Várias são irregulares e congeladas (`FEATURE_TYPE_MAPPINGS`, `frontend/src/js/store/store.constants.js`), incluindo um plural incorreto e tipos invariáveis. O backend materializa o snapshot já nesses buckets e o cliente grava direto; bucket com nome errado não gera erro, a feição simplesmente some da tela. Quem decide a renderização é `properties.source` (singular), não a chave do bucket.
 5. **Metadados de sync de feição vivem dentro de `properties`**, não num objeto `sync` como nas demais entidades. `dirty` e `deleted` vêm sempre `false`: são campos do modelo local, materializados só para o shape bater, e não carregam informação do servidor.
 
-Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[catalogo-3d]], [[streetview-360]].
+Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[resources-catalogo]], [[streetview-360]].
 
 Para diagnosticar um pull que não converge, o [[syncledger]] correlaciona as etapas por `op.id`/`traceId`. Desenho geral em [[modelo-conflito-lww]], [[sintese-rest-vs-websocket]] e [[sessao-boot-e-ciclo-de-vida]].

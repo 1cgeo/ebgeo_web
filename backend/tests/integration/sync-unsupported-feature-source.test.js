@@ -3,7 +3,7 @@
 // Diagnostic + contract pin for the scenario the Playwright spec
 // `frontend/tests/e2e-ui/browser-military-tools.spec.js` exercises: a feature op whose
 // `properties.source` is NOT one of the twenty types listed in `valid_feature_type`
-// (002_atlas.sql:201). The spec used to demand that the push THROW, and it was red
+// (003_atlas.sql). The spec used to demand that the push THROW, and it was red
 // because the push does not throw. The three candidate explanations were:
 //
 //   (a) the op is dropped before the INSERT, so nothing reaches the database;
@@ -27,7 +27,7 @@
 // round trip through the snapshot the spec reads back.
 //
 // Negative control (executed 2026-08-14): adding 'enemy_symbol' to the valid_feature_type
-// CHECK in 002_atlas.sql, so the write succeeds, turns the first two tests red (the ack
+// CHECK in 003_atlas.sql, so the write succeeds, turns the first two tests red (the ack
 // comes back `success: true`, and the row IS in `features`). Reverted afterwards.
 //
 // That control also exposed why the row-level assertion is the load-bearing one: the

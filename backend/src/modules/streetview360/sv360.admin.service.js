@@ -3,8 +3,8 @@
 // 3a). Builds on stages 1-2 WITHOUT changing them. OWNERSHIP IS ENFORCED HERE
 // (not in middleware), mirroring sv360.write.service.js:
 //   - global admin (user.role === 'admin') may write ANY OM;
-//   - an "om_data_admin" (org_role ∈ {owner, admin, editor} on the OWNING org)
-//     may write only its OWN organization. A same-org viewer → 403.
+//   - a PRODUCER (users.producer_org_id) may write only the OM it produces for.
+//     Lotação (users.organization_id) não autoriza mais nada aqui.
 //
 // The merge/purge/collision semantics live ONCE in sv360.merge.js (reused by the
 // ETL); this service resolves the target org + ownership, then hands off to
@@ -21,6 +21,9 @@ import { canWriteProject } from './sv360.write.service.js';
 import { resolveDbPath, ingestBundle, validateManifest } from './sv360.ingest.js';
 import { resolveOrgIdBySlug } from './sv360.merge.js';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
+import { principalUserId } from '../../utils/principal.js';
+import { createAudit } from '../../utils/audit.js';
+import { purgeResourceLinks } from '../resource-access/resource-access.service.js';
 import {
   BadRequestError,
   ConflictError,
@@ -95,9 +98,9 @@ async function assertValidThumbnail(thumbnailPath) {
 }
 
 // Org-write predicate WITHOUT a concrete project row (for the create/list paths,
-// where the project may not exist yet): a global admin, or a member of THIS org
-// with org_role ∈ {owner, admin, editor}. Reuses canWriteProject by passing a
-// synthetic { organization_id } so the single ownership rule is not duplicated.
+// where the project may not exist yet): a global admin, or the PRODUCER of THIS
+// org. Reuses canWriteProject by passing a synthetic { organization_id } so the
+// single ownership rule is not duplicated.
 function canWriteOrg(user, orgId) {
   return canWriteProject(user, { organization_id: orgId });
 }
@@ -106,11 +109,12 @@ function canWriteOrg(user, orgId) {
  * Resolves the TARGET organization_id for an upload and enforces ownership:
  *   - a global admin may target any OM (the manifest's orgSlug, or the default
  *     org when absent);
- *   - an om_data_admin is FORCED to its own organization_id; a manifest.orgSlug
- *     that resolves to a DIFFERENT org → 403.
+ *   - a PRODUCER is FORCED to its own producer_org_id; a manifest.orgSlug that
+ *     resolves to a DIFFERENT org → 403. É a mesma regra do catálogo: quem produz
+ *     não escolhe de quem é o que produziu.
  * The slug resolution reuses the shared resolveOrgIdBySlug (default/legacy →
  * fixed default org id), run on the plain query helper (no tx needed here).
- * @param {Object} user - req.user ({ role, organization_id, org_role })
+ * @param {Object} user - req.user ({ role, producer_org_id })
  * @param {Object} manifest - validated manifest ({ project: { orgSlug } })
  * @returns {Promise<string>} the resolved+authorized organization_id
  * @throws {ForbiddenError} when the caller may not write the target OM
@@ -124,18 +128,18 @@ async function resolveUploadOrgId(user, manifest) {
     return resolveOrgIdBySlug(queryTask, orgSlug);
   }
 
-  // om_data_admin: must be a writer in their own org, and the manifest must not
-  // target a different org.
-  if (!user.organization_id || !canWriteOrg(user, user.organization_id)) {
+  // Produtor: escreve no PRÓPRIO escopo de produção, e o manifesto não pode apontar
+  // para outro.
+  if (!user.producer_org_id || !canWriteOrg(user, user.producer_org_id)) {
     throw new ForbiddenError();
   }
   if (orgSlug) {
     const resolved = await resolveOrgIdBySlug(queryTask, orgSlug);
-    if (resolved !== user.organization_id) {
+    if (resolved !== user.producer_org_id) {
       throw new ForbiddenError('Cannot upload to a different organization');
     }
   }
-  return user.organization_id;
+  return user.producer_org_id;
 }
 
 /**
@@ -187,8 +191,8 @@ async function loadWritableProject(slug, user, opts = {}) {
       project = rows[0];
     }
   } else {
-    if (!user.organization_id) throw new ForbiddenError();
-    const { rows } = await query(AQ.GET_PROJECT_FOR_ADMIN, [user.organization_id, slug]);
+    if (!user.producer_org_id) throw new ForbiddenError();
+    const { rows } = await query(AQ.GET_PROJECT_FOR_ADMIN, [user.producer_org_id, slug]);
     project = rows[0];
   }
 
@@ -201,7 +205,13 @@ async function loadWritableProject(slug, user, opts = {}) {
 
 /**
  * Lists projects for the admin view INCLUDING disabled. A global admin sees every
- * OM (optionally filtered by orgId); an om_data_admin is scoped to its own org.
+ * OM (optionally filtered by orgId); a producer is scoped to the OM it produces for.
+ *
+ * QUEM RECORTA AS LINHAS É O SQL (`fn_can_produce_resource`), não este JS: o
+ * booleano `isAdmin` que ia para a consulta era a forma que abria por engano (um
+ * TRUE curto-circuita a disjunção inteira). Ele sobrevive aqui só para decidir se o
+ * filtro OPCIONAL `?orgId` é honrado e para recusar cedo quem não administra nem
+ * produz — que é uma recusa de ROTA, não o filtro do dado.
  * @param {Object} user - req.user
  * @param {Object} [opts]
  * @param {string} [opts.orgId] - optional ?orgId filter (global admin only)
@@ -210,10 +220,9 @@ async function loadWritableProject(slug, user, opts = {}) {
 export async function listProjects(user, { orgId } = {}) {
   if (!user) throw new ForbiddenError();
   const isAdmin = user.role === 'admin';
-  if (!isAdmin && !user.organization_id) throw new ForbiddenError();
+  if (!isAdmin && !user.producer_org_id) throw new ForbiddenError();
   const { rows } = await query(AQ.LIST_PROJECTS_ADMIN, [
-    isAdmin,
-    user.organization_id ?? null,
+    principalUserId(user),
     isAdmin ? (orgId ?? null) : null,
   ]);
   return rows;
@@ -221,18 +230,37 @@ export async function listProjects(user, { orgId } = {}) {
 
 /**
  * Toggles a project's public visibility (enabled|disabled). Ownership enforced.
+ *
+ * AUDITADO NO NÍVEL DO PROJETO porque `status` É UM EIXO DE ACESSO: `disabled` é a
+ * OCULTAÇÃO (quem vê o projeto), distinta de `access_level='private'`, que é a
+ * PRIVACIDADE (quem pode abri-lo). Alternar isso muda o público de um acervo inteiro
+ * e não deixava rastro nenhum.
+ *
+ * `from` vem da linha lida por `loadWritableProject`, não de uma segunda consulta:
+ * mudança de nível só é auditável se disser DE ONDE veio.
+ *
  * @param {string} slug
  * @param {'enabled'|'disabled'} status
  * @param {Object} user
+ * @param {Object} [opts]
+ * @param {Object} [req] - Express req, para ip/user-agent da trilha.
  * @returns {Promise<Object>} the updated project row
  */
-export async function setStatus(slug, status, user, opts = {}) {
+export async function setStatus(slug, status, user, opts = {}, req = null) {
   const project = await loadWritableProject(slug, user, opts);
   const { rows } = await query(AQ.UPDATE_PROJECT_STATUS, [
     project.organization_id,
     slug,
     status,
   ]);
+  await createAudit(req, {
+    action: 'SV360_STATUS_CHANGE',
+    actorId: principalUserId(user),
+    targetType: 'SV360_PROJECT',
+    targetId: project.id,
+    targetName: project.name ?? slug,
+    details: { slug, orgId: project.organization_id, from: project.status, to: status },
+  });
   return rows[0];
 }
 
@@ -247,15 +275,51 @@ export async function setStatus(slug, status, user, opts = {}) {
  * otherwise outlive their photos and, since every read query filters by
  * NOT EXISTS(deleted_photos), the next re-upload of the same bundle would answer
  * 201 with the full photoCount while serving 404 for the resurrected photos.
+ *
+ * OS VÍNCULOS DE ACESSO SÃO PURGADOS NA MESMA TRANSAÇÃO E ANTES DO DELETE, e essa
+ * chamada FALTAVA. `resource_grants` e `atlas_resources` referenciam o projeto por
+ * `resource_id` TEXT, sem FK, então nada os levava junto: apagar um projeto deixava
+ * concessões e empréstimos apontando para um UUID que não existe mais. O comentário
+ * que introduziu `resource_grants` afirmava por escrito que esta limpeza acontecia
+ * aqui — não
+ * acontecia, e doc que descreve um mecanismo ausente engana em dobro.
+ *
+ * A ordem (purga antes do DELETE_PROJECT) e a transação única são o que impede os
+ * dois estados intermediários: vínculo órfão se a purga viesse depois e falhasse, e
+ * trilha de destruição sem destruição se ela vivesse fora da transação.
+ *
  * @param {string} slug
  * @param {Object} user
+ * @param {Object} [opts]
+ * @param {Object} [req] - Express req, para ip/user-agent da trilha.
  * @returns {Promise<void>}
  */
-export async function deleteProject(slug, user, opts = {}) {
+export async function deleteProject(slug, user, opts = {}, req = null) {
   const project = await loadWritableProject(slug, user, opts);
+  const actorId = principalUserId(user);
   const deleted = await tx(async (t) => {
     await t.none(AQ.PURGE_TOMBSTONES_BY_PROJECT, [project.id]);
-    return t.oneOrNone(AQ.DELETE_PROJECT, [project.organization_id, slug]);
+    const purged = await purgeResourceLinks(t, 'sv360_project', project.id, actorId, req);
+    const row = await t.oneOrNone(AQ.DELETE_PROJECT, [project.organization_id, slug]);
+    if (row) {
+      await createAudit(req, {
+        action: 'SV360_DELETE',
+        actorId,
+        targetType: 'SV360_PROJECT',
+        targetId: project.id,
+        targetName: project.name ?? slug,
+        // HARD-delete: é o único do sistema, e dizê-lo é o que impede a leitura de
+        // que existe uma lixeira de onde recuperar. As contagens de vínculo purgado
+        // ficam aqui também, para que a linha do projeto conte a história inteira
+        // sem depender de agregar as linhas de PERMISSION_PURGE.
+        details: {
+          slug, orgId: project.organization_id, hard: true,
+          photoCount: project.photo_count ?? null,
+          purgedGrants: purged.grants, purgedAtlasLinks: purged.atlasLinks,
+        },
+      }, t);
+    }
+    return row;
   });
   if (!deleted) throw new NotFoundError('Project');
 

@@ -14,7 +14,7 @@ O aceite de conteúdo é triplo: detectar algo, estar na allowlist **e** ser igu
 
 ## A allowlist vive em quatro arquivos que precisam concordar
 
-A mesma lista de MIME aparece no multer (`backend/src/modules/images/images.routes.js`), no Joi do lote (`backend/src/modules/images/images.schemas.js`), no service (`backend/src/modules/images/images.service.js`) e no `CHECK` da tabela (`backend/src/database/migrations/002_atlas.sql`).
+A mesma lista de MIME aparece no multer (`backend/src/modules/images/images.routes.js`), no Joi do lote (`backend/src/modules/images/images.schemas.js`), no service (`backend/src/modules/images/images.service.js`) e no `CHECK` da tabela (`backend/src/database/migrations/003_atlas.sql`).
 
 Nenhum deles importa dos outros. Ampliar a lista na app sem tocar a migração não dá 400: estoura constraint e vira **500**. Reduzir na migração sem tocar a app dá o mesmo. Trate os quatro como uma edição atômica.
 

@@ -1,4 +1,5 @@
 // Path: src/modules/streetview360/sv360.tiles.queries.js
+import { sv360AccessPredicate } from './sv360.queries.js';
 // Vector-tile (MVT) SQL for the StreetView 360 module (Fase 9, Tarefa 7).
 // PostGIS generates the protobuf tile server-side (ST_AsMVT + ST_AsMVTGeom +
 // ST_TileEnvelope). The frontend consumes this as a MapLibre VECTOR source — it
@@ -18,15 +19,23 @@
 //
 // ACCESS CONTROL (CRITICAL — embedded in the SQL, defense in depth; the 360 data
 // has leaked twice in other routes when access lived only in the app layer): the
-// SAME predicate as TILES_PHOTOS — ($isAdmin OR pr.status='enabled' OR
-// pr.organization_id=$orgId) — gates BOTH layers; tombstoned photos are excluded
-// via NOT EXISTS sv360.deleted_photos. An anon caller (isAdmin=false, orgId=null)
-// NEVER sees a disabled project.
+// SAME predicate as TILES_PHOTOS, e agora LITERALMENTE o mesmo — `sv360AccessPredicate`
+// (sv360.queries.js) é uma definição só, importada aqui. Ele gateia AS DUAS
+// camadas, porque a CTE `visible` alimenta pontos e linhas: um filtro aplicado só
+// nos pontos deixaria a trajetória do projeto invisível desenhada no mapa, que é o
+// negativo que `sv360-mvt.test.js` já cobrava.
+//
+// O primeiro termo deixou de ser um booleano do JS: `$isAdmin` valia TRUE e
+// curto-circuitava a disjunção inteira, então um erro no cálculo não errava, ABRIA.
+// Agora o SQL resolve o papel a partir do UUID, e o termo da OM resolve o ESCOPO DE
+// PRODUÇÃO (a lotação auto-declarada deixou de autorizar). Tombstoned photos
+// continuam excluídas via NOT EXISTS sv360.deleted_photos, e um chamador anônimo
+// (userId=null) NUNCA vê projeto disabled nem privado.
 //
 // PERFORMANCE: the bbox is computed ONCE in 4326 (ST_Transform of the tile
 // envelope) and used with the `&&` operator against p.geom so the GiST index on
 // sv360.photos(geom) is used to prune rows BEFORE ST_AsMVTGeom transforms the
-// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=isAdmin, $5=orgId.
+// survivors to 3857. Param order: $1=z, $2=x, $3=y, $4=userId, $5=atlasId.
 //
 // ZOOM FLOOR for the 'fotos' layer only. Below this zoom the tile still carries
 // 'fotos_linha' and simply omits the points.
@@ -55,20 +64,82 @@ export const FOTOS_MIN_ZOOM = 11;
 
 // Returns a single row with one `tile` column (bytea = the concatenated MVT). An
 // empty tile (no features) is still a valid, returnable buffer.
+//
+// A FORMA DESTA CONSULTA MUDOU NA FASE F9, E A MUDANÇA É DE LATÊNCIA, NÃO DE REGRA.
+//
+// O QUE ERA. Uma CTE `visible` sozinha juntava fotos e projetos, aplicava o predicado
+// de acesso e NÃO tinha filtro espacial; o bbox só entrava depois, nos consumidores.
+// Como `visible` era referenciada quatro vezes, o Postgres a MATERIALIZAVA, e o plano
+// medido no acervo real (29 projetos, 99.040 fotos) era um `Seq Scan on photos` de
+// 99.040 linhas com `Storage: Disk, Maximum Storage: 13690kB`, seguido de
+// `Rows Removed by Join Filter: 98.796` para 239 sobreviventes. O índice GiST
+// `idx_sv360_photos_geom` NUNCA era usado. Consequência: a latência crescia com o
+// ACERVO INTEIRO e não com o que cabe no tile — um tile VAZIO custava ~290 ms, e a
+// curva era plana de z0 a z14.
+//
+// O QUE É. Três CTEs no lugar de uma, e a separação é o conserto:
+//   `visible_projects` — o predicado de acesso roda UMA VEZ POR PROJETO (29 linhas),
+//     e não uma vez por foto. É também onde mora a exigência de o projeto ter ao
+//     menos uma foto viva com geometria, que a `visible` antiga implicava por
+//     construção (`tracked` e `trajectories` liam dela).
+//   `visible` — as fotos DAQUELES projetos DENTRO do tile. É aqui que o bbox entra, e
+//     o `&&` é servido pelo GiST. Ela alimenta a camada de PONTOS e mais nada, então
+//     o piso de zoom entra junto: abaixo dele a CTE inteira não produz linha nenhuma.
+//   `synthesized` — a trajetória sintetizada, que NÃO pode ser podada pelo bbox: ela
+//     é `ST_MakeLine` sobre TODAS as fotos do projeto, e construí-la a partir das
+//     fotos podadas encurtaria a linha na borda do tile. Ela é barata porque só
+//     alcança projeto SEM track (2 de 29 no acervo, 427 fotos somadas).
+//
+// EQUIVALÊNCIA, e ela é por construção e não por sorte: os mesmos projetos, as mesmas
+// fotos, as mesmas linhas. O que muda é a ORDEM das feições dentro de `ST_AsMVT`, que
+// nunca teve `ORDER BY` — então os BYTES do tile podem diferir com o mesmo conjunto de
+// feições, e nenhum teste pode afirmar bytes literais. `sv360-mvt-bbox.test.js` compara
+// conjunto DECODIFICADO, que é a única comparação que significa alguma coisa aqui.
+//
+// A ARMADILHA QUE A MEDIÇÃO ACHOU, e em que uma implementação ingênua cai: empurrar o
+// bbox para dentro da `visible` ANTIGA (uma CTE só, sem separar projetos) REGRIDE em
+// zoom baixo — 5,4 s em z0 e 1,9 s em z6 contra ~200 ms de então, porque com o
+// envelope do mundo o filtro não poda nada e ainda desmonta o plano. Quem mexer aqui
+// precisa medir z0 e z6, não só os zooms de trabalho.
 export const MVT_TILE = `
   WITH bounds AS (
     SELECT
       ST_TileEnvelope($1, $2, $3) AS env3857,
       ST_Transform(ST_TileEnvelope($1, $2, $3), 4326) AS env4326
   ),
+  -- O PREDICADO DE ACESSO, UMA VEZ POR PROJETO. fn_can_produce_resource e
+  -- fn_granted_resource_ids são STABLE e eram avaliadas por linha de PROJETO dentro de
+  -- um join com 99.040 fotos; aqui elas veem 29 linhas.
+  --
+  -- O EXISTS não é otimização, é EQUIVALÊNCIA: na forma antiga tracked e a trajetória
+  -- liam da CTE de FOTOS, então um projeto sem nenhuma foto viva com geometria não
+  -- produzia linha nenhuma. Sem esta condição, um projeto cujas fotos foram todas
+  -- apagadas passaria a desenhar a track no mapa.
+  visible_projects AS (
+    SELECT pr.id, pr.slug
+    FROM sv360.projects pr
+    WHERE ${sv360AccessPredicate(4, 5, 'pr.')}
+      AND EXISTS (
+        SELECT 1 FROM sv360.photos p
+         WHERE p.project_id = pr.id
+           AND p.geom IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id
+           )
+      )
+  ),
+  -- As fotos daqueles projetos DENTRO do tile. Único consumidor: a camada de pontos.
+  -- Por isso o piso de zoom mora aqui: abaixo dele nada é lido, nada é transformado.
   visible AS (
-    SELECT p.id, p.project_id, p.geom, p.original_name, p.sequence_number,
+    SELECT p.id, p.geom, p.original_name, p.sequence_number,
            p.floor_level, p.floor_label,
-           pr.slug AS project_slug
+           pj.slug AS project_slug
     FROM sv360.photos p
-    JOIN sv360.projects pr ON pr.id = p.project_id
-    WHERE ($4::boolean OR pr.status = 'enabled' OR pr.organization_id = $5::uuid)
+    JOIN visible_projects pj ON pj.id = p.project_id
+    CROSS JOIN bounds b
+    WHERE $1 >= ${FOTOS_MIN_ZOOM}
       AND p.geom IS NOT NULL
+      AND p.geom && b.env4326
       AND NOT EXISTS (
         SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id
       )
@@ -95,41 +166,54 @@ export const MVT_TILE = `
         v.floor_level,
         v.floor_label
       FROM visible v, bounds b
-      -- The floor comes FIRST so the predicate is decided before any row is
-      -- transformed: at z < FOTOS_MIN_ZOOM the inner select yields nothing,
-      -- ST_AsMVT returns NULL and the COALESCE below leaves only the line layer.
-      WHERE $1 >= ${FOTOS_MIN_ZOOM} AND v.geom && b.env4326
     ) t
   ),
   -- The project's REAL capture segments (sv360.tracks), one row per run. Only for
-  -- projects the "visible" CTE already admitted, so the access filter still lives
-  -- in one place. (No backticks in here: this SQL is a JS template literal.)
+  -- projects the visible_projects CTE already admitted, so the access filter still
+  -- lives in one place. O && aqui é o MESMO predicado que a camada de linha aplica no
+  -- fim, antecipado para que o GiST de sv360.tracks(geom) pode as 3.236 linhas do
+  -- acervo antes do ST_AsMVTGeom. (No backticks in here: this SQL is a JS template
+  -- literal.)
   tracked AS (
-    SELECT tk.project_id, tk.geom AS line
+    SELECT pj.id AS project_id, pj.slug AS project_slug, tk.geom AS line
     FROM sv360.tracks tk
-    WHERE tk.project_id IN (SELECT DISTINCT v.project_id FROM visible v)
+    JOIN visible_projects pj ON pj.id = tk.project_id
+    CROSS JOIN bounds b
+    WHERE tk.geom && b.env4326
+  ),
+  -- Prefer the imported tracks; synthesize only for a project that has none.
+  --
+  -- The synthesized form is ONE LineString per project joining its photos in
+  -- sequence order, and it is a poor stand-in whenever a project was captured in
+  -- more than one run: the line teleports between runs and the map draws a
+  -- criss-cross that matches no path anyone walked (1pef: 34 real segments
+  -- collapsed into 1). It stays as the fallback because it is what every project
+  -- ingested before sv360.tracks existed still has, and a project with a single
+  -- run renders identically either way. A project with one photo yields no line
+  -- (ST_MakeLine of 1 point is degenerate — filtered by ST_NumPoints >= 2).
+  --
+  -- SEM FILTRO DE BBOX, DE PROPÓSITO: a linha é feita de TODAS as fotos do projeto, e
+  -- montá-la a partir das fotos que caem no tile a cortaria na borda — o segmento que
+  -- entra vindo de fora sumiria. O custo é contido porque o NOT EXISTS sobre
+  -- sv360.tracks deixa aqui só projeto que nunca teve track derivada.
+  synthesized AS (
+    SELECT pj.id AS project_id, pj.slug AS project_slug,
+           ST_MakeLine(p.geom ORDER BY p.sequence_number) AS line
+    FROM sv360.photos p
+    JOIN visible_projects pj ON pj.id = p.project_id
+    WHERE p.geom IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM sv360.tracks t WHERE t.project_id = pj.id
+      )
+    GROUP BY pj.id, pj.slug
   ),
   trajectories AS (
-    -- Prefer the imported tracks; synthesize only for a project that has none.
-    --
-    -- The synthesized form is ONE LineString per project joining its photos in
-    -- sequence order, and it is a poor stand-in whenever a project was captured in
-    -- more than one run: the line teleports between runs and the map draws a
-    -- criss-cross that matches no path anyone walked (1pef: 34 real segments
-    -- collapsed into 1). It stays as the fallback because it is what every project
-    -- ingested before sv360.tracks existed still has, and a project with a single
-    -- run renders identically either way. A project with one photo yields no line
-    -- (ST_MakeLine of 1 point is degenerate — filtered by ST_NumPoints >= 2).
-    SELECT t.project_id, v.project_slug, t.line
-    FROM tracked t
-    JOIN (SELECT DISTINCT project_id, project_slug FROM visible) v
-      ON v.project_id = t.project_id
+    SELECT project_id, project_slug, line FROM tracked
     UNION ALL
-    SELECT v.project_id, v.project_slug,
-           ST_MakeLine(v.geom ORDER BY v.sequence_number) AS line
-    FROM visible v
-    WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.project_id = v.project_id)
-    GROUP BY v.project_id, v.project_slug
+    SELECT project_id, project_slug, line FROM synthesized
   ),
   linha AS (
     SELECT ST_AsMVT(t, 'fotos_linha', 4096, 'geom') AS mvt

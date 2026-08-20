@@ -7,6 +7,7 @@
  */
 
 import config from '../config.js';
+import { currentResourceScope } from '@store/sync/resource-scope.js';
 
 // ============================================================
 // Configuration
@@ -246,6 +247,7 @@ const _displayNameCache = new Map();
  */
 export async function getPhotoDisplayName(photoId) {
   if (!isUUID(photoId)) return photoId;
+  adoptCurrentScope();
   if (_displayNameCache.has(photoId)) return _displayNameCache.get(photoId);
 
   try {
@@ -266,6 +268,38 @@ export async function getPhotoDisplayName(photoId) {
 /** @type {Array|null} Cached projects list (populated on first fetchProjects call) */
 let _projectsCache = null;
 
+/** @type {string|null} The access scope the caches above were filled under. */
+let _cacheScope = null;
+
+/**
+ * Drops every cache in this module that was filled under a DIFFERENT access scope, and adopts the
+ * current one.
+ *
+ * WHY THIS EXISTS. `GET /sv360/projects` is decided per caller: global role, personal grant and —
+ * once an atlas is in focus — what that atlas LENDS. The answer is therefore only valid inside the
+ * scope it was fetched under, while these caches are module-global and outlive it. Warmed inside a
+ * lending atlas, they would keep handing the borrowed project to the search bar, the briefing
+ * validator, the catalog and the 2D marker layer after the user left that atlas — which is exactly
+ * the invariant the server's borrowing arm exists to enforce, defeated on the client side.
+ *
+ * The scope stamp is compared HERE, on every read, instead of being cleared from the disconnect
+ * path: a clear only reaches the caches someone remembered to register, and this module is a lazy
+ * chunk the sync engine has no reason to import. A mismatch is simply a miss, which costs one
+ * request and cannot serve the wrong scope.
+ *
+ * The display-name cache goes with it for the same reason and not for a weaker one: those names
+ * come from photo metadata of projects that may be private.
+ * @returns {string} The scope now in force.
+ */
+function adoptCurrentScope() {
+  const scope = currentResourceScope();
+  if (_cacheScope === scope) return scope;
+  _projectsCache = null;
+  _displayNameCache.clear();
+  _cacheScope = scope;
+  return scope;
+}
+
 /**
  * Normalizes a projects API response into a plain array.
  * Accepts both the bare-array shape (`GET /sv360/projects`) and the
@@ -284,6 +318,7 @@ export function normalizeProjects(data) {
  * @returns {Promise<Array>} Array of project objects
  */
 export async function fetchProjects(forceRefresh = false) {
+  const scope = adoptCurrentScope();
   if (_projectsCache && !forceRefresh) return _projectsCache;
 
   const response = await fetch(`${getServiceUrl()}/projects`);
@@ -291,16 +326,23 @@ export async function fetchProjects(forceRefresh = false) {
     throw new Error(`Failed to fetch projects (HTTP ${response.status})`);
   }
   const data = await response.json();
+  // Stamped with the scope read BEFORE the request, not after: a scope change that landed while
+  // this request was in flight must not be able to label this answer as belonging to the new one.
+  // Re-reading here would do exactly that, and the next reader would trust it.
   _projectsCache = normalizeProjects(data);
+  _cacheScope = scope;
   return _projectsCache;
 }
 
 /**
  * Returns the cached projects array synchronously.
- * Returns null if fetchProjects() hasn't been called yet.
+ * Returns null if fetchProjects() hasn't been called yet — or if what it cached was decided under
+ * a DIFFERENT access scope (see {@link adoptCurrentScope}), which every caller already handles as
+ * "not fetched yet".
  * @returns {Array|null}
  */
 export function getCachedProjects() {
+  adoptCurrentScope();
   return _projectsCache;
 }
 

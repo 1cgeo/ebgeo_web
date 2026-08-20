@@ -13,7 +13,9 @@ export {
     CATALOG_CHIP_CONFIG,
     CATALOG_UI_ICONS,
     DEFAULT_THUMBNAILS,
-    CATALOG_MODAL_FILTERS
+    CATALOG_MODAL_FILTERS,
+    RESOURCE_ACCESS_BY_CATALOG_TYPE,
+    GRANT_LEVELS
 } from './catalog.constants.js';
 
 // Service
@@ -21,6 +23,7 @@ export { CatalogService } from './catalog.service.js';
 
 // Modal
 export { CatalogModal } from './catalog.modal.js';
+export { ResourceShareModal, showResourceShareModal } from './resource-share.modal.js';
 
 // Components
 export {

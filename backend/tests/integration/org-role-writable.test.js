@@ -1,7 +1,7 @@
 // Path: tests/integration/org-role-writable.test.js
 // `org_role` had no writer anywhere, which made the sv360 org gate dead code.
 //
-// The column exists (001_core.sql:97-98, DEFAULT 'viewer', CHECK owner|admin|editor|
+// The column exists (001_identidade.sql, DEFAULT 'viewer', CHECK owner|admin|editor|
 // viewer) and is READ in eight places — the JWT claim, both auth middlewares,
 // `canWriteProject` (sv360.write.service.js:36), `requireUploadCapability`
 // (sv360.routes.js:269). Nothing in either package ever wrote it: a grep for

@@ -2,7 +2,7 @@
 
 `/nomes/busca` ordena por **três chaves lexicográficas**, não por soma ponderada: relevância em faixa, depois categoria, depois a combinação de importância e proximidade. Quem decide a qualidade do resultado, porém, continua sendo o corte de 500 candidatos que roda **antes** de qualquer pontuação.
 
-Para o módulo inteiro (rotas, auth assimétrica, `refresh_busca()`), ver [[gazetteer-nomes-geograficos]]. Esta página é só o ranking.
+Para o módulo inteiro (contrato de resposta, ausência de eixo de acesso, `refresh_busca()`), ver [[gazetteer-nomes-geograficos]]. Esta página é só o ranking.
 
 ## A doutrina, e por que ela não cabe numa soma
 
@@ -33,7 +33,7 @@ Implementadas em `backend/src/modules/nomes/nomes.queries.js`, CTE `pontuado`.
 
 O expoente 0.3 não é enfeite: com expoente 1 a multiplicação por `tipo_peso = 0.1` divide por dez quem está no piso, que é 29% do acervo, e a família de feições no piso desabava de 92% para 43%. É o equivalente ao `modifier: log1p`/`sqrt` do `field_value_factor` do Elasticsearch.
 
-**4. Desempate por trigrama cru.** Não melhora ranking nenhum (medido: zero efeito no conjunto dourado). Existe por **determinismo**: sem uma última chave, dois candidatos idênticos nas três primeiras ordenam pelo que o plano devolver, e plano muda com volume. É o mesmo motivo do `c.id DESC` no `CATALOGO_SELECT`.
+**4. Desempate por trigrama cru.** Não melhora ranking nenhum (medido: zero efeito no conjunto dourado). Existe por **determinismo**: sem uma última chave, dois candidatos idênticos nas três primeiras ordenam pelo que o plano devolver, e plano muda com volume. É o mesmo motivo do `c.id DESC` na consulta do catálogo 3D que este schema teve até 2026-08-19.
 
 ## O campo `score` sobreviveu, e como
 
@@ -51,11 +51,10 @@ O normalizador é derivado da própria largura de faixa, não é literal. Mudar 
 
 A CTE `candidatos` (`backend/src/modules/nomes/nomes.queries.js`) pré-filtra por similaridade ≥ 0.25, ordena por `sim DESC, dist ASC` e corta em `LIMIT 500`. Os critérios só pontuam o que sobreviveu.
 
-Três consequências que não se leem em nenhum arquivo isoladamente:
+Duas consequências que não se leem em nenhum arquivo isoladamente:
 
 - **`dist` decide o corte, não só o desempate.** `similarity()` devolve razões de contagens de trigramas, então empates são frequentes, não raros. Na faixa marginal de similaridade (a que fica na borda dos 500), quem entra é escolhido por proximidade. O parâmetro `lat`/`lon` já está agindo antes do critério 7.
 - **A dedup vem depois do corte e não repõe orçamento.** `DISTINCT ON (nome, tipo, cluster_id)` roda sobre os 500. Um termo genérico ("rio", "santa") queima o orçamento em quase-duplicatas e pode chegar ao score com pouquíssimas linhas distintas. É aqui que a busca fica ruim em termos comuns, não nos pesos.
-- **Usuários diferentes veem rankings diferentes para o mesmo termo.** O filtro de acesso está dentro do `WHERE` de `candidatos`, logo antes do `LIMIT 500`. Para um admin, linhas privadas competem pelas 500 vagas e podem expulsar públicas que o anônimo veria. Não é bug, é consequência de embutir autorização na query. Ver [[zonas-acesso-geografico]].
 
 ## As consequências que se paga, medidas
 
@@ -73,7 +72,7 @@ O antigo `zoom_factor`, que neutralizava `tipo_peso` em zoom alto (todo tipo vir
 
 > **Armadilha do zoom alto, achada rodando contra o acervo real.** O Postgres **lança erro** em underflow de float em vez de saturar em zero. Com zoom 16 a escala cai para ~4,7 km, um candidato a 300 km dá expoente 4096, e `power(0.5, 4096)` derrubava a requisição inteira com `22003 float_underflow_error`. Daí o `LEAST(..., 700)` no expoente. Nenhum teste de unidade pegaria: exige zoom alto **e** candidato distante ao mesmo tempo.
 
-`tipo_peso` não vem do FME: é derivado do texto livre de `tipo` numa hierarquia EDGV em trigger (`backend/src/database/migrations/009_ng_tipo_peso_palavra.sql`), com `ELSE 0.1`. Tipo novo que não case com nenhum padrão cai silenciosamente no piso e some do topo do ranking.
+`tipo_peso` não vem do FME: é derivado do texto livre de `tipo` numa hierarquia EDGV em trigger (`backend/src/database/migrations/006_ng.sql`), com `ELSE 0.1`. Tipo novo que não case com nenhum padrão cai silenciosamente no piso e some do topo do ranking.
 
 O casamento é por **palavra** (`~ '\m…\M'`), e essa fronteira é o conserto de um defeito medido. A 004 casava **substring** (`LIKE '%rio%'`), que acha "rio" dentro de cemité**rio**, aviá**rio**, aterro sanitá**rio**, supe**rio**r, reservató**rio** e ferroviá**rio**: no acervo real de 2026-07-23, **658 linhas** ranqueadas como hidrografia (0.85, o terceiro maior peso) sem ser, e o ramo errado disparava **antes** do ramo certo, então também roubava o peso correto. Aparecia no produto: o top-5 de "brasilia" trazia `Granja Progresso de Brasília | Agro - Aviário` com peso de rio.
 
@@ -81,7 +80,7 @@ A armadilha simétrica mora do outro lado e quase entrou junto: `com` como abrev
 
 ## Custo escondido: o operador e o limiar são um par
 
-> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/004_ng.sql`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24. O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
+> **Nota histórica.** Esta seção afirmava que o índice GIN trigram (`backend/src/database/migrations/006_ng.sql`) **não** era usado, que o scan era sequencial, e que trocar `similarity(...) > 0.25` pelo operador `%` estava **proibido** por mudar o conjunto de candidatos. A troca foi feita em 2026-07-24. O que a destravou foi notar que o limiar é fixável: `SET LOCAL pg_trgm.similarity_threshold = 0.25` (`backend/src/modules/nomes/nomes.service.js`) preserva exatamente o corte de antes, então o ranking congelado não se mexeu.
 
 Fica o contrato que a troca criou: **operador e `SET LOCAL` andam juntos.** O default da extensão é 0.3, então remover o `SET LOCAL`, ou tirar a busca da transação que o carrega (`SET LOCAL` morre com ela), aperta a busca em silêncio e descarta os candidatos entre 0.25 e 0.3. O sintoma é resultado faltando, não erro, e nenhum teste o pega.
 
@@ -89,7 +88,7 @@ Detalhe do mesmo nó que parece cosmético e não é: o termo no predicado vem d
 
 Isso importa além da latência porque `/busca` é a única rota anônima do backend: o custo por requisição é pago por qualquer um, e o teto que sobra é o balde por endereço descrito em [[hardening-borda-api]].
 
-`f_unaccent` é aplicado dos dois lados da comparação, então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/004_ng.sql`), e é ele que o índice GIN cobre.
+`f_unaccent` é aplicado dos dois lados da comparação, então acento no termo ou no dado é irrelevante. O wrapper existe porque o `unaccent` nativo é `STABLE`, logo não indexável (`backend/src/database/migrations/006_ng.sql`), e é ele que o índice GIN cobre.
 
 ## Integração: a busca de 2 letras que falha calada
 

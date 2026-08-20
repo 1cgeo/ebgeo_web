@@ -50,17 +50,36 @@ const prev = Buffer.from('RIFFxxxxWEBP-precheck-prev');
 
 const url = (p) => `/api/v1/sv360${p}`;
 
-// The org_roles canWriteProject accepts. Kept as ONE list so the pre-filter and the
-// service cannot silently diverge (the closed-list failure mode, C1).
-const ORG_ROLES_ESCRITORES = ['owner', 'admin', 'editor'];
+// OS PRINCIPAIS QUE `canWriteProject` ACEITA, numa lista so, para que o pre-filtro e
+// o servico nao possam divergir em silencio (o modo de falha da lista fechada, C1).
+//
+// O EIXO MUDOU NESTA FASE: eram tres `org_role` ('owner','admin','editor') sobre uma
+// LOTACAO auto-declarada no auto-cadastro, e passaram a ser dois principais sobre o
+// ESCOPO DE PRODUCAO, que so um administrador concede. A lista encolheu de tres para
+// dois, e isso e o conserto: dizer "quem se declarou editor desta OM escreve o acervo
+// dela" era a escalacao que a fase fecha.
+const ESCRITORES = (orgId) => [
+  {
+    rotulo: 'produtor-da-propria-om',
+    claims: { producerOrgId: orgId },
+    user: { role: 'producer', producer_org_id: orgId },
+  },
+  {
+    rotulo: 'administrador-global',
+    claims: { role: 'admin' },
+    user: { role: 'admin' },
+  },
+];
 
 describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4)', () => {
   let app, db, tmpRoot, orgId, otherOrgId;
   const criados = [];
 
-  function token({ role = 'user', org_role = 'viewer', organization_id = orgId }) {
-    const claims = { sub: crypto.randomUUID(), username: `pre_${RID}_${org_role}`, role, org_role };
+  function token({ role = 'user', producerOrgId = null, organization_id = orgId }) {
+    const sub = crypto.randomUUID();
+    const claims = { sub, username: `pre_${RID}_${sub.slice(0, 8)}`, role, org_role: 'viewer' };
     if (organization_id) claims.organization_id = organization_id;
+    if (producerOrgId) claims.producer_org_id = producerOrgId;
     return jwt.sign(claims, JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
   }
 
@@ -144,7 +163,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
   // O DISCRIMINADOR: um campo multipart que a rota não declara.
   // -------------------------------------------------------------------------
 
-  it('viewer da mesma org com um 3º campo `bogus`: 403 do PRÉ-FILTRO, não erro do multer', async () => {
+  it('LOTADO na mesma OM com um 3º campo `bogus`: 403 do PRÉ-FILTRO, não erro do multer', async () => {
     // Com o pré-filtro, a requisição morre antes de o multer sequer olhar os campos,
     // então o campo desconhecido é IRRELEVANTE e a resposta é o mesmo 403 do caso
     // normal. Sem o pré-filtro, o multer roda primeiro e responde outra coisa — é
@@ -153,7 +172,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
     const b = bundle(slug);
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
-      .set('Authorization', `Bearer ${token({ org_role: 'viewer' })}`)
+      .set('Authorization', `Bearer ${token({})}`)
       .attach('manifest', b.manifestPath)
       .attach('imagesDb', b.imagesDbPath)
       .attach('bogus', b.manifestPath);
@@ -165,18 +184,19 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
     assert.equal(rows.length, 0, 'nada pode ter sido persistido');
   });
 
-  it('sem o campo extra, o mesmo viewer também leva 403 (o caso já coberto, mantido como âncora)', async () => {
+  it('sem o campo extra, o mesmo LOTADO também leva 403 (o caso já coberto, mantido como âncora)', async () => {
     const b = bundle(`precheck-viewer-${RID}`);
     await supertest(app)
       .post(url('/admin/projects/upload'))
-      .set('Authorization', `Bearer ${token({ org_role: 'viewer' })}`)
+      .set('Authorization', `Bearer ${token({})}`)
       .attach('manifest', b.manifestPath)
       .attach('imagesDb', b.imagesDbPath)
       .expect(403);
   });
 
-  it('token legado SEM organization_id (org_role degradado) → 403 pelo mesmo caminho', async () => {
-    // `org_role` chega como 'viewer' e `organization_id` como undefined: a única
+  it('token legado SEM `producer_org_id` → 403 pelo mesmo caminho', async () => {
+    // A claim de produção é NOVA, então todo token emitido antes desta fase chega sem
+    // ela — e a ausência significa "não produz", que é a degradação certa. A única
     // coisa que pode aprovar é `role === 'admin'`, que este token não tem.
     const b = bundle(`precheck-legacy-${RID}`);
     const res = await supertest(app)
@@ -200,65 +220,73 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
   // O outro lado: quem o serviço autoriza, o pré-filtro NÃO pode barrar.
   // -------------------------------------------------------------------------
 
-  it('editor da própria org com bundle válido → 201', async () => {
+  it('produtor da própria OM com bundle válido → 201', async () => {
     const slug = `precheck-editor-${RID}`;
     const b = bundle(slug);
     criados.push(slug);
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
-      .set('Authorization', `Bearer ${token({ org_role: 'editor' })}`)
+      .set('Authorization', `Bearer ${token({ producerOrgId: orgId })}`)
       .attach('manifest', b.manifestPath)
       .attach('imagesDb', b.imagesDbPath);
     assert.equal(res.status, 201, res.body?.error ?? '');
     assert.equal(res.body.slug, slug);
   });
 
-  it('admin GLOBAL com org_role `viewer` → 201 (o papel global vence o org_role)', async () => {
+  it('admin GLOBAL SEM escopo de produção → 201 (o papel global vence o crachá)', async () => {
     // Mesma regra de canWriteProject: `role === 'admin'` retorna true antes de
-    // qualquer checagem de org. Um pré-filtro que só olhasse org_role barraria o
-    // administrador do sistema.
+    // qualquer checagem de OM. Um pré-filtro que só olhasse `producer_org_id`
+    // barraria o administrador do sistema, que não produz por OM nenhuma.
     const slug = `precheck-globaladmin-${RID}`;
     const b = bundle(slug);
     criados.push(slug);
     const res = await supertest(app)
       .post(url('/admin/projects/upload'))
-      .set('Authorization', `Bearer ${token({ role: 'admin', org_role: 'viewer' })}`)
+      .set('Authorization', `Bearer ${token({ role: 'admin' })}`)
       .attach('manifest', b.manifestPath)
       .attach('imagesDb', b.imagesDbPath);
     assert.equal(res.status, 201, res.body?.error ?? '');
   });
 
-  it('guarda anti-divergência: TODO org_role aceito por canWriteProject passa o pré-filtro', async () => {
-    // As duas listas fechadas ('owner','admin','editor') vivem em arquivos
-    // diferentes. Se alguém acrescentar um papel a canWriteProject e esquecer o
-    // pré-filtro, o papel novo some com um 403 inexplicável — o padrão C1 que a
-    // constituição proíbe. O laço prova a inclusão papel a papel; a asserção de
-    // tamanho impede que a lista encolha sem ninguém notar.
-    assert.equal(ORG_ROLES_ESCRITORES.length, 3, 'guard: a lista sob teste não pode estar vazia');
-    for (const orgRole of ORG_ROLES_ESCRITORES) {
+  it('guarda anti-divergência: TODO principal aceito por canWriteProject passa o pré-filtro', async () => {
+    // AS DUAS LISTAS VIVEM EM ARQUIVOS DIFERENTES (`sv360.routes.js` e
+    // `sv360.write.service.js`). Se alguém acrescentar um principal a canWriteProject
+    // e esquecer o pré-filtro, ele some com um 403 inexplicável — o padrão C1 que a
+    // constituição proíbe. O laço prova a inclusão um a um; a asserção de tamanho
+    // impede que a lista encolha sem ninguém notar.
+    const escritores = ESCRITORES(orgId);
+    assert.equal(escritores.length, 2, 'guarda: a lista sob teste não pode estar vazia');
+    for (const { rotulo, claims, user } of escritores) {
       assert.ok(
-        canWriteProject({ role: 'user', organization_id: orgId, org_role: orgRole }, { organization_id: orgId }),
-        `canWriteProject deixou de aceitar ${orgRole} — atualize as DUAS listas`
+        canWriteProject(user, { organization_id: orgId }),
+        `canWriteProject deixou de aceitar ${rotulo} — atualize as DUAS listas`
       );
-      const slug = `precheck-role-${orgRole}-${RID}`;
+      const slug = `precheck-role-${rotulo}-${RID}`;
       const b = bundle(slug);
       criados.push(slug);
       const res = await supertest(app)
         .post(url('/admin/projects/upload'))
-        .set('Authorization', `Bearer ${token({ org_role: orgRole })}`)
+        .set('Authorization', `Bearer ${token(claims)}`)
         .attach('manifest', b.manifestPath)
         .attach('imagesDb', b.imagesDbPath);
-      assert.notEqual(res.status, 403, `o pré-filtro barrou ${orgRole}, que o serviço autoriza`);
-      assert.equal(res.status, 201, `${orgRole}: ${res.body?.error ?? ''}`);
+      assert.notEqual(res.status, 403, `o pré-filtro barrou ${rotulo}, que o serviço autoriza`);
+      assert.equal(res.status, 201, `${rotulo}: ${res.body?.error ?? ''}`);
     }
   });
 
-  it('e o contraste: `viewer` NÃO está na lista de escritores, nos dois lados', async () => {
+  it('e o contraste: LOTAÇÃO não escreve, nos dois lados', async () => {
     // Sem este caso o laço acima passaria com um pré-filtro que aceitasse todo mundo.
+    // E ele é o resumo da fase: a conta abaixo se declarou desta OM no cadastro e, no
+    // modelo antigo com `org_role: 'editor'`, escrevia o acervo dela.
     assert.equal(
-      canWriteProject({ role: 'user', organization_id: orgId, org_role: 'viewer' }, { organization_id: orgId }),
+      canWriteProject({ role: 'user', organization_id: orgId, org_role: 'editor' }, { organization_id: orgId }),
+      false,
+      'lotação auto-declarada + papel dentro da OM não é mais capacidade de escrita'
+    );
+    // E o produtor de OUTRA OM tampouco, que é o negativo do eixo NOVO.
+    assert.equal(
+      canWriteProject({ role: 'producer', producer_org_id: otherOrgId }, { organization_id: orgId }),
       false
     );
-    assert.ok(!ORG_ROLES_ESCRITORES.includes('viewer'));
   });
 });

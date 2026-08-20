@@ -21,6 +21,12 @@ import {
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
 import { hideLoading3DScreen } from '@ui/loading-screen-3d.js';
+import { descritorDeAsset } from '@store/sync/assets3d-request.js';
+import {
+    Visualizador3D,
+    derivarForma3d,
+    visualizadorDaForma
+} from '@catalog/forma-3d.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -254,9 +260,30 @@ async function initCesiumMap() {
 }
 
 
+/**
+ * The model address as an already-identified `Cesium.Resource`.
+ *
+ * DO NOT hand the raw URL to Cesium from here. Since F11 the bytes of a PRIVATE model are
+ * gated on the server, and what authorises them travels in the request: the atlas scope in
+ * the query and the credential in the header. A `Resource` propagates both to every child
+ * the tileset derives (`getDerivedResource` merges `headers` and `queryParameters`), whereas
+ * a bare string lets the `tileset.json` through and makes every `.b3dm` 404 — which on
+ * screen is a model that renders empty, with no error at all.
+ *
+ * A public model does not change behaviour: with no session and no atlas in focus the
+ * descriptor is just the URL, and the resulting `Resource` is equivalent to the one Cesium
+ * would build on its own.
+ *
+ * @param {string} url
+ * @returns {Promise<Object>} A Cesium.Resource.
+ */
+async function recursoDeAsset3d(url) {
+    return new Cesium.Resource(await descritorDeAsset(url));
+}
+
 async function createOptimizedTileset(viewer, tilesetConfig) {
     // Cesium 1.107+ uses fromUrl() instead of constructor + readyPromise
-    const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetConfig.url, {
+    const tileset = await Cesium.Cesium3DTileset.fromUrl(await recursoDeAsset3d(tilesetConfig.url), {
         maximumScreenSpaceError: tilesetConfig.maximumScreenSpaceError ?? 16,
         preferLeaves: false,
         skipLevelOfDetail: true,
@@ -296,7 +323,7 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
 /**
  * Creates and loads a GLB model into the Cesium scene.
  * @param {Object} viewer - The Cesium viewer
- * @param {Object} tilesetConfig - Model configuration from config.tilesets (type: 'glb')
+ * @param {Object} tilesetConfig - Model configuration from config.tilesets (forma3d: 'glb')
  * @returns {Promise<Object>} The loaded model primitive
  */
 async function createGlbModel(viewer, tilesetConfig) {
@@ -318,7 +345,7 @@ async function createGlbModel(viewer, tilesetConfig) {
     }
 
     const modelOptions = {
-        url: tilesetConfig.url,
+        url: await recursoDeAsset3d(tilesetConfig.url),
         modelMatrix,
         minimumPixelSize: tilesetConfig.minimumPixelSize ?? 0,
         allowPicking: true,
@@ -874,10 +901,28 @@ async function loadSingleTileset(viewer, tilesetId) {
         throw new Error(`Tileset ${tilesetId} not found in config.tilesets`);
     }
 
-    const isGlb = tilesetConfig.type === 'glb';
-    currentTileset = isGlb
-        ? await createGlbModel(viewer, tilesetConfig)
-        : await createOptimizedTileset(viewer, tilesetConfig);
+    // THE BRANCH IS BY DECLARED SHAPE, NOT BY EXCLUSION. It used to be
+    // `tilesetConfig.type === 'glb' ? model : tileset`, which is a two-way answer to a
+    // four-way question: a point cloud and an indoor scene both landed in the `else`, the first
+    // correctly (its format is part of 3D Tiles) and the second not at all — and a fifth kind
+    // added later would land there too, silently. `visualizadorDaForma` has no default, so a
+    // shape with no branch throws HERE, where the id and the shape are both in hand, instead of
+    // rendering an empty scene.
+    const forma = derivarForma3d(tilesetConfig);
+    switch (visualizadorDaForma(forma)) {
+        case Visualizador3D.CESIUM_MODEL:
+            currentTileset = await createGlbModel(viewer, tilesetConfig);
+            break;
+        case Visualizador3D.CESIUM_TILESET:
+            currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
+            break;
+        default:
+            // The indoor scene is drawn by `first_person_3d_tool/`, which is another viewer
+            // entirely: reaching this line means a catalog row was routed to the wrong one.
+            throw new Error(
+                `Modelo 3D "${tilesetId}" declara a forma "${forma}", que o visualizador Cesium nao desenha`
+            );
+    }
     _currentTilesetId = tilesetId;
     cesiumState.currentTilesetId = tilesetId;
 

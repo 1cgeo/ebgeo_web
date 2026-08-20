@@ -47,8 +47,8 @@ describe('GET /nomes/busca — a doutrina de ordenação', () => {
 
   const semear = (nome, tipo, lon, lat) =>
     db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, access_level, geom)
-       VALUES ($1, $2, 'M', 'RS', 'public', ST_SetSRID(ST_MakePoint($3, $4), 4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, municipio, estado, geom)
+       VALUES ($1, $2, 'M', 'RS', ST_SetSRID(ST_MakePoint($3, $4), 4674))`,
       [nome, tipo, lon, lat]
     );
 

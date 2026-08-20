@@ -1,6 +1,5 @@
 // Path: src/modules/nomes/nomes.routes.js
 import { Router } from 'express';
-import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { nomesAccessLog } from '../../middleware/nomes-access-log.js';
 import { gazetteerLimiter } from '../../middleware/rate-limit.js';
@@ -16,7 +15,5 @@ const router = Router();
 // O limiter vem ANTES do validate de propósito: uma varredura manda query
 // malformada de graça se o teto só contar o que passa na validação.
 router.get('/busca', gazetteerLimiter, nomesAccessLog, validate({ query: schemas.buscaSchema }), ctrl.busca);
-router.get('/feicoes', auth, nomesAccessLog, validate({ query: schemas.feicoesSchema }), ctrl.feicoes);
-router.get('/catalogo3d', auth, nomesAccessLog, validate({ query: schemas.catalogoSchema }), ctrl.catalogo3d);
 
 export { router as nomesRoutes };

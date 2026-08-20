@@ -17,6 +17,7 @@
  */
 
 import { generateUUID, isValidUUID } from '@utils/uuid.js';
+import { pruneCatalogLayerDefinitions } from '@catalog/catalog-layer.ref.js';
 
 /** Server-accepted feature types (mirror of backend `VALID_FEATURE_TYPES`). */
 const VALID_FEATURE_TYPES = new Set([
@@ -317,7 +318,10 @@ export function buildServerImportPayload(exportData, meta = {}) {
             notes_title: notes.title || '',
             notes_description: notes.description || '',
             analysis_layers: mapData?.analysisLayers || {},
-            catalog_layers: mapData?.catalogLayers || [],
+            // Reference + per-atlas state only. This is a whole-entity upload, so it bypasses the
+            // sync write gate; a legacy entry still holding the old embedded copy would otherwise
+            // plant a stale definition on the server.
+            catalog_layers: pruneCatalogLayerDefinitions(mapData?.catalogLayers) || [],
             locked: false,
             grid_style: data.gridStyle?.[mapName] || {},
             temporal_config: data.temporal?.[mapName] || {},

@@ -403,9 +403,9 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
-        // "Administração" — global system-admin panel (users, config, catalog). Visible ONLY to a
-        // GLOBAL admin (sessionContext.isAdmin()), independent of any connected atlas. The backend
-        // gates every admin route with requireAdmin; this is purely a UI affordance.
+        // "Administração" — the admin page (users, config, catalog). Visible to a GLOBAL admin and,
+        // labelled "Catálogo", to a PRODUCER (`_updateAdminVisibility`), independent of any
+        // connected atlas. The backend gates every admin route; this is purely a UI affordance.
         this._adminBtn = document.createElement('button');
         this._adminBtn.type = 'button';
         this._adminBtn.className = 'account-control__btn account-control__btn--admin';
@@ -651,14 +651,26 @@ export class AccountControl {
     }
 
     /**
-     * Shows "Administração" only to a GLOBAL system admin (sessionContext.isAdmin()). Unlike the
-     * atlas-scoped items above, this is NOT predicated on a connected atlas — the admin panel is
-     * global. The backend gates every admin route with requireAdmin.
+     * Mostra a entrada da página de administração a quem pode abri-la, com o rótulo do que ela
+     * realmente entrega: o administrador GLOBAL recebe todas as abas, o CREDENCIADO só Grupos e o
+     * PRODUTOR só Catálogo. Chamar os dois últimos de "Administração" prometeria um painel que
+     * eles não recebem. A ordem dos testes repete a de `mountAdminPage`, e repete por necessidade:
+     * `hasGlobalDataAccess()` também é verdadeiro para o administrador.
+     *
+     * Diferente dos itens de atlas acima, isto NÃO depende de atlas conectado — a página é global.
+     * O servidor gateia toda rota de administração com requireAdmin, as escritas do catálogo com o
+     * gate de produção e as de grupo com o gate de dado; nada aqui é a fronteira.
      * @private
      */
     _updateAdminVisibility() {
         if (!this._adminBtn) return;
-        this._adminBtn.hidden = !sessionContext.isAdmin();
+        let texto = null;
+        if (sessionContext.isAdmin()) texto = 'Administração';
+        else if (sessionContext.hasGlobalDataAccess()) texto = 'Grupos';
+        else if (sessionContext.isProducer()) texto = 'Catálogo';
+        this._adminBtn.hidden = texto === null;
+        const label = this._adminBtn.querySelector('.account-control__btn-label');
+        if (label && texto) label.textContent = texto;
     }
 
     /**

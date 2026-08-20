@@ -13,9 +13,9 @@
 // already filters `config.tilesets` by id, and `config.hasTilesets()` is what
 // enables the "Modelos 3D" bottom control at all.
 //
-// WHY THIS IS A SCRIPT AND NOT A MIGRATION. Migration 015 removed the seeded
-// tileset and settled the rule: the catalog is a point of CONFIGURATION, never a
-// place for seeded content. A migration runs in every environment, so a seeded
+// WHY THIS IS A SCRIPT AND NOT A MIGRATION. The seeded demo tileset was removed and
+// the rule settled in `005_catalogo.sql`: the catalog is a point of CONFIGURATION,
+// never a place for seeded content. A migration runs in every environment, so a seeded
 // scene would make every fresh install promise 28,6 MB of assets it does not
 // have, and the failure is the silent one — the pin appears, the click 404s and
 // the viewer falls back to 2D without a word. A script under scripts/ runs

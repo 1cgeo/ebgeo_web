@@ -2,9 +2,9 @@
 import { query } from '../../database/index.js';
 import * as Q from './audit.queries.js';
 
-export async function listAudit({ action, actorId, targetType, page, limit }) {
+export async function listAudit({ action, actorId, targetType, targetId, page, limit }) {
   const offset = (page - 1) * limit;
-  const filters = [action ?? null, actorId ?? null, targetType ?? null];
+  const filters = [action ?? null, actorId ?? null, targetType ?? null, targetId ?? null];
   const [data, count] = await Promise.all([
     query(Q.LIST_AUDIT, [...filters, limit, offset]),
     query(Q.COUNT_AUDIT, filters),

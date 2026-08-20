@@ -21,6 +21,7 @@ import Database from 'better-sqlite3';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
@@ -35,9 +36,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, role = 'user', orgRole = 'viewer' }) {
+// A LEITURA DE PROJETO OCULTO/PRIVADO passou de `organization_id` (LOTACAO
+// auto-declarada no auto-cadastro) para `producer_org_id` (ESCOPO DE PRODUCAO,
+// concedido por administrador) e e resolvida NO SQL, a partir do UUID — por isso o
+// `sub` destes tokens precisa ser um usuario de VERDADE.
+function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub: crypto.randomUUID(), username: `cache_${RID}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `cache_${RID}_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -88,8 +96,10 @@ describe('sv360 cache scope matches access scope (P6)', () => {
     );
     otherOrgId = org2.rows[0].id;
 
-    ownerToken = mintToken({ orgId: defaultOrgId, orgRole: 'owner' });
-    otherOrgToken = mintToken({ orgId: otherOrgId, orgRole: 'owner' });
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `cache_pa_${RID}` });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `cache_pb_${RID}` });
+    ownerToken = mintToken({ orgId: defaultOrgId, producerOrgId: defaultOrgId, sub: produtor.id });
+    otherOrgToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
 
     // ── ENABLED project (public) in the default org ──
     const enabledDb = `${defaultOrgId}__${ENABLED_SLUG}.db`;
@@ -153,6 +163,45 @@ describe('sv360 cache scope matches access scope (P6)', () => {
 
     assert.match(res.headers['cache-control'], /public/);
     assert.match(res.headers['cache-control'], /immutable/);
+  });
+
+  it('O SEGUNDO EIXO: `enabled + private` também deixa de ser publicamente cacheável', async () => {
+    // O EIXO DE PRIVACIDADE NASCEU NA FASE F6 E ESTA DECISÃO NÃO O TINHA APRENDIDO.
+    // `setImmutableHeaders` decidia só por `status`, então a imagem de um projeto
+    // `enabled + private` — que só alcança quem tem concessão ou empréstimo — saía
+    // marcada `public, max-age=31536000, immutable`: um CDN podia guardá-la por um ANO
+    // e repor a qualquer um, com a aplicação nunca consultada. Corrigido na F9.
+    //
+    // A DISCRIMINAÇÃO É O MESMO BYTE. O projeto, a foto e o ETag são os mesmos nas duas
+    // metades; a única coisa que muda é a coluna `access_level`. Um caso com dois
+    // projetos diferentes não separaria "o eixo passou a contar" de "este projeto sempre
+    // foi tratado assim".
+    const publico = await supertest(app)
+      .get(url(`/photos/${enabledPhotoId}/image`))
+      .expect(200);
+    assert.match(publico.headers['cache-control'], /^public,/, 'piso: enabled+public é público');
+
+    await db.query(
+      `UPDATE sv360.projects SET access_level = 'private' WHERE slug = $1`, [ENABLED_SLUG]
+    );
+    try {
+      const privado = await supertest(app)
+        .get(url(`/photos/${enabledPhotoId}/image`))
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+      assert.match(privado.headers['cache-control'], /^private,/);
+      assert.match(privado.headers.vary ?? '', /Authorization/);
+      assert.equal(privado.headers.etag, publico.headers.etag, 'o ETag é dos BYTES e não muda');
+    } finally {
+      await db.query(
+        `UPDATE sv360.projects SET access_level = 'public' WHERE slug = $1`, [ENABLED_SLUG]
+      );
+    }
+    // E o par de volta: remarcado público, volta a ser publicamente cacheável.
+    const devolta = await supertest(app)
+      .get(url(`/photos/${enabledPhotoId}/image`))
+      .expect(200);
+    assert.match(devolta.headers['cache-control'], /^public,/);
   });
 
   it('a DISABLED project image is NOT publicly cacheable', async () => {

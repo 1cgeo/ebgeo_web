@@ -1,6 +1,6 @@
 # Trilha de Auditoria de Negócio
 
-Evento de domínio persistido em `audit_trail` que pode participar da transação da mutação auditada, com um CHECK fechado de ações do qual três continuam sem emissor.
+Evento de domínio persistido em `audit_trail` que pode participar da transação da mutação auditada, com um CHECK fechado de ações cuja cobertura é hoje cobrada por um teste-censo em vez de por leitura.
 
 ## Auditoria é transacional, e isso inverte a intuição de log
 
@@ -14,29 +14,37 @@ O terceiro argumento `t` de `createAudit` (`backend/src/utils/audit.js`) faz o I
 
 ## Por que `actor_id` não tem FK
 
-Decisão deliberada, comentada na DDL de `audit_trail` (`backend/src/database/migrations/001_core.sql`). As duas alternativas foram rejeitadas pelo mesmo motivo: com `ON DELETE CASCADE` a trilha se apagaria exatamente no caso em que mais importa; com `RESTRICT` o delete de usuário quebraria. Consequência para quem lê a trilha: `actor_id` pode apontar para usuário inexistente, então a UI precisa tolerar join vazio.
+Decisão deliberada, comentada na DDL de `audit_trail` (`backend/src/database/migrations/002_auditoria.sql`). As duas alternativas foram rejeitadas pelo mesmo motivo: com `ON DELETE CASCADE` a trilha se apagaria exatamente no caso em que mais importa; com `RESTRICT` o delete de usuário quebraria. Consequência para quem lê a trilha: `actor_id` pode apontar para usuário inexistente, então a UI precisa tolerar join vazio.
 
 É para isso que `target_name` existe: **snapshot do nome no momento do evento, não referência viva**. Renomear a OM depois não reescreve a trilha, e isso é intencional.
 
-## O CHECK não é cobertura
+## O CHECK não é cobertura, e por isso a cobertura virou teste
 
-A lista de ações permitidas é fechada por CHECK (`backend/src/database/migrations/001_core.sql`, ampliada por `007_audit_zone_actions.sql`), e a cobertura andou muito: onde havia seis chamadas a `createAudit` no repositório, hoje há dezoito, espalhadas por `users`, `zones`, `sharing` e `organizations`. **Três ações continuam sem emissor nenhum**, e é essa a lista que importa:
+**Filtro que por construção nunca casa se lê como "nada aconteceu", não como "nunca foi ligado".** É a razão de esta seção existir, e o caso extremo durou desde o primeiro dia: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` estavam **declaradas** no CHECK desde o primeiro esquema, com zero emissores em `src/`. Uma ação declarada sem emissor lê como "isto é auditado".
 
-- **`LOGIN`/`LOGOUT` não existem na trilha.** Auditoria de sessão não está implementada; quem precisa disso hoje só tem o log operacional.
-- **`ATLAS_DELETE` nunca é emitida**, apesar de ser mutação sensível ([[atlas-modelo-de-dados]]). `SHARING_CHANGE` e `PERMISSION_REVOKE`, que esta seção listava junto, passaram a ser emitidas por `backend/src/modules/sharing/sharing.service.js`.
-- `target_type` `GROUP`, `MODEL` e `SYSTEM` continuam no CHECK sem nenhum call site.
+As três ganharam emissor em 2026-08-17, junto com catorze ações novas (`backend/src/database/migrations/002_auditoria.sql`), e o que interessa aqui é o que substituiu a leitura à mão: `backend/tests/unit/auditoria-censo.test.js` varre o versionamento, exige que **toda rota de escrita** de todo `*.routes.js` apareça classificada em uma de três classes (auditada, isenta por decisão, buraco conhecido), confere que o arquivo emissor declarado realmente cite a ação declarada, e cobra que **toda ação do CHECK tenha ao menos um emissor**. As duas propriedades que fazem o censo valer alguma coisa: buraco tem **teto** (senão a saída fácil para uma rota nova sem trilha é declará-la buraco e seguir), e ele prova que reprova, apontando a mesma varredura para uma fixture não classificada.
 
-**Filtro que por construção nunca casa se lê como "nada aconteceu", não como "nunca foi ligado"**, e essa é a razão de esta seção existir. Foi assim que `USER_CREATE` passou meses no CHECK sem emissor, e é o mesmo risco de qualquer ação da lista acima.
+O que ele NÃO prende: o conteúdo da linha. Que a trilha traga o ator, o alvo certo e os detalhes é comportamento, e mora em `backend/tests/integration/auditoria-acoes-novas.test.js`.
 
-**A revogação de zona é a exceção que continua muda por `action`.** `setZonePermissions` é replace-set e grava sempre `PERMISSION_GRANT`, inclusive com array vazio, que na prática é revogação total. Para detectar revogação nesse caminho é preciso comparar `details.before` com `details.after`, nunca a `action`. Já o `DELETE` da zona inteira, que revoga tudo por CASCADE, tem hoje o seu próprio `ZONE_DELETE`. Ver [[zonas-acesso-geografico]].
+**O alvo voltou a ser coluna de primeira classe.** `target_id` era UUID enquanto o id de catálogo é slug, então o alvo viajava dentro de `details` com `target_type = 'SYSTEM'`, e `idx_audit_target` não respondia "tudo que já foi feito com este recurso". O alargamento para TEXT devolveu o alvo às colunas, e 'SYSTEM' voltou a significar sistema. Consequência para quem consulta: o `target_id` é heterogêneo por construção (slug de catálogo, UUID de projeto 360, a chave textual `app_config`), e nenhuma consulta do módulo filtra ou junta por ele.
 
-O custo do CHECK fechado: ação nova exige migração de schema, não só código, e foi exatamente o que as três ações de zona custaram. Em troca, typo em `action` falha na hora em vez de virar lixo silencioso.
+Duas exclusões deliberadas, para não serem lidas como esquecimento: **calibração de foto 360** fica fora por frequência (a foto já tem `updated_at`, e a auditoria do 360 é no nível do projeto, que é onde o acesso se decide) e **login falho** fica fora por impossibilidade estrutural (`actor_id` é NOT NULL, e uma tentativa recusada não tem ator identificado; o `username` digitado não é identidade).
+
+Quatro `target_type` ficaram declarados sem emissor, e a distinção entre eles é o que vale a pena saber: `GROUP` e `MODEL` nunca tiveram escritor (herança do primeiro CHECK), enquanto `SYSTEM` e `STREETVIEW_MARKER` **tinham e perderam** (o primeiro era o depósito do alvo que não cabia nas colunas, e a revisão do alvo o devolveu a elas; o segundo caiu junto com a tabela de catálogo homônima, apagada em 2026-08-17, ver [[resources-catalogo]]). Removê-los do CHECK seria DDL destrutiva sem ganho, e linha de trilha já gravada pode carregá-los. Os quatro estão nomeados no censo: vocabulário reservado é diferente de vocabulário esquecido, e a única forma de manter a distinção é escrevê-la.
+
+`GROUP` segue sem emissor **por decisão, e não por inércia**: quando o grupo de acesso ganhou trilha, ele declarou o alvo `ACCESS_GROUP` em vez de reusar aquele valor, que pertence ao grupo de FEIÇÃO de um mapa. Reusar faria as duas histórias caírem no mesmo balde de `idx_audit_target`, e "o que já foi feito com este grupo" passaria a ter duas respostas misturadas ([[grupo-de-acesso]]).
+
+O custo do CHECK fechado: ação nova exige migração de schema, não só código, e foi exatamente o que as catorze ações de 2026-08-17 custaram. Em troca, typo em `action` falha na hora em vez de virar lixo silencioso.
+
+**O vocabulário deixou de morar num arquivo só, e quem lê por nome de arquivo passa a mentir nas duas direções.** A consolidação de 2026-08-19 fez os dois CHECK nascerem inline na baseline de auditoria, e o arquivo seguinte já os alargou, porque forward-only proíbe editar uma migração que algum banco já aplicou: alargar é derrubar e repor o constraint num arquivo novo. O censo passou a varrer as migrações em ordem decrescente e a valer-se da **última** declaração, que é o que o banco faz. Enquanto ele lia a baseline por nome, o efeito seria simultaneamente reprovar rota nova cuja ação foi declarada depois e parar de cobrar emissor para as ações novas, isto é, a própria classe de defeito que o censo existe para impedir, entrando pela porta do guarda.
 
 ### Armadilha: auditoria de organização não é atômica
 
-As três ações de OM auditam **depois** do serviço retornar, no controller e fora de qualquer transação (`backend/src/modules/organizations/organizations.controller.js`), ao contrário de todo o ciclo de vida de usuário, das três ações de zona e da rotação de API key, que passam `t`. Se o INSERT de auditoria falhar, a OM já foi criada, alterada ou desativada e o cliente ainda recebe 500: estado divergente entre operação e trilha.
+As três ações de OM auditam **depois** do serviço retornar, no controller e fora de qualquer transação (`backend/src/modules/organizations/organizations.controller.js`), ao contrário de todo o ciclo de vida de usuário e da rotação de API key, que passam `t`. Se o INSERT de auditoria falhar, a OM já foi criada, alterada ou desativada e o cliente ainda recebe 500: estado divergente entre operação e trilha.
 
-`organizations` é hoje o **único** módulo assim, o que torna a inconsistência mais cara do que era quando havia vários: o padrão do repositório é auditar dentro do `tx` do service, e um leitor que copie o controller de OM copia a exceção achando que copia a regra. Ao auditar algo novo em [[organizacoes-om]], mova a chamada para dentro do service, como fazem [[gestao-usuarios]] e [[zonas-acesso-geografico]].
+`organizations` é o único módulo que audita fora de uma transação **que existe**, e é isso que o torna a exceção perigosa de copiar: o padrão do repositório é auditar dentro do `tx` do service. O catálogo audita no controller pelo motivo oposto e legítimo (cada escrita é uma query só, não há transação a que aderir, e o controller é o único ponto que tem `req` e a tabela ao mesmo tempo), então ele não é precedente. Ao auditar algo novo em [[organizacoes-om]], mova a chamada para dentro do service, como faz [[gestao-usuarios]].
+
+**Auditoria bloqueante é a regra, e o best-effort é exceção nomeada.** `createAuditBestEffort` existe para três sítios do caminho de credencial (login, logout e o auto-cadastro): ali uma falha de escrita da trilha não pode virar 500, porque derrubaria a entrada de todo mundo, e no auto-cadastro reabriria pela exceção o oráculo de existência de conta que o 201 uniforme fecha ([[gestao-usuarios]]). Fora deles, uma trilha que falha derruba a mutação, e é assim que se quer.
 
 ## Leitura: armadilhas de integração de `GET /api/v1/audit`
 
@@ -49,7 +57,7 @@ Quatro pegadinhas para quem for construir a tela:
 - **Filtros são igualdade exata**, via `($1::text IS NULL OR action = $1)` (`backend/src/modules/audit/audit.queries.js`). Não há busca parcial nem case-insensitive: `action=org_create` não retorna nada, e `action=all` filtra por uma ação literal chamada `all` devolvendo lista vazia sem erro. Para "todos", **omita o param**. Params desconhecidos são descartados em silêncio pelo `stripUnknown` (`backend/src/middleware/validate.js`), então um filtro com nome errado parece funcionar e traz tudo.
 - **Linhas saem em snake_case**, sem camelização, ao contrário de outras superfícies do cliente (ver [[api-rest-atlas]]).
 
-Não há filtro por intervalo de datas nem por `targetId`, apesar do índice `(target_type, target_id)` existir. `total` e as linhas vêm de duas queries em `Promise.all` sem transação (`backend/src/modules/audit/audit.service.js`): sob escrita concorrente podem discordar por uma linha, irrelevante para tela de admin, relevante se alguém usar isso para reconciliação exata.
+O filtro por `targetId` nasceu junto com o alargamento, e é o que paga a migração: sem ele "tudo que já foi feito com este recurso" continuaria não sendo respondível, apesar do índice `(target_type, target_id)`. Continua **não** havendo filtro por intervalo de datas. `total` e as linhas vêm de duas queries em `Promise.all` sem transação (`backend/src/modules/audit/audit.service.js`): sob escrita concorrente podem discordar por uma linha, irrelevante para tela de admin, relevante se alguém usar isso para reconciliação exata.
 
 ## Estado no frontend
 
@@ -59,4 +67,5 @@ Auditoria é REST puro e admin-only: não gera nem consome operações de colabo
 
 ## Histórico
 
-- **2026-07-25.** A seção "O CHECK não é cobertura" descrevia seis chamadas contra 15 ações e nomeava `SHARING_CHANGE` e `PERMISSION_REVOKE` como nunca emitidas. Superado: são dezoito call sites, o CHECK ganhou as três ações de zona por migração, e só `LOGIN`, `LOGOUT` e `ATLAS_DELETE` seguem sem emissor.
+- **2026-07-25.** A seção "O CHECK não é cobertura" descrevia seis chamadas contra 15 ações e nomeava `SHARING_CHANGE` e `PERMISSION_REVOKE` como nunca emitidas. Superado pela cobertura de `users` e `sharing`.
+- **2026-08-17.** A página inteira girava em torno de "três ações continuam sem emissor" (`LOGIN`, `LOGOUT`, `ATLAS_DELETE`) e de alvos sem call site. Superado em 2026-08-17: as três ganharam emissor, catorze ações novas entraram (catálogo, `config_settings`, ciclo de vida do atlas, 360 no nível do projeto, escopo de produção, purga de concessões), `target_id` virou TEXT, e a cobertura passou a ser cobrada por censo em vez de por leitura. Esta é a forma de conteúdo que o [[wiki-schema]] adverte: lista de furos abertos escrita no presente vence por trabalho alheio, e vira lista de mentiras no dia em que a fase seguinte fecha os itens.

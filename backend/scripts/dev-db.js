@@ -158,8 +158,8 @@ async function ensureExtensions() {
 // DESTRUTIVO — dropa e recria o banco de dev do zero.
 //
 // Necessário porque as migrações são rastreadas por NOME DE ARQUIVO, não por
-// conteúdo: quando 001–005 foram consolidadas/reescritas no lugar (pré-release),
-// todo banco criado ANTES disso ficou preso no schema antigo, com o runner
+// conteúdo: quando as primeiras migrações foram consolidadas/reescritas no lugar
+// (pré-release), todo banco criado ANTES disso ficou preso no schema antigo, com o runner
 // reportando alegremente "already applied". O sintoma é uma tabela que sumiu do
 // nada (ex.: `basemaps` não existe → GET /api/config responde 500).
 //

@@ -3,6 +3,7 @@
 
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
+import { pruneResourcePayload } from '../catalog/resource-payload.prune.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
@@ -82,7 +83,13 @@ export function broadcastToRoom(
   if (!room) return { sent: 0, recipients: [] };
 
   const coalescable = typeof message === 'object' && message !== null && COALESCABLE_TYPES.has(message.type);
-  const payload = typeof message === 'string' ? message : JSON.stringify(message);
+  // Pruned as an OBJECT, once, before the fan-out. The per-socket boundary (`collab.send.js`)
+  // would catch it anyway, but it would catch it N times over a serialized string; doing it here
+  // means the string handed to every socket carries no discriminator, so each of them pays one
+  // substring scan and no parse. Cost and correctness point the same way.
+  const payload = typeof message === 'string'
+    ? message
+    : JSON.stringify(pruneResourcePayload(message));
 
   const recipients = [];
   for (const client of room) {
@@ -114,9 +121,22 @@ export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } =
   const room = rooms.get(atlasId);
   if (!room || !Array.isArray(ops) || ops.length === 0) return { sent: 0, recipients: [] };
 
-  const fullPayload = JSON.stringify({ type: 'operations', userId, ops });
-  const nonComment = ops.filter((o) => o && (o.entityType || o.target) !== 'comment');
-  const hasComment = nonComment.length !== ops.length;
+  // Pruned by CONTENT, before the fan-out. `sync.controller.js` (HTTP push) and
+  // `collab.handlers.js` (WS push) each re-broadcast the pusher's payload verbatim, and a client
+  // still stamps the catalog-layer DEFINITION into what it writes. Relayed as-is, that URL reaches
+  // every socket in the room — the anonymous public-link visitor included, who holds `read`.
+  //
+  // THIS IS NOT THE GUARANTEE, ONLY THE CHEAP HALF OF IT, and saying otherwise is what cost F12 a
+  // whole phase: the comment that used to sit here concluded that "a third relay caller is covered
+  // by construction", and a fourth relay caller (`handleOperation`, which broadcasts a SINGULAR
+  // `operation` frame and never touches this function) was live the whole time. What covers every
+  // relay, counted or not, is the per-socket boundary in `collab.send.js`. Pruning here as well
+  // keeps the fan-out from paying for it once per recipient. See `catalog/resource-payload.prune.js`.
+  const servedOps = pruneResourcePayload(ops);
+
+  const fullPayload = JSON.stringify({ type: 'operations', userId, ops: servedOps });
+  const nonComment = servedOps.filter((o) => o && (o.entityType || o.target) !== 'comment');
+  const hasComment = nonComment.length !== servedOps.length;
   const readPayload = nonComment.length
     ? JSON.stringify({ type: 'operations', userId, ops: nonComment })
     : null;

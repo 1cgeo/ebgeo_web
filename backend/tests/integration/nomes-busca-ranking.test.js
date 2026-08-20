@@ -65,32 +65,32 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     // ── 118: oito nomes casáveis pelo mesmo token ────────────────────────────
     const oito = Array.from({ length: 8 }, (_, i) => `Bravo${T118} ${i + 1}`);
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       SELECT n, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($2,$3),4674) FROM unnest($1::text[]) AS n`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       SELECT n, 'Cidade', ST_SetSRID(ST_MakePoint($2,$3),4674) FROM unnest($1::text[]) AS n`,
       [oito, P118.lon, P118.lat]
     );
 
     // ── 119: MESMO nome/tipo, um no ponto da consulta e outro ~3° a leste ────
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($2,$3),4674)),
-              ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($4,$3),4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       VALUES ($1, 'Cidade', ST_SetSRID(ST_MakePoint($2,$3),4674)),
+              ($1, 'Cidade', ST_SetSRID(ST_MakePoint($4,$3),4674))`,
       [`Alfa${T119}`, P119.lon, P119.lat, P119.lon + 3]
     );
 
     // ── 119b: MESMO nome, MESMO ponto, tipos de peso extremo (1.0 vs 0.15) ───
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade',    'public', ST_SetSRID(ST_MakePoint($2,$3),4674)),
-              ($1, 'Cemiterio', 'public', ST_SetSRID(ST_MakePoint($2,$3),4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       VALUES ($1, 'Cidade', ST_SetSRID(ST_MakePoint($2,$3),4674)),
+              ($1, 'Cemiterio', ST_SetSRID(ST_MakePoint($2,$3),4674))`,
       [`Charlie${T119B}`, P119B.lon, P119B.lat]
     );
 
     // ── 120: nome ACENTUADO + um vizinho apenas parcialmente similar ─────────
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($3,$4),4674)),
-              ($2, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($3,$4),4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       VALUES ($1, 'Cidade', ST_SetSRID(ST_MakePoint($3,$4),4674)),
+              ($2, 'Cidade', ST_SetSRID(ST_MakePoint($3,$4),4674))`,
       [`Sítio Açu${T120}`, `Sitio Acu${T120} do Norte Velho`, P120.lon, P120.lat]
     );
 
@@ -99,16 +99,16 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     // acentos e o predicado `%` casa mesmo sem f_unaccent — medido. Só um nome
     // curto e muito acentuado deixa a remoção do f_unaccent do OPERADOR visível.
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($2,$3),4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       VALUES ($1, 'Cidade', ST_SetSRID(ST_MakePoint($2,$3),4674))`,
       [`Ñuñoã Açaí`, P120.lon, P120.lat]
     );
 
     // ── 121: dois pontos de MESMO nome/tipo a ~1,5 km ────────────────────────
     await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($2,$4),4674)),
-              ($1, 'Cidade', 'public', ST_SetSRID(ST_MakePoint($3,$4),4674))`,
+      `INSERT INTO ng.nomes_geograficos (nome, tipo, geom)
+       VALUES ($1, 'Cidade', ST_SetSRID(ST_MakePoint($2,$4),4674)),
+              ($1, 'Cidade', ST_SetSRID(ST_MakePoint($3,$4),4674))`,
       [`Delta${T121}`, P121A.lon, P121B.lon, P121A.lat]
     );
 
@@ -206,7 +206,7 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     };
 
     // Os pesos vêm do trigger ng.calcular_tipo_peso, não de um número chutado aqui.
-    // Isto já pegou uma mudança real: até a migração 009 'Cemiterio' caía no ramo
+    // Isto já pegou uma mudança real: num estado anterior do trigger 'Cemiterio' caía no ramo
     // '%rio%' (0.85, substring) ANTES do ramo do cemitério, e hoje vale 0.15 — um
     // valor hardcoded teria ficado vermelho na correção em vez de acompanhá-la.
     // O que este teste prende é o GAP, não o número.

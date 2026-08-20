@@ -47,7 +47,7 @@ Três vezes durante a calibração o conjunto discordou do algoritmo, e nas trê
 
 - a família de homônimos tinha consultas como `"13036162"`, porque o acervo guarda identificadores de origem na coluna `nome` e eles são repetidos, logo entravam como homônimos com prioridade;
 - a política era aplicada sobre todos os candidatos em vez de "entre os que casam", e em 28 de 60 casos o alvo resolvido nem era o nome consultado;
-- um caso negativo cobrava que buscar "cemitério" não trouxesse `Rio` no top-5, como proxy da regressão da migração 009. Mau proxy: o acervo tem rios legitimamente chamados "Rio do Cemitério", então o caso reprovava a resposta certa, e reprovava justo os modelos que ordenavam melhor.
+- um caso negativo cobrava que buscar "cemitério" não trouxesse `Rio` no top-5, como proxy da regressão que a mudança de `tipo_peso` para fronteira de palavra fechou. Mau proxy: o acervo tem rios legitimamente chamados "Rio do Cemitério", então o caso reprovava a resposta certa, e reprovava justo os modelos que ordenavam melhor.
 
 E uma quarta vez do outro lado: quando o degrau de categoria entrou, a família de homônimos caiu, e a inspeção mostrou que em 9 das 20 falhas o primeiro colocado era uma Cidade do mesmo nome logo fora do raio de 60 km. O ranking acertava; a expectativa é que estava velha, congelada numa leitura anterior da doutrina.
 

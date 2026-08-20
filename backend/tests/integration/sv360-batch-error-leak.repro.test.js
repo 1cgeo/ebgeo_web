@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import logger from '../../src/utils/logger.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
@@ -42,9 +43,16 @@ function uuidv5(name) {
 /** Texto que só nasce no driver do Postgres. */
 const DRIVER_TEXT = /constraint|pkey|sqlstate|violates|column|relation|out of range for type|\binteger\b|\bsv360\b|\bphotos\b/i;
 
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = crypto.randomUUID() }) {
+// O EIXO DE ESCRITA/OCULTACAO DO 360 e o ESCOPO DE PRODUCAO (`producer_org_id`),
+// concedido por administrador. `organization_id` + `org_role` — lotacao
+// AUTO-DECLARADA no auto-cadastro — deixou de autorizar qualquer coisa, e continua
+// viajando so como exibicao.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub, username: `u_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `u_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -101,7 +109,12 @@ describe('POST /sv360/photos/batch-calibration — erro por item sanitizado (109
       );
     }
 
-    ownerToken = mintToken({ orgId, orgRole: 'owner' });
+    // OS ATORES COM PODER PRECISAM DE LINHA EM `users`, e nao so de claim: as rotas de
+    // LEITURA do 360 resolvem papel e producao no SQL, a partir do UUID. Um `sub`
+    // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
+    // de autorizacao que e, na verdade, fixture.
+    const produtor = await createProducerUser(db, orgId, { username: `blk_prod_${crypto.randomUUID().slice(0, 8)}` });
+    ownerToken = mintToken({ orgId, producerOrgId: orgId, sub: produtor.id });
   });
 
   after(async () => {

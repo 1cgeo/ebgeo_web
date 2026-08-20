@@ -5,37 +5,110 @@
 // lon/lat are exposed via ST_X(geom)/ST_Y(geom) so callers never read the column
 // directly. Tombstoned photos (sv360.deleted_photos) are excluded everywhere.
 
+/**
+ * O PREDICADO DE LEITURA DO 360, numa definição só.
+ *
+ * Ele já vivia dentro do SQL — o cabeçalho de `sv360.tiles.queries.js` chama isso
+ * de "defense in depth", e diz por quê: o dado do 360 já vazou duas vezes por
+ * rotas em que o acesso morava só na camada de aplicação. O que mudou na fase F6
+ * foi a FORMA do primeiro termo, e a mudança é de segurança:
+ *
+ *   ANTES  `$1::boolean` — um `isAdmin` calculado no JS. `TRUE` curto-circuita a
+ *          disjunção INTEIRA, então um erro naquele cálculo não erra: ele ABRE. E
+ *          `flexibleAuth` (que autentica este caminho) não reconcilia contra o
+ *          banco, então um admin rebaixado carregava o papel por até 15 min.
+ *   DEPOIS `fn_has_global_data_access($U::uuid)` — o SQL resolve o papel a partir
+ *          do UUID. A janela some por construção, e o CREDENCIADO entra no mesmo
+ *          passo. (Esta linha dizia "curador": aquele valor foi substituído por
+ *          `credenciado` antes de qualquer banco aplicá-lo, e o CHECK de `users.role`
+ *          o recusa hoje.)
+ *
+ * A SEGUNDA MUDANÇA DE FORMA, e ela é da mesma família: o termo da OM era
+ * `organization_id = $orgId`, com o `$orgId` vindo de `users.organization_id` — uma
+ * LOTAÇÃO auto-declarada no auto-cadastro (`POST /auth/register` aceita qualquer OM
+ * ativa e a conta sem e-mail nasce ativa na hora). Ou seja, escolher a OM na tela de
+ * cadastro abria todo projeto oculto e privado daquela OM. O termo passa a ser
+ * `fn_can_produce_resource`, o escopo de PRODUÇÃO, que só um administrador concede.
+ * O eixo de OM não sumiu: mudou de auto-declarado para concedido.
+ *
+ * TRÊS PROPRIEDADES PRESERVADAS DE PROPÓSITO (D6):
+ *   - a OM PRODUTORA continua vendo o próprio projeto, inclusive privado e inclusive
+ *     desabilitado: privacidade restringe quem está de FORA, não quem produz o dado;
+ *   - `status = 'disabled'` continua ocultando de todo mundo fora dela, e também de
+ *     quem tem concessão — os dois eixos são ORTOGONAIS;
+ *   - `enabled + public` continua sendo público para o anônimo.
+ *
+ * Escrito como FUNÇÃO e não como constante porque o número do placeholder muda por
+ * consulta. Uma segunda cópia do predicado é a dívida que o schema `ng` já paga.
+ *
+ * @param {number} pUser - Índice do parâmetro do userId (uuid, nullable).
+ * @param {number} pAtlas - Índice do parâmetro do atlas em foco (uuid, nullable).
+ * @param {string} [alias=''] - Prefixo da tabela de projetos (ex.: 'pr.').
+ * @returns {string} Fragmento de WHERE, já entre parênteses.
+ */
+export const sv360AccessPredicate = (pUser, pAtlas, alias = '') => `(
+        fn_has_global_data_access($${pUser}::uuid)
+        OR fn_can_produce_resource($${pUser}::uuid, 'sv360_project', ${alias}id::text)
+        OR ( ${alias}status = 'enabled'
+             AND ( ${alias}access_level = 'public'
+                   OR ${alias}id::text IN (SELECT resource_id
+                                    FROM fn_granted_resource_ids($${pUser}::uuid, $${pAtlas}::uuid, 'sv360_project')) ) )
+      )`;
+
 // List projects. `enabled` is always public; disabled projects are visible only
-// to a global admin or to a member of the owning organization.
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+// to a global admin/credenciado or to the PRODUCING organization.
+//   $1 = userId (uuid, nullable), $2 = atlasId (uuid, nullable)
 export const LIST_PROJECTS = `
   SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
          capture_date
   FROM sv360.projects
-  WHERE ($1::boolean OR status = 'enabled' OR organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 2)}
   ORDER BY name
 `;
 
 // Single project by slug, with the ACCESS FILTER EMBEDDED (a slug is UNIQUE only
 // per organization, so a cross-org collision must be resolved here, not with a
-// non-deterministic rows[0]). Anon ($2 false, $3 null) matches only enabled; a
-// member/admin also matches their own/any org. ORDER prefers the caller's OWN org,
-// then enabled, for a deterministic single row (no cross-org thumbnail/data leak).
-//   $1 = slug, $2 = isAdmin (boolean), $3 = userOrgId (uuid, nullable)
+// non-deterministic rows[0]). Anon ($2 null, $3 null) matches only enabled+public.
+//   $1 = slug, $2 = userId (uuid, nullable), $3 = atlasId (uuid, nullable),
+//   $4 = OM PREFERIDA do chamador (uuid, nullable) — SÓ para o ORDER BY
+//
+// O `access_level` viaja no SELECT porque `isProjectReadable` (o cinto de
+// seguranca na camada de aplicacao) precisa do eixo novo, e sem a coluna ele
+// decidiria por dois eixos onde existem tres.
+//
+// O ORDER BY E O DESEMPATE CROSS-ORG, e nao enfeite: um slug e UNIQUE so POR
+// ORGANIZACAO, entao duas OMs podem ter o mesmo, e sem esta ordenacao o `rows[0]`
+// seria nao-deterministico — o que ja seria vazamento de miniatura entre OMs.
+// Reescrever o WHERE e exatamente quando um ORDER BY vizinho se perde, e foi o que
+// quase aconteceu aqui: o `$3` que a preferencia usava era o `orgId` do chamador,
+// que SAIU do WHERE junto com o eixo auto-declarado. Se ele tivesse ficado, passaria
+// a apontar para o `atlasId` e a comparacao seria sempre falsa, com a ordenacao
+// virando arbitrária em silêncio. Por isso a preferência ganhou PARAMETRO PROPRIO,
+// que NAO APARECE NO WHERE: ela e ordenacao, nunca autorizacao, e o `$4` isolado e o
+// que torna essa distincao visivel para quem editar a consulta depois.
 export const GET_PROJECT_BY_SLUG = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status, capture_date
+         entry_photo_id, photo_count, db_filename, status, capture_date, access_level
   FROM sv360.projects
   WHERE slug = $1
-    AND ($2::boolean OR status = 'enabled' OR organization_id = $3::uuid)
-  ORDER BY (organization_id = $3::uuid) DESC, (status = 'enabled') DESC, organization_id
+    AND ${sv360AccessPredicate(2, 3)}
+  ORDER BY (organization_id = $4::uuid) DESC, (status = 'enabled') DESC, organization_id
   LIMIT 1
 `;
+
+// O PREDICADO ENTROU NAS QUATRO CONSULTAS DE FOTO NA FASE F9, e a ausência dele era o
+// buraco mais fundo do módulo. Elas decidiam por `isProjectReadable`, que só conhece o
+// eixo de `status`, então um projeto `enabled + private` entregava metadado, imagem e
+// vizinhança a QUALQUER UM que soubesse o uuid ou o `original_name` — e `/photos/nearest`
+// os entregava por COORDENADA, sem precisar de identificador nenhum. O censo de
+// superfícies (`tests/unit/superficies-de-recurso-censo.test.js`) nasceu com a classe
+// que nomeava essas quatro; hoje elas são SQL-COMPLETO como as irmãs.
 
 // One photo by id, joined to its project (slug/db_filename/org/status for the
 // readability + ETag + BLOB path). lon/lat are derived from geom; ele is kept as
 // the stored column. Excludes tombstoned photos.
-//   $1 = photo id (TEXT uuid v5)
+//   $1 = photo id (TEXT uuid v5), $2 = userId (uuid, nullable),
+//   $3 = atlasId (uuid, nullable)
 export const GET_PHOTO_BY_ID = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
@@ -50,6 +123,7 @@ export const GET_PHOTO_BY_ID = `
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.id = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(2, 3, 'pr.')}
 `;
 
 // One photo by its original filename. A name may collide across projects, so an
@@ -59,7 +133,11 @@ export const GET_PHOTO_BY_ID = `
 // could receive another org's row and then be 404'd by the readability gate — a
 // false negative on data they own. Excludes tombstoned photos.
 //   $1 = original_name
-//   $2 = caller's organization_id (nullable; anonymous simply loses the preference)
+//   $2 = OM PREFERIDA do chamador (nullable; anônimo simplesmente perde a
+//        preferência). Como no GET_PROJECT_BY_SLUG, é ORDENAÇÃO e não autorização:
+//        quem autoriza é o predicado abaixo, e o desempate só escolhe entre as linhas
+//        que ele já deixou passar.
+//   $3 = userId (uuid, nullable), $4 = atlasId (uuid, nullable)
 export const GET_PHOTO_BY_NAME = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
@@ -74,6 +152,7 @@ export const GET_PHOTO_BY_NAME = `
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.original_name = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(3, 4, 'pr.')}
   ORDER BY (pr.organization_id = $2) DESC, (pr.status = 'enabled') DESC
   LIMIT 1
 `;
@@ -81,14 +160,23 @@ export const GET_PHOTO_BY_NAME = `
 // O(1) ETag source: sizes + project context, no BLOB read. Excludes tombstoned
 // photos so a soft-deleted photo's blob is never served (same rule as
 // GET_PHOTO_BY_ID / GET_PHOTO_BY_NAME).
-//   $1 = photo id (TEXT uuid v5)
+//
+// `access_level` viaja junto DESDE A FASE F9, e não é enfeite: o controller decidia o
+// ESCOPO DE CACHE da imagem só por `status`, então a foto de um projeto
+// `enabled + private` saía com `public, max-age=1ano, immutable` — um recurso de acesso
+// restrito entregue a um cache compartilhado para repor a qualquer um pelo ano
+// seguinte. Sem esta coluna a decisão teria dois eixos e um dado.
+//   $1 = photo id (TEXT uuid v5), $2 = userId (uuid, nullable),
+//   $3 = atlasId (uuid, nullable)
 export const GET_PHOTO_SIZES = `
   SELECT p.full_size_bytes, p.preview_size_bytes,
-         pr.db_filename, pr.organization_id, pr.status AS project_status
+         pr.db_filename, pr.organization_id, pr.status AS project_status,
+         pr.access_level
   FROM sv360.photos p
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.id = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(2, 3, 'pr.')}
 `;
 
 // Directed adjacency for a photo (visible links only), joined to the target
@@ -127,7 +215,8 @@ export const GET_TARGETS_FOR_PHOTO = `
 // ANOTHER floor closer than 5 m in plan). Without the level the answer is "the
 // nearest point on the map", which is not the same thing as "the nearest photo the
 // user can be standing in", and nothing on screen says which floor was opened.
-//   $1 = lon, $2 = lat, $3 = radiusMeters, $4 = limit
+//   $1 = lon, $2 = lat, $3 = radiusMeters, $4 = limit,
+//   $5 = userId (uuid, nullable), $6 = atlasId (uuid, nullable)
 export const NEARBY_PHOTOS = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          p.floor_level, p.floor_label,
@@ -145,6 +234,7 @@ export const NEARBY_PHOTOS = `
           $3
         )
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND ${sv360AccessPredicate(5, 6, 'pr.')}
   ORDER BY distance_m ASC
   LIMIT $4
 `;
@@ -160,32 +250,32 @@ export const NEARBY_PHOTOS = `
 // TILES_GEOJSON_MAX_FEATURES). Without them one anonymous request scanned and
 // materialized the whole table, holding a pool connection for the duration. The `&&`
 // operator is index-backed by idx_sv360_photos_geom (GiST).
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable),
-//   $3..$6 = minLon/minLat/maxLon/maxLat (double precision, nullable),
-//   $7 = limit (int)
+//   $1 = userId (uuid, nullable),
+//   $2..$5 = minLon/minLat/maxLon/maxLat (double precision, nullable),
+//   $6 = limit (int), $7 = atlasId (uuid, nullable)
 export const TILES_PHOTOS = `
   SELECT p.id, ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
          p.original_name, p.display_name, p.sequence_number, p.heading,
          pr.slug AS project_slug
   FROM sv360.photos p
   JOIN sv360.projects pr ON pr.id = p.project_id
-  WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 7, 'pr.')}
     AND p.geom IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
     AND (
-      $3::double precision IS NULL
-      OR p.geom && ST_MakeEnvelope($3::double precision, $4::double precision,
-                                   $5::double precision, $6::double precision, 4326)
+      $2::double precision IS NULL
+      OR p.geom && ST_MakeEnvelope($2::double precision, $3::double precision,
+                                   $4::double precision, $5::double precision, 4326)
     )
   ORDER BY pr.slug, p.sequence_number
-  LIMIT $7::int
+  LIMIT $6::int
 `;
 
 // The ANDARES of a project, one row per level, with the number of VISIBLE photos
 // standing on each. Feeds GET /projects/:slug/floors (the floor selector).
 //
 // The LEFT JOIN is deliberate: `sv360.project_floors` is what DECIDES a project
-// has floors (migration 012), so a declared level with zero photos must still be
+// has floors, so a declared level with zero photos must still be
 // listed: it is a real floor of the building whose panoramas have not been
 // captured (or were all tombstoned). An INNER JOIN would make the selector lose
 // entries as photos are deleted, which reads as data loss on screen.
@@ -343,7 +433,7 @@ export const REVIEW_STATS_BY_PROJECT = `
 // also the only case where this endpoint and GET /projects/:slug (which prefers the
 // caller's own org) describe different sets, and there is no cross-org slug
 // collision in the current corpus.
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+//   $1 = userId (uuid, nullable), $2 = atlasId (uuid, nullable)
 export const REVIEW_STATS_ALL_PROJECTS = `
   SELECT pr.slug,
          COUNT(p.id)::int AS total,
@@ -352,7 +442,7 @@ export const REVIEW_STATS_ALL_PROJECTS = `
   LEFT JOIN sv360.photos p
     ON p.project_id = pr.id
    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
-  WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
+  WHERE ${sv360AccessPredicate(1, 2, 'pr.')}
   GROUP BY pr.slug
   ORDER BY pr.slug
 `;
@@ -396,7 +486,7 @@ export const TRACKS_BY_PROJECT = `
 // to appear, otherwise the ordinals show a hole the interface cannot explain.
 //
 // A PROJECT ANSWERS EMPTY UNTIL THE DERIVATION RUNS OVER IT. `sv360.capture_runs`
-// (migration 013) is populated by scripts/sv360-derive-runs.js (`npm run
+// is populated by scripts/sv360-derive-runs.js (`npm run
 // sv360:derive-runs`, one project with --slug or every project), which groups the
 // photos by the session id in original_name (sv360.capture-runs.js) and links
 // sv360.photos.run_id / run_position. Ingestion does not call it, so a project it

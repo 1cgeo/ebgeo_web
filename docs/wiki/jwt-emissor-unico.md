@@ -18,11 +18,13 @@ O claim `posto` lê `user.posto_graduacao`, mas `posto_graduacao` **não existe 
 
 Consequência: qualquer query nova que alimente `issueAccessToken` sem repetir o JOIN emite `posto: undefined`, e `jwt.sign` **omite** claims `undefined` em vez de gravar `null`. O 360 recebe um token sem o campo, não com o campo vazio. A renovação deslizante só preserva o campo porque `mapPayload` faz o caminho de volta (`posto` → `posto_graduacao`) antes do re-mint.
 
-## Só `role` é reconciliado ao vivo, e a omissão é deliberada
+## São DOIS claims reconciliados ao vivo, não um
 
-Na rota estrita, `auth` sobrescreve `req.user.role` com o valor do banco (`getLiveAuthState`); a mesma consulta roda antes da renovação do cookie em `flexible-auth.js`, porque re-assinar claims antigos a cada 15 minutos transformava "obsoleto por 15 min" em "obsoleto para sempre".
+Na rota estrita, `auth` sobrescreve `req.user.role` **e** `req.user.producer_org_id` com o valor do banco (`getLiveAuthState`); a mesma consulta roda antes da renovação do cookie em `flexible-auth.js`, porque re-assinar claims antigos a cada 15 minutos transformava "obsoleto por 15 min" em "obsoleto para sempre".
 
-`org_role` e `organization_id` ficam de fora por decisão explícita, comentada no ponto. Um usuário movido de OM ou promovido dentro dela carrega o valor antigo por até uma janela de token. Se seu recurso precisa reagir na hora a mudança de OM, consulte o banco, não o claim. Ver [[organizacoes-om]], [[gestao-usuarios]].
+**O escopo de produção é adotado incondicionalmente**, e a assimetria com as claims de organização é o ponto: produzir é função, não favor, então revogar precisa valer na hora, e não existe token legado a preservar (a claim é nova, e ausente significa "não produz", que é o que o banco diz de quem não tem escopo). Sem isso um produtor rebaixado seguiria escrevendo catálogo e acervo 360 pela janela inteira do token, nos dois caminhos.
+
+`org_role` e `organization_id` continuam de fora, e hoje isso custa menos: eles não autorizam mais nada ([[acesso-a-recurso-privado]]), são lotação e exibição. A reconciliação que existe para eles em `flexible-auth.js` é **condicional a o token já carregar a claim**, e essa condição é a regra inteira: claim ausente degrada para `viewer`/`null` (um token que nunca teve autoridade de OM não pode ganhá-la por reflexo do banco), claim presente reconcilia. Confundir as duas é o que fez "nunca reconcilie" parecer a única forma de honrar a primeira. Ver [[organizacoes-om]], [[gestao-usuarios]].
 
 Corolário: não trate `role` e `org_role` com o mesmo nível de confiança, apesar de virem do mesmo token.
 
@@ -39,13 +41,13 @@ Um token sem claims de organização é remintado como `org_role: 'viewer'` / `o
 O token de link público ([[link-publico]]) não carrega claim algum de organização, e nele convivem **dois** marcadores que é fácil confundir por serem o mesmo tipo de principal:
 
 - **O claim `isPublic` marca o TIPO** e é checado **primeiro**, para confinar o visitante ao atlas que emitiu o token (`confineVisitorPrincipal` em `backend/src/middleware/auth.js`, e o par em `backend/src/middleware/permissions.js`). Confinamento vem antes de isenção: um token que se declara público fica preso ao seu atlas seja qual for o formato do `sub`.
-- **O `sub` fora do formato UUID (`public-<uuid>`) governa a ISENÇÃO** de reconciliação viva (`backend/src/middleware/auth.js`), da renovação deslizante (`backend/src/middleware/flexible-auth.js`) e da busca em `atlas_shares` (`backend/src/middleware/permissions.js`), porque não há linha em `users` para reconciliar. O gazetteer usa a mesma convenção por outra razão: normalizar o `sub` sintético para `null` antes do cast `::uuid` ([[gazetteer-nomes-geograficos]]).
+- **O `sub` fora do formato UUID (`public-<uuid>`) governa a ISENÇÃO** de reconciliação viva (`backend/src/middleware/auth.js`), da renovação deslizante (`backend/src/middleware/flexible-auth.js`) e da busca em `atlas_shares` (`backend/src/middleware/permissions.js`), porque não há linha em `users` para reconciliar.
 
 Se você criar outro tipo de principal sintético, mantenha o `sub` fora do formato UUID. Um `sub` UUID sem linha correspondente entra no caminho de reconciliação, e as isenções falham *em silêncio* (viram consulta vazia), não com erro. Ver [[autenticacao-jwt]] e [[canal-collab-websocket]].
 
 ## Fronteiras que o JWT não decide
 
-Nada no token decide permissão de atlas: ela é resolvida contra o banco no handshake do WebSocket ([[canal-collab-websocket]], [[permissoes-atlas]], [[compartilhamento-atlas]]). São três eixos independentes, sintetizados em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
+Nada no token decide permissão de atlas: ela é resolvida contra o banco no handshake do WebSocket ([[canal-collab-websocket]], [[permissoes-atlas]], [[compartilhamento-atlas]]). São quatro eixos independentes, sintetizados em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
 
 O frontend também não decide nada com o token: ele nunca decodifica o JWT, montando a identidade a partir do objeto `user` da resposta REST. O token é opaco no cliente ([[autenticacao-jwt]], [[sessao-boot-e-ciclo-de-vida]]).
 

@@ -3,7 +3,7 @@
 //
 // O cursor incremental do sync tem DUAS fontes de verdade e nada as amarrava:
 //   • a COLUNA `atlas.current_version`, mantida pelo trigger AFTER INSERT ON
-//     operations (003_sync.sql), devolvida pelo snapshot e lida pela decisão
+//     operations (004_sync.sql), devolvida pelo snapshot e lida pela decisão
 //     snapshot-vs-incremental (GET_ATLAS_SYNC_INFO);
 //   • o CÁLCULO `COALESCE(MAX(server_version),0)` (sync.queries.js GET_CURRENT_VERSION),
 //     que produz o `serverVersion` do ack do push.

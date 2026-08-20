@@ -228,7 +228,7 @@ describe('slide sync accepts the payload the real client emits (repro)', () => {
   //   briefing-editor.control.js:1176  slide.mapId = getCurrentMapNameSync()
   //   :829                             slide.mapId = mapNames[0]
   //   :672                             slide.mapId = mapSelect.value   // <option value=name>
-  // while `slides.map_id` is `UUID REFERENCES maps(id)` (002_atlas.sql:357).
+  // while `slides.map_id` is `UUID REFERENCES maps(id)` (003_atlas.sql).
   //
   // Sending a name into a UUID column raises 22P02, which aborts the tx wrapping the
   // WHOLE push batch. The client only re-queues on a non-2xx, so it replays the same

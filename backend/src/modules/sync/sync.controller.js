@@ -1,6 +1,7 @@
 // Path: src/modules/sync/sync.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import * as syncService from './sync.service.js';
 import { broadcastOperations } from '../collab/collab.rooms.js';
 
@@ -55,9 +56,19 @@ export const pushOperations = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// Since F11 the snapshot embeds catalog-layer definitions filtered by what the CALLER may see,
+// so the response varies by principal and by the atlas in focus. Two consequences, both handled
+// here: the principal is threaded down (`req.user.id` raw — the service normalises the
+// public-link visitor's synthetic sub), and the response is marked as scoped, with the SAME
+// piece the 360 and the catalog listings use. Without the mark, `Cache-Control` is absent and
+// RFC 9111 lets a shared cache keep a member's snapshot by heuristic and replay it to someone
+// who does not reach the private layer inside it.
 export const pullOperations = asyncHandler(async (req, res) => {
   const sinceVersion = parseInt(req.params.version, 10) || 0;
-  const result = await syncService.pullOperations(req.atlasId, sinceVersion, req.atlasPermission);
+  const result = await syncService.pullOperations(
+    req.atlasId, sinceVersion, req.atlasPermission, req.user?.id ?? null,
+  );
+  marcarEscopoJson(req, res);
   res.json({ data: result });
 });
 

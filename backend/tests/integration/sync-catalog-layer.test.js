@@ -77,12 +77,34 @@ describe('Sync — catalogLayer (per-layer)', () => {
     assert.equal(snapMap.catalogLayers[0].name, 'Layer 1 (edited)');
   });
 
-  it('still supports the legacy whole-array form (writes maps.catalog_layers)', async () => {
-    const arr = [{ id: 'wms-a', visible: true }, { id: 'wms-b', visible: false }];
-    await push([op('update', randomUUID(), { catalog_layers: arr })]);
+  it('still accepts the legacy whole-array form, materialised into the dedicated table', async () => {
+    // `maps.catalog_layers` is gone, so the compatibility shim writes where the
+    // reader is. It UPSERTS and never removes: the column write was a whole-array REPLACE, which
+    // was harmless while nothing read the column and would be a wipe against the canonical table.
+    // Its own map: the shim writes real rows now, so sharing the suite's map would leak into
+    // the per-layer cases above.
+    const m = await createMap(db, atlas.id, { name: 'Legacy array form' });
+    const opDoMapa = (data) => ({ ...op('update', randomUUID(), data), mapId: m.id });
 
-    const { rows } = await db.query('SELECT catalog_layers FROM maps WHERE id = $1', [map.id]);
-    assert.deepEqual(rows[0].catalog_layers, arr);
+    const arr = [{ id: 'wms-a', visible: true }, { id: 'wms-b', visible: false }];
+    await push([opDoMapa({ catalog_layers: arr })]);
+
+    const { rows } = await db.query(
+      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
+      [m.id]
+    );
+    assert.deepEqual(rows.map((r) => r.id), ['wms-a', 'wms-b']);
+    assert.deepEqual(rows.map((r) => r.data), arr);
+
+    // And it does not remove what the array omits (the destructive capability the column write
+    // never had).
+    await push([opDoMapa({ catalog_layers: [{ id: 'wms-a', visible: false }] })]);
+    const depois = await db.query(
+      'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
+      [m.id]
+    );
+    assert.deepEqual(depois.rows.map((r) => r.id), ['wms-a', 'wms-b'], 'the omitted layer survives');
+    assert.equal(depois.rows[0].data.visible, false, 'and the one named was updated');
   });
 
   // ---------------------------------------------------------------------------
@@ -214,6 +236,153 @@ describe('Sync — catalogLayer (per-layer)', () => {
 
       const { rows: f } = await db.query('SELECT id FROM features WHERE id = $1', [featureId]);
       assert.equal(f.length, 1, 'the sibling feature in the same batch applied too');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // O SHAPE ENTREGUE É CONTRATO CONGELADO com o documento do IndexedDB: o cliente escreve
+  // `map.catalogLayers` verbatim (`reshapeSnapshotMap` o passa dentro do `...rest`). Os casos
+  // acima afirmam CHAVE A CHAVE ('name', 'visible', 'opacity'), o que pega uma chave que some e
+  // NÃO pega uma chave que aparece, nem uma que só sobrevive por acidente. A F11 mudou de ONDE o
+  // conteúdo vem, e a única defesa contra ela ter mudado o FORMATO junto é comparar o CONJUNTO.
+  //
+  // Reforço, não arquivo paralelo: este é o teste de contrato da entidade, e o par de asserções
+  // abaixo é o que faltava nele.
+  // ---------------------------------------------------------------------------
+  describe('shape freeze — o conjunto de chaves entregue', () => {
+    /** As chaves de um item, ordenadas: comparar conjunto pega o que some E o que aparece. */
+    const chaves = (o) => Object.keys(o).sort();
+
+    it('entrada que NÃO referencia recurso de catálogo atravessa verbatim, com id e sync ao redor', async () => {
+      // O caso comum, e o mais fácil de quebrar por engano: uma poda por ALLOWLIST derrubaria
+      // `sourceId` (chave que o cliente inventa e que o e2e exige de volta) sem nenhum sinal.
+      const m = await createMap(db, atlas.id, { name: 'Shape freeze verbatim' });
+      const layerId = randomUUID();
+      const guardado = {
+        type: 'wms',
+        name: 'Hidrografia',
+        visible: true,
+        opacity: 0.8,
+        sourceId: 'hidro-src',
+        styleOverrides: { raster: { 'raster-opacity': 0.5 } },
+        umaChaveQueOServidorNaoConhece: 42,
+      };
+
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ operations: [{
+          id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
+          entityId: layerId, mapId: m.id, data: guardado,
+          timestamp: Date.now(), clientId: 'c-shape',
+        }] })
+        .expect(200);
+
+      const snap = await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const item = snap.body.data.snapshot.maps
+        .find((mm) => mm.id === m.id).catalogLayers
+        .find((l) => l.id === layerId);
+
+      assert.deepEqual(
+        chaves(item), chaves({ ...guardado, id: layerId, sync: null }),
+        'o item entregue é o payload guardado mais `id` e `sync`, nem uma chave a mais nem a menos',
+      );
+      assert.equal(item.umaChaveQueOServidorNaoConhece, 42, 'e o valor da chave desconhecida também');
+      assert.deepEqual(item.styleOverrides, guardado.styleOverrides);
+      assert.equal(typeof item.sync.version, 'number', '`sync` continua sendo o envelope, não um número');
+    });
+
+    it('entrada que REFERENCIA um recurso recebe `name`/`config` no MESMO lugar de sempre', async () => {
+      // O item que a F11 reidrata. O shape não pode ter se mexido: `name` continua no topo e
+      // `config` continua sendo um objeto ao lado dele, com `config.id` dentro — que é a chave
+      // que o cliente usa para endereçar a camada no gerente que a desenha.
+      const recurso = `shape-freeze-${randomUUID().slice(0, 8)}`;
+      const m = await createMap(db, atlas.id, { name: 'Shape freeze referencia' });
+      await db.query(
+        `INSERT INTO analysis_layers (id, name, config, sort_order, access_level)
+         VALUES ($1, 'Camada do contrato', $2::jsonb, 0, 'public')`,
+        [recurso, JSON.stringify({ source: { type: 'raster', url: '/t/{z}/{x}/{y}.png' } })],
+      );
+      try {
+        // O que o cliente PÓS-F11 grava: referência e estado por atlas, sem definição nenhuma.
+        const guardado = { type: 'analysis_layer', visible: true, opacity: 1, status: 'active' };
+        await supertest(app)
+          .post(`/api/v1/atlas/${atlas.id}/sync`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ operations: [{
+            id: randomUUID(), entityType: 'catalogLayer', operationType: 'create',
+            entityId: `analysis-${recurso}`, mapId: m.id, data: guardado,
+            timestamp: Date.now(), clientId: 'c-shape',
+          }] })
+          .expect(200);
+
+        const snap = await supertest(app)
+          .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+        const item = snap.body.data.snapshot.maps
+          .find((mm) => mm.id === m.id).catalogLayers
+          .find((l) => l.id === `analysis-${recurso}`);
+
+        assert.deepEqual(
+          chaves(item),
+          chaves({ ...guardado, id: `analysis-${recurso}`, sync: null, name: '', config: {} }),
+          'o item entregue é o estado guardado mais `id`, `sync` e a definição (`name` + `config`)',
+        );
+        assert.equal(item.name, 'Camada do contrato');
+        assert.equal(item.config.id, recurso, '`config.id` é a referência, no lugar de sempre');
+        assert.equal(item.config.source.url, '/t/{z}/{x}/{y}.png');
+      } finally {
+        await db.query('DELETE FROM analysis_layers WHERE id = $1', [recurso]);
+      }
+    });
+
+    it('a entrada da forma LEGADA de array atravessa verbatim, `name` e `config` inclusive', async () => {
+      // O mesmo dado que morava na coluna `maps.catalog_layers`, hoje apagada, e que agora é
+      // materializado na tabela dedicada. Ele não tem `type`, logo não CLAMA recurso de catálogo
+      // nenhum, e precisa sair exatamente como entrou.
+      //
+      // As chaves `name` e `config` estão no fixture DE PROPÓSITO, e são elas que dão poder de
+      // discriminação a este caso: são exatamente as duas que a poda tira. Sem elas a entrada não
+      // tem nada a perder, e o `deepEqual` passaria idêntico se alguém fizesse a poda alcançar
+      // toda entrada — que é o erro mais fácil de cometer aqui (medido: com a poda incondicional,
+      // este caso ficava vermelho, e com o predicado por CLAIM ele continua verde).
+      const m = await createMap(db, atlas.id, { name: 'Shape freeze legado' });
+      const arr = [{
+        id: 'wms-a',
+        nome: 'Camada A',
+        visible: true,
+        opacity: 0.3,
+        name: 'Camada A',
+        config: { id: 'wms-a', source: { type: 'raster', url: '/legado/{z}/{x}/{y}.png' } },
+      }];
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ operations: [{
+          id: randomUUID(), entityType: 'catalogLayer', operationType: 'update',
+          entityId: m.id, mapId: m.id, data: { catalog_layers: arr },
+          timestamp: Date.now(), clientId: 'c-shape',
+        }] })
+        .expect(200);
+
+      const snap = await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const item = snap.body.data.snapshot.maps
+        .find((mm) => mm.id === m.id).catalogLayers
+        .find((l) => l.id === 'wms-a');
+
+      assert.deepEqual(
+        chaves(item), chaves({ ...arr[0], sync: null }),
+        'o item entregue é a entrada legada mais `sync`, nem uma chave a mais nem a menos',
+      );
+      assert.equal(item.name, 'Camada A', '`name` sobrevive: a entrada não clama recurso');
+      assert.deepEqual(item.config, arr[0].config, 'e `config` inteiro, URL inclusive');
     });
   });
 });

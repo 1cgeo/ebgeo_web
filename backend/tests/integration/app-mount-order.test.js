@@ -30,6 +30,12 @@ const APP_JS = join(__dirname, '..', '..', 'src', 'app.js');
 // Uma sonda por prefixo montado: um caminho que o SUB-ROUTER daquele prefixo de fato
 // declara. Sem credencial de propósito — 401/403/422/200 são todos aceitáveis, o que
 // importa é a resposta NÃO ser o 404 do catch-all.
+//
+// `method` é OPCIONAL e vale 'get' por padrão. Ele existe porque nem todo router
+// declara um GET: `resource-access` nasceu só com PATCH, e sondá-lo com GET
+// produzia o 404 do catch-all — ou seja, o guarda acusaria "inalcançável" um
+// prefixo perfeitamente montado. Um guarda que só sabe interrogar um verbo obriga
+// o código a ter esse verbo, e isso é a ferramenta mandando no desenho.
 const PROBES = [
   { prefix: '/api/v1/config', path: '/api/v1/config' },
   { prefix: '/api/config', path: '/api/config' },
@@ -41,13 +47,16 @@ const PROBES = [
   { prefix: '/api/v1/data-layers', path: '/api/v1/data-layers' },
   { prefix: '/api/v1/analysis-layers', path: '/api/v1/analysis-layers' },
   { prefix: '/api/v1/tilesets', path: '/api/v1/tilesets' },
-  { prefix: '/api/v1/streetview-markers', path: '/api/v1/streetview-markers' },
   { prefix: '/api/v1/nomes', path: '/api/v1/nomes/busca?q=zz&lat=-22.9&lon=-43.2' },
   { prefix: '/api/v1/organizations', path: '/api/v1/organizations' },
   { prefix: '/api/v1/ranks', path: '/api/v1/ranks' },
   { prefix: '/api/v1/audit', path: '/api/v1/audit' },
-  { prefix: '/api/v1/zones', path: '/api/v1/zones' },
   { prefix: '/api/v1/sv360', path: '/api/v1/sv360/projects' },
+  // Desde F3 o módulo TAMBÉM tem GET (`/visible`), mas a sonda continua no PATCH
+  // de propósito: é a única que exercita a opção `method`, e opção de guarda que
+  // nenhum caso usa é opção que ninguém percebe quebrar.
+  { prefix: '/api/v1/resource-access', path: '/api/v1/resource-access/tileset/x/visibility', method: 'patch' },
+  { prefix: '/api/v1/access-groups', path: '/api/v1/access-groups' },
   { prefix: '/api/v1/debug', path: '/api/v1/debug/trace' },
 ];
 
@@ -111,8 +120,8 @@ describe('app.js mount order — every declared prefix is reachable (112)', () =
     assert.ok(PROBES.length >= 16, `guard: ${PROBES.length} probes is too few to prove anything`);
 
     const catchAll = [];
-    for (const { prefix, path } of PROBES) {
-      const res = await supertest(app).get(path);
+    for (const { prefix, path, method = 'get' } of PROBES) {
+      const res = await supertest(app)[method](path);
       if (res.status === 404 && res.body?.error?.message === 'Route not found') {
         catchAll.push(`${prefix} (via ${path}) -> catch-all 404`);
       }

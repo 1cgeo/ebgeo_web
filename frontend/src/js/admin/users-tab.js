@@ -16,31 +16,43 @@ import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
+import { orgLabel, buildDomainOptions } from './org-options.js';
 
 /**
- * Builds <select> options from a backend controlled list (config.postos /
- * config.organizacoesMilitares). The option VALUE is the row id (FK); a leading
- * "(nenhum)" allows clearing, and the user's current id is preserved (labelled with
- * its derived name) even if it's no longer in the active list.
- * @param {Array<{id:string, name:string}>|undefined} list
- * @param {string} [currentId]
- * @param {string} [currentLabel]
- * @returns {Array<{value:string, label:string}>}
+ * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
+ * Uma constante em vez do literal espalhado: o valor aparece em quatro decisões desta aba.
  */
-function buildDomainOptions(list, currentId, currentLabel) {
-    const opts = [{ value: '', label: '— (nenhum)' }];
-    const seen = new Set();
-    for (const item of (Array.isArray(list) ? list : [])) {
-        if (item && item.id && !seen.has(item.id)) {
-            opts.push({ value: item.id, label: item.name });
-            seen.add(item.id);
-        }
-    }
-    if (currentId && !seen.has(currentId)) {
-        opts.push({ value: currentId, label: `${currentLabel || currentId} (atual)` });
-    }
-    return opts;
-}
+const PRODUCER_ROLE = 'producer';
+
+/**
+ * O selo do papel GLOBAL na tabela.
+ *
+ * SÃO QUATRO PAPÉIS E ELES NÃO SÃO UMA ESCADA: nenhum contém o outro, e a tela nunca os
+ * ordena por poder. Mapa em vez de ternário porque o eixo deixou de ser binário, e um
+ * ternário com quatro valores é a forma que silenciosamente mostra "Usuário" para o papel
+ * novo — foi o que já aconteceu uma vez.
+ * @type {Object<string, {rotulo: string, variante: string}>}
+ */
+const ROLE_CHIP = {
+    admin: { rotulo: 'Administrador', variante: 'admin' },
+    credenciado: { rotulo: 'Credenciado', variante: 'credenciado' },
+    producer: { rotulo: 'Produtor', variante: 'producer' },
+    user: { rotulo: 'Usuário', variante: 'user' },
+};
+
+/**
+ * As opções do papel global, na ordem em que a tela as oferece.
+ *
+ * A ORDEM NÃO É UMA ESCALA e o rótulo diz o que cada um É, para que ninguém escolha um
+ * achando que dá outro: o Credenciado LÊ tudo e não escreve nada; o Produtor escreve, mas
+ * só nos recursos da OM dele. Nada de `<optgroup>` aqui, que sugeriria contenção.
+ */
+const ROLE_OPTIONS = [
+    { value: 'user', label: 'Usuário' },
+    { value: PRODUCER_ROLE, label: 'Produtor (mantém os recursos de uma OM)' },
+    { value: 'credenciado', label: 'Credenciado (lê todo recurso privado; não edita nada)' },
+    { value: 'admin', label: 'Administrador (sistema)' },
+];
 
 /**
  * Builds the "Usuários" tab definition for the admin panel.
@@ -167,9 +179,15 @@ class UsersTab {
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Usuário', 'Papel', 'Org. Militar', 'Status', '']) {
+        // "Lotação" e "OM produtora" são DUAS COLUNAS porque são dois fatos diferentes, e
+        // confundi-los é o defeito que esta fase fecha: a lotação é auto-declarada no
+        // auto-cadastro e não autoriza mais nada; a OM produtora é concedida por um
+        // administrador e É a autorização.
+        for (const h of ['Usuário', 'Papel', 'Lotação', 'OM produtora', 'Status', '']) {
             const th = document.createElement('th');
             th.textContent = h;
+            if (h === 'Lotação') th.title = 'Lotação declarada pelo usuário. Não dá acesso a nada.';
+            if (h === 'OM produtora') th.title = 'A OM cujos recursos este usuário mantém (só para o papel Produtor).';
             hrow.appendChild(th);
         }
         thead.appendChild(hrow);
@@ -202,12 +220,18 @@ class UsersTab {
 
             const roleTd = document.createElement('td');
             const roleChip = document.createElement('span');
-            roleChip.className = `admin-chip admin-chip--${u.role === 'admin' ? 'admin' : 'user'}`;
-            roleChip.textContent = u.role === 'admin' ? 'Admin' : 'Usuário';
+            roleChip.className = `admin-chip admin-chip--${ROLE_CHIP[u.role]?.variante ?? 'user'}`;
+            roleChip.textContent = ROLE_CHIP[u.role]?.rotulo ?? 'Usuário';
             roleTd.appendChild(roleChip);
             tr.appendChild(roleTd);
 
-            tr.appendChild(cell(u.organizacao_militar || '—'));
+            const lotacao = cell(u.organizacao_militar || '—');
+            lotacao.title = 'Lotação declarada pelo usuário. Não dá acesso a nada.';
+            tr.appendChild(lotacao);
+
+            // O nome vem resolvido quando o backend o manda; senão, do catálogo de OMs do
+            // `/api/config`, que é a mesma lista que preenche o seletor do formulário.
+            tr.appendChild(cell(u.producer_org_nome || orgLabel(u.producer_org_id)));
 
             const statusCell = document.createElement('td');
             const badge = document.createElement('span');
@@ -274,22 +298,46 @@ class UsersTab {
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
             buildDomainOptions(config.postos, user?.rank_id, user?.posto_graduacao), user?.rank_id || '');
-        const om = selectField(form, 'Organização Militar', 'admin-userform-om',
+        const om = selectField(form, 'Organização Militar (lotação)', 'admin-userform-om',
             buildDomainOptions(config.organizacoesMilitares, user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
+        form.appendChild(hint('Lotação: rótulo institucional da pessoa, declarado por ela no '
+            + 'auto-cadastro. NÃO autoriza nada — quem autoriza é o par Papel + OM produtora abaixo.'));
 
-        const role = selectField(form, 'Papel', 'admin-userform-role',
-            [{ value: 'user', label: 'Usuário' }, { value: 'admin', label: 'Admin (sistema)' }],
+        // OS QUATRO PAPÉIS GLOBAIS. Ver ROLE_OPTIONS: não são uma escada, e o rótulo de cada
+        // um diz o que ele é para que ninguém escolha um achando que está dando outro.
+        const role = selectField(form, 'Papel', 'admin-userform-role', ROLE_OPTIONS,
             user?.role || 'user');
 
-        // Papel DENTRO da OM, distinto do papel global acima. Sem este campo a coluna
-        // `org_role` não tinha escritor em lugar nenhum dos dois pacotes: todo usuário
-        // ficava no default 'viewer' para sempre e o gate de escrita do StreetView 360
-        // por organização (owner/admin/editor) nunca passava, deixando a edição de
-        // projeto 360 restrita a admin global na prática.
-        const orgRole = selectField(form, 'Papel na OM', 'admin-userform-orgrole',
+        // A OM DE PRODUÇÃO, que só existe para o papel Produtor. O par (papel, escopo) é um
+        // BICONDICIONAL no banco: crachá sem escopo e escopo sem crachá são os dois estados
+        // impossíveis, e o servidor recusa os dois. O campo desaparece fora do papel Produtor
+        // porque um seletor cinza sem explicação vira chamado de suporte.
+        const producerOm = selectField(form, 'OM produtora', 'admin-userform-producer-org',
+            buildDomainOptions(config.organizacoesMilitares, user?.producer_org_id, user?.producer_org_nome,
+                '— escolha a OM'),
+            user?.producer_org_id || '');
+        const producerField = producerOm.closest('.admin-form__field');
+        const producerHint = hint('Um produtor mantém TODOS os recursos de UMA OM (catálogo e 360) '
+            + 'e nada fora dela. Acima disso, use Administrador.');
+        form.appendChild(producerHint);
+        const syncProducerField = () => {
+            const ehProdutor = role.value === PRODUCER_ROLE;
+            if (producerField) producerField.hidden = !ehProdutor;
+            producerHint.hidden = !ehProdutor;
+            producerOm.disabled = !ehProdutor || role.disabled;
+            if (!ehProdutor) producerOm.value = '';
+        };
+        role.addEventListener('change', syncProducerField);
+
+        // Papel DENTRO da OM, distinto do papel global acima. Ele já NÃO autoriza a escrita de
+        // projeto 360 — isso passou para o eixo de produção (`producer_org_id`) — mas continua
+        // sendo a origem do papel POR ATLAS na hidratação da sessão (`org_role || 'viewer'`),
+        // então apagá-lo rebaixaria todo mundo a Visualizador. Os rótulos deixaram de prometer
+        // edição: prometer o que o servidor recusa é pior que não oferecer.
+        const orgRole = selectField(form, 'Papel na OM (hierarquia interna)', 'admin-userform-orgrole',
             [
                 { value: 'viewer', label: 'Visualizador' },
-                { value: 'editor', label: 'Editor (edita projetos 360 da OM)' },
+                { value: 'editor', label: 'Editor' },
                 { value: 'admin', label: 'Administrador da OM' },
                 { value: 'owner', label: 'Responsável pela OM' },
             ],
@@ -323,11 +371,12 @@ class UsersTab {
         if (isSelf) {
             role.disabled = true;
             if (active) active.disabled = true;
-            const selfHint = document.createElement('p');
-            selfHint.className = 'admin-form__hint';
-            selfHint.textContent = 'Você não pode alterar o próprio papel ou status.';
-            form.appendChild(selfHint);
+            form.appendChild(hint('Você não pode alterar o próprio papel, a própria OM produtora ou o próprio status.'));
         }
+        // DEPOIS da auto-guarda, de propósito: ela pode ter travado o papel, e o escopo de
+        // produção segue o papel — deixá-lo editável enquanto o papel está travado ofereceria
+        // ao administrador mudar a própria autorização pela porta ao lado.
+        syncProducerField();
 
         const error = document.createElement('div');
         error.className = 'admin-form__error';
@@ -350,6 +399,7 @@ class UsersTab {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             error.hidden = true;
+            const ehProdutor = role.value === PRODUCER_ROLE;
             const payload = {
                 nome: nome.value.trim(),
                 username: username.value.trim(),
@@ -357,9 +407,19 @@ class UsersTab {
                 organization_id: om.value,
                 role: role.value,
                 org_role: orgRole.value,
+                // O PAR VIAJA SEMPRE COERENTE, e o `null` do rebaixamento é tão obrigatório
+                // quanto o id da promoção: deixar o escopo pendurado ao trocar o papel viola o
+                // bicondicional do banco e reprova o PUT inteiro, não só o campo.
+                producer_org_id: ehProdutor ? producerOm.value : null,
             };
             if (!payload.nome || !payload.username) {
                 showFormError(error, 'Preencha nome e usuário.');
+                return;
+            }
+            // Cobrado aqui para que o erro chegue com o nome do campo em pt-BR. Sem isto, o
+            // usuário recebe o 400 do CHECK do banco, que fala de constraint e não diz o que fazer.
+            if (ehProdutor && !payload.producer_org_id) {
+                showFormError(error, 'Escolha a OM que este produtor mantém.');
                 return;
             }
             saveBtn.disabled = true;
@@ -590,6 +650,19 @@ class UsersTab {
 }
 
 // ===== small DOM builders =====
+
+/**
+ * Um parágrafo de ajuda do formulário. Devolvido em vez de anexado, para que o chamador
+ * decida a posição (e possa escondê-lo junto com o campo que ele explica).
+ * @param {string} text
+ * @returns {HTMLParagraphElement}
+ */
+function hint(text) {
+    const p = document.createElement('p');
+    p.className = 'admin-form__hint';
+    p.textContent = text;
+    return p;
+}
 
 /** @param {string} text @returns {HTMLTableCellElement} */
 function cell(text) {

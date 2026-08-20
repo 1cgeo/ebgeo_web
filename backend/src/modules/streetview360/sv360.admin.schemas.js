@@ -8,7 +8,7 @@
 // the whole project each time and ingestion is "last upload wins" by
 // (organization_id, slug). The exact studio format is an assumption flagged in
 // the SPEC (docs/plano/fase-9-absorver-360.md); this schema maps 1:1 onto the
-// real §4.3 / 005_sv360.sql columns.
+// real §4.3 / 007_sv360.sql columns.
 //
 // What it rejects (the contract the SPEC's validateManifest must enforce):
 //   - NaN / Infinity in ANY numeric (Joi.number() rejects non-finite);
@@ -195,13 +195,13 @@ const trackSchema = Joi.object({
 
 // --- floor -----------------------------------------------------------------
 
-// One floor of a project (sv360.project_floors, migration 012). The LIST of these
+// One floor of a project (sv360.project_floors, `007_sv360.sql`). The LIST of these
 // rows is what declares "this project has floors" and makes the interface draw the
 // floor selector, so an empty floors[] is the normal shape of a street-level
 // survey, never a defect.
 //
 // `level` is an ordered INTEGER, negative allowed: 0 is the ground, 1 the first
-// indoor floor above it, -1 the first basement (migration 012, and
+// indoor floor above it, -1 the first basement (see
 // ebgeo_360 scripts/lib/floors.js). `label` is REQUIRED and not derived from the
 // level, because two spaces at the same level can carry different names.
 //

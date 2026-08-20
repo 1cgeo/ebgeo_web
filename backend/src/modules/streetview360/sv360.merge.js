@@ -17,14 +17,16 @@
 //     - returns { projectId, dbFilename, photoCount } for the caller to drive the
 //       tx commit + atomic file swap.
 //
-// Real columns: see src/database/migrations/005_sv360.sql. The geom of a
+// Real columns: see src/database/migrations/007_sv360.sql. The geom of a
 // photo is filled by trg_sv360_photos_geom from lon/lat — never written here.
 import * as AQ from './sv360.admin.queries.js';
 import { ConflictError, ValidationError } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
 
-// Deterministic default org id, semeado em `001_core.sql:27` (a citação aqui apontava para
-// uma `012_organizations.sql` que nunca existiu neste repositório). Used by the ETL backfill
+// Deterministic default org id, semeado em `001_identidade.sql` (INSERT INTO organizations
+// com o UUID fixo). Esta linha já apontou para uma migração que nunca existiu neste
+// repositório, resíduo de um esmagamento anterior que sobreviveu por meses sem nada ficar
+// vermelho; quem cobra hoje é `tests/unit/citacao-de-migracao.test.js`. Used by the ETL backfill
 // when a project's orgSlug is absent or the legacy 'org-legacy' marker (D9.x).
 export const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 const LEGACY_ORG_SLUGS = new Set(['', 'default', 'org-legacy']);
@@ -414,7 +416,7 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
   // filhos, e idempotente pela mesma razão: a lista inteira é reescrita.
   //
   // O purge NÃO pode virar UPSERT. É a EXISTÊNCIA de linha em
-  // sv360.project_floors que declara "este projeto tem andares" (migração 012), e
+  // sv360.project_floors que declara "este projeto tem andares", e
   // é ela que a interface consulta para decidir se desenha o seletor. Um nível
   // retirado na origem que sobrevivesse aqui deixaria um andar fantasma no
   // seletor, apontando para um andar que ninguém levantou.

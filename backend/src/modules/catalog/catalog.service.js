@@ -1,19 +1,71 @@
 // Path: src/modules/catalog/catalog.service.js
 // Generic CRUD over the per-type catalog tables (basemaps / data_layers / analysis_layers /
-// tilesets / streetview_markers). The `table` arg is whitelisted (assertTable) before interpolation.
+// tilesets). The `table` arg is whitelisted (assertTable) before interpolation.
 //
-// Every write here drops the memoized GET /api/config payload (config.cache.js). Four of the
-// five tables feed that payload; `streetview_markers` does not, and is invalidated anyway
-// because the alternative — a per-table condition — is the kind of partial invalidation that
-// makes an admin watch an edit vanish and blame the database. Invalidating one extra table
-// costs one rebuild of a document that is rebuilt on every write regardless.
+// Every write here drops the memoized GET /api/config payload (config.cache.js). All four
+// tables feed that payload, so the invalidation is never wasted. It used to cover a fifth,
+// `streetview_markers`, which fed nothing and was invalidated anyway; that table was dropped
+// for having had no consumer at all, and `005_catalogo.sql` does not recreate it.
 import { query, oneOrNone, one } from '../../database/index.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
-import { assertTable } from './catalog.tables.js';
+import { assertTable, assertProductionTypeOf } from './catalog.tables.js';
+import { catalogAuthorizationPredicate } from './catalog.queries.js';
 
 const COLS = 'id, name, description, config, active, sort_order, created_at, updated_at';
+
+// `access_level` fica FORA de COLS de propósito, numa segunda constante. A string
+// COLS é amarrada ao schema por `catalog-tabelas-paridade.test.js`, que afirma
+// literalmente que ela lista OITO colunas; esticá-la reprova aquele teste, e
+// afrouxar o teste custaria a guarda que ele dá. Quem precisa do nível de acesso
+// pede por aqui.
+// `owner_org_id` viaja junto pela mesma porta, e não por simetria: sem ele o painel não
+// tem como dizer de QUEM é cada linha, e um produtor não distingue o que mantém do que
+// só enxerga. Ler é seguro (a OM dona não é segredo de ninguém que já vê a linha) e
+// ESCREVER continua impossível por aqui: nenhuma das três escritas lê a coluna do corpo.
+const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
+
+/**
+ * The resource-visibility predicate, as a WHERE fragment.
+ *
+ * IT CLOSES BY DEFAULT, and that is the property that matters: with no principal, only the
+ * public rows. The list of `listCatalog` callers keeps growing and the likely oversight is
+ * "I did not pass the principal" — which here degrades to LESS data, never to a leak. The
+ * opposite shape (open by default, optional filter) is the one that turns an oversight into
+ * an incident.
+ *
+ * Semi-join (`IN (SELECT ...)`), never `fn_can_see_resource` per row: one query instead of
+ * one per row (R8). The COMPOSITION of the three arms moved out of here into
+ * `catalog.queries.js` when the snapshot rehydration (F11) needed it; what this function
+ * still decides is the `public` term and the NUMBERING of the parameters.
+ *
+ * THE PRODUCTION ARM BELONGS HERE, and not out of aesthetic symmetry: without it a producer
+ * got a 404 on the GET of their own private layer and success on the PUT, which is the same
+ * row existing for writing and not existing for reading. All FOUR catalog tables have BOTH
+ * arms: `basemaps` gained a grant type and stopped arriving here with a null
+ * `resourceType`. The caller's `??` is still there because `visibleTo` is built from a map,
+ * and a map that loses an entry must degrade to less data, never to a leak.
+ *
+ * @param {{userId: string|null, atlasId: string|null, resourceType: string|null}|null} visibleTo
+ * @param {number} base - Index of the last parameter already used.
+ * @param {string} tipoProducao - This table's type on the production axis.
+ * @returns {{sql: string, params: Array}}
+ */
+function accessPredicate(visibleTo, base, tipoProducao) {
+  if (!visibleTo) return { sql: `AND t.access_level = 'public'`, params: [] };
+  const params = [visibleTo.userId ?? null, tipoProducao];
+  const comConcessao = Boolean(visibleTo.resourceType);
+  if (comConcessao) params.push(visibleTo.atlasId ?? null, visibleTo.resourceType);
+  const autorizacao = catalogAuthorizationPredicate({
+    alias: 't',
+    userParam: `$${base + 1}::uuid`,
+    produceTypeExpr: `$${base + 2}::text`,
+    atlasParam: comConcessao ? `$${base + 3}::uuid` : null,
+    grantTypeExpr: comConcessao ? `$${base + 4}::text` : null,
+  });
+  return { sql: `AND ( t.access_level = 'public'\n                OR ${autorizacao} )`, params };
+}
 
 /**
  * Rejects an invalid MapLibre `config.style` (basemap style override) before it is persisted and
@@ -28,19 +80,53 @@ function assertValidStyle(config) {
   }
 }
 
-/** Lists active items of a catalog table. */
-export async function listCatalog(table) {
+/**
+ * Lists active items of a catalog table, filtered by ACCESS LEVEL.
+ *
+ * Sem `visibleTo`, devolve só o público — é o que `GET /api/config` quer, e é o
+ * que mantém aquele payload igual para todo chamador (o memo de documento único
+ * depende disso). Com `visibleTo`, soma o que aquele principal enxerga por papel
+ * global ou concessão.
+ *
+ * @param {string} table - One of CATALOG_TABLES.
+ * @param {{userId: string|null, atlasId: string|null, resourceType: string}} [visibleTo]
+ * @returns {Promise<Array>}
+ */
+export async function listCatalog(table, visibleTo = null) {
   const t = assertTable(table);
-  const { rows } = await query(`SELECT ${COLS} FROM ${t} WHERE active = true ORDER BY sort_order, name`);
+  const pred = accessPredicate(visibleTo, 0, assertProductionTypeOf(t));
+  const { rows } = await query(
+    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.active = true ${pred.sql} ORDER BY t.sort_order, t.name`,
+    pred.params,
+  );
   return rows;
 }
 
-export async function getCatalogItem(table, id) {
+/**
+ * One catalog item by id, filtered by ACCESS LEVEL like the listing.
+ *
+ * O MESMO GATE DA LISTAGEM, e não por simetria estética: `GET /api/v1/tilesets/:id`
+ * é `auth` e mais nada, exatamente como a rota de lista, então um recurso privado
+ * vazava por aqui pelo id mesmo depois de sumir da listagem. Foi medido em
+ * `resource-access-listagem-crua.test.js` antes de ser fechado.
+ *
+ * 404, não 403: um recurso que o chamador não enxerga precisa ser indistinguível
+ * de um que não existe, senão o proprio 403 confirma a existência.
+ *
+ * @param {string} table
+ * @param {string} id
+ * @param {{userId: string|null, atlasId: string|null, resourceType: string}} [visibleTo]
+ */
+export async function getCatalogItem(table, id, visibleTo = null) {
   const t = assertTable(table);
   // L12 — `active = true`, matching listCatalogItems. Without it a soft-deleted
   // item stayed readable by direct id: gone from every listing, yet still served
   // (and still editable, since updateCatalogItem does not filter either).
-  const row = await oneOrNone(`SELECT ${COLS} FROM ${t} WHERE id = $1 AND active = true`, [id]);
+  const pred = accessPredicate(visibleTo, 1, assertProductionTypeOf(t));
+  const row = await oneOrNone(
+    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.id = $1 AND t.active = true ${pred.sql}`,
+    [id, ...pred.params],
+  );
   if (!row) throw new NotFoundError('Catalog item');
   return row;
 }
@@ -55,10 +141,54 @@ export async function getCatalogItem(table, id) {
 // can never be recreated (permanent 409), so every test must mint its own id").
 //
 // A LIVE id still conflicts: that guard is what prevents a silent overwrite of a published item.
-export async function createCatalogItem(table, data) {
+/**
+ * @typedef {Object} AtorDeProducao
+ * @property {string|null} id - O principal, já resolvido (`principalUserId`).
+ * @property {string|null} producerOrgId - O escopo de produção, lido do BANCO pelo
+ *   gate da rota. `null` para administrador (que não produz por OM nenhuma).
+ */
+
+/**
+ * Cria (ou ressuscita) um item de catálogo.
+ *
+ * A OM PRODUTORA É FORÇADA, NUNCA LIDA DO CORPO: quem cria com escopo de produção
+ * fica dono pela própria OM, e administrador (escopo nulo) cria acervo
+ * institucional. Ler `owner_org_id` do request seria deixar o produtor escolher de
+ * quem é o que ele acabou de criar.
+ *
+ * A RESSURREIÇÃO É GATEADA PELA MESMA FUNÇÃO DA ESCRITA, e essa linha é a que falta
+ * com mais facilidade: o id de catálogo é um SLUG GLOBAL (PK simples em `id`), então
+ * o produtor de uma OM pode digitar o id que outra soft-deletou e, como a
+ * ressurreição é overwrite total, sairia dono da linha por sobrescrita. `pode` vem
+ * do mesmo `fn_can_produce_resource` que gateia o UPDATE e o DELETE.
+ *
+ * DEVOLVE UM ENVELOPE, e não a linha nua, porque a auditoria precisa distinguir duas
+ * operações diferentes que compartilham a mesma rota: um INSERT e a RESSURREIÇÃO de
+ * um id soft-deletado. `CATALOG_CREATE` sem essa distinção descreve mal o segundo
+ * caso, que é um overwrite total de uma linha que já existia. `ownerOrgId` viaja
+ * junto porque é o que PROVA qual OM o produtor carimbou (`owner_org_id` fica fora
+ * de COLS, amarrada em oito colunas por `catalog-tabelas-paridade.test.js`, e
+ * esticar o RETURNING mudaria o corpo da resposta).
+ *
+ * @param {string} table
+ * @param {Object} data
+ * @param {AtorDeProducao} actor
+ * @returns {Promise<{row: Object, resurrected: boolean, ownerOrgId: string|null}>}
+ */
+export async function createCatalogItem(table, data, actor) {
   const t = assertTable(table);
-  const existing = await oneOrNone(`SELECT id, active FROM ${t} WHERE id = $1`, [data.id]);
+  const tipo = assertProductionTypeOf(t);
+  const existing = await oneOrNone(
+    `SELECT id, active, owner_org_id, fn_can_produce_resource($2::uuid, $3::text, id) AS pode
+       FROM ${t} WHERE id = $1`,
+    [data.id, actor?.id ?? null, tipo],
+  );
   if (existing && existing.active) throw new ConflictError('Já existe um item de catálogo com este ID.');
+  if (existing && existing.pode !== true) {
+    // Mesma mensagem do conflito vivo, de propósito: o id é global, então "está
+    // tomado" é tudo o que o chamador pode aprender, e nada sobre de quem ele é.
+    throw new ConflictError('Já existe um item de catálogo com este ID.');
+  }
   assertValidStyle(data.config);
 
   const values = [
@@ -67,29 +197,56 @@ export async function createCatalogItem(table, data) {
     data.description || null,
     JSON.stringify(data.config || {}),
     data.sort_order || 0,
+    actor?.producerOrgId ?? null,
   ];
 
   const row = existing
     // Resurrection is a full overwrite, not a merge: the caller sent a complete create
     // payload, so the row must end up exactly as if it had been inserted now.
+    //
+    // `owner_org_id` fica DE FORA do SET: o produtor da OM dona já passou pelo gate
+    // acima, e reescrever a coluna com o escopo dele transformaria a ressurreição
+    // feita por um administrador (escopo nulo) numa transferência silenciosa para o
+    // acervo institucional. Transferir é ação própria, de administrador.
     ? await one(
       `UPDATE ${t} SET name = $2, description = $3, config = $4::jsonb, sort_order = $5,
                       active = true, updated_at = NOW()
        WHERE id = $1 RETURNING ${COLS}`,
-      values,
+      values.slice(0, 5),
     )
     : await one(
-      `INSERT INTO ${t} (id, name, description, config, sort_order)
-       VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING ${COLS}`,
+      `INSERT INTO ${t} (id, name, description, config, sort_order, owner_org_id)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::uuid) RETURNING ${COLS}`,
       values,
     );
 
   invalidateAppConfigCache();
-  return row;
+  return {
+    row,
+    resurrected: Boolean(existing),
+    ownerOrgId: existing ? (existing.owner_org_id ?? null) : (actor?.producerOrgId ?? null),
+  };
 }
 
-export async function updateCatalogItem(table, id, data) {
+/**
+ * Edita um item de catálogo.
+ *
+ * O GATE MORA NO `WHERE`, NA MESMA CONSULTA QUE MUTA, e não num middleware que leia
+ * o dono antes: entre a leitura e o UPDATE existe janela (um administrador
+ * transferindo `owner_org_id`), e uma pergunta feita duas vezes é uma pergunta com
+ * duas respostas possíveis. Zero linhas continua virando 404, pela mesma escada de
+ * `getCatalogItem`: a linha de outra OM precisa ser indistinguível de uma que não
+ * existe.
+ *
+ * `owner_org_id` NUNCA entra no SET: produtor não transfere linha nenhuma.
+ * @param {string} table
+ * @param {string} id
+ * @param {Object} data
+ * @param {AtorDeProducao} actor
+ */
+export async function updateCatalogItem(table, id, data, actor) {
   const t = assertTable(table);
+  const tipo = assertProductionTypeOf(t);
   assertValidStyle(data.config);
   // L12 — only the soft-delete filter is added here: a deleted item must not be
   // editable back into visibility through this route.
@@ -105,13 +262,17 @@ export async function updateCatalogItem(table, id, data) {
        config = COALESCE($4::jsonb, config),
        sort_order = COALESCE($5, sort_order),
        updated_at = NOW()
-     WHERE id = $1 AND active = true RETURNING ${COLS}`,
+     WHERE id = $1 AND active = true
+       AND fn_can_produce_resource($6::uuid, $7::text, $1)
+     RETURNING ${COLS}`,
     [
       id,
       data.name || null,
       data.description !== undefined ? data.description : null,
       data.config ? JSON.stringify(data.config) : null,
       data.sort_order !== undefined ? data.sort_order : null,
+      actor?.id ?? null,
+      tipo,
     ],
   );
   if (!row) throw new NotFoundError('Catalog item');
@@ -119,11 +280,28 @@ export async function updateCatalogItem(table, id, data) {
   return row;
 }
 
-/** Soft-deletes (active = false) a catalog item. */
-export async function deleteCatalogItem(table, id) {
+/**
+ * Soft-deletes (active = false) a catalog item, com o gate de produção no `WHERE`
+ * pela mesma razão do UPDATE.
+ *
+ * DEVOLVE A LINHA (id + nome) em vez de `true`: o `target_name` da trilha é a única
+ * coisa que ainda diz o que era aquele id depois que ele sumiu das listagens, e um
+ * booleano não carrega nome nenhum.
+ * @param {string} table
+ * @param {string} id
+ * @param {AtorDeProducao} actor
+ * @returns {Promise<{id: string, name: string}>}
+ */
+export async function deleteCatalogItem(table, id, actor) {
   const t = assertTable(table);
-  const row = await oneOrNone(`UPDATE ${t} SET active = false, updated_at = NOW() WHERE id = $1 RETURNING id`, [id]);
+  const tipo = assertProductionTypeOf(t);
+  const row = await oneOrNone(
+    `UPDATE ${t} SET active = false, updated_at = NOW()
+      WHERE id = $1 AND fn_can_produce_resource($2::uuid, $3::text, $1)
+      RETURNING id, name`,
+    [id, actor?.id ?? null, tipo],
+  );
   if (!row) throw new NotFoundError('Catalog item');
   invalidateAppConfigCache();
-  return true;
+  return row;
 }

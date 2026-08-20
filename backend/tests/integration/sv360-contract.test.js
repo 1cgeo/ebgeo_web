@@ -54,7 +54,7 @@ describe('StreetView 360 — read-only contract', () => {
     app = env.app;
     db = env.db;
 
-    // Default org (created by migration 012).
+    // Default org (seeded by `001_identidade.sql`).
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     defaultOrgId = org.rows[0].id;
 

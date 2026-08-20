@@ -9,7 +9,7 @@
 //         agregador). Essa decisão vive INTEIRA em `queryKeys: Object.keys(req.query)`.
 //         Trocar por `query: req.query` — refatoração que parece inofensiva e até
 //         "mais útil" — despeja termo e coordenada em todo request de /busca, /feicoes e
-//         /catalogo3d. Nada na suíte reagia: `nomesAccessLog` roda de verdade durante os
+//         das rotas do gazetteer. Nada na suíte reagia: `nomesAccessLog` roda de verdade durante os
 //         testes de nomes e nenhum assert jamais olhou o que ele escreve.
 //
 //   115 — `request-logger.js`. A redação de credencial na URL já é afirmada no ponto de

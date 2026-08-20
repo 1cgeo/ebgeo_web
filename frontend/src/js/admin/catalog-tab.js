@@ -14,12 +14,17 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
-import config from '@js/config.js';
 import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
+import { orgLabel } from './org-options.js';
+// Two LEAF modules, imported one by one and never through the `@catalog` barrel: this page boots
+// without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
+import { CAMPO_FORMA_3D, FORMAS_3D, Forma3D, derivarForma3d } from '@catalog/forma-3d.js';
+import { FORMA_3D_LABELS } from '@catalog/catalog.constants.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -33,6 +38,53 @@ const THUMB_KEY = {
  * compression silently no-ops (returns the original) on a decode failure. A 420px WebP is ~10-40 KB. */
 const MAX_THUMBNAIL_DATAURL = 256 * 1024;
 
+/**
+ * OS TRÊS EIXOS DESTA ABA, que a tela mistura com facilidade e o texto separa de propósito.
+ * Nenhum deles é o outro, e nenhum implica o outro:
+ *
+ *   1. VISIBILIDADE (`access_level`): Público ou Privado. Privado tira o item do catálogo
+ *      público e o entrega só a quem tem papel global, concessão, empréstimo de atlas ou é
+ *      da OM produtora. Só o administrador o move.
+ *   2. STATUS (`active`, e no 360 `status`): Ativo ou Inativo. É ocultação/soft-delete, vale
+ *      para TODO MUNDO, e um item pode ser Ativo e Privado ao mesmo tempo.
+ *   3. OM DONA (`owner_org_id`, `organization_id` no 360): quem MANTÉM o item. Decide quem
+ *      edita, e mais nada — não esconde nem revela item nenhum.
+ *
+ * A frase que a tela precisa repetir: privado não é inativo, e OM dona não é privacidade.
+ */
+
+/**
+ * Categoria da tela -> tipo do eixo de ACESSO A RECURSO (`resource_grants.resource_type`).
+ *
+ * `basemap` ENTROU NA MIGRAÇÃO 021, e o parágrafo que morava aqui dizia o contrário
+ * por uma premissa falsa: que `basemaps.access_level` existia só por paridade de
+ * schema e que nenhuma consulta a lia. Ela era lida desde a 017 —
+ * `listCatalog('basemaps')` sem principal aplica `access_level = 'public'`, e é
+ * por ali que `/api/config` se monta. O que faltava era o outro sentido: sem tipo
+ * de concessão, um basemap privado sumia para todo mundo e não havia como
+ * devolvê-lo a quem tem direito.
+ *
+ * A superfície do basemap é o SELETOR DE CAMADA BASE, não este catálogo: o que o
+ * seletor mostra é `config.basemaps`, somado do payload aditivo por
+ * `mergeGrantedIntoBaseline`.
+ *
+ * O EIXO DE ACESSO CONTINUA SENDO OUTRO QUE O DE PRODUÇÃO: as quatro tabelas têm OM
+ * dona, e ter OM dona nunca escondeu nem revelou item nenhum.
+ */
+const ACCESS_TYPE_BY_CATEGORY = Object.freeze({
+    basemap: 'basemap',
+    tileset: 'tileset',
+    data_layer: 'data_layer',
+    analysis_layer: 'analysis_layer',
+    sv360: 'sv360_project',
+});
+
+/** As duas respostas do eixo de acesso, na ordem em que a tela as oferece. */
+const ACCESS_LEVELS = [
+    { value: 'public', label: 'Público (qualquer pessoa vê)' },
+    { value: 'private', label: 'Privado (só quem recebeu acesso)' },
+];
+
 /** UI categories. `sv360` is special (sv360 admin routes); the rest are `resources` categories. */
 const CATEGORIES = [
     { key: 'tileset', label: '3D (modelos)' },
@@ -42,9 +94,19 @@ const CATEGORIES = [
     { key: 'sv360', label: '360', is360: true },
 ];
 
+/**
+ * As quatro formas de 3D, na ordem em que o formulário as oferece.
+ *
+ * A lista NÃO é escrita aqui: ela vem de `FORMAS_3D`, para que uma forma nova apareça na tela
+ * sem que ninguém precise lembrar desta aba. O rótulo é o mesmo que o cartão do catálogo mostra,
+ * pela mesma razão — dois vocabulários para a mesma coisa é como o eixo se perde de novo.
+ */
+const FORMA_3D_OPTIONS = FORMAS_3D.map((valor) => ({ value: valor, label: FORMA_3D_LABELS[valor] }));
+
 /** Starter `config` templates per category — mirror the real deploy config shapes (config.js). */
 const TEMPLATES = {
     tileset: {
+        [CAMPO_FORMA_3D]: Forma3D.TILES3D,
         url: '/catalogo/modelos_catalogo/3d/EXEMPLO/tileset.json',
         heightOffset: 0,
         description: '',
@@ -111,6 +173,17 @@ class CatalogTab {
         c.appendChild(sectionHeader('Catálogo', {
             subtitle: 'Recursos globais — 3D, 360, dados, análises e basemaps (metadados)',
         }));
+
+        // A legenda dos três eixos fica NA TELA, e não só no código: eles se parecem o
+        // bastante para que "desativei e continua aparecendo para a OM" vire chamado.
+        const legenda = document.createElement('p');
+        legenda.className = 'admin-form__hint admin-catalog__legend';
+        legenda.textContent = sessionContext.isAdmin()
+            ? 'Três eixos independentes: Acesso (Público/Privado) diz QUEM VÊ; Status (Ativo/Inativo) '
+              + 'diz se o item aparece para alguém; OM dona diz QUEM MANTÉM. Um item pode ser Ativo e Privado.'
+            : 'Você mantém os recursos da sua OM. Acesso (Público/Privado) e a OM dona são do '
+              + 'administrador; Status (Ativo/Inativo) e a edição dos metadados são seus.';
+        c.appendChild(legenda);
 
         const nav = document.createElement('nav');
         nav.className = 'admin-catalog__nav';
@@ -189,13 +262,21 @@ class CatalogTab {
             wrap.appendChild(empty);
             return;
         }
+        const temAcesso = !!ACCESS_TYPE_BY_CATEGORY[category];
         const table = document.createElement('table');
         table.className = 'admin-users__table';
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['ID', 'Nome', 'Ordem', 'Ações']) {
+        // A coluna "OM dona" entra para TODA categoria (as quatro tabelas têm a coluna): sem
+        // ela o produtor não distingue o que mantém do que apenas enxerga, já que a listagem
+        // traz também o acervo público das outras OMs.
+        const cabecalhos = temAcesso
+            ? ['ID', 'Nome', 'Ordem', 'OM dona', 'Acesso', 'Ações']
+            : ['ID', 'Nome', 'Ordem', 'OM dona', 'Ações'];
+        for (const h of cabecalhos) {
             const th = document.createElement('th');
             th.textContent = h;
+            if (h === 'OM dona') th.title = 'Quem mantém o recurso. Não é o eixo de acesso.';
             hrow.appendChild(th);
         }
         thead.appendChild(hrow);
@@ -209,12 +290,25 @@ class CatalogTab {
             tr.appendChild(cell(r.id || ''));
             tr.appendChild(cell(r.name || ''));
             tr.appendChild(cell(String(r.sort_order ?? '')));
+            tr.appendChild(ownerOrgCell(r.owner_org_id));
+            if (temAcesso) tr.appendChild(accessCell(r.access_level));
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
-            actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
-                () => this._renderResourceForm(category, r)));
-            actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
-                () => this._deleteResource(r)));
+            // O GATE REAL É O DO SERVIDOR (`fn_can_produce_resource` dentro do WHERE de cada
+            // escrita, que devolve 404 para linha de outra OM). Aqui só não se oferece o botão
+            // que o servidor recusaria — inclusive o do acervo institucional (`owner_org_id`
+            // nulo), que é de administrador.
+            if (sessionContext.canProduceFor(r.owner_org_id)) {
+                actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
+                    () => this._renderResourceForm(category, r)));
+                actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
+                    () => this._deleteResource(r)));
+            } else {
+                const nota = document.createElement('span');
+                nota.className = 'admin-users__status';
+                nota.textContent = 'Mantido por outra OM';
+                actions.appendChild(nota);
+            }
             tr.appendChild(actions);
             tbody.appendChild(tr);
         }
@@ -250,6 +344,48 @@ class CatalogTab {
         const nameInput = textField(form, 'Nome', 'admin-catalog-name', resource?.name ?? '');
         const descInput = textField(form, 'Descrição', 'admin-catalog-desc', resource?.description ?? '');
         const sortInput = textField(form, 'Ordem', 'admin-catalog-sort', String(resource?.sort_order ?? 0), 'number');
+
+        // EIXO 3 — A OM DONA, SÓ DE LEITURA, e a razão de não haver seletor aqui é do
+        // servidor: `owner_org_id` nunca é lido do corpo da requisição, nem para
+        // administrador. Na criação ele é CARIMBADO com o escopo de produção de quem cria
+        // (nulo para administrador = acervo institucional), e nenhuma das três escritas o põe
+        // no SET. Oferecer um seletor seria um controle que não grava em lugar nenhum — o
+        // defeito clássico de um campo que parece autorizar e não autoriza.
+        const ownerOrgId = isEdit
+            ? (resource?.owner_org_id ?? null)
+            : (sessionContext.isAdmin() ? null : sessionContext.producerOrgId);
+        const ownerField = readOnlyField(form, 'OM dona', 'admin-catalog-owner-org',
+            ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
+        ownerField.title = 'A OM que mantém este recurso.';
+        form.appendChild(hintParagraph(isEdit
+            ? 'A OM dona é definida na criação e não muda por esta tela. Transferir um recurso '
+              + 'entre OMs é ato de administrador, fora do painel.'
+            : (sessionContext.isAdmin()
+                ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
+                  + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
+                : 'O servidor carimba a sua OM como dona deste item. Ela não vem deste formulário.')));
+
+        // EIXO 1 — O ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
+        // abaixo: ele mora numa rota própria (`PATCH /resource-access/:type/:id/
+        // visibility`), que é `requireAdmin` e invalida o memo do `/api/config`.
+        // Marcar como privado é ato de ADMINISTRAÇÃO do catálogo, não de
+        // compartilhamento: quem tem concessão repassa acesso, e não decide que o
+        // recurso deixou de ser público para todo mundo. Daí o campo SUMIR para o produtor,
+        // em vez de aparecer cinza: um controle desabilitado sem explicação vira chamado, e
+        // este eixo não é dele nem quando o recurso é.
+        const accessType = ACCESS_TYPE_BY_CATEGORY[category];
+        const accessBefore = resource?.access_level ?? 'public';
+        const accessInput = (accessType && sessionContext.isAdmin())
+            ? selectField(form, 'Acesso (visibilidade)', 'admin-catalog-access', ACCESS_LEVELS, accessBefore)
+            : null;
+        if (accessInput) {
+            form.appendChild(hintParagraph('Privado tira o item do catálogo público. Ele continua visível '
+                + 'para administradores, credenciados, produtores da OM dona, quem recebeu concessão e quem '
+                + 'abrir um atlas que o empreste. Isto NÃO é o Status: um item pode ser Ativo e Privado.'));
+        } else if (accessType) {
+            form.appendChild(hintParagraph(`Acesso: ${accessBefore === 'private' ? 'Privado' : 'Público'} `
+                + '(quem vê o recurso). Só o administrador altera este eixo.'));
+        }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
         // in config (config is anonymous-readable, no out-of-band serving needed). `pendingThumbnail`
@@ -322,6 +458,24 @@ class CatalogTab {
             form.appendChild(field);
         }
 
+        // A FORMA DO 3D é campo de primeira classe, e não uma linha do JSON avançado, porque ela
+        // decide qual visualizador desenha o item: errar aqui produz um modelo que abre vazio,
+        // sem erro. O valor inicial passa por `derivarForma3d`, então a linha antiga que só tem
+        // os discriminadores legados (`type: 'glb'`, `viewer: 'firstPerson'`) já abre com a
+        // forma certa selecionada, e salvar a declara.
+        //
+        // A NUVEM DE PONTOS SÓ SE MARCA AQUI. A migração que retro-preencheu o campo não a
+        // adivinha (no banco ela é indistinguível de um tileset comum), então este `<select>` é
+        // o único caminho para dizer que aquele item é uma nuvem — uma a uma, à mão.
+        let forma3dInput = null;
+        if (category === 'tileset') {
+            forma3dInput = selectField(form, 'Forma do modelo 3D', 'admin-catalog-forma3d',
+                FORMA_3D_OPTIONS, derivarForma3d(resource?.config));
+            form.appendChild(hintParagraph('Tiles 3D e Nuvem de pontos usam o mesmo carregador; '
+                + 'a distinção é o que a tela mostra e o que se pode filtrar. Cena indoor abre no '
+                + 'visualizador em primeira pessoa, não no Cesium.'));
+        }
+
         // Preview VIDEO is 3D-only and out-of-band (large) — referenced by URL, not uploaded.
         let videoInput = null;
         if (category === 'tileset') {
@@ -383,6 +537,10 @@ class CatalogTab {
             // explicit "Remover" deletes it; an untouched field keeps the JSON value. The video URL is
             // set when provided and DELETED when the field is cleared (so removal isn't a no-op).
             if (config && typeof config === 'object') {
+                // A forma vem do `<select>` e VENCE o que estiver no JSON avançado, como a
+                // miniatura recém-escolhida vence a chave digitada: o controle dedicado é o que
+                // a pessoa acabou de operar.
+                if (forma3dInput) config[CAMPO_FORMA_3D] = forma3dInput.value;
                 if (thumbKey) {
                     if (removeThumbnail) delete config[thumbKey];
                     else if (pendingThumbnail) config[thumbKey] = pendingThumbnail;
@@ -410,16 +568,33 @@ class CatalogTab {
             try {
                 if (isEdit) {
                     await apiClient.updateResource(category, resource.id, payload);
-                    showSuccess('Item atualizado.');
                 } else {
                     await apiClient.createResource(category, { id, ...payload });
-                    showSuccess('Item criado.');
                 }
-                if (this._alive) this._selectCategory(category);
             } catch (err) {
                 showFormError(error, err?.message || 'Falha ao salvar o item.');
                 saveBtn.disabled = false;
+                return;
             }
+
+            // A visibilidade vai DEPOIS e numa chamada própria, e o erro dela é
+            // relatado à parte de propósito: o item já foi gravado quando ela falha,
+            // e um "falha ao salvar" genérico faria o administrador salvar de novo
+            // achando que perdeu tudo. Só chama quando o valor MUDOU — um PATCH a
+            // cada gravação invalidaria o memo do /api/config sem motivo.
+            const accessAfter = accessInput ? accessInput.value : accessBefore;
+            if (accessType && accessAfter !== accessBefore) {
+                try {
+                    await apiClient.setResourceVisibility(accessType, isEdit ? resource.id : id, accessAfter);
+                } catch (err) {
+                    showError(err?.message || 'O item foi salvo, mas a visibilidade não pôde ser alterada.');
+                    if (this._alive) this._selectCategory(category);
+                    return;
+                }
+            }
+
+            showSuccess(isEdit ? 'Item atualizado.' : 'Item criado.');
+            if (this._alive) this._selectCategory(category);
         };
         saveBtn.addEventListener('click', onSave);
 
@@ -490,7 +665,12 @@ class CatalogTab {
         const hrow = document.createElement('tr');
         // The OM column is not decoration: a slug is unique per organization, not globally, so two
         // rows of different OMs are otherwise indistinguishable here.
-        for (const h of ['Nome', 'Slug', 'OM', 'Fotos', 'Status', 'Ações']) {
+        //
+        // "Status" e "Acesso" são DOIS EIXOS, e a tabela os separa por isso: `disabled`
+        // oculta o projeto de todo mundo fora da OM dona (é o soft-delete do 360),
+        // enquanto `private` restringe só quem está de FORA — a OM dona continua vendo
+        // (D6). Um projeto pode ser Ativo e Privado ao mesmo tempo, que é o caso novo.
+        for (const h of ['Nome', 'Slug', 'OM', 'Fotos', 'Status', 'Acesso', 'Ações']) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -517,12 +697,33 @@ class CatalogTab {
             statusCell.appendChild(badge);
             tr.appendChild(statusCell);
 
+            const privado = (p.access_level ?? 'public') === 'private';
+            tr.appendChild(accessCell(p.access_level));
+
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
-            actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
-                () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
-            actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
-                () => this._delete360(p)));
+            // `organization_id` JÁ É a OM dona do projeto 360 (não existe uma segunda coluna
+            // para o eixo de produção aqui), então é ela que responde `canProduceFor`.
+            const mantem = sessionContext.canProduceFor(p.organization_id ?? p.organizationId);
+            if (mantem) {
+                actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
+                    () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
+            }
+            // O eixo de ACESSO continua sendo do administrador, mesmo no projeto que o
+            // produtor mantém: a rota de visibilidade é `requireAdmin`.
+            if (sessionContext.isAdmin()) {
+                actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
+                    'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
+            }
+            if (mantem) {
+                actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
+                    () => this._delete360(p)));
+            } else {
+                const nota = document.createElement('span');
+                nota.className = 'admin-users__status';
+                nota.textContent = 'Mantido por outra OM';
+                actions.appendChild(nota);
+            }
             tr.appendChild(actions);
             tbody.appendChild(tr);
         }
@@ -552,6 +753,26 @@ class CatalogTab {
         }
     }
 
+    /**
+     * @private Alterna o eixo de ACESSO do projeto 360, que não é o de status.
+     *
+     * A rota é a mesma dos outros três tipos (`/resource-access/:type/:id/visibility`)
+     * e a chave é o UUID do projeto, não o slug: o slug é único por OM, não
+     * globalmente, e o eixo de acesso é resolvido por id.
+     * @param {Object} project
+     * @param {'public'|'private'} accessLevel
+     */
+    async _toggle360Access(project, accessLevel) {
+        try {
+            await apiClient.setResourceVisibility('sv360_project', project.id, accessLevel);
+            showSuccess(accessLevel === 'private' ? 'Projeto 360° agora é privado.' : 'Projeto 360° agora é público.');
+            if (this._alive) this._render360List();
+        } catch (err) {
+            console.warn('[catalog-tab] falha ao alterar a visibilidade do projeto 360:', err);
+            showError('Não foi possível alterar a visibilidade do projeto 360°.');
+        }
+    }
+
     /** @private */
     async _delete360(project) {
         const slug = project.slug ?? project.name;
@@ -571,24 +792,43 @@ class CatalogTab {
     }
 }
 
-/**
- * Resolves an organization id to its display name using the backend-served list in
- * `/api/config` (the same one the users tab uses), falling back to the raw id.
- * @param {string} [orgId]
- * @returns {string}
- */
-function orgLabel(orgId) {
-    if (!orgId) return '—';
-    const list = Array.isArray(config.organizacoesMilitares) ? config.organizacoesMilitares : [];
-    const found = list.find((o) => o && o.id === orgId);
-    return found?.name || orgId;
-}
-
 // ===== small DOM builders (shared shape with users-tab) =====
 
 function cell(textValue) {
     const td = document.createElement('td');
     td.textContent = textValue;
+    return td;
+}
+
+/**
+ * A célula do eixo de acesso. Ausência de valor lê-se como PÚBLICO, que é o default
+ * da coluna e o comportamento de toda linha que existia antes do eixo.
+ * @param {string} [accessLevel]
+ * @returns {HTMLElement}
+ */
+function accessCell(accessLevel) {
+    const td = document.createElement('td');
+    const privado = accessLevel === 'private';
+    const chip = document.createElement('span');
+    chip.className = `admin-chip admin-chip--${privado ? 'private' : 'public'}`;
+    chip.dataset.testid = 'admin-catalog-access-chip';
+    chip.textContent = privado ? 'Privado' : 'Público';
+    td.appendChild(chip);
+    return td;
+}
+
+/**
+ * A célula da OM DONA. Sem OM é acervo INSTITUCIONAL, e a palavra importa: um travessão
+ * ali se lê como "faltou preencher", quando o estado é legítimo e significa "de ninguém
+ * em particular, mantido pelo administrador".
+ * @param {string} [ownerOrgId]
+ * @returns {HTMLElement}
+ */
+function ownerOrgCell(ownerOrgId) {
+    const td = document.createElement('td');
+    td.dataset.testid = 'admin-catalog-owner-org-cell';
+    td.textContent = ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional';
+    if (!ownerOrgId) td.title = 'Sem OM produtora: acervo institucional, mantido pelo administrador.';
     return td;
 }
 
@@ -600,6 +840,47 @@ function button(label, className, testid, onClick) {
     btn.textContent = label;
     if (onClick) btn.addEventListener('click', onClick);
     return btn;
+}
+
+/**
+ * Um parágrafo de ajuda do formulário (devolvido, não anexado: o chamador decide a posição).
+ * @param {string} texto
+ * @returns {HTMLParagraphElement}
+ */
+function hintParagraph(texto) {
+    const p = document.createElement('p');
+    p.className = 'admin-form__hint';
+    p.textContent = texto;
+    return p;
+}
+
+/**
+ * Um campo de LEITURA: rótulo + valor, sem controle nenhum.
+ *
+ * Não é um `<input disabled>`, e a diferença importa: um input cinza promete que existe uma
+ * forma de habilitá-lo, e aqui não existe — este valor não vem deste formulário nem em
+ * nenhum papel.
+ * @param {HTMLElement} form
+ * @param {string} label
+ * @param {string} testid
+ * @param {string} value
+ * @returns {HTMLElement} O campo, para o chamador anotar um `title`.
+ */
+function readOnlyField(form, label, testid, value) {
+    const field = document.createElement('div');
+    field.className = 'admin-form__field admin-form__field--readonly';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.setAttribute('for', testid);
+    field.appendChild(lab);
+    const out = document.createElement('output');
+    out.id = testid;
+    out.dataset.testid = testid;
+    out.className = 'admin-form__readonly-value';
+    out.textContent = value;
+    field.appendChild(out);
+    form.appendChild(field);
+    return field;
 }
 
 function textField(form, label, testid, value, type = 'text') {
@@ -617,6 +898,37 @@ function textField(form, label, testid, value, type = 'text') {
     field.appendChild(input);
     form.appendChild(field);
     return input;
+}
+
+/**
+ * Um <select> de opções fixas (mesma forma do helper da aba de usuários).
+ * @param {HTMLElement} form
+ * @param {string} label
+ * @param {string} testid
+ * @param {Array<{value: string, label: string}>} options
+ * @param {string} value
+ * @returns {HTMLSelectElement}
+ */
+function selectField(form, label, testid, options, value) {
+    const field = document.createElement('div');
+    field.className = 'admin-form__field';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    lab.setAttribute('for', testid);
+    field.appendChild(lab);
+    const select = document.createElement('select');
+    select.id = testid;
+    select.dataset.testid = testid;
+    for (const opt of options) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === value) o.selected = true;
+        select.appendChild(o);
+    }
+    field.appendChild(select);
+    form.appendChild(field);
+    return select;
 }
 
 function checkboxField(form, label, testid, checked) {

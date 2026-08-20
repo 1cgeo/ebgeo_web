@@ -1,18 +1,22 @@
 // Path: tests/integration/catalog-tables.test.js
-// Item 14 (testes-backend.md) — the route -> table binding of the five
-// makeCatalogRouter mounts (app.js:167-171), and the round-trip from an admin write
-// to the public GET /api/config.
+// Item 14 (testes-backend.md) — the route -> table binding of the four
+// makeCatalogRouter mounts in app.js, and the round-trip from an admin write to the
+// public GET /api/config.
 //
-// Before this file NO HTTP write had ever touched four of the five routers: the whole
+// Before this file NO HTTP write had ever touched three of the routers: the whole
 // catalog suite exercises /api/v1/basemaps and treats it as the set (pattern C2b).
 // Mounting /api/v1/analysis-layers with makeCatalogRouter('data_layers') — a one-word
 // slip — would have made the admin panel edit the wrong catalog, dropped analysis
 // layers out of /api/config, and left every test green. The route names are also a
-// frozen contract with the frontend (api-client.js maps streetview_marker ->
-// streetview-markers).
+// frozen contract with the frontend (api-client.js maps analysis_layer ->
+// analysis-layers).
+//
+// There were FIVE mounts while `streetview_markers` existed, a table
+// that never had a consumer: it fed nothing in /api/config, no frontend code called
+// its route, and no seed wrote to it.
 //
 // The discriminator is what gives this its teeth: after each POST the row must exist
-// in its own table AND be absent from the other four. A test that only asserts 201 +
+// in its own table AND be absent from the other three. A test that only asserts 201 +
 // "row exists somewhere" cannot see a swapped mount.
 
 import { describe, it, before, after } from 'node:test';
@@ -22,13 +26,12 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 
-/** [HTTP route segment, physical table]. Mirrors app.js:167-171. */
+/** [HTTP route segment, physical table]. Mirrors the makeCatalogRouter mounts in app.js. */
 const MOUNTS = [
   ['basemaps', 'basemaps'],
   ['data-layers', 'data_layers'],
   ['analysis-layers', 'analysis_layers'],
   ['tilesets', 'tilesets'],
-  ['streetview-markers', 'streetview_markers'],
 ];
 
 const ALL_TABLES = MOUNTS.map(([, t]) => t);
@@ -55,8 +58,8 @@ describe('catalog — route/table binding and the /api/config round-trip', () =>
   const asAdmin = (m, p) => supertest(app)[m](p).set('Authorization', `Bearer ${adminToken}`);
   const asUser = (m, p) => supertest(app)[m](p).set('Authorization', `Bearer ${userToken}`);
 
-  it('each of the FIVE routes writes into its OWN table and into no other', async () => {
-    assert.equal(MOUNTS.length, 5, 'all five mounts must be exercised (anti-empty-sweep guard)');
+  it('each of the FOUR routes writes into its OWN table and into no other', async () => {
+    assert.equal(MOUNTS.length, 4, 'all four mounts must be exercised (anti-empty-sweep guard)');
     let exercised = 0;
 
     for (const [route, table] of MOUNTS) {
@@ -77,11 +80,11 @@ describe('catalog — route/table binding and the /api/config round-trip', () =>
       exercised += 1;
     }
 
-    assert.equal(exercised, 5, 'five route/table pairs were really exercised');
+    assert.equal(exercised, 4, 'four route/table pairs were really exercised');
   });
 
-  it('reads on all five routes need only auth; writes need a GLOBAL admin', async () => {
-    assert.equal(MOUNTS.length, 5);
+  it('reads on all four routes need only auth; writes need a GLOBAL admin', async () => {
+    assert.equal(MOUNTS.length, 4);
     for (const [route] of MOUNTS) {
       const id = idFor(route);
       const got = await asUser('get', `/api/v1/${route}/${id}`).expect(200);
@@ -96,8 +99,8 @@ describe('catalog — route/table binding and the /api/config round-trip', () =>
     }
   });
 
-  it('an unauthenticated caller cannot even READ the catalog (401 on all five)', async () => {
-    assert.equal(MOUNTS.length, 5);
+  it('an unauthenticated caller cannot even READ the catalog (401 on all four)', async () => {
+    assert.equal(MOUNTS.length, 4);
     for (const [route] of MOUNTS) {
       await supertest(app).get(`/api/v1/${route}`).expect(401);
       await supertest(app).get(`/api/v1/${route}/${idFor(route)}`).expect(401);

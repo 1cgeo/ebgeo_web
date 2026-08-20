@@ -6,7 +6,7 @@ O código é denso em comentários de projeto: o bloco que abre `CONVERGENCE_GUA
 
 ## Contrato congelado
 
-- **`op_id` nunca pode ser opcional.** O índice é único, mas a coluna é nullable (`backend/src/database/migrations/003_sync.sql`) e em Postgres `NULL` não colide. A única barreira é `id: Joi.string().required()` (`backend/src/modules/sync/sync.schemas.js`), em outro pacote. Relaxar essa linha não quebra teste nenhum: a idempotência simplesmente some, silenciosa, e cada reenvio insere de novo.
+- **`op_id` nunca pode ser opcional.** O índice é único, mas a coluna é nullable (`backend/src/database/migrations/004_sync.sql`) e em Postgres `NULL` não colide. A única barreira é `id: Joi.string().required()` (`backend/src/modules/sync/sync.schemas.js`), em outro pacote. Relaxar essa linha não quebra teste nenhum: a idempotência simplesmente some, silenciosa, e cada reenvio insere de novo.
 - **A guarda falha em aberto.** `shouldApplyVersion` devolve `true` quando `serverVersion == null`, por causa do modo sem backend. Qualquer caminho novo que esqueça de carimbar a versão desliga a guarda sem erro.
 - **A comparação é `>=`, não `>`**, enquanto `markAppliedVersion` grava com `>`. Versões iguais reaplicam. É seguro só porque o write é substituição em bloco; não introduza um apply incremental nesses tipos.
 - **Idempotência é do log, não do efeito, e é por atlas.** Impede reaplicar a *mesma* op. Duas ops distintas na mesma entidade continuam LWW por chegada, com granularidade de feição inteira ([[modelo-conflito-lww]]). Como a chave inclui `atlas_id`, ela não transplanta para um clone ([[clone-atlas]]) nem existe no import offline ([[atlas-import-offline]]).

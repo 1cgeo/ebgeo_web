@@ -21,12 +21,14 @@ export const getAdminConfig = asyncHandler(async (req, res) => {
 
 /** Admin-only: persists a partial override (merged into the stored document). */
 export const updateConfigOverrides = asyncHandler(async (req, res) => {
-  const overrides = await configService.updateConfigOverrides(req.body, req.user.id);
+  // `req` desce ao serviço para a trilha (ip/user-agent), que participa da MESMA
+  // transação do UPSERT — ver o cabeçalho de `updateConfigOverrides`.
+  const overrides = await configService.updateConfigOverrides(req.body, req.user.id, req);
   res.json({ data: { overrides } });
 });
 
 /** Admin-only: clears ALL overrides (revert to STATIC/ENV). */
 export const clearConfigOverrides = asyncHandler(async (req, res) => {
-  const overrides = await configService.clearConfigOverrides();
+  const overrides = await configService.clearConfigOverrides(req.user.id, req);
   res.json({ data: { overrides } });
 });

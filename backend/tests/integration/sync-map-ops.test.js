@@ -234,23 +234,36 @@ describe('Map Operations via Sync', () => {
       assert.equal(rows[0].notes_description, '<p>Some HTML content</p>');
     });
 
-    it('updates map catalog_layers (JSONB)', async () => {
+    // `maps.catalog_layers` is gone, so a MAP update can no longer carry catalog
+    // layers as a sibling column. The field is dropped from the whitelist, not error-checked: an
+    // old client that still sends it gets its other fields applied and this one ignored, which is
+    // the same degradation every removed alias gets. What must never come back is a SECOND home
+    // for the definition, and that is what this pins.
+    it('ignores `catalog_layers` on a map update: the column is gone', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Map' });
-
-      const catalogLayers = [{ id: 'wms-1', url: 'http://example.com/wms', visible: true }];
 
       await pushSync([{
         id: randomUUID(),
         type: 'update',
         target: 'map',
         targetId: map.id,
-        changes: { catalog_layers: catalogLayers },
+        changes: {
+          name: 'Catalog Map renomeado',
+          catalog_layers: [{ id: 'wms-1', url: 'http://example.com/wms', visible: true }],
+        },
         timestamp: Date.now(),
         clientId: 'test-client',
       }]).expect(200);
 
+      // Positive half: the rest of the same update DID apply (without it, "the field was
+      // ignored" would also be true of an update that failed entirely).
       const { rows } = await db.query('SELECT * FROM maps WHERE id = $1', [map.id]);
-      assert.deepEqual(rows[0].catalog_layers, catalogLayers);
+      assert.equal(rows[0].name, 'Catalog Map renomeado');
+      assert.equal(rows[0].catalog_layers, undefined, 'no column of that name exists');
+      const linhas = await db.query(
+        'SELECT COUNT(*)::int AS n FROM catalog_layers WHERE map_id = $1', [map.id]
+      );
+      assert.equal(linhas.rows[0].n, 0, 'and it did not smuggle a row into the dedicated table');
     });
 
     it('updates map analysis_layers (JSONB)', async () => {
@@ -305,33 +318,44 @@ describe('Map Operations via Sync', () => {
   });
 
   describe('Remove catalog layers (§2 item 16)', () => {
-    it('removes catalog layers by setting to empty array', async () => {
+    // The requirement is unchanged; its ADDRESS moved. Removing a catalog layer used to mean
+    // rewriting the `maps.catalog_layers` array, and since the layer became its own entity it
+    // means a per-layer delete op (soft-delete + tombstone, so the removal converges on peers).
+    // The array column is gone, so this is the only shape left.
+    it('removes a catalog layer with a per-layer delete op', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Remove Map' });
 
-      // First add catalog layers
       await pushSync([{
         id: randomUUID(),
-        type: 'update',
-        target: 'map',
-        targetId: map.id,
-        changes: { catalog_layers: [{ id: 'wms-1', url: 'http://example.com', visible: true }] },
+        type: 'create',
+        target: 'catalog_layer',
+        targetId: 'wms-1',
+        mapId: map.id,
+        data: { id: 'wms-1', url: 'http://example.com', visible: true },
         timestamp: Date.now(),
         clientId: 'test-client',
       }]).expect(200);
 
-      // Then remove all
+      const vivas = await db.query(
+        'SELECT id FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL', [map.id]
+      );
+      assert.deepEqual(vivas.rows.map((r) => r.id), ['wms-1'], 'the layer was added');
+
       await pushSync([{
         id: randomUUID(),
-        type: 'update',
-        target: 'map',
-        targetId: map.id,
-        changes: { catalog_layers: [] },
+        type: 'delete',
+        target: 'catalog_layer',
+        targetId: 'wms-1',
+        mapId: map.id,
         timestamp: Date.now() + 1,
         clientId: 'test-client',
       }]).expect(200);
 
-      const { rows } = await db.query('SELECT * FROM maps WHERE id = $1', [map.id]);
-      assert.deepEqual(rows[0].catalog_layers, []);
+      const { rows } = await db.query(
+        'SELECT id, deleted_at FROM catalog_layers WHERE map_id = $1', [map.id]
+      );
+      assert.equal(rows.length, 1, 'soft-delete: the row stays as the tombstone');
+      assert.ok(rows[0].deleted_at !== null, 'and it is marked deleted');
     });
   });
 

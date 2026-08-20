@@ -16,6 +16,10 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
+import { isPrivateResource, canShareResource } from '@store/sync/resource-access.service.js';
+
+/** Static icon (no user data) for the share affordance of a private base layer. */
+const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>';
 
 /**
  * Base layer selector control.
@@ -202,7 +206,28 @@ export class BaseLayerSelectorControl {
             thumb.style.background = gradient;
         };
 
-        thumb.appendChild(img);
+        // A miniatura só entra na árvore quando existe fonte para ela. Um `<img>` sem `src`
+        // desenha o texto do ALT dentro do quadrado, por cima do gradiente de fallback — e a
+        // camada base sem miniatura deixou de ser exceção: toda basemap criada pelo painel
+        // nasce sem imagem, e a concedida é justamente uma dessas. O nome já aparece abaixo.
+        if (imageUrl) {
+            thumb.appendChild(img);
+        }
+
+        // O SELO DE RECURSO PRIVADO, o mesmo do cartão do catálogo e pela mesma razão: a
+        // camada base privada chega aqui pelo payload aditivo (papel global, concessão
+        // pessoal ou empréstimo do atlas em foco), e é indistinguível de uma pública se
+        // ninguém disser. Quem a vê precisa saber que ela não está no acervo de todos —
+        // e, no caso do empréstimo, que ela sai da lista ao sair do atlas.
+        const privado = isPrivateResource('basemaps', layerId);
+        if (privado) {
+            const selo = document.createElement('span');
+            selo.className = 'base-layer-option-badge';
+            selo.dataset.testid = 'base-layer-private';
+            selo.textContent = 'Privado';
+            selo.title = 'Camada base privada: só quem recebeu acesso a enxerga.';
+            thumb.appendChild(selo);
+        }
 
         // Name
         const name = document.createElement('div');
@@ -211,6 +236,20 @@ export class BaseLayerSelectorControl {
 
         option.appendChild(thumb);
         option.appendChild(name);
+
+        // "Compartilhar": só em camada base PRIVADA e só para quem pode repassar (papel
+        // global, ou concessão de nível `view_share`).
+        //
+        // ELE MORA AQUI PORQUE A SUPERFÍCIE DO BASEMAP É ESTE SELETOR. Os outros quatro
+        // tipos de recurso têm cartão no catálogo, e é lá que o botão deles vive; o
+        // basemap não tem cartão nenhum, então sem este botão um administrador poderia
+        // tornar uma camada base privada e ninguém teria como conceder acesso a ela por
+        // tela alguma — meia regra, que é exatamente o buraco que a migração 021 fechou
+        // do lado do servidor. O painel de Administração NÃO serve para isto: o modal de
+        // compartilhamento arrasta o motor de sync, e `admin.html` boota sem a store.
+        if (privado && canShareResource('basemaps', layerId)) {
+            option.appendChild(this._createShareButton(layerId, layerConfig.name || layerId));
+        }
 
         // Store reference
         this._thumbnails.set(layerId, option);
@@ -229,6 +268,42 @@ export class BaseLayerSelectorControl {
         });
 
         return option;
+    }
+
+    /**
+     * The "Compartilhar" button of a private base layer.
+     *
+     * The modal is loaded on demand (`import()`), not statically: it is the catalog's sharing UI,
+     * it drags the sync engine with it, and no anonymous boot should pay for a button that only a
+     * logged-in grantee ever sees.
+     * @private
+     * @param {string} layerId - The RAW basemap id (`resource_grants.resource_id`).
+     * @param {string} layerName - Display name, for the modal heading.
+     * @returns {HTMLElement}
+     */
+    _createShareButton(layerId, layerName) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'base-layer-option-share';
+        btn.dataset.testid = 'base-layer-share';
+        btn.title = `Compartilhar ${layerName}`;
+        btn.setAttribute('aria-label', `Compartilhar ${layerName}`);
+        btn.innerHTML = ICON_SHARE;
+        addDomListener(this, btn, 'click', async (e) => {
+            // Sem isto o clique escolheria a camada, que é o que o resto do cartão faz.
+            e.stopPropagation();
+            try {
+                const { showResourceShareModal } = await import('@catalog/resource-share.modal.js');
+                showResourceShareModal({
+                    resourceType: 'basemap',
+                    resourceId: layerId,
+                    resourceName: layerName,
+                });
+            } catch (error) {
+                console.error('[base-layer-selector] falha ao abrir o compartilhamento:', error);
+            }
+        });
+        return btn;
     }
 
     /**

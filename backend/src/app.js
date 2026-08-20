@@ -11,6 +11,7 @@ import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { drainOnError } from './middleware/drain-on-error.js';
 import { flexibleAuth } from './middleware/flexible-auth.js';
+import { pruneResponsePayload } from './middleware/prune-resource-payload.js';
 
 // Module routes
 import { authRoutes } from './modules/auth/index.js';
@@ -22,9 +23,10 @@ import { nomesRoutes, assets3dRoutes } from './modules/nomes/index.js';
 import { organizationsRoutes } from './modules/organizations/index.js';
 import { ranksRoutes } from './modules/ranks/index.js';
 import { auditRoutes } from './modules/audit/index.js';
-import { zonesRoutes } from './modules/zones/index.js';
 import { sv360Routes } from './modules/streetview360/index.js';
 import { debugRoutes } from './modules/debug/debug.routes.js';
+import { resourceAccessRoutes } from './modules/resource-access/index.js';
+import { accessGroupsRoutes } from './modules/access-groups/index.js';
 import { isTraceEnabled } from './utils/sync-trace.js';
 
 /**
@@ -125,6 +127,13 @@ export function createApp() {
   // custa mais do que rende. Removido em 2026-07-25.
   app.use(requestLogger);
 
+  // THE HTTP CHOKE POINT for catalog-resource definitions, mounted BEFORE every route (the health
+  // check below included) so that no route can reach a client without passing it. Wrapping
+  // `res.json` once here is what makes the guarantee structural instead of a list of patched call
+  // sites — the shape that let three consecutive reviews each find a new exit. See
+  // `middleware/prune-resource-payload.js` and `modules/catalog/resource-payload.prune.js`.
+  app.use(pruneResponsePayload);
+
   // Health check (no auth) — readiness: touches the DB, 503 if it is down.
   //
   // The probe carries its OWN deadline because nothing below it has one. The pool
@@ -171,7 +180,7 @@ export function createApp() {
   app.use('/api/config', configRoutes); // compatibility alias
 
   // Public 3D asset serving (immutable, Range/ETag). Discovery is gated by the
-  // authenticated catalog (GET /api/v1/nomes/catalogo3d).
+  // catálogo de tilesets (`GET /api/v1/tilesets` e `GET /api/config`).
   app.use('/api/v1/assets3d', assets3dRoutes);
 
   // Route mounting
@@ -183,13 +192,13 @@ export function createApp() {
   app.use('/api/v1/data-layers', makeCatalogRouter('data_layers'));
   app.use('/api/v1/analysis-layers', makeCatalogRouter('analysis_layers'));
   app.use('/api/v1/tilesets', makeCatalogRouter('tilesets'));
-  app.use('/api/v1/streetview-markers', makeCatalogRouter('streetview_markers'));
   app.use('/api/v1/nomes', nomesRoutes);
   app.use('/api/v1/organizations', organizationsRoutes);
   app.use('/api/v1/ranks', ranksRoutes);
   app.use('/api/v1/audit', auditRoutes);
-  app.use('/api/v1/zones', zonesRoutes);
   app.use('/api/v1/sv360', sv360Routes);
+  app.use('/api/v1/resource-access', resourceAccessRoutes);
+  app.use('/api/v1/access-groups', accessGroupsRoutes);
 
   // SyncLedger debug-trace endpoint — env-gated (test/dev only), never in production.
   // The `!config.isProd` clause is a hard production cross-check: even if EBGEO_TRACE=1

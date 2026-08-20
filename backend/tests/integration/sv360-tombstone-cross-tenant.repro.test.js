@@ -30,6 +30,7 @@ import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import Database from 'better-sqlite3';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { ingestBundle } from '../../src/modules/streetview360/sv360.ingest.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
@@ -47,9 +48,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, orgRole = 'viewer', role = 'user', sub = randomUUID() }) {
+// O EIXO DE ESCRITA/OCULTACAO DO 360 e o ESCOPO DE PRODUCAO (`producer_org_id`),
+// concedido por administrador. `organization_id` + `org_role` — lotacao
+// AUTO-DECLARADA no auto-cadastro — deixou de autorizar qualquer coisa, e continua
+// viajando so como exibicao.
+function mintToken({ orgId, producerOrgId = null, role = 'user', sub = randomUUID() }) {
   return jwt.sign(
-    { sub, username: `tomb_${sub.slice(0, 8)}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `tomb_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -127,7 +135,12 @@ describe('sv360 — tombstone do manifesto não atravessa organização (#19)', 
     );
     orgBId = orgB.rows[0].id;
 
-    tokenA = mintToken({ orgId: orgAId, orgRole: 'owner' });
+    // OS ATORES COM PODER PRECISAM DE LINHA EM `users`, e nao so de claim: as rotas de
+    // LEITURA do 360 resolvem papel e producao no SQL, a partir do UUID. Um `sub`
+    // sintetico escreveria (o gate de escrita e JS) e nao leria nada — um 404 com cara
+    // de autorizacao que e, na verdade, fixture.
+    const produtorA = await createProducerUser(db, orgAId, { username: `tct_prod_${RID}` });
+    tokenA = mintToken({ orgId: orgAId, producerOrgId: orgAId, sub: produtorA.id });
 
     // A organização A publica seu projeto com UMA foto.
     const a = bundleFor(orgAId, SLUG_A, PHOTO_A);

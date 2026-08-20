@@ -1,14 +1,20 @@
 // Path: src/modules/users/users.schemas.js
 import Joi from 'joi';
 
-// Self-service profile edit. Deliberately does NOT accept `organization_id`:
-// a user must not be able to move themselves into another tenant. After the next
-// token refresh mints the new org claim, that would grant read access to the
-// target org's private sv360 projects (`sv360.queries.js` filters on
-// `organization_id`) and pass the org-scoped login/WS gates. Note this does NOT
-// cover `ng` (nomes), which is gated per-user/per-group by zone grants
-// (`ng.fn_user_zone_geoms`), not by org. Tenant membership is admin-only
-// (updateUserAdminSchema).
+// Self-service profile edit. Deliberately accepts NEITHER `organization_id` NOR
+// `producer_org_id`, e os dois pelo mesmo motivo com pesos diferentes.
+//
+// O motivo ANTIGO desta recusa era que `organization_id` autorizava leitura de
+// projeto 360 privado daquela OM; isso deixou de valer (o eixo de OM no 360 passou
+// a ser o escopo de PRODUÇÃO, que só um administrador concede). A recusa continua
+// certa e o motivo passou a ser outro: a lotação é o rótulo institucional da pessoa
+// e alimenta o gate de liveness (OM desativada barra a conta), então auto-mover-se
+// entre tenants continua sendo escrita de identidade, não de perfil.
+//
+// `producer_org_id` é recusado com muito mais força: ele É autorização. Aceitá-lo
+// aqui seria o auto-cadastro de crachá — exatamente o defeito que esta fase existe
+// para fechar. Os dois são de administrador (updateUserAdminSchema). Nada disto
+// cobre `ng` (nomes), gateado por zona (`ng.fn_user_zone_geoms`), nunca por OM.
 export const updateProfileSchema = Joi.object({
   nome: Joi.string().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
@@ -40,7 +46,35 @@ export const createUserAdminSchema = Joi.object({
   nome: Joi.string().required().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
-  role: Joi.string().valid('user', 'admin').default('user'),
+  // OS QUATRO PAPEIS GLOBAIS, E ELES NAO SAO UMA ESCADA: nenhum contem o outro, e
+  // compara-los por ordem e proibido.
+  //   user         — a conta comum.
+  //   producer     — MANTEM todo recurso produzido pela OM do `producer_org_id`
+  //                  dele (catalogo e 360). Escreve, e so ali.
+  //   credenciado  — LE todo recurso privado do sistema e NAO ESCREVE NADA. Nao
+  //                  passa em requireAdmin, nao vira dono de atlas, nao edita
+  //                  catalogo, nao vira 'admin' em toFrontendRole.
+  //   admin        — administracao do sistema.
+  // Esta borda e onde o papel NASCE, e por isso ela e a unica que cita os quatro
+  // valores; nenhum gate de PODER foi tocado, e e assim que eles tem de continuar.
+  // O censo (tests/unit/papel-global-censo.test.js) classifica cada sitio e reprova
+  // o que aparecer sem classificacao.
+  role: Joi.string().valid('user', 'producer', 'credenciado', 'admin').default('user'),
+  // O BICONDICIONAL DA CRIACAO, espelhado do CHECK `users_producer_scope_check`:
+  // cracha sem escopo e escopo sem cracha sao os dois estados impossiveis. Cobra-lo
+  // aqui e o que faz o erro voltar como 422 com NOME DE CAMPO, em vez do 23514 que
+  // o errorHandler traduz num 400 generico ("Value violates a constraint") sem dizer
+  // o que fazer. Um produtor produz para UMA OM so; acima disso e admin.
+  producer_org_id: Joi.string().uuid().allow(null, '')
+    .when('role', {
+      is: 'producer',
+      then: Joi.string().uuid().required(),
+      otherwise: Joi.valid(null, ''),
+    })
+    .messages({
+      'any.required': 'O papel Produtor exige a OM de produção.',
+      'any.only': 'A OM de produção só se define para o papel Produtor.',
+    }),
   // See the note on updateUserAdminSchema.org_role: the column had no writer at all
   // until 2026-07-19, which left the sv360 org-scoped write gate permanently closed.
   org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer').default('viewer'),
@@ -54,7 +88,14 @@ export const updateUserAdminSchema = Joi.object({
   nome: Joi.string().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
-  role: Joi.string().valid('user', 'admin'),
+  role: Joi.string().valid('user', 'producer', 'credenciado', 'admin'),
+  // AQUI O BICONDICIONAL NAO CABE NO JOI, e a diferenca com a criacao e real, nao
+  // descuido: uma edicao e PARCIAL, entao o par (papel, escopo) que vale e a MISTURA
+  // do corpo com a linha existente, e o Joi so enxerga o corpo. Um `when('role')`
+  // aqui recusaria trocar a OM de um produtor sem reenviar o papel, e nao veria o
+  // caso que mais quebra (rebaixar sem limpar o escopo). Quem cobra o bicondicional
+  // e `users.service.js`, sobre o estado efetivo, com 400 legivel.
+  producer_org_id: Joi.string().uuid().allow(null, ''),
   is_active: Joi.boolean(),
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.

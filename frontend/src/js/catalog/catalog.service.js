@@ -8,20 +8,22 @@
 
 import config from '@js/config.js';
 import {
-    FIRST_PERSON_VIEWER,
     getFirstPersonScenes,
     resolveSceneAssets
 } from '@js/first_person_3d_tool/scene-config.service.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
+import { Forma3D, derivarForma3d, ehEntradaDoCesium } from './forma-3d.js';
 import { getAtlas360Allowlist } from '@store/sync/atlas-settings.service.js';
 
 /**
  * Parses a catalog date into epoch ms.
  *
- * The catalog mixes two formats: 3D models carry DD/MM/YYYY (`data_captura`,
- * seeded that way in the backend) while 360 projects carry ISO (`capture_date`
- * is a TIMESTAMPTZ column). Returns null — never NaN — for anything it cannot
- * read, because a comparator that returns NaN corrupts the whole sort.
+ * The catalog mixes two formats, and both are live: 3D models carry `data_captura`
+ * as free text inside `config`, which an administrator types by hand (DD/MM/YYYY is
+ * what the legacy catalog used) and the gazetteer importer writes as ISO; 360
+ * projects carry `capture_date`, a TIMESTAMPTZ column, so always ISO. Returns null —
+ * never NaN — for anything it cannot read, because a comparator that returns NaN
+ * corrupts the whole sort.
  *
  * @param {string} dateStr
  * @returns {number|null} Epoch ms, or null when unparseable
@@ -87,6 +89,8 @@ export function sortByDateDesc(items) {
  * @typedef {Object} CatalogItem
  * @property {string} id - Unique identifier
  * @property {string} type - Item type (CATALOG_ITEM_TYPES)
+ * @property {string} [forma] - 3D shape (`Forma3D`), on 3D items only. A FINER axis than `type`:
+ *   it drives the card's own label and icon, never the section or the allowlist.
  * @property {string} name - Display name
  * @property {string} [description] - Optional description
  * @property {string} thumbnail - Thumbnail URL
@@ -203,16 +207,18 @@ export class CatalogService {
     }
 
     /**
-     * Gets the whole 3D collection from config: Cesium tilesets and first-person
-     * (Gaussian splatting) scenes, which share the `config.tilesets` list and are
-     * told apart by the `viewer` discriminator.
+     * Gets the whole 3D collection from config: the Cesium half (Tiles 3D, isolated model, point
+     * cloud) and the indoor half (walk-through scenes), which share the `config.tilesets` list
+     * and are told apart by the DECLARED shape (`config.forma3d`, `catalog/forma-3d.js`).
      *
-     * The partition is EXCLUSIVE on both sides: a scene left inside the tileset
-     * half would produce a second card that hands the Cesium viewer an id with no
-     * tileset behind it.
+     * The partition is by INCLUSION on both sides, and that is the change: it used to be
+     * "everything that is not first-person" on one side, which silently absorbed any shape
+     * nobody had heard of. Now each half asks for the shapes it draws, so a shape with a new
+     * viewer branch appears in neither until someone puts it in one — a visible absence instead
+     * of a card that hands the Cesium viewer an id it cannot load.
      *
-     * The gate covers both halves on purpose: a scene is 3D collection, so the
-     * Gestor's "Mapa 3D" switch governs it exactly like a tileset.
+     * The gate covers both halves on purpose: a scene is 3D collection, so the Gestor's
+     * "Mapa 3D" switch governs it exactly like a tileset.
      * @private
      * @returns {CatalogItem[]}
      */
@@ -225,16 +231,19 @@ export class CatalogService {
     }
 
     /**
-     * Gets Cesium 3D tilesets from config, first-person scenes excluded.
+     * Gets the Cesium half of `config.tilesets`: every row whose declared shape is drawn by
+     * Cesium. Each item carries its `forma`, which is what gives the card its own label and icon
+     * (a point cloud stops looking like an ordinary model).
      * @private
      * @returns {CatalogItem[]}
      */
     static _getTilesets3D() {
         return config.tilesets
-            .filter(tileset => tileset?.viewer !== FIRST_PERSON_VIEWER)
+            .filter(tileset => ehEntradaDoCesium(tileset))
             .map(tileset => ({
                 id: `3d-${tileset.id}`,
                 type: CATALOG_ITEM_TYPES.MODEL_3D,
+                forma: derivarForma3d(tileset),
                 name: tileset.name,
                 description: tileset.description || null,
                 keywords: tileset.keywords || null,
@@ -260,6 +269,7 @@ export class CatalogService {
         return getFirstPersonScenes().map(scene => ({
             id: `fp-${scene.id}`,
             type: CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE,
+            forma: Forma3D.INDOOR,
             name: scene.name,
             description: scene.description || null,
             keywords: scene.keywords || null,
@@ -273,8 +283,13 @@ export class CatalogService {
     }
 
     /**
-     * Gets panoramic 360 projects from the cached data.
-     * Never makes a network request — uses only the cache populated by preflight.
+     * Gets panoramic 360 projects, preferring the cache the preflight filled.
+     *
+     * IT MAY NOW MAKE ONE REQUEST, and the reason is the access scope: the cached list belongs to
+     * the (user, atlas) pair it was fetched under, and a change of either — a login, opening or
+     * leaving an atlas that lends a private 360 — invalidates it (`resource-scope.js`). Reading a
+     * miss as "no 360 exists" would EMPTY this section of the catalog on every atlas switch, so a
+     * miss refetches, exactly as the search provider already did.
      * @private
      * @returns {Promise<CatalogItem[]>}
      */
@@ -283,9 +298,9 @@ export class CatalogService {
         if (!config.features.imagens_panoramicas) return [];
 
         try {
-            const { getCachedProjects } = await import('../street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects } = await import('../street_view_tool/streetview-api.service.js');
 
-            const projects = getCachedProjects();
+            const projects = getCachedProjects() ?? await fetchProjects();
             if (!projects || projects.length === 0) return [];
 
             const serviceUrl = config.streetView360.serviceUrl;

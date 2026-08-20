@@ -23,6 +23,11 @@ import {
     CATALOG_ICONS,
     CATALOG_TYPE_CONFIG
 } from '@catalog/catalog.constants.js';
+import {
+    catalogLayerDisplayName,
+    catalogLayerReferenceId,
+    resolveCatalogLayerDefinition
+} from '@catalog/catalog-layer.ref.js';
 import { showSuccess, showToast } from '@utils';
 import { escapeHtml } from '@utils/html-escape.js';
 import { showLayerStylePanel } from './layer-style-panel.component.js';
@@ -61,7 +66,7 @@ function supportsStyleConfig(type) {
  */
 function applyCatalogLayerStyleOverrides(layer, analysisLayersManager, dataLayersManager) {
     if (!layer?.styleOverrides) return;
-    const innerId = layer.config?.id;
+    const innerId = catalogLayerReferenceId(layer);
     if (!innerId) return;
 
     if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
@@ -188,18 +193,22 @@ function createLayerItem(layer, map, eventBus, analysisLayersManager, dataLayers
  */
 function createActiveLayerHTML(layer) {
     const icon = getLayerIcon(layer.type);
+    // The definition comes from the live catalog, never from the stored entry: bounds, legend and
+    // name are the catalog's, so an administrator's correction shows up here on the next render.
+    const definition = resolveCatalogLayerDefinition(layer);
+    const name = catalogLayerDisplayName(layer);
     // Analysis layers require bounds in config, data layers calculate bounds dynamically
-    const hasLocation = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && layer.config?.bounds;
+    const hasLocation = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && definition?.bounds;
     // Data layers always support zoom (bounds calculated from vector features)
     const isDataLayer = layer.type === CATALOG_ITEM_TYPES.DATA_LAYER;
     // Check if layer has legend configured
-    const hasLegend = layer.config?.legend?.items?.length > 0;
+    const hasLegend = definition?.legend?.items?.length > 0;
     const hasStyleConfig = supportsStyleConfig(layer.type);
 
     return `
         <div class="catalog-layer-info">
             <span class="catalog-layer-icon">${icon}</span>
-            <span class="catalog-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
+            <span class="catalog-layer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
         </div>
         <div class="catalog-layer-actions">
             ${hasLegend ? `
@@ -233,11 +242,12 @@ function createActiveLayerHTML(layer) {
  * @returns {string} HTML string
  */
 function createUnavailableLayerHTML(layer) {
+    const name = catalogLayerDisplayName(layer);
     return `
         <div class="catalog-layer-info">
             <span class="catalog-layer-icon catalog-layer-icon-warning">${ICONS.WARNING}</span>
             <div class="catalog-layer-details">
-                <span class="catalog-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
+                <span class="catalog-layer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
                 <span class="catalog-layer-status-text">Indisponível</span>
             </div>
         </div>
@@ -410,10 +420,11 @@ async function openLayerStylePanel(item, layer, analysisLayersManager, dataLayer
  * @param {Object} [dataLayersManager] - Data layers manager instance
  */
 function zoomToLayer(map, layer, analysisLayersManager, dataLayersManager) {
+    const innerId = catalogLayerReferenceId(layer);
     if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-        analysisLayersManager.zoomToLayer(layer.config?.id);
+        analysisLayersManager.zoomToLayer(innerId);
     } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-        dataLayersManager.zoomToLayer(layer.config?.id);
+        dataLayersManager.zoomToLayer(innerId);
     }
 }
 
@@ -442,11 +453,12 @@ function applyLayerVisibility(map, layer, visible, analysisLayersManager, dataLa
             terrainControl.setHillshadeVisibility(visible);
         }
     } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-        // Use analysis layers manager
-        analysisLayersManager.toggleLayer(layer.config?.id, visible);
+        // Use analysis layers manager. The id handed over is the REFERENCE; the manager resolves
+        // the definition itself, from the same `/api/config` catalog.
+        analysisLayersManager.toggleLayer(catalogLayerReferenceId(layer), visible);
     } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
         // Use data layers manager
-        dataLayersManager.toggleLayer(layer.config?.id, visible);
+        dataLayersManager.toggleLayer(catalogLayerReferenceId(layer), visible);
     }
 }
 
@@ -488,6 +500,12 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
     const typeConfig = CATALOG_TYPE_CONFIG[layer.type];
     const typeLabel = typeConfig?.label || layer.type;
 
+    // The map stores only a REFERENCE to the catalog resource, so "unavailable" means the
+    // reference no longer resolves for THIS user in THIS atlas. The wording covers the four
+    // causes without pretending to tell them apart (the client cannot: a private resource it may
+    // not see is indistinguishable from one that was removed, which is the intended design).
+    // The previous text named the `.ebgeo` file and `config.js`, and misled everyone whose
+    // access simply lapsed.
     const popover = document.createElement('div');
     popover.className = 'catalog-layer-popover';
     popover.innerHTML = `
@@ -496,15 +514,22 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
             <button class="popover-close" title="Fechar">${ICONS.CLOSE}</button>
         </div>
         <div class="popover-body">
-            <p>Esta camada foi salva no arquivo .ebgeo mas não está configurada nesta instância do EBGeo.</p>
+            <p>
+                O mapa guarda apenas a referência desta camada. O nome, o endereço e o estilo
+                dela vêm do catálogo no momento em que ela é desenhada, e o catálogo não a
+                entrega para você neste atlas.
+            </p>
             <dl>
                 <dt>Tipo:</dt>
                 <dd>${typeLabel}</dd>
-                <dt>ID Original:</dt>
-                <dd><code>${escapeHtml(layer.originalId || layer.config?.id || layer.id)}</code></dd>
+                <dt>Referência:</dt>
+                <dd><code>${escapeHtml(catalogLayerReferenceId(layer) || layer.id)}</code></dd>
             </dl>
             <p class="popover-hint">
-                Para utilizar esta camada, verifique se o config.js inclui a configuração necessária.
+                Ou a camada saiu do catálogo, ou ela é de acesso restrito e você não tem
+                concessão para vê-la, ou o empréstimo dela foi feito para outro atlas. Se for
+                acesso restrito, peça a concessão a quem produz o dado ou peça ao gestor deste
+                atlas para emprestá-la aqui.
             </p>
             <button class="popover-retry-btn">
                 ${ICONS.REFRESH}
@@ -556,21 +581,21 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
                     terrainControl.setHillshadeVisibility(true);
                 }
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-                await analysisLayersManager.toggleLayer(layer.config?.id, true);
+                await analysisLayersManager.toggleLayer(catalogLayerReferenceId(layer), true);
             } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-                dataLayersManager.toggleLayer(layer.config?.id, true);
+                dataLayersManager.toggleLayer(catalogLayerReferenceId(layer), true);
             }
 
             // Emit event to refresh UI
             eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 
             // Show success message
-            showSuccess(`Camada "${layer.name}" carregada com sucesso!`);
+            showSuccess(`Camada "${catalogLayerDisplayName(layer)}" carregada com sucesso!`);
 
             removePopover();
         } else {
             // Show warning
-            showToast('Camada ainda não está disponível no config.', 'warning');
+            showToast('A camada continua indisponível no catálogo para você neste atlas.', 'warning');
         }
     });
 
@@ -662,7 +687,7 @@ function toggleLegendPanel(layer, layerItem) {
         return;
     }
 
-    const legend = layer.config?.legend;
+    const legend = resolveCatalogLayerDefinition(layer)?.legend;
     if (!legend?.items?.length) return;
 
     const panel = document.createElement('div');
@@ -708,14 +733,15 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
         return;
     }
 
-    // Create catalog layer state
+    // Create catalog layer state: REFERENCE (id + type) plus the per-atlas state, and nothing
+    // else. `item.originalData` used to be copied into `config` here, and that copy was both the
+    // leak (it carried `source.url` of a private resource into the sync snapshot) and the
+    // staleness (it was never refreshed after the catalog changed).
     const catalogLayer = {
         id: item.id,
         type: type,
-        name: item.name,
         visible: true,
-        opacity: 1,
-        config: item.originalData
+        opacity: 1
     };
 
     // Add to store
@@ -729,9 +755,9 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
         }
         // State is now managed via catalogLayers, no separate hillshadeEnabled needed
     } else if (type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-        await analysisLayersManager.toggleLayer(item.originalData.id, true);
+        await analysisLayersManager.toggleLayer(catalogLayerReferenceId(catalogLayer), true);
     } else if (type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-        dataLayersManager.toggleLayer(item.originalData.id, true);
+        dataLayersManager.toggleLayer(catalogLayerReferenceId(catalogLayer), true);
     }
 
     // Apply any persisted style overrides (no-op for new layers).

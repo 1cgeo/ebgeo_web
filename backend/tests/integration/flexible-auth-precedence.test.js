@@ -5,7 +5,7 @@
 // rota de `auth` ESTRITO. O estrito relê o Bearer sempre que `req.user` está vazio e
 // reconcilia contra o banco, então ele MASCARA tudo o que o flexível faz de errado — é
 // o padrão C3, o assert passa com e sem o comportamento. A divergência só aparece numa
-// rota que tem apenas o flexível, e `GET /nomes/busca` é a única do repositório que é
+// rota que tem apenas o flexível, e `GET /sv360/projects` é a família que é
 // ao mesmo tempo anônima e sensível a `req.user` (o filtro de acesso embutido em
 // `nomes.queries.js` recebe `$5 = req.user?.id`).
 //
@@ -56,6 +56,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser,
   createAdminUser,
+  createProducerUser,
   createAtlas,
   createMap,
   loginUser,
@@ -72,10 +73,6 @@ const PRIVADO = `Base Flex ${SFX}`;
 const PUBLICO = `Praca Flex ${SFX}`;
 
 // Zona quadrada em torno de (-43.2, -22.9), igual à de nomes-access.test.js.
-const ZONE = {
-  type: 'Polygon',
-  coordinates: [[[-43.3, -22.95], [-43.1, -22.95], [-43.1, -22.85], [-43.3, -22.85], [-43.3, -22.95]]],
-};
 
 /** Reads the `token` value out of a Set-Cookie header (array or string). */
 function tokenFromSetCookie(res) {
@@ -89,7 +86,7 @@ function tokenFromSetCookie(res) {
 }
 
 describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113, 85, 86)', () => {
-  let app, db, zoneUser, zoneTok, admin, adminTok;
+  let app, db, zoneUser, zoneTok, admin;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -99,43 +96,59 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
     zoneUser = await createUser(db, { username: `fx_zone_${SFX}` });
     admin = await createAdminUser(db, { username: `fx_admin_${SFX}` });
     zoneTok = await loginUser(app, zoneUser.username, zoneUser.password);
-    adminTok = await loginUser(app, admin.username, admin.password);
 
-    await db.query(
-      `INSERT INTO ng.nomes_geograficos (nome, tipo, access_level, geom)
-       VALUES ($1, 'Cidade', 'public',  ST_SetSRID(ST_MakePoint(-43.2,-22.9),4674)),
-              ($2, 'Cidade', 'private', ST_SetSRID(ST_MakePoint(-43.2,-22.9),4674))`,
-      [PUBLICO, PRIVADO]
+    // O OBSERVÁVEL MUDOU EM 2026-08-19, e a troca é o que mantém este arquivo vivo.
+    // Ele media precedência de credencial contando se um NOME PRIVADO do gazetteer
+    // aparecia; o eixo de privacidade do gazetteer foi removido (era sistema antigo,
+    // com API de admin e nenhuma tela), então aquele observável deixou de existir.
+    //
+    // O substituto precisa de duas propriedades, e um recurso de catálogo comum não
+    // tem a primeira: a rota tem de ser SÓ FLEXÍVEL (para o anônimo receber 200 e não
+    // 401, senão os casos de precedência medem o middleware errado) e o corpo tem de
+    // VARIAR por principal. O 360 é a única família que tem as duas.
+    const { rows: orgs } = await db.query(
+      `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+      [`OM Flex ${SFX}`, `omflex-${SFX}`, `F${SFX.slice(0, 4)}`]
     );
-    await db.query('SELECT ng.refresh_busca()');
+    const orgId = orgs[0].id;
 
-    const zone = await supertest(app)
-      .post('/api/v1/zones')
-      .set('Authorization', `Bearer ${adminTok}`)
-      .send({ name: `Zona Flex ${SFX}`, geom: ZONE })
-      .expect(201);
-    await supertest(app)
-      .put(`/api/v1/zones/${zone.body.data.id}/permissions`)
-      .set('Authorization', `Bearer ${adminTok}`)
-      .send({ users: [zoneUser.id] })
-      .expect(200);
+    const { rows: priv } = await db.query(
+      `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level,
+                                   center_lat, center_long, photo_count)
+       VALUES ($1, $2, $3, $4, 'enabled', 'private', -22.9, -43.2, 0) RETURNING id`,
+      [orgId, `flex-priv-${SFX}`, PRIVADO, `${orgId}__flex-priv-${SFX}.db`]
+    );
+    await db.query(
+      `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level,
+                                   center_lat, center_long, photo_count)
+       VALUES ($1, $2, $3, $4, 'enabled', 'public', -22.9, -43.2, 0)`,
+      [orgId, `flex-pub-${SFX}`, PUBLICO, `${orgId}__flex-pub-${SFX}.db`]
+    );
+
+    // A concessão pessoal, que é o que o principal reconciliado precisa carregar.
+    await db.query(
+      `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)
+       VALUES ('sv360_project', $1, $2, 'view', $3)`,
+      [priv[0].id, zoneUser.id, admin.id]
+    );
   });
 
   after(async () => {
     await teardownTestEnv(db);
   });
 
-  /** GET /nomes/busca com os headers que o chamador quiser (rota SÓ flexível). */
-  function busca(term, headers = {}) {
-    let req = supertest(app).get('/api/v1/nomes/busca').query({ q: term, lat: -22.9, lon: -43.2 });
+  /** GET /sv360/projects com os headers que o chamador quiser (rota SÓ flexível). */
+  function listar(headers = {}) {
+    let req = supertest(app).get('/api/v1/sv360/projects');
     for (const [k, v] of Object.entries(headers)) req = req.set(k, v);
     return req;
   }
 
-  /** true when the private name shows up in a /busca response. */
+  /** true quando o projeto PRIVADO aparece na listagem. */
   async function vePrivado(headers) {
-    const res = await busca(PRIVADO, headers).expect(200);
-    return res.body.some((r) => r.nome === PRIVADO);
+    const res = await listar(headers).expect(200);
+    const lista = Array.isArray(res.body) ? res.body : (res.body.data ?? []);
+    return lista.some((p) => p.name === PRIVADO);
   }
 
   // ==========================================================================
@@ -147,8 +160,8 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
     });
 
     it('an anonymous request sees the PUBLIC name but never the private one', async () => {
-      const pub = await busca(PUBLICO).expect(200);
-      assert.ok(pub.body.some((r) => r.nome === PUBLICO), 'o gazetteer precisa responder de fato');
+      const pub = await listar().expect(200);
+      assert.ok((Array.isArray(pub.body) ? pub.body : pub.body.data).some((p) => p.name === PUBLICO), 'o gazetteer precisa responder de fato');
       assert.equal(await vePrivado({}), false);
     });
   });
@@ -162,16 +175,14 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
     before(async () => {
       deadUser = await createUser(db, { username: `fx_dead_${SFX}` });
       deadTok = await loginUser(app, deadUser.username, deadUser.password);
-      const z = await supertest(app)
-        .post('/api/v1/zones')
-        .set('Authorization', `Bearer ${adminTok}`)
-        .send({ name: `Zona Dead ${SFX}`, geom: ZONE })
-        .expect(201);
-      await supertest(app)
-        .put(`/api/v1/zones/${z.body.data.id}/permissions`)
-        .set('Authorization', `Bearer ${adminTok}`)
-        .send({ users: [deadUser.id] })
-        .expect(200);
+      const { rows } = await db.query(
+        `SELECT id FROM sv360.projects WHERE name = $1`, [PRIVADO]
+      );
+      await db.query(
+        `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)
+         VALUES ('sv360_project', $1, $2, 'view', $3)`,
+        [rows[0].id, deadUser.id, admin.id]
+      );
     });
 
     it('baseline: while active, the account reads the private name', async () => {
@@ -189,8 +200,8 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       // Se o middleware tivesse rejeitado o token, o teste acima passaria pelo motivo
       // errado. A rota responde 200 e devolve o nome PÚBLICO: o principal chegou ao
       // SQL, e foi o SQL que recusou o privado.
-      const res = await busca(PUBLICO, { Authorization: `Bearer ${deadTok}` }).expect(200);
-      assert.ok(res.body.some((r) => r.nome === PUBLICO));
+      const res = await listar({ Authorization: `Bearer ${deadTok}` }).expect(200);
+      assert.ok((Array.isArray(res.body) ? res.body : res.body.data).some((p) => p.name === PUBLICO));
     });
 
     it('parity: the same token on a STRICT route is 401 (a divergência é por família de rota)', async () => {
@@ -259,11 +270,11 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       // Este é o caso que importa: a chave lixo vem da URL, então bastava fazer a vítima
       // abrir um link para transformar a sessão dela em anônima.
       const res = await supertest(app)
-        .get('/api/v1/nomes/busca')
-        .query({ q: PRIVADO, lat: -22.9, lon: -43.2, api_key: 'not-a-uuid' })
+        .get('/api/v1/sv360/projects')
+        .query({ api_key: 'not-a-uuid' })
         .set('Authorization', `Bearer ${zoneTok}`)
         .expect(200);
-      assert.ok(res.body.some((r) => r.nome === PRIVADO), 'o Bearer sobrevive à chave inválida');
+      assert.ok((Array.isArray(res.body) ? res.body : res.body.data).some((p) => p.name === PRIVADO), 'o Bearer sobrevive à chave inválida');
     });
 
     it('não-super-corrigir: uma api key VÁLIDA continua ganhando do Bearer (a precedência não inverteu)', async () => {
@@ -318,11 +329,11 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
   //
   // `flexibleAuth` grava `req.user = mapPayload(payload)` para QUALQUER token válido,
   // inclusive o de visitante de link público, cujo `sub` é `public-<uuid>` por decisão.
-  // `/nomes/busca` é a única rota do repositório que é ao mesmo tempo anônima e sensível
+  // as rotas de leitura do 360 são as que são ao mesmo tempo anônimas e sensíveis
   // a `req.user` (o filtro de acesso embutido recebe `$5 = req.user?.id`), então o sub
   // sintético alcançava `$5::uuid`, o Postgres levantava 22P02 e o errorHandler devolvia
   // 400. A inversão é o que denuncia o defeito: SEM credencial nenhuma dava 200, e uma
-  // credencial LEGÍTIMA dava 400. As irmãs `/feicoes` e `/catalogo3d` param antes, no 403
+  // credencial LEGÍTIMA dava 400. A irmã `/feicoes` para antes, no 403
   // do confineVisitorPrincipal (`auth` estrito), e por isso o furo vivia só aqui.
   // ==========================================================================
   describe('86 — a public-link visitor token is anonymous to the gazetteer, never a 400', () => {
@@ -339,14 +350,14 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       );
     });
 
-    it('GET /nomes/busca com o token público responde 200 (era 400 por 22P02)', async () => {
-      const res = await busca(PUBLICO, { Authorization: `Bearer ${publicToken}` }).expect(200);
-      assert.ok(res.body.some((r) => r.nome === PUBLICO));
+    it('a leitura flexível com o token público responde 200 (era 400 por 22P02)', async () => {
+      const res = await listar({ Authorization: `Bearer ${publicToken}` }).expect(200);
+      assert.ok((Array.isArray(res.body) ? res.body : res.body.data).some((p) => p.name === PUBLICO));
     });
 
     it('e devolve exatamente o mesmo conjunto do anônimo — nem menos, nem o privado', async () => {
-      const anon = await busca(PUBLICO).expect(200);
-      const visitante = await busca(PUBLICO, { Authorization: `Bearer ${publicToken}` }).expect(200);
+      const anon = await listar().expect(200);
+      const visitante = await listar({ Authorization: `Bearer ${publicToken}` }).expect(200);
       assert.deepEqual(
         visitante.body.map((r) => r.nome),
         anon.body.map((r) => r.nome),
@@ -409,28 +420,53 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(decoded.sub, u.id);
     });
 
-    it('consequência observável: com o cookie renovado, o upload sv360 é 403', async () => {
-      const u = await createUser(db, { username: `fx_up_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
-      const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
+    it('consequência observável: revogar o CRACHÁ DE PRODUÇÃO fecha o upload sv360', async () => {
+      // ESTE CASO FOI INVERTIDO NESTA FASE, e a inversão é o produto dela. Ele dizia
+      // "um editor tem de passar da capability": um `org_role: 'editor'` sobre uma
+      // LOTAÇÃO auto-declarada no auto-cadastro abria a ingestão de 360 daquela OM.
+      // Era a escalação de privilégio que a fase fecha, e a asserção que a chamava de
+      // contrato. Quem abre o upload agora é `producer_org_id`, concedido por
+      // administrador; o que continua sendo medido aqui é o MESMO fato observável —
+      // que a revogação vale na requisição seguinte, sem esperar o token expirar.
+      const u = await createProducerUser(db, DEFAULT_ORG, { username: `fx_up_${SFX}` });
+      const stale = nearExpiryToken(u, {
+        organization_id: DEFAULT_ORG, org_role: 'viewer', producer_org_id: DEFAULT_ORG,
+      });
 
-      // Enquanto editor: passa do requireUploadCapability (o 4xx que vem depois é do
+      // Enquanto produtor: passa do requireUploadCapability (o 4xx que vem depois é do
       // multer/serviço, não do gate — o que importa é NÃO ser 403).
       const antes = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
         .set('Cookie', `token=${stale}`);
-      assert.notEqual(antes.status, 403, 'um editor tem de passar da capability');
+      assert.notEqual(antes.status, 403, 'um produtor tem de passar da capability');
 
-      await db.query(`UPDATE users SET org_role = 'viewer' WHERE id = $1`, [u.id]);
+      await db.query(
+        `UPDATE users SET role = 'user', producer_org_id = NULL WHERE id = $1`, [u.id]
+      );
 
       const depois = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
         .set('Cookie', `token=${stale}`)
         .expect(403);
       assert.equal(depois.body.error?.code ?? 'FORBIDDEN', 'FORBIDDEN');
+    });
+
+    it('e o LOTADO com `org_role: editor` NÃO abre o upload (o furo, escrito ao contrário)', async () => {
+      // O par negativo do caso acima, e o repro em miniatura da fase: esta conta se
+      // declarou desta OM no cadastro e recebeu o papel interno mais alto que a borda
+      // de escrita de perfil aceita. Antes, isso bastava para ingerir 360 no acervo
+      // dela; hoje ela é indistinguível de qualquer visitante autenticado.
+      const u = await createUser(db, { username: `fx_lot_${SFX}` });
+      await db.query(
+        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
+        [DEFAULT_ORG, u.id]
+      );
+      const tok = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
+
+      await supertest(app)
+        .post('/api/v1/sv360/admin/projects/upload')
+        .set('Cookie', `token=${tok}`)
+        .expect(403);
     });
 
     it('controle positivo (não super-corrigir): uma PROMOÇÃO também propaga', async () => {

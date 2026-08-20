@@ -10,7 +10,14 @@
 // ============================================================================
 // BUSCA - ordenacao em TRES CHAVES LEXICOGRAFICAS, nao em soma ponderada.
 // ============================================================================
-// $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable), $5 = userId (uuid|null).
+// $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable).
+//
+// NAO HA PREDICADO DE ACESSO AQUI, e a ausencia e decisao, nao esquecimento. Ate
+// 2026-08-19 esta consulta filtrava por `access_level` e por zona geografica, e o
+// eixo inteiro foi removido como residuo: o gazetteer e busca de toponimo, e o dono
+// definiu que ela nao tem restricao nenhuma. Quem for "endurecer" isto de volta
+// esta reintroduzindo um sistema que ja foi medido como morto (as zonas tinham API
+// de admin e nenhuma tela, e a tabela de membros de grupo nunca teve escritor).
 //
 // Ate 2026-07-26 isto era uma soma de 7 criterios com pesos somando 1.00, herdada
 // verbatim do servico_nomes_geograficos. A troca nao foi opiniao: foi medida contra
@@ -93,7 +100,7 @@ candidatos AS (
   -- índice GIN pelo operador; uma chamada de função é opaca ao planner e força
   -- Seq Scan sobre a ng.nomes_geograficos inteira, avaliando f_unaccent() e
   -- similarity() linha a linha e depois ST_Distance() sobre cada candidato. O
-  -- índice que resolve isso já existia e estava ocioso desde a migração 004
+  -- índice que resolve isso já existia e estava ocioso
   -- (idx_ng_nome_unaccent_trgm, GIN sobre ng.f_unaccent(nome)).
   --
   -- O limiar de 0.25 é preservado por SET LOCAL pg_trgm.similarity_threshold
@@ -111,9 +118,12 @@ candidatos AS (
     -- Liveness is part of the ACCESS FILTER, not a nicety. flexibleAuth only
     -- reconciles against the DB in the last 5 minutes of a token's life, so between a
     -- deactivation and that window a disabled account still carries a valid JWT. The
-    -- sibling routes (/feicoes, /catalogo3d) refuse it at once; this one kept serving
-    -- PRIVATE place names, contradicting the header of this very file, which assigns
-    -- the SQL the job of not leaking private data "even with an app bug".
+    -- This route kept serving PRIVATE place names to a deactivated account,
+    -- contradicting the header of this very file, which assigns the SQL the job of
+    -- not leaking private data "even with an app bug". (The two sibling routes that
+    -- this paragraph used to compare against, /feicoes and /catalogo3d, were removed
+    -- on 2026-08-19 with edificacoes and the second 3D catalog; the liveness check
+    -- now rides inside fn_has_global_data_access, which is where it belongs.)
     --
     -- A metade ORGANIZACIONAL da mesma reconciliacao faltava ate 2026-07-25: o caminho
     -- estrito responde 403 "Organization is inactive" (getLiveAuthState, em
@@ -122,14 +132,6 @@ candidatos AS (
     -- AUSENTE conta como ativa (anomalia, nao desativacao deliberada), dai o
     -- COALESCE(o.is_active, true).
     -- (No backticks in this comment: the query is a JS template literal.)
-    AND ( n.access_level = 'public'
-          OR ($5::uuid IS NOT NULL AND EXISTS (
-                SELECT 1 FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
-                 WHERE u.id = $5 AND u.is_active = true AND COALESCE(o.is_active, true) = true
-              ) AND (
-                EXISTS (SELECT 1 FROM users WHERE id = $5 AND role = 'admin' AND is_active = true)
-                OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($5) uz WHERE ST_Contains(uz.geom, n.geom))
-          )) )
   ORDER BY sim DESC, dist ASC
   LIMIT 500
 ),
@@ -186,100 +188,3 @@ ORDER BY score DESC
 LIMIT 5
 `;
 
-// /feicoes (3D building click) with EMBEDDED access filter.
-// $1 = lon, $2 = lat, $3 = z, $4 = userId (uuid|null). edificacoes is SRID 4326;
-// zones are 4674, so the zone is transformed to 4326 for ST_Contains.
-export const FEICOES = `
-SELECT e.id, e.nome, e.municipio, e.estado, e.tipo, e.altitude_base, e.altitude_topo,
-  CASE
-    WHEN $3 BETWEEN e.altitude_base AND e.altitude_topo THEN 0
-    WHEN $3 < e.altitude_base THEN e.altitude_base - $3
-    ELSE $3 - e.altitude_topo
-  END AS z_distance,
-  ST_Distance(e.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS xy_distance
-FROM ng.edificacoes e
-WHERE ST_DWithin(e.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 3)
-  AND ( e.access_level = 'public'
-        OR ($4::uuid IS NOT NULL AND (
-              EXISTS (SELECT 1 FROM users WHERE id = $4 AND role = 'admin')
-              OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($4) uz
-                         WHERE ST_Contains(ST_Transform(uz.geom, 4326), e.geom))
-        )) )
-ORDER BY z_distance ASC, xy_distance ASC
-LIMIT 1
-`;
-
-// /catalogo3d — full-text + pagination + access filter EMBEDDED in SQL (defense
-// in depth). $1 = q (nullable), $2 = limit, $3 = offset, $4 = userId (uuid|null).
-// The WHERE is a disjunction of access branches so fase-6 only ADDS the spatial
-// zone branch (LEFT JOIN user_zones ON ST_Contains(...) OR uz.id IS NOT NULL)
-// without rewriting this query.
-//
-// ⚠️ O predicado de acesso (CTEs `user_role` + `user_model_permissions`) é
-// DUPLICADO VERBATIM em CATALOGO_COUNT logo abaixo — só muda o placeholder do
-// userId ($4 aqui, $2 lá). Nunca foi extraído para uma função SQL
-// (`fn_user_can_see_model`); ao editar o filtro de acesso, altere OS DOIS ou a
-// contagem passa a divergir da listagem.
-export const CATALOGO_SELECT = `
-WITH user_role AS (
-  SELECT EXISTS (SELECT 1 FROM users WHERE id = $4::uuid AND role = 'admin') AS is_admin
-),
-user_model_permissions AS (
-  SELECT DISTINCT model_id FROM (
-    SELECT model_id FROM ng.model_permissions WHERE user_id = $4::uuid
-    UNION
-    SELECT mgp.model_id
-      FROM ng.model_group_permissions mgp
-      JOIN ng.user_groups ug ON mgp.group_id = ug.group_id
-     WHERE ug.user_id = $4::uuid
-  ) perms
-)
-SELECT c.id, c.name, c.description, c.thumbnail, c.url,
-       c.lon, c.lat, c.height, c.heading, c.pitch, c.roll,
-       c.type, c.heightoffset, c.maximumscreenspaceerror,
-       c.data_criacao, c.municipio, c.estado, c.palavras_chave, c.style,
-       CASE WHEN $1::text IS NOT NULL
-            THEN ts_rank(c.search_vector, plainto_tsquery('portuguese', $1))
-            ELSE 0 END AS rank
-FROM ng.catalogo_3d c
-CROSS JOIN user_role ur
-LEFT JOIN user_model_permissions ump ON ump.model_id = c.id
-WHERE ( c.access_level = 'public'
-        OR ($4::uuid IS NOT NULL AND (ur.is_admin OR ump.model_id IS NOT NULL)) )
-  AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('portuguese', $1))
--- c.id como ULTIMO criterio nao e enfeite: sem um desempate UNICO, a ordem de
--- linhas empatadas em (rank, data_criacao) fica a criterio do plano, e o plano
--- MUDA conforme o OFFSET cresce. O resultado e paginacao que repete e perde
--- linhas ao mesmo tempo. Medido no Postgres com linhas empatadas: 80 linhas -> 2
--- duplicadas e 2 perdidas; 120 -> 4/4; 200 -> 8/8; 1000 -> 48/48.
---
--- Abaixo de ~40 linhas um unico plano serve todas as paginas e o defeito nao
--- aparece — que e exatamente por que o teste antigo, com poucas linhas E com
--- data_criacao fabricada distinta por linha, passava com e sem desempate.
-ORDER BY rank DESC, c.data_criacao DESC, c.id DESC
-LIMIT $2 OFFSET $3
-`;
-
-// COUNT with the EXACT same access predicate (count must not lie). $1 = q, $2 = userId.
-export const CATALOGO_COUNT = `
-WITH user_role AS (
-  SELECT EXISTS (SELECT 1 FROM users WHERE id = $2::uuid AND role = 'admin') AS is_admin
-),
-user_model_permissions AS (
-  SELECT DISTINCT model_id FROM (
-    SELECT model_id FROM ng.model_permissions WHERE user_id = $2::uuid
-    UNION
-    SELECT mgp.model_id
-      FROM ng.model_group_permissions mgp
-      JOIN ng.user_groups ug ON mgp.group_id = ug.group_id
-     WHERE ug.user_id = $2::uuid
-  ) perms
-)
-SELECT COUNT(*)::int AS total
-FROM ng.catalogo_3d c
-CROSS JOIN user_role ur
-LEFT JOIN user_model_permissions ump ON ump.model_id = c.id
-WHERE ( c.access_level = 'public'
-        OR ($2::uuid IS NOT NULL AND (ur.is_admin OR ump.model_id IS NOT NULL)) )
-  AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('portuguese', $1))
-`;

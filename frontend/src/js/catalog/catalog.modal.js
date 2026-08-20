@@ -19,6 +19,8 @@ import {
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters, updateFilterCounts } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
+import { resourceAccessRefOf } from './components/catalog-card.js';
+import { showResourceShareModal } from './resource-share.modal.js';
 
 /**
  * Catalog modal class.
@@ -254,10 +256,31 @@ export class CatalogModal extends ModalBase {
         const grid = createCatalogGrid({
             items: this._filteredItems,
             onItemClick: (item) => this._handleItemClick(item),
-            mapLocked: isCurrentMapLockedSync()
+            mapLocked: isCurrentMapLockedSync(),
+            onShare: (item) => this._handleShare(item)
         });
 
         this._gridContainer.appendChild(grid);
+    }
+
+    /**
+     * Abre o modal de compartilhamento de um recurso privado.
+     *
+     * O CATÁLOGO NÃO FECHA, ao contrário do clique que abre o item: compartilhar
+     * não leva a lugar nenhum, e fechar a grade obrigaria a reabri-la e a refiltrar
+     * para ceder o próximo. Quem decide se a ação existe é o cartão
+     * (`canShareResource`); quem decide se ela vale é o servidor.
+     * @private
+     * @param {CatalogItem} item
+     */
+    _handleShare(item) {
+        const acesso = resourceAccessRefOf(item);
+        if (!acesso) return;
+        showResourceShareModal({
+            resourceType: acesso.tipo,
+            resourceId: acesso.id,
+            resourceName: item.name,
+        });
     }
 
     /**

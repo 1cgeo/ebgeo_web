@@ -7,6 +7,7 @@ import logger from '../../utils/logger.js';
 import { query, tx } from '../../database/index.js';
 import { AppError, UnauthorizedError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
+import { createAuditBestEffort } from '../../utils/audit.js';
 import {
   sendVerificationEmail,
   sendAccountExistsEmail,
@@ -40,8 +41,14 @@ export function issueAccessToken(user) {
       nome: user.nome,
       posto: user.posto_graduacao,
       role: user.role || 'user', // global {user, admin}
-      organization_id: user.organization_id ?? null, // tenant claim
+      organization_id: user.organization_id ?? null, // tenant claim (LOTACAO: exibicao)
       org_role: user.org_role || 'viewer', // org-scoped role
+      // Escopo de PRODUCAO (null = nao produz). ADITIVO: um token legado nao a
+      // carrega e degrada para null nos dois mapeadores, o que e o valor certo —
+      // quem nao tem a claim nao produz. Nenhum ramo de autorizacao deve LER esta
+      // claim: ela alimenta o INSERT de `owner_org_id`, o pre-filtro de upload e o
+      // cinto do 360, e a garantia real fica no SQL, que resolve o escopo pelo UUID.
+      producer_org_id: user.producer_org_id ?? null,
       // Aliases so the single-issuer token is consumable as-is by ebgeo_360
       // (which reads {sub, org, role, login}) without changing the 360.
       org: user.organization_id ?? null,
@@ -126,6 +133,7 @@ export async function login(username, password) {
       organizacao_militar: user.organizacao_militar,
       organization_id: user.organization_id ?? null,
       org_role: user.org_role || 'viewer',
+      producer_org_id: user.producer_org_id ?? null,
       role: user.role || 'user',
     },
   };
@@ -311,10 +319,11 @@ export async function getMe(userId) {
  * @param {Object} data - Validated register payload.
  * @param {string} [origin] - Request origin, used to build the verification link when APP_BASE_URL
  *   is unset.
+ * @param {object} [req] - Express req, só para ip/user-agent da trilha do cadastro.
  * @returns {Promise<Object|null>} The created user, or null when nothing was created because the
  *   username/e-mail was taken. The CONTROLLER must not let that difference reach the response.
  */
-export async function register(data, origin = '') {
+export async function register(data, origin = '', req = null) {
   const email = data.email ? data.email.trim() : null;
 
   // The client picks its own organization here (the OM dropdown), and the value went
@@ -387,6 +396,37 @@ export async function register(data, origin = '') {
     false,
   ]);
   const user = rows[0];
+
+  // A CONTA NASCIA SEM TRILHA. `USER_CREATE` só tinha emissor no caminho
+  // administrativo (`users.service.js`), então uma conta criada pelo auto-cadastro
+  // não deixava nada — e é justamente a que ninguém aprovou. `self: true` é o que
+  // separa as duas origens no mesmo filtro.
+  //
+  // O ATOR É O PRÓPRIO NOVO USUÁRIO, porque `actor_id` é NOT NULL e não há outro:
+  // ninguém autorizou este cadastro.
+  //
+  // BEST-EFFORT, e aqui a razão é o oráculo de existência de conta, não a
+  // disponibilidade: esta linha existe SÓ no ramo que cria, então um erro que
+  // escapasse daqui responderia 500 para um nome livre e 201 para um nome tomado,
+  // reabrindo por exceção exatamente o oráculo que o 201 uniforme fecha. É a mesma
+  // contenção do e-mail de verificação logo abaixo, pelo mesmo motivo.
+  //
+  // O custo de tempo é um INSERT (~1 ms) num ramo que já paga um INSERT de conta e
+  // um envio de e-mail, sob um bcrypt de custo 12 que domina a requisição inteira e
+  // que é computado ANTES do ramo de propósito. Não é uma assimetria nova de classe.
+  await createAuditBestEffort(req, {
+    action: 'USER_CREATE',
+    actorId: user.id,
+    targetType: 'USER',
+    targetId: user.id,
+    targetName: user.nome,
+    details: {
+      self: true,
+      role: 'user',
+      organization_id: data.organization_id || null,
+      hasEmail: Boolean(email),
+    },
+  });
 
   // Verification is best-effort: the account row is already committed, so a token/mail failure must
   // NOT 500 the request (that would orphan a pending account the user can neither re-register nor log

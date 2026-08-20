@@ -531,6 +531,26 @@
     border-color: var(--primary-hover);
 }
 
+/* Disabled state — WITHOUT this the button looks fully clickable while `disabled` is set,
+   and the browser default does nothing to a button whose background and colour we painted
+   ourselves. Measured on the resource-share modal, where "Conceder ao grupo" starts disabled
+   until a group is picked: it read as enabled, and a click did nothing with no explanation.
+   The `:hover` above is neutralised too, or a disabled button would still light up under the
+   cursor. `.login-modal__actions` had a local copy of exactly this rule; it stays, harmless,
+   and this one is what makes the affordance honest everywhere else. */
+.prompt-modal-btn:disabled,
+.prompt-modal-btn-confirm:disabled,
+.confirm-modal-btn-confirm:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.prompt-modal-btn-confirm:disabled:hover,
+.confirm-modal-btn-confirm:disabled:hover {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
 /* Destructive variant (confirm modal only) */
 .confirm-modal-btn-destructive {
     background: var(--color-error);

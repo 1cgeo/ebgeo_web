@@ -56,13 +56,16 @@ export const UPDATE_ATLAS = `
   RETURNING *
 `;
 
+// RETURNING inclui o NOME: `ATLAS_DELETE` é a única linha que ainda diz o que era
+// aquele UUID depois que o atlas saiu de todas as listagens, e um id nu na trilha
+// obriga quem investiga a ir buscar a linha que a exclusão acabou de esconder.
 export const SOFT_DELETE_ATLAS = `
   UPDATE atlas
   SET deleted_at = NOW(),
       updated_at = NOW(),
       version = version + 1
   WHERE id = $1 AND deleted_at IS NULL
-  RETURNING id
+  RETURNING id, name, owner_id
 `;
 
 // The caller's OWN trashed atlases (only the owner soft-deletes, so only the owner sees/restores).

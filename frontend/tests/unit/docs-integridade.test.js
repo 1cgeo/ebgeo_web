@@ -177,7 +177,11 @@ const FONTES_DE_CODIGO = [
     ...['frontend/scripts', 'backend/scripts', 'scripts', 'deploy'].flatMap((d) =>
         coletarPorExtensao(d, ['.js', '.mjs', '.yml', '.yaml', '.sh', '.conf'])
     ),
-    ...['frontend/vite.config.js', 'frontend/vitest.config.js', 'frontend/eslint.config.js', 'backend/eslint.config.js'],
+    // `playwright.config.js` entrou em 2026-08-18 pela mesma razão dos três acima: o
+    // guarda acusava `reuseExistingServer`, opção REAL e citada por um registro do
+    // livro-razão, só porque o único arquivo que a declara ficava fora do índice.
+    ...['frontend/vite.config.js', 'frontend/vitest.config.js', 'frontend/eslint.config.js',
+        'frontend/playwright.config.js', 'backend/eslint.config.js'],
 ].filter((f) => existsSync(join(RAIZ, f)));
 
 function coletarPorExtensao(dir, exts, acc = []) {
@@ -212,13 +216,35 @@ function semComentarios(texto, arquivo) {
 }
 
 /**
- * Identificador citado sozinho entre crases. Restrito a camelCase com maiúscula
- * interna (`reconnectLastAtlas`) ou SCREAMING_SNAKE (`ATLAS_SCHEMA_VERSION`): essas
- * formas são quase sempre símbolo de código, ao contrário de `atlas` ou `owner`, que
- * são palavras de prosa. Precisão medida em 1272 citações: 14 pendurados, todos
- * legítimos e listados abaixo.
+ * Identificador citado sozinho entre crases. TRÊS formas: camelCase com maiúscula
+ * interna (`reconnectLastAtlas`), SCREAMING_SNAKE (`ATLAS_SCHEMA_VERSION`) e
+ * snake_case minúsculo COM pelo menos um underscore (`fn_user_zone_geoms`,
+ * `access_level`). O que fica de fora é a palavra sozinha (`atlas`, `owner`), que é
+ * prosa, e o underscore é justamente o que separa uma da outra.
+ *
+ * A TERCEIRA FORMA ENTROU EM 2026-08-19 e é `fn_*`, o prefixo das funções SQL desta
+ * casa. Ela existe porque o guarda era CEGO a snake_case, e o vocabulário de banco é
+ * todo snake_case: uma página citava `fn_user_can_see_model`, função que NUNCA
+ * existiu, e passava verde há meses.
+ *
+ * POR QUE `fn_*` E NÃO SNAKE_CASE INTEIRO, que é a forma óbvia e foi MEDIDA antes de
+ * ser recusada: snake_case genérico acusa 21 símbolos, e 20 deles são legítimos,
+ * porque pertencem a OUTROS sistemas (catálogos do Postgres, diretivas do nginx, DSL
+ * de busca citada como alternativa recusada, nome de branch). Um achado real para
+ * vinte alarmes é a razão pela qual uma regra vira ruído e alguém a desliga, e as
+ * regras próprias deste repositório foram todas compradas com zero falso positivo,
+ * pagando em falso negativo. `fn_` é convenção que a casa POSSUI, então nenhum
+ * sistema externo colide com ela.
+ *
+ * O QUE ISSO DEIXA PASSAR, dito para não ser lido como cobertura: nome de tabela e de
+ * coluna em crase continua invisível ao guarda. Fechar isso exige distinguir "não
+ * existe aqui" de "existe em outro sistema", e não há sinal estrutural para isso.
+ *
+ * E o controle negativo desta regra tem de usar um nome `fn_*`: o anterior injetava
+ * `fnUserZoneGeoms`, camelCase, a única grafia que a regra JÁ pegava, e por isso
+ * provava que ela dispara sem provar que ela alcança o que a doc de fato cita.
  */
-const RE_SIMBOLO = /`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/g;
+const RE_SIMBOLO = /`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|fn_[a-z0-9_]+)`/g;
 
 /**
  * Símbolos que a doc cita DE PROPÓSITO sem que existam. Cada entrada carrega o
@@ -243,6 +269,9 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],
     ['manualChunks', 'opção depreciada do Rollup que o vite.config.js DEIXOU de usar em 2026-08-05 (trocada por codeSplitting.groups + entriesAware quando admin.html virou um segundo entry); a doc a nomeia justamente para dizer que não está mais lá'],
     ['showProjectPickerModal', 'export que sumiu em 2026-08-05, quando o seletor de projetos deixou de ser modal e virou atlas.html; a doc o nomeia para dizer o que deixou de existir na mudança'],
+    ['ROLE_ORDER', 'contra-exemplo deliberado: os quatro papéis globais NÃO formam escada, e a constituição do backend nomeia essa constante inexistente justamente para dizer que comparar papel global por ordem é erro de leitura (o CHECK de `users.role`, na baseline de identidade)'],
+    ['CATALOGO_SELECT', 'a consulta de listagem do SEGUNDO catálogo de modelo 3D (schema ng), removida em 2026-08-19 junto com a tabela, a rota e as duas tabelas de permissão que ninguém escrevia. A entrada de decisão que a nomeia é registro histórico: ela existe para dizer que o predicado estava duplicado verbatim entre esta e a irmã, e que foi por causa dessa dívida que o eixo de acesso a recurso nasceu com o predicado em função SQL. Apagar o nome falsificaria o registro; ver catalogo-3d'],
+    ['CATALOGO_COUNT', 'a consulta de contagem irmã da acima, removida no mesmo commit e citada pelo mesmo motivo'],
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
 ]);
 
@@ -329,6 +358,17 @@ describe('integridade da documentação', () => {
         ).toEqual([]);
     });
 
+    // O TETO DE TEMPO É EXPLÍCITO, e não é folga preventiva: sem ele este caso reprovava
+    // por `Test timed out in 5000ms` exatamente na rodada que mais importa. Ele lê ~1300
+    // arquivos de código de forma síncrona, e o custo depende do cache de arquivo do SO:
+    // com o cache quente são ~0,5 s (medido seis vezes sob a suíte inteira em paralelo:
+    // 493, 535, 588, 602, 621 e 868 ms), mas na PRIMEIRA rodada depois de uma escrita em
+    // `frontend/src` o cache está frio e ele estoura os 5 s do padrão. Reproduzido: seis
+    // ciclos de "reescreve um arquivo de src, roda a suíte" deram vermelho na rodada 1 e
+    // verde nas cinco seguintes, sem nada mudar entre elas. Ou seja, o guarda reprovava o
+    // laço editar-e-verificar, que é o único laço que este repositório roda, e o vermelho
+    // não dizia nada sobre a documentação. O que se mede aqui é o símbolo pendurado, nunca
+    // a duração; o teto abaixo é limite para "travou", não para "demorou".
     it('todo símbolo citado entre crases existe em algum lugar do código', () => {
         // As outras regras validam o CAMINHO citado e nunca o que ele contém, então
         // uma citação a uma FUNÇÃO inexistente atravessava tudo em silêncio. Esta
@@ -339,7 +379,21 @@ describe('integridade da documentação', () => {
         // carregado como instrução em toda sessão de agente.
         const tokens = new Set();
         for (const f of FONTES_DE_CODIGO) {
-            const texto = semComentarios(readFileSync(join(RAIZ, f), 'utf8'), f);
+            // O arquivo pode SUMIR entre a listagem (feita no load do módulo) e esta leitura,
+            // e some de verdade: `superficies-de-recurso-censo.test.js` escreve um
+            // `tmp-nao-rastreado.js` sob `tests/fixtures/` e o apaga no `finally`, e o Vitest
+            // roda os arquivos de teste em paralelo. Medido: 1 vermelho em 7 rodadas da suíte
+            // inteira, um ENOENT que não tinha nada a ver com documentação. Pular o que sumiu
+            // erra para o lado ESTRITO (o índice fica menor, então símbolo pendurado continua
+            // sendo acusado), que é o único lado em que pular é seguro.
+            let bruto;
+            try {
+                bruto = readFileSync(join(RAIZ, f), 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') continue;
+                throw err;
+            }
+            const texto = semComentarios(bruto, f);
             for (const m of texto.matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) tokens.add(m[0]);
         }
         for (const p of ['package.json', 'frontend/package.json', 'backend/package.json']) {
@@ -363,7 +417,7 @@ describe('integridade da documentação', () => {
                 + ' cita o nome JUSTAMENTE para dizer que ele não existe, declare-o em'
                 + ` SIMBOLO_INEXISTENTE_DE_PROPOSITO com o motivo:\n${[...new Set(pendurados)].join('\n')}`
         ).toEqual([]);
-    });
+    }, 30000);
 
     it('slug de wikilink é ASCII, sem acento', () => {
         // O slug é nome de arquivo; acento dentro de [[..]] diverge do arquivo

@@ -14,14 +14,18 @@
  * Boot phases, in order:
  *   1. Config — `GET /api/config`, fail-fast with retries (same contract as the map boot).
  *   2. Session — restore the persisted tokens and validate them against the backend.
- *   3. Gate — global system admin only; anyone else is sent to the map.
+ *   3. Gate — THREE audiences, not two: the global system admin (all five tabs), the credenciado
+ *      (only Grupos, because since 2026-08-19 he administers access groups) and the producer
+ *      (only Catálogo). Each of the two narrow audiences gets its own tab set and its own page
+ *      title, because every other tab is `requireAdmin` on its first request and a tab that 403s
+ *      on mount is the worst way to deny. Anyone else is sent to the map.
  *   4. Mount — build the shell and wire the session lifecycle (auth lost + idle timeout).
  */
 
 import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
-import { sessionContext } from '@store/sync/session-context.js';
+import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
@@ -63,12 +67,7 @@ async function restoreSession() {
     try {
         if (!apiClient.loadStoredTokens()) return false;
         const user = await apiClient.getMe();
-        sessionContext.setSession({
-            userId: user.id,
-            role: user.org_role || 'viewer',
-            globalRole: user.role || 'user',
-            username: user.username || user.nome,
-        });
+        sessionContext.setSession(sessionUserInfoFromMe(user));
         return true;
     } catch {
         apiClient.clearTokens();
@@ -109,13 +108,17 @@ async function initAdminPage() {
         return;
     }
     // NOT `initializeAppConfig()`: that sets the document title to the bare app name, which on this
-    // page would replace "Administração — EBGeo" with "EBGeo" and lose the tab's identity.
+    // page would replace "Administração — EBGeo" with "EBGeo" and lose the tab's identity. The
+    // session is not restored yet here, so the title is refined below once the role is known.
     document.title = `Administração — ${config?.app?.title || 'EBGeo'}`;
 
     await restoreSession();
-    // Gate: the page is for GLOBAL system admins. Anyone else — signed out, or a regular user who
-    // typed the URL — goes to the map rather than staring at a shell whose every request 403s.
-    if (!sessionContext.isAdmin()) {
+    // Gate: GLOBAL system admins, plus a CREDENCIADO (Grupos only) and a PRODUCER (Catálogo only)
+    // — see `mountAdminPage` for which tabs each one gets. Anyone else — signed out, or a regular
+    // user who typed the URL — goes to the map rather than staring at a shell whose every request
+    // 403s. `hasGlobalDataAccess()` also covers the admin, which is harmless here: the three tests
+    // are an OR, and only the title below needs them apart.
+    if (!sessionContext.isAdmin() && !sessionContext.hasGlobalDataAccess() && !sessionContext.isProducer()) {
         window.location.replace(MAP_URL);
         return;
     }
@@ -127,6 +130,14 @@ async function initAdminPage() {
     // page that cannot be blocked has nothing to render, and it does not load `tab-lock.css`.
     // Announced only past the gate, so a tab that is about to redirect does not join and leave.
     initTabLock({ key: noneKey(), overlayHost: null });
+
+    // The narrow audiences get the title of the ONE thing they can do here. Same order as
+    // `mountAdminPage`: `hasGlobalDataAccess()` is true for the admin too, so it is only asked
+    // after `isAdmin()` has already returned.
+    if (!sessionContext.isAdmin()) {
+        const escopo = sessionContext.hasGlobalDataAccess() ? 'Grupos' : 'Catálogo';
+        document.title = `${escopo} — ${config?.app?.title || 'EBGeo'}`;
+    }
 
     clearSplash();
 

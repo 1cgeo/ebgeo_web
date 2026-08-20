@@ -4,6 +4,7 @@
 import { broadcastToRoom, broadcastOperations } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
+import { VALIDATION_OPTIONS } from '../../middleware/validate.js';
 import {
   cursorPresenceSchema,
   temporalPresenceSchema,
@@ -29,21 +30,31 @@ import { safeErrorMessage } from '../../utils/safe-error-message.js';
 // leaking nothing about the server.
 
 /**
- * Validates a batch of operations against the shared push schema.
- * The WS path does not go through the `validate` middleware, so we validate
- * here. Returns true if valid; otherwise sends an `error` message and returns false.
+ * Validates a batch of operations against the shared push schema and returns the VALIDATED value,
+ * or null after answering with a VALIDATION_ERROR.
+ *
+ * THE RETURN VALUE IS THE POINT. This used to keep only `error` and hand `pushOperations` the raw
+ * client frame, with no options passed. Both halves of that were bypasses of the schema: without
+ * `VALIDATION_OPTIONS` the schema ran with `stripUnknown` off, and without `value` anything the
+ * schema NORMALIZED (today: the free-form JSONB scrub of `free-field.schemas.js`) was computed and
+ * thrown away. The HTTP door does `req.body = value`; this one has to do the same, or the same
+ * schema means two different things depending on which door the op came through.
+ *
+ * @param {import('ws').WebSocket} ws
+ * @param {Array<Object>} ops
+ * @returns {Array<Object>|null}
  */
 function validateOps(ws, ops) {
-  const { error } = pushSchema.validate({ operations: ops });
+  const { error, value } = pushSchema.validate({ operations: ops }, VALIDATION_OPTIONS);
   if (error) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'VALIDATION_ERROR',
       message: error.message,
     }));
-    return false;
+    return null;
   }
-  return true;
+  return value.operations;
 }
 
 /**
@@ -190,12 +201,17 @@ export async function handleOperation(ws, data) {
     return;
   }
 
-  if (!validateOps(ws, [data.op])) return;
+  const ops = validateOps(ws, [data.op]);
+  if (!ops) return;
+  // The VALIDATED op from here down, never `data.op`: the raw frame still carries whatever the
+  // client wrote into its free-form JSONB fields, and it is this object that gets stored AND
+  // relayed to peers.
+  const op = ops[0];
 
   try {
     const result = await syncService.pushOperations(
       ws.atlasId,
-      [data.op],
+      [op],
       ws.userId,
       ws.permission
     );
@@ -203,7 +219,7 @@ export async function handleOperation(ws, data) {
     // Send ack to sender (per-op result included for confident dequeue)
     ws.send(JSON.stringify({
       type: 'ack',
-      opId: data.op.id,
+      opId: op.id,
       serverVersion: result.serverVersion,
       result: result.results[0],
     }));
@@ -217,8 +233,8 @@ export async function handleOperation(ws, data) {
     // Broadcast operation to peers. A comment op must NOT reach read-only viewers
     // (Visualizador / public visitor) — the spatial-comment visibility rule. Stamp the op with
     // its server arrival order (serverVersion) so peers converge by LWW-by-arrival.
-    const isComment = (data.op?.entityType || data.op?.target) === 'comment';
-    const opOut = { ...data.op, serverVersion: result.results?.[0]?.currentVersion ?? result.serverVersion };
+    const isComment = (op?.entityType || op?.target) === 'comment';
+    const opOut = { ...op, serverVersion: result.results?.[0]?.currentVersion ?? result.serverVersion };
     broadcastToRoom(ws.atlasId, {
       type: 'operation',
       userId: ws.userId,
@@ -247,12 +263,14 @@ export async function handleOperations(ws, data) {
     return;
   }
 
-  if (!Array.isArray(data.ops) || !validateOps(ws, data.ops)) return;
+  if (!Array.isArray(data.ops)) return;
+  const ops = validateOps(ws, data.ops);
+  if (!ops) return;
 
   try {
     const result = await syncService.pushOperations(
       ws.atlasId,
-      data.ops,
+      ops,
       ws.userId,
       ws.permission
     );
@@ -260,7 +278,7 @@ export async function handleOperations(ws, data) {
     // Send batch ack to sender (per-op results for confident dequeue)
     ws.send(JSON.stringify({
       type: 'ack_batch',
-      opIds: data.ops.map((op) => op.id),
+      opIds: ops.map((op) => op.id),
       serverVersion: result.serverVersion,
       results: result.results,
     }));
@@ -272,7 +290,7 @@ export async function handleOperations(ws, data) {
     // Refused ops are dropped from the relay (see handleOperation): they changed nothing on the
     // server, so a peer applying them would diverge until its next full snapshot.
     const refused = new Set((result.results || []).filter((r) => r.success === false).map((r) => r.operationId));
-    const opsOut = data.ops
+    const opsOut = ops
       .filter((op) => !refused.has(op.id))
       .map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
     if (opsOut.length > 0) {
@@ -346,22 +364,37 @@ export function handleBriefingEditEnd(ws, data) {
  */
 export async function handleSyncRequest(ws, data) {
   try {
-    const result = await syncService.pullOperations(ws.atlasId, data.lastVersion || 0, ws.permission);
+    // `ws.userId` travels for the same reason the HTTP pull threads `req.user.id`: since F11 the
+    // snapshot embeds catalog-layer definitions filtered by what THIS principal may see, and the
+    // WS `sync_request` returns the very same snapshot. Omitting it here would have made the two
+    // transports disagree about a permission — with the socket being the LESS restrictive of the
+    // two, since a snapshot without a principal is public-only.
+    const result = await syncService.pullOperations(
+      ws.atlasId, data.lastVersion || 0, ws.permission, ws.userId ?? null,
+    );
 
+    // THE OBJECT, NOT THE STRING, and this is the one place in the module where the difference is
+    // load-bearing. The outbound boundary (`collab.send.js`) prunes catalog-resource definitions,
+    // and the snapshot is the ONLY frame that legitimately carries one: `rehydrateCatalogLayer`
+    // resolved it against what this principal may see. That authorization is recorded by object
+    // IDENTITY (a wire marker would be forgeable by any client), so it does not survive a
+    // `JSON.stringify` done here — serialising before the boundary would strip the very
+    // definitions the rehydration just earned, and the layers would arrive as "camada
+    // indisponível" for someone who holds the grant. Handing the object over keeps identity.
     if (result.isSnapshot) {
-      ws.send(JSON.stringify({
+      ws.send({
         type: 'sync_response',
         isSnapshot: true,
         snapshot: result.snapshot,
         currentVersion: result.currentVersion,
-      }));
+      });
     } else {
-      ws.send(JSON.stringify({
+      ws.send({
         type: 'sync_response',
         isSnapshot: false,
         ops: result.operations,
         currentVersion: result.currentVersion,
-      }));
+      });
     }
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process sync request');

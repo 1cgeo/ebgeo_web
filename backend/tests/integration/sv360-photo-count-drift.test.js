@@ -28,6 +28,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
@@ -111,8 +112,14 @@ describe('StreetView 360 — photo_count publicado bate com o que a API entrega'
 
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     orgId = org.rows[0].id;
+    // Ator com LINHA EM `users`: a escrita do 360 passou a exigir o ESCOPO DE
+    // PRODUCAO (`producer_org_id`), e a leitura o resolve no SQL a partir do UUID.
+    const produtor = await createProducerUser(db, orgId, { username: `pc_prod_${RID}` });
     token = jwt.sign(
-      { sub: crypto.randomUUID(), username: `pc_${RID}`, role: 'user', organization_id: orgId, org_role: 'editor' },
+      {
+        sub: produtor.id, username: `pc_${RID}`, role: 'producer',
+        organization_id: orgId, org_role: 'viewer', producer_org_id: orgId,
+      },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }
     );

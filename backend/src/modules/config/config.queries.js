@@ -32,6 +32,11 @@ export const UPSERT_CONFIG_OVERRIDES = `
   RETURNING value
 `;
 
+// `RETURNING value` para que a trilha de `CONFIG_CLEAR` possa dizer QUAIS seções
+// foram apagadas. Sem isso a válvula de reversão total deixaria uma linha que só diz
+// "alguém apagou tudo", e o documento apagado não existe mais em lugar nenhum para
+// ser consultado depois. `DELETE` que não casa nada devolve zero linhas, que é como
+// se distingue "apagou" de "não havia nada".
 export const CLEAR_CONFIG_OVERRIDES = `
-  DELETE FROM config_settings WHERE key = $1
+  DELETE FROM config_settings WHERE key = $1 RETURNING value
 `;

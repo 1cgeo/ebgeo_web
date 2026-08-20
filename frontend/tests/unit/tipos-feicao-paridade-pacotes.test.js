@@ -161,7 +161,7 @@ const esqueleto = baldesDoEsqueleto(sync);
 const QUATRO_FONTES = {
     'local-atlas-to-server.js (cliente)': cliente,
     'atlas.schemas.js (Joi)': joi,
-    '002_atlas.sql (CHECK do banco)': check,
+    '003_atlas.sql (CHECK do banco)': check,
     'sync.service.js (typeToCollection)': mapaTipos,
 };
 
@@ -300,7 +300,7 @@ describe('tipos de feicao: controle positivo dos extratores (fixtures sinteticas
         expect(divergencias({
             'local-atlas-to-server.js (cliente)': tiposDoCliente(CLIENTE_FALSO),
             'atlas.schemas.js (Joi)': semSetorNoJoi,
-            '002_atlas.sql (CHECK do banco)': literais(CHECK_FALSO),
+            '003_atlas.sql (CHECK do banco)': literais(CHECK_FALSO),
             'sync.service.js (typeToCollection)': tiposDoMapaDeColecao(SYNC_FALSO),
         })).toEqual(["'sector' missing from atlas.schemas.js (Joi)"]);
     });
@@ -309,7 +309,7 @@ describe('tipos de feicao: controle positivo dos extratores (fixtures sinteticas
         expect(divergencias({
             'local-atlas-to-server.js (cliente)': tiposDoCliente(CLIENTE_FALSO),
             'atlas.schemas.js (Joi)': tiposDoJoi(JOI_FALSO),
-            '002_atlas.sql (CHECK do banco)': literais(CHECK_FALSO),
+            '003_atlas.sql (CHECK do banco)': literais(CHECK_FALSO),
             'sync.service.js (typeToCollection)': tiposDoMapaDeColecao(
                 SYNC_FALSO.replace("sector: 'setores',", ''),
             ),

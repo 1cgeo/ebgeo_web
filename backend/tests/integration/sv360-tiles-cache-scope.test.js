@@ -22,6 +22,7 @@ import supertest from 'supertest';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createAdminUser, createProducerUser } from '../helpers/fixtures.js';
 
 const RID = crypto.randomUUID().slice(0, 8);
 const JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-testing-purposes-only-32chars';
@@ -35,9 +36,16 @@ function uuidv5(name) {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
-function mintToken({ orgId, role = 'user', orgRole = 'viewer' }) {
+// A LEITURA DE PROJETO OCULTO/PRIVADO passou de `organization_id` (LOTACAO
+// auto-declarada no auto-cadastro) para `producer_org_id` (ESCOPO DE PRODUCAO,
+// concedido por administrador) e e resolvida NO SQL, a partir do UUID — por isso o
+// `sub` destes tokens precisa ser um usuario de VERDADE.
+function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.randomUUID() }) {
   return jwt.sign(
-    { sub: crypto.randomUUID(), username: `tcache_${RID}`, role, organization_id: orgId, org_role: orgRole },
+    {
+      sub, username: `tcache_${RID}_${sub.slice(0, 8)}`, role,
+      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+    },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
   );
@@ -99,8 +107,10 @@ describe('sv360 tiles — cache scope follows access scope (P6)', () => {
     );
     otherOrgId = org.rows[0].id;
 
-    memberToken = mintToken({ orgId: otherOrgId, orgRole: 'owner' });
-    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', orgRole: 'admin' });
+    const produtorOutra = await createProducerUser(db, otherOrgId, { username: `tcache_p_${RID}` });
+    const administrador = await createAdminUser(db, { username: `tcache_a_${RID}` });
+    memberToken = mintToken({ orgId: otherOrgId, producerOrgId: otherOrgId, sub: produtorOutra.id });
+    adminToken = mintToken({ orgId: otherOrgId, role: 'admin', sub: administrador.id });
 
     const proj = await db.query(
       `INSERT INTO sv360.projects
@@ -121,6 +131,10 @@ describe('sv360 tiles — cache scope follows access scope (P6)', () => {
   after(async () => {
     await db.query('DELETE FROM sv360.photos WHERE id = $1', [disabledPhotoId]);
     await db.query('DELETE FROM sv360.projects WHERE slug = $1', [DISABLED_SLUG]);
+    // O PRODUTOR PRECISA CAIR ANTES DA OM: `users.producer_org_id` é FK sem ON DELETE,
+    // então apagar a organização com um produtor de pé levanta 23503 dentro do `after`
+    // — uma suíte inteiramente verde que termina vermelha por limpeza.
+    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [otherOrgId]);
     await db.query('DELETE FROM public.organizations WHERE id = $1', [otherOrgId]);
     await teardownTestEnv(db);
   });

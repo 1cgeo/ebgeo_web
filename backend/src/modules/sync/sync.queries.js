@@ -1,4 +1,6 @@
 // Path: src/modules/sync/sync.queries.js
+import { assertTable } from '../catalog/catalog.tables.js';
+import { catalogAuthorizationPredicate, resourceTypeLiteral } from '../catalog/catalog.queries.js';
 
 export const INSERT_OPERATION = `
   INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp)
@@ -40,7 +42,7 @@ export const GET_ATLAS_METADATA = `
 
 export const GET_ATLAS_MAPS = `
   SELECT id, name, base_layer, center_lat, center_long, zoom, bearing, pitch,
-         notes_title, notes_description, analysis_layers, catalog_layers,
+         notes_title, notes_description, analysis_layers,
          grid_style, temporal_config, locked, created_at, updated_at, version
   FROM maps
   WHERE atlas_id = $1 AND deleted_at IS NULL
@@ -113,6 +115,94 @@ export const GET_ATLAS_CATALOG_LAYERS = `
   FROM catalog_layers c
   JOIN maps m ON m.id = c.map_id
   WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND c.deleted_at IS NULL
+`;
+
+// ---------------------------------------------------------------------------
+// F11 — a catalog layer is a REFERENCE, so the snapshot REHYDRATES its definition.
+//
+// `catalog_layers.data` holds a copy of the catalog row the client had at the moment it added
+// the layer, `config.source.url` included. That desnormalization has two symptoms and only one
+// of them was ever reported: it LEAKS (a private layer put on a map that is later published
+// hands its URL to an anonymous caller, since a `read`-gated snapshot is what a public-link
+// visitor gets) and it goes STALE (an admin fixing a URL leaves the old one alive in every
+// atlas that had already added the layer, forever). The reference plus the per-atlas state stay
+// in the row; the definition comes from the catalog AT READ TIME, through the access predicate
+// of the CALLER.
+//
+// ONE query for the whole snapshot, never one per layer: the ids are collected in JS from the
+// `catalog_layers` rows (the legacy `maps.catalog_layers` column was the other surface until it
+// was dropped) and arrive here as two arrays, one per type. The Cesium/LOD lesson does not apply — this runs once per snapshot — but the
+// N+1 lesson of `snapshot-n-mais-1.repro.test.js` does, and it is why this is not a lookup
+// inside the per-map loop.
+//
+// Only the TWO types that are catalog resources appear here. `hillshade` is not one and must
+// never join (see `catalog-layer.ref.js` for both defences).
+// ---------------------------------------------------------------------------
+
+/**
+ * One branch of GET_VISIBLE_CATALOG_DEFINITIONS: the rows of one catalog table, among the ids
+ * asked for, that this caller may SEE.
+ *
+ * `$1` = principal (uuid|null), `$2` = atlas in focus (uuid|null) — the atlas being synced, which
+ * is what makes the LOAN branch (D4/R4) reach a public-link visitor exactly as
+ * `/resource-access/visible` does for the same pair.
+ *
+ * @param {string} table - One of CATALOG_TABLES (whitelisted before interpolation).
+ * @param {string} type - The resource type of that table.
+ * @param {string} idsParam - SQL expression for the requested ids (a text[]).
+ * @returns {string}
+ */
+const catalogDefinitionsOf = (table, type, idsParam) => `
+  SELECT ${resourceTypeLiteral(type)} AS resource_type, t.id, t.name, t.config
+    FROM ${assertTable(table)} t
+   WHERE t.active = true
+     AND t.id = ANY(${idsParam})
+     AND ( t.access_level = 'public'
+                OR ${catalogAuthorizationPredicate({
+    alias: 't',
+    userParam: '$1::uuid',
+    produceTypeExpr: resourceTypeLiteral(type),
+    atlasParam: '$2::uuid',
+    grantTypeExpr: resourceTypeLiteral(type),
+  })} )
+`;
+
+/**
+ * The definitions of the catalog resources a snapshot's catalog layers refer to, filtered by
+ * what the CALLER may see.
+ *
+ * A row the caller cannot see simply does not come back, and the rehydration then delivers the
+ * reference with no definition — which is the state the client already renders as "camada
+ * indisponível", with a Remove button, instead of a layer that silently disappears.
+ *   $1 = userId (uuid|null), $2 = atlasId (uuid|null),
+ *   $3 = analysis-layer ids (text[]), $4 = data-layer ids (text[])
+ */
+export const GET_VISIBLE_CATALOG_DEFINITIONS = `
+${catalogDefinitionsOf('analysis_layers', 'analysis_layer', '$3::text[]')}
+   UNION ALL
+${catalogDefinitionsOf('data_layers', 'data_layer', '$4::text[]')}
+`;
+
+/**
+ * The WRITE gate of a catalog layer: may this actor SEE the resource the layer refers to?
+ *
+ * `fn_can_see_resource` — the same composed predicate the rest of the house uses, never a second
+ * copy of the rule — evaluated against the row's own `access_level`, read in the same statement
+ * so there is no window between reading the level and judging it.
+ *
+ * NO ROW MEANS REFUSE, and that is deliberate: `canSeeResource` (resource-access.service.js)
+ * already defines a resource that does not exist as one the caller cannot see, so that "absent"
+ * and "forbidden" are never distinguishable. The alternative (allow, since a missing row has no
+ * definition to leak) would make the gate answer a different question from every other gate in
+ * the system, and a client whose layer was refused still has `delete`, which is not gated.
+ *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type, $4 = resource id
+ * @param {string} table - One of CATALOG_TABLES (whitelisted before interpolation).
+ * @returns {string}
+ */
+export const canSeeCatalogResource = (table) => `
+  SELECT fn_can_see_resource($1::uuid, $2::uuid, $3::text, $4::text, t.access_level) AS ok
+    FROM ${assertTable(table)} t
+   WHERE t.id = $4 AND t.active = true
 `;
 
 export const GET_ATLAS_LAYERS = `

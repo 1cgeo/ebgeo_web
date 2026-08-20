@@ -2,7 +2,7 @@
 
 Log append-only no PostgreSQL onde `server_version` (sequência global `atlas_version_seq`) é a única chave de ordenação do LWW, e `UNIQUE(atlas_id, op_id)` a única garantia de idempotência.
 
-DDL, colunas e índices em `backend/src/database/migrations/003_sync.sql`; o INSERT idempotente em `backend/src/modules/sync/sync.queries.js`. Esta página cobre só o que o DDL não conta.
+DDL, colunas e índices em `backend/src/database/migrations/004_sync.sql`; o INSERT idempotente em `backend/src/modules/sync/sync.queries.js`. Esta página cobre só o que o DDL não conta.
 
 ## Por que ela é a única porta de escrita
 

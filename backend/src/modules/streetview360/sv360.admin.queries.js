@@ -6,11 +6,11 @@
 // Conventions (_padroes §8):
 //   - 100% parametrized ($1..$N); never string-interpolate input.
 //   - All names UPPER_SNAKE_CASE, verb + entity.
-//   - Column names are the REAL ones from 005_sv360.sql.
+//   - Column names are the REAL ones from 007_sv360.sql.
 //   - The shared merge core (sv360.merge.js) is the ONLY caller that runs the
 //     UPSERT / PURGE / INSERT_* / collision queries, inside a single tx `t`.
 //
-// Real columns (005_sv360.sql):
+// Real columns (007_sv360.sql):
 //   sv360.projects (id, organization_id, slug, name, center_lat, center_long,
 //                   entry_photo_id, photo_count, db_filename, status,
 //                   created_at, updated_at)  UNIQUE(organization_id, slug)
@@ -21,7 +21,7 @@
 //                   preview_size_bytes,
 //                   calibration_reviewed, capture_date, geom (trigger), ...)
 //   sv360.project_floors (project_id, level, label, plan_coords JSONB)
-//                   PK(project_id, level), migration 012_sv360_floors.sql
+//                   PK(project_id, level), migration 007_sv360.sql
 //   sv360.targets  (source_id, target_id, distance_m, bearing_deg, is_next,
 //                   is_original, override_bearing, override_distance,
 //                   override_height, hidden)  PK(source_id, target_id)
@@ -154,7 +154,7 @@ export const PURGE_PROJECT_TOMBSTONES = `
 //   $19 = calibration_reviewed     $20 = capture_date
 //   $21 = floor_label
 //
-// $21 (floor_label, migration 012) was MISSING from this list until the floors
+// $21 (`sv360.photos.floor_label`) was MISSING from this list until the floors
 // port. The column exists in sv360.photos and the origin carries a label on every
 // photo of a project with floors, so the ingestion accepted the field, dropped it
 // and answered 201: a Beira-Rio photo landed with `floor_label` NULL and the
@@ -274,19 +274,32 @@ export const DELETE_PROJECT = `
 `;
 
 // List projects for the admin view INCLUDING disabled. Unlike the public
-// LIST_PROJECTS, a global admin sees every OM (optionally filtered by ?orgId);
-// an om_data_admin is scoped to their own organization_id. The predicate:
-//   - $1 = isAdmin (boolean): when true, no org restriction unless $3 is given;
-//   - $2 = userOrgId (uuid, nullable): the non-admin caller's org;
-//   - $3 = filterOrgId (uuid, nullable): optional ?orgId for a global admin.
+// LIST_PROJECTS, a global admin sees every OM (optionally filtered by ?orgId); a
+// PRODUCER is scoped to the OM it produces for.
+//
+// O PREDICADO DEIXOU DE SER UM BOOLEANO DO JS (`$1::boolean AND ...`), que era a
+// última cópia daquela forma no módulo: TRUE curto-circuitava a disjunção inteira,
+// então um erro no cálculo não errava, ABRIA. `fn_can_produce_resource` resolve
+// papel e escopo a partir do UUID, no banco, e diz as duas coisas de uma vez —
+// administrador em qualquer linha, produtor nas da própria OM.
+//
+// REPARE QUE ELE NÃO É `fn_has_global_data_access`: esta é a superfície de
+// ADMINISTRAÇÃO (devolve `db_filename`, o nome do store em disco), e o credenciado
+// é papel de LEITURA de dado, não de administração do acervo.
+//   - $1 = userId (uuid): quem pergunta;
+//   - $2 = filterOrgId (uuid, nullable): o ?orgId OPCIONAL do administrador, que é
+//     refinamento de listagem e nunca autorização.
+// `access_level` viaja junto com `status` e é um EIXO DISTINTO dele: `disabled`
+// oculta de todo mundo fora da OM dona, `private` restringe quem está de fora
+// (D6). O painel do administrador mostra os dois lado a lado, e sem esta coluna
+// ele teria de adivinhar um deles — que é como um eixo de acesso vira invisível
+// para quem o administra.
 export const LIST_PROJECTS_ADMIN = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status,
+         entry_photo_id, photo_count, db_filename, status, access_level,
          created_at, updated_at
   FROM sv360.projects
-  WHERE (
-          ($1::boolean AND ($3::uuid IS NULL OR organization_id = $3::uuid))
-          OR (NOT $1::boolean AND organization_id = $2::uuid)
-        )
+  WHERE fn_can_produce_resource($1::uuid, 'sv360_project', id::text)
+    AND ($2::uuid IS NULL OR organization_id = $2::uuid)
   ORDER BY name
 `;

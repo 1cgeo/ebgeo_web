@@ -290,6 +290,25 @@ uma medição única de algo probabilístico não é medição.
 - If Postgres / the backend can't come up, the specs **skip** cleanly (they never fail
   the run for a missing DB).
 
+### Duas cópias do repositório no mesmo computador
+
+As coordenadas desta camada são FIXAS por padrão (Vite 4321, backend 3912, banco
+`ebgeo_ui_e2e`, arquivo de estado no temp), então dois checkouts que rodem a suíte ao mesmo
+tempo colidem nas quatro. **A colisão pior é silenciosa**: `reuseExistingServer` faz o
+Playwright REUSAR um Vite que já esteja na 4321 — servindo o `src/` do OUTRO checkout —, e a
+suíte passa a medir código que não é o que se está editando, com tudo verde.
+
+As quatro aceitam variável de ambiente, com os mesmos padrões de antes:
+
+```bash
+EBGEO_UI_E2E_APP_PORT=4331 EBGEO_UI_E2E_BACKEND_PORT=3922 \
+EBGEO_UI_E2E_DB_NAME=ebgeo_ui_e2e_b npm run test:e2e:ui
+```
+
+O arquivo de estado no temp DERIVA da porta do backend, então trocar a porta já o separa;
+o banco NÃO deriva de nada e precisa ser passado à parte, senão a segunda rodada dropa o
+banco da primeira no meio dela.
+
 ## Prerequisites (one-time)
 
 Playwright is a `devDependency` but the browser binary must be fetched. Because

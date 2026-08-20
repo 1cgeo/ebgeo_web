@@ -1,9 +1,9 @@
 // Path: src/modules/config/config.cache.js
 // In-process memoization of the GET /api/config payload, INVALIDATED ON WRITE.
 //
-// Why this exists: `getAppConfig()` fans out to eight independent SELECTs (five catalog
-// tables — basemaps is read twice — plus ranks, organizations and the admin override
-// document). The route is anonymous, has no auth to slow anyone down, and is the ONE
+// Why this exists: `getAppConfig()` fans out to eight independent SELECTs (five over the
+// four catalog tables — basemaps is read twice, once for the metadata and once for the
+// MapLibre styles — plus ranks, organizations and the admin override document). The route is anonymous, has no auth to slow anyone down, and is the ONE
 // endpoint whose failure stops the product: the frontend boot is fail-fast on it, with no
 // static fallback, and it retries three times before giving up — so a burst amplifies
 // itself against a pool of ten connections (bugs-backend.md #64).
@@ -23,7 +23,20 @@
 // This module deliberately imports NOTHING from config.service.js. The writers that must
 // invalidate (catalog / ranks / organizations) are themselves imported BY config.service.js,
 // so the dependency has to point one way only.
+//
+// IT DOES OWN A SECOND FAN-OUT SINCE F11, and hanging it here rather than at the nine call
+// sites is the whole point. `/assets3d` keeps two in-memory structures derived from the SAME
+// catalog rows this payload is derived from — which paths belong to a PRIVATE resource, and
+// who may have them — and they are what let that route decide a regime without a query. Two
+// invalidations reachable only by remembering both is how one of them goes stale; every
+// writer already remembers this one. Two consequences, accepted deliberately: the
+// organizations and ranks writers invalidate the asset structures for nothing (inert — they
+// rebuild), and the asset structures are cleared even when `isAppConfigCacheEnabled()` is
+// false, because a security index switched off under test is an index whose "denied" tests
+// would pass by vacuity.
 import config from '../../config.js';
+import { invalidarRegimeDeAssets3d } from '../nomes/assets3d-regime.js';
+import { invalidarAcessoDeAssets3d } from '../nomes/assets3d-acesso.js';
 
 /** @type {{ promise: Promise<Object>, expiresAt: number }|null} */
 let entry = null;
@@ -51,6 +64,8 @@ export function isAppConfigCacheEnabled() {
  */
 export function invalidateAppConfigCache() {
   entry = null;
+  invalidarRegimeDeAssets3d();
+  invalidarAcessoDeAssets3d();
 }
 
 /**

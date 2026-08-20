@@ -5,6 +5,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 ## Por onde começar
 
 - [[atlas-modelo-de-dados]] - o contêiner de topo do projeto e o modelo de dados inteiro em uma página.
+- [[modelo-de-dados]] - a revisão transversal dos quatro schemas: duplicidade de conceito, coluna sem escritor, tabela sem leitor e relação sem FK, com o método de medição.
 - [[modelo-conflito-lww]] - como a colaboração funciona: mutações viram operações, o servidor ordena tudo, e por que isso não é um CRDT (o mal-entendido mais caro do projeto).
 - [[dominio-local-vs-remoto]] - a separação entre workspace local e cópia de atlas do servidor, base para entender quase todo comportamento do cliente.
 - [[sintese-decisoes-arquiteturais]] - as escolhas estruturais e os não-objetivos declarados.
@@ -60,18 +61,19 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 - [[organizacoes-om]] - a Organização Militar como tenant de primeira classe.
 - [[gestao-usuarios]] - ciclo de vida administrativo das contas, incluindo desativação com transferência de atlas.
-- [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito só por admin.
+- [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito por administrador ou pela OM produtora.
+- [[acesso-a-recurso-privado]] - a marca público/privado nos cinco tipos de recurso, a concessão em árvore com prazo e o empréstimo que um atlas faz do que anexou.
+- [[grupo-de-acesso]] - o beneficiário coletivo de uma concessão, quem tem autoridade para compô-lo, e por que listar grupo e administrar grupo têm gates diferentes.
 - [[auditoria]] - a trilha de eventos de negócio e sua consulta administrativa.
 - [[config-dinamico]] - o endpoint público que substitui o config.js estático e monta o payload em runtime.
 
 ## Dados geográficos: gazetteer, 3D e 360
 
-- [[gazetteer-nomes-geograficos]] - o subsistema read-only de topônimos e identify sobre o schema isolado.
+- [[gazetteer-nomes-geograficos]] - o subsistema read-only de busca de topônimos sobre o schema isolado.
 - [[ranking-busca-toponimos]] - as três chaves lexicográficas que ordenam a busca de nomes, e por que não é uma soma.
 - [[calibracao-busca-toponimos]] - o conjunto dourado e a ablação que decidem essa ordenação com evidência.
-- [[catalogo-3d]] - a fonte única de descoberta dos modelos 3D e seu envelope próprio.
+- [[resources-catalogo]] - nota histórica: houve um SEGUNDO catálogo de modelo 3D, e por que ele saiu.
 - [[assets3d-distribuicao]] - a rota pública que serve os binários 3D com dual-mode de armazenamento.
-- [[zonas-acesso-geografico]] - autorização espacial embutida no SQL por zonas-polígono do usuário.
 - [[primeira-pessoa-3d]] - a cena caminhável em Gaussian Splatting: por que ela é uma linha de tilesets, as opções de motor medidas (e os instrumentos que mentiram), e as armadilhas cujo sintoma é sucesso plausível.
 - [[streetview-360]] - o módulo de panoramas: projetos, metadado da foto, imagem, tiles e thumbnails.
 - [[calibracao-e-grafo-360]] - ajuste da câmera plana e dos links dirigidos entre fotos.
@@ -96,7 +98,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[sintese-rest-vs-sync]] - o que muda por REST e o que só muda por operações de sync.
 - [[sintese-modulos-fora-do-sync]] - os módulos REST que ficam fora do sync e o que isso exige do frontend.
 - [[sintese-limites-collab]] - os limites conhecidos da colaboração hoje.
-- [[sintese-eixos-de-permissao]] - os três eixos ortogonais de permissão e quem decide o quê.
+- [[sintese-eixos-de-permissao]] - os eixos ortogonais de permissão e quem decide o quê, incluindo o que deixou de decidir.
 - [[sintese-capacidades-por-papel]] - onde cada papel realmente muda de comportamento.
 - [[sintese-contrato-erros-http]] - o mapa consolidado dos status HTTP e a reação esperada do cliente.
 - [[sintese-contratos-congelados]] - os envelopes divergentes e os shapes que não podem mudar.

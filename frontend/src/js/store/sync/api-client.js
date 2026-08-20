@@ -991,7 +991,6 @@ export class ApiClient {
             data_layer: 'data-layers',
             analysis_layer: 'analysis-layers',
             tileset: 'tilesets',
-            streetview_marker: 'streetview-markers',
         }[category];
         if (!ep) throw new Error(`Unknown catalog category: ${category}`);
         return ep;
@@ -999,7 +998,12 @@ export class ApiClient {
 
     /**
      * Lists catalog items of one type.
-     * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'|'streetview_marker'
+     *
+     * Each row carries the two permission axes besides its metadata: `access_level`
+     * (public/private — WHO SEES it) and `owner_org_id` (the producing organization — WHO
+     * MAINTAINS it, null for the institutional collection). They are independent, and the
+     * admin panel renders them as separate columns for that reason.
+     * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'
      * @returns {Promise<Array<Object>>}
      */
     async listResources(category) {
@@ -1008,6 +1012,12 @@ export class ApiClient {
 
     /**
      * Creates a catalog item (metadata) in its type's table.
+     *
+     * `owner_org_id` IS NOT PART OF THE PAYLOAD, on purpose: the server stamps it from the
+     * caller's own production scope (null for an admin — the institutional collection). Sending
+     * it would be asking the server to trust the request about who owns what, which is exactly
+     * what the production axis exists to prevent. Every write is gated by the same function
+     * server-side, and a row of another organization answers 404, never 403.
      * @param {string} category
      * @param {{ id: string, name: string, description?: string, config?: Object, sort_order?: number }} payload
      * @returns {Promise<Object>}
@@ -1017,7 +1027,8 @@ export class ApiClient {
     }
 
     /**
-     * Updates a catalog item (partial metadata).
+     * Updates a catalog item (partial metadata). `owner_org_id` never travels here either — see
+     * `createResource`; a transfer between organizations is not this route.
      * @param {string} category
      * @param {string} id
      * @param {{ name?: string, description?: string, config?: Object, sort_order?: number }} payload
@@ -1078,6 +1089,63 @@ export class ApiClient {
     /** @param {string} id Soft-deactivates the organization. */
     async deleteOrganization(id) {
         return this._request('DELETE', `/organizations/${encodeURIComponent(id)}`);
+    }
+
+    // ===== ACCESS GROUPS =====
+    //
+    // TWO AUDIENCES, and the split mirrors the backend's two gates: `listAccessGroups`
+    // is `auth` only (it is the PICKER of the share modal, and anyone holding
+    // `view_share` on a resource may grant to a group), while everything else is
+    // administrator OR credenciado. Calling a write here as a plain user gets a 403 from
+    // the server, which is the boundary — none of this is.
+
+    /**
+     * The live access groups, each with `member_count` and `grant_count`.
+     * @returns {Promise<Array<{id:string, name:string, description:string|null,
+     *   member_count:number, grant_count:number}>>}
+     */
+    async listAccessGroups() {
+        return this._request('GET', '/access-groups');
+    }
+
+    /** @param {{name:string, description?:string|null}} payload */
+    async createAccessGroup(payload) {
+        return this._request('POST', '/access-groups', { body: payload });
+    }
+
+    /** @param {string} id @param {{name?:string, description?:string|null}} payload */
+    async updateAccessGroup(id, payload) {
+        return this._request('PATCH', `/access-groups/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /**
+     * Soft-deletes the group, which REVOKES what it granted — the response carries the
+     * reach (`grantsAffected`, `memberCount`) so the UI can say how much fell.
+     * @param {string} id
+     * @returns {Promise<{id:string, name:string, grantsAffected:number, memberCount:number}>}
+     */
+    async deleteAccessGroup(id) {
+        return this._request('DELETE', `/access-groups/${encodeURIComponent(id)}`);
+    }
+
+    /** @param {string} id Who is in this group (administrator or credenciado only). */
+    async listAccessGroupMembers(id) {
+        return this._request('GET', `/access-groups/${encodeURIComponent(id)}/members`);
+    }
+
+    /** Idempotent: `added` says whether the row was created. @param {string} id @param {string} userId */
+    async addAccessGroupMember(id, userId) {
+        return this._request('POST', `/access-groups/${encodeURIComponent(id)}/members`, {
+            body: { userId },
+        });
+    }
+
+    /** @param {string} id @param {string} userId */
+    async removeAccessGroupMember(id, userId) {
+        return this._request(
+            'DELETE',
+            `/access-groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+        );
     }
 
     // ===== CATALOG — 360 PROJECTS (admin metadata; the bundle upload is out-of-band) =====
@@ -1513,6 +1581,99 @@ export class ApiClient {
         return this._request('DELETE', `/atlas/${atlasId}/sharing/users/${userId}`);
     }
 
+    // ===== RECURSOS PRIVADOS (acesso a recurso do catálogo) =====
+    //
+    // Eixo distinto do de atlas: aqui a pergunta é "quem vê ESTE recurso", e não
+    // "quem mexe NESTE atlas". `/api/config` continua sendo o documento PÚBLICO,
+    // igual para todo chamador; o que a pessoa ganha por concessão chega por
+    // `getVisibleResources` e o cliente SOMA.
+
+    /**
+     * Os recursos PRIVADOS que este usuário enxerga (o payload ADITIVO).
+     *
+     * `atlasId` é opcional e MUDA a resposta: com ele entram também os recursos
+     * que o atlas em foco empresta. Sem ele, só papel global e concessão pessoal.
+     * @param {string|null} [atlasId]
+     * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}>}
+     */
+    async getVisibleResources(atlasId = null) {
+        const qs = atlasId ? `?atlasId=${encodeURIComponent(atlasId)}` : '';
+        return this._request('GET', `/resource-access/visible${qs}`);
+    }
+
+    /**
+     * Quem tem acesso a um recurso privado (exige `view_share` ou papel global).
+     * @param {string} type - tileset | data_layer | analysis_layer | sv360_project
+     * @param {string} id
+     * @returns {Promise<Array>}
+     */
+    async listResourceGrants(type, id) {
+        return this._request('GET', `/resource-access/${type}/${encodeURIComponent(id)}/grants`);
+    }
+
+    /**
+     * Concede acesso a um recurso privado, a uma PESSOA ou a um GRUPO.
+     *
+     * `granteeId` e `granteeGroupId` são ALTERNATIVOS, nunca simultâneos: o Joi da rota
+     * tem um `xor` que espelha o `CHECK (num_nonnulls(...) = 1)` da tabela, então mandar
+     * os dois (ou nenhum) volta 422 nomeando os campos.
+     * @param {string} type @param {string} id
+     * @param {{granteeId?: string, granteeGroupId?: string,
+     *   grantLevel: 'view'|'view_share', expiresAt?: string}} payload
+     */
+    async grantResource(type, id, payload) {
+        return this._request('POST', `/resource-access/${type}/${encodeURIComponent(id)}/grants`, { body: payload });
+    }
+
+    /**
+     * Revoga uma concessão E TODA a subárvore que dela deriva.
+     * A resposta traz a lista dos derrubados, que é o que a UI mostra para
+     * confirmar o alcance da poda.
+     * @param {string} grantId
+     * @returns {Promise<{revoked: Array}>}
+     */
+    async revokeResourceGrant(grantId) {
+        return this._request('DELETE', `/resource-access/grants/${encodeURIComponent(grantId)}`);
+    }
+
+    /**
+     * Marca um recurso como público ou privado (só administrador).
+     * @param {string} type @param {string} id
+     * @param {'public'|'private'} accessLevel
+     */
+    async setResourceVisibility(type, id, accessLevel) {
+        return this._request('PATCH', `/resource-access/${type}/${encodeURIComponent(id)}/visibility`, {
+            body: { accessLevel },
+        });
+    }
+
+    /**
+     * O que ESTE atlas empresta (exige `read` no atlas).
+     * @param {string} atlasId
+     * @returns {Promise<Array>}
+     */
+    async listAtlasResources(atlasId) {
+        return this._request('GET', `/atlas/${atlasId}/resources`);
+    }
+
+    /**
+     * Anexa um recurso ao atlas (exige `manage` E ver o recurso).
+     * @param {string} atlasId
+     * @param {{resourceType: string, resourceId: string}} payload
+     */
+    async addAtlasResource(atlasId, payload) {
+        return this._request('POST', `/atlas/${atlasId}/resources`, { body: payload });
+    }
+
+    /**
+     * Desfaz o empréstimo (exige `manage`; NÃO exige ver o recurso, senão um
+     * empréstimo anexado por outro Gestor ficaria preso).
+     * @param {string} atlasId @param {string} type @param {string} id
+     */
+    async removeAtlasResource(atlasId, type, id) {
+        return this._request('DELETE', `/atlas/${atlasId}/resources/${type}/${encodeURIComponent(id)}`);
+    }
+
     // ===== USERS =====
 
     /**
@@ -1556,9 +1717,15 @@ export class ApiClient {
      * 2026-08-13. The mistake had no status and no log to find it by: `validate` runs with
      * `stripUnknown: true`, so a caller written from the old text lost both fields and got a
      * 200. `org_role` is the role WITHIN the organization, distinct from the global `role`.
+     * `role` is the GLOBAL axis and has FOUR values, which are not a ladder: `user`,
+     * `producer` (maintains every resource of ONE organization), `credenciado` (reads every
+     * private resource and writes nothing) and `admin`. `producer_org_id` is the production
+     * scope, and the backend CHECK is bidirectional — `producer` REQUIRES it and every other
+     * role REFUSES it, so the pair must always travel coherent (null when demoting).
+     * `organization_id` is just the declared posting and authorizes nothing.
      * @param {{ username: string, password: string, nome: string, rank_id?: string|null,
-     *   organization_id?: string|null, role?: 'user'|'admin',
-     *   org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
+     *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
+     *   producer_org_id?: string|null, org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
      * @returns {Promise<Object>} The created user.
      */
     async createUser(payload) {
@@ -1569,8 +1736,12 @@ export class ApiClient {
      * Updates a user (admin-only). Partial payload per the backend `updateUserAdminSchema`.
      * See `createUser` on why rank/organization are UUID fields here.
      * @param {string} userId
+     * See `createUser` on the four global roles and on the bidirectional `producer_org_id`
+     * pair: on an edit the backend checks the pair over the MERGED state (body + stored row),
+     * so demoting a producer without clearing the scope fails the whole PUT.
      * @param {{ username?: string, nome?: string, rank_id?: string|null,
-     *   organization_id?: string|null, role?: 'user'|'admin', is_active?: boolean,
+     *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
+     *   producer_org_id?: string|null, is_active?: boolean,
      *   email_verified?: boolean, org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
      * @returns {Promise<Object>} The updated user.
      */

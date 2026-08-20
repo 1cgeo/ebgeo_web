@@ -26,6 +26,7 @@ import path from 'node:path';
 import os from 'node:os';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createProducerUser } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 import { closeStore } from '../../src/modules/streetview360/sv360.blobstore.js';
 
@@ -116,13 +117,17 @@ describe('StreetView 360 — delete de projeto não deixa tombstone órfão (ach
 
     const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
     defaultOrgId = org.rows[0].id;
+    // O ator e um PRODUTOR de verdade da OM dona. `org_role` saiu do gate de escrita
+    // do 360 (era lotacao AUTO-DECLARADA), e a linha em `users` existe porque as
+    // rotas de LEITURA resolvem producao no SQL, a partir do UUID.
+    const produtor = await createProducerUser(db, defaultOrgId, { username: `tomb_${RID}` });
     ownerToken = jwt.sign(
       {
-        sub: randomUUID(),
+        sub: produtor.id,
         username: `tomb_${RID}`,
-        role: 'user',
+        role: 'producer',
         organization_id: defaultOrgId,
-        org_role: 'owner',
+        producer_org_id: defaultOrgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

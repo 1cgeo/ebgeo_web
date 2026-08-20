@@ -206,23 +206,13 @@ describe('GET /api/config — memoization invalidated on write + per-IP ceiling'
       assert.ok(cfg.tilesets.some((t) => t.id === id), 'new tileset must be visible immediately');
     });
 
-    it('catalog streetview_markers: the FIFTH table drops the memo too, though it feeds no key', async () => {
-      // This table is not read by getAppConfig, so no value can prove the invalidation —
-      // the query counter is the only witness. It is invalidated on purpose: a per-table
-      // condition is how partial invalidation gets introduced later.
-      const id = uniq('sm');
-      await warm();
-      await admin(supertest(app).post('/api/v1/streetview-markers'))
-        .send({ id, name: 'Marcador', config: {} })
-        .expect(201);
-      counter.reset();
-      await getConfig();
-      assert.equal(
-        counter.state.count,
-        FULL_BUILD_QUERIES,
-        'a write to any catalog table must force a rebuild'
-      );
-    });
+    // O caso que morava aqui escrevia numa QUINTA tabela de catálogo,
+    // `streetview_markers`, que não alimentava chave nenhuma do payload — o contador
+    // de queries era a única testemunha da invalidação. Aquela tabela saiu do schema
+    // (nenhum consumidor, em lugar nenhum), e com ela o único caso em que
+    // "escreveu no catálogo" e "mudou o /api/config" não eram a mesma coisa. As
+    // quatro tabelas restantes são todas lidas por `buildAppConfig`, e cada uma já
+    // tem acima o caso que prova a invalidação PELO VALOR, que é a testemunha melhor.
 
     it('ranks: a created posto appears, and deactivating it removes it, both immediately', async () => {
       await warm();

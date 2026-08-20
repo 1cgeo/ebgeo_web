@@ -29,7 +29,7 @@ import { apiClient, configureApiClient } from './api-client.js';
 import { wsClient } from './ws-client.js';
 import { operationQueue } from './operation-queue.js';
 import { enableOperationLogging, disableOperationLogging } from './operation-dispatcher.js';
-import { sessionContext } from './session-context.js';
+import { sessionContext, sessionUserInfoFromMe } from './session-context.js';
 import {
     applyRemoteOperation,
     applyRemoteSnapshot,
@@ -42,6 +42,7 @@ import { syncGateway } from './sync-gateway.js';
 import { connectionState } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
+import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
@@ -219,12 +220,23 @@ class SyncEngine {
      */
     async login({ username, password }) {
         const user = await apiClient.login(username, password);
-        sessionContext.setSession({
-            userId: user.id,
-            role: user.org_role || 'viewer',
-            globalRole: user.role || 'user',
-            username: user.username || user.nome || username,
-        });
+        sessionContext.setSession(sessionUserInfoFromMe(user, username));
+        // A soma dos recursos privados concedidos, ainda SEM atlas em foco: o que a
+        // pessoa tem por papel global ou por concessao pessoal ja vale no mapa local.
+        // Best-effort de proposito — uma falha aqui nao pode derrubar o login.
+        await refreshVisibleResources(null);
+        // E a tela precisa SABER que a soma chegou. O boot resolve isso por construcao
+        // (a soma acontece antes de qualquer controle existir), mas o login por gesto
+        // acontece com o mapa montado: sem este aviso, o recurso privado so aparecia no
+        // proximo F5 ou ao abrir um atlas. O MESMO evento do overlay, e nao um novo,
+        // pela razao ja escrita no handler de `atlasResources`: os assinantes ignoram o
+        // payload e apenas releem o `config`. Vai sem chave `settings` de proposito —
+        // nao houve mudanca de settings.
+        try {
+            getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'granted_resources' });
+        } catch {
+            // No UI bus (headless).
+        }
         return user;
     }
 
@@ -344,6 +356,12 @@ class SyncEngine {
      * @param {Object} [snapshotSettings] - atlas.settings from the pulled snapshot, if any.
      */
     async _applyAtlasSettingsOverlay(atlasId, snapshotSettings) {
+        // D1 — SOMAR PRIMEIRO, INTERSECTAR DEPOIS, e a ordem esta aqui de proposito.
+        // O baseline passa a ser publico(deploy) uniao concedido(pessoal) uniao
+        // emprestado(atlas), e so entao a allowlist do atlas intersecta por cima. A
+        // ordem inversa faria o recurso EMPRESTADO escapar da restricao que o
+        // Gestor configurou no mesmo atlas.
+        await refreshVisibleResources(atlasId);
         try {
             const settings = snapshotSettings ?? await apiClient.getAtlasSettings(atlasId);
             applyAtlasSettings(settings);
@@ -549,11 +567,25 @@ class SyncEngine {
      * Closes the WebSocket (no reconnect). Local state is retained.
      * @returns {void}
      */
-    disconnect() {
+    disconnect({ resumeGranted = true } = {}) {
         wsClient.disconnect();
         // The per-atlas config overlay no longer applies — restore the deploy-level config and
         // re-gate the UI back to its defaults.
+        //
+        // As DUAS chamadas, e nao uma: `revertAtlasSettings` restaura o baseline por
+        // cima do `config`, e o baseline CONTEM os recursos concedidos (e o que
+        // impede o revert de apaga-los). Quem os tira e `clearVisibleResources`.
+        // Chamar so uma deixa metade do trabalho feito.
+        clearVisibleResources();
         revertAtlasSettings();
+        // Quem continua LOGADO nao perde a concessao PESSOAL ao sair do atlas: ela
+        // nao depende de atlas nenhum. O que cai e so o EMPRESTIMO, e a forma de
+        // dizer isso e re-somar sem atlas em foco. Sem `await` de proposito —
+        // `disconnect` e sincrono e nenhum chamador espera por ele; o logout, que
+        // chama este metodo antes de limpar a sessao, apaga a soma logo em seguida.
+        if (resumeGranted && sessionContext.isAuthenticated()) {
+            refreshVisibleResources(null).catch(() => {});
+        }
         try {
             getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: null });
         } catch {
@@ -567,10 +599,15 @@ class SyncEngine {
      * @returns {Promise<void>}
      */
     async logoutAndDisconnect() {
-        this.disconnect();
+        // `resumeGranted: false` NAO e microotimizacao: a re-soma de `disconnect` sai
+        // sem `await`, entao no logout ela poderia aterrissar DEPOIS do
+        // `clearVisibleResources` e re-somar o que acabara de ser apagado. Desligar a
+        // re-soma na origem torna a ordem deterministica em vez de provavel.
+        this.disconnect({ resumeGranted: false });
         setImageSyncAtlas(null);
         await apiClient.logout();
         sessionContext.clearSession();
+        clearVisibleResources();
         disableOperationLogging();
         // Forget the atlas so a subsequent boot/connect starts clean and nothing thinks
         // a server atlas is still open.
@@ -695,6 +732,31 @@ class SyncEngine {
             } catch {
                 // No UI bus (headless).
             }
+        });
+
+        // O atlas passou a emprestar (ou deixou de emprestar) um recurso privado.
+        // Re-pede o payload ADITIVO, que e pessoal: o frame so avisa que mudou.
+        wsClient.on('atlasResources', () => {
+            // O MESMO guard do frame de settings, e pela mesma razao: um frame que
+            // chega atrasado, depois do disconnect, re-somaria num escopo que ja nao
+            // existe. `refreshVisibleResources` mexe no baseline, entao a janela
+            // disconnect -> revert e exatamente onde o dano apareceria.
+            if (!connectionState.isOnline()) return;
+            refreshVisibleResources(this._atlasId).then((ok) => {
+                if (!ok) return;
+                try {
+                    // O MESMO evento do overlay, e nao um novo, porque os tres
+                    // assinantes (catalogo, seletor de base e barra inferior) IGNORAM
+                    // o payload: os tres apenas releem o `config`, que e exatamente o
+                    // que precisa acontecer aqui. Um evento novo obrigaria os tres a
+                    // assinarem duas coisas para reagir ao mesmo fato. Vai sem chave
+                    // `settings` de proposito: nao houve mudanca de settings, e
+                    // mandar `undefined` ali seria afirmar que houve.
+                    getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_resources' });
+                } catch {
+                    // No UI bus (headless).
+                }
+            }).catch(() => {});
         });
 
         // A peer created/altered server-side data OUTSIDE the CRDT op log (duplicate/merge a map,

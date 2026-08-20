@@ -54,7 +54,7 @@ Cursor e temporal são ungated de propósito (decisão de produto anotada no cab
 
 Detalhes que evitam bug:
 
-- O escopo por superfície (`mapId`/`tilesetId`/`photoName`) não é decoração: sem ele a seleção dentro de um modelo 3D vazaria para outro modelo ([[catalogo-3d]], [[streetview-360]]).
+- O escopo por superfície (`mapId`/`tilesetId`/`photoName`) não é decoração: sem ele a seleção dentro de um modelo 3D vazaria para outro modelo ([[resources-catalogo]], [[streetview-360]]).
 - **A geometria nunca trafega.** O overlay resolve os ids na fonte **local** e reconstrói a caixa com o mesmo `createSelectionBox` do highlight local. Só funciona porque o atlas é compartilhado; um par que ainda não recebeu a operação de criação não desenha nada.
 - **O "acompanha o arraste" não vem de presença.** A caixa segue porque o overlay re-renderiza em `LAYERS_CHANGED`, ou seja, quando a **operação** de movimento do par altera a geometria local. Presença mostra *quem*; [[envelope-operacao]] traz o *quê*. Arraste travado é suspeita de fluxo de operações, não de presença.
 - `featureMeta` viaja junto porque os ids sozinhos não carregam o tipo de ferramenta, e o peer precisa montar o destaque sem consultar o store.
@@ -88,7 +88,7 @@ Regra dura complementar: **overlays nunca mutam presença**, só leem e reconcil
 
 Também não existem, por design: replay de frames de presença perdidos, lock a partir do indicador de briefing, e escala multi-instância.
 
-**A tabela `active_sessions` está RESERVADA e sem escritor, desde 2026-07-25.** Esta seção descreveu até essa data uma tabela write-only, escrita a cada connect e apagada a cada disconnect; os dois escritores foram removidos junto com o SQL, e hoje nada em `backend/src` insere, apaga ou lê a tabela. O motivo está no cabeçalho da tabela (`backend/src/database/migrations/003_sync.sql`) e na nota de topo de `backend/src/modules/collab/collab.service.js`: como nenhum `SELECT` jamais existiu, a escrita não comprava nada e ainda PARECIA um rastro durável de sessão, sendo incapaz de ser um (chamadas fire-and-forget que podiam commitar fora de ordem, nenhum reaper, e todo restart orfanando as linhas vivas em silêncio). A tabela ficou porque migração aqui é forward-only e aditiva.
+**A tabela `active_sessions` está RESERVADA e sem escritor, desde 2026-07-25.** Esta seção descreveu até essa data uma tabela write-only, escrita a cada connect e apagada a cada disconnect; os dois escritores foram removidos junto com o SQL, e hoje nada em `backend/src` insere, apaga ou lê a tabela. O motivo está no cabeçalho da tabela (`backend/src/database/migrations/004_sync.sql`) e na nota de topo de `backend/src/modules/collab/collab.service.js`: como nenhum `SELECT` jamais existiu, a escrita não comprava nada e ainda PARECIA um rastro durável de sessão, sendo incapaz de ser um (chamadas fire-and-forget que podiam commitar fora de ordem, nenhum reaper, e todo restart orfanando as linhas vivas em silêncio). A tabela ficou porque migração aqui é forward-only e aditiva.
 
 Não construa "quem está online" a partir dela: a verdade é, e sempre foi, o `Map` em memória de `backend/src/modules/collab/collab.rooms.js`. O mesmo vale para as colunas de presença (`cursor_position`, `current_map_id`, `selected_features`) e para o índice `idx_sessions_heartbeat`, que nunca tiveram escritor de verdade. Ressuscitar isso começa pelo **leitor**, não pelo INSERT: coluna viva pela metade engana mais que coluna ausente. Ver [[canal-collab-websocket]] e [[link-publico]].
 

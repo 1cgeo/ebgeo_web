@@ -1,5 +1,5 @@
 // Path: tests/integration/slides-broken-trigger.test.js
-// Item 104 — trg_mark_slides_broken (002_atlas.sql): o soft-delete de um mapa
+// Item 104 — trg_mark_slides_broken (003_atlas.sql): o soft-delete de um mapa
 // marca os slides que o referenciam como quebrados.
 //
 // Comportamento inteiro implementado em plpgsql, com ZERO teste: os únicos hits de

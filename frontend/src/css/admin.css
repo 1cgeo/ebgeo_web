@@ -1,14 +1,16 @@
 /* Path: src/css/admin.css */
 
 /*
- * Admin PAGE (global system admin only) — the whole of `admin.html`, not an overlay over the map.
+ * Admin PAGE — the whole of `admin.html`, not an overlay over the map. Three audiences share it:
+ * the global system admin (every tab), the credenciado (Grupos) and the producer (Catálogo).
  * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
  * section header + cards (table / forms / grid).
  * BEM blocks:
  *   .admin-panel    shell (header + rail + content)
  *   .admin-section  section header (title + actions)
  *   .admin-card     surface card
- *   .admin-users / .admin-catalog / .admin-form / .admin-btn / .admin-chip / .admin-avatar
+ *   .admin-users / .admin-catalog / .admin-groups / .admin-form / .admin-btn / .admin-chip
+ *   .admin-avatar
  *
  * Loaded only by `admin-page.css` — the map stylesheet no longer imports it.
  */
@@ -188,6 +190,40 @@
 .admin-chip--admin {
     background: var(--primary-100);
     color: var(--primary-700);
+}
+
+/* Âmbar, o mesmo par do selo "Pendente" logo abaixo: o Credenciado é quem LÊ todo
+   recurso privado, e a cor o liga ao selo "Privado" sem depender do texto. Os tokens
+   de design não têm família de aviso, então o valor é literal aqui como já é lá. */
+.admin-chip--credenciado {
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
+/* O Produtor tem COR PRÓPRIA de propósito. Os quatro papéis globais não são uma
+   escada, então nada de degradê entre eles: azul diz "outro eixo", não "um degrau
+   acima do Credenciado".
+   O par sai de `--color-info`, e não de um literal como o âmbar acima: aqui a
+   família EXISTE nos tokens, e o par literal anterior (sky-500 / sky-700) só
+   repetia à mão uma cor que o design já nomeia. A receita do `color-mix` é a mesma
+   já usada em `account.css` para o mesmo token, para que os dois não divirjam. */
+.admin-chip--producer {
+    background: color-mix(in srgb, var(--color-info) 15%, transparent);
+    color: color-mix(in srgb, var(--color-info) 78%, var(--gray-900));
+}
+
+/* O eixo de ACESSO do recurso, que não é o de papel logo acima nem o de status
+   (Ativo/Inativo) ao lado dele na tabela do 360. Privado herda o mesmo âmbar do
+   Credenciado e do selo do cartão do catálogo, porque os três falam da mesma coisa;
+   público fica neutro, que é o estado de toda linha que existia antes do eixo. */
+.admin-chip--private {
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
+.admin-chip--public {
+    background: var(--gray-100);
+    color: var(--gray-500);
 }
 
 .admin-chip--user {
@@ -466,6 +502,22 @@
     outline: none;
 }
 
+/* `display: flex` acima vence o atributo `hidden` do HTML, então um campo escondido
+   por JS (a OM produtora, que só existe para o papel Produtor) continuaria na tela.
+   A regra devolve o atributo ao seu significado. */
+.admin-form__field[hidden] {
+    display: none;
+}
+
+/* Campo de LEITURA (a OM dona do recurso): o valor não é um controle, e não deve parecer
+   um controle desabilitado — daí o fundo neutro e nenhuma borda de input. */
+.admin-form__readonly-value {
+    padding: var(--space-2) 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    font-weight: var(--font-weight-medium);
+}
+
 .admin-form__field--checkbox {
     flex-direction: row;
     align-items: center;
@@ -535,6 +587,12 @@
 }
 
 /* ===== Catalog tab ===== */
+
+/* A legenda dos três eixos (Acesso, Status, OM dona), acima da navegação de categorias. */
+.admin-catalog__legend {
+    margin: calc(var(--space-2) * -1) 0 var(--space-4);
+    max-width: 70ch;
+}
 
 .admin-catalog__nav {
     display: flex;
@@ -613,4 +671,49 @@
     box-shadow: 0 0 0 3px var(--primary-100);
     outline: none;
     background: #fff;
+}
+
+/* ===== Grupos tab ===== */
+
+/* A descrição de um grupo é texto livre e costuma passar de uma linha, então o formulário
+   precisa de um campo alto. Ele herda a moldura do input, mas não a altura fixa dele — e
+   `font-family` é explícito porque textarea não herda a fonte da página por padrão. */
+.admin-form__field textarea {
+    padding: var(--space-3);
+    box-sizing: border-box;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    background: #fff;
+    resize: vertical;
+}
+
+.admin-form__field textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-100);
+    outline: none;
+}
+
+.admin-groups__search-label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.admin-groups__search {
+    width: 100%;
+    max-width: 420px;
+    margin-bottom: var(--space-3);
+}
+
+/* Reaproveita a moldura de `.admin-transfer__option`, mas a linha inteira NÃO é clicável
+   aqui (quem age é o botão à direita), então o cursor de mão sai: prometer clique onde não
+   há clique é o mesmo defeito que um botão que não faz nada. */
+.admin-groups__candidate {
+    justify-content: space-between;
+    cursor: default;
 }

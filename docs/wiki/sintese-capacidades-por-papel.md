@@ -35,7 +35,7 @@ Corolário fácil de esquecer: **clonar exige apenas `read`** (`backend/src/modu
 
 ## Quando o papel é fixado, re-fixado e revogado
 
-O papel do login é o **global** (`org_role`), não o do atlas. O papel por atlas só se resolve no `connect`, e ali há uma antecipação deliberada: se o `ownerId` do snapshot bate com o `userId`, o papel sobe para `owner` **antes** do handshake WS (`frontend/src/js/store/sync/sync-engine.js`), para que os botões de Gestor apareçam já no F5 sem esperar o socket. O `connected` confirma depois via `payload.role`.
+O papel que a sessão recebe no login é o `org_role` do usuário (`frontend/src/js/store/sync/session-context.js`), não o do atlas e **não** o papel global do backend, que viaja à parte em `_globalRole`. A confusão de nome é do cliente e vale conhecer: `org_role` não autoriza nada no servidor desde 2026-08-17 ([[sintese-eixos-de-permissao]]), aqui ele é só o default de UI até o `connected` chegar. O papel por atlas só se resolve no `connect`, e ali há uma antecipação deliberada: se o `ownerId` do snapshot bate com o `userId`, o papel sobe para `owner` **antes** do handshake WS (`frontend/src/js/store/sync/sync-engine.js`), para que os botões de Gestor apareçam já no F5 sem esperar o socket. O `connected` confirma depois via `payload.role`.
 
 Transferência de posse ao vivo não exige reconexão: `atlas_owner_changed` chama `updateRole('manager')` no ex-dono. Use `updateRole`, nunca `setSession`, para trocar papel de sessão viva: `updateRole` preserva `userId`/`username` (`frontend/src/js/store/sync/session-context.js`), `setSession` os substitui.
 

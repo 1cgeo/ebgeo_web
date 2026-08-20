@@ -287,14 +287,16 @@ export async function initializeRepository() {
             const newMapData = getEmptyMapData();
 
             if (config.map2d?.hillshade?.enabled === true) {
+                // Reference + per-atlas state, like every other catalog-layer write. Hillshade
+                // refers to no catalog resource (its definition is the static `config.map2d`
+                // block), so the reference is the bare id and the type; the name is resolved on
+                // read by `catalogLayerDisplayName`.
                 newMapData.catalogLayers = [{
                     id: 'hillshade',
                     type: 'hillshade',
-                    name: config.map2d.hillshade.name || 'Sombreamento do Relevo',
                     visible: true,
                     opacity: 1,
                     status: 'active',
-                    config: config.map2d.hillshade,
                     sync: createSyncMetadata(null)
                 }];
             }

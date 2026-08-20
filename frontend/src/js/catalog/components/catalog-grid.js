@@ -14,7 +14,7 @@ import { CATALOG_UI_ICONS } from '../catalog.constants.js';
  * @param {Function} options.onItemClick - Item click callback
  * @returns {HTMLElement}
  */
-export function createCatalogGrid({ items, onItemClick, mapLocked = false, selectable = false, allowedIds, onToggle }) {
+export function createCatalogGrid({ items, onItemClick, mapLocked = false, selectable = false, allowedIds, onToggle, onShare }) {
     const grid = document.createElement('div');
     grid.className = 'catalog-grid';
 
@@ -38,6 +38,10 @@ export function createCatalogGrid({ items, onItemClick, mapLocked = false, selec
             // allowedIds is a Set of the RAW (originalData) ids currently allowed in the atlas.
             selected: selectable ? !!allowedIds?.has(item.originalData?.id ?? item.id) : false,
             onToggle,
+            // Sem `onShare` o cartão não desenha a ação, então o modo de seleção
+            // (aba "Catálogo" da configuração do atlas) fica sem ela por omissão:
+            // lá o cartão é um interruptor, não um item que se abre ou se cede.
+            onShare: selectable ? undefined : onShare,
         });
         grid.appendChild(card);
     });

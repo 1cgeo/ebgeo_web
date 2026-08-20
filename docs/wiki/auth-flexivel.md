@@ -12,7 +12,7 @@ Quem barra é a rota, via `auth`/`requireAdmin` (`backend/src/middleware/auth.js
 
 O código convida ao erro em `flexibleAuth` (`backend/src/middleware/flexible-auth.js`), e nenhuma destas está comentada lá:
 
-- **API key presente encerra a decisão, mesmo falhando.** O `return next()` do ramo da chave está *fora* do `if (rows[0])`. Chave malformada, ou válida mas de usuário inativo, resulta em anônimo, **sem** tentar cookie ou Bearer. Cliente que manda `x-api-key` errada junto de um Bearer bom é tratado como anônimo. Não é bug, é precedência estrita, mas quebra quem presume fallback.
+- **Só a chave que RESOLVE encerra a decisão.** Até 2026-07-25 o `return next()` do ramo da chave estava *fora* do `if (rows[0])`, e a mera presença de `x-api-key`/`?api_key=` pulava cookie e Bearer: era uma demoção silenciosa de sessão válida disparável por quem conseguisse a vítima a abrir `...?api_key=qualquercoisa`, porque o gatilho mora na query string. Hoje chave malformada ou ausente de `users` cai no ramo seguinte. A precedência que sobrou é estrita e continua valendo: chave **boa** ganha do Bearer bom.
 - **Cookie ganha do Bearer**, silenciosamente (`token = req.cookies?.token || extractBearerToken(req)`). Browser com cookie velho e SPA mandando Bearer novo: vale o velho. É a causa provável de "deslogou sozinho" em aba antiga.
 - **Chave malformada não toca o banco** (guarda `UUID_RE`). Anti-DoS de borda, ver [[hardening-borda-api]]. Consequência: mudar o formato da API key exige mudar essa regex, senão toda chave nova vira anônima antes de chegar ao Postgres.
 
@@ -28,7 +28,7 @@ O porquê da revalidação viva antes de reassinar está documentado no próprio
 
 O que o código **não** diz:
 
-- Só o `role` global é adotado do banco. `org_role`/`organization_id` seguem vindo do token **de propósito**, para preservar o degrade de tokens legados (`org_role || 'viewer'`). Alternativa rejeitada: adotar tudo do banco, o que faria token pré-claims-de-organização virar erro em vez de viewer. Ver [[jwt-emissor-unico]].
+- **Dois claims são adotados do banco sem condição:** o `role` global e o escopo de produção `producer_org_id`, que autoriza escrita de catálogo e de acervo 360 ([[acesso-a-recurso-privado]]). `org_role`/`organization_id` só são reconciliados **quando o token já os carrega**, para preservar o degrade de tokens legados (`org_role || 'viewer'`); adotá-los do banco sempre faria token pré-claims-de-organização virar erro em vez de viewer. Ver [[jwt-emissor-unico]].
 - Sessão morta não vira 401 aqui: derruba o cookie, zera `req.user` e **segue anônima**. Então uma rota pública responde 200 (sem identidade) para um usuário recém-desativado, e só a rota estrita dá 401. Trilha de [[auditoria]] via `req.authVia` fica ausente nesse caso, não `'jwt'`.
 - Principals de link público nunca deslizam (guarda `UUID_RE.test(payload.sub)` antes da renovação): o `sub` é `public-<uuid>`, não-UUID, e não existe linha em `users` para revalidar. Mesma convenção de isenção em `backend/src/middleware/auth.js` (lá como `PRINCIPAL_UUID_RE`) e em `backend/src/middleware/permissions.js`. Quem mudar o formato do `sub` público para um UUID puro faz esses principals passarem a bater no banco e serem tratados como sessão morta. Ver [[link-publico]] e [[permissoes-atlas]].
 - A renovação **não é exclusiva do cookie**. Como o token é resolvido por `cookie || Bearer`, uma chamada que só mandou `Authorization` também recebe `Set-Cookie`, ganhando um cookie que ela não pediu, e que passa a ganhar do Bearer nas requisições seguintes, pela precedência acima.

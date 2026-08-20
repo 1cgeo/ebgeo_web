@@ -5,6 +5,7 @@
  */
 
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
+import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
 import { getCatalogLayers } from './catalog.operations.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import {
@@ -143,8 +144,11 @@ export async function getMapAnalysisLayersStates(mapName = null) {
 
     catalogLayers?.forEach(layer => {
         if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER) {
-            const layerId = layer.config?.id || layer.originalId || layer.id.replace('analysis-', '');
-            states[layerId] = isCatalogLayerActive(layer);
+            // One resolution order for the whole client (prefix, then the two legacy carriers):
+            // this call site had its own, inverted, and could key the state map by an id the
+            // availability check had already rejected.
+            const layerId = catalogLayerReferenceId(layer);
+            if (layerId) states[layerId] = isCatalogLayerActive(layer);
         }
     });
 

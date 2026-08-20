@@ -48,7 +48,7 @@ Se o modal lesse `config.dataLayers.layers`, leria a lista **já filtrada pelo o
 
 **Regra geral: UI de consumo lê `config`; UI de configuração lê o baseline.** Vale para qualquer tela futura de configuração.
 
-Corolário na direção oposta: o modal só oferece basemaps habilitados no deploy (`frontend/src/js/modals/atlas-settings.modal.js`), porque um basemap desabilitado seria marcável sem jamais aparecer no seletor. As vistas 360 vivem **fora** de `config` (cache de preflight do sv360), então a allowlist é lida à parte via `getAtlas360Allowlist()`. Ver [[streetview-360]], [[catalogo-3d]] e [[config-dinamico]].
+Corolário na direção oposta: o modal só oferece basemaps habilitados no deploy (`frontend/src/js/modals/atlas-settings.modal.js`), porque um basemap desabilitado seria marcável sem jamais aparecer no seletor. As vistas 360 vivem **fora** de `config` (cache de preflight do sv360), então a allowlist é lida à parte via `getAtlas360Allowlist()`. Ver [[streetview-360]], [[resources-catalogo]] e [[config-dinamico]].
 
 ## Campos aceitos mas não consumidos
 

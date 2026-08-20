@@ -29,7 +29,7 @@ export async function orgIsActive(organizationId) {
 // This single joined read replaces the narrower `orgIsActive` call on the strict
 // `auth` path (same one-query cost) and is also consulted before any sliding renewal.
 //
-// It also carries `sessions_valid_from` (migration 008), the marker that finally gives
+// It also carries `sessions_valid_from`, the marker that finally gives
 // mass revocation an effect this path can see. Before it, `REVOKE_ALL_USER_TOKENS`
 // ended the ability to ROTATE and nothing else: nobody on the request path reads
 // `refresh_tokens`, so a holder of a live access token kept working and — because the
@@ -41,6 +41,7 @@ const LIVE_AUTH_STATE = `
          u.role,
          u.org_role,
          u.organization_id,
+         u.producer_org_id,
          u.sessions_valid_from,
          COALESCE(o.is_active, true) AS org_is_active
   FROM users u
@@ -57,7 +58,7 @@ const LIVE_AUTH_STATE = `
  *
  * @param {string} userId
  * @returns {Promise<{userIsActive: boolean, role: string, orgRole: string,
- *   organizationId: string|null, orgIsActive: boolean,
+ *   organizationId: string|null, producerOrgId: string|null, orgIsActive: boolean,
  *   sessionsValidFrom: Date|null}|null>} null when no such user.
  */
 export async function getLiveAuthState(userId) {
@@ -70,6 +71,7 @@ export async function getLiveAuthState(userId) {
     role: r.role || 'user',
     orgRole: r.org_role || 'viewer',
     organizationId: r.organization_id ?? null,
+    producerOrgId: r.producer_org_id ?? null,
     orgIsActive: r.org_is_active === true,
     sessionsValidFrom: r.sessions_valid_from ?? null,
   };

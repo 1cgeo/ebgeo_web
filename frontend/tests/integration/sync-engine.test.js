@@ -70,7 +70,11 @@ const h = vi.hoisted(() => {
         },
         enableOperationLogging: vi.fn(),
         disableOperationLogging: vi.fn(),
-        sessionContextMock: { setSession: vi.fn(), clearSession: vi.fn() },
+        // `isAuthenticated` entrou junto com a soma dos recursos concedidos: o
+        // `disconnect` a consulta para decidir se re-soma a concessão PESSOAL (que
+        // não depende de atlas nenhum). Um mock sem ela derruba o disconnect inteiro
+        // num TypeError, que é o modo de falha que um mock parcial sempre teve.
+        sessionContextMock: { setSession: vi.fn(), clearSession: vi.fn(), isAuthenticated: vi.fn(() => false) },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
         setRemoteHandlerEventBus: vi.fn(),
@@ -126,9 +130,16 @@ vi.mock('../../src/js/store/sync/operation-dispatcher.js', () => ({
     disableOperationLogging: h.disableOperationLogging,
 }));
 
-vi.mock('../../src/js/store/sync/session-context.js', () => ({
-    sessionContext: h.sessionContextMock,
-}));
+// Só o SINGLETON é dublê. `sessionUserInfoFromMe` vem do módulo REAL de propósito: ele é a
+// forma do payload de hidratação (papel por atlas, papel global e escopo de produção), e uma
+// cópia escrita aqui deixaria de acompanhar a de produção sem ficar vermelha.
+vi.mock('../../src/js/store/sync/session-context.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        sessionContext: h.sessionContextMock,
+    };
+});
 
 // The engine imports SIX names from this module. Stubbing only three left the other three
 // `undefined`, and the two code paths that use them (the push-ack version seeding and the
@@ -225,6 +236,7 @@ describe('login', () => {
             userId: 'user-1',
             role: 'editor',
             globalRole: 'user',
+            producerOrgId: null,
             username: 'alice',
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
@@ -237,6 +249,7 @@ describe('login', () => {
             userId: 'user-9',
             role: 'viewer',
             globalRole: 'user',
+            producerOrgId: null,
             username: 'bob',
         });
     });
@@ -248,6 +261,7 @@ describe('login', () => {
             userId: 'user-7',
             role: 'editor',
             globalRole: 'admin',
+            producerOrgId: null,
             username: 'root',
         });
     });
@@ -366,9 +380,12 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 7 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
-        // 'atlasSettings','serverResync') wired exactly once total.
-        expect(wsClientMock.on).toHaveBeenCalledTimes(7);
+        // 8 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
+        // 'atlasSettings','atlasResources','serverResync') wired exactly once total.
+        // 'atlasResources' entrou com o empréstimo por atlas: o frame só avisa que
+        // mudou, e o receptor re-pede o próprio payload aditivo (o conjunto visível é
+        // diferente por pessoa, então mandá-lo no frame de todos seria vazamento).
+        expect(wsClientMock.on).toHaveBeenCalledTimes(8);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);

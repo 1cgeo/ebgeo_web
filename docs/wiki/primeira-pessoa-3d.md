@@ -2,7 +2,7 @@
 
 Percorrer a pé um ambiente interno capturado por Gaussian Splatting, com colisão por voxel, marcadores curados e trena, dentro do EBGeo. O módulo é `frontend/src/js/first_person_3d_tool/`; esta página guarda o que a leitura dele não entrega: as decisões medidas, os instrumentos que mentiram na medição, e as armadilhas cujo sintoma é sucesso plausível.
 
-Vizinhas: [[catalogo-3d]] (a outra descoberta 3D, que o cliente não usa), [[assets3d-distribuicao]] (por onde os bytes saem), [[peso-do-pacote-web]] (o que prende biblioteca no payload), [[streetview-360]] (o viewer irmão, e o precedente que esta cena segue).
+Vizinhas: [[resources-catalogo]] (a outra descoberta 3D, que o cliente nunca usou e que saiu do sistema), [[assets3d-distribuicao]] (por onde os bytes saem), [[peso-do-pacote-web]] (o que prende biblioteca no payload), [[streetview-360]] (o viewer irmão, e o precedente que esta cena segue).
 
 ## A cena é uma linha de `tilesets`, e a escolha compra três coisas de graça
 
@@ -42,7 +42,7 @@ Aqui a documentação de origem afirmava o contrário e estava errada. A frase "
 
 A escolha é deliberada e o motivo está no ponto de uso: o campo `foto` de um marcador vem de um arquivo que um operador larga numa pasta, e termina em `img.src` por `resolveMarkerPhotoUrl`. Uma gramática genérica de esquema aceitaria qualquer coisa daquele arquivo. Nada disso executa num `<img>` hoje, então a allowlist fecha uma porta e não um buraco, mas a porta leva a qualquer consumidor futuro de um caminho de cena resolvido.
 
-Duas consequências práticas: o `foto` do marcador é relativo à **pasta da cena**, não à raiz do site (com barra na frente o navegador procura na raiz e a foto some); e o `basePath` precisa ser **absoluto desde a raiz do site**, porque `assets3dBaseUrl`, o campo que resolveria um caminho relativo, é publicado pelo backend e tem zero leitores no frontend ([[config-runtime-urls-relativas]] descreve o contrato; [[catalogo-3d]] registra que o cliente não o consome).
+Duas consequências práticas: o `foto` do marcador é relativo à **pasta da cena**, não à raiz do site (com barra na frente o navegador procura na raiz e a foto some); e o `basePath` precisa ser **absoluto desde a raiz do site**, porque `assets3dBaseUrl`, o campo que resolveria um caminho relativo, é publicado pelo backend e tem zero leitores no frontend ([[config-runtime-urls-relativas]] descreve o contrato; [[resources-catalogo]] registra que o cliente não o consome).
 
 ## As opções de motor, e os três instrumentos que mentiram
 

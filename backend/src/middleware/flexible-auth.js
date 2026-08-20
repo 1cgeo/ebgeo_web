@@ -24,6 +24,7 @@ function mapDbUser(row) {
     role: row.role || 'user',
     organization_id: row.organization_id ?? null,
     org_role: row.org_role || 'viewer',
+    producer_org_id: row.producer_org_id ?? null,
   };
 }
 
@@ -36,6 +37,9 @@ function mapPayload(p) {
     role: p.role || 'user',
     organization_id: p.organization_id ?? null,
     org_role: p.org_role || 'viewer',
+    // Escopo de PRODUCAO. Ausente (token legado) = null. Mantido em sincronia com
+    // o mapeamento identico de middleware/auth.js.
+    producer_org_id: p.producer_org_id ?? null,
     // A public-link visitor token is scoped to ONE atlas by its `atlasId` claim.
     // Dropping it here is what let a visitor of atlas A read atlas B: the claim
     // existed and was honoured by the WS gateway, but never reached
@@ -93,7 +97,7 @@ export async function flexibleAuth(req, res, next) {
     // here — their token is atlas-scoped and short-lived by design.
     //
     // This renewal still does not consult `refresh_tokens` — it consults the SESSION
-    // CUT-OFF instead (`users.sessions_valid_from`, migration 008), which mass
+    // CUT-OFF instead (`users.sessions_valid_from`), which mass
     // revocation writes in the same statement that stamps the family. That closes what
     // made this the worst half of bugs-backend #35: until 2026-07-25 the only thing
     // that could stop the slide was `is_active` on the user or the org, so after
@@ -128,10 +132,19 @@ export async function flexibleAuth(req, res, next) {
       // and that half-fix left the exact hole the other half had closed. The renewal
       // re-signs `req.user`, whose org claims came from the OLD token, so while a
       // cookie client kept sliding an org demotion (editor -> viewer) NEVER propagated:
-      // not a 15-min window, an unbounded one. `org_role` is real authorization —
-      // sv360.routes.js requireUploadCapability and sv360.write.service.js decide write
-      // access by it — so "bounded by the token lifetime", the cost accepted for the
-      // strict path, was not what this path actually charged.
+      // not a 15-min window, an unbounded one.
+      //
+      // THE TWO SITES THIS PARAGRAPH USED TO CITE ARE GONE, and saying so is the point.
+      // It read "`org_role` is real authorization — sv360.routes.js
+      // requireUploadCapability and sv360.write.service.js decide write access by it".
+      // Neither decides by `org_role` any more: phase F6 replaced the self-declared
+      // posting with the GRANTED production scope (`producer_org_id`), which is the
+      // claim reconciled unconditionally a few lines below. So the reconciliation is
+      // kept for a NARROWER reason than the one written here: `org_role` still travels
+      // in the token and is still READ (display, org listings), and a claim that is
+      // re-signed forever without ever being re-read is a lie the cookie tells about
+      // the account. A justification that names dead call sites is worse than none: the
+      // next reader checks them, finds nothing, and concludes the whole block is dead.
       //
       // The reconciliation is conditional on the token ALREADY CARRYING the claim, and
       // that condition is the whole reason auth-gaps auth-05 still holds: a LEGACY token
@@ -145,6 +158,10 @@ export async function flexibleAuth(req, res, next) {
           req.user.org_role = live.orgRole;
           req.user.organization_id = live.organizationId;
         }
+        // Incondicional, como no `auth` estrito e pela mesma razao: sem isto o
+        // cookie re-emitido carregaria o escopo de produção antigo indefinidamente,
+        // que foi exatamente o defeito de `org_role` descrito acima.
+        req.user.producer_org_id = live.producerOrgId;
       }
       res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
     }

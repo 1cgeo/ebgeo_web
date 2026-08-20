@@ -9,12 +9,16 @@
 
 import fs from 'node:fs';
 import { startBackend } from './backend.js';
-import { APP_ORIGIN, BACKEND_PORT, STATE_FILE } from './constants.js';
+import { APP_ORIGIN, BACKEND_PORT, STATE_FILE, UI_E2E_DB_NAME } from './constants.js';
 
 export default async function globalSetup() {
     let state;
     try {
-        const { baseUrl, pid, dbName } = await startBackend({ corsOrigin: APP_ORIGIN, port: BACKEND_PORT });
+        const { baseUrl, pid, dbName } = await startBackend({
+            corsOrigin: APP_ORIGIN,
+            port: BACKEND_PORT,
+            dbName: UI_E2E_DB_NAME,
+        });
         state = { skip: false, baseUrl, pid, dbName };
         console.info(`[ui-e2e] backend up at ${baseUrl} (cors ${APP_ORIGIN})`);
     } catch (err) {

@@ -23,6 +23,23 @@
  * A aparência é aplicada AO VIVO enquanto se mexe (um exagero que só aparece depois de salvar é
  * impossível de ajustar) e revertida ao cancelar. O resto só existe depois do Salvar.
  *
+ * DUAS EXCEÇÕES QUE ESTE ARQUIVO CARREGA DE PROPÓSITO, e a segunda pessoa a mexer aqui vai
+ * querer "unificar por consistência" as duas. Não unifique:
+ *
+ * 1. **Duas fontes de dado.** A regra da casa é "UI de consumo lê `config`; UI de configuração
+ *    lê o baseline", e as seções de restrição a obedecem via `getDeployTilesets` /
+ *    `getDeployDataLayers` / `getDeployAnalysisLayers` — ler `config` faria um Gestor nunca
+ *    conseguir reabilitar o que ele mesmo restringiu. A seção de EMPRÉSTIMO **não pode** usar
+ *    essas funções: ela precisa listar o que o ATOR pode emprestar, que é
+ *    `apiClient.getVisibleResources()` — um conjunto MAIOR que o baseline deste atlas (traz o
+ *    privado que ele enxerga por papel ou concessão) e possivelmente diferente do de qualquer
+ *    outro Gestor do mesmo atlas.
+ * 2. **Dois momentos de gravação.** Tudo o mais é coletado e gravado no Salvar, num `PATCH`
+ *    só. O empréstimo tem rotas próprias (`POST`/`DELETE /atlas/:id/resources`) e vale
+ *    IMEDIATAMENTE, porque cada anexo é gateado individualmente no servidor (`manage` E ver o
+ *    recurso) e um lote juntaria numa resposta só uma escolha aceita e outra recusada. A tela
+ *    diz isso em voz alta, para que ninguém feche no Cancelar achando que desfez.
+ *
  * Exporta {@link showAtlasSettingsModal}.
  */
 
@@ -47,6 +64,9 @@ import { createCatalogFilters, updateFilterCounts } from '@catalog/components/ca
 import { createCatalogHeader } from '@catalog/components/catalog-header.js';
 import { createCatalogGrid } from '@catalog/components/catalog-grid.js';
 import { CATALOG_TYPE_CONFIG, CATALOG_ITEM_TYPES, CATALOG_MODAL_FILTERS, DEFAULT_THUMBNAILS } from '@catalog/catalog.constants.js';
+import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 /* Ícones estáticos (sem dado de usuário — seguro injetar). */
 const ICON_3D = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>';
@@ -66,6 +86,31 @@ const FEATURE_FIELDS = [
     { key: 'data_layers', label: 'Dados', icon: ICON_DATA, hint: 'Camadas de dados do catálogo' },
     { key: 'analysis_layers', label: 'Análise', icon: ICON_ANALYSIS, hint: 'Camadas de análise do catálogo' },
 ];
+
+const ICON_LEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>';
+
+/**
+ * Os cinco grupos do payload aditivo, com o tipo de domínio que viaja na URL das
+ * rotas de empréstimo e o rótulo que a tela mostra.
+ *
+ * A chave é a do PAYLOAD (`GET /resource-access/visible`) e o `tipo` é o do `CHECK`
+ * de `atlas_resources.resource_type`. São dois vocabulários e a tradução mora aqui,
+ * uma vez.
+ *
+ * `basemaps` entrou com a migração 021, que fez do basemap o quinto tipo de recurso.
+ * Deixá-lo de fora daqui manteria a metade que a 021 existe para fechar: o servidor
+ * aceitaria o empréstimo e nenhuma tela ofereceria o botão para fazê-lo.
+ */
+const GRUPOS_EMPRESTAVEIS = [
+    { chave: 'basemaps', tipo: 'basemap', rotulo: 'Camadas base' },
+    { chave: 'tilesets', tipo: 'tileset', rotulo: 'Modelos 3D' },
+    { chave: 'views360', tipo: 'sv360_project', rotulo: 'Imagens 360°' },
+    { chave: 'dataLayers', tipo: 'data_layer', rotulo: 'Dados' },
+    { chave: 'analysisLayers', tipo: 'analysis_layer', rotulo: 'Análise' },
+];
+
+/** Tipo de domínio -> rótulo, derivado da lista acima (uma definição só). */
+const ROTULO_POR_TIPO = Object.fromEntries(GRUPOS_EMPRESTAVEIS.map((g) => [g.tipo, g.rotulo]));
 
 /** As duas respostas da projeção. Globo é o padrão: um atlas sem escolha nasce redondo. */
 const PROJECTION_CHOICES = [
@@ -100,6 +145,14 @@ export class AtlasSettingsModal extends ModalBase {
         this._appearanceBaseline = null;
         this._busy = false;
         this._section = 'aparencia';
+        /** @type {Array<Object>} O que este atlas empresta hoje. */
+        this._lent = [];
+        /** @type {Object} O payload aditivo do ATOR: o que ele pode emprestar. */
+        this._lendable = {};
+        /** @type {boolean} A busca da seção de empréstimo falhou (rede/permissão). */
+        this._lendingFailed = false;
+        /** @type {boolean} Uma escrita de empréstimo por vez. */
+        this._lendingBusy = false;
     }
 
     /** @returns {HTMLElement} */
@@ -159,6 +212,7 @@ export class AtlasSettingsModal extends ModalBase {
             sections.push({ id: 'recursos', label: 'Recursos', icon: ICON_3D });
             sections.push({ id: 'basemaps', label: 'Mapas base', icon: ICON_BASEMAP });
             sections.push({ id: 'catalogo', label: 'Catálogo', icon: ICON_GRID });
+            sections.push({ id: 'emprestados', label: 'Empréstimos', icon: ICON_LEND });
         }
         return sections;
     }
@@ -187,6 +241,7 @@ export class AtlasSettingsModal extends ModalBase {
                     ${this._canRestrict ? this._featuresPane() : ''}
                     ${this._canRestrict ? this._basemapsPane() : ''}
                     ${this._canRestrict ? '<div class="atlas-config__pane atlas-config__pane--catalog" data-pane="catalogo" hidden></div>' : ''}
+                    ${this._canRestrict ? '<div class="atlas-config__pane" data-pane="emprestados" hidden></div>' : ''}
                 </div>
             </div>
             <div class="atlas-config__actions">
@@ -202,6 +257,7 @@ export class AtlasSettingsModal extends ModalBase {
         `;
 
         this._catalogReady = this._canRestrict ? this._initCatalogTab() : Promise.resolve();
+        if (this._canRestrict) this._loadLending();
         body.querySelectorAll('[data-section]').forEach((btn) => {
             addScopedDomListener(this, 'body', btn, 'click', () => this._switchSection(btn.dataset.section));
         });
@@ -383,10 +439,13 @@ export class AtlasSettingsModal extends ModalBase {
                 thumbnail: t.previewThumbnail || DEFAULT_THUMBNAILS[T.MODEL_3D], originalData: t });
         }
         // As vistas 360 vêm do cache de preflight do sv360 (módulo lazy) — nunca filtradas pelo overlay.
+        // O cache é chaveado por escopo de acesso (`resource-scope.js`), e esta tela abre DEPOIS de
+        // entrar num atlas, ou seja, quase sempre depois de uma troca de escopo: ler o miss como
+        // "não há 360" deixaria o Gestor sem nada para restringir. Miss busca.
         try {
-            const { getCachedProjects } = await import('@js/street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects } = await import('@js/street_view_tool/streetview-api.service.js');
             const serviceUrl = config.streetView360?.serviceUrl || '';
-            for (const p of (getCachedProjects() || [])) {
+            for (const p of (getCachedProjects() ?? await fetchProjects())) {
                 items.push({ id: `360-${p.id}`, type: T.PANORAMIC_360, name: p.name, description: p.description || null,
                     thumbnail: p.previewThumbnail ? `${serviceUrl}${p.previewThumbnail}` : DEFAULT_THUMBNAILS[T.PANORAMIC_360],
                     originalData: p });
@@ -557,6 +616,268 @@ export class AtlasSettingsModal extends ModalBase {
         }));
     }
 
+    // ===== EMPRÉSTIMOS =====
+
+    /**
+     * @private Busca as duas listas da seção de empréstimo e desenha.
+     *
+     * SÃO DUAS FONTES DIFERENTES, e é a armadilha declarada no `@fileoverview`:
+     *   - `listAtlasResources` é o que ESTE ATLAS empresta (gate `read`, então todo
+     *     participante vê o que recebeu);
+     *   - `getVisibleResources` é o que ESTE ATOR pode emprestar, um conjunto
+     *     pessoal que nem o co-Gestor ao lado tem igual.
+     *
+     * Nunca rejeita: numa falha as duas listas caem para vazio e a tela diz que não
+     * foi possível carregar, em vez de deixar o modal inteiro no estado de erro por
+     * causa de uma seção.
+     */
+    async _loadLending() {
+        try {
+            const [emprestados, visiveis] = await Promise.all([
+                apiClient.listAtlasResources(this._atlasId),
+                apiClient.getVisibleResources(this._atlasId),
+            ]);
+            this._lent = Array.isArray(emprestados) ? emprestados : [];
+            this._lendable = visiveis || {};
+            this._lendingFailed = false;
+        } catch {
+            this._lent = [];
+            this._lendable = {};
+            this._lendingFailed = true;
+        }
+        try {
+            this._renderLendingPane();
+        } catch {
+            // O desenho da seção nunca pode derrubar o modal: ela é chamada sem
+            // `await` a partir de `_renderBody`, então um throw aqui viraria uma
+            // rejeição não tratada com o resto da tela funcionando.
+        }
+    }
+
+    /**
+     * @private O nome de um recurso emprestado.
+     *
+     * Cai para o ID CRU quando o ator não enxerga o recurso, e essa é uma
+     * informação legítima, não uma falha de renderização: um co-Gestor pode ter
+     * anexado algo que este Gestor não pode abrir, e ele precisa poder RETIRAR o
+     * empréstimo mesmo assim (é a assimetria deliberada da rota de remoção, que não
+     * exige ver o recurso). Esconder a linha deixaria o empréstimo preso.
+     * @param {string} tipo @param {string} id
+     * @returns {string}
+     */
+    _lentName(tipo, id) {
+        const grupo = GRUPOS_EMPRESTAVEIS.find((g) => g.tipo === tipo);
+        const lista = grupo ? this._lendable?.[grupo.chave] : null;
+        const achado = Array.isArray(lista) ? lista.find((r) => String(r?.id) === String(id)) : null;
+        return achado?.name || String(id);
+    }
+
+    /** @private Desenha a seção inteira (lista + seletor), do estado já carregado. */
+    _renderLendingPane() {
+        const pane = this.getBody()?.querySelector('[data-pane="emprestados"]');
+        if (!pane) return;
+        clearScopedListeners(this, 'lending');
+        pane.replaceChildren();
+
+        const section = document.createElement('section');
+        section.className = 'atlas-config__section';
+        section.innerHTML = `
+            <div class="atlas-config__section-head">
+                <h3 class="atlas-config__section-title">Recursos emprestados por este atlas</h3>
+                <p class="atlas-config__section-desc">
+                    Recursos privados que <strong>qualquer pessoa que abrir este atlas</strong> passa a enxergar,
+                    inclusive quem entra por link público. Só é possível emprestar o que você mesmo enxerga.
+                </p>
+            </div>
+            <p class="atlas-config__note">
+                Estas alterações valem <strong>imediatamente</strong> — não dependem do botão Salvar.
+                E se você restringir uma categoria na aba Catálogo, inclua ali os recursos que este atlas
+                empresta: a restrição é aplicada por cima do empréstimo e, sem isso, eles somem.
+            </p>
+        `;
+
+        if (this._lendingFailed) {
+            const erro = document.createElement('p');
+            erro.className = 'sharing__state sharing__state--error';
+            erro.dataset.testid = 'atlas-lending-error';
+            erro.textContent = 'Não foi possível carregar os empréstimos deste atlas.';
+            section.appendChild(erro);
+            pane.appendChild(section);
+            return;
+        }
+
+        section.appendChild(this._lendingList());
+        section.appendChild(this._lendingPicker());
+        pane.appendChild(section);
+    }
+
+    /** @private A lista do que já é emprestado, cada linha com o botão de retirar. */
+    _lendingList() {
+        const lista = document.createElement('ul');
+        lista.className = 'atlas-config__list';
+        lista.dataset.testid = 'atlas-lending-list';
+
+        if (this._lent.length === 0) {
+            const vazio = document.createElement('li');
+            vazio.className = 'atlas-config__item atlas-config__item--empty';
+            vazio.dataset.testid = 'atlas-lending-empty';
+            vazio.textContent = 'Este atlas não empresta nenhum recurso.';
+            lista.appendChild(vazio);
+            return lista;
+        }
+
+        for (const r of this._lent) {
+            const li = document.createElement('li');
+            li.className = 'atlas-config__item';
+            li.dataset.testid = 'atlas-lending-item';
+
+            const icone = document.createElement('span');
+            icone.className = 'atlas-config__item-icon';
+            icone.innerHTML = ICON_LEND;
+            li.appendChild(icone);
+
+            const texto = document.createElement('span');
+            texto.className = 'atlas-config__item-text';
+            const nome = document.createElement('span');
+            nome.className = 'atlas-config__item-label';
+            nome.textContent = this._lentName(r.resource_type, r.resource_id);
+            const dica = document.createElement('span');
+            dica.className = 'atlas-config__item-hint';
+            const quem = r.added_by_username ? ` · anexado por ${r.added_by_username}` : '';
+            dica.textContent = `${ROTULO_POR_TIPO[r.resource_type] ?? r.resource_type}${quem}`;
+            texto.append(nome, dica);
+            li.appendChild(texto);
+
+            const remover = document.createElement('button');
+            remover.type = 'button';
+            remover.className = 'atlas-config__bulk-btn';
+            remover.dataset.testid = 'atlas-lending-remove';
+            remover.textContent = 'Retirar';
+            addScopedDomListener(this, 'lending', remover, 'click',
+                () => this._removeLending(r.resource_type, r.resource_id));
+            li.appendChild(remover);
+
+            lista.appendChild(li);
+        }
+        return lista;
+    }
+
+    /** @private O seletor do que ainda pode ser emprestado, agrupado por tipo. */
+    _lendingPicker() {
+        const wrap = document.createElement('div');
+        wrap.className = 'atlas-config__lend-picker';
+
+        const jaEmprestado = new Set(this._lent.map((r) => `${r.resource_type}:${r.resource_id}`));
+        const select = document.createElement('select');
+        select.className = 'sharing-member__permission';
+        select.dataset.testid = 'atlas-lending-select';
+        select.setAttribute('aria-label', 'Recurso privado a emprestar');
+
+        let disponiveis = 0;
+        for (const grupo of GRUPOS_EMPRESTAVEIS) {
+            const itens = (Array.isArray(this._lendable?.[grupo.chave]) ? this._lendable[grupo.chave] : [])
+                .filter((r) => r?.id != null && !jaEmprestado.has(`${grupo.tipo}:${r.id}`));
+            if (itens.length === 0) continue;
+            const og = document.createElement('optgroup');
+            og.label = grupo.rotulo;
+            for (const item of itens) {
+                const opt = document.createElement('option');
+                opt.value = `${grupo.tipo}:${item.id}`;
+                opt.textContent = item.name || String(item.id);
+                og.appendChild(opt);
+                disponiveis += 1;
+            }
+            select.appendChild(og);
+        }
+
+        const botao = document.createElement('button');
+        botao.type = 'button';
+        botao.className = 'prompt-modal-btn prompt-modal-btn-confirm';
+        botao.dataset.testid = 'atlas-lending-add';
+        botao.textContent = 'Emprestar';
+
+        if (disponiveis === 0) {
+            select.disabled = true;
+            botao.disabled = true;
+            const vazio = document.createElement('option');
+            // A frase distingue as duas causas: não ver nenhum privado, ou já ter
+            // emprestado todos os que vê. São estados diferentes com a mesma tela.
+            vazio.textContent = this._lent.length > 0
+                ? 'Todos os recursos privados que você vê já estão emprestados'
+                : 'Você não tem acesso a nenhum recurso privado';
+            select.appendChild(vazio);
+        } else {
+            addScopedDomListener(this, 'lending', botao, 'click', () => this._addLending(select.value));
+        }
+
+        wrap.append(select, botao);
+        return wrap;
+    }
+
+    /**
+     * @private Anexa um recurso ao atlas e redesenha.
+     * @param {string} valor - `tipo:id`, como o `<option>` o codifica.
+     */
+    async _addLending(valor) {
+        if (this._lendingBusy || !valor) return;
+        // Só o PRIMEIRO separador conta: o id de um projeto 360 é UUID, mas o de
+        // catálogo é slug textual e nada impede um slug com dois-pontos.
+        const corte = valor.indexOf(':');
+        if (corte < 1) return;
+        const tipo = valor.slice(0, corte);
+        const id = valor.slice(corte + 1);
+
+        this._lendingBusy = true;
+        try {
+            await apiClient.addAtlasResource(this._atlasId, { resourceType: tipo, resourceId: id });
+            showSuccess('Recurso emprestado por este atlas.');
+            await this._afterLendingChange();
+        } catch (error) {
+            showError(error?.message || 'Não foi possível emprestar este recurso.');
+        } finally {
+            this._lendingBusy = false;
+        }
+    }
+
+    /**
+     * @private Desfaz o empréstimo e redesenha.
+     * @param {string} tipo @param {string} id
+     */
+    async _removeLending(tipo, id) {
+        if (this._lendingBusy) return;
+        this._lendingBusy = true;
+        try {
+            await apiClient.removeAtlasResource(this._atlasId, tipo, id);
+            showSuccess('Empréstimo retirado.');
+            await this._afterLendingChange();
+        } catch (error) {
+            showError(error?.message || 'Não foi possível retirar o empréstimo.');
+        } finally {
+            this._lendingBusy = false;
+        }
+    }
+
+    /**
+     * @private Re-soma o payload aditivo e avisa a UI, depois de mudar o empréstimo.
+     *
+     * O servidor também transmite `atlas_resources_updated` no socket, e quem recebe
+     * faz exatamente isto. Fazer aqui NÃO é redundância inútil: o socket é uma
+     * entrega provável e esta é uma ordem determinística, e as duas são idempotentes
+     * (a re-soma substitui, nunca acumula). Sem ela, o catálogo de quem acabou de
+     * emprestar dependeria de um frame voltar.
+     */
+    async _afterLendingChange() {
+        await this._loadLending();
+        try {
+            await refreshVisibleResources(this._atlasId);
+            // O MESMO evento do overlay, e não um novo, porque os assinantes (catálogo,
+            // seletor de base, barra inferior) ignoram o payload e apenas releem o `config`.
+            getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_resources' });
+        } catch {
+            // Sem barramento (headless) ou sem rede: a lista da tela já está correta.
+        }
+    }
+
     /**
      * @private Cancelar: desfaz o que foi aplicado ao vivo.
      *
@@ -634,6 +955,10 @@ export class AtlasSettingsModal extends ModalBase {
     /** Fecha o modal, liberando os listeners com escopo antes. */
     hide() {
         clearScopedListeners(this, 'body');
+        // Escopo PRÓPRIO, e não o 'body': a seção de empréstimo se redesenha a cada
+        // anexo/retirada, e cada redesenho precisa soltar só os SEUS listeners. Sob
+        // o escopo 'body' ela levaria junto os do formulário inteiro.
+        clearScopedListeners(this, 'lending');
         super.hide();
     }
 }

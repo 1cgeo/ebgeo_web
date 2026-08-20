@@ -14,9 +14,9 @@
  *   - update  -> overwrite the row `data` (reads op.changes ?? op.data; the factory
  *     packs everything into `data`).
  *   - delete  -> soft-delete (`deleted_at`), so the row leaves the snapshot.
- *   - legacy whole-array form: `data.catalog_layers` is an array -> written to the
- *     `maps.catalog_layers` column (does NOT surface in `map.catalogLayers`, which is
- *     fed exclusively by the per-layer table).
+ *   - legacy whole-array form: `data.catalog_layers` is an array -> materialised as one row
+ *     per item in the SAME per-layer table (it used to write the `maps.catalog_layers` column,
+ *     which migration 022 dropped), so it now surfaces in `map.catalogLayers`.
  *   - snapshot shape: `map.catalogLayers = [{ id, ...data, sync }]`.
  *
  * Each test creates its OWN user + atlas + map for isolation.
@@ -217,21 +217,22 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         expect(matches[0].name).toBe('Original');
     });
 
-    test('legacy whole-array form writes maps.catalog_layers but does NOT surface in per-layer catalogLayers', async ({
+    test('legacy whole-array form is materialised as per-layer rows, verbatim', async ({
         page,
     }) => {
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catlegacy');
 
         // no-UI: a LEGACY-FORMAT op-contract test. The whole-array `data.catalog_layers`
-        // envelope (entityId == MAP id) is an old wire shape the current app never emits;
-        // it asserts the backend routes it to the maps.catalog_layers column WITHOUT
-        // leaking into the per-layer catalogLayers list. No UI gesture produces this legacy
-        // envelope, so it is driven directly through the real api-client.
+        // envelope (entityId == MAP id) is an old wire shape the current app never emits, so it
+        // is driven directly through the real api-client.
         //
-        // Legacy op: the entityId is the MAP id and the payload is a whole array under
-        // `data.catalog_layers`. The backend routes this to the maps.catalog_layers
-        // column, which is intentionally separate from the per-layer catalogLayers list.
+        // It used to land in the `maps.catalog_layers` column, deliberately separate from the
+        // per-layer list. Migration 022 dropped that column, and the shim now writes one row per
+        // item into the same dedicated table — so the assertion inverted: the entry must SURFACE.
+        // It is a hillshade entry, which claims no catalog resource, so it also has to arrive
+        // verbatim, `name` included: that is the half that discriminates against a prune that
+        // reached every entry.
         const arrayId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -244,10 +245,10 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         }, ids);
 
         const layers = await readCatalogLayers(page, ids);
-        // Edge assertion: the legacy array did NOT create a per-layer row, so the
-        // per-layer catalogLayers list stays empty (no leakage between the two stores).
-        expect(layers.some((l) => l.id === arrayId)).toBe(false);
-        expect(layers).toHaveLength(0);
+        const entry = layers.find((l) => l.id === arrayId);
+        expect(entry).toBeDefined();
+        expect(entry.name).toBe('LegacyArrayLayer');
+        expect(entry.type).toBe('hillshade');
     });
 
     test('cross-atlas IDOR guard: a catalogLayer pinned to another atlas’ map is rejected silently', async ({

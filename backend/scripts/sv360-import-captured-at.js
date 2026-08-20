@@ -6,9 +6,9 @@
 //
 // WHERE IT LANDS, and why the column is not called what the origin calls it:
 // the origin writes `photos.captured_at`. That column does NOT exist here, by
-// decision recorded at the end of migration 013_sv360_capture_runs.sql —
-// sv360.photos.capture_date has existed since migration 005 and is the SAME
-// measurement, the instant this photo was taken. One measurement, one column,
+// decision recorded at the end of migration 007_sv360.sql —
+// `sv360.photos.capture_date` is the column that holds the SAME measurement, the
+// instant this photo was taken. One measurement, one column,
 // and the name translation lives in the ETL. This file is that ETL.
 //
 // WHAT THE TIME IS FOR. It does NOT find the run boundary — that comes from the
@@ -31,7 +31,7 @@
 //   2. `--index-db <path>`        the legacy SQLite index.db, column
 //      photos.captured_at. It is a CARRY, not a primary source: the origin
 //      already converted it from the same geojson/csv, so it arrives as local
-//      wall clock and must NOT be converted again. It is what migration 013
+//      wall clock and must NOT be converted again. It is what `007_sv360.sql`
 //      names as the mapping this port has to perform, and it is the only source
 //      that travels with the corpus.
 //   3. `--from-name`             deduced from the PIC_ filename plus the fixed
@@ -62,7 +62,7 @@ import { epochToInstant, localToInstant, readEpoch } from './sv360-survey-clock.
 // SQL
 // ---------------------------------------------------------------------------
 
-// The slug is unique per ORGANIZATION, not globally (005_sv360.sql), so --slug
+// The slug is unique per ORGANIZATION, not globally (007_sv360.sql), so --slug
 // covers every organization that owns a project by that name.
 // $1 = slug filter (text, NULL for every project)
 const SELECT_PROJECTS = `

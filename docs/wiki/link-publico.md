@@ -6,7 +6,7 @@ Mecanismo de acesso anônimo em que um link opaco gerado por quem tem `manage` p
 
 O link é um token opaco aleatório (`generatePublicLink`, `backend/src/modules/atlas/atlas.service.js`), não um JWT: é só chave de busca. A autoridade vem do JWT emitido na troca **somado** à releitura ao vivo de `atlas.is_public`, tanto no REST (`backend/src/middleware/permissions.js`) quanto no upgrade do socket (`backend/src/modules/collab/collab.gateway.js`). Nada de permissão viaja no link.
 
-**Ligar/desligar rotaciona o link.** `enablePublicSharing` sempre gera um link novo e sobrescreve o anterior. Um toggle off/on, ou dois cliques em "gerar", **mata todos os links já distribuídos**. Não existe rotação explícita nem múltiplos links por [[atlas-modelo-de-dados]]: foi decidido assim para manter uma coluna única (`public_link VARCHAR(100) UNIQUE`, `backend/src/database/migrations/002_atlas.sql`) em vez de uma tabela de links, ao custo de não poder revogar um destinatário sem revogar todos.
+**Ligar/desligar rotaciona o link.** `enablePublicSharing` sempre gera um link novo e sobrescreve o anterior. Um toggle off/on, ou dois cliques em "gerar", **mata todos os links já distribuídos**. Não existe rotação explícita nem múltiplos links por [[atlas-modelo-de-dados]]: foi decidido assim para manter uma coluna única (`public_link VARCHAR(100) UNIQUE`, `backend/src/database/migrations/003_atlas.sql`) em vez de uma tabela de links, ao custo de não poder revogar um destinatário sem revogar todos.
 
 Link errado, atlas na lixeira e link desativado caem no mesmo 404, porque o filtro está dentro do `WHERE` da busca (`backend/src/modules/atlas/atlas.queries.js`). Indistinguível de propósito, contra enumeração (ver [[erros-api]] e [[hardening-borda-api]]).
 

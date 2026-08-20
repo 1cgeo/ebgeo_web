@@ -71,7 +71,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
 });
 
 export const reactivateUser = asyncHandler(async (req, res) => {
-  const user = await usersService.reactivateUser(req.params.userId);
+  const user = await usersService.reactivateUser(req.params.userId, req.user.id, req);
   res.json({ data: user });
 });
 

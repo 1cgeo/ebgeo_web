@@ -1,10 +1,44 @@
 // Path: src/modules/auth/auth.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { createAuditBestEffort } from '../../utils/audit.js';
 import * as authService from './auth.service.js';
 
+// LOGIN E LOGOUT SÃO AUDITADOS EM BEST-EFFORT, e essa é a única decisão desta fase
+// que troca garantia por disponibilidade. As três razões, em ordem de peso:
+//
+// 1. ORÁCULO. A trilha só é escrita DEPOIS de a credencial ter sido aceita. Se um
+//    erro dela virasse 500, uma senha CERTA responderia 500 e uma senha ERRADA
+//    responderia 401 sempre que o banco de auditoria tossisse — o oráculo de
+//    usuário/senha que `DUMMY_HASH` existe para matar, remontado a partir da tabela
+//    de log. Nenhuma linha de trilha vale isso.
+// 2. DISPONIBILIDADE. Auditoria que bloqueia é auditoria que pode negar acesso a uma
+//    credencial válida. Login é a porta do produto; a trilha é observabilidade.
+// 3. STATUS. `/auth/logout` responde 204 para TODOS os desfechos de propósito (ver o
+//    comentário abaixo); deixar a trilha decidir o status devolveria exatamente a
+//    distinção que aquele desenho passa trinta linhas removendo.
+//
+// A contrapartida é dita em voz alta: uma falha de escrita da trilha some do
+// caminho da requisição e sobrevive só como `logger.error`. Toda a auditoria
+// TRANSACIONAL (usuários, atlas, catálogo, concessões) continua bloqueante — o
+// best-effort é a exceção destes dois, não a regra da casa.
+//
+// LOGIN FALHO NÃO É AUDITÁVEL AQUI, e por impossibilidade estrutural, não por
+// escolha: `audit_trail.actor_id` é NOT NULL e uma tentativa recusada não tem ator
+// identificado (o `username` digitado não é identidade). Ele continua em
+// `logger.warn` (`auth.service.js`).
 export const login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   const result = await authService.login(username, password);
+  // Auto-alvo: quem entra é o ator E o alvo. `details` carrega só o `username`, que
+  // o próprio ator digitou — nada de token, nada de hash.
+  await createAuditBestEffort(req, {
+    action: 'LOGIN',
+    actorId: result.user.id,
+    targetType: 'USER',
+    targetId: result.user.id,
+    targetName: result.user.nome,
+    details: { username: result.user.username },
+  });
   res.json({ data: result });
 });
 
@@ -35,7 +69,19 @@ export const refresh = asyncHandler(async (req, res) => {
 // revoked, so a future caller that needs to tell the cases apart can.
 export const logout = asyncHandler(async (req, res) => {
   const { refreshToken } = req.body;
-  await authService.logout(refreshToken, req.user.id);
+  const revoked = await authService.logout(refreshToken, req.user.id);
+  // `revoked` NÃO reabre o oráculo do 204: ele vai para a trilha, que só um
+  // administrador lê, e a resposta continua idêntica nos três desfechos. É o dado
+  // que distingue um encerramento de sessão real de um logout que não achou token
+  // — sem ele, "esta conta encerrou a sessão" e "esta conta mandou um token que não
+  // era dela" viram a mesma linha.
+  await createAuditBestEffort(req, {
+    action: 'LOGOUT',
+    actorId: req.user.id,
+    targetType: 'USER',
+    targetId: req.user.id,
+    details: { revoked },
+  });
   res.status(204).send();
 });
 
@@ -57,7 +103,7 @@ function requestOrigin(req) {
  * knows (it typed it) or learns by logging in.
  */
 export const register = asyncHandler(async (req, res) => {
-  await authService.register(req.body, requestOrigin(req));
+  await authService.register(req.body, requestOrigin(req), req);
   res.status(201).json({ data: { success: true } });
 });
 

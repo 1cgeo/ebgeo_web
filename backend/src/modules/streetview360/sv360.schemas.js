@@ -8,6 +8,24 @@ import Joi from 'joi';
 // keeps any extra query params from being rejected (forward-compat).
 export const imageQuerySchema = Joi.object({
   quality: Joi.string().valid('full', 'preview').default('full'),
+  // O atlas em foco. Mesmo campo, mesma regra e mesmo gate do `atlasScopeQuerySchema`;
+  // ele se repete porque esta rota já tinha schema de query próprio.
+  atlasId: Joi.string().trim().guid(),
+}).unknown(true);
+
+// ?atlasId= — o ATLAS EM FOCO, para o braço de EMPRÉSTIMO do predicado de leitura.
+//
+// OPCIONAL de propósito: "sem atlas em foco" é o estado normal de quem abre o 360
+// direto pela URL, e cobrar o parâmetro ali fecharia o caminho anônimo. Quando ele
+// VEM, `requireAtlasScopeWhenPresent` exige que o chamador alcance aquele atlas —
+// declará-lo aqui é o que garante que um valor malformado morra em 422 na borda, e
+// não num cast `::uuid` lá dentro (22P02, que volta como um 400 sem relação aparente
+// com a causa).
+//
+// `.unknown(true)` como as irmãs: `stripUnknown` está ligado no `validate`, e sem
+// isso todo parâmetro que o cliente já mande seria descartado em silêncio.
+export const atlasScopeQuerySchema = Joi.object({
+  atlasId: Joi.string().trim().guid(),
 }).unknown(true);
 
 // :slug path param — project slug (lowercase kebab token).
@@ -107,6 +125,9 @@ export const tilesGeojsonQuerySchema = Joi.object({
       return parts;
     }, 'bbox 4 numbers'),
   limit: Joi.number().integer().min(1).max(TILES_GEOJSON_MAX_FEATURES).default(TILES_GEOJSON_MAX_FEATURES),
+  // O atlas em foco, igual ao `atlasScopeQuerySchema` (esta rota já tinha schema
+  // de query próprio, então o campo entra aqui em vez de um segundo `validate`).
+  atlasId: Joi.string().trim().guid(),
 }).unknown(true);
 
 // Reserved for stage-2 /nearby (lat/lon/radius numerics). Defined now so the
@@ -127,6 +148,9 @@ export const nearbyQuerySchema = Joi.object({
 // operator cannot un-hide what the API refuses to show.
 export const photoQuerySchema = Joi.object({
   include_hidden: Joi.boolean().default(false),
+  // O atlas em foco. Mesmo campo, mesma regra e mesmo gate do `atlasScopeQuerySchema`;
+  // ele se repete porque esta rota já tinha schema de query próprio.
+  atlasId: Joi.string().trim().guid(),
 }).unknown(true);
 
 // ?lon=&lat= on GET /photos/nearest — the point the user clicked.
@@ -137,6 +161,9 @@ export const photoQuerySchema = Joi.object({
 export const nearestQuerySchema = Joi.object({
   lon: Joi.number().min(-180).max(180).required(),
   lat: Joi.number().min(-90).max(90).required(),
+  // O atlas em foco. Mesmo campo, mesma regra e mesmo gate do `atlasScopeQuerySchema`;
+  // ele se repete porque esta rota já tinha schema de query próprio.
+  atlasId: Joi.string().trim().guid(),
 }).unknown(true);
 
 // ?radius=&floor= on GET /photos/:uuid/nearby.
@@ -154,4 +181,7 @@ export const nearestQuerySchema = Joi.object({
 export const nearbyPhotosQuerySchema = Joi.object({
   radius: Joi.number(),
   floor: Joi.alternatives().try(Joi.string().valid('all'), Joi.number().integer()),
+  // O atlas em foco. Mesmo campo, mesma regra e mesmo gate do `atlasScopeQuerySchema`;
+  // ele se repete porque esta rota já tinha schema de query próprio.
+  atlasId: Joi.string().trim().guid(),
 }).unknown(true);

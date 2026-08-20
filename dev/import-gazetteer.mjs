@@ -3,7 +3,14 @@
 
 /**
  * Absorve o gazetteer do banco ANTIGO (o `servico_nomes_geograficos`, schema `ng`)
- * para o schema `ng` deste backend: `nomes_geograficos`, `edificacoes` e `catalogo_3d`.
+ * para este backend: `ng.nomes_geograficos` e o ACERVO 3D.
+ *
+ * O ACERVO 3D MUDOU DE DESTINO. A origem guarda o catálogo de modelos em
+ * `ng.catalogo_3d`, e essa tabela NÃO EXISTE mais aqui: era um segundo catálogo de
+ * modelo 3D, sem consumidor no frontend e com um eixo de permissão próprio que
+ * nenhuma rota escrevia. O catálogo que sobrevive é `public.tilesets`, o que
+ * `GET /api/config` serve e o visualizador resolve. Este script converte a FORMA da
+ * linha na passagem (ver `transformarCatalogo3d`); o acervo continua carregável.
  *
  * POR QUE NÃO É UM `pg_restore` DO DUMP: o dump do serviço antigo carrega o DDL dele,
  * que NÃO é o desta migração 004. Restaurá-lo por cima recriaria as tabelas sem
@@ -22,7 +29,10 @@
  *   - `id`: a origem usa `uuid_generate_v4()` e o destino `gen_random_uuid()`. Nada
  *     referencia esses ids (o gazetteer não tem FK de entrada), então deixamos o
  *     destino gerar — evita depender da extensão `uuid-ossp` no banco novo.
- *   - `search_vector` do catálogo 3D: idem, é trigger no destino.
+ *   - `search_vector` do catálogo 3D: a coluna não existe no destino. A busca de
+ *     `tilesets` é por nome/id na aplicação, não full-text no banco.
+ *   - `type` como coluna: `tilesets` não tem uma. Ele vira o DISCRIMINADOR dentro de
+ *     `config` (ver `transformarCatalogo3d`).
  *
  * MUTA O BANCO: por padrão roda em DRY-RUN e só imprime o que faria. Escrever exige
  * `--apply` explícito.
@@ -39,7 +49,9 @@
  *                          carga é ADITIVA e uma segunda execução duplica tudo.
  *   --access-level=<v>     `public` (default) ou `private`. A origem não tem a coluna;
  *                          é uma decisão de visibilidade que o destino exige.
- *   --skip=<t1,t2>         Tabelas a pular: nomes, edificacoes, catalogo3d.
+ *   --skip=<t1,t2>         Tabelas a pular: nomes, catalogo3d.
+ *                          (`catalogo3d` continua sendo o nome da ORIGEM; o destino
+ *                          dele é `public.tilesets`.)
  *   --batch=<n>            Linhas por INSERT (default 2000).
  *
  * `DATABASE_URL` (o DESTINO) sai do ambiente; se ausente, é lido de `backend/.env`.
@@ -103,7 +115,7 @@ const SKIP = new Set(
 
 if (!SOURCE_URL) {
   console.error(`Uso: node dev/import-gazetteer.mjs --source=<postgres-url> [--apply] [--dedup]
-                 [--truncate] [--access-level=public|private] [--skip=nomes,edificacoes,catalogo3d] [--batch=2000]`);
+                 [--truncate] [--access-level=public|private] [--skip=nomes,catalogo3d] [--batch=2000]`);
   process.exit(1);
 }
 if (!['public', 'private'].includes(ACCESS_LEVEL)) {
@@ -141,8 +153,14 @@ function loadBackendEnv() {
  * `colunas` são as colunas de DADO, na ordem em que viajam (sem geom, sem access_level).
  * `srid` é o do destino e é conferido contra a origem antes de qualquer escrita: nomes
  * é 4674 (SIRGAS 2000) e edificações é 4326, divergência deliberada da migração 004.
+ * `colunasDestino` e `transformar` so existem para a tabela cuja FORMA muda na
+ * passagem (o acervo 3D): `transformar` recebe as linhas da origem e devolve linhas
+ * ja no shape do destino, e `colunasDestino` sao as colunas que essas linhas trazem.
+ * `onConflict` e o sufixo do INSERT, para o destino que ja pode ter linhas curadas.
  * @typedef {{ chave: string, origem: string, destino: string, colunas: string[],
- *             srid: number|null, tipoGeom: string|null, ordem: string }} Tabela
+ *             srid: number|null, tipoGeom: string|null, ordem: string,
+ *             colunasDestino?: string[], transformar?: Function, onConflict?: string,
+ *             loteProibido?: boolean }} Tabela
  */
 
 /** @type {Tabela[]} */
@@ -157,32 +175,145 @@ const TABELAS = [
     ordem: 'nome, tipo, municipio, estado, geom',
   },
   {
-    chave: 'edificacoes',
-    origem: 'ng.edificacoes',
-    destino: 'ng.edificacoes',
-    colunas: ['nome', 'municipio', 'estado', 'tipo', 'altitude_base', 'altitude_topo'],
-    srid: 4326,
-    tipoGeom: 'Polygon',
-    ordem: 'nome, tipo, municipio, estado, geom',
-  },
-  {
     chave: 'catalogo3d',
     origem: 'ng.catalogo_3d',
-    destino: 'ng.catalogo_3d',
-    // Sem geometria: o catálogo 3D guarda lon/lat como numeric solto.
+    // O DESTINO E `public.tilesets`, e nao uma tabela homonima no `ng`: aquele
+    // catalogo saiu do sistema (era o segundo, sem consumidor). Ver o cabecalho.
+    destino: 'public.tilesets',
+    // `tilesets` TEM `access_level` e o gazetteer nao tem mais (o eixo de acesso do
+    // `ng` saiu em 2026-08-19, junto com as zonas: busca de toponimo nao tem
+    // restricao). Por isso a coluna e propriedade da TABELA, nao do processo.
+    temAccessLevel: true,
+    // Sem geometria: o catalogo 3D da origem guarda lon/lat como numeric solto.
     colunas: [
       'name', 'description', 'municipio', 'estado', 'thumbnail', 'palavras_chave', 'url',
       'lon', 'lat', 'height', 'heading', 'pitch', 'roll', 'type', 'heightoffset',
       'maximumscreenspaceerror', 'data_criacao', 'style',
     ],
+    colunasDestino: ['id', 'name', 'description', 'config'],
+    transformar: transformarCatalogo3d,
+    // `tilesets` e catalogo CURADO por administrador, nao alvo de ETL exclusivo:
+    // um id que ja existe e do curador e vence. Ver `transformarCatalogo3d`.
+    onConflict: 'ON CONFLICT (id) DO NOTHING',
+    // `config` e jsonb e viaja como texto; o caminho em lote castaria o array
+    // inteiro e e mais facil de errar do que uma linha por vez num catalogo desta
+    // ordem de grandeza (centenas de modelos, nao dezenas de milhares de nomes).
+    loteProibido: true,
     srid: null,
     tipoGeom: null,
     ordem: 'name, url',
   },
 ];
 
-/** O destino restringe `type` por CHECK; a origem é varchar livre. */
+/**
+ * O vocabulario de `type` da ORIGEM. `tilesets` nao tem coluna `type` nem CHECK, mas
+ * a linha com tipo fora deste conjunto continua sendo RECUSADA: o tipo e o que decide
+ * qual carregador o visualizador usa, e um valor que este script nao sabe traduzir
+ * viraria um item de catalogo que abre errado. Recusar e contado e nomeado na saida.
+ */
 const TIPOS_3D_VALIDOS = new Set(['Tiles 3D', 'Modelos 3D', 'Nuvem de Pontos']);
+
+// ---------------------------------------------------------------------------
+// A conversao de forma: ng.catalogo_3d (origem) -> public.tilesets (destino)
+// ---------------------------------------------------------------------------
+
+/**
+ * `tilesets.id` e VARCHAR(100) PRIMARY KEY e NAO tem default: e um slug, e a origem
+ * nao tem um. Este e o gerador -- decomposicao NFD para tirar acento, minusculas, e
+ * tudo que nao e alfanumerico vira hifen.
+ * @param {string} nome
+ * @returns {string}
+ */
+function slugDeNome(nome) {
+  const base = String(nome ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90);
+  return base || 'modelo';
+}
+
+/**
+ * Converte a linha do catalogo da origem na linha de `tilesets`.
+ *
+ * O MAPEAMENTO, e onde cada campo cai:
+ *   name                      -> coluna `name`
+ *   description               -> coluna `description` E `config.description`
+ *   thumbnail, url, style     -> dentro de `config`
+ *   heightoffset, maximumscreenspaceerror -> `config.heightOffset` / `...Error`
+ *   lon, lat, height          -> `config.locate`, que e a forma que o catalogo ja usa
+ *   heading, pitch, roll      -> `config.orientation`
+ *   municipio + estado        -> `config.local`
+ *   palavras_chave (text[])   -> `config.keywords`
+ *   data_criacao              -> `config.data_captura`, em ISO (YYYY-MM-DD). O campo e
+ *                                texto livre e o cliente le os dois formatos (parseCatalogDate
+ *                                aceita DD/MM/YYYY e ISO), entao ISO aqui nao quebra ordenacao.
+ *
+ * O DISCRIMINADOR DE TIPO. `tilesets` distingue modelo de tileset por
+ * `config.type === 'glb'`: presente = modelo isolado, ausente = 3D Tiles.
+ *   'Modelos 3D'      -> config.type = 'glb'
+ *   'Tiles 3D'        -> sem `type` (tileset)
+ *   'Nuvem de Pontos' -> sem `type` (tileset)
+ *
+ * A NUVEM DE PONTOS FICA SEM ROTULO PROPRIO, e isto e um buraco DECLARADO, nao um
+ * descuido: `.pnts` e um formato DE 3D Tiles, entao o carregador de tileset e o certo
+ * para ela e nada quebra; o que se perde e a capacidade de dizer na tela que aquele
+ * item e uma nuvem, e de filtrar por isso. Declarar a taxonomia de tipo do catalogo e
+ * trabalho de outra fase, e inventa-la aqui criaria um valor que nenhum leitor conhece.
+ *
+ * @param {object[]} linhas linhas da origem
+ * @param {Set<string>} idsExistentes ids que o destino ja tem, para nao colidir
+ * @returns {object[]} linhas no shape de `tilesets`
+ */
+function transformarCatalogo3d(linhas, idsExistentes) {
+  const usados = new Set(idsExistentes);
+  return linhas.map((l) => {
+    let id = slugDeNome(l.name);
+    if (usados.has(id)) {
+      let n = 2;
+      while (usados.has(`${id}-${n}`)) n += 1;
+      id = `${id}-${n}`;
+    }
+    usados.add(id);
+
+    const local = [l.municipio, l.estado].filter(Boolean).join(', ') || null;
+    const config = {
+      url: l.url ?? null,
+      description: l.description ?? null,
+      thumbnail: l.thumbnail ?? null,
+      local,
+      keywords: Array.isArray(l.palavras_chave) && l.palavras_chave.length ? l.palavras_chave : null,
+      data_captura:
+        l.data_criacao instanceof Date
+          ? l.data_criacao.toISOString().slice(0, 10)
+          : (l.data_criacao ?? null),
+      heightOffset: l.heightoffset ?? null,
+      maximumScreenSpaceError: l.maximumscreenspaceerror ?? null,
+      locate:
+        l.lon != null && l.lat != null
+          ? { lon: Number(l.lon), lat: Number(l.lat), height: l.height == null ? null : Number(l.height) }
+          : null,
+      orientation:
+        l.heading != null || l.pitch != null || l.roll != null
+          ? {
+              heading: l.heading == null ? null : Number(l.heading),
+              pitch: l.pitch == null ? null : Number(l.pitch),
+              roll: l.roll == null ? null : Number(l.roll),
+            }
+          : null,
+      style: l.style ?? null,
+    };
+    // 'Modelos 3D' e o unico que carrega discriminador; os outros dois sao tileset.
+    if (l.type === 'Modelos 3D') config.type = 'glb';
+
+    // Chave nula nao carrega informacao e polui o documento que o /config serve.
+    for (const [k, v] of Object.entries(config)) if (v === null) delete config[k];
+
+    return { id, name: l.name, description: l.description ?? null, config: JSON.stringify(config) };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Leitura da origem
@@ -245,14 +376,20 @@ function insertEmLote(tabela, cols, tiposPg, linhas) {
     destinoCols += ', geom';
   }
 
-  params.push(ACCESS_LEVEL);
-  const accessParam = `$${params.length}`;
+  let colsFinais = destinoCols;
+  let projFinal = projecao;
+  if (tabela.temAccessLevel) {
+    params.push(ACCESS_LEVEL);
+    colsFinais += ', access_level';
+    projFinal += `, $${params.length}`;
+  }
 
   const unnestCols = tabela.tipoGeom ? `${alias}, geom` : alias;
   return {
-    sql: `INSERT INTO ${tabela.destino} (${destinoCols}, access_level)
-          SELECT ${projecao}, ${accessParam}
-            FROM unnest(${unnestArgs.join(', ')}) AS u(${unnestCols})`,
+    sql: `INSERT INTO ${tabela.destino} (${colsFinais})
+          SELECT ${projFinal}
+            FROM unnest(${unnestArgs.join(', ')}) AS u(${unnestCols})
+          ${tabela.onConflict ?? ''}`,
     params,
   };
 }
@@ -268,17 +405,22 @@ function insertLinhaALinha(tabela, cols, linha) {
     placeholders.push(`ST_GeomFromEWKB($${params.length})::geometry(${tabela.tipoGeom},${tabela.srid})`);
     destinoCols += ', geom';
   }
-  params.push(ACCESS_LEVEL);
-  placeholders.push(`$${params.length}`);
+  if (tabela.temAccessLevel) {
+    params.push(ACCESS_LEVEL);
+    placeholders.push(`$${params.length}`);
+    destinoCols += ', access_level';
+  }
 
   return {
-    sql: `INSERT INTO ${tabela.destino} (${destinoCols}, access_level) VALUES (${placeholders.join(', ')})`,
+    sql: `INSERT INTO ${tabela.destino} (${destinoCols}) `
+       + `VALUES (${placeholders.join(', ')}) ${tabela.onConflict ?? ''}`,
     params,
   };
 }
 
 /** O caminho em lote exige colunas escalares. Ver `insertEmLote`. */
-function usaLote(cols, tiposPg) {
+function usaLote(tabela, cols, tiposPg) {
+  if (tabela.loteProibido) return false;
   return cols.every((c) => !tiposPg[c].endsWith('[]'));
 }
 
@@ -326,12 +468,15 @@ async function main() {
   try {
     // Guarda: o destino tem MESMO o schema da migração 004? Sem isto, um destino
     // errado (ou não-migrado) só falharia lá na frente, com metade da carga feita.
-    const temAccessLevel = await destino.oneOrNone(
-      `SELECT 1 FROM information_schema.columns
-        WHERE table_schema='ng' AND table_name='nomes_geograficos' AND column_name='access_level'`
+    // A guarda mirava a coluna access_level do gazetteer, que saiu em 2026-08-19
+    // junto com o eixo de acesso do ng. Mira agora a TABELA que ficou: um destino
+    // nao-migrado continua falhando ANTES de escrever metade da carga.
+    const temDestino = await destino.oneOrNone(
+      `SELECT 1 FROM information_schema.tables
+        WHERE table_schema='ng' AND table_name='nomes_geograficos'`
     );
-    if (!temAccessLevel) {
-      throw new Error('destino sem ng.nomes_geograficos.access_level — rode `npm run db:migrate` antes.');
+    if (!temDestino) {
+      throw new Error('destino sem ng.nomes_geograficos — rode `npm run db:migrate` antes.');
     }
 
     const planejadas = TABELAS.filter((t) => !SKIP.has(t.chave));
@@ -363,8 +508,9 @@ async function main() {
       const ignoradas = tabela.colunas.filter((c) => !presentesOrigem.has(c));
       let linhas = await origem.any(sql);
 
-      // O CHECK de `type` do destino é fechado; linha inválida derrubaria o lote
-      // inteiro, então some aqui, contada e nomeada.
+      // Tipo fora do vocabulario conhecido some aqui, contado e nomeado: ele decide
+      // qual carregador o visualizador usa, e traduzir no chute produz item que abre
+      // errado. Ver TIPOS_3D_VALIDOS.
       let recusadas = 0;
       if (tabela.chave === 'catalogo3d') {
         const antes = linhas.length;
@@ -379,29 +525,49 @@ async function main() {
         (await destino.one(`SELECT count(*)::int AS n FROM ${tabela.destino}`)).n
       );
 
+      // A FORMA muda aqui, e so para a tabela que declara `transformar`. Ela recebe
+      // os ids que o destino ja tem para nao inventar colisao: `tilesets.id` e um
+      // slug gerado a partir do nome, e nomes se repetem.
+      let colsDestino = cols;
+      if (tabela.transformar) {
+        const existentes = new Set(
+          (await destino.any(`SELECT id FROM ${tabela.destino}`)).map((r) => r.id)
+        );
+        linhas = tabela.transformar(linhas, existentes);
+        colsDestino = tabela.colunasDestino;
+      }
+
       console.log(`- ${tabela.chave}: origem ${totalOrigem} → a inserir ${linhas.length}` +
                   `${DEDUP ? ` (dedup descartou ${totalOrigem - linhas.length - recusadas})` : ''}` +
                   ` | destino tem ${jaNoDestino}`);
       if (ignoradas.length) console.log(`    colunas ausentes na origem: ${ignoradas.join(', ')}`);
       if (recusadas) console.log(`    ${recusadas} recusadas pelo CHECK de type (fora de ${[...TIPOS_3D_VALIDOS].join(' / ')})`);
-      if (jaNoDestino > 0 && !TRUNCATE && APPLY) {
+      if (jaNoDestino > 0 && !TRUNCATE && APPLY && !tabela.onConflict) {
         console.log('    AVISO: destino não-vazio e sem --truncate; a carga é aditiva e vai duplicar.');
+      }
+      if (jaNoDestino > 0 && TRUNCATE && APPLY && tabela.onConflict) {
+        console.log(`    NOTA: --truncate NÃO se aplica a ${tabela.destino} (catálogo curado); `
+                  + 'id que já existe é preservado.');
       }
       if (!APPLY || linhas.length === 0) continue;
 
-      const tiposPg = await tiposDoDestino(destino, tabela, cols);
-      const emLote = usaLote(cols, tiposPg);
+      const tiposPg = await tiposDoDestino(destino, tabela, colsDestino);
+      const emLote = usaLote(tabela, colsDestino, tiposPg);
       await destino.tx(async (t) => {
-        if (TRUNCATE) await t.none(`TRUNCATE ${tabela.destino}`);
+        // `--truncate` NAO alcanca um destino com `onConflict`: `tilesets` e catalogo
+        // curado por administrador e tem outros escritores, entao esvazia-lo por causa
+        // de uma flag de import de gazetteer apagaria trabalho que este script nao fez.
+        // Ali a colisao e resolvida por `ON CONFLICT (id) DO NOTHING`.
+        if (TRUNCATE && !tabela.onConflict) await t.none(`TRUNCATE ${tabela.destino}`);
         if (emLote) {
           for (let i = 0; i < linhas.length; i += BATCH) {
             const lote = linhas.slice(i, i + BATCH);
-            const { sql: ins, params } = insertEmLote(tabela, cols, tiposPg, lote);
+            const { sql: ins, params } = insertEmLote(tabela, colsDestino, tiposPg, lote);
             await t.none(ins, params);
           }
         } else {
           for (const linha of linhas) {
-            const { sql: ins, params } = insertLinhaALinha(tabela, cols, linha);
+            const { sql: ins, params } = insertLinhaALinha(tabela, colsDestino, linha);
             await t.none(ins, params);
           }
         }
@@ -419,16 +585,14 @@ async function main() {
       // ter sido commitada — o script morre exatamente entre inserir e clusterizar.
       await destino.any('SELECT ng.refresh_busca()');
       await destino.none('ANALYZE ng.nomes_geograficos');
-      await destino.none('ANALYZE ng.edificacoes');
 
       const v = await destino.one(`
         SELECT (SELECT count(*)::int FROM ng.nomes_geograficos) AS nomes,
-               (SELECT count(*)::int FROM ng.edificacoes)       AS edificacoes,
-               (SELECT count(*)::int FROM ng.catalogo_3d)       AS catalogo_3d,
+               (SELECT count(*)::int FROM public.tilesets)      AS tilesets,
                (SELECT count(DISTINCT cluster_id)::int FROM ng.nomes_geograficos) AS clusters,
                (SELECT count(*)::int FROM ng.nomes_geograficos WHERE cluster_id IS NULL) AS sem_cluster,
                (SELECT round(avg(tipo_peso)::numeric,3) FROM ng.nomes_geograficos) AS peso_medio`);
-      console.log(`\nnomes=${v.nomes} edificacoes=${v.edificacoes} catalogo_3d=${v.catalogo_3d} ` +
+      console.log(`\nnomes=${v.nomes} tilesets=${v.tilesets} ` +
                   `clusters=${v.clusters} sem_cluster=${v.sem_cluster} peso_medio=${v.peso_medio}`);
       if (v.nomes > 0 && v.sem_cluster > 0) {
         console.log('AVISO: há linhas sem cluster_id — refresh_busca() não cobriu tudo.');
