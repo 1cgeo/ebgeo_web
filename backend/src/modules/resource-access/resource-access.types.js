@@ -16,9 +16,10 @@
 // de montar um SQL sem sentido.
 
 /**
- * Os cinco tipos, na ordem do CHECK vigente (017, alargado pela 021).
+ * Os cinco tipos, na ordem do CHECK de `resource_grants.resource_type`
+ * (`008_acesso_a_recurso.sql`).
  *
- * `basemap` entrou na 021. A camada de base já tinha `access_level` desde a 017 e
+ * `basemap` foi o último a entrar. A camada de base já tinha `access_level` e
  * o filtro público-por-padrão de `catalog.service.js` já a fechava; o que faltava
  * era o outro sentido — sem tipo de concessão, nem concessão pessoal nem
  * empréstimo por atlas conseguiam DEVOLVER um basemap privado a quem tem direito.
@@ -45,7 +46,7 @@ const TABLE_BY_TYPE = Object.freeze({
  * Tabela de catálogo -> tipo de domínio. A INVERSA de TABLE_BY_TYPE, e agora para
  * AS QUATRO tabelas de catálogo.
  *
- * Esta prosa dizia, até a 021, que `basemaps` carregava `access_level` "por
+ * Esta prosa já disse que `basemaps` carregava `access_level` "por
  * paridade de schema e nunca a consultava". Era falso nos dois sentidos:
  * `listCatalog('basemaps')` sem `visibleTo` (os dois sítios de `/api/config`) já
  * aplicava `access_level = 'public'`, e a rota crua já aplicava o ramo de
@@ -61,9 +62,10 @@ export const TYPE_BY_TABLE = Object.freeze({
 });
 
 /**
- * Tipo de domínio -> `audit_trail.target_type` (migração 020).
+ * Tipo de domínio -> `audit_trail.target_type` (`002_auditoria.sql`).
  *
- * ANTES DA 020 ESTE MAPA NÃO PODIA EXISTIR: o CHECK de `target_type` só conhecia
+ * ENQUANTO O ALVO NÃO ERA COLUNA ESTE MAPA NÃO PODIA EXISTIR: o CHECK de
+ * `target_type` só conhecia
  * USER/GROUP/MODEL/ZONE/SYSTEM/ATLAS/ORG, e é por isso que a auditoria de
  * visibilidade e de concessão gravava 'SYSTEM' com o recurso escondido em `details`
  * — o que deixava `idx_audit_target` mudo para a pergunta "o que já foi feito com

@@ -1,7 +1,7 @@
 // Path: tests/integration/nomes-tipo-peso.test.js
-// Regressão da migração 009: `tipo_peso` casa PALAVRA, não substring.
+// Regressão de `ng.calcular_tipo_peso`: `tipo_peso` casa PALAVRA, não substring.
 //
-// O CASE da 004 usava `LIKE '%rio%'`, que casa dentro de cemite[rio], avia[rio],
+// O CASE ANTERIOR usava `LIKE '%rio%'`, que casa dentro de cemite[rio], avia[rio],
 // aterro sanita[rio], supe[rio]r, veterina[rio], reservato[rio] e ferrovia[rio] —
 // 658 linhas do acervo real de 2026-07-23 ranqueadas como HIDROGRAFIA (0.85, o
 // terceiro maior peso) sem ser.
@@ -23,7 +23,8 @@ const P = { lon: -54.0, lat: -12.0 }; // longe das regiões usadas pelas outras 
 
 /**
  * Cada caso é [tipo, peso esperado, por que importa].
- * Os quatro primeiros são exatamente os falsos positivos que a 009 corrige.
+ * Os quatro primeiros são exatamente os falsos positivos que o casamento por palavra
+ * corrige.
  */
 const CASOS = [
   ['Cemitério Comum - Cristã', 0.15, 'cemite(rio) casava hidrografia'],
@@ -41,7 +42,7 @@ const CASOS = [
   ['Lago ou Lagoa (sem fluxo)', 0.85, ''],
   ['Represa/açude com fluxo', 0.85, ''],
 
-  // Formas do acervo real que o LIKE da 004 nunca alcançou (caíam no piso 0.1).
+  // Formas do acervo real que o LIKE anterior nunca alcançou (caíam no piso 0.1).
   ['Aglomerado rural isolado – Povoado', 0.9, 'travessão + acento'],
   ['Outros aglomerados rurais – Lugarejo', 0.9, 'lugarejo não estava no CASE'],
   ['Aglomerado rural isolado – Núcleo', 0.9, 'núcleo acentuado'],
@@ -49,7 +50,8 @@ const CASOS = [
   ['Terra indígena', 0.55, 'indígena acentuada'],
   ['Linha de transmissão de energia', 0.3, 'transmissão acentuada'],
 
-  // Faixas que já funcionavam: amarradas para a 009 não regredir o que herdou.
+  // Faixas que já funcionavam: amarradas para o casamento por palavra não regredir o
+  // que herdou.
   ['Cidade', 1.0, ''],
   ['Morro', 0.8, ''],
   ['Nome local', 0.75, ''],
@@ -58,7 +60,7 @@ const CASOS = [
   ['Rel - Igreja cristã', 0.15, ''],
 ];
 
-describe('ng.calcular_tipo_peso — casamento por palavra (migração 009)', () => {
+describe('ng.calcular_tipo_peso — casamento por palavra', () => {
   let db;
 
   const nomeDe = (i) => `${TAG}${String(i).padStart(2, '0')}`;
@@ -117,7 +119,7 @@ describe('ng.calcular_tipo_peso — casamento por palavra (migração 009)', () 
   });
 
   it('nenhum tipo NÃO-hidrográfico do acervo recebe o peso de hidrografia', async () => {
-    // O defeito da 004 em uma asserção só: qualquer linha semeada cujo tipo não é
+    // O defeito do CASE anterior em uma asserção só: qualquer linha semeada cujo tipo não é
     // rio/lago/represa/açude e que ainda assim valha 0.85.
     const { rows } = await db.query(
       `SELECT nome, tipo, tipo_peso FROM ng.nomes_geograficos
@@ -130,7 +132,7 @@ describe('ng.calcular_tipo_peso — casamento por palavra (migração 009)', () 
 
   it('o trigger também reclassifica no UPDATE de tipo', async () => {
     // `BEFORE INSERT OR UPDATE OF tipo`: sem o ramo de UPDATE, o refresh_busca()
-    // (que é um `UPDATE tipo = tipo`) não reclassificaria nada, e a migração 009
+    // (que é um `UPDATE tipo = tipo`) não reclassificaria nada, e a correção do trigger
     // teria aplicado sem efeito sobre o acervo já gravado.
     const alvo = `${TAG}00`; // semeado como Cemitério (0.15)
     await db.query('UPDATE ng.nomes_geograficos SET tipo = $2 WHERE nome = $1', [alvo, 'Cidade']);

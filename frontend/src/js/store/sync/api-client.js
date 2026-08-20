@@ -1091,6 +1091,63 @@ export class ApiClient {
         return this._request('DELETE', `/organizations/${encodeURIComponent(id)}`);
     }
 
+    // ===== ACCESS GROUPS =====
+    //
+    // TWO AUDIENCES, and the split mirrors the backend's two gates: `listAccessGroups`
+    // is `auth` only (it is the PICKER of the share modal, and anyone holding
+    // `view_share` on a resource may grant to a group), while everything else is
+    // administrator OR credenciado. Calling a write here as a plain user gets a 403 from
+    // the server, which is the boundary — none of this is.
+
+    /**
+     * The live access groups, each with `member_count` and `grant_count`.
+     * @returns {Promise<Array<{id:string, name:string, description:string|null,
+     *   member_count:number, grant_count:number}>>}
+     */
+    async listAccessGroups() {
+        return this._request('GET', '/access-groups');
+    }
+
+    /** @param {{name:string, description?:string|null}} payload */
+    async createAccessGroup(payload) {
+        return this._request('POST', '/access-groups', { body: payload });
+    }
+
+    /** @param {string} id @param {{name?:string, description?:string|null}} payload */
+    async updateAccessGroup(id, payload) {
+        return this._request('PATCH', `/access-groups/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /**
+     * Soft-deletes the group, which REVOKES what it granted — the response carries the
+     * reach (`grantsAffected`, `memberCount`) so the UI can say how much fell.
+     * @param {string} id
+     * @returns {Promise<{id:string, name:string, grantsAffected:number, memberCount:number}>}
+     */
+    async deleteAccessGroup(id) {
+        return this._request('DELETE', `/access-groups/${encodeURIComponent(id)}`);
+    }
+
+    /** @param {string} id Who is in this group (administrator or credenciado only). */
+    async listAccessGroupMembers(id) {
+        return this._request('GET', `/access-groups/${encodeURIComponent(id)}/members`);
+    }
+
+    /** Idempotent: `added` says whether the row was created. @param {string} id @param {string} userId */
+    async addAccessGroupMember(id, userId) {
+        return this._request('POST', `/access-groups/${encodeURIComponent(id)}/members`, {
+            body: { userId },
+        });
+    }
+
+    /** @param {string} id @param {string} userId */
+    async removeAccessGroupMember(id, userId) {
+        return this._request(
+            'DELETE',
+            `/access-groups/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+        );
+    }
+
     // ===== CATALOG — 360 PROJECTS (admin metadata; the bundle upload is out-of-band) =====
 
     /** Lists 360 projects (incl. disabled). Bare array contract. @returns {Promise<Array<Object>>} */
@@ -1555,9 +1612,14 @@ export class ApiClient {
     }
 
     /**
-     * Concede acesso a um recurso privado.
+     * Concede acesso a um recurso privado, a uma PESSOA ou a um GRUPO.
+     *
+     * `granteeId` e `granteeGroupId` são ALTERNATIVOS, nunca simultâneos: o Joi da rota
+     * tem um `xor` que espelha o `CHECK (num_nonnulls(...) = 1)` da tabela, então mandar
+     * os dois (ou nenhum) volta 422 nomeando os campos.
      * @param {string} type @param {string} id
-     * @param {{granteeId: string, grantLevel: 'view'|'view_share'}} payload
+     * @param {{granteeId?: string, granteeGroupId?: string,
+     *   grantLevel: 'view'|'view_share', expiresAt?: string}} payload
      */
     async grantResource(type, id, payload) {
         return this._request('POST', `/resource-access/${type}/${encodeURIComponent(id)}/grants`, { body: payload });

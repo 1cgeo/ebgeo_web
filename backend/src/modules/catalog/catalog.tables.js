@@ -60,11 +60,11 @@ export function assertProductionTypeOf(table) {
  * num objeto solto no controller: os três mapas envelhecem juntos, e uma tabela nova
  * que apareça em um e não nos outros é o defeito que separá-los produz.
  *
- * Os valores são os declarados no `CHECK` de `audit_trail.target_type` pela migração
- * 020; um valor fora dele levanta 23514 no INSERT da trilha, o que derrubaria a
- * escrita inteira quando a auditoria é transacional. Aquele CHECK ainda declara
- * `STREETVIEW_MARKER`, que perdeu o escritor quando a migração 021 apagou a tabela:
- * virou alvo declarado sem emissor, censado como tal em
+ * Os valores são os declarados no `CHECK` de `audit_trail.target_type`
+ * (`002_auditoria.sql`); um valor fora dele levanta 23514 no INSERT da trilha, o que
+ * derrubaria a escrita inteira quando a auditoria é transacional. Aquele CHECK ainda
+ * declara `STREETVIEW_MARKER`, que perdeu o escritor quando `streetview_markers` deixou
+ * de existir: virou alvo declarado sem emissor, censado como tal em
  * `tests/unit/auditoria-censo.test.js`.
  */
 export const AUDIT_TARGET_TYPE_BY_TABLE = Object.freeze({

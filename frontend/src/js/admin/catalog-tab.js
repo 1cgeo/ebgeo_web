@@ -21,6 +21,10 @@ import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
 import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
 import { orgLabel } from './org-options.js';
+// Two LEAF modules, imported one by one and never through the `@catalog` barrel: this page boots
+// without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
+import { CAMPO_FORMA_3D, FORMAS_3D, Forma3D, derivarForma3d } from '@catalog/forma-3d.js';
+import { FORMA_3D_LABELS } from '@catalog/catalog.constants.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -90,9 +94,19 @@ const CATEGORIES = [
     { key: 'sv360', label: '360', is360: true },
 ];
 
+/**
+ * As quatro formas de 3D, na ordem em que o formulário as oferece.
+ *
+ * A lista NÃO é escrita aqui: ela vem de `FORMAS_3D`, para que uma forma nova apareça na tela
+ * sem que ninguém precise lembrar desta aba. O rótulo é o mesmo que o cartão do catálogo mostra,
+ * pela mesma razão — dois vocabulários para a mesma coisa é como o eixo se perde de novo.
+ */
+const FORMA_3D_OPTIONS = FORMAS_3D.map((valor) => ({ value: valor, label: FORMA_3D_LABELS[valor] }));
+
 /** Starter `config` templates per category — mirror the real deploy config shapes (config.js). */
 const TEMPLATES = {
     tileset: {
+        [CAMPO_FORMA_3D]: Forma3D.TILES3D,
         url: '/catalogo/modelos_catalogo/3d/EXEMPLO/tileset.json',
         heightOffset: 0,
         description: '',
@@ -444,6 +458,24 @@ class CatalogTab {
             form.appendChild(field);
         }
 
+        // A FORMA DO 3D é campo de primeira classe, e não uma linha do JSON avançado, porque ela
+        // decide qual visualizador desenha o item: errar aqui produz um modelo que abre vazio,
+        // sem erro. O valor inicial passa por `derivarForma3d`, então a linha antiga que só tem
+        // os discriminadores legados (`type: 'glb'`, `viewer: 'firstPerson'`) já abre com a
+        // forma certa selecionada, e salvar a declara.
+        //
+        // A NUVEM DE PONTOS SÓ SE MARCA AQUI. A migração que retro-preencheu o campo não a
+        // adivinha (no banco ela é indistinguível de um tileset comum), então este `<select>` é
+        // o único caminho para dizer que aquele item é uma nuvem — uma a uma, à mão.
+        let forma3dInput = null;
+        if (category === 'tileset') {
+            forma3dInput = selectField(form, 'Forma do modelo 3D', 'admin-catalog-forma3d',
+                FORMA_3D_OPTIONS, derivarForma3d(resource?.config));
+            form.appendChild(hintParagraph('Tiles 3D e Nuvem de pontos usam o mesmo carregador; '
+                + 'a distinção é o que a tela mostra e o que se pode filtrar. Cena indoor abre no '
+                + 'visualizador em primeira pessoa, não no Cesium.'));
+        }
+
         // Preview VIDEO is 3D-only and out-of-band (large) — referenced by URL, not uploaded.
         let videoInput = null;
         if (category === 'tileset') {
@@ -505,6 +537,10 @@ class CatalogTab {
             // explicit "Remover" deletes it; an untouched field keeps the JSON value. The video URL is
             // set when provided and DELETED when the field is cleared (so removal isn't a no-op).
             if (config && typeof config === 'object') {
+                // A forma vem do `<select>` e VENCE o que estiver no JSON avançado, como a
+                // miniatura recém-escolhida vence a chave digitada: o controle dedicado é o que
+                // a pessoa acabou de operar.
+                if (forma3dInput) config[CAMPO_FORMA_3D] = forma3dInput.value;
                 if (thumbKey) {
                     if (removeThumbnail) delete config[thumbKey];
                     else if (pendingThumbnail) config[thumbKey] = pendingThumbnail;

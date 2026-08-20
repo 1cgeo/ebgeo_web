@@ -5,6 +5,8 @@
  * Defines item types, display configurations, and default values.
  */
 
+import { Forma3D } from './forma-3d.js';
+
 /**
  * Catalog item types.
  * @readonly
@@ -104,6 +106,47 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
         hasDate: false,
         hasLocation: false
     }
+});
+
+/**
+ * Label per 3D SHAPE (`config.forma3d`), which is a FINER axis than the item type above.
+ *
+ * The two axes answer different questions and neither replaces the other: `CATALOG_ITEM_TYPES`
+ * says which section of the catalog an item belongs to (and therefore which allowlist and which
+ * filter govern it), while this one says what the item IS. Three shapes share the type
+ * `MODEL_3D` and the fourth is `FIRST_PERSON_SCENE`.
+ *
+ * These are the labels the census requires: a shape added to `FORMAS_3D` with no entry here
+ * turns `forma-3d-censo.test.js` red.
+ * @readonly
+ */
+export const FORMA_3D_LABELS = Object.freeze({
+    [Forma3D.TILES3D]: 'Tiles 3D',
+    [Forma3D.GLB]: 'Modelo isolado',
+    [Forma3D.POINTCLOUD]: 'Nuvem de pontos',
+    [Forma3D.INDOOR]: 'Cena indoor'
+});
+
+/**
+ * Icon per 3D shape. Same census rule as the labels above.
+ *
+ * The point cloud gets a scatter of dots and NOT a variant of the cube: it is drawn by the same
+ * loader as a tileset, so a near-identical glyph would leave the two indistinguishable on the
+ * card, which is the exact loss this axis exists to repair.
+ * @readonly
+ */
+export const FORMA_3D_ICONS = Object.freeze({
+    // Tiles 3D — the cube, the historical 3D glyph
+    [Forma3D.TILES3D]: CATALOG_ICONS[CATALOG_ITEM_TYPES.MODEL_3D],
+
+    // Isolated model — a single object on a base plane
+    [Forma3D.GLB]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 6.5v7L12 17l6-3.5v-7L12 3z"/><path d="M6 6.5 12 10l6-3.5M12 10v7"/><line x1="3" y1="21" x2="21" y2="21"/></svg>`,
+
+    // Point cloud — a scatter of points
+    [Forma3D.POINTCLOUD]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="7" r="1.4"/><circle cx="10" cy="4.5" r="1.4"/><circle cx="15.5" cy="7" r="1.4"/><circle cx="20" cy="10" r="1.4"/><circle cx="4" cy="12.5" r="1.4"/><circle cx="9" cy="11" r="1.4"/><circle cx="14" cy="13" r="1.4"/><circle cx="19" cy="16" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="11.5" cy="17.5" r="1.4"/><circle cx="16" cy="20" r="1.4"/></svg>`,
+
+    // Indoor scene — the walking figure, the same glyph the scene card already carries
+    [Forma3D.INDOOR]: CATALOG_ICONS[CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE]
 });
 
 /**

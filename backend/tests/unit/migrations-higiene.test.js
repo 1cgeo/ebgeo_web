@@ -6,19 +6,23 @@
 // "Geometria do atlas é JSONB … nunca adicione PostGIS ao schema do atlas") e são
 // verificáveis por leitura dos .sql, sem banco.
 //
-// A LISTA DE EXCEÇÕES DESTRUTIVAS ESTÁ VAZIA, E ISSO É O ESTADO ESPERADO desde a
-// consolidação de 2026-08-19 (F15). As 22 migrações incrementais viraram baselines
-// por domínio, escritas no ESTADO FINAL do schema: num schema esmagado nada é criado
-// para ser derrubado depois, então não sobra `DROP` nenhum. As onze entradas que
-// esta lista teve (o `catalog_layers.id` UUID -> TEXT, os CHECK que caíam para
-// alargar, o `DROP TABLE streetview_markers`, o `DROP COLUMN maps.catalog_layers`)
-// desapareceram POR CONSTRUÇÃO: o tipo, o CHECK e a ausência da tabela nascem
-// prontos. Uma linha de volta aqui significa uma de duas coisas, e vale investigar
-// qual: ou uma migração NOVA e legítima (aí a linha é o ato explícito que a convenção
-// exige), ou uma baseline que voltou a evoluir por degraus dentro de si mesma.
+// A LISTA DE EXCEÇÕES DESTRUTIVAS FICOU VAZIA na consolidação de 2026-08-19 (F15) e
+// VOLTOU A TER DUAS LINHAS no mesmo dia, pelo primeiro dos dois motivos que o
+// parágrafo abaixo mandava investigar. As 22 migrações incrementais viraram
+// baselines por domínio, escritas no ESTADO FINAL do schema: num schema esmagado
+// nada é criado para ser derrubado depois, então não sobra `DROP` nenhum. As onze
+// entradas que esta lista teve (o `catalog_layers.id` UUID -> TEXT, os CHECK que
+// caíam para alargar, o `DROP TABLE streetview_markers`, o `DROP COLUMN
+// maps.catalog_layers`) desapareceram POR CONSTRUÇÃO: o tipo, o CHECK e a ausência da
+// tabela nascem prontos. Uma linha de volta aqui significa uma de duas coisas, e vale
+// investigar qual: ou uma migração NOVA e legítima (aí a linha é o ato explícito que
+// a convenção exige), ou uma baseline que voltou a evoluir por degraus dentro de si
+// mesma. As duas de hoje são o primeiro caso — `009_grupos_de_acesso.sql` alarga dois CHECK de
+// `audit_trail`, e alargar CHECK em Postgres não tem forma aditiva.
 //
-// O PREÇO DA LISTA VAZIA, e ele é real: `assert.equal(achados.length, EXCECOES.length)`
-// vira `0 === 0` e não discrimina mais nada — exatamente a "cobertura vazia passa
+// O PREÇO QUE A LISTA VAZIA TINHA, e que continua valendo para cada padrão sem
+// exceção correspondente: `assert.equal(achados.length, EXCECOES.length)` vira
+// `0 === 0` e não discrimina mais nada — exatamente a "cobertura vazia passa
 // verde" que a constituição nomeia. Por isso existe o teste 'controle negativo',
 // que roda OS MESMOS padrões contra um texto SQL que os contém e exige que os cinco
 // sejam detectados. Sem ele, este arquivo passaria verde com a regex quebrada.
@@ -54,9 +58,30 @@ function todasAsLinhas(arquivos = FILES) {
 // DDL destrutiva DELIBERADA, com o arquivo onde mora. Acrescentar uma linha aqui é
 // o ato explícito que a convenção exige; esquecer de acrescentar reprova o teste.
 //
-// VAZIA desde a consolidação (F15) — ver o cabeçalho, e repare que a lista vazia
-// só discrimina alguma coisa por causa do teste 'controle negativo' abaixo.
-const EXCECOES_DESTRUTIVAS = [];
+// A LISTA VOLTOU A TER LINHAS EM 2026-08-19, e o cabeçalho já dizia o que investigar
+// quando isso acontecesse: das duas causas possíveis (migração nova legítima, ou
+// baseline que voltou a evoluir dentro de si mesma), esta é a primeira.
+// `009_grupos_de_acesso.sql` é a
+// primeira migração forward-only depois da consolidação, e alargar um CHECK em
+// Postgres NÃO tem forma aditiva: `DROP CONSTRAINT` + `ADD CONSTRAINT` é o único
+// caminho, e é por isso que as duas linhas existem em vez de um `ALTER ... ADD`.
+//
+// O `trecho` é o STATEMENT INTEIRO e não o prefixo comum, de propósito: as duas
+// linhas começam iguais (`ALTER TABLE audit_trail DROP CONSTRAINT `), e um prefixo
+// compartilhado faria as duas casarem a MESMA entrada — a contagem então acusaria
+// "DDL a mais" e a lista deixaria de discriminar qual das duas foi autorizada.
+const EXCECOES_DESTRUTIVAS = [
+  {
+    arquivo: '009_grupos_de_acesso.sql',
+    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check;',
+    motivo: 'Alargar o CHECK de ação para as cinco ações do grupo de acesso. O ADD que o repõe está na linha seguinte, no mesmo arquivo e na mesma transação do runner: entre o DROP e o ADD a tabela fica sem o CHECK, e é por isso que os dois nunca podem ser separados em migrações diferentes.',
+  },
+  {
+    arquivo: '009_grupos_de_acesso.sql',
+    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_target_type_check;',
+    motivo: "Alargar o CHECK de alvo para 'ACCESS_GROUP'. Mesmo raciocínio do irmão acima. O valor NÃO reusa o 'GROUP' já declarado, que pertence ao grupo de FEIÇÃO de um mapa.",
+  },
+];
 
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
@@ -112,7 +137,7 @@ describe('Higiene das migrações (item 103)', () => {
     assert.deepEqual(erradas, [], 'PK UUID com DEFAULT que não usa gen_random_uuid()');
   });
 
-  it('DDL destrutiva só existe na lista de exceções deliberadas (hoje: nenhuma)', () => {
+  it('DDL destrutiva só existe na lista de exceções deliberadas', () => {
     const linhas = todasAsLinhas();
     assert.ok(linhas.length >= 400);
 

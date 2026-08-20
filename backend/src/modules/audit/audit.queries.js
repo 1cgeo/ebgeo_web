@@ -8,10 +8,10 @@ export const INSERT_AUDIT = `
 
 // Admin query with optional filters + pagination.
 //
-// O FILTRO POR `target_id` ($4) É O PAGAMENTO DA MIGRAÇÃO 020, e sem ele o
-// alargamento seria só uma coluna mais larga que ninguém consegue interrogar. Antes
-// da 020 a coluna era UUID e metade dos alvos (o slug de catálogo, a chave
-// `app_config`) nem cabia nela, então "tudo que já foi feito com o tileset X" não
+// O FILTRO POR `target_id` ($4) É O PAGAMENTO DE `audit_trail.target_id` SER TEXT
+// (`002_auditoria.sql`), e sem ele a coluna larga seria só uma coluna que ninguém
+// consegue interrogar. Enquanto ela foi UUID, metade dos alvos (o slug de catálogo, a
+// chave `app_config`) nem cabia nela, então "tudo que já foi feito com o tileset X" não
 // era uma pergunta formulável; agora é, e ela entra pelo mesmo `idx_audit_target`
 // que o par (target_type, target_id) já indexava.
 export const LIST_AUDIT = `

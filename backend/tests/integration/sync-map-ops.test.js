@@ -234,12 +234,12 @@ describe('Map Operations via Sync', () => {
       assert.equal(rows[0].notes_description, '<p>Some HTML content</p>');
     });
 
-    // Migration 022 removed `maps.catalog_layers`, so a MAP update can no longer carry catalog
+    // `maps.catalog_layers` is gone, so a MAP update can no longer carry catalog
     // layers as a sibling column. The field is dropped from the whitelist, not error-checked: an
     // old client that still sends it gets its other fields applied and this one ignored, which is
     // the same degradation every removed alias gets. What must never come back is a SECOND home
     // for the definition, and that is what this pins.
-    it('ignores `catalog_layers` on a map update: the column is gone (022)', async () => {
+    it('ignores `catalog_layers` on a map update: the column is gone', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Map' });
 
       await pushSync([{
@@ -321,7 +321,7 @@ describe('Map Operations via Sync', () => {
     // The requirement is unchanged; its ADDRESS moved. Removing a catalog layer used to mean
     // rewriting the `maps.catalog_layers` array, and since the layer became its own entity it
     // means a per-layer delete op (soft-delete + tombstone, so the removal converges on peers).
-    // Migration 022 removed the array column, so this is the only shape left.
+    // The array column is gone, so this is the only shape left.
     it('removes a catalog layer with a per-layer delete op', async () => {
       const map = await createMap(db, atlas.id, { name: 'Catalog Remove Map' });
 

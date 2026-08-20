@@ -18,7 +18,7 @@
 // the two AS STRINGS. Here the destination is TIMESTAMPTZ, which stores an
 // INSTANT. Feeding a zoneless local string to TIMESTAMPTZ would make the stored
 // instant depend on the session TimeZone of whoever ran the ETL — the exact
-// silent-drift trap migration 014 calls out. So the conversion is explicit in
+// silent-drift trap `007_sv360.sql` calls out. So the conversion is explicit in
 // both directions, and the offset is data, not a default.
 
 /**

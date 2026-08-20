@@ -26,7 +26,7 @@ import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 /**
  * [tipo, tabela, chave no payload aditivo, caminho no /api/config].
  *
- * `basemap` entrou na migração 021 e é o único cujo caminho no `/api/config` é um
+ * `basemap` foi o último tipo a entrar e é o único cujo caminho no `/api/config` é um
  * OBJETO indexado por id (contrato congelado do `config.js`) enquanto a chave do
  * payload aditivo é um ARRAY, como as outras. A reprojeção de uma forma para a
  * outra é do CLIENTE (`mergeGrantedIntoBaseline`), e o `Object.keys` aqui é só o

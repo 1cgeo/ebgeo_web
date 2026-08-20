@@ -280,7 +280,8 @@ export async function setStatus(slug, status, user, opts = {}, req = null) {
  * chamada FALTAVA. `resource_grants` e `atlas_resources` referenciam o projeto por
  * `resource_id` TEXT, sem FK, então nada os levava junto: apagar um projeto deixava
  * concessões e empréstimos apontando para um UUID que não existe mais. O comentário
- * da migração 017 afirmava por escrito que esta limpeza acontecia aqui — não
+ * que introduziu `resource_grants` afirmava por escrito que esta limpeza acontecia
+ * aqui — não
  * acontecia, e doc que descreve um mecanismo ausente engana em dobro.
  *
  * A ordem (purga antes do DELETE_PROJECT) e a transação única são o que impede os

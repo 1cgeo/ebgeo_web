@@ -5,7 +5,8 @@
 //
 // O modo de falha mais provável é SILENCIOSO: o seed resolve posto e OM por
 // SUBSELECT literal (`WHERE nome_abrev = 'Cap'`, `WHERE sigla = 'CIGEx'`). Se a
-// migração 001 mudar a abreviação ou a sigla, o subselect devolve NULL, o usuário
+// semente de `ranks`/`organizations` (`001_identidade.sql`) mudar a abreviação ou a
+// sigla, o subselect devolve NULL, o usuário
 // nasce sem posto nem OM, e ninguém percebe até alguém depurar o dropdown de
 // cadastro achando que o bug está no frontend.
 //

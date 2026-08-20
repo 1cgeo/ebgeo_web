@@ -78,7 +78,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
   });
 
   it('still accepts the legacy whole-array form, materialised into the dedicated table', async () => {
-    // Migration 022 removed `maps.catalog_layers`, so the compatibility shim writes where the
+    // `maps.catalog_layers` is gone, so the compatibility shim writes where the
     // reader is. It UPSERTS and never removes: the column write was a whole-array REPLACE, which
     // was harmless while nothing read the column and would be a wipe against the canonical table.
     // Its own map: the shim writes real rows now, so sharing the suite's map would leak into
@@ -341,7 +341,7 @@ describe('Sync — catalogLayer (per-layer)', () => {
     });
 
     it('a entrada da forma LEGADA de array atravessa verbatim, `name` e `config` inclusive', async () => {
-      // O mesmo dado que morava na coluna `maps.catalog_layers` até a migração 022 e que agora é
+      // O mesmo dado que morava na coluna `maps.catalog_layers`, hoje apagada, e que agora é
       // materializado na tabela dedicada. Ele não tem `type`, logo não CLAMA recurso de catálogo
       // nenhum, e precisa sair exatamente como entrou.
       //

@@ -65,7 +65,7 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 **Custo, e é a lição que vale além do caso.** Uma concessão que a interface aceita, o banco grava e a autorização nunca honra é a forma mais cara de erro de permissão, porque o operador tem prova de que fez o certo. Meio eixo não é meio recurso, é recurso que mente, e a consolidação tornou o custo visível: um schema esmagado **recria** cada tabela por escolha, não por inércia forward-only.
 
-**Desfecho (2026-08-19).** Este achado foi o que decidiu a remoção: o subsistema de zonas saiu inteiro, com as duas tabelas de grupo do `ng`, e a ideia de conceder a um COLETIVO renasceu no schema da aplicação, com FK de verdade para `users` e com as DUAS metades presentes (entidade, membros e alvo de concessão). Ver [[acesso-a-recurso-privado]].
+**Desfecho (2026-08-19).** Este achado foi o que decidiu a remoção: o subsistema de zonas saiu inteiro, com as duas tabelas de grupo do `ng`, e a ideia de conceder a um COLETIVO renasceu no schema da aplicação, com FK de verdade para `users` e com as DUAS metades presentes (entidade, membros e alvo de concessão). A segunda metade, a que faz o mecanismo existir, só chegou com a superfície escrita em 2026-08-19: ver [[acesso-a-recurso-privado]] e [[grupo-de-acesso]].
 
 ---
 

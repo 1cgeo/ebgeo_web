@@ -465,8 +465,8 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         clientId: 'frontend-client',
       }]).expect(200);
 
-      // The whole-array form is materialised into the dedicated `catalog_layers` table: since
-      // migration 022 there is no `maps.catalog_layers` column for it to land in.
+      // The whole-array form is materialised into the dedicated `catalog_layers` table: there
+      // is no `maps.catalog_layers` column for it to land in.
       const { rows } = await db.query(
         'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL', [map.id]
       );

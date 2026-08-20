@@ -30,7 +30,7 @@ import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 /**
  * [tipo de recurso, tabela, caminho dentro do payload de config].
  *
- * `basemap` entrou na migração 021 e é o único cuja chave no payload é um OBJETO
+ * `basemap` foi o último tipo a entrar e é o único cuja chave no payload é um OBJETO
  * indexado por id, não um array — daí o `Object.keys`. A forma diferente é o
  * contrato congelado do `config.js` (o frontend indexa basemap por id), e reprojetá-la
  * aqui é o que permite os mesmos casos medirem os quatro tipos.
@@ -149,7 +149,7 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
     // A CONSULTA É A ASSERÇÃO PRINCIPAL: ela filtra por (target_type, target_id),
     // que é exatamente a pergunta que o schema antigo não sabia responder. Enquanto
     // `target_id` era UUID e o CHECK de `target_type` não previa tipo de recurso, o
-    // alvo viajava em `details` e esta busca não existia. Migração 020.
+    // alvo viajava em `details` e esta busca não existia.
     const { rows } = await db.query(
       `SELECT action, target_type, target_id, target_name, details FROM audit_trail
         WHERE action = 'SHARING_CHANGE' AND target_type = 'TILESET' AND target_id = $1
@@ -161,7 +161,7 @@ describe('F2 — recurso privado sai do /api/config (e o memo é invalidado)', (
     assert.equal(rows[0].details.resourceType, 'tileset');
     assert.equal(rows[0].target_id, idDe('tilesets'));
     assert.equal(rows[0].target_type, 'TILESET');
-    // O id de catálogo é SLUG, não UUID: gravá-lo aqui é o que a 020 destravou, e
+    // O id de catálogo é SLUG, não UUID: gravá-lo aqui é o que a coluna TEXT destravou, e
     // afirmar isso é o que impede a coluna de voltar a ser UUID sem ninguém notar.
     assert.ok(!/^[0-9a-f-]{36}$/i.test(rows[0].target_id), 'o alvo é um slug, não um UUID');
     await marcar('tileset', idDe('tilesets'), 'public');

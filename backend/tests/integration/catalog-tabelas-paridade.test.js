@@ -9,7 +9,7 @@
 // falha apenas em produção — e falha no endpoint de contrato congelado
 // GET /api/config.
 //
-// Eram CINCO até a migração 021, que apagou `streetview_markers`. Aquela tabela
+// Eram CINCO enquanto existiu `streetview_markers`. Aquela tabela
 // nasceu do mesmo `LIKE` e nunca teve consumidor nenhum: não alimentava o
 // /api/config, nenhum código de frontend chamava a rota dela e nenhum seed a
 // populava. A paridade que este arquivo cobra passa a ser entre quatro.

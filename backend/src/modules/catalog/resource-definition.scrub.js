@@ -19,7 +19,7 @@
 //
 // WHAT COUNTS AS A DEFINITION, and the ceiling of that answer. `carriesResourceDefinition` asks
 // for a `config` OBJECT holding one of the three keys that carry the URL of a catalog resource
-// (`source` / `tiles` / `url`), measured against the seeded catalog rows (migration 003:
+// (`source` / `tiles` / `url`), measured against the seeded catalog rows (`005_catalogo.sql`:
 // `{description, source:{type,url}, bounds, paint, sourceLayer, minzoom, maxzoom, style}`). It is
 // deliberately NARROW: a nested `{config:{source:…}}` does not occur in any domain field measured
 // (feature properties, 3D/360 data, grid, temporal, slide position), so the false-positive cost is
@@ -53,7 +53,7 @@ import { MAX_PRUNE_DEPTH } from './resource-payload.prune.js';
 
 /**
  * The keys inside a catalog `config` that carry the resource's address. Measured against the
- * seeded rows of migration 003 and against `config.static.js`; `url` alone covers the tileset
+ * seeded rows of `005_catalogo.sql` and against `config.static.js`; `url` alone covers the tileset
  * shape, `tiles` the raster-array shape.
  */
 const CONFIG_ADDRESS_KEYS = Object.freeze(['source', 'tiles', 'url']);

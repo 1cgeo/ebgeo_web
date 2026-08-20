@@ -16,7 +16,7 @@
 //   1. `maps.queries.js` fazia `SELECT *`, `maps.service.js` devolvia a linha inteira e
 //      `maps.controller.js` responde `res.json({ data })` sem tocar nela. `SELECT *` sobre uma
 //      tabela que ninguém prometeu não crescer publica por herança toda coluna futura;
-//   2. `maps.catalog_layers` (coluna do schema original, migração 002) guardava a CÓPIA da linha
+//   2. `maps.catalog_layers` (coluna do schema original) guardava a CÓPIA da linha
 //      de catálogo que o cliente pré-F11 carimbava, `config.source.url` inclusive;
 //   3. as duas rotas são gateadas em `read` (`maps.routes.js`), e `resolvePermission` devolve
 //      `read` para userId NULO quando o atlas é `is_public` — o visitante do link chega nelas.
@@ -24,7 +24,7 @@
 // A F11 tirou a desnormalização e passou a reidratar a definição na leitura pelo predicado de
 // quem lê, mas a reidratação mora dentro de `getAtlasSnapshot`: estas rotas não passam por lá, e
 // por isso continuaram servindo a cópia. A F12 fechou o buraco pela raiz — a coluna não tinha
-// leitor (migração 022 a apagou) e as consultas passaram a listar colunas.
+// leitor, foi apagada, e as consultas passaram a listar colunas.
 //
 // POR QUE ESTE ARQUIVO PLANTA A COLUNA DE VOLTA. Contra o schema de hoje "a URL não sai" é
 // trivialmente verdade: não há de onde sair, e o verde não provaria nada — a família de

@@ -503,7 +503,7 @@ describe('StreetView 360 — calibration surface (stage 2b)', () => {
 
   it('rota 6: a project WITHOUT runs answers an empty list, never 404', async () => {
     // This is the state of the ENTIRE production archive: sv360.capture_runs
-    // exists (migration 013) but nothing derives runs yet. An empty list is the
+    // exists but nothing derives runs yet. An empty list is the
     // honest answer; 404 would make the panel look broken on a healthy database.
     await db.query(`UPDATE sv360.photos SET run_id = NULL WHERE project_id = $1`, [projectId]);
     await db.query(`DELETE FROM sv360.capture_runs WHERE project_id = $1`, [projectId]);

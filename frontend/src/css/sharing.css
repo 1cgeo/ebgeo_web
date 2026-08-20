@@ -960,6 +960,39 @@
     white-space: nowrap;
 }
 
+/* GRUPO NÃO É PESSOA, E A LINHA PRECISA DIZER ISSO ANTES DA LEITURA. O avatar de
+   iniciais colorido pela presença é identidade de UMA pessoa (a mesma cor aparece no
+   cursor remoto e no roster de quem está online); um beneficiário coletivo recebe
+   selo neutro, sem cor derivada de id, para que ninguém procure aquele "alguém". */
+.resource-share__group-avatar {
+    background: var(--gray-200);
+    color: var(--gray-600);
+}
+
+/* O tamanho do grupo, ao lado do nome: "Equipe Alfa" não diz se são dois ou duzentos,
+   e é essa escala que decide se a concessão é pequena ou larga. */
+.resource-share__group-count {
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+.resource-share__group-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.resource-share__group-row select {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
 .resource-share__level-row {
     display: flex;
     align-items: center;

@@ -93,8 +93,8 @@ function assertEffectiveInvariants(merged) {
  * trilha é lida por qualquer administrador. Quem precisa do valor efetivo lê
  * `GET /config/admin`, que é a fonte, em vez de uma cópia envelhecida no log.
  *
- * `targetId` é a chave `app_config` — um dos dois sítios que só existem porque a
- * migração 020 alargou `target_id` para TEXT (a chave nunca foi UUID).
+ * `targetId` é a chave `app_config` — um dos dois sítios que só existem porque
+ * `audit_trail.target_id` é TEXT e não UUID (a chave nunca foi UUID).
  *
  * @param {Object} partial - Validated partial config.
  * @param {string|null} userId

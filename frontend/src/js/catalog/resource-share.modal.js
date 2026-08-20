@@ -13,8 +13,13 @@
  *   podem ter concedido o mesmo recurso à mesma pessoa (D3: a estrutura é um DAG,
  *   não uma árvore estrita) e revogar um caminho não derruba o outro;
  * - REVOGAR DERRUBA A SUBÁRVORE. É a consequência que ninguém adivinha, e por isso
- *   a confirmação conta quantas pessoas caem junto e as nomeia
- *   (`grant-tree.js`), em vez de dizer "isto pode afetar outras pessoas".
+ *   a confirmação conta quantos caem junto e os nomeia (`grant-tree.js`), em vez de
+ *   dizer "isto pode afetar outras pessoas";
+ * - O BENEFICIÁRIO PODE SER COLETIVO. Aqui uma concessão vai a uma pessoa OU a um
+ *   grupo de acesso, nunca aos dois, e o eixo de grupo não existe no atlas. É por
+ *   isso que a linha da lista tem duas formas (avatar de presença para pessoa, selo
+ *   e tamanho para grupo) e que conceder tem dois caminhos: ver `_renderGroupRow`,
+ *   que explica por que o grupo é seletor e a pessoa é busca.
  *
  * O GATE É DO SERVIDOR, e este modal só é oferecido a quem `canShareResource`
  * aprova. Quem chegar aqui sem poder repassar (uma concessão revogada entre o
@@ -34,7 +39,15 @@ import { refreshVisibleResources } from '@store/sync/resource-access.service.js'
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
 import { GRANT_LEVELS, CATALOG_UI_ICONS } from './catalog.constants.js';
-import { descendantGrants, granteeName, revocationWarning } from './grant-tree.js';
+import {
+    alreadyGranted,
+    descendantGrants,
+    granteeName,
+    granteeSubject,
+    groupMemberCount,
+    isGroupGrant,
+    revocationWarning,
+} from './grant-tree.js';
 
 /** Debounce (ms) da busca de usuário, o mesmo do compartilhamento de atlas. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -42,6 +55,15 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MIN_CHARS = 2;
 /** O nível padrão ao conceder. A permissão padrão ABAIXA, nunca eleva. */
 const DEFAULT_GRANT_LEVEL = 'view';
+
+/**
+ * O selo de um beneficiário COLETIVO, no lugar onde a pessoa tem avatar.
+ *
+ * Iniciais e cor de presença são identidade de PESSOA (a mesma cor aparece no cursor
+ * e no roster de quem está online), e emprestá-las a um grupo faria a lista sugerir
+ * que existe alguém ali. Ícone estático, sem cor derivada de id.
+ */
+const GROUP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 
 /** Rótulo de um nível de concessão, ou o valor cru quando o servidor mandar outro. */
 function grantLevelLabel(value) {
@@ -104,6 +126,12 @@ export class ResourceShareModal extends ModalBase {
         this._name = resourceName || resourceId;
         /** @type {Array<Object>} As concessões VIVAS deste recurso. */
         this._grants = [];
+        /** @type {Array<Object>} Os grupos de acesso, lidos UMA vez por abertura. */
+        this._groups = [];
+        /** @type {boolean} A leitura dos grupos já aconteceu (mesmo que tenha falhado). */
+        this._groupsLoaded = false;
+        /** @type {string} O grupo escolhido no seletor, zerado a cada redesenho. */
+        this._groupId = '';
         /** @type {boolean} Uma escrita por vez. */
         this._busy = false;
         /** @type {number|null} */
@@ -140,6 +168,8 @@ export class ResourceShareModal extends ModalBase {
             if (!this.getBody()) return;
             this._grants = Array.isArray(grants) ? grants : [];
             this._denied = false;
+            await this._loadGroups();
+            if (!this.getBody()) return;
             this._renderBody();
         } catch (error) {
             if (!this.getBody()) return;
@@ -149,6 +179,26 @@ export class ResourceShareModal extends ModalBase {
             this._denied = error?.status === 403;
             if (this._denied) this._renderDenied();
             else this._renderError();
+        }
+    }
+
+    /**
+     * @private Lê os grupos de acesso UMA vez, e nunca derruba o modal.
+     *
+     * Falha em silêncio de propósito: os grupos são o SELETOR, não o conteúdo da
+     * tela. Se a chamada falhar (ou não houver grupo nenhum cadastrado), a seção de
+     * conceder deixa de oferecer a linha de grupo e o resto continua funcionando.
+     * Deixar o erro subir daqui levaria a listagem inteira para a tela de falha, que
+     * é dizer "não deu para ver quem tem acesso" por causa de um seletor.
+     */
+    async _loadGroups() {
+        if (this._groupsLoaded) return;
+        this._groupsLoaded = true;
+        try {
+            const grupos = await apiClient.listAccessGroups();
+            this._groups = Array.isArray(grupos) ? grupos : [];
+        } catch {
+            this._groups = [];
         }
     }
 
@@ -187,6 +237,10 @@ export class ResourceShareModal extends ModalBase {
         const body = this.getBody();
         if (!body) return;
         clearScopedListeners(this, 'body');
+        // O seletor de grupo é redesenhado com o placeholder escolhido, então a
+        // escolha anterior não sobrevive ao redesenho e guardá-la concederia a um
+        // grupo que já não está mais selecionado na tela.
+        this._groupId = '';
         body.innerHTML = `
             <div class="sharing resource-share">
                 ${this._renderGrantsSection()}
@@ -214,17 +268,50 @@ export class ResourceShareModal extends ModalBase {
     }
 
     /**
-     * @private Uma concessão viva.
+     * @private O avatar de quem recebeu: identidade de pessoa OU selo de grupo.
+     * @param {Object} grant
+     * @param {string} nome
+     */
+    _renderGranteeAvatar(grant, nome) {
+        if (isGroupGrant(grant)) {
+            return `<span class="sharing-avatar resource-share__group-avatar" aria-hidden="true">${GROUP_ICON}</span>`;
+        }
+        const color = escapeHtml(getPresenceColor(String(grant?.grantee_id ?? '')));
+        const initials = escapeHtml(getInitials(nome));
+        return `<span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>`;
+    }
+
+    /**
+     * @private A linha do nome: `@usuário` para pessoa, tamanho do grupo para grupo.
+     *
+     * O tamanho fica ao LADO do nome porque é o que dá a escala do que está sendo
+     * concedido: "Equipe Alfa" não diz se são dois ou duzentos. Grupo vazio diz isso
+     * por extenso, senão a linha some e o vazio vira indistinguível do desconhecido.
+     * @param {Object} grant
+     * @param {string} nome
+     */
+    _renderGranteeNameLine(grant, nome) {
+        if (isGroupGrant(grant)) {
+            const membros = groupMemberCount(grant);
+            const texto = membros ? `${membros} ${membros === 1 ? 'pessoa' : 'pessoas'}` : 'sem membros';
+            return `<span class="sharing-member__name">${escapeHtml(nome)}
+                        <span class="resource-share__group-count" data-testid="resource-share-group-count">${escapeHtml(texto)}</span>
+                    </span>`;
+        }
+        const username = grant?.grantee_username ?? '';
+        const arroba = username ? ` <span class="sharing-member__username">@${escapeHtml(username)}</span>` : '';
+        return `<span class="sharing-member__name">${escapeHtml(nome)}${arroba}</span>`;
+    }
+
+    /**
+     * @private Uma concessão viva, de pessoa ou de grupo.
      * @param {Object} grant
      */
     _renderGrantItem(grant) {
         const id = String(grant?.id ?? '');
-        const granteeId = String(grant?.grantee_id ?? '');
         const nome = granteeName(grant);
-        const username = grant?.grantee_username ?? '';
+        const grupo = isGroupGrant(grant);
         const concedente = grant?.granted_by_nome || grant?.granted_by_username || null;
-        const color = escapeHtml(getPresenceColor(granteeId));
-        const initials = escapeHtml(getInitials(nome));
         // Quantos caem junto: mostrado NA LINHA, e não só na confirmação, para que o
         // alcance da poda seja visível antes de o dedo ir para o botão.
         const caidos = descendantGrants(this._grants, id).length;
@@ -241,24 +328,81 @@ export class ResourceShareModal extends ModalBase {
             : '';
 
         return `
-            <div class="sharing-member" data-testid="resource-share-grant" data-grant-id="${escapeHtml(id)}">
-                <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
+            <div class="sharing-member" data-testid="resource-share-grant"
+                 data-grantee-kind="${grupo ? 'grupo' : 'pessoa'}" data-grant-id="${escapeHtml(id)}">
+                ${this._renderGranteeAvatar(grant, nome)}
                 <div class="sharing-member__info">
-                    <span class="sharing-member__name">${escapeHtml(nome)}${username ? ` <span class="sharing-member__username">@${escapeHtml(username)}</span>` : ''}</span>
+                    ${this._renderGranteeNameLine(grant, nome)}
                     ${origem}
                 </div>
                 ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>
                 <button type="button" class="sharing-member__remove" data-action="revoke"
-                        data-testid="resource-share-revoke" aria-label="Remover o acesso de ${escapeHtml(nome)}">
+                        data-testid="resource-share-revoke" aria-label="Remover o acesso ${escapeHtml(granteeSubject(grant))}">
                     ${CATALOG_UI_ICONS.REMOVE}
                 </button>
             </div>
         `;
     }
 
-    /** @private Busca de pessoa + escolha do nível. */
+    /**
+     * @private A linha de conceder a um GRUPO: seletor curto, não busca.
+     *
+     * SELETOR SEPARADO, E NÃO UMA BUSCA ÚNICA QUE MISTURA OS DOIS TIPOS. A escolha é
+     * pela natureza das duas listas, que só parecem a mesma coisa:
+     *
+     * - a de grupos é CURTA, COMPLETA e chega numa chamada só (`listAccessGroups`),
+     *   então ela pode ser MOSTRADA. Enfiá-la atrás de um campo de busca esconderia
+     *   de quem não sabe que existe grupo justamente a informação de que existe, e
+     *   um seletor cuja função é revelar o que há não pode depender de a pessoa já
+     *   saber o nome;
+     * - a de pessoas é uma busca contra o servidor, com debounce e mínimo de dois
+     *   caracteres, e nunca está completa. Num campo único os grupos apareceriam e
+     *   sumiriam conforme a digitação, e o estado vazio ("Nenhum usuário encontrado"
+     *   / "Todos já têm acesso") passaria a falar por duas listas com frescores
+     *   diferentes, dizendo o mesmo para causas distintas.
+     *
+     * O nível escolhido acima vale para os dois caminhos: é o mesmo ato.
+     */
+    _renderGroupRow() {
+        if (!this._groups.length) return '';
+        const { groupIds } = alreadyGranted(this._grants);
+        const escolhiveis = this._groups.filter((g) => !groupIds.has(String(g?.id)));
+        if (!escolhiveis.length) {
+            return `
+                <p class="sharing-section__hint" data-testid="resource-share-groups-exhausted">
+                    Todos os grupos de acesso já receberam este recurso.
+                </p>
+            `;
+        }
+        const opcoes = escolhiveis.map((g) => {
+            const membros = Number(g?.member_count);
+            const quantos = Number.isFinite(membros) && membros > 0
+                ? ` (${membros} ${membros === 1 ? 'pessoa' : 'pessoas'})`
+                : ' (sem membros)';
+            // `|| 'Grupo'`, e não `??`: nome vazio é ausência, como em `granteeName`,
+            // e uma opção sem texto é uma linha invisível dentro do seletor.
+            const rotulo = String(g?.name || 'Grupo');
+            return `<option value="${escapeHtml(String(g?.id ?? ''))}">${escapeHtml(rotulo)}${escapeHtml(quantos)}</option>`;
+        }).join('');
+        return `
+            <div class="resource-share__group-row">
+                <label class="resource-share__level-label" for="resource-share-group-select">Grupo</label>
+                <select class="sharing-member__permission" id="resource-share-group-select"
+                        data-action="group" data-testid="resource-share-group-select">
+                    <option value="">Escolher um grupo…</option>
+                    ${opcoes}
+                </select>
+                <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm"
+                        data-action="grant-group" data-testid="resource-share-grant-group" disabled>
+                    Conceder ao grupo
+                </button>
+            </div>
+        `;
+    }
+
+    /** @private Busca de pessoa + escolha de grupo + escolha do nível. */
     _renderAddSection() {
         const opcoes = GRANT_LEVELS.map((n) =>
             `<option value="${n.value}"${n.value === this._level ? ' selected' : ''}>${n.label}</option>`
@@ -279,6 +423,7 @@ export class ResourceShareModal extends ModalBase {
                     concedeu. Vencido, ele deixa de valer sozinho, sem aviso: para manter, conceda
                     de novo antes da data.
                 </p>
+                ${this._renderGroupRow()}
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${CATALOG_UI_ICONS.SEARCH}</span>
                     <input type="text" class="sharing-search__input" data-action="search"
@@ -295,8 +440,11 @@ export class ResourceShareModal extends ModalBase {
      * @param {Array<Object>} results
      */
     _renderResults(results) {
-        const jaTem = new Set(this._grants.map((g) => String(g.grantee_id)));
-        const escolhiveis = results.filter((u) => !jaTem.has(String(u?.id)));
+        // Só o eixo de PESSOA aqui: quem já tem acesso por um grupo continua
+        // escolhível de propósito, porque tirá-lo do grupo é outra decisão e a
+        // concessão pessoal é um caminho independente (D3, a estrutura é um DAG).
+        const { userIds } = alreadyGranted(this._grants);
+        const escolhiveis = results.filter((u) => !userIds.has(String(u?.id)));
 
         if (!results.length) return '<div class="sharing-results__empty">Nenhum usuário encontrado</div>';
         if (!escolhiveis.length) return '<div class="sharing-results__empty">Todos já têm acesso</div>';
@@ -338,6 +486,20 @@ export class ResourceShareModal extends ModalBase {
 
         const level = body.querySelector('[data-action="level"]');
         if (level) addScopedDomListener(this, 'body', level, 'change', () => { this._level = level.value; });
+
+        const group = body.querySelector('[data-action="group"]');
+        const grantGroup = body.querySelector('[data-action="grant-group"]');
+        if (group) {
+            addScopedDomListener(this, 'body', group, 'change', () => {
+                this._groupId = group.value;
+                // O botão nasce desabilitado com o placeholder escolhido: sem isto,
+                // clicar sem escolher seria um clique que não faz nada e não explica.
+                if (grantGroup) grantGroup.disabled = !group.value;
+            });
+        }
+        if (grantGroup) {
+            addScopedDomListener(this, 'body', grantGroup, 'click', () => this._handleGrantGroup(this._groupId));
+        }
 
         const search = body.querySelector('[data-action="search"]');
         if (search) addScopedDomListener(this, 'body', search, 'input', () => this._handleSearchInput(search.value));
@@ -399,6 +561,30 @@ export class ResourceShareModal extends ModalBase {
             this._setResultsHidden(true);
         } catch (error) {
             showError(shareErrorMessage(error, 'Não foi possível conceder o acesso.'));
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Concede acesso ao grupo escolhido, no nível do seletor.
+     *
+     * `granteeGroupId` e `granteeId` são ALTERNATIVOS no Joi da rota (um `xor` que
+     * espelha o CHECK da tabela), então este payload nunca carrega os dois.
+     * @param {string} groupId
+     */
+    async _handleGrantGroup(groupId) {
+        if (this._busy || !groupId) return;
+        this._busy = true;
+        try {
+            await apiClient.grantResource(this._type, this._id, {
+                granteeGroupId: groupId,
+                grantLevel: this._level,
+            });
+            showSuccess('Acesso concedido ao grupo.');
+            await this._load();
+        } catch (error) {
+            showError(shareErrorMessage(error, 'Não foi possível conceder o acesso ao grupo.'));
         } finally {
             this._busy = false;
         }

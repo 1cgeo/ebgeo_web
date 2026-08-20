@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+    alreadyGranted,
     descendantGrants,
+    granteeCounts,
     granteeName,
+    granteeSubject,
+    groupMemberCount,
+    isGroupGrant,
     revocationWarning,
     MAX_GRANT_DEPTH,
 } from '../../src/js/catalog/grant-tree.js';
@@ -30,6 +35,32 @@ const ARVORE = [
     g('E', 'A', 'Elza'),
     g('X', null, 'Xavier'),
     g('Y', 'X', 'Yara'),
+];
+
+/**
+ * Uma concessão a GRUPO, como o servidor a devolve: os três campos de pessoa vêm
+ * NULOS (o CHECK do banco garante alvo único), e é justamente essa forma que fazia a
+ * versão anterior de `granteeName` chamar um grupo de doze de "Usuário".
+ */
+const grp = (id, pai, nome, membros = 0) => ({
+    id,
+    parent_grant_id: pai,
+    grantee_id: null,
+    grantee_username: null,
+    grantee_nome: null,
+    grantee_group_id: `gid-${id}`,
+    grantee_group_name: nome,
+    grantee_group_member_count: membros,
+    grant_level: 'view',
+});
+
+// Uma raiz de pessoa com três dependentes: uma pessoa e DOIS grupos. É a lista
+// mista, que é onde toda frase escrita só com "pessoas" fica falsa.
+const MISTA = [
+    g('M', null, 'Marcos'),
+    g('M1', 'M', 'Marta'),
+    grp('M2', 'M', 'Equipe Alfa', 12),
+    grp('M3', 'M', 'Equipe Bravo', 1),
 ];
 
 const ids = (lista) => lista.map((x) => x.id).sort();
@@ -91,6 +122,98 @@ describe('granteeName — o nome que a linha mostra', () => {
         // Vazio é ausência, não um nome: sem isto a linha ficaria em branco.
         expect(granteeName({ grantee_nome: '', grantee_username: '' })).toBe('Usuário');
     });
+
+    it('numa concessão a GRUPO devolve o nome do grupo, nunca "Usuário"', () => {
+        // O defeito que este caso prende: os campos de pessoa vêm nulos por CHECK, e
+        // a frase de revogação chamava um grupo de doze pessoas de "Usuário".
+        expect(granteeName(grp('G', null, 'Equipe Alfa', 12))).toBe('Equipe Alfa');
+        expect(granteeName(grp('G', null, 'Equipe Alfa', 12))).not.toBe('Usuário');
+    });
+
+    it('grupo sem nome cai em "Grupo", e não no rótulo de pessoa', () => {
+        expect(granteeName(grp('G', null, null, 3))).toBe('Grupo');
+        expect(granteeName(grp('G', null, '', 3))).toBe('Grupo');
+    });
+});
+
+describe('isGroupGrant — qual dos dois alvos', () => {
+    it('discrimina pelo campo de grupo, não pela falta de nome de pessoa', () => {
+        expect(isGroupGrant(grp('G', null, 'Equipe Alfa', 2))).toBe(true);
+        expect(isGroupGrant(g('A', null, 'Ana'))).toBe(false);
+        // Pessoa sem nome NENHUM continua sendo pessoa: adivinhar por ausência de
+        // nome classificaria como grupo toda linha de usuário apagado.
+        expect(isGroupGrant({ id: 'A', grantee_id: 'uid' })).toBe(false);
+        expect(isGroupGrant({})).toBe(false);
+        expect(isGroupGrant(null)).toBe(false);
+        // String vazia é ausência, como em todo o resto do arquivo.
+        expect(isGroupGrant({ grantee_group_id: '' })).toBe(false);
+    });
+});
+
+describe('groupMemberCount — o tamanho do grupo', () => {
+    it('devolve a contagem do servidor e colapsa em 0 todo resto', () => {
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', 12))).toBe(12);
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', 1))).toBe(1);
+        // Contagem nula (grupo vazio, ou campo que não veio) e não-grupo: 0.
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', null))).toBe(0);
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', 0))).toBe(0);
+        expect(groupMemberCount({ grantee_group_id: 'gid' })).toBe(0);
+        expect(groupMemberCount(g('A', null, 'Ana'))).toBe(0);
+        expect(groupMemberCount(null)).toBe(0);
+        // Lixo vindo da rede não vira "NaN pessoas" na tela.
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', 'doze'))).toBe(0);
+        expect(groupMemberCount(grp('G', null, 'Equipe Alfa', -4))).toBe(0);
+    });
+});
+
+describe('granteeSubject — o beneficiário dentro da frase', () => {
+    it('preposiciona pessoa e grupo de formas diferentes', () => {
+        expect(granteeSubject(g('A', null, 'Ana'))).toBe('de Ana');
+        expect(granteeSubject(grp('G', null, 'Equipe Alfa', 12))).toBe('do grupo Equipe Alfa');
+        expect(granteeSubject(undefined)).toBe('de Usuário');
+    });
+});
+
+describe('granteeCounts — quantos de cada tipo', () => {
+    it('separa pessoa de grupo numa lista mista', () => {
+        expect(granteeCounts(MISTA)).toEqual({ pessoas: 2, grupos: 2 });
+        expect(granteeCounts(ARVORE)).toEqual({ pessoas: 7, grupos: 0 });
+        expect(granteeCounts([])).toEqual({ pessoas: 0, grupos: 0 });
+        expect(granteeCounts(null)).toEqual({ pessoas: 0, grupos: 0 });
+    });
+});
+
+describe('alreadyGranted — quem o seletor não pode oferecer de novo', () => {
+    it('devolve os dois eixos separados, porque os ids moram em colunas diferentes', () => {
+        const lista = [
+            { id: '1', grantee_id: 'u1' },
+            { id: '2', grantee_id: 'u2' },
+            grp('3', null, 'Equipe Alfa', 4),
+        ];
+        const { userIds, groupIds } = alreadyGranted(lista);
+        expect([...userIds].sort()).toEqual(['u1', 'u2']);
+        expect([...groupIds]).toEqual(['gid-3']);
+        // O grupo NÃO entra no conjunto de pessoas: sem esta metade, o filtro de
+        // pessoa passaria a esconder um id que nunca esteve na busca de pessoas.
+        expect(userIds.has('gid-3')).toBe(false);
+        expect(groupIds.has('u1')).toBe(false);
+    });
+
+    it('lista vazia, nula e linha sem alvo nenhum não sujam os conjuntos', () => {
+        expect(alreadyGranted([]).userIds.size).toBe(0);
+        expect(alreadyGranted(null).groupIds.size).toBe(0);
+        // Linha hostil (o CHECK do banco a impede, mas o JSON chega pela rede):
+        // sem alvo, ela não pode virar um `undefined` dentro do conjunto, senão
+        // um resultado de busca sem id casaria com ela e sumiria da lista.
+        const { userIds, groupIds } = alreadyGranted([{ id: '9' }]);
+        expect(userIds.size).toBe(0);
+        expect(groupIds.size).toBe(0);
+    });
+
+    it('compara como STRING, porque o id do resultado de busca chega como texto', () => {
+        const { userIds } = alreadyGranted([{ id: '1', grantee_id: 7 }]);
+        expect(userIds.has('7')).toBe(true);
+    });
 });
 
 describe('revocationWarning — o aviso que o modal mostra', () => {
@@ -116,5 +239,47 @@ describe('revocationWarning — o aviso que o modal mostra', () => {
 
     it('concessão desconhecida não quebra o aviso', () => {
         expect(revocationWarning(ARVORE, 'nao-existe')).toContain('Usuário');
+    });
+
+    it('com um GRUPO no meio da poda, não diz "pessoas" sobre o que não é pessoa', () => {
+        const texto = revocationWarning(MISTA, 'M');
+        // A afirmação que vale: o total é contado POR TIPO. A frase antiga diria
+        // "3 pessoas perdem o acesso" com dois grupos entre os três.
+        expect(texto).toContain('1 pessoa e 2 grupos perdem o acesso');
+        expect(texto).not.toContain('3 pessoas perdem');
+        // O tamanho de cada grupo vai na CITAÇÃO dele, nunca somado ao total: somar
+        // membros contaria duas vezes quem está em dois grupos.
+        expect(texto).toContain('Equipe Alfa (12 pessoas)');
+        expect(texto).toContain('Equipe Bravo (1 pessoa)');
+        expect(texto).not.toContain('13 pessoas');
+    });
+
+    it('o alvo que é grupo aparece preposicionado como grupo, não como pessoa', () => {
+        const soGrupo = [grp('G', null, 'Equipe Charlie', 5), g('H', 'G', 'Helena')];
+        const texto = revocationWarning(soGrupo, 'G');
+        expect(texto).toContain('Remover o acesso do grupo Equipe Charlie a este recurso?');
+        expect(texto).toContain('ATRAVÉS do grupo Equipe Charlie');
+        expect(texto).toContain('1 pessoa perde o acesso');
+        expect(texto).not.toContain('Usuário');
+    });
+
+    it('só grupos caindo fala de grupos, e grupo sem contagem não ganha parêntese', () => {
+        const soGrupos = [
+            g('R', null, 'Rui'),
+            grp('R1', 'R', 'Equipe Delta', 2),
+            grp('R2', 'R', 'Equipe Echo', null),
+        ];
+        const texto = revocationWarning(soGrupos, 'R');
+        expect(texto).toContain('2 grupos perdem o acesso');
+        expect(texto).not.toContain('pessoas perdem');
+        expect(texto).toContain('Equipe Delta (2 pessoas)');
+        // Contagem ausente: o nome sai sozinho, sem "(0 pessoas)".
+        expect(texto).toContain('Equipe Echo');
+        expect(texto).not.toContain('Equipe Echo (');
+    });
+
+    it('um grupo sozinho, sem dependente, pergunta só pelo grupo', () => {
+        const texto = revocationWarning(MISTA, 'M2');
+        expect(texto).toBe('Remover o acesso do grupo Equipe Alfa a este recurso?');
     });
 });

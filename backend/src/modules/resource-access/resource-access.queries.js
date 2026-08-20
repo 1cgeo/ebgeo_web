@@ -1,6 +1,6 @@
 // Path: src/modules/resource-access/resource-access.queries.js
 // SQL nomeado do módulo de acesso a recurso. O PREDICADO de acesso não mora aqui:
-// ele mora nas funções SQL das migrações 017/019, e estas consultas as CHAMAM. Uma
+// ele mora nas funções SQL de `008_acesso_a_recurso.sql`, e estas consultas as CHAMAM. Uma
 // definição só, que é a dívida que o schema `ng` já paga por não ter feito assim.
 // O do 360 é composto e vem de `sv360.queries.js` pelo mesmo motivo.
 import { sv360AccessPredicate } from '../streetview360/sv360.queries.js';
@@ -133,13 +133,20 @@ export const LIST_VISIBLE_PRIVATE_360 = `
  * o papel aqui seria uma segunda definição da mesma regra.
  *   $1 = grantee_id
  */
+// O BRAÇO DE GRUPO ENTROU AQUI JUNTO COM O DE `LIVE_GRANTS_OF_ACTOR`, e os dois
+// precisam concordar: esta consulta decide se a interface OFERECE o botão
+// "Compartilhar", e aquela decide se o servidor ACEITA a escrita. Enquanto só a
+// segunda conhecesse grupo, quem recebeu `view_share` através de um grupo teria
+// permissão de repassar e nenhum botão para isso — uma capacidade sem porta, que na
+// tela é indistinguível de não ter a permissão.
 export const LIST_SHAREABLE_OF_ACTOR = `
   SELECT DISTINCT resource_type, resource_id
     FROM resource_grants
    WHERE revoked_at IS NULL
      AND expires_at > NOW()
-     AND grantee_id = $1::uuid
      AND grant_level = 'view_share'
+     AND ( grantee_id = $1::uuid
+        OR grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
 `;
 
 // --- concessões ------------------------------------------------------------
@@ -147,18 +154,35 @@ export const LIST_SHAREABLE_OF_ACTOR = `
 /**
  * As concessões VIVAS de um recurso, com quem recebeu e quem concedeu (a tela
  * "quem tem acesso"). $1 = resource_type, $2 = resource_id
+ *
+ * AS DUAS JUNÇÕES DE BENEFICIÁRIO SÃO `LEFT`, E A DE USUÁRIO PRECISOU MUDAR. Ela era
+ * `JOIN users gu ON gu.id = g.grantee_id`, um INNER, e numa concessão a grupo o
+ * `grantee_id` é NULL por CHECK: a linha inteira sumia da resposta. O sintoma seria o
+ * pior possível para uma tela de permissão — conceder a um grupo devolveria 201, e a
+ * lista "quem tem acesso" continuaria sem mostrar ninguém, sem erro em lugar nenhum.
+ *
+ * O GRUPO APAGADO SAI DA LISTA, e é por isso que o filtro está no WHERE e não só na
+ * junção. `fn_user_group_ids` exige `deleted_at IS NULL`, então a concessão a um grupo
+ * apagado não entrega acesso a ninguém; mantê-la aqui faria a tela chamada "quem tem
+ * acesso" listar quem não tem. Não há o que fazer com a linha de qualquer forma: ela
+ * já não concede, e revogá-la não mudaria nada.
  */
 export const LIST_GRANTS_FOR_RESOURCE = `
   SELECT g.id, g.resource_type, g.resource_id, g.grant_level, g.parent_grant_id, g.created_at,
          g.expires_at,
          g.grantee_id, gu.username AS grantee_username, gu.nome AS grantee_nome,
+         g.grantee_group_id, gg.name AS grantee_group_name,
+         (SELECT COUNT(*) FROM access_group_members m WHERE m.group_id = g.grantee_group_id)::int
+           AS grantee_group_member_count,
          g.granted_by, bu.username AS granted_by_username, bu.nome AS granted_by_nome
     FROM resource_grants g
-    JOIN users gu ON gu.id = g.grantee_id
+    LEFT JOIN users gu ON gu.id = g.grantee_id
+    LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
     LEFT JOIN users bu ON bu.id = g.granted_by
    WHERE g.revoked_at IS NULL
      AND g.expires_at > NOW()
      AND g.resource_type = $1 AND g.resource_id = $2
+     AND (g.grantee_group_id IS NULL OR gg.deleted_at IS NULL)
    ORDER BY g.created_at
 `;
 
@@ -177,14 +201,31 @@ export const LIST_GRANTS_FOR_RESOURCE = `
  * desta consulta, e a concessão nova nasceria pendurada num pai morto.
  *
  * `expires_at` viaja no SELECT porque o INSERT do filho o usa como TETO.
- *   $1 = grantee_id, $2 = resource_type, $3 = resource_id
+ *
+ * O BRAÇO DE GRUPO ENTROU EM 2026-08-19, e sem ele a concessão a grupo seria de
+ * segunda classe: quem recebe `view_share` ATRAVÉS de um grupo veria o recurso (o
+ * predicado de leitura, `fn_granted_resource_ids`, sempre teve o braço de grupo) e
+ * não conseguiria repassá-lo, porque o gate `requireResourceShare` se alimenta desta
+ * consulta e ela só olhava `grantee_id`. Os dois níveis significariam a mesma coisa
+ * para o membro de grupo, que é justamente a distinção que a fase F3 existe para
+ * manter.
+ *
+ * `fn_user_group_ids` já exige grupo VIVO (`deleted_at IS NULL`), então apagar o
+ * grupo tira o repasse na mesma leitura em que tira a visão — não há aqui uma segunda
+ * cópia da regra de "grupo apagado não concede".
+ *
+ * `grantee_group_id` viaja no SELECT porque o serviço precisa dele para recusar o
+ * caso degenerado: conceder AO MESMO grupo de onde a própria autoridade veio.
+ *   $1 = grantee_id (o ator), $2 = resource_type, $3 = resource_id
  */
 export const LIVE_GRANTS_OF_ACTOR = `
-  SELECT id, grant_level, expires_at
+  SELECT id, grant_level, expires_at, grantee_id, grantee_group_id
     FROM resource_grants
    WHERE revoked_at IS NULL
      AND expires_at > NOW()
-     AND grantee_id = $1::uuid AND resource_type = $2 AND resource_id = $3
+     AND resource_type = $2 AND resource_id = $3
+     AND ( grantee_id = $1::uuid
+        OR grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
    ORDER BY (grant_level = 'view_share') DESC, created_at
 `;
 
@@ -213,9 +254,39 @@ export const LIVE_GRANT_FROM_ACTOR_TO_GRANTEE = `
    LIMIT 1
 `;
 
+/**
+ * O IRMÃO DE GRUPO da consulta acima, e ele precisa ser uma consulta SEPARADA em vez
+ * de um `COALESCE` sobre as duas colunas: `grantee_id` e `grantee_group_id` são
+ * ALTERNATIVOS por CHECK, então numa linha de grupo o `grantee_id` é NULL, e
+ * `grantee_id = $2` com $2 nulo é NULL — nunca verdadeiro. Uma consulta única
+ * parametrizada pelos dois devolveria zero linha sempre, e o efeito seria a duplicata
+ * passar: o 409 sumiria em silêncio, que é o pior formato deste defeito.
+ *   $1 = granted_by, $2 = grantee_group_id, $3 = resource_type, $4 = resource_id
+ */
+export const LIVE_GRANT_FROM_ACTOR_TO_GROUP = `
+  SELECT id, grant_level FROM resource_grants
+   WHERE revoked_at IS NULL
+     AND expires_at > NOW()
+     AND granted_by = $1::uuid AND grantee_group_id = $2::uuid
+     AND resource_type = $3 AND resource_id = $4
+   LIMIT 1
+`;
+
 /** Um usuário ATIVO por id (o beneficiário precisa existir antes do INSERT). $1 = id. */
 export const GET_ACTIVE_USER = `
   SELECT id, username, nome FROM users WHERE id = $1::uuid AND is_active = true
+`;
+
+/**
+ * Um grupo VIVO por id (o beneficiário-coletivo precisa existir antes do INSERT).
+ *
+ * `deleted_at IS NULL` e não só o id: a FK aceitaria um grupo apagado, e a concessão
+ * nasceria morta — `fn_user_group_ids` exige grupo vivo, então ela não devolveria
+ * linha para ninguém e a tela mostraria um acesso concedido que não existe.
+ *   $1 = id
+ */
+export const GET_LIVE_GROUP = `
+  SELECT id, name FROM access_groups WHERE id = $1::uuid AND deleted_at IS NULL
 `;
 
 /**
@@ -230,25 +301,36 @@ export const GET_ACTIVE_USER = `
  *   - o prazo do PAI (`$8`, nulo na concessão de raiz), porque filho nunca pode
  *     sobreviver a quem o autorizou. `'infinity'` é o neutro do LEAST para a raiz.
  * `GREATEST` não aparece: o piso (`expires_at > created_at`) é cobrado na borda.
- *   $1..$6 = tipo, recurso, beneficiário, nível, concedente, pai
+ *
+ * O BENEFICIÁRIO SÃO DOIS PARÂMETROS E EXATAMENTE UM DELES É NÃO-NULO, o que o
+ * `CHECK (num_nonnulls(grantee_id, grantee_group_id) = 1)` cobra. A borda (o `xor` do
+ * Joi) recusa antes, para que o pedido malformado volte como 422 com nome de campo em
+ * vez do 23514 genérico em que o CHECK se traduz — mas o CHECK continua sendo quem
+ * garante, porque INSERT cru existe (os testes de função escrevem direto na tabela).
+ *   $1..$4 = tipo, recurso, beneficiário-pessoa, nível
+ *   $5, $6 = concedente, pai
  *   $7 = prazo pedido (timestamptz|null), $8 = prazo do pai (timestamptz|null)
+ *   $9 = beneficiário-grupo
  */
 export const INSERT_GRANT = `
   INSERT INTO resource_grants
-    (resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id, expires_at)
+    (resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id, expires_at,
+     grantee_group_id)
   VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6::uuid,
           LEAST(
             COALESCE($7::timestamptz, NOW() + INTERVAL '1 year'),
             NOW() + INTERVAL '1 year',
             COALESCE($8::timestamptz, 'infinity'::timestamptz)
-          ))
-  RETURNING id, resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id,
-            created_at, expires_at
+          ),
+          $9::uuid)
+  RETURNING id, resource_type, resource_id, grantee_id, grantee_group_id, grant_level, granted_by,
+            parent_grant_id, created_at, expires_at
 `;
 
 /** Uma concessão por id, viva ou não (para o gate de revogação). $1 = id. */
 export const GET_GRANT = `
-  SELECT id, resource_type, resource_id, grantee_id, grant_level, granted_by, parent_grant_id, revoked_at
+  SELECT id, resource_type, resource_id, grantee_id, grantee_group_id, grant_level, granted_by,
+         parent_grant_id, revoked_at
     FROM resource_grants WHERE id = $1::uuid
 `;
 
@@ -291,7 +373,7 @@ UPDATE resource_grants g
    SET revoked_at = NOW(), revoked_by = $2::uuid
   FROM subtree s
  WHERE g.id = s.id
-RETURNING g.id, g.grantee_id, g.resource_type, g.resource_id, g.parent_grant_id
+RETURNING g.id, g.grantee_id, g.grantee_group_id, g.resource_type, g.resource_id, g.parent_grant_id
 `;
 
 // --- empréstimo por atlas --------------------------------------------------
@@ -355,7 +437,7 @@ export const DETACH_ATLAS_RESOURCE = `
 // que estava vivo. O estado de cada uma viaja no detalhe.
 export const PURGE_GRANTS_OF_RESOURCE = `
   DELETE FROM resource_grants WHERE resource_type = $1 AND resource_id = $2
-  RETURNING id, grantee_id, granted_by, grant_level, parent_grant_id, revoked_at, expires_at
+  RETURNING id, grantee_id, grantee_group_id, granted_by, grant_level, parent_grant_id, revoked_at, expires_at
 `;
 export const PURGE_ATLAS_LINKS_OF_RESOURCE = `
   DELETE FROM atlas_resources WHERE resource_type = $1 AND resource_id = $2

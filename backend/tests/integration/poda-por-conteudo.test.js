@@ -9,8 +9,9 @@
 // olhava `op.entityType`, e a definição voltava inteira pelo log e pelo relay. A F12 tinha
 // declarado as duas superfícies fechadas.
 //
-// V3 — A COLUNA IRMÃ. `maps.analysis_layers` foi declarada no MESMO bloco JSONB da coluna que a
-// migração 022 derrubou, e continuou publicada crua por QUATRO superfícies (`GET /maps`,
+// V3 — A COLUNA IRMÃ. `maps.analysis_layers` foi declarada no MESMO bloco JSONB da coluna
+// `maps.catalog_layers` que saiu do schema, e continuou publicada crua por QUATRO superfícies
+// (`GET /maps`,
 // `GET /maps/:id`, `POST /duplicate` e o snapshot). Ela é um saco JSONB livre: `sync.schemas.js`
 // declara `changes` como `Joi.object().unknown(true)`, então qualquer cliente com `write` — ou com
 // `comment`, que é o gate da rota de push — escreve uma definição inteira lá dentro, e o visitante
@@ -289,7 +290,8 @@ describe('F13 — a poda por conteúdo alcança o carimbo errado e a coluna irm�
     }
 
     // A CONCESSÃO, e ela é a única diferença entre o concessionário e o membro. `view` é o nível
-    // mais baixo do CHECK da 017 (`view` ou `view_share`): ver sem poder repassar já basta para
+    // mais baixo do CHECK de `resource_grants.grant_level` (`view` ou `view_share`): ver sem
+    // poder repassar já basta para
     // receber a definição, e cobrar mais que isso testaria o repasse, que é outro assunto.
     await db.query(
       `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)

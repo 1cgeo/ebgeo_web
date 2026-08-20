@@ -216,9 +216,9 @@ async function runImageCopyJobs(copyJobs) {
  * hold them in.
  *
  * `arrayForm` is the IMPORT PAYLOAD's `map.catalog_layers`, which is a frozen key of the
- * `.ebgeo`/upload contract and is still accepted (`atlas.schemas.js`) even though migration 022
- * removed the column of the same name. It is materialised straight into the table, which is what
- * the snapshot reads. Clone and duplicate pass null: since 022 they have only the table.
+ * `.ebgeo`/upload contract and is still accepted (`atlas.schemas.js`) even though no column of
+ * that name exists any more. It is materialised straight into the table, which is what the
+ * snapshot reads. Clone and duplicate pass null: they have only the table.
  *
  * Live rows win over the array for the same id — the row carries version/updated_at/deleted_at
  * and is the one the snapshot has been serving.
@@ -474,7 +474,7 @@ export async function updateAtlas(atlasId, data) {
  * Soft-deletes an atlas.
  *
  * DEVOLVE A LINHA (`id, name, owner_id`) e não `true`: `ATLAS_DELETE` estava
- * declarado no CHECK de `audit_trail.action` desde a migração 001 e nunca teve
+ * declarado no CHECK de `audit_trail.action` (`002_auditoria.sql`) desde sempre e nunca teve
  * emissor, e o booleano era exatamente o que faltava para o emissor ter um
  * `target_name`. Quem só precisa do sucesso continua servido — a função lança em
  * vez de devolver falso.
@@ -1226,7 +1226,7 @@ export async function importAtlas(userId, data) {
     // 2.7 Catalog layers. The payload carries them as an ARRAY under `map.catalog_layers` (a
     // frozen key of the import contract, kept in the Joi schema), and the snapshot reads
     // exclusively from the dedicated table — so they are materialised into it. There is no
-    // column of that name any more (migration 022); the payload key is the only survivor.
+    // column of that name any more; the payload key is the only survivor.
     await insertMany(
       t,
       CS.catalogLayers,

@@ -226,9 +226,9 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     }
 
     // A concessão VENCIDA e a REVOGADA, sobre o mesmo recurso do beneficiário vivo. O
-    // `created_at` recua junto com o `expires_at` porque o CHECK da 019 ancora o prazo no
-    // nascimento da concessão (`expires_at > created_at`), não no relógio: uma linha que já
-    // nasce morta é recusada pelo banco.
+    // `created_at` recua junto com o `expires_at` porque `resource_grants_expires_at_check`
+    // ancora o prazo no nascimento da concessão (`expires_at > created_at`), não no relógio:
+    // uma linha que já nasce morta é recusada pelo banco.
     await db.query(
       `INSERT INTO resource_grants
          (resource_type, resource_id, grantee_id, grant_level, granted_by, created_at, expires_at)

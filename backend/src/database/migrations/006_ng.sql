@@ -15,8 +15,17 @@
 -- visualizador, com o eixo de acesso de `resource_grants`/`atlas_resources`. O
 -- importador do gazetteer carrega o acervo 3D direto em `tilesets`.
 --
--- `ng.groups` e `ng.user_groups` FICAM: as zonas de acesso geográfico as usam e
--- estão vivas.
+-- `ng.groups` e `ng.user_groups` NAO EXISTEM, e esta linha afirmava o contrario
+-- ("FICAM: as zonas de acesso geografico as usam e estao vivas") ate 2026-08-19. O
+-- acesso geografico por zonas saiu inteiro no MESMO trabalho que escreveu esta
+-- baseline, e as duas tabelas foram junto: quem lia o comentario concluia que elas
+-- estavam de pe, e o DDL abaixo cria UMA tabela neste schema, `ng.nomes_geograficos`.
+-- Medido contra o banco: `information_schema.tables` com `table_schema = 'ng'`
+-- devolve uma linha.
+--
+-- O que conceder a um COLETIVO virou esta escrito na 008_acesso_a_recurso.sql:
+-- `access_groups` e `access_group_members`, no schema da aplicacao, com FK de
+-- verdade para `users`. Elas SUBSTITUEM a ideia, e nao renomeiam a tabela.
 
 -- ============================================================================
 -- 1) Extensions (idempotente). pgcrypto já criado em 001; postgis/pg_trgm/

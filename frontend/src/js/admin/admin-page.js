@@ -14,9 +14,11 @@
  * Boot phases, in order:
  *   1. Config — `GET /api/config`, fail-fast with retries (same contract as the map boot).
  *   2. Session — restore the persisted tokens and validate them against the backend.
- *   3. Gate — global system admin, OR a producer (who reaches only the Catálogo tab, because
- *      every other tab is `requireAdmin` on its first request and a tab that 403s on mount is the
- *      worst way to deny). Anyone else is sent to the map.
+ *   3. Gate — THREE audiences, not two: the global system admin (all five tabs), the credenciado
+ *      (only Grupos, because since 2026-08-19 he administers access groups) and the producer
+ *      (only Catálogo). Each of the two narrow audiences gets its own tab set and its own page
+ *      title, because every other tab is `requireAdmin` on its first request and a tab that 403s
+ *      on mount is the worst way to deny. Anyone else is sent to the map.
  *   4. Mount — build the shell and wire the session lifecycle (auth lost + idle timeout).
  */
 
@@ -111,10 +113,12 @@ async function initAdminPage() {
     document.title = `Administração — ${config?.app?.title || 'EBGeo'}`;
 
     await restoreSession();
-    // Gate: GLOBAL system admins, plus a PRODUCER — who gets the Catálogo tab and nothing else
-    // (see `mountAdminPage`). Anyone else — signed out, or a regular user who typed the URL —
-    // goes to the map rather than staring at a shell whose every request 403s.
-    if (!sessionContext.isAdmin() && !sessionContext.isProducer()) {
+    // Gate: GLOBAL system admins, plus a CREDENCIADO (Grupos only) and a PRODUCER (Catálogo only)
+    // — see `mountAdminPage` for which tabs each one gets. Anyone else — signed out, or a regular
+    // user who typed the URL — goes to the map rather than staring at a shell whose every request
+    // 403s. `hasGlobalDataAccess()` also covers the admin, which is harmless here: the three tests
+    // are an OR, and only the title below needs them apart.
+    if (!sessionContext.isAdmin() && !sessionContext.hasGlobalDataAccess() && !sessionContext.isProducer()) {
         window.location.replace(MAP_URL);
         return;
     }
@@ -127,8 +131,12 @@ async function initAdminPage() {
     // Announced only past the gate, so a tab that is about to redirect does not join and leave.
     initTabLock({ key: noneKey(), overlayHost: null });
 
+    // The narrow audiences get the title of the ONE thing they can do here. Same order as
+    // `mountAdminPage`: `hasGlobalDataAccess()` is true for the admin too, so it is only asked
+    // after `isAdmin()` has already returned.
     if (!sessionContext.isAdmin()) {
-        document.title = `Catálogo — ${config?.app?.title || 'EBGeo'}`;
+        const escopo = sessionContext.hasGlobalDataAccess() ? 'Grupos' : 'Catálogo';
+        document.title = `${escopo} — ${config?.app?.title || 'EBGeo'}`;
     }
 
     clearSplash();

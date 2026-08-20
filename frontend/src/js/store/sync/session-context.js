@@ -251,10 +251,15 @@ class SessionContext {
      * (administrador ou credenciado).
      *
      * EIXO SEPARADO DE `isAdmin()`, e a separação é o ponto da fase inteira: o
-     * credenciado LÊ todo dado privado e NÃO ESCREVE NADA — não abre o painel do
-     * admin, não vira dono de atlas, não marca recurso como privado. Juntar os dois
-     * numa função só é exatamente a promoção silenciosa que o censo do backend
-     * existe para impedir.
+     * credenciado LÊ todo dado privado e não administra o sistema. Ele não vira dono
+     * de atlas e não marca recurso como privado. Juntar os dois numa função só é
+     * exatamente a promoção silenciosa que o censo do backend existe para impedir.
+     *
+     * A ÚNICA COISA QUE ELE ADMINISTRA É GRUPO DE ACESSO, por decisão do dono tomada
+     * em 2026-08-19: ele entra em `admin.html` e vê a aba Grupos e mais nada (esta
+     * linha dizia, por extenso, que ele "não abre o painel do admin", e deixou de
+     * valer). Quem monta esse recorte é `mountAdminPage`; as outras abas continuam
+     * `requireAdmin` no servidor, então oferecê-las a ele seria um 403 na montagem.
      *
      * O PRODUTOR FICA DE FORA daqui de propósito: ele não lê o privado de todo
      * mundo, lê o da OM dele, e isso chega pelo payload aditivo de

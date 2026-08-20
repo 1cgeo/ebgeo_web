@@ -5,7 +5,7 @@
 // FUNÇÃO. O pg_trgm só alcança o índice GIN pelo OPERADOR de similaridade; uma
 // chamada é opaca, e o Postgres varre `ng.nomes_geograficos` inteira avaliando
 // `f_unaccent()` e `similarity()` linha a linha, e depois `ST_Distance(::geography)`
-// sobre cada candidato. O índice que resolve isso existe desde a migração 004
+// sobre cada candidato. O índice que resolve isso já existia
 // (`idx_ng_nome_unaccent_trgm`) e nunca foi usado — a existência dele é a
 // evidência de que alguém já esperava que fosse.
 //

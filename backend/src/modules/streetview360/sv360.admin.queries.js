@@ -154,7 +154,7 @@ export const PURGE_PROJECT_TOMBSTONES = `
 //   $19 = calibration_reviewed     $20 = capture_date
 //   $21 = floor_label
 //
-// $21 (floor_label, migration 012) was MISSING from this list until the floors
+// $21 (`sv360.photos.floor_label`) was MISSING from this list until the floors
 // port. The column exists in sv360.photos and the origin carries a label on every
 // photo of a project with floors, so the ingestion accepted the field, dropped it
 // and answered 201: a Beira-Rio photo landed with `floor_label` NULL and the

@@ -210,7 +210,8 @@ describe('F9 — anexar exige autoridade de REPASSE, não mera visibilidade', ()
 
   it('o produtor empresta o recurso da própria OM sem concessão nenhuma', async () => {
     // Exigir que um administrador conceda ao produtor acesso ao que a OM dele produziu
-    // inverte a relação (o argumento está por extenso na migração 019), e criaria uma
+    // inverte a relação (o argumento está por extenso em `docs/decisions/decisions-2026.md`),
+    // e criaria uma
     // concessão a renovar todo ano para o mantenedor enxergar o próprio acervo.
     const { rows } = await db.query(
       `SELECT COUNT(*)::int AS n FROM resource_grants

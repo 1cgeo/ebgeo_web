@@ -241,7 +241,7 @@ describe('F3 — revogar poda a subárvore, e só ela', () => {
       [gA.id]
     );
     assert.equal(rows.length, 2, 'a raiz e o filho, uma linha cada');
-    // O ALVO É O RECURSO nas duas linhas (migração 020): as duas contam a história
+    // O ALVO É O RECURSO nas duas linhas (`audit_trail.target_id`): as duas contam a história
     // do MESMO acesso, e é por ele que se investiga. O beneficiário desceu para
     // `details`, que é onde a linha diz de QUEM foi o acesso derrubado.
     for (const r of rows) {

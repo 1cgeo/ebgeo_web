@@ -2,7 +2,7 @@
 //
 // O CENSO DA AUDITORIA: toda rota de ESCRITA tem trilha, ou uma isenção escrita.
 //
-// A migração 020 fechou catorze buracos de uma vez, e três deles eram da pior
+// Uma passada de auditoria fechou catorze buracos de uma vez, e três deles eram da pior
 // espécie: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` estavam DECLARADAS no CHECK desde a
 // 002_auditoria.sql e a contagem de emissores em `src/` era ZERO para as três. Isso não
 // é uma ação faltando — é um filtro que responde "ninguém apagou atlas nenhum" e
@@ -36,7 +36,7 @@
 //       (calibração de foto 360, rotação de token), cosmético sem eixo de acesso.
 //     - BURACO: não audita e DEVERIA, reconhecido por escrito e com TETO. A classe
 //       existe para que uma lacuna não possa se disfarçar de isenção — que é
-//       exatamente como as três ações sem emissor sobreviveram desde a 001.
+//       exatamente como as três ações sem emissor sobreviveram desde o primeiro dia.
 //
 // FRAGILIDADES ACEITAS. (a) O inventário precisa de `git`; se o comando falhar, o
 // caso-piso diz isso nessas palavras, porque falha de ambiente lida como regressão
@@ -66,6 +66,7 @@ const RA_SVC = 'src/modules/resource-access/resource-access.service.js';
 const SHARING_SVC = 'src/modules/sharing/sharing.service.js';
 const USERS_SVC = 'src/modules/users/users.service.js';
 const SV360_ADMIN_SVC = 'src/modules/streetview360/sv360.admin.service.js';
+const AG_SVC = 'src/modules/access-groups/access-groups.service.js';
 
 /** Motivos de isenção que se repetem, escritos uma vez. */
 const CONTEUDO_DE_ATLAS = 'Conteúdo colaborativo de atlas: o LOG DE OPERAÇÕES é a trilha, e ele guarda '
@@ -178,6 +179,17 @@ const CENSO = [
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'POST /:type/:id/grants', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: RA_SVC },
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'DELETE /grants/:grantId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: RA_SVC },
 
+  // ---------------- grupo de acesso -------------------------------------------
+  // As CINCO ações nasceram com a 009_grupos_de_acesso.sql. O ciclo de vida e a
+  // composição são separados de propósito: "quem criou este grupo" e "desde quando o
+  // Fulano estava nele" são perguntas diferentes na investigação, e a segunda é a que
+  // responde por que alguém viu um recurso.
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'ACCESS_GROUP_CREATE', emissor: AG_SVC },
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'PATCH /:groupId', classe: AUDITADA, acao: 'ACCESS_GROUP_UPDATE', emissor: AG_SVC },
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'DELETE /:groupId', classe: AUDITADA, acao: 'ACCESS_GROUP_DELETE', emissor: AG_SVC },
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'POST /:groupId/members', classe: AUDITADA, acao: 'ACCESS_GROUP_MEMBER_ADD', emissor: AG_SVC },
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'DELETE /:groupId/members/:userId', classe: AUDITADA, acao: 'ACCESS_GROUP_MEMBER_REMOVE', emissor: AG_SVC },
+
   // ---------------- compartilhamento de atlas ---------------------------------
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'POST /public', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'DELETE /public', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
@@ -234,13 +246,13 @@ const CENSO = [
  *     manteve porque removê-los seria DDL destrutiva sem ganho.
  *   - `SYSTEM` TINHA um escritor e PERDEU: era onde `setResourceVisibility`
  *     depositava o alvo que não cabia nas colunas (`target_type` sem valor para
- *     recurso, `target_id` UUID contra um slug). A 020 devolveu o alvo às colunas e,
+ *     recurso, `target_id` UUID contra um slug). O alargamento devolveu o alvo às colunas e,
  *     com isso, 'SYSTEM' voltou a significar sistema — e ficou sem ninguém que o
  *     escreva.
  *   - `STREETVIEW_MARKER` também TINHA escritor e PERDEU, e por um motivo
  *     diferente dos outros três: o único emissor era o mapa
- *     `AUDIT_TARGET_TYPE_BY_TABLE` de `catalog.tables.js`, e a migração 021 apagou
- *     a TABELA que aquela entrada nomeava. O valor sobrevive no CHECK porque
+ *     `AUDIT_TARGET_TYPE_BY_TABLE` de `catalog.tables.js`, e a TABELA que aquela entrada
+ *     nomeava saiu do schema. O valor sobrevive no CHECK porque
  *     tirá-lo seria DDL destrutiva sem ganho (o mesmo argumento de `MODEL`/`GROUP`)
  *     e porque linhas de trilha já gravadas podem carregá-lo.
  *
@@ -318,30 +330,77 @@ function naoClassificadas(achadas) {
 
 const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.routes.js'));
 
-// A baseline que declara o vocabulário da trilha. Desde a consolidação (F15) os dois
-// CHECK nascem INLINE no `CREATE TABLE audit_trail`, e não mais por `ADD CONSTRAINT`
-// num degrau posterior: a âncora mudou junto, e as duas funções abaixo falham alto se
-// o texto que elas procuram sumir.
-const MIGRACAO_AUDITORIA = 'src/database/migrations/002_auditoria.sql';
+// O VOCABULÁRIO DA TRILHA NÃO MORA MAIS NUM ARQUIVO SÓ, e por isso estas funções
+// varrem as migrações em vez de abrir a baseline por nome.
+//
+// A consolidação (F15) fez os dois CHECK nascerem INLINE no `CREATE TABLE
+// audit_trail` de `002_auditoria.sql`, e enquanto ela era a única declaração, ler aquele
+// arquivo por nome era a leitura certa. `009_grupos_de_acesso.sql` alargou os dois (o grupo
+// de acesso trouxe cinco ações e um alvo), e forward-only obriga a alargar por
+// `DROP CONSTRAINT` + `ADD CONSTRAINT` num arquivo NOVO — `002_auditoria.sql` não pode ser
+// editada, porque nenhum banco que já a aplicou a roda de novo.
+//
+// O EFEITO DE NÃO TER CORRIGIDO ISTO seria o pior formato deste defeito: o censo
+// continuaria verde e passaria a MENTIR na direção mais cara. Ele reprovaria toda
+// rota nova cuja ação foi declarada em `009_grupos_de_acesso.sql` ("essa ação não existe"),
+// e ao mesmo tempo
+// deixaria de cobrar emissor para as cinco ações novas — ou seja, exatamente a classe
+// "ação declarada sem emissor" que este arquivo existe para impedir voltaria pela
+// porta do próprio guarda.
+//
+// A REGRA É "A ÚLTIMA DECLARAÇÃO VENCE", que é o que o banco faz: percorre-se os
+// arquivos em ordem numérica decrescente e usa-se o primeiro que declare aquele
+// CHECK, tomando dentro dele a ÚLTIMA ocorrência (um arquivo que derrube e reponha o
+// constraint termina no `ADD`). Um caso-piso abaixo exige que a varredura alcance
+// mais de uma migração, senão ela degeneraria em ler só `002_auditoria.sql` de novo.
+const DIR_MIGRACOES = 'src/database/migrations';
 
-/** As ações declaradas no CHECK, lidas do .sql (nunca de uma terceira cópia). */
-function acoesDoCheck() {
-  const sql = fs.readFileSync(path.join(RAIZ, MIGRACAO_AUDITORIA), 'utf8');
-  const i = sql.indexOf('CHECK (action IN (');
-  assert.notEqual(i, -1, 'o CHECK de `action` sumiu da baseline de auditoria');
+/** Os arquivos de migração, do MAIOR número para o menor. */
+function migracoesDecrescentes() {
+  const dir = path.join(RAIZ, DIR_MIGRACOES);
+  const arquivos = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().reverse();
+  assert.ok(arquivos.length >= 5, `esperava >= 5 migrações, achei ${arquivos.length}`);
+  return arquivos.map((f) => ({ nome: f, sql: fs.readFileSync(path.join(dir, f), 'utf8') }));
+}
+
+/**
+ * Os valores de UM bloco `CHECK (<col> IN (...))` dentro de um texto SQL, tomando a
+ * ÚLTIMA ocorrência do marcador — um arquivo que derrube e reponha o constraint
+ * termina no `ADD`, e é o `ADD` que vale.
+ * @param {string} sql
+ * @param {string} marcador
+ * @returns {string[]} Vazio quando o marcador não aparece.
+ */
+function valoresDoCheck(sql, marcador) {
+  const i = sql.lastIndexOf(marcador);
+  if (i === -1) return [];
   const bloco = sql.slice(i, sql.indexOf('))', i));
   const semComentario = bloco.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
   return [...semComentario.matchAll(/'([A-Z][A-Z0-9_]+)'/g)].map((m) => m[1]);
 }
 
-/** Os `target_type` declarados no CHECK, lidos do .sql. */
+/**
+ * Os valores do CHECK vigente, lidos da migração mais recente que o declara.
+ * @param {string} marcador - `'CHECK (action IN ('` ou `'CHECK (target_type IN ('`.
+ * @returns {{valores: string[], arquivo: string}}
+ */
+function checkVigente(marcador) {
+  for (const { nome, sql } of migracoesDecrescentes()) {
+    const valores = valoresDoCheck(sql, marcador);
+    if (valores.length > 0) return { valores, arquivo: nome };
+  }
+  assert.fail(`nenhuma migração declara ${marcador}`);
+  return { valores: [], arquivo: '' };
+}
+
+/** As ações declaradas no CHECK vigente (nunca uma terceira cópia). */
+function acoesDoCheck() {
+  return checkVigente('CHECK (action IN (').valores;
+}
+
+/** Os `target_type` declarados no CHECK vigente. */
 function alvosDoCheck() {
-  const sql = fs.readFileSync(path.join(RAIZ, MIGRACAO_AUDITORIA), 'utf8');
-  const i = sql.indexOf('CHECK (target_type IN (');
-  assert.notEqual(i, -1, 'o CHECK de `target_type` sumiu da baseline de auditoria');
-  const bloco = sql.slice(i, sql.indexOf('))', i));
-  const semComentario = bloco.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-  return [...semComentario.matchAll(/'([A-Z][A-Z0-9_]+)'/g)].map((m) => m[1]);
+  return checkVigente('CHECK (target_type IN (').valores;
 }
 
 /** O CÓDIGO (sem comentário) de todo arquivo versionado de `src/`, por caminho. */
@@ -429,7 +488,7 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     const quebradas = auditadas.flatMap((e) => {
       const problemas = [];
       if (!e.acao || !acoes.has(e.acao)) {
-        problemas.push(`${e.arquivo} :: ${e.rota} declara a ação '${e.acao}', que não está no CHECK da 020`);
+        problemas.push(`${e.arquivo} :: ${e.rota} declara a ação '${e.acao}', que não está no CHECK vigente de audit_trail.action`);
       }
       const emissor = fontes.get(e.emissor);
       if (!emissor) {
@@ -476,15 +535,49 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     assert.deepEqual(malFormadas, [], 'entrada com classe inválida, ou com ação declarada sem auditar');
   });
 
+  it('piso: o vocabulário vigente é lido da migração MAIS RECENTE que o declara', () => {
+    // O GUARDA DO GUARDA. Estas duas funções liam `002_auditoria.sql` por nome, e
+    // `009_grupos_de_acesso.sql` alargou os dois CHECK num arquivo novo (forward-only não
+    // deixa editar um degrau já aplicado). Uma varredura que voltasse a fixar
+    // `002_auditoria.sql` passaria verde e
+    // ficaria cega para toda ação nova — que é a classe "ação declarada sem emissor"
+    // reentrando pela porta do próprio censo.
+    const arquivos = migracoesDecrescentes();
+    const declaramAcao = arquivos.filter((m) => m.sql.includes('CHECK (action IN ('));
+    assert.ok(
+      declaramAcao.length >= 2,
+      'esperava o CHECK de `action` declarado em MAIS DE UMA migração (a baseline e o alargamento); '
+      + `achei ${declaramAcao.length}, então a regra "a última vence" não está sendo exercitada`
+    );
+
+    // A vigente é a de MAIOR número, não a baseline.
+    const vigente = checkVigente('CHECK (action IN (');
+    assert.equal(vigente.arquivo, declaramAcao[0].nome, 'a leitura não pegou a migração mais recente');
+    assert.notEqual(
+      vigente.arquivo, '002_auditoria.sql',
+      'o vocabulário vigente voltou a ser o da baseline: ou o alargamento sumiu, ou a varredura regrediu'
+    );
+
+    // E o resultado precisa ser um SUPERCONJUNTO do da baseline: alargar um CHECK é
+    // compatível para trás, e uma leitura que perdesse valores antigos passaria neste
+    // arquivo e quebraria o banco.
+    const daBaseline = arquivos.find((m) => m.nome === '002_auditoria.sql');
+    assert.ok(daBaseline, 'a baseline de auditoria sumiu do disco');
+    const antigos = valoresDoCheck(daBaseline.sql, 'CHECK (action IN (');
+    assert.ok(antigos.length >= 29, `esperava >= 29 acoes na baseline, achei ${antigos.length}`);
+    const perdidos = antigos.filter((a) => !vigente.valores.includes(a));
+    assert.deepEqual(perdidos, [], 'o CHECK vigente PERDEU ações da baseline: alargar não pode estreitar');
+  });
+
   it('toda ação declarada no CHECK tem pelo menos UM emissor em src/', () => {
-    // ESTE É O CASO QUE A 001 NÃO TINHA. `LOGIN`, `LOGOUT` e `ATLAS_DELETE` ficaram
+    // ESTE É O CASO QUE FALTAVA. `LOGIN`, `LOGOUT` e `ATLAS_DELETE` ficaram
     // declaradas e sem emissor por toda a vida do projeto, e o sintoma não é erro: é
     // um filtro que responde lista vazia e parece resposta. A varredura é
     // independente do censo de rotas de propósito — ela pergunta pelo outro lado da
     // ponte (a ação existe no vocabulário, alguém a escreve?).
     const acoes = acoesDoCheck();
     assert.ok(acoes.length >= 29, `esperava >= 29 ações no CHECK, achei ${acoes.length}`);
-    assert.equal(new Set(acoes).size, acoes.length, 'ação duplicada no CHECK da 020');
+    assert.equal(new Set(acoes).size, acoes.length, 'ação duplicada no CHECK vigente');
 
     const fontes = [...fontesDeSrc().values()];
     assert.ok(fontes.length >= 100, `esperava >= 100 fontes em src/, achei ${fontes.length}`);

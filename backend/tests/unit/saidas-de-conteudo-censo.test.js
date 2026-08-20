@@ -190,6 +190,17 @@ const CENSO_ROTA = [
   json('src/modules/resource-access/resource-access.routes.js', 'POST /:type/:id/grants'),
   json('src/modules/resource-access/resource-access.routes.js', 'DELETE /grants/:grantId'),
 
+  // Grupo de acesso: as sete saem por `res.json`, e nenhuma carrega entidade de atlas
+  // nem definição de recurso. O corpo mais gordo é a lista de membros (pessoas), e o
+  // DELETE de grupo devolve o ALCANCE (quantas concessões caíram) em vez de 204.
+  json('src/modules/access-groups/access-groups.routes.js', 'GET /'),
+  json('src/modules/access-groups/access-groups.routes.js', 'POST /'),
+  json('src/modules/access-groups/access-groups.routes.js', 'PATCH /:groupId'),
+  json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId'),
+  json('src/modules/access-groups/access-groups.routes.js', 'GET /:groupId/members'),
+  json('src/modules/access-groups/access-groups.routes.js', 'POST /:groupId/members'),
+  json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId/members/:userId'),
+
   json('src/modules/sharing/sharing.routes.js', 'GET /'),
   json('src/modules/sharing/sharing.routes.js', 'POST /public'),
   json('src/modules/sharing/sharing.routes.js', 'DELETE /public'),

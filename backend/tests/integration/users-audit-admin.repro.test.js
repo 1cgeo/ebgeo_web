@@ -2,7 +2,7 @@
 // deixavam trilha nenhuma.
 //
 // `USER_CREATE`, `USER_UPDATE`, `PASSWORD_RESET` e `ROLE_CHANGE` estão declarados
-// no CHECK de `audit_trail.action` desde a migração 001, e uma varredura do
+// no CHECK de `audit_trail.action` (`002_auditoria.sql`), e uma varredura do
 // `backend/src` inteiro devolvia ZERO emissores: os únicos `createAudit` do
 // módulo eram `USER_DELETE` e `API_KEY_ROTATE`. Ou seja, criar conta (inclusive
 // já como `admin`), promover alguém a admin e resetar senha alheia passavam sem

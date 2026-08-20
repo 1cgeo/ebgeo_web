@@ -12,7 +12,7 @@
 //      analysis_layers / tilesets), it is not a grantable type (`RESOURCE_TYPES`), and its
 //      definition is STATIC (`config.static.js` MAP2D.hillshade, URL injected from HILLSHADE_URL).
 //      Applying a resource predicate to it would take the shaded relief off everyone's map.
-//   2. THE PREFIX. Migration 003 seeded an `analysis_layers` row whose id is literally
+//   2. THE PREFIX. `005_catalogo.sql` seeds an `analysis_layers` row whose id is literally
 //      'hillshade' (with `config = {}`, which is why `listAnalysisLayers` filters it out by the
 //      bounds check and the frontend never sees it). Joining `catalog_layers.id` straight to a
 //      catalog table would MATCH that row for the hillshade layer and hand back an empty config,

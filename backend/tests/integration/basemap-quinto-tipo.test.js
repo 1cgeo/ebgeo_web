@@ -1,8 +1,8 @@
 // Path: tests/integration/basemap-quinto-tipo.test.js
 //
-// `basemap` COMO QUINTO TIPO DE RECURSO (migração 021).
+// `basemap` COMO QUINTO TIPO DE RECURSO.
 //
-// O QUE FALTAVA NÃO ERA O FILTRO. `basemaps.access_level` existe desde a 017 e
+// O QUE FALTAVA NÃO ERA O FILTRO. `basemaps.access_level` já existia e
 // `listCatalog('basemaps')` sem principal já aplicava `access_level = 'public'`,
 // que é por onde `/api/config` se monta; a rota crua já aplicava também o ramo de
 // produção. Duas prosas do repositório afirmavam que aquela coluna "nunca é
@@ -30,7 +30,7 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createAtlas, createShare, loginUser } from '../helpers/fixtures.js';
 
-describe('021 — basemap é o quinto tipo de recurso concedível', () => {
+describe('basemap é o quinto tipo de recurso concedível', () => {
   let app, db, admin, dono, membro, forasteiro, atlas, outroAtlas;
   let tokenAdmin, tokenDono, tokenMembro, tokenForasteiro;
   const sufixo = randomUUID().slice(0, 8);
@@ -118,7 +118,7 @@ describe('021 — basemap é o quinto tipo de recurso concedível', () => {
     assert.deepEqual(
       rows.map((r) => r.table_name).sort(),
       ['analysis_layers', 'basemaps', 'data_layers', 'tilesets'],
-      'a 021 apaga streetview_markers e não encosta nas outras quatro'
+      'streetview_markers não existe e as outras quatro continuam de pé'
     );
   });
 

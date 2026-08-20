@@ -26,6 +26,7 @@ import { auditRoutes } from './modules/audit/index.js';
 import { sv360Routes } from './modules/streetview360/index.js';
 import { debugRoutes } from './modules/debug/debug.routes.js';
 import { resourceAccessRoutes } from './modules/resource-access/index.js';
+import { accessGroupsRoutes } from './modules/access-groups/index.js';
 import { isTraceEnabled } from './utils/sync-trace.js';
 
 /**
@@ -197,6 +198,7 @@ export function createApp() {
   app.use('/api/v1/audit', auditRoutes);
   app.use('/api/v1/sv360', sv360Routes);
   app.use('/api/v1/resource-access', resourceAccessRoutes);
+  app.use('/api/v1/access-groups', accessGroupsRoutes);
 
   // SyncLedger debug-trace endpoint — env-gated (test/dev only), never in production.
   // The `!config.isProd` clause is a hard production cross-check: even if EBGEO_TRACE=1

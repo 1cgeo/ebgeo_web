@@ -11,7 +11,7 @@
 // answers 201 with the new row, which is why enumerating only `router.get(` missed it.
 //
 // `maps.catalog_layers` used to hand out a stale copy of the catalog row — `config.source.url` of
-// a private resource included — and migration 022 dropped it. THE SIBLING DECLARED IN THE SAME
+// a private resource included — and that column no longer exists. THE SIBLING DECLARED IN THE SAME
 // JSONB BLOCK DID NOT GO, and it is `analysis_layers`, right below. Audited in F13, and the audit
 // is the part worth writing down:
 //

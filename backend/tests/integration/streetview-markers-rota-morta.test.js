@@ -1,13 +1,13 @@
 // Path: tests/integration/streetview-markers-rota-morta.test.js
 //
-// A ROTA MORTA SAIU, E O 360 DO MAPA NÃO (migração 021, fase F9 item 1).
+// A ROTA MORTA SAIU, E O 360 DO MAPA NÃO (fase F9 item 1).
 //
 // DUAS COISAS TINHAM O NOME `streetview_markers`, E ELAS SÃO OPOSTAS:
 //
 //   (A) a TABELA de catálogo `streetview_markers` e a rota `/api/v1/streetview-markers`
 //       montadas por `makeCatalogRouter` — nascidas de um `LIKE basemaps INCLUDING ALL`
 //       no catálogo (005_catalogo.sql), sem alimentar o /api/config, sem consumidor no frontend e sem
-//       seed que as populasse. É o que a 021 apagou;
+//       seed que as populasse. É o que saiu do schema;
 //
 //   (B) o ARQUIVO `frontend/src/js/street_view_tool/streetview_markers.js`, que é a
 //       camada de marcadores do 360 no mapa 2D e desenha a partir do MÓDULO 360
@@ -138,9 +138,8 @@ describe('a rota de streetview-markers morreu; a fonte do 360 no mapa não', () 
   it('o nome morto não sobrou no CÓDIGO do backend (só em migração já publicada e em prosa)', async () => {
     // A varredura vem do versionamento, nunca de uma lista escrita à mão. Ela mede
     // CÓDIGO: os arquivos `.sql` de migração ficam de fora porque a regra é
-    // forward-only (003, 017, 019 e 020 já foram para o remoto e não se editam, e a
-    // própria 021 precisa nomear a tabela para apagá-la), e comentário é prosa, não
-    // fiação.
+    // forward-only (uma baseline já publicada não se edita, e a que documenta a ausência
+    // precisa nomear a tabela para explicá-la), e comentário é prosa, não fiação.
     const versionados = execFileSync('git', ['ls-files', '*.js'], { cwd: SRC, encoding: 'utf8' })
       .split('\n').map((l) => l.trim()).filter(Boolean);
     assert.ok(versionados.length > 50, `guarda: git devolveu ${versionados.length} arquivos`);

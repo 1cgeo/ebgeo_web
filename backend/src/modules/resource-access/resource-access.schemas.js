@@ -18,6 +18,17 @@ const PRAZO_MAXIMO_MS = 365 * 24 * 60 * 60 * 1000;
 /**
  * O corpo de uma concessão.
  *
+ * O BENEFICIÁRIO É UMA PESSOA **OU** UM GRUPO, e o `xor` do Joi ESPELHA o `CHECK
+ * (num_nonnulls(grantee_id, grantee_group_id) = 1)` da tabela. Espelhar é o ponto: sem
+ * esta linha o pedido malformado atravessaria a borda e morreria no banco como 23514,
+ * que o tratador traduz num 400 genérico sem nome de campo — o chamador receberia
+ * "violação de restrição" para um erro que é, literalmente, "escolha um dos dois".
+ * Com o `xor`, os DOIS casos errados (nenhum e ambos) voltam 422 nomeando os campos.
+ *
+ * As duas cópias da regra são deliberadas e não redundância a podar: a do banco é a
+ * que GARANTE (INSERT cru existe, e os testes de função escrevem direto na tabela), e
+ * a da borda é a que EXPLICA.
+ *
  * `grantLevel` é obrigatório e sem default: o default silencioso seria `view`, e
  * um cliente que erre o nome do campo passaria a conceder o nível MENOR sem
  * ninguém perceber — o erro barulhento aqui custa um 422 e devolve a intenção
@@ -30,14 +41,20 @@ const PRAZO_MAXIMO_MS = 365 * 24 * 60 * 60 * 1000;
  * onde não há janela entre a leitura e a escrita.
  */
 export const grantSchema = Joi.object({
-  granteeId: Joi.string().uuid().required(),
+  granteeId: Joi.string().uuid(),
+  granteeGroupId: Joi.string().uuid(),
   grantLevel: Joi.string().valid('view', 'view_share').required(),
   expiresAt: Joi.date().iso().greater('now')
     .custom((value, helpers) => (
       value.getTime() > Date.now() + PRAZO_MAXIMO_MS ? helpers.error('any.invalid') : value
     ))
     .messages({ 'any.invalid': 'O prazo de uma concessão não pode passar de um ano.' }),
-});
+})
+  .xor('granteeId', 'granteeGroupId')
+  .messages({
+    'object.xor': 'Informe granteeId OU granteeGroupId, nunca os dois.',
+    'object.missing': 'Informe granteeId ou granteeGroupId.',
+  });
 
 /** `:grantId` da rota de revogação. */
 export const grantIdParamsSchema = Joi.object({

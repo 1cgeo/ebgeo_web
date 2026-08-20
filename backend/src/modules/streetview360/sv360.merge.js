@@ -416,7 +416,7 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
   // filhos, e idempotente pela mesma razão: a lista inteira é reescrita.
   //
   // O purge NÃO pode virar UPSERT. É a EXISTÊNCIA de linha em
-  // sv360.project_floors que declara "este projeto tem andares" (migração 012), e
+  // sv360.project_floors que declara "este projeto tem andares", e
   // é ela que a interface consulta para decidir se desenha o seletor. Um nível
   // retirado na origem que sobrevivesse aqui deixaria um andar fantasma no
   // seletor, apontando para um andar que ninguém levantou.

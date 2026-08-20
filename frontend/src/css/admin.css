@@ -1,14 +1,16 @@
 /* Path: src/css/admin.css */
 
 /*
- * Admin PAGE (global system admin only) — the whole of `admin.html`, not an overlay over the map.
+ * Admin PAGE — the whole of `admin.html`, not an overlay over the map. Three audiences share it:
+ * the global system admin (every tab), the credenciado (Grupos) and the producer (Catálogo).
  * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
  * section header + cards (table / forms / grid).
  * BEM blocks:
  *   .admin-panel    shell (header + rail + content)
  *   .admin-section  section header (title + actions)
  *   .admin-card     surface card
- *   .admin-users / .admin-catalog / .admin-form / .admin-btn / .admin-chip / .admin-avatar
+ *   .admin-users / .admin-catalog / .admin-groups / .admin-form / .admin-btn / .admin-chip
+ *   .admin-avatar
  *
  * Loaded only by `admin-page.css` — the map stylesheet no longer imports it.
  */
@@ -669,4 +671,49 @@
     box-shadow: 0 0 0 3px var(--primary-100);
     outline: none;
     background: #fff;
+}
+
+/* ===== Grupos tab ===== */
+
+/* A descrição de um grupo é texto livre e costuma passar de uma linha, então o formulário
+   precisa de um campo alto. Ele herda a moldura do input, mas não a altura fixa dele — e
+   `font-family` é explícito porque textarea não herda a fonte da página por padrão. */
+.admin-form__field textarea {
+    padding: var(--space-3);
+    box-sizing: border-box;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    background: #fff;
+    resize: vertical;
+}
+
+.admin-form__field textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-100);
+    outline: none;
+}
+
+.admin-groups__search-label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.admin-groups__search {
+    width: 100%;
+    max-width: 420px;
+    margin-bottom: var(--space-3);
+}
+
+/* Reaproveita a moldura de `.admin-transfer__option`, mas a linha inteira NÃO é clicável
+   aqui (quem age é o botão à direita), então o cursor de mão sai: prometer clique onde não
+   há clique é o mesmo defeito que um botão que não faz nada. */
+.admin-groups__candidate {
+    justify-content: space-between;
+    cursor: default;
 }

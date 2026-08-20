@@ -87,9 +87,11 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   credenciado em silêncio, que é o risco INVERSO ao da lista fechada por atlas. O eixo POR ATLAS
   (`read < comment < write < manage < owner`) **é** escada e se gateia pela hierarquia. Vocabulário:
   `producer` MANTÉM o que a OM dele produziu (escopo em `users.producer_org_id`, escrito só por
-  administrador, com CHECK bicondicional contra `role`); `credenciado` LÊ todo recurso privado e
-  **não escreve nada**. Censo em `tests/unit/papel-global-censo.test.js`, que reprova sítio novo
-  não classificado.
+  administrador, com CHECK bicondicional contra `role`); `credenciado` LÊ todo recurso privado e a
+  **única** escrita que ele tem é administrar grupo de acesso (`requireGlobalDataAccess`, decisão de
+  2026-08-19), o que não o torna administrador do sistema: usuários, organizações, catálogo e
+  configuração continuam fora do alcance dele. Censo em `tests/unit/papel-global-censo.test.js`, que
+  reprova sítio novo não classificado.
 - **`users.organization_id` é LOTAÇÃO e não autoriza nada.** Ele é auto-declarado no
   auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, e conta sem e-mail nasce ativa na
   hora), e enquanto autorizava era escalação de privilégio por formulário público: escolher a OM
@@ -196,9 +198,11 @@ ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`
 commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
 da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
 Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. **A lista está VAZIA hoje**, porque num schema esmagado nada é criado para ser
-derrubado; ela só discrimina alguma coisa por causa do teste de controle negativo que roda os mesmos
-padrões contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai
+como destrutivo. **A lista tem DUAS linhas hoje**, as duas do arquivo 009, que alarga os dois CHECK
+de `audit_trail` para o vocabulário do grupo de acesso: o esmagamento a deixou vazia e a primeira
+migração depois dele voltou a povoá-la, que é o comportamento esperado (num schema esmagado nada é
+criado para ser derrubado, mas todo CHECK alargado depois cai e volta). Ela só discrimina alguma
+coisa por causa do teste de controle negativo que roda os mesmos padrões contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai
 daqui**: reescrever um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse
 caso o `UPDATE` defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.
 

@@ -155,7 +155,7 @@ export async function getProject(slug, user, atlasId = null) {
  * WHY A FEATURECOLLECTION AND NOT THE RAW ARRAY: the plan is drawn as a MapLibre
  * GeoJSON source, and every feature carries `properties.level` so a single source
  * holding several floors can be filtered by the selector without re-fetching. The
- * storage shape stays the compact array (migration 012) because that is what the
+ * storage shape stays the compact array because that is what the
  * origin exports; the API shape is the one the map consumes.
  *
  * A level that EXISTS but has no plan drawn (the Beira-Rio's level 0, outdoors)
@@ -265,8 +265,8 @@ const THUMBNAILS_SEGMENT = '/thumbnails';
  * admin is also an ordinary user of the 2D map, and returning the raw row to them
  * meant the 360 layer broke for admins ONLY — the worst kind of role-dependent bug.
  *
- * `captureDate` IS a real column now: `sv360.projects.capture_date` (TEXT,
- * migration 014), carrying the legacy campaign date the ETL used to drop. It
+ * `captureDate` IS a real column now: `sv360.projects.capture_date` (TEXT),
+ * carrying the legacy campaign date the ETL used to drop. It
  * reaches this view only when the query SELECTS it, and it is read here by its
  * real name, never synthesized. A row from a query that did not select the
  * column yields undefined, which `?? null` normalizes to the same null the
@@ -286,7 +286,7 @@ function publicProjectView(project, user) {
     slug: project.slug,
     name: project.name,
     description: project.description ?? null, // no column: always null
-    // Real column since migration 014, SELECTed by both LIST_PROJECTS and
+    // Real column, SELECTed by both LIST_PROJECTS and
     // GET_PROJECT_BY_SLUG. A query that omits it yields undefined, which `?? null`
     // normalizes to the null the frozen shape has always promised.
     captureDate: project.capture_date ?? null,
@@ -577,7 +577,7 @@ export async function projectCalibrationPhotos(slug, user, atlasId = null) {
       // 'sol', 'imu', 'manual' or null (no measurement over this photo).
       calibrationSource: p.calibration_source ?? null,
       // The origin calls this column `captured_at`; this house stores the SAME
-      // parameter in sv360.photos.capture_date (migration 013 says so explicitly).
+      // parameter in sv360.photos.capture_date (`007_sv360.sql` says so explicitly).
       capturedAt: p.capture_date ?? null,
       floor_level: p.floor_level,
       floor_label: p.floor_label ?? null,

@@ -13,7 +13,7 @@
 // The contract closed here: the dedicated table is canonical. Every whole-entity writer
 // (import, clone, duplicate) must materialise the array into `catalog_layers` rows.
 //
-// F12 FINISHED IT: migration 022 DROPPED `maps.catalog_layers`, so the table is not just
+// F12 FINISHED IT: `maps.catalog_layers` IS GONE, so the table is not just
 // canonical, it is the only home. The import PAYLOAD key `map.catalog_layers` survives (frozen
 // contract with `local-atlas-to-server.js`) and is materialised straight into the table — which
 // is what the first case below now asserts, without a column to check afterwards. The case that

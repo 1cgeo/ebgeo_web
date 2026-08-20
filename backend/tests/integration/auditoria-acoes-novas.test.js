@@ -1,6 +1,6 @@
 // Path: tests/integration/auditoria-acoes-novas.test.js
 //
-// AS ESCRITAS QUE NÃO DEIXAVAM RASTRO (migração 020).
+// AS ESCRITAS QUE NÃO DEIXAVAM RASTRO.
 //
 // A trilha tinha dois buracos de naturezas diferentes, e o segundo é o que
 // envergonha:
@@ -19,8 +19,8 @@
 // de outro arquivo da suíte". Onde o alvo é único (um slug com sufixo aleatório, um
 // UUID recém-criado), a unicidade faz o mesmo trabalho e o zero inicial é afirmado.
 //
-// E O ALVO É COLUNA DE PRIMEIRA CLASSE. Até a 020, `target_type` não tinha valor
-// para recurso de catálogo e `target_id` era UUID enquanto o id de catálogo é um
+// E O ALVO É COLUNA DE PRIMEIRA CLASSE. Houve um tempo em que `target_type` não tinha
+// valor para recurso de catálogo e `target_id` era UUID enquanto o id de catálogo é um
 // SLUG — gravá-lo ali levantava 22P02, que a borda devolvia como HTTP 400 numa rota
 // sem relação aparente com auditoria. Por isso vários casos abaixo afirmam a
 // CONSULTA por (target_type, target_id), que é a pergunta que o schema antigo não
@@ -41,9 +41,10 @@ import { purgeResourceLinks } from '../../src/modules/resource-access/resource-a
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
- * As quatro tabelas de catálogo e o alvo de auditoria de cada uma (migração 020).
+ * As quatro tabelas de catálogo e o alvo de auditoria de cada uma
+ * (`audit_trail.target_type`, em `002_auditoria.sql`).
  *
- * Eram cinco: `streetview_markers` saiu na 021. O valor `'STREETVIEW_MARKER'`
+ * Eram cinco: `streetview_markers` saiu do schema. O valor `'STREETVIEW_MARKER'`
  * continua declarado no CHECK de `audit_trail.target_type` e passa a não ter
  * escritor nenhum — censado como tal em `tests/unit/auditoria-censo.test.js`.
  */
@@ -103,7 +104,7 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
   });
 
   // ---------------------------------------------------------------------------
-  // (b) as três ações declaradas desde a 001 que nunca tiveram emissor
+  // (b) as três ações declaradas desde o primeiro dia que nunca tiveram emissor
   // ---------------------------------------------------------------------------
 
   it('LOGIN e LOGOUT deixam linha (as duas eram declaradas no CHECK e sem emissor nenhum)', async () => {
@@ -161,7 +162,7 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
       .set('Authorization', `Bearer ${adminTok}`)
       .expect(204);
     const exclusao = await trilha('ATLAS_DELETE', 'ATLAS', atlasId);
-    assert.equal(exclusao.length, 1, 'ATLAS_DELETE estava no CHECK desde a 001 e nunca teve emissor');
+    assert.equal(exclusao.length, 1, 'ATLAS_DELETE estava no CHECK desde o primeiro dia e nunca teve emissor');
     // `soft` impede a leitura de que a exclusão foi definitiva: existe lixeira, e
     // ATLAS_RESTORE é o inverso.
     assert.equal(exclusao[0].details.soft, true);
@@ -200,7 +201,8 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
   it('o CRUD de catálogo audita nas QUATRO tabelas, com o SLUG na coluna de alvo', async () => {
     // AS QUATRO E NÃO UMA: o router é fabricado por tabela (`makeCatalogRouter`), e
     // testar `tilesets` só reproduz o buraco que `catalog-tables.test.js` já teve de
-    // fechar uma vez. Cada tabela tem seu próprio `target_type` no CHECK da 020, e
+    // fechar uma vez. Cada tabela tem seu próprio `target_type` no CHECK de
+    // `audit_trail.target_type`, e
     // um mapa incompleto levanta 23514 dentro da escrita.
     assert.equal(CATALOGO.length, 4, 'guarda: a varredura precisa saber quantas tabelas espera');
     for (const [rota, alvo] of CATALOGO) {
@@ -256,7 +258,7 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
 
     // ESTE É O CASO QUE PROVA QUE O `ALTER COLUMN target_id TYPE TEXT` CHEGOU ATÉ A
     // ROTA, e não só ao schema: o filtro por `targetId` é `Joi.string()` (nunca
-    // `.uuid()`), senão ele recusaria justamente os alvos que a 020 destravou.
+    // `.uuid()`), senão ele recusaria justamente os alvos que a coluna TEXT destravou.
     const res = await supertest(app)
       .get('/api/v1/audit')
       .query({ targetType: 'TILESET', targetId: id, limit: 50 })
@@ -475,8 +477,9 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
 
   it('o hard-delete de projeto 360 chama a purga DENTRO da transação e ANTES do DELETE', () => {
     // ESTE CASO É ESTRUTURAL PORQUE O ELO FOI O DEFEITO. `purgeResourceLinks` ficou
-    // sem chamador nenhum por uma fase inteira enquanto o comentário da migração 017
-    // afirmava por escrito que `deleteProject` a chamava na mesma transação — e
+    // sem chamador nenhum por uma fase inteira enquanto o comentário que introduziu
+    // `resource_grants` afirmava por escrito que `deleteProject` a chamava na mesma
+    // transação — e
     // apagar um projeto deixava concessões apontando para um UUID inexistente. Os
     // dois casos acima provam que a função audita; este prova que ela é CHAMADA, que
     // é a metade que faltava.

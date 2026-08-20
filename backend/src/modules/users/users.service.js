@@ -199,7 +199,7 @@ export async function createUser(data, req = null, actorId = null) {
 
   // A auditoria participa da MESMA transação da escrita: ou a conta existe e há
   // linha de trilha, ou nenhuma das duas coisas. `USER_CREATE` está reservado no
-  // CHECK de `audit_trail.action` desde a migração 001 e não tinha emissor
+  // CHECK de `audit_trail.action` (`002_auditoria.sql`) e não tinha emissor
   // nenhum — filtro que por construção nunca casa se lê como "nada aconteceu",
   // não como "nunca foi ligado", que é a forma mais silenciosa de lacuna.
   return tx(async (t) => {
@@ -324,7 +324,7 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       }
 
       // PRODUCER_SCOPE_CHANGE é ação PRÓPRIA, e não um detalhe de ROLE_CHANGE, por
-      // uma razão que o CHECK bicondicional de 018 torna concreta: transferir um
+      // uma razão que o CHECK `users_producer_scope_check` torna concreta: transferir um
       // produtor de uma OM para outra é mudança de ESCOPO sem mudança de PAPEL, e
       // nesse evento não existe ROLE_CHANGE nenhum para carregar o detalhe. Como
       // `producer_org_id` decide todo recurso que a conta MANTÉM, isso ficaria sem

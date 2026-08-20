@@ -5,7 +5,7 @@
 // Every write here drops the memoized GET /api/config payload (config.cache.js). All four
 // tables feed that payload, so the invalidation is never wasted. It used to cover a fifth,
 // `streetview_markers`, which fed nothing and was invalidated anyway; that table was dropped
-// in migration 021 for having had no consumer at all.
+// for having had no consumer at all, and `005_catalogo.sql` does not recreate it.
 import { query, oneOrNone, one } from '../../database/index.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
@@ -42,8 +42,8 @@ const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
  *
  * THE PRODUCTION ARM BELONGS HERE, and not out of aesthetic symmetry: without it a producer
  * got a 404 on the GET of their own private layer and success on the PUT, which is the same
- * row existing for writing and not existing for reading. Since migration 021 all FOUR catalog
- * tables have BOTH arms: `basemaps` gained a grant type and stopped arriving here with a null
+ * row existing for writing and not existing for reading. All FOUR catalog tables have BOTH
+ * arms: `basemaps` gained a grant type and stopped arriving here with a null
  * `resourceType`. The caller's `??` is still there because `visibleTo` is built from a map,
  * and a map that loses an entry must degrade to less data, never to a leak.
  *

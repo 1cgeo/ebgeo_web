@@ -82,4 +82,6 @@ As mensagens de erro estão em português e mudaram ao longo do tempo; os `code`
 
 ## Fronteiras
 
+Compor um grupo de acesso não é gestão de usuários e tem outra autoridade: administrador **ou** credenciado, sobre pessoas que já existem ([[grupo-de-acesso]]). Desativar a conta não desfaz a composição, e a linha continua lá sem entregar acesso nenhum.
+
 Gestão de usuários é **REST puro**: nada aqui viaja como operação de sync, não existe tipo de entidade de usuário no envelope colaborativo ([[sintese-rest-vs-sync]], [[tipos-entidade-sync]]). O papel global `admin` decidido aqui é ortogonal ao papel por atlas ([[sintese-eixos-de-permissao]], [[sintese-capacidades-por-papel]]). Rotação de chave em [[api-keys]]; rate limit das rotas de credencial em [[hardening-borda-api]]; operações administrativas sobre a tabela de operações em [[sync-admin-operacoes]].

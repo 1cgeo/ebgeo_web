@@ -29,7 +29,7 @@ export async function orgIsActive(organizationId) {
 // This single joined read replaces the narrower `orgIsActive` call on the strict
 // `auth` path (same one-query cost) and is also consulted before any sliding renewal.
 //
-// It also carries `sessions_valid_from` (migration 008), the marker that finally gives
+// It also carries `sessions_valid_from`, the marker that finally gives
 // mass revocation an effect this path can see. Before it, `REVOKE_ALL_USER_TOKENS`
 // ended the ability to ROTATE and nothing else: nobody on the request path reads
 // `refresh_tokens`, so a holder of a live access token kept working and — because the

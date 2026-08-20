@@ -15,7 +15,7 @@
 //     photo is planted in all three on purpose, with three different times, so a
 //     silent reordering of the fallbacks shows up as a wrong instant.
 //   - THE DESTINATION IS `capture_date`, not `captured_at`. The origin's column
-//     name does not exist here (migration 013 says why); the translation is this
+//     name does not exist here (`007_sv360.sql` says why); the translation is this
 //     script's job, and a port that recreated the column would pass every other
 //     assertion.
 //

@@ -20,7 +20,8 @@
  *   DEPOIS `fn_has_global_data_access($U::uuid)` — o SQL resolve o papel a partir
  *          do UUID. A janela some por construção, e o CREDENCIADO entra no mesmo
  *          passo. (Esta linha dizia "curador": aquele valor foi substituído por
- *          `credenciado` na 018 e o CHECK de `users.role` o recusa hoje.)
+ *          `credenciado` antes de qualquer banco aplicá-lo, e o CHECK de `users.role`
+ *          o recusa hoje.)
  *
  * A SEGUNDA MUDANÇA DE FORMA, e ela é da mesma família: o termo da OM era
  * `organization_id = $orgId`, com o `$orgId` vindo de `users.organization_id` — uma
@@ -274,7 +275,7 @@ export const TILES_PHOTOS = `
 // standing on each. Feeds GET /projects/:slug/floors (the floor selector).
 //
 // The LEFT JOIN is deliberate: `sv360.project_floors` is what DECIDES a project
-// has floors (migration 012), so a declared level with zero photos must still be
+// has floors, so a declared level with zero photos must still be
 // listed: it is a real floor of the building whose panoramas have not been
 // captured (or were all tombstoned). An INNER JOIN would make the selector lose
 // entries as photos are deleted, which reads as data loss on screen.
@@ -485,7 +486,7 @@ export const TRACKS_BY_PROJECT = `
 // to appear, otherwise the ordinals show a hole the interface cannot explain.
 //
 // A PROJECT ANSWERS EMPTY UNTIL THE DERIVATION RUNS OVER IT. `sv360.capture_runs`
-// (migration 013) is populated by scripts/sv360-derive-runs.js (`npm run
+// is populated by scripts/sv360-derive-runs.js (`npm run
 // sv360:derive-runs`, one project with --slug or every project), which groups the
 // photos by the session id in original_name (sv360.capture-runs.js) and links
 // sv360.photos.run_id / run_position. Ingestion does not call it, so a project it

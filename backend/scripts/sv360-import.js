@@ -115,10 +115,10 @@ function readProjects(idb) {
 // mergeProject wrote NULL into sv360.photos.capture_date every single time. The
 // read looked like it carried the date over; it carried nothing, silently. The
 // project-level date is read from the `projects` row in buildManifest and lands
-// in sv360.projects.capture_date (migration 014). The per-photo instant the
+// in sv360.projects.capture_date. The per-photo instant the
 // origin carries as `photos.captured_at` maps onto sv360.photos.capture_date,
-// which already exists since 005: one measurement, one column (see the note at
-// the end of migration 013). Wiring that mapping belongs to the capture-runs
+// which already exists: one measurement, one column (see the note on
+// `sv360.photos.capture_date` in `007_sv360.sql`). Wiring that mapping belongs to the capture-runs
 // port, not here.
 // `floor_level` in the legacy index.db comes from `INTEGER DEFAULT 1` (ebgeo_360
 // src/db/schema.sql). In a FLAT project nobody ever chose that 1: the column was
@@ -156,7 +156,7 @@ function normalizeFloorLevels(photos, hasFloors = false) {
  *
  * This table is what DECLARES a project has floors: the interface draws the floor
  * selector because rows exist here, never because some photo carries a level
- * (migration 012). So a project absent from it is a street-level survey and gets
+ * (`007_sv360.sql`). So a project absent from it is a street-level survey and gets
  * an empty list, which is the shape 27 of the 29 corpus projects have.
  *
  * `plan_coords` is TEXT-with-JSON in SQLite (it has no better type) and JSONB in
@@ -238,7 +238,7 @@ function readPhotos(idb, projectId, hasFloors) {
     marker_scale: p.marker_scale,
     floor_level: p.floor_level,
     // The floor's LABEL for this photo (`photos.floor_label` in the origin, a
-    // column here since migration 012). NOT derivable from the level: in
+    // column here too). NOT derivable from the level: in
     // beira_rio level 0 carries 'Externo' on 86 photos and 'Campo' on 8: two
     // spaces of the SAME floor with different names on screen. A flat project
     // yields NULL, which is correct: there is no floor to name.
@@ -528,7 +528,7 @@ function transferThumbnail(thumbDirSource, destDir, slug, destDbFilename, transf
 }
 
 // ---------------------------------------------------------------------------
-// Project capture_date (migration 014)
+// Project capture_date
 // ---------------------------------------------------------------------------
 
 // Apply the legacy campaign date to the merged project, INSIDE the caller's tx.

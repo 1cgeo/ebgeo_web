@@ -41,7 +41,7 @@ import { createUser, createAdminUser, createProducerUser, loginUser } from '../h
 // propósito: derivá-la de `CATALOG_TABLES` faria o teste concordar com o código por
 // construção, e o que se quer aqui é a segunda opinião sobre quantas são.
 //
-// A SEGUNDA OPINIÃO SÓ VALE SE ALGUÉM A COBRAR, e até a 021 ninguém cobrava:
+// A SEGUNDA OPINIÃO SÓ VALE SE ALGUÉM A COBRAR, e por muito tempo ninguém cobrava:
 // apagar uma linha desta lista passava verde, porque nenhum caso afirmava o
 // tamanho dela. O `assert` do primeiro caso é o que fecha isso.
 const TABELAS = [

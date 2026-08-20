@@ -97,7 +97,7 @@ export async function flexibleAuth(req, res, next) {
     // here — their token is atlas-scoped and short-lived by design.
     //
     // This renewal still does not consult `refresh_tokens` — it consults the SESSION
-    // CUT-OFF instead (`users.sessions_valid_from`, migration 008), which mass
+    // CUT-OFF instead (`users.sessions_valid_from`), which mass
     // revocation writes in the same statement that stamps the family. That closes what
     // made this the worst half of bugs-backend #35: until 2026-07-25 the only thing
     // that could stop the slide was `is_active` on the user or the org, so after

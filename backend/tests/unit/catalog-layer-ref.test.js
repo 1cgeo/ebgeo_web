@@ -50,7 +50,7 @@ describe('F11 — a referência de uma camada de catálogo', () => {
   });
 
   it('a SEGUNDA defesa: o tipo certo com o id errado tampouco resolve', () => {
-    // A colisão real: a migração 003 semeou uma linha `analysis_layers` cujo id é literalmente
+    // A colisão real: `005_catalogo.sql` semeia uma linha `analysis_layers` cujo id é literalmente
     // 'hillshade'. Uma junção por id nu casaria com ela. Exigir o prefixo é o que impede — e
     // exigir o TIPO sozinho não bastaria, porque a linha existe e o tipo casaria.
     assert.equal(catalogLayerResourceRef('hillshade', 'analysis_layer'), null);
@@ -211,7 +211,7 @@ describe('F11 — o predicado de autorização de catálogo, numa definição s�
   });
 
   it('emite os TRÊS braços, cada um chamando a função SQL que o define', () => {
-    // O predicado mora no SQL (migrações 017/019) e este builder só o COMPÕE. Cada braço é
+    // O predicado mora no SQL (`008_acesso_a_recurso.sql`) e este builder só o COMPÕE. Cada braço é
     // cobrado por nome porque apagar um é a falha silenciosa desta camada: a consulta continua
     // válida, devolve menos (ou mais) linhas, e nenhuma suíte de sintaxe reclama.
     assert.match(completo, /fn_has_global_data_access\(\$1::uuid\)/, 'papel global');

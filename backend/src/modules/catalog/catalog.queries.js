@@ -1,8 +1,9 @@
 // Path: src/modules/catalog/catalog.queries.js
 // The AUTHORIZATION predicate over a catalog row, in ONE definition.
 //
-// The rule itself does not live here: it lives in the three SQL functions of migrations
-// 017/019 (`fn_has_global_data_access`, `fn_can_produce_resource`, `fn_granted_resource_ids`).
+// The rule itself does not live here: it lives in three SQL functions of
+// `008_acesso_a_recurso.sql` (`fn_has_global_data_access`, `fn_can_produce_resource`,
+// `fn_granted_resource_ids`).
 // What lives here is their COMPOSITION — the three OR branches — which was written by hand in
 // two places (`catalog.service.js` and `resource-access.queries.js`) and was about to gain a
 // third with the snapshot rehydration of F11. Same reason `sv360AccessPredicate` is imported

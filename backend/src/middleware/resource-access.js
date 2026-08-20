@@ -87,9 +87,9 @@ export function requireAtlasScopeWhenPresent(req, res, next) {
 /**
  * true quando o principal tem papel global de dado (admin ou CREDENCIADO).
  *
- * O papel `curator` nunca chegou a existir fora de uma revisão da migração 018: ele
- * foi SUBSTITUÍDO por `credenciado` antes de qualquer banco aplicá-lo, e o CHECK de
- * `users.role` recusa a palavra antiga. Prosa que a repete manda quem procurar o
+ * O papel `curator` nunca chegou a existir fora de uma revisão intermediária do eixo
+ * global: ele foi SUBSTITUÍDO por `credenciado` antes de qualquer banco aplicá-lo, e o
+ * CHECK de `users.role` recusa a palavra antiga. Prosa que a repete manda quem procurar o
  * papel no schema procurar um valor que o banco rejeita.
  * @param {object} req
  * @returns {Promise<boolean>}
@@ -99,6 +99,39 @@ async function hasGlobalDataAccess(req) {
   if (!userId) return false;
   const row = await one('SELECT fn_has_global_data_access($1::uuid) AS ok', [userId]);
   return row.ok === true;
+}
+
+/**
+ * Gate de PAPEL GLOBAL DE DADO: administrador OU credenciado.
+ *
+ * O ÚNICO gate deste eixo que não pergunta por um recurso, e é isso que o torna
+ * utilizável pela administração de GRUPO DE ACESSO, onde não há recurso nenhum na
+ * URL. Ele é `hasGlobalDataAccess` sozinho, sem os ramos de concessão e de produção
+ * que `requireResourceShare` e `requireResourceRelay` compõem por cima.
+ *
+ * POR QUE ELE NÃO É `requireAdmin`, e a decisão é do dono (2026-08-19): o credenciado
+ * já LÊ todo recurso privado do sistema, então deixá-lo compor grupos não lhe abre
+ * nada que ele não alcançasse — o que um grupo muda é a quem ELE repassa, e isso
+ * continua passando por `requireResourceShare`. É a primeira escrita do papel, e a
+ * exceção está escrita aqui em vez de virar uma segunda definição de "credenciado" em
+ * outro arquivo.
+ *
+ * POR QUE ELE NÃO É UMA COMPARAÇÃO DE PAPEL EM JS: `hasGlobalDataAccess` resolve
+ * `fn_has_global_data_access` NO BANCO, e o motivo é o mesmo do cabeçalho deste
+ * arquivo — o token vive até 15 min e `flexibleAuth` não reconcilia, então um
+ * credenciado rebaixado carregaria o papel antigo por essa janela inteira. Um
+ * `req.user.role === 'admin' || ... === 'credenciado'` aqui seria, além disso,
+ * exatamente a lista fechada de papel que o censo do backend existe para impedir.
+ *
+ * Ele deixa `req.hasGlobalDataAccess` marcado como o irmão de compartilhar, para que
+ * um handler adiante não reconsulte o mesmo fato.
+ */
+export function requireGlobalDataAccess(req, res, next) {
+  Promise.resolve().then(async () => {
+    req.hasGlobalDataAccess = await hasGlobalDataAccess(req);
+    if (req.hasGlobalDataAccess) return next();
+    return next(new ForbiddenError('É preciso ser administrador ou credenciado para esta ação.'));
+  }).catch(next);
 }
 
 /**
@@ -189,7 +222,8 @@ export function requireResourceShare(req, res, next) {
  * `producesResource`, que delega ao `fn_can_produce_resource` do banco: nenhuma regra
  * é redefinida aqui. O produtor entra porque o acervo da OM dele é dele — exigir que
  * um administrador lhe conceda acesso ao que ele mantém inverte a relação, e o
- * argumento está por extenso na migração 019.
+ * argumento está por extenso na decisão de 2026-08-17 em
+ * `docs/decisions/decisions-2026.md`.
  *
  * 403 E NÃO 404, ao contrário do gate irmão: `assertCanSeeResource` roda ANTES e já
  * respondeu 404 para o que este ator não enxerga, então quem chega aqui JÁ sabe que o

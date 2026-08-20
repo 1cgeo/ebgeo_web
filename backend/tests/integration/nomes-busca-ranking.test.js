@@ -206,7 +206,7 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     };
 
     // Os pesos vêm do trigger ng.calcular_tipo_peso, não de um número chutado aqui.
-    // Isto já pegou uma mudança real: até a migração 009 'Cemiterio' caía no ramo
+    // Isto já pegou uma mudança real: num estado anterior do trigger 'Cemiterio' caía no ramo
     // '%rio%' (0.85, substring) ANTES do ramo do cemitério, e hoje vale 0.15 — um
     // valor hardcoded teria ficado vermelho na correção em vez de acompanhá-la.
     // O que este teste prende é o GAP, não o número.

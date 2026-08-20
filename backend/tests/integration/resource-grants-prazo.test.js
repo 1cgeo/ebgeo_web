@@ -1,6 +1,6 @@
 // Path: tests/integration/resource-grants-prazo.test.js
 //
-// O PRAZO DA CONCESSÃO (migração 019).
+// O PRAZO DA CONCESSÃO (`resource_grants_expires_at_check`, em `008_acesso_a_recurso.sql`).
 //
 // Uma concessão de acesso a recurso privado CADUCA: teto de um ano, default de um
 // ano, e a morte mora no PREDICADO — não existe varredura que escreva `revoked_at`
@@ -205,7 +205,7 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     assert.deepEqual(await visiveis('a'), [], 'vencida: some do payload');
 
     // EXPIRADA NÃO É REVOGADA, e a distinção é o que faz toda consulta que define
-    // "viva" como `revoked_at IS NULL` estar definindo errado desde a 019.
+    // "viva" como `revoked_at IS NULL` estar definindo errado desde que o prazo existe.
     const linha = await linhaDoGrant(g.id);
     assert.equal(linha.revoked_at, null, 'a linha continua NÃO revogada: só o relógio passou');
 
@@ -438,7 +438,7 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     });
     assert.deepEqual(
       semPrazo, [],
-      'consulta que define "concessão viva" só por `revoked_at IS NULL` está definindo errado desde a 019'
+      'consulta que define "concessão viva" só por `revoked_at IS NULL` está definindo errado'
     );
 
     const migracao = fs.readFileSync(

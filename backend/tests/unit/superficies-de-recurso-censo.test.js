@@ -693,6 +693,28 @@ const CENSO_ROTA = [
       + 'só para quem pode compartilhar aquele recurso, que é uma autoridade mais estreita que vê-lo.',
   },
 
+  // ---------------- grupo de acesso -------------------------------------------
+  // Nenhuma das duas serve recurso: elas servem o VOCABULÁRIO de quem recebe. A
+  // assimetria de gate entre as duas é o desenho do módulo e está por extenso no
+  // cabeçalho de `access-groups.routes.js`.
+  {
+    arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'GET /',
+    classe: R_OUTRA, gate: 'auth',
+    motivo: 'A lista de grupos de acesso (id, nome, descrição e duas contagens), sem nomear pessoa '
+      + 'nenhuma. `auth` SOZINHO de propósito: ela é o SELETOR do modal de compartilhar, e quem '
+      + 'concede a um grupo é qualquer pessoa com `view_share` naquele recurso, não só o papel '
+      + 'global. Fechá-la no gate de administração deixaria o ramo de grupo do predicado '
+      + 'inalcançável pela interface, que é o defeito que o módulo existe para fechar.',
+  },
+  {
+    arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'GET /:groupId/members',
+    classe: R_OUTRA, gate: 'requireGlobalDataAccess',
+    motivo: 'O roster de pessoas de um grupo, e por isso ele fica do lado FECHADO junto com a '
+      + 'escrita: nome de grupo é vocabulário organizacional e serve ao seletor; quem está dentro '
+      + 'dele o seletor não precisa saber, e a contagem que `LIST_GROUPS` já devolve basta para a '
+      + 'tela dizer "Estado-Maior (12)".',
+  },
+
   // ---------------- gazetteer e modelos 3D ------------------------------------
   {
     arquivo: 'src/modules/nomes/nomes.routes.js', rota: 'GET /busca', classe: R_FILTRADA,
@@ -785,7 +807,7 @@ const CENSO_ROTA = [
   // 2 só lê `router.get(` — `POST /:atlasId/maps/:mapId/duplicate` (`atlas.routes.js`), que
   // devolve a linha do mapa novo como corpo.
   //
-  // A correção foi ESTRUTURAL, não um filtro nas respostas: a migração 022 apagou a coluna, e as
+  // A correção foi ESTRUTURAL, não um filtro nas respostas: a coluna saiu do schema, e as
   // três consultas passaram a listar colunas explicitamente. Um filtro protegeria as rotas que
   // alguém lembrou e deixaria a coluna de pé para a próxima consulta sobre `maps`.
   // São DOIS os pares de comportamento, e a divisão é de propósito:

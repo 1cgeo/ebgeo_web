@@ -2,17 +2,33 @@
 
 Registro global versionado por categoria, filtrado na leitura pelo eixo de acesso a recurso e escrito por administrador ou pela OM produtora, que alimenta o `GET /api/v1/config` de todo cliente.
 
-## A taxonomia de tipo é mais pobre do que o acervo
+## A forma do 3D é DECLARADA, e antes era deduzida por exclusão
 
-`tilesets` distingue só DUAS formas de 3D, por `config.type === 'glb'` presente ou ausente,
-e o acervo tem pelo menos três: tileset 3D, modelo isolado e nuvem de pontos. Quando o
-acervo do segundo catálogo (que vivia no schema `ng` e saiu em 2026-08-19) foi convertido,
-a NUVEM DE PONTOS foi mapeada para tileset. Isso é correto de carregamento, porque o
-formato dela é parte do 3D Tiles, e não quebra nada.
+Desde 2026-08-19 um tileset diz o que ele é, em `config.forma3d`, com quatro valores
+fechados: `tiles3d`, `glb`, `pointcloud` e `indoor`. A fonte é `frontend/src/js/catalog/forma-3d.js`,
+de zero imports porque a página do admin a lê sem carregar a store.
 
-O que se perde é poder DIZER na tela que aquele item é uma nuvem, e filtrar por isso.
-Declarar a taxonomia por extenso (tiles3d, glb, pointcloud, indoor) é trabalho próprio;
-inventá-la durante a conversão criaria um valor que nenhum leitor do código conhece.
+**O que havia antes, e por que era a mesma armadilha do eixo de papel.** A taxonomia era
+expressa por EXCLUSÃO, em dois discriminadores improvisados: `config.type === 'glb'` escolhia
+entre carregar como modelo e carregar como tileset, e `viewer !== 'firstPerson'` excluía a cena
+indoor da lista. Lista fechada escrita pelo avesso quebra do mesmo jeito que a do eixo de papel:
+uma quinta forma acrescentada amanhã cai no ramo do tileset sem rótulo, e ninguém percebe,
+porque "não é glb e não é firstPerson" continua verdadeiro. A nuvem de pontos era exatamente
+esse caso já materializado, e carregava certo (o formato dela é parte do 3D Tiles) sem ter
+rótulo, ícone nem filtro.
+
+**O retro-preenchimento NÃO adivinha nuvem de pontos, e a ausência é decisão.** `glb` e `indoor`
+se derivam do que estava gravado; todo o resto virou `tiles3d`. No banco a nuvem de pontos é
+indistinguível de um tileset comum, então marcá-la é ato manual pela tela do admin. Uma migração
+que adivinhasse por nome ou caminho gravaria rótulo errado que ninguém revisaria.
+
+**A derivação de compatibilidade ainda existe e tem duas condições de morte escritas.** Linha
+sem o campo continua sendo classificada pelos discriminadores antigos, e `derivarForma3d` só pode
+sair quando toda base implantada tiver rodado a migração e o Joi passar a exigir o campo. Apagá-la
+antes disso transforma todo GLB antigo numa carga de tileset, que desenha nada sem erro.
+
+Um guarda estrutural reprova forma nova sem rótulo, sem ícone e sem ramo no visualizador, e
+reprova também a volta de qualquer decisão por exclusão.
 
 ## A distinção que mais confunde
 
@@ -91,5 +107,6 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 - [[atlas-settings]]: recorte por atlas sobre o catálogo global.
 - [[resources-catalogo]], [[assets3d-distribuicao]], [[streetview-360]]: consumidores de `tileset` e 360.
 - [[acesso-a-recurso-privado]]: a marca público/privado, quem a destrava na leitura e o escopo de produção que destrava a escrita.
+- [[grupo-de-acesso]]: o coletivo a quem a concessão sobre estes recursos pode ser feita.
 - [[gestao-usuarios]], [[permissoes-atlas]], [[organizacoes-om]]: os papéis globais e quem os escreve.
 - [[api-rest-atlas]], [[erros-api]], [[autenticacao-jwt]]: convenções REST, erro e auth.

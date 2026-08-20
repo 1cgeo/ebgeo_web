@@ -195,13 +195,13 @@ const trackSchema = Joi.object({
 
 // --- floor -----------------------------------------------------------------
 
-// One floor of a project (sv360.project_floors, migration 012). The LIST of these
+// One floor of a project (sv360.project_floors, `007_sv360.sql`). The LIST of these
 // rows is what declares "this project has floors" and makes the interface draw the
 // floor selector, so an empty floors[] is the normal shape of a street-level
 // survey, never a defect.
 //
 // `level` is an ordered INTEGER, negative allowed: 0 is the ground, 1 the first
-// indoor floor above it, -1 the first basement (migration 012, and
+// indoor floor above it, -1 the first basement (see
 // ebgeo_360 scripts/lib/floors.js). `label` is REQUIRED and not derived from the
 // level, because two spaces at the same level can carry different names.
 //

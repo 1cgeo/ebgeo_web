@@ -651,19 +651,26 @@ export class AccountControl {
     }
 
     /**
-     * Shows the admin entry to a GLOBAL system admin, and to a PRODUCER — who lands on the same
-     * page holding the Catálogo tab alone, so the item is relabelled "Catálogo": "Administração"
-     * would promise a panel the producer does not get. Unlike the atlas-scoped items above, this is
-     * NOT predicated on a connected atlas — the page is global. The backend gates every admin route
-     * with requireAdmin, and the catalog writes with the production gate.
+     * Mostra a entrada da página de administração a quem pode abri-la, com o rótulo do que ela
+     * realmente entrega: o administrador GLOBAL recebe todas as abas, o CREDENCIADO só Grupos e o
+     * PRODUTOR só Catálogo. Chamar os dois últimos de "Administração" prometeria um painel que
+     * eles não recebem. A ordem dos testes repete a de `mountAdminPage`, e repete por necessidade:
+     * `hasGlobalDataAccess()` também é verdadeiro para o administrador.
+     *
+     * Diferente dos itens de atlas acima, isto NÃO depende de atlas conectado — a página é global.
+     * O servidor gateia toda rota de administração com requireAdmin, as escritas do catálogo com o
+     * gate de produção e as de grupo com o gate de dado; nada aqui é a fronteira.
      * @private
      */
     _updateAdminVisibility() {
         if (!this._adminBtn) return;
-        const admin = sessionContext.isAdmin();
-        this._adminBtn.hidden = !admin && !sessionContext.isProducer();
+        let texto = null;
+        if (sessionContext.isAdmin()) texto = 'Administração';
+        else if (sessionContext.hasGlobalDataAccess()) texto = 'Grupos';
+        else if (sessionContext.isProducer()) texto = 'Catálogo';
+        this._adminBtn.hidden = texto === null;
         const label = this._adminBtn.querySelector('.account-control__btn-label');
-        if (label) label.textContent = admin ? 'Administração' : 'Catálogo';
+        if (label && texto) label.textContent = texto;
     }
 
     /**

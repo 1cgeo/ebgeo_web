@@ -131,12 +131,12 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     // sobre ele no boot, e trocar array vazio por ausente quebraria a página do
     // mapa. Vazio é resposta legítima; ausente não é.
     //
-    // Este caso já afirmou o OPOSTO: que o catálogo trazia um `PCL` semeado pela
-    // migração 003, com url `/3d/PCL/tileset.json`. O asset nunca esteve no
+    // Este caso já afirmou o OPOSTO: que o catálogo trazia um `PCL` semeado pelo
+    // próprio catálogo, com url `/3d/PCL/tileset.json`. O asset nunca esteve no
     // repositório (`public/3d/` é ignorado pelo versionamento), então toda
     // instalação limpa prometia um modelo que o servidor não serve, e abrir o
     // visualizador 3D nele dava 404 que o cliente engolia de volta para o 2D.
-    // A migração 015 removeu o registro, por decisão de produto: o catálogo é
+    // O registro saiu, por decisão de produto: o catálogo é
     // ponto de CONFIGURAÇÃO, e conteúdo entra pelo Painel do Administrador ou
     // pelo import de acervo 3D, apontando para uma URL que existe.
     //

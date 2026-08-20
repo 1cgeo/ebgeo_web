@@ -565,8 +565,22 @@ function startPresenceRefresh(drive) {
     start();
 }
 
-/** @returns {AppBarAction[]} The page actions: back to the local map, and the admin page for an
- *  admin (as "Administração") or a producer (as "Catálogo"). */
+/**
+ * O rótulo da entrada para `admin.html`, que MUDA com o papel global porque o painel muda: o
+ * administrador recebe todas as abas, o credenciado só Grupos e o produtor só Catálogo. Chamar
+ * qualquer um dos dois últimos de "Administração" prometeria um painel que ele não recebe. A
+ * ordem repete a de `mountAdminPage`, e repete por necessidade: `hasGlobalDataAccess()` também
+ * é verdadeiro para o administrador, então só se pergunta depois de `isAdmin()`.
+ * @returns {string|null} O rótulo, ou null para quem não abre a página.
+ */
+function adminEntryLabel() {
+    if (sessionContext.isAdmin()) return 'Administração';
+    if (sessionContext.hasGlobalDataAccess()) return 'Grupos';
+    return sessionContext.isProducer() ? 'Catálogo' : null;
+}
+
+/** @returns {AppBarAction[]} The page actions: back to the local map, and the admin page for
+ *  whoever may open it, labelled with what they actually get there. */
 function buildActions() {
     const actions = [{
         label: 'Mapa local',
@@ -575,11 +589,10 @@ function buildActions() {
         title: 'Trabalhar no mapa local, sem atlas do servidor',
         onClick: goToLocalMap,
     }];
-    // Um PRODUTOR chega à mesma página, que para ele traz só a aba Catálogo — daí o rótulo
-    // diferente: "Administração" prometeria um painel que ele não recebe.
-    if (sessionContext.isAdmin() || sessionContext.isProducer()) {
+    const adminLabel = adminEntryLabel();
+    if (adminLabel) {
         actions.push({
-            label: sessionContext.isAdmin() ? 'Administração' : 'Catálogo',
+            label: adminLabel,
             icon: ICON_ADMIN,
             testid: 'projects-admin',
             onClick: () => window.location.assign(ADMIN_URL),

@@ -56,6 +56,7 @@ const PROBES = [
   // de propósito: é a única que exercita a opção `method`, e opção de guarda que
   // nenhum caso usa é opção que ninguém percebe quebrar.
   { prefix: '/api/v1/resource-access', path: '/api/v1/resource-access/tileset/x/visibility', method: 'patch' },
+  { prefix: '/api/v1/access-groups', path: '/api/v1/access-groups' },
   { prefix: '/api/v1/debug', path: '/api/v1/debug/trace' },
 ];
 

@@ -6,10 +6,8 @@
  */
 
 import config from '@js/config.js';
-import {
-    FIRST_PERSON_VIEWER,
-    getFirstPersonScenes
-} from '@js/first_person_3d_tool/scene-config.service.js';
+import { getFirstPersonScenes } from '@js/first_person_3d_tool/scene-config.service.js';
+import { ehEntradaDoCesium } from '@catalog/forma-3d.js';
 import { getCurrentMapFeatures } from '@store/feature.operations.js';
 import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operations.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
@@ -234,7 +232,9 @@ export function search3DModels(query) {
 }
 
 /**
- * Searches Cesium 3D tilesets from config, first-person scenes excluded.
+ * Searches the Cesium half of `config.tilesets`, selected by the DECLARED shape
+ * (`catalog/forma-3d.js`) instead of by "is not a first-person scene": a shape nobody has heard
+ * of must not reach the tileset click target by default.
  * @param {string} normalizedQuery - Lowercase search query
  * @returns {Array} Search results
  */
@@ -244,7 +244,7 @@ function searchTilesets3D(normalizedQuery) {
     }
 
     return config.tilesets
-        .filter(tileset => tileset?.viewer !== FIRST_PERSON_VIEWER)
+        .filter(tileset => ehEntradaDoCesium(tileset))
         .filter(tileset =>
             tileset.name?.toLowerCase().includes(normalizedQuery) ||
             tileset.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))

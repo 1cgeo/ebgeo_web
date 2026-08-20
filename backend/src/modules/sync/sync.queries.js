@@ -130,8 +130,8 @@ export const GET_ATLAS_CATALOG_LAYERS = `
 // of the CALLER.
 //
 // ONE query for the whole snapshot, never one per layer: the ids are collected in JS from the
-// `catalog_layers` rows (the legacy `maps.catalog_layers` column was the other surface until
-// migration 022 dropped it) and arrive here as two arrays, one per type. The Cesium/LOD lesson does not apply — this runs once per snapshot — but the
+// `catalog_layers` rows (the legacy `maps.catalog_layers` column was the other surface until it
+// was dropped) and arrive here as two arrays, one per type. The Cesium/LOD lesson does not apply — this runs once per snapshot — but the
 // N+1 lesson of `snapshot-n-mais-1.repro.test.js` does, and it is why this is not a lookup
 // inside the per-map loop.
 //

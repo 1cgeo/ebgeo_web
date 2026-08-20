@@ -11,7 +11,7 @@
 // frozen contract with the frontend (api-client.js maps analysis_layer ->
 // analysis-layers).
 //
-// There were FIVE mounts until migration 021 dropped `streetview_markers`, a table
+// There were FIVE mounts while `streetview_markers` existed, a table
 // that never had a consumer: it fed nothing in /api/config, no frontend code called
 // its route, and no seed wrote to it.
 //

@@ -17,6 +17,8 @@ import {
     CATALOG_TYPE_CONFIG,
     DEFAULT_THUMBNAILS,
     CATALOG_UI_ICONS,
+    FORMA_3D_ICONS,
+    FORMA_3D_LABELS,
     RESOURCE_ACCESS_BY_CATALOG_TYPE
 } from '../catalog.constants.js';
 import { formatCatalogDate } from '../catalog.service.js';
@@ -69,10 +71,16 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     };
     thumbnailWrapper.appendChild(img);
 
-    // Type badge
+    // Type badge. On a 3D item it carries the SHAPE (Tiles 3D / Modelo isolado / Nuvem de
+    // pontos / Cena indoor) instead of the coarse section name: three shapes share the type
+    // `MODEL_3D`, and until the axis was declared a point cloud was indistinguishable on screen
+    // from an ordinary model. `item.forma` is absent on everything that is not 3D, and the
+    // section label answers for those.
     const badge = document.createElement('span');
     badge.className = 'catalog-card-badge';
-    badge.innerHTML = `${typeConfig.icon}<span>${typeConfig.label}</span>`;
+    const badgeIcon = FORMA_3D_ICONS[item.forma] ?? typeConfig.icon;
+    const badgeLabel = FORMA_3D_LABELS[item.forma] ?? typeConfig.label;
+    badge.innerHTML = `${badgeIcon}<span>${badgeLabel}</span>`;
     thumbnailWrapper.appendChild(badge);
 
     // Selo de recurso PRIVADO. Ele aparece também na aba "Catálogo" da configuração

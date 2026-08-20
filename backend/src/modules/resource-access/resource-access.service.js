@@ -1,7 +1,8 @@
 // Path: src/modules/resource-access/resource-access.service.js
-// Lógica do acesso a recurso privado. O PREDICADO não mora aqui: ele mora nas três
-// funções SQL da migração 017. É o que permite dizer "o dado não vaza nem com bug
-// de app" — um erro nesta camada não abre nada que o SQL feche.
+// Lógica do acesso a recurso privado. O PREDICADO não mora aqui: ele mora nas funções
+// SQL de `008_acesso_a_recurso.sql` (`fn_can_see_resource`, `fn_can_produce_resource`,
+// `fn_granted_resource_ids` e as de apoio). É o que permite dizer "o dado não vaza nem
+// com bug de app" — um erro nesta camada não abre nada que o SQL feche.
 
 import { query, one, oneOrNone, tx } from '../../database/index.js';
 import { NotFoundError, ForbiddenError, ConflictError } from '../../utils/errors.js';
@@ -201,15 +202,32 @@ export async function listGrantsForResource(type, resourceId) {
  * dá para entregar e dizer, na resposta e na auditoria, até quando vale.
  */
 export async function grantResource({
-  type, resourceId, granteeId, grantLevel, expiresAt = null, actor, hasGlobalAccess, req,
+  type, resourceId, granteeId = null, granteeGroupId = null, grantLevel,
+  expiresAt = null, actor, hasGlobalAccess, req,
 }) {
   const t = assertResourceType(type);
+  // O `xor` do Joi já garante que exatamente um chegou, e o CHECK da tabela garante de
+  // novo. Esta linha existe para o chamador INTERNO (teste, script), que não passa pela
+  // borda HTTP e caso contrário produziria um 23514 sem relação aparente com a causa.
+  if ((granteeId === null) === (granteeGroupId === null)) {
+    throw new Error('grantResource: informe granteeId OU granteeGroupId, nunca os dois');
+  }
+  const paraGrupo = granteeGroupId !== null;
 
   if (await accessLevelOf(t, resourceId) === null) throw new NotFoundError('Resource');
 
-  const grantee = await oneOrNone(Q.GET_ACTIVE_USER, [granteeId]);
-  if (!grantee) throw new NotFoundError('User');
-  if (granteeId === actor.id) throw new ConflictError('Não é possível conceder acesso a si mesmo.');
+  // O BENEFICIÁRIO PRECISA EXISTIR E ESTAR VIVO nos dois ramos, e "vivo" quer dizer
+  // coisas diferentes: pessoa ATIVA (`is_active`) e grupo NÃO APAGADO (`deleted_at`).
+  // Os dois predicados são os mesmos que a resolução usa, então uma concessão aceita
+  // aqui é uma concessão que o predicado de leitura vai honrar — sem isto ela nasceria
+  // morta, com 201 na resposta e acesso nenhum na prática.
+  const grantee = paraGrupo
+    ? await oneOrNone(Q.GET_LIVE_GROUP, [granteeGroupId])
+    : await oneOrNone(Q.GET_ACTIVE_USER, [granteeId]);
+  if (!grantee) throw new NotFoundError(paraGrupo ? 'Access group' : 'User');
+  if (!paraGrupo && granteeId === actor.id) {
+    throw new ConflictError('Não é possível conceder acesso a si mesmo.');
+  }
 
   let parentGrantId = null;
   let parentExpiresAt = null;
@@ -219,17 +237,32 @@ export async function grantResource({
     if (!sharer) {
       throw new ForbiddenError('É preciso ter acesso com permissão de compartilhar para conceder este recurso.');
     }
+    // O CASO DEGENERADO: conceder AO MESMO grupo de onde a própria autoridade veio.
+    // Ele é o análogo coletivo de "conceder a si mesmo" e não é pego pela checagem de
+    // duplicata (que compara `granted_by`, e o pai foi concedido por OUTRA pessoa). A
+    // linha nasceria pendurada na irmã, cairia junto com ela na poda e não daria a
+    // ninguém um acesso que o grupo já não tivesse — ou seja, custo sem efeito, e mais
+    // uma aresta na árvore que a tela de revogação tem de explicar.
+    if (paraGrupo && String(sharer.grantee_group_id ?? '') === String(granteeGroupId)) {
+      throw new ConflictError('Este grupo já é a origem do seu próprio acesso a este recurso.');
+    }
     parentGrantId = sharer.id;
     parentExpiresAt = sharer.expires_at ?? null;
   }
 
-  const jaDei = await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
-  if (jaDei) throw new ConflictError('Este usuário já recebeu acesso a este recurso de você.');
+  const jaDei = paraGrupo
+    ? await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GROUP, [actor.id, granteeGroupId, t, resourceId])
+    : await oneOrNone(Q.LIVE_GRANT_FROM_ACTOR_TO_GRANTEE, [actor.id, granteeId, t, resourceId]);
+  if (jaDei) {
+    throw new ConflictError(paraGrupo
+      ? 'Este grupo já recebeu acesso a este recurso de você.'
+      : 'Este usuário já recebeu acesso a este recurso de você.');
+  }
 
   return tx(async (trx) => {
     const row = await trx.one(Q.INSERT_GRANT, [
       t, resourceId, granteeId, grantLevel, actor.id, parentGrantId,
-      expiresAt ?? null, parentExpiresAt,
+      expiresAt ?? null, parentExpiresAt, granteeGroupId,
     ]);
     await createAudit(req, {
       // O ALVO É O RECURSO, não o beneficiário, e a escolha é deliberada: o que
@@ -249,9 +282,19 @@ export async function grantResource({
       // não o pedido: a auditoria da expiração acontece na CONCESSÃO, porque não há
       // varredura que aplique a expiração depois — a morte mora no predicado, e sem
       // esta linha nada no registro diria até quando aquele acesso valeu.
+      //
+      // O BENEFICIÁRIO COLETIVO OCUPA CAMPOS PRÓPRIOS, e não os mesmos com outro
+      // significado: `granteeId` continua sendo pessoa e `granteeGroupId` é grupo, os
+      // dois presentes e um deles nulo, exatamente como as colunas. Reusar um campo só
+      // ("granteeId, que às vezes é um grupo") obrigaria toda leitura da trilha a
+      // consultar uma segunda coluna para saber o que aquele UUID significa, e um filtro
+      // por pessoa passaria a casar grupos por coincidência de id.
       details: {
         resourceType: t, grantLevel, grantId: row.id, parentGrantId,
-        granteeId, granteeUsername: grantee.username,
+        granteeId,
+        granteeUsername: paraGrupo ? null : grantee.username,
+        granteeGroupId,
+        granteeGroupName: paraGrupo ? grantee.name : null,
         expiresAt: row.expires_at,
       },
     }, trx);
@@ -290,6 +333,11 @@ export async function revokeGrant({ grantId, actor, req }) {
         details: {
           resourceType: p.resource_type,
           granteeId: p.grantee_id,
+          // O beneficiário coletivo em campo PRÓPRIO, como no par `PERMISSION_GRANT`:
+          // sem ele, revogar uma concessão a grupo gravaria uma linha cujo "quem perdeu
+          // acesso" é nulo, e a pergunta que esta trilha existe para responder ficaria
+          // sem resposta justo no caso em que N pessoas caem de uma vez.
+          granteeGroupId: p.grantee_group_id,
           grantId: p.id,
           parentGrantId: p.parent_grant_id,
           rootGrantId: grantId,
@@ -370,7 +418,7 @@ export async function detachAtlasResource({ atlasId, type, resourceId, actor, re
  * fora da transação sobrevive ao rollback do projeto.
  *
  * ESTA FUNÇÃO FICOU SEM CHAMADOR NENHUM POR UMA FASE INTEIRA, enquanto o comentário
- * da migração 017 afirmava por escrito que `deleteProject` a chamava na mesma
+ * que introduziu `resource_grants` afirmava por escrito que `deleteProject` a chamava na mesma
  * transação. Não chamava: apagar um projeto 360 deixava `resource_grants` e
  * `atlas_resources` apontando para um UUID que não existia mais. A ligação foi
  * feita em `deleteProject`, e é ela que dá sentido à trilha abaixo.
@@ -411,6 +459,7 @@ export async function purgeResourceLinks(trx, type, resourceId, actorId = null, 
           resourceType: t,
           grantId: g.id,
           granteeId: g.grantee_id,
+          granteeGroupId: g.grantee_group_id,
           grantedBy: g.granted_by,
           grantLevel: g.grant_level,
           parentGrantId: g.parent_grant_id,

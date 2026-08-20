@@ -100,7 +100,7 @@ candidatos AS (
   -- índice GIN pelo operador; uma chamada de função é opaca ao planner e força
   -- Seq Scan sobre a ng.nomes_geograficos inteira, avaliando f_unaccent() e
   -- similarity() linha a linha e depois ST_Distance() sobre cada candidato. O
-  -- índice que resolve isso já existia e estava ocioso desde a migração 004
+  -- índice que resolve isso já existia e estava ocioso
   -- (idx_ng_nome_unaccent_trgm, GIN sobre ng.f_unaccent(nome)).
   --
   -- O limiar de 0.25 é preservado por SET LOCAL pg_trgm.similarity_threshold

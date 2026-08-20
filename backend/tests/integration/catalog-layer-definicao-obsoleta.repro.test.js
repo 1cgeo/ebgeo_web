@@ -228,8 +228,9 @@ describe('F11 · a definição de camada de catálogo não envelhece mais dentro
   it('DISCRIMINAÇÃO — o HILLSHADE conserva a cópia dele, que é a definição dele', async () => {
     // A ARMADILHA (i) DA FASE. Ele não tem linha em tabela de catálogo nenhuma: a definição é
     // estática (`config.static.js` + HILLSHADE_URL). Se o frescor o alcançasse, ele resolveria
-    // contra nada — ou, pior, contra a linha `analysis_layers` de id literal 'hillshade' que a
-    // migração 003 semeou com `config = {}` — e o relevo sombreado sumiria do mapa de todo mundo.
+    // contra nada — ou, pior, contra a linha `analysis_layers` de id literal 'hillshade' que
+    // `005_catalogo.sql` semeia com `config = {}` — e o relevo sombreado sumiria do mapa de
+    // todo mundo.
     const c = camada(await snapshot(atlasA.id), mapaA.id, 'hillshade');
     assert.ok(c, 'o relevo precisa continuar no snapshot');
     assert.equal(c.config.source.url, URL_DO_RELEVO, 'com a fonte dele intacta');

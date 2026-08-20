@@ -10,6 +10,8 @@ Um `role: user` pode ser `owner` de um atlas; um produtor não ganha nada num at
 
 `users.role` tem `user`, `producer`, `credenciado` e `admin`, e **não é escada**: comparar papel global por ordem (`>=`, índice em array) é erro de leitura, não otimização. Só `admin` curto-circuita alguma coisa; produtor e credenciado caem na escada por atlas como qualquer conta comum, que é o desenho. O risco aqui é o INVERSO do que a constituição descreve para o eixo por atlas: não é excluir o nível de cima com lista fechada, é escrever `if (role !== 'user')` num gate de poder e promover os dois em silêncio. Detalhe e o censo que cobra isso em [[acesso-a-recurso-privado]].
 
+Desde 2026-08-19 o `credenciado` deixou de ser papel só de leitura: administrar grupo de acesso é a única escrita dele, e ela não o aproxima de administrador do sistema ([[grupo-de-acesso]]). Quem planejar um gate a partir de "credenciado não escreve" está usando a definição antiga.
+
 ## O admin não tem meio-termo
 
 `requireAtlasPermission` curto-circuita para `req.atlasPermission = 'owner'` quando o papel global é `admin`, sem consultar `atlas_shares` (`backend/src/middleware/permissions.js`), e o handshake do WebSocket repete a mesma decisão. **Não existe "admin somente leitura"**: o admin global deleta atlas alheio e destrava mapa alheio pelo mesmo caminho do dono. Toda UI administrativa deve assumir escrita total, não há nível intermediário para desenhar.
@@ -50,4 +52,4 @@ A troca não é de nome, é de origem da autoridade. `organization_id` mais `org
 
 ## Páginas comparadas
 
-[[permissoes-atlas]], [[sintese-capacidades-por-papel]], [[acesso-a-recurso-privado]], [[organizacoes-om]], [[autenticacao-jwt]], [[link-publico]], [[canal-collab-websocket]], [[erros-api]].
+[[permissoes-atlas]], [[sintese-capacidades-por-papel]], [[acesso-a-recurso-privado]], [[grupo-de-acesso]], [[organizacoes-om]], [[autenticacao-jwt]], [[link-publico]], [[canal-collab-websocket]], [[erros-api]].

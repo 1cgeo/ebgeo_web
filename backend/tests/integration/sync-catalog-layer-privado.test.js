@@ -302,7 +302,7 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
 
   it('DISCRIMINAÇÃO — a linha semeada `analysis_layers.hillshade` NÃO é usada como junção', async () => {
     // A SEGUNDA DEFESA, e ela existe porque a primeira poderia falhar por uma porta diferente:
-    // a migração 003 semeou uma linha `analysis_layers` cujo id é literalmente 'hillshade', com
+    // `005_catalogo.sql` semeia uma linha `analysis_layers` cujo id é literalmente 'hillshade', com
     // `config = {}`. Uma junção por `catalog_layers.id = analysis_layers.id` casaria com ela e
     // devolveria config VAZIO para a camada de relevo. O prefixo é o que impede: 'hillshade' não
     // produz chave de junção nenhuma.
@@ -452,7 +452,7 @@ describe('F11 — camada de catálogo no snapshot: referência, e a definição 
   it('A COLUNA LEGADA não existe mais: o snapshot não tem onde carregar a segunda cópia', async () => {
     // Esta era a outra metade do mesmo buraco: `GET_ATLAS_MAPS` listava `catalog_layers` entre
     // as colunas e o cliente a recebia dentro do `...rest` de `reshapeSnapshotMap`. A F11 a
-    // reidratava junto; a F12 a apagou (migração 022), porque ela também saía por rotas que não
+    // reidratava junto; a F12 apagou a coluna, porque ela também saía por rotas que não
     // passam pela reidratação. Sem coluna não há o que reidratar nem o que esquecer de reidratar.
     const doMembro = await snapshot(tokenMembro);
     const oMapa = doMembro.maps.find((m) => m.id === mapa.id);

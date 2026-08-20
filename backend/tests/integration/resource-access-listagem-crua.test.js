@@ -30,7 +30,7 @@ import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
 /**
  * As quatro rotas de catálogo, todas com marca de acesso.
  *
- * `basemaps` entrou na lista com a migração 021. A marca ela já tinha desde a 017 e
+ * `basemaps` foi a última a entrar na lista. A marca ela já tinha e
  * o filtro público-por-padrão já valia; o que faltava era o tipo de CONCESSÃO, sem
  * o qual um basemap privado sumia para todo mundo e não havia como devolvê-lo a
  * ninguém. Antes disso este arquivo media três rotas e a quarta ficava sem par
@@ -123,7 +123,7 @@ describe('R1 — listagem crua de catálogo, o estado ANTES de "privado" existir
     assert.deepEqual(
       rows.map((r) => r.table_name).sort(),
       ROTAS.map(([, t]) => t).sort(),
-      'a migração 017 precisa ter posto access_level nas quatro tabelas de catálogo'
+      '`005_catalogo.sql` precisa ter posto access_level nas quatro tabelas de catálogo'
     );
   });
 

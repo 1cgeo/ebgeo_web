@@ -51,7 +51,12 @@ export const createGrant = asyncHandler(async (req, res) => {
   const data = await svc.grantResource({
     type: req.params.type,
     resourceId: req.params.id,
-    granteeId: req.body.granteeId,
+    // Exatamente um dos dois chega preenchido — o `xor` do Joi já recusou o corpo com
+    // nenhum e o com ambos. O `?? null` é o que transforma "ausente" em NULL de coluna:
+    // `undefined` num parâmetro de `pg-promise` vira a string 'undefined' num cast
+    // `::uuid` e levanta 22P02, longe daqui.
+    granteeId: req.body.granteeId ?? null,
+    granteeGroupId: req.body.granteeGroupId ?? null,
     grantLevel: req.body.grantLevel,
     // Ausente = o default da coluna (um ano). O teto e o prazo do pai são aplicados
     // no INSERT, não aqui.

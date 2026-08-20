@@ -376,7 +376,7 @@ export function attachWebSocket(server) {
             return;
           }
           // Mesmo argumento do parágrafo acima, agora para o CORTE DE SESSÃO
-          // (`users.sessions_valid_from`, migração 008): revogação em massa passou a
+          // (`users.sessions_valid_from`): revogação em massa passou a
           // recusar o access token no `auth` estrito e a bloquear a renovação
           // deslizante, e deixar o handshake de fora daria ao token morto exatamente
           // a porta que sobrou. O `iat` já está no payload, e o `live` já foi lido.

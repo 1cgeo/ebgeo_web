@@ -15,7 +15,7 @@ import * as svc from './catalog.service.js';
  * pede `GET /api/v1/tilesets?atlasId=...` quando quer ver também o que o atlas em
  * foco empresta. Ausente significa "sem atlas em foco", que é um estado legítimo.
  *
- * DESDE A MIGRAÇÃO 021 AS QUATRO TABELAS TÊM TIPO DE CONCESSÃO, então na prática
+ * AS QUATRO TABELAS TÊM TIPO DE CONCESSÃO (`TYPE_BY_TABLE`), então na prática
  * `resourceType` nunca chega nulo. O `??` fica: ele é o que garante que uma tabela
  * ausente de `TYPE_BY_TABLE` degrade para "sem eixo de concessão" (menos dado) em
  * vez de montar um predicado com `undefined`. Repare que o nulo apaga só o ramo de

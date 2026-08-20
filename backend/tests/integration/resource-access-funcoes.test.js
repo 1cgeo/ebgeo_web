@@ -2,12 +2,12 @@
 //
 // AS FUNÇÕES DE RESOLUÇÃO DE ACESSO, CHAMADAS DIRETO POR SQL.
 //
-// São QUATRO desde esta fase: `fn_can_produce_resource` entrou ao lado das três da
-// migração 017 e responde a pergunta do eixo de PRODUÇÃO — "esta pessoa MANTÉM este
+// São QUATRO desde esta fase: `fn_can_produce_resource` entrou ao lado das três de
+// `008_acesso_a_recurso.sql` e responde a pergunta do eixo de PRODUÇÃO — "esta pessoa MANTÉM este
 // recurso?". Ela é a peça que substituiu o ramo `organization_id = $x` que autorizava
 // por LOTAÇÃO auto-declarada no auto-cadastro.
 //
-// A migração 017 cria `fn_has_global_data_access`, `fn_granted_resource_ids` e
+// `008_acesso_a_recurso.sql` cria `fn_has_global_data_access`, `fn_granted_resource_ids` e
 // `fn_can_see_resource`, e NADA as consome ainda. Testá-las por HTTP seria
 // impossível nesta fase e enganoso na seguinte: o que se quer prender aqui é o
 // PREDICADO, não o caminho de rota que um dia o chamará. É também o único nível
@@ -124,7 +124,7 @@ describe('F1 — resolução de acesso a recurso privado (as três funções SQL
     assert.deepEqual(
       rows.map((r) => r.proname),
       ['fn_can_see_resource', 'fn_granted_resource_ids', 'fn_has_global_data_access'],
-      'a migração 017 precisa ter criado as três funções'
+      '`008_acesso_a_recurso.sql` precisa ter criado as três funções'
     );
     const { rows: r2 } = await db.query('SELECT access_level FROM tilesets WHERE id = $1', [recurso]);
     assert.equal(r2[0].access_level, 'private');
@@ -347,8 +347,8 @@ describe('F1 — resolução de acesso a recurso privado (as três funções SQL
       ),
       /whitelist|invalid_parameter_value|fn_can_produce_resource/i
     );
-    // `streetview_marker` ERA legítimo e virou o CONTROLE NEGATIVO desta lista: a
-    // migração 021 apagou a tabela e tirou o ramo do `CASE`, então o tipo passa a
+    // `streetview_marker` ERA legítimo e virou o CONTROLE NEGATIVO desta lista: a tabela
+    // saiu do schema e o ramo saiu do `CASE`, então o tipo passa a
     // levantar como qualquer nome inventado. Testá-lo aqui, e não apagá-lo, é o que
     // prova que o ramo saiu MESMO — um `CASE` com o ramo de pé e a tabela ausente
     // levantaria 42P01 (undefined_table), que não casa com este regex.

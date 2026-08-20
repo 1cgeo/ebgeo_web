@@ -7,10 +7,10 @@
 
 import config from '@js/config.js';
 import {
-  FIRST_PERSON_VIEWER,
   getFirstPersonScenes,
   hasFirstPersonScenes
 } from '@js/first_person_3d_tool/scene-config.service.js';
+import { ehEntradaDoCesium } from '@catalog/forma-3d.js';
 import { escapeHtml } from '@utils';
 import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
 import { gazetteerSearchUrl } from './gazetteer-url.js';
@@ -129,16 +129,19 @@ class FeatureSearchControl {
   }
 
   /**
-   * The Cesium half of `config.tilesets`: every catalog row that is NOT a
-   * first-person scene. One rule, one place — the scene half is
-   * `getFirstPersonScenes()`, and both read the same `viewer` discriminator.
+   * The Cesium half of `config.tilesets`: every catalog row whose DECLARED shape is drawn by
+   * Cesium (`catalog/forma-3d.js`). One rule, one place — the scene half is
+   * `getFirstPersonScenes()`, and both read the same axis.
+   *
+   * By inclusion, not by exclusion: "everything that is not first-person" quietly adopted any
+   * shape nobody had heard of and handed it to the tileset loader.
    * @returns {Array<Object>} Tileset entries
    */
   _cesiumTilesets() {
     if (!Array.isArray(config.tilesets)) {
       return [];
     }
-    return config.tilesets.filter(tileset => tileset?.viewer !== FIRST_PERSON_VIEWER);
+    return config.tilesets.filter(tileset => ehEntradaDoCesium(tileset));
   }
 
   /**

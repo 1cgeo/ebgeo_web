@@ -279,7 +279,7 @@ describe('Sync Map Sub-entities', () => {
         })
         .expect(200);
 
-      // One row per item in the dedicated table (migration 022 removed the array column).
+      // One row per item in the dedicated table (the array column is gone).
       const { rows } = await db.query(
         'SELECT id, data FROM catalog_layers WHERE map_id = $1 AND deleted_at IS NULL ORDER BY id',
         [map.id]

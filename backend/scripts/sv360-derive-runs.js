@@ -80,7 +80,7 @@ const SELECT_PROJECTS = `
 // A project WITH declared floors groups by floor, not by filename. The question
 // is asked of the database and not of a command-line flag, so the criterion does
 // not depend on someone remembering the flag: rows in sv360.project_floors ARE
-// the declaration that the project has floors (migration 012).
+// the declaration that the project has floors.
 // $1 = project_id (uuid)
 const SELECT_FLOORS = `
   SELECT level, label

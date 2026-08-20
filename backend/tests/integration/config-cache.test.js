@@ -208,8 +208,8 @@ describe('GET /api/config — memoization invalidated on write + per-IP ceiling'
 
     // O caso que morava aqui escrevia numa QUINTA tabela de catálogo,
     // `streetview_markers`, que não alimentava chave nenhuma do payload — o contador
-    // de queries era a única testemunha da invalidação. A migração 021 apagou aquela
-    // tabela (nenhum consumidor, em lugar nenhum), e com ela o único caso em que
+    // de queries era a única testemunha da invalidação. Aquela tabela saiu do schema
+    // (nenhum consumidor, em lugar nenhum), e com ela o único caso em que
     // "escreveu no catálogo" e "mudou o /api/config" não eram a mesma coisa. As
     // quatro tabelas restantes são todas lidas por `buildAppConfig`, e cada uma já
     // tem acima o caso que prova a invalidação PELO VALOR, que é a testemunha melhor.

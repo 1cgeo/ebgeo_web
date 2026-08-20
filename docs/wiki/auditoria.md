@@ -32,7 +32,11 @@ Duas exclusões deliberadas, para não serem lidas como esquecimento: **calibra�
 
 Quatro `target_type` ficaram declarados sem emissor, e a distinção entre eles é o que vale a pena saber: `GROUP` e `MODEL` nunca tiveram escritor (herança do primeiro CHECK), enquanto `SYSTEM` e `STREETVIEW_MARKER` **tinham e perderam** (o primeiro era o depósito do alvo que não cabia nas colunas, e a revisão do alvo o devolveu a elas; o segundo caiu junto com a tabela de catálogo homônima, apagada em 2026-08-17, ver [[resources-catalogo]]). Removê-los do CHECK seria DDL destrutiva sem ganho, e linha de trilha já gravada pode carregá-los. Os quatro estão nomeados no censo: vocabulário reservado é diferente de vocabulário esquecido, e a única forma de manter a distinção é escrevê-la.
 
+`GROUP` segue sem emissor **por decisão, e não por inércia**: quando o grupo de acesso ganhou trilha, ele declarou o alvo `ACCESS_GROUP` em vez de reusar aquele valor, que pertence ao grupo de FEIÇÃO de um mapa. Reusar faria as duas histórias caírem no mesmo balde de `idx_audit_target`, e "o que já foi feito com este grupo" passaria a ter duas respostas misturadas ([[grupo-de-acesso]]).
+
 O custo do CHECK fechado: ação nova exige migração de schema, não só código, e foi exatamente o que as catorze ações de 2026-08-17 custaram. Em troca, typo em `action` falha na hora em vez de virar lixo silencioso.
+
+**O vocabulário deixou de morar num arquivo só, e quem lê por nome de arquivo passa a mentir nas duas direções.** A consolidação de 2026-08-19 fez os dois CHECK nascerem inline na baseline de auditoria, e o arquivo seguinte já os alargou, porque forward-only proíbe editar uma migração que algum banco já aplicou: alargar é derrubar e repor o constraint num arquivo novo. O censo passou a varrer as migrações em ordem decrescente e a valer-se da **última** declaração, que é o que o banco faz. Enquanto ele lia a baseline por nome, o efeito seria simultaneamente reprovar rota nova cuja ação foi declarada depois e parar de cobrar emissor para as ações novas, isto é, a própria classe de defeito que o censo existe para impedir, entrando pela porta do guarda.
 
 ### Armadilha: auditoria de organização não é atômica
 

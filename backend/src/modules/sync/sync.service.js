@@ -42,8 +42,8 @@ const ENTITY_TYPE_MAP = {
   gridStyle: { target: 'map', subType: 'grid' },
   mapTemporal: { target: 'map', subType: 'temporal' },
   // catalogLayer is its own entity (one row per layer). The handler still accepts the legacy
-  // whole-array form (data.catalog_layers) and materialises it into the same table: since 022
-  // there is no second home for it.
+  // whole-array form (data.catalog_layers) and materialises it into the same table: there is no
+  // second home for it.
   catalogLayer: { target: 'catalog_layer' },
 };
 
@@ -778,7 +778,7 @@ export async function getAtlasSyncInfo(atlasId) {
 /**
  * The resource ids referenced by a set of catalog-layer entries, grouped by type.
  *
- * ONE surface feeds this since migration 022: the dedicated `catalog_layers` table. The legacy
+ * ONE surface feeds this: the dedicated `catalog_layers` table. The legacy
  * `maps.catalog_layers` column carried the same copy and had to be collected here too; it no
  * longer exists, and that is why the map row is no longer walked.
  *
@@ -956,8 +956,8 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
     const groupFeaturesByMap = agrupar(await t.query(Q.GET_ATLAS_GROUP_FEATURES, [atlasId]));
 
     // F11 — the catalog definitions this caller may see. One query for the whole atlas,
-    // collected before the per-map loop so it can never become one query per layer. Until
-    // migration 022 this also had to walk `maps.catalog_layers`, the legacy column that carried
+    // collected before the per-map loop so it can never become one query per layer. While
+    // `maps.catalog_layers` existed this also had to walk it, the legacy column that carried
     // the same copy; there is one surface now.
     const definicoesDeCatalogo = await loadCatalogDefinitions(
       t,
@@ -977,7 +977,7 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       map.features = transformFeaturesToFrontend(rawFeatures);
       map.cesium3d = transformCesium3dToFrontend(rawCesium3d);
       map.streetview360 = transformStreetview360ToFrontend(rawStreetview360);
-      // Per-layer catalog layers, the only home since migration 022.
+      // Per-layer catalog layers, the only home left.
       //
       // The spread is unchanged — same keys, same top level, same `sync` — but what it spreads
       // is the entry with its DEFINITION refreshed (or withheld) instead of the copy the client
@@ -2030,7 +2030,7 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
  *  - Per-layer form: upsert/update/soft-delete a row in the `catalog_layers`
  *    table keyed by the layer id (op.targetId), scoped to the map.
  *
- * THE ARRAY BRANCH USED TO WRITE `maps.catalog_layers`, the legacy column migration 022 drops.
+ * THE ARRAY BRANCH USED TO WRITE `maps.catalog_layers`, a legacy column that no longer exists.
  * Two properties of the replacement are deliberate:
  *   - it UPSERTS and never removes. The column write was a whole-array REPLACE, which was
  *     harmless while nothing read the column; against the canonical table the same semantics
