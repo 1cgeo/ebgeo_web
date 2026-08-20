@@ -968,8 +968,28 @@ function tabStorage() {
     }
 }
 
-/** sessionStorage key holding the id of THIS TAB (Decision 6b). */
-export const TAB_ID_KEY = 'ebgeo_tab_id';
+/**
+ * sessionStorage key holding the id of THIS TAB for the hand-over of a pending import
+ * (Decision 6b).
+ *
+ * IT IS NOT `ebgeo_tab_id`, AND THAT NAME WAS ALREADY TAKEN. `operation-factory.js` has owned
+ * `ebgeo_tab_id` since long before this key existed: it is the per-tab SUFFIX of the sync
+ * `clientId`, a 12-char base36 string baked into every persisted client id.
+ *
+ * The collision was a REAL defect, and it broke the exact flow this key exists to protect.
+ * `atlas.html` boots WITHOUT the store, so it never loads `operation-factory.js`: it wrote a
+ * UUID here and navigated. The map DOES load the sync layer, which minted its own suffix over
+ * the same key — so the consumer read a different id than the producer wrote, ruled the
+ * hand-over another tab's, and dropped the file. Opening a `.ebgeo` produced a slot with ONE
+ * map instead of eleven, with no error anywhere. Caught by
+ * `frontend/tests/e2e-ui/atlas-local-ebgeo-e-teardown.spec.js`, which failed 5 times out of 5.
+ *
+ * The note that shipped with this key said the identity "is NOT tab-lock's". That was true, and
+ * the wrong neighbour had been checked: `tab-lock.js` keeps its id in memory, and the one that
+ * collides is the sync client id. `frontend/tests/unit/chave-de-aba-nao-colide.test.js` now
+ * reproves a third claimant, instead of leaving it to be found in a browser.
+ */
+export const TAB_ID_KEY = 'ebgeo_handover_tab';
 
 /**
  * A practically unique id for one tab. Inlined rather than imported from `utilities/uuid.js`
