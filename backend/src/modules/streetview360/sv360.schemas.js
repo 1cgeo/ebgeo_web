@@ -51,6 +51,26 @@ export const uuidParamSchema = Joi.object({
     .required(),
 });
 
+// :uuid/:level/:x/:y de um TILE da pirâmide da panorâmica.
+//
+// NÃO existe schema de QUERYSTRING para essa rota, e a ausência é decisão: o descritor
+// publica um token de geração (`?v=<total_bytes>`) para quebrar cache de CDN, e um
+// `Joi.object()` com `additionalProperties: false` responderia 400 para o próprio token
+// que este servidor emitiu.
+//
+// Os três inteiros são conferidos contra a ESCADA GRAVADA no controller, não aqui: um
+// teto fixo em Joi seria um segundo lugar dizendo o tamanho da pirâmide, e o número que
+// vale está na tabela.
+export const tileParamSchema = Joi.object({
+  uuid: Joi.string()
+    .trim()
+    .guid({ version: ['uuidv4', 'uuidv5'] })
+    .required(),
+  level: Joi.number().integer().min(0).max(32).required(),
+  x: Joi.number().integer().min(0).required(),
+  y: Joi.number().integer().min(0).required(),
+});
+
 // :nome path param — original photo filename.
 export const nomeParamSchema = Joi.object({
   nome: Joi.string().trim().min(1).max(512).required(),

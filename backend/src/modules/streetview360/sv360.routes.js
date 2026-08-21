@@ -286,6 +286,29 @@ router.get(
   ctrl.nearbyPhotos
 );
 
+// PIRÂMIDE DA PANORÂMICA — o descritor e os tiles. Mesmo gate de leitura da rota de
+// imagem acima (flexibleAuth do router + escopo de atlas), porque é a MESMA foto saindo
+// por outra porta: predicado numa consulta não protege as outras.
+//
+// Declaradas ANTES de '/photos/:uuid/image' não é necessário (os caminhos não se
+// capturam), mas ficam juntas de propósito: quem mexer no gate de uma tem a outra à
+// vista.
+router.get(
+  '/photos/:uuid/tiles.json',
+  validate({ params: schemas.uuidParamSchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.getPhotoPyramid
+);
+
+router.get(
+  '/photos/:uuid/tiles/:level/:x/:y',
+  validate({ params: schemas.tileParamSchema }),
+  liftOptionalAtlasId,
+  requireAtlasScopeWhenPresent,
+  ctrl.getPhotoTile
+);
+
 router.get(
   '/photos/:uuid/image',
   validate({ params: schemas.uuidParamSchema, query: schemas.imageQuerySchema }),

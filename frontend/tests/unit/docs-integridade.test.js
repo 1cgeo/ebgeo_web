@@ -69,6 +69,12 @@ const ALVOS = [
     'frontend/tests/TESTING.md',
     'frontend/tests/TESTING-BACKLOG.md',
 ];
+// O `PENDENCIAS-INTEGRACAO-MAIN-360.md` esteve aqui até 2026-08-21, e saiu com o
+// arquivo. Ele não foi marcado como resolvido: foi APAGADO, e o que sobrou dele
+// (as dívidas que continuam abertas) virou entrada em `docs/decisions/decisions-2026.md`.
+// A razão está lá por extenso, e é a mesma que este guarda já servia: documento de
+// trabalho pendente é o que mais depressa perde sincronia, porque descreve o que ainda
+// vai mudar, e conferir código contra ele confirma frase falsa com ar de verificação.
 // `.claude/agents` entrou depois: a auditoria de 2026-07-18 achou erro real em
 // arquivo de agente (e no extinto launch.json) justamente por estarem fora desta
 // lista. Cobertura que para na borda de um diretório é cobertura que não cobre.

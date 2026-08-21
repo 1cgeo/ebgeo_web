@@ -15,7 +15,8 @@ import { getEventBus, registerControl } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import StreetviewMarkers from './streetview_markers.js';
 import SavedPhotosMarkers from './saved_photos_markers.js';
-import { withAbsoluteTiles, fetchNearestPhoto } from './streetview-api.service.js';
+import { fetchNearestPhoto, sv360AtlasScope, sv360TileSource, sv360TransformRequest } from './streetview-api.service.js';
+import { rebuildScopedSource } from './tile-scope.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 
 // Property carrying the photo id on the 360 photo features.
@@ -69,6 +70,15 @@ class AddStreetViewControl {
         // Bind event handlers
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._unsubBaseLayerChanged = null;
+
+        // O atlas sob o qual CADA fonte de tile do 360 foi criada, um por mapa porque as
+        // duas nascem em momentos diferentes (a trajetoria na ativacao, os pontos quando o
+        // minimapa carrega) e o atlas pode trocar entre uma e outra. `null` tambem e o valor
+        // legitimo de "sem atlas em foco"; quem distingue "ainda nao existe" e o `getSource`
+        // la dentro de `rebuildScopedSource`.
+        this._linesAtlasId = null;
+        this._pointsAtlasId = null;
+        this._unsubAtlasScope = null;
 
         // Layer definitions
         if (config.features.imagens_panoramicas) {
@@ -141,6 +151,14 @@ class AddStreetViewControl {
         // Listen for base layer changes to reload layers if active
         this._unsubBaseLayerChanged = getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
         this._unsubFloorChanged = getEventBus().on(EventTypes.STREETVIEW_360_FLOOR_CHANGED, this._handleFloorChanged);
+        // O ATLAS EM FOCO MUDOU. `ATLAS_SETTINGS_CHANGED` e o anuncio que ja existe para
+        // isso e nao um segundo: o sync o emite depois de `refreshVisibleResources(atlasId)`
+        // ao montar o atlas, e de novo com `settings: null` no `disconnect`, que e a saida.
+        // Como ele sai DEPOIS da re-soma, `sv360AtlasScope()` ja responde o atlas novo
+        // quando este ouvinte roda. Ele tambem sai por outros motivos (concessao alterada
+        // no MESMO atlas), e por isso o gatilho aqui e a COMPARACAO do carimbo, nao o
+        // evento: sem troca de atlas nao se derruba fonte nenhuma.
+        this._unsubAtlasScope = getEventBus().on(EventTypes.ATLAS_SETTINGS_CHANGED, this._handleAtlasScopeChanged);
 
         return this.container;
     }
@@ -173,6 +191,49 @@ class AddStreetViewControl {
         }
     }
 
+    /**
+     * Rebuilds the 360 tile sources when the atlas in focus changes.
+     *
+     * WHY THE SOURCE IS DEMOLISHED AND NOT RETUNED. MapLibre keys its tile cache by
+     * `OverscaledTileID.key` (z/x/y/wrap), never by the URL, so a tile fetched inside a lending
+     * atlas is handed back outside it with no request at all — that is the cross-scope reuse the
+     * decision of 2026-08-18 refused. And `setTiles()` does not fix it for a VECTOR source: it
+     * reloads the tiles as `"reloading"`, which sends `"RT"` to the worker and re-parses the
+     * bytes already there. Only removing the source drops the cache. The measurement is written
+     * out in `tile-scope.js`.
+     *
+     * BEST-EFFORT, AND FAILING HERE MEANS SHOWING LESS, NEVER MORE: the scope stamp is only
+     * advanced when the rebuild actually happened, so a source that could not be rebuilt is
+     * tried again on the next announcement instead of being recorded as already scoped.
+     * @private
+     */
+    _handleAtlasScopeChanged = () => {
+        if (!(config.features?.imagens_panoramicas ?? true)) return;
+        const atual = sv360AtlasScope();
+
+        if (this.map && this._linesAtlasId !== atual && this.streetViewLinesLayer) {
+            try {
+                const fonte = this.streetViewLinesLayer['source'];
+                if (rebuildScopedSource(this.map, fonte, sv360TileSource(config.streetView360.linesSource, atual))) {
+                    this._linesAtlasId = atual;
+                }
+            } catch (error) {
+                console.error('[street-view] could not rescope the trajectory source:', error);
+            }
+        }
+
+        if (this.miniMap && this._pointsAtlasId !== atual && this.pointsSourceRef) {
+            try {
+                const fonte = this.pointsSourceRef.id;
+                if (rebuildScopedSource(this.miniMap, fonte, sv360TileSource(config.streetView360.pointsSource, atual))) {
+                    this._pointsAtlasId = atual;
+                }
+            } catch (error) {
+                console.error('[street-view] could not rescope the points source:', error);
+            }
+        }
+    }
+
     setupMiniMapWithPMTiles = async () => {
         // Lazy-create miniMap only when street view feature is actually enabled
         if (!this.miniMap) {
@@ -183,7 +244,12 @@ class AddStreetViewControl {
                 zoom: 12.5,
                 minZoom: 11,
                 maxZoom: 17.9,
-                validateStyle: false
+                validateStyle: false,
+                // O minimapa carrega a fonte de PONTOS do 360, os mesmos tiles
+                // flexibleAuth do mapa principal, e por isso precisa do mesmo
+                // carimbo. Sem ele, servindo o 360 de outra origem, o minimapa
+                // mostraria menos fotos que a trajetoria do mapa principal.
+                transformRequest: sv360TransformRequest
             });
         }
 
@@ -195,7 +261,12 @@ class AddStreetViewControl {
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                this.miniMap.addSource(this.pointsSourceRef.id, withAbsoluteTiles(config.streetView360.pointsSource));
+                // O escopo e lido UMA vez e serve para os dois: a URL que vai para o mapa e o
+                // carimbo que diz sob qual atlas ela foi montada. Ler duas vezes deixaria os
+                // dois discordarem se o atlas trocasse no meio.
+                const escopoPontos = sv360AtlasScope();
+                this.miniMap.addSource(this.pointsSourceRef.id, sv360TileSource(config.streetView360.pointsSource, escopoPontos));
+                this._pointsAtlasId = escopoPontos;
 
                 const pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
@@ -393,7 +464,10 @@ class AddStreetViewControl {
     loadData = async () => {
         try {
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
-                this.map.addSource(this.streetViewLinesLayer['source'], withAbsoluteTiles(config.streetView360.linesSource));
+                // Uma leitura do escopo para a URL e para o carimbo (ver o minimapa acima).
+                const escopoLinhas = sv360AtlasScope();
+                this.map.addSource(this.streetViewLinesLayer['source'], sv360TileSource(config.streetView360.linesSource, escopoLinhas));
+                this._linesAtlasId = escopoLinhas;
 
                 const onLinesSourceData = (e) => {
                     if (e.sourceId === this.streetViewLinesLayer['source'] && this.map.isSourceLoaded(this.streetViewLinesLayer['source'])) {
@@ -431,6 +505,10 @@ class AddStreetViewControl {
         if (this._unsubFloorChanged) {
             this._unsubFloorChanged();
             this._unsubFloorChanged = null;
+        }
+        if (this._unsubAtlasScope) {
+            this._unsubAtlasScope();
+            this._unsubAtlasScope = null;
         }
 
         // Cleanup streetview viewer if open

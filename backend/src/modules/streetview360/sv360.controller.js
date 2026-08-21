@@ -20,6 +20,7 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { streamFileToResponse } from '../../utils/stream-file.js';
 import { respostaEscopada, marcarEscopoJson } from '../../utils/cache-scope.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { gradeDoNivel } from './sv360.escada.js';
 import { createSemaphore } from '../../utils/semaphore.js';
 import config from '../../config.js';
 import * as svc from './sv360.service.js';
@@ -98,6 +99,48 @@ function setImmutableHeaders(res, etag, contentType, projectStatus, accessLevel)
   }
   res.setHeader('ETag', etag);
   res.setHeader('Content-Type', contentType);
+}
+
+/**
+ * Cabeçalhos do DESCRITOR da pirâmide: o único regime deste módulo que não é imutável.
+ *
+ * A escada se REGERA, então `immutable` pregaria no navegador um descritor que aponta
+ * para tiles que não existem mais. `no-cache` não é "não guarde", é "guarde e revalide":
+ * em regime normal o custo continua sendo um 304 contra o ETag, que é derivado de
+ * `built_at` + `total_bytes` e portanto muda exatamente quando a escada muda.
+ *
+ * Os dois eixos de escopo são os MESMOS da imagem, e são dois porque um sozinho já errou.
+ * @param {Object} res - Express response
+ * @param {string} etag - assinatura do descritor
+ * @param {string} projectStatus - 'enabled' | 'disabled'
+ * @param {string} accessLevel - 'public' | 'private'
+ * @returns {void}
+ */
+function setPyramidDescriptorHeaders(res, etag, projectStatus, accessLevel) {
+  const isPublic = projectStatus === 'enabled' && accessLevel === 'public';
+  res.setHeader('Cache-Control', isPublic ? 'no-cache' : 'private, no-cache');
+  if (!isPublic) res.setHeader('Vary', 'Authorization, Cookie');
+  res.setHeader('ETag', etag);
+}
+
+/**
+ * Cabeçalhos de UM TILE: imutável de verdade, ao contrário do descritor.
+ *
+ * Um tile de uma escada gravada nunca muda de conteúdo. Segue os mesmos dois eixos de
+ * escopo da imagem, e não um `public` fixo: desde que a origem aposentou os blobs, é por
+ * aqui que a panorâmica de um projeto restrito sai inteira, um tile por vez.
+ * @param {Object} res - Express response
+ * @param {string} etag - assinatura do tile
+ * @param {string} projectStatus - 'enabled' | 'disabled'
+ * @param {string} accessLevel - 'public' | 'private'
+ * @returns {void}
+ */
+function setTileHeaders(res, etag, projectStatus, accessLevel) {
+  const isPublic = projectStatus === 'enabled' && accessLevel === 'public';
+  res.setHeader('Cache-Control', isPublic ? IMMUTABLE_PUBLIC : IMMUTABLE_PRIVATE);
+  if (!isPublic) res.setHeader('Vary', 'Authorization, Cookie');
+  res.setHeader('ETag', etag);
+  res.setHeader('Content-Type', 'image/webp');
 }
 
 // GET /sv360/projects — bare array of visible projects.
@@ -389,6 +432,118 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
       return res.end(buf.subarray(range.start, range.end + 1));
     }
     res.setHeader('Content-Length', size);
+    return res.end(buf);
+  } catch (err) {
+    release();
+    throw err;
+  }
+});
+
+
+// ============================================================================
+// PIRÂMIDE DE TILES DA PANORÂMICA  (≠ o MVT de pontos algumas linhas acima)
+// ============================================================================
+// Os dois "tile" deste módulo não têm parentesco: `/tiles/{z}/{x}/{y}.pbf` é a camada
+// de PONTOS no mapa 2D, e o que vem abaixo é UMA panorâmica servida em pedaços. Ver o
+// cabeçalho de `sv360.pyramid.queries.js`.
+
+// GET /sv360/photos/:uuid/tiles.json — o descritor da escada de uma foto.
+//
+// CACHE DE METADADO MUTÁVEL, e é aqui que ele difere da imagem: `no-cache` com
+// validador, NUNCA `immutable`. O WebP de uma foto não muda enquanto existir, mas a
+// escada se REGERA, e um descritor pregado por um ano deixaria o cliente pedindo tiles
+// de uma pirâmide que não existe mais. `no-cache` não é "não guarde": é "guarde e
+// revalide", então o custo em regime normal continua sendo um 304.
+export const getPhotoPyramid = asyncHandler(async (req, res) => {
+  const d = await svc.getPhotoPyramidMeta(req.params.uuid, req.user, req.atlasId ?? null);
+
+  setPyramidDescriptorHeaders(res, d.etag, d.projectStatus, d.projectAccessLevel);
+
+  if (req.headers['if-none-match'] === d.etag) return res.status(304).end();
+  return res.json(d.descritor);
+});
+
+// GET /sv360/photos/:uuid/tiles/:level/:x/:y — um tile da pirâmide.
+//
+// IMUTÁVEL DE VERDADE, ao contrário do descritor: um tile de uma escada gravada nunca
+// muda de conteúdo. O descritor publica um token de geração na URL (`?v=<total_bytes>`)
+// e este handler o IGNORA de propósito. Validar o token contra a pirâmide de agora
+// pintaria buraco na tela: no instante da regeração o cliente ainda segura o descritor
+// velho, e recusar os pedidos em voo troca uma imagem levemente desatualizada por uma
+// imagem furada. Pela mesma razão a rota NÃO declara schema de querystring: com
+// `additionalProperties: false` o próprio token que o descritor publicou viraria 400.
+//
+// SEM Range/206: um tile cabe num punhado de pacotes, então a complexidade de faixa que
+// a rota de imagem carrega (onde o objeto tem dezenas de MB) não se paga aqui.
+export const getPhotoTile = asyncHandler(async (req, res, next) => {
+  const level = Number(req.params.level);
+  const x = Number(req.params.x);
+  const y = Number(req.params.y);
+
+  const d = await svc.getPhotoPyramidMeta(req.params.uuid, req.user, req.atlasId ?? null);
+
+  // FAIXA CONFERIDA CONTRA O DESCRITOR, antes de tocar o SQLite. Sem isto, um nível
+  // fora da escada viraria uma leitura de disco por pedido, e um cliente distraído (ou
+  // um varredor) faria disso um caminho barato de trabalho inútil no worker.
+  const grade = gradeDoNivel(
+    {
+      width: d.descritor.width,
+      height: d.descritor.height,
+      tileSize: d.descritor.tileSize,
+      razao: d.descritor.razao,
+      maxLevel: d.descritor.maxLevel,
+    },
+    level
+  );
+  if (!grade || x < 0 || y < 0 || x >= grade.colunas || y >= grade.linhas) {
+    res.setHeader('Cache-Control', 'no-store');
+    return next(new NotFoundError('Tile'));
+  }
+
+  const etag = `"${req.params.uuid}-${level}-${x}-${y}-${d.descritor.totalBytes}"`;
+  setTileHeaders(res, etag, d.projectStatus, d.projectAccessLevel);
+
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+
+  // Mesma ordem de liberação do semáforo de `getPhotoImage`, e pelo mesmo motivo: os
+  // hooks sobem ANTES do acquire, senão um cliente que aborta enquanto está parado na
+  // fila leva a permissão embora para sempre.
+  let acquired = false;
+  let released = false;
+  let closed = false;
+  const release = () => {
+    if (acquired && !released) {
+      released = true;
+      sem.release();
+    }
+  };
+  const onDone = () => {
+    closed = true;
+    release();
+  };
+  res.on('finish', onDone);
+  res.on('close', onDone);
+
+  await sem.acquire();
+  acquired = true;
+  if (closed || res.destroyed || res.writableEnded) {
+    release();
+    return;
+  }
+  try {
+    const buf = await blobstore.getTile(d.tilesDbFile, d.descritor.photoId, level, x, y);
+    if (!buf) {
+      release();
+      // Mesmo cuidado do 404 da imagem: os cabeçalhos imutáveis já subiram, e este é o
+      // único desfecho para o qual eles estão errados. Um tile ausente enquanto o
+      // descritor o anuncia é transitório por construção (a janela de troca de arquivo
+      // da ingestão), e pregar esse 404 por um ano deixaria o buraco na tela.
+      res.removeHeader('ETag');
+      res.removeHeader('Content-Type');
+      res.setHeader('Cache-Control', 'no-store');
+      return next(new NotFoundError('Tile'));
+    }
+    res.setHeader('Content-Length', buf.length);
     return res.end(buf);
   } catch (err) {
     release();

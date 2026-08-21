@@ -41,6 +41,7 @@ import {
     MOVEMENT_KEYS
 } from './constants.js';
 import { VoxelCollision } from './voxel-collision.js';
+import { isTypingTarget } from '@utils/typing-target.js';
 
 /** Mouse-look sensitivity, in radians per pixel of pointer movement. */
 const LOOK_SENSITIVITY = 0.002;
@@ -95,6 +96,8 @@ export class WalkMode {
         this._mouseLookDragging = false;
         /** Whether a right-drag turns the camera. The measuring tape borrows it. */
         this._lookWithRightButton = true;
+        /** True while the pointer is LOCKED: the view follows the mouse with no button. */
+        this._pointerLook = false;
 
         /** Remaining time with the ground spring disabled, so the jump can leave the floor. */
         this._jumpLockout = 0;
@@ -320,6 +323,26 @@ export class WalkMode {
         if (!this._lookWithRightButton) {
             this._mouseLookDragging = false;
         }
+    }
+
+    /**
+     * Turn free mouse-look on or off — the camera half of the immersive mode.
+     *
+     * IT DOES NOT TOUCH THE POINTER LOCK, and that separation is the point: the
+     * lock is granted and revoked by the BROWSER (`walk/pointer-lock.js` lists
+     * the four ways), so this class must be told what happened rather than
+     * decide it. Called from the viewer's `pointerlockchange` handler, which is
+     * the one place that knows the truth.
+     *
+     * Any drag in flight is cancelled, for the same reason the right-button
+     * lender above cancels one: leaving `_mouseLookDragging` set would have the
+     * camera still following the mouse after the rule that moved it changed.
+     *
+     * @param {boolean} enabled - True while the pointer is locked to the scene
+     */
+    setPointerLook(enabled) {
+        this._pointerLook = enabled === true;
+        this._mouseLookDragging = false;
     }
 
     /**
@@ -570,6 +593,20 @@ export class WalkMode {
         if (!this._enabled) {
             return;
         }
+        // TYPING IS NOT WALKING, and this listener is on the DOCUMENT, so every
+        // text field on the page is in its reach. Four of the six keys it tracks
+        // are letters (W, A, S, D) and a fifth is the space bar, and it calls
+        // `preventDefault()` on all of them — so without this guard a field could
+        // not receive those characters at all while the viewer was open, and the
+        // camera walked as the visitor typed. The scene's own item search
+        // (`components/items-list-fp.js`) is a field open at exactly that moment,
+        // which is how this was found.
+        //
+        // The keyboard SERVICE of this viewer already made the same test for the
+        // tool keys; this class was the one that never did.
+        if (isTypingTarget(e.target)) {
+            return;
+        }
         // With ctrl, alt or meta the key belongs to the BROWSER, not to the
         // walk. Without this guard walk mode was swallowing the visitor's
         // Ctrl+S and Ctrl+A.
@@ -708,16 +745,46 @@ export class WalkMode {
         if (!this._enabled) {
             return;
         }
-        // Turning is ALWAYS a drag: there is no captured-pointer mode. The
-        // button has to still be down (bit 1 left, bit 2 right) — a release that
-        // happened outside the window never reaches _onMouseUp, and without this
-        // check the camera would keep turning with no button held.
+        // IMMERSIVE MODE: the pointer is locked, so there is no button to hold
+        // and no cursor to grab anything with — the view simply follows the
+        // mouse, and the SIGN FLIPS with it.
+        //
+        // This is not an inconsistency, it is the same rule read twice. A drag
+        // moves the CONTENT under a hand that is holding it, which is why the
+        // drag path below adds (and why the 2D map and the 360 do the same). A
+        // locked pointer holds nothing: the mouse IS the head, and every game
+        // that ever captured a pointer turns the head toward the movement. Using
+        // the drag sign here is what makes a pointer-lock mode feel broken.
+        if (this._pointerLook) {
+            this._yaw -= e.movementX * LOOK_SENSITIVITY;
+            this._pitch -= e.movementY * LOOK_SENSITIVITY;
+            this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch));
+            return;
+        }
+        // Outside it, turning is a drag. The button has to still be down (bit 1
+        // left, bit 2 right) — a release that happened outside the window never
+        // reaches _onMouseUp, and without this check the camera would keep
+        // turning with no button held.
         if (!this._mouseLookDragging || (e.buttons & 3) === 0) {
             this._mouseLookDragging = false;
             return;
         }
-        this._yaw -= e.movementX * LOOK_SENSITIVITY;
-        this._pitch -= e.movementY * LOOK_SENSITIVITY;
+        // THE SIGN IS "GRAB THE SCENE", NOT "AIM THE HEAD", and it was the other
+        // way round until 2026-08-17. Turning here is a DRAG, and a drag in this
+        // app means the content follows the hand: MapLibre pans the map under
+        // the cursor, and the 360 viewer computes its yaw as
+        // `(pointerDownX - clientX) * sensitivity` (street_view_viewer.js), so
+        // dragging right swings the view LEFT in both. This viewer subtracted
+        // instead, which is the first-person-shooter convention — right and
+        // correct where the pointer is CAPTURED and there is no hand holding
+        // anything, and backwards here, where the same gesture is a drag. Adding
+        // `movementX` to the yaw makes the three viewers agree.
+        //
+        // The vertical sign follows for the same reason and must move WITH it:
+        // flipping one axis alone is worse than either convention, because the
+        // two halves of one gesture then disagree.
+        this._yaw += e.movementX * LOOK_SENSITIVITY;
+        this._pitch += e.movementY * LOOK_SENSITIVITY;
         this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch));
     }
 }

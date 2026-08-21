@@ -52,6 +52,15 @@ const API_CLIENT = 'store/sync/api-client.js';
 //     relação com o tipo de recurso do backend, e uma varredura que os apagasse tiraria o
 //     panorama da busca e o pino do mapa (daí exigir `_`).
 const TIPO_MORTO = /streetview_marker(?!s)/i;
+
+// A ÚNICA EXCEÇÃO, e ela não é um afrouxamento do guarda: a trilha de auditoria é
+// HISTÓRICA. A migração 021 tirou o ESCRITOR de `STREETVIEW_MARKER`, não as linhas já
+// gravadas, e o `CHECK` de `audit_trail.target_type` continua declarando o valor de
+// propósito (`002_auditoria.sql`). A tela de auditoria (que nasceu na outra linha de
+// trabalho, depois deste teste) precisa saber dizer o que era uma linha antiga; rotular
+// o passado é o OPOSTO de o tipo morto voltar ao produto. O caso abaixo prende a exceção
+// nos dois sentidos, para ela não virar porta.
+const ROTULO_HISTORICO = 'admin/audit-phrases.js';
 // O segmento de rota, exatamente como `_catalogEndpoint` o escrevia: uma string inteira.
 const ROTA_MORTA = /(['"`])streetview-markers\1/;
 
@@ -108,8 +117,20 @@ describe('a camada de marcadores 360 do mapa sobreviveu à remoção da tabela h
     });
 
     it('o cliente inteiro está limpo das duas formas MORTAS, e a camada viva junto', () => {
-        const sujosTipo = versionados.filter((rel) => TIPO_MORTO.test(semComentarios(ler(rel))));
+        const sujosTipo = versionados
+            .filter((rel) => rel !== ROTULO_HISTORICO)
+            .filter((rel) => TIPO_MORTO.test(semComentarios(ler(rel))));
         expect(sujosTipo, 'o tipo de recurso `streetview_marker` voltou ao cliente').toEqual([]);
+
+        // A EXCEÇÃO TEM PISO PRÓPRIO, senão ela vira permissão para o token voltar por
+        // ali. Duas asserções, e as duas precisam existir: o arquivo TEM de conter o
+        // rótulo (se alguém o apagar, a exceção fica obsoleta e este caso avisa em vez
+        // de emudecer), e ele só pode aparecer UMA vez, no mapa de alvos — nunca num
+        // gate, numa rota ou num seletor.
+        const trilha = semComentarios(ler(ROTULO_HISTORICO));
+        const ocorrencias = [...trilha.matchAll(/STREETVIEW_MARKER/g)];
+        expect(ocorrencias.length, 'a exceção de rótulo histórico não bate mais com o arquivo').toBe(1);
+        expect(trilha).toMatch(/STREETVIEW_MARKER:\s*'Marcador 360'/);
 
         const sujosRota = versionados.filter((rel) => ROTA_MORTA.test(semComentarios(ler(rel))));
         expect(sujosRota, 'a rota de catálogo `streetview-markers` voltou ao cliente').toEqual([]);

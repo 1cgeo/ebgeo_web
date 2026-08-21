@@ -606,8 +606,22 @@ describe('ATAQUE 1 - a janela de tempo', () => {
         expect(fabrica).toMatch(/otherClientHoldsLock\(navigator\.locks, lockName, selfHolds\)/);
         // E os dois `selfHolds` sao os dois casos, nao um so repetido: 0 para o atlas que a aba
         // ainda NAO montou, 1 para o que ela montou. Trocar os dois passa despercebido sem isto.
-        expect(functionText(svc, 'export function remoteMountWitness'))
-            .toMatch(/mountWitness\(remoteScope\(atlasId\)\.dbSuffix, 0\)/);
+        //
+        // O `selfHolds` DO OPEN DEIXOU DE SER A CONSTANTE 0 (2026-08-21), e a troca e o conserto
+        // do A2b, nao um afrouxamento. O 0 fixo valia sob a premissa escrita ao lado dele: "a aba
+        // que ja esta naquele atlas nunca chega aqui, o atalho de `claimRemoteAtlas` responde
+        // antes". A premissa caiu quando o atalho passou a exigir arbitragem GANHA, e ela ja era
+        // falsa de todo modo: o boot monta o namespace resolvido por `resolveTabMountOrigin`
+        // ANTES de o lock existir, entao um F5 numa aba sozinha no proprio atlas chega aqui
+        // segurando o lock que a testemunha conta, e um 0 fixo faria essa aba ler a PROPRIA
+        // montagem como um par e recusar o open a que tem direito.
+        const testemunhaDoOpen = functionText(svc, 'export function remoteMountWitness');
+        expect(testemunhaDoOpen).toMatch(/remoteScope\(atlasId\)/);
+        // O 1 e condicionado ao endereco ATIVO ser o mesmo, que e a unica forma de "a montagem e
+        // minha" (a store guarda no maximo um lock de montagem por cliente). Um `1` incondicional
+        // aqui cegaria a testemunha para o par que importa, e e isso que esta asercao reprova.
+        expect(testemunhaDoOpen)
+            .toMatch(/mountWitness\(dbSuffix, getActiveScope\(\)\?\.dbSuffix === dbSuffix \? 1 : 0\)/);
 
         // O TERCEIRO SITIO: o visitante de link publico. Ele reivindica e chama
         // `clearAllDataStore` tres linhas depois, igual aos outros dois.

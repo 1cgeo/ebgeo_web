@@ -137,19 +137,103 @@ export function validateManifest(manifest) {
 }
 
 /**
+ * The guard that REPLACES the byte-size check for a so-tiles archive: every live photo of
+ * the manifest must have a pyramid in the uploaded `{slug}_tiles.db`.
+ *
+ * BY LIVE PHOTO, NOT BY FILE EXISTING. Checking that the file is there would let a project
+ * in with half its photos lacking any source of pixels, and nothing would go red — the
+ * symptom appears later, on the one panorama that never paints. This mirrors the guard the
+ * origin runs before deleting a single blob.
+ * @param {string|null} tilesDbPath - tmp path of the uploaded tiles db
+ * @param {Object} manifest - the validated manifest
+ * @throws {BadRequestError} when the file is absent, malformed, or does not cover a photo
+ */
+function validatePyramidCoverage(tilesDbPath, manifest) {
+  if (!tilesDbPath || !existsSync(tilesDbPath)) {
+    throw new BadRequestError(
+      'images.db carries no full_webp/preview_webp columns (so-tiles archive), '
+      + 'so a {slug}_tiles.db with the tile pyramids is required and none was uploaded'
+    );
+  }
+  let tdb;
+  try {
+    tdb = new Database(tilesDbPath, { readonly: true, fileMustExist: true });
+  } catch {
+    throw new BadRequestError('tiles.db is not a valid SQLite file');
+  }
+  try {
+    const tabela = tdb
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tile_pyramids'")
+      .get();
+    if (!tabela) throw new BadRequestError('tiles.db has no `tile_pyramids` table');
+
+    const stmt = tdb.prepare(
+      'SELECT max_level, tile_size, width, height FROM tile_pyramids WHERE photo_id = ?'
+    );
+    for (const p of manifest.photos) {
+      const linha = stmt.get(p.id);
+      if (!linha) {
+        throw new BadRequestError(`tiles.db has no pyramid for photo ${p.id}`);
+      }
+      // Uma escada degenerada e pior que ausente: ela passa na contagem e produz um
+      // descritor que o cliente segue ate um nivel sem tile nenhum.
+      if (!(linha.tile_size > 0) || !(linha.width > 0) || !(linha.height > 0)) {
+        throw new BadRequestError(
+          `tiles.db has a degenerate pyramid for photo ${p.id} `
+          + `(tile_size=${linha.tile_size}, width=${linha.width}, height=${linha.height})`
+        );
+      }
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new BadRequestError('tiles.db is not a valid SQLite file');
+  } finally {
+    try {
+      tdb.close();
+    } catch {
+      // fechar ja fechado nao e erro
+    }
+  }
+}
+
+/**
  * Opens the uploaded images.db READONLY and verifies it carries the project's
- * BLOBs exactly as the manifest promises (PASSO 0 size-check, D9.7/Tarefa 6):
- *   - the `images` table exists with (photo_id, full_webp, preview_webp);
- *   - EVERY manifest photo id has a row;
- *   - full_webp / preview_webp byte lengths == the manifest's
- *     full_size_bytes / preview_size_bytes (the O(1) ETag source must match).
+ * pixels exactly as the manifest promises (PASSO 0 size-check, D9.7/Tarefa 6).
+ *
+ * THERE ARE TWO LEGITIMATE SHAPES OF ARCHIVE, and telling them apart is this
+ * function's main job since the origin retired the blobs:
+ *
+ *   COM BLOB (o historico): `images` carries (photo_id, full_webp, preview_webp),
+ *   every manifest photo has a row, and the byte lengths match the manifest's
+ *   full_size_bytes / preview_size_bytes — the O(1) ETag source must match.
+ *
+ *   SO-TILES (o normal desde 2026-08-19): the origin ran `aposentar-full.js` over
+ *   29 projects and DROPPED the two blob columns, freeing 64.6 GB. The `images`
+ *   table survives, with `photo_id` alone, as the record that the photo once had
+ *   an image. There is nothing to size-check, so the guard is TRADED, not waived:
+ *   the project must bring a `{slug}_tiles.db` whose pyramid covers EVERY live
+ *   photo of the manifest. That is the same guard the origin applies before
+ *   deleting anything (it SKIPS a project without a complete pyramid, checked by
+ *   live photo and not by file existing).
+ *
+ * WITHOUT THAT TRADE the ingest would accept a project with NO source of pixels at
+ * all, and the failure would surface far away, as a photo that never paints.
+ *
  * Pure validation — never written. Throws BadRequestError (400) on any mismatch
  * so PASSO 0 fails before anything is touched.
+ *
+ * RETORNA QUAL DOS DOIS FORMATOS CHEGOU. A sonda de PRAGMA que decide isso está aqui,
+ * e só aqui; quem precisa da resposta para tomar OUTRA decisão — o ETL offline aplica o
+ * piso de bytes ao arquivo copiado, e o piso só faz sentido sobre um acervo com blob —
+ * a recebe em vez de sondar por conta própria. Uma segunda cópia da sonda diverge, e o
+ * sintoma seria um caminho aceitar o que o outro recusa. O upload ignora o retorno.
  * @param {string} imagesDbPath - tmp path of the uploaded images.db
  * @param {Object} manifest - the validated manifest
- * @throws {BadRequestError} on a missing table/row or size mismatch
+ * @param {string|null} [tilesDbPath] - tmp path of the uploaded {slug}_tiles.db, when present
+ * @returns {{temBlob: boolean}} true quando o acervo ainda tem full_webp/preview_webp
+ * @throws {BadRequestError} on a missing table/row, size mismatch or uncovered pyramid
  */
-export function validateImagesDb(imagesDbPath, manifest) {
+export function validateImagesDb(imagesDbPath, manifest, tilesDbPath = null) {
   if (!existsSync(imagesDbPath)) {
     throw new BadRequestError('images.db is missing');
   }
@@ -174,6 +258,18 @@ export function validateImagesDb(imagesDbPath, manifest) {
       .get();
     if (!table) throw new BadRequestError('images.db has no `images` table');
 
+    // QUAL DOS DOIS FORMATOS CHEGOU. A sonda vem ANTES do prepare: um
+    // `SELECT length(full_webp)` contra uma tabela sem a coluna levanta SqliteError, e o
+    // catch de baixo o traduziria em "images.db is not a valid SQLite file" — mensagem
+    // que manda o operador procurar corrupcao onde o arquivo esta perfeito.
+    const colunas = new Set(db.prepare('PRAGMA table_info(images)').all().map((c) => c.name));
+    const temBlob = colunas.has('full_webp') && colunas.has('preview_webp');
+
+    if (!temBlob) {
+      validatePyramidCoverage(tilesDbPath, manifest);
+      return { temBlob: false };
+    }
+
     const stmt = db.prepare(
       'SELECT length(full_webp) AS full_len, length(preview_webp) AS preview_len FROM images WHERE photo_id = ?'
     );
@@ -193,6 +289,7 @@ export function validateImagesDb(imagesDbPath, manifest) {
         );
       }
     }
+    return { temBlob: true };
   } catch (err) {
     if (err instanceof AppError) throw err;
     throw new BadRequestError('images.db is not a valid SQLite file');
@@ -263,6 +360,22 @@ function fsyncQuiet(filePath) {
  */
 export function resolveDbPath(dbFilename) {
   return path.resolve(config.sv360.dbDir, path.basename(dbFilename));
+}
+
+/**
+ * O caminho do SEGUNDO arquivo de um projeto: `{slug}_tiles.db`, com as piramides.
+ *
+ * Deriva do mesmo `dbFilename`, e o `path.basename` roda ANTES de o sufixo ser anexado,
+ * para que um valor forjado nao escape escondido na extensao. Espelha
+ * `resolveTilesDbPath` do blobstore, que e quem LE o arquivo; aqui e quem o INSTALA, e
+ * as duas precisam produzir o mesmo nome.
+ * @param {string} dbFilename - db_filename do projeto (com ou sem `.db`)
+ * @returns {string} caminho absoluto sob config.sv360.dbDir
+ */
+export function resolveTilesDbPath(dbFilename) {
+  const base = path.basename(String(dbFilename));
+  const semExtensao = base.endsWith('.db') ? base.slice(0, -3) : base;
+  return path.resolve(config.sv360.dbDir, `${semExtensao}_tiles.db`);
 }
 
 /**
@@ -448,11 +561,14 @@ export async function swapProjectDb(destPath, srcTmpPath) {
  * @param {string} [args.manifestPath] - path to manifest.json (read+parsed if no manifest)
  * @param {Object} [args.manifest] - already-parsed manifest object
  * @param {string} args.dbTmpPath - tmp path of the uploaded images.db (the swap source)
+ * @param {string} [args.tilesTmpPath] - tmp path of the uploaded {slug}_tiles.db, when the
+ *   bundle carries one. Obrigatorio na pratica para acervo so-tiles: sem ele
+ *   `validateImagesDb` recusa o bundle, porque nao sobraria fonte de pixel nenhuma.
  * @param {string} args.orgId - resolved target organization_id (uuid)
  * @param {string} [args.source] - provenance tag ('upload' | 'etl'), informational
  * @returns {Promise<{projectId:string, slug:string, dbFilename:string, photoCount:number}>}
  */
-export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, source } = {}) {
+export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmpPath = null, orgId, source } = {}) {
   if (!orgId) throw new BadRequestError('orgId is required for ingestion');
   if (!dbTmpPath) throw new BadRequestError('images.db (dbTmpPath) is required');
 
@@ -468,13 +584,18 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
   }
   const validated = validateManifest(raw);
 
-  // PASSO 0b — validate the images.db carries the BLOBs the manifest promises.
-  validateImagesDb(dbTmpPath, validated);
+  // PASSO 0b — validate the bundle carries the pixels the manifest promises, seja por
+  // BLOB (acervo historico) seja por PIRAMIDE (acervo so-tiles).
+  validateImagesDb(dbTmpPath, validated, tilesTmpPath);
 
   // The dest filename is DERIVED from (orgId, slug) — identical to the value
   // mergeProject persists, so the file and Postgres always agree (FIX-1/FIX-3).
   const dbFilename = deriveDbFilename(orgId, validated.project.slug);
   const destPath = resolveDbPath(dbFilename);
+  // O SEGUNDO ARQUIVO do projeto, quando ele existe. O nome e DERIVADO do mesmo
+  // `dbFilename`, entao os dois andam juntos por construcao e nao por convencao
+  // repetida em dois lugares.
+  const tilesDestPath = tilesTmpPath ? resolveTilesDbPath(dbFilename) : null;
 
   // P3 — serialize ingestions of the same (orgId, slug).
   //
@@ -499,6 +620,18 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
     try {
       // PASSO 1 — install the new {slug}.db, KEEPING the .bak (reversible).
       const { bakMade } = await installSwap(destPath, dbTmpPath);
+      // OS DOIS ARQUIVOS ENTRAM E SAEM JUNTOS. Instalar o de imagens e falhar no de
+      // tiles deixaria em disco um projeto so-tiles sem tile nenhum, que e exatamente o
+      // estado que `validateImagesDb` existe para impedir na entrada.
+      let tilesBakMade = false;
+      if (tilesDestPath) {
+        try {
+          ({ bakMade: tilesBakMade } = await installSwap(tilesDestPath, tilesTmpPath));
+        } catch (err) {
+          await rollbackSwap(destPath, bakMade);
+          throw err;
+        }
+      }
 
       // PASSO 2 — Postgres merge in a single tx. The commit is the atomic point.
       // Runs on the lock-holding connection, so the lock covers it.
@@ -509,12 +642,14 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
         // Merge failed (409 collision / orphan FK / I/O): undo the file install so
         // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.
         await rollbackSwap(destPath, bakMade);
+        if (tilesDestPath) await rollbackSwap(tilesDestPath, tilesBakMade);
         throw err;
       }
 
       // Merge committed — finalize the swap (drop the .bak; failure here is logged,
       // never fatal: the new file is already installed and Postgres is consistent).
       commitSwap(destPath);
+      if (tilesDestPath) commitSwap(tilesDestPath);
 
       return {
         projectId: merged.projectId,

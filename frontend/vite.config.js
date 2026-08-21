@@ -177,7 +177,16 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('first_person_3d_tool/first_person_viewer') ||
               id.includes('first_person_3d_tool/components/') ||
               id.includes('first_person_3d_tool/tools/') ||
-              id.includes('first_person_3d_tool/walk/walk-mode')) {
+              id.includes('first_person_3d_tool/walk/walk-mode') ||
+              // pointer-lock is imported ONLY by first_person_viewer (lazy) and depends
+              // only on core (@utils/event-cleanup), so it belongs here and creates no
+              // chunk cycle. It is listed for the reason the comment above gives for the
+              // other subpaths — to STATE what belongs to this group — and NOT because
+              // leaving it out would break anything: measured on a clean dist, with this
+              // clause replaced by `false`, the file still lands in first-person-3d,
+              // because `entriesAware` subdivides by entry and its only importer is lazy.
+              // The first version of this comment claimed the opposite.
+              id.includes('first_person_3d_tool/walk/pointer-lock')) {
             return 'first-person-3d';
           }
           // Import/export tools

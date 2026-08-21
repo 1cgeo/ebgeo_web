@@ -105,6 +105,26 @@ function inventario() {
 
 const ler = (rel) => readFileSync(new URL(rel, URL_E2E_UI), 'utf8');
 
+/**
+ * Lê um arquivo SEM os comentários.
+ *
+ * POR QUE ISTO EXISTE, e a data importa: enquanto `helpers/accounts.js` esteve NÃO
+ * RASTREADO, o inventário (que vem de `git ls-files`) não o enxergava, e a proibição
+ * abaixo passava verde sem nunca ter lido o arquivo que ela existe para vigiar. No
+ * primeiro commit ele entrou no inventário e a regra bateu no `@fileoverview` dele, que
+ * documenta justamente que o módulo NÃO escreve o campo. Ou seja: o token proibido
+ * aparecia no lugar mais desejável possível, a prosa que o proíbe.
+ *
+ * A lição que fica é sobre o inventário, não sobre este arquivo: guarda alimentado por
+ * `git ls-files` reprova arquivo NOVO (que é o propósito) e é CEGO a arquivo não
+ * rastreado, então a janela entre escrever e commitar é uma janela sem guarda.
+ * @param {string} rel - caminho relativo dentro de `tests/e2e-ui/`
+ * @returns {string} o conteúdo sem comentários de bloco nem de linha
+ */
+const lerCodigo = (rel) => ler(rel)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
 describe('e2e-ui: a conta nasce no Node, nunca dentro de page.evaluate', () => {
     it('a varredura acha exatamente os arquivos que o censo declara pendentes', () => {
         // Os DOIS pisos, e nenhum dos dois olha para o resultado da varredura: sem eles um
@@ -147,9 +167,23 @@ describe('e2e-ui: a conta nasce no Node, nunca dentro de page.evaluate', () => {
         expect(arquivos.length).toBeGreaterThan(0);
         for (const f of arquivos) {
             expect(
-                /email_verified/.test(ler(f)),
+                /email_verified/.test(lerCodigo(f)),
                 `${f} escreve email_verified: o atalho por SQL contorna POST /auth/verify-email`
             ).toBe(false);
         }
+
+        // CONTROLE DA PODA, e ele e um PAR: podar comentario nao pode podar o poder da
+        // regra. A mesma funcao tem de continuar VENDO a escrita em codigo e deixar de ver
+        // a mesma frase em prosa. So a segunda metade deixaria passar uma poda que apagasse
+        // o arquivo inteiro, e so a primeira nao provaria que a poda faz algo.
+        const podar = (txt) => txt.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+        expect(
+            /email_verified/.test(podar('await sql(`UPDATE users SET email_verified = true`);')),
+            'a regra parou de reconhecer a escrita proibida em codigo'
+        ).toBe(true);
+        expect(
+            /email_verified/.test(podar('/* este modulo NAO escreve email_verified na mao */')),
+            'a poda de comentario parou de funcionar'
+        ).toBe(false);
     });
 });

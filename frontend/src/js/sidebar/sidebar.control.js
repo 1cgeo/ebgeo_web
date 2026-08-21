@@ -47,6 +47,7 @@ import {
     handleMarker360Click,
     handleMarker360Deselect,
     handleMarkerFpClick,
+    handleMarkerFpListClick,
     handleMarkerFpDeselect,
     closeAny3dPanel,
     deselect3dFeature
@@ -335,6 +336,10 @@ export class SidebarControl {
         // Listen for first-person scene marker clicks
         subscribe(this, this._eventBus, EventTypes.MARKER_FP_CLICKED,
             (payload) => this._onMarkerFpClicked(payload));
+
+        // Listen for the first-person item list (all items, or one pile of labels)
+        subscribe(this, this._eventBus, EventTypes.MARKER_FP_LIST_CLICKED,
+            (payload) => this._onMarkerFpListClicked(payload));
 
         // Listen for first-person marker deselection
         subscribe(this, this._eventBus, EventTypes.MARKER_FP_DESELECTED,
@@ -712,6 +717,29 @@ export class SidebarControl {
             marker: payload.marker,
             sceneName: payload.sceneName,
             photoUrl: payload.photoUrl,
+            stateManager: this._stateManager,
+            cleanupPrevious: () => this._cleanupFeaturePanelContent()
+        });
+
+        if (result) {
+            this._currentFeaturePanelCleanup = result.cleanup;
+            this._featurePanel.show(result.element, result.title);
+        }
+    }
+
+    /**
+     * Called when the first-person item list is opened: from the "Ver todos os
+     * itens" button of an open item, or from a label that is covering others.
+     * @private
+     * @param {Object} payload - Event payload with the resolved items and the header
+     */
+    async _onMarkerFpListClicked(payload) {
+        const result = await handleMarkerFpListClick({
+            items: payload.items,
+            sceneName: payload.sceneName,
+            title: payload.title,
+            scoped: payload.scoped,
+            openId: payload.openId,
             stateManager: this._stateManager,
             cleanupPrevious: () => this._cleanupFeaturePanelContent()
         });

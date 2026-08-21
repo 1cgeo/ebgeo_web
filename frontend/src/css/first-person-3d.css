@@ -197,6 +197,33 @@ body.first-person-active .modal-overlay {
     display: none;
 }
 
+/* UNDER THE CROSSHAIR, in the immersive mode. It is the `:hover` of a mode that
+   has no cursor to hover with, and it is written by JS every frame
+   (`markers-layer-fp.js`, `setAim`) against the SAME radius the click uses — so
+   what lights up is what a click opens.
+
+   Louder than a hover on purpose: the visitor is aiming across a room, not
+   resting a cursor on a word, and the ring of the crosshair sits on top of it. */
+.fp3d-label--aimed {
+    background: var(--primary-dark);
+    outline: 2px solid rgb(255 255 255 / 90%);
+    outline-offset: 1px;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 60%);
+
+    /* Grows from its own centre, which is where the projection pinned it: the
+       label is positioned by `translate(-50%, -50%)`, so the scale composes with
+       it and the tag does not drift off the piece while it is lit. */
+    transform: translate(-50%, -50%) scale(1.06);
+}
+
+/* NO STYLE OF ITS OWN FOR THE "+N" LABEL, and that was a decision, not an
+   omission. It briefly carried a dashed underline and a heavier weight, to
+   announce that clicking it opens the pile rather than its own card. Rejected on
+   sight (2026-08-17): the labels sit over the scene in a row, and one of them
+   wearing a different shape reads as damage, not as an affordance. The "+N"
+   suffix already says there is more, and the hover title says what the click
+   does. */
+
 /* =========================================================================
    MARKER CARD — NOT DEFINED HERE, ON PURPOSE
 
@@ -249,6 +276,167 @@ body.first-person-active .modal-overlay {
    is the lesser cost. */
 .marker-fp-panel-content .marker-fp-photo-card img {
     object-fit: contain;
+}
+
+/* =========================================================================
+   ITEM LIST — SAME PANEL, OTHER CONTENT
+
+   Built by components/items-list-fp.js and mounted in the very feature panel
+   the card uses, so it inherits the panel's chrome and needs only its rows.
+
+   It exists because the card was a leaf: an item could only be reached by
+   walking up to its label, and the labels the layer collapses (pieces
+   centimeters apart in a case) could not be reached at all.
+   ========================================================================= */
+
+/* The button that widens: "Ver todos os itens da cena", on the card and on a
+   scoped list. Full width and quiet — it is a way out, not the point of the
+   panel. */
+.fp3d-list__widen {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-700);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition:
+        background var(--transition-fast),
+        border-color var(--transition-fast);
+}
+
+.fp3d-list__widen:hover {
+    border-color: var(--primary);
+    background: var(--gray-100);
+    color: var(--primary-dark);
+}
+
+.fp3d-list__widen:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.fp3d-list__search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: var(--space-3) 0 var(--space-2);
+}
+
+.fp3d-list__search-icon {
+    position: absolute;
+    left: var(--space-2);
+    display: flex;
+    color: var(--gray-500);
+    pointer-events: none;
+}
+
+.fp3d-list__search-input {
+    width: 100%;
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-8);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--gray-800);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+}
+
+.fp3d-list__search-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.fp3d-list__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* A row is a BUTTON, so the keyboard reaches every item the mouse does. */
+.fp3d-list__row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    width: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--gray-800);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+/* THE FILTER'S `hidden` NEEDS THIS LINE TO MEAN ANYTHING, and leaving it out is
+   how the search box came out inert on the first try: the browser hides
+   `[hidden]` with a `display: none` from its OWN stylesheet, and ANY author rule
+   beats the whole user-agent sheet regardless of specificity — so the
+   `display: flex` above simply kept every row on screen while
+   `applyFilter` dutifully marked them hidden. Typing filtered nothing, and
+   nothing in the console said so. */
+.fp3d-list__row[hidden] {
+    display: none;
+}
+
+.fp3d-list__row:hover {
+    background: var(--gray-100);
+}
+
+.fp3d-list__row:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
+/* The item whose card was open before the list. Without it, coming back from a
+   card lands the visitor in 78 identical rows with no idea where they were. */
+.fp3d-list__row--current {
+    background: var(--gray-100);
+    box-shadow: inset 3px 0 0 var(--primary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* Fixed square, so 78 photos of different proportions still make a straight
+   column of text beside them. */
+.fp3d-list__thumb {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-500);
+}
+
+/* `cover` here and `contain` on the card, on purpose: at 40 px the crop reads as
+   a swatch of the object, and letterboxing would leave a stamp of background. */
+.fp3d-list__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.fp3d-list__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.fp3d-list__empty {
+    padding: var(--space-4) var(--space-2);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
 }
 
 /* =========================================================================
@@ -340,7 +528,7 @@ body.first-person-active .modal-overlay {
 }
 
 /* =========================================================================
-   MOVEMENT KEY HINTS — BOTTOM LEFT
+   MOVEMENT KEY HINTS — BOTTOM RIGHT
 
    The corner the walker never looks at, telling them the only thing the scene
    cannot show: which keys move them. Deliberately quiet — no panel chrome, no
@@ -348,8 +536,14 @@ body.first-person-active .modal-overlay {
    then stops seeing it, which is why it is worth 0.6 of an opacity and not a
    card.
 
-   The corner is the LEFT one because the right belongs to the toolbar and to
-   the close button, and stacking a fourth thing there would crowd the exit.
+   THE CORNER IS THE RIGHT ONE, and it moved there in 2026-08-17 by request.
+   The earlier note here argued for the left because "the right belongs to the
+   toolbar and to the close button" — but neither is in this corner: the
+   toolbar hangs from `top: 80px` down the right EDGE and the close button sits
+   top-right, so the bottom-right was empty and the controls now read as one
+   column. The one place they would collide is the narrow layout, where the
+   toolbar drops to `bottom right`; there the hints are already `display: none`
+   (see RESPONSIVE), because a device with no keyboard has no use for them.
 
    The direction keys are DRAWN as the pad they are, with each cap carrying its
    arrow, and the two modifiers sit beside it. That shape is the caption: it
@@ -359,8 +553,8 @@ body.first-person-active .modal-overlay {
 
 .fp3d-keyhints {
     position: absolute;
+    right: var(--space-4);
     bottom: var(--space-4);
-    left: var(--space-4);
     display: flex;
     align-items: center;
     gap: var(--space-3);
@@ -441,6 +635,135 @@ body.first-person-active .modal-overlay {
     font-size: 9px;
     line-height: 1;
     opacity: 0.65;
+}
+
+/* =========================================================================
+   IMMERSIVE MODE — CROSSHAIR AND BADGE
+
+   The mode the pointer lock buys: the view follows the mouse with no button
+   held. It costs the CURSOR, which the browser hides and refuses to give back
+   until the lock drops — so these two exist to replace what the cursor was
+   doing. The crosshair says where the aim is (and `markers.pickAtCenter`
+   resolves a click against it, because a locked pointer cannot hit-test a
+   label); the badge says the mode is on and names the way out.
+
+   Neither is decoration. A pointer-lock mode with no crosshair leaves the
+   visitor clicking at nothing, and one with no badge is the "mode you leave by
+   accident" this viewer removed once already.
+   ========================================================================= */
+
+/* Dead centre, and never clickable: this is exactly where the aim is, and a
+   clickable target here would eat the click meant for the item behind it. */
+.fp3d-crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: var(--fp3d-layer-overlay);
+}
+
+/* A ring with a dot, not a cross of two bars: over a photographic scene a thin
+   cross disappears into whatever is behind it, and a ring keeps its shape
+   against both the dark corners and a lit display case. */
+.fp3d-crosshair::before {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid rgb(255 255 255 / 85%);
+    border-radius: 50%;
+
+    /* The dark halo is what makes it survive a white wall. */
+    box-shadow:
+        0 0 0 1px rgb(0 0 0 / 45%),
+        inset 0 0 0 1px rgb(0 0 0 / 45%);
+}
+
+.fp3d-crosshair__dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 2px rgb(0 0 0 / 80%);
+}
+
+/* Top centre: out of the way of the aim, and the first place the eye goes when
+   something changed. */
+.fp3d-immersive-badge {
+    position: absolute;
+    top: var(--space-4);
+    left: 50%;
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2) var(--space-4);
+    transform: translateX(-50%);
+    border: 1px solid rgb(255 255 255 / 25%);
+    border-radius: 999px;
+    background: rgb(0 0 0 / 55%);
+    color: var(--fp3d-text);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    backdrop-filter: blur(2px);
+    z-index: var(--fp3d-layer-overlay);
+}
+
+/* IT TAKES THE POINTER, even though a locked pointer can never reach it. The
+   browser gives the lock back on its own (a tab switch, a lost focus) and the
+   badge is the click that finishes leaving. Styling it as inert would be lying
+   about the half of its life when it works. */
+.fp3d-immersive-badge:hover {
+    border-color: rgb(255 255 255 / 45%);
+    background: rgb(0 0 0 / 70%);
+}
+
+.fp3d-immersive-badge:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+/* Breathing, because a badge that never moves is read once and then stops being
+   seen — and this one has to stay legible as "you are in a mode". */
+.fp3d-immersive-badge__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 6px var(--primary);
+    animation: fp3d-badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fp3d-badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+/* The exits, spelled out. They are the whole reason this is not the mode that
+   got removed: ESC and the right button are what the visitor has while the
+   cursor is gone, so they are written where the mode is announced. */
+.fp3d-immersive-badge__hint {
+    padding-left: var(--space-2);
+    border-left: 1px solid rgb(255 255 255 / 20%);
+    opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fp3d-immersive-badge__dot {
+        animation: none;
+    }
+}
+
+/* The key legend goes while the mode is on: the same corner now carries the
+   badge's job, and the walker who turned this on knows how to walk. */
+.fp3d-container--immersive .fp3d-keyhints {
+    opacity: 0.25;
 }
 
 /* =========================================================================

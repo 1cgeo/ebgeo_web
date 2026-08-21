@@ -6,6 +6,7 @@
 
 import pg from 'pg';
 import { createApp } from '../../src/app.js';
+import { blobPool } from '../../src/utils/sqlite-blob-pool.js';
 
 let _app = null;
 let _pool = null;
@@ -84,6 +85,31 @@ export async function setupTestEnv() {
  * @throws {Error} on any release failure other than an already-released client.
  */
 export async function teardownTestEnv(client) {
+  // OS WORKER THREADS DO POOL DE BLOB SAEM AQUI, e não em cada arquivo que se lembrar.
+  //
+  // O POR QUÊ, medido: a suíte completa reprovava de forma intermitente num arquivo
+  // DIFERENTE a cada rodada (3/3 vermelhas, em `boot-fail-fast`, `assets3d-privado`,
+  // `atlas`, `resource-access-compartilhavel`...), sempre com a mesma assinatura — o
+  // arquivo passa sozinho e o runner acusa `test did not finish before its parent` ou
+  // "generated asynchronous activity after the test ended". Essa é a marca de trabalho
+  // assíncrono que sobrevive ao arquivo que o criou e estoura durante o SEGUINTE, que é
+  // por isso que a vítima é aleatória e nunca a culpada.
+  //
+  // O pool de blob (`utils/sqlite-blob-pool.js`) é o candidato com handle de verdade:
+  // ele mantém worker threads vivos entre leituras, é COMPARTILHADO por assets3d e
+  // sv360, e dos doze arquivos que o exercitam SEIS nunca o fechavam. Fechá-lo por
+  // arquivo, aqui, vale mais que consertar os seis: o próximo teste que ler um blob
+  // herda a limpeza em vez de precisar lembrar dela.
+  //
+  // Fechar é idempotente e o pool reabre sob demanda, então o custo é o de reabrir um
+  // worker no arquivo seguinte que precise dele.
+  try {
+    await blobPool.closeAll();
+  } catch {
+    // Pool que nunca abriu, ou já fechado por um teste que faz a limpeza própria: não é
+    // erro, e falhar aqui derrubaria o teardown de quem nem usa blob.
+  }
+
   if (!client) return;
   try {
     client.release();

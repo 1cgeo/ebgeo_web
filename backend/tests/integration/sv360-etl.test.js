@@ -6,6 +6,15 @@
 // idempotent (no duplication). Also checks per-project isolation: a project whose
 // source {slug}.db is missing goes to skipped[] without aborting the rest.
 //
+// OS DOIS FORMATOS DE ACERVO, e é por isso que há quatro projetos na fixture. O
+// histórico traz `images(photo_id, full_webp, preview_webp)` e é conferido pelo piso
+// de bytes. O SÓ-TILES — o normal desde que a origem rodou `aposentar-full.js` — não
+// tem coluna de blob nenhuma, e o `index.db` continua anunciando os *_size_bytes das
+// imagens que já não existem, então o piso de bytes reprovaria TODO projeto podado.
+// A guarda não foi afrouxada: ela virou a cobertura de pirâmide, e o projeto
+// `proj-etl-tiles-parcial` é quem prende isso — com uma foto viva sem pirâmide, ele
+// TEM de continuar em skipped[]. Uma versão que só tenha afrouxado o piso o importa.
+//
 // TEARDOWN: blobPool.closeAll() (release any worker handle) → rmSync tmp dirs →
 // DELETE sv360 rows + the extra org → teardownTestEnv.
 
@@ -31,6 +40,10 @@ function uuidv5(name) {
 
 const SLUG = 'proj-etl';
 const SKIP_SLUG = 'proj-etl-missing-db';
+// Acervo podado: `images` sem coluna de blob, pixel só na pirâmide.
+const TILES_SLUG = 'proj-etl-so-tiles';
+// O mesmo acervo podado, com UMA foto viva fora da pirâmide.
+const PARCIAL_SLUG = 'proj-etl-tiles-parcial';
 const DB_FILENAME = `${SLUG}.db`;
 // FIX-1: the dest filename is the SERVER-DERIVED org-scoped name, not the legacy one.
 const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -38,6 +51,15 @@ const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 const p1 = uuidv5('default/proj-etl/etl-foto001.jpg');
 const p2 = uuidv5('default/proj-etl/etl-foto002.jpg');
 const sp1 = uuidv5('default/proj-etl-missing-db/skip-foto001.jpg');
+const t1 = uuidv5('default/proj-etl-so-tiles/tiles-foto001.jpg');
+const t2 = uuidv5('default/proj-etl-so-tiles/tiles-foto002.jpg');
+const x1 = uuidv5('default/proj-etl-tiles-parcial/parcial-foto001.jpg');
+const x2 = uuidv5('default/proj-etl-tiles-parcial/parcial-foto002.jpg');
+
+// O que o `index.db` anuncia para uma foto cujo blob a origem já apagou: o número
+// permanece lá (o `aposentar-full.js` abre o índice readonly e não zera nada), e é
+// alto o bastante para o piso de bytes reprovar o arquivo podado, que é minúsculo.
+const BYTES_FANTASMA = 5_000_000;
 
 const full1 = Buffer.from('RIFFxxxxWEBPetl-full-001-payload-zzzzzz');
 const prev1 = Buffer.from('RIFFxxxxWEBPetl-prev-001');
@@ -86,6 +108,16 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       `INSERT INTO projects (id, organization_id, slug, name, db_filename, status, photo_count)
        VALUES (?,?,?,?,?,?,?)`
     ).run(2, 1, SKIP_SLUG, 'Projeto Skip', `${SKIP_SLUG}.db`, 'enabled', 1);
+    // Projeto C (só-tiles, tem de importar) e Projeto D (só-tiles com pirâmide
+    // incompleta, tem de continuar sendo pulado).
+    idb.prepare(
+      `INSERT INTO projects (id, organization_id, slug, name, center_lat, center_long, db_filename, status, photo_count)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).run(3, 1, TILES_SLUG, 'Projeto Podado', -15.8, -47.9, `${TILES_SLUG}.db`, 'enabled', 2);
+    idb.prepare(
+      `INSERT INTO projects (id, organization_id, slug, name, center_lat, center_long, db_filename, status, photo_count)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).run(4, 1, PARCIAL_SLUG, 'Projeto Podado Parcial', -15.8, -47.9, `${PARCIAL_SLUG}.db`, 'enabled', 2);
 
     const insP = idb.prepare(
       `INSERT INTO photos (id, project_id, original_name, sequence_number, lat, lon, ele,
@@ -97,6 +129,12 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     insP.run(p1, 1, 'etl-foto001.jpg', 1, -23.5, -46.6, 700, 0, 1.6, 0, 0, 0, 1, 1, 0, full1.length, prev1.length, 0);
     insP.run(p2, 1, 'etl-foto002.jpg', 2, -23.5005, -46.6005, 698, 0, 1.6, 0, 0, 0, 1, 1, 0, full2.length, prev2.length, 0);
     insP.run(sp1, 2, 'skip-foto001.jpg', 1, -10, -50, 100, 0, 0, 0, 0, 0, 1, 1, 0, 10, 10, 0);
+    // As quatro fotos podadas carregam o tamanho FANTASMA, que é o estado real do
+    // acervo: o blob se foi e o número ficou.
+    insP.run(t1, 3, 'tiles-foto001.jpg', 1, -15.8, -47.9, 1100, 0, 1.6, 0, 0, 0, 1, 1, 0, BYTES_FANTASMA, 4096, 0);
+    insP.run(t2, 3, 'tiles-foto002.jpg', 2, -15.8005, -47.9005, 1101, 0, 1.6, 0, 0, 0, 1, 1, 0, BYTES_FANTASMA, 4096, 0);
+    insP.run(x1, 4, 'parcial-foto001.jpg', 1, -15.8, -47.9, 1100, 0, 1.6, 0, 0, 0, 1, 1, 0, BYTES_FANTASMA, 4096, 0);
+    insP.run(x2, 4, 'parcial-foto002.jpg', 2, -15.8005, -47.9005, 1101, 0, 1.6, 0, 0, 0, 1, 1, 0, BYTES_FANTASMA, 4096, 0);
 
     idb.prepare(
       `INSERT INTO targets (source_id, target_id, distance_m, bearing_deg, is_next, is_original, hidden)
@@ -118,6 +156,40 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     // Project B's {slug}.db is intentionally NOT created → it must be skipped.
   }
 
+  /**
+   * Escreve o {slug}.db PODADO de um projeto: a tabela `images` existe, as colunas
+   * de blob não. É o que a origem deixou depois do `aposentar-full.js`.
+   * @param {string} slug - slug do projeto
+   * @param {string[]} ids - as fotos que sobraram como registro
+   * @returns {void}
+   */
+  function buildPodadoDb(slug, ids) {
+    const sdb = new Database(path.join(srcDir, `${slug}.db`));
+    sdb.exec('CREATE TABLE images (photo_id TEXT PRIMARY KEY)');
+    const ins = sdb.prepare('INSERT INTO images VALUES (?)');
+    for (const id of ids) ins.run(id);
+    sdb.close();
+  }
+
+  /**
+   * Escreve o `{slug}_tiles.db` ao lado, com uma pirâmide por id dado. O ETL tem de
+   * levar este arquivo junto: sem ele o projeto podado chega ao destino sem fonte de
+   * pixel nenhuma, e o defeito só aparece como panorama que nunca pinta.
+   * @param {string} slug - slug do projeto
+   * @param {string[]} ids - as fotos COM pirâmide (omitir uma é o caso incompleto)
+   * @returns {void}
+   */
+  function buildTilesDb(slug, ids) {
+    const tdb = new Database(path.join(srcDir, `${slug}_tiles.db`));
+    tdb.exec(`CREATE TABLE tile_pyramids (
+      photo_id TEXT PRIMARY KEY, tile_size INTEGER NOT NULL, max_level INTEGER NOT NULL,
+      width INTEGER NOT NULL, height INTEGER NOT NULL, quality INTEGER NOT NULL,
+      tile_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, built_at TEXT NOT NULL)`);
+    const ins = tdb.prepare('INSERT INTO tile_pyramids VALUES (?,?,?,?,?,?,?,?,?)');
+    for (const id of ids) ins.run(id, 512, 1, 4096, 2048, 80, 5, 999, '2026-08-20');
+    tdb.close();
+  }
+
   before(async () => {
     const env = await setupTestEnv();
     db = env.db;
@@ -133,6 +205,10 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
 
     buildIndexDb();
     buildSourceDb();
+    buildPodadoDb(TILES_SLUG, [t1, t2]);
+    buildTilesDb(TILES_SLUG, [t1, t2]);
+    buildPodadoDb(PARCIAL_SLUG, [x1, x2]);
+    buildTilesDb(PARCIAL_SLUG, [x1]); // x2 fica sem pirâmide, de propósito
     // Only project A gets a thumbnail; project B has none (the real corpus has
     // 6 of 28 missing), which must NOT fail its import.
     writeFileSync(path.join(thumbDir, `${SLUG}.webp`), THUMB_BYTES);
@@ -142,10 +218,12 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     await blobPool.closeAll();
     if (tmpRoot && existsSync(tmpRoot)) rmSync(tmpRoot, { recursive: true, force: true });
 
-    await db.query(`DELETE FROM sv360.deleted_photos WHERE photo_id = ANY($1)`, [[p1, p2, sp1]]);
+    await db.query(`DELETE FROM sv360.deleted_photos WHERE photo_id = ANY($1)`, [
+      [p1, p2, sp1, t1, t2, x1, x2],
+    ]);
     await db.query(
       `DELETE FROM sv360.projects WHERE slug = ANY($1)`,
-      [[SLUG, SKIP_SLUG]]
+      [[SLUG, SKIP_SLUG, TILES_SLUG, PARCIAL_SLUG]]
     );
     await teardownTestEnv(db);
   });
@@ -284,5 +362,88 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     // A project whose thumbnail is absent still imports — reported, never fatal.
     const projA = imported.find((r) => r.slug === SLUG);
     assert.equal(projA.thumbnail, true, 'proj-etl reports its thumbnail transferred');
+  });
+
+  it('importa um projeto SÓ-TILES e leva o {slug}_tiles.db junto', async () => {
+    const podadoDir = path.join(tmpRoot, 'dest-podado');
+    mkdirSync(podadoDir, { recursive: true });
+
+    const { imported, skipped } = await importIndexDb(indexDbPath, {
+      dbDirSource: srcDir,
+      dbDirDest: podadoDir,
+      logger: silentLogger,
+    });
+
+    const podado = imported.find((r) => r.slug === TILES_SLUG);
+    assert.ok(podado, `${TILES_SLUG} tinha de importar — skipped: ${JSON.stringify(skipped)}`);
+    assert.equal(podado.photos, 2);
+    assert.equal(podado.tiles, true, 'o relatório tem de registrar o tiles db transferido');
+
+    // O ARQUIVO QUE FALTAVA. O ETL não copiava `{slug}_tiles.db`, então um acervo
+    // podado chegava ao destino sem fonte de pixel nenhuma.
+    const tilesDest = path.join(podadoDir, `${DEFAULT_ORG_ID}__${TILES_SLUG}_tiles.db`);
+    assert.ok(existsSync(tilesDest), 'o {slug}_tiles.db tem de chegar sob o nome org-keyed');
+    const tdb = new Database(tilesDest, { readonly: true });
+    const ids = tdb.prepare('SELECT photo_id FROM tile_pyramids ORDER BY photo_id').all();
+    tdb.close();
+    assert.deepEqual(
+      ids.map((r) => r.photo_id).sort(),
+      [t1, t2].sort(),
+      'a pirâmide das duas fotos vivas viajou junto'
+    );
+
+    // E o {slug}.db podado entra sendo MUITO menor que os *_size_bytes que o index.db
+    // anuncia: é exatamente o piso de bytes que não se aplica a este formato.
+    const imagesDest = path.join(podadoDir, `${DEFAULT_ORG_ID}__${TILES_SLUG}.db`);
+    assert.ok(existsSync(imagesDest), 'o {slug}.db podado também é instalado');
+    assert.ok(
+      statSync(imagesDest).size < BYTES_FANTASMA,
+      'o arquivo podado é minúsculo perto do que o índice ainda anuncia'
+    );
+
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS n FROM sv360.photos
+        WHERE project_id = (SELECT id FROM sv360.projects WHERE slug = $1)`,
+      [TILES_SLUG]
+    );
+    assert.equal(rows[0].n, 2, 'as duas fotos do projeto podado entraram');
+  });
+
+  it('RECUSA o projeto SÓ-TILES cuja pirâmide não cobre uma foto viva', async () => {
+    // A CONTRAPROVA do caso acima: se a correção tivesse sido afrouxar o piso de
+    // bytes, este projeto importaria com metade das fotos sem pixel, e o defeito só
+    // apareceria depois, num panorama que nunca pinta.
+    const parcialDir = path.join(tmpRoot, 'dest-parcial');
+    mkdirSync(parcialDir, { recursive: true });
+
+    const { imported, skipped } = await importIndexDb(indexDbPath, {
+      dbDirSource: srcDir,
+      dbDirDest: parcialDir,
+      logger: silentLogger,
+    });
+
+    assert.ok(!imported.some((r) => r.slug === PARCIAL_SLUG), 'não pode importar');
+    const parcial = skipped.find((r) => r.slug === PARCIAL_SLUG);
+    assert.ok(parcial, 'pirâmide incompleta tem de ir para skipped[]');
+    assert.match(parcial.error, new RegExp(x2), 'a mensagem nomeia a foto sem pirâmide');
+    // E nomeia a CAUSA. A mensagem antiga mandava o operador caçar corrupção de cópia.
+    assert.doesNotMatch(parcial.error, /summed photo BLOB bytes/);
+
+    // O erro rola a transação do projeto para trás, e nada meio-instalado fica em disco.
+    const { rows } = await db.query('SELECT id FROM sv360.projects WHERE slug = $1', [
+      PARCIAL_SLUG,
+    ]);
+    assert.equal(rows.length, 0, 'o merge do projeto recusado tem de ter sido revertido');
+    assert.ok(
+      !existsSync(path.join(parcialDir, `${DEFAULT_ORG_ID}__${PARCIAL_SLUG}.db`)),
+      'nem o {slug}.db do projeto recusado chega ao destino'
+    );
+    assert.ok(
+      !existsSync(path.join(parcialDir, `${DEFAULT_ORG_ID}__${PARCIAL_SLUG}_tiles.db`)),
+      'nem o {slug}_tiles.db dele'
+    );
+
+    // O projeto SÃO da mesma rodada segue entrando: o isolamento por projeto vale.
+    assert.ok(imported.some((r) => r.slug === TILES_SLUG), 'o projeto podado íntegro importa');
   });
 });

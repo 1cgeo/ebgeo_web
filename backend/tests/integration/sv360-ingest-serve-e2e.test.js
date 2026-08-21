@@ -176,6 +176,17 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
 
     derivedDbName = `${defaultOrgId}__${SLUG}.db`;
     derivedDbPath = path.resolve(config.sv360.dbDir, derivedDbName);
+
+    // A MINIATURA PRECISA EXISTIR EM DISCO para o STEP 3 continuar medindo a FORMA
+    // da URL. Desde 2026-08-21 `previewThumbnail` só é emitido quando o arquivo
+    // está lá (o escritor sempre a tratou como OPCIONAL), então sem esta linha o
+    // campo viria null e a asserção de "relativo, sem /api/v1" mediria nada. O nome
+    // é o ORG-KEYED derivado do db_filename, o mesmo que a rota de thumbnail
+    // resolve; o teardown acima já o apaga.
+    writeFileSync(
+      path.resolve(config.sv360.dbDir, `${defaultOrgId}__${SLUG}.webp`),
+      Buffer.from('RIFFxxxxWEBPfake-e2e-thumb')
+    );
   });
 
   after(async () => {

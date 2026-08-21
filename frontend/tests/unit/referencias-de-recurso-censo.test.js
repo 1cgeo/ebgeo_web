@@ -147,6 +147,11 @@ const CENSO = [
     { arquivo: 'src/js/calibration/preview-viewer.js', campo: 'photoId', classe: OUTRO_DOCUMENTO },
     { arquivo: 'src/js/calibration/project-map.js', campo: 'photoId', classe: OUTRO_DOCUMENTO },
     { arquivo: 'src/js/calibration/state.js', campo: 'photoId', classe: OUTRO_DOCUMENTO },
+    // Entrou com a pirâmide de tiles da panorâmica (integração main/360, 2026-08-21): o
+    // visualizador do estúdio pede a foto por uuid para escolher o nível da escada. Mesma
+    // classe dos seis vizinhos, e pela mesma razão: `calibracao.html` não monta store e o
+    // `photoId` daqui não chega a documento de atlas nenhum.
+    { arquivo: 'src/js/calibration/viewer.js', campo: 'photoId', classe: OUTRO_DOCUMENTO },
     { arquivo: 'src/js/catalog/catalog.modal.js', campo: 'photoId', classe: RUNTIME },
     { arquivo: 'src/js/comment_tool/comments-panel.js', campo: 'baseLayer', classe: RUNTIME },
     { arquivo: 'src/js/deep-link/deep-link.js', campo: 'tilesetId', classe: RUNTIME },

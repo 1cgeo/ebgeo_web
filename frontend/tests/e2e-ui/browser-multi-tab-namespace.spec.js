@@ -26,22 +26,37 @@
  *     matters is that the outbound queue is NOT per atlas today (`OPERATION_QUEUE.perAtlas`
  *     is false and `syncEngine.flush` does a global `peek` then pushes to `this._atlasId`).
  * A1  two tabs, DIFFERENT atlases → both live, both namespaces on disk, no cross-leak, and
- *     each point present in ITS server atlas and absent from the other. EXPECTED TO FAIL
- *     TODAY. E7 removes the hold and must delete the `test.fail` marker in the same commit.
+ *     each point present in ITS server atlas and absent from the other. CLOSED BY E7.
  * A2  two tabs, SAME REMOTE atlas → the second is BLOCKED, visibly. A1's control.
- * A2b the blocked tab is actually STOPPED, not merely covered. EXPECTED TO FAIL: measuring A2
- *     turned up a defect the plan does not list (the blocked tab connects anyway ~2 s later).
+ * A2b the blocked tab is actually STOPPED, not merely covered. Measuring A2 turned up a defect
+ *     the plan does not list (the blocked tab connected anyway ~2 s later). CLOSED 2026-08-21 in
+ *     `claimRemoteAtlas`; the cause and the two halves of the fix are written at the case.
  * A3b after the tab's OWN logout, nothing of the server atlas is left readable.
- * A4  a public-link visitor must not pollute the LOCAL atlas databases. EXPECTED TO FAIL (E1).
+ * A4  a public-link visitor must not pollute the LOCAL atlas databases. CLOSED BY E1.
  *
- * A3 WAS REMOVED, NOT FORGOTTEN. It asserted that tab B's work "never disappears during tab A's
- * logout", and the recorded decision says the opposite in as many words (`docs/decisions/fase-multiaba-2026-08.md`,
- * E2: "O logout NÃO poupa depois do aviso confirmado. Sem sessão não existe aba legítima
- * segurando dado de servidor"). The implemented design agrees: the warned tab stops, RELEASES
- * its mount lock and clears its scope (`store/sync/tab-lock-sync-brake.js`), and only then does
- * the destroyer sweep. A `test.fail` case whose named assertion contradicts the design can never
- * go red, so it polices nothing while looking like a gate. The scenario lives on, with the
- * expectation the design actually holds, as B3 of `browser-multi-tab-teardown-queue.spec.js`.
+ * NO CASE HERE CARRIES `test.fail` ANY MORE, and that is a state to defend rather than a fact to
+ * note: every marker in this file outlived the etapa that closed it by at least one commit, and
+ * a marker on a case that passes reports the RUN as failed, which is the only reason any of them
+ * was ever found.
+ *
+ * A3 WAS REMOVED, NOT FORGOTTEN, and the clause quoted here when it went was RISCADA four days
+ * later. The version of E2 that said "o logout NÃO poupa depois do aviso confirmado; sem sessão
+ * não existe aba legítima segurando dado de servidor" is marked SUPERADA EM 2026-08-15 in
+ * `docs/decisions/fase-multiaba-2026-08.md`: its premise (a GLOBAL outbound queue, so the
+ * destroyed namespace held only server data a re-login refetches) died when E2B made the queue
+ * physical per atlas, and a logout then destroyed a sibling's unsent operations through the very
+ * door the notice had opened to protect it. WHAT VALE HOJE: "a aba avisada PARA de escrever e NÃO
+ * solta a montagem. O aviso é informação; soltar o lock seria entrega, e conflatar os dois era o
+ * defeito." The implementation agrees — `store/sync/tab-lock-sync-brake.js` stops the tab and
+ * KEEPS the mount lock, the sweep asks for the exclusive, is refused, and reports `spared` with
+ * `sparedAt`, bounded by `SPARE_GRACE_MS`. Releasing survives only where Web Locks do not exist,
+ * because there sparing is impossible by construction.
+ *
+ * So A3's scenario is not contradicted by the design any more; it is what the design promises,
+ * which is why it lives on as an ORDINARY GREEN case — B3 of
+ * `browser-multi-tab-teardown-queue.spec.js` — and not as a `test.fail` here. A `test.fail` case
+ * whose named assertion the design already grants can never go red either, and polices nothing
+ * while looking like a gate.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE DOES NOT COVER, WRITTEN DOWN SO THE LIST IS NOT MISTAKEN FOR THE REQUIREMENT
@@ -571,22 +586,43 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
     });
 
     test('A2b — o bloqueio PARA a aba bloqueada, não apenas a cobre', async ({ browser }, testInfo) => {
-        // PENDENTE — ACHADO NOVO DESTE INSTRUMENTO, não previsto no `docs/decisions/fase-multiaba-2026-08.md`.
+        // FECHADO EM 2026-08-21 — ACHADO NOVO DESTE INSTRUMENTO, não previsto no
+        // `docs/decisions/fase-multiaba-2026-08.md`, e a causa não é nenhuma das que a suspeita
+        // original listava.
         //
-        // MEDIDO (2026-08-15, com o código de hoje): a segunda aba no MESMO atlas mostra o overlay
-        // e, cerca de dois segundos depois, CONECTA assim mesmo. Amostras da sonda na aba B:
+        // MEDIDO (2026-08-15, e ainda em 2026-08-20 em 4 de 5 rodadas): a segunda aba no MESMO
+        // atlas mostra o overlay e, cerca de dois segundos depois, CONECTA assim mesmo. Amostras
+        // da sonda na aba B:
         //   @2s  overlayVisible=true, atlasId=null,  conn=offline
         //   @4s  overlayVisible=true, atlasId=<X>,   conn=online, a URL ganha `&map=`
         // Ou seja: as duas abas ficam ONLINE no mesmo atlas, uma delas atrás de um overlay que diz
-        // que ela está parada. `store/sync/tab-lock-sync-brake.js` declara no topo que bloquear é
-        // `stopAutoFlush()` + `syncEngine.disconnect()` justamente porque "atrás do overlay antigo a
-        // aba bloqueada seguia escrevendo no servidor"; a medição diz que a aba bloqueada volta a
-        // conectar depois disso, provavelmente pelo replay do open adiado (`deferAtlasOpen` /
-        // `resumeDeferredAtlasOpen`), que roda sem a aba ter recuperado a claim.
+        // que ela está parada.
+        //
+        // A SUSPEITA ESCRITA AQUI ESTAVA ERRADA, e fica registrada porque custou a investigação.
+        // Ela dizia "provavelmente o replay do open adiado, que roda sem a aba ter recuperado a
+        // claim". O replay não pode ser o gatilho: `onResumed` só é chamado de `_leaveBlocked`
+        // (`utilities/tab-lock.js`), que exige que nenhum par vivo em colisão preceda esta aba, e
+        // ele ESCONDE o overlay — enquanto a medição mostra o overlay de pé nas duas amostras.
+        //
+        // A CAUSA: `claimRemoteAtlas` (`src/js/account/open-atlas.service.js`) tinha um atalho que
+        // respondia "esta aba já tem esse atlas" a partir da CHAVE ANUNCIADA, e a chave anunciada
+        // de uma aba recém-aberta não vem de arbitragem nenhuma: `initTabLock` a lê de
+        // `currentAtlasLockKey()`, que lê o escopo montado por `activateBootAtlasScope`, que vem de
+        // `resolveTabMountOrigin` — e este cai no marcador de origem da INSTALAÇÃO quando a aba não
+        // tem ponteiro próprio (`store/store-origin.js`). A aba B boota anunciando o atlas da aba A
+        // antes de ter ouvido um par sequer; o atalho lia isso como direito adquirido e pulava o
+        // settle, a ordem total e a testemunha do lock de montagem de uma vez. O open seguia até o
+        // `connect`, e o overlay aparecia no meio do caminho, quando o STATE da aba A finalmente
+        // chegava — o que explica também as duas amostras (o `connect` é o que demora) e o 4 de 5
+        // (é uma corrida entre o boot desta aba e a resposta da irmã).
+        //
+        // O CONSERTO, no mesmo commit que apaga este marcador: o atalho passou a exigir arbitragem
+        // GANHA (`holdsArbitratedClaim`), e a testemunha do open passou a contar a montagem DESTA
+        // aba como dela — sem a segunda metade, um F5 numa aba sozinha no próprio atlas se
+        // recusaria a si mesma. As duas metades e os contrastes que elas têm de sustentar juntas
+        // estão em `tests/unit/reivindicacao-de-atlas-remoto.test.js`.
         //
         // Por que fica FORA de A2: A2 é o controle negativo de A1 e precisa continuar VERDE.
-        // Candidato a fechar em E2 (freio + aviso de desmontagem) ou junto de E7.
-        test.fail();
         test.setTimeout(120000);
 
         await pendingGate(testInfo, {
@@ -605,15 +641,39 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
                 const tabB = await openTab(ctx, `/?atlas=${X.id}`);
                 await expect(tabB.locator(BLOCK_OVERLAY_SELECTOR), 'a aba B foi bloqueada (pré-condição)')
                     .toBeVisible({ timeout: 30000 });
-                // Long enough to cover the window in which the measurement above saw B connect.
-                await tabB.waitForTimeout(10000);
                 return { ctx, tabB };
             },
 
+            // A JANELA SE AMOSTRA, NÃO SE ESPERA. Esta era uma leitura ÚNICA depois de
+            // `waitForTimeout(10000)`, e isso media a coisa errada: o defeito é a aba
+            // bloqueada CONECTAR, não estar conectada no instante 10 s. Com o badge
+            // oscilando, a amostra única erra o evento, e o `test.fail()` reprovava a suíte
+            // inteira quando errava.
+            //
+            // MEDIDO em série (2026-08-20, cinco rodadas isoladas): o instrumento antigo via
+            // o defeito em 4 de 5 execuções. Não é o defeito que é raro — é a amostra que é
+            // pontual. Amostrando a janela inteira, uma reconexão em qualquer ponto dela é
+            // capturada, e o caso passa a falhar (isto é, a cumprir o `test.fail()`) de forma
+            // estável enquanto o defeito existir.
+            //
+            // O defeito FECHOU, e a amostragem da janela continua sendo a forma certa de medir
+            // este caso: ela é o que separa "não conectou" de "não estava conectada no instante
+            // em que olhei". Uma regressão que reconecte a aba bloqueada em qualquer ponto dos
+            // 10 s é capturada aqui, e é para isso que o gate serve agora que é VERDE.
             gate: async ({ tabB }) => {
-                const diag = await tabDiagnostic(tabB);
-                expect(diag.syncState, 'uma aba bloqueada não fica online no atlas que a outra segura')
-                    .not.toBe('online');
+                const amostras = [];
+                const fim = Date.now() + 10000;
+                while (Date.now() < fim) {
+                    const diag = await tabDiagnostic(tabB);
+                    amostras.push(diag.syncState);
+                    if (diag.syncState === 'online') break;
+                    await tabB.waitForTimeout(250);
+                }
+                expect(amostras.length, 'a janela precisa ter sido amostrada de fato').toBeGreaterThan(1);
+                expect(
+                    amostras,
+                    `uma aba bloqueada não fica online no atlas que a outra segura (amostras: ${amostras.join(',')})`
+                ).not.toContain('online');
             },
         });
     });

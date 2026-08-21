@@ -11,6 +11,24 @@ function optional(key, fallback) {
   return process.env[key] || fallback;
 }
 
+/**
+ * An optional env var that names a BASE URL, with trailing slashes stripped.
+ *
+ * Every consumer of these values concatenates a path that already starts with
+ * `/` (`${serviceUrl}/photos/...`, `${base}/tiles/{z}/{x}/{y}.pbf`), so a base
+ * typed with a trailing slash yields `//`. Some servers serve that and some
+ * answer 404, so the bug only surfaces after deploy, on whichever route the
+ * operator did not open while testing. Stripping once here beats guarding at
+ * every call site. Same reasoning as `normalizeBase` in the frontend's
+ * `first_person_3d_tool/scene-config.service.js`.
+ * @param {string} key - env var name
+ * @param {string} fallback - value used when the var is absent or empty
+ * @returns {string} base without trailing slashes
+ */
+function optionalBase(key, fallback) {
+  return String(optional(key, fallback)).replace(/\/+$/, '');
+}
+
 /** Inteiro opcional: ausente/ilegível → undefined (o consumidor decide o default). */
 function optionalInt(key) {
   const raw = process.env[key];
@@ -117,7 +135,7 @@ const config = Object.freeze({
 
   assets3d: Object.freeze({
     dir: optional('ASSETS_3D_DIR', './data/assets3d'),
-    baseUrl: optional('ASSETS_3D_BASE_URL', '/api/v1/assets3d'),
+    baseUrl: optionalBase('ASSETS_3D_BASE_URL', '/api/v1/assets3d'),
     // SQLite BLOB store (served first; filesystem `dir` is the fallback).
     sqlitePath: optional('ASSETS_3D_SQLITE', './data/assets3d.sqlite'),
     maxInflight: parseInt(optional('ASSETS_3D_MAX_INFLIGHT', '8'), 10),
@@ -278,7 +296,7 @@ const config = Object.freeze({
     // por acidente, porque :3000 é o Vite e ele faz proxy de /api para cá; num
     // deploy real, ou era configurado à mão ou o browser chamava o próprio host.
     // A env var permanece para o caso de o 360 ser servido de outra origem.
-    sv360ServiceUrl: optional('SV360_SERVICE_URL', '/api/v1/sv360'),
+    sv360ServiceUrl: optionalBase('SV360_SERVICE_URL', '/api/v1/sv360'),
     // Basemap tile/style URLs (substitutable by internal servers in production):
     osmTileUrl: optional('OSM_TILE_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     glyphsUrl: optional('MAPLIBRE_GLYPHS_URL', 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'),
