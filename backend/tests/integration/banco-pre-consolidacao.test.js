@@ -48,14 +48,63 @@ const SONDA_URL = `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/
 
 let pgp;
 
+/**
+ * Derruba as conexões pendentes ao banco da sonda, tolerando a que não se pode matar.
+ *
+ * A CORRIDA QUE ISTO FECHA, e ela é do servidor, não do teste. `recriarBanco` abre uma
+ * conexão como SUPERUSUÁRIO (as extensões são untrusted), e `$pool.end()` do cliente
+ * retorna antes de o servidor dar baixa dela em `pg_stat_activity`. Quem chama
+ * `pg_terminate_backend` depois é o usuário COMUM (`ADMIN_URL` é `ebgeo`), e matar o
+ * backend de outro papel exige `pg_signal_backend`: o servidor responde 42501,
+ * `permission denied to terminate process`, e a sonda inteira reprova por ambiente.
+ *
+ * Isso NÃO aparece rodando o arquivo sozinho (medido: 3/3 verde). Aparece na suíte
+ * completa, quando a máquina está ocupada e a baixa da conexão demora mais, que é
+ * exatamente o perfil de falha que se lê como regressão sem ser uma.
+ *
+ * Matar conexão é OTIMIZAÇÃO para o DROP que vem depois; o requisito é o banco sumir.
+ * Por isso a falta de privilégio é engolida e quem garante o resultado é o retry do
+ * DROP: a conexão do superusuário sai sozinha em poucos milissegundos.
+ * @param {Object} admin - conexão pg-promise já aberta em ADMIN_URL
+ * @returns {Promise<void>}
+ */
+async function terminarConexoes(admin) {
+  try {
+    await admin.none(
+      'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
+      [DB_SONDA]
+    );
+  } catch (erro) {
+    // 42501 = insufficient_privilege. Qualquer outro erro é problema de verdade.
+    if (erro?.code !== '42501') throw erro;
+  }
+}
+
+/**
+ * `DROP DATABASE` com espera: a conexão que não se pôde matar cai sozinha.
+ * @param {Object} admin - conexão pg-promise já aberta em ADMIN_URL
+ * @returns {Promise<void>}
+ */
+async function droparComEspera(admin) {
+  // 55006 = object_in_use. Dez tentativas a 200 ms cobrem com folga a baixa de uma
+  // conexão já encerrada pelo cliente; se ainda assim não sair, o erro sobe inteiro,
+  // porque aí não é corrida e engolir viraria um teste que não testa.
+  for (let tentativa = 1; ; tentativa += 1) {
+    try {
+      await admin.none(`DROP DATABASE IF EXISTS ${DB_SONDA}`);
+      return;
+    } catch (erro) {
+      if (erro?.code !== '55006' || tentativa >= 10) throw erro;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+}
+
 /** Recria o banco da sonda, vazio, com as extensões pré-criadas por superusuário. */
 async function recriarBanco() {
   const admin = pgp(ADMIN_URL);
-  await admin.none(
-    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
-    [DB_SONDA]
-  );
-  await admin.none(`DROP DATABASE IF EXISTS ${DB_SONDA}`);
+  await terminarConexoes(admin);
+  await droparComEspera(admin);
   await admin.none(`CREATE DATABASE ${DB_SONDA}`);
   await admin.$pool.end();
 
@@ -79,11 +128,8 @@ async function recriarBanco() {
 async function derrubarBanco() {
   const admin = pgp(ADMIN_URL);
   try {
-    await admin.none(
-      'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
-      [DB_SONDA]
-    );
-    await admin.none(`DROP DATABASE IF EXISTS ${DB_SONDA}`);
+    await terminarConexoes(admin);
+    await droparComEspera(admin);
   } finally {
     await admin.$pool.end();
   }
