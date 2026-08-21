@@ -190,6 +190,36 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             // broken setup and the defect are both reported as "expected failure".
             test.setTimeout(120000);
 
+            // AINDA PENDENTE, e a marca voltou depois de MEDIDA no navegador (2026-08-21).
+            //
+            // O cabeçalho acima estava certo sobre a marca velha ser insatisfazível, e certo
+            // sobre a metade de E3 que ENTROU: os bancos `ebgeo_*__remote-<atlasId>` existem
+            // depois do "Enviar ao servidor", e a edição ao vivo aparece dentro deles (o
+            // controle positivo do gate passa). Estava errado ao concluir que o defeito tinha
+            // fechado, porque essa conclusão saiu de leitura de código e de teste unitário,
+            // nunca do navegador.
+            //
+            // MEDIDO: com backend, banco e portas isolados, o vazamento reproduz. A edição
+            // feita com a aba JÁ VIVA no atlas de servidor aparece TAMBÉM em `ebgeo_maps`
+            // local. Duas execuções de duas em que o gate chegou a avaliar. A única execução
+            // verde foi a que rodou com o servidor de aplicação caindo (o caso irmão morreu
+            // com ERR_CONNECTION_REFUSED na mesma rodada), e por isso não conta.
+            //
+            // O QUE ISSO ESTREITA: a ativação de namespace acontece, então o furo não é a
+            // ordem de `account.control.js` (claim → activate → wipe), que o guarda unitário
+            // `portao-de-montagem.test.js` já prende. O que sobra é a escrita ao vivo
+            // alcançando o escopo LOCAL depois da ativação. Pista não confirmada, e o próximo
+            // a pegar isto deve começar por ela: `activateRemoteAtlas`
+            // (`store/remote-atlas.api.js:414`) é assíncrona, e um repositório que tenha
+            // resolvido o nome do banco (ou aberto a conexão) ANTES dela continuaria
+            // escrevendo no endereço velho, com o registro já dizendo remoto. Confira se a
+            // resolução do nome é por chamada ou memoizada.
+            //
+            // NÃO foi consertado de propósito: é o caminho de ativação de escopo, a causa
+            // registrada já se mostrou errada duas vezes nesta fase, e conserto apressado aqui
+            // arrisca mais que o defeito conhecido.
+            test.fail();
+
             await pendingGate(testInfo, {
                 marca: '(local) não recebeu a edição feita no atlas de servidor',
 
