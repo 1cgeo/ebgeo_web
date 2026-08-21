@@ -12,9 +12,13 @@
  * TWO TESTS, ONE FLOW, AND THE SPLIT IS THE POINT (E0 item 7 of `docs/decisions/fase-multiaba-2026-08.md`).
  * The first test asserts facts of the SERVER and is green. It was green while the namespace furo
  * was wide open, because a spec that only reads the server cannot see WHERE ON DISK the client put
- * the atlas it just created. The second test drives the same flow and asserts facts of INDEXEDDB;
- * it is expected to fail today and carries the `test.fail` marker with the etapa that closes it.
+ * the atlas it just created. The second test drives the same flow and asserts facts of INDEXEDDB.
  * Splitting keeps the green guard green instead of demoting it to an expected failure.
+ *
+ * O SEGUNDO CASO FECHOU EM E3 e o `test.fail` dele saiu. Ele carregava o marcador desde o commit
+ * que ENTREGOU a correção: o texto do caso descrevia o código de antes e ninguém apagou o
+ * marcador junto. Ao promover, a asserção nomeada teve de mudar de feição também — a antiga
+ * respondia igual antes e depois da correção. O porquê está escrito no caso.
  */
 
 import { test, expect } from '@playwright/test';
@@ -154,13 +158,27 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
         test.describe.configure({ retries: 0 });
 
         test('o atlas salvo passa a viver no NAMESPACE DELE, não no slot local', async ({ browser }, testInfo) => {
-            // PENDENTE (E3). `saveLocalToServer` (`src/js/account/account.control.js`) goes
-            // `acquireTabLock` → `clearAllDataStore()` → `markStoreRemote` → `connect`, with no
-            // `activateRemoteAtlas` anywhere: the brand-new server atlas is written into the LOCAL
-            // slot databases (`ebgeo_*` unsuffixed), outside the remote registry, where the
-            // logged-out purge cannot find it and another tab's local work shares the address. E3
-            // inserts the namespace activation between the claim and the wipe; this marker goes
-            // with it.
+            // FECHADO POR E3. `saveLocalToServer` (`src/js/account/account.control.js`) ia
+            // `acquireTabLock` → `clearAllDataStore()` → `markStoreRemote` → `connect`, sem
+            // `activateRemoteAtlas` em lugar nenhum: o atlas de servidor recém-criado era escrito
+            // nos bancos do slot LOCAL (`ebgeo_*` sem sufixo), fora do registro remoto, onde o
+            // expurgo de logout não o acha e o trabalho local de outra aba divide o endereço. E3
+            // pôs a ativação ENTRE a reivindicação e o wipe (a ordem está presa em
+            // `tests/unit/portao-de-montagem.test.js`, "saveLocalToServer: idem").
+            //
+            // A MARCA MUDOU DE FEIÇÃO JUNTO COM A CORREÇÃO, e essa troca é a metade do conserto
+            // que faltava. A asserção original perguntava pela feição do atlas LOCAL, e essa
+            // pergunta deixou de distinguir as duas metades: E3 também parou de esvaziar o slot
+            // local, e o upload PRESERVA os ids (o guarda verde acima acha `featureId` no
+            // servidor por esse mesmo id), então a feição original continua legível no slot local
+            // depois da correção — pelo motivo certo. Antes de E3 ela também estava lá, pelo
+            // motivo errado (o wipe apagava o slot local e o pull do servidor reescrevia tudo
+            // dentro dele). Uma marca que responde igual nos dois estados não reprova nada.
+            //
+            // A feição medida agora é a que só pode existir DEPOIS da troca: um ponto desenhado
+            // com a aba já viva no atlas de servidor. Antes de E3 ele caía em `ebgeo_maps` (o
+            // escopo montado continuava sendo o local); depois de E3 ele cai em
+            // `ebgeo_maps__remote-<atlasId>`, e nada dele pode aparecer num banco local.
             //
             // Why this needs its own test instead of a few more lines in the one above: that test
             // is a GREEN guard of server-side facts and must stay green. It was green throughout
@@ -170,26 +188,30 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             //
             // It runs through `pendingGate` for the reason written at that helper: without it, a
             // broken setup and the defect are both reported as "expected failure".
-            test.fail();
             test.setTimeout(120000);
 
             await pendingGate(testInfo, {
-                marca: '(local) não guarda o atlas de servidor',
+                marca: '(local) não recebeu a edição feita no atlas de servidor',
 
                 setup: async () => {
                     const driven = await driveSaveLocalToServer(browser, state.baseUrl);
+                    // A EDIÇÃO AO VIVO, e ela é o instrumento: só existe depois de a aba estar
+                    // no atlas de servidor, então o banco em que ela cai NOMEIA o escopo montado.
+                    const liveId = await drawPointUI(driven.page, [-43.31, -23.01]);
+                    expect(liveId, 'a aba desenhou já viva no atlas de servidor').toBeTruthy();
+                    await driven.page.keyboard.press('Escape');
                     const names = await idbDatabaseNames(driven.page);
                     await testInfo.attach('indexedDB.databases() depois do "Enviar ao servidor"', {
                         body: names.join('\n'),
                         contentType: 'text/plain',
                     });
-                    return { ...driven, names };
+                    return { ...driven, liveId, names };
                 },
 
-                gate: async ({ page, names, featureId, atlasId }) => {
+                gate: async ({ page, names, featureId, liveId, atlasId }) => {
                     // THE LEAK ASSERTION COMES FIRST, and the order is chosen for the evidence it
                     // prints: this one names the database the server atlas actually fell into and
-                    // the feature id sitting in it, which is the fact E3 has to move.
+                    // the feature id sitting in it, which is the fact E3 had to move.
                     const localDbs = names.filter(
                         (n) => n === 'ebgeo_maps'
                             || (n.startsWith('ebgeo_maps__') && !n.startsWith('ebgeo_maps__remote-')),
@@ -198,8 +220,8 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
                         .toBeGreaterThan(0);
                     for (const db of localDbs) {
                         const local = await readIdbFeatureIds(page, db);
-                        expect(local.featureIds, `${db} (local) não guarda o atlas de servidor`)
-                            .not.toContain(featureId);
+                        expect(local.featureIds, `${db} (local) não recebeu a edição feita no atlas de servidor`)
+                            .not.toContain(liveId);
                     }
 
                     // ... and the atlas the user is now live on owns its own ten databases, where
@@ -207,6 +229,10 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
                     const remoteDb = mapsDbOf(remoteSuffix(atlasId));
                     expect(names, 'o atlas salvo tem namespace próprio').toContain(remoteDb);
                     const remote = await readIdbFeatureIds(page, remoteDb);
+                    // CONTROLE POSITIVO DA LEITURA: sem ele, "o banco local não tem a edição"
+                    // seria a mesma resposta de um leitor que devolve vazio para tudo.
+                    expect(remote.featureIds, 'a edição ao vivo está no namespace do atlas de servidor')
+                        .toContain(liveId);
                     expect(remote.featureIds, 'a feição salva está no namespace do atlas de servidor')
                         .toContain(featureId);
                 },

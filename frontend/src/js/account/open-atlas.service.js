@@ -117,6 +117,49 @@ export function deferAtlasOpen(run) {
 }
 
 /**
+ * The server atlas this tab has actually WON an arbitration over, which is a different fact from
+ * the atlas it is ANNOUNCING (`getTabLock().key`).
+ *
+ * THE TWO WERE CONFLATED, AND THAT WAS THE DEFECT A2b MEASURED. The announced key is derived at
+ * boot from `currentAtlasLockKey()`, i.e. from the scope `activateBootAtlasScope` mounted, and
+ * that scope comes from `resolveTabMountOrigin`, which falls back to the INSTALLATION-wide origin
+ * marker when this tab has no pointer of its own (`store/store-origin.js`). A brand-new second tab
+ * therefore boots already announcing the atlas its SIBLING is in, before the lock has heard a
+ * single peer — and `claimRemoteAtlas` read that as "this tab already holds it" and skipped the
+ * settle, the order and the witness in one go. Measured on two tabs of one profile in the same
+ * server atlas: the second tab wiped, connected and went online behind the blocking overlay that
+ * arrived a moment later, so both tabs were live in the same atlas, one of them behind a screen
+ * saying it was stopped.
+ *
+ * It is set where an arbitration was actually won, and nowhere else: a granted `acquire()`, and
+ * the unblock, which the lock only performs when no live colliding peer precedes this tab any more
+ * (`utilities/tab-lock.js`, section 7).
+ * @type {string|null}
+ */
+let _arbitratedRemoteAtlasId = null;
+
+/**
+ * Records (or forgets) the atlas whose claim this tab won.
+ * @param {string|null} atlasId - The atlas won, or null to forget.
+ * @returns {void}
+ */
+function noteRemoteClaimWon(atlasId) {
+    _arbitratedRemoteAtlasId = typeof atlasId === 'string' && atlasId.length > 0 ? atlasId : null;
+}
+
+/**
+ * Whether this tab's hold on `atlasId` is EVIDENCE and not merely an announcement.
+ *
+ * A live connection counts on its own: `syncEngine.atlasId` is only ever set by an open that got
+ * through this same pre-flight, and it is the source of truth `currentAtlasLockKey` prefers.
+ * @param {string} atlasId - Atlas UUID being opened.
+ * @returns {boolean}
+ */
+function holdsArbitratedClaim(atlasId) {
+    return syncEngine.atlasId === atlasId || _arbitratedRemoteAtlasId === atlasId;
+}
+
+/**
  * Runs (once) the open that the lock deferred. Wired to the lock's `onResumed`, so it fires on
  * every unblock — a takeover that succeeded, or a holder tab that died and expired.
  * @returns {Promise<boolean>} True when there was something to resume and it ran without throwing.
@@ -125,6 +168,15 @@ export async function resumeDeferredAtlasOpen() {
     const run = _deferredOpen;
     _deferredOpen = null;
     if (!run) return false;
+    // THE UNBLOCK IS THE ARBITRATION, and this is where it is written down. `onResumed` fires from
+    // `_leaveBlocked`, which the lock reaches only when no live colliding peer precedes this tab
+    // any more — evidence that the holder stopped, not a hope that it will. The replay below needs
+    // that fact recorded, because it must NOT re-enter the order: `acquire()` stamps a fresh
+    // `claimedAt`, which would hand the atlas this tab has just won to whoever was waiting behind
+    // it, and the mount witness would refuse anyway (the tab that yielded keeps its mount lock by
+    // design — `store/sync/tab-lock-sync-brake.js`).
+    const key = getTabLock()?.key;
+    if (key?.kind === TabLockKeyKind.REMOTE) noteRemoteClaimWon(key.atlasId);
     try {
         await run();
         return true;
@@ -226,6 +278,9 @@ export function syncAtlasLockKey() {
  * @returns {void}
  */
 export function retractAtlasClaim() {
+    // The claim goes and the EVIDENCE of having won it goes with it, or the next open of that
+    // atlas would take the shortcut on the strength of an arbitration this tab has just given up.
+    noteRemoteClaimWon(null);
     releaseTabLock();
     const scope = getActiveScope();
     if (scope?.kind === StoreScopeKind.LOCAL && scope.atlasId) {
@@ -280,9 +335,18 @@ function mountWitness(dbSuffix, selfHolds) {
 /**
  * The witness for an atlas this tab is about to OPEN.
  *
- * `selfHolds` is 0 because the namespace is not mounted yet: `activateRemoteAtlas` runs after the
- * claim, on purpose (`openRemoteAtlas`). The one exception is the tab that already sits in that
- * atlas, and it never reaches here — `claimRemoteAtlas` short-circuits first.
+ * `selfHolds` is normally 0, because the namespace is not mounted yet: `activateRemoteAtlas` runs
+ * after the claim, on purpose (`openRemoteAtlas`).
+ *
+ * IT IS 1 FOR THE TAB THAT HAS ALREADY MOUNTED THAT NAMESPACE, and this used to be waved away as
+ * unreachable ("`claimRemoteAtlas` short-circuits first"). It is very reachable: the boot mounts
+ * whatever `resolveTabMountOrigin` resolves BEFORE the lock exists, so an ordinary reload of a tab
+ * sitting in its own server atlas arrives here holding the very lock the witness is counting. With
+ * a flat 0 that tab reads its OWN mount as a peer and refuses the open it is entitled to — which
+ * is why the shortcut could not be narrowed without this line, and it now has to be, because the
+ * shortcut was letting an inherited claim through (see `_arbitratedRemoteAtlasId`). The store keeps
+ * at most one mount lock per client (`atlas-namespace.js`, Decision 5), so the ACTIVE scope naming
+ * the same address is exactly the "one of the holds is mine" case.
  *
  * A suffix that cannot be built (an id `remoteScope` refuses) yields no witness rather than an
  * exception: this is a pre-flight, and failing to read a fact must not become the failure of the
@@ -293,7 +357,8 @@ function mountWitness(dbSuffix, selfHolds) {
  */
 export function remoteMountWitness(atlasId) {
     try {
-        return mountWitness(remoteScope(atlasId).dbSuffix, 0);
+        const { dbSuffix } = remoteScope(atlasId);
+        return mountWitness(dbSuffix, getActiveScope()?.dbSuffix === dbSuffix ? 1 : 0);
     } catch {
         return null;
     }
@@ -308,15 +373,33 @@ export function remoteMountWitness(atlasId) {
  * resumed open) would push itself to the back of the order and hand its own atlas to a tab that was
  * waiting behind it. It is deliberately narrow: opening a DIFFERENT atlas is a different claim and
  * takes the full pre-flight, because somebody else may be holding that one.
+ *
+ * "ALREADY HOLDS IT" IS A FACT ABOUT ARBITRATION, NEVER ABOUT THE ANNOUNCED KEY, and reading it
+ * off `lock.key` alone is what let a second tab into an atlas its sibling was holding (A2b of
+ * `tests/e2e-ui/browser-multi-tab-namespace.spec.js`). The announced key is inherited at boot from
+ * an INSTALLATION-wide marker, so a tab that has never spoken to a peer can be announcing the
+ * neighbour's atlas — see `_arbitratedRemoteAtlasId` for the measurement. The shortcut now needs
+ * both: the key is what the lock defends, and `holdsArbitratedClaim` is what says the tab ever won
+ * the right to defend it.
+ *
+ * A tab that is merely INHERITING therefore takes the full pre-flight, and there is nothing left
+ * for it to lose by re-stamping: a claim it never won had no standing to protect.
  * @param {string} atlasId - Atlas UUID being opened.
  * @returns {Promise<boolean>} True when this tab may proceed with the open.
  */
 async function claimRemoteAtlas(atlasId) {
     const lock = getTabLock();
-    if (lock && !lock.blocked && sameAtlasClaim(lock.key, remoteAtlasKey(atlasId))) return true;
+    if (lock && !lock.blocked && sameAtlasClaim(lock.key, remoteAtlasKey(atlasId))
+        && holdsArbitratedClaim(atlasId)) {
+        return true;
+    }
     const { granted, deniedBy } = await acquireTabLock(remoteAtlasKey(atlasId), {
         witness: remoteMountWitness(atlasId),
     });
+    if (granted) noteRemoteClaimWon(atlasId);
+    // Only the record for THIS atlas is dropped: a refusal to open Y says nothing about the X this
+    // tab won and may still be holding.
+    else if (_arbitratedRemoteAtlasId === atlasId) noteRemoteClaimWon(null);
     // A refusal by the WITNESS produces no overlay, because there is no peer in the roster to
     // offer a handoff to (that is the whole point: the peer was never heard). Saying nothing here
     // would leave the user clicking a project that silently does not open.
