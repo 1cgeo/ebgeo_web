@@ -31,7 +31,8 @@ Thumbs.db
 # Test coverage
 coverage/
 
-# package-lock.json é versionado (o `npm ci` do Dockerfile exige). A negação que
+# package-lock.json é versionado, como nos outros dois pacotes (o porquê está no
+# .gitignore da raiz). Aqui o `npm ci` do Dockerfile também exige. A negação que
 # morava aqui existia para escapar da regra `package-lock.json` do .gitignore da
 # raiz, que não era ancorada e alcançava este diretório; essa regra foi removida.
 yarn.lock

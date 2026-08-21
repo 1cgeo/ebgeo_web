@@ -3,7 +3,8 @@
 # padrão com barra no meio é ancorado no arquivo que o declara).
 # ==============================================================================
 
-# Dependências (package-lock.json É versionado — ver .gitignore da raiz)
+# Dependências (package-lock.json É versionado; o porquê está no .gitignore da
+# raiz, que vale para os três pacotes: raiz, frontend/ e backend/)
 node_modules/
 
 # Build

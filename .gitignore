@@ -6,9 +6,13 @@
 # ==============================================================================
 
 # Dependências
-# O lockfile de cada pacote É versionado: `npm ci` exige, e sem ele o Dependabot
-# analisa só o range do manifesto, então uma instalação limpa pode resolver para
-# uma versão vulnerável sem que nada acuse.
+# Os três pacotes reais versionam o lockfile: a raiz, frontend/ e backend/.
+# O `npm ci` exige o lock. Sem ele o Dependabot analisa só o range do manifesto,
+# então uma instalação limpa pode resolver para uma versão vulnerável sem que
+# nada acuse.
+# Não conta como quarto pacote o arquivo
+# frontend/public/vendors/cesium/ThirdParty/Workers/package.json: é um stub
+# vendorizado pelo Cesium, não declara dependência, e não ganha lock.
 node_modules/
 npm-debug.log*
 yarn-debug.log*
