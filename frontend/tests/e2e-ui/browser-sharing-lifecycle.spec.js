@@ -26,36 +26,34 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-
-const PASSWORD = 'Sup3r-Secret-Pw!';
 
 describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium + real backend)', () => {
     test('read-only share blocks push; PUT upgrades to write; DELETE revokes; GET reports state', async ({
         page,
     }) => {
+        // As duas contas nascem no NODE (`helpers/accounts.js`): o e-mail é obrigatório no
+        // cadastro e o token que o confirma só existe como linha no Postgres, que o contexto
+        // do browser não alcança. Aqui dentro sobra o login, que é o que o spec exercita.
+        const ownerCreds = await createVerifiedUser({ prefix: 'shl_owner', nome: 'Lifecycle Owner' });
+        const user2Creds = await createVerifiedUser({ prefix: 'shl_user2', nome: 'Lifecycle Target' });
+
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, creds }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
-                const mkUser = (prefix) =>
-                    `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
-                /** Registers + logs in a fresh user, returning a ready ApiClient and the user record. */
-                const newClient = async (prefix, nome) => {
+                /** Logs in an already-verified user, returning a ready ApiClient + user record. */
+                const newClient = async (c) => {
                     const api = new ApiClient({ baseUrl: apiBase });
-                    const username = mkUser(prefix);
-                    // register() returns no account data on purpose (anti-enumeration:
-                    // same answer whether it created the account or found one), so the
-                    // user record comes from the login.
-                    await api.register({ username, password, nome });
-                    const user = await api.login(username, password);
+                    const user = await api.login(c.username, c.password);
                     return { api, user };
                 };
 
@@ -87,8 +85,8 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
                     });
 
                 // --- Seed owner + atlas + map, and a second user. ---
-                const owner = await newClient('shl_owner', 'Lifecycle Owner');
-                const user2 = await newClient('shl_user2', 'Lifecycle Target');
+                const owner = await newClient(creds.owner);
+                const user2 = await newClient(creds.user2);
                 const atlas = await owner.api.createAtlas({ name: 'Lifecycle Atlas' });
                 const mapId = crypto.randomUUID();
                 await owner.api.pushOperations(atlas.id, [
@@ -170,7 +168,7 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
                     reRevokeStatus: reRevokeRes.status,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            { baseUrl: state.baseUrl, creds: { owner: ownerCreds, user2: user2Creds } },
         );
 
         // 1. Read grant created (201) at permission 'read'.

@@ -35,7 +35,10 @@
  *   - §22.10: a cloned slide whose `briefing_id` points at a non-existent briefing is
  *     rejected at write (guarded INSERT inserts zero rows) — it never appears anywhere.
  *
- * Each test self-provisions its OWN user + atlas + map + briefing for isolation.
+ * Each test self-provisions its OWN user + atlas + map + briefing for isolation. A CONTA,
+ * porém, não nasce dentro do browser: ela vem pronta de `helpers/accounts.js`, no lado Node,
+ * porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o contexto
+ * do browser não alcança. O `page.evaluate` faz só o `login()`.
  *
  * no-UI (UI-first exception): this spec is a BACKEND SYNC-CONTRACT test, not a user-flow
  * test. Every assertion reads the raw `pullSync` SNAPSHOT and pins server-side semantics
@@ -53,6 +56,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -61,16 +65,15 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
     test('§22.8 import map notes into a slide (rich content update, LWW) + cross-atlas negative', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'brfadv8', nome: 'Briefing Notes' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `brfadv8_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Briefing Notes' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Notes Atlas' });
 
@@ -164,7 +167,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 expectedFirst: richNotes,
                 expectedSecond: editedNotes,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.isSnapshot).toBe(true);
         // The source map's rich notes round-tripped through the snapshot.
@@ -181,16 +184,15 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
     test('§22.9 apply a saved 360 orientation to a slide (orientation/mode update) + unknown-slide no-op', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'brfadv9', nome: 'Briefing Orient' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `brfadv9_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Briefing Orient' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Orient Atlas' });
             const mapId = crypto.randomUUID();
@@ -279,7 +281,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 expectedPhoto: photoName,
                 ghostPresent,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.isSnapshot).toBe(true);
         // The saved orientation round-tripped (dropdown source).
@@ -295,16 +297,15 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
     test('§22.10 import slides from another briefing (clone with fresh UUIDs appended) + orphan-clone rejected', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'brfadv10', nome: 'Briefing Import' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `brfadv10_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Briefing Import' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Import Atlas' });
             const mapId = crypto.randomUUID();
@@ -419,7 +420,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 dstExisting,
                 orphanPresent,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.isSnapshot).toBe(true);
 

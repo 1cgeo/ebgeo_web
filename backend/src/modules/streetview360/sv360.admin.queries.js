@@ -69,7 +69,7 @@ export const CHECK_PHOTO_IDS_IN_OTHER_PROJECT = `
 //   $1 = organization_id (uuid), $2 = slug (text)
 export const GET_PROJECT_FOR_ADMIN = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status,
+         entry_photo_id, photo_count, db_filename, status, preview_video,
          created_at, updated_at
   FROM sv360.projects
   WHERE organization_id = $1::uuid AND slug = $2
@@ -250,6 +250,27 @@ export const UPDATE_PROJECT_STATUS = `
             created_at, updated_at
 `;
 
+// METADADO DO PROJETO: hoje só `preview_video`, o endereço do vídeo de prévia.
+//
+// TABELA ALVO É `sv360.projects`, mesma da linha de status logo acima, e a razão de ser
+// uma consulta SEPARADA em vez de um SET dinâmico é a regra da casa: `SET` montado a
+// partir de input só existe a partir de whitelist de colunas, e uma whitelist de UM
+// elemento é um `SET` escrito por extenso com passos a mais.
+//
+// `$3` ACEITA NULL, e é assim que o painel REMOVE o vídeo: o campo esvaziado vira null,
+// não string vazia, porque "sem vídeo" é a ausência da coluna e não um endereço de zero
+// caracteres — a forma pública devolve `previewVideo: null` nos dois casos e o cartão
+// esconde a afordância só na ausência.
+//   $1 = organization_id (uuid), $2 = slug, $3 = preview_video (text, nullable)
+export const UPDATE_PROJECT_METADATA = `
+  UPDATE sv360.projects
+     SET preview_video = $3, updated_at = now()
+   WHERE organization_id = $1::uuid AND slug = $2
+  RETURNING id, organization_id, slug, name, center_lat, center_long,
+            entry_photo_id, photo_count, db_filename, status, preview_video,
+            created_at, updated_at
+`;
+
 // Drop the tombstones of a project's photos. deleted_photos has NO FK, so the
 // photos CASCADE of a project hard-delete does NOT reach it: without this the
 // tombstones survive their photos and the next re-upload of the same bundle
@@ -297,6 +318,7 @@ export const DELETE_PROJECT = `
 export const LIST_PROJECTS_ADMIN = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
          entry_photo_id, photo_count, db_filename, status, access_level,
+         preview_video,
          created_at, updated_at
   FROM sv360.projects
   WHERE fn_can_produce_resource($1::uuid, 'sv360_project', id::text)

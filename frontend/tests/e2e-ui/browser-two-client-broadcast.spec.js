@@ -17,10 +17,15 @@
  *
  * Seeds ONE shared OWNER user + atlas + map via the backend API (like lock/presence),
  * then both pages connect a WsClient to the same atlas with the real owner token.
+ *
+ * A CONTA, porém, não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado
+ * Node, porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o
+ * contexto do browser não alcança. O `page.evaluate` faz só o `login()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -67,17 +72,15 @@ describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real bac
         browser,
     }) => {
         // 1. Seed ONE shared OWNER user + atlas + map via the backend API.
+        const user = await createVerifiedUser({ prefix: 'bcast', nome: 'Broadcast Owner' });
         const seedPage = await browser.newPage();
         await seedPage.goto('/');
-        const seed = await seedPage.evaluate(async (baseUrl) => {
+        const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `bcast_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Broadcast Owner' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Broadcast Atlas' });
             const mapId = crypto.randomUUID();
@@ -85,8 +88,8 @@ describeOrSkip('HTTP-push broadcast fan-out (two real browser clients + real bac
                 createOperation('map', 'create', mapId, null, { name: 'M1' }),
             ]);
 
-            return { username, password, atlasId: atlas.id, mapId };
-        }, state.baseUrl);
+            return { username: u.username, password: u.password, atlasId: atlas.id, mapId };
+        }, { baseUrl: state.baseUrl, u: user });
         await seedPage.close();
 
         // 2. Two independent browser contexts -> two pages, each pointed at the backend.

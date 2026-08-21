@@ -72,7 +72,7 @@ describe('requireAtlasPermission — fail-closed on an unknown level (34)', () =
     app.use((req, res, next) => {
       req.user = {
         id: stranger.id, username: stranger.username, role: 'user',
-        organization_id: null, org_role: 'viewer', isPublic: false, publicAtlasId: null,
+        organization_id: null, isPublic: false, publicAtlasId: null,
       };
       next();
     });

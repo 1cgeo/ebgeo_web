@@ -64,9 +64,25 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   - `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js`): cria atlas inteiro a partir
     de um `.ebgeo`.
   - `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js`, `write`).
-  - `POST /atlas/:atlasId/clone` (`backend/src/modules/atlas/atlas.routes.js`, `read` na ORIGEM):
-    `cloneAtlas` copia imagens, mapas, sub-entidades, briefings e slides para um atlas NOVO, do
-    chamador. Gate de leitura porque o efeito não toca a origem; o destino nasce do requisitante.
+  - `POST /atlas/:atlasId/clone` (`backend/src/modules/atlas/atlas.routes.js`, `read` na ORIGEM
+    MAIS `requireAccountPrincipal`): `cloneAtlas` copia imagens, mapas, sub-entidades, briefings
+    e slides para um atlas NOVO, do chamador. Gate de leitura porque o efeito não toca a origem;
+    o destino nasce do requisitante — e é por isso que o segundo gate existe: o visitante ANÔNIMO
+    de link público passa nos dois anteriores e não tem linha em `users` para ser dono. A cópia é
+    PODADA por destinatário (o que o novo dono não vê não viaja), o que vale também para
+    `POST /atlas/import`; as duas regras de poda e por que elas diferem estão em
+    [`../docs/wiki/sair-do-servidor.md`](../docs/wiki/sair-do-servidor.md).
+
+    **`atlas.settings` é superfície de referência, e é a que se esquece.** Além das colunas
+    óbvias (`maps.base_layer`, `cesium3d_data.tileset_id`, `streetview360_data.photo_name`,
+    `slides.model_id`/`photo_id`, `catalog_layers.data`), o documento `settings` carrega SEIS
+    ids de catálogo: `basemaps`, `default_basemap` e os quatro `available_*`. Eles passam pelo
+    mesmo `ResourcePruner`, e a armadilha é o SENTIDO: lista vazia significa **sem restrição**
+    no cliente, então podar uma allowlist até zero e escrever a lista vazia ALARGA a cópia;
+    quando ela esvazia, o que se desliga é a categoria em `features`. O inventário das
+    superfícies mora em `src/modules/atlas/resource-reference.registry.js`, espelhado no
+    cliente, e ele deixou essa família de fora por um bom tempo porque o censo que o cobra
+    varre por nome de campo do CLIENTE, e `available_3d_models` não é um deles.
 
   Esta lista disse "três" e omitiu o `clone` por tempo suficiente para a contagem virar premissa,
   enquanto o `clone` tem método no cliente (`apiClient.cloneAtlas`) e cinco arquivos de teste. E as
@@ -99,11 +115,16 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   credenciado em silêncio, que é o risco INVERSO ao da lista fechada por atlas. O eixo POR ATLAS
   (`read < comment < write < manage < owner`) **é** escada e se gateia pela hierarquia. Vocabulário:
   `producer` MANTÉM o que a OM dele produziu (escopo em `users.producer_org_id`, escrito só por
-  administrador, com CHECK bicondicional contra `role`); `credenciado` LÊ todo recurso privado e a
-  **única** escrita que ele tem é administrar grupo de acesso (`requireGlobalDataAccess`, decisão de
-  2026-08-19), o que não o torna administrador do sistema: usuários, organizações, catálogo e
-  configuração continuam fora do alcance dele. Censo em `tests/unit/papel-global-censo.test.js`, que
-  reprova sítio novo não classificado.
+  administrador, com CHECK bicondicional contra `role`, e desde 2026-08-21 valendo só enquanto
+  a OM PRODUTORA estiver ATIVA: `fn_can_produce_resource` conferia a conta e a OM de LOTAÇÃO, e
+  as duas colunas podem apontar para organizações diferentes), e desde 2026-08-20 isso inclui **marcar
+  público/privado** (`requireResourceMaintainer`) e **conceder de RAIZ** o que ele produz;
+  `credenciado` LÊ todo recurso privado e concede/revoga no eixo de recurso, e **não** administra
+  grupo de acesso (a decisão de 2026-08-19 que lhe dava essa escrita foi SUPERADA: grupo passou a
+  ser entidade de usuário, com dono, gateada por `fn_can_administer_group`). Nenhum dos dois é
+  administrador do sistema: usuários, organizações, catálogo e configuração continuam fora do
+  alcance deles. Censo em `tests/unit/papel-global-censo.test.js`, que reprova sítio novo não
+  classificado.
 - **`users.organization_id` é LOTAÇÃO e não autoriza nada.** Ele é auto-declarado no
   auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, sem revisão de ninguém), e enquanto
   autorizava era escalação de privilégio por formulário público: escolher a OM
@@ -126,15 +147,40 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   sem erro, que é a lista fechada da constituição na forma nova.
 - **Concessão tem PRAZO obrigatório, teto de um ano, e ele morre no PREDICADO** (`expires_at >
   NOW()` em toda query de concessão viva), nunca por varredura: um sweeper de expiração seria mais
-  um verificador quebrando calado. Filho nunca expira depois do pai (clamp por `LEAST` no INSERT).
+  um verificador quebrando calado. Filho nunca expira depois do pai: o clamp é por `LEAST`, e desde
+  2026-08-21 ele mora em DOIS lugares, não um — no INSERT e no repai da poda, que é a primeira
+  escrita de `parent_grant_id` fora do INSERT. Mudar o pai sem aparar o prazo (e sem descer o aparo
+  pela subárvore) quebra a invariante em silêncio.
   A assimetria com o escopo de produção é deliberada: concessão vence sozinha, `producer_org_id`
   não vence e só sai por ato de administrador (com `PRODUCER_SCOPE_CHANGE` na trilha).
+- **Revogar derruba quem perdeu TODA autorização, não tudo o que pende** (D3, 2026-08-21). Um
+  descendente cujo concedente ainda tenha `view_share` vivo sobre o mesmo recurso, FORA do alcance
+  da poda, é RE-PENDURADO nele (`REVOKE_SUBTREE_PRESERVING_REACH`), e a rota devolve TRÊS listas:
+  `revoked`, `reparented`, `trimmed`. Só a primeira significa perda de acesso, e é só ela que o
+  aviso ao vivo e o broadcast usam. A semântica de queda tem UMA definição (`podarPorRaizes`) e
+  QUATRO chamadores: revogar, apagar grupo, tirar membro e DESATIVAR CONTA. O último é D8(b) — a
+  autoridade morre com quem a exercia —, e ele tem um irmão do lado do predicado
+  (`fn_principal_vivo(g.granted_by)` em `fn_granted_resource_ids`) que faz outra coisa: esconde na
+  hora, alcança a desativação de ORGANIZAÇÃO e é reversível, enquanto a poda é definitiva e é a
+  única que alcança descendente. Detalhe e as recusas conservadoras em
+  [`../docs/wiki/acesso-a-recurso-privado.md`](../docs/wiki/acesso-a-recurso-privado.md).
 - **Permissão por atlas tem CINCO níveis**: `read < comment < write < manage < owner`
   (`PERMISSION_LEVELS` em `middleware/permissions.js`; `owner` é sintetizado de `atlas.owner_id`, o
   CHECK da coluna é `read|comment|write|manage`). Sempre gate pela **hierarquia** ou por
   `requireAtlasPermission`. **Nunca** escreva uma lista fechada tipo
   `permission === 'write' || permission === 'owner'`: isso exclui o `manage` (co-Gestor), que está
   *acima* de `write`, e foi exatamente assim que a presença de seleção do co-Gestor foi silenciada.
+- **O share de atlas também tem DOIS alvos** desde 2026-08-21 (`atlas_shares.group_id`, mesmo
+  `num_nonnulls` de `resource_grants`), e uma pessoa pode alcançar o atlas pelos dois caminhos ao
+  mesmo tempo. **Resolver acesso é chamar `fn_user_atlas_shares`**, que devolve o MÁXIMO entre o
+  share direto e os dos grupos vivos: escrever `FROM atlas_shares WHERE user_id = $x` lê metade do
+  eixo, compila, devolve linhas e parece certo. O censo estrutural
+  `tests/unit/atlas-shares-eixo-de-grupo-censo.test.js` reprova o leitor novo que resolver à mão.
+  **Conceder** a um grupo exige **grupo próprio** (`assertCanAdministerGroup`, erro 404) — o `POST`
+  sempre, o `PUT` só quando SOBE o nível; tirar (o `DELETE` e o `PUT` que rebaixa) não exige nada
+  além de `manage` no atlas, porque tirar acesso nunca pode ser mais difícil que dar. E a lista de
+  quem tem acesso **nomeia o dono do grupo**: as duas mitigações são o que tira a amplificação de
+  autoridade da invisibilidade, porque um share coletivo chega a `manage`.
 - **Soft-delete sempre** (`deleted_at`, ou `is_active` p/ usuários; tombstone p/ fotos 360). **Nunca**
   faça hard-DELETE de entidade principal. `atlas.owner_id`/`images.uploaded_by`/`atlas_shares.added_by`
   são FK **sem `ON DELETE`** → reatribua (`?transferTo`) antes de qualquer hard-delete de usuário.
@@ -146,14 +192,36 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   sem emissor lê como "isto é auditado" e não é**: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` viveram assim
   desde o primeiro dia. Quem cobra hoje é `tests/unit/auditoria-censo.test.js`, com piso decrescente de
   buracos conhecidos.
+
+  **Ela tem um eixo de ORGANIZAÇÃO desde 2026-08-21, e ele é GRAVADO, nunca resolvido na leitura.**
+  `target_org_id` é a OM dona do RECURSO ALVO **na época do ato** (não a OM do ator, não a lotação),
+  e todo emissor que tenha recurso em mãos precisa carimbá-la, um que esqueça produz linha que o
+  produtor daquela OM nunca vê, sem erro nenhum. Os dois argumentos que fecham a decisão: recurso que
+  TROCA de OM não pode ter a história passada reatribuída, e o hard-delete do 360 escreve a trilha
+  DEPOIS do DELETE, então na leitura não haveria mais de onde tirar a OM. NULL significa "alvo sem OM
+  dona" (USER, ATLAS, ORG, CONFIG) e também acervo INSTITUCIONAL, e o filtro por OM não alcança
+  nenhum dos dois, de propósito.
+
+  **`GET /api/v1/audit` deixou de ser só-admin**: `requireAuditReader` tem DOIS ramos (administrador,
+  irrestrito; produtor, recortado na própria OM) e o recorte é imposto em UMA linha de
+  `listAudit`, a query string do chamador nunca decide o escopo, e `targetOrgId` só ESTREITA, e só
+  para quem administra. A liveness dele espelha `fn_can_produce_resource` e tem TRÊS termos, não
+  dois: conta, OM de LOTAÇÃO e OM PRODUTORA, com o disjunto `role = 'admin'` no último (sem ele o
+  administrador, que não tem OM produtora, seria derrubado pelo próprio predicado). Com só os dois
+  primeiros, desativar a OM produtora fechava a escrita e deixava a leitura da trilha aberta. O credenciado leva 403: ler todo recurso privado não é ler o registro de atos
+  sobre contas, atlas e configuração, e escrever este gate com `fn_has_global_data_access` o
+  promoveria em silêncio.
 - **Contratos congelados do frontend**: mudar o *shape* exige teste de contrato e alinhamento:
   `GET /api/config` (config.js), `GET /nomes/busca` (array nu), metadado de foto `sv360` (câmera plana,
   `previewThumbnail` relativo), envelope de operação de sync, e o snapshot (estrutura idêntica ao IndexedDB).
 - **Identidade = JWT de emissor único**: `sub`, `role ∈ {user,producer,credenciado,admin}` (global),
-  `organization_id` (lotação, só exibição), `org_role ∈ {owner,editor,viewer,admin}`,
-  `producer_org_id` (escopo de produção, `null` = não produz) + aliases `org`/`login`. Tokens
-  legados degradam (`org_role→viewer`, `organization_id→null`, `producer_org_id→null`, que é o valor
-  certo: quem não tem a claim não produz). **Nenhum ramo de autorização deve LER
+  `organization_id` (lotação, só exibição), `producer_org_id` (escopo de produção, `null` = não
+  produz) + aliases `org`/`login`. Tokens legados degradam (`organization_id→null`,
+  `producer_org_id→null`, que é o valor certo: quem não tem a claim não produz). **Houve uma quarta
+  claim, `org_role`** (papel dentro da OM), removida em 2026-08-20 com a coluna: um token já assinado
+  continua chegando com ela e os dois mapeadores a IGNORAM, porque claim aposentada se ignora, nunca se
+  reage a ela, e a condição de reconciliação da sessão deslizante perdeu o disjunto dela pelo mesmo
+  motivo (com ele de pé, um legado que trouxesse só a claim morta promoveria a lotação do banco). **Nenhum ramo de autorização deve LER
   `producer_org_id` do token**: ele alimenta INSERT e pré-filtro, e a garantia fica no SQL.
   `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
   `x-api-key`, preserva anônimo); rotas de escrita usam o middleware `auth` **estrito** (401 sem token).
@@ -210,10 +278,12 @@ ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`
 commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
 da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
 Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. **A lista tem DUAS linhas hoje**, as duas do arquivo 009, que alarga os dois CHECK
-de `audit_trail` para o vocabulário do grupo de acesso: o esmagamento a deixou vazia e a primeira
-migração depois dele voltou a povoá-la, que é o comportamento esperado (num schema esmagado nada é
-criado para ser derrubado, mas todo CHECK alargado depois cai e volta). Ela só discrimina alguma
+como destrutivo. **A lista tem QUATRO linhas hoje**: duas do arquivo 009 (os dois CHECK de
+`audit_trail` alargados para o vocabulário do grupo de acesso) e duas da 011 (o `DROP COLUMN` de
+`org_role` e o CHECK de ação alargado de novo, para `PERMISSION_REPARENT`). O esmagamento a deixou
+vazia e cada migração depois dele voltou a povoá-la, que é o comportamento esperado (num schema
+esmagado nada é criado para ser derrubado, mas todo CHECK alargado depois cai e volta). Não conte
+por esta frase antes de acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu uma vez. Ela só discrimina alguma
 coisa por causa do teste de controle negativo que roda os mesmos padrões contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai
 daqui**: reescrever um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse
 caso o `UPDATE` defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.

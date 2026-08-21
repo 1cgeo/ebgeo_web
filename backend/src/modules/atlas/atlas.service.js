@@ -13,6 +13,10 @@ import logger from '../../utils/logger.js';
 import { getRoomUsers } from '../collab/collab.rooms.js';
 import * as Q from './atlas.queries.js';
 import { MAP_COLUMNS } from '../maps/maps.queries.js';
+// A PODA DE COPIA (clone e import). O predicado NAO e reimplementado aqui: quem decide e
+// `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
+import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
+import { classifyResourceRefs } from '../resource-access/resource-access.service.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -612,9 +616,13 @@ export async function getAtlasByPublicLink(publicLink) {
  * @param {Array<{sourceId: string, newId: string, legacyCatalogLayers: Array}>} mapPairs
  * @param {Object} [imageIdMap] - { sourceImageId: newImageId }; an image feature's id IS its
  *   blob ref, so a copied image feature adopts the copied blob's id (L32).
+ * @param {Object|null} [pruner] - A poda POR DESTINATARIO das referencias de recurso de
+ *   catalogo (`ResourcePruner`). NULO em `duplicateMap`, e o nulo e a decisao: duplicar um
+ *   mapa nao cruza fronteira nenhuma (mesmo atlas, mesmo dono, mesmo predicado a cada
+ *   leitura), entao podar ali tiraria do proprio usuario o acervo dele.
  * @returns {Promise<{layerIdMapping: Object, groupIdMapping: Object, featureIdMapping: Object}>}
  */
-async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
+async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}, pruner = null) {
   const layerIdMapping = {};
   const groupIdMapping = {};
   const featureIdMapping = {};
@@ -707,26 +715,30 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
     `SELECT * FROM cesium3d_data WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
     [sourceMapIds]
   );
-  await insertMany(t, CS.cesium3d, cesium3dData.map((c3d) => ({
-    id: crypto.randomUUID(),
-    map_id: newMapIdOf[c3d.map_id],
-    data_type: c3d.data_type,
-    tileset_id: c3d.tileset_id,
-    data: JSON.stringify(rewriteItemImages(c3d.data || {}, imageIdMap)),
-  })));
+  await insertMany(t, CS.cesium3d, cesium3dData
+    .filter((c3d) => !pruner || pruner.manterCesium3d(c3d))
+    .map((c3d) => ({
+      id: crypto.randomUUID(),
+      map_id: newMapIdOf[c3d.map_id],
+      data_type: c3d.data_type,
+      tileset_id: c3d.tileset_id,
+      data: JSON.stringify(rewriteItemImages(c3d.data || {}, imageIdMap)),
+    })));
 
   // StreetView 360 data (same `data.images[]` shape).
   const sv360Data = await t.any(
     `SELECT * FROM streetview360_data WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
     [sourceMapIds]
   );
-  await insertMany(t, CS.streetview360, sv360Data.map((sv) => ({
-    id: crypto.randomUUID(),
-    map_id: newMapIdOf[sv.map_id],
-    data_type: sv.data_type,
-    photo_name: sv.photo_name,
-    data: JSON.stringify(rewriteItemImages(sv.data || {}, imageIdMap)),
-  })));
+  await insertMany(t, CS.streetview360, sv360Data
+    .filter((sv) => !pruner || pruner.manterSv360(sv))
+    .map((sv) => ({
+      id: crypto.randomUUID(),
+      map_id: newMapIdOf[sv.map_id],
+      data_type: sv.data_type,
+      photo_name: sv.photo_name,
+      data: JSON.stringify(rewriteItemImages(sv.data || {}, imageIdMap)),
+    })));
 
   // Catalog layers: the dedicated table (canonical) UNION the legacy array column (L42).
   const catalogRows = await t.any(
@@ -734,7 +746,10 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
     [sourceMapIds]
   );
   const catalogBySourceMap = new Map(sourceMapIds.map((id) => [id, []]));
-  for (const row of catalogRows) catalogBySourceMap.get(row.map_id)?.push(row);
+  for (const row of catalogRows) {
+    if (pruner && !pruner.manterCatalogLayer(row)) continue;
+    catalogBySourceMap.get(row.map_id)?.push(row);
+  }
   await insertMany(
     t,
     CS.catalogLayers,
@@ -753,12 +768,12 @@ async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
  * snapshot, but the clone/duplicate column lists were never updated, so a cloned atlas silently
  * lost its grid and its timeline. The import path already carries them.
  */
-function mapRow(id, atlasId, name, map) {
+function mapRow(id, atlasId, name, map, pruner = null) {
   return {
     id,
     atlas_id: atlasId,
     name,
-    base_layer: map.base_layer,
+    base_layer: pruner ? pruner.baseLayer(map.base_layer) : map.base_layer,
     center_lat: map.center_lat,
     center_long: map.center_long,
     zoom: map.zoom,
@@ -775,18 +790,40 @@ function mapRow(id, atlasId, name, map) {
 
 /**
  * Clones an atlas to a new owner.
+ *
+ * A COPIA E PODADA POR DESTINATARIO. O clone FICA no servidor, onde o predicado continua
+ * valendo a cada leitura, entao a pergunta e "o novo dono ve este recurso?" e quem a responde
+ * e o SQL. Uma unica classificacao, para o atlas inteiro, dentro da MESMA transacao das
+ * escritas: classificar fora e escrever dentro deixaria uma janela em que uma revogacao
+ * concorrente produziria uma copia com o recurso que ela acabou de tirar.
+ *
+ * O ATLAS EM FOCO DA CLASSIFICACAO E NULO, nao o de origem, e isso e decisao de projeto: o
+ * clone nao copia `atlas_resources`, entao o que a ORIGEM emprestava nao viaja. Classificar
+ * com o atlas de origem faria a copia nascer enxergando o emprestado e deixar de enxergar
+ * depois, sem ninguem ter revogado nada.
+ *
+ * @returns {Promise<Object>} O atlas criado, com `pruneReport` (contagem POR SUPERFICIE, nunca
+ *   ids nem nomes) quando alguma referencia caiu.
  */
 export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
   // The atlas id is minted here (not read back) so the copied `images` rows — and the
   // rewritten references to them in atlas.settings — can be built before the first write.
   const newAtlasId = crypto.randomUUID();
   const copyJobs = [];
+  let pruner = null;
 
   await tx(async (t) => {
     const source = await t.oneOrNone(Q.FIND_ATLAS_BY_ID, [atlasId]);
     if (!source) {
       throw new NotFoundError('Atlas');
     }
+
+    // As referencias do atlas INTEIRO numa consulta, classificadas numa segunda: duas
+    // instrucoes constantes, nunca uma por linha (`atlas-clone-import-n1.repro.test.js`).
+    const refRows = await t.any(Q.COLLECT_ATLAS_RESOURCE_REFS, [atlasId]);
+    pruner = new ResourcePruner(await classifyResourceRefs({
+      userId: newOwnerId, refs: refsFromCollectedRows(refRows), t,
+    }));
 
     // Images are atlas-scoped and their ids are global: the clone needs its own rows (L32).
     const sourceImages = await t.any(`SELECT * FROM images WHERE atlas_id = $1`, [atlasId]);
@@ -800,8 +837,13 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
         options.name || withCopySuffix(source.name),
         source.description,
         newOwnerId,
-        // The custom-icon registry lives in settings and points at image ids.
-        JSON.stringify(rewriteSettingsIcons(source.settings, imageIdMap)),
+        // DUAS reescritas sobre o mesmo documento, e a ordem entre elas nao importa
+        // (uma toca `customIcons`, a outra toca as seis listas de catalogo). O que importa
+        // e que a SEGUNDA exista: `settings` carrega `basemaps`, `default_basemap` e os
+        // quatro `available_*`, todos ids de recurso de catalogo, e ate esta onda eles
+        // viajavam verbatim para um destinatario sem concessao nenhuma — no mesmo objeto
+        // em que `pruneReport` dizia que nada tinha sido podado.
+        JSON.stringify(pruner.settings(rewriteSettingsIcons(source.settings, imageIdMap))),
       ]
     );
     // After the atlas row: images.atlas_id is an FK.
@@ -818,8 +860,9 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
     }));
     const mapIdMapping = Object.fromEntries(mapPairs.map((p) => [p.sourceId, p.newId]));
 
-    await insertMany(t, CS.maps, mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source)));
-    await cloneMapSubEntities(t, mapPairs, imageIdMap);
+    await insertMany(t, CS.maps,
+      mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source, pruner)));
+    await cloneMapSubEntities(t, mapPairs, imageIdMap, pruner);
 
     await t.none(
       `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
@@ -845,10 +888,8 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       briefing_id: briefingIdMapping[slide.briefing_id],
       title: slide.title,
       content: slide.content,
-      mode: slide.mode,
       map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
-      model_id: slide.model_id,
-      photo_id: slide.photo_id,
+      ...pruner.slide(slide),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
       // Not a column: the ColumnSet only reads the columns it declares. Kept on the row so
@@ -870,7 +911,8 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
   await runImageCopyJobs(copyJobs);
 
   // Return cloned atlas with maps (outside transaction)
-  return getAtlasById(newAtlasId);
+  const clonado = await getAtlasById(newAtlasId);
+  return pruner && !pruner.vazio ? { ...clonado, pruneReport: pruner.report } : clonado;
 }
 
 /**
@@ -1004,10 +1046,21 @@ export async function transferOwnership(atlasId, currentOwnerId, newOwnerId, req
 
     // The new owner must be an ACTIVE user AND a current member of the atlas — never hand
     // ownership to a deactivated account (which could no longer delete/transfer it, orphaning it).
+    //
+    // A POSSE EXIGE SHARE DIRETO, e o `s.user_id IS NOT NULL` diz isso em voz alta desde que
+    // `atlas_shares` ganhou o alvo de GRUPO (011_grupo_com_dono_e_producao.sql). Hoje o `JOIN
+    // users u ON u.id = s.user_id` já descartaria a linha coletiva por acidente; a linha
+    // explícita existe para que um futuro `LEFT JOIN` não abra o caso calado. A regra: posse é
+    // nominal por construção (`atlas.owner_id` é uma coluna, não um coletivo), e transferi-la a
+    // quem só alcança o atlas por grupo trocaria uma autoridade revogável por uma irrevogável.
+    //
+    // Consequência que vale saber antes de "corrigir" a mensagem de erro: para quem entra só por
+    // grupo, "precisa ser um membro ativo do atlas" soa errado, porque ele É membro. Se isso
+    // incomodar, o conserto é a frase, não a regra.
     const member = await t.oneOrNone(
       `SELECT s.user_id FROM atlas_shares s
        JOIN users u ON u.id = s.user_id
-       WHERE s.atlas_id = $1 AND s.user_id = $2 AND u.is_active = true`,
+       WHERE s.atlas_id = $1 AND s.user_id = $2 AND s.user_id IS NOT NULL AND u.is_active = true`,
       [atlasId, newOwnerId]
     );
     if (!member) {
@@ -1076,6 +1129,16 @@ export async function importAtlas(userId, data) {
   const { atlas, maps, briefings } = data;
 
   return tx(async (t) => {
+    // 0. A PODA DA ENTRADA. Com a poda na saida o `.ebgeo` que ESTE app produz ja vem limpo,
+    // mas `.ebgeo` e ARQUIVO: circula por e-mail, pode vir de uma versao anterior e pode ter
+    // sido escrito a mao. Esta rota grava `tileset_id`, `photo_name` e as duas referencias de
+    // slide VERBATIM e deliberadamente nao tem gate de atlas (ela CRIA um), e o que ela grava
+    // volta a sair no snapshot, servido a `read` — nivel que um visitante de link publico
+    // segura. Nao e 4xx: recusar o arquivo inteiro por uma referencia morta tornaria todo
+    // `.ebgeo` antigo inimportavel, e a poda ja produz um resultado correto.
+    const pruner = new ResourcePruner(await classifyResourceRefs({
+      userId, refs: refsFromImportPayload(data), t,
+    }));
     // 1. Create atlas.
     //
     // `settings` is MERGED over the column DEFAULT (`settings || $4::jsonb`), not
@@ -1095,9 +1158,13 @@ export async function importAtlas(userId, data) {
       [atlas.name, atlas.description || null, userId]
     );
     if (atlas.settings) {
+      // O payload e ARQUIVO: as seis listas de catalogo de `settings` entram pela mesma
+      // poda das outras superficies. Sem isto, um `.ebgeo` escrito a mao replantaria a
+      // identidade de recurso privado num atlas novo, servida depois por
+      // `GET /atlas/:id/settings` a qualquer um com `read`.
       Object.assign(newAtlas, await t.one(
         `UPDATE atlas SET settings = settings || $2::jsonb WHERE id = $1 RETURNING *`,
-        [newAtlas.id, JSON.stringify(atlas.settings)]
+        [newAtlas.id, JSON.stringify(pruner.settings(atlas.settings))]
       ));
     }
 
@@ -1140,7 +1207,7 @@ export async function importAtlas(userId, data) {
       id: map.id,
       atlas_id: atlasId,
       name: map.name,
-      base_layer: map.base_layer || 'carta-topografica',
+      base_layer: pruner.baseLayer(map.base_layer),
       center_lat: map.center_lat,
       center_long: map.center_long,
       zoom: map.zoom,
@@ -1204,23 +1271,27 @@ export async function importAtlas(userId, data) {
     );
 
     // 2.5 Cesium 3D data
-    const cesium3dRows = mapList.flatMap((map) => (map.cesium3dData || []).map((cesium3d) => ({
-      id: cesium3d.id,
-      map_id: map.id,
-      data_type: cesium3d.data_type,
-      tileset_id: cesium3d.tileset_id || null,
-      data: JSON.stringify(cesium3d.data || {}),
-    })));
+    const cesium3dRows = mapList.flatMap((map) => (map.cesium3dData || [])
+      .filter((cesium3d) => pruner.manterCesium3d(cesium3d))
+      .map((cesium3d) => ({
+        id: cesium3d.id,
+        map_id: map.id,
+        data_type: cesium3d.data_type,
+        tileset_id: cesium3d.tileset_id || null,
+        data: JSON.stringify(cesium3d.data || {}),
+      })));
     await insertMany(t, CS.cesium3d, cesium3dRows);
 
     // 2.6 StreetView 360 data
-    const sv360Rows = mapList.flatMap((map) => (map.streetview360Data || []).map((sv360) => ({
-      id: sv360.id,
-      map_id: map.id,
-      data_type: sv360.data_type,
-      photo_name: sv360.photo_name || null,
-      data: JSON.stringify(sv360.data || {}),
-    })));
+    const sv360Rows = mapList.flatMap((map) => (map.streetview360Data || [])
+      .filter((sv360) => pruner.manterSv360(sv360))
+      .map((sv360) => ({
+        id: sv360.id,
+        map_id: map.id,
+        data_type: sv360.data_type,
+        photo_name: sv360.photo_name || null,
+        data: JSON.stringify(sv360.data || {}),
+      })));
     await insertMany(t, CS.streetview360, sv360Rows);
 
     // 2.7 Catalog layers. The payload carries them as an ARRAY under `map.catalog_layers` (a
@@ -1230,7 +1301,9 @@ export async function importAtlas(userId, data) {
     await insertMany(
       t,
       CS.catalogLayers,
-      mapList.flatMap((map) => catalogLayerRows(map.id, map.catalog_layers, []))
+      mapList.flatMap((map) => catalogLayerRows(
+        map.id, (map.catalog_layers || []).filter((c) => pruner.manterCatalogLayer(c)), []
+      ))
     );
 
     // 3. Update map_order
@@ -1253,10 +1326,8 @@ export async function importAtlas(userId, data) {
       briefing_id: briefing.id,
       title: slide.title || null,
       content: slide.content || null,
-      mode: slide.mode || '2d',
       map_id: importedMapIds.has(slide.map_id) ? slide.map_id : null,
-      model_id: slide.model_id || null,
-      photo_id: slide.photo_id || null,
+      ...pruner.slide(slide),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
     })));
@@ -1272,6 +1343,9 @@ export async function importAtlas(userId, data) {
       briefingsImported: briefingList.length,
       slidesImported: slideRows.length,
     };
+    // CONTAGEM POR SUPERFICIE, nunca ids nem nomes: o resumo volta ao cliente e vai para a
+    // trilha, e o nome de um recurso privado e metadado do recurso.
+    if (!pruner.vazio) summary.prunedResourceRefs = pruner.report;
 
     // 5. Return created atlas with summary
     const result = await t.one(

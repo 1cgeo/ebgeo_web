@@ -37,31 +37,31 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Seeds a fresh user + atlas + map inside the page and returns a handle stashed on
+ * Seeds a fresh atlas + map for a VERIFIED user and returns a handle stashed on
  * `window.__c3d` (so later `page.evaluate` calls can reuse the same ApiClient), plus
- * the ids the Node side needs. Runs entirely in the browser against the real backend.
+ * the ids the Node side needs. The ACCOUNT is created on the Node side by
+ * `createVerifiedUser` (confirming the e-mail needs Postgres); the page only logs in.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
  * @param {string} prefix - username prefix, for readable test isolation
  * @returns {Promise<{ atlasId: string, mapId: string }>}
  */
-function seed(page, baseUrl, prefix) {
+async function seed(page, baseUrl, prefix) {
+    const user = await createVerifiedUser({ prefix, nome: 'Cesium3D E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, prefix: pfx }) => {
+        async ({ baseUrl: url, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            const username = `${pfx}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Cesium3D E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cesium3D Atlas' });
             const mapId = crypto.randomUUID();
@@ -70,7 +70,7 @@ function seed(page, baseUrl, prefix) {
             window.__c3d = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, prefix },
+        { baseUrl, u: user },
     );
 }
 

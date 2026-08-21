@@ -437,7 +437,10 @@ describe('sessionUserInfoFromMe', () => {
     it('traduz o registro do backend para o argumento de setSession', () => {
         const info = sessionUserInfoFromMe({
             id: 'u9',
-            org_role: UserRole.EDITOR,
+            // O campo do eixo de OM viaja no registro de propósito (backend legado, token
+            // legado): o contrato de hoje é que ele seja IGNORADO, e um registro já sem ele
+            // mediria a ausência em vez da indiferença.
+            org_role: 'admin',
             role: GlobalRole.PRODUCER,
             producer_org_id: 'om-a',
             username: 'ana'
@@ -446,7 +449,7 @@ describe('sessionUserInfoFromMe', () => {
         // e que se perde em silêncio.
         expect(info).toEqual({
             userId: 'u9',
-            role: UserRole.EDITOR,
+            role: UserRole.VIEWER,
             globalRole: GlobalRole.PRODUCER,
             producerOrgId: 'om-a',
             username: 'ana'
@@ -467,11 +470,11 @@ describe('sessionUserInfoFromMe', () => {
         expect(Object.keys(sessionUserInfoFromMe({ id: 'u9', role: 'user' }))).toContain('producerOrgId');
 
         ctx.setSession(sessionUserInfoFromMe({
-            id: 'u9', org_role: UserRole.VIEWER, role: GlobalRole.PRODUCER, producer_org_id: 'om-a'
+            id: 'u9', role: GlobalRole.PRODUCER, producer_org_id: 'om-a'
         }));
         expect(ctx.isProducer()).toBe(true);
 
-        ctx.setSession(sessionUserInfoFromMe({ id: 'u9', org_role: UserRole.VIEWER, role: GlobalRole.USER }));
+        ctx.setSession(sessionUserInfoFromMe({ id: 'u9', role: GlobalRole.USER }));
         expect(ctx.isProducer()).toBe(false);
         expect(ctx.producerOrgId).toBeNull();
     });

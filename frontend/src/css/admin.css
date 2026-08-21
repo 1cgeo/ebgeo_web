@@ -1,8 +1,10 @@
 /* Path: src/css/admin.css */
 
 /*
- * Admin PAGE — the whole of `admin.html`, not an overlay over the map. Three audiences share it:
- * the global system admin (every tab), the credenciado (Grupos) and the producer (Catálogo).
+ * Admin PAGE — the whole of `admin.html`, not an overlay over the map. TRÊS audiências a
+ * dividem (a tabela é `js/admin/admin-audience.js`, e a quarta linha dela é a do anônimo, que
+ * por definição não abre a página): o administrador global (todas as abas), o produtor
+ * (Catálogo mais Grupos) e qualquer outra sessão autenticada (Grupos).
  * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
  * section header + cards (table / forms / grid).
  * BEM blocks:
@@ -710,10 +712,258 @@
     margin-bottom: var(--space-3);
 }
 
+/* ----- Segunda seção da aba: "Grupos de que participo" -----
+   Ela é LEITURA, e a forma diz isso: lista, não tabela, sem coluna de ações e sem contagem.
+   Uma tabela igual à de cima convidaria a procurar os botões que ela deliberadamente não tem. */
+.admin-groups__participating {
+    margin-top: var(--space-8);
+}
+
+.admin-groups__participating-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-groups__participating-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-6);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-groups__participating-item:last-child {
+    border-bottom: none;
+}
+
 /* Reaproveita a moldura de `.admin-transfer__option`, mas a linha inteira NÃO é clicável
    aqui (quem age é o botão à direita), então o cursor de mão sai: prometer clique onde não
    há clique é o mesmo defeito que um botão que não faz nada. */
 .admin-groups__candidate {
     justify-content: space-between;
     cursor: default;
+}
+
+/* ===== Aba Auditoria =====
+
+   A tela existe para NÃO ser um dump, e o CSS carrega metade dessa decisão: o dia é um
+   cabeçalho pegajoso (a lista rola muito, e sem ele o leitor perde a data três linhas
+   abaixo), a linha é uma grade de larguras fixas para hora e OM (senão cada linha alinha
+   diferente e a coluna some), e o `details` nasce escondido pelo atributo `hidden`.
+   A cor do chip vem da FAMÍLIA da ação (`audit-phrases.js`), nunca da ação: cinco cores se
+   distinguem, trinta e cinco não. */
+
+/* `overflow: clip` NÃO É COSMÉTICO E NÃO PODE VIRAR `hidden`: este elemento também é
+   `.admin-card`, que declara `overflow: hidden`, e `hidden` estabelece um SCROLL
+   CONTAINER. Com ele, o `position: sticky` do cabeçalho de dia passa a se posicionar
+   contra o cartão (altura automática, `scrollTop` sempre 0) em vez do
+   `.admin-panel__content`, que é quem rola de verdade: o cabeçalho nunca gruda e some
+   junto com as linhas. `clip` recorta igual, inclusive o `border-radius`, e não cria
+   scroll container. */
+.admin-audit {
+    display: block;
+    overflow: clip;
+}
+
+.admin-audit__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-6);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-audit__periodo {
+    display: flex;
+    gap: var(--space-1);
+}
+
+.admin-audit__filtro {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.admin-audit__filtro-rotulo {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+}
+
+.admin-audit__select,
+.admin-audit__input {
+    height: var(--touch-target-min);
+    padding: 0 var(--space-3);
+    box-sizing: border-box;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    background: #fff;
+}
+
+.admin-audit__select:focus,
+.admin-audit__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-100);
+    outline: none;
+}
+
+/* A ressalva do backfill ocupa a linha inteira da barra: ela qualifica o que a lista
+   SIGNIFICA, e uma ressalva espremida ao lado de um filtro não se lê. */
+.admin-audit__nota {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.admin-audit__day-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0;
+    padding: var(--space-2) var(--space-6);
+    background: var(--gray-100);
+    border-bottom: var(--border-width) solid var(--border-color);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-600);
+}
+
+.admin-audit__row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-audit__row:last-child {
+    border-bottom: none;
+}
+
+/* Largura FIXA e tabular: a hora é a primeira coluna de toda linha, e sem largura fixa
+   ela empurra o resto da linha para a direita a cada minuto de dois dígitos. */
+.admin-audit__time {
+    flex: 0 0 3.5rem;
+    padding-top: 2px;
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-500);
+}
+
+.admin-audit__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-audit__frase {
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    overflow-wrap: anywhere;
+}
+
+.admin-audit__om {
+    flex: 0 0 6rem;
+    text-align: right;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.admin-audit__chip {
+    white-space: nowrap;
+}
+
+/* As CINCO famílias. Elas não são uma escala: nada de degradê entre elas, pelo mesmo
+   motivo que os quatro papéis globais não se ordenam por cor. */
+.admin-audit__chip--acesso {
+    background: var(--primary-100);
+    color: var(--primary-700);
+}
+
+.admin-audit__chip--identidade {
+    background: rgb(139 92 246 / 15%);
+    color: #6d28d9;
+}
+
+.admin-audit__chip--acervo {
+    background: rgb(16 185 129 / 15%);
+    color: #047857;
+}
+
+.admin-audit__chip--atlas {
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
+.admin-audit__chip--sistema {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+/* A gaveta ocupa a linha inteira abaixo da frase (o corpo é `flex-wrap`), e `hidden`
+   precisa vencer o `display` do bloco, senão o atributo perde o significado — o mesmo
+   conserto que `.admin-form__field[hidden]` já carrega. */
+.admin-audit__details {
+    flex-basis: 100%;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.admin-audit__details[hidden] {
+    display: none;
+}
+
+.admin-audit__details-list {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    font-size: var(--font-size-xs);
+}
+
+.admin-audit__details-list dt {
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+}
+
+.admin-audit__details-list dd {
+    margin: 0;
+    color: var(--gray-800);
+    overflow-wrap: anywhere;
+}
+
+/* O DE-PARA vem primeiro na gaveta e é o que a pessoa lê; o resto do `details` (chaves
+   técnicas como `table` e `resurrected`) fica abaixo, com o peso visual de sempre. */
+.admin-audit__details-campo {
+    color: var(--gray-700);
+}
+
+.admin-audit__details-depara {
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-audit__pager {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.admin-audit__pager-resumo {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
 }

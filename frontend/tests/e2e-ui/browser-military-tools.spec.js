@@ -35,6 +35,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -103,17 +104,15 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
     test('each military toolbar feature is filed into its OWN bucket with source + key props preserved', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'mil', nome: 'Military Tools' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, cases }) => {
+        const result = await page.evaluate(async ({ baseUrl, cases, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `mil_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Military Tools' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Military Tools Atlas' });
             const mapId = crypto.randomUUID();
@@ -152,7 +151,7 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
                 features: map?.features ?? null,
                 seeded,
             };
-        }, { baseUrl: state.baseUrl, cases: CASES });
+        }, { baseUrl: state.baseUrl, cases: CASES, u: user });
 
         // Transport sanity (grounded, not vacuous): authenticated, atomic batch acked,
         // and a real snapshot came back with a feature map.
@@ -228,17 +227,15 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
      * the backend test cited above.
      */
     test('edge: an unsupported military source is refused per-op and never persists', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'milx', nome: 'Military Tools Edge' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `milx_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Military Tools Edge' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Military Tools Edge Atlas' });
             const mapId = crypto.randomUUID();
@@ -274,7 +271,7 @@ describeOrSkip('Military symbology transport §8.2-7 (real Chromium + real backe
                 .some((f) => f.properties && f.properties.id === bogusId);
 
             return { threw, ack, leaked };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The transport completes: the batch is answered, not blown up.
         expect(result.threw).toBe(false);

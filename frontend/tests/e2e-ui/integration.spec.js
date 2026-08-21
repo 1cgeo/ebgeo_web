@@ -9,27 +9,30 @@
  * NOTE: this does not click the app UI (there is no login/open-project UI yet); it
  * proves the transport works in a browser context. Full click-through flows await
  * that UI.
+ *
+ * A CONTA, porém, não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado
+ * Node, porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o
+ * contexto do browser não alcança. O `page.evaluate` faz só o `login()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)', () => {
     test('HTTP round-trip: register → login → push feature → read back via snapshot', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'ui', nome: 'UI E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `ui_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'UI E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'UI Atlas' });
             const mapId = crypto.randomUUID();
@@ -51,7 +54,7 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
                 isSnapshot: pulled.isSnapshot,
                 found: points.some((p) => p.properties.id === featureId),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.hasToken).toBe(true);
         expect(result.isSnapshot).toBe(true);
@@ -59,19 +62,17 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
     });
 
     test('WebSocket: a feature pushed over HTTP arrives on a real browser WebSocket', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'uiws', nome: 'UI WS' });
         await page.goto('/');
 
-        const received = await page.evaluate(async (baseUrl) => {
+        const received = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { WsClient } = await import('/src/js/store/sync/ws-client.js');
             const { ConnectionState } = await import('/src/js/store/sync/connection-state.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `uiws_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'UI WS' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'UI WS Atlas' });
             const mapId = crypto.randomUUID();
@@ -102,7 +103,7 @@ describeOrSkip('Browser ↔ backend integration (real Chromium + real backend)',
             }
             ws.disconnect();
             return { sawFeature: gotOps.some((o) => o.entityId === featureId), total: gotOps.length };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(received.sawFeature).toBe(true);
     });

@@ -25,7 +25,7 @@
 //   `'admin'`, mais toda linha com `role IN (`, precisa aparecer no censo abaixo.
 //   Sítio novo não classificado reprova.
 //
-//   O CENSO. Uma entrada por sítio, com motivo escrito, em exatamente uma de QUATRO
+//   O CENSO. Uma entrada por sítio, com motivo escrito, em exatamente uma de TRÊS
 //   classes:
 //     - PODER: gate de ADMINISTRAÇÃO DO SISTEMA. Nem o credenciado nem o produtor
 //       entram. Acrescentar qualquer um deles aqui é a regressão que este arquivo
@@ -35,9 +35,14 @@
 //     - PRODUCAO: gate de MANUTENÇÃO DE ACERVO, por OM. Quem passa é o administrador
 //       ou o PRODUTOR daquela OM (`users.producer_org_id`). O credenciado NÃO entra:
 //       ele lê todo recurso privado e não escreve nada.
-//     - ORG: o eixo `org_role`, por ORGANIZAÇÃO. O valor `'admin'` ali é homônimo e
-//       sem parentesco com o papel global, e a classe existe para que ninguém
-//       "conserte" um eixo mexendo no outro.
+//   EXISTIU UMA QUARTA CLASSE, `ORG`, e ela morreu com o eixo que classificava: o papel
+//   por ORGANIZAÇÃO (`users.org_role`) saiu do código inteiro em 2026-08-20 (D7), então
+//   nenhuma linha de `src/` fala mais dele e a classe ficaria oferecida sem poder ser
+//   usada — convite para alguém classificar um sítio de papel GLOBAL como se fosse de
+//   outro eixo, que é o erro de leitura que este arquivo existe para impedir. A história
+//   fica aqui porque ela é a lição: o `'admin'` daquele eixo era HOMÔNIMO do papel global
+//   e sem parentesco com ele, e foi por essa homonímia que o cliente promovia a
+//   Administrador de atlas quem tinha o crachá de administrador de uma OM auto-declarada.
 //
 //   POR QUE A CLASSE `PRODUCAO` NASCEU SEPARADA, e não como mais uma entrada em
 //   PODER. Os quatro papéis NÃO são uma escada, e o produtor é o que mais convida ao
@@ -73,8 +78,6 @@ const PODER = 'poder-de-admin';
 const DADO = 'acesso-a-dado';
 /** Manutenção de ACERVO por OM: administrador ou produtor daquela OM. Credenciado não. */
 const PRODUCAO = 'escopo-de-producao';
-/** Eixo POR ORGANIZAÇÃO (`org_role`), que não é o papel global e não conhece credenciado. */
-const ORG = 'eixo-de-organizacao';
 
 // ============================================================================
 // O CENSO
@@ -166,6 +169,16 @@ const CENSO = [
   // escreve nada não tem o que fazer num gate de escrita. É uma cobrança a mais, não
   // a mesma com outro nome.
   {
+    arquivo: 'src/middleware/require-audit-reader.js',
+    trecho: "(u.role = 'admin')  AS administra", n: 1, classe: PRODUCAO,
+    motivo: 'O gate de LEITURA da trilha, que deixou de ser `requireAdmin` em 2026-08-21. Dois ramos e um recorte: o do administrador é IRRESTRITO (lê a trilha inteira), e o do produtor é RECORTADO na própria OM (`u.producer_org_id`), imposto no serviço e nunca lido da query. Ele NÃO promove: quem produz continua sem alcançar usuários, organizações e configuração. Classe PRODUCAO e não PODER exatamente por isso, e porque o arquivo cita `producer_org_id`, que a classe PODER proíbe. O credenciado não é ramo nenhum aqui: ler todo recurso privado não é ler a trilha do sistema.',
+  },
+  {
+    arquivo: 'src/middleware/require-audit-reader.js',
+    trecho: "AND (u.role = 'admin' OR COALESCE(po.is_active, false) = true)", n: 1, classe: PRODUCAO,
+    motivo: 'O DISJUNTO DE LIVENESS, e ele entra separado do `SELECT` acima porque compara papel por outra razão: não decide RAMO, decide se a linha existe. O termo cobra a OM PRODUTORA ativa (espelhando `fn_can_produce_resource`, que ganhou essa checagem em 2026-08-21), e o `u.role = admin` está aí para NÃO derrubar quem administra — administrador não tem `producer_org_id`, então `COALESCE(po.is_active, false)` sozinho o excluiria. É a mesma armadilha que a 011 nomeia ao pôr a checagem depois do early return de papel dentro da função SQL. Continua sem promover ninguém: o disjunto só isenta, nunca concede.',
+  },
+  {
     arquivo: 'src/modules/streetview360/sv360.routes.js',
     trecho: "(u.role === 'admin' || Boolean(u.producer_org_id))", n: 1, classe: PRODUCAO,
     motivo: 'Pré-filtro de ESCRITA do 360 (ingestão), que recusa antes do multer streamar até 2 GiB. A lista fechada de `org_role` que morava aqui saiu: ela deixava passar qualquer conta que se dissesse editora de qualquer OM, porque a lotação é auto-declarada. Repare que o segundo termo pergunta por ESCOPO (`Boolean(u.producer_org_id)`), não pelo nome do papel: o crachá é o escopo, e ele só um administrador concede.',
@@ -184,24 +197,6 @@ const CENSO = [
     arquivo: 'src/modules/streetview360/sv360.write.service.js',
     trecho: "if (user.role === 'admin') return true", n: 1, classe: PRODUCAO,
     motivo: 'canWriteProject: escrita de projeto 360. O segundo braço compara `user.producer_org_id` com a OM do projeto, e o eixo `organization_id` + `org_role` que morava ali SAIU inteiro nesta fase — ele autorizava por lotação auto-declarada. Credenciado não escreve.',
-  },
-
-  // -------- ORG: eixo por organização. Não é papel global; credenciado não aparece. --
-  //
-  // Estes três entram no censo porque a varredura os alcança (a linha cita
-  // `org_role` e `'admin'`), e ficam classificados à parte de propósito: `admin`
-  // aqui é o papel DENTRO da OM, um valor de `users.org_role`, homônimo e sem
-  // parentesco com o papel global. Confundir os dois eixos é a forma mais provável
-  // de alguém "consertar" um deles quebrando o outro.
-  // A SEGUNDA METADE DE `canWriteProject` SAIU, e a entrada dela com ela: o eixo
-  // `organization_id` + `org_role` deixou de autorizar escrita de 360. Quem decide
-  // agora é `producer_org_id`, que não é homônimo de nada e por isso não aparece
-  // nesta classe. A classe fica de pé pela borda de escrita do org_role abaixo, que
-  // continua existindo como dado de exibição.
-  {
-    arquivo: 'src/modules/users/users.schemas.js',
-    trecho: 'org_role: Joi.string().valid(', n: 2, classe: ORG,
-    motivo: 'A borda de escrita do papel DE ORGANIZAÇÃO (criar e editar usuário). Credenciado é papel global e não tem nada a fazer nesta lista; acrescentá-lo aqui seria o erro de eixo que esta classe existe para tornar visível.',
   },
 
   // ---------------- DADO: acesso a dado. Credenciado entra. -----------------------
@@ -281,8 +276,10 @@ function sitios(arquivos) {
       // desta fase (injetar `globalRole === 'curator'` em `roles.js`) passou VERDE
       // com a versão anterior desta linha: a varredura tinha um buraco exatamente
       // na função que decide se alguém é 'admin' para o cliente. O preço de
-      // afrouxar é varrer também o eixo `org_role`, que é por organização e não
-      // global — daí a terceira classe.
+      // afrouxar era varrer também o eixo `org_role`, por organização e não global,
+      // que exigia uma classe só para ele. Aquele eixo saiu do código em 2026-08-20
+      // (D7) e a classe foi com ele; a varredura continua larga porque a razão dela
+      // (`globalRole`) não mudou.
       const falaDePapel = /role/i.test(linha) && /'admin'|"admin"/.test(linha);
       const listaSql = /\brole\s+IN\s*\(/i.test(linha);
       if (falaDePapel || listaSql) achados.push({ arquivo, n: i + 1, texto: linha.trim() });
@@ -394,7 +391,10 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     // `sv360.service.js` mais duas irmãs — porque o predicado de leitura do 360
     // deixou de receber um booleano do JS e passou a resolver o papel no banco.
     // Um piso que não acompanha a redução vira uma reprovação que não é regressão.
-    assert.ok(achados.length >= 20, `esperava >= 20 sítios, achei ${achados.length}`);
+    // Caiu de 20 para 18 em 2026-08-20 (D7): as duas linhas de `org_role` da borda de
+    // escrita de usuário saíram com o eixo. O piso é sempre a contagem MEDIDA depois da
+    // remoção, não uma folga — folga aqui é justamente onde um sítio some sem ninguém ver.
+    assert.ok(achados.length >= 18, `esperava >= 18 sítios, achei ${achados.length}`);
 
     assert.deepEqual(
       naoClassificados(achados), [],
@@ -402,13 +402,13 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
       + `'${PODER}' (gate de administração — nem credenciado nem produtor entram), `
       + `'${DADO}' (acesso a dado — credenciado entra), `
       + `'${PRODUCAO}' (manutenção de acervo por OM — admin ou produtor daquela OM) `
-      + `ou '${ORG}' (eixo por organização, homônimo e sem parentesco), com motivo escrito.`
+      + 'com motivo escrito.'
     );
   });
 
   it('a contagem por entrada bate: apagar uma cópia é tão vermelho quanto acrescentar', () => {
     const achados = sitios(arquivosDoInventario());
-    assert.ok(achados.length >= 20);
+    assert.ok(achados.length >= 18);
 
     const divergentes = CENSO
       .map((e) => {
@@ -426,9 +426,10 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
     // booleano de leitura do 360 e a irmã dela na escrita). Os pisos deste arquivo
     // são guardas de "a varredura rodou", não metas — quando o código encolhe de
     // propósito, quem não acompanha é o piso.
+    // 16 -> 15 em 2026-08-20 (D7): a entrada única da classe ORG saiu com o eixo.
     assert.ok(CENSO.length >= 15, `esperava >= 15 entradas no censo, achei ${CENSO.length}`);
     const ruins = CENSO
-      .filter((e) => ![PODER, DADO, PRODUCAO, ORG].includes(e.classe) || !e.motivo || e.motivo.length < 40)
+      .filter((e) => ![PODER, DADO, PRODUCAO].includes(e.classe) || !e.motivo || e.motivo.length < 40)
       .map((e) => `${e.arquivo} :: ${e.trecho}`);
     assert.deepEqual(ruins, [], 'entrada de censo sem classe válida ou sem motivo escrito');
   });

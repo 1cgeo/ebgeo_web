@@ -20,7 +20,7 @@ describe('Identity: JWT org claims & API keys', () => {
     app = env.app;
     db = env.db;
     user = await createUser(db, { username: 'identity_user' });
-    await db.query(`UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`, [DEFAULT_ORG, user.id]);
+    await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, user.id]);
     token = await loginUser(app, user.username, user.password);
   });
 
@@ -28,10 +28,33 @@ describe('Identity: JWT org claims & API keys', () => {
     await teardownTestEnv(db);
   });
 
-  it('emits organization_id and org_role in the access token', () => {
+  it('emits organization_id in the access token, e NENHUMA claim de papel dentro da OM', () => {
     const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     assert.equal(payload.organization_id, DEFAULT_ORG);
-    assert.equal(payload.org_role, 'editor');
+    // A ausência é asserida, não presumida: `org_role` foi emitida até 2026-08-20 (D7) e
+    // o cliente a lia como papel POR ATLAS. Enquanto o emissor a mandasse, apagar o
+    // leitor não fecharia nada — bastaria alguém escrever um leitor novo. O par
+    // (organization_id presente, org_role ausente) é o que separa "a claim sumiu" de
+    // "o token inteiro parou de carregar organização", que passaria verde se este caso
+    // só olhasse para a ausência.
+    assert.equal(payload.org_role, undefined, 'o eixo de papel dentro da OM não é mais emitido');
+  });
+
+  it('a coluna do eixo de papel dentro da OM não existe mais no schema', async () => {
+    // A prova de que a remoção é de VERDADE, e não só do emissor: enquanto a coluna
+    // existisse, uma consulta nova a selecionaria por analogia e o eixo voltaria pela
+    // porta de trás. Ela sai em `011_grupo_com_dono_e_producao.sql` (D7), com entrada na
+    // lista de DDL destrutiva deliberada.
+    const { rows } = await db.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users'`
+    );
+    const colunas = rows.map((r) => r.column_name);
+    // CONTROLE DE VÁCUO: a consulta enxerga a tabela. Sem estas duas linhas, um nome de
+    // tabela errado devolveria zero colunas e o `not.includes` passaria provando nada.
+    assert.ok(colunas.includes('organization_id'), 'a lotação continua de pé');
+    assert.ok(colunas.includes('producer_org_id'), 'e o escopo de produção, que é quem autoriza');
+    assert.ok(!colunas.includes('org_role'), 'o eixo de papel dentro da OM saiu do banco');
   });
 
   it('accepts legacy tokens without the org claim (falls back)', async () => {

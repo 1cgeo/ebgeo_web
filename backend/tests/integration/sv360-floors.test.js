@@ -209,7 +209,7 @@ describe('StreetView 360 — andares (floors)', () => {
       [adminId, `sv360_admin_${adminId.slice(0, 8)}`, defaultOrgId]
     );
     adminToken = jwt.sign(
-      { sub: adminId, role: 'admin', organization_id: defaultOrgId, org_role: 'admin' },
+      { sub: adminId, role: 'admin', organization_id: defaultOrgId },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );

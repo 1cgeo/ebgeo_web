@@ -944,3 +944,66 @@ export async function duplicateLocalAtlas(sourceId, name) {
         throw error;
     }
 }
+
+/**
+ * Guarda uma cópia LOCAL do atlas de servidor que esta aba tem montado, sem os recursos
+ * de catálogo restritos.
+ *
+ * ISTO É SAIR DO SERVIDOR, e por isso a poda é a mesma do `.ebgeo` e não a do clone: o
+ * arquivo — aqui, os bancos no disco desta máquina — passa a viver fora do alcance do
+ * predicado, e não há segundo ponto de imposição. A regra é KEEP-LIST e vale
+ * incondicionalmente, para o dono do atlas inclusive; quem executa é o podador puro, e
+ * quem responde "é público?" é o resolver que o CHAMADOR constrói e passa aqui.
+ *
+ * O RESOLVER ENTRA POR ARGUMENTO de propósito: este módulo é persistência e escolha de
+ * escopo, e importar `config` ou `@catalog` daqui puxaria o catálogo para dentro do store.
+ *
+ * A FORMA É A DE `duplicateLocalAtlas`, passo a passo, e as razões são as mesmas: criar
+ * primeiro (é o único passo refusável, e uma recusa ali não tocou byte nenhum), copiar
+ * banco a banco (nada é montado, e a aba continua onde está), reescrever a identidade no
+ * registro do destino (senão a cópia se apresenta como o original), e apagar o slot se
+ * qualquer passo depois da criação falhar.
+ *
+ * A PODA VEM DEPOIS DA CÓPIA, e a janela em que o id privado existe em disco no slot novo
+ * é aceita: mesma máquina, mesmo usuário, mesmo navegador. O que NÃO é aceitável é a poda
+ * falhar e o slot ficar de pé — por isso ela está dentro do mesmo `try`, e uma falha nela
+ * apaga o slot como qualquer outra.
+ *
+ * @param {string} name - Nome do atlas local novo.
+ * @param {Function} resolver - `(grupo, id) => RefVerdict`, de `construirResolverDeSaida`.
+ * @returns {Promise<LocalAtlasResult & {relatorio?: Object}>} O slot criado mais o
+ *   relatório de perdas, ou a recusa nomeada (teto de slots).
+ */
+export async function saveActiveRemoteAtlasAsLocal(name, resolver) {
+    const origem = getActiveScope();
+    if (origem?.kind !== StoreScopeKind.REMOTE) {
+        throw new Error('saveActiveRemoteAtlasAsLocal: só faz sentido com um atlas de servidor montado');
+    }
+    if (typeof resolver !== 'function') {
+        throw new Error('saveActiveRemoteAtlasAsLocal: o resolver de poda é obrigatório');
+    }
+
+    const created = await createLocalAtlas(name);
+    if (!created.ok) return created;
+
+    const destino = scopeOfLocalAtlas(created.atlas);
+    try {
+        await copyAtlasDatabases(origem, destino);
+
+        const atlasStore = getStoreFor(StoreName.ATLAS, destino);
+        const registro = await atlasStore.getItem(ATLAS_RECORD_KEY);
+        await atlasStore.setItem(ATLAS_RECORD_KEY, {
+            ...(registro || createAtlas(created.atlas.name)),
+            id: created.atlas.id,
+            name: created.atlas.name,
+        });
+
+        const { podarEscopo } = await import('./private-reference-prune.scope.js');
+        const relatorio = await podarEscopo(destino, resolver);
+        return { ...created, relatorio };
+    } catch (error) {
+        console.error('[local-atlas] save-as-local failed, removing the half-written slot:', error);
+        await deleteLocalAtlas(created.atlas.id).catch(() => undefined);
+        throw error;
+    }
+}

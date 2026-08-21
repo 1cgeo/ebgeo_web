@@ -38,6 +38,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -47,16 +48,16 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
         page,
     }) => {
         await page.goto('/');
+        // A conta vem pronta do lado NODE: confirmar o e-mail exige ler
+        // `email_verification_tokens` no Postgres, que o contexto do browser não alcança.
+        const user = await createVerifiedUser({ prefix: 'analysis', nome: 'Analysis Tools User' });
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `analysis_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Analysis Tools User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Analysis Atlas' });
             const mapId = crypto.randomUUID();
@@ -169,7 +170,7 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
                 isolation,
                 edge: { bogusOutcome, bogusLanded },
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // ---- HAPPY PATH (§9.1 LoS + §9.2 Viewshed) ----
         expect(result.hasToken).toBe(true);

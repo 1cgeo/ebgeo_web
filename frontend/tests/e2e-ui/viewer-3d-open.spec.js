@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -51,21 +52,16 @@ const TILESET_ID = 'e2e-tileset-3d';
 /**
  * Registers one tileset in the catalog, as a global admin, over the real HTTP API.
  *
- * Admin is granted the same way `browser-admin-catalog.spec.js` does it: register through the
- * public route, then promote the row directly. There is no self-service path to `admin`, and
+ * Admin is granted the same way `browser-admin-users.spec.js` does it: the account is born on
+ * the NODE side through the public route with its e-mail confirmed (`helpers/accounts.js`),
+ * then the row is promoted directly in Postgres. There is no self-service path to `admin`, and
  * inventing one for a test would be inventing a product feature.
  * @param {import('@playwright/test').Page} page - Any page on the app origin.
  * @returns {Promise<void>}
  */
 async function registerTileset(page) {
     await page.goto('/');
-    const creds = await page.evaluate(async (url) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `t3dadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Tileset Admin' });
-        return { username, password: 'Sup3r-Secret-Pw!' };
-    }, state.baseUrl);
+    const creds = await createVerifiedUser({ prefix: 't3dadmin', nome: 'Tileset Admin' });
 
     await createDb(state.dbName).raw.none(
         "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);

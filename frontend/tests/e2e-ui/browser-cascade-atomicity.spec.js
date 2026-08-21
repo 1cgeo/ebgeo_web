@@ -20,6 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -112,17 +113,15 @@ describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)'
         // cross-atlas feature move (no UI gesture targets a foreign atlas), and the app
         // never exposes "this group of edits is one atomic batch" to the user. It stays a
         // transport probe driven via page.evaluate against the backend.
+        const user = await createVerifiedUser({ prefix: 'rollback', nome: 'Rollback User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `rollback_${crypto.randomUUID().replace(/-/g, '').slice(0, 11)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Rollback User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             // Atlas A (the target of our batch) and a SECOND atlas B owned by the same
             // user, whose map is the cross-atlas destination that must be rejected.
@@ -195,7 +194,7 @@ describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)'
                 idsInB,
                 idsAfterOk,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The batch was rejected by the backend (cross-atlas reference denied).
         expect(result.pushRejected).toBe(true);
@@ -215,17 +214,15 @@ describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)'
         // no-UI: the contract under test is that one push BATCH commits as a single server
         // transaction. "These N edits are one atomic batch" is not a user-visible gesture
         // (the app flushes ops on its own cadence), so it stays a transport probe.
+        const user = await createVerifiedUser({ prefix: 'batch3', nome: 'Batch3 User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `batch3_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Batch3 User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Batch3 Atlas' });
             const mapId = crypto.randomUUID();
@@ -251,7 +248,7 @@ describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)'
             const persisted = (map?.features?.points || []).map((p) => p.properties.id);
 
             return { ids, persisted };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // All three creates from the single valid batch are present in the snapshot.
         expect(result.persisted).toEqual(expect.arrayContaining(result.ids));

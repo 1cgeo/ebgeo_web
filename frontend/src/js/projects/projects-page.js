@@ -37,6 +37,8 @@ import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
+// Do ARQUIVO, folha e sem imports: a definição única das audiências de `admin.html`.
+import { adminAudience } from '@js/admin/admin-audience.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
@@ -566,17 +568,18 @@ function startPresenceRefresh(drive) {
 }
 
 /**
- * O rótulo da entrada para `admin.html`, que MUDA com o papel global porque o painel muda: o
- * administrador recebe todas as abas, o credenciado só Grupos e o produtor só Catálogo. Chamar
- * qualquer um dos dois últimos de "Administração" prometeria um painel que ele não recebe. A
- * ordem repete a de `mountAdminPage`, e repete por necessidade: `hasGlobalDataAccess()` também
- * é verdadeiro para o administrador, então só se pergunta depois de `isAdmin()`.
+ * O rótulo da entrada para `admin.html`, que MUDA com o papel global porque o painel muda.
+ * Quem decide é `adminAudience`, a MESMA função que a página consulta para montar as abas e que
+ * a barra do mapa consulta para desenhar o mesmo botão: enquanto a regra vivia copiada aqui, a
+ * entrada podia aparecer numa tela e faltar na outra.
  * @returns {string|null} O rótulo, ou null para quem não abre a página.
  */
 function adminEntryLabel() {
-    if (sessionContext.isAdmin()) return 'Administração';
-    if (sessionContext.hasGlobalDataAccess()) return 'Grupos';
-    return sessionContext.isProducer() ? 'Catálogo' : null;
+    return adminAudience({
+        isAuthenticated: sessionContext.isAuthenticated(),
+        isAdmin: sessionContext.isAdmin(),
+        isProducer: sessionContext.isProducer(),
+    }).label;
 }
 
 /** @returns {AppBarAction[]} The page actions: back to the local map, and the admin page for

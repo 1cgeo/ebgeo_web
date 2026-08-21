@@ -19,39 +19,43 @@
  *
  * Each test seeds its own user(s) + atlas + map for isolation. No app UI is
  * clicked (no data-testid needed): the specs drive the transport in `page.evaluate`.
+ *
+ * As contas, porém, nascem no NODE (`helpers/accounts.js`): o cadastro exige e-mail e o
+ * token que o confirma só existe como linha no Postgres, que o contexto do browser não
+ * alcança. Aqui dentro sobra o `login()`, que é o que estes specs exercitam.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-
-const PASSWORD = 'Sup3r-Secret-Pw!';
 
 describeOrSkip('Sharing + public link access control (real Chromium + real backend)', () => {
     test('owner shares WRITE to user2 → user2 writes; unrelated user denied; pre-share denied', async ({
         page,
     }) => {
+        const ownerCreds = await createVerifiedUser({ prefix: 'share', nome: 'Share Owner' });
+        const user2Creds = await createVerifiedUser({ prefix: 'share', nome: 'Share Target' });
+        const strangerCreds = await createVerifiedUser({ prefix: 'share', nome: 'Unrelated User' });
+
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, creds }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
-                const mkUser = () => `share_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
-                /** Registers + logs in a fresh user, returning a ready ApiClient and the user record. */
-                const newClient = async (nome) => {
+                /** Logs in an already-verified user, returning a ready ApiClient and the user record. */
+                const newClient = async (c) => {
                     const api = new ApiClient({ baseUrl: apiBase });
-                    const username = mkUser();
-                    // register() returns no account data on purpose (anti-enumeration:
-                    // same answer whether it created the account or found one), so the
-                    // user record comes from the login.
-                    await api.register({ username, password, nome });
-                    const user = await api.login(username, password);
+                    // login() is where the user record comes from: register() returns no account
+                    // data on purpose (anti-enumeration: same answer whether it created the
+                    // account or found one).
+                    const user = await api.login(c.username, c.password);
                     return { api, user };
                 };
 
@@ -73,7 +77,7 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                 };
 
                 // --- Seed owner + atlas + map. ---
-                const owner = await newClient('Share Owner');
+                const owner = await newClient(creds.owner);
                 const atlas = await owner.api.createAtlas({ name: 'Share Atlas' });
                 const mapId = crypto.randomUUID();
                 await owner.api.pushOperations(atlas.id, [
@@ -81,8 +85,8 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                 ]);
 
                 // --- Two more independent users. ---
-                const user2 = await newClient('Share Target');
-                const stranger = await newClient('Unrelated User');
+                const user2 = await newClient(creds.user2);
+                const stranger = await newClient(creds.stranger);
 
                 // (negative edge) user2 has NO share yet → push must be denied.
                 const beforeShare = await tryPushFeature(user2.api, atlas.id, mapId);
@@ -125,7 +129,10 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                     strangerFeatureAbsent,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            {
+                baseUrl: state.baseUrl,
+                creds: { owner: ownerCreds, user2: user2Creds, stranger: strangerCreds },
+            },
         );
 
         // Pre-share: user2 had no access → denied.
@@ -149,10 +156,12 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
     test('publish atlas → public token can PULL but not PUSH (read-only public access)', async ({
         page,
     }) => {
+        const ownerCreds = await createVerifiedUser({ prefix: 'pub', nome: 'Public Owner' });
+
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -160,9 +169,7 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
 
                 // --- Seed owner + atlas + map + one feature (so the public pull has content). ---
                 const owner = new ApiClient({ baseUrl: apiBase });
-                const username = `pub_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                await owner.register({ username, password, nome: 'Public Owner' });
-                await owner.login(username, password);
+                await owner.login(u.username, u.password);
 
                 const atlas = await owner.createAtlas({ name: 'Public Atlas' });
                 const mapId = crypto.randomUUID();
@@ -254,7 +261,7 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                     intruderAbsent,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            { baseUrl: state.baseUrl, u: ownerCreds },
         );
 
         // (negative edge) unknown public link → 404.

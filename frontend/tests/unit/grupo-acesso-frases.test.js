@@ -6,6 +6,9 @@ import {
     groupReach,
     groupDeletionWarning,
     groupDeletionSummary,
+    memberRemovalWarning,
+    memberRemovalSummary,
+    groupOwnerLabel,
     memberDisplayName,
 } from '../../src/js/admin/group-phrases.js';
 
@@ -75,6 +78,28 @@ describe('groupDeletionWarning — o aviso que precede o clique', () => {
         expect(frase).toContain('não se desfaz');
     });
 
+    it('o ramo alto GANHA a menção aos repasses derivados, que não têm número', () => {
+        // A cascata é a metade da consequência que a listagem não sabe contar: ela conhece as
+        // concessões DIRETAS, e apagar derruba também o que os membros repassaram a partir
+        // delas. Sem esta frase, o número anunciado seria menor que o efeito.
+        const frase = groupDeletionWarning({ name: 'G', member_count: 4, grant_count: 2 });
+        expect(frase).toContain('repasses');
+        // E não inventa uma contagem para a subárvore, que só o servidor conhece depois do ato.
+        expect(frase).not.toMatch(/\d+ repasses/);
+    });
+
+    it('DISCRIMINAÇÃO: os ramos sem concessão viva NÃO anunciam cascata', () => {
+        // Sem concessão ao grupo não existe repasse pendurado nele, e prometer uma queda
+        // impossível gasta a credibilidade da frase alta no caso em que ela é alta.
+        expect(groupDeletionWarning({ name: 'Vazio', member_count: 0, grant_count: 0 }))
+            .not.toContain('repasses');
+        expect(groupDeletionWarning({ name: 'A', member_count: 5, grant_count: 0 }))
+            .not.toContain('repasses');
+        // O ramo sem membros também não: quem repassa é membro.
+        expect(groupDeletionWarning({ name: 'B', member_count: 0, grant_count: 3 }))
+            .not.toContain('repasses');
+    });
+
     it('as contagens em string produzem a MESMA frase que as numéricas', () => {
         // O controle negativo do módulo inteiro: sem `toCount`, esta é a asserção que cai.
         expect(groupDeletionWarning({ name: 'G', member_count: '1', grant_count: '1' }))
@@ -134,5 +159,65 @@ describe('memberDisplayName — como a pessoa aparece', () => {
     it('sem nada devolve um rótulo, nunca vazio', () => {
         expect(memberDisplayName({})).toBe('Usuário');
         expect(memberDisplayName(null)).toBe('Usuário');
+    });
+});
+
+describe('memberRemovalWarning — o aviso antes de tirar alguém', () => {
+    it('nomeia o que ela perde E que os repasses dela por este grupo caem', () => {
+        const frase = memberRemovalWarning({ name: 'G', grant_count: 2 });
+        expect(frase).toContain('2 recursos');
+        expect(frase).toContain('repassou');
+    });
+
+    it('DISCRIMINAÇÃO: grupo sem concessão viva diz que nada muda, e não anuncia cascata', () => {
+        const frase = memberRemovalWarning({ name: 'G', grant_count: 0 });
+        expect(frase).toContain('nada muda');
+        expect(frase).not.toContain('repassou');
+    });
+
+    it('a contagem em string produz a MESMA frase que a numérica', () => {
+        expect(memberRemovalWarning({ grant_count: '1' })).toBe(memberRemovalWarning({ grant_count: 1 }));
+        expect(memberRemovalWarning({ grant_count: '1' })).toContain('1 recurso ');
+    });
+
+    it('grupo ausente não vira "undefined" nem promete cascata', () => {
+        expect(memberRemovalWarning(null)).toContain('nada muda');
+        expect(memberRemovalWarning(null)).not.toContain('undefined');
+    });
+});
+
+describe('memberRemovalSummary — o que o servidor disse que caiu ao tirar a pessoa', () => {
+    it('reporta o grantsAffected do servidor, inclusive em string', () => {
+        expect(memberRemovalSummary({ name: 'Cap Ana', grantsAffected: 3 }))
+            .toBe('Cap Ana saiu do grupo. Concessões revogadas: 3.');
+        expect(memberRemovalSummary({ name: 'Cap Ana', grantsAffected: '3' }))
+            .toBe('Cap Ana saiu do grupo. Concessões revogadas: 3.');
+    });
+
+    it('DISCRIMINAÇÃO: zero não anuncia revogação nenhuma (é o caso comum)', () => {
+        expect(memberRemovalSummary({ name: 'Cap Ana', grantsAffected: 0 })).toBe('Cap Ana saiu do grupo.');
+        expect(memberRemovalSummary({ name: 'Cap Ana' })).toBe('Cap Ana saiu do grupo.');
+    });
+});
+
+describe('groupOwnerLabel — a única pessoa nomeada na seção "grupos de que participo"', () => {
+    it('nome e usuário juntos quando há os dois', () => {
+        expect(groupOwnerLabel({ owner_id: 'u1', owner_nome: 'Ana Lima', owner_username: 'ana' }))
+            .toBe('Dono: Ana Lima (@ana)');
+    });
+
+    it('cai para o que existir, sem deixar parênteses vazios nem arroba solta', () => {
+        expect(groupOwnerLabel({ owner_id: 'u1', owner_nome: 'Ana Lima' })).toBe('Dono: Ana Lima');
+        expect(groupOwnerLabel({ owner_id: 'u1', owner_username: 'ana' })).toBe('Dono: @ana');
+        expect(groupOwnerLabel({ owner_id: 'u1', owner_nome: '   ', owner_username: 'ana' }))
+            .toBe('Dono: @ana');
+    });
+
+    it('grupo órfão diz que não tem dono, em vez de um travessão', () => {
+        // Estado real: o backfill adotou `created_by`, que pode ser nulo em linha antiga. Quem
+        // lê "sem dono definido" sabe que só o administrador do sistema administra aquele grupo.
+        expect(groupOwnerLabel({ owner_id: null })).toBe('Sem dono definido');
+        expect(groupOwnerLabel(null)).toBe('Sem dono definido');
+        expect(groupOwnerLabel({})).not.toContain('undefined');
     });
 });

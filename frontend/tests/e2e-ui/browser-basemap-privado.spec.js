@@ -23,6 +23,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -30,15 +31,16 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 /** A cor do estilo publicado — a marca que distingue o estilo do basemap novo de qualquer embutido. */
 const COR_ESTILO = '#c2185b';
 
-async function seedAdmin(page, baseUrl, dbName) {
+/**
+ * DUAS escritas de natureza diferente, e a distinção é o ponto. A conta nasce pela rota
+ * pública e tem o e-mail confirmado pela rota pública, no lado NODE (`helpers/accounts.js`),
+ * porque o token de confirmação só existe como linha no Postgres, fora do alcance do browser.
+ * A PROMOÇÃO é SQL porque não existe rota: criar um administrador exige um administrador, e
+ * esta camada parte de um banco vazio cuja única porta é `POST /auth/register`.
+ */
+async function seedAdmin(page, dbName) {
     await page.goto('/');
-    const creds = await page.evaluate(async (url) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `bmadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'BM Admin' });
-        return { username, password: 'Sup3r-Secret-Pw!' };
-    }, baseUrl);
+    const creds = await createVerifiedUser({ prefix: 'bmadmin', nome: 'BM Admin' });
     await createDb(dbName).raw.none(
         "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
     return creds;
@@ -91,7 +93,7 @@ describeOrSkip('Camada base privada (browser real + backend real)', () => {
     test.afterAll(async () => { await closeDb(); });
 
     test('o eixo de acesso do basemap aparece na Administração como o dos outros tipos', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page, state.dbName);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `bm_${Math.random().toString(36).slice(2, 8)}`;
@@ -108,7 +110,7 @@ describeOrSkip('Camada base privada (browser real + backend real)', () => {
     });
 
     test('a camada base privada chega ao seletor, desenha, e oferece "Compartilhar"', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page, state.dbName);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `bm_${Math.random().toString(36).slice(2, 8)}`;

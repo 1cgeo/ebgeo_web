@@ -44,7 +44,7 @@ function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.ra
   return jwt.sign(
     {
       sub, username: `tcache_${RID}_${sub.slice(0, 8)}`, role,
-      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+      organization_id: orgId, producer_org_id: producerOrgId,
     },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }

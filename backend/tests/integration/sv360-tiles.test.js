@@ -125,7 +125,7 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
       [adminId, `sv360_admin_${adminId.slice(0, 8)}`, defaultOrgId]
     );
     adminToken = jwt.sign(
-      { sub: adminId, role: 'admin', organization_id: defaultOrgId, org_role: 'admin' },
+      { sub: adminId, role: 'admin', organization_id: defaultOrgId },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );
@@ -137,7 +137,7 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
     otherOrgToken = jwt.sign(
       {
         sub: produtorSegunda.id, role: 'producer',
-        organization_id: secondOrgId, org_role: 'viewer', producer_org_id: secondOrgId,
+        organization_id: secondOrgId, producer_org_id: secondOrgId,
       },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
@@ -359,7 +359,7 @@ describe('StreetView 360 — cross-org thumbnail isolation (stage 3b)', () => {
     otherOrgToken = jwt.sign(
       {
         sub: produtorB.id, role: 'producer',
-        organization_id: orgBId, org_role: 'viewer', producer_org_id: orgBId,
+        organization_id: orgBId, producer_org_id: orgBId,
       },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }

@@ -23,7 +23,11 @@ export const PERMISSION_LEVELS = {
  * @param {Object} params
  * @param {string|null} params.userId - Current user ID (null for anonymous)
  * @param {string} params.ownerId - Atlas owner ID
- * @param {Object|null} params.share - User's share record { permission: 'read'|'comment'|'write'|'manage' }
+ * @param {Object|null} params.share - The STRONGEST share reaching this user, direct OR through a
+ *   live access group, as `fn_user_atlas_shares` resolved it: `{ permission }`. It is NOT "this
+ *   person's row in atlas_shares" any more (since 2026-08-21, when `atlas_shares` gained
+ *   `group_id`). Do not reintroduce a direct `SELECT ... FROM atlas_shares WHERE user_id = $2`
+ *   here: that reads one of the two arms and silently drops every group-granted level.
  * @param {boolean} params.isPublic - Whether atlas is public
  * @returns {string|null} Permission level: 'owner', 'manage', 'write', 'comment', 'read', or null
  */
@@ -127,12 +131,20 @@ export function requireAtlasPermission(requiredLevel) {
         return next();
       }
 
-      // Fetch user's share if they have one
-      // Skip share lookup for public tokens (non-UUID user IDs)
+      // O share MAIS FORTE que alcança esta pessoa: o direto e o dos grupos VIVOS de
+      // que ela participa, resolvidos pelo MÁXIMO dentro de `fn_user_atlas_shares`
+      // (011_grupo_com_dono_e_producao.sql). A aritmética da precedência mora lá, uma
+      // vez só, porque as três listagens de atlas e o gate do WebSocket precisam
+      // responder o mesmo — duas cópias de uma escada é o defeito que esta casa já
+      // pagou duas vezes.
+      //
+      // A guarda `UUID_RE` FICA: um visitante de link público carrega um id sintético,
+      // não tem linha em `users` e não pode estar em grupo nenhum, então a consulta só
+      // gastaria uma ida ao banco para devolver vazio — e o `::uuid` levantaria 22P02.
       let share = null;
       if (userId && UUID_RE.test(userId)) {
         const shareResult = await query(
-          `SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2`,
+          `SELECT permission FROM fn_user_atlas_shares($2::uuid, $1::uuid)`,
           [atlasId, userId]
         );
         if (shareResult.rows.length > 0) {

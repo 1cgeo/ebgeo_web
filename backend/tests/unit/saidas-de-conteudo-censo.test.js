@@ -102,9 +102,14 @@ const bytes = (arquivo, rota, emissor) => ({ arquivo, rota, classe: R_BYTES, emi
  *   - `POST /atlas/:atlasId/maps/:mapId/duplicate` devolve a linha de `maps` nova. É a saída que o
  *     censo anterior não enxergava por varrer só `router.get(`.
  *   - `POST /atlas/:atlasId/clone` é gateada em `read` e devolve só metadado — mas COPIA o
- *     conteúdo do atlas para um atlas do chamador. RISCO declarado: é vazamento por CÓPIA, não por
- *     resposta, e portanto fora do alcance de qualquer poda de saída; quem o fecha é o gate da
- *     rota, não este censo.
+ *     conteúdo do atlas para um atlas do chamador. É vazamento por CÓPIA, não por resposta, e
+ *     portanto fora do alcance deste censo, que mede o QUE SAI NA RESPOSTA. Quem o fecha são
+ *     DUAS coisas, e este parágrafo citava só a primeira: o gate da rota
+ *     (`requireAtlasPermission('read')` mais `requireAccountPrincipal`) e a PODA POR
+ *     DESTINATÁRIO (`atlas-resource-prune.js`, alimentada por `classifyResourceRefs`), que
+ *     desde 2026-08-21 retira da cópia toda referência de recurso que o novo dono não
+ *     enxerga. Enquanto o parágrafo dizia "fora do alcance de qualquer poda de saída", ele
+ *     era o texto que o próximo revisor leria antes de decidir não olhar.
  */
 const CENSO_ROTA = [
   json('src/app.js', 'GET /api/v1/health'),
@@ -190,10 +195,13 @@ const CENSO_ROTA = [
   json('src/modules/resource-access/resource-access.routes.js', 'POST /:type/:id/grants'),
   json('src/modules/resource-access/resource-access.routes.js', 'DELETE /grants/:grantId'),
 
-  // Grupo de acesso: as sete saem por `res.json`, e nenhuma carrega entidade de atlas
+  // Grupo de acesso: as OITO saem por `res.json`, e nenhuma carrega entidade de atlas
   // nem definição de recurso. O corpo mais gordo é a lista de membros (pessoas), e o
   // DELETE de grupo devolve o ALCANCE (quantas concessões caíram) em vez de 204.
+  // `GET /participating` entrou em 2026-08-20 e é a mais magra: nome do grupo e nome do
+  // DONO, sem roster e sem contagens.
   json('src/modules/access-groups/access-groups.routes.js', 'GET /'),
+  json('src/modules/access-groups/access-groups.routes.js', 'GET /participating'),
   json('src/modules/access-groups/access-groups.routes.js', 'POST /'),
   json('src/modules/access-groups/access-groups.routes.js', 'PATCH /:groupId'),
   json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId'),
@@ -207,6 +215,9 @@ const CENSO_ROTA = [
   json('src/modules/sharing/sharing.routes.js', 'POST /users'),
   json('src/modules/sharing/sharing.routes.js', 'PUT /users/:userId'),
   json('src/modules/sharing/sharing.routes.js', 'DELETE /users/:userId'),
+  json('src/modules/sharing/sharing.routes.js', 'POST /groups'),
+  json('src/modules/sharing/sharing.routes.js', 'PUT /groups/:groupId'),
+  json('src/modules/sharing/sharing.routes.js', 'DELETE /groups/:groupId'),
 
   json('src/modules/streetview360/sv360.routes.js', 'GET /tiles/fotos.geojson'),
   bytes('src/modules/streetview360/sv360.routes.js', 'GET /tiles/:z/:x/:y.pbf', 'src/modules/streetview360/sv360.controller.js'),
@@ -238,6 +249,7 @@ const CENSO_ROTA = [
   json('src/modules/streetview360/sv360.routes.js', 'POST /admin/projects/upload'),
   json('src/modules/streetview360/sv360.routes.js', 'GET /admin/projects'),
   json('src/modules/streetview360/sv360.routes.js', 'PATCH /admin/projects/:slug/status'),
+  json('src/modules/streetview360/sv360.routes.js', 'PATCH /admin/projects/:slug'),
   json('src/modules/streetview360/sv360.routes.js', 'DELETE /admin/projects/:slug'),
 
   json('src/modules/sync/sync.routes.js', 'GET /admin/stats'),
@@ -316,7 +328,7 @@ const CENSO_EMISSOR = [
   { arquivo: 'src/modules/ranks/ranks.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
 
-  { arquivo: 'src/modules/sharing/sharing.controller.js', texto: 'res.status(204).send();', n: 2,
+  { arquivo: 'src/modules/sharing/sharing.controller.js', texto: 'res.status(204).send();', n: 3,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
 
   { arquivo: 'src/modules/streetview360/sv360.admin.controller.js', texto: 'res.status(204).end();', n: 1,

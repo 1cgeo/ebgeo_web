@@ -83,6 +83,30 @@ export async function pendingVerificationToken(username) {
     return row.token;
 }
 
+/**
+ * Promotes a freshly registered account to the global `admin` role.
+ *
+ * WHY THIS IS SQL AND NOT A ROUTE, unlike the verification token above (whose route the
+ * harness deliberately goes through): there IS no route. Creating or promoting an admin
+ * requires an existing admin, and this leg starts from an empty database whose only door
+ * is `POST /auth/register` — every account it can make is a plain `user`. The chicken and
+ * egg has no route-shaped solution, so the write is honest here rather than hidden.
+ *
+ * The gate that reads this (`requireAuditReader`) resolves the role IN THE DATABASE, not
+ * from the JWT, so an already-issued token picks the new role up immediately — no second
+ * login needed, and that property is itself part of what the audit spec exercises.
+ *
+ * @param {string} username
+ * @returns {Promise<void>}
+ */
+export async function promoteToAdmin(username) {
+    const row = await connect().oneOrNone(
+        `UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1) RETURNING id`,
+        [username]
+    );
+    if (!row) throw new Error(`cannot promote "${username}": no such user`);
+}
+
 /** Closes the memoized connection + driver. Safe to call when nothing was opened. */
 export async function closeDb() {
     if (_pgp) {

@@ -36,7 +36,6 @@ function nearExpiryToken(user, { role = 'user', orgId = null } = {}) {
       role,
       organization_id: orgId,
       org: orgId,
-      org_role: 'viewer',
       login: user.username,
     },
     config.jwt.secret,

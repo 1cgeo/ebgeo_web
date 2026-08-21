@@ -17,7 +17,10 @@
  *     the survivors keep their order relative to the remaining `slide_order` entries.
  *
  * Each test seeds its OWN user + atlas + map + briefing for isolation. The single
- * client drives the whole flow over the browser's own fetch/CORS stack.
+ * client drives the whole flow over the browser's own fetch/CORS stack. A CONTA, porém,
+ * não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado Node, porque
+ * confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o contexto do
+ * browser não alcança. O `page.evaluate` faz só o `login()`.
  *
  * no-UI (UI-first exception): this spec is a BACKEND SYNC-CONTRACT test, not a user-flow
  * test. Every assertion reads the raw `pullSync` SNAPSHOT and pins transport/server
@@ -35,6 +38,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -43,16 +47,15 @@ describeOrSkip('Briefing + slides lifecycle (real Chromium + real backend sync)'
     test('create briefing, add 3 slides, reorder via slide_order, then delete one slide', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'brf', nome: 'Briefing User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `brf_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Briefing User' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Briefing Atlas' });
 
@@ -146,7 +149,7 @@ describeOrSkip('Briefing + slides lifecycle (real Chromium + real backend sync)'
                 survivorsOrdered,
                 ids: { s1, s2, s3 },
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // Snapshot envelope + briefing identity.
         expect(result.isSnapshot).toBe(true);

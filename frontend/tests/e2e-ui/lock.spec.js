@@ -19,6 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -64,18 +65,16 @@ describeOrSkip('Map lock (two real browser clients + real backend)', () => {
     test('owner locks the map; the other client receives the broadcast and the snapshot reflects it', async ({
         browser,
     }) => {
-        // 1. Seed ONE shared OWNER user + atlas + map via the backend API.
+        // 1. Seed ONE shared OWNER user (Node side: the account is born verified) + atlas + map.
+        const owner = await createVerifiedUser({ prefix: 'lock', nome: 'Lock Owner' });
         const seedPage = await browser.newPage();
         await seedPage.goto('/');
-        const seed = await seedPage.evaluate(async (baseUrl) => {
+        const seed = await seedPage.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `lock_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Lock Owner' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Lock Atlas' });
             const mapId = crypto.randomUUID();
@@ -83,8 +82,8 @@ describeOrSkip('Map lock (two real browser clients + real backend)', () => {
                 createOperation('map', 'create', mapId, null, { name: 'M1' }),
             ]);
 
-            return { username, password, atlasId: atlas.id, mapId };
-        }, state.baseUrl);
+            return { atlasId: atlas.id, mapId };
+        }, { baseUrl: state.baseUrl, u: owner });
         await seedPage.close();
 
         // 2. Two independent browser contexts → two pages, each pointed at the backend.
@@ -104,8 +103,8 @@ describeOrSkip('Map lock (two real browser clients + real backend)', () => {
         const clientIdB = `lock-B-${crypto.randomUUID().slice(0, 8)}`;
         const cfg = {
             baseUrl: state.baseUrl,
-            username: seed.username,
-            password: seed.password,
+            username: owner.username,
+            password: owner.password,
             atlasId: seed.atlasId,
         };
 

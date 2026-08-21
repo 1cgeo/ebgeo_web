@@ -59,7 +59,7 @@ describe('StreetView 360 — by-name: a org do chamador desempata ANTES do statu
     return jwt.sign(
       {
         sub, username: `bn_${RID}_${sub.slice(0, 8)}`, role,
-        organization_id, org_role: 'viewer', producer_org_id,
+        organization_id, producer_org_id,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

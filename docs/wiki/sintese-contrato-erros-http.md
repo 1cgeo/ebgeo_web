@@ -40,7 +40,7 @@ Com `ALLOW_SELF_REGISTRATION` desligado (default em produção) a rota `POST /au
 
 A escada de `requireAtlasPermission` tem **três degraus**, e confundir os dois primeiros é o erro fácil:
 
-- **Sem relação nenhuma** (não é dono, sem linha em `atlas_shares`, atlas não público) → **404**, byte a byte igual ao 404 de atlas inexistente ou soft-deletado. Idem para token de link público apontando para outro atlas.
+- **Sem relação nenhuma** (não é dono, nenhum share o alcança -- nem direto nem por grupo vivo, ver [[compartilhamento-atlas]] --, atlas não público) → **404**, byte a byte igual ao 404 de atlas inexistente ou soft-deletado. Idem para token de link público apontando para outro atlas.
 - **Com share, nível insuficiente** para a rota → **403**. Aqui a existência vaza, e **de propósito**: quem tem share está com o atlas aberto na tela, então dizer "não existe" seria mentira e apagaria o sinal de "peça NÍVEL, não peça o link".
 - **Anônimo** → **401** do `auth` estrito, antes da escada, igual para atlas existente e inexistente.
 

@@ -102,13 +102,11 @@ const CENSO = [
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'PUT /:atlasId/cover', classe: ISENTA, motivo: COSMETICO },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'DELETE /:atlasId/cover', classe: ISENTA, motivo: COSMETICO },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'POST /:atlasId/maps/:mapId/duplicate', classe: ISENTA, motivo: CONTEUDO_DE_ATLAS },
-  {
-    arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'PATCH /:atlasId/settings', classe: BURACO,
-    motivo: 'O overlay de disponibilidade do atlas (3D, 360, camadas de dados) DESLIGA superfícies '
-      + 'inteiras para todos os membros, então é decisão de acesso e deveria deixar linha. Fica '
-      + 'nomeada aqui em vez de coberta porque a fase de auditoria não a listou, e alargar escopo '
-      + 'sem decisão é como uma lacuna vira duas.',
-  },
+  // FECHADO EM 2026-08-21: era BURACO ("desliga superfícies inteiras para todos os
+  // membros, então é decisão de acesso e deveria deixar linha"). `SHARING_CHANGE` é
+  // reusada porque ela JÁ é o vocabulário de acesso do atlas, e `details.kind` a
+  // discrimina dos dois emissores de empréstimo do mesmo alvo.
+  { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'PATCH /:atlasId/settings', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: ATLAS_CTRL },
 
   // ---------------- auth ----------------------------------------------------
   { arquivo: 'src/modules/auth/auth.routes.js', rota: 'POST /login', classe: AUDITADA, acao: 'LOGIN', emissor: 'src/modules/auth/auth.controller.js' },
@@ -196,10 +194,22 @@ const CENSO = [
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'POST /users', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: SHARING_SVC },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'PUT /users/:userId', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'DELETE /users/:userId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: SHARING_SVC },
+  // O EIXO DE GRUPO reusa as TRÊS ações do eixo de pessoa, e a reutilização é decisão: uma
+  // ação nova exigiria alargar o CHECK de `audit_trail` (DROP + ADD CONSTRAINT, uma entrada
+  // em EXCECOES_DESTRUTIVAS e uma migração a mais). Quem discrimina o eixo na trilha é
+  // `details.groupId`, onde o eixo de pessoa põe `details.userId`.
+  { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'POST /groups', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: SHARING_SVC },
+  { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'PUT /groups/:groupId', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
+  { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'DELETE /groups/:groupId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: SHARING_SVC },
 
   // ---------------- 360: projeto audita, foto não -----------------------------
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'POST /admin/projects/upload', classe: AUDITADA, acao: 'SV360_INGEST', emissor: 'src/modules/streetview360/sv360.admin.controller.js' },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PATCH /admin/projects/:slug/status', classe: AUDITADA, acao: 'SV360_STATUS_CHANGE', emissor: SV360_ADMIN_SVC },
+  // A rota de METADADO reusa `CATALOG_UPDATE` de propósito: o projeto 360 é um dos cinco
+  // tipos de recurso do catálogo, e uma ação própria custaria alargar o CHECK de
+  // `audit_trail.action` (DROP/ADD CONSTRAINT mais uma linha em EXCECOES_DESTRUTIVAS) para
+  // dizer a mesma coisa com outro nome. O emissor é o serviço, como nas outras duas.
+  { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PATCH /admin/projects/:slug', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'DELETE /admin/projects/:slug', classe: AUDITADA, acao: 'SV360_DELETE', emissor: SV360_ADMIN_SVC },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'POST /photos/batch-calibration', classe: ISENTA, motivo: CALIBRACAO_360 },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PUT /photos/:uuid/calibration', classe: ISENTA, motivo: CALIBRACAO_360 },
@@ -222,18 +232,12 @@ const CENSO = [
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /:userId/reactivate', classe: AUDITADA, acao: 'USER_REACTIVATE', emissor: USERS_SVC },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /:userId/api-key/rotate', classe: AUDITADA, acao: 'API_KEY_ROTATE', emissor: USERS_SVC },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /me/api-key/rotate', classe: AUDITADA, acao: 'API_KEY_ROTATE', emissor: USERS_SVC },
-  {
-    arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me', classe: BURACO,
-    motivo: 'Auto-edição de perfil sem trilha, enquanto a edição pelo administrador emite '
-      + 'USER_UPDATE. A assimetria é conhecida e fica nomeada: quem investiga uma conta vê o que o '
-      + 'admin fez com ela e não o que o titular fez consigo.',
-  },
-  {
-    arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me/password', classe: BURACO,
-    motivo: 'Troca de senha pelo próprio titular sem trilha, enquanto o reset por administrador '
-      + 'emite PASSWORD_RESET. Mesma assimetria da edição de perfil, e mais visível porque senha é '
-      + 'o único fator de autenticação da casa.',
-  },
+  // AS DUAS AUTO-EDIÇÕES FECHARAM EM 2026-08-21, e as duas reusam a ação que o caminho
+  // ADMINISTRATIVO já emitia: criar uma segunda ação para o mesmo fato partiria a
+  // história de uma conta em duas listas que não se cruzam. `details.self === true` é o
+  // que discrimina os dois emissores, e é ele que o caso de integração afirma.
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me', classe: AUDITADA, acao: 'USER_UPDATE', emissor: USERS_SVC },
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me/password', classe: AUDITADA, acao: 'PASSWORD_RESET', emissor: USERS_SVC },
 
   // ---------------- zonas geográficas (schema ng) -----------------------------
 ];
@@ -519,12 +523,20 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
       'isenção sem motivo escrito é a mesma coisa que rota sem trilha, só que com uma linha a mais'
     );
 
-    // O TETO. Sem ele, a saída fácil para uma rota nova sem trilha seria classificá-la
-    // como BURACO e seguir em frente — que é exatamente como LOGIN, LOGOUT e
-    // ATLAS_DELETE sobreviveram sem emissor desde o primeiro CHECK de ação.
+    // O TETO, E ELE APERTA A CADA BURACO FECHADO. Sem ele, a saída fácil para uma rota
+    // nova sem trilha seria classificá-la como BURACO e seguir em frente — que é
+    // exatamente como LOGIN, LOGOUT e ATLAS_DELETE sobreviveram sem emissor desde o
+    // primeiro CHECK de ação. Um teto que ficasse no número antigo depois de os buracos
+    // caírem seria folga: espaço para três lacunas novas passarem verdes.
+    //
+    // Eram SETE até 2026-08-21; a onda de auditoria por OM fechou três (auto-edição de
+    // perfil, troca de senha pelo titular e o overlay de disponibilidade do atlas), e o
+    // teto desceu junto. Os QUATRO que ficam (o cleanup administrativo de sync e o CRUD
+    // de postos) exigem vocabulário NOVO no CHECK de `action`, isto é, migração com par
+    // DROP/ADD CONSTRAINT: ficam declarados por decisão, não por esquecimento.
     assert.ok(
-      buracos.length <= 7,
-      `os buracos conhecidos são 7 e não podem crescer sem decisão; achei ${buracos.length}`
+      buracos.length <= 4,
+      `os buracos conhecidos são 4 e não podem crescer sem decisão; achei ${buracos.length}`
     );
 
     // Nenhuma entrada pode ter classe fora das três, nem ação declarada sem auditar.

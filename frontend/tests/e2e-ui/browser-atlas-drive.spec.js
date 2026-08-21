@@ -8,22 +8,24 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-/** Registers a user, creates the given atlases, then logs in through the UI so the Drive is open. */
+/**
+ * Seeds a VERIFIED user (Node side — o token de confirmação só se lê no Postgres), creates the
+ * given atlases through the live transport, then logs in through the UI so the Drive is open.
+ */
 async function openDrive(page, atlasNames) {
     await page.goto('/');
-    const creds = await page.evaluate(async ({ url, names }) => {
+    const creds = await createVerifiedUser({ prefix: 'drv', nome: 'Drive Tester' });
+    await page.evaluate(async ({ url, names, u }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `drv_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Drive Tester' });
-        await api.login(username, 'Sup3r-Secret-Pw!');
+        await api.login(u.username, u.password);
         for (const n of names) await api.createAtlas({ name: n });
-        return { username, password: 'Sup3r-Secret-Pw!' };
-    }, { url: state.baseUrl, names: atlasNames });
+    }, { url: state.baseUrl, names: atlasNames, u: creds });
 
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });

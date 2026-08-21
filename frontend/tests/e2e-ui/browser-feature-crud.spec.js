@@ -25,6 +25,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -35,15 +36,14 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
     }) => {
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const user = await createVerifiedUser({ prefix: 'crud', nome: 'CRUD User' });
+
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `crud_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'CRUD User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'CRUD Atlas' });
             const mapId = crypto.randomUUID();
@@ -184,7 +184,7 @@ describeOrSkip('Feature CRUD (real Chromium + real backend, transport via page.e
                 deleted,
                 edge: { orphanLandedSomewhere },
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // ---- CREATE assertions: each geometry in its own bucket, isolated ----
         expect(result.hasToken).toBe(true);

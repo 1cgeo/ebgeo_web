@@ -41,6 +41,9 @@ import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { sessionContext } from '@store/sync/session-context.js';
+// Do ARQUIVO, folha e sem imports: é a definição única das audiências de `admin.html`,
+// compartilhada com a própria página e com o seletor de atlas.
+import { adminAudience } from '@js/admin/admin-audience.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { showSharingModal } from '@modals/sharing.modal.js';
@@ -403,9 +406,11 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
-        // "Administração" — the admin page (users, config, catalog). Visible to a GLOBAL admin and,
-        // labelled "Catálogo", to a PRODUCER (`_updateAdminVisibility`), independent of any
-        // connected atlas. The backend gates every admin route; this is purely a UI affordance.
+        // A PORTA DA PÁGINA DE ADMINISTRAÇÃO. O rótulo muda com a audiência
+        // (`_updateAdminVisibility`, que consulta `adminAudience`): "Administração" para o
+        // administrador global, "Catálogo" para o produtor e "Grupos" para qualquer outra sessão
+        // autenticada. Independe de atlas conectado — a página é global. O backend gateia toda
+        // rota de administração; isto é afordância de interface e nada mais.
         this._adminBtn = document.createElement('button');
         this._adminBtn.type = 'button';
         this._adminBtn.className = 'account-control__btn account-control__btn--admin';
@@ -652,22 +657,28 @@ export class AccountControl {
 
     /**
      * Mostra a entrada da página de administração a quem pode abri-la, com o rótulo do que ela
-     * realmente entrega: o administrador GLOBAL recebe todas as abas, o CREDENCIADO só Grupos e o
-     * PRODUTOR só Catálogo. Chamar os dois últimos de "Administração" prometeria um painel que
-     * eles não recebem. A ordem dos testes repete a de `mountAdminPage`, e repete por necessidade:
-     * `hasGlobalDataAccess()` também é verdadeiro para o administrador.
+     * realmente entrega. QUEM DECIDE É `adminAudience` (`@js/admin/admin-audience.js`), a mesma
+     * função que a página e o seletor de atlas consultam: enquanto a regra vivia copiada em
+     * quatro sítios, a entrada podia aparecer numa tela e faltar na outra, ou aparecer com dois
+     * rótulos diferentes. Chamar de "Administração" o painel de uma aba só prometeria um poder
+     * que o primeiro clique nega.
+     *
+     * Desde 2026-08-20 QUALQUER sessão autenticada tem porta aqui, rotulada "Grupos": o grupo de
+     * acesso virou entidade de usuário, e é do mapa que se descobre precisar de um (o modal de
+     * compartilhar recurso é aberto do catálogo, aqui dentro).
      *
      * Diferente dos itens de atlas acima, isto NÃO depende de atlas conectado — a página é global.
      * O servidor gateia toda rota de administração com requireAdmin, as escritas do catálogo com o
-     * gate de produção e as de grupo com o gate de dado; nada aqui é a fronteira.
+     * gate de produção e as de grupo por posse; nada aqui é a fronteira.
      * @private
      */
     _updateAdminVisibility() {
         if (!this._adminBtn) return;
-        let texto = null;
-        if (sessionContext.isAdmin()) texto = 'Administração';
-        else if (sessionContext.hasGlobalDataAccess()) texto = 'Grupos';
-        else if (sessionContext.isProducer()) texto = 'Catálogo';
+        const { label: texto } = adminAudience({
+            isAuthenticated: sessionContext.isAuthenticated(),
+            isAdmin: sessionContext.isAdmin(),
+            isProducer: sessionContext.isProducer(),
+        });
         this._adminBtn.hidden = texto === null;
         const label = this._adminBtn.querySelector('.account-control__btn-label');
         if (label && texto) label.textContent = texto;

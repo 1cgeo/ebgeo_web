@@ -16,6 +16,9 @@
 import { apiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
+// Import DIRETO do arquivo, nunca pelo barrel `@modals`: esta página boota sem a store, e
+// o barrel de modais a arrasta de volta pelo caminho transitivo.
+import { showPrompt } from '@modals/prompt.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
@@ -44,7 +47,9 @@ const MAX_THUMBNAIL_DATAURL = 256 * 1024;
  *
  *   1. VISIBILIDADE (`access_level`): Público ou Privado. Privado tira o item do catálogo
  *      público e o entrega só a quem tem papel global, concessão, empréstimo de atlas ou é
- *      da OM produtora. Só o administrador o move.
+ *      da OM produtora. Quem o move é quem MANTÉM o item (`canProduceFor`, espelho do
+ *      `requireResourceMaintainer` do servidor): o administrador em qualquer OM, o produtor
+ *      na dele. Esta linha dizia "só o administrador" até 2026-08-20.
  *   2. STATUS (`active`, e no 360 `status`): Ativo ou Inativo. É ocultação/soft-delete, vale
  *      para TODO MUNDO, e um item pode ser Ativo e Privado ao mesmo tempo.
  *   3. OM DONA (`owner_org_id`, `organization_id` no 360): quem MANTÉM o item. Decide quem
@@ -103,6 +108,15 @@ const CATEGORIES = [
  */
 const FORMA_3D_OPTIONS = FORMAS_3D.map((valor) => ({ value: valor, label: FORMA_3D_LABELS[valor] }));
 
+/**
+ * As categorias cujo formulário monta o campo de VÍDEO DE PRÉVIA.
+ *
+ * `sv360` fica de fora desta lista porque não tem formulário: o 360 é administrado pela
+ * TABELA (`_render360Table`), e o vídeo dele é uma ação de linha, por rota própria.
+ * `basemap` fica de fora por decisão de produto: sem cartão de catálogo, não há onde ler.
+ */
+const CATEGORIAS_COM_VIDEO = Object.freeze(['tileset', 'data_layer', 'analysis_layer']);
+
 /** Starter `config` templates per category — mirror the real deploy config shapes (config.js). */
 const TEMPLATES = {
     tileset: {
@@ -123,12 +137,14 @@ const TEMPLATES = {
         minzoom: 5,
         maxzoom: 17,
         thumbnail: '',
+        previewVideo: '',
         style: { border: { color: '#E74C3C', width: 2, opacity: 1 } },
     },
     analysis_layer: {
         source: { type: 'raster', tiles: ['/cms/martin/EXEMPLO/{z}/{x}/{y}'], tileSize: 256, minzoom: 12, maxzoom: 12 },
         bounds: [-55, -29, -54, -28],
         thumbnail: '',
+        previewVideo: '',
         opacity: 0.5,
     },
     basemap: {
@@ -181,8 +197,8 @@ class CatalogTab {
         legenda.textContent = sessionContext.isAdmin()
             ? 'Três eixos independentes: Acesso (Público/Privado) diz QUEM VÊ; Status (Ativo/Inativo) '
               + 'diz se o item aparece para alguém; OM dona diz QUEM MANTÉM. Um item pode ser Ativo e Privado.'
-            : 'Você mantém os recursos da sua OM. Acesso (Público/Privado) e a OM dona são do '
-              + 'administrador; Status (Ativo/Inativo) e a edição dos metadados são seus.';
+            : 'Você mantém os recursos da sua OM: Acesso (Público/Privado), Status (Ativo/Inativo) e os '
+              + 'metadados são seus. A OM dona é definida na criação e só o administrador a muda.';
         c.appendChild(legenda);
 
         const nav = document.createElement('nav');
@@ -367,24 +383,26 @@ class CatalogTab {
 
         // EIXO 1 — O ACESSO É UMA SEGUNDA ESCRITA, e por isso não entra no `payload`
         // abaixo: ele mora numa rota própria (`PATCH /resource-access/:type/:id/
-        // visibility`), que é `requireAdmin` e invalida o memo do `/api/config`.
-        // Marcar como privado é ato de ADMINISTRAÇÃO do catálogo, não de
-        // compartilhamento: quem tem concessão repassa acesso, e não decide que o
-        // recurso deixou de ser público para todo mundo. Daí o campo SUMIR para o produtor,
-        // em vez de aparecer cinza: um controle desabilitado sem explicação vira chamado, e
-        // este eixo não é dele nem quando o recurso é.
+        // visibility`), que invalida o memo do `/api/config`.
+        //
+        // QUEM MARCA PÚBLICO/PRIVADO É QUEM MANTÉM, desde 2026-08-20: o gate do servidor
+        // virou `requireResourceMaintainer` (administrador em qualquer OM, produtor na OM
+        // dele), e este `canProduceFor` é o espelho EXATO dele — o mesmo predicado que já
+        // decide os botões Editar e Excluir nesta tela, e não um segundo critério. Marcar
+        // privado continua não sendo compartilhar: quem tem concessão repassa acesso, e não
+        // decide que o recurso deixou de ser público para todo mundo.
+        //
+        // Na CRIAÇÃO, `ownerOrgId` já é o escopo de produção de quem cria (nulo para
+        // administrador), e `canProduceFor` resolve os dois pelo curto-circuito de `isAdmin()`.
         const accessType = ACCESS_TYPE_BY_CATEGORY[category];
         const accessBefore = resource?.access_level ?? 'public';
-        const accessInput = (accessType && sessionContext.isAdmin())
+        const accessInput = (accessType && sessionContext.canProduceFor(ownerOrgId))
             ? selectField(form, 'Acesso (visibilidade)', 'admin-catalog-access', ACCESS_LEVELS, accessBefore)
             : null;
         if (accessInput) {
             form.appendChild(hintParagraph('Privado tira o item do catálogo público. Ele continua visível '
                 + 'para administradores, credenciados, produtores da OM dona, quem recebeu concessão e quem '
                 + 'abrir um atlas que o empreste. Isto NÃO é o Status: um item pode ser Ativo e Privado.'));
-        } else if (accessType) {
-            form.appendChild(hintParagraph(`Acesso: ${accessBefore === 'private' ? 'Privado' : 'Público'} `
-                + '(quem vê o recurso). Só o administrador altera este eixo.'));
         }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
@@ -476,11 +494,24 @@ class CatalogTab {
                 + 'visualizador em primeira pessoa, não no Cesium.'));
         }
 
-        // Preview VIDEO is 3D-only and out-of-band (large) — referenced by URL, not uploaded.
+        // O VÍDEO DE PRÉVIA DEIXOU DE SER SÓ DO 3D (2026-08-21). Ele vale para TILESET,
+        // CAMADA DE DADOS e CAMADA DE ANÁLISE — as três guardam o valor em `config`, onde a
+        // chave `previewVideo` passou a ser DECLARADA na borda do servidor. O projeto 360
+        // também o tem, mas por outra porta (coluna + rota própria), na tabela abaixo.
+        //
+        // O BASEMAP NÃO ENTRA, e é decisão registrada: ele é o único dos cinco tipos que não
+        // aparece como cartão de catálogo — a superfície dele é o seletor de camada base,
+        // uma lista compacta sem lugar para uma afordância de mídia. Oferecer o campo aqui
+        // seria pedir uma URL que nada mostraria.
+        //
+        // A mídia é fora de banda e referenciada por URL, nunca enviada: é vídeo.
         let videoInput = null;
-        if (category === 'tileset') {
-            videoInput = textField(form, 'Vídeo de preview (URL, opcional)', 'admin-catalog-video',
+        if (CATEGORIAS_COM_VIDEO.includes(category)) {
+            videoInput = textField(form, 'Vídeo de prévia (URL, opcional)', 'admin-catalog-video',
                 resource?.config?.previewVideo ?? '');
+            form.appendChild(hintParagraph('O vídeo abre num botão "Prévia" no cartão do '
+                + 'catálogo. Endereço apenas (o arquivo mora fora do banco); esvaziar o campo '
+                + 'remove a prévia.'));
         }
 
         // Basemaps: expose the two config keys that actually drive the base-layer selector as
@@ -705,17 +736,25 @@ class CatalogTab {
             // `organization_id` JÁ É a OM dona do projeto 360 (não existe uma segunda coluna
             // para o eixo de produção aqui), então é ela que responde `canProduceFor`.
             const mantem = sessionContext.canProduceFor(p.organization_id ?? p.organizationId);
+            // OS TRÊS BOTÕES SÃO DE QUEM MANTÉM, e o de ACESSO entrou aqui em 2026-08-20:
+            // marcar público/privado deixou de ser `requireAdmin` e virou
+            // `requireResourceMaintainer`, do qual `canProduceFor` é o espelho. Um `if`
+            // separado para o acesso seria a mesma pergunta feita por dois critérios.
             if (mantem) {
                 actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
                     () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
-            }
-            // O eixo de ACESSO continua sendo do administrador, mesmo no projeto que o
-            // produtor mantém: a rota de visibilidade é `requireAdmin`.
-            if (sessionContext.isAdmin()) {
                 actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
                     'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
-            }
-            if (mantem) {
+                // O VÍDEO DE PRÉVIA DO 360 É AÇÃO DE LINHA, e não campo de formulário: esta
+                // categoria não tem formulário nenhum (o bundle entra fora do painel), então
+                // a única superfície de escrita que existe é a tabela. O rótulo diz o ESTADO
+                // ("Vídeo" / "Trocar vídeo"), que é o que evita abrir o prompt só para
+                // descobrir se já há um.
+                actions.appendChild(button(
+                    (p.preview_video ?? p.previewVideo) ? 'Trocar vídeo' : 'Vídeo',
+                    'admin-btn admin-btn--ghost', 'admin-360-video',
+                    () => this._edit360Video(p),
+                ));
                 actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-360-delete',
                     () => this._delete360(p)));
             } else {
@@ -770,6 +809,37 @@ class CatalogTab {
         } catch (err) {
             console.warn('[catalog-tab] falha ao alterar a visibilidade do projeto 360:', err);
             showError('Não foi possível alterar a visibilidade do projeto 360°.');
+        }
+    }
+
+    /**
+     * @private Grava o VÍDEO DE PRÉVIA do projeto 360.
+     *
+     * A rota é PRÓPRIA (`PATCH /sv360/admin/projects/:slug`), e não a de visibilidade nem a
+     * de status: `sv360.projects` guarda o vídeo em COLUNA porque não tem `config` JSONB
+     * como as quatro tabelas de catálogo.
+     *
+     * O `null` do prompt (Esc, ou "Cancelar") é ABANDONO e não escreve nada; a string vazia
+     * é REMOÇÃO e escreve. Confundir os dois faria "cancelar" apagar o vídeo.
+     * @param {Object} project
+     */
+    async _edit360Video(project) {
+        const slug = project.slug ?? project.name;
+        const atual = project.preview_video ?? project.previewVideo ?? '';
+        const valor = await showPrompt(
+            `Vídeo de prévia de "${project.name || slug}" (URL; deixe em branco para remover)`,
+            atual,
+        );
+        if (valor === null) return;
+        try {
+            await apiClient.updateSv360ProjectMetadata(slug, { previewVideo: valor.trim() }, {
+                orgId: project.organization_id ?? project.organizationId,
+            });
+            showSuccess(valor.trim() ? 'Vídeo de prévia atualizado.' : 'Vídeo de prévia removido.');
+            if (this._alive) this._render360List();
+        } catch (err) {
+            console.warn('[catalog-tab] falha ao gravar o vídeo de prévia do projeto 360:', err);
+            showError('Não foi possível gravar o vídeo de prévia do projeto 360°.');
         }
     }
 

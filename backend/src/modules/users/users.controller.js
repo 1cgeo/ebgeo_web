@@ -8,13 +8,13 @@ export const getProfile = asyncHandler(async (req, res) => {
 });
 
 export const updateProfile = asyncHandler(async (req, res) => {
-  const user = await usersService.updateProfile(req.user.id, req.body);
+  const user = await usersService.updateProfile(req.user.id, req.body, req);
   res.json({ data: user });
 });
 
 export const updatePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  await usersService.updatePassword(req.user.id, currentPassword, newPassword);
+  await usersService.updatePassword(req.user.id, currentPassword, newPassword, req);
   res.json({ data: { success: true } });
 });
 

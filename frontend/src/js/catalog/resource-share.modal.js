@@ -37,14 +37,17 @@ import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { refreshVisibleResources } from '@store/sync/resource-access.service.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
 import { GRANT_LEVELS, CATALOG_UI_ICONS } from './catalog.constants.js';
 import {
     alreadyGranted,
-    descendantGrants,
+    fallenGrants,
+    granteeGroupOwnerLabel,
     granteeName,
     granteeSubject,
     groupMemberCount,
+    groupOptionLabel,
     isGroupGrant,
     revocationWarning,
 } from './grant-tree.js';
@@ -130,6 +133,10 @@ export class ResourceShareModal extends ModalBase {
         this._groups = [];
         /** @type {boolean} A leitura dos grupos já aconteceu (mesmo que tenha falhado). */
         this._groupsLoaded = false;
+        /** @type {boolean} A leitura FALHOU. Separado de "veio vazia": a dica de lista vazia
+         *  afirma que a pessoa não tem grupo, e afirmar isso depois de um erro de rede é dizer
+         *  uma coisa falsa com cara de estado. */
+        this._groupsFailed = false;
         /** @type {string} O grupo escolhido no seletor, zerado a cada redesenho. */
         this._groupId = '';
         /** @type {boolean} Uma escrita por vez. */
@@ -199,6 +206,7 @@ export class ResourceShareModal extends ModalBase {
             this._groups = Array.isArray(grupos) ? grupos : [];
         } catch {
             this._groups = [];
+            this._groupsFailed = true;
         }
     }
 
@@ -282,11 +290,16 @@ export class ResourceShareModal extends ModalBase {
     }
 
     /**
-     * @private A linha do nome: `@usuário` para pessoa, tamanho do grupo para grupo.
+     * @private A linha do nome: `@usuário` para pessoa, tamanho e DONO do grupo para grupo.
      *
      * O tamanho fica ao LADO do nome porque é o que dá a escala do que está sendo
      * concedido: "Equipe Alfa" não diz se são dois ou duzentos. Grupo vazio diz isso
      * por extenso, senão a linha some e o vazio vira indistinguível do desconhecido.
+     *
+     * O DONO ENTROU EM 2026-08-21 e é a mitigação obrigatória da concessão coletiva: ele
+     * pode acrescentar beneficiários a este recurso sem passar por quem concedeu, e esta
+     * lista é a única tela onde isso aparece. A concessão a PESSOA não ganha rótulo
+     * nenhum, e essa diferença é o que faz o rótulo significar alguma coisa.
      * @param {Object} grant
      * @param {string} nome
      */
@@ -294,8 +307,10 @@ export class ResourceShareModal extends ModalBase {
         if (isGroupGrant(grant)) {
             const membros = groupMemberCount(grant);
             const texto = membros ? `${membros} ${membros === 1 ? 'pessoa' : 'pessoas'}` : 'sem membros';
+            const dono = granteeGroupOwnerLabel(grant);
             return `<span class="sharing-member__name">${escapeHtml(nome)}
                         <span class="resource-share__group-count" data-testid="resource-share-group-count">${escapeHtml(texto)}</span>
+                        <span class="sharing-member__username" data-testid="resource-share-group-owner">${escapeHtml(dono)}</span>
                     </span>`;
         }
         const username = grant?.grantee_username ?? '';
@@ -313,8 +328,10 @@ export class ResourceShareModal extends ModalBase {
         const grupo = isGroupGrant(grant);
         const concedente = grant?.granted_by_nome || grant?.granted_by_username || null;
         // Quantos caem junto: mostrado NA LINHA, e não só na confirmação, para que o
-        // alcance da poda seja visível antes de o dedo ir para o botão.
-        const caidos = descendantGrants(this._grants, id).length;
+        // alcance da poda seja visível antes de o dedo ir para o botão. `fallenGrants` e
+        // não o fecho ingênuo: quem tem outro `view_share` vivo do mesmo concedente é
+        // RESGATADO pelo servidor, e contá-lo aqui é prometer uma queda que não acontece.
+        const caidos = fallenGrants(this._grants, id).length;
         const cascata = caidos > 0
             ? `<span class="resource-share__cascade" title="Revogar esta concessão derruba as que derivam dela">+${caidos} dependente(s)</span>`
             : '';
@@ -352,7 +369,10 @@ export class ResourceShareModal extends ModalBase {
      * SELETOR SEPARADO, E NÃO UMA BUSCA ÚNICA QUE MISTURA OS DOIS TIPOS. A escolha é
      * pela natureza das duas listas, que só parecem a mesma coisa:
      *
-     * - a de grupos é CURTA, COMPLETA e chega numa chamada só (`listAccessGroups`),
+     * - a de grupos é CURTA, FECHADA e chega numa chamada só (`listAccessGroups`).
+     *   "Fechada", e não "completa": desde que a listagem passou a devolver só os grupos
+     *   PRÓPRIOS, o conjunto continua conhecido inteiro numa chamada, mas já não é todo o
+     *   sistema (o parágrafo do fim deste bloco trata do que isso significa),
      *   então ela pode ser MOSTRADA. Enfiá-la atrás de um campo de busca esconderia
      *   de quem não sabe que existe grupo justamente a informação de que existe, e
      *   um seletor cuja função é revelar o que há não pode depender de a pessoa já
@@ -364,27 +384,43 @@ export class ResourceShareModal extends ModalBase {
      *   diferentes, dizendo o mesmo para causas distintas.
      *
      * O nível escolhido acima vale para os dois caminhos: é o mesmo ato.
+     *
+     * LISTA VAZIA DEIXOU DE SER SILÊNCIO em 2026-08-20. `listAccessGroups` passou a
+     * devolver só os grupos PRÓPRIOS de quem pergunta (conceder a um coletivo é
+     * delegar ao dono dele o poder de acrescentar beneficiários), então "nenhum
+     * grupo" virou o caso NORMAL de quem chega — antes significava "ninguém no
+     * sistema cadastrou grupo". Sumir com a linha inteira ali esconderia uma
+     * funcionalidade que existe e faria a pessoa concluir que ela não existe.
      */
     _renderGroupRow() {
-        if (!this._groups.length) return '';
+        // Leitura falhada continua sendo SILÊNCIO, e é o que separa as duas ausências: "você
+        // não tem grupo" é um estado, e dizê-lo por causa de um erro de rede seria inventar um.
+        if (this._groupsFailed) return '';
+        if (!this._groups.length) {
+            return `
+                <p class="sharing-section__hint" data-testid="resource-share-groups-empty">
+                    Você ainda não tem grupos de acesso. O seletor só oferece grupos seus:
+                    crie um na página Grupos e conceda a ele em vez de pessoa por pessoa.
+                </p>
+            `;
+        }
         const { groupIds } = alreadyGranted(this._grants);
         const escolhiveis = this._groups.filter((g) => !groupIds.has(String(g?.id)));
         if (!escolhiveis.length) {
             return `
                 <p class="sharing-section__hint" data-testid="resource-share-groups-exhausted">
-                    Todos os grupos de acesso já receberam este recurso.
+                    Todos os seus grupos de acesso já receberam este recurso.
                 </p>
             `;
         }
+        // O rótulo é `grant-tree.js`, que é onde ele é testável em node: ele nomeia o DONO
+        // do grupo alheio, porque a unicidade de nome passou a ser por dono e o
+        // administrador (o único que vê grupo de outra pessoa aqui) escolheria entre duas
+        // linhas idênticas.
+        const eu = sessionContext.userId;
         const opcoes = escolhiveis.map((g) => {
-            const membros = Number(g?.member_count);
-            const quantos = Number.isFinite(membros) && membros > 0
-                ? ` (${membros} ${membros === 1 ? 'pessoa' : 'pessoas'})`
-                : ' (sem membros)';
-            // `|| 'Grupo'`, e não `??`: nome vazio é ausência, como em `granteeName`,
-            // e uma opção sem texto é uma linha invisível dentro do seletor.
-            const rotulo = String(g?.name || 'Grupo');
-            return `<option value="${escapeHtml(String(g?.id ?? ''))}">${escapeHtml(rotulo)}${escapeHtml(quantos)}</option>`;
+            const rotulo = groupOptionLabel(g, eu);
+            return `<option value="${escapeHtml(String(g?.id ?? ''))}">${escapeHtml(rotulo)}</option>`;
         }).join('');
         return `
             <div class="resource-share__group-row">
@@ -514,6 +550,11 @@ export class ResourceShareModal extends ModalBase {
      * poda é invisível a quem clica: sem o aviso, tirar o acesso de uma pessoa tira
      * o de cinco sem que ninguém tenha dito isso. O texto vem de
      * `revocationWarning`, que conta e nomeia.
+     *
+     * O AVISO SUPERESTIMA, E É DE PROPÓSITO. Depois da preservação de alcançabilidade
+     * o servidor resgata quem alcança o recurso por outro caminho, e o cliente só
+     * consegue prever o resgate no eixo PESSOAL (ver `fallenGrants`). O toast de
+     * sucesso é quem corrige o número, com a contagem verdadeira das três listas.
      * @param {string} grantId
      */
     async _handleRevoke(grantId) {
@@ -528,9 +569,21 @@ export class ResourceShareModal extends ModalBase {
             // A contagem vem do SERVIDOR, e não do que a tela calculou: a árvore pode
             // ter crescido entre o desenho e o clique, e quem tem a verdade é a poda.
             const derrubadas = Array.isArray(resposta?.revoked) ? resposta.revoked.length : 0;
-            showSuccess(derrubadas > 1
+            // AS DUAS LISTAS NOVAS SÃO O FATO MAIS INTERESSANTE PARA QUEM ACABOU DE
+            // REVOGAR: elas dizem quem NÃO caiu porque alcança o recurso por outro
+            // concedente. Sem a frase, o usuário conclui que a poda foi incompleta.
+            // `trimmed` entra na mesma contagem de propósito: do ponto de vista de quem
+            // revogou, os dois são "continua com acesso".
+            const mantidas = (Array.isArray(resposta?.reparented) ? resposta.reparented.length : 0)
+                + (Array.isArray(resposta?.trimmed) ? resposta.trimmed.length : 0);
+            const caiu = derrubadas > 1
                 ? `Acesso removido — ${derrubadas} concessões caíram junto.`
-                : 'Acesso removido.');
+                : 'Acesso removido.';
+            const manteve = mantidas > 0
+                ? ` ${mantidas} ${mantidas === 1 ? 'concessão foi mantida' : 'concessões foram mantidas'}`
+                  + ' por outro caminho de acesso.'
+                : '';
+            showSuccess(`${caiu}${manteve}`);
             await this._refreshVisible();
             await this._load();
         } catch (error) {

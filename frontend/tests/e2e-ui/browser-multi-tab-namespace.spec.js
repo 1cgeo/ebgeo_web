@@ -75,6 +75,7 @@ import { test, expect } from '@playwright/test';
 import { utimes } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 import { loginUI, goToLocalMapUI, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
 import {
     createTabContext,
@@ -124,15 +125,14 @@ test('o instrumento de duas abas REQUER backend (sem ele, os portões não rodam
  * @returns {Promise<{username:string,password:string,atlases:Array<{id:string,name:string,mapId:string,mapName:string}>}>}
  */
 async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
+    const user = await createVerifiedUser({ prefix: 'tabs', nome: 'Duas Abas' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async ({ base, names }) => {
+    const seed = await page.evaluate(async ({ base, names, u }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const username = `tabs_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'Duas Abas' });
+        const { username, password } = u;
         await api.login(username, password);
         const atlases = [];
         for (const name of names) {
@@ -143,23 +143,22 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
-    }, { base: baseUrl, names: atlasNames });
+    }, { base: baseUrl, names: atlasNames, u: user });
     await page.close();
     return seed;
 }
 
 /** Seeds an atlas with one feature and publishes it, returning the anonymous link. */
 async function seedPublicAtlas(browser, baseUrl) {
+    const user = await createVerifiedUser({ prefix: 'pubtab', nome: 'Public Owner' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async (base) => {
+    const seed = await page.evaluate(async ({ base, u }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const apiBase = `${base}/api/v1`;
         const api = new ApiClient({ baseUrl: apiBase });
-        const username = `pubtab_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Public Owner' });
-        await api.login(username, 'Sup3r-Secret-Pw!');
+        await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'Atlas Público' });
         const mapId = crypto.randomUUID();
         await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Mapa Público' })]);
@@ -177,7 +176,7 @@ async function seedPublicAtlas(browser, baseUrl) {
         });
         const body = await res.json();
         return { atlasId: atlas.id, mapId, featureId, publicLink: body?.data?.publicLink };
-    }, baseUrl);
+    }, { base: baseUrl, u: user });
     await page.close();
     return seed;
 }

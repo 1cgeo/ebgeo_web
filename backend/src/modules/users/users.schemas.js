@@ -75,9 +75,11 @@ export const createUserAdminSchema = Joi.object({
       'any.required': 'O papel Produtor exige a OM de produção.',
       'any.only': 'A OM de produção só se define para o papel Produtor.',
     }),
-  // See the note on updateUserAdminSchema.org_role: the column had no writer at all
-  // until 2026-07-19, which left the sv360 org-scoped write gate permanently closed.
-  org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer').default('viewer'),
+  // O EIXO `org_role` SAIU DA BORDA em 2026-08-20 (D7), junto com a coluna. Ele nunca
+  // autorizou nada aqui, e no cliente contaminava o eixo POR ATLAS. Uma aba antiga que
+  // ainda mande o campo tem ele DESCARTADO pelo `stripUnknown: true` de
+  // `VALIDATION_OPTIONS`, e nao recusado: a criacao de conta continua funcionando com o
+  // resto do corpo, que e a degradacao certa para uma pagina em cache.
 });
 
 export const updateUserAdminSchema = Joi.object({
@@ -96,17 +98,25 @@ export const updateUserAdminSchema = Joi.object({
   // caso que mais quebra (rebaixar sem limpar o escopo). Quem cobra o bicondicional
   // e `users.service.js`, sobre o estado efetivo, com 400 legivel.
   producer_org_id: Joi.string().uuid().allow(null, ''),
+  // `is_active` CONTINUA BOOLEANO AQUI, E A GUARDA NAO E DE SCHEMA: quem recusa a
+  // desativacao por este PUT e `users.service.js`, com 409, e a recusa e sobre a
+  // TRANSICAO (ativo -> inativo), nao sobre o valor. A distincao e o que mantem
+  // funcionando os dois casos legitimos que um `valid(true)` quebraria: reativar por PUT,
+  // e reenviar `false` ao editar o nome de quem JA esta inativo (a tela manda o checkbox
+  // desmarcado junto). Os quatro casos estao em
+  // `tests/integration/user-deactivate-via-put.repro.test.js`, com controle negativo.
+  // Consequencia para D8(b): a poda de `deleteUser` nao e contornavel por aqui, porque
+  // por aqui nao se desativa ninguem.
   is_active: Joi.boolean(),
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.
   email_verified: Joi.boolean(),
-  // Role WITHIN the user's organization, distinct from the global `role` above.
-  // Until 2026-07-19 no code path in either package ever wrote this column: it was
-  // read in eight places and set by none, so every user sat on the DEFAULT 'viewer'
-  // forever and `canWriteProject` (sv360.write.service.js:36, which requires
-  // owner/admin/editor) could never pass. Editing a 360 project was therefore
-  // global-admin-only in practice and the whole org-scoped gate was dead code.
-  org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer'),
+  // O eixo `org_role` saiu daqui em 2026-08-20 (D7). Historia curta, porque explica por
+  // que ele nunca deveria ter existido: ate 2026-07-19 nenhum caminho de codigo dos dois
+  // pacotes ESCREVIA a coluna, entao todo usuario ficava no default e o gate de escrita
+  // do 360 que a lia nunca passava; quando ela ganhou escritor, o gate ja tinha migrado
+  // para o escopo de producao, e o unico efeito que sobrou foi o cliente promover a
+  // Dono/Administrador de atlas quem tivesse esses valores.
 });
 
 export const resetPasswordSchema = Joi.object({

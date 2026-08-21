@@ -52,7 +52,7 @@ function mintToken({ orgId, producerOrgId = null, role = 'user', sub = crypto.ra
   return jwt.sign(
     {
       sub, username: `u_${sub.slice(0, 8)}`, role,
-      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+      organization_id: orgId, producer_org_id: producerOrgId,
     },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
@@ -259,6 +259,19 @@ describe('StreetView 360 — admin/ingestion contract', () => {
 
     assert.equal(res.body.slug, SLUG);
     assert.equal(res.body.photoCount, 2);
+
+    // O CONJUNTO EXATO DE CHAVES DO 201, e não só duas delas. O corpo deste endpoint é
+    // contrato congelado do 360 (envelope PLANO, sem `{data}`), e desde 2026-08-21 o
+    // serviço devolve um campo A MAIS — `orgId`, para a trilha — que o controller
+    // desestrutura FORA da resposta. Sem esta linha, repor `orgId` no corpo passaria
+    // verde em toda a suíte, e contrato congelado sem asserção de chaves não é
+    // congelado. `deepEqual` do array ordenado, nunca `toContain`: a asserção precisa
+    // reprovar tanto a chave que sumiu quanto a que apareceu.
+    assert.deepEqual(
+      Object.keys(res.body).sort(),
+      ['dbFilename', 'photoCount', 'projectId', 'slug'],
+      'o corpo do 201 do upload é contrato congelado: nem chave a menos, nem a mais',
+    );
 
     const pid = await projectIdBySlug(SLUG, defaultOrgId);
     assert.ok(pid);

@@ -56,7 +56,7 @@ function mintToken({ orgId, producerOrgId = null, role = 'user', sub = randomUUI
   return jwt.sign(
     {
       sub, username: `tomb_${sub.slice(0, 8)}`, role,
-      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+      organization_id: orgId, producer_org_id: producerOrgId,
     },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }

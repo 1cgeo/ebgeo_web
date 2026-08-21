@@ -47,12 +47,18 @@ describe('F16 — concessão a GRUPO', () => {
     return id;
   }
 
-  /** Um grupo novo, criado pela ROTA (que é o caminho que o produto usa). */
-  async function novoGrupo(rotulo) {
+  /**
+   * Um grupo novo, criado pela ROTA (que é o caminho que o produto usa).
+   *
+   * O DONO É PARÂMETRO desde que a autoridade sobre grupo virou POSSE (2026-08-20):
+   * quem cria é o dono, e só o dono (ou o administrador) endereça aquele grupo numa
+   * concessão. O default continua sendo o administrador, que é o ramo curinga.
+   */
+  async function novoGrupo(rotulo, dono = 'admin') {
     serie += 1;
     const res = await supertest(app)
       .post('/api/v1/access-groups')
-      .set('Authorization', `Bearer ${tokens.admin}`)
+      .set('Authorization', `Bearer ${tokens[dono]}`)
       .send({ name: `Grupo ${rotulo} ${sufixo} ${serie}` })
       .expect(201);
     return res.body.data;
@@ -172,8 +178,11 @@ describe('F16 — concessão a GRUPO', () => {
       'e quem ficou NÃO perde — a saída de um não é a revogação do grupo',
     );
 
-    // APAGAR O GRUPO REVOGA SEM TOCAR EM `resource_grants`: `fn_user_group_ids` exige
-    // `deleted_at IS NULL`, então "apagado" e "não concede mais" são o MESMO fato.
+    // APAGAR O GRUPO PODA (2026-08-20), e esta asserção INVERTEU. O argumento antigo
+    // ("`fn_user_group_ids` exige `deleted_at IS NULL`, então apagado e não-concede-mais
+    // são o MESMO fato") valia para os MEMBROS e não valia para o que eles repassaram:
+    // essas linhas apontam para terceiros fora do grupo, o predicado não as alcança, e
+    // elas sobreviviam penduradas numa concessão viva sem justificativa.
     const apagado = await supertest(app)
       .delete(`/api/v1/access-groups/${grupo.id}`)
       .set('Authorization', `Bearer ${tokens.admin}`)
@@ -182,14 +191,17 @@ describe('F16 — concessão a GRUPO', () => {
 
     assert.ok(!(await camadasVisiveis('membro2')).includes(layer), 'o último membro também perde');
 
-    // A concessão continua na tabela, viva e não revogada: é a resposta de auditoria
-    // "por que o grupo X tinha acesso ao recurso Y". O que morreu foi o GRUPO.
+    // A concessão continua na tabela — REVOGADA, com autor. É a resposta de auditoria
+    // "por que o grupo X tinha acesso ao recurso Y", que continua preservada: o que
+    // mudou é que agora ela é uma revogação explícita em vez de um acesso que só o
+    // predicado silenciava.
     const { rows } = await db.query(
-      'SELECT revoked_at FROM resource_grants WHERE resource_id = $1',
+      'SELECT revoked_at, revoked_by FROM resource_grants WHERE resource_id = $1',
       [layer],
     );
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].revoked_at, null, 'a exclusão do grupo NÃO escreve em resource_grants');
+    assert.ok(rows[0].revoked_at, 'a exclusão do grupo REVOGA a concessão que ele recebeu');
+    assert.equal(rows[0].revoked_by, atores.admin.id, 'com o autor do ato');
   });
 
   it('`GET /:type/:id/grants` LISTA a concessão a grupo, com nome e contagem de membros', async () => {
@@ -267,7 +279,12 @@ describe('F16 — concessão a GRUPO', () => {
     // um grupo veria o recurso (o predicado de LEITURA sempre teve o braço coletivo) e
     // não conseguiria repassá-lo, porque o gate se alimenta de `LIVE_GRANTS_OF_ACTOR`.
     const layer = await novaCamada('escala');
-    const grupoShare = await novoGrupo('escala-share');
+    // O `grupoShare` é DO MEMBRO1, e não do administrador, e a escolha é o que mantém
+    // vivo o caso degenerado do fim deste corpo: conceder AO MESMO grupo de onde a
+    // autoridade veio só é alcançável por quem pode ENDEREÇAR aquele grupo. Se ele
+    // fosse do administrador, o membro1 levaria 404 antes de chegar ao 409, e a
+    // asserção mediria a regra do coletivo próprio em vez do caso degenerado.
+    const grupoShare = await novoGrupo('escala-share', 'membro1');
     const grupoView = await novoGrupo('escala-view');
     await porMembro(grupoShare.id, atores.membro1.id);
     await porMembro(grupoView.id, atores.membro2.id);

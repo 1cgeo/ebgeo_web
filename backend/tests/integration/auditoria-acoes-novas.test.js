@@ -234,9 +234,17 @@ describe('F7 — as ações novas de auditoria têm emissor, ator, alvo e detalh
         .expect(200);
       const edicao = await trilha('CATALOG_UPDATE', alvo, id);
       assert.equal(edicao.length, 1, `${rota}: uma linha de edição`);
-      // SÓ OS NOMES DOS CAMPOS: `config` guarda URL de serviço e a trilha é lida por
-      // qualquer administrador.
+      // `fields` (os NOMES dos campos tocados) continua presente, e essa asserção é o que
+      // amarra o de-para a ser ADITIVO: desde 2026-08-21 a linha também carrega um de-para
+      // seletivo (`utils/audit-diff.js`), e a forma antiga não podia ser substituída.
       assert.deepEqual(edicao[0].details.fields, ['name']);
+      // E o de-para: `name` é campo do regime VALOR, então ele entra literal. `config`
+      // guarda URL de serviço e miniatura embutida, e esses NUNCA entram — o guarda
+      // daquela regra é `catalogo-video-de-previa.test.js`, que procura a substring do
+      // segredo no JSON inteiro da linha.
+      assert.deepEqual(edicao[0].details.mudou, [
+        { campo: 'name', de: `Recurso ${rota}`, para: `Recurso ${rota} v2` },
+      ], `${rota}: o de-para registra o valor anterior e o novo`);
 
       await supertest(app)
         .delete(`/api/v1/${rota}/${id}`)

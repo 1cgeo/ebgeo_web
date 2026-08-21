@@ -26,20 +26,22 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-
-const PASSWORD = 'Sup3r-Secret-Pw!';
 
 describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real Chromium + real backend)', () => {
     test('disabling public sharing 404s the old link and revokes a previously-minted public token', async ({
         page,
     }) => {
+        // A conta do dono nasce no NODE, com o e-mail já confirmado pela rota pública: o token
+        // de verificação só existe como linha no Postgres, fora do alcance do `page.evaluate`.
+        const ownerUser = await createVerifiedUser({ prefix: 'publc', nome: 'Public Lifecycle Owner' });
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -54,9 +56,7 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
 
                 // --- Seed owner + atlas + map + one feature (so the public pull has content). ---
                 const owner = new ApiClient({ baseUrl: apiBase });
-                const username = `publc_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                await owner.register({ username, password, nome: 'Public Lifecycle Owner' });
-                await owner.login(username, password);
+                await owner.login(u.username, u.password);
 
                 const atlas = await owner.createAtlas({ name: 'Public Lifecycle Atlas' });
                 const mapId = crypto.randomUUID();
@@ -135,7 +135,7 @@ describeOrSkip('Public-link lifecycle: enable → disable revokes the link (real
                     postPullStatus,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            { baseUrl: state.baseUrl, u: ownerUser },
         );
 
         // 1. Enable + anonymous lookup succeed; the minted token reads the seeded feature.

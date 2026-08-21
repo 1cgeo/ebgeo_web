@@ -21,6 +21,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawPointUI, drawLineUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -118,17 +119,15 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
         // EXISTS-guard edge, has no UI at all). This test asserts the raw wire-envelope
         // contract + EXISTS guard against the persisted snapshot, so it stays a pure
         // transport probe driven via page.evaluate against the backend.
+        const user = await createVerifiedUser({ prefix: 'gf', nome: 'GroupFeature User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `gf_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'GroupFeature User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'GroupFeature Atlas' });
             const mapId = crypto.randomUUID();
@@ -206,7 +205,7 @@ describeOrSkip('Group ops + group_feature membership (real Chromium + real backe
                 featureSurvived: afterUnlink.featureAlive,
                 featureId,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // LINK: the group's features[] gains exactly the linked feature, with a resolved type.
         expect(result.linkRefIds).toContain(result.featureId);

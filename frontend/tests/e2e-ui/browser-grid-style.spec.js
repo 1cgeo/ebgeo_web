@@ -37,6 +37,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -45,17 +46,15 @@ describeOrSkip('gridStyle map sub-type transport (real Chromium + real backend)'
     test('enable Lat/Long → switch to UTM → turn off, each verified via map.grid_style; smuggled name dropped', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'grid', nome: 'Grid Style E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `grid_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Grid Style E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Grid Style Atlas' });
             const mapId = crypto.randomUUID();
@@ -121,7 +120,7 @@ describeOrSkip('gridStyle map sub-type transport (real Chromium + real backend)'
                 smuggleGrid: afterSmuggle.map?.grid_style,
                 smuggleName: afterSmuggle.map?.name,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.isSnapshot).toBe(true);
 

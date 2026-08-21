@@ -34,14 +34,16 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Seeds a fresh user + atlas + N maps inside the page and stashes the ApiClient on
- * `window.__mlc` so later `page.evaluate` calls reuse it. Runs entirely in the browser
- * against the real backend.
+ * Seeds a fresh user + atlas + N maps and stashes the ApiClient on `window.__mlc` so later
+ * `page.evaluate` calls reuse it. O atlas e os mapas nascem no browser, contra o backend
+ * real; a CONTA nasce no lado NODE (`helpers/accounts.js`), porque confirmar o e-mail exige
+ * ler `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
@@ -49,17 +51,15 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * @param {string[]} mapNames - one map is created per name (UUIDs minted client-side)
  * @returns {Promise<{ atlasId: string, mapIds: string[] }>}
  */
-function seed(page, baseUrl, prefix, mapNames) {
+async function seed(page, baseUrl, prefix, mapNames) {
+    const user = await createVerifiedUser({ prefix, nome: 'Map Lifecycle E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, prefix: pfx, mapNames: names }) => {
+        async ({ baseUrl: url, u, mapNames: names }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            const username = `${pfx}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Map Lifecycle E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Map Lifecycle Atlas' });
             const mapIds = names.map(() => crypto.randomUUID());
@@ -71,7 +71,7 @@ function seed(page, baseUrl, prefix, mapNames) {
             window.__mlc = { api, createOperation, baseUrl: url };
             return { atlasId: atlas.id, mapIds };
         },
-        { baseUrl, prefix, mapNames },
+        { baseUrl, u: user, mapNames },
     );
 }
 

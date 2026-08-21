@@ -49,31 +49,31 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Seeds a fresh user + atlas + map inside the page and stashes the live ApiClient +
- * factory on `window.__c3dCrud` so later `page.evaluate` calls reuse them. Runs
- * entirely in the browser against the real backend.
+ * Seeds a fresh atlas + map for a VERIFIED user and stashes the live ApiClient +
+ * factory on `window.__c3dCrud` so later `page.evaluate` calls reuse them. The ACCOUNT
+ * is created on the Node side by `createVerifiedUser` (confirming the e-mail needs
+ * Postgres); the page only logs in.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
  * @param {string} prefix - username prefix, for readable test isolation
  * @returns {Promise<{ atlasId: string, mapId: string }>}
  */
-function seed(page, baseUrl, prefix) {
+async function seed(page, baseUrl, prefix) {
+    const user = await createVerifiedUser({ prefix, nome: 'Cesium3D CRUD E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, prefix: pfx }) => {
+        async ({ baseUrl: url, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            const username = `${pfx}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Cesium3D CRUD E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cesium3D CRUD Atlas' });
             const mapId = crypto.randomUUID();
@@ -82,7 +82,7 @@ function seed(page, baseUrl, prefix) {
             window.__c3dCrud = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, prefix },
+        { baseUrl, u: user },
     );
 }
 
@@ -360,9 +360,10 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         await page.goto('/');
         // Two independent owners, each with their own atlas + map.
         const victim = await seed(page, state.baseUrl, 'c3d_idor_victim');
+        const attacker = await createVerifiedUser({ prefix: 'c3d_idor_attacker', nome: 'Attacker' });
 
         const result = await page.evaluate(
-            async ({ victimAtlasId, victimMapId, baseUrl: url }) => {
+            async ({ victimAtlasId, victimMapId, baseUrl: url, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -381,12 +382,9 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     }),
                 ]);
 
-                // A separate attacker registers, logs in, and creates their OWN atlas.
+                // A separate attacker logs in and creates their OWN atlas.
                 const attackerApi = new ApiClient({ baseUrl: `${url}/api/v1` });
-                const username = `c3d_idor_attacker_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await attackerApi.register({ username, password, nome: 'Attacker' });
-                await attackerApi.login(username, password);
+                await attackerApi.login(u.username, u.password);
                 const attackerAtlas = await attackerApi.createAtlas({ name: 'Attacker Atlas' });
 
                 // The attacker pushes (to THEIR atlas) an update for the SAME markerId but
@@ -406,7 +404,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                 const marker = (map?.cesium3d?.markers || []).find((m) => m.id === markerId) || null;
                 return { name: marker?.properties?.name, present: Boolean(marker) };
             },
-            { victimAtlasId: victim.atlasId, victimMapId: victim.mapId, baseUrl: state.baseUrl },
+            { victimAtlasId: victim.atlasId, victimMapId: victim.mapId, baseUrl: state.baseUrl, u: attacker },
         );
 
         // The victim's marker is untouched: still present, name NOT overwritten.

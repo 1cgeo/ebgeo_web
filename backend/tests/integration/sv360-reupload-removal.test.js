@@ -104,7 +104,7 @@ describe('StreetView 360 — reupload que REMOVE uma foto não deixa resíduo', 
     token = jwt.sign(
       {
         sub: produtor.id, username: `rm_${RID}`, role: 'producer',
-        organization_id: orgId, org_role: 'viewer', producer_org_id: orgId,
+        organization_id: orgId, producer_org_id: orgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

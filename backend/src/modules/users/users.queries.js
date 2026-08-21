@@ -68,7 +68,7 @@ export const SEARCH_USERS = `
 
 export const LIST_ALL_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role,
+         u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
@@ -79,7 +79,7 @@ export const LIST_ALL_USERS = `
 
 export const LIST_ACTIVE_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role,
+         u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
@@ -91,7 +91,7 @@ export const LIST_ACTIVE_USERS = `
 
 export const FIND_USER_BY_ID_ADMIN = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role,
+         u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
   FROM users u
@@ -110,13 +110,13 @@ export const CHECK_USERNAME_EXISTS_EXCLUDING = `
 
 export const INSERT_USER_ADMIN = `
   WITH new_user AS (
-    INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role, org_role,
+    INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role,
                        producer_org_id)
-    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, COALESCE($7, 'viewer'), $8::uuid)
+    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7::uuid)
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role,
+         u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active, u.created_at
   FROM new_user u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -140,14 +140,13 @@ export const UPDATE_USER_ADMIN = `
         role = COALESCE($8, role),
         is_active = COALESCE($9, is_active),
         email_verified = COALESCE($10, email_verified),
-        org_role = COALESCE($11, org_role),
-        producer_org_id = CASE WHEN $13 THEN $12::uuid ELSE producer_org_id END,
+        producer_org_id = CASE WHEN $12 THEN $11::uuid ELSE producer_org_id END,
         updated_at = NOW()
     WHERE id = $1
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role,
+         u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
   FROM upd u
@@ -243,7 +242,7 @@ export const ROTATE_API_KEY = `
 
 export const FIND_USER_BY_API_KEY = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.producer_org_id, u.role
+         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id, u.role
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id

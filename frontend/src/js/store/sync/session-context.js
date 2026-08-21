@@ -255,11 +255,24 @@ class SessionContext {
      * de atlas e não marca recurso como privado. Juntar os dois numa função só é
      * exatamente a promoção silenciosa que o censo do backend existe para impedir.
      *
-     * A ÚNICA COISA QUE ELE ADMINISTRA É GRUPO DE ACESSO, por decisão do dono tomada
-     * em 2026-08-19: ele entra em `admin.html` e vê a aba Grupos e mais nada (esta
-     * linha dizia, por extenso, que ele "não abre o painel do admin", e deixou de
-     * valer). Quem monta esse recorte é `mountAdminPage`; as outras abas continuam
-     * `requireAdmin` no servidor, então oferecê-las a ele seria um 403 na montagem.
+     * ESTE MÉTODO CONTINUA VIVO E TEM UM CONSUMIDOR SÓ, e a próxima sessão precisa
+     * saber qual antes de o podar como morto: `canShareResource`
+     * (`store/sync/resource-access.service.js`), que decide a ação "Compartilhar" do
+     * cartão do catálogo. É o EIXO DE RECURSO, e é exatamente o que o credenciado
+     * mantém.
+     *
+     * ELE DEIXOU DE DECIDIR TELA em 2026-08-20 (decisão D1), e o que saiu foi a
+     * audiência da página de administração: o grupo de acesso virou entidade de
+     * USUÁRIO, com dono, e a autoridade sobre ele passou a ser posse
+     * (`fn_can_administer_group`, no servidor). O credenciado administra os grupos
+     * DELE, como qualquer autenticado, e a aba Grupos deixou de ser privilégio dele.
+     * Isso SUPERA por escrito a decisão de 2026-08-19, que dizia que administrar grupo
+     * era a única escrita do credenciado. Quem decide a audiência hoje é
+     * `adminAudience` (`js/admin/admin-audience.js`), e ela não pergunta isto aqui.
+     *
+     * Ou seja: sem consumidor de TELA e com consumidor de RECURSO. Uma varredura por
+     * "quem chama" que só olhe as páginas conclui morto e apaga o eixo global do
+     * cliente inteiro.
      *
      * O PRODUTOR FICA DE FORA daqui de propósito: ele não lê o privado de todo
      * mundo, lê o da OM dele, e isso chega pelo payload aditivo de
@@ -494,6 +507,18 @@ class SessionContext {
  * `producer_org_id` may be absent (legacy token, older backend): it degrades to null,
  * which reads as "produces for nobody" — the closed direction.
  *
+ * THE PER-ATLAS ROLE ALWAYS STARTS AT VIEWER, and that is the whole point of D7
+ * (2026-08-20). Until then this line read `role: user.org_role || UserRole.VIEWER`,
+ * seeding the PER-ATLAS axis from the user's role INSIDE THE ORGANIZATION — an axis
+ * whose two top values are spelled `owner` and `admin`, exactly like the two top values
+ * of the atlas axis. Whoever carried `org_role: 'admin'` was drawn as an atlas
+ * Administrator, with the full toolbar, while holding no permission on any atlas; the
+ * server refused every one of those actions, so it was an affordance that lies, not a
+ * breach. The record fed to this function no longer carries the field, and seeding from
+ * anything other than VIEWER would put the defect back: the real per-atlas role arrives
+ * LATER, from the server, in the WS `connected` payload (`sync-engine.js` connect) and in
+ * the owner elevation right before it.
+ *
  * @param {Object} user - The backend user record.
  * @param {string} [fallbackUsername] - Used when the record carries no display name (the
  *   login form knows what was typed even if the response omits it).
@@ -503,7 +528,7 @@ class SessionContext {
 export function sessionUserInfoFromMe(user, fallbackUsername) {
     return {
         userId: user.id,
-        role: user.org_role || UserRole.VIEWER,
+        role: UserRole.VIEWER,
         globalRole: user.role || GlobalRole.USER,
         producerOrgId: user.producer_org_id ?? null,
         username: user.username || user.nome || fallbackUsername

@@ -84,7 +84,7 @@ describe('StreetView 360 — thumbnail do bundle: magic bytes + teto próprio (a
     return jwt.sign(
       {
         sub: administradorId, username: `thumb_${RID}`, role: 'admin',
-        org_role: 'viewer', organization_id: orgId,
+ organization_id: orgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

@@ -20,12 +20,14 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
     test('mapPosition + baseLayer + mapNotes + gridStyle persist to the snapshot', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'mapsub', nome: 'Map Sub-entities' });
         await page.goto('/');
 
         // no-UI: this is a backend op-contract test (per-sub-type column mapping), not a
@@ -34,15 +36,12 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
         // to dedicated DB columns) and the raw-snapshot assertions (`api.pullSync`) ARE the
         // contract under test — there is no single in-app UI gesture that emits these exact
         // envelopes, so the transport is driven directly through the real api-client.
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `mapsub_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Map Sub-entities' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             // Seed atlas + map (initial position so a later mapPosition op is a real change).
             const atlas = await api.createAtlas({ name: 'Map Sub Atlas' });
@@ -109,7 +108,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
                     gridVisible: gridStyle.visible,
                 },
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.isSnapshot).toBe(true);
         expect(result.found).toBe(true);
@@ -135,6 +134,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
     });
 
     test('a sub-typed op may ONLY touch its own column: a smuggled sibling does not leak', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'mapwl', nome: 'Map Whitelist' });
         await page.goto('/');
 
         // no-UI: a NEGATIVE op-contract test (column whitelist). "Smuggling" a sibling
@@ -142,15 +142,12 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
         // no UI gesture can produce — the app's base-layer switch only ever sends the
         // base_layer field. The transport is driven directly so the backend's per-sub-type
         // whitelist (the thing under test) can be probed.
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `mapwl_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Map Whitelist' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Whitelist Atlas' });
             const mapId = crypto.randomUUID();
@@ -184,7 +181,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
                 smuggledName,
                 newBaseLayer,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.found).toBe(true);
         // The intended column DID change.

@@ -23,6 +23,7 @@ import { resolveOrgIdBySlug } from './sv360.merge.js';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
 import { principalUserId } from '../../utils/principal.js';
 import { createAudit } from '../../utils/audit.js';
+import { diffAuditavel } from '../../utils/audit-diff.js';
 import { purgeResourceLinks } from '../resource-access/resource-access.service.js';
 import {
   BadRequestError,
@@ -178,7 +179,8 @@ async function loadWritableProject(slug, user, opts = {}) {
       // own this slug) and refuse to guess.
       const { rows } = await query(
         `SELECT id, organization_id, slug, name, center_lat, center_long,
-                entry_photo_id, photo_count, db_filename, status, created_at, updated_at
+                entry_photo_id, photo_count, db_filename, status, preview_video,
+                created_at, updated_at
            FROM sv360.projects WHERE slug = $1 ORDER BY created_at`,
         [slug]
       );
@@ -259,7 +261,68 @@ export async function setStatus(slug, status, user, opts = {}, req = null) {
     targetType: 'SV360_PROJECT',
     targetId: project.id,
     targetName: project.name ?? slug,
+    targetOrgId: project.organization_id,
     details: { slug, orgId: project.organization_id, from: project.status, to: status },
+  });
+  return rows[0];
+}
+
+/**
+ * Grava o METADADO editável do projeto — hoje só o vídeo de prévia. Ownership pelo
+ * mesmo `loadWritableProject` das outras rotas administrativas.
+ *
+ * POR QUE UMA ROTA DE METADADO, E NÃO UM CAMPO NO BUNDLE: o vídeo é escolhido depois
+ * da ingestão, por quem mantém o acervo, e re-enviar um bundle de vários gigabytes para
+ * trocar uma URL não é uma operação que exista. As quatro tabelas de catálogo resolvem
+ * isso pelo `config` JSONB; `sv360.projects` não tem `config`, então precisa de porta.
+ *
+ * ELA NASCE COM UM CAMPO SÓ, E ISSO É DELIBERADO. Alargá-la depois sem revisar o gate a
+ * transforma na rota genérica de edição de projeto, que hoje NÃO existe — `slug`,
+ * `organization_id` e `db_filename` são derivados no servidor de propósito, e um PATCH
+ * que os aceitasse desfaria a garantia de que um manifesto não aponta o store de outra
+ * OM. Campo novo aqui é decisão, não acréscimo.
+ *
+ * A AÇÃO DA TRILHA É `CATALOG_UPDATE`, reusada e não inventada: o projeto 360 é um dos
+ * cinco tipos de recurso do catálogo, e uma ação própria exigiria alargar o CHECK de
+ * `audit_trail.action`, o que arrasta DROP/ADD CONSTRAINT e uma linha em
+ * `EXCECOES_DESTRUTIVAS` para descrever a mesma coisa com outro nome.
+ *
+ * O DE-PARA VEM DE `utils/audit-diff.js`, e a URL entra como IMPRESSÃO, nunca literal:
+ * é endereço, e endereço de serviço pode carregar credencial na query string.
+ *
+ * @param {string} slug
+ * @param {{previewVideo?: string|null}} data - Corpo já validado pelo Joi da rota.
+ * @param {Object} user
+ * @param {Object} [opts] - `orgId`/`orgSlug` para desambiguar slug cross-OM (admin).
+ * @param {Object} [req] - Express req, para ip/user-agent da trilha.
+ * @returns {Promise<Object>} a linha atualizada
+ */
+export async function updateProjectMetadata(slug, data, user, opts = {}, req = null) {
+  const project = await loadWritableProject(slug, user, opts);
+  // A string vazia é como o painel diz "remova o vídeo"; a coluna guarda NULL, que é o
+  // mesmo estado de quem nunca teve vídeo. Duas representações para "sem vídeo" fariam a
+  // forma pública devolver `''` num caso e `null` no outro, e o cartão teria de conhecer
+  // as duas.
+  const previewVideo = data.previewVideo ? String(data.previewVideo) : null;
+  const { rows } = await query(AQ.UPDATE_PROJECT_METADATA, [
+    project.organization_id,
+    slug,
+    previewVideo,
+  ]);
+  const antes = { config: { previewVideo: project.preview_video ?? null } };
+  const depois = { config: { previewVideo } };
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(user),
+    targetType: 'SV360_PROJECT',
+    targetId: project.id,
+    targetName: project.name ?? slug,
+    targetOrgId: project.organization_id,
+    details: {
+      table: 'sv360.projects',
+      fields: Object.keys(data || {}),
+      ...diffAuditavel(antes, depois),
+    },
   });
   return rows[0];
 }
@@ -308,6 +371,11 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
         targetType: 'SV360_PROJECT',
         targetId: project.id,
         targetName: project.name ?? slug,
+        // A OM VAI NA COLUNA, e não só em `details`, e este é o caso que decidiu o
+        // desenho inteiro: a linha nasce DEPOIS do DELETE, na mesma transação, então
+        // resolver a OM na leitura (por junta ou por gatilho) devolveria NULL para a
+        // única destruição irreversível do sistema. O emissor a tem em mãos.
+        targetOrgId: project.organization_id,
         // HARD-delete: é o único do sistema, e dizê-lo é o que impede a leitura de
         // que existe uma lixeira de onde recuperar. As contagens de vínculo purgado
         // ficam aqui também, para que a linha do projeto conte a história inteira
@@ -421,5 +489,8 @@ export async function uploadBundle(user, files = {}) {
     }
   }
 
-  return result;
+  // O `orgId` VIAJA NO ENVELOPE, e o controller o desestrutura FORA da resposta: ele
+  // existe para a trilha (o produtor precisa ver a própria ingestão) e o corpo do 201 é
+  // contrato congelado do 360, que não ganha campo por causa de auditoria.
+  return { ...result, orgId };
 }

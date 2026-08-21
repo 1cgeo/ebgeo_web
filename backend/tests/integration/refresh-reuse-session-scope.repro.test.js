@@ -50,7 +50,6 @@ function mintToken(user, { expiresIn = '15m', iat } = {}) {
     posto: user.posto_graduacao,
     role: user.role || 'user',
     organization_id: user.organization_id,
-    org_role: user.org_role || 'viewer',
     org: user.organization_id,
     login: user.username,
   };

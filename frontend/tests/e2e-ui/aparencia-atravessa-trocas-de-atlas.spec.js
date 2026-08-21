@@ -13,6 +13,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -56,24 +57,20 @@ describeOrSkip('aparência atravessa as trocas de atlas', () => {
         const page = await ctx.newPage();
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
 
+        // A CONTA nasce no lado Node (`helpers/accounts.js`): confirmar o e-mail exige ler
+        // `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
+        const creds = await createVerifiedUser({ prefix: 'trocas', nome: 'Trocas' });
         await page.goto('/');
-        const creds = await page.evaluate(async (base) => {
+        await page.evaluate(async ({ base, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            const user = {
-                username: `trocas_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`,
-                password: 'Sup3r-Secret-Pw!',
-                nome: 'Trocas',
-            };
-            await api.register({ ...user });
-            await api.login(user.username, user.password);
+            await api.login(u.username, u.password);
             await api.createAtlas({ name: 'AAA Servidor um' });
             await api.createAtlas({ name: 'ZZZ Servidor dois' });
             // Sem tokens: a primeira metade é anônima, e um visitante COM sessão numa URL nua é
             // mandado para a tela de projetos antes de o mapa existir.
             api.clearTokens();
-            return user;
-        }, state.baseUrl);
+        }, { base: state.baseUrl, u: creds });
 
         // ---------- LOCAL #1: escolhe plano ----------
         await esperarMapa(page);

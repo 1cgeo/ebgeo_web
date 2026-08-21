@@ -39,7 +39,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[api-rest-atlas]] - a família de endpoints REST de atlas e a permissão mínima por rota.
 - [[atlas-settings]] - o bloco de configuração por atlas que habilita features e restringe camadas e navegação.
 - [[permissoes-atlas]] - os cinco tiers de acesso, os dois vocabulários ortogonais de autorização (tier de atlas e papel de UI), como um deriva do outro e onde cada checagem acontece.
-- [[compartilhamento-atlas]] - concessão nominal de acesso gravada em atlas_shares.
+- [[compartilhamento-atlas]] - concessão de acesso a um atlas gravada em atlas_shares, para uma pessoa ou um grupo.
 - [[link-publico]] - acesso anônimo por link opaco trocado em token de visitante read-only.
 - [[clone-atlas]] - o que a duplicação de atlas leva junto e o que deliberadamente fica de fora.
 - [[atlas-import-offline]] - subir um atlas inteiro criado offline preservando os UUIDs locais.
@@ -64,7 +64,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[resources-catalogo]] - o catálogo global versionado de camadas e assets, escrito por administrador ou pela OM produtora.
 - [[acesso-a-recurso-privado]] - a marca público/privado nos cinco tipos de recurso, a concessão em árvore com prazo e o empréstimo que um atlas faz do que anexou.
 - [[grupo-de-acesso]] - o beneficiário coletivo de uma concessão, quem tem autoridade para compô-lo, e por que listar grupo e administrar grupo têm gates diferentes.
-- [[auditoria]] - a trilha de eventos de negócio e sua consulta administrativa.
+- [[auditoria]] - a trilha de eventos de negócio, o eixo de OM gravado na escrita, e a leitura em dois ramos (administrador e produtor).
 - [[config-dinamico]] - o endpoint público que substitui o config.js estático e monta o payload em runtime.
 
 ## Dados geográficos: gazetteer, 3D e 360
@@ -87,6 +87,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[coordenacao-entre-abas]] - quando duas abas do mesmo navegador colidem, por que a arbitragem é por ordem total, e o que bloquear significa (parar o sync, nunca apagar).
 - [[namespace-por-atlas]] - um conjunto de bancos IndexedDB por atlas, o expurgo derivado de registro e o resgate do trabalho não sincronizado.
 - [[formato-ebgeo-roundtrip]] - o contêiner portável do trabalho local e as invariantes de round-trip.
+- [[sair-do-servidor]] - as DUAS regras de poda de recurso restrito na cópia, e por que sair do servidor e mudar de dono dentro dele exigem regras diferentes.
 - [[modulo-temporal]] - a dimensão de tempo por mapa e a fronteira entre estado compartilhado e estado local.
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.
 - [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.

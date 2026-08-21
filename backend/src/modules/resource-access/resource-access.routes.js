@@ -12,10 +12,10 @@
 
 import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
-import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import {
   liftOptionalAtlasId, requireAtlasScopeWhenPresent, requireResourceShare, requireGrantRevoker,
+  requireResourceMaintainer,
 } from '../../middleware/resource-access.js';
 import * as ctrl from './resource-access.controller.js';
 import * as schemas from './resource-access.schemas.js';
@@ -59,16 +59,28 @@ router.get(
 /**
  * PATCH /api/v1/resource-access/:type/:id/visibility
  *
- * Marcar um recurso como privado é ato de ADMINISTRAÇÃO do catálogo, não de
- * compartilhamento: quem tem concessão pode repassar acesso, e não decidir que o
- * recurso deixou de ser público para todo mundo. Daí `requireAdmin` e não o gate
- * de compartilhar.
+ * Marcar um recurso como público ou privado é ato de MANUTENÇÃO do acervo, não de
+ * administração do sistema: quem mantém o que a OM produziu decide o que dela é
+ * público. Até 2026-08-20 o gate era `requireAdmin`, e o comentário que ocupava estas
+ * linhas dizia por extenso o contrário do que o produto passou a querer.
+ *
+ * A ORDEM INVERTE DE PROPÓSITO: `validate` vem ANTES do gate porque
+ * `requireResourceMaintainer` chama `fn_can_produce_resource`, cujo `CASE` LEVANTA para
+ * tipo fora da whitelist — um `:type` inventado na URL viraria 500 em vez do 422 da
+ * borda. É a mesma razão já escrita em `producesResource`.
+ *
+ * E o gate resolve o papel NO BANCO: `requireAdmin` lia `req.user.role` do TOKEN, que
+ * é justamente a leitura que este módulo inteiro evita porque `flexibleAuth` não
+ * reconcilia.
+ *
+ * O eixo de CONCESSÃO continua à parte: quem tem `view_share` repassa acesso e não
+ * decide que o recurso deixou de ser público para todo mundo.
  */
 router.patch(
   '/:type/:id/visibility',
   auth,
-  requireAdmin,
   validate({ params: schemas.resourceParamsSchema, body: schemas.visibilitySchema }),
+  requireResourceMaintainer,
   ctrl.setVisibility,
 );
 

@@ -23,6 +23,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 import { FEATURE_TYPE_MAPPINGS } from '../../src/js/store/store.constants.js';
 
 const state = readState();
@@ -51,16 +52,15 @@ describeOrSkip('Feature types (every one, real Chromium + real backend)', () => 
     test('one feature of each type lands in exactly its snapshot bucket', async ({ page }) => {
         await page.goto('/');
 
+        const user = await createVerifiedUser({ prefix: 'ftypes', nome: 'Feature Types' });
+
         const result = await page.evaluate(
-            async ({ baseUrl, typeToBucket }) => {
+            async ({ baseUrl, typeToBucket, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                const username = `ftypes_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await api.register({ username, password, nome: 'Feature Types' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Feature Types Atlas' });
                 const mapId = crypto.randomUUID();
@@ -150,7 +150,7 @@ describeOrSkip('Feature types (every one, real Chromium + real backend)', () => 
                     unknownOutcome,
                 };
             },
-            { baseUrl: state.baseUrl, typeToBucket: TYPE_TO_BUCKET },
+            { baseUrl: state.baseUrl, typeToBucket: TYPE_TO_BUCKET, u: user },
         );
 
         // Sanity: we got a snapshot and the map we created.

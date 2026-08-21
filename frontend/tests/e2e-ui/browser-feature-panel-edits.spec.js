@@ -31,6 +31,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -41,15 +42,14 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
     }) => {
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const user = await createVerifiedUser({ prefix: 'fpe_pt', nome: 'Feature Panel Owner' });
+
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `fpe_pt_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Feature Panel Owner' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Feature Panel Atlas' });
             const mapId = crypto.randomUUID();
@@ -149,7 +149,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 restyledTotal: afterRestyle.total,
                 restyledWithId: afterRestyle.withId,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.hasToken).toBe(true);
 
@@ -205,15 +205,14 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
     test('§17.9 hatch pattern round-trips on a polygon update (and overwrites on a 2nd update)', async ({ page }) => {
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const user = await createVerifiedUser({ prefix: 'fpe_pg', nome: 'Feature Panel Polygon' });
+
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `fpe_pg_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Feature Panel Polygon' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Feature Panel Polygon Atlas' });
             const mapId = crypto.randomUUID();
@@ -290,7 +289,7 @@ describeOrSkip('Feature style-panel edits (real Chromium + real backend, transpo
                 rehatchedTotal: rehatched.total,
                 rehatchedWithId: rehatched.withId,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.inPolygons).toBe(true);
 

@@ -108,7 +108,14 @@ describe('Atlas Advanced', () => {
       await supertest(app)
         .patch(`/api/v1/atlas/${atlas.id}/settings`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ basemaps: ['osm', 'satellite'], min_zoom: 3 })
+        // OS DOIS IDS SAO REAIS E PUBLICOS (`005_catalogo.sql`), e a troca de 'satellite' por
+        // 'imagens' e o que faz este caso continuar medindo FIDELIDADE. Desde que o clone
+        // poda `atlas.settings` por destinatario, um id inventado e classificado como nao
+        // visivel (a convencao de recusa e `COALESCE(access_level,'private')`) e sai da
+        // allowlist: o caso reprovaria por estar CERTO. Com os dois publicos ele vira o
+        // controle POSITIVO da poda de settings, que a metade negativa mede em
+        // `clone-poda-por-destinatario.test.js`.
+        .send({ basemaps: ['osm', 'imagens'], min_zoom: 3 })
         .expect(200);
 
       // Add maps with features
@@ -132,7 +139,7 @@ describe('Atlas Advanced', () => {
       assert.equal(cloned.owner_id, owner.id);
 
       // Settings should be preserved
-      assert.deepEqual(cloned.settings.basemaps, ['osm', 'satellite']);
+      assert.deepEqual(cloned.settings.basemaps, ['osm', 'imagens']);
       assert.equal(cloned.settings.min_zoom, 3);
 
       // Maps should be cloned

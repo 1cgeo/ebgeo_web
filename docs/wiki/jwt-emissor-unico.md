@@ -24,9 +24,9 @@ Na rota estrita, `auth` sobrescreve `req.user.role` **e** `req.user.producer_org
 
 **O escopo de produção é adotado incondicionalmente**, e a assimetria com as claims de organização é o ponto: produzir é função, não favor, então revogar precisa valer na hora, e não existe token legado a preservar (a claim é nova, e ausente significa "não produz", que é o que o banco diz de quem não tem escopo). Sem isso um produtor rebaixado seguiria escrevendo catálogo e acervo 360 pela janela inteira do token, nos dois caminhos.
 
-`org_role` e `organization_id` continuam de fora, e hoje isso custa menos: eles não autorizam mais nada ([[acesso-a-recurso-privado]]), são lotação e exibição. A reconciliação que existe para eles em `flexible-auth.js` é **condicional a o token já carregar a claim**, e essa condição é a regra inteira: claim ausente degrada para `viewer`/`null` (um token que nunca teve autoridade de OM não pode ganhá-la por reflexo do banco), claim presente reconcilia. Confundir as duas é o que fez "nunca reconcilie" parecer a única forma de honrar a primeira. Ver [[organizacoes-om]], [[gestao-usuarios]].
+`organization_id` continua de fora, e hoje isso custa menos: ele não autoriza mais nada ([[acesso-a-recurso-privado]]), é lotação e exibição. A reconciliação que existe para ele em `flexible-auth.js` é **condicional a o token já carregar a claim**, e essa condição é a regra inteira: claim ausente degrada para `null` (um token que nunca teve OM não pode ganhá-la por reflexo do banco), claim presente reconcilia. Confundir as duas é o que fez "nunca reconcilie" parecer a única forma de honrar a primeira. A condição cobria DUAS claims até 2026-08-20; o eixo `org_role` saiu do código inteiro e o disjunto dele foi podado no mesmo commit, porque um legado que trouxesse só a claim morta entraria no ramo e promoveria a lotação do banco. Ver [[organizacoes-om]], [[gestao-usuarios]].
 
-Corolário: não trate `role` e `org_role` com o mesmo nível de confiança, apesar de virem do mesmo token.
+Corolário: não trate `role` e `organization_id` com o mesmo nível de confiança, apesar de virem do mesmo token.
 
 ## Linha ausente não é revogação
 
@@ -34,7 +34,7 @@ Tanto `backend/src/middleware/auth.js` quanto `backend/src/middleware/flexible-a
 
 ## Token legado degrada a partir do token, nunca do banco
 
-Um token sem claims de organização é remintado como `org_role: 'viewer'` / `organization_id: null` mesmo que a linha em `users` diga `owner` (`backend/tests/integration/auth-gaps.test.js`). O fallback mora no mapeamento, não na assinatura. A regra: um token que nunca teve autoridade de OM não pode ganhá-la por reflexo do banco.
+Um token sem a claim de organização é remintado como `organization_id: null` mesmo que a linha em `users` tenha uma OM (`backend/tests/integration/auth-gaps.test.js`). O fallback mora no mapeamento, não na assinatura. A regra: um token que nunca teve autoridade de OM não pode ganhá-la por reflexo do banco.
 
 ## Principal sintético: dois marcadores, e eles fazem coisas diferentes
 

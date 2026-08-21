@@ -115,7 +115,7 @@ describe('Organizations + audit', () => {
     const orgId = created.body.data.id;
 
     const member = await createUser(db, { username: 'barred_member' });
-    await db.query('UPDATE users SET organization_id = $1, org_role = $2 WHERE id = $3', [orgId, 'editor', member.id]);
+    await db.query('UPDATE users SET organization_id = $1 WHERE id = $2', [orgId, member.id]);
 
     // While the org is active: login works and the token reaches a strict route.
     const login = await supertest(app)

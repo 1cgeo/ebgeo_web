@@ -11,6 +11,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI, readFeatures } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -18,16 +19,17 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 const currentMapName = (page) =>
     page.evaluate(async () => (await import('/src/js/store/index.js')).getCurrentMapNameSync());
 
-/** Seeds a user + an atlas with the given named maps (UUID-keyed). Returns ids keyed by name. */
+/**
+ * Seeds a VERIFIED user (Node side — o token de confirmação só existe como linha no Postgres)
+ * + an atlas with the given named maps (UUID-keyed). Returns ids keyed by name.
+ */
 async function seedUserAtlas(page, baseUrl, maps) {
-    return page.evaluate(async ({ base, mapNames }) => {
+    const user = await createVerifiedUser({ prefix: 'url', nome: 'URL Tester' });
+    return page.evaluate(async ({ base, mapNames, u }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const username = `url_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'URL Tester' });
-        await api.login(username, password);
+        await api.login(u.username, u.password);
         const atlas = await api.createAtlas({ name: 'URL Atlas' });
         const ops = [];
         const mapIds = {};
@@ -37,8 +39,8 @@ async function seedUserAtlas(page, baseUrl, maps) {
             ops.push(createOperation('map', 'create', id, null, { name }));
         }
         await api.pushOperations(atlas.id, ops);
-        return { username, password, atlasId: atlas.id, mapIds };
-    }, { base: baseUrl, mapNames: maps });
+        return { username: u.username, password: u.password, atlasId: atlas.id, mapIds };
+    }, { base: baseUrl, mapNames: maps, u: user });
 }
 
 describeOrSkip('Atlas deep link (?atlas=&map=)', () => {

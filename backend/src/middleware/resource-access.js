@@ -102,39 +102,6 @@ async function hasGlobalDataAccess(req) {
 }
 
 /**
- * Gate de PAPEL GLOBAL DE DADO: administrador OU credenciado.
- *
- * O ÚNICO gate deste eixo que não pergunta por um recurso, e é isso que o torna
- * utilizável pela administração de GRUPO DE ACESSO, onde não há recurso nenhum na
- * URL. Ele é `hasGlobalDataAccess` sozinho, sem os ramos de concessão e de produção
- * que `requireResourceShare` e `requireResourceRelay` compõem por cima.
- *
- * POR QUE ELE NÃO É `requireAdmin`, e a decisão é do dono (2026-08-19): o credenciado
- * já LÊ todo recurso privado do sistema, então deixá-lo compor grupos não lhe abre
- * nada que ele não alcançasse — o que um grupo muda é a quem ELE repassa, e isso
- * continua passando por `requireResourceShare`. É a primeira escrita do papel, e a
- * exceção está escrita aqui em vez de virar uma segunda definição de "credenciado" em
- * outro arquivo.
- *
- * POR QUE ELE NÃO É UMA COMPARAÇÃO DE PAPEL EM JS: `hasGlobalDataAccess` resolve
- * `fn_has_global_data_access` NO BANCO, e o motivo é o mesmo do cabeçalho deste
- * arquivo — o token vive até 15 min e `flexibleAuth` não reconcilia, então um
- * credenciado rebaixado carregaria o papel antigo por essa janela inteira. Um
- * `req.user.role === 'admin' || ... === 'credenciado'` aqui seria, além disso,
- * exatamente a lista fechada de papel que o censo do backend existe para impedir.
- *
- * Ele deixa `req.hasGlobalDataAccess` marcado como o irmão de compartilhar, para que
- * um handler adiante não reconsulte o mesmo fato.
- */
-export function requireGlobalDataAccess(req, res, next) {
-  Promise.resolve().then(async () => {
-    req.hasGlobalDataAccess = await hasGlobalDataAccess(req);
-    if (req.hasGlobalDataAccess) return next();
-    return next(new ForbiddenError('É preciso ser administrador ou credenciado para esta ação.'));
-  }).catch(next);
-}
-
-/**
  * true quando o ator MANTÉM este recurso (o eixo de PRODUÇÃO).
  *
  * Wrapper de `fn_can_produce_resource`, a MESMA função que gateia o `WHERE` de toda
@@ -173,33 +140,71 @@ async function hasShareGrant(userId, type, resourceId) {
 }
 
 /**
- * Gate de COMPARTILHAR: papel global de dado, ou uma concessão viva com
- * `grant_level = 'view_share'` naquele recurso.
+ * A AUTORIDADE DE REPASSAR ESTE RECURSO, resolvida UMA vez, em três ramos.
+ *
+ * Os dois gates abaixo carregavam a mesma escada escrita duas vezes, e a diferença
+ * entre eles nunca foi a regra: é de onde vem o alvo e qual é a mensagem. Duas cópias
+ * de uma regra de autorização divergem na próxima edição, e a divergência aparece no
+ * ramo que ninguém olha.
+ *
+ * A ORDEM DOS RAMOS É DE CUSTO, não de precedência: papel global (uma consulta sobre
+ * `users`), produção (uma função STABLE sobre a linha do recurso) e só então a
+ * concessão viva, que passa pela tabela de concessões. Como autoridade, os três são
+ * alternativos: qualquer ordem daria a mesma resposta.
+ *
+ * NENHUM DELES COMPARA PAPEL EM JAVASCRIPT. `fn_has_global_data_access` e
+ * `fn_can_produce_resource` resolvem no BANCO, pelo motivo do cabeçalho deste arquivo
+ * (o token vive até 15 min e `flexibleAuth` não reconcilia) e porque este arquivo é
+ * gate de PODER no censo de papel global: um literal de papel aqui reprova, e reprova
+ * com razão.
+ *
+ * @param {object} req
+ * @param {string} type - Tipo de recurso já validado pela borda.
+ * @param {string} resourceId
+ * @returns {Promise<{global: boolean, produz: boolean, repassa: boolean}>}
+ */
+async function autoridadeDeRepasse(req, type, resourceId) {
+  const userId = principalUserId(req.user);
+  const global = await hasGlobalDataAccess(req);
+  if (global) return { global: true, produz: false, repassa: false };
+
+  const produz = await producesResource(userId, type, resourceId);
+  if (produz) return { global: false, produz: true, repassa: false };
+
+  return { global: false, produz: false, repassa: await hasShareGrant(userId, type, resourceId) };
+}
+
+/**
+ * Gate de COMPARTILHAR: papel global de dado, PRODUÇÃO daquele recurso, ou uma
+ * concessão viva com `grant_level = 'view_share'`.
  *
  * `view` NÃO passa, e essa é a única diferença entre os dois níveis: quem recebeu
  * acesso simples vê e não repassa. O teste negativo
- * (`resource-grants-escalonamento.test.js`) é o que impede a distinção de virar
- * prosa.
+ * (`resource-grants-escalonamento.test.js`) é o que impede a distinção de virar prosa.
  *
- * O resultado do papel global fica em `req.hasGlobalDataAccess` porque o serviço
- * precisa dele logo em seguida (é quem decide `parent_grant_id = NULL`), e
- * reconsultar seria uma segunda leitura do mesmo fato — que é como duas respostas
- * diferentes para a mesma pergunta aparecem numa requisição só.
+ * O PRODUTOR ENTROU AQUI EM 2026-08-20, POR DECISÃO DO DONO, e o parágrafo que estas
+ * linhas substituem dizia o contrário por extenso ("deixar o produtor entrar aqui
+ * trocaria um 403 do gate por um 403 do serviço"). O argumento estava certo sobre o
+ * mecanismo e errado sobre o produto: o serviço passou a tratar produção como RAIZ,
+ * igual ao papel global, então quem mantém o acervo da OM concede sem precisar receber
+ * de um administrador acesso àquilo que ele próprio publica.
  *
- * ELE NÃO TEM O RAMO DE PRODUÇÃO, e a assimetria com `requireResourceRelay` é
- * deliberada: quem passa por aqui vai CONCEDER, e `grantResource` pendura a concessão
- * nova num `parent_grant_id` que só existe quando o ator tem papel global (raiz) ou
- * uma concessão `view_share` de onde derivar. Deixar o produtor entrar aqui trocaria
- * um 403 do gate por um 403 do serviço, com outra mensagem; dar-lhe concessão de raiz
- * é decisão de produto, não conserto de segurança.
+ * OS DOIS FATOS FICAM MARCADOS NO `req` porque o serviço precisa deles logo em
+ * seguida (são eles que decidem `parent_grant_id = NULL`), e reconsultar seria uma
+ * segunda leitura do mesmo fato — que é como uma requisição passa a ter duas respostas
+ * para a mesma pergunta. Os dois nascem `false` ANTES de qualquer `await`: um
+ * `undefined` que escapasse por um caminho de erro seria lido como "não", que é a
+ * resposta certa pelo motivo errado.
  */
 export function requireResourceShare(req, res, next) {
+  req.hasGlobalDataAccess = false;
+  req.producesResource = false;
   Promise.resolve().then(async () => {
     const { type, id } = req.params;
-    req.hasGlobalDataAccess = await hasGlobalDataAccess(req);
-    if (req.hasGlobalDataAccess) return next();
-
-    if (await hasShareGrant(principalUserId(req.user), type, id)) return next();
+    const quem = await autoridadeDeRepasse(req, type, id);
+    req.hasGlobalDataAccess = quem.global;
+    req.producesResource = quem.produz;
+    if (quem.global || quem.produz || quem.repassa) return next();
 
     return next(new ForbiddenError('É preciso ter acesso com permissão de compartilhar para esta ação.'));
   }).catch(next);
@@ -213,35 +218,26 @@ export function requireResourceShare(req, res, next) {
  * mais `assertCanSeeResource`, e `fn_can_see_resource` não distingue NÍVEL de
  * concessão: quem tinha só `view` — o nível cuja definição é "vê e NÃO repassa" —
  * anexava o recurso ao atlas dele e, com isso, o entregava a todo membro daquele
- * atlas. A distinção `view`/`view_share` continuava escrita em
- * `requireResourceShare`, e o caminho do empréstimo passava por fora dela.
+ * atlas.
  *
- * A AUTORIDADE EXIGIDA É A DE REPASSAR, com um ramo a mais: papel global de dado,
- * PRODUÇÃO daquele recurso, ou concessão viva `view_share`. Os ramos são os mesmos
- * objetos de `requireResourceShare` (`hasGlobalDataAccess`, `hasShareGrant`) mais
- * `producesResource`, que delega ao `fn_can_produce_resource` do banco: nenhuma regra
- * é redefinida aqui. O produtor entra porque o acervo da OM dele é dele — exigir que
- * um administrador lhe conceda acesso ao que ele mantém inverte a relação, e o
- * argumento está por extenso na decisão de 2026-08-17 em
- * `docs/decisions/decisions-2026.md`.
+ * A AUTORIDADE EXIGIDA É A MESMA do gate irmão, resolvida pela mesma função. O que
+ * continua diferente são as duas coisas que sempre foram: o ALVO vem do corpo antes
+ * dos params (quem anexa manda `resourceType`/`resourceId` no corpo), e a MENSAGEM
+ * fala de emprestar.
  *
  * 403 E NÃO 404, ao contrário do gate irmão: `assertCanSeeResource` roda ANTES e já
  * respondeu 404 para o que este ator não enxerga, então quem chega aqui JÁ sabe que o
  * recurso existe. Um 404 nesta linha não esconderia nada e mentiria sobre a causa.
  *
- * O CASO ANÔNIMO EM ATLAS `is_public`, nomeado aqui porque é o extremo do eixo e não
- * estava escrito em lugar nenhum: `requireAtlasScopeWhenPresent` resolve `read` para
- * `userId` NULO quando o atlas é público (R4), e o braço de empréstimo de
- * `fn_granted_resource_ids` exige `p_atlas_id IS NOT NULL` sem pedir nada sobre
- * `p_user_id`. Logo um recurso PRIVADO anexado a um atlas que depois vira público é
- * entregue a chamador SEM CREDENCIAL NENHUMA, por `GET /sv360/projects?atlasId=`, por
- * `GET /resource-access/visible` e pelas listagens de catálogo. Isso é CONSEQUÊNCIA
- * ACEITA, não defeito: o visitante de link público herdar o empréstimo é decisão
- * registrada (R4), e o que a torna defensável é justamente este gate — a cadeia
- * inteira passa a começar em alguém com autoridade para repassar aquele recurso, e
- * publicar o atlas depois é ato deliberado de quem já a tinha. Sem ele, a mesma cadeia
- * começava em `view`, o nível definido como "não repassa", e terminava em acesso
- * anônimo.
+ * O CASO ANÔNIMO EM ATLAS `is_public`, nomeado aqui porque é o extremo do eixo:
+ * `requireAtlasScopeWhenPresent` resolve `read` para `userId` NULO quando o atlas é
+ * público (R4), e o braço de empréstimo de `fn_granted_resource_ids` exige
+ * `p_atlas_id IS NOT NULL` sem pedir nada sobre `p_user_id`. Logo um recurso PRIVADO
+ * anexado a um atlas que depois vira público é entregue a chamador SEM CREDENCIAL
+ * NENHUMA. Isso é CONSEQUÊNCIA ACEITA, não defeito: o visitante de link público herdar
+ * o empréstimo é decisão registrada (R4), e o que a torna defensável é justamente este
+ * gate — a cadeia inteira passa a começar em alguém com autoridade para repassar
+ * aquele recurso, e publicar o atlas depois é ato deliberado de quem já a tinha.
  */
 export function requireResourceRelay(req, res, next) {
   Promise.resolve().then(async () => {
@@ -251,11 +247,8 @@ export function requireResourceRelay(req, res, next) {
       return next(new BadRequestError('resourceType e resourceId são obrigatórios'));
     }
 
-    if (await hasGlobalDataAccess(req)) return next();
-
-    const userId = principalUserId(req.user);
-    if (await producesResource(userId, type, resourceId)) return next();
-    if (await hasShareGrant(userId, type, resourceId)) return next();
+    const quem = await autoridadeDeRepasse(req, type, resourceId);
+    if (quem.global || quem.produz || quem.repassa) return next();
 
     return next(new ForbiddenError(
       'É preciso ter acesso com permissão de compartilhar para emprestar este recurso.',
@@ -386,6 +379,53 @@ export function requireCatalogProducer(table) {
       return next();
     }).catch(next);
   };
+}
+
+/**
+ * Gate de MANUTENÇÃO de recurso: administrador OU quem produz alguma coisa.
+ *
+ * A rota que ele gateia é `PATCH /resource-access/:type/:id/visibility`, e até
+ * 2026-08-20 ela era `requireAdmin`. Marcar público ou privado deixou de ser ato de
+ * ADMINISTRAÇÃO do catálogo e passou a ser ato de MANUTENÇÃO do acervo: quem mantém o
+ * que a OM produziu decide o que dela é público. O eixo de CONCESSÃO continua à parte
+ * — tornar privado não concede nada a ninguém, e conceder não muda a visibilidade.
+ *
+ * SÃO DOIS GATES EM CAMADAS DIFERENTES, exatamente como em `requireCatalogProducer`, e
+ * nenhum duplica o predicado do outro. Este pergunta "esta pessoa mantém ALGUMA
+ * coisa?" e recusa cedo (403) quem não mantém nada — o credenciado e o usuário comum
+ * inclusive. QUAL linha é dela é decidido pelo `WHERE` da própria escrita
+ * (`SET_360_ACCESS_LEVEL` e `setCatalogAccessLevel`), que devolve 404 para a linha de
+ * outra OM. Um gate FINO aqui responderia 403 para recurso de outra OM e confirmaria a
+ * existência do que o 404 esconde.
+ *
+ * A DIFERENÇA PARA O IRMÃO é de onde vem o tipo: lá ele vem da TABELA com que o router
+ * foi fabricado, aqui vem de `req.params.type`, já validado pelo Joi da rota contra os
+ * CINCO tipos. É por isso que a rota roda `validate({ params })` ANTES deste gate:
+ * `fn_can_produce_resource` LEVANTA para tipo fora da whitelist, e um tipo inventado na
+ * URL viraria 500 em vez de 422.
+ *
+ * O ID VAI VAZIO, NUNCA NULO, pelo mesmo motivo documentado em
+ * `requireCatalogProducer`: `fn_can_produce_resource` sai cedo com FALSE para argumento
+ * nulo, ANTES de olhar o papel, e isso faria o ADMINISTRADOR levar 403.
+ */
+export function requireResourceMaintainer(req, res, next) {
+  Promise.resolve().then(async () => {
+    const userId = principalUserId(req.user);
+    const tipo = req.params?.type;
+    const bruto = req.params?.id;
+    const resourceId = typeof bruto === 'string' ? bruto : '';
+
+    const linha = userId && tipo
+      ? await one(CATALOG_PRODUCER_ACTOR, [userId, tipo, resourceId])
+      : null;
+
+    if (!linha || (linha.produz_este !== true && !linha.producer_org_id)) {
+      return next(new ForbiddenError(
+        'É preciso ser administrador ou manter este acervo para alterar a visibilidade.',
+      ));
+    }
+    return next();
+  }).catch(next);
 }
 
 /**

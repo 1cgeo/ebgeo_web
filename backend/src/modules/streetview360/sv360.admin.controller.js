@@ -44,7 +44,11 @@ export const uploadProject = asyncHandler(async (req, res) => {
     if (!manifestPath) throw new BadRequestError('manifest field is required');
     if (!imagesDbPath) throw new BadRequestError('imagesDb field is required');
 
-    const result = await asvc.uploadBundle(req.user, {
+    // O `orgId` SAI DO ENVELOPE E NÃO ENTRA NA RESPOSTA: o corpo do 201 é contrato
+    // congelado do 360 (envelope plano, sem `{data}`), e a OM está aqui só para a
+    // trilha — sem ela o produtor não veria a própria ingestão na tela de auditoria,
+    // que é o evento de NASCIMENTO do recurso dele.
+    const { orgId, ...result } = await asvc.uploadBundle(req.user, {
       manifestPath,
       imagesDbPath,
       thumbnailPath,
@@ -63,6 +67,7 @@ export const uploadProject = asyncHandler(async (req, res) => {
       targetType: 'SV360_PROJECT',
       targetId: result.projectId,
       targetName: result.slug,
+      targetOrgId: orgId,
       details: {
         slug: result.slug,
         dbFilename: result.dbFilename,
@@ -87,6 +92,18 @@ export const uploadProject = asyncHandler(async (req, res) => {
  */
 export const updateProjectStatus = asyncHandler(async (req, res) => {
   const project = await asvc.setStatus(req.params.slug, req.body.status, req.user, {
+    orgId: req.query.orgId,
+    orgSlug: req.query.orgSlug,
+  }, req);
+  res.json(project);
+});
+
+/**
+ * PATCH /sv360/admin/projects/:slug — metadado editável do projeto (hoje só
+ * `previewVideo`). 200 com a linha atualizada, no mesmo envelope plano das irmãs.
+ */
+export const updateProjectMetadata = asyncHandler(async (req, res) => {
+  const project = await asvc.updateProjectMetadata(req.params.slug, req.body, req.user, {
     orgId: req.query.orgId,
     orgSlug: req.query.orgSlug,
   }, req);

@@ -23,9 +23,15 @@ import {
 } from '../catalog.constants.js';
 import { formatCatalogDate } from '../catalog.service.js';
 import { isPrivateResource, canShareResource } from '@store/sync/resource-access.service.js';
+// Import ESTÁTICO, e a escolha é medida e não preguiça: `vite.config.js` manda TODO
+// `src/js/catalog/` para o grupo `core`, então um `import()` daqui não adiaria carga
+// nenhuma — ele só acrescentaria uma promessa entre o clique e a janela abrir, e um
+// comentário afirmando um ganho que não existe. O modal é DOM puro, sem dependência
+// pesada; o vídeo em si é que é lazy, pelo `preload="none"` do elemento.
+import { abrirPreviaDeVideo } from './preview-video.modal.js';
 
 /** Icons used in catalog card */
-const { CALENDAR, MAP_PIN, CHEVRON_RIGHT, LOCK, SHARE } = CATALOG_UI_ICONS;
+const { CALENDAR, MAP_PIN, CHEVRON_RIGHT, LOCK, SHARE, PLAY } = CATALOG_UI_ICONS;
 
 /**
  * O par (grupo, tipo) do eixo de acesso e o id CRU deste item, ou null quando o
@@ -184,6 +190,27 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     }
 
     footer.appendChild(openBtn);
+
+    // "PRÉVIA": só quando o item TEM vídeo, e o mapa bloqueado não a esconde (assistir a
+    // uma prévia não mexe no mapa, exatamente como compartilhar não mexe).
+    //
+    // O botão nasce do dado e não do tipo: quem decide é `item.previewVideo`, então os
+    // quatro tipos que carregam o campo (3D, camada de dados, camada de análise e 360) o
+    // ganham pela mesma linha, e o basemap — que não tem cartão — nunca chega aqui.
+    if (item.previewVideo) {
+        footer.classList.add('catalog-card-footer--split');
+        const previaBtn = document.createElement('button');
+        previaBtn.className = 'catalog-card-btn catalog-card-btn--preview';
+        previaBtn.dataset.testid = 'catalog-card-preview';
+        previaBtn.title = `Ver a prévia de ${item.name}`;
+        previaBtn.setAttribute('aria-label', `Ver a prévia de ${item.name}`);
+        previaBtn.innerHTML = `${PLAY}<span>Prévia</span>`;
+        previaBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            abrirPreviaDeVideo({ url: item.previewVideo, titulo: item.name });
+        });
+        footer.appendChild(previaBtn);
+    }
 
     // "Compartilhar": só em recurso PRIVADO e só para quem pode repassar
     // (papel global, ou concessão de nível `view_share`). Quem só recebeu `view`

@@ -46,26 +46,104 @@ As três ações de OM auditam **depois** do serviço retornar, no controller e 
 
 **Auditoria bloqueante é a regra, e o best-effort é exceção nomeada.** `createAuditBestEffort` existe para três sítios do caminho de credencial (login, logout e o auto-cadastro): ali uma falha de escrita da trilha não pode virar 500, porque derrubaria a entrada de todo mundo, e no auto-cadastro reabriria pela exceção o oráculo de existência de conta que o 201 uniforme fecha ([[gestao-usuarios]]). Fora deles, uma trilha que falha derruba a mutação, e é assim que se quer.
 
-## Leitura: armadilhas de integração de `GET /api/v1/audit`
+## O eixo de organização, e por que ele é gravado e não resolvido
 
-O gate é o `role` **global**, não o `org_role` nem permissão por atlas: um `owner` de OM que não seja admin global não lê a trilha (ver [[sintese-eixos-de-permissao]] e [[permissoes-atlas]]). E é o papel **vivo**, não a claim, porque `auth` sobrescreve `req.user.role` antes de `requireAdmin` rodar. Ausência de credencial dá 401, não 403 (`requireAdmin`, `backend/src/middleware/require-admin.js`); erro de Joi dá 422 (ver [[erros-api]] e [[sintese-contrato-erros-http]]).
+A trilha carrega `target_org_id`: a OM **dona do recurso alvo**, gravada por quem emite o evento. Ela não é a OM do ator e não é a lotação dele. Nulo tem dois significados que o dado não distingue: alvo sem OM dona (conta, atlas, configuração) e acervo **institucional**, e o filtro por OM não alcança nenhum dos dois, o que é o comportamento certo.
+
+**A pergunta que o desenho teve de responder: quando um recurso troca de OM, a história antiga acompanha? Não.** A coluna guarda quem respondia pelo recurso **na época do ato**, do mesmo jeito que `target_name` guarda o nome de então. Resolver a OM na leitura, por junta com `owner_org_id`, faria transferir a linha amanhã reescrever o passado: o produtor que mantinha o recurso perderia de vista o que ele próprio fez, e o produtor novo herdaria uma história que não é dele. A medição está em `backend/tests/integration/auditoria-epoca-da-om.test.js`, e o controle negativo dela é literal: trocar a coluna por uma junta inverte os dois números.
+
+**O argumento decisivo, porém, é outro, e ele não é de opinião.** O hard-delete de projeto 360 é o único do sistema, e a linha de `SV360_DELETE` nasce **depois** do DELETE, dentro da mesma transação. Uma junta na leitura (ou um gatilho, pelo mesmo motivo) devolveria nulo exatamente para o evento que mais importa auditar. O emissor tem a OM em mãos; a leitura, depois do commit, não tem mais de onde tirá-la. Medido em `backend/tests/integration/auditoria-sv360-delete-tem-om.test.js`, com a ausência do projeto asserida no mesmo caso.
+
+**O backfill é aproximado, e a tela diz isso.** O bloco D de `backend/src/database/migrations/011_grupo_com_dono_e_producao.sql` atribui a história anterior à OM **atual** do recurso, que é justamente a aproximação que o desenho recusa daqui para a frente. Ele existe por uma razão só: sem ele o produtor abre a tela e vê lista vazia, indistinguível de "nada aconteceu". O que foi destruído antes da migração fica nulo para sempre. A aba declara a ressalva ao usuário, porque dado aproximado lido como dado gravado é pior que ausência.
+
+## Leitura: o gate tem dois ramos desde 2026-08-21
+
+O gate deixou de ser `requireAdmin` e passou a ser `requireAuditReader` (`backend/src/middleware/require-audit-reader.js`), com dois ramos e um recorte:
+
+- **administrador global**: a trilha inteira, e pode estreitar por `targetOrgId`;
+- **produtor**: a trilha da OM dele (o escopo `users.producer_org_id`), e nada além dela.
+
+**O recorte não é parâmetro do cliente.** Ele é resolvido no banco pelo middleware, deixado em `req.auditScope`, e imposto na primeira linha de `listAudit` (`backend/src/modules/audit/audit.service.js`): quem não administra tem o `targetOrgId` da query **ignorado**, nunca obedecido. É por morar no serviço, e não no controller, que o caso que o prova monta uma query hostil à mão, sem HTTP.
+
+O **credenciado leva 403**, e a distinção é o ponto: ler todo recurso privado (o que ele faz) e ler o registro de atos sobre contas, atlas, configuração e permissões são poderes diferentes. Escrever o gate com `fn_has_global_data_access` o promoveria em silêncio, que é a confusão que a fase F9 já pagou uma vez em `requireGrantRevoker`. Os quatro ramos estão em `backend/tests/integration/auditoria-gate.test.js`.
+
+**A liveness tem TRÊS termos, não dois**, e espelha `fn_can_produce_resource`: conta ativa, OM de **lotação** ativa e OM **produtora** ativa. As três colunas são independentes, e `users.organization_id` (lotação) e `users.producer_org_id` (produção) podem apontar para organizações diferentes. O terceiro termo entrou depois de uma revisão adversarial medi-lo ausente: com só os dois primeiros, desativar a OM produtora tirava do produtor o direito de manter o acervo (`fn_can_produce_resource` passava a `false`) e deixava a leitura da trilha daquela OM aberta, ou seja, um kill-switch que fechava a escrita e não a leitura. O termo carrega o disjunto `role = 'admin'`, sem o qual o administrador (que não tem OM produtora) seria derrubado pelo próprio predicado.
+
+Três medições que contrariam a intuição e estão escritas nos casos:
+
+- desativar a **conta** dá 401, porque a reconciliação ao vivo do `auth` roda antes do gate;
+- desativar a **OM de lotação** de um produtor dá 403;
+- desativar a **OM de lotação de um administrador** dá 403 em `GET /audit` **e também** em `GET /users`. Uma revisão previu divergência aqui (que `requireAdmin`, decidindo pelo JWT, manteria o administrador de pé) e a medição a desmentiu: quem derruba é o `auth`, não o gate, porque `utils/org-status.js` já barra membro de OM desativada antes de qualquer autorização. O termo de lotação no gate continua valendo como segunda linha de defesa, e é ele que mantém o espelho fiel quando o middleware é chamado sozinho.
+
+O efeito de produto é o mesmo em todos: quem foi suspenso não lê a trilha. Os casos ficam em `backend/tests/integration/auditoria-gate.test.js`, com a fixture usando **duas OM distintas** para lotação e produção. Com a mesma OM nos dois papéis, o 403 não dizia qual termo o havia produzido, e foi assim que o terceiro passou despercebido.
+
+O papel é **vivo**, resolvido no banco e nunca lido do JWT, pela mesma razão de `fn_has_global_data_access`: o token vive até 15 min e `flexibleAuth` não reconcilia. Ausência de credencial dá 401, não 403; erro de Joi dá 422 (ver [[erros-api]] e [[sintese-contrato-erros-http]]), e o gate roda **antes** do `validate`, para que o 403 de papel não compita com o 422 de query.
+
+A resposta passou a **variar por chamador**, então o controller marca escopo de cache (`marcarEscopoJson`): sem `Cache-Control`, um cache compartilhado pode guardar por heurística e repor a trilha do administrador para o produtor, e a isenção do RFC 9111 para `Authorization` não cobre a requisição autenticada por cookie. O cabeçalho é **asserido**, com a discriminação de uma rota vizinha que não o marca: a rota está fora do censo de regime de cache (aquela lista é bicondicional com as superfícies que servem recurso), então sem o caso a justificativa seria prosa que nada checa, e apagar a linha do controller deixaria a suíte inteira verde.
+
+## Leitura: armadilhas de integração de `GET /api/v1/audit`
 
 Quatro pegadinhas para quem for construir a tela:
 
-- **Envelope duplamente aninhado.** O controller faz `res.json({ data: result })` sobre um `result` que já é `{ total, page, limit, data }` (`backend/src/modules/audit/audit.controller.js`, `backend/src/modules/audit/audit.service.js`). Os eventos ficam em `response.data.data`. É o erro de integração mais provável nesta rota.
+- **Envelope duplamente aninhado.** O controller faz `res.json({ data: result })` sobre um `result` que já é `{ total, page, limit, data }` (`backend/src/modules/audit/audit.controller.js`, `backend/src/modules/audit/audit.service.js`). Os eventos ficam em `response.data.data`. É o erro de integração mais provável nesta rota, e desde 2026-08-21 é o que a spec de contrato `frontend/tests/e2e/audit-trail.e2e.test.js` mede contra o backend real, junto da forma de uma linha.
+- **String vazia não é "sem filtro"** na borda: `listAuditSchema` usa `Joi.string()`, que a recusa (`"action" is not allowed to be empty`). A aba nasce com quatro filtros em string vazia, então o descarte de valor vazio em `apiClient.listAudit` é o que separa a aba abrir de a aba responder 422 em toda montagem, para as duas audiências. Pinado por `frontend/tests/unit/audit-client-params.test.js` e pela spec de contrato acima.
 - **Paginação 1-based** (`backend/src/modules/audit/audit.service.js`). Tabela de UI 0-based precisa somar 1.
 - **Filtros são igualdade exata**, via `($1::text IS NULL OR action = $1)` (`backend/src/modules/audit/audit.queries.js`). Não há busca parcial nem case-insensitive: `action=org_create` não retorna nada, e `action=all` filtra por uma ação literal chamada `all` devolvendo lista vazia sem erro. Para "todos", **omita o param**. Params desconhecidos são descartados em silêncio pelo `stripUnknown` (`backend/src/middleware/validate.js`), então um filtro com nome errado parece funcionar e traz tudo.
 - **Linhas saem em snake_case**, sem camelização, ao contrário de outras superfícies do cliente (ver [[api-rest-atlas]]).
 
-O filtro por `targetId` nasceu junto com o alargamento, e é o que paga a migração: sem ele "tudo que já foi feito com este recurso" continuaria não sendo respondível, apesar do índice `(target_type, target_id)`. Continua **não** havendo filtro por intervalo de datas. `total` e as linhas vêm de duas queries em `Promise.all` sem transação (`backend/src/modules/audit/audit.service.js`): sob escrita concorrente podem discordar por uma linha, irrelevante para tela de admin, relevante se alguém usar isso para reconciliação exata.
+O filtro por `targetId` nasceu junto com o alargamento, e é o que paga a migração: sem ele "tudo que já foi feito com este recurso" continuaria não sendo respondível, apesar do índice `(target_type, target_id)`. O filtro por **período** passou a existir em 2026-08-21 (`from` e `to`), e ele é **meio-aberto**: `created_at >= from` e `created_at < to`, para que a linha nascida na virada do dia não caia nos dois lados. `total` e as linhas vêm de duas queries em `Promise.all` sem transação (`backend/src/modules/audit/audit.service.js`): sob escrita concorrente podem discordar por uma linha, irrelevante para tela de admin, relevante se alguém usar isso para reconciliação exata.
 
-## Estado no frontend
+## O `details` carrega um de-para SELETIVO, e o que ele não carrega é o ponto
 
-O cliente web **não consome a rota**: não há referência a `/api/v1/audit` em `frontend/src/`. A tela de auditoria do painel de admin ainda é checklist, não código.
+Até 2026-08-21 `CATALOG_UPDATE` gravava só os NOMES dos campos tocados (`details.fields`), e a regra era escrita: `details` nunca carrega valor. O motivo continua válido e é o que governa o desenho novo: `config` guarda URL de serviço (às vezes com credencial na query string) e as miniaturas são data URL de até 256 kB; a trilha é lida por qualquer administrador e, desde o eixo de OM, por qualquer produtor da OM dona; e **a trilha não se edita**, então o que entra ali entra para sempre.
 
-Auditoria é REST puro e admin-only: não gera nem consome operações de colaboração, então nada disso passa por [[modelo-conflito-lww]] ou [[envelope-operacao]]. Para o que o admin faz sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
+Só que "o nome do campo" não responde a pergunta que a investigação faz. "Fulano alterou `config`" não distingue trocar a opacidade de apontar a camada para outro servidor, e não responde de jeito nenhum à pergunta mais frequente: *mudou e depois voltou ao que era?*
+
+A resolução é um de-para de **três regimes**, por lista fechada de caminhos, em `backend/src/utils/audit-diff.js`:
+
+| regime | o que entra na linha | quem entra |
+|---|---|---|
+| VALOR | o valor antigo e o novo, literais | `name`, `description`, `sort_order`, e os campos pequenos e não-endereçáveis de `config` (forma do 3D, zoom, opacidade, deslocamento de altura, data de captura, local) |
+| IMPRESSÃO | um HMAC truncado de cada lado, mais o tamanho em bytes | tudo que é ENDEREÇO ou MÍDIA: as URLs de serviço, o estilo, as miniaturas, o vídeo de prévia e as estruturas de tamanho livre |
+| NOME-SÓ | só o nome do campo | qualquer chave que ninguém classificou |
+
+As duas listas fechadas são `CAMPOS_COM_VALOR` e `CAMPOS_COM_IMPRESSAO`, e a coluna "quem entra" acima é **ilustração, não inventário**: esta tabela nasceu enumerando os doze caminhos do regime IMPRESSÃO e já divergiu do código na primeira revisão (faltava `config.labelSource`). Enumeração em prosa não tem guarda: `docs-integridade` valida caminho e símbolo, nunca a completude de uma lista.
+
+Cinco propriedades que não se deduzem lendo a tabela:
+
+- **O default é o regime nome-só**, que é exatamente a garantia antiga preservada como piso. Uma chave nova em `config` entra por ali, calada e fechada, sem que ninguém precise lembrar daquele arquivo. A direção do erro é deliberada: classificar de menos custa informação, classificar de mais custa um vazamento permanente.
+- **A impressão é chaveada (HMAC), não um hash nu.** Um digest sem chave transformaria a trilha em oráculo de confirmação: quem a lê testaria um palpite de URL contra o valor gravado. A chave é derivada do segredo de JWT com separação de domínio (`derivarChaveDeImpressao`, `backend/src/config.js`) em vez de vir de uma env nova, porque env ausente degrada em silêncio (o deploy subiria com chave vazia e toda impressão viraria a impressão do vazio). A contrapartida: essa chave **não pode sair em resposta nenhuma**, e nenhum endpoint pode aceitar um valor do chamador e devolver a impressão dele.
+- **Um campo do regime VALOR cai para IMPRESSÃO quando o valor é grande demais** (acima de 200 caracteres). "Campo pequeno" é uma expectativa, não uma garantia: `description` é `Joi.string()` sem teto.
+- **Há um teto duro de 4 kB, e ele degrada a linha INTEIRA para nome-só**, marcando `truncado: true`. Meia degradação seria uma linha que mente por omissão sem dizer que omitiu, e a tela mostra o aviso por extenso.
+- **O regime IMPRESSÃO divulga o COMPRIMENTO exato do valor de cada lado**, e é o único metadado que ele deixa escapar. Não é um byte do valor, mas é um oráculo de tamanho sobre uma URL que pode carregar `?api_key=`, gravado para sempre. Fica porque responde "encolheu ou cresceu?" sem carregar conteúdo, e está escrito aqui e no cabeçalho de `backend/src/utils/audit-diff.js` porque a frase "sem carregar um único byte do valor" é literal e não é a história inteira.
+
+`details.fields` **continua presente na LINHA**: o de-para é aditivo, nunca substituto, porque `backend/tests/integration/auditoria-acoes-novas.test.js` já o lia e trocar a forma quebraria um verde que verifica algo real. Na TELA ele é outra história: numa linha com de-para ele é o mesmo conjunto dito duas vezes, então a gaveta o esconde, e numa linha antiga, sem de-para, ele é a única informação de campo que existe e sobrevive. A decisão é `chavesJaDitasPeloDePara` (`frontend/src/js/admin/audit-phrases.js`), no módulo puro e não no construtor de DOM, para ter guarda em node.
+
+O guarda é `backend/tests/unit/audit-diff.test.js`, e o caso que vale a pena conhecer é o controle: uma edição planta uma URL com credencial e uma miniatura embutida, e a asserção procura a substring do segredo no **JSON inteiro** da linha de trilha, não no campo onde se esperaria encontrá-la. A metade de integração é `backend/tests/integration/catalogo-video-de-previa.test.js`.
+
+## A aba Auditoria, e o que ela decide para não virar um dump
+
+O cliente passou a consumir a rota em 2026-08-21 (`listAudit`, em `frontend/src/js/store/sync/api-client.js`), e a tela é a aba Auditoria do painel de administração (`frontend/src/js/admin/audit-tab.js`). Ela é oferecida ao administrador e ao **produtor**; o credenciado não a recebe, porque o gate do servidor lhe daria 403 e oferecer a aba seria a pior forma de dizer não.
+
+Quatro decisões governam a tela, e todas respondem ao mesmo risco (uma trilha bruta na tela é um log que ninguém lê):
+
+- o período padrão é de **sete dias**, não "tudo";
+- as linhas são agrupadas por **dia**, com cabeçalho pegajoso;
+- cada linha é uma **frase** em pt-BR (`frontend/src/js/admin/audit-phrases.js`), não cinco colunas de código em maiúsculas;
+- o `details` fica **atrás de um botão**, e dentro dele o de-para vem primeiro, em frases (`linhasDoDePara`), com o regime dito por extenso: uma impressão de doze hexadecimais sem a palavra "impressão" ao lado lê-se como um valor gravado.
+
+A ação aparece **uma vez por linha**, no chip. O texto ao lado é `alvoDoEvento` (ator e alvo) e não `fraseDoEvento`, que já embute o rótulo da ação: as duas versões da linha foram escritas na mesma onda e ambas ficaram, e a linha saía com "Item de catálogo alterado" duas vezes, uma no chip e outra na frase. `fraseDoEvento` sobrevive no `title`, que é onde ela é útil (ler o evento sem o chip ao lado). O caso que prende isso é **negativo** (o texto do chip não pode aparecer na frase da linha), com o par positivo ao lado, porque uma frase vazia passaria na asserção de ausência sozinha.
+
+Os rótulos de FAMÍLIA (`Acesso`, `Identidade`, `Acervo`, `Atlas`, `Sistema`) são de tela e vêm de `rotuloDeFamilia`; as chaves em minúscula são código (elas viram sufixo de classe CSS) e saíam cruas nos `<optgroup>` do filtro de ação.
+
+**Ação sem tradução mostra o próprio código**, nunca "Desconhecido": um rótulo genérico esconderia uma ação nova sem frase, que é a classe de defeito que este repositório mais paga. Quem cobra a tradução é `frontend/tests/unit/auditoria-rotulos.test.js`, e o inventário dele vem da **migração vigente**, não do mapa que ele testa, nem de uma lista escrita à mão.
+
+O que o produtor **não** vê: a coluna da OM e o filtro dela. Para ele a resposta inteira já é de uma OM só, e o controle seria uma afordância sem efeito. Quem decide isso não é a tela: o servidor devolve `administra` e `escopoOrgId` no mesmo corpo, e a tela obedece.
+
+Auditoria é REST puro e não é entidade colaborativa: não gera nem consome operações de colaboração, então nada disso passa por [[modelo-conflito-lww]] ou [[envelope-operacao]]. Para o que o admin faz sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
 
 ## Histórico
 
 - **2026-07-25.** A seção "O CHECK não é cobertura" descrevia seis chamadas contra 15 ações e nomeava `SHARING_CHANGE` e `PERMISSION_REVOKE` como nunca emitidas. Superado pela cobertura de `users` e `sharing`.
+- **2026-08-21.** Duas afirmações desta página deixaram de valer no mesmo dia, e as duas eram do tipo que envelhece sem aviso: "o gate é o papel global de administrador" (ele passou a ter dois ramos, e o segundo é o escopo de produção) e "o cliente web não consome a rota" (a aba Auditoria nasceu). A segunda é a mais instrutiva: enquanto a tela era checklist, a página descrevia o estado com precisão; no dia em que alguém a escreveu, a descrição virou o oposto do produto.
 - **2026-08-17.** A página inteira girava em torno de "três ações continuam sem emissor" (`LOGIN`, `LOGOUT`, `ATLAS_DELETE`) e de alvos sem call site. Superado em 2026-08-17: as três ganharam emissor, catorze ações novas entraram (catálogo, `config_settings`, ciclo de vida do atlas, 360 no nível do projeto, escopo de produção, purga de concessões), `target_id` virou TEXT, e a cobertura passou a ser cobrada por censo em vez de por leitura. Esta é a forma de conteúdo que o [[wiki-schema]] adverte: lista de furos abertos escrita no presente vence por trabalho alheio, e vira lista de mentiras no dia em que a fase seguinte fecha os itens.

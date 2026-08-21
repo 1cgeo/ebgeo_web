@@ -206,7 +206,31 @@ const CENSO = [
             + 'e a única leitura do cache é o caminho de emergência, onde nulo é a degradação certa.',
     },
 
+    {
+        arquivo: 'src/js/catalog/resource-reference.resolver.js', gatilho: 'catalogo', n: 8,
+        classe: BASELINE,
+        motivo: 'Quem responde "este id é público?" para a PODA DE SAÍDA (o `.ebgeo` e o "Salvar '
+            + 'como local"). Lê os quatro grupos do singleton no instante em que o resolver é '
+            + 'construído — uma vez, e o resolver devolvido não volta ao singleton, para que a '
+            + 'poda inteira veja o mesmo retrato do começo ao fim. É o consumidor com a '
+            + 'consequência mais cara de um miss: a regra é KEEP-LIST, então um recurso que o '
+            + 'overlay não somou vira `unknown` e SAI da cópia, num caminho irreversível. É por '
+            + 'isso que ele se recusa a rodar quando a soma nunca aconteceu com sessão viva.',
+    },
+
     // ================= o que casou o padrão e é outra coisa ==================
+    {
+        arquivo: 'src/js/catalog/resource-reference.registry.js', gatilho: 'catalogo', n: 4,
+        classe: SEM_EIXO,
+        motivo: 'FALSO POSITIVO DECLARADO, e são QUATRO colisões de nome dentro do próprio '
+            + 'inventário, nenhuma delas leitura de catálogo: duas são IDS DE SUPERFÍCIE '
+            + '(`mapa.analysisLayers`, declarada NÃO-REFERÊNCIA porque o campo homônimo do '
+            + 'documento de mapa é do domínio de GRADE, e `settings.basemaps`, que é o nome da '
+            + 'allowlist por atlas) e duas são CITAÇÕES em prosa de `config.tilesets`, escritas '
+            + 'para explicar contra o quê o CLIENTE resolve aquelas referências. O arquivo tem '
+            + 'zero imports por contrato, então não lê singleton nenhum, e é isso que a '
+            + 'discriminação deste censo mede.',
+    },
     {
         arquivo: 'src/js/calibration/project-map.js', gatilho: 'catalogo', n: 1, classe: SEM_OVERLAY,
         motivo: 'A página `calibracao.html` lê `config.basemapStyles` para desenhar o mapa de '

@@ -24,13 +24,15 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Provisions a fresh authenticated user + atlas + map inside the page, returning
- * the handles the test needs. Leaves a live, logged-in ApiClient on `window.__cat`
+ * Provisions a fresh atlas + map for a VERIFIED user (created on the Node side by
+ * `createVerifiedUser`, since confirming the e-mail needs Postgres), returning the
+ * handles the test needs. Leaves a live, logged-in ApiClient on `window.__cat`
  * so subsequent `page.evaluate` calls can reuse the same token/session.
  *
  * @param {import('@playwright/test').Page} page - The Playwright page (already at '/').
@@ -38,16 +40,15 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * @param {string} tag - Short prefix for the generated username/atlas/map names.
  * @returns {Promise<{ atlasId: string, mapId: string }>} The created atlas and map ids.
  */
-function seedAtlasAndMap(page, baseUrl, tag) {
+async function seedAtlasAndMap(page, baseUrl, tag) {
+    const user = await createVerifiedUser({ prefix: tag, nome: 'Catalog E2E' });
     return page.evaluate(
-        async ({ baseUrl, tag }) => {
+        async ({ baseUrl, tag, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `${tag}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Catalog E2E' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: `${tag} Atlas` });
             const mapId = crypto.randomUUID();
@@ -56,7 +57,7 @@ function seedAtlasAndMap(page, baseUrl, tag) {
             window.__cat = { api };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, tag },
+        { baseUrl, tag, u: user },
     );
 }
 
@@ -259,18 +260,17 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         // FOREIGN mapId) and an attacker atlas owning the real map.
         const victim = await seedAtlasAndMap(page, state.baseUrl, 'catidor_v');
 
-        const foreignMapId = await page.evaluate(async (baseUrl) => {
+        const attacker = await createVerifiedUser({ prefix: 'catidor_a', nome: 'Other' });
+        const foreignMapId = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `catidor_a_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Other' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
             const atlas = await api.createAtlas({ name: 'Other Atlas' });
             const mapId = crypto.randomUUID();
             await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Foreign' })]);
             return mapId;
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: attacker });
 
         // no-UI: a cross-atlas IDOR security test. Pushing a `catalogLayer` create whose
         // mapId belongs to ANOTHER atlas (on the victim's own atlas route) is a hand-crafted

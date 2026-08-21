@@ -70,6 +70,7 @@ O que muda o atlas **fora** do log de operações (`atlas_updated`, `map_duplica
 A hierarquia numérica, o bypass do admin global e o 404-vs-403 estão em [[api-rest-atlas]] e [[permissoes-atlas]]. Duas propriedades pertencem ao modelo de dados e não ao gate:
 
 - **`owner` não é linha de `atlas_shares`** (o CHECK só aceita até `manage`): a posse mora em `atlas.owner_id` e só muda por `POST /:id/transfer`.
+- **O alvo de um share é uma pessoa OU um grupo de acesso**, desde 2026-08-21, e a posse continua exigindo share DIRETO: transferir para quem só alcança o atlas por grupo trocaria uma autoridade revogável por uma irrevogável. Ver [[compartilhamento-atlas]].
 - **O gate de papel só vale para atlas remoto conectado.** O store local é sempre editável, inclusive por usuário logado.
 
 Papel de acesso do atlas e papel de identidade do frontend são vocabulários distintos: [[sintese-capacidades-por-papel]], [[autenticacao-jwt]].

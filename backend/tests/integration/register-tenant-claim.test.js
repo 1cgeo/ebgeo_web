@@ -93,7 +93,7 @@ describe('POST /auth/register: the organization the applicant claims for themsel
       'the applicant chose their own tenant and the token now asserts it'
     );
     assert.equal(payload.role, 'user', 'self-registration never mints a global admin');
-    assert.equal(payload.org_role, 'viewer', 'nor an elevated role inside the org');
+    assert.equal(payload.org_role, undefined, 'and there is no role-inside-the-org claim at all any more');
   });
 
   it('A CONSEQUÊNCIA, INVERTIDA: a declaração NÃO compra os 360 não publicados da OM', async () => {

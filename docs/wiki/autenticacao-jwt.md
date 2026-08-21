@@ -9,10 +9,10 @@ O access token não tem estado no servidor, só assinatura, e não carrega `jti`
 - o middleware estrito reconcilia o token contra o banco a cada requisição (`auth`, `backend/src/middleware/auth.js`, via `getLiveAuthState`);
 - o `role` **global** é sobrescrito pelo valor vivo, para que um admin rebaixado não continue admin durante a janela do token;
 - o escopo de produção `producer_org_id` é sobrescrito **incondicionalmente**, porque é ele que autoriza escrever catálogo e acervo 360, e função se tira por ato de administração, não por relógio ([[acesso-a-recurso-privado]]);
-- `org_role` e `organization_id` **não** são sobrescritos na rota estrita, de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`. Eles não autorizam nada, então a janela continua aceitável;
+- `organization_id` **não** é sobrescrito na rota estrita, de propósito: pertence ao mapeamento do token, e um token legado sem a claim de org precisa degradar para `null`. Ele não autoriza nada, então a janela continua aceitável. (Esta linha citava também `org_role`; aquele eixo saiu do código inteiro em 2026-08-20 e a claim, quando chega num token antigo, é ignorada em vez de mapeada);
 - desde 2026-07-25 essa mesma leitura traz `users.sessions_valid_from`, um corte por CONTA (não por token): a revogação em massa carimba a hora, e todo token com `iat` anterior a ela é recusado. É o que dá efeito real a "trocar a senha derruba as outras sessões" e a "reuso de refresh detectado encerra a sessão roubada", porque antes disso as duas frases eram falsas. Mecanismo, fronteira de um segundo e limites em [[refresh-token-rotacao]].
 
-Consequência que morde: **papel global e escopo de produção valem na hora; lotação e `org_role` levam até 15 minutos para valer, e não decidem nada enquanto isso.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
+Consequência que morde: **papel global e escopo de produção valem na hora; a lotação leva até 15 minutos para valer, e não decide nada enquanto isso.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 A sessão deslizante do cookie (`backend/src/middleware/flexible-auth.js`) tinha um furo pior: reassinar as claims antigas transformava "≤15 min desatualizado" em "para sempre", porque um usuário desativado que mantivesse uma requisição a cada 15 min renovava a sessão indefinidamente. Por isso a renovação **consulta o banco antes** de reemitir. Não reintroduza reemissão cega. O mesmo furo existia para sessão revogada, e por muito mais tempo: até 2026-07-25 só desativação de conta ou de OM interrompia a renovação, então um token roubado se reemitia para sempre **depois** de a detecção de reuso ter disparado. Hoje o corte de sessão também a interrompe, e derruba o cookie. Ver [[auth-flexivel]].
 
@@ -26,7 +26,7 @@ A armadilha operacional daí é hoje mais estreita do que já foi: a rotação �
 
 Duas consequências que geram bug de UI:
 
-- `POST /auth/refresh` **não** devolve `user`, só o par de tokens. Para reler `organization_id`/`org_role` depois de um refresh, chame `GET /auth/me`.
+- `POST /auth/refresh` **não** devolve `user`, só o par de tokens. Para reler `organization_id` depois de um refresh, chame `GET /auth/me`.
 - `refresh` resolve o usuário com `FIND_USER_BY_ID`, que filtra `is_active = true` (`backend/src/modules/auth/auth.queries.js`). Uma conta desativada recebe aqui `401 Usuário não encontrado`, e **não** o `Conta desativada` do login. Não faça a UI depender dessa mensagem. A mesma query **não** traz `email_verified`, e a consequência disso está em [[refresh-token-rotacao]].
 
 ## Rate limit: cada rota de credencial tem o seu balde

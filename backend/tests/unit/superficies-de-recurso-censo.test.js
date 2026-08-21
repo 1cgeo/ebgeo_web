@@ -212,11 +212,67 @@ const CENSO_CONSULTA = [
       + 'onde a tabela vira tipo de recurso.',
   },
   {
-    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'createCatalogItem', n: 1,
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'createCatalogItem', n: 2,
     classe: ESCRITA, predicado: P_PRODUCAO,
     motivo: 'A sonda de id duplicado do CREATE, que também gateia a RESSURREIÇÃO de um id '
       + 'soft-deletado: o id de catálogo é um slug GLOBAL, então sem este gate o produtor de uma OM '
       + 'sairia dono da linha que outra apagou, por sobrescrita.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'updateCatalogItem', n: 2,
+    classe: ESCRITA, predicado: P_PRODUCAO,
+    motivo: 'O gate FINO do UPDATE, e ele mora no `WHERE` da própria escrita e não numa leitura '
+      + 'anterior: ler o dono e depois escrever deixa uma janela entre as duas consultas. Zero '
+      + 'linha vira 404, nunca 403, para que a rota não vire oráculo de inventário. A SEGUNDA '
+      + 'linha de contato é a subconsulta `FROM ${t} … FOR UPDATE` que colhe os valores '
+      + 'ANTERIORES para o de-para da trilha: ela não é uma segunda superfície de leitura, é a '
+      + 'MESMA linha que o UPDATE vai sobrescrever, travada no mesmo statement — e por isso ela '
+      + 'não carrega predicado próprio, o gate do UPDATE responde pelas duas.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'deleteCatalogItem', n: 1,
+    classe: ESCRITA, predicado: P_PRODUCAO,
+    motivo: 'O mesmo gate no `WHERE` do soft-delete. Ele devolve a linha (id e nome) porque o '
+      + '`target_name` da trilha é a única coisa que ainda diz o que era aquele id depois que ele '
+      + 'sumiu das listagens.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.queries.js', unidade: 'catalogAuthorizationPredicate', n: 1,
+    classe: SQL, predicado: P_PRODUCAO,
+    motivo: 'A FÁBRICA do predicado de leitura do catálogo: papel global OU produção OU concessão. '
+      + 'Ela não toca tabela nenhuma por nome (quem interpola é o chamador), e por isso ficou fora '
+      + 'da varredura enquanto o CONTATO só reconhecia `FROM ${...}`. É a definição de onde as '
+      + 'unidades de listagem derivam, e a única cópia da regra.',
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.queries.js', unidade: 'sv360AccessPredicate', n: 1,
+    classe: SQL, predicado: P_PRODUCAO,
+    motivo: 'O irmão do 360, composto do mesmo jeito e pela mesma razão de ser função e não '
+      + 'constante (o número do placeholder muda por consulta). Ele é o predicado que as consultas '
+      + 'de projeto e de tile injetam; uma segunda cópia dele é a dívida que o schema `ng` já paga.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'setCatalogAccessLevel',
+    n: 1, classe: ESCRITA, predicado: P_PRODUCAO,
+    motivo: 'A ESCRITA DE VISIBILIDADE do catálogo (público/privado), que desde 2026-08-20 é do '
+      + 'produtor e não só do administrador. O gate fino está no `WHERE`, como nos outros dois '
+      + 'caminhos de escrita de catálogo. Ela era INVISÍVEL para a varredura porque interpola a '
+      + 'tabela num `UPDATE ${...}` e o irmão do 360 só era visto por nomear `sv360.projects`: a '
+      + 'decisão de qual OM é a linha estava censada num tipo de recurso e ausente nos outros quatro.',
+  },
+  {
+    arquivo: 'src/middleware/resource-access.js', unidade: 'producesResource', n: 1,
+    classe: SQL, predicado: P_PRODUCAO,
+    motivo: 'O wrapper do eixo de PRODUÇÃO usado pelos gates de repasse e de manutenção. Ele não '
+      + 'reimplementa nada: é a mesma função SQL que gateia o `WHERE` de toda escrita de catálogo. '
+      + 'Levanta para tipo fora da whitelist, e é por isso que o chamador roda DEPOIS do Joi da rota.',
+  },
+  {
+    arquivo: 'src/middleware/resource-access.js', unidade: 'CATALOG_PRODUCER_ACTOR', n: 1,
+    classe: SQL, predicado: P_PRODUCAO,
+    motivo: 'O ator de uma escrita de catálogo, resolvido NO BANCO numa consulta só: `produz_este` '
+      + 'sobre a linha apontada pela rota, mais o escopo lido de `users` e nunca do token, porque '
+      + '`flexibleAuth` não reconcilia e um produtor rebaixado carregaria o crachá por até 15 min.',
   },
 
   // ================= /api/config: o documento de boot ========================
@@ -261,22 +317,69 @@ const CENSO_CONSULTA = [
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
-    unidade: 'getCatalogAccessLevel', n: 1, classe: ESCRITA, predicado: 'requireAdmin',
+    unidade: 'getCatalogAccessLevel', n: 1, classe: ESCRITA, predicado: 'requireResourceMaintainer',
     motivo: 'Lê o `access_level` atual de uma linha de catálogo para a rota que o MUDA '
-      + '(PATCH /:type/:id/visibility). Não recorta nada e não precisa: a rota é `requireAdmin`, e '
-      + 'tornar público um recurso é decisão de administração, nunca de quem o enxerga.',
+      + '(PATCH /:type/:id/visibility). Não recorta nada e não precisa: quem recorta é o gate da '
+      + 'rota (que recusa quem não mantém acervo nenhum) mais o `fn_can_produce_resource` do '
+      + 'WHERE da própria escrita. O gate deixou de ser `requireAdmin` em 2026-08-20: marcar '
+      + 'público ou privado é MANUTENÇÃO do acervo da OM, não administração do sistema.',
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'SET_360_ACCESS_LEVEL',
-    n: 1, classe: ESCRITA, predicado: 'requireAdmin',
-    motivo: 'A escrita do eixo de privacidade de um projeto 360, gateada por `requireAdmin` na rota. '
-      + 'Ela é a única do módulo que toca `sv360.projects`, e é escrita.',
+    n: 2, classe: ESCRITA, predicado: 'requireResourceMaintainer',
+    motivo: 'A escrita do eixo de privacidade de um projeto 360. Ela é a única do módulo que toca '
+      + '`sv360.projects`, e é escrita. O gate GROSSO está na rota e o FINO no próprio WHERE '
+      + '(`fn_can_produce_resource` sobre a linha), que é o que devolve 404 — e não 403 — para o '
+      + 'projeto de outra OM, sem virar oráculo de inventário.',
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'GET_360_ACCESS_LEVEL',
-    n: 1, classe: ESCRITA, predicado: 'requireAdmin',
+    n: 1, classe: ESCRITA, predicado: 'requireResourceMaintainer',
     motivo: 'A leitura do valor anterior, para a auditoria da mesma rota de escrita registrar de-para. '
-      + 'Não é superfície de leitura de recurso: devolve uma coluna e nenhum conteúdo.',
+      + 'Não é superfície de leitura de recurso: devolve uma coluna e nenhum conteúdo, e sai pelo '
+      + 'mesmo gate da escrita que ela acompanha.',
+  },
+
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'CLASSIFY_RESOURCE_REFS', n: 5, classe: SQL, predicado: 'fn_can_see_resource',
+    motivo: 'A classificacao em LOTE das referencias de um atlas, para a poda do CLONE e do '
+      + 'IMPORT: uma linha por referencia, julgada pelo MESMO predicado composto que o gate '
+      + 'pontual e a borda de escrita usam. As cinco linhas de contato sao os cinco ramos do '
+      + 'UNION que trazem o `access_level` de cada tabela — o predicado nao e reimplementado, '
+      + 'ele e chamado. Duas decisoes moram nela: o atlas em foco e NULO (o clone nao copia '
+      + '`atlas_resources`, entao o que a origem emprestava nao pode viajar) e a linha AUSENTE '
+      + 'vira `private` por COALESCE, para que "nao existe" e "nao posso ver" continuem '
+      + 'indistinguiveis em vez de virarem oraculo de existencia.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'RESOLVE_SV360_REFS', n: 2, classe: JS, predicado: 'sv360.projects',
+    motivo: 'A TRADUCAO das referencias 360 (nome de foto, slug, nome de projeto, id da foto de '
+      + 'entrada) para o id do projeto. Ela NAO recorta acesso, e a ausencia do predicado e '
+      + 'deliberada: filtrar aqui faria a referencia de projeto invisivel sumir ANTES da '
+      + 'classificacao, e o resultado ficaria indistinguivel de "nao existe" — o que apagaria a '
+      + 'contagem do relatorio. Quem decide visibilidade e `CLASSIFY_RESOURCE_REFS`, na linha '
+      + 'seguinte. O desempate ESPELHA `GET_PHOTO_BY_NAME` nos tres termos que ela tem (lapide '
+      + 'de `deleted_photos`, OM do chamador, projeto `enabled`), e o espelho e o ponto: por um '
+      + 'tempo esta consulta desempatava so por `enabled` mais `created_at`, enquanto o servidor '
+      + 'de fotos punha a OM primeiro e excluia lapide — dois projetos `enabled` com foto '
+      + 'homonima faziam a referencia ser classificada contra um projeto e servida por outro, '
+      + 'nos dois sentidos. O `created_at` sobrevive como ultimo criterio porque esta classifica '
+      + 'em lote e precisa ser deterministica.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'LIST_SHAREABLE_OF_ACTOR', n: 1, classe: SQL,
+    predicado: 'fn_produced_private_resource_ids',
+    motivo: 'O campo `shareable` do payload aditivo: os pares (tipo, id) que este ator pode '
+      + 'REPASSAR. Ele não serve o recurso, serve a AFORDÂNCIA — e é por isso que entra no censo '
+      + 'como consulta de acesso: um braço largo demais aqui acende o botão "Compartilhar" sobre '
+      + 'o que o ator não pode ceder, e o 403 vira a explicação depois do clique. São dois braços '
+      + 'disjuntos: concessão viva de nível `view_share` (pessoal ou por grupo) e PRODUÇÃO, esta '
+      + 'última por uma função SQL própria que devolve só o PRIVADO da OM do ator. O papel global '
+      + 'fica FORA dos dois, de propósito: quem concede de raiz não tem linha para listar, e o '
+      + 'cliente já sabe disso por outro caminho.',
   },
 
   // ================= o snapshot de sync: a camada de catálogo no mapa ========
@@ -488,7 +591,7 @@ const CENSO_CONSULTA = [
   // ================= 360: escrita e administração ============================
   {
     arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'LIST_PROJECTS_ADMIN',
-    n: 1, classe: SQL, predicado: P_PRODUCAO,
+    n: 2, classe: SQL, predicado: P_PRODUCAO,
     motivo: 'A listagem ADMINISTRATIVA do 360, e ela recorta por PRODUÇÃO e não por acesso a dado, '
       + 'de propósito: quem mantém o acervo vê o que mantém, e o credenciado, que lê todo recurso '
       + 'privado, não aparece aqui porque não escreve nada.',
@@ -522,6 +625,14 @@ const CENSO_CONSULTA = [
   {
     arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'UPDATE_PROJECT_STATUS',
     n: 1, classe: ESCRITA, predicado: 'loadWritableProject', motivo: INGESTAO_360,
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'UPDATE_PROJECT_METADATA',
+    n: 1, classe: ESCRITA, predicado: 'loadWritableProject',
+    motivo: `${INGESTAO_360} Esta grava o METADADO editável do projeto (hoje só o vídeo de `
+      + 'prévia), que `sv360.projects` guarda em coluna porque não tem `config` JSONB como as '
+      + 'quatro tabelas de catálogo. Ela é escrita e não leitura: nada aqui recorta linha para '
+      + 'ninguém, o recorte é o mesmo `loadWritableProject` que gateia status e exclusão.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.admin.queries.js',
@@ -694,25 +805,37 @@ const CENSO_ROTA = [
   },
 
   // ---------------- grupo de acesso -------------------------------------------
-  // Nenhuma das duas serve recurso: elas servem o VOCABULÁRIO de quem recebe. A
-  // assimetria de gate entre as duas é o desenho do módulo e está por extenso no
-  // cabeçalho de `access-groups.routes.js`.
+  // Nenhuma das TRÊS serve recurso: elas servem o VOCABULÁRIO de quem recebe. O eixo
+  // do módulo deixou de ser papel global e passou a ser POSSE em 2026-08-20, e o
+  // desenho das três está por extenso no cabeçalho de `access-groups.routes.js`.
   {
     arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'GET /',
     classe: R_OUTRA, gate: 'auth',
-    motivo: 'A lista de grupos de acesso (id, nome, descrição e duas contagens), sem nomear pessoa '
-      + 'nenhuma. `auth` SOZINHO de propósito: ela é o SELETOR do modal de compartilhar, e quem '
-      + 'concede a um grupo é qualquer pessoa com `view_share` naquele recurso, não só o papel '
-      + 'global. Fechá-la no gate de administração deixaria o ramo de grupo do predicado '
-      + 'inalcançável pela interface, que é o defeito que o módulo existe para fechar.',
+    motivo: 'Os grupos que o CHAMADOR administra (id, nome, descrição e duas contagens), sem nomear '
+      + 'pessoa nenhuma. `auth` sozinho porque o recorte mora na CONSULTA: a resposta já é, por '
+      + 'construção, o que ele administra (`fn_can_administer_group`), e o administrador do '
+      + 'sistema vê todos pelo ramo curinga. É ela que alimenta o seletor do modal de '
+      + 'compartilhar, e recortá-la é a metade visível da regra do coletivo próprio — a outra '
+      + 'metade é o mesmo predicado dentro do `WHERE` de `GET_ADDRESSABLE_LIVE_GROUP`, sem o qual '
+      + 'restringir a listagem seria só obscuridade.',
+  },
+  {
+    arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'GET /participating',
+    classe: R_OUTRA, gate: 'auth',
+    motivo: 'Os grupos de que o chamador PARTICIPA, com o nome do DONO e nada mais. Ela existe '
+      + 'porque, com a listagem acima recortada por posse, quem foi posto num grupo por outra '
+      + 'pessoa deixaria de ver em lugar nenhum um mecanismo que decide o acesso dele a recurso '
+      + 'privado. NÃO devolve roster nem contagens: quem participa vê QUE participa e a quem '
+      + 'reclamar, não quem mais está dentro nem o tamanho do acervo que o grupo recebeu.',
   },
   {
     arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'GET /:groupId/members',
-    classe: R_OUTRA, gate: 'requireGlobalDataAccess',
+    classe: R_OUTRA, gate: 'requireGroupAuthority',
     motivo: 'O roster de pessoas de um grupo, e por isso ele fica do lado FECHADO junto com a '
       + 'escrita: nome de grupo é vocabulário organizacional e serve ao seletor; quem está dentro '
       + 'dele o seletor não precisa saber, e a contagem que `LIST_GROUPS` já devolve basta para a '
-      + 'tela dizer "Estado-Maior (12)".',
+      + 'tela dizer "Estado-Maior (12)". O gate deixou de ser papel global e passou a ser posse: '
+      + 'o dono vivo, ou o administrador do sistema, com 404 (nunca 403) para o resto.',
   },
 
   // ---------------- gazetteer e modelos 3D ------------------------------------
@@ -852,7 +975,21 @@ const CENSO_ROTA = [
   },
 
   // ---------------- administração e identidade -------------------------------
-  { arquivo: 'src/modules/audit/audit.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
+  {
+    arquivo: 'src/modules/audit/audit.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAuditReader',
+    motivo: 'A trilha de auditoria, e ela DEIXOU DE SER só-admin em 2026-08-21: o gate tem dois '
+      + 'ramos (administrador, irrestrito; produtor, RECORTADO na própria OM) e o recorte é imposto '
+      + 'no serviço a partir de `req.auditScope`, nunca lido da query string. Continua R_OUTRA '
+      + 'porque não serve recurso de catálogo, 360 nem 3D — ela serve o REGISTRO de atos sobre eles, '
+      + 'e por isso não entra em CENSO_REGIME (aquela lista é bicondicional com as rotas '
+      + '`recurso-com-filtro`, e pôr esta ali exigiria reclassificá-la como se servisse recurso, o '
+      + 'que trocaria uma prosa sem guarda por uma classificação errada). A resposta passou a VARIAR '
+      + 'por chamador, então o controller marca escopo de cache, como as listagens de catálogo — e '
+      + 'ISSO NÃO É PROSA: o cabeçalho `private` é asserido, com a discriminação de uma rota vizinha '
+      + 'que não o marca, em `tests/integration/auditoria-gate.test.js`. Sem aquele caso, apagar o '
+      + '`marcarEscopoJson` do controller reporia a trilha do administrador para um produtor num '
+      + 'cache compartilhado e a suíte inteira continuaria verde (medido).',
+  },
   { arquivo: 'src/modules/sync/sync.routes.js', rota: 'GET /admin/stats', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
@@ -1133,6 +1270,20 @@ const CONTATO = [
   /\bFROM\s+\$\{/,
   /\b(?:listCatalog|getCatalogItem)\(/,
   /\b(?:isProjectReadable|enforceProjectReadable|resolveReadableProject)\(/,
+  // A LISTAGEM DO EIXO DE PRODUÇÃO entrou em 2026-08-20 e seria INVISÍVEL para as
+  // duas linhas de cima: ela não nomeia tabela nenhuma (a função SQL o faz por ela) e
+  // não interpola `FROM ${`. Somar o nome tem colateral zero — ele nasceu neste
+  // commit e tem exatamente um chamador em `src/`.
+  /\bfn_produced_private_resource_ids\(/,
+  // O GATE FINO DE PRODUÇÃO, acrescentado em 2026-08-21 depois de uma revisão medir o
+  // buraco: `setCatalogAccessLevel` escreve `UPDATE ${table}`, e nenhum dos padrões
+  // acima alcança uma tabela interpolada num UPDATE (o `FROM ${` só pega leitura). O
+  // irmão do 360 era visto porque nomeia `sv360.projects` por extenso — isto é, a
+  // decisão de qual OM é a linha estava censada num tipo de recurso e invisível nos
+  // outros quatro. Casar pelo nome do PREDICADO alcança a escrita interpolada sem
+  // arrastar as escritas de entidade colaborativa (`sync.service.js`, `maps.service.js`)
+  // que um `/UPDATE \$\{/ ` traria junto e que não são superfície de recurso.
+  /\bfn_can_produce_resource\(/,
 ];
 
 /**

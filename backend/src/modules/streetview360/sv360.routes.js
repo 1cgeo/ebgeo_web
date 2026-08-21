@@ -470,6 +470,22 @@ router.patch(
   actrl.updateProjectStatus
 );
 
+// METADADO do projeto (hoje só `previewVideo`), vizinha da rota de status e com o MESMO
+// gate (`loadWritableProject` no serviço) das irmãs. Esta linha já afirmou que a ordem
+// importava ("`:slug` engoliria `/status`"), e não importa: o `:slug` do Express não casa
+// `/`, então as duas rotas são disjuntas em qualquer ordem. Restrição fantasma custa ao
+// próximo que reordenar.
+router.patch(
+  '/admin/projects/:slug',
+  auth,
+  validate({
+    params: aschemas.slugParamSchema,
+    body: aschemas.projectMetadataBodySchema,
+    query: aschemas.orgScopeQuerySchema,
+  }),
+  actrl.updateProjectMetadata
+);
+
 router.delete(
   '/admin/projects/:slug',
   auth,

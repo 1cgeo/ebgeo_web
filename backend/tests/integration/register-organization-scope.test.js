@@ -134,11 +134,10 @@ describe('self-registration validates the chosen organization', () => {
       .expect(201);
 
     const { rows } = await db.query(
-      'SELECT organization_id, org_role, role, producer_org_id FROM users WHERE username = $1',
+      'SELECT organization_id, role, producer_org_id FROM users WHERE username = $1',
       [username]
     );
     assert.equal(rows[0].organization_id, activeOrgId, 'a lotação é imediata, sem aprovação');
-    assert.equal(rows[0].org_role, 'viewer', 'e no papel de organização mais baixo');
     assert.equal(rows[0].role, 'user', 'o auto-cadastro nunca cunha papel global');
     assert.equal(
       rows[0].producer_org_id, null,
@@ -148,8 +147,11 @@ describe('self-registration validates the chosen organization', () => {
 
   it('o corpo do cadastro não alcança papel, crachá, papel de organização, atividade nem verificação',
     async () => {
-      // PISO MEDIDO ANTES DO ATO: já havia guarda para `role`, `org_role`,
-      // `producer_org_id` e `organization_id` (o caso acima). NÃO havia nenhuma para
+      // PISO MEDIDO ANTES DO ATO: já havia guarda para `role`, `producer_org_id` e
+      // `organization_id` (o caso acima). Havia uma quarta, para `org_role`, e ela saiu
+      // com a coluna em 2026-08-20 (D7) — o campo continua no CORPO deste caso de
+      // propósito, porque um cliente antigo ainda o manda e o que importa é que ele não
+      // alcance nada, agora por não haver alvo. NÃO havia nenhuma para
       // `is_active` nem para `email_verified` vindos do corpo, e é justamente por
       // `email_verified` que a obrigatoriedade do e-mail passaria a valer zero se o
       // chamador pudesse declará-la: bastaria mandar `email_verified: true` e a conta
@@ -172,13 +174,12 @@ describe('self-registration validates the chosen organization', () => {
         .expect(201);
 
       const { rows } = await db.query(
-        `SELECT role, producer_org_id, org_role, is_active, email_verified, organization_id
+        `SELECT role, producer_org_id, is_active, email_verified, organization_id
            FROM users WHERE username = $1`,
         [username]
       );
       assert.equal(rows[0].role, 'user', 'papel global não vem do corpo');
       assert.equal(rows[0].producer_org_id, null, 'nem o crachá de produção');
-      assert.equal(rows[0].org_role, 'viewer', 'nem o papel de organização');
       assert.equal(rows[0].is_active, true, 'nem a atividade da conta');
       assert.equal(
         rows[0].email_verified, false,

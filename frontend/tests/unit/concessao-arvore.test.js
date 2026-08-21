@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
     alreadyGranted,
     descendantGrants,
+    fallenGrants,
     granteeCounts,
+    granteeGroupOwnerLabel,
     granteeName,
     granteeSubject,
     groupMemberCount,
+    groupOptionLabel,
     isGroupGrant,
     revocationWarning,
     MAX_GRANT_DEPTH,
@@ -17,10 +20,14 @@ import {
 // consequência que o usuário não adivinha. O aviso do modal só vale se disser
 // quantas pessoas caem e quem são, e é essa aritmética que este arquivo prende.
 //
-// A travessia aqui espelha `REVOKE_GRANT_SUBTREE` do servidor. Ela NÃO é a
-// autoridade — quem poda é o SQL, e a contagem do toast vem da resposta dele —
-// mas se as duas discordarem o usuário confirma uma coisa e recebe outra, que é
-// pior do que não avisar.
+// A travessia aqui espelha `REVOKE_SUBTREE_PRESERVING_REACH` do servidor, e o
+// espelhamento é PARCIAL por construção: o cliente não recebe a composição dos grupos
+// nem o estado da conta de quem concedeu, então o braço coletivo do resgate é invisível
+// deste lado. Ela NÃO é a autoridade — quem poda é o SQL, e a contagem do toast vem da
+// resposta dele — mas se as duas discordarem o usuário confirma uma coisa e recebe
+// outra, que é pior do que não avisar. `descendantGrants` continua sendo o fecho
+// INGÊNUO (é dele que sai o conjunto de exclusão) e `fallenGrants` é o que o servidor
+// derruba de fato.
 
 /** Uma concessão mínima: id, pai e o nome de quem recebeu. */
 const g = (id, pai, nome) => ({ id, parent_grant_id: pai, grantee_nome: nome, grant_level: 'view_share' });
@@ -281,5 +288,272 @@ describe('revocationWarning — o aviso que o modal mostra', () => {
     it('um grupo sozinho, sem dependente, pergunta só pelo grupo', () => {
         const texto = revocationWarning(MISTA, 'M2');
         expect(texto).toBe('Remover o acesso do grupo Equipe Alfa a este recurso?');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// A DELEGAÇÃO PRECISA APARECER EM ALGUMA TELA.
+//
+// Conceder um recurso privado a um GRUPO entrega ao dono daquele grupo o poder de
+// acrescentar beneficiários sem passar por quem concedeu: ele põe mais gente dentro
+// e o acesso segue junto, sem linha nova em `resource_grants`. A lista "quem tem
+// acesso" é a única superfície onde isso é visível, e o servidor passou a mandar
+// `grantee_group_owner_*` por causa disso. Enquanto o cliente não lia o campo, a
+// mitigação existia só no SQL.
+//
+// O PISO destes casos é: concessão a grupo produz um rótulo com o nome e o @ do dono.
+// A DISCRIMINAÇÃO é a concessão a PESSOA, que não pode ganhar rótulo nenhum: sem ela,
+// uma implementação que carimbasse toda linha passaria verde e a tela deixaria de
+// distinguir o coletivo do individual, que é a informação inteira.
+describe('granteeGroupOwnerLabel — de quem é o coletivo que recebeu', () => {
+    /** @param {Object} extra */
+    const comDono = (extra) => ({ ...grp('Z', null, 'Equipe Zulu', 3), ...extra });
+
+    it('PISO: concessão a grupo nomeia o dono com nome e @', () => {
+        expect(granteeGroupOwnerLabel(comDono({
+            grantee_group_owner_id: 'u1',
+            grantee_group_owner_nome: 'Ana Lima',
+            grantee_group_owner_username: 'ana',
+        }))).toBe('Dono: Ana Lima (@ana)');
+    });
+
+    it('DISCRIMINAÇÃO: concessão a PESSOA não ganha rótulo de dono', () => {
+        expect(granteeGroupOwnerLabel(g('P', null, 'Pedro'))).toBe('');
+        // E o vizinho que não pode mudar: o nome do beneficiário continua saindo, senão
+        // este teste passaria com a linha inteira trocada por um rótulo de dono.
+        expect(granteeName(g('P', null, 'Pedro'))).toBe('Pedro');
+    });
+
+    it('só nome, ou só @, cada um sozinho', () => {
+        expect(granteeGroupOwnerLabel(comDono({ grantee_group_owner_nome: 'Ana Lima' })))
+            .toBe('Dono: Ana Lima');
+        expect(granteeGroupOwnerLabel(comDono({ grantee_group_owner_username: 'ana' })))
+            .toBe('Dono: @ana');
+    });
+
+    it('grupo ÓRFÃO diz isso por extenso, e não com um travessão', () => {
+        // Estado real: o backfill da migração adota `created_by`, que pode ser nulo em
+        // linha antiga. Órfão não entrega acesso a ninguém (o predicado exige dono vivo).
+        expect(granteeGroupOwnerLabel(grp('O', null, 'Equipe Órfã', 2))).toBe('Sem dono definido');
+        expect(granteeGroupOwnerLabel(comDono({
+            grantee_group_owner_nome: '   ', grantee_group_owner_username: '  ',
+        }))).toBe('Sem dono definido');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// DOIS GRUPOS HOMÔNIMOS DE DONOS DIFERENTES SÃO ESTADO LEGAL desde que a unicidade
+// de nome saiu de global para `(owner_id, LOWER(name))`. Quem vê grupo alheio no
+// seletor é só o administrador (a listagem é recortada por posse), e para ele duas
+// `<option>` idênticas significam conceder um recurso privado ao coletivo errado.
+describe('groupOptionLabel — a opção do seletor de grupo', () => {
+    const alfaDaAna = {
+        id: 'g1', name: 'Equipe Alfa', member_count: 3,
+        owner_id: 'u-ana', owner_nome: 'Ana Lima', owner_username: 'ana',
+    };
+    const alfaDoBruno = {
+        id: 'g2', name: 'Equipe Alfa', member_count: 3,
+        owner_id: 'u-bruno', owner_nome: 'Bruno Sá', owner_username: 'bruno',
+    };
+
+    it('PISO: dois homônimos de donos diferentes produzem rótulos DISTINTOS', () => {
+        const a = groupOptionLabel(alfaDaAna, 'u-admin');
+        const b = groupOptionLabel(alfaDoBruno, 'u-admin');
+        expect(a).not.toBe(b);
+        expect(a).toBe('Equipe Alfa (3 pessoas) · de Ana Lima');
+        expect(b).toBe('Equipe Alfa (3 pessoas) · de Bruno Sá');
+    });
+
+    it('DISCRIMINAÇÃO: o grupo PRÓPRIO não ganha sufixo, e a contagem continua', () => {
+        // Se toda linha dissesse de quem é, a linha alheia deixaria de saltar.
+        expect(groupOptionLabel(alfaDaAna, 'u-ana')).toBe('Equipe Alfa (3 pessoas)');
+        // Id vindo da rede como número e da sessão como string: comparação por String().
+        expect(groupOptionLabel({ ...alfaDaAna, owner_id: 7 }, 7)).toBe('Equipe Alfa (3 pessoas)');
+    });
+
+    it('sem sessão lida, TODO grupo é tratado como alheio (falha para o lado do ruído)', () => {
+        expect(groupOptionLabel(alfaDaAna, null)).toContain('· de Ana Lima');
+    });
+
+    it('grupo vazio, grupo sem nome e grupo órfão continuam legíveis', () => {
+        expect(groupOptionLabel({ id: 'g3', name: 'Equipe Beta', member_count: 0 }, null))
+            .toBe('Equipe Beta (sem membros) · sem dono definido');
+        expect(groupOptionLabel({ id: 'g4', member_count: 1, owner_id: 'u-x', owner_username: 'xis' }, null))
+            .toBe('Grupo (1 pessoa) · de @xis');
+        expect(groupOptionLabel({ id: 'g5', name: 'Equipe Gama', member_count: 2, owner_id: 'u-x' }, 'u-x'))
+            .toBe('Equipe Gama (2 pessoas)');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// fallenGrants — o fecho ingênuo MENOS quem o servidor resgata
+// ---------------------------------------------------------------------------
+//
+// Desde 2026-08-21 revogar deixou de derrubar todo descendente: um filho cujo
+// CONCEDENTE ainda tenha `view_share` vivo sobre o mesmo recurso, FORA do alcance da
+// poda, é re-pendurado nesse outro pai ("se B não caiu, D não deve cair"). O aviso do
+// modal precisa contar a mesma coisa, senão promete uma queda que não acontece.
+//
+// O RECORTE É ESTREITO E O ERRO PRECISA SUPERESTIMAR: avisar a mais custa menos que
+// avisar a menos, porque revogar é irreversível. O braço COLETIVO do servidor é invisível
+// aqui (o cliente não recebe a composição dos grupos), então o descendente que só se
+// salvaria por grupo continua contado como caído — erro seguro, com caso próprio.
+//
+// A VIDA DO CONCEDENTE ERA A EXCEÇÃO, e ela apontava para o lado errado: o servidor exige
+// `fn_principal_vivo(granted_by)` no pai alternativo e a listagem não mandava esse fato,
+// então o cliente resgatava por uma linha que o servidor recusa e o aviso SUBESTIMAVA.
+// Corrigido em 2026-08-21 com `granted_by_vivo` na listagem. Sobra um subestimador
+// conhecido: o teto de profundidade (o servidor desliga o resgate inteiro quando a
+// travessia trunca em 32, o cliente não), fora do alcance de qualquer árvore medida.
+
+/** Concessão com concedente explícito: é o `granted_by` que decide o resgate. */
+const gp = (id, pai, nome, por, nivel = 'view_share', paraId = null) => ({
+    id,
+    parent_grant_id: pai,
+    grantee_nome: nome,
+    grantee_id: paraId ?? `u-${nome}`,
+    granted_by: por,
+    grant_level: nivel,
+});
+
+describe('fallenGrants — quem cai DEPOIS da preservação de alcançabilidade', () => {
+    it('PISO: sem nenhum view_share alternativo, devolve exatamente o fecho ingênuo', () => {
+        // A árvore compartilhada não tem `granted_by` em lugar nenhum, então nada pode
+        // ser resgatado e as duas travessias precisam coincidir. Sem este caso, um
+        // `fallenGrants` que resgatasse demais passaria despercebido nos casos abaixo.
+        expect(ids(fallenGrants(ARVORE, 'A'))).toEqual(ids(descendantGrants(ARVORE, 'A')));
+        expect(ids(fallenGrants(ARVORE, 'A'))).toEqual(['B', 'C', 'D', 'E']);
+        expect(ids(fallenGrants(ARVORE, 'B'))).toEqual(['C', 'D']);
+        expect(fallenGrants(ARVORE, 'D')).toEqual([]);
+
+        // E o fecho ingênuo continua INTACTO: ele é o conjunto de exclusão de que
+        // `fallenGrants` se alimenta, então uma "simplificação" que fizesse os dois
+        // convergirem apagaria a própria pergunta.
+        expect(ids(descendantGrants(ARVORE, 'A'))).toEqual(['B', 'C', 'D', 'E']);
+    });
+
+    // O caso do dono, na forma mínima: `admin` deu view_share a Bruno (AB) e Célia
+    // também (CB, fora da poda). Bruno repassou a Davi (BD). Revogar AB não pode
+    // derrubar BD, porque Bruno continua autorizado por CB.
+    const RESGATE = [
+        gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+        gp('CB', null, 'Bruno', 'u-Celia', 'view_share', 'u-Bruno'),
+        gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        gp('DE', 'BD', 'Elza', 'u-Davi', 'view', 'u-Elza'),
+    ];
+
+    it('o descendente cujo concedente tem OUTRO view_share fora do fecho sai da lista, e a subárvore dele sai junto', () => {
+        // Piso medido, não suposto: o fecho ingênuo continua vendo os dois.
+        expect(ids(descendantGrants(RESGATE, 'AB'))).toEqual(['BD', 'DE']);
+        // E o resgate tira os dois: BD porque Bruno tem CB, DE porque o servidor não
+        // desce por um nó resgatado.
+        expect(fallenGrants(RESGATE, 'AB')).toEqual([]);
+    });
+
+    it('se o outro view_share está DENTRO do fecho, o descendente CONTINUA na lista', () => {
+        // Célia recebeu de Bruno (CB2 pendurado em AB), então o "outro caminho" cai
+        // junto e não salva ninguém. Sem este caso, um filtro que removesse por
+        // "existe outra linha do mesmo concedente" passaria verde.
+        const DENTRO = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            gp('BC', 'AB', 'Celia', 'u-Bruno', 'view_share', 'u-Celia'),
+            gp('CB2', 'BC', 'Bruno', 'u-Celia', 'view_share', 'u-Bruno'),
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(ids(fallenGrants(DENTRO, 'AB'))).toEqual(['BC', 'BD', 'CB2']);
+        expect(ids(fallenGrants(DENTRO, 'AB'))).toEqual(ids(descendantGrants(DENTRO, 'AB')));
+    });
+
+    it('se o outro é `view` e não `view_share`, o descendente CONTINUA na lista', () => {
+        // `view` não autoriza repassar, então ele não sustenta o repasse que já existe.
+        // É o mesmo predicado que `grantResource` cobra para ACEITAR uma concessão.
+        const SOVIEW = RESGATE.map((x) => (x.id === 'CB' ? { ...x, grant_level: 'view' } : x));
+        expect(ids(fallenGrants(SOVIEW, 'AB'))).toEqual(['BD', 'DE']);
+    });
+
+    it('a própria RAIZ nunca serve de pai alternativo: ela também está caindo', () => {
+        // Bruno recebeu duas vezes do admin, e uma delas É a raiz revogada. Se a raiz
+        // entrasse no conjunto de "fora do alcance", revogá-la viraria um no-op — o
+        // espelho da decisão (1) do servidor ("a âncora nunca é resgatada").
+        const SOARAIZ = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(ids(fallenGrants(SOARAIZ, 'AB'))).toEqual(['BD']);
+    });
+
+    it('o resgate por GRUPO é invisível aqui, e o erro é para o lado seguro', () => {
+        // O segundo view_share de Bruno chegou a um GRUPO de que ele participa. O
+        // servidor resgata; o cliente NÃO tem a composição do grupo e conta como caído.
+        // Este caso existe para que a limitação seja uma decisão registrada, e não uma
+        // surpresa: se alguém um dia mandar o roster no payload, ele fica vermelho.
+        const PORGRUPO = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            {
+                id: 'XG', parent_grant_id: null, granted_by: 'u-Xavier', grant_level: 'view_share',
+                grantee_id: null, grantee_group_id: 'g1', grantee_group_name: 'Equipe',
+            },
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(ids(fallenGrants(PORGRUPO, 'AB'))).toEqual(['BD']);
+    });
+
+    it('o view_share de CONCEDENTE MORTO não resgata ninguém', () => {
+        // O SERVIDOR EXIGE `fn_principal_vivo(granted_by)` NO PAI ALTERNATIVO (D8(b)), e
+        // enquanto a listagem não mandava esse fato o cliente resgatava por uma linha que
+        // o servidor recusa. O erro ia para o lado PERIGOSO num ato irreversível: o aviso
+        // dizia "ninguém cai" e o toast seguinte contava uma queda. A listagem passou a
+        // devolver `granted_by_vivo` e o resgate passou a exigi-lo.
+        //
+        // A LINHA MORTA CONTINUA NA LISTA de propósito — ela é revogável, e sumir da tela
+        // seria pior. O que ela deixou de ser é caminho de acesso.
+        const MORTO = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            { ...gp('ZB', null, 'Bruno', 'u-Zeca', 'view_share', 'u-Bruno'), granted_by_vivo: false },
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(ids(fallenGrants(MORTO, 'AB'))).toEqual(['BD']);
+
+        // A DISCRIMINAÇÃO, mesma árvore e um campo de diferença: com o concedente VIVO o
+        // mesmo Davi é resgatado. Sem esta metade, um `fallenGrants` que tivesse parado de
+        // resgatar por completo passaria verde no caso acima.
+        const VIVO = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            { ...gp('ZB', null, 'Bruno', 'u-Zeca', 'view_share', 'u-Bruno'), granted_by_vivo: true },
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(fallenGrants(VIVO, 'AB')).toEqual([]);
+    });
+
+    it('sem o campo `granted_by_vivo`, o comportamento é o de antes (servidor antigo)', () => {
+        // A comparação é com `false`, e não um booleano nu: `undefined` significa "a
+        // listagem não mandou o campo", e ali o certo é resgatar como antes em vez de
+        // tratar toda linha como morta. Um `if (!g.granted_by_vivo)` faria o aviso
+        // superestimar TUDO contra um servidor antigo, e este caso é o que o pega.
+        const SEMCAMPO = [
+            gp('AB', null, 'Bruno', 'u-admin', 'view_share', 'u-Bruno'),
+            gp('ZB', null, 'Bruno', 'u-Zeca', 'view_share', 'u-Bruno'),
+            gp('BD', 'AB', 'Davi', 'u-Bruno', 'view_share', 'u-Davi'),
+        ];
+        expect(SEMCAMPO[1].granted_by_vivo).toBeUndefined();
+        expect(fallenGrants(SEMCAMPO, 'AB')).toEqual([]);
+    });
+
+    it('entrada degenerada devolve lista vazia, nunca erro', () => {
+        expect(fallenGrants(RESGATE, null)).toEqual([]);
+        expect(fallenGrants(RESGATE, 'nao-existe')).toEqual([]);
+        expect(fallenGrants(null, 'AB')).toEqual([]);
+        expect(fallenGrants([], 'AB')).toEqual([]);
+    });
+
+    it('o aviso do modal conta o RESGATADO fora: é a razão de a função existir', () => {
+        // O elo entre a aritmética e a frase. Sem `fallenGrants` aqui, o modal diria
+        // "2 pessoas perdem o acesso" sobre uma poda que não derruba ninguém.
+        const texto = revocationWarning(RESGATE, 'AB');
+        expect(texto).not.toContain('perde');
+        expect(texto).toContain('Bruno');
+        // E a discriminação, no mesmo par: com o outro caminho em `view`, a frase volta.
+        const SOVIEW = RESGATE.map((x) => (x.id === 'CB' ? { ...x, grant_level: 'view' } : x));
+        expect(revocationWarning(SOVIEW, 'AB')).toContain('2 pessoas perdem o acesso');
     });
 });

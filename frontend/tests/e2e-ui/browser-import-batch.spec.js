@@ -21,11 +21,15 @@
  * A feature carries its TYPE in `properties.source` (GeoJSON Feature); the backend
  * buckets by `feature_type`. Writes are CRDT operations (no REST write routes).
  *
- * Each test self-provisions its own user + atlas + map for full isolation.
+ * Each test self-provisions its own user + atlas + map for full isolation. A CONTA, porém,
+ * nasce no lado NODE (`helpers/accounts.js`), porque confirmar o e-mail exige ler
+ * `email_verification_tokens` no Postgres, que o contexto do browser não alcança; o
+ * `page.evaluate` faz só o `login()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -34,17 +38,15 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
     test('§5.1 import GeoJSON: heterogeneous feature batch lands atomically in its buckets', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'imp', nome: 'Import User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `imp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Import User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Import Atlas' });
             const mapId = crypto.randomUUID();
@@ -101,7 +103,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 // cross-bucket isolation: the line must NOT leak into points.
                 lineNotInPoints: !bucketIds('points').includes(lineId),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The single push acked all four ops.
         expect(result.ackCount).toBe(4);
@@ -123,17 +125,15 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
     test('§5.8/§24.9 points by coordinates: N point creates in ONE push all round-trip', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'coord', nome: 'Coord User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `coord_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Coord User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Coord Atlas' });
             const mapId = crypto.randomUUID();
@@ -181,7 +181,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 pointBucketCount: points.length,
                 persisted,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.ackCount).toBe(result.expected);
         expect(result.pointBucketCount).toBe(result.expected);
@@ -214,17 +214,15 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
     test('BLAST RADIUS: one invalid op writes nothing while its valid siblings commit', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'atom', nome: 'Atomic User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `atom_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Atomic User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Atomic Atlas' });
             const mapId = crypto.randomUUID();
@@ -296,7 +294,7 @@ describeOrSkip('Batch import / points-by-coordinates (real Chromium + real backe
                 featureCountAfterFailedBatch: allFeatureIds.length,
                 recoverPersisted: pointIds2.includes(recoverId),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The push answers PER OPERATION: two accepted, the middle one refused.
         expect(result.outcomes).toHaveLength(3);

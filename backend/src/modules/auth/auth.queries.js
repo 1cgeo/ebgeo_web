@@ -4,7 +4,7 @@
 // FKs (so the token claim + UI keep seeing strings while storage is normalized).
 export const FIND_USER_BY_USERNAME = `
   SELECT u.id, u.username, u.password_hash, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.producer_org_id,
+         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
          u.is_active, u.role, u.email, u.email_verified
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -14,7 +14,7 @@ export const FIND_USER_BY_USERNAME = `
 
 export const FIND_USER_BY_ID = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.producer_org_id,
+         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
          u.role, u.created_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -149,7 +149,7 @@ export const INSERT_USER = `
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.producer_org_id,
+         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
          u.role, u.created_at, u.email, u.email_verified
   FROM new_user u
   LEFT JOIN ranks r ON r.id = u.rank_id

@@ -178,6 +178,66 @@ export async function createShare(db, atlasId, userId, permission, addedBy) {
   return rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// GRUPO DE ACESSO — o coletivo de USUÁRIOS (`public.access_groups`).
+//
+// ATENÇÃO AO NOME: `createGroup` logo acima JÁ EXISTE e é OUTRO domínio — o grupo de
+// FEIÇÕES de um mapa (`public.groups`). Reusar aquele nome aqui repetiria exatamente a
+// colisão que a 008_acesso_a_recurso.sql evitou por escrito ao não chamar a tabela nova de
+// `groups`. Daí o prefixo longo nestas três.
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates an ACCESS GROUP (the collective of users), owned by `ownerId`.
+ *
+ * `owner_id` é obrigatório na prática, mesmo sendo nullable no schema: desde a
+ * 011_grupo_com_dono_e_producao.sql um grupo SEM dono não concede nada
+ * (`fn_user_group_ids` exige `fn_principal_vivo(ag.owner_id)`). Um teste que o omitisse
+ * mediria o grupo órfão sem saber, e todo caso de acesso nasceria verde-por-vazio.
+ */
+export async function createAccessGroup(db, ownerId, overrides = {}) {
+  const data = {
+    name: `Coletivo ${randomUUID().slice(0, 8)}`,
+    description: null,
+    created_by: ownerId,
+    owner_id: ownerId,
+    ...overrides,
+  };
+  const { rows } = await db.query(
+    `INSERT INTO access_groups (name, description, created_by, owner_id)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [data.name, data.description, data.created_by, data.owner_id]
+  );
+  return rows[0];
+}
+
+/** Puts someone in an access group. Idempotent, like the route. */
+export async function addAccessGroupMember(db, groupId, userId, addedBy = null) {
+  const { rows } = await db.query(
+    `INSERT INTO access_group_members (group_id, user_id, added_by)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (group_id, user_id) DO NOTHING
+     RETURNING *`,
+    [groupId, userId, addedBy]
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Shares an atlas WITH A GROUP (`atlas_shares.group_id`), bypassing the route.
+ *
+ * `user_id` fica NULL, e é o CHECK `atlas_shares_alvo_unico_check` que garante que os dois
+ * alvos nunca coexistem numa linha.
+ */
+export async function createGroupShare(db, atlasId, groupId, permission, addedBy = null) {
+  const { rows } = await db.query(
+    `INSERT INTO atlas_shares (atlas_id, group_id, permission, added_by)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [atlasId, groupId, permission, addedBy]
+  );
+  return rows[0];
+}
+
 /**
  * Logs in a user via the API and returns the access token.
  */

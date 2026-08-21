@@ -8,33 +8,64 @@ import { catalogAuthorizationPredicate } from '../catalog/catalog.queries.js';
 
 /**
  * Marca um recurso de CATÁLOGO como público ou privado.
+ *
  * O nome da tabela é INTERPOLADO pelo chamador a partir de `assertCatalogTableOf`,
  * nunca do request.
- *   $1 = accessLevel, $2 = id
+ *
+ * O GATE FINO MORA NO `WHERE` DA PRÓPRIA ESCRITA, e não numa leitura anterior: é a
+ * mesma escada de `updateCatalogItem`/`deleteCatalogItem`. Ler o dono e depois
+ * escrever deixa uma janela entre as duas consultas; `fn_can_produce_resource` dentro
+ * do `WHERE` fecha a janela e, de quebra, devolve ZERO LINHA para a linha de outra OM
+ * — que o serviço traduz em 404, nunca em 403, para que a rota não vire oráculo de
+ * inventário.
+ *
+ * `owner_org_id` viaja no RETURNING para a trilha de auditoria: ela precisa saber de
+ * QUAL OM era o recurso cuja visibilidade mudou, e depois do commit essa resposta
+ * exigiria uma segunda consulta.
+ *   $1 = accessLevel, $2 = id, $3 = ator, $4 = tipo de recurso
  * @param {string} table - Já validado.
  * @returns {string}
  */
 export const setCatalogAccessLevel = (table) => `
   UPDATE ${table} SET access_level = $1, updated_at = NOW()
    WHERE id = $2 AND active = true
-   RETURNING id, name, access_level
+     AND fn_can_produce_resource($3::uuid, $4::text, $2)
+   RETURNING id, name, access_level, owner_org_id
 `;
 
-/** Idem para o 360, cuja chave é UUID. $1 = accessLevel, $2 = id. */
+/**
+ * Idem para o 360, cuja chave é UUID.
+ *
+ * O DUPLO CAST DE `$2` NÃO É ENFEITE: ele é usado como `uuid` na chave e como `text`
+ * no argumento da função de produção, e sem `$2::uuid::text` o parâmetro chegaria com
+ * tipo deduzido de forma inconsistente entre os dois usos.
+ *   $1 = accessLevel, $2 = id, $3 = ator
+ */
 export const SET_360_ACCESS_LEVEL = `
   UPDATE sv360.projects SET access_level = $1, updated_at = NOW()
    WHERE id = $2::uuid
-   RETURNING id::text AS id, name, access_level
+     AND fn_can_produce_resource($3::uuid, 'sv360_project', $2::uuid::text)
+   RETURNING id::text AS id, name, access_level, organization_id AS owner_org_id
 `;
 
-/** O nível de acesso de um recurso de catálogo (para o gate pontual). $1 = id. */
+/**
+ * Os FATOS de um recurso de catálogo: o nível de acesso (para o gate pontual) e a OM
+ * DONA (para a trilha). $1 = id.
+ *
+ * A OM VIAJA JUNTO porque este é o ponto único onde o módulo já resolve "qual linha é
+ * essa": as quatro escritas de trilha do módulo (visibilidade, conceder, revogar,
+ * purgar) precisam carimbar a OM dona do recurso, e reusar esta leitura evita uma
+ * consulta a mais por tipo. O alias uniformiza catálogo e 360, que nomeiam a coluna de
+ * formas diferentes.
+ */
 export const getCatalogAccessLevel = (table) => `
-  SELECT id, access_level FROM ${table} WHERE id = $1 AND active = true
+  SELECT id, access_level, owner_org_id FROM ${table} WHERE id = $1 AND active = true
 `;
 
-/** Idem para o 360. $1 = id (uuid textual). */
+/** Idem para o 360, cuja coluna de OM se chama `organization_id`. $1 = id (uuid textual). */
 export const GET_360_ACCESS_LEVEL = `
-  SELECT id::text AS id, access_level FROM sv360.projects WHERE id = $1::uuid
+  SELECT id::text AS id, access_level, organization_id AS owner_org_id
+    FROM sv360.projects WHERE id = $1::uuid
 `;
 
 /** O predicado escalar, para checagem PONTUAL. $1..$5 como fn_can_see_resource. */
@@ -131,6 +162,13 @@ export const LIST_VISIBLE_PRIVATE_360 = `
  * NÃO cobre o papel global: quem é administrador ou credenciado concede de RAIZ, sem
  * concessão nenhuma, e o cliente já sabe disso por `hasGlobalDataAccess()`. Somar
  * o papel aqui seria uma segunda definição da mesma regra.
+ *
+ * A PRODUÇÃO, ESSA SIM, ENTROU (2026-08-20), e a assimetria com o papel global não é
+ * incoerência: o cliente TEM como saber que é administrador e NÃO tem como saber de
+ * qual OM é cada item — o payload aditivo não carrega `owner_org_id`, de propósito.
+ * Sem este braço o produtor teria a permissão de repassar o que a OM dele mantém e
+ * nenhuma porta para ela, que na tela é indistinguível de não ter a permissão. É a
+ * mesma "capacidade sem porta" que o braço de grupo desta consulta já pagou uma vez.
  *   $1 = grantee_id
  */
 // O BRAÇO DE GRUPO ENTROU AQUI JUNTO COM O DE `LIVE_GRANTS_OF_ACTOR`, e os dois
@@ -139,14 +177,25 @@ export const LIST_VISIBLE_PRIVATE_360 = `
 // segunda conhecesse grupo, quem recebeu `view_share` através de um grupo teria
 // permissão de repassar e nenhum botão para isso — uma capacidade sem porta, que na
 // tela é indistinguível de não ter a permissão.
+// D8(b) ENTROU NO BRAÇO DE CONCESSÃO em 2026-08-21, pelo mesmo motivo e no mesmo commit
+// que em `LIVE_GRANTS_OF_ACTOR`: sem ele a interface ofereceria o botão "Compartilhar"
+// para um recurso que o servidor recusa repassar (e que o dono do botão já nem enxerga),
+// que é a divergência que o parágrafo acima existe para impedir, na direção oposta. O
+// braço de PRODUÇÃO não leva o termo: `fn_produced_private_resource_ids` já confere a
+// vida da conta e a da OM produtora, e ali não existe concedente de quem herdar morte.
 export const LIST_SHAREABLE_OF_ACTOR = `
-  SELECT DISTINCT resource_type, resource_id
-    FROM resource_grants
-   WHERE revoked_at IS NULL
-     AND expires_at > NOW()
-     AND grant_level = 'view_share'
-     AND ( grantee_id = $1::uuid
-        OR grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
+  SELECT DISTINCT resource_type, resource_id FROM (
+    SELECT resource_type, resource_id
+      FROM resource_grants
+     WHERE revoked_at IS NULL
+       AND expires_at > NOW()
+       AND grant_level = 'view_share'
+       AND (granted_by IS NULL OR fn_principal_vivo(granted_by))
+       AND ( grantee_id = $1::uuid
+          OR grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
+    UNION
+    SELECT resource_type, resource_id FROM fn_produced_private_resource_ids($1::uuid)
+  ) s
 `;
 
 // --- concessões ------------------------------------------------------------
@@ -161,23 +210,47 @@ export const LIST_SHAREABLE_OF_ACTOR = `
  * pior possível para uma tela de permissão — conceder a um grupo devolveria 201, e a
  * lista "quem tem acesso" continuaria sem mostrar ninguém, sem erro em lugar nenhum.
  *
+ * O DONO DO GRUPO BENEFICIÁRIO É NOMEADO, e não é enfeite de tela: conceder a um
+ * coletivo é DELEGAR a quem o compõe o poder de acrescentar beneficiários ao seu
+ * recurso, sem passar por `requireResourceShare` e sem criar linha nova em
+ * `resource_grants`. Quem lê "quem tem acesso" precisa ver a QUEM delegou, senão a
+ * delegação é a única parte do mecanismo que não aparece em lugar nenhum.
+ *
  * O GRUPO APAGADO SAI DA LISTA, e é por isso que o filtro está no WHERE e não só na
  * junção. `fn_user_group_ids` exige `deleted_at IS NULL`, então a concessão a um grupo
  * apagado não entrega acesso a ninguém; mantê-la aqui faria a tela chamada "quem tem
  * acesso" listar quem não tem. Não há o que fazer com a linha de qualquer forma: ela
  * já não concede, e revogá-la não mudaria nada.
+ *
+ * `granted_by_vivo` É COLUNA, E NÃO FILTRO, e a diferença é o que mantém a linha
+ * REVOGÁVEL. Desde D8(b) uma concessão cujo concedente morreu (conta ou OM desativada)
+ * não entrega mais acesso, mas continua de pé na tabela — reversível, porque reativar a
+ * OM a devolve. Filtrá-la daqui tiraria da tela a única linha por onde alguém poderia
+ * revogá-la de vez, e a tela "quem tem acesso" passaria a esconder uma aresta que a
+ * revogação de outra ainda alcança em cascata. Devolvê-la MARCADA resolve os dois lados:
+ * a lista continua completa e o cliente para de contar essa linha como caminho vivo.
+ *
+ * O CONSUMIDOR É `fallenGrants` (`frontend/src/js/catalog/grant-tree.js`), e sem esta
+ * coluna ele SUBESTIMAVA o estrago num ato irreversível: ele resgatava por um segundo
+ * `view_share` que o servidor não aceita como pai, então o aviso pré-clique dizia
+ * "ninguém cai" e o toast seguinte contava uma queda. Era o defeito exato que a direção
+ * de erro documentada naquele arquivo dizia estar impedindo.
  */
 export const LIST_GRANTS_FOR_RESOURCE = `
   SELECT g.id, g.resource_type, g.resource_id, g.grant_level, g.parent_grant_id, g.created_at,
          g.expires_at,
          g.grantee_id, gu.username AS grantee_username, gu.nome AS grantee_nome,
          g.grantee_group_id, gg.name AS grantee_group_name,
+         gg.owner_id AS grantee_group_owner_id,
+         gou.username AS grantee_group_owner_username, gou.nome AS grantee_group_owner_nome,
          (SELECT COUNT(*) FROM access_group_members m WHERE m.group_id = g.grantee_group_id)::int
            AS grantee_group_member_count,
-         g.granted_by, bu.username AS granted_by_username, bu.nome AS granted_by_nome
+         g.granted_by, bu.username AS granted_by_username, bu.nome AS granted_by_nome,
+         (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by)) AS granted_by_vivo
     FROM resource_grants g
     LEFT JOIN users gu ON gu.id = g.grantee_id
     LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
+    LEFT JOIN users gou ON gou.id = gg.owner_id
     LEFT JOIN users bu ON bu.id = g.granted_by
    WHERE g.revoked_at IS NULL
      AND g.expires_at > NOW()
@@ -216,6 +289,28 @@ export const LIST_GRANTS_FOR_RESOURCE = `
  *
  * `grantee_group_id` viaja no SELECT porque o serviço precisa dele para recusar o
  * caso degenerado: conceder AO MESMO grupo de onde a própria autoridade veio.
+ *
+ * D8(b) ENTROU AQUI EM 2026-08-21, E O BURACO QUE ELE FECHA FOI MEDIDO, NÃO DEDUZIDO.
+ * Quando `fn_granted_resource_ids` passou a exigir `fn_principal_vivo(g.granted_by)`, o
+ * predicado de LEITURA e este gate de ESCRITA deixaram de concordar, e a diferença era
+ * para o lado aberto. Medido contra o PostgreSQL real: admin dá `view_share` a A, A dá
+ * `view_share` a B, a OM de A é desativada. B deixa de VER o recurso (`visible` não o
+ * traz) e mesmo assim `POST .../grants` de B devolvia **201**, e o beneficiário novo
+ * PASSAVA A VER — porque a linha nova nasce com `granted_by = B`, que está vivo. Ou
+ * seja, a transitividade que D8(b) existe para fechar era reaberta pela porta da
+ * escrita, e bastava o beneficiário devolver o repasse para o próprio B voltar a ver.
+ *
+ * REPARE QUE O CONCEDENTE MORTO NÃO PRECISA DESTE TERMO PARA SI: quem tem a conta ou a
+ * OM desativada é barrado no `auth` (reconciliação ao vivo), então ele não chega a rota
+ * nenhuma. Quem precisava do termo é o BENEFICIÁRIO VIVO de uma autoridade morta, que
+ * autentica normalmente. Foi por isso que a primeira medição (o próprio concedente
+ * tentando repassar) devolveu 403 e quase enterrou o achado: o sujeito estava errado.
+ *
+ * O TERMO É O MESMO DO RESGATE (`REVOKE_SUBTREE_PRESERVING_REACH`, decisão 4) e o mesmo
+ * de `LIST_SHAREABLE_OF_ACTOR`. Os três precisam continuar concordando: esta consulta
+ * decide se o servidor ACEITA a escrita, aquela decide se a interface OFERECE o botão, e
+ * o resgate decide o que a poda mantém de pé. Um `granted_by` NULO passa (concessão sem
+ * concedente não tem com quem morrer, e é a forma que os testes de função inserem).
  *   $1 = grantee_id (o ator), $2 = resource_type, $3 = resource_id
  */
 export const LIVE_GRANTS_OF_ACTOR = `
@@ -224,6 +319,7 @@ export const LIVE_GRANTS_OF_ACTOR = `
    WHERE revoked_at IS NULL
      AND expires_at > NOW()
      AND resource_type = $2 AND resource_id = $3
+     AND (granted_by IS NULL OR fn_principal_vivo(granted_by))
      AND ( grantee_id = $1::uuid
         OR grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
    ORDER BY (grant_level = 'view_share') DESC, created_at
@@ -278,15 +374,64 @@ export const GET_ACTIVE_USER = `
 `;
 
 /**
- * Um grupo VIVO por id (o beneficiário-coletivo precisa existir antes do INSERT).
+ * Um grupo VIVO por id que ESTE ator pode ENDEREÇAR como beneficiário.
  *
  * `deleted_at IS NULL` e não só o id: a FK aceitaria um grupo apagado, e a concessão
  * nasceria morta — `fn_user_group_ids` exige grupo vivo, então ela não devolveria
  * linha para ninguém e a tela mostraria um acesso concedido que não existe.
- *   $1 = id
+ *
+ * `fn_can_administer_group` É O QUE DÁ DENTES À REGRA DO COLETIVO PRÓPRIO. Restringir
+ * só a LISTAGEM de grupos seria obscuridade: o id viaja no corpo do POST, e um
+ * chamador que o adivinhe (ou que o tenha visto antes, quando a listagem era aberta)
+ * continuaria concedendo a um grupo alheio. E conceder a um coletivo que outra pessoa
+ * compõe é delegar a ela o poder de acrescentar beneficiários ao SEU recurso sem
+ * passar por você.
+ *
+ * ZERO LINHA VIRA 404, nunca 403, e as duas causas são indistinguíveis de propósito:
+ * "não existe" e "não é seu" precisam ter a mesma resposta, senão a recusa confirma a
+ * existência de um grupo que a listagem esconde.
+ *   $1 = id do grupo, $2 = o ator
  */
-export const GET_LIVE_GROUP = `
-  SELECT id, name FROM access_groups WHERE id = $1::uuid AND deleted_at IS NULL
+export const GET_ADDRESSABLE_LIVE_GROUP = `
+  SELECT id, name, owner_id FROM access_groups
+   WHERE id = $1::uuid AND deleted_at IS NULL
+     AND fn_can_administer_group($2::uuid, id)
+`;
+
+/**
+ * As concessões VIVAS feitas AO GRUPO $1 — as RAÍZES da poda que a exclusão do grupo
+ * dispara.
+ *
+ * Devolve só ids, porque quem sabe podar é `podarPorRaizes`: a semântica de
+ * descendência tem UMA definição, e escrever um `WITH RECURSIVE` próprio dentro do
+ * módulo de grupo seria a segunda.
+ *   $1 = group_id
+ */
+export const LIVE_GRANT_IDS_TO_GROUP = `
+  SELECT id, resource_type, resource_id FROM resource_grants
+   WHERE grantee_group_id = $1::uuid AND revoked_at IS NULL
+   ORDER BY resource_type, resource_id, id
+`;
+
+/**
+ * As concessões VIVAS que ESTA pessoa fez ALIMENTADA POR ESTE GRUPO — as raízes da
+ * poda que a saída de um membro dispara.
+ *
+ * SEGUIR A ARESTA `parent_grant_id` É A DEFINIÇÃO PRECISA de "o que ele repassou por
+ * este grupo", e é o que separa este conjunto de "tudo o que ele concedeu". Quem tem
+ * também uma concessão PESSOAL `view_share` sobre o mesmo recurso repassou por
+ * autoridade própria, e esse repasse não cai quando ele sai do grupo: a justificativa
+ * dele continua de pé.
+ *   $1 = o membro que saiu, $2 = o grupo
+ */
+export const GRANT_IDS_FED_BY_MEMBER_VIA_GROUP = `
+  SELECT g.id, g.resource_type, g.resource_id
+    FROM resource_grants g
+    JOIN resource_grants pai ON pai.id = g.parent_grant_id
+   WHERE g.revoked_at IS NULL
+     AND g.granted_by = $1::uuid
+     AND pai.grantee_group_id = $2::uuid
+   ORDER BY g.resource_type, g.resource_id, g.id
 `;
 
 /**
@@ -335,45 +480,285 @@ export const GET_GRANT = `
 `;
 
 /**
- * Revoga a concessão $1 e TODA a subárvore que dela deriva, num statement.
+ * SERIALIZA AS PODAS DO MESMO RECURSO. $1 = resource_type, $2 = resource_id.
  *
- * `revoked_at IS NULL` nos DOIS braços, e cada um por uma razão diferente: no
- * âncora ele torna a operação idempotente (revogar duas vezes não reescreve a
- * data, e a data da PRIMEIRA revogação é a que vale para auditoria); no braço
- * recursivo ele impede que a poda atravesse uma concessão JÁ revogada — sem ele,
- * um neto pendurado num filho revogado seria alcançado por uma poda que já não
- * deveria chegar até lá.
+ * A janela que este lock fecha foi CRIADA pela preservação de alcançabilidade: antes,
+ * duas revogações concorrentes só se ignoravam (cada uma escrevia `revoked_at` no seu
+ * pedaço); agora uma delas pode ESCOLHER como pai novo uma concessão que a outra está
+ * derrubando no snapshot dela, e o filho sobreviveria pendurado num pai já revogado.
+ * `fn_granted_resource_ids` nunca olha o pai, então esse filho continuaria ENTREGANDO
+ * acesso — ou seja, o desenho trocaria um defeito determinístico (D cai sem precisar)
+ * por um probabilístico (D sobrevive sem dever), que é a classe pior.
  *
- * O teto de profundidade é fail-safe contra ciclo. Hoje o ciclo é impossível por
- * construção (o pai é fixado no INSERT, só pode apontar para linha já existente,
- * e nenhuma rota expõe UPDATE de `parent_grant_id`), mas `UNION ALL` sem teto
- * transforma um ciclo introduzido por SQL manual em laço infinito, e a diferença
- * entre travar o banco e devolver resultado parcial é esta linha. NÃO troque para
- * `UNION` "por segurança": ele deduplica por linha inteira, não impede o ciclo,
- * só o disfarça — e como cada linha carrega `depth`, ele nem deduplicaria.
+ * A CHAVE É POR (TIPO, RECURSO) e não global: a árvore de uma poda vive inteira dentro
+ * de um recurso (o `LATERAL` do resgate casa `resource_type`/`resource_id`), então duas
+ * podas de recursos diferentes não podem se cruzar, e uma chave global transformaria a
+ * revogação do sistema inteiro numa fila.
  *
- * O RETURNING é o produto, não um detalhe: a poda precisa devolver a lista dos
- * afetados para o serviço auditar uma linha por concessão derrubada. Um DELETE em
- * cascata devolveria só a raiz, e "por que Fulano perdeu acesso" ficaria sem
- * resposta.
- *   $1 = grant id, $2 = revoked_by
+ * `pg_advisory_xact_lock` e não `pg_advisory_lock`: ele é solto no fim da transação, sem
+ * `unlock` explícito. Um lock de sessão vazaria para a próxima requisição servida pela
+ * mesma conexão do pool, e o vazamento só apareceria sob carga.
+ *
+ * O SEPARADOR ':' NÃO PRECISA SER INJETIVO aqui, e é bom saber por quê: uma colisão de
+ * hash entre dois recursos distintos custa serialização desnecessária, nunca correção.
+ * Falso positivo é lento; falso negativo seria o defeito. Por isso `hashtextextended`
+ * (64 bits, disponível desde o PostgreSQL 11) em vez do par de `int4`.
  */
-export const REVOKE_GRANT_SUBTREE = `
-WITH RECURSIVE subtree AS (
+export const LOCK_RESOURCE_GRANTS = `
+  SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0)) AS ok
+`;
+
+/**
+ * As concessões VIVAS feitas POR esta pessoa — as raízes da poda que a DESATIVAÇÃO da
+ * conta dela dispara (D8(b): a autoridade morre com quem a exercia).
+ *
+ * SÃO TODAS, e não só as de RAIZ, embora a decisão do dono fale em raiz. O motivo é que
+ * a raiz não é a única forma de a autoridade sobreviver ao concedente: quem recebeu
+ * `view_share` de terceiro e repassou fez uma concessão COM pai, e desativar a conta
+ * dele não derruba o repasse por nenhum outro caminho — o pai continua vivo, e o
+ * predicado de leitura confere a vida do BENEFICIÁRIO. Restringir a `parent_grant_id IS
+ * NULL` fecharia o caso do administrador e deixaria aberto o do usuário comum, que é o
+ * mesmo buraco com outro sujeito.
+ *
+ * `ORDER BY resource_type, resource_id, id` é contrato com `podarPorRaizes`: ela toma um
+ * lock consultivo por recurso, e a ordem é o que impede duas desativações concorrentes
+ * de se travarem mutuamente.
+ *   $1 = a pessoa que está sendo desativada
+ */
+export const LIVE_GRANT_IDS_BY_GRANTER = `
+  SELECT id, resource_type, resource_id FROM resource_grants
+   WHERE granted_by = $1::uuid AND revoked_at IS NULL
+   ORDER BY resource_type, resource_id, id
+`;
+
+/**
+ * PODA A SUBÁRVORE DE $1 PRESERVANDO ALCANÇABILIDADE, num statement só.
+ *
+ * Ela substituiu uma consulta chamada REVOKE_GRANT_SUBTREE, que só revogava. O nome
+ * mudou porque a consulta passou a ESCREVER `parent_grant_id` e `expires_at`, e um nome
+ * que só diz REVOKE esconde as outras duas escritas.
+ *
+ * A REGRA NOVA É A DECISÃO D3 DO DONO: "se B não caiu, D não deve cair". Ao descer a
+ * subárvore, um filho cujo CONCEDENTE ainda tenha `view_share` vivo sobre o MESMO
+ * recurso, fora do alcance da poda, é RE-PENDURADO nesse outro pai em vez de revogado. O
+ * que a poda derruba deixou de ser "tudo que pende" e passou a ser "o que perdeu TODA
+ * autorização".
+ *
+ * SEIS DECISÕES QUE O SQL NÃO CONTA SOZINHO:
+ *
+ * (1) A ÂNCORA NUNCA É RESGATADA (`a.id <> $1`, mais o `pai_antigo IN podados` de
+ *     `salvos`). A revogação explícita sempre tem efeito; se a âncora pudesse ser
+ *     resgatada, revogar a concessão de alguém que tem outro caminho vivo seria um no-op
+ *     com 200 na resposta.
+ *
+ *     SAIBA QUE NENHUM TESTE PRENDE ESTAS DUAS LINHAS, e a razão é o que as torna
+ *     necessárias. Medido em 2026-08-21: removendo AS DUAS, a suíte inteira continua
+ *     VERDE, porque a âncora passa a cair em `podados` E em `salvos`, e o segundo
+ *     `UPDATE` da mesma linha no mesmo statement não a toca — hoje `revogados` vem
+ *     primeiro e vence. Isso não é garantia: o manual diz que o resultado de duas CTEs
+ *     modificadoras sobre a mesma linha é IMPREVISÍVEL, não "a primeira ganha". As duas
+ *     linhas existem para que o desfecho seja DECIDIDO em vez de acidental, e o modo de
+ *     falha que elas evitam é não-determinismo, que nenhum verde distingue do correto.
+ *     Não as remova porque "o teste não muda de cor".
+ *
+ *     MAS SAIBA QUE `pai_antigo IN podados` FAZ SERVIÇO DUPLO, e só UM dos dois papéis
+ *     está sem guarda. Além de travar a âncora, é ele que mantém `salvos` na FRONTEIRA da
+ *     poda, e esse papel é o passo 2 da prova de disjunção da decisão (5) — coberto pelo
+ *     caso da trilha. Quem ler só o parágrafo acima pode concluir que a linha inteira é
+ *     livre para simplificar; não é.
+ *
+ * (2) O CICLO CONTINUA IMPOSSÍVEL, e esta é a primeira escrita de `parent_grant_id` fora
+ *     do INSERT — o argumento antigo ("nenhuma rota expõe UPDATE dele") deixou de valer e
+ *     precisa ser substituído, não repetido. A prova: todo descendente VIVO de um nó de
+ *     `alcance` está em `alcance`, porque a travessia é exatamente a relação
+ *     `parent_grant_id` restrita a `revoked_at IS NULL`. O pai novo é escolhido com
+ *     `NOT EXISTS (... alcance ...)`, logo ele NÃO é descendente do nó que está sendo
+ *     re-pendurado, logo a aresta nova não fecha ciclo. A implicação só vale se a
+ *     travessia não foi TRUNCADA pelo teto de 32 (uma travessia truncada não contém
+ *     todos os descendentes), e é por isso que `teto.truncado` desliga o resgate inteiro
+ *     nesse caso — fail-closed, degradando para o comportamento anterior. Quem escrever o
+ *     SEGUNDO UPDATE desta coluna precisa repetir esta prova; sem ela, o teto de 32 vira
+ *     a única barreira entre um ciclo e um laço.
+ *
+ *     "FAIL-CLOSED" AQUI VALE SÓ PARA O RESGATE, e a outra metade é o contrário. A PODA
+ *     também trunca em 32 (`podados` tem o mesmo `depth < 32`), então numa cadeia de 33
+ *     elos a revogação da raiz derruba 32 e DEIXA O 33º VIVO, pendurado num pai revogado
+ *     — e como `fn_granted_resource_ids` nunca sobe a cadeia de `parent_grant_id`, essa
+ *     pessoa continua com acesso depois de a raiz inteira ter caído. Isso é fail-OPEN, é
+ *     HERDADO (a `REVOKE_GRANT_SUBTREE` anterior tinha o mesmo teto) e está MEDIDO no
+ *     caso do teto. Não é regressão desta fase, e o conserto não é aumentar o teto: é a
+ *     poda devolver `truncado` e o serviço recusar ou reenfileirar, que é decisão do dono.
+ *
+ * (3) O PAI NOVO PODE ESTAR DENTRO DA PODA, e aí NÃO há resgate: é o caso de C→B
+ *     pendurado em B→C. Excluí-lo é conservador de propósito — um resgate cujo único pai
+ *     alternativo é ele mesmo resgatado seria um ponto fixo, e ponto fixo em CTE é laço.
+ *     A degradação é revogar, que era o comportamento de antes.
+ *
+ * (4) O PAI NOVO PRECISA SER `view_share` VIVO, NÃO VENCIDO E DE CONCEDENTE VIVO, que é
+ *     exatamente o predicado que `grantResource` cobra para ACEITAR uma concessão nova (o
+ *     último termo é o D8(b) que `fn_granted_resource_ids` passou a cobrar). O resgate só
+ *     mantém de pé o que uma concessão nova receberia hoje; qualquer relaxamento aqui
+ *     inventa autorização que a escrita recusaria.
+ *
+ *     ESSA FRASE FOI ESCRITA ANTES DE SER VERDADE, e o conserto veio depois dela. Quando
+ *     ela foi escrita, `LIVE_GRANTS_OF_ACTOR` — o gate de que `grantResource` de fato se
+ *     alimenta — NÃO tinha o termo de concedente vivo, então o resgate era mais estreito
+ *     que a escrita e a afirmação de simetria era falsa. Medido: o beneficiário de uma
+ *     autoridade morta repassava com 201 e o novo beneficiário via o recurso. O termo
+ *     entrou nas duas consultas de ator, e a simetria virou fato; o teste
+ *     "quem perdeu leitura por D8(b) não consegue REPASSAR" é o que a prende. Cuidado
+ *     com o que se afirma aqui: um docblock de autorização é lido como especificação.
+ *
+ * (5) TRÊS `UPDATE` NO MESMO STATEMENT SÓ SÃO LEGAIS PORQUE OS CONJUNTOS SÃO DISJUNTOS, e
+ *     esta é a propriedade que sustenta a consulta inteira: o Postgres NÃO levanta erro
+ *     quando duas CTEs modificadoras tocam a mesma linha, ele dá resultado imprevisível.
+ *     A prova, em três passos: `podados` nunca desce por um nó resgatado (o
+ *     `NOT EXISTS (... resgate ...)` no braço recursivo), e como a ÚNICA forma de um nó
+ *     entrar em `podados` é descendo por essa aresta (a âncora é `$1`, que o resgate
+ *     nunca alcança pela decisão 1), `podados ∩ salvos = ∅`; `salvos` exige
+ *     `pai_antigo IN podados`, o que o mantém na fronteira e não dentro; e `aparar` é
+ *     `heranca` com `depth > 1`, logo nunca um `salvo` (que é `depth = 1`) e nunca
+ *     alcançável por `podados`, que não desceu pelo salvo. A GUARDA desta prova é o teste
+ *     de trilha: EXATAMENTE UMA linha de auditoria por concessão tocada, somando as três
+ *     listas. Um nó em dois conjuntos ganha duas linhas e o caso fica vermelho.
+ *
+ * (6) O PAI NOVO É O DE MAIOR PRAZO (`ORDER BY p.expires_at DESC`), não o mais antigo:
+ *     ele minimiza o aparo. O desempate por `created_at, id` existe para o resultado ser
+ *     determinístico entre execuções.
+ *
+ * O PRAZO DO FILHO É APARADO PARA O TETO DO PAI NOVO (`LEAST`), nunca esticado, e o aparo
+ * DESCE pela subárvore do resgatado (`heranca`). A invariante "filho não vive mais que o
+ * pai" era garantida só pelo `LEAST` do INSERT; como esta é a primeira mudança de pai
+ * fora dele, sem a cascata de aparo a invariante quebraria em silêncio. A alternativa
+ * (RECUSAR o repai quando o pai novo vence antes) foi rejeitada porque faria D cair no
+ * caso exato em que B não caiu, que é o contrário da decisão — e porque o repositório já
+ * tem o precedente escrito em `grantResource`: entregar o que dá para entregar e dizer,
+ * na resposta e na auditoria, até quando vale.
+ *
+ * O PREÇO, e ele é real: o aparo ENCURTA acesso de terceiros que não participaram da
+ * revogação (a subárvore do resgatado). A trilha (`PERMISSION_REPARENT` com
+ * `kind: 'prazo_herdado'`) é o único lugar onde isso aparece.
+ *
+ * `revoked_at IS NULL` NOS DOIS BRAÇOS DE `alcance`, cada um por uma razão diferente: no
+ * âncora ele torna a operação idempotente (revogar duas vezes não reescreve a data, e a
+ * data da PRIMEIRA revogação é a que vale para auditoria); no braço recursivo ele impede
+ * que a poda atravesse uma concessão JÁ revogada.
+ *
+ * NÃO troque `UNION ALL` por `UNION` "por segurança": ele deduplica por linha inteira,
+ * não impede ciclo, e como cada linha carrega `depth` ele nem deduplicaria.
+ *
+ * O RETURNING É O PRODUTO, em três classes: quem caiu, quem mudou de origem e quem só
+ * teve o prazo herdado. Um DELETE em cascata devolveria só a raiz, e "por que Fulano
+ * perdeu acesso" — e agora também "por que Fulano MANTEVE" — ficaria sem resposta.
+ *   $1 = grant id (a âncora), $2 = revoked_by
+ */
+export const REVOKE_SUBTREE_PRESERVING_REACH = `
+WITH RECURSIVE alcance AS (
     SELECT g.id, 1 AS depth
       FROM resource_grants g
      WHERE g.id = $1::uuid AND g.revoked_at IS NULL
     UNION ALL
     SELECT c.id, s.depth + 1
       FROM resource_grants c
-      JOIN subtree s ON c.parent_grant_id = s.id
+      JOIN alcance s ON c.parent_grant_id = s.id
      WHERE c.revoked_at IS NULL AND s.depth < 32
+),
+teto AS (
+    SELECT EXISTS (SELECT 1 FROM alcance WHERE depth >= 32) AS truncado
+),
+resgate AS (
+    SELECT a.id,
+           g.parent_grant_id AS pai_antigo,
+           g.expires_at      AS prazo_antigo,
+           alt.id            AS novo_pai,
+           LEAST(g.expires_at, alt.expires_at) AS prazo_novo
+      FROM alcance a
+      JOIN resource_grants g ON g.id = a.id
+      CROSS JOIN teto
+      LEFT JOIN LATERAL (
+          SELECT p.id, p.expires_at
+            FROM resource_grants p
+           WHERE p.revoked_at IS NULL
+             AND p.expires_at > NOW()
+             AND p.grant_level = 'view_share'
+             AND p.resource_type = g.resource_type
+             AND p.resource_id  = g.resource_id
+             AND p.id <> g.id
+             AND (p.granted_by IS NULL OR fn_principal_vivo(p.granted_by))
+             AND (p.grantee_id = g.granted_by
+               OR p.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(g.granted_by)))
+             AND NOT EXISTS (SELECT 1 FROM alcance x WHERE x.id = p.id)
+           ORDER BY p.expires_at DESC, p.created_at, p.id
+           LIMIT 1
+      ) alt ON true
+     WHERE a.id <> $1::uuid
+       AND g.granted_by IS NOT NULL
+       AND g.expires_at > NOW()
+       AND teto.truncado = false
+),
+podados AS (
+    SELECT a.id, 1 AS depth FROM alcance a WHERE a.depth = 1
+    UNION ALL
+    SELECT c.id, p.depth + 1
+      FROM resource_grants c
+      JOIN podados p ON c.parent_grant_id = p.id
+     WHERE c.revoked_at IS NULL AND p.depth < 32
+       AND NOT EXISTS (SELECT 1 FROM resgate r WHERE r.id = c.id AND r.novo_pai IS NOT NULL)
+),
+salvos AS (
+    SELECT r.* FROM resgate r
+     WHERE r.novo_pai IS NOT NULL
+       AND r.pai_antigo IN (SELECT id FROM podados)
+),
+heranca AS (
+    SELECT s.id, s.prazo_novo AS prazo, 1 AS depth FROM salvos s
+    UNION ALL
+    SELECT c.id, h.prazo, h.depth + 1
+      FROM resource_grants c
+      JOIN heranca h ON c.parent_grant_id = h.id
+     WHERE c.revoked_at IS NULL AND h.depth < 32
+),
+aparar AS (
+    SELECT h.id, h.prazo, g.expires_at AS prazo_antigo, g.parent_grant_id
+      FROM heranca h JOIN resource_grants g ON g.id = h.id
+     WHERE h.depth > 1 AND g.expires_at > h.prazo
+),
+revogados AS (
+    UPDATE resource_grants g
+       SET revoked_at = NOW(), revoked_by = $2::uuid
+      FROM podados p
+     WHERE g.id = p.id
+    RETURNING g.id, g.grantee_id, g.grantee_group_id, g.resource_type, g.resource_id,
+              g.parent_grant_id
+),
+repaiados AS (
+    UPDATE resource_grants g
+       SET parent_grant_id = s.novo_pai, expires_at = s.prazo_novo
+      FROM salvos s
+     WHERE g.id = s.id
+    RETURNING g.id, g.grantee_id, g.grantee_group_id, g.resource_type, g.resource_id,
+              s.pai_antigo, s.novo_pai, s.prazo_antigo, s.prazo_novo
+),
+aparados AS (
+    UPDATE resource_grants g
+       SET expires_at = a.prazo
+      FROM aparar a
+     WHERE g.id = a.id
+    RETURNING g.id, g.grantee_id, g.grantee_group_id, g.resource_type, g.resource_id,
+              a.parent_grant_id, a.prazo_antigo, a.prazo
 )
-UPDATE resource_grants g
-   SET revoked_at = NOW(), revoked_by = $2::uuid
-  FROM subtree s
- WHERE g.id = s.id
-RETURNING g.id, g.grantee_id, g.grantee_group_id, g.resource_type, g.resource_id, g.parent_grant_id
+SELECT 'revoked'::text AS acao, id, grantee_id, grantee_group_id, resource_type, resource_id,
+       parent_grant_id AS pai_antigo, NULL::uuid AS novo_pai,
+       NULL::timestamptz AS prazo_antigo, NULL::timestamptz AS prazo_novo
+  FROM revogados
+UNION ALL
+SELECT 'reparented', id, grantee_id, grantee_group_id, resource_type, resource_id,
+       pai_antigo, novo_pai, prazo_antigo, prazo_novo
+  FROM repaiados
+UNION ALL
+SELECT 'trimmed', id, grantee_id, grantee_group_id, resource_type, resource_id,
+       parent_grant_id, NULL::uuid, prazo_antigo, prazo
+  FROM aparados
 `;
 
 // --- empréstimo por atlas --------------------------------------------------
@@ -462,4 +847,108 @@ export const PURGE_GRANTS_OF_RESOURCE = `
 export const PURGE_ATLAS_LINKS_OF_RESOURCE = `
   DELETE FROM atlas_resources WHERE resource_type = $1 AND resource_id = $2
   RETURNING id, atlas_id, added_by, removed_at
+`;
+
+// --- classificação em LOTE das referências de um atlas ----------------------
+
+/**
+ * Traduz referências 360 para o id do PROJETO a que pertencem.
+ *
+ * As referências que o atlas guarda são heterogêneas por herança: `streetview360_data`
+ * carrega o NOME ORIGINAL da foto, e `slides.photo_id` aceita id de projeto, slug, nome de
+ * projeto e id da foto de entrada (é o que o validador de referência do cliente já tenta).
+ * As cinco formas são resolvidas aqui, numa consulta só, e a que não resolver simplesmente
+ * não devolve linha — o chamador trata ausência como "não visível", que é a convenção da
+ * casa (`NO ROW MEANS REFUSE`, `sync.queries.js`).
+ *
+ * O DESEMPATE É O MESMO DE `GET_PHOTO_BY_NAME`: um nome de foto pode colidir entre
+ * projetos, e o projeto `enabled` vence. Se os dois lados desempatassem diferente, uma
+ * referência seria classificada contra um projeto e servida por outro.
+ *
+ * SEM PREDICADO DE ACESSO AQUI, e é deliberado: esta consulta responde "de qual projeto é
+ * esta foto", não "quem pode vê-la". Aplicar o filtro de acesso já nesta etapa faria a
+ * referência de projeto invisível desaparecer ANTES da classificação, e o resultado seria
+ * indistinguível de "não existe" — o que apagaria a contagem que o relatório precisa dar.
+ * Quem decide visibilidade é `CLASSIFY_RESOURCE_REFS`, logo depois.
+ * O DESEMPATE ESPELHA `GET_PHOTO_BY_NAME` (`sv360.queries.js`), e o espelho é o ponto: se os
+ * dois lados escolhessem projetos diferentes para o mesmo nome de foto, uma referência seria
+ * CLASSIFICADA contra um projeto e SERVIDA por outro. São três termos, e os três são de lá:
+ * a lápide (`deleted_photos`) exclui a foto apagada, a OM do destinatário vem primeiro, e só
+ * então o projeto `enabled`. O `created_at` fecha o determinismo, que aquela consulta não
+ * precisa ter (ela tem `LIMIT 1` sobre um índice único na prática) e esta precisa, porque
+ * classifica em lote.
+ *
+ * O QUE NÃO SE ESPELHA É O PREDICADO DE ACESSO, e a ausência continua deliberada: filtrar
+ * aqui faria a referência de projeto invisível sumir ANTES da classificação, e o resultado
+ * ficaria indistinguível de "não existe" — o que apagaria a contagem do relatório. Quem
+ * decide visibilidade é `CLASSIFY_RESOURCE_REFS`.
+ *   $1 = text[] das referências distintas, $2 = userId do destinatário (uuid|null)
+ */
+export const RESOLVE_SV360_REFS = `
+  SELECT r.ref, p.id::text AS project_id
+    FROM unnest($1::text[]) AS r(ref)
+    CROSS JOIN LATERAL (
+      SELECT pr.id
+        FROM sv360.projects pr
+       WHERE (pr.slug = r.ref
+          OR pr.name = r.ref
+          OR pr.entry_photo_id = r.ref
+          OR (r.ref ~ '^[0-9a-fA-F-]{36}$' AND pr.id = r.ref::uuid)
+          OR EXISTS (
+               SELECT 1 FROM sv360.photos ph
+                WHERE ph.project_id = pr.id
+                  AND (ph.original_name = r.ref OR ph.id = r.ref)
+                  AND NOT EXISTS (
+                        SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = ph.id
+                      )
+             ))
+       ORDER BY (pr.organization_id = (SELECT u.organization_id FROM users u WHERE u.id = $2::uuid)) DESC,
+                (pr.status = 'enabled') DESC,
+                pr.created_at
+       LIMIT 1
+    ) p
+`;
+
+/**
+ * A pergunta "este destinatário enxerga cada uma destas referências?", para o ATLAS
+ * INTEIRO, numa ida ao banco.
+ *
+ * UMA DEFINIÇÃO SÓ DO PREDICADO: cada linha é julgada por `fn_can_see_resource`, a mesma
+ * função composta que a listagem, o gate pontual e a borda de escrita chamam. Não há
+ * segunda cópia da regra em JS, e é por isso que a poda do clone não pode ser a poda de
+ * saída: aqui existe destinatário, e o predicado sabe respondê-lo.
+ *
+ * O ATLAS EM FOCO É NULO, E É DECISÃO DE PROJETO. O braço de empréstimo de
+ * `fn_granted_resource_ids` responde pelo que o atlas EM FOCO empresta, e o clone não copia
+ * `atlas_resources`: passar o atlas de ORIGEM faria a cópia nascer enxergando o que só a
+ * origem emprestava, e deixar de enxergar depois — um atlas que perde recurso sozinho, sem
+ * ninguém ter revogado nada.
+ *
+ * `COALESCE(n.access_level, 'private')` é a convenção de recusa: linha ausente (recurso
+ * apagado, id inventado, referência de outra instalação) é tratada como privada, então
+ * "não existe" e "não posso ver" continuam indistinguíveis — o contrário abriria um
+ * oráculo de existência sobre o acervo privado.
+ *   $1 = userId (uuid|null), $2 = text[] dos tipos, $3 = text[] dos ids
+ */
+export const CLASSIFY_RESOURCE_REFS = `
+  WITH ref AS (
+    SELECT t.tipo, i.rid
+      FROM unnest($2::text[]) WITH ORDINALITY AS t(tipo, ord)
+      JOIN unnest($3::text[]) WITH ORDINALITY AS i(rid, ord) USING (ord)
+  ), nivel AS (
+    SELECT 'basemap'::text AS tipo, id::text AS rid, access_level FROM basemaps WHERE active = true
+    UNION ALL
+    SELECT 'tileset', id::text, access_level FROM tilesets WHERE active = true
+    UNION ALL
+    SELECT 'data_layer', id::text, access_level FROM data_layers WHERE active = true
+    UNION ALL
+    SELECT 'analysis_layer', id::text, access_level FROM analysis_layers WHERE active = true
+    UNION ALL
+    SELECT 'sv360_project', id::text, access_level FROM sv360.projects
+  )
+  SELECT ref.tipo, ref.rid,
+         fn_can_see_resource($1::uuid, NULL::uuid, ref.tipo, ref.rid,
+                             COALESCE(n.access_level, 'private')) AS ok
+    FROM ref
+    LEFT JOIN nivel n ON n.tipo = ref.tipo AND n.rid = ref.rid
 `;

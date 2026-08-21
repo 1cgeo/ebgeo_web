@@ -23,7 +23,6 @@ function mapDbUser(row) {
     posto_graduacao: row.posto_graduacao,
     role: row.role || 'user',
     organization_id: row.organization_id ?? null,
-    org_role: row.org_role || 'viewer',
     producer_org_id: row.producer_org_id ?? null,
   };
 }
@@ -36,7 +35,10 @@ function mapPayload(p) {
     posto_graduacao: p.posto,
     role: p.role || 'user',
     organization_id: p.organization_id ?? null,
-    org_role: p.org_role || 'viewer',
+    // `org_role` NAO E MAPEADO (D7, 2026-08-20). O eixo saiu do banco e do token; um
+    // token legado ainda carrega a claim e ela e IGNORADA, sem campo em `req.user`
+    // para onde ir. Mantido em sincronia com middleware/auth.js verifyAndMapUser.
+    //
     // Escopo de PRODUCAO. Ausente (token legado) = null. Mantido em sincronia com
     // o mapeamento identico de middleware/auth.js.
     producer_org_id: p.producer_org_id ?? null,
@@ -128,39 +130,39 @@ export async function flexibleAuth(req, res, next) {
       // Re-issue with the CURRENT claims so a demotion propagates instead of being
       // carried forward forever.
       //
-      // `role` was reconciled from the start; `org_role`/`organization_id` were not,
-      // and that half-fix left the exact hole the other half had closed. The renewal
-      // re-signs `req.user`, whose org claims came from the OLD token, so while a
-      // cookie client kept sliding an org demotion (editor -> viewer) NEVER propagated:
-      // not a 15-min window, an unbounded one.
+      // `role` was reconciled from the start; the ORG claims were not, and that
+      // half-fix left the exact hole the other half had closed. The renewal re-signs
+      // `req.user`, whose org claims came from the OLD token, so while a cookie client
+      // kept sliding an org move NEVER propagated: not a 15-min window, an unbounded one.
       //
-      // THE TWO SITES THIS PARAGRAPH USED TO CITE ARE GONE, and saying so is the point.
-      // It read "`org_role` is real authorization — sv360.routes.js
-      // requireUploadCapability and sv360.write.service.js decide write access by it".
-      // Neither decides by `org_role` any more: phase F6 replaced the self-declared
-      // posting with the GRANTED production scope (`producer_org_id`), which is the
-      // claim reconciled unconditionally a few lines below. So the reconciliation is
-      // kept for a NARROWER reason than the one written here: `org_role` still travels
-      // in the token and is still READ (display, org listings), and a claim that is
-      // re-signed forever without ever being re-read is a lie the cookie tells about
-      // the account. A justification that names dead call sites is worse than none: the
-      // next reader checks them, finds nothing, and concludes the whole block is dead.
+      // THIS PARAGRAPH USED TO BE ABOUT `org_role`, AND SAYING SO IS THE POINT. It once
+      // named two sites that decided write access by it (sv360.routes.js
+      // requireUploadCapability and sv360.write.service.js); phase F6 replaced the
+      // self-declared posting with the GRANTED production scope (`producer_org_id`), and
+      // 2026-08-20 (D7) removed the axis from the column, the token and the client. What
+      // is left to reconcile here is `organization_id` alone — LOTAÇÃO, display only, but
+      // a claim that is re-signed forever without ever being re-read is a lie the cookie
+      // tells about the account.
       //
       // The reconciliation is conditional on the token ALREADY CARRYING the claim, and
       // that condition is the whole reason auth-gaps auth-05 still holds: a LEGACY token
-      // (minted before the org claims existed) must keep degrading to viewer/null from
-      // the mapping, never being promoted out of the DB. Absent claim -> degrade;
-      // present claim -> reconcile. The two rules were previously conflated, which is
-      // why "never reconcile" looked like the only way to honour the first one.
+      // (minted before the org claim existed) must keep degrading to null from the
+      // mapping, never being promoted out of the DB. Absent claim -> degrade; present
+      // claim -> reconcile. The two rules were previously conflated, which is why "never
+      // reconcile" looked like the only way to honour the first one.
+      //
+      // THE CONDITION LOST ITS `org_role` DISJUNCT, and dropping it is not cosmetic: while it
+      // was there, a legacy token carrying `org_role` and NO `organization_id` would have its
+      // posting promoted from the DB, which is exactly what auth-05 forbids. An unknown claim
+      // is ignored; reacting to one is the defect.
       if (live) {
         req.user.role = live.role;
-        if (payload.org_role !== undefined || payload.organization_id !== undefined) {
-          req.user.org_role = live.orgRole;
+        if (payload.organization_id !== undefined) {
           req.user.organization_id = live.organizationId;
         }
-        // Incondicional, como no `auth` estrito e pela mesma razao: sem isto o
-        // cookie re-emitido carregaria o escopo de produção antigo indefinidamente,
-        // que foi exatamente o defeito de `org_role` descrito acima.
+        // Unconditional, as in the strict `auth` and for the same reason: without it the
+        // re-issued cookie would carry the stale production scope indefinitely, which is
+        // exactly the defect of the OM axis described above.
         req.user.producer_org_id = live.producerOrgId;
       }
       res.cookie('token', issueAccessToken(req.user), env.cookieOptions());

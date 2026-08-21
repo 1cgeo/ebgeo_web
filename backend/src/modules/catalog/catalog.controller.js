@@ -3,6 +3,7 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { createAudit } from '../../utils/audit.js';
+import { diffAuditavel } from '../../utils/audit-diff.js';
 import { principalUserId } from '../../utils/principal.js';
 import { TYPE_BY_TABLE } from '../resource-access/resource-access.types.js';
 import { assertAuditTargetTypeOf } from './catalog.tables.js';
@@ -77,8 +78,22 @@ export const get = (table) => asyncHandler(async (req, res) => {
  * a alternativa (best-effort) trocaria isso por escrita de catálogo sem rastro, que
  * é justamente o buraco que esta fase fecha.
  *
- * `details` NUNCA carrega VALOR de campo, só NOME (a mesma regra de `USER_UPDATE`):
- * `config` guarda URL de serviço, e a trilha é lida por qualquer administrador.
+ * `details` CARREGA UM DE-PARA SELETIVO desde 2026-08-21, e a regra antiga ("só NOME,
+ * nunca VALOR") sobrevive como PISO do que ninguém classificou. Quem decide o regime de
+ * cada campo é `utils/audit-diff.js`, e o cabeçalho dele é a fonte: valor literal só para
+ * uma allowlist de campos pequenos e não-endereçáveis, IMPRESSÃO (HMAC truncado) para
+ * endereço e mídia, e nome-só para todo o resto. `config` continua guardando URL de
+ * serviço e data URL de miniatura, e nenhum dos dois entra aqui — o de-para responde
+ * "mudou? voltou ao que era?" sem carregar o valor.
+ *
+ * `fields` CONTINUA PRESENTE e não foi substituído: `auditoria-acoes-novas.test.js` o lê,
+ * e trocar a forma quebraria um verde que hoje verifica algo real. O de-para é ADITIVO.
+ *
+ * `targetOrgId` É A OM DONA DA LINHA, e ela vem do ENVELOPE do serviço (a mesma
+ * consulta que escreveu), nunca de uma leitura à parte. É o que põe o catálogo no eixo
+ * de auditoria por OM: sem ela, o produtor abriria a trilha e não veria o próprio
+ * acervo. Ela é a OM DA ÉPOCA por construção — transferir a linha amanhã não reescreve
+ * a história de hoje.
  */
 export const create = (table) => asyncHandler(async (req, res) => {
   const { row, resurrected, ownerOrgId } = await svc.createCatalogItem(table, req.body, producerActor(req));
@@ -88,6 +103,7 @@ export const create = (table) => asyncHandler(async (req, res) => {
     targetType: assertAuditTargetTypeOf(table),
     targetId: row.id,
     targetName: row.name,
+    targetOrgId: ownerOrgId,
     // `resurrected` distingue duas operações que compartilham a rota: um INSERT e o
     // overwrite total de um id soft-deletado. `ownerOrgId` é o que prova qual OM o
     // produtor carimbou, que é o dado central do eixo de produção.
@@ -97,14 +113,17 @@ export const create = (table) => asyncHandler(async (req, res) => {
 });
 
 export const update = (table) => asyncHandler(async (req, res) => {
-  const row = await svc.updateCatalogItem(table, req.params.id, req.body, producerActor(req));
+  const { row, antes, depois, ownerOrgId } = await svc.updateCatalogItem(
+    table, req.params.id, req.body, producerActor(req),
+  );
   await createAudit(req, {
     action: 'CATALOG_UPDATE',
     actorId: principalUserId(req.user),
     targetType: assertAuditTargetTypeOf(table),
     targetId: row.id,
     targetName: row.name,
-    details: { table, fields: Object.keys(req.body || {}) },
+    targetOrgId: ownerOrgId,
+    details: { table, fields: Object.keys(req.body || {}), ...diffAuditavel(antes, depois) },
   });
   res.json({ data: row });
 });
@@ -117,6 +136,7 @@ export const remove = (table) => asyncHandler(async (req, res) => {
     targetType: assertAuditTargetTypeOf(table),
     targetId: row.id,
     targetName: row.name,
+    targetOrgId: row.owner_org_id ?? null,
     // Soft-delete, e dizê-lo importa: `CATALOG_DELETE` não é o fim do id (a rota de
     // criação o ressuscita), e ler a trilha como se fosse produz a conclusão errada.
     details: { table, soft: true },

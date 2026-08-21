@@ -375,6 +375,85 @@
     height: 14px;
 }
 
+/* "Prévia" divide o rodapé com "Abrir" e pode conviver com "Compartilhar" num item
+   privado com vídeo, que é a combinação de três botões do rodapé. */
+.catalog-card-btn--preview {
+    flex: 0 0 auto;
+    width: auto;
+    padding-inline: var(--space-3);
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+.catalog-card-btn--preview:hover {
+    background: var(--gray-600);
+    color: white;
+}
+
+.catalog-card-btn--preview svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ==========================================================================
+   PRÉVIA EM VÍDEO (modal)
+   ========================================================================== */
+
+.preview-video-container {
+    width: min(880px, 92vw);
+    max-width: 92vw;
+    padding: var(--space-4);
+}
+
+.preview-video-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.preview-video-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--gray-800);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preview-video-close {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xl);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.preview-video-close:hover {
+    background: var(--gray-200);
+}
+
+.preview-video-player {
+    display: block;
+    width: 100%;
+    max-height: 70vh;
+    border-radius: var(--radius-md);
+    background: black;
+}
+
+.preview-video-error {
+    margin: var(--space-3) 0 0;
+    color: var(--color-error);
+    font-size: var(--font-size-sm);
+}
+
 /* ==========================================================================
    EMPTY STATE
    ========================================================================== */

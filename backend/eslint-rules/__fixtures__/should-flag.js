@@ -20,6 +20,12 @@ it('flags a disjunctive assert', async () => {
   assert.ok(res.status === 403 || res.status === 404);
 });
 
+it('flags the same hedge written as an inline set', async () => {
+  const res = await fetch('/x');
+  // EXPECT: no-disjunctive-assert
+  assert.ok([403, 404].includes(res.status));
+});
+
 it('flags a loop over a collection of unasserted size', async () => {
   const res = await fetch('/list');
   // EXPECT: no-unasserted-loop-assert

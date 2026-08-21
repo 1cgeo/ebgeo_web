@@ -294,6 +294,12 @@ function publicProjectView(project, user) {
     center: { lat: project.center_lat, lon: project.center_long },
     entryPhotoId: project.entry_photo_id ?? null,
     previewThumbnail: `${THUMBNAILS_SEGMENT}/${project.slug}.webp`,
+    // ACRÉSCIMO ADITIVO (2026-08-21), em camelCase como todo o resto desta forma: a
+    // coluna é `preview_video` e ela NÃO pode vazar com esse nome, porque
+    // `sv360-contract.test.js` afirma a ausência de snake_case no payload. `?? null`
+    // normaliza a consulta que não selecionou a coluna para o mesmo null de "sem vídeo",
+    // então nenhum consumidor vê a chave sumir.
+    previewVideo: project.preview_video ?? null,
     photoCount: project.photo_count,
     status: project.status,
   };

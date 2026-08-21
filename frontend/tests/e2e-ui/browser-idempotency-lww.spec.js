@@ -25,23 +25,22 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('Idempotency + LWW (real Chromium + real backend)', () => {
     test('pushing the same op id twice yields a single feature (no duplicate effect)', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'idem', nome: 'Idempotency User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `idem_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Idempotency User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Idempotency Atlas' });
             const mapId = crypto.randomUUID();
@@ -71,7 +70,7 @@ describeOrSkip('Idempotency + LWW (real Chromium + real backend)', () => {
                 version1: res1.serverVersion,
                 version2: res2.serverVersion,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The duplicate push must NOT create a second feature row.
         expect(result.isSnapshot).toBe(true);
@@ -82,17 +81,15 @@ describeOrSkip('Idempotency + LWW (real Chromium + real backend)', () => {
     });
 
     test('two updates to one feature: last ARRIVAL wins in the snapshot (not last timestamp)', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'lww', nome: 'LWW User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `lww_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'LWW User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'LWW Atlas' });
             const mapId = crypto.randomUUID();
@@ -133,7 +130,7 @@ describeOrSkip('Idempotency + LWW (real Chromium + real backend)', () => {
                 firstTimestamp: opFirst.timestamp,
                 secondTimestamp: opSecond.timestamp,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // Sanity: still exactly one feature (updates merge, they don't duplicate).
         expect(result.isSnapshot).toBe(true);

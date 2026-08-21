@@ -41,31 +41,33 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Seeds a fresh user + atlas + map inside the page and stashes a live ApiClient +
- * operation factory on `window.__sv360` (so later `page.evaluate` calls reuse the
- * same authenticated client). Runs entirely in the browser against the real backend.
+ * Seeds a fresh user + atlas + map and stashes a live ApiClient + operation factory on
+ * `window.__sv360` (so later `page.evaluate` calls reuse the same authenticated client).
+ *
+ * A CONTA nasce no NODE (`helpers/accounts.js`), porque o cadastro exige e-mail e o token
+ * que o confirma só existe como linha no Postgres, fora do alcance do `page.evaluate`.
+ * Dentro do browser sobra o `login()`, e o atlas + mapa contra o backend real.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - backend origin (without the `/api/v1` suffix)
  * @param {string} prefix - username prefix, for readable test isolation
  * @returns {Promise<{ atlasId: string, mapId: string }>}
  */
-function seed(page, baseUrl, prefix) {
+async function seed(page, baseUrl, prefix) {
+    const user = await createVerifiedUser({ prefix, nome: 'SV360 E2E' });
     return page.evaluate(
-        async ({ baseUrl: url, prefix: pfx }) => {
+        async ({ baseUrl: url, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            const username = `${pfx}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'SV360 E2E' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'SV360 Atlas' });
             const mapId = crypto.randomUUID();
@@ -74,7 +76,7 @@ function seed(page, baseUrl, prefix) {
             window.__sv360 = { api, createOperation };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, prefix },
+        { baseUrl, u: user },
     );
 }
 

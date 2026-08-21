@@ -68,6 +68,10 @@ export const createGrant = asyncHandler(async (req, res) => {
     // seria uma segunda leitura do mesmo fato, e é assim que uma requisição passa
     // a ter duas respostas para a mesma pergunta.
     hasGlobalAccess: req.hasGlobalDataAccess === true,
+    // O MESMO raciocínio, para o outro titular da concessão de RAIZ. A diferença é
+    // que este é fato do PAR (ator, recurso), e o gate o calculou com o MESMO
+    // `:type/:id` que o serviço vai usar — não há segundo alvo a reconciliar.
+    producesResource: req.producesResource === true,
     req,
   });
   res.status(201).json({ data });
@@ -88,6 +92,20 @@ export const createGrant = asyncHandler(async (req, res) => {
  * de grupo fora de um atlas que empresta continua sem push: o socket dele pode estar
  * noutra sala ou não existir. Falho ABERTO na notificação de propósito: um aviso a mais é
  * um GET a mais, um aviso a menos é o defeito.
+ *
+ * SAIBA QUE ESSA POLÍTICA VALE PARA UM DOS QUATRO CHAMADORES DA PODA, e não para os
+ * quatro. `podarPorRaizes` é chamada por revogar, apagar grupo, tirar membro e desativar
+ * conta; só a revogação passa por aqui, porque esta função é do controller de
+ * resource-access e os outros três vivem em `access-groups.controller.js` e
+ * `users.controller.js`. Os três podam sem acordar sala nenhuma.
+ *
+ * NÃO É VAZAMENTO, e é por isso que ficou assim: o predicado SQL nega toda leitura real
+ * do que caiu, então o efeito é catálogo obsoleto na TELA até o próximo
+ * `refreshVisibleResources` ou a próxima reconciliação de socket. O que custaria fechar é
+ * extrair esta função para um módulo compartilhado e chamá-la dos outros dois
+ * controllers, com teste de WS em cada um — e broadcast sem teste é justamente o
+ * verificador que quebra calado. Ficou na lista de resíduos, escrito aqui para que a
+ * próxima sessão não SUPONHA que a poda avisa.
  *
  * SÓ OS REVOGADOS ENTRAM, e esta linha é escrita hoje para uma lista que ainda não
  * existe. Quando a poda passar a devolver `{ revoked, reparented, trimmed }` (o resgate
@@ -122,11 +140,52 @@ async function avisarAtlasQueEmprestam(podadas) {
   }
 }
 
+/**
+ * O RECORTE DA RESPOSTA, e ele é de ESCOPO, não de estilo.
+ *
+ * As três listas saem de um `RETURNING` que carrega, além do sujeito de cada linha, o
+ * `novo_pai` (o id de uma concessão que está FORA da subárvore revogada, e cuja
+ * existência revela "esta pessoa tem outro caminho de acesso, dado por outra pessoa") e
+ * os dois prazos de terceiros — sendo que `prazo_novo` é um `LEAST`, então muitas vezes
+ * ele É o `expires_at` da concessão alheia. Nada disso é do chamador: o gate de revogar
+ * (`requireGrantRevoker`) autoriza por AUTORIA da linha apontada e não exige que o ator
+ * ainda tenha `view_share` no recurso, então quem já perdeu a tela "quem tem acesso"
+ * continua podendo revogar — e receberia esse metadado junto.
+ *
+ * O QUE A UI PRECISA É A CONTAGEM E O SUJEITO, e é exatamente o que sobra aqui (o
+ * cliente lê `.length` das três listas). O de-para completo do repai — de qual pai para
+ * qual, de qual prazo para qual — pertence à TRILHA, que já o grava em
+ * `PERMISSION_REPARENT` e tem gate próprio.
+ *
+ * @param {Array} linhas
+ * @returns {Array<{id: string, grantee_id: string|null, grantee_group_id: string|null,
+ *   resource_type: string, resource_id: string}>}
+ */
+const semDadoDeFora = (linhas) => (linhas ?? []).map((l) => ({
+  id: l.id,
+  grantee_id: l.grantee_id,
+  grantee_group_id: l.grantee_group_id,
+  resource_type: l.resource_type,
+  resource_id: l.resource_id,
+}));
+
 export const revokeGrant = asyncHandler(async (req, res) => {
-  const revoked = await svc.revokeGrant({ grantId: req.params.grantId, actor: req.user, req });
-  await avisarAtlasQueEmprestam(revoked);
+  const podada = await svc.revokeGrant({ grantId: req.params.grantId, actor: req.user, req });
+  await avisarAtlasQueEmprestam(podada);
   // A LISTA DOS DERRUBADOS É O PRODUTO, não um detalhe: quem revogou precisa ver
   // que a subárvore caiu junto, e a UI usa a contagem para confirmar antes de
   // fechar o modal.
-  res.json({ data: { revoked } });
+  //
+  // AS DUAS LISTAS NOVAS SÃO ADITIVAS AO CONTRATO, e ler só `revoked` continua correto —
+  // com a diferença de que a contagem passou a ser a VERDADEIRA: quem foi resgatado saiu
+  // dela. `reparented` é quem MANTEVE o acesso por outro caminho (`view_share` vivo do
+  // concedente) e `trimmed` é quem manteve com o prazo aparado pelo teto do pai novo.
+  // Nenhum dos dois perdeu acesso, e é por isso que o aviso ao vivo acima ignora os dois.
+  res.json({
+    data: {
+      revoked: semDadoDeFora(podada.revoked),
+      reparented: semDadoDeFora(podada.reparented),
+      trimmed: semDadoDeFora(podada.trimmed),
+    },
+  });
 });

@@ -77,7 +77,7 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
 
   function token({ role = 'user', producerOrgId = null, organization_id = orgId }) {
     const sub = crypto.randomUUID();
-    const claims = { sub, username: `pre_${RID}_${sub.slice(0, 8)}`, role, org_role: 'viewer' };
+    const claims = { sub, username: `pre_${RID}_${sub.slice(0, 8)}`, role };
     if (organization_id) claims.organization_id = organization_id;
     if (producerOrgId) claims.producer_org_id = producerOrgId;
     return jwt.sign(claims, JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
@@ -277,7 +277,9 @@ describe('StreetView 360 — o pré-filtro de upload roda ANTES do multer (FIX-4
   it('e o contraste: LOTAÇÃO não escreve, nos dois lados', async () => {
     // Sem este caso o laço acima passaria com um pré-filtro que aceitasse todo mundo.
     // E ele é o resumo da fase: a conta abaixo se declarou desta OM no cadastro e, no
-    // modelo antigo com `org_role: 'editor'`, escrevia o acervo dela.
+    // modelo antigo com `org_role: 'editor'`, escrevia o acervo dela. O campo continua
+    // no principal DESTE caso de propósito: ele foi removido do banco e do token em
+    // 2026-08-20 (D7), e a asserção mede que nem inventá-lo à mão reabre a porta.
     assert.equal(
       canWriteProject({ role: 'user', organization_id: orgId, org_role: 'editor' }, { organization_id: orgId }),
       false,

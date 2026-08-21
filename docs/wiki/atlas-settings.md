@@ -57,6 +57,7 @@ Corolário na direção oposta: o modal só oferece basemaps habilitados no depl
 ## Pontos de contato
 
 - **Clone** copia as settings para o novo atlas (`backend/src/modules/atlas/atlas.service.js`); compartilhamentos e link público não. Ver [[clone-atlas]].
+- **Seis chaves daqui são referência de recurso de catálogo** (`basemaps`, `default_basemap` e os quatro `available_*`), e por isso o clone e o import as PODAM por destinatário: o que o novo dono não enxerga sai da lista. A armadilha é o sentido da poda, e ela é específica desta página: lista vazia significa **sem restrição**, então podar uma allowlist até zero e escrever a lista vazia ALARGA a cópia. Quando ela esvazia, o que se desliga é a categoria correspondente em `features`. `basemaps` é a exceção declarada, porque não tem categoria e um mapa sem camada de base não desenha. Ver [[sair-do-servidor]].
 - **Link público**: o visitante anônimo recebe o mesmo overlay, porque `connectPublic` também o aplica. Restrições de 3D/360/basemap valem para ele. Ver [[link-publico]].
 - Settings vem embutido no snapshot do pull quando disponível, evitando um round-trip; o GET é só fallback. Ver [[snapshot-e-pull-incremental]] e [[api-rest-atlas]].
 - Erros seguem [[erros-api]]: 422 `VALIDATION_ERROR`, 403 `FORBIDDEN` sem `manage`.

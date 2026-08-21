@@ -73,6 +73,11 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-19 | As 22 migrações viram 8 baselines por domínio, e o histórico passa a viver só no git | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-19 | O acesso geográfico por zonas sai inteiro, a busca de topônimo perde o eixo de acesso, e conceder a um coletivo renasce no schema da aplicação | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-19 | Administrar grupo de acesso é papel global de dado (administrador ou credenciado), e listar grupo não é administrar | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-20 | O grupo de acesso vira entidade de usuário, com dono, e o produtor ganha visibilidade e concessão de raiz (supera a linha acima) | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-20 | O eixo de papel dentro da organização (`org_role`) sai do código inteiro: coluna, claim, consultas, formulário e a semente do papel por atlas no cliente | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-21 | Produzir exige a OM produtora viva; o rebaixamento de quem concedeu continua não propagando, agora medido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-21 | O compartilhamento de atlas ganha o eixo de grupo, e ele chega a `manage`, com as duas mitigações no mesmo commit | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-21 | O `details` da trilha carrega um de-para seletivo (valor, impressão HMAC, nome-só), e o vídeo de prévia vale para quatro tipos, sem o basemap | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-15 | Fase multi-aba: o plano como executado (registro, com as sete decisões de desenho por extenso) | [fase-multiaba-2026-08.md](fase-multiaba-2026-08.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo

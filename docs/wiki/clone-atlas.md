@@ -8,9 +8,17 @@ O mesmo rótulo, "Fazer uma cópia", aparece nos dois tipos de cartão da tela d
 
 O clone exige permissão mínima **`read`** (`backend/src/modules/atlas/atlas.routes.js`), enquanto duplicar um mapa *dentro* do atlas exige `write` (`backend/src/modules/atlas/atlas.routes.js`). Não é descuido: duplicar dentro do atlas é escrita no atlas alheio; clonar é escrita num atlas novo, seu. A consequência é forte e precisa ser entendida antes de compartilhar qualquer coisa: **quem consegue ler um atlas pode forkar o conteúdo inteiro e virar `owner` da cópia** (`cloneAtlas`, `backend/src/modules/atlas/atlas.controller.js`, usa `req.user.id`, não o dono original). Não trate clone como operação privilegiada; ver [[permissoes-atlas]].
 
-O caso mais alarmante, porém, **não acontece**: o portador de [[link-publico]] chega até o gate (o `sub` `public-<uuid>` passa pelo `auth` estrito e `requireAtlasPermission('read')` resolve `read` por `is_public`) e falha uma linha depois, ao inserir `owner_id = 'public-<uuid>'` numa coluna `UUID NOT NULL REFERENCES users(id)`. Isso é 22P02, que o `errorHandler` mapeia para **400 `BAD_REQUEST`**. É limite acidental, não gate deliberado: o comportamento pretendido seria 403, e um dia em que o visitante ganhar identidade real de usuário a barreira some sem que ninguém tenha decidido derrubá-la.
+O portador de [[link-publico]] chega até o gate (o `sub` `public-<uuid>` passa pelo `auth` estrito e `requireAtlasPermission('read')` resolve `read` por `is_public`), e **desde 2026-08-21 ele para num gate e não num acidente de tipo**. Até então a rota falhava uma linha depois, ao inserir `owner_id = 'public-<uuid>'` numa coluna `UUID NOT NULL REFERENCES users(id)`: 22P02, que o `errorHandler` traduzia num erro sem relação aparente com o assunto. Era limite acidental, e o dia em que o visitante ganhasse identidade real de usuário a barreira sumiria sem ninguém ter decidido derrubá-la. Hoje quem recusa é `requireAccountPrincipal` (`backend/src/middleware/auth.js`), com 403 e mensagem: a cópia no servidor precisa de um dono.
 
-Não copiar `atlas_shares` é o outro lado do mesmo raciocínio: permissão é do container, não do conteúdo. Se shares viessem junto, um leitor clonaria, viraria `owner` e o atlas novo ainda exporia os mesmos membros da origem. Ver [[compartilhamento-atlas]].
+A ordem na rota é contrato: o gate de conta vem **depois** de `requireAtlasPermission`, para que um atlas inexistente continue respondendo 404 antes de o servidor revelar que a ação exige conta. E o portador do mesmo link que está **logado** continua clonando, que é a decisão do dono: ele tem linha em `users`.
+
+Não copiar `atlas_shares` é o outro lado do mesmo raciocínio: permissão é do container, não do conteúdo. Se shares viessem junto, um leitor clonaria, viraria `owner` e o atlas novo ainda exporia os mesmos membros da origem. Vale igualmente para o alvo COLETIVO que a tabela ganhou em 2026-08-21: o clone não herda grupo nenhum, e essa é a resposta certa pelo mesmo motivo, com uma agravante -- um grupo herdado continuaria crescendo pela mão do dono dele, dentro de um atlas que agora é de outra pessoa. Ver [[compartilhamento-atlas]].
+
+## A cópia perde o que o novo dono não vê
+
+Desde 2026-08-21 o clone é **podado por destinatário**: toda referência a recurso de catálogo que o novo dono não enxerga sai da cópia, decidida numa única chamada a `fn_can_see_resource` para o atlas inteiro. O detalhe, as duas regras e o motivo de o atlas em foco da classificação ser NULO estão em [[sair-do-servidor]].
+
+O que importa saber aqui é a assimetria: **um recurso privado a que o clonador tem concessão própria SOBREVIVE**, e é isso que separa esta poda da do `.ebgeo`, onde todo privado sai. O clone fica no servidor, onde o predicado continua valendo a cada leitura.
 
 ## Estado, não história
 
@@ -40,4 +48,4 @@ Também ficam de fora, por omissão e não por decisão explícita: `is_public`/
 
 Clone é uma das poucas escritas de conteúdo colaborativo feitas por **REST**, e não pelo pipeline de operações ([[sintese-rest-vs-sync]]). A exceção se justifica porque cria entidades num atlas que ainda não tem peers conectados: não há conflito a resolver nem [[envelope-operacao]] a emitir. Para copiar conteúdo entre atlas **já vivos** o caminho não é clone, é exportar/importar ([[atlas-import-offline]], [[formato-ebgeo-roundtrip]]). Usar clone ali criaria um atlas paralelo em vez de mesclar.
 
-Erros seguem [[erros-api]]. Ver também [[atlas-settings]] (o JSONB de settings vem inteiro) e [[api-rest-atlas]].
+Erros seguem [[erros-api]]. Ver também [[atlas-settings]] (o JSONB de settings viaja quase inteiro: as seis listas de recurso de catálogo dentro dele também são podadas por destinatário, e é a única parte que muda) e [[api-rest-atlas]].

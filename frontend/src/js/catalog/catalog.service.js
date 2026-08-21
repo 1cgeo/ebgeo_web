@@ -98,6 +98,11 @@ export function sortByDateDesc(items) {
  * @property {string} [local] - Location (city, state) e.g. "Porto Alegre, RS"
  * @property {Object} [location] - Coordinates for zoom
  * @property {string[]} [keywords] - Optional searchable keywords
+ * @property {string|null} [previewVideo] - Endereço do vídeo de prévia, quando o item tem um.
+ *   NORMALIZADO PARA `null` na ausência, e não deixado `undefined`, porque quem decide se o
+ *   botão "Prévia" existe é este campo: dois estados para "não tem vídeo" fariam o cartão ter
+ *   de conhecer os dois. Ele vale para 3D, camada de dados, camada de análise e 360 — o
+ *   basemap não tem cartão, e por isso não tem o campo.
  * @property {Object} originalData - Original config data
  */
 
@@ -250,6 +255,7 @@ export class CatalogService {
                 thumbnail: tileset.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
                 date: tileset.data_captura || null,
                 local: tileset.local || null,
+                previewVideo: tileset.previewVideo || null,
                 location: tileset.locate,
                 originalData: tileset
             }));
@@ -277,6 +283,18 @@ export class CatalogService {
                 || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.FIRST_PERSON_SCENE],
             date: scene.data_captura || null,
             local: scene.local || null,
+            // O GATE É A CHAVE EXPLÍCITA, e a RESOLUÇÃO é a de `resolveSceneAssets`: as duas
+            // metades são necessárias e a segunda faltou. O gate não pode ser o valor
+            // derivado, porque ele é um caminho PADRÃO (`preview/preview.webm`) montado a
+            // partir da pasta da cena, que a maioria das cenas não tem em disco — usá-lo
+            // daria um botão "Prévia" em toda cena indoor e um vídeo quebrado na maioria
+            // delas. Mas o valor CRU também não serve: por contrato do `SCENE_LAYOUT`,
+            // `previewVideo` é um override RELATIVO ao `basePath`, e é o resolvedor que o
+            // junta à pasta e carimba o escopo do atlas. Com o valor cru, uma cena com
+            // `previewVideo: 'clipes/tour.webm'` tocava no popup do marcador 3D (que resolve)
+            // e quebrava no cartão (que não resolvia): a mesma chave, duas resoluções, no
+            // mesmo produto.
+            previewVideo: scene.previewVideo ? resolveSceneAssets(scene).previewVideo : null,
             location: scene.locate || null,
             originalData: scene
         }));
@@ -316,6 +334,15 @@ export class CatalogService {
                     : DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
                 date: p.captureDate || null,
                 local: p.location || null,
+                // Vem da forma pública do projeto (coluna `preview_video`, servida em
+                // camelCase), não de um `config` — `sv360.projects` não tem um.
+                //
+                // E NÃO leva o prefixo `serviceUrl` que a `thumbnail` acima leva, de
+                // propósito: a miniatura é um caminho RELATIVO ao serviço 360 (o servidor a
+                // devolve assim, por contrato congelado), enquanto esta coluna guarda um
+                // endereço LIVRE, digitado no painel — a única borda do servidor sobre ele é
+                // recusar `data:`. Prefixá-lo quebraria toda URL absoluta.
+                previewVideo: p.previewVideo || null,
                 location: p.center ? { lon: p.center.lon, lat: p.center.lat } : null,
                 originalData: p
             }));
@@ -365,6 +392,7 @@ export class CatalogService {
             thumbnail: layer.thumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.ANALYSIS_LAYER],
             date: null,
             local: layer.local || null,
+            previewVideo: layer.previewVideo || null,
             location: layer.bounds ? { bounds: layer.bounds } : null,
             originalData: layer
         }));
@@ -387,6 +415,7 @@ export class CatalogService {
             thumbnail: layer.thumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.DATA_LAYER],
             date: null,
             local: null,
+            previewVideo: layer.previewVideo || null,
             location: null,
             originalData: layer
         }));

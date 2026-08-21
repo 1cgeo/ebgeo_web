@@ -1,6 +1,6 @@
 // Path: src/modules/atlas/atlas.routes.js
 import { Router } from 'express';
-import { auth } from '../../middleware/auth.js';
+import { auth, requireAccountPrincipal } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
 import { assertCanSeeResource, requireResourceRelay } from '../../middleware/resource-access.js';
@@ -92,8 +92,22 @@ router.delete(
   ctrl.detachResource,
 );
 
-// Clone
-router.post('/:atlasId/clone', auth, requireAtlasPermission('read'), validate({ body: schemas.cloneAtlasSchema }), ctrl.cloneAtlas);
+// Clone.
+//
+// A ORDEM E CONTRATO, como na rota de recursos acima: `requireAtlasPermission` primeiro, para
+// que um atlas inexistente responda 404 antes de o servidor revelar que a acao exige conta;
+// `requireAccountPrincipal` depois, porque o visitante ANONIMO de link publico passa nos dois
+// gates anteriores (o link E o atlas da rota, e o ramo `isPublic` concede `read`) e so morria
+// no INSERT, com `owner_id = 'public-<uuid>'` num cast ::uuid — um 500 por 22P02. O portador
+// do mesmo link que esta LOGADO continua clonando: ele tem linha em `users`.
+router.post(
+  '/:atlasId/clone',
+  auth,
+  requireAtlasPermission('read'),
+  requireAccountPrincipal,
+  validate({ body: schemas.cloneAtlasSchema }),
+  ctrl.cloneAtlas,
+);
 
 // Map operations
 router.post('/:atlasId/maps/:mapId/duplicate', auth, requireAtlasPermission('write'), ctrl.duplicateMap);

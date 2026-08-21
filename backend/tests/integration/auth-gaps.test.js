@@ -2,7 +2,7 @@
 // Gap-tests for the Authentication / JWT / middleware subsystem.
 // Covers confirmed lacunas in flexibleAuth sliding-session renewal, the
 // ?api_key= query branch, the frozen org/login JWT aliases, legacy-token
-// degraded org_role, the disabled self-registration → 404 gate, the
+// degraded org claim, the disabled self-registration → 404 gate, the
 // expired-but-not-revoked refresh branch, concurrent refresh of the same
 // token, /me on a soft-deleted user with a live token, the HS512 algorithm
 // allowlist, and login/register input boundaries.
@@ -57,7 +57,7 @@ describe('Auth gaps', () => {
   describe('auth-02 sliding-session renewal', () => {
     it('renews the token cookie when the JWT is within the 5-min threshold', async () => {
       const user = await createUser(db, { username: uname() });
-      await db.query(`UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`, [DEFAULT_ORG, user.id]);
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, user.id]);
 
       // 4 min < SLIDING_THRESHOLD_MS (5 min) -> should renew.
       const nearExpiry = jwt.sign(
@@ -68,6 +68,9 @@ describe('Auth gaps', () => {
           posto: user.posto_graduacao,
           role: 'user',
           organization_id: DEFAULT_ORG,
+          // `org_role: 'editor'` viaja aqui de propósito, e é um token LEGADO em
+          // miniatura: a claim deixou de ser emitida em 2026-08-20 (D7) e o servidor tem
+          // de IGNORÁ-LA, nunca reagir a ela. A asserção abaixo cobra o silêncio.
           org_role: 'editor',
           org: DEFAULT_ORG,
           login: user.username,
@@ -93,8 +96,9 @@ describe('Auth gaps', () => {
       // The renewed token must carry the same identity / org claims.
       const decoded = jwt.verify(renewed, JWT_SECRET, { algorithms: ['HS256'] });
       assert.equal(decoded.sub, user.id);
-      assert.equal(decoded.org_role, 'editor');
       assert.equal(decoded.organization_id, DEFAULT_ORG);
+      assert.equal(decoded.org_role, undefined,
+        'a claim do eixo de OM não pode ser re-emitida: ela chegou no token antigo e morre nele');
     });
 
     it('does NOT renew the cookie for a fresh (15m) token', async () => {
@@ -161,7 +165,7 @@ describe('Auth gaps', () => {
   describe('auth-04 frozen org/login aliases', () => {
     it('issueAccessToken embeds org===organization_id and login===username', async () => {
       const user = await createUser(db, { username: uname() });
-      await db.query(`UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`, [DEFAULT_ORG, user.id]);
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, user.id]);
 
       const login = await supertest(app)
         .post('/api/v1/auth/login')
@@ -177,18 +181,26 @@ describe('Auth gaps', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // auth-05 · Legacy token degrades to org_role='viewer' / organization_id=null
+  // auth-05 · Legacy token degrades to organization_id=null
   // (asserted via the deterministic sliding-session re-mint, which maps req.user
-  //  and re-issues the token — no org_role-gated write route exists to probe).
+  //  and re-issues the token — no org-gated write route exists to probe).
+  //
+  // O CASO ENCOLHEU EM 2026-08-20 (D7) E CONTINUA MEDINDO O MESMO INVARIANTE. Ele
+  // cobria duas claims de organização (`org_role` e `organization_id`); o eixo de papel
+  // dentro da OM saiu do código inteiro, então sobrou a lotação. A regra é a que sempre
+  // foi: claim AUSENTE degrada pelo mapeamento, nunca é promovida a partir do banco. O
+  // ramo de reconciliação em `flexible-auth.js` perdeu o disjunto de `org_role` no mesmo
+  // commit, e sem essa poda este caso teria passado a medir o contrário do que diz — um
+  // token legado que trouxesse só `org_role` faria a lotação vir do banco.
   // ---------------------------------------------------------------------------
-  describe('auth-05 legacy token degrades to viewer/null-org', () => {
-    it('a legacy token (no org claim) is re-minted with org_role=viewer and org=null', async () => {
+  describe('auth-05 legacy token degrades to null-org', () => {
+    it('a legacy token (no org claim) is re-minted with org=null', async () => {
       const user = await createUser(db, { username: uname() });
       // Force a stale org on the DB row to prove the degraded value comes from
       // the TOKEN mapping (mapPayload), not from the DB.
-      await db.query(`UPDATE users SET organization_id = $1, org_role = 'owner' WHERE id = $2`, [DEFAULT_ORG, user.id]);
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, user.id]);
 
-      // Legacy token: no organization_id / org_role / org / login claims.
+      // Legacy token: no organization_id / org / login claims.
       const legacy = jwt.sign(
         { sub: user.id, username: user.username, role: 'user' },
         JWT_SECRET,
@@ -205,7 +217,6 @@ describe('Auth gaps', () => {
 
       const decoded = jwt.verify(renewed, JWT_SECRET, { algorithms: ['HS256'] });
       assert.equal(decoded.sub, user.id);
-      assert.equal(decoded.org_role, 'viewer', 'legacy token must degrade to org_role=viewer');
       assert.equal(decoded.organization_id, null, 'legacy token must degrade to organization_id=null');
       assert.equal(decoded.org, null, 'alias org must be null for a degraded legacy token');
     });

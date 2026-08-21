@@ -69,21 +69,19 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 ---
 
-## 4. `users.org_role`: um terceiro vocabulário de permissão, sem decisor no servidor
+## 4. `users.org_role`: o terceiro vocabulário de permissão, removido em 2026-08-20
 
-**O que é.** Três vocabulários descrevem "o que esta pessoa pode fazer", e eles não são o mesmo eixo nem o mesmo conjunto de valores:
+**Resolvido.** A seção descrevia um campo vivo e terminava recomendando a remoção; ela aconteceu (D7), e o que fica aqui é o registro, porque a forma do defeito reaparece sempre que dois eixos compartilham palavras.
 
-- `users.role`: `user`, `producer`, `credenciado`, `admin`. Papel global, **não é escada** (a 018 diz isso por extenso).
-- `atlas_shares.permission`: `read`, `comment`, `write`, `manage`, mais o dono implícito. Papel por atlas, **é escada**.
-- `users.org_role`: `owner`, `admin`, `editor`, `viewer`. Papel dentro da OM.
+**O que era.** Três vocabulários descreviam "o que esta pessoa pode fazer". Hoje são dois:
 
-**Evidência.** `org_role` é escrito (`backend/src/modules/users/users.queries.js`), viaja no JWT e é reconciliado a cada renovação deslizante em `backend/src/middleware/flexible-auth.js`. O comentário daquele arquivo declara, com nome e data, que **os dois sítios que decidiam por ele deixaram de existir** na fase F6, quando a escrita do 360 passou a ler `producer_org_id`. Nenhuma decisão de autorização no servidor lê `org_role` hoje.
+- `users.role`: `user`, `producer`, `credenciado`, `admin`. Papel global, **não é escada**.
+- `atlas_shares.permission`: `read`, `comment`, `write`, `manage`, mais o dono implícito. Papel por atlas, **é escada**. Desde 2026-08-21 o alvo da linha é uma pessoa OU um grupo de acesso (`num_nonnulls(user_id, group_id) = 1`), e quem resolve o nível efetivo é `fn_user_atlas_shares`, pelo MÁXIMO entre os caminhos.
+- ~~`users.org_role`: `owner`, `admin`, `editor`, `viewer`. Papel dentro da OM.~~ A coluna saiu em `backend/src/database/migrations/011_grupo_com_dono_e_producao.sql`.
 
-O que ele ainda faz é do outro lado da rede: `sessionUserInfoFromMe` (`frontend/src/js/store/sync/session-context.js`) hidrata a sessão com `role: user.org_role || UserRole.VIEWER`, ou seja, **o gate do cliente nasce a partir dele**, e só é corrigido quando o payload de `connect` chega (`frontend/src/js/store/sync/sync-engine.js`). Repare que os conjuntos não coincidem: `org_role` não tem `manager` nem `commenter`, que `UserRole` tem, e tem `admin`, que o eixo por atlas não tem.
+**O defeito, e ele não estava no servidor.** Nenhuma decisão de autorização do backend lia o campo desde a fase F6, quando a escrita do 360 passou a ler `producer_org_id`. Quem o lia era o cliente: `sessionUserInfoFromMe` (`frontend/src/js/store/sync/session-context.js`) hidratava a sessão com o papel POR ATLAS tirado dele. Os conjuntos não coincidiam (o eixo de OM não tinha `manager` nem `commenter`, e tinha `admin`, que o eixo por atlas não tem), mas os dois valores mais altos se escreviam com as MESMAS palavras (`owner` e `admin`), então o crachá de OM virava papel de atlas sem conversão nenhuma. Um usuário com `org_role = 'admin'` e nenhuma permissão em atlas nenhum abria o app desenhado como Administrador de atlas, e cada botão desses falhava no servidor. Afordância que mente, não brecha; a janela ia do boot até o `connect`.
 
-**Custo de deixar como está.** Um campo que autoriza no cliente e não autoriza no servidor é a definição de gate que promete o que não cumpre, e a direção do erro depende do valor: um `org_role = 'admin'` abre botão que o servidor recusa; um `viewer` fecha botão que o servidor permitiria. A janela dura do boot até o `connect`. Além disso, é o terceiro vocabulário a manter em acordo com dois outros na cabeça de quem lê.
-
-**Recomendação.** **Sai depois, e não nesta fase**, porque a remoção é de aplicação (JWT, hidratação de sessão, formulário do admin), não de schema. O que a F15 deve fazer é **registrar a decisão**, e o registro certo é este: `org_role` é hoje um campo de exibição e de semente do gate cliente, não um eixo de autorização. Enquanto a coluna existir com nome de papel, alguém vai gatear por ela. Ver [[sintese-capacidades-por-papel]] e [[permissoes-atlas]].
+**Por que remover em vez de consertar o sítio.** Consertar a hidratação deixaria de pé uma coluna com nome de papel, e a frase que esta seção já trazia continua sendo a razão: enquanto ela existir, alguém vai gatear por ela. Hoje a hidratação começa em Leitor e o único a abrir o eixo é o servidor, no payload de `connect`. Ver [[sintese-capacidades-por-papel]], [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 ---
 

@@ -42,7 +42,12 @@ export function issueAccessToken(user) {
       posto: user.posto_graduacao,
       role: user.role || 'user', // global {user, admin}
       organization_id: user.organization_id ?? null, // tenant claim (LOTACAO: exibicao)
-      org_role: user.org_role || 'viewer', // org-scoped role
+      // A claim `org_role` (papel dentro da OM) FOI REMOVIDA em 2026-08-20 (D7). Ela
+      // nao autorizava nada aqui e, no cliente, alimentava o papel POR ATLAS: quem
+      // tivesse 'admin' ou 'owner' nela era desenhado como Administrador ou Dono de
+      // atlas sem ter permissao nenhuma. Token LEGADO ainda chega com ela e os dois
+      // mapeadores a IGNORAM (nao ha campo para onde ela va), que e a forma certa de
+      // aposentar claim: ignorar o desconhecido, nunca reagir a ele.
       // Escopo de PRODUCAO (null = nao produz). ADITIVO: um token legado nao a
       // carrega e degrada para null nos dois mapeadores, o que e o valor certo —
       // quem nao tem a claim nao produz. Nenhum ramo de autorizacao deve LER esta
@@ -132,7 +137,6 @@ export async function login(username, password) {
       posto_graduacao: user.posto_graduacao,
       organizacao_militar: user.organizacao_militar,
       organization_id: user.organization_id ?? null,
-      org_role: user.org_role || 'viewer',
       producer_org_id: user.producer_org_id ?? null,
       role: user.role || 'user',
     },

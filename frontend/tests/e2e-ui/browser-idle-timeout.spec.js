@@ -9,6 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, openAtlasUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -20,18 +21,20 @@ const WARN_SECONDS = 4;
 
 /** Seeds a user + an atlas with one named map. */
 async function seedUserAtlas(page, baseUrl) {
-    return page.evaluate(async (base) => {
+    // A conta nasce no NODE (`helpers/accounts.js`): confirmar o e-mail exige ler
+    // `email_verification_tokens` no Postgres, fora do alcance do browser. Aqui isso é
+    // pré-requisito e não detalhe — o teste loga pela UI, e conta pendente é login recusado.
+    const u = await createVerifiedUser({ prefix: 'idle', nome: 'Idle Tester' });
+    const seed = await page.evaluate(async ({ base, user }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const username = `idle_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'Idle Tester' });
-        await api.login(username, password);
+        await api.login(user.username, user.password);
         const atlas = await api.createAtlas({ name: 'Idle Atlas' });
         await api.pushOperations(atlas.id, [createOperation('map', 'create', crypto.randomUUID(), null, { name: 'Mapa' })]);
-        return { username, password, atlasId: atlas.id };
-    }, baseUrl);
+        return { atlasId: atlas.id };
+    }, { base: baseUrl, user: u });
+    return { username: u.username, password: u.password, atlasId: seed.atlasId };
 }
 
 /**

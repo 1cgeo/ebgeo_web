@@ -38,6 +38,21 @@ import { apiClient } from '@store/sync/api-client.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/index.js';
+// Import DIRETO, e não pelo barrel `@catalog`: `grant-tree.js` tem ZERO imports (é uma
+// folha de funções puras) e é essa propriedade que permite reusá-lo daqui sem arrastar o
+// catálogo inteiro para dentro do modal de compartilhar atlas. O rótulo da `<option>` é o
+// MESMO nos dois eixos porque o problema é o mesmo: desde que a unicidade de nome de grupo
+// passou a ser por dono, dois grupos homônimos de gente diferente são estado legal, e uma
+// lista que mostre só o nome faz escolher o coletivo errado sem erro nenhum.
+import { groupOptionLabel } from '@js/catalog/grant-tree.js';
+// A DICA DO SELETOR MANDA A PESSOA PARA UMA PORTA, então ela precisa dizer o nome que ESTA
+// pessoa vê escrito naquela porta — "Grupos" para uma sessão comum, "Catálogo" para o
+// produtor, "Administração" para o administrador. Escrever "Administração" fixo mandaria o
+// usuário comum procurar um botão que não existe para ele. `adminAudience` é a definição
+// única desse rótulo (módulo folha, zero imports) e é a MESMA que a barra do mapa e o seletor
+// de atlas consultam; `frontend/tests/unit/admin-audiencia.test.js` varre o versionamento e
+// reprova quem escreve o rótulo sem consultá-la.
+import { adminAudience } from '@js/admin/admin-audience.js';
 
 /**
  * The message to show for a failed sharing mutation: the SERVER's explanation when it sent one,
@@ -61,6 +76,131 @@ export function sharingErrorMessage(error, fallback) {
     if (!message) return fallback;
     if (/^HTTP \d{3}$/.test(message)) return fallback;
     return message;
+}
+
+/**
+ * Reparte o payload de `GET /sharing` na forma que a tela desenha.
+ *
+ * POR QUE ELE É PURO E EXPORTADO: `_load()` fazia parse e render juntos, então nada da
+ * FORMA do payload tinha cobertura em node — e o payload acabou de ganhar um segundo array.
+ * Extraí-lo é o que torna a parte verificável desta tela verificável.
+ *
+ * `groups: []` QUANDO A CHAVE FALTA, e isso é compatibilidade real, não paranoia: o cliente
+ * novo pode falar com um servidor que ainda não conhece o eixo de grupo (implantação em duas
+ * etapas), e o custo de tratar ausência como lista vazia é uma linha.
+ *
+ * `shares` é repassado VERBATIM — sem filtrar, sem reordenar. Quem decide quem aparece é o
+ * servidor, e reordenar aqui criaria uma segunda ordem que a próxima tela teria de repetir.
+ *
+ * @param {Object|null} cfg - O corpo de `apiClient.getSharing`.
+ * @returns {{isPublic: boolean, publicLink: string|null, owner: Object|null, shares: Array, groups: Array}}
+ */
+export function partitionSharingConfig(cfg) {
+    return {
+        isPublic: Boolean(cfg?.isPublic),
+        publicLink: cfg?.publicLink ?? null,
+        owner: cfg?.owner ?? null,
+        shares: Array.isArray(cfg?.shares) ? cfg.shares : [],
+        groups: Array.isArray(cfg?.groups) ? cfg.groups : [],
+    };
+}
+
+/**
+ * DE QUEM É ESTE GRUPO, na linha de quem tem acesso ao atlas.
+ *
+ * É A MITIGAÇÃO (ii) DA DECISÃO DO DONO, e sem ela o eixo de grupo não deveria ter chegado a
+ * `manage`: um share coletivo entrega ao DONO daquele grupo o poder de pôr mais gente dentro
+ * do atlas — inclusive como co-Gestor — sem passar por quem compartilhou, sem linha nova em
+ * `atlas_shares` e sem tocar em gate nenhum. Esta lista é a ÚNICA superfície onde a
+ * delegação é visível; enquanto ela mostrasse só o nome do grupo, a parte delegada do
+ * mecanismo não apareceria em tela alguma.
+ *
+ * Espelha `granteeGroupOwnerLabel` (`js/catalog/grant-tree.js`) na frase e no ramo do órfão,
+ * e NÃO o importa: aquele arquivo é do eixo de RECURSO e este é do eixo de ATLAS. Mesmo
+ * vocabulário, dois eixos — a constituição é explícita em que eles não compartilham palavra.
+ *
+ * Grupo SEM dono é estado real (o backfill da migração adota `created_by`, que pode ser nulo
+ * em linha antiga) e dizê-lo por extenso importa: um grupo órfão não entrega acesso a
+ * ninguém, porque a resolução exige dono vivo.
+ *
+ * @param {{ownerNome?: string, ownerUsername?: string}} group
+ * @returns {string} A frase pronta. Nunca vazia: a ausência de dono também é um fato.
+ */
+export function sharingGroupOwnerLabel(group) {
+    const nome = (group?.ownerNome || '').trim();
+    const username = (group?.ownerUsername || '').trim();
+    if (nome && username) return `Dono: ${nome} (@${username})`;
+    if (nome) return `Dono: ${nome}`;
+    if (username) return `Dono: @${username}`;
+    return 'Sem dono definido';
+}
+
+/**
+ * Quantas pessoas o grupo carrega, por extenso.
+ *
+ * O NÚMERO É O TAMANHO DO QUE SE ESTÁ ACEITANDO. "Equipe Alfa" não diz se são três pessoas
+ * ou quarenta, e a diferença é a única coisa que separa um convite de uma abertura.
+ * @param {{memberCount?: number}} group
+ * @returns {string}
+ */
+export function sharingGroupSizeLabel(group) {
+    const n = Number(group?.memberCount);
+    if (!Number.isFinite(n) || n <= 0) return 'sem membros';
+    return `${n} ${n === 1 ? 'pessoa' : 'pessoas'}`;
+}
+
+/**
+ * Os grupos que ainda PODEM ser oferecidos no seletor: os que o chamador administra menos os
+ * que já estão no atlas.
+ *
+ * O SERVIDOR JÁ RECORTA `listAccessGroups()` POR POSSE (só administrados), então este filtro
+ * não é o gate — o gate é `assertCanAdministerGroup`, e ele responde 404. O que este filtro
+ * evita é oferecer o que já está lá, que responderia 201 e não mudaria nada.
+ * @param {Array<{id?: string}>} administrados
+ * @param {Array<{groupId?: string}>} jaNoAtlas
+ * @returns {Array}
+ */
+export function selectableGroups(administrados, jaNoAtlas) {
+    const dentro = new Set((jaNoAtlas ?? []).map((g) => String(g?.groupId)));
+    return (administrados ?? []).filter((g) => !dentro.has(String(g?.id)));
+}
+
+/**
+ * As `<option>` do seletor de nível de UMA linha de grupo, já com o que está SELECIONADO e o
+ * que está DESABILITADO.
+ *
+ * O SERVIDOR APLICA DUAS REGRAS DIFERENTES NA MESMA ROTA, e é por isso que esta função
+ * existe em vez de um `disabled` no `<select>` inteiro: SUBIR o nível de um grupo exige
+ * administrá-lo (responde 404 quando não), REBAIXAR e REMOVER não exigem nada além de
+ * `manage` no atlas. Um seletor totalmente aberto oferecia a subida e devolvia um erro
+ * cru do servidor sobre um grupo desenhado na tela; um seletor totalmente fechado tiraria
+ * do gestor do atlas a única ferramenta NÃO destrutiva que ele tem sobre uma composição
+ * alheia. As duas metades erram, e cada uma erra para um lado.
+ *
+ * NÍVEL DESCONHECIDO NORMALIZA PARA O MENOR (`read`), que é falha fechada: uma linha vinda
+ * com `permission` ausente ou fora dos quatro não pode desenhar um `<select>` sem seleção
+ * nenhuma (o navegador escolheria a primeira opção e o próximo `change` a enviaria como se
+ * fosse intenção do usuário).
+ *
+ * Pura — sem DOM, sem I/O, sem `sessionContext`: quem responde "eu administro este grupo?"
+ * é o chamador, porque a resposta envolve o papel GLOBAL de administrador, que é outro eixo.
+ *
+ * @param {{permission?: string, ownerId?: string}} group - a linha de grupo do payload.
+ * @param {{userId?: string|null, isAdmin?: boolean}} sessao
+ * @returns {Array<{value: string, label: string, selected: boolean, disabled: boolean}>}
+ */
+export function groupLevelOptions(group, sessao = {}) {
+    const indice = PERMISSION_LEVELS.findIndex((p) => p.value === group?.permission);
+    const atual = indice >= 0 ? indice : 0;
+    const dono = group?.ownerId ? String(group.ownerId) : null;
+    const administra = Boolean(sessao?.isAdmin)
+        || (dono !== null && sessao?.userId != null && dono === String(sessao.userId));
+    return PERMISSION_LEVELS.map((p, i) => ({
+        value: p.value,
+        label: p.label,
+        selected: i === atual,
+        disabled: !administra && i > atual,
+    }));
 }
 
 /** Debounce (ms) for the user-search input. */
@@ -112,6 +252,15 @@ const ICONS = {
         <circle cx="11" cy="11" r="8"/>
         <line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>`,
+    // O ícone do COLETIVO. Ele existe para que a linha de grupo NÃO use o avatar de
+    // iniciais coloridas: aquele deriva cor e letras de uma identidade de pessoa, e um
+    // coletivo com cara de pessoa é a confusão que a seção separada existe para impedir.
+    group: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>`,
 };
 
 /**
@@ -140,6 +289,10 @@ export class SharingModal extends ModalBase {
         this._publicLink = null;
         /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
         this._shares = [];
+        /** @type {Array<{groupId:string, name:string, permission:string, memberCount:number, ownerNome:string|null}>} */
+        this._groups = [];
+        /** @type {Array<{id:string, name:string, member_count:number}>|null} Grupos que EU administro (lazy). */
+        this._myGroups = null;
         /** @type {{userId:string, username:string, nome:string}|null} The atlas owner (badge + transfer). */
         this._owner = null;
         /** @type {boolean} Network-in-flight guard (one mutation at a time). */
@@ -210,16 +363,50 @@ export class SharingModal extends ModalBase {
         try {
             const cfg = await apiClient.getSharing(this._atlasId);
             if (!this.getBody()) return; // modal closed while the request was in flight
-            this._isPublic = Boolean(cfg?.isPublic);
-            this._publicLink = cfg?.publicLink ?? null;
-            this._owner = cfg?.owner ?? null;
-            this._shares = Array.isArray(cfg?.shares) ? cfg.shares : [];
+            const { isPublic, publicLink, owner, shares, groups } = partitionSharingConfig(cfg);
+            this._isPublic = isPublic;
+            this._publicLink = publicLink;
+            this._owner = owner;
+            this._shares = shares;
+            this._groups = groups;
             this._loaded = true;
             this._renderBody();
+            // Os grupos que EU administro chegam por OUTRA rota, e por isso não bloqueiam o
+            // corpo: a lista de quem já tem acesso é o que a pessoa veio ver, e o seletor é o
+            // que ela usa depois. Falhar aqui deixa a seção sem seletor, com a dica dizendo
+            // por quê, em vez de derrubar a tela inteira.
+            this._loadMyGroups();
         } catch {
             if (!this.getBody()) return;
             this._renderError();
         }
+    }
+
+    /**
+     * @private Lê os grupos que o chamador ADMINISTRA, para o seletor.
+     *
+     * UMA VEZ POR ABERTURA, e não a cada `_load()`. `_load()` roda depois de toda mutação, e
+     * esta função re-renderiza o corpo quando termina: refazê-la a cada vez traria um
+     * `_renderBody()` fora de ordem, capaz de aterrissar enquanto a pessoa digita na busca de
+     * pessoas e arrancar o campo debaixo dela. O que muda entre duas mutações é QUAIS grupos
+     * já estão no atlas, e isso vem de `this._groups`, que `selectableGroups` subtrai — não da
+     * lista de grupos administrados, que só muda em outra página.
+     *
+     * `listAccessGroups()` já vem recortada por posse pelo servidor, então não há filtro de
+     * autoridade a aplicar aqui. Erro vira lista vazia de propósito: o seletor some e a dica
+     * explica, o que é melhor que oferecer opções que o servidor recusaria com 404.
+     */
+    async _loadMyGroups() {
+        if (this._myGroups !== null) return;
+        try {
+            const grupos = await apiClient.listAccessGroups();
+            if (!this.getBody()) return;
+            this._myGroups = Array.isArray(grupos) ? grupos : [];
+        } catch {
+            if (!this.getBody()) return;
+            this._myGroups = [];
+        }
+        if (this._loaded) this._renderBody();
     }
 
     // ===== RENDER =====
@@ -268,6 +455,7 @@ export class SharingModal extends ModalBase {
                 ${this._renderPublicSection()}
                 ${this._renderPresenceSection()}
                 ${this._renderMembersSection()}
+                ${this._renderGroupsSection()}
                 ${this._renderAddSection()}
             </div>
         `;
@@ -453,6 +641,114 @@ export class SharingModal extends ModalBase {
         `;
     }
 
+    /**
+     * @private A seção "Grupos": quem alcança este atlas por COLETIVO, e o seletor para
+     * acrescentar um.
+     *
+     * Ela fica ENTRE "Membros" e "Adicionar pessoas" porque é a mesma pergunta que "Membros"
+     * responde (quem alcança o atlas) por outro caminho — separá-la do bloco de adicionar
+     * pessoas é o que impede a leitura de que grupo é um tipo de pessoa.
+     */
+    _renderGroupsSection() {
+        const linhas = this._groups.length
+            ? this._groups.map((g) => this._renderGroupItem(g)).join('')
+            : `<div class="sharing__empty" data-testid="sharing-groups-empty">Nenhum grupo</div>`;
+        return `
+            <section class="sharing-section" data-testid="sharing-groups">
+                <h3 class="sharing-section__title">Grupos</h3>
+                <div class="sharing-members">${linhas}</div>
+                ${this._renderGroupPicker()}
+            </section>
+        `;
+    }
+
+    /**
+     * @private Uma linha de grupo.
+     *
+     * O AVATAR É UM ÍCONE, NUNCA `getPresenceColor`/`getInitials`: aqueles derivam cor e
+     * iniciais de uma IDENTIDADE DE PESSOA, e um coletivo com cara de pessoa é exatamente a
+     * confusão que a seção separada existe para impedir.
+     *
+     * NÃO HÁ "Tornar dono" aqui, e a ausência é regra: posse é nominal por construção
+     * (`atlas.owner_id` é uma coluna), e o servidor recusa transferir para quem só alcança o
+     * atlas por grupo.
+     *
+     * O `<select>` NÃO OFERECE O QUE O SERVIDOR RECUSA: as opções ACIMA do nível vigente
+     * ficam desabilitadas quando o chamador não administra o grupo, porque subir exige posse
+     * e as outras três ações não (ver `groupLevelOptions`).
+     * @param {{groupId:string, name:string, permission:string, memberCount:number}} group
+     */
+    _renderGroupItem(group) {
+        const groupId = String(group?.groupId ?? '');
+        const nome = group?.name ?? 'Grupo';
+        const options = groupLevelOptions(group, {
+            userId: sessionContext.userId,
+            isAdmin: sessionContext.isAdmin(),
+        }).map((p) =>
+            `<option value="${p.value}"${p.selected ? ' selected' : ''}${p.disabled ? ' disabled' : ''}>${p.label}</option>`
+        ).join('');
+        const meta = `${sharingGroupSizeLabel(group)} · ${sharingGroupOwnerLabel(group)}`;
+
+        return `
+            <div class="sharing-member sharing-group" data-testid="sharing-group-item" data-group-id="${escapeHtml(groupId)}">
+                <span class="sharing-group__icon" aria-hidden="true">${ICONS.group}</span>
+                <div class="sharing-member__info">
+                    <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                    <span class="sharing-group__meta" data-testid="sharing-group-owner">${escapeHtml(meta)}</span>
+                </div>
+                <select class="sharing-member__permission" data-action="group-permission"
+                        data-testid="sharing-group-permission" aria-label="Permissão do grupo ${escapeHtml(nome)}">
+                    ${options}
+                </select>
+                <button type="button" class="sharing-member__remove" data-action="group-remove"
+                        data-testid="sharing-group-remove" aria-label="Remover o grupo ${escapeHtml(nome)}">
+                    ${ICONS.remove}
+                </button>
+            </div>
+        `;
+    }
+
+    /**
+     * @private O seletor de grupo, e a dica que ele carrega quando não há o que oferecer.
+     *
+     * A DICA NÃO PODE SER SILÊNCIO. Só se compartilha com grupo PRÓPRIO, e quem não tem
+     * nenhum veria uma seção sem controle nenhum e concluiria que a função não existe. A
+     * frase diz a regra E onde criar um, que é a única ação que destrava a tela.
+     */
+    _renderGroupPicker() {
+        if (this._myGroups === null) {
+            return `<p class="sharing-group__hint" data-testid="sharing-group-hint">Carregando seus grupos…</p>`;
+        }
+        const disponiveis = selectableGroups(this._myGroups, this._groups);
+        if (!disponiveis.length) {
+            const { label: porta } = adminAudience({
+                isAuthenticated: sessionContext.isAuthenticated(),
+                isAdmin: sessionContext.isAdmin(),
+                isProducer: sessionContext.isProducer(),
+            });
+            const onde = porta ? ` Crie um em ${porta}.` : '';
+            const frase = this._myGroups.length
+                ? 'Todos os seus grupos já estão neste atlas.'
+                : `Só é possível compartilhar com grupos que você administra.${onde}`;
+            return `<p class="sharing-group__hint" data-testid="sharing-group-hint">${escapeHtml(frase)}</p>`;
+        }
+        const options = disponiveis.map((g) =>
+            `<option value="${escapeHtml(String(g?.id ?? ''))}">${escapeHtml(groupOptionLabel(g, sessionContext.userId))}</option>`
+        ).join('');
+        return `
+            <div class="sharing-group__add">
+                <select class="sharing-group__select" data-action="group-pick"
+                        data-testid="sharing-group-select" aria-label="Escolher um grupo">
+                    <option value="">Adicionar um grupo…</option>
+                    ${options}
+                </select>
+            </div>
+            <p class="sharing-group__hint" data-testid="sharing-group-hint">
+                Só aparecem aqui os grupos que você administra.
+            </p>
+        `;
+    }
+
     /** @private */
     _renderAddSection() {
         return `
@@ -545,6 +841,25 @@ export class SharingModal extends ModalBase {
             }
         });
 
+        body.querySelectorAll('.sharing-group[data-group-id]').forEach((row) => {
+            const groupId = row.dataset.groupId;
+            const select = row.querySelector('[data-action="group-permission"]');
+            if (select) {
+                addScopedDomListener(this, 'body', select, 'change', () =>
+                    this._handleChangeGroupPermission(groupId, select.value));
+            }
+            const remove = row.querySelector('[data-action="group-remove"]');
+            if (remove) {
+                addScopedDomListener(this, 'body', remove, 'click', () => this._handleRemoveGroup(groupId));
+            }
+        });
+
+        const groupPick = body.querySelector('[data-action="group-pick"]');
+        if (groupPick) {
+            addScopedDomListener(this, 'body', groupPick, 'change', () =>
+                this._handleAddGroup(groupPick.value));
+        }
+
         const searchInput = body.querySelector('[data-action="search"]');
         if (searchInput) {
             addScopedDomListener(this, 'body', searchInput, 'input', () =>
@@ -634,6 +949,80 @@ export class SharingModal extends ModalBase {
             await this._load();
         } catch (error) {
             showError(sharingErrorMessage(error, 'Não foi possível remover o membro.'));
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Compartilha o atlas com um grupo PRÓPRIO, escolhido no seletor.
+     *
+     * O nível inicial é o mesmo `DEFAULT_GRANT_PERMISSION` das pessoas ("a permissão padrão
+     * abaixa, nunca eleva"), e vale mais aqui do que lá: um grupo entra com N pessoas de uma
+     * vez, então errar para cima erra N vezes.
+     * @param {string} groupId
+     */
+    async _handleAddGroup(groupId) {
+        if (this._busy || !groupId) return;
+        this._busy = true;
+        try {
+            await apiClient.addAtlasGroupShare(this._atlasId, groupId, DEFAULT_GRANT_PERMISSION);
+            await this._load();
+        } catch (error) {
+            // O 404 do servidor ("Access group not found") é a recusa por POSSE, e ele chega
+            // aqui como frase do servidor por `sharingErrorMessage`. Não a traduza para
+            // "grupo inexistente": a mensagem do servidor é deliberadamente indistinguível
+            // entre "não existe" e "não é seu".
+            showError(sharingErrorMessage(error, 'Não foi possível adicionar o grupo.'));
+            await this._load();
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Troca o nível de um grupo já compartilhado.
+     * @param {string} groupId
+     * @param {'read'|'comment'|'write'|'manage'} permission
+     */
+    async _handleChangeGroupPermission(groupId, permission) {
+        if (this._busy || !groupId) return;
+        this._busy = true;
+        try {
+            await apiClient.updateAtlasGroupShare(this._atlasId, groupId, permission);
+            await this._load();
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível alterar a permissão do grupo.'));
+            await this._load(); // resync do select com a verdade do servidor
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Tira um grupo do atlas.
+     *
+     * PEDE CONFIRMAÇÃO, ao contrário da remoção de uma pessoa, e a assimetria é de ALCANCE:
+     * tirar um grupo tira N acessos de uma vez, e o botão fica a um clique de distância numa
+     * lista onde as linhas se parecem.
+     * @param {string} groupId
+     */
+    async _handleRemoveGroup(groupId) {
+        if (this._busy || !groupId) return;
+        const grupo = this._groups.find((g) => String(g.groupId) === String(groupId));
+        const nome = grupo?.name ?? 'este grupo';
+        const quantos = sharingGroupSizeLabel(grupo);
+        const ok = await showConfirm(
+            `Tirar ${nome} deste atlas? ${quantos} perdem o acesso que vinha por ele.`,
+            { destructive: true, confirmText: 'Remover' }
+        );
+        if (!ok) return;
+        this._busy = true;
+        try {
+            await apiClient.removeAtlasGroupShare(this._atlasId, groupId);
+            await this._load();
+        } catch (error) {
+            showError(sharingErrorMessage(error, 'Não foi possível remover o grupo.'));
         } finally {
             this._busy = false;
         }

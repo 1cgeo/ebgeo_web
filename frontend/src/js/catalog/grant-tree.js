@@ -10,12 +10,22 @@
  * dizer isso exige percorrer a árvore — que é aritmética, não DOM, e por isso mora
  * aqui, testável em node.
  *
- * A travessia espelha `REVOKE_GRANT_SUBTREE` do servidor, e as duas guardas dela
- * são as mesmas: só concessões VIVAS entram na lista (a listagem já devolve só
- * vivas), e há teto de profundidade. O teto não é paranoia decorativa: um ciclo é
- * impossível por construção no servidor (o pai é fixado no INSERT e nenhuma rota
- * atualiza `parent_grant_id`), mas aqui a entrada é um JSON que chegou pela rede, e
- * uma travessia sem teto sobre dado hostil trava a aba em vez de mostrar um aviso.
+ * SÃO DUAS TRAVESSIAS, E A DIFERENÇA ENTRE ELAS É O AVISO. `descendantGrants` é o fecho
+ * INGÊNUO (tudo o que pende), e `fallenGrants` é o que o servidor de fato derruba depois
+ * da preservação de alcançabilidade. As duas guardas são as mesmas nas duas: só
+ * concessões VIVAS entram (a listagem já devolve só vivas) e há teto de profundidade. O
+ * teto não é paranoia decorativa: aqui a entrada é um JSON que chegou pela rede, e uma
+ * travessia sem teto sobre dado hostil trava a aba em vez de mostrar um aviso.
+ *
+ * O ESPELHAMENTO COM `REVOKE_SUBTREE_PRESERVING_REACH` (servidor) É PARCIAL POR
+ * CONSTRUÇÃO, e essa é a propriedade mais importante deste arquivo. O nome do lado de lá
+ * mudou junto com a semântica, e o cliente NÃO consegue reproduzir o braço de GRUPO,
+ * porque a listagem não carrega a composição do grupo. A vida do concedente ELE
+ * CONSEGUE, desde 2026-08-21: a listagem passou a mandar `granted_by_vivo` justamente
+ * porque esse era o braço em que a divergência fazia o aviso mentir para o lado
+ * perigoso. O recorte exato e a direção do erro estão em `fallenGrants`. Este arquivo não
+ * é a autoridade sobre quem cai; ele é a melhor frase possível ANTES do clique, e a
+ * resposta do servidor é quem diz o que aconteceu.
  *
  * O BENEFICIÁRIO TEM DOIS TIPOS, e a frase precisa ser verdadeira nos dois. Uma
  * concessão é a uma PESSOA ou a um GRUPO, nunca aos dois (o banco cobra
@@ -26,7 +36,7 @@
  * arquivo discriminam pelo campo (`isGroupGrant`), nunca pela ausência de nome.
  */
 
-/** O mesmo teto de `REVOKE_GRANT_SUBTREE`. Manter os dois iguais é o ponto. */
+/** O mesmo teto de `REVOKE_SUBTREE_PRESERVING_REACH`. Manter os dois iguais é o ponto. */
 export const MAX_GRANT_DEPTH = 32;
 
 /**
@@ -65,6 +75,122 @@ export function descendantGrants(grants, rootId) {
             // dois caminhos chegam nela.
             if (!id || vistos.has(id)) continue;
             vistos.add(id);
+            caidos.push(g);
+            proximo.push(...(filhosDe.get(id) ?? []));
+        }
+        nivel = proximo;
+        profundidade += 1;
+    }
+
+    return caidos;
+}
+
+/**
+ * Os que REALMENTE caem junto com `rootId`, depois da preservação de alcançabilidade.
+ *
+ * É {@link descendantGrants} menos quem o servidor RESGATA. Desde 2026-08-21 a poda
+ * deixou de derrubar todo descendente: um filho cujo CONCEDENTE ainda tenha `view_share`
+ * vivo sobre o mesmo recurso, FORA do alcance da poda, é re-pendurado nesse outro pai em
+ * vez de revogado (decisão do dono: "se B não caiu, D não deve cair"). Quando um
+ * descendente é resgatado, a subárvore dele sai junto — é a mesma regra do braço
+ * recursivo de `podados` no servidor, que não desce por um nó resgatado.
+ *
+ * `descendantGrants` FICA INTACTA e continua sendo o fecho ingênuo, porque é dela que
+ * sai o conjunto de exclusão: "fora do alcance da poda" só se sabe calculando o alcance
+ * primeiro.
+ *
+ * O ALCANCE DESTA FUNÇÃO É ESTREITO, E A DIREÇÃO DO ERRO PRECISA SER SUPERESTIMAR. Um
+ * aviso que assusta a mais e o usuário revoga assim mesmo custa menos que um aviso que
+ * tranquiliza e derruba alguém sem avisar, e a revogação é irreversível.
+ *
+ * O QUE SUPERESTIMA, e é seguro: o braço de GRUPO do servidor não é computável aqui.
+ * `LIST_GRANTS_FOR_RESOURCE` devolve `grantee_group_id` e `grantee_group_member_count`,
+ * nunca a lista de membros, então o cliente não tem como saber se o concedente pertence
+ * ao grupo que recebeu o outro `view_share`. Esta função conta o descendente como CAÍDO
+ * e avisa que N caem quando caem N-1.
+ *
+ * O QUE SUBESTIMAVA, E FOI CORRIGIDO EM 2026-08-21, porque a mesma prosa que declarava a
+ * direção acima também a afirmava para a VIDA DO CONCEDENTE, onde ela era falsa. O
+ * servidor exige `fn_principal_vivo(granted_by)` no pai alternativo (D8(b)); a listagem
+ * não mandava esse fato, então o cliente resgatava por um `view_share` que o servidor
+ * recusa — o aviso dizia "ninguém cai" e o toast seguinte contava uma queda. A listagem
+ * passou a devolver `granted_by_vivo`, e o resgate abaixo o exige. Repare que a linha de
+ * concedente morto CONTINUA na lista de propósito (ela é revogável, e some da tela seria
+ * pior): o que mudou é ela deixar de valer como caminho de acesso.
+ *
+ * O QUE AINDA SUBESTIMA, e não foi fechado: o TETO DE PROFUNDIDADE. O servidor desliga o
+ * resgate INTEIRO quando a travessia trunca em 32 (`teto.truncado`), enquanto esta função
+ * continua resgatando até `MAX_GRANT_DEPTH`. Numa árvore de mais de 32 níveis o aviso
+ * subestima. Nenhuma árvore medida chega perto disso, e fechar exigiria replicar aqui a
+ * regra de truncamento do servidor — mas é buraco conhecido, não invariante.
+ *
+ * @param {Array<{id: string, parent_grant_id: string|null, granted_by?: string|null,
+ *   grant_level?: string, grantee_id?: string|null, granted_by_vivo?: boolean}>} grants -
+ *   As concessões VIVAS do recurso, como a listagem as devolve.
+ * @param {string} rootId - A concessão que se pretende revogar.
+ * @returns {Array<Object>} Os que caem, em ordem de nível, sem a raiz.
+ */
+export function fallenGrants(grants, rootId) {
+    const lista = Array.isArray(grants) ? grants : [];
+    if (rootId == null) return [];
+
+    // O ALCANCE, que é o conjunto de exclusão. A raiz entra nele porque ela também está
+    // sendo revogada: um pai alternativo que seja a própria raiz não salva ninguém.
+    const alcance = new Set([String(rootId)]);
+    for (const g of descendantGrants(lista, rootId)) alcance.add(String(g?.id ?? ''));
+
+    // Quem tem `view_share` vivo FORA do alcance, por pessoa. Só o eixo pessoal: ver o
+    // recorte declarado acima.
+    const compartilhamPorPessoa = new Map();
+    for (const g of lista) {
+        if (g?.grant_level !== 'view_share') continue;
+        if (alcance.has(String(g?.id ?? ''))) continue;
+        // D8(b): concessão de concedente MORTO não é caminho de acesso, então não
+        // resgata ninguém. A comparação é com `false` e não um booleano nu de propósito:
+        // `undefined` é "a listagem não mandou o campo" (servidor antigo), e ali o certo
+        // é o comportamento de antes, não tratar toda linha como morta.
+        if (g?.granted_by_vivo === false) continue;
+        const dono = g?.grantee_id;
+        if (dono == null) continue;
+        const chave = String(dono);
+        if (!compartilhamPorPessoa.has(chave)) compartilhamPorPessoa.set(chave, []);
+        compartilhamPorPessoa.get(chave).push(String(g.id));
+    }
+
+    /** Se este nó é resgatado: o concedente dele tem outro `view_share` fora do alcance. */
+    const resgatado = (g) => {
+        const por = g?.granted_by;
+        if (por == null) return false;
+        const outros = compartilhamPorPessoa.get(String(por)) ?? [];
+        // `!== g.id` porque o próprio nó pode ser um `view_share` do próprio concedente
+        // em outra linha; um nó nunca é o pai de si mesmo.
+        return outros.some((id) => id !== String(g?.id ?? ''));
+    };
+
+    const filhosDe = new Map();
+    for (const g of lista) {
+        const pai = g?.parent_grant_id;
+        if (pai == null) continue;
+        const chave = String(pai);
+        if (!filhosDe.has(chave)) filhosDe.set(chave, []);
+        filhosDe.get(chave).push(g);
+    }
+
+    const vistos = new Set([String(rootId)]);
+    const caidos = [];
+    let nivel = filhosDe.get(String(rootId)) ?? [];
+    let profundidade = 1;
+
+    while (nivel.length > 0 && profundidade < MAX_GRANT_DEPTH) {
+        const proximo = [];
+        for (const g of nivel) {
+            const id = String(g?.id ?? '');
+            if (!id || vistos.has(id)) continue;
+            vistos.add(id);
+            // O RESGATADO NÃO CAI E A SUBÁRVORE DELE NÃO É PERCORRIDA: o servidor
+            // re-pendura o nó e para de descer por ali, então os netos continuam
+            // pendurados num pai que sobreviveu.
+            if (resgatado(g)) continue;
             caidos.push(g);
             proximo.push(...(filhosDe.get(id) ?? []));
         }
@@ -123,6 +249,79 @@ export function groupMemberCount(grant) {
 export function granteeName(grant) {
     if (isGroupGrant(grant)) return grant?.grantee_group_name || 'Grupo';
     return grant?.grantee_nome || grant?.grantee_username || 'Usuário';
+}
+
+/**
+ * DE QUEM É O GRUPO que recebeu esta concessão, ou `''` quando ela é a uma pessoa.
+ *
+ * A DELEGAÇÃO SÓ APARECE AQUI. Conceder um recurso privado a um grupo entrega ao DONO
+ * daquele grupo o poder de acrescentar beneficiários sem passar por quem concedeu: ele
+ * põe mais gente lá dentro e o acesso segue junto, sem linha nova em `resource_grants`
+ * e sem passar pelo gate de repasse. A lista "quem tem acesso" é a única superfície
+ * onde essa transferência de autoridade é visível, e enquanto ela mostrava só o nome do
+ * grupo a parte delegada do mecanismo não aparecia em tela nenhuma. É por isso que o
+ * servidor passou a mandar `grantee_group_owner_*` junto de cada concessão coletiva.
+ *
+ * Espelha `groupOwnerLabel` (`js/admin/group-phrases.js`) na frase e no ramo do órfão,
+ * e NÃO o importa: aquele arquivo é da página de administração e este roda dentro do
+ * mapa. São duas telas com o mesmo vocabulário, não um módulo compartilhado.
+ *
+ * Grupo SEM dono é estado real (o backfill da migração adota `created_by`, que pode ser
+ * nulo em linha antiga) e dizê-lo por extenso importa: um grupo órfão não entrega
+ * acesso a ninguém, porque o predicado de resolução exige dono vivo.
+ *
+ * @param {{grantee_group_id?: string|null, grantee_group_owner_nome?: string,
+ *   grantee_group_owner_username?: string}} grant
+ * @returns {string} A frase pronta, ou string vazia para concessão a pessoa.
+ */
+export function granteeGroupOwnerLabel(grant) {
+    if (!isGroupGrant(grant)) return '';
+    const nome = (grant?.grantee_group_owner_nome || '').trim();
+    const username = (grant?.grantee_group_owner_username || '').trim();
+    if (nome && username) return `Dono: ${nome} (@${username})`;
+    if (nome) return `Dono: ${nome}`;
+    if (username) return `Dono: @${username}`;
+    return 'Sem dono definido';
+}
+
+/**
+ * O rótulo de uma `<option>` do seletor de grupo: nome, tamanho e, só quando o grupo é de
+ * OUTRA pessoa, de quem ele é.
+ *
+ * O SUFIXO NASCEU NO MESMO COMMIT QUE TORNOU O HOMÔNIMO LEGAL. A unicidade de nome de
+ * grupo deixou de ser global e passou a ser POR DONO (`(owner_id, LOWER(name))`), então
+ * dois donos diferentes podem ter uma "Equipe Alfa" e o servidor não impede. Quem vê
+ * grupo alheio nesta lista é só o administrador global (a listagem é recortada pelo
+ * predicado de posse), e para ele duas linhas idênticas significam escolher o coletivo
+ * errado ao conceder um recurso privado, sem erro nenhum e sem desfazer prático.
+ *
+ * O GRUPO PRÓPRIO NÃO GANHA SUFIXO, e essa é a metade que faz o sufixo informar: se
+ * toda linha dissesse "Dono: eu", a linha alheia deixaria de saltar.
+ *
+ * Comparação por `String(...)`: o id vem do JSON da rede e o do visitante vem da sessão,
+ * e uma comparação estrita entre tipos diferentes esconderia o grupo próprio atrás de um
+ * sufixo. `viewerId` ausente (sessão não lida) trata TODO grupo como alheio, que é o
+ * lado seguro: rótulo a mais é ruído, rótulo a menos é a ambiguidade que isto fecha.
+ *
+ * @param {{id?: string, name?: string, member_count?: number,
+ *   owner_id?: string|null, owner_nome?: string, owner_username?: string}} group
+ * @param {string|null} [viewerId] - Quem está olhando.
+ * @returns {string}
+ */
+export function groupOptionLabel(group, viewerId = null) {
+    // `|| 'Grupo'`, e não `??`: nome vazio é ausência, como em `granteeName`, e uma
+    // opção sem texto é uma linha invisível dentro do seletor.
+    const nome = String(group?.name || 'Grupo');
+    const membros = Number(group?.member_count);
+    const quantos = Number.isFinite(membros) && membros > 0
+        ? `${membros} ${membros === 1 ? 'pessoa' : 'pessoas'}`
+        : 'sem membros';
+    const proprio = viewerId != null && group?.owner_id != null
+        && String(group.owner_id) === String(viewerId);
+    if (proprio) return `${nome} (${quantos})`;
+    const dono = (group?.owner_nome || '').trim()
+        || (group?.owner_username ? `@${String(group.owner_username).trim()}` : '');
+    return dono ? `${nome} (${quantos}) · de ${dono}` : `${nome} (${quantos}) · sem dono definido`;
 }
 
 /**
@@ -236,7 +435,11 @@ function fallenSummary(caidos) {
 export function revocationWarning(grants, rootId, maxNomes = 3) {
     const alvo = (Array.isArray(grants) ? grants : []).find((g) => String(g?.id) === String(rootId));
     const quem = granteeSubject(alvo);
-    const caidos = descendantGrants(grants, rootId);
+    // `fallenGrants`, e NÃO `descendantGrants`: depois da preservação de alcançabilidade
+    // o fecho ingênuo passou a contar como caído quem o servidor resgata, e um aviso que
+    // mente sobre o alcance de um ato irreversível é a mesma classe de defeito que a doc
+    // desatualizada.
+    const caidos = fallenGrants(grants, rootId);
 
     if (caidos.length === 0) {
         return `Remover o acesso ${quem} a este recurso?`;

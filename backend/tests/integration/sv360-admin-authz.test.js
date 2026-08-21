@@ -3,8 +3,12 @@
 // routes in the sv360 module.
 //
 // `loadWritableProject` (sv360.admin.service.js:110-148) is the ONLY gate on
-// PATCH /admin/projects/:slug/status and DELETE /admin/projects/:slug — the latter
-// being a HARD delete with CASCADE plus an rmSync of the {orgId}__{slug}.db. Before
+// PATCH /admin/projects/:slug/status, PATCH /admin/projects/:slug (METADADO, desde
+// 2026-08-21) and DELETE /admin/projects/:slug — the last being a HARD delete with
+// CASCADE plus an rmSync of the {orgId}__{slug}.db. A TERCEIRA irma entrou aqui um
+// commit depois de nascer: enquanto so duas das tres estavam presas, o comportamento
+// estava certo e um refactor de `loadWritableProject` abriria a nova com a suite
+// verde — que e exatamente a razao de este arquivo existir. Before
 // this file both routes were exercised exclusively through their happy path with the
 // owner (sv360-ingest.test.js:931-989); the only 403s in the module covered upload.
 // Loosening canWriteProject, or dropping the organization_id scope from
@@ -43,7 +47,7 @@ function mintToken({ orgId, role = 'user', producerOrgId = null, sub = crypto.ra
   return jwt.sign(
     {
       sub, username: `aauth_${RID}_${sub.slice(0, 8)}`, role,
-      organization_id: orgId, org_role: 'viewer', producer_org_id: producerOrgId,
+      organization_id: orgId, producer_org_id: producerOrgId,
     },
     JWT_SECRET,
     { algorithm: 'HS256', expiresIn: '15m' }
@@ -167,6 +171,45 @@ describe('sv360 admin — negative authorization on status + delete', () => {
       .send({ status: 'enabled' })
       .expect(200);
     assert.equal(await statusOf(), 'enabled');
+  });
+
+  // --- PATCH /admin/projects/:slug (METADADO) --------------------------------
+  //
+  // O POSITIVO DO PAR nao mora aqui, e de proposito: ele e o produtor da OM dona
+  // gravando o video em `tests/integration/catalogo-video-de-previa.test.js`. Sem ele,
+  // estes tres negativos passariam identicos se a rota nao existisse.
+
+  /** O `preview_video` gravado, ou null. O efeito que os negativos NAO podem ter. */
+  async function previewVideoOf() {
+    const { rows } = await db.query('SELECT preview_video FROM sv360.projects WHERE id = $1', [projectId]);
+    return rows[0]?.preview_video ?? null;
+  }
+
+  it('anonymous PATCH metadado -> 401; o video NAO e gravado', async () => {
+    assert.equal(await previewVideoOf(), null, 'piso: o projeto comeca sem video');
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}`))
+      .send({ previewVideo: '/3d/videos/invasor.webm' })
+      .expect(401);
+    assert.equal(await previewVideoOf(), null);
+  });
+
+  it('LOTADO na OM dona, sem cracha, PATCH metadado -> 403; o video NAO e gravado', async () => {
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}`))
+      .set('Authorization', `Bearer ${viewerToken}`)
+      .send({ previewVideo: '/3d/videos/invasor.webm' })
+      .expect(403);
+    assert.equal(await previewVideoOf(), null, 'lotacao auto-declarada nao vira escrita');
+  });
+
+  it('produtor de OUTRA OM PATCH metadado -> 404 (escopo de producao, sem vazar existencia)', async () => {
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}`))
+      .set('Authorization', `Bearer ${foreignEditorToken}`)
+      .send({ previewVideo: '/3d/videos/invasor.webm' })
+      .expect(404);
+    assert.equal(await previewVideoOf(), null);
   });
 
   // --- DELETE /admin/projects/:slug ------------------------------------------

@@ -18,6 +18,7 @@ import { expect } from '@playwright/test';
 import { waitForRemoteEntity } from './trace-helpers.js';
 import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
+import { createVerifiedUser } from './accounts.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -26,26 +27,21 @@ import { ApiClient } from '../../../src/js/store/sync/api-client.js';
  *   userA: {username,password}, userB: {username,password} }>}
  */
 export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tático', permission = 'write' } = {}) {
+    // As DUAS contas nascem no NODE (`helpers/accounts.js`): confirmar e-mail exige ler
+    // `email_verification_tokens` no Postgres, fora do alcance do contexto do browser.
+    // O `page.evaluate` abaixo só faz login com credenciais já usáveis.
+    const [userA, userB] = await Promise.all([
+        createVerifiedUser({ prefix: 'alfa', nome: 'Alfa' }),
+        createVerifiedUser({ prefix: 'bravo', nome: 'Bravo' }),
+    ]);
     const seedPage = await browser.newPage();
     await seedPage.goto('/');
-    const seed = await seedPage.evaluate(async ({ base, mn, perm }) => {
+    const seed = await seedPage.evaluate(async ({ base, mn, perm, a, b }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-        const password = 'Sup3r-Secret-Pw!';
-        const mk = (n) => `${n}_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
 
         const apiA = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const userA = { username: mk('alfa'), password, nome: 'Alfa' };
-        await apiA.register({ ...userA });
-        await apiA.login(userA.username, userA.password);
-
-        const apiB = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const userB = { username: mk('bravo'), password, nome: 'Bravo' };
-        // register() returns no account data on purpose (it answers identically whether it
-        // created the account or found one, so it cannot enumerate accounts). The id comes
-        // from logging in, which these tests do anyway.
-        await apiB.register({ ...userB });
-        const userBId = (await apiB.login(userB.username, userB.password))?.id;
+        await apiA.login(a.username, a.password);
 
         const atlas = await apiA.createAtlas({ name: 'Atlas Colaborativo' });
         const mapId = crypto.randomUUID();
@@ -53,12 +49,12 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
         await fetch(`${base}/api/v1/atlas/${atlas.id}/sharing/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiA.getAccessToken()}` },
-            body: JSON.stringify({ userId: userBId, permission: perm }),
+            body: JSON.stringify({ userId: b.id, permission: perm }),
         });
-        return { atlasId: atlas.id, mapId, mapName: mn, userA, userB: { ...userB, id: userBId } };
-    }, { base: baseUrl, mn: mapName, perm: permission });
+        return { atlasId: atlas.id, mapId, mapName: mn };
+    }, { base: baseUrl, mn: mapName, perm: permission, a: userA, b: userB });
     await seedPage.close();
-    return seed;
+    return { ...seed, userA, userB };
 }
 
 /**
@@ -87,24 +83,19 @@ export async function setSharePermission(page, baseUrl, ownerCreds, atlasId, use
  * new user's credentials (incl. id). For multi-client (3+) scale scenarios.
  */
 export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permission = 'write', label = 'charlie' } = {}) {
-    return page.evaluate(async ({ base, c, id, perm, lbl }) => {
+    // A conta nasce no Node (e-mail confirmado); só o compartilhamento roda no browser.
+    const u = await createVerifiedUser({ prefix: label, nome: label });
+    await page.evaluate(async ({ base, c, id, perm, uid }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const owner = new ApiClient({ baseUrl: `${base}/api/v1` });
         await owner.login(c.username, c.password);
-        const password = 'Sup3r-Secret-Pw!';
-        const mk = (n) => `${n}_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const u = { username: mk(lbl), password, nome: lbl };
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        // The register response carries no id (anti-enumeration): log in to learn it.
-        await api.register({ ...u });
-        const uid = (await api.login(u.username, u.password))?.id;
         await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${owner.getAccessToken()}` },
             body: JSON.stringify({ userId: uid, permission: perm }),
         });
-        return { ...u, id: uid };
-    }, { base: baseUrl, c: ownerCreds, id: atlasId, perm: permission, lbl: label });
+    }, { base: baseUrl, c: ownerCreds, id: atlasId, perm: permission, uid: u.id });
+    return u;
 }
 
 /**

@@ -420,7 +420,7 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
   // no dia em que o cron não rodar) ou esquecer o prazo numa das consultas que
   // definem "concessão viva".
 
-  it('as consultas de "concessão viva" cobram o prazo, e a função o cobra nos DOIS sítios', () => {
+  it('as consultas de "concessão viva" cobram o prazo, e a função VIVA o cobra nos DOIS sítios', async () => {
     const queries = fs.readFileSync(
       path.join(RAIZ, 'src/modules/resource-access/resource-access.queries.js'), 'utf8'
     );
@@ -441,20 +441,72 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
       'consulta que define "concessão viva" só por `revoked_at IS NULL` está definindo errado'
     );
 
-    const migracao = fs.readFileSync(
-      path.join(RAIZ, 'src/database/migrations/008_acesso_a_recurso.sql'), 'utf8'
+    // A DEFINIÇÃO VIVA, POR INTROSPECÇÃO, e não o texto do arquivo de migração — esta
+    // é a re-ancoragem de 2026-08-20 e ela É o fix, não higiene. O bloco anterior lia
+    // `008_acesso_a_recurso.sql` do disco e contava as ocorrências ali; desde que a
+    // `011_grupo_com_dono_e_producao.sql` redefine `fn_granted_resource_ids` com `CREATE OR REPLACE`, aquele texto
+    // descreve uma definição MORTA. Reverter o termo de produção do braço D4 deixava o
+    // teste VERDE, porque `008_acesso_a_recurso.sql` continua lá com três ocorrências: o
+    // empréstimo do produtor voltava a não resolver para ninguém e nada ficava
+    // vermelho. Verificação-fantasma de manual.
+    const { rows } = await db.query(
+      "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_granted_resource_ids'"
     );
-    // `CREATE FUNCTION`, e não `CREATE OR REPLACE`: numa baseline nada está sendo
-    // substituído, e o plano falha alto numa colisão de nome em vez de sobrescrever.
-    const i = migracao.indexOf('CREATE FUNCTION fn_granted_resource_ids');
-    assert.notEqual(i, -1, 'a função de resolução precisa estar na baseline de acesso a recurso');
-    const corpo = migracao.slice(i, migracao.indexOf('$$;', i));
-    const ocorrencias = corpo.match(/expires_at > NOW\(\)/g) ?? [];
+    assert.equal(
+      rows.length, 1,
+      'esperava EXATAMENTE uma definição viva. Duas é o modo de falha de quem "redefine" '
+      + 'acrescentando parâmetro: cria uma SOBRECARGA e deixa todo chamador antigo resolvendo '
+      + 'para o texto velho, em silêncio'
+    );
+    const ocorrencias = rows[0].def.match(/expires_at > NOW\(\)/g) ?? [];
     assert.equal(
       ocorrencias.length, 3,
       'o prazo entra no braço DIRETO, no braço de GRUPO e no EXISTS do D4. Só no primeiro, o '
       + 'empréstimo de atlas '
       + 'sobrevive à expiração da concessão do dono — a morte moraria em metade do predicado'
+    );
+    // E a contagem continua sendo TRÊS, e não quatro, porque o termo de produção que a
+    // migração nova acrescentou ao braço D4 NÃO carrega prazo: escopo de produção não vence
+    // sozinho (só sai por ato de administrador), ao contrário da concessão. A
+    // assimetria é deliberada e está registrada.
+    assert.match(
+      rows[0].def, /fn_can_produce_resource\(a\.owner_id/,
+      'o braço D4 precisa reconhecer a PRODUÇÃO do dono do atlas'
+    );
+
+    // A PROPRIEDADE DA BASELINE, QUE A RE-ANCORAGEM ACIMA TINHA DEIXADO CAIR. O bloco
+    // antigo lia a migração do disco e, junto com a contagem que envelheceu, asseria que
+    // a baseline usa `CREATE FUNCTION` e NÃO `CREATE OR REPLACE`: numa baseline nada está
+    // sendo substituído, e o plano tem de falhar ALTO numa colisão de nome em vez de
+    // sobrescrever calado uma função que outra migração criou. Trocar a introspecção pela
+    // leitura de arquivo foi o fix certo para o defeito medido, e apagou esta propriedade
+    // de passagem: ela não é asserida em nenhum outro lugar do repositório.
+    //
+    // Repare que as duas asserções olham para ALVOS DIFERENTES: a de cima, para a
+    // definição VIVA no banco (a da `011_grupo_com_dono_e_producao.sql`, onde
+    // `CREATE OR REPLACE` é o certo); estas, para o TEXTO da baseline no disco. Uma não
+    // substitui a outra.
+    const baseline = fs.readFileSync(
+      path.join(RAIZ, 'src/database/migrations/008_acesso_a_recurso.sql'), 'utf8'
+    );
+    assert.match(
+      baseline, /^CREATE FUNCTION fn_granted_resource_ids\(/m,
+      'a baseline cria a função, e é ela quem falha alto se o nome já existir'
+    );
+    assert.doesNotMatch(
+      baseline, /CREATE OR REPLACE FUNCTION fn_granted_resource_ids\(/,
+      'na baseline não há nada a substituir: `OR REPLACE` ali sobrescreveria em silêncio'
+    );
+    // Discriminação do próprio par: `011_grupo_com_dono_e_producao.sql` é o degrau em que
+    // `CREATE OR REPLACE` é a forma CERTA, e sem esta linha as duas de cima passariam num
+    // mundo em que ninguém redefine.
+    const degrau = fs.readFileSync(
+      path.join(RAIZ, 'src/database/migrations/011_grupo_com_dono_e_producao.sql'), 'utf8'
+    );
+    const redefinicoes = degrau.match(/CREATE OR REPLACE FUNCTION fn_granted_resource_ids\(/g) ?? [];
+    assert.equal(
+      redefinicoes.length, 1,
+      'UMA redefinição por arquivo: uma segunda vence a primeira sem erro nenhum'
     );
   });
 

@@ -1093,19 +1093,41 @@ export class ApiClient {
 
     // ===== ACCESS GROUPS =====
     //
-    // TWO AUDIENCES, and the split mirrors the backend's two gates: `listAccessGroups`
-    // is `auth` only (it is the PICKER of the share modal, and anyone holding
-    // `view_share` on a resource may grant to a group), while everything else is
-    // administrator OR credenciado. Calling a write here as a plain user gets a 403 from
-    // the server, which is the boundary — none of this is.
+    // O EIXO É POSSE, NÃO PAPEL GLOBAL, desde 2026-08-20: um grupo de acesso é entidade
+    // de USUÁRIO, qualquer sessão autenticada cria um, e quem administra é o DONO (ou o
+    // administrador do sistema). O que antes era "listar aberto, escrever para
+    // administrador ou credenciado" virou "cada um vê e administra os seus".
+    //
+    // DUAS LEITURAS, DUAS PERGUNTAS: `listAccessGroups` são OS MEUS (com gestão e
+    // contagens, e é ela que alimenta o seletor do modal de compartilhar recurso);
+    // `listAccessGroupsParticipating` são os grupos de que EU PARTICIPO, com o dono e
+    // sem roster. Uma escrita sobre grupo alheio volta 404, nunca 403 — a listagem é
+    // recortada, então confirmar a existência do id já seria vazamento. O servidor é a
+    // fronteira; nada aqui é.
 
     /**
-     * The live access groups, each with `member_count` and `grant_count`.
+     * The access groups THIS user administers — his own, and all of them for a global
+     * administrator. Each row carries `member_count`, `grant_count` and the owner.
      * @returns {Promise<Array<{id:string, name:string, description:string|null,
-     *   member_count:number, grant_count:number}>>}
+     *   member_count:number, grant_count:number, owner_id:string|null,
+     *   owner_username:string|null, owner_nome:string|null}>>}
      */
     async listAccessGroups() {
         return this._request('GET', '/access-groups');
+    }
+
+    /**
+     * The groups this user BELONGS to, with the owner's name and nothing else: no roster,
+     * no counts and (since 2026-08-21) no description either. It exists because the listing
+     * above is cut down by ownership: without it, someone put into a group by another person
+     * would have no screen showing a mechanism that decides his access to private resources.
+     * The description was dropped because the server stopped sending it, and the server
+     * stopped because the decision enumerates what a member sees: name and owner.
+     * @returns {Promise<Array<{id:string, name:string,
+     *   owner_id:string|null, owner_username:string|null, owner_nome:string|null}>>}
+     */
+    async listAccessGroupsParticipating() {
+        return this._request('GET', '/access-groups/participating');
     }
 
     /** @param {{name:string, description?:string|null}} payload */
@@ -1119,16 +1141,20 @@ export class ApiClient {
     }
 
     /**
-     * Soft-deletes the group, which REVOKES what it granted — the response carries the
-     * reach (`grantsAffected`, `memberCount`) so the UI can say how much fell.
+     * Soft-deletes the group, which REVOKES what it granted AND prunes the subtree the
+     * members fed from it. `grantsAffected` is the whole pruning (roots plus descendants)
+     * and is the number the toast reports; `directGrants` is what the listing knew before
+     * the click. Two numbers, because one number that changes meaning between the screen
+     * and the audit trail is worse.
      * @param {string} id
-     * @returns {Promise<{id:string, name:string, grantsAffected:number, memberCount:number}>}
+     * @returns {Promise<{id:string, name:string, grantsAffected:number,
+     *   directGrants:number, memberCount:number}>}
      */
     async deleteAccessGroup(id) {
         return this._request('DELETE', `/access-groups/${encodeURIComponent(id)}`);
     }
 
-    /** @param {string} id Who is in this group (administrator or credenciado only). */
+    /** @param {string} id Who is in this group (whoever administers it). */
     async listAccessGroupMembers(id) {
         return this._request('GET', `/access-groups/${encodeURIComponent(id)}/members`);
     }
@@ -1140,7 +1166,13 @@ export class ApiClient {
         });
     }
 
-    /** @param {string} id @param {string} userId */
+    /**
+     * Takes someone out of the group, which also PRUNES what he passed on THROUGH it (a
+     * relay whose justification no longer exists) — `grantsAffected` is that count, and it
+     * is not derivable from anything the screen already has.
+     * @param {string} id @param {string} userId
+     * @returns {Promise<{groupId:string, userId:string, grantsAffected:number}>}
+     */
     async removeAccessGroupMember(id, userId) {
         return this._request(
             'DELETE',
@@ -1171,6 +1203,34 @@ export class ApiClient {
     async setSv360ProjectStatus(slug, status, { orgId } = {}) {
         const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
         return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}/status${qs}`, { body: { status } });
+    }
+
+    /**
+     * Grava o METADADO editável de um projeto 360 — hoje só o vídeo de prévia.
+     *
+     * Rota PRÓPRIA, e não a de status: `PATCH /sv360/admin/projects/:slug` nasceu com este
+     * campo porque `sv360.projects` não tem `config` JSONB como as quatro tabelas de
+     * catálogo, então o vídeo do 360 é coluna e precisa de porta de escrita.
+     *
+     * `orgId` importa pela mesma razão de `setSv360ProjectStatus`: slug é único por
+     * ORGANIZAÇÃO, não globalmente, e um administrador que lista todas as OMs pode ver o
+     * mesmo slug duas vezes.
+     *
+     * STRING VAZIA É O "REMOVER", e ela precisa CHEGAR ao servidor: o padrão de descarte de
+     * `listAudit` (que joga fora `''` para não montar filtro vazio) seria exatamente errado
+     * aqui, porque transformaria "apagar o vídeo" num PATCH sem corpo, que o Joi recusa com
+     * 422. Por isso o corpo é montado explicitamente e não por varredura de chaves.
+     *
+     * @param {string} slug
+     * @param {{previewVideo?: string|null}} payload
+     * @param {{orgId?: string}} [options]
+     * @returns {Promise<Object>} a linha atualizada (envelope PLANO do 360, sem `{data}`)
+     */
+    async updateSv360ProjectMetadata(slug, payload, { orgId } = {}) {
+        const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}${qs}`, {
+            body: { previewVideo: payload?.previewVideo ?? '' },
+        });
     }
 
     /**
@@ -1520,8 +1580,16 @@ export class ApiClient {
      * owner-only: a co-Gestor administers sharing too. And a share carries any of the FOUR
      * grantable levels — this said `'read'|'write'`, the closed list the constitution forbids,
      * which is how a client written from it silently loses `comment` and `manage`.
+     *
+     * SINCE 2026-08-21 THE PAYLOAD HAS TWO LISTS: `shares` (people) and `groups` (access
+     * groups). Each group row NAMES ITS OWNER, and that is a mitigation, not decoration: a
+     * group share reaches `manage`, so whoever administers that group's composition hands out
+     * co-Gestão of an atlas that is not theirs. The atlas manager has to see WHOSE composition
+     * he is accepting.
      * @param {string} atlasId
-     * @returns {Promise<{ isPublic: boolean, publicLink: string|null, shares: Array<{ userId: string, username: string, nome: string, permission: 'read'|'comment'|'write'|'manage', addedAt: string }> }>}
+     * @returns {Promise<{ isPublic: boolean, publicLink: string|null,
+     *   shares: Array<{ userId: string, username: string, nome: string, permission: 'read'|'comment'|'write'|'manage', addedAt: string }>,
+     *   groups: Array<{ groupId: string, name: string, permission: 'read'|'comment'|'write'|'manage', addedAt: string, memberCount: number, ownerId: string|null, ownerUsername: string|null, ownerNome: string|null }> }>}
      */
     async getSharing(atlasId) {
         return this._request('GET', `/atlas/${atlasId}/sharing`);
@@ -1581,6 +1649,53 @@ export class ApiClient {
         return this._request('DELETE', `/atlas/${atlasId}/sharing/users/${userId}`);
     }
 
+    // ----- compartilhamento com GRUPO de acesso ---------------------------------------
+    //
+    // SÓ GRUPO PRÓPRIO, e a fronteira é o SERVIDOR: conceder exige que o chamador administre
+    // o grupo (`assertCanAdministerGroup`), e a recusa é **404**, nunca 403 — a listagem de
+    // grupos é recortada por posse, então confirmar que aquele id existe já seria vazamento.
+    // Nada aqui gateia coisa nenhuma; o seletor da tela só evita oferecer o que o servidor
+    // recusaria, alimentando-se de `listAccessGroups()`, que já devolve só os administrados.
+    //
+    // REMOVER NÃO EXIGE POSSE do grupo, de propósito: tirar acesso nunca pode ser mais
+    // difícil que dar.
+
+    /**
+     * Shares the atlas with an access group the caller OWNS.
+     * @param {string} atlasId
+     * @param {string} groupId
+     * @param {'read'|'comment'|'write'|'manage'} permission
+     * @returns {Promise<Object>} The created/updated share row.
+     */
+    async addAtlasGroupShare(atlasId, groupId, permission) {
+        return this._request('POST', `/atlas/${atlasId}/sharing/groups`, {
+            body: { groupId, permission },
+        });
+    }
+
+    /**
+     * Changes the level of a group already sharing the atlas.
+     * @param {string} atlasId
+     * @param {string} groupId
+     * @param {'read'|'comment'|'write'|'manage'} permission
+     * @returns {Promise<Object>} The updated share row.
+     */
+    async updateAtlasGroupShare(atlasId, groupId, permission) {
+        return this._request('PUT', `/atlas/${atlasId}/sharing/groups/${encodeURIComponent(groupId)}`, {
+            body: { permission },
+        });
+    }
+
+    /**
+     * Removes a group's access to the atlas. Does NOT require owning the group.
+     * @param {string} atlasId
+     * @param {string} groupId
+     * @returns {Promise<null>}
+     */
+    async removeAtlasGroupShare(atlasId, groupId) {
+        return this._request('DELETE', `/atlas/${atlasId}/sharing/groups/${encodeURIComponent(groupId)}`);
+    }
+
     // ===== RECURSOS PRIVADOS (acesso a recurso do catálogo) =====
     //
     // Eixo distinto do de atlas: aqui a pergunta é "quem vê ESTE recurso", e não
@@ -1603,6 +1718,13 @@ export class ApiClient {
 
     /**
      * Quem tem acesso a um recurso privado (exige `view_share` ou papel global).
+     *
+     * CADA LINHA CARREGA `granted_by_vivo`, e ele NÃO é enfeite: desde D8(b) uma concessão
+     * cujo concedente teve a conta ou a OM desativada continua na lista (ela é revogável)
+     * e já não entrega acesso nenhum. Quem calcula queda a partir desta resposta precisa
+     * tratá-la como caminho MORTO — é o que `fallenGrants` faz, e sem isso o aviso
+     * pré-clique subestima o estrago de um ato irreversível.
+     *
      * @param {string} type - tileset | data_layer | analysis_layer | sv360_project
      * @param {string} id
      * @returns {Promise<Array>}
@@ -1626,18 +1748,28 @@ export class ApiClient {
     }
 
     /**
-     * Revoga uma concessão E TODA a subárvore que dela deriva.
-     * A resposta traz a lista dos derrubados, que é o que a UI mostra para
-     * confirmar o alcance da poda.
+     * Revoga uma concessão e poda a subárvore que dela deriva, PRESERVANDO quem alcança
+     * o recurso por outro caminho.
+     *
+     * A resposta traz TRÊS listas, e as três juntas são o alcance real do ato:
+     *   - `revoked`: perderam o acesso (a raiz mais quem não tinha outra autorização);
+     *   - `reparented`: MANTIVERAM o acesso, re-pendurados noutro `view_share` vivo do
+     *     mesmo concedente (decisão do dono: "se B não caiu, D não deve cair");
+     *   - `trimmed`: mantiveram, mas com o prazo aparado pelo teto do pai novo — são os
+     *     descendentes de um resgatado, que herdam o teto dele.
+     * Só a primeira significa perda de acesso; ler apenas ela continua correto.
      * @param {string} grantId
-     * @returns {Promise<{revoked: Array}>}
+     * @returns {Promise<{revoked: Array, reparented: Array, trimmed: Array}>}
      */
     async revokeResourceGrant(grantId) {
         return this._request('DELETE', `/resource-access/grants/${encodeURIComponent(grantId)}`);
     }
 
     /**
-     * Marca um recurso como público ou privado (só administrador).
+     * Marca um recurso como público ou privado. Quem pode é quem MANTÉM o item
+     * (`requireResourceMaintainer`, desde 2026-08-20): o administrador em qualquer OM e o
+     * produtor na OM dele. Linha de outra OM volta 404, não 403 — o mesmo 404 de "não
+     * existe", de propósito.
      * @param {string} type @param {string} id
      * @param {'public'|'private'} accessLevel
      */
@@ -1686,6 +1818,53 @@ export class ApiClient {
         return this._request('GET', `/users/search?q=${encodeURIComponent(q)}`);
     }
 
+    // ===== AUDIT TRAIL (requireAuditReader server-side) =====
+
+    /**
+     * Lists the audit trail, ALREADY CUT DOWN BY THE SERVER.
+     *
+     * TWO BRANCHES, ONE ROUTE: a global administrator reads the whole trail; a producer
+     * reads the trail of HIS OWN organisation, and nothing else. The cut is resolved in
+     * the database by `requireAuditReader` and imposed in `listAudit` — `targetOrgId`
+     * below only NARROWS, and only for an administrator. Sending it as a producer is
+     * silently ignored, never obeyed: authorisation is not a query parameter.
+     *
+     * THE ENVELOPE IS DOUBLY NESTED on the wire (`{ data: { total, page, limit, data } }`)
+     * and `_request` unwraps ONE level, so what comes back here is the page object and the
+     * rows are in `.data`. This is the most likely integration mistake on this route.
+     *
+     * @param {Object} [params]
+     * @param {string} [params.action] - Exact match, never partial: omit for "all".
+     * @param {string} [params.actorId]
+     * @param {string} [params.targetType]
+     * @param {string} [params.targetId]
+     * @param {string} [params.targetOrgId] - Administrator only; ignored for everyone else.
+     * @param {string} [params.from] - ISO instant, inclusive.
+     * @param {string} [params.to] - ISO instant, EXCLUSIVE (half-open period).
+     * @param {number} [params.page] - 1-based.
+     * @param {number} [params.limit] - Server caps at 200; defaults to 50.
+     * @returns {Promise<{ total:number, page:number, limit:number, escopoOrgId:string|null,
+     *   administra:boolean, data:Array<Object> }>}
+     */
+    async listAudit(params = {}) {
+        const qs = new URLSearchParams();
+        for (const [chave, valor] of Object.entries(params)) {
+            // THE EMPTY STRING IS THE "no filter" STATE of every `<select>` on the tab, so
+            // the FIRST load of the tab passes four of them, for both audiences. Dropping
+            // them is load-bearing, and the failure mode is worse than it looks: the Joi
+            // schema on the route is `Joi.string()`, which REJECTS the empty string
+            // (measured: `"action" is not allowed to be empty`), so keeping them here
+            // makes every single open of the tab answer 422 with the "Falha ao carregar a
+            // trilha" toast — total breakage, not the "empty list, no error" an earlier
+            // revision of this comment claimed. A wrong reason is what gets the line
+            // deleted. Pinned by `frontend/tests/unit/audit-client-params.test.js`.
+            if (valor === undefined || valor === null || valor === '') continue;
+            qs.set(chave, String(valor));
+        }
+        const sufixo = qs.toString();
+        return this._request('GET', `/audit${sufixo ? `?${sufixo}` : ''}`);
+    }
+
     // ===== USERS — ADMIN (requireAdmin server-side; global role 'admin') =====
 
     /**
@@ -1716,7 +1895,9 @@ export class ApiClient {
      * SEARCH/LIST queries join in, and they are exactly what this block claimed to send until
      * 2026-08-13. The mistake had no status and no log to find it by: `validate` runs with
      * `stripUnknown: true`, so a caller written from the old text lost both fields and got a
-     * 200. `org_role` is the role WITHIN the organization, distinct from the global `role`.
+     * 200. There is no `org_role` field any more: the role WITHIN the organization was
+     * removed from column, token and client on 2026-08-20 (D7), because it authorized
+     * nothing on the server and, on the client, seeded the PER-ATLAS role.
      * `role` is the GLOBAL axis and has FOUR values, which are not a ladder: `user`,
      * `producer` (maintains every resource of ONE organization), `credenciado` (reads every
      * private resource and writes nothing) and `admin`. `producer_org_id` is the production
@@ -1725,7 +1906,7 @@ export class ApiClient {
      * `organization_id` is just the declared posting and authorizes nothing.
      * @param {{ username: string, password: string, nome: string, rank_id?: string|null,
      *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
-     *   producer_org_id?: string|null, org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
+     *   producer_org_id?: string|null }} payload
      * @returns {Promise<Object>} The created user.
      */
     async createUser(payload) {
@@ -1742,7 +1923,7 @@ export class ApiClient {
      * @param {{ username?: string, nome?: string, rank_id?: string|null,
      *   organization_id?: string|null, role?: 'user'|'producer'|'credenciado'|'admin',
      *   producer_org_id?: string|null, is_active?: boolean,
-     *   email_verified?: boolean, org_role?: 'owner'|'admin'|'editor'|'viewer' }} payload
+     *   email_verified?: boolean }} payload
      * @returns {Promise<Object>} The updated user.
      */
     async updateUser(userId, payload) {

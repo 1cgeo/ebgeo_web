@@ -6,6 +6,10 @@ import {
 } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import * as Q from './users.queries.js';
+// D8(b): desativar uma conta derruba o que ela concedeu. A semantica de queda tem UMA
+// definicao, e ela mora no modulo de acesso a recurso: importar a funcao e o que impede
+// a segunda copia da regra de nascer aqui.
+import { podarConcessoesDeQuemFoiDesativado } from '../resource-access/resource-access.service.js';
 
 const SALT_ROUNDS = 12;
 
@@ -76,7 +80,7 @@ export async function getProfile(userId) {
 /**
  * Updates user profile.
  */
-export async function updateProfile(userId, data) {
+export async function updateProfile(userId, data, req = null) {
   // For nullable fields, pass [value, provided?]: an explicit null/'' clears the
   // column (value normalized to null), an omitted field leaves it unchanged.
   const { rows } = await query(Q.UPDATE_USER_PROFILE, [
@@ -91,6 +95,30 @@ export async function updateProfile(userId, data) {
   if (rows.length === 0) {
     throw new NotFoundError('User');
   }
+
+  // A AUTO-EDIÇÃO PASSA A DEIXAR RASTRO, e isto fecha metade de uma assimetria que o
+  // censo de auditoria nomeava por escrito: a edição PELO ADMINISTRADOR emitia
+  // `USER_UPDATE` e a do próprio titular não emitia nada, então quem investigava uma
+  // conta via o que o admin fez com ela e não o que o titular fez consigo.
+  //
+  // `self: true` É O QUE DISCRIMINA os dois emissores da MESMA ação. `actor_id` igual a
+  // `target_id` já diria isso, mas exige que o leitor compare duas colunas para
+  // descobrir de que caminho a linha veio; o campo torna a pergunta filtrável.
+  //
+  // SÓ OS NOMES DOS CAMPOS, nunca os valores: é a mesma regra do `USER_UPDATE`
+  // administrativo, e aqui ela alcança `nome`, que é dado pessoal.
+  //
+  // FORA DE TRANSAÇÃO porque a escrita é uma query só: não há transação a que aderir.
+  // A consequência honesta é que uma falha da trilha responde 500 sobre um perfil que
+  // já mudou, o mesmo comportamento do catálogo, e melhor que escrita sem rastro.
+  await createAudit(req, {
+    action: 'USER_UPDATE',
+    actorId: userId,
+    targetType: 'USER',
+    targetId: userId,
+    targetName: rows[0].nome,
+    details: { fields: Object.keys(data || {}), self: true },
+  });
 
   return rows[0];
 }
@@ -112,7 +140,7 @@ export async function updateProfile(userId, data) {
  * (utils/org-status.js). This app's UI does not call the route at all — no
  * `/users/me/password` call site exists in frontend/src — so nothing regresses.
  */
-export async function updatePassword(userId, currentPassword, newPassword) {
+export async function updatePassword(userId, currentPassword, newPassword, req = null) {
   // Get current password hash
   const { rows } = await query(Q.FIND_USER_WITH_PASSWORD, [userId]);
 
@@ -132,6 +160,22 @@ export async function updatePassword(userId, currentPassword, newPassword) {
   // Update password, revoke the refresh family and cut every session (one statement).
   await query(Q.UPDATE_USER_PASSWORD, [userId, newHash]);
   await query(Q.REVOKE_ALL_USER_TOKENS, [userId]);
+
+  // A OUTRA METADE DA ASSIMETRIA: o reset PELO ADMINISTRADOR emitia `PASSWORD_RESET` e a
+  // troca pelo próprio titular não emitia nada, no único fator de autenticação da casa.
+  // A ação é reusada de propósito (criar uma segunda para o mesmo fato partiria a
+  // história de uma senha em duas listas que não se cruzam), e `self` discrimina.
+  //
+  // `details` NÃO CARREGA SENHA NENHUMA, nem o nome dos campos: aqui os nomes dos campos
+  // seriam `currentPassword`/`newPassword`, que não informam nada e convidam a próxima
+  // revisão a "melhorar" pondo os valores.
+  await createAudit(req, {
+    action: 'PASSWORD_RESET',
+    actorId: userId,
+    targetType: 'USER',
+    targetId: userId,
+    details: { self: true },
+  });
 
   return { success: true };
 }
@@ -210,7 +254,6 @@ export async function createUser(data, req = null, actorId = null) {
       data.rank_id || null,
       data.organization_id || null,
       data.role || 'user',
-      data.org_role || null, // SQL COALESCEs to 'viewer'
       // O bicondicional ja foi cobrado pelo Joi da criacao (onde o corpo e completo
       // e o `when` alcanca os dois lados); aqui basta normalizar '' para null.
       uuidOuNulo(data.producer_org_id),
@@ -223,7 +266,7 @@ export async function createUser(data, req = null, actorId = null) {
         // O papel criado é o dado que interessa numa revisão: uma conta nascida
         // 'admin' é o evento que se quer achar depois.
         details: {
-          role: criado.role, org_role: criado.org_role,
+          role: criado.role,
           organization_id: criado.organization_id,
           producer_org_id: criado.producer_org_id,
         },
@@ -298,7 +341,6 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       escopo.role,
       data.is_active !== undefined ? data.is_active : null,
       data.email_verified !== undefined ? data.email_verified : null,
-      data.org_role || null,
       escopo.producerOrgId,
       escopo.producerProvided,
     ]);
@@ -470,13 +512,46 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
 
     await t.none(Q.REVOKE_ALL_USER_TOKENS, [userId]);
 
+    // D8(b): A AUTORIDADE MORRE COM QUEM A EXERCIA. Ate 2026-08-21 desativar quem
+    // concedeu nao propagava para o que ele concedeu, e o motivo era estrutural: a
+    // cascata derruba filhos quando o PAI e revogado, e a concessao de quem tem papel
+    // global (ou de quem produz) e RAIZ, sem pai. Sem esta linha, desativar um
+    // administrador deixava de pe todo o acervo privado que ele distribuiu, ate um ano.
+    //
+    // NA MESMA TRANSACAO, DEPOIS do soft-delete e de proposito: se a desativacao der
+    // rollback, a poda volta junto. E ela usa `podarPorRaizes`, a MESMA cascata da
+    // revogacao, entao a preservacao de alcancabilidade (D3) vale aqui igual — quem
+    // alcancar o recurso por outro concedente vivo e repai-ado, nao derrubado.
+    //
+    // O QUE ISTO NAO FAZ: nao transfere autoridade. Reativar a conta NAO ressuscita o que
+    // ela concedeu, porque `revoked_at` nao se desfaz. A consequencia foi aceita: quem
+    // desativar uma conta que concedeu muito deve reconceder antes.
+    const podada = await podarConcessoesDeQuemFoiDesativado({
+      userId, actor: { id: adminId }, req, trx: t,
+    });
+
     // Audit participates in the same transaction (rolls back together).
     await createAudit(req, {
       action: 'USER_DELETE', actorId: adminId, targetType: 'USER',
-      targetId: userId, targetName: user.nome, details: { atlasTransferred: count },
+      targetId: userId,
+      targetName: user.nome,
+      details: {
+        atlasTransferred: count,
+        // As DUAS contagens da poda, e nao so a primeira: `grantsRevoked` responde "o que
+        // caiu junto com esta conta" e `grantsReparented` responde "o que sobreviveu, e
+        // por isso a conta nao derrubou tudo". Sem a segunda, um numero menor que o
+        // esperado parece poda incompleta.
+        grantsRevoked: podada.revoked.length,
+        grantsReparented: podada.reparented.length + podada.trimmed.length,
+      },
     }, t);
 
-    return { success: true, atlasTransferred: count > 0 ? count : 0 };
+    return {
+      success: true,
+      atlasTransferred: count > 0 ? count : 0,
+      grantsRevoked: podada.revoked.length,
+      grantsReparented: podada.reparented.length + podada.trimmed.length,
+    };
   });
 }
 

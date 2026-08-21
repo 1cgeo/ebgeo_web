@@ -80,3 +80,12 @@ it('a branch with no assert at all is none of our business', async () => {
   }
   assert.equal(extra + res.status, res.status + extra);
 });
+
+it('does not flag membership in a NAMED collection, nor a one-element list', async () => {
+  // A lista nomeada e dominio real (papel global, enum de status), nao hedge entre dois
+  // desfechos: acusa-la seria o ruido que faz alguem desligar a regra.
+  const PAPEIS = ['user', 'producer', 'credenciado', 'admin'];
+  const res = await fetch('/me');
+  assert.ok(PAPEIS.includes(res.role));
+  assert.ok(['admin'].includes(res.role));
+});

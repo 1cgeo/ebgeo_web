@@ -165,7 +165,7 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
       [adminId, `sv360_admin_${adminId.slice(0, 8)}`, defaultOrgId]
     );
     adminToken = jwt.sign(
-      { sub: adminId, role: 'admin', organization_id: defaultOrgId, org_role: 'admin' },
+      { sub: adminId, role: 'admin', organization_id: defaultOrgId },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );
@@ -177,7 +177,7 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
     otherOrgToken = jwt.sign(
       {
         sub: produtorSegunda.id, role: 'producer',
-        organization_id: secondOrgId, org_role: 'viewer', producer_org_id: secondOrgId,
+        organization_id: secondOrgId, producer_org_id: secondOrgId,
       },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }

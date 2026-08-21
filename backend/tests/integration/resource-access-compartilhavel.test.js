@@ -18,14 +18,20 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAdminUser, createProducerUser, loginUser,
+} from '../helpers/fixtures.js';
 
 describe('o payload aditivo declara o que este ator pode REPASSAR', () => {
-  let app, db, admin, cedente, leitor;
-  let tokenAdmin, tokenCedente, tokenLeitor;
+  let app, db, admin, cedente, leitor, produtor;
+  let tokenAdmin, tokenCedente, tokenLeitor, tokenProdutor;
+  let orgA, orgB;
   const sufixo = randomUUID().slice(0, 8);
   const RECURSO = `share-3d-${sufixo}`;
   const OUTRO = `share-data-${sufixo}`;
+  const DA_OM = `share-om-${sufixo}`;
+  const DE_OUTRA_OM = `share-omb-${sufixo}`;
+  const PUBLICO_DA_OM = `share-om-pub-${sufixo}`;
   let grantCedente;
 
   const visiveis = async (token) => (await supertest(app)
@@ -45,6 +51,15 @@ describe('o payload aditivo declara o que este ator pode REPASSAR', () => {
     tokenCedente = await loginUser(app, cedente.username, cedente.password);
     tokenLeitor = await loginUser(app, leitor.username, leitor.password);
 
+    const criaOrg = async (rotulo) => (await db.query(
+      `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+      [`OM sh ${rotulo} ${sufixo}`, `om-sh-${rotulo}-${sufixo}`, `${rotulo}${sufixo.slice(0, 3)}`]
+    )).rows[0].id;
+    orgA = await criaOrg('a');
+    orgB = await criaOrg('b');
+    produtor = await createProducerUser(db, orgA, { username: `sh_prod_${sufixo}` });
+    tokenProdutor = await loginUser(app, produtor.username, produtor.password);
+
     await db.query(
       `INSERT INTO tilesets (id, name, config, sort_order, access_level)
        VALUES ($1, $2, '{"url":"/x"}'::jsonb, 0, 'private')`,
@@ -55,6 +70,26 @@ describe('o payload aditivo declara o que este ator pode REPASSAR', () => {
        VALUES ($1, $2, '{"url":"/y"}'::jsonb, 0, 'private')`,
       [OUTRO, `Camada ${sufixo}`]
     );
+
+    // Os três recursos do eixo de PRODUÇÃO: o privado da OM do produtor, o privado
+    // de outra OM e o PÚBLICO da mesma OM (que separa 'produzido' de 'produzido e
+    // privado').
+    for (const [id, org, nivel] of [
+      [DA_OM, orgA, 'private'], [DE_OUTRA_OM, orgB, 'private'], [PUBLICO_DA_OM, orgA, 'public'],
+    ]) {
+      await db.query(
+        `INSERT INTO tilesets (id, name, config, sort_order, owner_org_id, access_level)
+         VALUES ($1, $2, '{"url":"/z"}'::jsonb, 0, $3::uuid, $4)`,
+        [id, `Tileset ${id}`, org, nivel]
+      );
+    }
+    // O produtor ENXERGA o institucional por uma concessão `view`: é o piso da
+    // discriminação do caso de produção.
+    await supertest(app)
+      .post(`/api/v1/resource-access/tileset/${RECURSO}/grants`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ granteeId: produtor.id, grantLevel: 'view' })
+      .expect(201);
 
     // O CEDENTE recebe `view_share`; o LEITOR recebe `view` no MESMO recurso.
     // É esse par que discrimina: os dois veem, só um pode ceder.
@@ -82,8 +117,10 @@ describe('o payload aditivo declara o que este ator pode REPASSAR', () => {
 
   after(async () => {
     await db.query('DELETE FROM resource_grants WHERE resource_id = ANY($1)', [[RECURSO, OUTRO]]);
-    await db.query('DELETE FROM tilesets WHERE id = $1', [RECURSO]);
+    await db.query('DELETE FROM tilesets WHERE id = ANY($1)', [[RECURSO, DA_OM, DE_OUTRA_OM, PUBLICO_DA_OM]]);
     await db.query('DELETE FROM data_layers WHERE id = $1', [OUTRO]);
+    await db.query('DELETE FROM users WHERE producer_org_id = ANY($1::uuid[])', [[orgA, orgB]]);
+    await db.query('DELETE FROM organizations WHERE id = ANY($1::uuid[])', [[orgA, orgB]]);
     await teardownTestEnv(db);
   });
 
@@ -129,6 +166,46 @@ describe('o payload aditivo declara o que este ator pode REPASSAR', () => {
     const doAdmin = await visiveis(tokenAdmin);
     assert.ok(doAdmin.tilesets.map((t) => t.id).includes(RECURSO), 'o admin vê por papel global');
     assert.ok(!doAdmin.shareable.tilesets.includes(RECURSO), 'e não aparece em shareable, porque não tem concessão');
+  });
+
+  it('a PRODUÇÃO entra em `shareable`; o papel global continua fora', async () => {
+    // O CASO VIZINHO AFIRMA A OMISSÃO DO PAPEL GLOBAL, e este afirma a PRESENÇA da
+    // produção. A assimetria não é incoerência: o cliente TEM como saber que é
+    // administrador (`hasGlobalDataAccess()`) e NÃO tem como saber de qual OM é cada
+    // item — o payload aditivo não carrega `owner_org_id`, de propósito. Sem este braço,
+    // o produtor teria a permissão de repassar o que a OM dele mantém e nenhuma porta
+    // para ela, que na tela é indistinguível de não ter a permissão.
+    const doProdutor = await visiveis(tokenProdutor);
+
+    // O PISO: ele ENXERGA o recurso da OM dele (pelo ramo de produção do predicado).
+    assert.ok(
+      doProdutor.tilesets.map((t) => t.id).includes(DA_OM),
+      'piso: o produtor vê o privado da própria OM'
+    );
+    assert.ok(doProdutor.shareable.tilesets.includes(DA_OM), 'e pode REPASSÁ-LO');
+
+    // AS DUAS DISCRIMINAÇÕES, no MESMO payload do MESMO produtor. Sem elas, "aparece em
+    // shareable" passaria numa implementação que despejasse ali tudo o que o ator
+    // enxerga — que é exatamente a confusão entre VER e poder CEDER que este arquivo
+    // existe para separar.
+    assert.ok(
+      doProdutor.tilesets.map((t) => t.id).includes(RECURSO),
+      'piso da discriminação: ele enxerga o institucional, por uma concessão `view`'
+    );
+    assert.ok(
+      !doProdutor.shareable.tilesets.includes(RECURSO),
+      'e NÃO o repassa: `view` continua sendo `view`, venha o ator de onde vier'
+    );
+    assert.ok(
+      !doProdutor.tilesets.map((t) => t.id).includes(DE_OUTRA_OM),
+      'e o privado de OUTRA OM não entra em grupo nenhum'
+    );
+    assert.ok(!doProdutor.shareable.tilesets.includes(DE_OUTRA_OM));
+
+    // E o recurso PÚBLICO da MESMA OM não aparece em `shareable`, que é o que separa
+    // "produzido" de "produzido E privado": o campo serve à afordância do cartão, e o
+    // cartão de recurso público não tem essa ação.
+    assert.ok(!doProdutor.shareable.tilesets.includes(PUBLICO_DA_OM));
   });
 
   it('revogar a concessão tira o recurso de `shareable` junto com a visibilidade', async () => {

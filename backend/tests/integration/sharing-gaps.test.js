@@ -23,7 +23,6 @@ function mintToken(user) {
       posto: user.posto_graduacao,
       role: user.role || 'user',
       organization_id: user.organization_id ?? null,
-      org_role: user.org_role || 'viewer',
       org: user.organization_id ?? null,
       login: user.username,
     },

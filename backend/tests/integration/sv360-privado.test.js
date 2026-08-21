@@ -284,7 +284,7 @@ describe('F6 — projeto 360 enabled+private', () => {
     // banco, era admin para o SQL antigo e não é mais. É a janela de rebaixamento
     // de 15 minutos de `flexibleAuth` fechada por construção.
     const forjado = jwt.sign(
-      { sub: crypto.randomUUID(), role: 'admin', organization_id: ORG_DONA, org_role: 'admin' },
+      { sub: crypto.randomUUID(), role: 'admin', organization_id: ORG_DONA },
       config.jwt.secret,
       { algorithm: 'HS256', expiresIn: '5m' }
     );

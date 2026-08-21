@@ -59,7 +59,7 @@ describe('StreetView 360 — fotos.geojson tem teto, bbox e cache (achado 65)', 
     adminToken = jwt.sign(
       {
         sub: administrador.id, username: `geoj_${RID}`, role: 'admin',
-        organization_id: orgId, org_role: 'viewer',
+        organization_id: orgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

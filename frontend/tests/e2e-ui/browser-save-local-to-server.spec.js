@@ -20,6 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, drawPointUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 import { idbDatabaseNames, readIdbFeatureIds, mapsDbOf, remoteSuffix, pendingGate } from './helpers/two-tabs.js';
 
 const state = readState();
@@ -38,15 +39,11 @@ async function driveSaveLocalToServer(browser, baseUrl) {
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${baseUrl}/api/v1`);
     await page.goto('/');
 
-    // Register a fresh user via the API, then log in through the real account UI.
-    const creds = await page.evaluate(async (base) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const username = `save_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'Save Local' });
-        return { username, password };
-    }, baseUrl);
+    // A conta nasce no NODE, com o e-mail já confirmado pela rota pública (o token de
+    // verificação só existe como linha no Postgres, fora do alcance do `page.evaluate`), e o
+    // login segue sendo o da UI real — que é o que este spec quer exercitar. Nada de token no
+    // `localStorage` da página: o boot continua anônimo, como este fluxo exige.
+    const creds = await createVerifiedUser({ prefix: 'save', nome: 'Save Local' });
 
     await loginUI(page, creds.username, creds.password);
     // Leave the chooser for the LOCAL map — we want to work on the local store here, not open

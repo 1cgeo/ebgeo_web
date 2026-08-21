@@ -66,7 +66,7 @@ describe('a filesystem read error must not kill the process', () => {
     token = jwt.sign(
       {
         sub: crypto.randomUUID(), username: `crash_${RID}`,
-        role: 'admin', organization_id: orgId, org_role: 'owner',
+        role: 'admin', organization_id: orgId,
       },
       process.env.JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

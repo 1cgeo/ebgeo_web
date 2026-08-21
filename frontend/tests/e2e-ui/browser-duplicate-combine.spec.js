@@ -35,28 +35,28 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-
-const PASSWORD = 'Sup3r-Secret-Pw!';
 
 describeOrSkip('Map duplicate + merge structural routes (real Chromium + real backend)', () => {
     test('duplicate clones a map and its feature into a new map; missing source 404s', async ({
         page,
     }) => {
+        // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
+        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        const user = await createVerifiedUser({ prefix: 'dup', nome: 'Duplicate Owner' });
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
                 const api = new ApiClient({ baseUrl: apiBase });
-                const username = `dup_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                await api.register({ username, password, nome: 'Duplicate Owner' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 // --- Seed atlas + one map carrying one point feature. ---
                 const atlas = await api.createAtlas({ name: 'Duplicate Atlas' });
@@ -137,7 +137,7 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
                     missingStatus: missing.status,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            { baseUrl: state.baseUrl, u: user },
         );
 
         // Duplicate succeeded with a 201 and a fresh, suffixed map.
@@ -162,18 +162,18 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
     test('merge moves source-map features into the dest map; cross-atlas source 404s', async ({
         page,
     }) => {
+        // Conta pronta vinda do Node, como no teste acima.
+        const user = await createVerifiedUser({ prefix: 'mrg', nome: 'Merge Owner' });
         await page.goto('/');
 
         const result = await page.evaluate(
-            async ({ baseUrl, password }) => {
+            async ({ baseUrl, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const apiBase = `${baseUrl}/api/v1`;
                 const api = new ApiClient({ baseUrl: apiBase });
-                const username = `mrg_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                await api.register({ username, password, nome: 'Merge Owner' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 /** Creates a map under `atlasId` carrying one named point feature. */
                 const seedMapWithPoint = async (atlasId, mapName, nome, coords) => {
@@ -274,7 +274,7 @@ describeOrSkip('Map duplicate + merge structural routes (real Chromium + real ba
                     foreignIntact,
                 };
             },
-            { baseUrl: state.baseUrl, password: PASSWORD },
+            { baseUrl: state.baseUrl, u: user },
         );
 
         // Merge succeeded (200) and reported one feature moved into the dest map.

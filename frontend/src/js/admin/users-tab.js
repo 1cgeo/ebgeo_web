@@ -329,19 +329,14 @@ class UsersTab {
         };
         role.addEventListener('change', syncProducerField);
 
-        // Papel DENTRO da OM, distinto do papel global acima. Ele já NÃO autoriza a escrita de
-        // projeto 360 — isso passou para o eixo de produção (`producer_org_id`) — mas continua
-        // sendo a origem do papel POR ATLAS na hidratação da sessão (`org_role || 'viewer'`),
-        // então apagá-lo rebaixaria todo mundo a Visualizador. Os rótulos deixaram de prometer
-        // edição: prometer o que o servidor recusa é pior que não oferecer.
-        const orgRole = selectField(form, 'Papel na OM (hierarquia interna)', 'admin-userform-orgrole',
-            [
-                { value: 'viewer', label: 'Visualizador' },
-                { value: 'editor', label: 'Editor' },
-                { value: 'admin', label: 'Administrador da OM' },
-                { value: 'owner', label: 'Responsável pela OM' },
-            ],
-            user?.org_role || 'viewer');
+        // O CAMPO "Papel na OM (hierarquia interna)" SAIU daqui em 2026-08-20 (D7), com o eixo
+        // inteiro. Ele já não autorizava nada no servidor (a escrita de projeto 360 tinha
+        // passado para o eixo de produção acima), e o efeito que restava era o pior possível:
+        // o valor escolhido aqui virava o papel POR ATLAS na hidratação da sessão, então
+        // marcar "Administrador da OM" desenhava a interface de Administrador de atlas para
+        // quem não tinha permissão em atlas nenhum. Formulário que promete o que o servidor
+        // recusa é pior que campo ausente. Não reintroduza este seletor: o que autoriza está
+        // acima, no par Papel + OM produtora.
 
         let active = null;
         let emailVerified = null;
@@ -406,7 +401,6 @@ class UsersTab {
                 rank_id: posto.value,
                 organization_id: om.value,
                 role: role.value,
-                org_role: orgRole.value,
                 // O PAR VIAJA SEMPRE COERENTE, e o `null` do rebaixamento é tão obrigatório
                 // quanto o id da promoção: deixar o escopo pendurado ao trocar o papel viola o
                 // bicondicional do banco e reprova o PUT inteiro, não só o campo.

@@ -11,11 +11,15 @@
 //
 //   32 — a renovação deslizante re-assinava `req.user`, cujas claims de organização
 //        vinham do TOKEN ANTIGO. Enquanto um cliente de cookie continuasse deslizando,
-//        uma democão `editor -> viewer` NUNCA propagava: janela não de 15 min, mas
-//        infinita. E `org_role` é autorização real (sv360 decide escrita por ele).
-//        CORRIGIDO aqui: a renovação reconcilia `org_role`/`organization_id` contra o
-//        banco QUANDO O TOKEN JÁ CARREGA a claim. Token legado (claim ausente) continua
-//        degradando para viewer/null, que é o que auth-gaps auth-05 prende.
+//        uma troca de organização NUNCA propagava: janela não de 15 min, mas infinita.
+//        CORRIGIDO aqui: a renovação reconcilia `organization_id` contra o banco QUANDO
+//        O TOKEN JÁ CARREGA a claim. Token legado (claim ausente) continua degradando
+//        para null, que é o que auth-gaps auth-05 prende.
+//        O BLOCO ENCOLHEU EM 2026-08-20 (D7): ele media DOIS eixos de organização, e o de
+//        papel dentro dela (`org_role`) saiu do código inteiro. Os casos que mediam a
+//        propagação daquele eixo viraram os casos que medem o SILÊNCIO dele — claim
+//        legada que chega e não sobrevive à renovação —, porque a pergunta mudou de "a
+//        demoção propaga?" para "o eixo morto some?".
 //
 //   33 — REFUTADO contra o HEAD. O relatório diz que uma conta desativada continuava
 //        lendo nome privado por até ~10 min, porque nem o flexível nem o SQL checavam
@@ -375,7 +379,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
   });
 
   // ==========================================================================
-  // 32 — a renovação deslizante reconcilia org_role/organization_id
+  // 32 — a renovação deslizante reconcilia organization_id
   // ==========================================================================
   describe('32 — the sliding renewal propagates an org demotion', () => {
     /**
@@ -401,21 +405,23 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       return jwt.verify(renewed, JWT_SECRET, { algorithms: ['HS256'] });
     }
 
-    it('editor demoted to viewer in the DB: the renewed token says viewer', async () => {
+    it('uma claim LEGADA de papel dentro da OM não sobrevive à renovação', async () => {
+      // ESTE CASO MEDIA A PROPAGAÇÃO DE `org_role` e passou a medir o silêncio dele. O
+      // eixo saiu do banco e do emissor em 2026-08-20 (D7); o que não sai de circulação
+      // é o token já assinado, que continua chegando com a claim por até 15 min (e por
+      // muito mais, num cookie que desliza). A regra é ignorar o desconhecido: a claim
+      // entra, não vira campo de `req.user`, e o token re-emitido nasce sem ela.
       const u = await createUser(db, { username: `fx_dem_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
 
-      // Sanity: o token nasce dizendo editor, senão o assert final seria trivial.
+      // Sanity: o token nasce COM a claim, senão o assert final seria trivial.
       const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
       assert.equal(jwt.decode(stale).org_role, 'editor');
 
-      await db.query(`UPDATE users SET org_role = 'viewer' WHERE id = $1`, [u.id]);
-
       const decoded = await renew(stale);
-      assert.equal(decoded.org_role, 'viewer', 'a demoção precisa propagar na renovação');
+      assert.equal(decoded.org_role, undefined, 'a claim morta não pode ser re-emitida');
+      // DISCRIMINAÇÃO: a renovação não parou de carregar organização. Sem esta linha, um
+      // re-emissor quebrado (que perdesse TODAS as claims de org) passaria verde acima.
       assert.equal(decoded.organization_id, DEFAULT_ORG);
       assert.equal(decoded.sub, u.id);
     });
@@ -430,7 +436,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       // que a revogação vale na requisição seguinte, sem esperar o token expirar.
       const u = await createProducerUser(db, DEFAULT_ORG, { username: `fx_up_${SFX}` });
       const stale = nearExpiryToken(u, {
-        organization_id: DEFAULT_ORG, org_role: 'viewer', producer_org_id: DEFAULT_ORG,
+        organization_id: DEFAULT_ORG, producer_org_id: DEFAULT_ORG,
       });
 
       // Enquanto produtor: passa do requireUploadCapability (o 4xx que vem depois é do
@@ -451,16 +457,17 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(depois.body.error?.code ?? 'FORBIDDEN', 'FORBIDDEN');
     });
 
-    it('e o LOTADO com `org_role: editor` NÃO abre o upload (o furo, escrito ao contrário)', async () => {
+    it('e o LOTADO com a claim legada `org_role: editor` NÃO abre o upload (o furo, escrito ao contrário)', async () => {
       // O par negativo do caso acima, e o repro em miniatura da fase: esta conta se
-      // declarou desta OM no cadastro e recebeu o papel interno mais alto que a borda
-      // de escrita de perfil aceita. Antes, isso bastava para ingerir 360 no acervo
+      // declarou desta OM no cadastro e carregava o papel interno mais alto que a borda
+      // de escrita de perfil aceitava. Antes, isso bastava para ingerir 360 no acervo
       // dela; hoje ela é indistinguível de qualquer visitante autenticado.
+      //
+      // A CLAIM CONTINUA NO TOKEN DE PROPÓSITO, agora forjada (o emissor não a escreve
+      // mais desde D7): o caso mede que nem uma claim legada, nem uma inventada, abre a
+      // porta. Um token já sem ela mediria a ausência do campo, não a indiferença a ele.
       const u = await createUser(db, { username: `fx_lot_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
       const tok = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
 
       await supertest(app)
@@ -469,17 +476,19 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
         .expect(403);
     });
 
-    it('controle positivo (não super-corrigir): uma PROMOÇÃO também propaga', async () => {
+    it('controle positivo (não super-corrigir): GANHAR uma lotação também propaga', async () => {
+      // A reconciliação tem de valer nas duas direções. Este caso media a promoção no
+      // eixo `org_role` (removido em D7) e passou a medir a direção que sobrou e que a
+      // troca de OM abaixo não cobre: sair de "sem lotação" para uma OM. Um ramo que só
+      // aceitasse valor não-nulo vindo do token passaria no caso de troca e falharia aqui.
       const u = await createUser(db, { username: `fx_pro_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'viewer' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
-      const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'viewer' });
-      await db.query(`UPDATE users SET org_role = 'editor' WHERE id = $1`, [u.id]);
+      await db.query(`UPDATE users SET organization_id = NULL WHERE id = $1`, [u.id]);
+      const stale = nearExpiryToken(u, { organization_id: null });
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
 
       const decoded = await renew(stale);
-      assert.equal(decoded.org_role, 'editor');
+      assert.equal(decoded.organization_id, DEFAULT_ORG);
+      assert.equal(decoded.org, DEFAULT_ORG, 'o alias congelado acompanha a promoção');
     });
 
     it('a mudança de organização também propaga (organization_id e o alias org)', async () => {
@@ -489,11 +498,8 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
         [`Org Flex ${SFX}`, `OF${SFX.slice(0, 4)}`, `org-flex-${SFX}`]
       );
       const novaOrg = rows[0].id;
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'editor' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
-      const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG, org_role: 'editor' });
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
+      const stale = nearExpiryToken(u, { organization_id: DEFAULT_ORG });
       await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [novaOrg, u.id]);
 
       const decoded = await renew(stale);
@@ -501,27 +507,40 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(decoded.org, novaOrg, 'o alias congelado do ebgeo_360 acompanha');
     });
 
-    it('NÃO-REGRESSÃO de auth-gaps auth-05: token LEGADO continua degradando para viewer/null', async () => {
+    it('NÃO-REGRESSÃO de auth-gaps auth-05: token LEGADO continua degradando para null', async () => {
       // A distinção que o fix introduz: claim AUSENTE degrada (mapeamento), claim
       // PRESENTE reconcilia (banco). Sem esta separação, "reconciliar sempre"
-      // promoveria o token legado a owner e quebraria a regra de degradação.
+      // promoveria o token legado e quebraria a regra de degradação.
       const u = await createUser(db, { username: `fx_leg_${SFX}` });
-      await db.query(
-        `UPDATE users SET organization_id = $1, org_role = 'owner' WHERE id = $2`,
-        [DEFAULT_ORG, u.id]
-      );
-      const legacy = nearExpiryToken(u, {}); // sem organization_id, sem org_role
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
+      const legacy = nearExpiryToken(u, {}); // sem organization_id
 
       const decoded = await renew(legacy);
-      assert.equal(decoded.org_role, 'viewer', 'token legado degrada, nunca é promovido pelo banco');
       assert.equal(decoded.organization_id, null);
       assert.equal(decoded.org, null);
+    });
+
+    it('e o legado que traz SÓ `org_role` também degrada: a condição perdeu esse disjunto', async () => {
+      // O CASO QUE A REMOÇÃO DE D7 EXIGIU, e ele é a razão de a poda não ser cosmética.
+      // A condição de reconciliação era `org_role !== undefined || organization_id !==
+      // undefined`. Com o primeiro disjunto de pé, um token legado que carregasse apenas
+      // a claim morta entraria no ramo e faria a LOTAÇÃO ser promovida do banco — o
+      // oposto exato do que auth-05 prende, e por um campo que nem existe mais. Deixar o
+      // disjunto seria "não mexer no que funciona" produzindo um furo novo.
+      const u = await createUser(db, { username: `fx_leg2_${SFX}` });
+      await db.query(`UPDATE users SET organization_id = $1 WHERE id = $2`, [DEFAULT_ORG, u.id]);
+      const legacy = nearExpiryToken(u, { org_role: 'owner' }); // a claim morta, e só ela
+
+      const decoded = await renew(legacy);
+      assert.equal(decoded.organization_id, null, 'a lotação continua degradando, não é promovida');
+      assert.equal(decoded.org, null);
+      assert.equal(decoded.org_role, undefined, 'e a claim morta não é re-emitida');
     });
 
     it('a demoção do papel GLOBAL continua propagando (o fix não desfez o P1 anterior)', async () => {
       const u = await createAdminUser(db, { username: `fx_glb_${SFX}` });
       const stale = jwt.sign(
-        { sub: u.id, username: u.username, role: 'admin', organization_id: DEFAULT_ORG, org_role: 'editor' },
+        { sub: u.id, username: u.username, role: 'admin', organization_id: DEFAULT_ORG },
         JWT_SECRET,
         { algorithm: 'HS256', expiresIn: '4m' }
       );

@@ -43,6 +43,7 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
   // `/resource-access/:type/...` recusa `basemap` com 422 na borda, antes de qualquer
   // gate. Por isso o caso de `requireAdmin` usa um tileset.
   const TILESET_A = `nadm-t-${sufixo}`;
+  const TILESET_B = `nadm-tb-${sufixo}`;
 
   const forja = (claims) => jwt.sign(claims, config.jwt.secret, { algorithm: 'HS256', expiresIn: '5m' });
 
@@ -76,16 +77,18 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
         [id, `Basemap ${id}`, org]
       );
     }
-    await db.query(
-      `INSERT INTO tilesets (id, name, config, sort_order, owner_org_id)
-       VALUES ($1, $2, '{"url":"/x"}'::jsonb, 0, $3::uuid)`,
-      [TILESET_A, `Tileset ${TILESET_A}`, orgA]
-    );
+    for (const [id, org] of [[TILESET_A, orgA], [TILESET_B, orgB]]) {
+      await db.query(
+        `INSERT INTO tilesets (id, name, config, sort_order, owner_org_id)
+         VALUES ($1, $2, '{"url":"/x"}'::jsonb, 0, $3::uuid)`,
+        [id, `Tileset ${id}`, org]
+      );
+    }
   });
 
   after(async () => {
     await db.query('DELETE FROM basemaps WHERE id = ANY($1::text[])', [[BASEMAP_A, BASEMAP_B]]);
-    await db.query('DELETE FROM tilesets WHERE id = $1', [TILESET_A]);
+    await db.query('DELETE FROM tilesets WHERE id = ANY($1::text[])', [[TILESET_A, TILESET_B]]);
     await db.query('DELETE FROM atlas WHERE id = ANY($1::uuid[])', [[atlasDoAdmin.id, atlasApagado.id]]);
     await db.query('DELETE FROM users WHERE producer_org_id = ANY($1::uuid[])', [[orgA, orgB]]);
     await db.query('DELETE FROM organizations WHERE id = ANY($1::uuid[])', [[orgA, orgB]]);
@@ -104,29 +107,76 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
   });
 
   it('NEGATIVO — `requireAdmin` recusa o produtor nas superfícies de administração', async () => {
-    for (const rota of ['/api/v1/users', '/api/v1/audit']) {
+    // A TRILHA SAIU DESTA LISTA EM 2026-08-21, e a saída é uma decisão, não um
+    // relaxamento: `GET /api/v1/audit` trocou `requireAdmin` por `requireAuditReader`,
+    // que dá ao produtor a trilha DA PRÓPRIA OM e nada além dela. Quem afirma o recorte
+    // (e que ele não é parâmetro do cliente) é `auditoria-por-om.test.js`; quem afirma
+    // os quatro ramos do gate é `auditoria-gate.test.js`. O que continua medido AQUI é a
+    // espinha do arquivo: administrar o sistema é outra coisa, e `GET /users` é o par
+    // que prova que a recusa não sumiu junto.
+    for (const rota of ['/api/v1/users']) {
       await supertest(app).get(rota).set('Authorization', `Bearer ${tokenProdutor}`).expect(403);
       // O par, na mesma rota e no mesmo instante.
       await supertest(app).get(rota).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
     }
-    // E a superfície que decide o que é privado: marcar visibilidade é administração
-    // do catálogo, não manutenção de acervo.
+  });
+
+  it('MAS a VISIBILIDADE saiu desta lista: ela é manutenção de acervo, não administração', async () => {
+    // ESTE CASO INVERTEU EM 2026-08-20, POR DECISÃO DO DONO, e ele afirmava por escrito
+    // o contrário ("marcar visibilidade é administração do catálogo, não manutenção de
+    // acervo"). O gate deixou de ser `requireAdmin` e passou a ser
+    // `requireResourceMaintainer`, com o recorte fino no `WHERE` da própria escrita.
+    //
+    // A ESCADA TEM DOIS DEGRAUS e este caso mede os dois: 200 na OM DELE, 404 na OM do
+    // vizinho (nunca 403, senão a recusa confirmaria a existência da linha). O que
+    // continua verdadeiro é a espinha do arquivo, medida no caso acima: o produtor não
+    // lista usuários e não lê a trilha.
+    const antesA = (await db.query('SELECT access_level FROM tilesets WHERE id = $1', [TILESET_A]))
+      .rows[0].access_level;
+    assert.equal(antesA, 'public', 'piso: a linha da OM dele começa pública');
+
     await supertest(app)
       .patch(`/api/v1/resource-access/tileset/${TILESET_A}/visibility`)
       .set('Authorization', `Bearer ${tokenProdutor}`)
       .send({ accessLevel: 'private' })
-      .expect(403);
-    // E sem efeito: o nível de acesso da LINHA não pode ter mudado.
-    const { rows } = await db.query('SELECT access_level FROM tilesets WHERE id = $1', [TILESET_A]);
-    assert.equal(rows[0].access_level, 'public');
+      .expect(200);
+    assert.equal(
+      (await db.query('SELECT access_level FROM tilesets WHERE id = $1', [TILESET_A]))
+        .rows[0].access_level,
+      'private',
+      'e a LINHA muda: um 200 sozinho passaria numa rota que responde e não escreve'
+    );
 
+    // A DISCRIMINAÇÃO: a linha da OM B, com o MESMO corpo e o MESMO token.
+    await supertest(app)
+      .patch(`/api/v1/resource-access/tileset/${TILESET_B}/visibility`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ accessLevel: 'private' })
+      .expect(404);
+    assert.equal(
+      (await db.query('SELECT access_level FROM tilesets WHERE id = $1', [TILESET_B]))
+        .rows[0].access_level,
+      'public',
+      'e ela fica INTACTA — um 404 que já escreveu passaria num teste só de status'
+    );
+
+    // E o usuário comum continua sem tocar o eixo: 403 no gate grosso, porque ele não
+    // mantém acervo nenhum.
+    await supertest(app)
+      .patch(`/api/v1/resource-access/tileset/${TILESET_A}/visibility`)
+      .set('Authorization', `Bearer ${tokenComum}`)
+      .send({ accessLevel: 'public' })
+      .expect(403);
+
+    // O administrador continua alcançando as duas, que é o par que prova que a rota
+    // funciona e que o recorte é por OM, não por rota quebrada.
     await supertest(app)
       .patch(`/api/v1/resource-access/tileset/${TILESET_A}/visibility`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ accessLevel: 'private' })
+      .send({ accessLevel: 'public' })
       .expect(200);
     await supertest(app)
-      .patch(`/api/v1/resource-access/tileset/${TILESET_A}/visibility`)
+      .patch(`/api/v1/resource-access/tileset/${TILESET_B}/visibility`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({ accessLevel: 'public' })
       .expect(200);
@@ -204,7 +254,7 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
     // (a) Uma conta que NÃO é produtora, com a claim inventada.
     const comumComCracha = forja({
       sub: comum.id, role: 'user', producer_org_id: orgA,
-      organization_id: orgA, org_role: 'owner',
+      organization_id: orgA,
     });
     await supertest(app)
       .put(`/api/v1/basemaps/${BASEMAP_A}`)
@@ -216,7 +266,7 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
     // alcançando só a OM que o banco lhe dá.
     const produtorTrocado = forja({
       sub: produtor.id, role: 'producer', producer_org_id: orgB,
-      organization_id: orgB, org_role: 'owner',
+      organization_id: orgB,
     });
     const antesB = (await db.query('SELECT name FROM basemaps WHERE id = $1', [BASEMAP_B])).rows[0].name;
     await supertest(app)
@@ -239,7 +289,7 @@ describe('O Produtor escreve acervo e não administra o sistema', () => {
 
     // (d) E o `role: 'admin'` forjado sobre uma conta comum não administra: o
     // `auth` estrito adota o papel vivo do banco.
-    const comumComAdmin = forja({ sub: comum.id, role: 'admin', organization_id: orgA, org_role: 'admin' });
+    const comumComAdmin = forja({ sub: comum.id, role: 'admin', organization_id: orgA });
     await supertest(app).get('/api/v1/users').set('Authorization', `Bearer ${comumComAdmin}`).expect(403);
     // O par: o token do administrador de verdade passa.
     await supertest(app).get('/api/v1/users').set('Authorization', `Bearer ${tokenAdmin}`).expect(200);

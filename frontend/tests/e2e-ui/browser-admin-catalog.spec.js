@@ -11,20 +11,22 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-async function seedAdmin(page, baseUrl, dbName) {
+/**
+ * DUAS escritas de natureza diferente. A conta nasce pela rota pública e tem o e-mail
+ * confirmado pela rota pública, no lado Node (`helpers/accounts.js`), porque o token só existe
+ * como linha em `email_verification_tokens` e o browser não alcança o Postgres. A PROMOÇÃO a
+ * administrador global é SQL porque não existe rota: criar um administrador exige um
+ * administrador, e esta camada parte de banco vazio cuja única porta é `POST /auth/register`.
+ */
+async function seedAdmin(page) {
     await page.goto('/');
-    const creds = await page.evaluate(async (url) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `catadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Cat Admin' });
-        return { username, password: 'Sup3r-Secret-Pw!' };
-    }, baseUrl);
-    await createDb(dbName).raw.none(
+    const creds = await createVerifiedUser({ prefix: 'catadmin', nome: 'Cat Admin' });
+    await createDb(state.dbName).raw.none(
         "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
     return creds;
 }
@@ -57,7 +59,7 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
     test.afterAll(async () => { await closeDb(); });
 
     test('registers a data layer (JSON config) and it propagates to GET /config', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `dl_${Math.random().toString(36).slice(2, 8)}`;
@@ -91,7 +93,7 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
     });
 
     test('deletes a catalog resource', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `dl_${Math.random().toString(36).slice(2, 8)}`;
@@ -110,14 +112,14 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
     });
 
     test('the 360 tab loads the metadata view', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
         await page.locator('[data-testid="admin-cat-sv360"]').click();
         await expect(page.locator('[data-testid="admin-360-list"]')).toBeVisible({ timeout: 10000 });
     });
 
     test('a basemap style override is validated and propagates to basemapStyles (F6)', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `bm_${Math.random().toString(36).slice(2, 8)}`;
@@ -152,7 +154,7 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
     });
 
     test('uploads a thumbnail for a data layer — embedded as a data URL in config', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `dl_${Math.random().toString(36).slice(2, 8)}`;

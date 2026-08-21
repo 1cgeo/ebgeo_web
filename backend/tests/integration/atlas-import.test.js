@@ -1,5 +1,18 @@
 // Path: tests/integration/atlas-import.test.js
 // Integration tests for Atlas Import API (offline-first sync)
+//
+// AS LINHAS DE CATALOGO DO `before` NAO SAO DECORACAO. Desde a poda de entrada
+// (`atlas-resource-prune.js`), uma referencia do payload a recurso que o importador nao
+// enxerga e RETIRADA na gravacao — e a convencao da casa e que "nao existe" e "nao posso
+// ver" sejam indistinguiveis, entao um id INVENTADO tambem sai. As fixtures deste arquivo
+// citavam `PCL` e tres nomes de foto que nao existiam em tabela nenhuma, e as cinco
+// asseveracoes de fidelidade 3D/360 passaram a medir a poda em vez do import.
+//
+// Semear as linhas de verdade — publicas — restaura o que cada caso queria medir (a
+// FIDELIDADE do import) e, de quebra, transforma este arquivo no controle positivo da
+// poda: se ela passar a apagar o publico, e aqui que fica vermelho primeiro. O controle
+// NEGATIVO (o que o importador nao ve some) mora em
+// `import-poda-referencia-privada.test.js`.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,8 +21,17 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, loginUser } from '../helpers/fixtures.js';
 
+// AS LINHAS SEMEADAS SAO UNICAS POR RODADA E SAO APAGADAS NO `after`, e as duas metades
+// sao obrigatorias: as tabelas de catalogo sao COMPARTILHADAS por toda a suite, e ha casos
+// que comparam a lista INTEIRA (`resource-access-listagem-crua`) ou afirmam a ausencia de um
+// id historico (`config.test.js` cobra que a migracao nao volte a semear `PCL`). Um id fixo
+// aqui reprova la, longe da causa.
+const SFX = randomUUID().slice(0, 8);
+const TILESET = `imp-ts-${SFX}`;
+const FOTOS = ['imported-foto-001', 'brasilia-001', 'foto-complete'];
+
 describe('Atlas Import API', () => {
-  let app, db, user, token;
+  let app, db, user, token, projeto360, org360;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -17,9 +39,43 @@ describe('Atlas Import API', () => {
     db = env.db;
     user = await createUser(db, { username: 'import_user' });
     token = await loginUser(app, user.username, user.password);
+
+    // O modelo 3D publico que as fixtures citam por `tileset_id`.
+    await db.query(
+      `INSERT INTO tilesets (id, name, config, sort_order, access_level)
+       VALUES ($1, 'Modelo de import', '{}'::jsonb, 1, 'public')`,
+      [TILESET]
+    );
+
+    // O projeto 360 publico das tres fotos que as fixtures citam por `photo_name`.
+    const { rows: orgs } = await db.query(
+      `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+      [`OM Import 360 ${SFX}`, `om-import-360-${SFX}`, 'IMP360']
+    );
+    org360 = orgs[0].id;
+    const { rows: projs } = await db.query(
+      `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level,
+                                   center_lat, center_long, photo_count)
+       VALUES ($1, 'import-360', 'Projeto Import 360', $2, 'enabled', 'public', -22.9, -43.2, 3)
+       RETURNING id`,
+      [orgs[0].id, `${orgs[0].id}__import-360.db`]
+    );
+    projeto360 = projs[0].id;
+    let seq = 0;
+    for (const nome of FOTOS) {
+      seq += 1;
+      await db.query(
+        `INSERT INTO sv360.photos (id, project_id, original_name, sequence_number, lat, lon)
+         VALUES ($1, $2, $3, $4, -22.9, -43.2)`,
+        [randomUUID(), projs[0].id, nome, seq]
+      );
+    }
   });
 
   after(async () => {
+    await db.query('DELETE FROM tilesets WHERE id = $1', [TILESET]);
+    if (projeto360) await db.query('DELETE FROM sv360.projects WHERE id = $1', [projeto360]);
+    if (org360) await db.query('DELETE FROM organizations WHERE id = $1', [org360]);
     await teardownTestEnv(db);
   });
 
@@ -571,7 +627,7 @@ describe('Atlas Import API', () => {
               {
                 id: cesium3dId1,
                 data_type: 'marker',
-                tileset_id: 'PCL',
+                tileset_id: TILESET,
                 data: {
                   position: { longitude: -43.2, latitude: -22.9, height: 100 },
                   properties: { name: 'Imported 3D Marker' },
@@ -580,7 +636,7 @@ describe('Atlas Import API', () => {
               {
                 id: cesium3dId2,
                 data_type: 'viewshed',
-                tileset_id: 'PCL',
+                tileset_id: TILESET,
                 data: {
                   observer: { longitude: -43.1, latitude: -22.8, height: 10 },
                   radius: 5000,
@@ -629,9 +685,9 @@ describe('Atlas Import API', () => {
             layers: [],
             groups: [],
             cesium3dData: [
-              { id: cesiumIds.marker, data_type: 'marker', tileset_id: 'PCL', data: { test: true } },
+              { id: cesiumIds.marker, data_type: 'marker', tileset_id: TILESET, data: { test: true } },
               { id: cesiumIds.measurement, data_type: 'measurement', tileset_id: null, data: { test: true } },
-              { id: cesiumIds.viewshed, data_type: 'viewshed', tileset_id: 'PCL', data: { test: true } },
+              { id: cesiumIds.viewshed, data_type: 'viewshed', tileset_id: TILESET, data: { test: true } },
               { id: cesiumIds.camera_position, data_type: 'camera_position', tileset_id: null, data: { test: true } },
             ],
           }],
@@ -726,7 +782,7 @@ describe('Atlas Import API', () => {
               {
                 id: cesium3dId,
                 data_type: 'marker',
-                tileset_id: 'PCL',
+                tileset_id: TILESET,
                 data: { position: { longitude: -47.9, latitude: -15.8, height: 50 } },
               },
             ],
@@ -812,7 +868,7 @@ describe('Atlas Import API', () => {
             cesium3dData: [{
               id: cesium3dId,
               data_type: 'marker',
-              tileset_id: 'PCL',
+              tileset_id: TILESET,
               data: { position: { longitude: -47.9, latitude: -15.8, height: 100 } },
             }],
             streetview360Data: [{

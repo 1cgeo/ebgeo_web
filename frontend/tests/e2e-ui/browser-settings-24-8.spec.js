@@ -20,23 +20,24 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('§24.8 atlas setting whitelist (real Chromium + real backend)', () => {
     test('setting op persists terrainExaggeration but drops a non-whitelisted key', async ({ page }) => {
+        // A conta nasce no NODE, com o e-mail já confirmado pela rota pública: o token de
+        // verificação só existe como linha no Postgres, fora do alcance do `page.evaluate`.
+        const user = await createVerifiedUser({ prefix: 'set', nome: 'Setting 24.8' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `set_${crypto.randomUUID().replace(/-/g, '').slice(0, 13)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Setting 24.8' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Setting Atlas' });
             const mapId = crypto.randomUUID();
@@ -69,7 +70,7 @@ describeOrSkip('§24.8 atlas setting whitelist (real Chromium + real backend)', 
                 hasMaliciousKey: Object.prototype.hasOwnProperty.call(settingsAfter, 'malicious'),
                 settingKeys: Object.keys(settingsAfter),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // The push round-trip succeeded.
         expect(result.pushAccepted).toBe(true);

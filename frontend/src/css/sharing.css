@@ -797,6 +797,67 @@
 }
 
 /* =========================================================================
+   GRUPOS DE ACESSO — quem alcança o atlas por COLETIVO
+
+   A linha de grupo reusa `.sharing-member` (mesma grade: ícone, texto, select,
+   remover) e acrescenta só o que a distingue. O ícone NÃO é o avatar de iniciais:
+   aquele deriva cor e letras de identidade de PESSOA, e um coletivo com cara de
+   pessoa é a confusão que a seção separada existe para impedir.
+   ========================================================================= */
+
+.sharing-group__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+/* Tamanho do coletivo + DONO, na linha secundária. O dono é mitigação obrigatória:
+   um share de grupo chega a `manage`, então quem compõe o grupo distribui co-Gestão
+   de um atlas que não é dele, e esta é a única tela onde isso aparece. */
+.sharing-group__meta {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sharing-group__add {
+    display: flex;
+    padding-top: var(--space-2);
+}
+
+.sharing-group__select {
+    width: 100%;
+    padding: var(--space-2);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.sharing-group__select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.sharing-group__hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+/* =========================================================================
    ADD PEOPLE — SEARCH + RESULTS
    ========================================================================= */
 
@@ -1056,6 +1117,10 @@
     }
 
     .sharing-member__permission {
+        min-height: var(--touch-target-min);
+    }
+
+    .sharing-group__select {
         min-height: var(--touch-target-min);
     }
 }

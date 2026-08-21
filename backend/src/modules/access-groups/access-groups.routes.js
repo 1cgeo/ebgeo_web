@@ -1,26 +1,34 @@
 // Path: src/modules/access-groups/access-groups.routes.js
 //
-// DOIS GATES, E A SEPARAÇÃO É O DESENHO. "Quem administra o grupo" e "quem concede a
-// ele" são perguntas diferentes, e confundi-las quebra o produto num dos dois
-// sentidos:
+// O EIXO DESTE MÓDULO É POSSE, NÃO PAPEL GLOBAL, e a mudança é de 2026-08-20. Antes,
+// listar era aberto a qualquer autenticado e escrever era `requireGlobalDataAccess`
+// (administrador OU credenciado). O grupo virou entidade de USUÁRIO: qualquer sessão
+// autenticada cria um, e quem administra é o DONO — ou o administrador do sistema,
+// pelo ramo curinga de `fn_can_administer_group`.
 //
-//   - fechar a LISTAGEM no gate de administração tiraria do seletor de compartilhar
-//     todo mundo que não é administrador nem credenciado. Quem tem `view_share` num
-//     recurso concede a um grupo (é `requireResourceShare` quem autoriza isso, e ele
-//     não pergunta papel global nenhum), e sem poder LISTAR grupos ele não tem como
-//     escolher um. O ramo de grupo do predicado voltaria a ser inalcançável pela
-//     interface, que é o defeito que este módulo inteiro existe para fechar;
-//   - abrir a ESCRITA para além do papel global deixaria qualquer pessoa com
-//     `view_share` num recurso qualquer criar grupos e pôr gente dentro, o que é
-//     autoridade sobre a composição de quem vê o quê no sistema inteiro.
+// AS DUAS LEITURAS ABERTAS RESPONDEM PERGUNTAS DIFERENTES, e é por isso que são duas
+// rotas:
 //
-// Daí a linha exata: `GET /` é `auth` sozinho, e todo o resto é
-// `requireGlobalDataAccess` (administrador OU credenciado, resolvido no banco).
+//   - `GET /` são OS MEUS grupos, com gestão (contagem de membros, contagem de
+//     concessões). É ela que alimenta o seletor do modal de compartilhar recurso, e é
+//     por ela que "conceder a um coletivo" passa a oferecer só coletivos próprios —
+//     conceder a um grupo é delegar a quem o compõe o poder de acrescentar
+//     beneficiários ao seu recurso;
+//   - `GET /participating` são os grupos de que EU PARTICIPO, com o nome do dono e
+//     nada mais. Ela existe porque, com a listagem acima recortada, quem foi posto num
+//     grupo por outra pessoa deixaria de ver em lugar nenhum um mecanismo que decide o
+//     acesso dele a recurso privado. O ROSTER não sai por ela.
 //
-// A LISTA DE MEMBROS FICA DO LADO FECHADO, junto com a escrita. Nome de grupo é
+// A LISTA DE MEMBROS FICA DO LADO FECHADO, junto com a escrita: nome de grupo é
 // vocabulário organizacional e serve ao seletor; quem está dentro dele é um roster de
-// pessoas, e o seletor não precisa dele — a contagem, que `LIST_GROUPS` já devolve,
-// basta para a interface dizer "Estado-Maior (12)".
+// pessoas.
+//
+// A ORDEM DOS MIDDLEWARES É CONTRATO: `auth` → `validate({ params })` →
+// `requireGroupAuthority` → `validate({ body })`. Se o gate rodasse antes do
+// `validate({ params })`, um `:groupId` que não é UUID chegaria a um cast `::uuid` e
+// sairia como 500/400 em vez do 422 da borda; se rodasse depois do `validate({ body })`,
+// um corpo malformado responderia 422 sobre um grupo que o chamador não pode nem saber
+// que existe.
 //
 // POR QUE REST, e não sync: o raciocínio inteiro está no cabeçalho de
 // `resource-access.routes.js`. Metadado de acesso é autoridade do SERVIDOR, não tem
@@ -29,26 +37,39 @@
 import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
-import { requireGlobalDataAccess } from '../../middleware/resource-access.js';
+import { requireGroupAuthority } from './access-groups.authority.js';
 import * as ctrl from './access-groups.controller.js';
 import * as schemas from './access-groups.schemas.js';
 
 const router = Router();
 
 /**
- * GET /api/v1/access-groups — os grupos vivos, com contagem de membros e de
- * concessões vivas.
+ * GET /api/v1/access-groups — os grupos QUE ESTE CHAMADOR ADMINISTRA, com contagem de
+ * membros e de concessões vivas. O administrador do sistema vê todos.
  *
- * `auth` SOZINHO, pela razão do cabeçalho. A resposta não nomeia pessoa nenhuma: ela
- * traz id, nome, descrição, quem criou e duas contagens.
+ * `auth` sozinho, porque o recorte mora na CONSULTA: não há gate a aplicar quando a
+ * resposta já é, por construção, o que o chamador administra.
  */
 router.get('/', auth, ctrl.listGroups);
 
-/** POST /api/v1/access-groups — cria. 409 quando o nome já existe entre os vivos. */
+/**
+ * GET /api/v1/access-groups/participating — os grupos de que este chamador PARTICIPA.
+ *
+ * Declarada antes de qualquer rota com `:groupId` por higiene de leitura; não há
+ * colisão de fato, porque nenhuma rota deste módulo casa `GET /:algo`.
+ */
+router.get('/participating', auth, ctrl.listGroupsParticipating);
+
+/**
+ * POST /api/v1/access-groups — cria. Quem cria é o DONO. 409 quando ELE já tem um
+ * grupo vivo com esse nome (a unicidade é por dono).
+ *
+ * `auth` sozinho: não há grupo a gatear ainda, e criar grupo é ato de qualquer sessão
+ * autenticada. O visitante de link público não passa aqui porque `auth` é o estrito.
+ */
 router.post(
   '/',
   auth,
-  requireGlobalDataAccess,
   validate({ body: schemas.createGroupSchema }),
   ctrl.createGroup,
 );
@@ -57,20 +78,22 @@ router.post(
 router.patch(
   '/:groupId',
   auth,
-  requireGlobalDataAccess,
-  validate({ params: schemas.groupIdParamsSchema, body: schemas.updateGroupSchema }),
+  validate({ params: schemas.groupIdParamsSchema }),
+  requireGroupAuthority,
+  validate({ body: schemas.updateGroupSchema }),
   ctrl.updateGroup,
 );
 
 /**
- * DELETE /api/v1/access-groups/:groupId — apaga (SOFT) e, com isso, revoga o que o
- * grupo concedia. A resposta traz o alcance.
+ * DELETE /api/v1/access-groups/:groupId — apaga (SOFT), revoga o que o grupo concedia
+ * E poda a subárvore que os membros alimentaram a partir dele. A resposta traz o
+ * alcance.
  */
 router.delete(
   '/:groupId',
   auth,
-  requireGlobalDataAccess,
   validate({ params: schemas.groupIdParamsSchema }),
+  requireGroupAuthority,
   ctrl.deleteGroup,
 );
 
@@ -78,8 +101,8 @@ router.delete(
 router.get(
   '/:groupId/members',
   auth,
-  requireGlobalDataAccess,
   validate({ params: schemas.groupIdParamsSchema }),
+  requireGroupAuthority,
   ctrl.listMembers,
 );
 
@@ -87,17 +110,21 @@ router.get(
 router.post(
   '/:groupId/members',
   auth,
-  requireGlobalDataAccess,
-  validate({ params: schemas.groupIdParamsSchema, body: schemas.addMemberSchema }),
+  validate({ params: schemas.groupIdParamsSchema }),
+  requireGroupAuthority,
+  validate({ body: schemas.addMemberSchema }),
   ctrl.addMember,
 );
 
-/** DELETE /api/v1/access-groups/:groupId/members/:userId — tira alguém. */
+/**
+ * DELETE /api/v1/access-groups/:groupId/members/:userId — tira alguém e poda o que ele
+ * alimentou pelo grupo.
+ */
 router.delete(
   '/:groupId/members/:userId',
   auth,
-  requireGlobalDataAccess,
   validate({ params: schemas.memberParamsSchema }),
+  requireGroupAuthority,
   ctrl.removeMember,
 );
 

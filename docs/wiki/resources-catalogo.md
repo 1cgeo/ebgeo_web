@@ -95,7 +95,24 @@ O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin 
 
 A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `frontend/src/js/admin/catalog-tab.js`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
 
-Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo intocado preserva. O **vídeo de preview é exclusivo de `tileset` e fica fora de banda** (só URL, nunca upload); esvaziar o campo faz `delete`, então remover não é no-op.
+Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo intocado preserva.
+
+## O vídeo de prévia vale para QUATRO tipos, e o basemap fica de fora
+
+Até 2026-08-21 o vídeo de prévia era exclusivo de `tileset` e tinha um leitor só no produto inteiro: o popup do marcador 3D, que só abre com o modelo já carregado no mapa. Ele passou a valer para **modelo 3D, camada de dados, camada de análise e projeto 360**, e ganhou uma superfície de leitura comum, o botão "Prévia" do cartão do catálogo (`frontend/src/js/catalog/components/preview-video.modal.js`).
+
+O **basemap ficou de fora, e é decisão e não esquecimento**: ele é o único dos cinco tipos que não aparece como cartão de catálogo, porque a superfície dele é o seletor de camada base, uma lista compacta sem lugar para uma afordância de mídia. Campo de escrita sem superfície de leitura é afordância que mente: o administrador preencheria uma URL que nada mostra. Como `config` é livre, reabrir a categoria um dia não custa migração; o que custa é a superfície de leitura, e é ela que decide.
+
+Duas assimetrias que o código não anuncia:
+
+- **Nos três tipos de catálogo o vídeo é `config.previewVideo`; no 360 ele é COLUNA** (`sv360.projects.preview_video`, migração 011), porque `sv360.projects` é a única das cinco tabelas sem `config` JSONB. Daí a rota de escrita própria, `PATCH /api/v1/sv360/admin/projects/:slug`, gateada pelo mesmo predicado de manutenção das outras administrativas do módulo, e nascida com **um campo só** de propósito: alargá-la sem revisar o gate a transforma na rota genérica de edição de projeto, que não existe (`slug`, `organization_id` e `db_filename` são derivados no servidor, e é isso que impede um manifesto de apontar para o store de outra OM).
+- **A borda recusa `data:`.** A chave passou a ser declarada no Joi (`catalog.schemas.js`, e o espelho em `sv360.admin.schemas.js`), com teto de 2048 caracteres e recusa explícita de data URL. Sem ela, um vídeo embutido entraria em `config` e sairia inteiro no `GET /api/config`, o documento memoizado que todo chamador anônimo recebe no boot. O `config` continua livre no resto: declarar uma chave não fechou nenhuma outra.
+
+- **O endereço do vídeo passa pelo carimbo de escopo antes de virar `src`** (`enderecoDaPrevia`, `frontend/src/js/catalog/components/preview-video.modal.js`). Um `<video src>` é buscado pelo NAVEGADOR e não carrega `Authorization`, então para um recurso PRIVADO alcançado por empréstimo do atlas em foco o `?atlasId=` é a única autorização que atravessa. Sem o carimbo, o botão aparecia, o modal abria e o servidor respondia 404, e a frase de erro da tela se lê como "a URL está errada". Endereço de outra origem sai intacto, e sem atlas em foco a URL sai idêntica, então o recurso público não regride. Para a cena INDOOR de primeira pessoa há uma segunda metade: `previewVideo` é ali um override RELATIVO ao `basePath`, então o cartão gateia pela chave explícita mas usa o valor RESOLVIDO por `resolveSceneAssets`, que é o mesmo que o popup do marcador 3D sempre usou.
+
+Esvaziar o campo REMOVE o vídeo (nos três tipos de catálogo por `delete` da chave, no 360 gravando NULL), então remover nunca é no-op, e no 360 cancelar o prompt é abandono, que não escreve nada, o que é outra coisa.
+
+Guardas: `backend/tests/integration/catalogo-video-de-previa.test.js` (os quatro tipos, as duas bordas em três variantes de caixa e espaço, e a LISTAGEM do 360, que é a consulta que monta o cartão daquele tipo), `backend/tests/integration/sv360-admin-authz.test.js` (a metade negativa da rota de metadado) e `frontend/tests/unit/video-de-previa-fiacao.test.js` (a fiação do cliente, o recorte de categorias e o carimbo de escopo).
 
 ## Divergências com a documentação
 

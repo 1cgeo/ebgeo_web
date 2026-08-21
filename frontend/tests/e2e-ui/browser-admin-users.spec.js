@@ -2,34 +2,44 @@
 
 /**
  * Browser click-through of the ADMIN PANEL → Usuários tab, in real Chromium against
- * the REAL spawned backend. A global admin is seeded by registering a user (the
+ * the REAL spawned backend. A global admin is seeded by registering a user through the
+ * public route with its e-mail confirmed (`helpers/accounts.js`, Node side — the
  * self-registration path forces role='user') and then promoting it to role='admin'
  * directly in Postgres (the only way to mint a system admin) via the read-only DB
  * helper's `raw` escape hatch.
  *
  * Proves F3 end-to-end: the "Administração" menu item is gated by the GLOBAL admin
  * role; the panel lists users and drives create + deactivate/reactivate against the
- * existing /api/v1/users admin routes (requireAdmin). A second test proves a non-admin
- * never sees the menu item.
+ * existing /api/v1/users admin routes (requireAdmin). Dois testes irmãos provam a
+ * audiência nova: qualquer autenticado abre a página com a aba Grupos e SÓ ela, e o
+ * anônimo continua sendo mandado de volta ao mapa.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-/** Registers a fresh user through the live transport (role='user'); returns its credentials. */
-async function registerUser(page, baseUrl) {
-    return page.evaluate(async (url) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `uiadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'Admin Tester' });
-        return { username, password };
-    }, baseUrl);
+/**
+ * Registers a fresh user (role='user') and promotes it to GLOBAL admin.
+ *
+ * DUAS escritas de natureza diferente, e a distinção é o ponto. A conta nasce pela rota
+ * pública, com o e-mail confirmado pela rota pública (`helpers/accounts.js`) — o portão de
+ * verificação continua exercitado. A PROMOÇÃO é SQL porque não existe rota: criar um
+ * administrador exige um administrador, e esta camada parte de um banco vazio cuja única
+ * porta é `POST /auth/register`. A galinha e o ovo não têm solução em forma de rota, então a
+ * escrita é honesta aqui em vez de escondida.
+ */
+async function registerAdmin() {
+    const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' });
+    await createDb(state.dbName).raw.none(
+        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)",
+        [user.username]
+    );
+    return user;
 }
 
 /** Boots the app anonymous (backend override + cleared storage) and logs in through the UI. */
@@ -54,14 +64,8 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
     test.afterAll(async () => { await closeDb(); });
 
     test('a global admin opens the panel, creates a user, and deactivates it', async ({ page }) => {
+        const admin = await registerAdmin();
         await page.goto('/');
-        const admin = await registerUser(page, state.baseUrl);
-        // Promote to a GLOBAL system admin (self-registration can only create role='user').
-        await createDb(state.dbName).raw.none(
-            "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)",
-            [admin.username]
-        );
-
         await loginThroughUi(page, state.baseUrl, admin);
 
         // Open the account menu → the admin item is visible for a global admin.
@@ -101,24 +105,40 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await expect(inactiveRow).toContainText('Inativo');
     });
 
-    test('a non-admin user never sees the Administração menu item', async ({ page }) => {
+    // OS DOIS CASOS ABAIXO AFIRMAVAM O MUNDO ANTERIOR A 2026-08-20 e reprovavam desde então.
+    // O gate deixou de ser o papel global `admin` e passou a ser TER CONTA: `adminAudience`
+    // (`js/admin/admin-audience.js`) dá a qualquer autenticado a porta rotulada "Grupos", com a
+    // aba Grupos e só ela, porque grupo de acesso virou entidade de usuário, com dono. Reescrever
+    // o teste para o produto novo é obrigatório, e o NEGATIVO que sobrou é o anônimo/visitante:
+    // apagar os dois casos e não repor negativo nenhum deixaria a porta sem guarda.
+    test('a non-admin user gets the door LABELLED for what it gives (Grupos), not Administração', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' }); // stays role='user'
         await page.goto('/');
-        const user = await registerUser(page, state.baseUrl); // stays role='user'
         await loginThroughUi(page, state.baseUrl, user);
 
         await page.locator('[data-testid="account-control"] .account-control__identity').click();
         await expect(page.locator('[data-testid="account-logout-btn"]')).toBeVisible({ timeout: 5000 });
-        // The admin item exists in the DOM but stays hidden for a non-admin.
-        await expect(page.locator('[data-testid="account-admin-btn"]')).toBeHidden();
+        const porta = page.locator('[data-testid="account-admin-btn"]');
+        await expect(porta).toBeVisible();
+        await expect(porta).toHaveText(/Grupos/);
     });
 
-    test('a non-admin who types /admin.html is sent back to the map', async ({ page }) => {
+    test('a non-admin who types /admin.html gets the Grupos panel, and ONLY that tab', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' }); // stays role='user'
         await page.goto('/');
-        const user = await registerUser(page, state.baseUrl); // stays role='user'
         await loginThroughUi(page, state.baseUrl, user);
 
-        // Hiding the menu item is not a gate — the page is reachable by URL. It must re-check the
-        // global role on arrival and bounce, instead of rendering a shell whose every request 403s.
+        await page.goto('/admin.html');
+        await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 20000 });
+        // A DISCRIMINAÇÃO É A LISTA DE ABAS, não a presença do painel: sem ela, um painel que
+        // abrisse com as SEIS abas do administrador passaria verde neste caso.
+        await expect(page.locator('.admin-panel__tab')).toHaveCount(1);
+        await expect(page.locator('[data-testid="admin-tab-groups"]')).toBeVisible();
+        await expect(page.locator('[data-testid="admin-tab-users"]')).toHaveCount(0);
+    });
+
+    test('an ANONYMOUS visitor who types /admin.html is sent back to the map', async ({ page }) => {
+        await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
         await page.goto('/admin.html');
         await page.waitForURL((url) => !url.pathname.endsWith('/admin.html'), { timeout: 20000 });
         await expect(page.locator('[data-testid="admin-panel"]')).toHaveCount(0);

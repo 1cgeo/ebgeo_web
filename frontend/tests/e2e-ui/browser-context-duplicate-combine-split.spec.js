@@ -24,6 +24,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient, drawLineUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -104,16 +105,17 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // produces app-managed isMerged/branches geometry (not a hand-crafted
         // MultiLineString) and split is an interactive selection flow, so the precise
         // backend op-shape contract is exercised as a transport probe via page.evaluate.
+        // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
+        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        const user = await createVerifiedUser({ prefix: 'cmb', nome: 'Combine User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `cmb_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Combine User' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Combine Atlas' });
             const mapId = crypto.randomUUID();
@@ -210,7 +212,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
             };
 
             return { seededCount: seeded.size, combined, split };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // seed sanity
         expect(result.seededCount).toBe(3);
@@ -241,16 +243,16 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
         // backend-only `valid_feature_type` CHECK rejecting a bogus source AT WRITE (no UI
         // can even produce an invalid source). Both are server contracts, so the op
         // fan-out + the rejection are exercised as a transport probe via page.evaluate.
+        // Conta pronta vinda do Node, como no teste acima.
+        const user = await createVerifiedUser({ prefix: 'cut', nome: 'Cut User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `cut_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Cut User' });
-            await api.login(username, 'Sup3r-Secret-Pw!');
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Cut Atlas' });
             const mapId = crypto.randomUUID();
@@ -325,7 +327,7 @@ describeOrSkip('Selection context actions: duplicate / combine / split / cut (re
                 .some((f) => f.properties?.id === badId);
 
             return { cut, edge: { badOutcome, badLanded } };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // §14.12 cut assertions
         expect(result.cut.originalGone).toBe(true);

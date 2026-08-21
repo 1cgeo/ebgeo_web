@@ -19,11 +19,16 @@
  *     anonymous path). Edge: the same endpoint enforces its Joi query schema — a too
  *     short `q` is rejected (422), proving validation runs on the anonymous route.
  *
- * Each test self-provisions its own user for isolation where a user is needed.
+ * Each test self-provisions its own user for isolation where a user is needed. A CONTA,
+ * porém, não nasce dentro do browser: ela vem pronta de `helpers/accounts.js`, no lado Node,
+ * porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o contexto
+ * do browser não alcança. O `page.evaluate` faz só o `login()` — que é justamente o elo que
+ * este spec mede, junto do `refresh()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -32,17 +37,14 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
     test('register → login → refresh rotates the access token and still authorizes; bad refresh is rejected', async ({
         page,
     }) => {
+        const account = await createVerifiedUser({ prefix: 'auth', nome: 'Auth E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient, ApiError } = await import('/src/js/store/sync/api-client.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `auth_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-
-            await api.register({ username, password, nome: 'Auth E2E' });
-            const user = await api.login(username, password);
+            const user = await api.login(u.username, u.password);
             const tokenBeforeRefresh = api.getAccessToken();
 
             // An authenticated route must work with the login token.
@@ -73,7 +75,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
             }
 
             return {
-                hasUser: Boolean(user && user.username === username),
+                hasUser: Boolean(user && user.username === u.username),
                 hadTokenBefore: Boolean(tokenBeforeRefresh),
                 hasTokenAfter: Boolean(tokenAfterRefresh),
                 tokenChanged: Boolean(tokenBeforeRefresh) && tokenBeforeRefresh !== tokenAfterRefresh,
@@ -82,7 +84,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
                 bogusRejected,
                 bogusIsApiError,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: account });
 
         expect(result.hasUser).toBe(true);
         expect(result.hadTokenBefore).toBe(true);
@@ -97,9 +99,10 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
     test('getConfig() returns the frozen bare config object (app/features/basemaps) for anonymous AND authed clients', async ({
         page,
     }) => {
+        const account = await createVerifiedUser({ prefix: 'cfg', nome: 'Config E2E' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
 
             // 1. ANONYMOUS client: no token at all.
@@ -114,10 +117,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
             // 2. AUTHED client: register + login, then fetch the same config. The
             //    public config shape must be identical regardless of auth.
             const authed = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `cfg_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await authed.register({ username, password, nome: 'Config E2E' });
-            await authed.login(username, password);
+            await authed.login(u.username, u.password);
             const cfgAuthed = await authed.getConfig();
 
             return {
@@ -137,7 +137,7 @@ describeOrSkip('Auth + config contracts (real Chromium + real backend, transport
                     JSON.stringify(Object.keys(cfgAuthed || {}).sort()),
                 appTitleMatches: Boolean(cfg && cfgAuthed && cfg.app.title === cfgAuthed.app.title),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: account });
 
         expect(result.isBareObject).toBe(true);
         expect(result.wasAnonymous).toBe(true);

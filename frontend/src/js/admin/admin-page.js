@@ -14,11 +14,14 @@
  * Boot phases, in order:
  *   1. Config — `GET /api/config`, fail-fast with retries (same contract as the map boot).
  *   2. Session — restore the persisted tokens and validate them against the backend.
- *   3. Gate — THREE audiences, not two: the global system admin (all five tabs), the credenciado
- *      (only Grupos, because since 2026-08-19 he administers access groups) and the producer
- *      (only Catálogo). Each of the two narrow audiences gets its own tab set and its own page
- *      title, because every other tab is `requireAdmin` on its first request and a tab that 403s
- *      on mount is the worst way to deny. Anyone else is sent to the map.
+ *   3. Gate — QUATRO audiências, e a tabela delas é `admin-audience.js`, não este arquivo: o
+ *      administrador global (todas as abas), o produtor (Catálogo mais os grupos dele) e
+ *      qualquer outra sessão AUTENTICADA (Grupos, os dela). Desde 2026-08-20 o grupo de acesso
+ *      é entidade de usuário, então a página deixou de ser privilégio: quem entra na conta tem
+ *      o que fazer aqui. Cada audiência estreita recebe o título do que ela de fato recebe,
+ *      porque toda outra aba é `requireAdmin` na primeira requisição e uma aba que 403 na
+ *      montagem é a pior forma de negar. Sem sessão (anônimo ou visitante de link público),
+ *      vai para o mapa.
  *   4. Mount — build the shell and wire the session lifecycle (auth lost + idle timeout).
  */
 
@@ -30,6 +33,7 @@ import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+import { adminAudience } from './admin-audience.js';
 import { mountAdminPage } from './index.js';
 
 /** Where a non-admin (or a signed-out visitor) is sent. Relative — the app may be served from a subpath. */
@@ -113,12 +117,19 @@ async function initAdminPage() {
     document.title = `Administração — ${config?.app?.title || 'EBGeo'}`;
 
     await restoreSession();
-    // Gate: GLOBAL system admins, plus a CREDENCIADO (Grupos only) and a PRODUCER (Catálogo only)
-    // — see `mountAdminPage` for which tabs each one gets. Anyone else — signed out, or a regular
-    // user who typed the URL — goes to the map rather than staring at a shell whose every request
-    // 403s. `hasGlobalDataAccess()` also covers the admin, which is harmless here: the three tests
-    // are an OR, and only the title below needs them apart.
-    if (!sessionContext.isAdmin() && !sessionContext.hasGlobalDataAccess() && !sessionContext.isProducer()) {
+    // Gate: a audiência decide, e ela é UMA função (`admin-audience.js`), a mesma que a barra do
+    // mapa e o seletor de atlas consultam para desenhar a entrada. Quem não recebe rótulo não
+    // recebe aba nenhuma e vai para o mapa, em vez de encarar uma casca cujo primeiro pedido
+    // 403.
+    //
+    // `isAuthenticated()` e não `userId`: o VISITANTE de link público tem sessão online SEM
+    // conta, e ele não cria grupo nenhum.
+    const audiencia = adminAudience({
+        isAuthenticated: sessionContext.isAuthenticated(),
+        isAdmin: sessionContext.isAdmin(),
+        isProducer: sessionContext.isProducer(),
+    });
+    if (audiencia.label === null) {
         window.location.replace(MAP_URL);
         return;
     }
@@ -131,13 +142,9 @@ async function initAdminPage() {
     // Announced only past the gate, so a tab that is about to redirect does not join and leave.
     initTabLock({ key: noneKey(), overlayHost: null });
 
-    // The narrow audiences get the title of the ONE thing they can do here. Same order as
-    // `mountAdminPage`: `hasGlobalDataAccess()` is true for the admin too, so it is only asked
-    // after `isAdmin()` has already returned.
-    if (!sessionContext.isAdmin()) {
-        const escopo = sessionContext.hasGlobalDataAccess() ? 'Grupos' : 'Catálogo';
-        document.title = `${escopo} — ${config?.app?.title || 'EBGeo'}`;
-    }
+    // O título da aba do navegador é o rótulo da audiência, pelo mesmo motivo do rótulo da
+    // porta: "Administração" numa página de uma aba prometeria o que ela não entrega.
+    document.title = `${audiencia.label} — ${config?.app?.title || 'EBGeo'}`;
 
     clearSplash();
 

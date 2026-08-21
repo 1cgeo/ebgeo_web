@@ -58,6 +58,7 @@ Todas as rotas de `/sharing` exigem `manage` (`backend/src/modules/sharing/shari
 - `POST /sharing/users` é **upsert** (`backend/src/modules/sharing/sharing.queries.js`): reenviar para usuário já compartilhado altera a permissão e responde **201**, não 200 nem 409.
 - Remover o dono responde **404 `Share`**, nunca 204: o dono não tem linha em `atlas_shares`, o `DELETE ... RETURNING` não casa nada e o service levanta `NotFoundError` (`backend/src/modules/sharing/sharing.service.js`). Não é no-op silencioso; ver [[compartilhamento-atlas]].
 - Toda mutação faz broadcast `sharing_updated` com o `role` já traduzido para o vocabulário do front (`backend/src/modules/sharing/sharing.controller.js`), para o par re-gatear a UI ao vivo sem reconectar. Ver [[sintese-capacidades-por-papel]] e [[presenca-colaborativa]].
+- **Existe um trio irmão para GRUPO** (`POST /sharing/groups`, `PUT` e `DELETE /sharing/groups/:groupId`), com o mesmo gate `manage` no atlas e um SEGUNDO gate sobre o grupo: conceder exige que o chamador o administre, e a recusa é **404**, nunca 403. Remover não exige. As três rotas de grupo validam `:groupId` na borda (**422** com `details`), ao contrário das de usuário, onde um `:userId` malformado vira 22P02 traduzido em 400 (`backend/tests/integration/sharing-params-validation.test.js`). Detalhe em [[compartilhamento-atlas]].
 
 ## Transferência de posse exige membro ATIVO
 

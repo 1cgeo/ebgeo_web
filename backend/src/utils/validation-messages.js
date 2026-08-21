@@ -48,7 +48,6 @@ const FIELD_LABELS = Object.freeze({
   search: 'busca',
   permission: 'permissão',
   role: 'papel',
-  org_role: 'papel na organização',
   rank_id: 'posto/graduação',
   organization_id: 'organização militar',
   token: 'token',

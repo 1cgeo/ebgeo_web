@@ -20,6 +20,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -28,22 +29,24 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
  * Seeds a fresh authenticated session with a new atlas + map inside the page, exposing
  * the live `ApiClient`/`createOperation` on `window.__layer` for follow-up evaluations.
  *
+ * A conta nasce no lado NODE (`helpers/accounts.js`): confirmar o e-mail exige ler
+ * `email_verification_tokens` no Postgres, fora do alcance do contexto do browser. O
+ * `page.evaluate` recebe credenciais prontas e faz só o `login()`.
+ *
  * @param {import('@playwright/test').Page} page
  * @param {string} baseUrl - Backend origin (without the `/api/v1` suffix).
  * @param {string} tag - Short label used to namespace the generated username.
  * @returns {Promise<{ atlasId: string, mapId: string }>}
  */
-function seedSession(page, baseUrl, tag) {
+async function seedSession(page, baseUrl, tag) {
+    const user = await createVerifiedUser({ prefix: tag, nome: 'Layer Ops' });
     return page.evaluate(
-        async ({ baseUrl: url, tag: t }) => {
+        async ({ baseUrl: url, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-            const username = `${t}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Layer Ops' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Layer Atlas' });
             const mapId = crypto.randomUUID();
@@ -53,7 +56,7 @@ function seedSession(page, baseUrl, tag) {
             window.__layer = { api, createOperation, atlasId: atlas.id, mapId };
             return { atlasId: atlas.id, mapId };
         },
-        { baseUrl, tag },
+        { baseUrl, u: user },
     );
 }
 

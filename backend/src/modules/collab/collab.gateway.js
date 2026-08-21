@@ -102,9 +102,16 @@ async function resolvePermission(atlasId, userId, payload) {
     return 'owner';
   }
 
-  // Share check
+  // Share check — o share MAIS FORTE que alcança esta pessoa, direto OU por grupo vivo.
+  //
+  // A MESMA função do gate REST (`requireAtlasPermission`), e é isso que a torna
+  // load-bearing aqui: `reconcileAuthorization` chama esta resolução a cada heartbeat
+  // (~30 s), então um ramo de grupo que existisse só no handshake daria acesso que morre
+  // no primeiro tick — o usuário entra, trabalha e cai sem explicação. Com a função, o
+  // eixo de grupo vale nas duas portas de uma vez, e perder a adesão ao grupo REBAIXA
+  // (quando há share direto por baixo) ou fecha com 4003 (quando era o único caminho).
   const shareResult = await query(
-    'SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2',
+    'SELECT permission FROM fn_user_atlas_shares($2::uuid, $1::uuid)',
     [atlasId, userId]
   );
 

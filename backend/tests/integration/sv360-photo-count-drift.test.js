@@ -118,7 +118,7 @@ describe('StreetView 360 — photo_count publicado bate com o que a API entrega'
     token = jwt.sign(
       {
         sub: produtor.id, username: `pc_${RID}`, role: 'producer',
-        organization_id: orgId, org_role: 'viewer', producer_org_id: orgId,
+        organization_id: orgId, producer_org_id: orgId,
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

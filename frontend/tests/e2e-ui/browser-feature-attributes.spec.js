@@ -32,6 +32,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -40,17 +41,17 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
     test('add → edit → delete a custom attribute on one feature, all verified via pullSync', async ({
         page,
     }) => {
+        // A conta nasce no NODE (o token de confirmação só existe como linha no Postgres, fora do
+        // alcance do `page.evaluate`); o browser recebe credenciais prontas e só faz o login.
+        const user = await createVerifiedUser({ prefix: 'attr', nome: 'Attr User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `attr_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Attr User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Attr Atlas' });
             const mapId = crypto.randomUUID();
@@ -103,7 +104,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 deleteHadKey: afterDelete ? Object.prototype.hasOwnProperty.call(afterDelete, 'unidade') : null,
                 deleteKept: afterDelete?.nome ?? null,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(result.hasToken).toBe(true);
         // ADD: the new key is present with its value, and prior props survive.
@@ -119,17 +120,16 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
     test('batch add column then delete column across N features, verified via pullSync', async ({
         page,
     }) => {
+        // Conta pronta vinda do Node, como no teste acima.
+        const user = await createVerifiedUser({ prefix: 'col', nome: 'Column User' });
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `col_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Column User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Column Atlas' });
             const mapId = crypto.randomUUID();
@@ -191,7 +191,7 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 survivors: ids.every((id) => propsOf(afterDeleteColumn, id) != null),
                 deleteCount: afterDeleteColumn.length,
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // ADD COLUMN: every feature gained the key, with its own per-feature value.
         expect(result.count).toBe(4);
@@ -206,19 +206,23 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
     test('NEGATIVE: a second user cannot edit an attribute on another user\'s atlas (write is gated)', async ({
         browser,
     }) => {
+        // As duas contas nascem no NODE (o token de confirmação só existe como linha no Postgres,
+        // fora do alcance do `page.evaluate`); cada browser recebe credenciais prontas.
+        const [ownerUser, intruderUser] = await Promise.all([
+            createVerifiedUser({ prefix: 'owner', nome: 'Attr Owner' }),
+            createVerifiedUser({ prefix: 'intruder', nome: 'Attr Intruder' }),
+        ]);
+
         // ---- Owner (user A) seeds an atlas + map + feature ------------------
         const ctxA = await browser.newContext();
         const pageA = await ctxA.newPage();
         await pageA.goto('/');
-        const owner = await pageA.evaluate(async (baseUrl) => {
+        const owner = await pageA.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `owner_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Attr Owner' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Owner Attr Atlas' });
             const mapId = crypto.randomUUID();
@@ -235,22 +239,19 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
             // (same window) can pull the snapshot with the owner token still in hand.
             window.__attrOwnerApi = api;
             return { atlasId: atlas.id, mapId, featureId };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: ownerUser });
 
         // ---- Attacker (user B) tries to edit A's feature attribute ----------
         const ctxB = await browser.newContext();
         const pageB = await ctxB.newPage();
         await pageB.goto('/');
         const attack = await pageB.evaluate(
-            async ({ baseUrl, atlasId, mapId, featureId }) => {
+            async ({ baseUrl, atlasId, mapId, featureId, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                const username = `intruder_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await api.register({ username, password, nome: 'Attr Intruder' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 let threw = false;
                 let status = null;
@@ -268,7 +269,13 @@ describeOrSkip('Feature custom attributes (real Chromium + real backend, transpo
                 }
                 return { threw, status };
             },
-            { baseUrl: state.baseUrl, atlasId: owner.atlasId, mapId: owner.mapId, featureId: owner.featureId },
+            {
+                baseUrl: state.baseUrl,
+                atlasId: owner.atlasId,
+                mapId: owner.mapId,
+                featureId: owner.featureId,
+                u: intruderUser,
+            },
         );
 
         // The cross-atlas write must be rejected (gated, not silently accepted).

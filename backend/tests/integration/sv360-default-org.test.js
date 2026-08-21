@@ -133,7 +133,6 @@ describe('StreetView 360 — a org default do merge é a org que a migração se
         username: `sv360admin_${RID}`,
         role: 'admin',
         organization_id: otherOrgId,
-        org_role: 'viewer',
       },
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '15m' }

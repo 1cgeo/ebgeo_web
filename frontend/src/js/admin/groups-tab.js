@@ -1,22 +1,33 @@
 // Path: js/admin/groups-tab.js
 
 /**
- * @fileoverview "Grupos" tab of the admin panel — the access groups that receive grants on
- * private catalog resources (basemap, data layer, analysis layer, 3D model, 360 panorama).
- * A group is a bag of people; granting to the group grants to everyone in it, and that is the
- * whole reason it exists: the alternative is granting one by one and revoking one by one.
+ * @fileoverview Aba "Grupos" — os grupos de acesso que recebem concessão sobre recurso privado
+ * do catálogo (basemap, camada de dados, camada de análise, modelo 3D, panorama 360). Um grupo
+ * é um saco de pessoas; conceder ao grupo concede a todo mundo que está dentro, e é essa a razão
+ * de ele existir: a alternativa é conceder uma a uma e revogar uma a uma.
  *
- * TWO AUDIENCES REACH THIS TAB, and they see the same thing: the global administrator (who
- * also gets the other four tabs) and the credenciado (who gets this tab and nothing else).
- * The server gates every write here on that same pair — none of this UI is the boundary.
+ * A ABA É DE TODO MUNDO, desde 2026-08-20, e é "OS MEUS GRUPOS". O grupo deixou de ser mobília
+ * do papel global e virou entidade de usuário, com dono: qualquer sessão autenticada cria um e
+ * administra os seus. O administrador do sistema vê todos, pelo ramo curinga do predicado do
+ * servidor. Nada nesta UI é a fronteira: quem gateia é `fn_can_administer_group`, no banco.
  *
- * The one screen that is not obvious is DELETION. Deleting a group revokes every grant it
- * carried, so the confirmation names the reach before the click (`group-phrases.js`), and the
- * toast afterwards reports the server's own count rather than the listing's, because the two
- * can disagree.
+ * DUAS SEÇÕES, E ELAS RESPONDEM PERGUNTAS DIFERENTES (decisão do dono, D6):
  *
- * Every dynamic string is set via textContent: group name, description and member names are
- * free text written by other people.
+ *   1. **Meus grupos** — gestão inteira: roster, contagens, criar, renomear, apagar.
+ *   2. **Grupos de que participo** — nome e DONO, e nada mais. Ela existe porque a listagem
+ *      acima é recortada por posse: sem a segunda seção, quem foi posto num grupo por outra
+ *      pessoa não veria em tela nenhuma um mecanismo que decide o acesso dele a recurso
+ *      privado. O ROSTER não sai por ali, e as contagens também não: quantos recursos o grupo
+ *      recebeu diria a ele o TAMANHO de um acervo que ele não pode enumerar.
+ *
+ * As duas telas que não são óbvias são APAGAR e TIRAR ALGUÉM. As duas revogam: apagar derruba
+ * tudo o que o grupo concedia, tirar alguém derruba o que ELE repassou a partir do grupo. Por
+ * isso a confirmação nomeia o alcance antes do clique (`group-phrases.js`) e o toast depois
+ * reporta o número do SERVIDOR, e não o da listagem: a listagem só conhece as concessões
+ * diretas, e a poda alcança a subárvore.
+ *
+ * Todo texto dinâmico entra por `textContent`: nome do grupo, descrição, nome do dono e nome
+ * dos membros são texto livre escrito por outra pessoa.
  */
 
 import { apiClient } from '@store/sync/api-client.js';
@@ -34,10 +45,12 @@ import {
 import { sectionHeader, card, avatar, emptyState, ICON_GROUPS } from './admin-dom.js';
 import {
     toCount,
-    resourceLabel,
     groupReach,
     groupDeletionWarning,
     groupDeletionSummary,
+    memberRemovalWarning,
+    memberRemovalSummary,
+    groupOwnerLabel,
     memberDisplayName,
 } from './group-phrases.js';
 
@@ -122,7 +135,7 @@ class GroupsTab {
 
         const newBtn = this._button('+ Novo grupo', 'admin-btn admin-btn--primary', 'admin-groups-new',
             () => this._renderForm(null));
-        c.appendChild(sectionHeader('Grupos', {
+        c.appendChild(sectionHeader('Meus grupos', {
             subtitle: 'Conjuntos de pessoas que recebem acesso a recursos privados do catálogo',
             actions: [newBtn],
         }));
@@ -134,18 +147,107 @@ class GroupsTab {
         wrap.appendChild(loading);
         c.appendChild(wrap);
 
-        let groups;
-        try {
-            groups = await apiClient.listAccessGroups();
-        } catch (error) {
-            if (!this._alive) return;
+        const participo = document.createElement('section');
+        participo.className = 'admin-groups__participating';
+        participo.dataset.testid = 'admin-groups-participating';
+        c.appendChild(participo);
+
+        // AS DUAS CHAMADAS VÃO JUNTAS e cada uma falha por conta própria: são duas rotas, e uma
+        // rede ruim que derrube a segunda não pode esconder a primeira, que é a seção de gestão.
+        const [meus, membro] = await Promise.allSettled([
+            apiClient.listAccessGroups(),
+            apiClient.listAccessGroupsParticipating(),
+        ]);
+        if (!this._alive) return;
+
+        if (meus.status === 'rejected') {
             loading.textContent = 'Falha ao carregar os grupos.';
-            showError(error?.message || 'Falha ao carregar os grupos.');
+            showError(meus.reason?.message || 'Falha ao carregar os grupos.');
+        } else {
+            this._groups = Array.isArray(meus.value) ? meus.value : [];
+            this._renderTable(wrap);
+        }
+
+        this._renderParticipating(participo, {
+            grupos: membro.status === 'fulfilled' && Array.isArray(membro.value) ? membro.value : null,
+            // Só se esconde o que a OUTRA seção comprovadamente mostrou. Com a listagem de
+            // gestão em falha o conjunto é vazio de propósito: esconder por uma lista que não
+            // chegou apagaria da tela o único grupo que a pessoa ainda podia ver.
+            jaListados: meus.status === 'fulfilled'
+                ? new Set(this._groups.map((g) => String(g.id)))
+                : new Set(),
+        });
+    }
+
+    /**
+     * @private A segunda seção: os grupos de que a pessoa PARTICIPA, com o dono e nada mais.
+     *
+     * O que NÃO tem aqui é a metade que importa: sem roster, sem contagem e sem botão. Quem
+     * participa vê QUE participa e DE QUEM é o grupo (é a quem pedir entrada ou saída); quem
+     * mais está dentro continua sendo informação de quem administra.
+     *
+     * O que a seção 1 já mostrou sai daqui, e o caso que motiva o filtro é o do administrador:
+     * ele vê TODOS os grupos na seção de gestão, e sem o filtro veria de novo, sem gestão
+     * nenhuma, aqueles de que também é membro.
+     *
+     * @param {HTMLElement} host
+     * @param {{grupos: Array|null, jaListados: Set<string>}} params
+     */
+    _renderParticipating(host, { grupos, jaListados }) {
+        host.replaceChildren();
+        host.appendChild(sectionHeader('Grupos de que participo', {
+            subtitle: 'Grupos de outras pessoas que decidem o seu acesso a recursos privados',
+        }));
+
+        const wrap = card({ testid: 'admin-groups-participating-table', padded: false });
+        host.appendChild(wrap);
+
+        if (grupos === null) {
+            const falha = document.createElement('p');
+            falha.className = 'admin-users__status';
+            falha.textContent = 'Falha ao carregar os grupos de que você participa.';
+            wrap.appendChild(falha);
             return;
         }
-        if (!this._alive) return;
-        this._groups = Array.isArray(groups) ? groups : [];
-        this._renderTable(wrap);
+
+        const outros = grupos.filter((g) => !jaListados.has(String(g?.id)));
+        if (outros.length === 0) {
+            wrap.appendChild(emptyState('Você não participa de nenhum grupo de outra pessoa.', {
+                hint: 'Quem põe alguém num grupo é o dono dele.',
+            }));
+            return;
+        }
+
+        const list = document.createElement('ul');
+        list.className = 'admin-groups__participating-list';
+        for (const group of outros) {
+            const item = document.createElement('li');
+            item.className = 'admin-groups__participating-item';
+            item.dataset.testid = 'admin-groups-participating-row';
+            item.dataset.groupId = group.id;
+
+            const identity = document.createElement('div');
+            identity.className = 'admin-users__identity';
+            identity.appendChild(avatar(group.name || '?', group.id || group.name));
+            const text = document.createElement('div');
+            text.className = 'admin-users__identity-text';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'admin-users__name';
+            nameEl.textContent = group.name || '—';
+            const ownerEl = document.createElement('span');
+            ownerEl.className = 'admin-users__handle';
+            ownerEl.textContent = groupOwnerLabel(group);
+            text.append(nameEl, ownerEl);
+            identity.appendChild(text);
+            item.appendChild(identity);
+
+            // Nome e dono, e NADA MAIS. A descrição foi renderizada aqui por uma revisão e
+            // saiu em 2026-08-21: o servidor deixou de mandá-la, e o motivo é o mesmo que
+            // mantém o roster e as contagens de fora — a decisão enumera o que o participante
+            // vê, e o fileoverview desta aba já o dizia enquanto o código fazia o contrário.
+            list.appendChild(item);
+        }
+        wrap.appendChild(list);
     }
 
     /**
@@ -166,10 +268,15 @@ class GroupsTab {
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Grupo', 'Membros', 'Recursos', 'Criado por', '']) {
+        // "Dono" e não "Criado por": quem criou é história, quem manda é autoridade, e as duas
+        // podem divergir. A coluna existe para o ADMINISTRADOR, o único que vê grupo alheio —
+        // e sem ela a lista dele mostraria N grupos homônimos de gente diferente, porque a
+        // unicidade de nome passou a ser POR DONO.
+        for (const h of ['Grupo', 'Membros', 'Recursos', 'Dono', '']) {
             const th = document.createElement('th');
             th.textContent = h;
             if (h === 'Recursos') th.title = 'Recursos privados a que este grupo dá acesso.';
+            if (h === 'Dono') th.title = 'Quem administra este grupo.';
             hrow.appendChild(th);
         }
         thead.appendChild(hrow);
@@ -200,7 +307,7 @@ class GroupsTab {
 
             tr.appendChild(cell(String(toCount(group.member_count))));
             tr.appendChild(cell(String(toCount(group.grant_count))));
-            tr.appendChild(cell(group.created_by_nome || group.created_by_username || '—'));
+            tr.appendChild(cell(group.owner_nome || group.owner_username || 'Sem dono definido'));
 
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
@@ -543,22 +650,23 @@ class GroupsTab {
      * @param {Object} group @param {Object} member
      */
     async _removeMember(group, member) {
-        const recursos = toCount(group.grant_count);
         const ok = await showConfirm(
             `Tirar ${memberDisplayName(member)} do grupo "${group.name || ''}"?`,
             {
-                message: recursos === 0
-                    ? 'O grupo não concede acesso a nenhum recurso hoje, então nada muda para ela agora.'
-                    : `Ela perde o acesso a ${resourceLabel(recursos)} que este grupo dá, `
-                        + 'a menos que tenha acesso por outro caminho.',
+                message: memberRemovalWarning(group),
                 destructive: true,
                 confirmText: 'Remover',
             },
         );
         if (!ok) return;
         try {
-            await apiClient.removeAccessGroupMember(group.id, member.id);
-            showSuccess(`${memberDisplayName(member)} saiu do grupo.`);
+            const result = await apiClient.removeAccessGroupMember(group.id, member.id);
+            // O número é o do SERVIDOR (a poda inteira), pelo mesmo motivo da exclusão do grupo:
+            // a tela não conhece a subárvore que o membro alimentou a partir deste grupo.
+            showSuccess(memberRemovalSummary({
+                name: memberDisplayName(member),
+                grantsAffected: result?.grantsAffected,
+            }));
             if (this._alive) this._renderMembers(group);
         } catch (error) {
             showError(error?.message || 'Falha ao remover a pessoa do grupo.');

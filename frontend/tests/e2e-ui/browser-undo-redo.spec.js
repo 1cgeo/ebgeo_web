@@ -31,10 +31,15 @@
  * Each test mints its own user + atlas + map for isolation. The backend stores a
  * feature as GeoJSON whose type lives in `properties.source`; delete carries `null`
  * data (the literal inverse of the create payload).
+ *
+ * A CONTA, porém, não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado
+ * Node, porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o
+ * contexto do browser não alcança. O `page.evaluate` faz só o `login()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -62,16 +67,14 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
     }) => {
         // 1. Seed an isolated user + atlas + map; stash the ApiClient on window so the
         //    helpers can reuse the authenticated session across page.evaluate calls.
+        const user = await createVerifiedUser({ prefix: 'undo', nome: 'Undo Redo' });
         await page.goto('/');
-        const seed = await page.evaluate(async (baseUrl) => {
+        const seed = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `undo_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Undo Redo' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Undo Atlas' });
             const mapId = crypto.randomUUID();
@@ -79,7 +82,7 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
 
             window.__undo = { api };
             return { atlasId: atlas.id, mapId, hasToken: Boolean(api.getAccessToken()) };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         expect(seed.hasToken).toBe(true);
 
@@ -177,16 +180,14 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
     });
 
     test('an inverse delete is idempotent by op id: replaying it keeps the feature absent', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'undoidem', nome: 'Undo Idem' });
         await page.goto('/');
-        const seed = await page.evaluate(async (baseUrl) => {
+        const seed = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `undoidem_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Undo Idem' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'Undo Idem Atlas' });
             const mapId = crypto.randomUUID();
@@ -204,7 +205,7 @@ describeOrSkip('Undo/redo create<->delete round-trip (real Chromium + real backe
             window.__undo = { api };
             const deleteOp = createOperation('feature', 'delete', featureId, mapId, null);
             return { atlasId: atlas.id, mapId, featureId, deleteOp };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // Present after create.
         expect(await featurePresent(page, seed)).toBe(true);

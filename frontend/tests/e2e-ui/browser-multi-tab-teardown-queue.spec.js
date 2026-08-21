@@ -62,6 +62,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 import {
     loginUI,
     goToLocalMapUI,
@@ -117,15 +118,14 @@ test('a bateria de desmontagem e fila REQUER backend (sem ele, nada aqui roda)',
  * @returns {Promise<{username:string,password:string,atlases:Array<{id:string,name:string,mapId:string,mapName:string}>}>}
  */
 async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
+    const user = await createVerifiedUser({ prefix: 'fila', nome: 'Fila e Desmontagem' });
     const page = await browser.newPage();
     await page.goto('/');
-    const seed = await page.evaluate(async ({ base, names }) => {
+    const seed = await page.evaluate(async ({ base, names, u }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
         const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const username = `fila_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-        const password = 'Sup3r-Secret-Pw!';
-        await api.register({ username, password, nome: 'Fila e Desmontagem' });
+        const { username, password } = u;
         await api.login(username, password);
         const atlases = [];
         for (const name of names) {
@@ -136,7 +136,7 @@ async function seedUserWithAtlases(browser, baseUrl, atlasNames) {
             atlases.push({ id: atlas.id, name, mapId, mapName });
         }
         return { username, password, atlases };
-    }, { base: baseUrl, names: atlasNames });
+    }, { base: baseUrl, names: atlasNames, u: user });
     await page.close();
     return seed;
 }

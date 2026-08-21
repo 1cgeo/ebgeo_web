@@ -296,9 +296,10 @@ class SyncEngine {
 
         const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
 
-        // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer), not just the
-        // global org_role login set, so a self-registered owner or a write-shared collaborator can
-        // edit. PRESERVE the restored username — setSession would otherwise null it, blanking the
+        // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer). This is the
+        // ONLY place the axis is resolved for a non-owner: hydration seeds it at VIEWER and the
+        // server decides, so a self-registered owner or a write-shared collaborator can edit.
+        // (Until 2026-08-20 login also seeded it, from the org-scoped role — the axis D7 removed.) PRESERVE the restored username — setSession would otherwise null it, blanking the
         // account avatar on an F5-reconnect (where this is the only session set after restore).
         if (payload?.role) {
             sessionContext.setSession({

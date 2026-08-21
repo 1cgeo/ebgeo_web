@@ -24,6 +24,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { drawPointUI, readFeatures, loginUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -36,20 +37,16 @@ describeOrSkip('abrir projeto do servidor', () => {
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
 
         // Conta + um projeto no servidor, montados pela API para o caso medir só o que promete.
+        // A CONTA nasce no lado Node (`helpers/accounts.js`), porque confirmar o e-mail exige ler
+        // `email_verification_tokens` no Postgres, que o contexto do browser não alcança.
+        const creds = await createVerifiedUser({ prefix: 'preserva', nome: 'Preserva' });
         await page.goto('/');
-        const creds = await page.evaluate(async (base) => {
+        await page.evaluate(async ({ base, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-            const user = {
-                username: `preserva_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`,
-                password: 'Sup3r-Secret-Pw!',
-                nome: 'Preserva',
-            };
-            await api.register({ ...user });
-            await api.login(user.username, user.password);
+            await api.login(u.username, u.password);
             await api.createAtlas({ name: 'Projeto do servidor' });
-            return user;
-        }, state.baseUrl);
+        }, { base: state.baseUrl, u: creds });
 
         // Trabalho local, pela ferramenta de verdade: é ele que o diálogo dizia que seria substituído.
         await page.waitForFunction(() => globalThis.__ebgeoMap?.loaded?.(), null, { timeout: 30000 });

@@ -31,6 +31,10 @@ const h = vi.hoisted(() => {
     return {
         queueState,
         apiClientMock: {
+            // O registro AINDA CARREGA `org_role` de propósito: o backend legado (e um
+            // token legado) continua mandando o campo, e o contrato de hoje é que ele seja
+            // IGNORADO. Um dublê que já viesse sem o campo mediria a ausência dele, não a
+            // indiferença a ele, e passaria verde com a contaminação de volta.
             login: vi.fn(async () => ({ id: 'user-1', org_role: 'editor' })),
             // The real endpoint answers `{ success: true }` and nothing else, whether it
             // created the account or found the username/e-mail taken (anti-enumeration).
@@ -249,13 +253,17 @@ describe('configure', () => {
 });
 
 describe('login', () => {
-    it('logs in and mirrors identity into the session context', async () => {
+    it('logs in and mirrors identity into the session context, com o papel de atlas em LEITOR', async () => {
         const user = await syncEngine.login({ username: 'alice', password: 'pw' });
 
         expect(apiClientMock.login).toHaveBeenCalledWith('alice', 'pw');
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-1',
-            role: 'editor',
+            // O dublê responde com `org_role: 'editor'` (ver a nota no mock). Até
+            // 2026-08-20 este valor virava o papel POR ATLAS aqui; hoje o login não
+            // decide esse eixo e ele começa fechado. Quem o resolve é o servidor, no
+            // payload de `connect` — dois casos abaixo, em `connect`, medem isso.
+            role: 'viewer',
             globalRole: 'user',
             producerOrgId: null,
             username: 'alice',
@@ -263,7 +271,7 @@ describe('login', () => {
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
     });
 
-    it('defaults role to viewer when org_role is absent', async () => {
+    it('hidrata em viewer também quando o registro não traz campo nenhum', async () => {
         apiClientMock.login.mockResolvedValueOnce({ id: 'user-9' });
         await syncEngine.login({ username: 'bob', password: 'pw' });
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
@@ -275,12 +283,15 @@ describe('login', () => {
         });
     });
 
-    it('forwards the global role (admin) from the login response', async () => {
+    // DISCRIMINAÇÃO do caso acima: o eixo GLOBAL continua chegando pelo login e não foi
+    // rebaixado junto. Sem este caso, a suíte passaria verde com a hidratação inteira
+    // zerada, que é o defeito oposto e igualmente ruim.
+    it('forwards the global role (admin) from the login response, sem tocar no eixo por atlas', async () => {
         apiClientMock.login.mockResolvedValueOnce({ id: 'user-7', org_role: 'editor', role: 'admin' });
         await syncEngine.login({ username: 'root', password: 'pw' });
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-7',
-            role: 'editor',
+            role: 'viewer',
             globalRole: 'admin',
             producerOrgId: null,
             username: 'root',
@@ -335,8 +346,9 @@ describe('connect', () => {
     // Regression — bug C: the connect payload carries the PER-ATLAS role
     // (owner/editor/viewer, mapped by the backend from the atlas permission). The
     // engine must mirror it into the session, else a self-registered owner or a
-    // write-shared collaborator stays gated as 'viewer' (their global org_role) and
-    // cannot edit the atlas. The old code only set the role from org_role at login.
+    // write-shared collaborator stays gated as 'viewer' (where hydration starts) and
+    // cannot edit the atlas. Since D7 (2026-08-20) this is the ONLY path that opens the
+    // axis for a non-owner: login no longer decides it.
     it('reflects the per-atlas role from the connect payload into the session', async () => {
         wsClientMock.connect.mockResolvedValueOnce({ sessionId: 's1', userId: 'user-7', permission: 'write', role: 'editor' });
 
@@ -345,7 +357,7 @@ describe('connect', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({ userId: 'user-7', role: 'editor' });
     });
 
-    it('promotes the atlas OWNER to the owner role on connect (not their global org_role)', async () => {
+    it('promotes the atlas OWNER to the owner role on connect (não por papel nenhum do login)', async () => {
         wsClientMock.connect.mockResolvedValueOnce({ sessionId: 's1', userId: 'owner-1', permission: 'owner', role: 'owner' });
 
         await syncEngine.connect('atlas-1', { initialPull: false });

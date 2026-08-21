@@ -17,8 +17,10 @@
 // tabela nascem prontos. Uma linha de volta aqui significa uma de duas coisas, e vale
 // investigar qual: ou uma migração NOVA e legítima (aí a linha é o ato explícito que
 // a convenção exige), ou uma baseline que voltou a evoluir por degraus dentro de si
-// mesma. As duas de hoje são o primeiro caso — `009_grupos_de_acesso.sql` alarga dois CHECK de
-// `audit_trail`, e alargar CHECK em Postgres não tem forma aditiva.
+// mesma. As TRÊS de hoje são o primeiro caso — `009_grupos_de_acesso.sql` alarga dois CHECK de
+// `audit_trail`, e alargar CHECK em Postgres não tem forma aditiva; e
+// `011_grupo_com_dono_e_producao.sql` apaga `users.org_role` (D7), porque enquanto a
+// coluna existe alguém volta a lê-la.
 //
 // O PREÇO QUE A LISTA VAZIA TINHA, e que continua valendo para cada padrão sem
 // exceção correspondente: `assert.equal(achados.length, EXCECOES.length)` vira
@@ -80,6 +82,16 @@ const EXCECOES_DESTRUTIVAS = [
     arquivo: '009_grupos_de_acesso.sql',
     trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_target_type_check;',
     motivo: "Alargar o CHECK de alvo para 'ACCESS_GROUP'. Mesmo raciocínio do irmão acima. O valor NÃO reusa o 'GROUP' já declarado, que pertence ao grupo de FEIÇÃO de um mapa.",
+  },
+  {
+    arquivo: '011_grupo_com_dono_e_producao.sql',
+    trecho: 'ALTER TABLE users DROP COLUMN org_role;',
+    motivo: 'D7: o eixo de papel dentro da OM sai do código inteiro. A coluna não autorizava nada no servidor desde que a escrita do 360 passou para o escopo de produção, e no cliente ela ALIMENTAVA o papel POR ATLAS na hidratação da sessão, promovendo a Dono/Administrador de atlas quem não tinha permissão nenhuma. Apagar a coluna é o que impede o eixo de voltar por analogia. O CHECK inline cai junto, sem DROP CONSTRAINT próprio: por isso esta é UMA linha e não duas, ao contrário das duas de 009.',
+  },
+  {
+    arquivo: '011_grupo_com_dono_e_producao.sql',
+    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check;',
+    motivo: "Alargar o CHECK de ação para 'PERMISSION_REPARENT' (BLOCO E), a poda que NÃO derrubou: com a preservação de alcançabilidade, revogar deixou de derrubar todo descendente, e quem foi re-pendurado em outro pai vivo precisa de uma linha de trilha própria — sem ela, um acesso que sobrevive a uma revogação fica indistinguível de um acesso que a revogação nunca alcançou. Postgres não tem ALTER CONSTRAINT para expressão, então o CHECK cai e volta na linha seguinte, no mesmo arquivo e na mesma transação do runner. Este é o SEGUNDO par destrutivo do arquivo (o outro é o DROP COLUMN de org_role) e o par DROP/ADD do CHECK de ação tem de continuar sendo ÚNICO aqui: um segundo par venceria o primeiro sem erro nenhum.",
   },
 ];
 

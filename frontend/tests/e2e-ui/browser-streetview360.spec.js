@@ -26,7 +26,9 @@
  *     `orientations` (the OUT transform only indexes orientations that carry a
  *     truthy `photo_name`), so it never pollutes the orientations map.
  *
- * Each test seeds its OWN user + atlas + map for isolation.
+ * Each test seeds its OWN user + atlas + map for isolation. A conta, porém, nasce no NODE
+ * (`helpers/accounts.js`): o cadastro exige e-mail e o token que o confirma só existe como
+ * linha no Postgres, fora do alcance do `page.evaluate`. Aqui dentro sobra o `login()`.
  *
  * UI-first note: orientation360 / marker360 are VIEWER-ONLY entities — they are placed
  * INSIDE the Three.js 360 panorama viewer (anchored to a loaded equirectangular photo),
@@ -41,23 +43,23 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
     test('FLAT orientation360 + marker360 create/clear; snapshot preserves photoName', async ({ page }) => {
+        const user = await createVerifiedUser({ prefix: 'sv360', nome: 'SV360 User' });
+
         await page.goto('/');
 
-        const result = await page.evaluate(async (baseUrl) => {
+        const result = await page.evaluate(async ({ baseUrl, u }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `sv360_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'SV360 User' });
-            await api.login(username, password);
+            await api.login(u.username, u.password);
 
             const atlas = await api.createAtlas({ name: 'SV360 Atlas' });
             const mapId = crypto.randomUUID();
@@ -130,7 +132,7 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
                 markerClearedFromMarkers: !(svAfter.markers || []).some((m) => m.id === markerId),
                 orientationSurvivesClear: Boolean(svAfter.orientations && svAfter.orientations[photoName]),
             };
-        }, state.baseUrl);
+        }, { baseUrl: state.baseUrl, u: user });
 
         // Orientation landed, keyed by photoName, with id + FLAT payload round-tripped.
         expect(result.orientationKeyed).toBe(true);

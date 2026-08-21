@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 import { getLiveAuthState, orgIsActive, tokenPredatesSessionCut } from '../utils/org-status.js';
+import { principalUserId } from '../utils/principal.js';
 
 // A principal backed by a real `users` row always has a UUID sub. Public-share
 // tokens deliberately use `public-<uuid>`, which is NOT a bare UUID.
@@ -36,7 +37,10 @@ export function verifyAndMapUser(token) {
       role: payload.role || 'user',
       // Legacy tokens (pre-org claim) fall back gracefully.
       organization_id: payload.organization_id ?? null,
-      org_role: payload.org_role || 'viewer',
+      // `org_role` NAO E MAPEADO (D7, 2026-08-20): o eixo saiu do banco e do token.
+      // Um token legado ainda o carrega e ele e simplesmente ignorado aqui — nao ha
+      // campo em `req.user` para onde ele va, entao nenhum gate pode voltar a le-lo
+      // por acidente. Kept in sync with flexible-auth.js mapPayload.
       // Escopo de PRODUCAO. Ausente (token legado) = null, que e o valor certo:
       // quem nao carrega a claim nao produz. Reconciliado abaixo, no caminho
       // estrito. Mantido em sincronia com flexible-auth.js mapPayload.
@@ -168,10 +172,11 @@ export async function auth(req, res, next) {
       // Adopt the live GLOBAL role so `requireAdmin` can never honour a stale
       // `role: admin` claim from a since-demoted admin.
       //
-      // `org_role` / `organization_id` are deliberately NOT overwritten here: the
-      // token mapping owns them (a legacy token without org claims degrades to
-      // viewer/null by design — see auth-gaps auth-05), and tenant moves stay
-      // bounded by the ≤15min token window as previously accepted.
+      // `organization_id` is deliberately NOT overwritten here: the token mapping
+      // owns it (a legacy token without the org claim degrades to null by design —
+      // see auth-gaps auth-05), and tenant moves stay bounded by the ≤15min token
+      // window as previously accepted. This paragraph named `org_role` alongside it
+      // until 2026-08-20; that axis no longer exists (D7).
       req.user.role = live.role;
 
       // O ESCOPO DE PRODUCAO E ADOTADO INCONDICIONALMENTE, ao contrario das claims
@@ -191,4 +196,31 @@ export async function auth(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * Exige que o principal seja uma CONTA, e não um visitante de link público.
+ *
+ * O BURACO QUE ISTO FECHA É DE TIPO, e ele produzia um 500. O visitante anônimo de link
+ * público passa `auth` (a confinação o aprova: o atlas da rota é o do token dele) e passa
+ * `requireAtlasPermission('read')` (o ramo `isPublic` de `resolvePermission`), e só morre no
+ * INSERT do clone, com `owner_id = 'public-<uuid>'` num cast `::uuid` — SQLSTATE 22P02, que
+ * o `errorHandler` não mapeia. Recusar por GATE, com mensagem em pt-BR, é a diferença entre
+ * "esta ação precisa de conta" e "erro interno do servidor".
+ *
+ * O PORTADOR DO MESMO LINK QUE ESTÁ LOGADO CONTINUA PASSANDO, e essa é a decisão: ele tem
+ * linha em `users`, então `principalUserId` devolve o uuid dele e a cópia nasce com dono.
+ *
+ * A ORDEM NA ROTA IMPORTA: este middleware vem DEPOIS de `requireAtlasPermission`, porque um
+ * atlas inexistente tem de continuar respondendo 404 antes de o servidor revelar que a ação
+ * exige conta.
+ *
+ * @param {Object} req
+ * @param {Object} res
+ * @param {Function} next
+ * @returns {void}
+ */
+export function requireAccountPrincipal(req, res, next) {
+  if (principalUserId(req.user)) return next();
+  return next(new ForbiddenError('Esta ação precisa de uma conta: a cópia no servidor precisa de um dono'));
 }

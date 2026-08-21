@@ -37,10 +37,13 @@ requisição, nunca do token, de modo que um administrador rebaixado não sobrev
 emitiu. O administrador não pode rebaixar a si mesmo. **[vigente]**
 
 **1.4** **Não existe eixo de papel dentro da organização.** A coluna `org_role` (dono, administrador, editor,
-leitor da OM) é resíduo de um desenho anterior, em que ela autorizava a escrita do 360. Foi substituída pelo
+leitor da OM) era resíduo de um desenho anterior, em que ela autorizava a escrita do 360. Foi substituída pelo
 escopo de produção concedido pelo administrador, porque a lotação é **auto-declarada** no cadastro e um
-crachá dentro de uma organização que a própria pessoa escolheu não autoriza nada. O que sobrou não gateia
-nada no servidor e, no cliente, contaminava o papel do eixo por atlas. **Sai do código inteiro.** **[em obra]**
+crachá dentro de uma organização que a própria pessoa escolheu não autoriza nada. O que sobrou não gateava
+nada no servidor e, no cliente, contaminava o papel do eixo por atlas: quem tivesse o crachá de administrador
+da OM abria a interface de Administrador de atlas sem ter permissão em atlas nenhum. **Saiu do código
+inteiro em 2026-08-20**: coluna, claim do token, consultas, formulário e a semente do papel por atlas na
+hidratação da sessão, que hoje começa em Leitor. **[vigente]**
 
 **1.5** O usuário deslogado cria a própria conta. Ela nasce sempre como `user`: papel, escopo de produção e
 vínculo institucional não são escolhíveis no cadastro. A organização declarada no cadastro é **lotação** e

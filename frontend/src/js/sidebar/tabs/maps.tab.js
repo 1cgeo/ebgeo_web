@@ -95,7 +95,14 @@ const ACTIONS_BY_STATE = Object.freeze({
     // Só no estado REMOTE: compartilhar um atlas local não significa nada, e o backend exige
     // `manage` na rota — a recusa fica com ele, e a tela não esconde o botão por papel, porque
     // um Gestor rebaixado no meio da sessão veria o botão sumir sem explicação.
-    [AtlasTabState.REMOTE]: ['open', 'import', 'save', 'share']
+    //
+    // "save-local" é o SIMÉTRICO de "save-server" e só existe no estado REMOTE pela mesma razão
+    // que aquele só existe nos locais: guardar uma cópia local de um atlas que já É local não
+    // significa nada (para isso existe duplicar, na tela de atlas). Ele fica aqui, e não no
+    // cartão do atlas em `atlas.html`, porque aquela página não monta store nenhum e não faz a
+    // soma de recursos privados: sem a soma, a poda falharia FECHADA e a cópia sairia sem o
+    // catálogo público inteiro.
+    [AtlasTabState.REMOTE]: ['open', 'import', 'save', 'save-local', 'share']
 });
 
 /**
@@ -143,6 +150,8 @@ const MAPS_ICONS = {
     gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 
     cloudUpload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
+
+    cloudDownload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
 
     users: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
 };
@@ -276,6 +285,7 @@ export class MapsTab {
             { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao atlas atual' },
             // "Exportar", not "Salvar": it saves nothing, it generates a `.ebgeo` for download.
             { id: 'save', icon: MAPS_ICONS.save, label: 'Exportar', handler: () => this._handleSaveProject(), title: 'Exportar este atlas como arquivo .ebgeo' },
+            { id: 'save-local', icon: MAPS_ICONS.cloudDownload, label: 'Salvar como local', handler: () => this._handleSaveAsLocal(), title: 'Guardar uma cópia deste atlas neste computador', testid: 'maps-save-local' },
             { id: 'share', icon: MAPS_ICONS.share, label: 'Compartilhar', handler: () => this._handleShare(), title: 'Escolher quem pode ver e editar este atlas', testid: 'maps-share' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar tudo', handler: () => this._handleClearAll(), title: 'Apagar todo o conteúdo deste atlas' },
         ];
@@ -1308,6 +1318,73 @@ export class MapsTab {
     _handleSaveProject() {
         if (this._exportImportService) {
             this._exportImportService.showExportModal();
+        }
+    }
+
+    /**
+     * "Salvar como local" — guarda uma cópia deste atlas de servidor neste computador.
+     *
+     * A ORDEM DO DIÁLOGO É DELIBERADA: primeiro a confirmação com as PERDAS, depois o nome.
+     * Quem vai perder metade do acervo do atlas precisa poder desistir sem ter escolhido nome
+     * nenhum — perguntar o nome antes transforma a desistência em trabalho jogado fora.
+     *
+     * A MEDIÇÃO DAS PERDAS É FEITA EM MEMÓRIA, sobre o documento de exportação, ANTES de
+     * qualquer escrita: é a única forma de o aviso ser sobre o que vai acontecer e não sobre o
+     * que já aconteceu. A cópia real é feita banco a banco (`saveActiveRemoteAtlasAsLocal`), com
+     * o MESMO resolver.
+     *
+     * As duas contagens não são idênticas, e a direção da diferença é a que interessa: o
+     * documento de exportação já filtrou lápides de sync e o podador de escopo atravessa o
+     * documento CRU do disco, então o aviso pode contar de MENOS — nunca de mais, e só por
+     * entradas que o usuário não vê de qualquer forma.
+     * @private
+     */
+    async _handleSaveAsLocal() {
+        if (!this._exportImportService) {
+            showError('Serviço de exportação indisponível');
+            return;
+        }
+        try {
+            const { construirResolverDeSaida, descreverPerdas } =
+                await import('@catalog/resource-reference.resolver.js');
+            const { saveActiveRemoteAtlasAsLocal } = await import('@store/local-atlas.api.js');
+
+            let resolver;
+            try {
+                resolver = await construirResolverDeSaida();
+            } catch (error) {
+                if (error?.name === 'ResourceSumMissingError') {
+                    showError(error.message);
+                    return;
+                }
+                throw error;
+            }
+
+            const mapNames = await getAllMapNamesStore();
+            const { relatorio } = await this._exportImportService.buildPrunedExportData(mapNames);
+            const perdas = descreverPerdas(relatorio);
+
+            const seguir = await showConfirm('Guardar uma cópia deste atlas neste computador?', {
+                message: perdas
+                    ? 'A cópia sai do servidor, então ela nunca leva recurso de catálogo '
+                        + 'restrito. Sai desta cópia:\n\n' + perdas
+                        + '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.'
+                    : 'A cópia fica só neste computador e deixa de receber as alterações dos '
+                        + 'outros participantes.',
+                confirmText: 'Salvar como local',
+                cancelText: 'Cancelar',
+            });
+            if (!seguir) return;
+
+            const nome = await showPrompt('Nome do atlas local:', `${this._atlasName || 'Atlas'} (local)`);
+            if (!nome) return;
+
+            const resultado = await saveActiveRemoteAtlasAsLocal(nome.trim(), resolver);
+            if (!resultado.ok) return;
+            showSuccess(`Cópia local "${resultado.atlas.name}" criada`);
+        } catch (error) {
+            console.error('Failed to save the remote atlas as local:', error);
+            showError('Não foi possível salvar a cópia local');
         }
     }
 

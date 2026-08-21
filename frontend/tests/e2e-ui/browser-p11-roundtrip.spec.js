@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { loginUI, goToLocalMapUI, openClient, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 /**
  * Enables the per-map temporal config through the REAL Maps-tab clock toggle
@@ -64,27 +65,14 @@ function summarize(page) {
 
 describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)', () => {
     test("A's local export and B's server-pulled export carry the same content", async ({ browser }) => {
-        // Register both users via the API; capture B's id for sharing.
-        const seedPage = await browser.newPage();
-        await seedPage.goto('/');
-        const users = await seedPage.evaluate(async (base) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const password = 'Sup3r-Secret-Pw!';
-            const mk = (n) => `${n}_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            const a = { username: mk('p11a'), password, nome: 'P11 A' };
-            const b = { username: mk('p11b'), password, nome: 'P11 B' };
-            const apiA = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await apiA.register({ ...a });
-            const apiB = new ApiClient({ baseUrl: `${base}/api/v1` });
-            await apiB.register({ ...b });
-            // register() answers `{ success: true }` and NO account data — the response is
-            // identical whether it created the account or found the username taken
-            // (auth.controller.js register). So B's id comes from the LOGIN that follows,
-            // which is the only place the server hands the account back.
-            const loggedB = await apiB.login(b.username, b.password);
-            return { a, b: { ...b, id: loggedB?.id } };
-        }, state.baseUrl);
-        await seedPage.close();
+        // As duas contas nascem no NODE, com o e-mail confirmado pela rota pública: o token de
+        // verificação só existe como linha no Postgres, fora do alcance do `page.evaluate`.
+        // `createVerifiedUser` já devolve o `id` (do login de prova), que é o que o
+        // compartilhamento precisa — `register()` responde `{success:true}` sem dado de conta.
+        const users = {
+            a: await createVerifiedUser({ prefix: 'p11a', nome: 'P11 A' }),
+            b: await createVerifiedUser({ prefix: 'p11b', nome: 'P11 B' }),
+        };
         // Without a real id the sharing POST below goes out with `userId: undefined` (the key
         // vanishes in JSON.stringify) and B never gets access — a failure that would otherwise
         // only show up as a UI timeout many steps later.

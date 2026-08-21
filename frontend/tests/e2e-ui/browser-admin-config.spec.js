@@ -11,22 +11,22 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createDb, closeDb } from './helpers/db.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-async function seedAdmin(page, baseUrl, dbName) {
+/**
+ * A conta nasce no lado NODE (`helpers/accounts.js`), com o e-mail confirmado pela rota
+ * pública; só a PROMOÇÃO a admin global é SQL, porque não existe rota para ela — criar um
+ * administrador exigiria um administrador, e esta camada parte de um banco vazio.
+ */
+async function seedAdmin(page, dbName) {
     await page.goto('/');
-    const creds = await page.evaluate(async (url) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
-        const username = `cfgadmin_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-        await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Cfg Admin' });
-        return { username, password: 'Sup3r-Secret-Pw!' };
-    }, baseUrl);
+    const user = await createVerifiedUser({ prefix: 'cfgadmin', nome: 'Cfg Admin' });
     await createDb(dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
-    return creds;
+        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [user.username]);
+    return user;
 }
 
 async function loginThroughUi(page, baseUrl, creds) {
@@ -49,7 +49,7 @@ describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backen
     test.afterAll(async () => { await closeDb(); });
 
     test('an admin edits app.title + features.grid and it propagates to GET /config', async ({ page }) => {
-        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        const admin = await seedAdmin(page, state.dbName);
         await loginThroughUi(page, state.baseUrl, admin);
 
         await page.locator('[data-testid="account-control"] .account-control__identity').click();

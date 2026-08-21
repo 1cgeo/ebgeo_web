@@ -288,6 +288,36 @@ export const statusBodySchema = Joi.object({
   status: Joi.string().valid('enabled', 'disabled').required(),
 }).unknown(false);
 
+// PATCH /admin/projects/:slug — METADADO editável do projeto. Hoje um campo só.
+//
+// `.unknown(false)` E `.min(1)` SÃO OS DOIS LADOS DA MESMA CERCA: o objeto fechado faz
+// uma chave inventada morrer em 422 na borda em vez de ser ignorada em silêncio (que é
+// como um cliente acredita ter gravado algo), e o `.min(1)` recusa o PATCH vazio, que
+// escreveria `updated_at` e uma linha de trilha sem ter mudado nada.
+//
+// AS BORDAS DO ENDEREÇO SÃO AS MESMAS DO CATÁLOGO (`catalog.schemas.js`) e precisam
+// continuar sendo, `.trim()` e `/i` inclusive: um `DATA:` recusado numa tabela e aceito na
+// outra é a mesma chave com duas regras, e foi assim que a primeira versão desta borda saiu
+// (o padrão era `/^(?!data:)/`, que a caixa alta e o espaço à esquerda contornam, os dois
+// medidos contra o Joi real). O teto de tamanho é o `max(2048)`; esta regra recusa mídia
+// EMBUTIDA, de qualquer tamanho. A duplicação é literal e pequena de propósito —
+// importar o schema do catálogo aqui acoplaria o módulo 360 (que tem envelope de erro
+// PRÓPRIO, plano) ao módulo de catálogo.
+//
+// `allow('', null)` porque esvaziar o campo é como o painel REMOVE o vídeo; o serviço
+// normaliza os dois para NULL na coluna, e o `.trim()` faz um `'   '` chegar lá como `''`
+// em vez de virar um endereço de três espaços.
+export const projectMetadataBodySchema = Joi.object({
+  previewVideo: Joi.string()
+    .trim()
+    .max(2048)
+    .pattern(/^(?!\s*data:)/i)
+    .allow('', null)
+    .messages({
+      'string.pattern.base': 'O vídeo de prévia é um endereço, não um arquivo embutido (data URL).',
+    }),
+}).min(1).unknown(false);
+
 // GET /admin/projects — optional ?orgId filter (a global admin may scope the list
 // to a single OM). Non-admins ignore it (forced to their own org in the service).
 export const listAdminQuerySchema = Joi.object({

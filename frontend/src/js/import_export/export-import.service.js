@@ -50,6 +50,11 @@ import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
 import { migrateImportDataToV2, normalizeMapDataForCurrentVersion } from './import-normalize.js';
 import { EventTypes } from '@events/event_types.js';
 import { showExportModal } from '@modals/export.modal.js';
+import { showConfirm } from '@modals/confirm.modal.js';
+// A PODA DE SAÍDA. Módulos diretos, não o barrel de `@catalog`: este arquivo já é pesado e
+// o podador é puro de propósito.
+import { podarDocumentoDeExportacao } from '@catalog/private-reference-pruner.js';
+import { construirResolverDeSaida, descreverPerdas } from '@catalog/resource-reference.resolver.js';
 // The ONE entry into a brand-new local atlas (see `switchToNewLocalAtlas`). Importing a `.ebgeo`
 // with a server project open is not a wipe-in-place, it is a change of atlas, and the pipeline that
 // owns "which atlas this tab holds" owns it too — spreading a sixth improvised entry through this
@@ -327,6 +332,53 @@ export class ExportImportService {
         return data;
     }
 
+    /**
+     * O MESMO documento de `buildExportDataObject`, com toda referência a recurso de
+     * catálogo que não seja comprovadamente PÚBLICA retirada.
+     *
+     * A poda vale para TODO `.ebgeo`, inclusive o de atlas local e inclusive quando quem
+     * exporta é o dono: fora do servidor não existe ponto de imposição, e o arquivo
+     * circula por e-mail e pendrive independentemente da origem. Dois comportamentos
+     * seriam a segunda regra a divergir.
+     *
+     * @param {string[]} mapsToExport
+     * @returns {Promise<{data: Object, relatorio: Object}>}
+     * @throws {ResourceSumMissingError} Quando há sessão viva e a soma de recursos
+     *   privados nunca aconteceu: podar às cegas apagaria o acervo legítimo do usuário.
+     */
+    async buildPrunedExportData(mapsToExport) {
+        const resolver = await construirResolverDeSaida();
+        const bruto = await this.buildExportDataObject(mapsToExport);
+        const { documento, relatorio } = podarDocumentoDeExportacao(bruto, resolver);
+        return { data: documento, relatorio };
+    }
+
+    /**
+     * Os ids de imagem que o `.ebgeo` precisa carregar: as feições de imagem de cada mapa
+     * mais os ícones personalizados.
+     *
+     * Derivado do documento JÁ MONTADO, e não colhido no mesmo laço que o monta: as duas
+     * cópias do bloco de montagem divergiram uma vez (o bug dos grupos anotado neste
+     * arquivo) e a poda é justamente a regra que não pode ter duas versões.
+     * @param {Object} data - O documento de exportação.
+     * @returns {Set<string>}
+     */
+    collectUsedImageIds(data) {
+        const usedImages = new Set();
+        for (const mapa of Object.values(data.maps || {})) {
+            for (const features of Object.values(mapa?.features || {})) {
+                if (!Array.isArray(features)) continue;
+                for (const feature of features) {
+                    if (feature?.properties?.id) usedImages.add(feature.properties.id);
+                }
+            }
+        }
+        for (const icon of (data.customIcons || [])) {
+            if (icon?.id) usedImages.add(icon.id);
+        }
+        return usedImages;
+    }
+
     async handleExport(selectedMaps = null) {
         try {
             this._toolManager.deactivateCurrentTool();
@@ -342,89 +394,31 @@ export class ExportImportService {
                 return;
             }
 
-            // Determine current map (must be one of the exported maps)
-            const currentMapName = await getCurrentMapName();
-            const exportCurrentMap = mapsToExport.includes(currentMapName)
-                ? currentMapName
-                : mapsToExport[0];
-
-            // Filter map order to only include exported maps
-            const fullMapOrder = await getMapOrder();
-            const filteredMapOrder = fullMapOrder.filter(name => mapsToExport.includes(name));
-
-            const data = {
-                version: ATLAS_SCHEMA_VERSION,  // Use v2.0 for exports
-                currentMap: exportCurrentMap,
-                mapOrder: filteredMapOrder,
-                maps: {},
-                colorUsage: {},
-                mapNotes: {},
-                groups: {},
-                layers: {},
-                cesium3d: {},
-                streetview360: {},
-                temporal: {},
-                gridStyle: {},
-                comments: {},
-                briefings: [],
-            };
-
-            // Export map data with optimization, collecting image IDs in the same pass
-            const usedImages = new Set();
-
-            for (const mapName of mapsToExport) {
-                const mapData = await getCurrentMapFeatures(mapName);
-                if (mapData) {
-                    const position = await getMapPosition(mapName);
-                    const catalogLayers = pruneCatalogLayerDefinitions(await getCatalogLayers(mapName));
-
-                    const fullMapData = {
-                        baseLayer: await getCurrentBaseLayer(mapName),
-                        hillshadeEnabled: true,
-                        analysisLayers: {},
-                        features: mapData,
-                        catalogLayers: catalogLayers.length > 0 ? catalogLayers : undefined,
-                        zoom: position.zoom,
-                        center_lat: position.center_lat,
-                        center_long: position.center_long,
-                        bearing: position.bearing,
-                        pitch: position.pitch
-                    };
-
-                    data.maps[mapName] = this.optimizeMapData(fullMapData);
-
-                    // Collect image IDs from features in this pass
-                    for (const features of Object.values(mapData)) {
-                        if (!Array.isArray(features)) continue;
-                        for (const feature of features) {
-                            if (feature.properties?.id) {
-                                usedImages.add(feature.properties.id);
-                            }
-                        }
-                    }
-                }
-
-                await this._exportOptionalMapData(data, mapName);
-            }
-
-            // Export briefings (global, not map-specific)
+            let data;
+            let relatorio;
             try {
-                const briefings = await getBriefingsForExport();
-                if (briefings?.length > 0) {
-                    data.briefings = briefings;
-                }
+                ({ data, relatorio } = await this.buildPrunedExportData(mapsToExport));
             } catch (error) {
-                console.warn('Could not export briefings:', error);
+                if (error?.name === 'ResourceSumMissingError') {
+                    showError(error.message);
+                    return;
+                }
+                throw error;
             }
 
-            // Custom point icons: metadata travels in data.json, blobs in images/.
-            const customIcons = await getCustomIconsForExport();
-            if (customIcons.length > 0) {
-                data.customIcons = customIcons;
-                for (const icon of customIcons) {
-                    usedImages.add(icon.id);
-                }
+            const perdas = descreverPerdas(relatorio);
+            if (perdas) {
+                const seguir = await showConfirm('Este arquivo sai sem os recursos restritos', {
+                    message: 'Um `.ebgeo` circula por e-mail e pendrive, então ele nunca leva '
+                        + 'recurso de catálogo restrito. Sai desta cópia:\n\n' + perdas
+                        + '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.',
+                    confirmText: 'Exportar assim',
+                    cancelText: 'Cancelar',
+                });
+                if (!seguir) return;
             }
+
+            const usedImages = this.collectUsedImageIds(data);
 
             zip.file('data.json', JSON.stringify(data), {
                 compression: 'DEFLATE',

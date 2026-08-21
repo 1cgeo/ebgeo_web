@@ -20,10 +20,15 @@
  *
  * Each test seeds its OWN user + atlas + map for isolation. No app UI is clicked;
  * these specs prove the transport + backend behavior in a real browser context.
+ *
+ * A CONTA, porém, não nasce aqui dentro: ela vem pronta de `helpers/accounts.js`, no lado
+ * Node, porque confirmar o e-mail exige ler `email_verification_tokens` no Postgres, que o
+ * contexto do browser não alcança. O `page.evaluate` faz só o `login()`.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -32,20 +37,18 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
     test('mapTemporal update { ativo, unidade, inicio, fim } assembles into temporal_config', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'temporal', nome: 'Temporal User' });
         await page.goto('/');
 
         const temporal = { ativo: true, unidade: 'horas', inicio: '2026-06-20T08:00:00Z', fim: '2026-06-20T20:00:00Z' };
 
         const result = await page.evaluate(
-            async ({ baseUrl, temporal: t }) => {
+            async ({ baseUrl, temporal: t, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                const username = `temporal_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await api.register({ username, password, nome: 'Temporal User' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Atlas' });
                 const mapId = crypto.randomUUID();
@@ -67,7 +70,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     temporalConfig: map ? (map.temporal_config ?? map.temporalConfig) : undefined,
                 };
             },
-            { baseUrl: state.baseUrl, temporal },
+            { baseUrl: state.baseUrl, temporal, u: user },
         );
 
         expect(result.isSnapshot).toBe(true);
@@ -81,6 +84,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
     test('a feature with temporalInicio/temporalFim/trajetoria round-trips through the snapshot', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'tempfeat', nome: 'Temporal Feature User' });
         await page.goto('/');
 
         // A moving unit: temporal validity window + a coordinate trajectory. These are
@@ -95,15 +99,12 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
         const temporalFim = '2026-06-20T16:00:00Z';
 
         const result = await page.evaluate(
-            async ({ baseUrl, trajetoria: traj, temporalInicio: ti, temporalFim: tf }) => {
+            async ({ baseUrl, trajetoria: traj, temporalInicio: ti, temporalFim: tf, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                const username = `tempfeat_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await api.register({ username, password, nome: 'Temporal Feature User' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Feature Atlas' });
                 const mapId = crypto.randomUUID();
@@ -140,7 +141,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     geometry: stored ? stored.geometry : null,
                 };
             },
-            { baseUrl: state.baseUrl, trajetoria, temporalInicio, temporalFim },
+            { baseUrl: state.baseUrl, trajetoria, temporalInicio, temporalFim, u: user },
         );
 
         expect(result.isSnapshot).toBe(true);
@@ -156,18 +157,16 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
     test('EDGE: a mapTemporal sub-typed op does not smuggle a sibling `name` into the map', async ({
         page,
     }) => {
+        const user = await createVerifiedUser({ prefix: 'tempedge', nome: 'Temporal Edge User' });
         await page.goto('/');
 
         const result = await page.evaluate(
-            async (baseUrl) => {
+            async ({ baseUrl, u }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
                 const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-                const username = `tempedge_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-                const password = 'Sup3r-Secret-Pw!';
-                await api.register({ username, password, nome: 'Temporal Edge User' });
-                await api.login(username, password);
+                await api.login(u.username, u.password);
 
                 const atlas = await api.createAtlas({ name: 'Temporal Edge Atlas' });
                 const mapId = crypto.randomUUID();
@@ -196,7 +195,7 @@ describeOrSkip('Temporal dimension (real Chromium + real backend)', () => {
                     temporalConfig: map ? (map.temporal_config ?? map.temporalConfig) : undefined,
                 };
             },
-            state.baseUrl,
+            { baseUrl: state.baseUrl, u: user },
         );
 
         // The temporal payload landed...

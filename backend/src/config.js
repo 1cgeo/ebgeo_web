@@ -1,4 +1,5 @@
 // Path: src/config.js
+import { createHmac } from 'node:crypto';
 
 function required(key) {
   const val = process.env[key];
@@ -32,6 +33,35 @@ export function resolveAllowSelfRegistration(env, override) {
   if (override === 'true') return true;
   if (override === 'false') return false;
   return env !== 'production';
+}
+
+/**
+ * A rotulagem de domínio da chave de impressão da trilha de auditoria.
+ *
+ * Ela é literal e versionada porque é o que impede a chave derivada de ser a mesma
+ * coisa que o segredo de sessão: quem obtiver uma nunca obtém a outra por dedução.
+ * Trocar esta string invalida toda impressão já gravada (as antigas param de casar
+ * com as novas), então ela só muda com um `/v2` deliberado e registrado.
+ */
+export const AUDIT_FINGERPRINT_DOMAIN = 'ebgeo/audit-fingerprint/v1';
+
+/**
+ * Deriva a chave de IMPRESSÃO da trilha a partir do segredo de JWT.
+ *
+ * POR QUE DERIVAR E NÃO PEDIR UMA ENV NOVA: uma env a mais é um passo de implantação
+ * a mais, e o modo de falha dela é degradar em silêncio — um deploy sem a variável
+ * subiria com chave vazia e toda impressão passaria a ser a impressão do vazio, sem
+ * erro em lugar nenhum. Derivar de um segredo que o boot já EXIGE (`required`) faz
+ * "chave ausente" ser um estado que não existe.
+ *
+ * POR QUE NÃO USAR O SEGREDO CRU: separação de domínio. A trilha é lida por qualquer
+ * administrador e por qualquer produtor; a impressão que ela carrega não pode ser um
+ * artefato calculável com a mesma chave que assina sessão.
+ * @param {string} segredo - `config.jwt.secret`.
+ * @returns {Buffer} 32 bytes.
+ */
+export function derivarChaveDeImpressao(segredo) {
+  return createHmac('sha256', segredo).update(AUDIT_FINGERPRINT_DOMAIN).digest();
 }
 
 const config = Object.freeze({
@@ -191,6 +221,10 @@ const config = Object.freeze({
     // because it invites the next reader to set it and expect an approval flow that
     // does not exist. Self-registration confirms by e-mail link, period.
     verificationTtlHours: parseInt(optional('AUTH_VERIFICATION_TTL_HOURS', '48'), 10),
+    // A chave de IMPRESSÃO do de-para da trilha (`utils/audit-diff.js`). Derivada, não
+    // configurada: ver `derivarChaveDeImpressao` acima. Ela NUNCA sai em resposta
+    // nenhuma — se sair, a impressão vira oráculo de adivinhação para quem lê a trilha.
+    auditFingerprintKey: derivarChaveDeImpressao(required('JWT_SECRET')),
   }),
 
   // Outbound e-mail (verification links). When SMTP is not configured (no host) the mailer

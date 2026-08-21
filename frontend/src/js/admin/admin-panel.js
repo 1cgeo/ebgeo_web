@@ -37,9 +37,10 @@ export class AdminPanel {
      * @param {{ id?: string, name?: string }} [options.user] - Identity shown in the top bar.
      * @param {function(): void} [options.onBack] - "Voltar" (the page above this one).
      * @param {function(): void} [options.onLogout] - "Sair".
-     * @param {string} [options.title] - Top-bar title. A producer reaches this shell with the
-     *   Catálogo tab only and a credenciado with the Grupos tab only; calling either
-     *   "Administração" would promise a panel they do not get.
+     * @param {string} [options.title] - Top-bar title. It is the AUDIENCE label
+     *   (`admin-audience.js`): a producer arrives here with Catálogo and Grupos, and a plain
+     *   authenticated user with Grupos only. Calling either of those "Administração" would
+     *   promise a panel they do not get.
      */
     constructor(tabs = [], { user = null, onBack = null, onLogout = null, title = 'Administração' } = {}) {
         this._tabs = tabs;

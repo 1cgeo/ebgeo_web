@@ -39,6 +39,15 @@ import { sessionContext } from './session-context.js';
 let _escopo;
 
 /**
+ * O escopo do ÚLTIMO pedido de soma, tenha ele dado certo ou não.
+ *
+ * Existe para `retryVisibleResources` poder repetir o pedido SEM que quem chama precise
+ * saber qual atlas estava em foco. `_escopo` só é escrito no caminho de sucesso, então
+ * depois de uma soma que falhou ele não diz nada sobre o que pedir de novo.
+ */
+let _escopoPedido = null;
+
+/**
  * O número do último pedido de soma, monotônico.
  *
  * OS DOIS DISPAROS POR FRAME SAEM SEM `await` (`sync-engine.js` os larga com `.then()`),
@@ -121,6 +130,7 @@ function indexarPayload(payload) {
  */
 export async function refreshVisibleResources(atlasId = null) {
     const escopo = atlasId ?? null;
+    _escopoPedido = escopo;
     const meuPedido = ++_pedido;
     // O CARIMBO DE ESCOPO VAI ANTES DA CHAMADA, e a ordem é o ponto: quem guarda
     // resposta em cache (a lista de projetos do 360, hoje) compara o carimbo na
@@ -145,6 +155,29 @@ export async function refreshVisibleResources(atlasId = null) {
         // o chamador é o caminho de login e de abertura de atlas.
         return false;
     }
+}
+
+/**
+ * UMA tentativa de refazer a soma que falhou, com o mesmo escopo do último pedido.
+ *
+ * POR QUE ELA EXISTE, e o defeito que ela fecha é de DISPONIBILIDADE, não de sigilo.
+ * `refreshVisibleResources` é best-effort e engole o próprio erro; `disconnect`
+ * (`sync-engine.js`) apaga a soma e dispara a re-soma SEM `await` e com o erro descartado.
+ * Entre as duas — ou para sempre, se a re-soma falhar por rede — um usuário CONECTADO
+ * ficava com `_escopo === undefined`, e a poda de saída recusava exportar e salvar como
+ * local com uma mensagem que manda reconectar quem já está conectado. Não havia nova
+ * tentativa em lugar nenhum: a única consequência do erro era o `.catch(() => {})`.
+ *
+ * NÃO É UM LAÇO DE RETENTATIVA: uma tentativa, e o chamador decide o que fazer com o
+ * `false`. Também não é um caminho de sigilo — a direção da falha continua fecha-fechado,
+ * porque sem soma a poda recusa rodar.
+ *
+ * @returns {Promise<boolean>} `true` se a soma está de pé (já estava, ou acabou de pousar).
+ */
+export async function retryVisibleResources() {
+    if (_escopo !== undefined) return true;
+    if (!sessionContext.isAuthenticated()) return false;
+    return refreshVisibleResources(_escopoPedido);
 }
 
 /**
@@ -189,17 +222,20 @@ export function isPrivateResource(grupo, id) {
  * `view_share`. Quem só tem `view` recebe `false`, e é o que tira a ação
  * "Compartilhar" do cartão em vez de oferecê-la para o servidor recusar.
  *
- * ESTA FUNÇÃO ESPELHA O SERVIDOR, INCLUSIVE ONDE ELE AINDA DIVERGE DA REGRA NOVA.
- * `hasGlobalDataAccess()` passou a incluir o CREDENCIADO, que por definição lê tudo
- * e não escreve nada — e conceder é escrita. O gate do servidor
- * (`requireResourceShare`, `fn_has_global_data_access`) ainda o aceita, então
- * fechá-lo só aqui não fecharia nada: esconderia o botão de uma pessoa que continua
- * podendo conceder pela API, e tornaria o buraco mais difícil de ver. Quando nascer
- * o predicado próprio no banco, esta linha vira `sessionContext.isAdmin()`.
+ * ESTA FUNÇÃO ESPELHA O SERVIDOR, e `hasGlobalDataAccess()` inclui o CREDENCIADO de
+ * propósito: conceder e revogar no eixo de RECURSO é o que ele mantém (decisão D1 de
+ * 2026-08-20, que lhe tirou o eixo de GRUPO e não este). O gate do servidor é o mesmo
+ * (`requireResourceShare`, `fn_has_global_data_access`), então esconder o botão dele
+ * aqui divergiria do que a API entrega. Este é o ÚNICO consumidor de
+ * `hasGlobalDataAccess()` que restou no cliente, e ele é a razão de o método continuar
+ * vivo: a audiência da página de administração deixou de perguntá-lo.
  *
- * O PRODUTOR NÃO ENTRA AQUI e a razão é de contrato: o payload aditivo não diz de
- * qual OM é cada item, então o cliente não tem como saber que aquele privado é da OM
- * que ele mantém. Ele fica sem o botão e o servidor é quem decide — seguro, e mudo.
+ * O PRODUTOR ENTRA PELO `shareable`, E NÃO POR PAPEL: desde 2026-08-20 ele concede de
+ * RAIZ o que a OM dele produz, e quem responde isso é o SERVIDOR — o id do recurso
+ * produzido passou a chegar dentro de `shareable` (`LIST_SHAREABLE_OF_ACTOR`), que este
+ * índice já consome. Não há linha nova aqui, e é esse o desenho: o cliente continua sem
+ * saber de qual OM é cada item do payload aditivo, então perguntar por papel produziria
+ * uma segunda resposta, mais pobre, para a mesma pergunta.
  *
  * ISTO É SÓ PARA A INTERFACE DECIDIR O QUE MOSTRAR. Quem decide o que ENTREGAR é
  * o servidor: `requireResourceShare` protege a rota e `grantResource` reafirma a

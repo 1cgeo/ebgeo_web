@@ -60,7 +60,7 @@ export const sv360AccessPredicate = (pUser, pAtlas, alias = '') => `(
 //   $1 = userId (uuid, nullable), $2 = atlasId (uuid, nullable)
 export const LIST_PROJECTS = `
   SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
-         capture_date
+         capture_date, preview_video
   FROM sv360.projects
   WHERE ${sv360AccessPredicate(1, 2)}
   ORDER BY name
@@ -88,7 +88,8 @@ export const LIST_PROJECTS = `
 // que torna essa distincao visivel para quem editar a consulta depois.
 export const GET_PROJECT_BY_SLUG = `
   SELECT id, organization_id, slug, name, center_lat, center_long,
-         entry_photo_id, photo_count, db_filename, status, capture_date, access_level
+         entry_photo_id, photo_count, db_filename, status, capture_date, access_level,
+         preview_video
   FROM sv360.projects
   WHERE slug = $1
     AND ${sv360AccessPredicate(2, 3)}

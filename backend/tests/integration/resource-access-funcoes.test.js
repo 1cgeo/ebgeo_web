@@ -392,4 +392,247 @@ describe('F1 — resolução de acesso a recurso privado (as três funções SQL
     assert.equal(await podeVer(produtorOutra.id, null, recurso), false);
     assert.equal(await podeVer(produtor.id, null, outroRecurso), false);
   });
+  // ==========================================================================
+  // A DEFINIÇÃO VIVA, por introspecção (`011_grupo_com_dono_e_producao.sql` substitui a da baseline)
+  // ==========================================================================
+
+  it('a definição VIVA de `fn_granted_resource_ids` é a da migração nova, e é UMA só', async () => {
+    // O PISO É `rows.length === 1`, e ele não é formalidade: duas linhas é o modo de
+    // falha de quem "redefine" acrescentando parâmetro — cria uma SOBRECARGA, e todo
+    // chamador antigo continua resolvendo para o texto velho, em silêncio.
+    const { rows } = await db.query(
+      "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_granted_resource_ids'"
+    );
+    assert.equal(rows.length, 1, 'esperava EXATAMENTE uma definição viva da função de resolução');
+    const def = rows[0].def;
+
+    assert.match(
+      def, /fn_can_produce_resource\(a\.owner_id/,
+      'o braço D4 precisa reconhecer a PRODUÇÃO do dono do atlas (item 16)'
+    );
+    // A SEGUNDA ASSERÇÃO É A QUE DISCRIMINA: sem ela, "tem o ramo de produção" passaria
+    // numa função que TROCOU um ramo pelo outro — o empréstimo do administrador teria
+    // quebrado e nada ficaria vermelho.
+    assert.match(
+      def, /fn_has_global_data_access\(a\.owner_id/,
+      'e continuar reconhecendo o papel global do dono'
+    );
+    assert.match(def, /fn_principal_vivo\(a\.owner_id/, 'e a vida dele no ramo de concessão');
+  });
+
+  it('`fn_user_group_ids` exige o DONO do grupo vivo (D8a), e a exigência é UMA linha', async () => {
+    // A CHECAGEM MORA NO LUGAR MAIS FUNDO, e é isso que faz as três portas (leitura,
+    // repasse e — depois — o eixo de grupo em atlas) fecharem juntas. Pô-la no ramo
+    // coletivo de `fn_granted_resource_ids` deixaria as outras duas abertas sem erro em
+    // lugar nenhum. O comportamento está medido em `access-groups-dono.test.js`; o que
+    // esta introspecção prende é ONDE ela mora.
+    const { rows } = await db.query(
+      "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_user_group_ids'"
+    );
+    assert.equal(rows.length, 1, 'esperava exatamente uma definição de `fn_user_group_ids`');
+    assert.match(rows[0].def, /fn_principal_vivo\(ag\.owner_id\)/, 'o dono do grupo precisa estar vivo');
+    assert.match(rows[0].def, /deleted_at IS NULL/, 'e o grupo continua precisando não estar apagado');
+  });
+
+  // ==========================================================================
+  // fn_produced_private_resource_ids — o contraponto de LISTAGEM da produção
+  // ==========================================================================
+
+  it('`fn_produced_private_resource_ids` concorda com `fn_can_produce_resource` onde as duas respondem', async () => {
+    const publicoDaOm = `raf-publico-${sufixo}`;
+    await db.query(
+      `INSERT INTO tilesets (id, name, config, owner_org_id, access_level)
+       VALUES ($1, $2, '{}'::jsonb, $3::uuid, 'public')`,
+      [publicoDaOm, `Recurso ${publicoDaOm}`, orgProdutora]
+    );
+    try {
+      const { rows } = await db.query(
+        'SELECT resource_type, resource_id FROM fn_produced_private_resource_ids($1::uuid)',
+        [produtor.id]
+      );
+      // O TAMANHO É ASSERIDO ANTES DO LAÇO: laço sobre coleção de tamanho não asserido é
+      // cobertura vazia, e a regra de lint `no-unasserted-loop-assert` reprova.
+      assert.ok(rows.length >= 1, `esperava >= 1 linha para o produtor, achei ${rows.length}`);
+      for (const linha of rows) {
+        assert.equal(
+          await podeProduzir(produtor.id, linha.resource_id, linha.resource_type), true,
+          `${linha.resource_type}:${linha.resource_id} saiu da listagem e o predicado escalar nega`
+        );
+      }
+      assert.ok(
+        rows.some((r) => r.resource_id === recurso && r.resource_type === TIPO),
+        'o privado da OM do produtor precisa estar na lista'
+      );
+
+      // A PRIMEIRA DIVERGÊNCIA DELIBERADA, medida para não virar drift: o
+      // ADMINISTRADOR recebe ZERO linhas aqui, e `fn_can_produce_resource` responde
+      // true para ele sobre o MESMO recurso. Quem reusar esta função como "o que este
+      // ator mantém" recebe resposta errada para admin.
+      const { rows: doAdmin } = await db.query(
+        'SELECT resource_type, resource_id FROM fn_produced_private_resource_ids($1::uuid)',
+        [admin.id]
+      );
+      assert.deepEqual(doAdmin, [], 'o papel global não entra nesta listagem, de propósito');
+      assert.equal(await podeProduzir(admin.id, recurso), true, 'enquanto o predicado escalar diz que sim');
+
+      // A SEGUNDA: só o PRIVADO entra. `shareable` serve à afordância do cartão, que só
+      // existe para recurso privado; listar o público seria payload sem leitor.
+      assert.ok(
+        !rows.some((r) => r.resource_id === publicoDaOm),
+        'o recurso PÚBLICO da mesma OM fica fora: "produzido" não é "produzido e privado"'
+      );
+      assert.equal(
+        await podeProduzir(produtor.id, publicoDaOm), true,
+        'e o predicado escalar continua dizendo que ele o mantém — a divergência é de escopo'
+      );
+
+      // E o produtor de OUTRA OM não recebe nada desta OM.
+      const { rows: daOutra } = await db.query(
+        'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)',
+        [produtorOutra.id]
+      );
+      assert.ok(
+        !daOutra.some((r) => r.resource_id === recurso),
+        'produtor de outra OM não lista o acervo alheio'
+      );
+    } finally {
+      await db.query('DELETE FROM tilesets WHERE id = $1', [publicoDaOm]);
+    }
+  });
+
+  it('`fn_produced_private_resource_ids` morre com a conta e com a OM de lotação', async () => {
+    // O MESMO LIVENESS DO PREDICADO ESCALAR, e ele precisa estar aqui porque esta função
+    // NÃO o chama: ela repete a condição, e duas cópias de uma regra divergem na próxima
+    // edição. O piso é a lista não-vazia; a discriminação é a volta ao reativar.
+    const cheia = await db.query(
+      'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)', [produtor.id]
+    );
+    assert.ok(cheia.rows.length >= 1, 'piso: parte de uma lista não-vazia');
+
+    await db.query('UPDATE users SET is_active = false WHERE id = $1', [produtor.id]);
+    const vazia = await db.query(
+      'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)', [produtor.id]
+    );
+    assert.deepEqual(vazia.rows, [], 'conta desativada não lista nada');
+
+    await db.query('UPDATE users SET is_active = true WHERE id = $1', [produtor.id]);
+    const devolta = await db.query(
+      'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)', [produtor.id]
+    );
+    assert.equal(devolta.rows.length, cheia.rows.length, 'e volta ao reativar (controle da reversão)');
+
+    // O anônimo não lista nada, e não levanta.
+    const { rows: anonimo } = await db.query(
+      'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)', [null]
+    );
+    assert.deepEqual(anonimo, []);
+  });
+
+  // ==========================================================================
+  // A OM PRODUTORA TAMBÉM PRECISA ESTAR VIVA (2026-08-21)
+  // ==========================================================================
+
+  it('a OM PRODUTORA desativada corta a produção, e a de LOTAÇÃO continua sendo outro ramo', async () => {
+    // O DEFEITO, MEDIDO ANTES DE ESCRITO: as duas funções conferiam a vida da conta e a da
+    // OM de LOTAÇÃO (`users.organization_id`), nunca a da OM PRODUTORA
+    // (`users.producer_org_id`). Como as duas colunas podem apontar para organizações
+    // diferentes, desativar a OM produtora deixava o acervo privado dela sendo mantido,
+    // marcado público/privado e listado como repassável.
+    //
+    // O CASO (c) É O QUE IMPEDE O TESTE DE PASSAR POR CORTE GERAL: o ramo de lotação, que
+    // já existia, não pode mudar de cor. Sem ele, uma função que devolvesse `false` para
+    // todo produtor ficaria verde nos casos (a) e (b).
+    assert.equal(await podeProduzir(produtor.id), true, 'PISO (a): produtora ativa, produz');
+
+    // A LOTAÇÃO VIRA UMA OM ATIVA E DIFERENTE DA PRODUTORA. É o que separa os dois ramos:
+    // com lotação nula, o vermelho de (b) seria indistinguível do ramo antigo.
+    await db.query('UPDATE users SET organization_id = $2::uuid WHERE id = $1', [produtor.id, orgOutra]);
+    await db.query('UPDATE organizations SET is_active = false WHERE id = $1::uuid', [orgProdutora]);
+    try {
+      assert.equal(
+        await podeProduzir(produtor.id), false,
+        '(b) produtora INATIVA com lotação ativa: não produz'
+      );
+      const { rows } = await db.query(
+        'SELECT resource_id FROM fn_produced_private_resource_ids($1::uuid)', [produtor.id]
+      );
+      assert.deepEqual(rows, [], '(b) e a LISTAGEM concorda — as duas repetem a condição');
+    } finally {
+      await db.query('UPDATE organizations SET is_active = true WHERE id = $1::uuid', [orgProdutora]);
+    }
+
+    assert.equal(await podeProduzir(produtor.id), true, 'controle da reversão: reativar devolve');
+
+    // (c) O RAMO ANTIGO NÃO PODE TER MUDADO DE COR: lotação inativa, produtora ativa,
+    // continua não produzindo (é liveness, e sempre foi).
+    await db.query('UPDATE organizations SET is_active = false WHERE id = $1::uuid', [orgOutra]);
+    try {
+      assert.equal(
+        await podeProduzir(produtor.id), false,
+        '(c) lotação INATIVA com produtora ativa: continua sem produzir'
+      );
+    } finally {
+      await db.query('UPDATE organizations SET is_active = true WHERE id = $1::uuid', [orgOutra]);
+      await db.query('UPDATE users SET organization_id = NULL WHERE id = $1', [produtor.id]);
+    }
+
+    assert.equal(await podeProduzir(produtor.id), true, 'e o piso volta ao fim do caso');
+  });
+
+  it('o ADMINISTRADOR não é trancado fora pela checagem nova da OM produtora', async () => {
+    // A checagem entra DEPOIS do early return de papel, e este caso é quem cobra isso: um
+    // administrador não tem `producer_org_id`, então uma checagem posta no SELECT inicial o
+    // deixaria de fora do gate de manutenção do catálogo inteiro, em silêncio.
+    assert.equal(await podeProduzir(admin.id), true, 'o administrador mantém qualquer recurso');
+    assert.equal(
+      await podeProduzir(admin.id, outroRecurso), true,
+      'inclusive o institucional, que não tem OM dona'
+    );
+  });
+
+  // ==========================================================================
+  // `fn_is_global_admin` — o sítio de papel global que o censo de papel NÃO alcança
+  // ==========================================================================
+
+  it('`fn_is_global_admin` pergunta por UM papel, e ele é `admin`', async () => {
+    // POR QUE INTROSPECÇÃO E NÃO SÓ COMPORTAMENTO. O censo de papel global
+    // (`tests/unit/papel-global-censo.test.js`) varre `.js`, e este sítio nasceu em SQL de
+    // propósito (em JavaScript ele seria papel lido do token, que `flexibleAuth` não
+    // reconcilia). A afirmação que aquele censo faz sobre si mesmo — "sítio novo reprova
+    // até ser classificado" — deixou de valer para a metade SQL no mesmo commit em que a
+    // onda escolheu SQL. Esta asserção é o que cobre o buraco: CONTAGEM de literais, não
+    // `includes`, porque `includes('admin')` continuaria verde numa função que aceitasse
+    // `admin` E `credenciado`.
+    const { rows } = await db.query(
+      "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_is_global_admin'"
+    );
+    assert.equal(rows.length, 1, 'esperava EXATAMENTE uma definição de `fn_is_global_admin`');
+    const def = rows[0].def;
+    const papeis = def.match(/'(user|producer|credenciado|admin)'/g) ?? [];
+    assert.deepEqual(papeis, ["'admin'"], 'um literal de papel, e ele é `admin`');
+    assert.match(def, /is_active/, 'e o liveness continua lá (senão "só admin" seria de graça)');
+
+    // A DISCRIMINAÇÃO: a função IRMÃ do eixo de DADO continua com DOIS papéis. Sem ela,
+    // esta suíte passaria verde num mundo em que alguém tivesse estreitado as duas.
+    const { rows: dados } = await db.query(
+      "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_has_global_data_access'"
+    );
+    const papeisDoDado = dados[0].def.match(/'(user|producer|credenciado|admin)'/g) ?? [];
+    assert.deepEqual(
+      [...papeisDoDado].sort(), ["'admin'", "'credenciado'"],
+      'ler todo recurso privado e administrar o sistema são poderes diferentes'
+    );
+  });
+
+  it('COMPORTAMENTO — `fn_is_global_admin` recusa o credenciado e o produtor', async () => {
+    const ehAdminGlobal = async (userId) => (await db.query(
+      'SELECT fn_is_global_admin($1::uuid) AS ok', [userId]
+    )).rows[0].ok;
+    assert.equal(await ehAdminGlobal(admin.id), true, 'piso');
+    assert.equal(await ehAdminGlobal(credenciado.id), false, 'ler tudo não é mandar em tudo');
+    assert.equal(await ehAdminGlobal(produtor.id), false, 'manter não é mandar');
+    assert.equal(await ehAdminGlobal(estranho.id), false);
+    assert.equal(await ehAdminGlobal(null), false, 'o anônimo não levanta');
+  });
+
 });

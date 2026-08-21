@@ -133,8 +133,41 @@ export const getSettings = asyncHandler(async (req, res) => {
   res.json({ data: settings });
 });
 
+/**
+ * O OVERLAY DE DISPONIBILIDADE DO ATLAS PASSA A DEIXAR RASTRO.
+ *
+ * Ele era o terceiro buraco nomeado do censo de auditoria, e o motivo de fechá-lo é o
+ * que o censo já dizia: desligar 3D, 360 ou camadas de dados apaga superfícies inteiras
+ * para TODOS os membros do atlas, logo é decisão de acesso, e decisão de acesso deixa
+ * linha.
+ *
+ * `SHARING_CHANGE` É REUSADA DE PROPÓSITO. Ela já é o vocabulário de acesso do atlas
+ * (o empréstimo de recurso emite a mesma ação com o mesmo `targetType`), então reusá-la
+ * mantém "o que mudou no acesso deste atlas" numa lista só, e não alarga o CHECK de
+ * `action`, que arrastaria um par DROP/ADD CONSTRAINT e uma entrada em
+ * `EXCECOES_DESTRUTIVAS` para um fato que já tem palavra.
+ *
+ * `kind: 'settings'` DISCRIMINA os três emissores da ação dentro do alvo ATLAS
+ * (`attached`, `detached`, `settings`), pela mesma razão de `details.kind` na poda.
+ *
+ * SÓ OS NOMES DOS CAMPOS, como no catálogo: as settings carregam listas de ids de
+ * recurso, e a trilha é lida por qualquer administrador. O de-para com valores é
+ * trabalho de outro lote.
+ *
+ * `targetOrgId` FICA NULO, e a ausência é a decisão: atlas não tem OM dona (o eixo dele
+ * é o dono e os compartilhamentos). Carimbar aqui a OM de LOTAÇÃO do ator seria pior que
+ * nada: faria o filtro por OM devolver atos que nada têm a ver com o acervo dela.
+ */
 export const updateSettings = asyncHandler(async (req, res) => {
   const atlas = await atlasService.updateAtlasSettings(req.atlasId, req.body);
+  await createAudit(req, {
+    action: 'SHARING_CHANGE',
+    actorId: req.user.id,
+    targetType: 'ATLAS',
+    targetId: req.atlasId,
+    targetName: atlas.name,
+    details: { kind: 'settings', fields: Object.keys(req.body || {}) },
+  });
   broadcastToRoom(req.atlasId, { type: 'atlas_settings_updated', settings: atlas.settings });
   res.json({ data: atlas });
 });
@@ -150,7 +183,15 @@ export const cloneAtlas = asyncHandler(async (req, res) => {
     // `sourceAtlasId` só existe neste ramo: um clone carrega o conteúdo de um atlas
     // que o autor podia LER, e é o único caminho de criação em que a pergunta "de
     // onde veio este dado" tem resposta.
-    details: { via: 'clone', sourceAtlasId: req.atlasId },
+    // `prunedResourceRefs` e a outra metade da mesma resposta: quanto do dado da origem NAO
+    // veio, porque o novo dono nao enxerga o recurso. So CONTAGEM por superficie — o nome de
+    // um recurso privado e metadado do recurso, e a trilha e lida por administrador do
+    // sistema, nao por quem tem a concessao.
+    details: {
+      via: 'clone',
+      sourceAtlasId: req.atlasId,
+      prunedResourceRefs: atlas.pruneReport ?? null,
+    },
   });
   res.status(201).json({ data: atlas });
 });

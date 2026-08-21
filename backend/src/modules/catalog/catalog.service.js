@@ -26,6 +26,30 @@ const COLS = 'id, name, description, config, active, sort_order, created_at, upd
 // ESCREVER continua impossível por aqui: nenhuma das três escritas lê a coluna do corpo.
 const COLS_COM_ACESSO = `${COLS}, access_level, owner_org_id`;
 
+// As mesmas oito colunas, QUALIFICADAS. O UPDATE do de-para ganhou um `FROM (…) antes`
+// cujas colunas repetem quatro dos nomes de COLS, e uma referência nua a `name` num
+// RETURNING com duas origens é ambígua (o Postgres levanta 42702, não escolhe). Derivada
+// de COLS em vez de escrita de novo: uma nona coluna acrescentada lá aparece aqui sem que
+// ninguém precise lembrar deste ponto.
+const COLS_T = COLS.split(', ').map((c) => `t.${c}`).join(', ');
+
+/**
+ * As QUATRO colunas que `PUT /:id` escreve — e as únicas que o de-para da trilha compara.
+ *
+ * A lista existe em UM lugar e os DOIS lados do de-para são projetados por ela, porque a
+ * assimetria é o defeito fácil: o lado "antes" nasce da subconsulta (quatro colunas) e o
+ * lado "depois" seria a linha inteira (oito), então `id`, `active`, `created_at` e
+ * `updated_at` apareceriam como "campo que mudou de vazio para alguma coisa" em TODA
+ * edição — quatro linhas de ruído por evento, classificadas como nome-só, para sempre, numa
+ * tabela que não se edita.
+ */
+const CAMPOS_EDITAVEIS = Object.freeze(['name', 'description', 'config', 'sort_order']);
+
+/** A projeção de uma linha (ou de um objeto de valores anteriores) nas quatro editáveis. */
+function projetarEditaveis(linha) {
+  return Object.fromEntries(CAMPOS_EDITAVEIS.map((c) => [c, linha?.[c] ?? null]));
+}
+
 /**
  * The resource-visibility predicate, as a WHERE fragment.
  *
@@ -238,11 +262,25 @@ export async function createCatalogItem(table, data, actor) {
  * `getCatalogItem`: a linha de outra OM precisa ser indistinguível de uma que não
  * existe.
  *
- * `owner_org_id` NUNCA entra no SET: produtor não transfere linha nenhuma.
+ * `owner_org_id` NUNCA entra no SET: produtor não transfere linha nenhuma. Ele SAI no
+ * `RETURNING`, e volta no ENVELOPE em vez de na linha, pelo mesmo motivo de
+ * `createCatalogItem`: a trilha precisa da OM dona para o eixo de auditoria por OM, e
+ * `COLS` está amarrada em oito colunas por `catalog-tabelas-paridade.test.js` — esticar
+ * a constante mudaria o corpo da resposta desta rota.
+ *
+ * OS VALORES ANTERIORES VIAJAM NO MESMO STATEMENT, e é o que torna possível gravar um
+ * de-para (`utils/audit-diff.js`) em vez de só os nomes dos campos tocados. Eles vêm de
+ * um `FROM (SELECT … FOR UPDATE) antes`, e o `FOR UPDATE` é a metade que importa: sem
+ * ele a subconsulta enxerga o snapshot do início do statement enquanto o UPDATE relê a
+ * linha, e em `READ COMMITTED` uma escrita concorrente faria `antes` divergir do que foi
+ * de fato sobrescrito — um de-para que registra um "de" que nunca existiu é pior que
+ * nenhum. Com o lock, a linha é travada antes do UPDATE e as duas leituras são a mesma.
+ *
  * @param {string} table
  * @param {string} id
  * @param {Object} data
  * @param {AtorDeProducao} actor
+ * @returns {Promise<{row: Object, antes: Object, depois: Object, ownerOrgId: string|null}>}
  */
 export async function updateCatalogItem(table, id, data, actor) {
   const t = assertTable(table);
@@ -256,15 +294,19 @@ export async function updateCatalogItem(table, id, data, actor) {
   // it, and only a literal SQL NULL is unreachable. The null-vs-empty asymmetry
   // is deliberate as-built behaviour, pinned by `images-gaps.test.js` res-02.
   const row = await oneOrNone(
-    `UPDATE ${t} SET
-       name = COALESCE($2, name),
-       description = COALESCE($3, description),
-       config = COALESCE($4::jsonb, config),
-       sort_order = COALESCE($5, sort_order),
+    `UPDATE ${t} AS t SET
+       name = COALESCE($2, t.name),
+       description = COALESCE($3, t.description),
+       config = COALESCE($4::jsonb, t.config),
+       sort_order = COALESCE($5, t.sort_order),
        updated_at = NOW()
-     WHERE id = $1 AND active = true
-       AND fn_can_produce_resource($6::uuid, $7::text, $1)
-     RETURNING ${COLS}`,
+     FROM (SELECT id, name, description, config, sort_order
+             FROM ${t} WHERE id = $1 FOR UPDATE) antes
+     WHERE t.id = antes.id AND t.active = true
+       AND fn_can_produce_resource($6::uuid, $7::text, t.id)
+     RETURNING ${COLS_T}, t.owner_org_id,
+               antes.name AS antes_name, antes.description AS antes_description,
+               antes.config AS antes_config, antes.sort_order AS antes_sort_order`,
     [
       id,
       data.name || null,
@@ -277,20 +319,42 @@ export async function updateCatalogItem(table, id, data, actor) {
   );
   if (!row) throw new NotFoundError('Catalog item');
   invalidateAppConfigCache();
-  return row;
+  const {
+    owner_org_id: ownerOrgId,
+    antes_name: antesName,
+    antes_description: antesDescription,
+    antes_config: antesConfig,
+    antes_sort_order: antesSortOrder,
+    ...publico
+  } = row;
+  // OS DOIS LADOS DO DE-PARA SAEM DA MESMA PROJEÇÃO (ver `CAMPOS_EDITAVEIS`), e o
+  // chamador recebe os dois prontos em vez de montar um deles: entregar `antes` projetado
+  // e deixar o `depois` para quem chamar é o convite a comparar quatro campos contra oito.
+  return {
+    row: publico,
+    antes: projetarEditaveis({
+      name: antesName,
+      description: antesDescription,
+      config: antesConfig,
+      sort_order: antesSortOrder,
+    }),
+    depois: projetarEditaveis(publico),
+    ownerOrgId: ownerOrgId ?? null,
+  };
 }
 
 /**
  * Soft-deletes (active = false) a catalog item, com o gate de produção no `WHERE`
  * pela mesma razão do UPDATE.
  *
- * DEVOLVE A LINHA (id + nome) em vez de `true`: o `target_name` da trilha é a única
- * coisa que ainda diz o que era aquele id depois que ele sumiu das listagens, e um
- * booleano não carrega nome nenhum.
+ * DEVOLVE A LINHA (id + nome + OM dona) em vez de `true`: o `target_name` da trilha é a
+ * única coisa que ainda diz o que era aquele id depois que ele sumiu das listagens, e um
+ * booleano não carrega nome nenhum. A OM entrou pelo eixo de auditoria por OM, e não
+ * aparece em resposta nenhuma — a rota responde 204.
  * @param {string} table
  * @param {string} id
  * @param {AtorDeProducao} actor
- * @returns {Promise<{id: string, name: string}>}
+ * @returns {Promise<{id: string, name: string, owner_org_id: string|null}>}
  */
 export async function deleteCatalogItem(table, id, actor) {
   const t = assertTable(table);
@@ -298,7 +362,7 @@ export async function deleteCatalogItem(table, id, actor) {
   const row = await oneOrNone(
     `UPDATE ${t} SET active = false, updated_at = NOW()
       WHERE id = $1 AND fn_can_produce_resource($2::uuid, $3::text, $1)
-      RETURNING id, name`,
+      RETURNING id, name, owner_org_id`,
     [id, actor?.id ?? null, tipo],
   );
   if (!row) throw new NotFoundError('Catalog item');

@@ -253,3 +253,68 @@ describe('ExportImportService._importMappedData — import side of the round-tri
         expect(setter).not.toHaveBeenCalled();
     });
 });
+
+// ============================================================================
+// A PODA DE SAÍDA no montador do `.ebgeo`.
+//
+// A bandeira é `buildPrunedExportData`, e ela existe SEPARADA de
+// `buildExportDataObject` por uma razão de produto: "enviar ao servidor" NÃO é sair do
+// servidor, e podar naquele caminho tiraria referência que o servidor pode legitimamente
+// aceitar. Quem poda a entrada do servidor é o próprio servidor.
+// ============================================================================
+
+describe('ExportImportService.buildPrunedExportData — a poda de saída', () => {
+    it('PISO: sem a bandeira, os dois ids RESTRITOS estão no documento', async () => {
+        // É o estado de hoje, e é o piso que prova que a fixture tem o que podar: sem ele,
+        // as asserções de "sumiu" passariam verdes sobre um documento vazio.
+        const data = await makeService().buildExportDataObject(['Mapa A']);
+        expect(JSON.stringify(data)).toContain('t1');
+        expect(data.streetview360['Mapa A'].markers).toHaveLength(1);
+    });
+
+    it('com a bandeira, o restrito sai e o PÚBLICO fica', async () => {
+        // O resolver de produção (`construirResolverDeSaida`) lê o singleton `config`, e a
+        // classificação dele tem teste próprio (`poda-recusa-sem-soma.test.js`). Aqui ele é
+        // injetado à mão para que o assunto deste caso seja a COMPOSIÇÃO sobre o documento
+        // real do exportador, e nada mais.
+        const { podarDocumentoDeExportacao } = await import('@catalog/private-reference-pruner.js');
+        const bruto = await makeService().buildExportDataObject(['Mapa A']);
+        const { documento, relatorio } = podarDocumentoDeExportacao(
+            bruto,
+            (grupo, id) => (id === 'carta-ortoimagem' ? 'public' : 'unknown')
+        );
+
+        // O restrito saiu…
+        expect(documento.cesium3d['Mapa A'].markers).toHaveLength(0);
+        expect(documento.streetview360['Mapa A'].markers).toHaveLength(0);
+        // …e o público ficou. Uma bandeira que não faz nada reprova acima; uma que apaga
+        // tudo reprova aqui.
+        expect(documento.maps['Mapa A'].baseLayer).toBe('carta-ortoimagem');
+        expect(documento.maps['Mapa A'].features.points).toHaveLength(1);
+        expect(relatorio.total).toBe(2);
+    });
+
+    it('os ids de imagem são derivados do documento JÁ MONTADO, não colhidos à parte', async () => {
+        // O guarda contra as duas cópias do bloco de montagem voltarem a divergir: `handleExport`
+        // deixou de montar o documento por conta própria, e a coleta de imagens passou a ser
+        // uma função do documento. Se alguém reintroduzir um segundo laço, este caso continua
+        // verde — mas o caso estrutural abaixo não.
+        const servico = makeService();
+        const data = await servico.buildExportDataObject(['Mapa A']);
+        const ids = [...servico.collectUsedImageIds(data)].sort();
+        expect(ids).toEqual(['icon1', 'p1', 'poly1']);
+    });
+
+    it('ESTRUTURAL: o documento de exportação é montado num lugar SÓ', async () => {
+        // As duas cópias do bloco eram declaradas ("This MIRRORS handleExport's data-building
+        // block") e já divergiram uma vez, no bug dos grupos. A poda é justamente a regra que
+        // não pode ter duas versões, então a segunda cópia foi removida — e é isto que impede
+        // que ela volte.
+        const { readFileSync } = await import('node:fs');
+        const fonte = readFileSync(
+            new URL('../../src/js/import_export/export-import.service.js', import.meta.url), 'utf8'
+        );
+        const montagens = fonte.split('\n').filter((l) => /version:\s*ATLAS_SCHEMA_VERSION/.test(l));
+        expect(montagens).toHaveLength(1);
+    });
+});

@@ -97,8 +97,13 @@ describe('the enlarged bulk JSON parser is reachable only by an authenticated pr
       .set('Content-Type', 'application/json')
       .send(overGlobalCap());
     assert.notEqual(res.status, 413, '12mb must pass the parser for an authenticated caller');
-    // It then fails on authorization/routing, which is the correct order.
-    assert.ok([403, 404].includes(res.status), `expected 403/404 after parsing, got ${res.status}`);
+    // It then fails on authorization, which is the correct ORDER and a single outcome:
+    // `/bulk` is gated by requireAtlasPermission('write') and the atlas id is random, so
+    // the atlas row is not found and the answer is 404 — never 403, which would leak the
+    // existence of an atlas this caller has no relationship with. This line used to hedge
+    // `[403, 404]`, which is the same empty coverage as `assert.ok(A || B)` in another
+    // spelling: it passed whichever gate answered, so it pinned neither.
+    assert.equal(res.status, 404, `expected 404 after parsing, got ${res.status}`);
   });
 
   it('the enlarged cap is still enforced for an authenticated principal', async () => {
