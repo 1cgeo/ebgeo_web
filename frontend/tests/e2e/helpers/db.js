@@ -107,6 +107,80 @@ export async function promoteToAdmin(username) {
     if (!row) throw new Error(`cannot promote "${username}": no such user`);
 }
 
+/**
+ * Seeds PUBLIC catalog rows for the ids a spec is about to reference in a sync op.
+ *
+ * WHY A SPEC NEEDS THIS AT ALL, and it is a behaviour change, not a test smell: since
+ * 2026-08-21 the sync write gate refuses an op whose resource reference the author cannot
+ * see, and `fn_can_see_resource` treats a MISSING row as one you cannot see, so that
+ * "absent" and "forbidden" stay indistinguishable (the same anti-enumeration rule the atlas
+ * routes follow). Three specs of this leg pushed references to ids that never existed
+ * anywhere — `tileset-alpha`, `ortofoto`, freshly generated photo names — and were silently
+ * relying on the gate not being there. The fix is a real row, not a hole in the gate.
+ *
+ * `ON CONFLICT DO NOTHING` because this leg runs every spec file against ONE throwaway
+ * database, so two files asking for the same id is normal, not a collision.
+ *
+ * @param {{tilesets?: string[], basemaps?: string[], dataLayers?: string[], analysisLayers?: string[]}} ids
+ * @returns {Promise<void>}
+ */
+export async function seedPublicCatalogRefs(ids = {}) {
+    const TABELAS = {
+        tilesets: 'tilesets',
+        basemaps: 'basemaps',
+        dataLayers: 'data_layers',
+        analysisLayers: 'analysis_layers',
+    };
+    const db = connect();
+    for (const [chave, tabela] of Object.entries(TABELAS)) {
+        for (const id of ids[chave] ?? []) {
+            await db.none(
+                `INSERT INTO ${tabela} (id, name, config, sort_order, access_level)
+                 VALUES ($1, $2, '{}'::jsonb, 900, 'public')
+                 ON CONFLICT (id) DO NOTHING`,
+                [id, `Fixture ${id}`]
+            );
+        }
+    }
+}
+
+/**
+ * Seeds a PUBLIC 360 project owning one photo per name given.
+ *
+ * The names are the photos' `original_name`, which is what `streetview360_data.photo_name`
+ * stores and what the write gate translates to a project id — a 360 reference is a NAME, not
+ * an id, and that translation is the reason this helper cannot be folded into the one above.
+ *
+ * @param {string[]} photoNames
+ * @returns {Promise<{projectId: string, orgId: string}>}
+ */
+export async function seedPublic360Photos(photoNames = []) {
+    const db = connect();
+    const sufixo = Math.abs(Date.parse(new Date().toISOString()) % 1e8).toString(36)
+        + photoNames.join('').length.toString(36);
+    const slug = `e2e-360-${sufixo}`;
+    const org = await db.one(
+        `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+        [`OM e2e 360 ${sufixo}`, `om-e2e-360-${sufixo}`, 'FX']
+    );
+    const proj = await db.one(
+        `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level,
+                                     center_lat, center_long, photo_count)
+         VALUES ($1, $2, $3, $4, 'enabled', 'public', -22.9, -43.2, $5) RETURNING id`,
+        [org.id, slug, `Projeto e2e ${sufixo}`, `${org.id}__${slug}.db`, photoNames.length]
+    );
+    let sequencia = 0;
+    for (const nome of photoNames) {
+        sequencia += 1;
+        await db.none(
+            `INSERT INTO sv360.photos (id, project_id, original_name, sequence_number, lat, lon)
+             VALUES ($1, $2, $3, $4, -22.9, -43.2)`,
+            [`e2e-foto-${sufixo}-${sequencia}`, proj.id, nome, sequencia]
+        );
+    }
+    return { projectId: proj.id, orgId: org.id };
+}
+
 /** Closes the memoized connection + driver. Safe to call when nothing was opened. */
 export async function closeDb() {
     if (_pgp) {

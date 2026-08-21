@@ -45,6 +45,13 @@ describe.skipIf(E2E_SKIP)('e2e: map sub-entities', () => {
     let atlasId;
     let mapId;
 
+    // Os cinco mapas base semeados pela migração de catálogo são `carta-topografica`,
+    // `carta-ortoimagem`, `bdgex`, `osm` e `imagens`. Dois DIFERENTES entre si e diferentes do
+    // default (`carta-topografica`), para que nenhuma asserção deste arquivo seja verdadeira
+    // por o valor já ser o que era.
+    const BASE_LAYER_VALIDO = 'carta-ortoimagem';
+    const BASE_LAYER_ATAQUE = 'bdgex';
+
     beforeAll(async () => {
         api = makeApi();
         await registerAndLogin(api, { nome: 'Map Subentity User' });
@@ -68,13 +75,20 @@ describe.skipIf(E2E_SKIP)('e2e: map sub-entities', () => {
     });
 
     it('applies a baseLayer update', async () => {
+        // O ID PRECISA SER DE UM MAPA BASE QUE EXISTE. Este caso usou `'ortofoto'` por muito
+        // tempo, e `ortofoto` nunca foi um dos cinco semeados (`carta-topografica`,
+        // `carta-ortoimagem`, `bdgex`, `osm`, `imagens`): passava porque a escrita gravava a
+        // coluna sem perguntar nada. Desde 2026-08-21 ela cobra que o autor VEJA o recurso
+        // referenciado, e linha ausente conta como não-vista. O caso ficou mais verdadeiro
+        // com a troca: ele agora exercita uma troca de mapa base que um usuário pode fazer.
         const op = createOperation('baseLayer', 'update', mapId, mapId, {
-            baseLayer: 'ortofoto',
+            baseLayer: BASE_LAYER_VALIDO,
         });
-        await api.pushOperations(atlasId, [op]);
+        const res = await api.pushOperations(atlasId, [op]);
+        expect((res.results ?? []).filter((r) => r.rejected)).toEqual([]);
 
         const map = await pullMap(api, atlasId, mapId);
-        expect(map.base_layer).toBe('ortofoto');
+        expect(map.base_layer).toBe(BASE_LAYER_VALIDO);
     });
 
     it('applies a mapNotes update (title/description -> notes_*)', async () => {
@@ -105,9 +119,9 @@ describe.skipIf(E2E_SKIP)('e2e: map sub-entities', () => {
         const map = await waitFor(async () => {
             const res = await api.pullSync(atlasId, 0);
             const m = res.snapshot?.maps?.find((x) => x.id === mapId);
-            return m && m.base_layer === 'ortofoto' ? m : false;
+            return m && m.base_layer === BASE_LAYER_VALIDO ? m : false;
         });
-        expect(map.base_layer).toBe('ortofoto');
+        expect(map.base_layer).toBe(BASE_LAYER_VALIDO);
         expect(map.notes_title).toBe('Plano de Manobra');
         expect(map.grid_style).toMatchObject({ format: 'MGRS' });
         expect(Number(map.zoom)).toBe(12);
@@ -126,14 +140,23 @@ describe.skipIf(E2E_SKIP)('e2e: map sub-entities', () => {
 
         // Attacker pushes a baseLayer update to its OWN atlas route but targets the
         // foreign mapId. The backend's EXISTS(atlas_id) clause must reject the write.
+        // O VALOR TEM DE SER VÁLIDO, e isto é o que mantém este caso medindo o que promete.
+        // Ele usava `'pwned'`, um id que não existe; desde que a escrita passou a cobrar a
+        // referência, aquele valor seria recusado ANTES de a guarda de atlas cruzado opinar,
+        // e o caso ficaria verde mesmo com a guarda removida. Com um mapa base real, a única
+        // coisa entre o ataque e a vítima é o `EXISTS(atlas_id)` que este caso existe para
+        // provar.
         const evilOp = createOperation('baseLayer', 'update', otherMapId, otherMapId, {
-            baseLayer: 'pwned',
+            baseLayer: BASE_LAYER_ATAQUE,
         });
         await api.pushOperations(atlasId, [evilOp]);
 
         // The victim map must be untouched.
         const after = await pullMap(otherApi, otherAtlas.id, otherMapId);
         expect(after.base_layer).toBe(baselineBaseLayer);
-        expect(after.base_layer).not.toBe('pwned');
+        expect(after.base_layer).not.toBe(BASE_LAYER_ATAQUE);
+        // PISO: o valor do ataque é DIFERENTE do que a vítima já tinha, senão a asserção
+        // acima seria verdadeira por coincidência e não por defesa.
+        expect(BASE_LAYER_ATAQUE).not.toBe(baselineBaseLayer);
     });
 });

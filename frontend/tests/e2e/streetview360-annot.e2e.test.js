@@ -28,6 +28,7 @@ import {
     E2E_SKIP,
 } from './helpers/harness.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
+import { seedPublic360Photos } from './helpers/db.js';
 
 describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
     let api;
@@ -57,8 +58,18 @@ describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
             fov: 75,
         });
 
+        // A FOTO PRECISA EXISTIR. Uma referência 360 é um NOME de foto, e desde 2026-08-21 a
+        // escrita a traduz para o projeto dono e cobra que o autor VEJA aquele projeto; nome
+        // que não resolve para projeto nenhum conta como não-visto, pela mesma regra que faz
+        // "ausente" e "proibido" serem indistinguíveis em toda a casa.
+        await seedPublic360Photos([photoName]);
+
         const res = await api.pushOperations(atlasId, [op]);
         expect(res.serverVersion).toBeGreaterThan(0);
+        // O PISO QUE FALTAVA: o lote responde 200 mesmo com a op recusada (a recusa é por
+        // operação), então sem esta linha a falha só aparece na leitura do snapshot, onde se
+        // lê como "não reidratou" em vez de "não escreveu".
+        expect((res.results ?? []).filter((r) => r.rejected)).toEqual([]);
 
         const pulled = await api.pullSync(atlasId, 0);
         const map = pulled.snapshot.maps.find((m) => m.id === mapId);
@@ -91,7 +102,9 @@ describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
             properties,
         });
 
-        await api.pushOperations(atlasId, [op]);
+        await seedPublic360Photos([photoName]);
+        const res = await api.pushOperations(atlasId, [op]);
+        expect((res.results ?? []).filter((r) => r.rejected)).toEqual([]);
 
         const pulled = await api.pullSync(atlasId, 0);
         const map = pulled.snapshot.maps.find((m) => m.id === mapId);
@@ -126,7 +139,11 @@ describe.skipIf(E2E_SKIP)('e2e streetview360-annot', () => {
         });
         op.clientId = senderClientId; // a DIFFERENT client than the WS peer
 
-        await api.pushOperations(atlasId, [op]);
+        await seedPublic360Photos([photoName]);
+        const pushed = await api.pushOperations(atlasId, [op]);
+        // Sem este piso, uma op recusada vira "waitFor: timed out" quatro segundos depois, e
+        // o diagnóstico aponta para o WebSocket em vez de para a escrita que nunca aconteceu.
+        expect((pushed.results ?? []).filter((r) => r.rejected)).toEqual([]);
 
         const got = await waitFor(
             () => received.find((o) => o.entityId === id || (o.data && o.data.id === id)),

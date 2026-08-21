@@ -17,6 +17,7 @@ import {
     createMap,
     E2E_SKIP,
 } from './helpers/harness.js';
+import { seedPublicCatalogRefs } from './helpers/db.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 
 describe.skipIf(E2E_SKIP)('e2e: cesium3d flat 3D sync', () => {
@@ -62,6 +63,10 @@ describe.skipIf(E2E_SKIP)('e2e: cesium3d flat 3D sync', () => {
     };
 
     beforeAll(async () => {
+        // O `tilesetId` das quatro ops precisa existir como linha PÚBLICA de catálogo: desde
+        // 2026-08-21 a escrita cobra que o autor VEJA o recurso referenciado, e linha ausente
+        // conta como não-vista, para que "ausente" e "proibido" não se distingam.
+        await seedPublicCatalogRefs({ tilesets: [TILESET] });
         api = makeApi();
         await registerAndLogin(api, { nome: 'Cesium3D E2E' });
         const atlas = await createAtlas(api, { name: 'Cesium3D Atlas' });
@@ -76,6 +81,15 @@ describe.skipIf(E2E_SKIP)('e2e: cesium3d flat 3D sync', () => {
         ];
         const res = await api.pushOperations(atlasId, ops);
         expect(res.serverVersion).toBeGreaterThan(0);
+        // O PISO QUE FALTAVA. `serverVersion > 0` sobe mesmo quando TODA op foi recusada,
+        // porque a recusa é por operação e o lote responde 200: quando o gate de referência
+        // privada passou a existir, as quatro ops daqui começaram a ser recusadas e este
+        // `beforeAll` seguiu verde, empurrando a falha para três casos adiante, onde ela se
+        // lê como "o snapshot não reidrata" em vez de "a escrita não aconteceu".
+        expect(
+            (res.results ?? []).filter((r) => r.rejected),
+            'nenhuma op pode ser recusada aqui; se for, o diagnóstico está NESTA linha',
+        ).toEqual([]);
     }, 30000);
 
     /**
