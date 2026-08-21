@@ -606,15 +606,37 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
                 const tabB = await openTab(ctx, `/?atlas=${X.id}`);
                 await expect(tabB.locator(BLOCK_OVERLAY_SELECTOR), 'a aba B foi bloqueada (pré-condição)')
                     .toBeVisible({ timeout: 30000 });
-                // Long enough to cover the window in which the measurement above saw B connect.
-                await tabB.waitForTimeout(10000);
                 return { ctx, tabB };
             },
 
+            // A JANELA SE AMOSTRA, NÃO SE ESPERA. Esta era uma leitura ÚNICA depois de
+            // `waitForTimeout(10000)`, e isso media a coisa errada: o defeito é a aba
+            // bloqueada CONECTAR, não estar conectada no instante 10 s. Com o badge
+            // oscilando, a amostra única erra o evento, e o `test.fail()` reprovava a suíte
+            // inteira quando errava.
+            //
+            // MEDIDO em série (2026-08-20, cinco rodadas isoladas): o instrumento antigo via
+            // o defeito em 4 de 5 execuções. Não é o defeito que é raro — é a amostra que é
+            // pontual. Amostrando a janela inteira, uma reconexão em qualquer ponto dela é
+            // capturada, e o caso passa a falhar (isto é, a cumprir o `test.fail()`) de forma
+            // estável enquanto o defeito existir.
+            //
+            // Quando ele fechar de verdade, ESTE gate é que fica verde, e aí o `test.fail()`
+            // sai — com a certeza que a leitura pontual não dava.
             gate: async ({ tabB }) => {
-                const diag = await tabDiagnostic(tabB);
-                expect(diag.syncState, 'uma aba bloqueada não fica online no atlas que a outra segura')
-                    .not.toBe('online');
+                const amostras = [];
+                const fim = Date.now() + 10000;
+                while (Date.now() < fim) {
+                    const diag = await tabDiagnostic(tabB);
+                    amostras.push(diag.syncState);
+                    if (diag.syncState === 'online') break;
+                    await tabB.waitForTimeout(250);
+                }
+                expect(amostras.length, 'a janela precisa ter sido amostrada de fato').toBeGreaterThan(1);
+                expect(
+                    amostras,
+                    `uma aba bloqueada não fica online no atlas que a outra segura (amostras: ${amostras.join(',')})`
+                ).not.toContain('online');
             },
         });
     });
