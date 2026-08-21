@@ -187,8 +187,14 @@ export async function updateGroup({
  * esvaziamento que produz o roster) → apagar. Ler o alcance depois de podar daria
  * contagem zero.
  *
+ * O GRUPO TEM DOIS EIXOS DE ALCANCE desde D2 (2026-08-21), e só um deles é podado. As
+ * concessões de RECURSO caem por escrita (`podarPorRaizes`); o acesso a ATLAS
+ * (`atlas_shares.group_id`) cai por PREDICADO, no mesmo instante e sem linha alterada.
+ * Contá-lo é a única forma de o ato aparecer inteiro na trilha e no aviso.
+ *
  * @param {{groupId: string, actor: object, req: object}} params
- * @returns {Promise<{id: string, name: string, grantsAffected: number, memberCount: number}>}
+ * @returns {Promise<{id: string, name: string, grantsAffected: number,
+ *                    directGrants: number, atlasShares: number, memberCount: number}>}
  */
 export async function deleteGroup({ groupId, actor, req }) {
   return tx(async (trx) => {
@@ -224,6 +230,13 @@ export async function deleteGroup({ groupId, actor, req }) {
         // outro, `grantsAffected` menor que `directGrants` parece poda incompleta.
         grantsReparented: reparented.length + trimmed.length,
         directGrants: alcance.grant_count,
+        // O SEGUNDO EIXO DO GRUPO (D2, 2026-08-21). Ele não passa por `podarPorRaizes`
+        // e não escreve linha nenhuma: apagar o grupo é SOFT, soft não dispara o
+        // `ON DELETE CASCADE` de `atlas_shares.group_id`, e quem mata o share é
+        // `fn_user_group_ids` no predicado. Sem este número a trilha registraria um ato
+        // cujo maior efeito (N atlas fora do alcance de todo o coletivo) não aparece em
+        // lugar nenhum, porque não há linha alterada para contar.
+        atlasShares: alcance.atlas_share_count,
         memberCount: alcance.member_count,
         membros: roster.map((m) => ({ userId: m.id, username: m.username })),
       },
@@ -234,6 +247,7 @@ export async function deleteGroup({ groupId, actor, req }) {
       name: row.name,
       grantsAffected: revoked.length,
       directGrants: alcance.grant_count,
+      atlasShares: alcance.atlas_share_count,
       memberCount: alcance.member_count,
     };
   });
@@ -302,29 +316,38 @@ export async function addMember({ groupId, userId, actor, req }) {
  * do próprio membro morre pelo predicado no instante do DELETE, mas quem ele repassou
  * continuava pendurado numa concessão AO GRUPO que segue viva.
  *
- * O QUE A ARESTA ALCANÇA E O QUE ELA ERRA, dito com precisão porque a onda 3 vai
- * herdar esta linha como piso: o repasse pendurado numa concessão PESSOAL não cai, e
- * está certo; o pendurado na do GRUPO cai mesmo quando o membro tinha, ao lado, uma
- * concessão pessoal viva sobre o mesmo recurso que justificaria o ato. O pai é
- * escolhido no INSERT por `LIVE_GRANTS_OF_ACTOR`, que prefere o `view_share` mais
- * ANTIGO sem olhar se ele é pessoal ou coletivo — quem recebeu a do grupo primeiro fica
- * com o pai coletivo. A direção do erro é poda A MAIS, nunca acesso a mais.
+ * O QUE A ARESTA ALCANÇA: o repasse pendurado numa concessão PESSOAL não é nem raiz da
+ * poda, porque `GRANT_IDS_FED_BY_MEMBER_VIA_GROUP` exige que o pai seja a concessão AO
+ * GRUPO. O pendurado na do grupo é raiz — inclusive quando o membro tem, ao lado, uma
+ * concessão pessoal viva sobre o mesmo recurso, porque o pai é escolhido no INSERT por
+ * `LIVE_GRANTS_OF_ACTOR`, que prefere o `view_share` mais ANTIGO sem olhar se ele é
+ * pessoal ou coletivo. Quem recebeu a do grupo primeiro fica com o pai coletivo.
  *
- * D3 CHEGOU E ESTE CAMINHO CONTINUA NÃO PRESERVANDO, ao contrário do que este parágrafo
- * prometia ("até lá, não leia esta função como se já preservasse" — a espera acabou e a
- * resposta foi não). O motivo é estrutural e vale entender antes de "consertar": aqui as
- * raízes são `GRANT_IDS_FED_BY_MEMBER_VIA_GROUP`, isto é, as PRÓPRIAS concessões do
- * membro, e elas são a ÂNCORA da poda. A decisão (1) de
- * `REVOKE_SUBTREE_PRESERVING_REACH` garante que a âncora nunca é resgatada, senão
- * revogar quem tem outro caminho vivo seria um no-op com 200 na resposta.
+ * ESSE ÚLTIMO CASO ERA UMA DIVERGÊNCIA COM `deleteGroup`, E DEIXOU DE SER (2026-08-21,
+ * decisão do dono: convergir para MANTER). Lá a concessão do membro é DESCENDENTE da
+ * coletiva que caiu, então ela é RESGATADA quando o membro tem autoridade própria (o caso
+ * "o repasse feito PELO grupo sobrevive REPAI-ADO" mede isso); aqui ela é a ÂNCORA, e
+ * âncora não se resgatava. O mesmo fato — o membro deixou de alcançar o recurso PELO
+ * grupo — dava desfechos opostos conforme o ato que o produzisse.
  *
- * O DESFECHO DIVERGE DO DE `deleteGroup`, PARA O MESMO FATO, e a divergência é conhecida:
- * lá a concessão do membro é DESCENDENTE da coletiva que caiu, então ela é resgatada (o
- * caso "o repasse feito PELO grupo sobrevive REPAI-ADO" mede exatamente isso). Ou seja, o
- * membro com dupla autoridade MANTÉM o repasse se o grupo for apagado e PERDE se ele for
- * retirado do grupo. Convergir é decisão de produto, não arrumação: a implementação seria
- * podar a partir da concessão COLETIVA restrita ao membro, e não a partir dos repasses
- * dele. Não a faça por conta própria.
+ * A CONVERGÊNCIA É PELA CLÁUSULA 3.7 ("se B não caiu, o que B concedeu não cai"), e o
+ * lugar dela é a CTE, não este arquivo: `podarPorRaizes` recebe `resgatarRaiz: true`, e é
+ * o que diz "estas raízes não são revogação deliberada, são um CAMINHO que caiu". As duas
+ * alternativas recusadas (passar a concessão coletiva como raiz, e decidir o resgate em JS
+ * antes de podar) estão argumentadas na decisão (1) de `REVOKE_SUBTREE_PRESERVING_REACH`;
+ * a primeira revogaria a coletiva para o grupo INTEIRO, a segunda deixaria o repasse vivo
+ * ainda pendurado no grupo. Note o que NÃO mudou: quem não tem outra autoridade sobre
+ * aquele recurso continua perdendo o repasse, e a decisão é POR RECURSO — o membro
+ * resgatado num recurso cai normalmente nos outros.
+ *
+ * A ORDEM `DELETE_MEMBER` ANTES DE `podarPorRaizes` VIROU CONTRATO com o resgate, e antes
+ * dele era só arrumação. O pai alternativo é procurado por
+ * `p.grantee_group_id IN fn_user_group_ids(g.granted_by)`, e a concessão coletiva DESTE
+ * grupo não está no `alcance` da poda (o alcance nasce no repasse, e o pai dele fica de
+ * fora). Podar antes de apagar a linha de composição faria o resgate escolher como "outro
+ * caminho" exatamente o caminho que o ato acabou de fechar: um repai para o pai que a
+ * linha já tinha, isto é, a saída do membro sem efeito nenhum, com 200 na resposta. A
+ * discriminação do membro SEM autoridade própria é o que prende essa ordem.
  *
  * @param {{groupId: string, userId: string, actor: object, req: object}} params
  * @returns {Promise<{groupId: string, userId: string, grantsAffected: number}>}
@@ -343,7 +366,7 @@ export async function removeMember({ groupId, userId, actor, req }) {
     if (!row) throw new NotFoundError('Group member');
 
     const { revoked, reparented, trimmed } = await podarPorRaizes({
-      raizes, actor, req, trx, origem: 'ACCESS_GROUP_MEMBER_REMOVE',
+      raizes, actor, req, trx, origem: 'ACCESS_GROUP_MEMBER_REMOVE', resgatarRaiz: true,
     });
 
     await createAudit(req, {

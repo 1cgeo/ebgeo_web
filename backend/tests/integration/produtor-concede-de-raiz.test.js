@@ -14,14 +14,23 @@
 // por uma concessão `view`, o privado de outra OM que ele não enxerga, e um id que não
 // existe. Os três com a mesma resposta, para que o 403 não vire oráculo de inventário.
 //
-// A CONSEQUÊNCIA ACEITA, e desde 2026-08-21 MEDIDA no último caso deste arquivo em vez
-// de narrada aqui: a concessão-raiz dele SOBREVIVE à perda do escopo de produção, até o
-// prazo, porque o predicado de leitura confere a vida do BENEFICIÁRIO e nunca a
-// autoridade do concedente. A raiz de um administrador rebaixado sempre sobreviveu
-// igual. O EMPRÉSTIMO por atlas não tem essa assimetria, e é o que
-// `emprestimo-do-produtor-resolve.test.js` mede. Repare que D8(b) da onda 3, do jeito
-// como está especificado (`fn_principal_vivo(g.granted_by)`), NÃO fecha isto: aquela
-// função pergunta se a conta está viva, e rebaixar não desativa ninguém.
+// O REBAIXAMENTO DERRUBA O QUE A PESSOA CONCEDEU, e os últimos casos deste arquivo o
+// medem. Até 2026-08-21 valia o contrário, e o caso que afirmava isso foi INVERTIDO em
+// vez de apagado: a lacuna era real (a raiz de um produtor sem OM, ou de um administrador
+// rebaixado a `user`, sobrevivia até um ano) e o dono decidiu fechá-la pela forma SIMPLES
+// — ao rebaixar, poda-se TODA concessão daquela pessoa, sem distinguir sob qual
+// autoridade cada uma nasceu. A direção de falha correta numa revogação é a fechada.
+//
+// O PAR PREDICADO/GANCHO É O QUE ESTES CASOS SEPARAM, e é a razão de um deles continuar
+// rebaixando por SQL cru. O PREDICADO (`fn_principal_vivo(g.granted_by)`, D8(b)) NÃO
+// mudou e continua perguntando se a CONTA está viva: rebaixar não desativa ninguém, então
+// mexer no papel por baixo do serviço não derruba nada. Quem derruba é o GANCHO da rota de
+// administração (`updateUser`, `fundamentoDeRaizPerdido` + `podarPorRaizes`). Sem os dois
+// casos lado a lado, um verde no primeiro seria compatível com uma poda que nasceu no
+// lugar errado.
+//
+// O EMPRÉSTIMO por atlas nunca teve a assimetria (ele é reavaliado a cada leitura), e é o
+// que `emprestimo-do-produtor-resolve.test.js` mede.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,6 +69,45 @@ describe('F17 — o produtor concede DE RAIZ o que ele produz', () => {
       .expect(200);
     return res.body.data.tilesets.map((t) => t.id);
   }
+
+  // A ROTA DE ADMINISTRAÇÃO, que é onde o gancho do rebaixamento vive. Rebaixar por
+  // `UPDATE users` no banco exercita o PREDICADO e nunca o serviço, e era assim que o
+  // caso antigo (o que media a lacuna) media a coisa errada para a pergunta nova.
+  const editarUsuario = (quem, userId, corpo) => supertest(app)
+    .put(`/api/v1/users/${userId}`)
+    .set('Authorization', `Bearer ${tokens[quem]}`)
+    .send(corpo);
+
+  // Atores DESCARTÁVEIS, um jogo por caso: rebaixar é irreversível para as concessões, e
+  // reusar os atores compartilhados faria um caso decidir o piso do seguinte.
+  let seq = 0;
+  async function ator(rotulo, producerOrgId = null) {
+    seq += 1;
+    const chave = `${rotulo}${seq}`;
+    const u = producerOrgId
+      ? await createProducerUser(db, producerOrgId, { username: `rz_${chave}_${sufixo}` })
+      : await createUser(db, { username: `rz_${chave}_${sufixo}` });
+    atores[chave] = u;
+    tokens[chave] = await loginUser(app, u.username, u.password);
+    return chave;
+  }
+
+  const linhaDaConcessao = async (grantId) => (await db.query(
+    'SELECT revoked_at, revoked_by, parent_grant_id FROM resource_grants WHERE id = $1::uuid',
+    [grantId],
+  )).rows[0];
+
+  const papelGravado = async (userId) => (await db.query(
+    'SELECT role, producer_org_id, nome FROM users WHERE id = $1::uuid', [userId],
+  )).rows[0];
+
+  /** As linhas de trilha DA PODA sobre uma concessão, filtradas pela origem nova. */
+  const trilhaDaPoda = async (grantId) => (await db.query(
+    `SELECT action, details FROM audit_trail
+      WHERE details->>'grantId' = $1 AND details->>'origem' = 'USER_DEMOTION'
+      ORDER BY created_at`,
+    [grantId],
+  )).rows;
 
   const contaVivas = async (resourceId, granteeId) => (await db.query(
     `SELECT COUNT(*)::int AS n FROM resource_grants
@@ -109,6 +157,10 @@ describe('F17 — o produtor concede DE RAIZ o que ele produz', () => {
   after(async () => {
     await db.query('DELETE FROM resource_grants WHERE resource_id LIKE $1', [`%${sufixo}%`]);
     await db.query('DELETE FROM tilesets WHERE id LIKE $1', [`%${sufixo}%`]);
+    // POR NOME, e não só por `producer_org_id`: metade dos atores destes casos termina
+    // REBAIXADA (papel `user`, escopo nulo), e a limpeza por escopo de produção não
+    // alcança quem acabou de perdê-lo — que é justamente o que os casos novos produzem.
+    await db.query('DELETE FROM users WHERE username LIKE $1', [`rz\\_%\\_${sufixo}`]);
     await db.query('DELETE FROM users WHERE producer_org_id = ANY($1::uuid[])', [[orgA, orgB]]);
     await db.query('DELETE FROM organizations WHERE id = ANY($1::uuid[])', [[orgA, orgB]]);
     await teardownTestEnv(db);
@@ -240,61 +292,241 @@ describe('F17 — o produtor concede DE RAIZ o que ele produz', () => {
     );
   });
 
-  it('A LACUNA, MEDIDA: o REBAIXAMENTO do concedente NÃO derruba a concessão-raiz', async () => {
-    // ESTE CASO AFIRMA O COMPORTAMENTO DE HOJE, e é deliberado que ele afirme o lado
-    // frouxo. O cabeçalho deste arquivo declarava a consequência em prosa ("registrada e
-    // não medida aqui"), e consequência narrada em comentário é a que a próxima sessão lê
-    // como já resolvida. Aqui ela vira número.
-    //
-    // POR QUE ISSO NÃO É O QUE D8(b) VAI CONSERTAR, e é a parte que ninguém tinha escrito:
-    // D8(b) foi especificado como "uma concessão de raiz vive enquanto
-    // `fn_principal_vivo(g.granted_by)`", e `fn_principal_vivo` pergunta se a CONTA está
-    // viva, não se a AUTORIDADE está. Um produtor rebaixado, um administrador rebaixado e
-    // um credenciado rebaixado seguem com conta ativa. Logo, depois da onda 3, este caso
-    // continua verde do jeito que está — quem for implementá-la e quiser fechar a lacuna
-    // precisa exigir a AUTORIDADE da raiz no braço de concessão, e então INVERTER este
-    // caso. Se o dono decidir que rebaixamento nunca propaga, o caso fica como está e
-    // passa a ser a asserção da decisão.
-    //
-    // O CONTRASTE É O ARGUMENTO: o EMPRÉSTIMO por atlas é reavaliado a cada leitura e cai
-    // no mesmo rebaixamento (`emprestimo-do-produtor-resolve.test.js`). Os dois eixos
-    // ficam com regras opostas sobre o mesmo ato.
-    const layer = DELE;
-    const doColega = (await conceder('colega', layer, {
-      granteeId: atores.quarto.id, grantLevel: 'view',
+  it('INVERTIDO: o REBAIXAMENTO pela rota de administração DERRUBA a concessão-raiz', async () => {
+    // ESTE CASO AFIRMAVA O CONTRÁRIO até 2026-08-21, e a inversão é a decisão do dono:
+    // a concessão de raiz vive enquanto quem a deu tiver de onde tirá-la. O que ele
+    // preservou do caso antigo é o método — o piso (a concessão é de RAIZ), e a medição
+    // na PORTA (`GET /resource-access/visible`) e não só na tabela. Uma linha com
+    // `revoked_at` preenchido é compatível com um predicado de leitura que a ignore.
+    const produtor = await ator('rebRota', orgA);
+    const beneficiario = await ator('benRota');
+
+    const criada = (await conceder(produtor, DELE, {
+      granteeId: atores[beneficiario].id, grantLevel: 'view',
     }).expect(201)).body.data;
-    assert.equal(doColega.parent_grant_id, null, 'piso: é concessão de RAIZ');
-    assert.ok((await visiveis('quarto')).includes(layer), 'piso: o beneficiário vê');
+    assert.equal(criada.parent_grant_id, null, 'piso: é concessão de RAIZ');
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'piso: o beneficiário VÊ na porta');
 
-    // REBAIXAMENTO, e não desativação: a conta continua ATIVA, e é isso que faz
-    // `fn_principal_vivo` continuar dizendo "sim" sobre o concedente.
-    await db.query(
-      `UPDATE users SET role = 'user', producer_org_id = NULL WHERE id = $1`, [atores.colega.id],
+    // REBAIXAMENTO PELA ROTA, e não por SQL: é onde o gancho vive. A conta continua
+    // ATIVA — não é uma desativação disfarçada, e o caso seguinte prova que a conta viva
+    // é exatamente o que fazia o predicado sozinho não bastar.
+    await editarUsuario('admin', atores[produtor].id, { role: 'user' }).expect(200);
+    const depois = await papelGravado(atores[produtor].id);
+    assert.equal(depois.role, 'user', 'piso do ato: o papel foi de fato gravado');
+    assert.equal(depois.producer_org_id, null, 'e o escopo de produção caiu junto');
+
+    const linha = await linhaDaConcessao(criada.id);
+    assert.ok(linha.revoked_at !== null, 'a concessão-raiz do rebaixado foi REVOGADA');
+    assert.equal(
+      linha.revoked_by, atores.admin.id,
+      'e quem consta é o administrador que rebaixou, não o rebaixado',
     );
-    try {
-      const { rows: produz } = await db.query(
-        `SELECT fn_can_produce_resource($1::uuid, 'tileset', $2) AS ok`, [atores.colega.id, layer],
-      );
-      assert.equal(produz[0].ok, false, 'o concedente deixou de produzir');
-      const { rows: vivo } = await db.query(
-        'SELECT fn_principal_vivo($1::uuid) AS ok', [atores.colega.id],
-      );
-      assert.equal(vivo[0].ok, true, 'e continua VIVO: é a conta que ela mede, não a autoridade');
+    assert.ok(
+      !(await visiveis(beneficiario)).includes(DELE),
+      'e o beneficiário deixa de ver NA PORTA, que é o que a revogação promete',
+    );
 
-      assert.ok(
-        (await visiveis('quarto')).includes(layer),
-        'e o beneficiário CONTINUA vendo: a raiz não é reavaliada contra a autoridade de quem a deu',
-      );
-      const { rows: linha } = await db.query(
-        'SELECT revoked_at FROM resource_grants WHERE id = $1::uuid', [doColega.id],
-      );
-      assert.equal(linha[0].revoked_at, null, 'nem a linha foi revogada por ninguém');
-    } finally {
-      await db.query(
-        `UPDATE users SET role = 'producer', producer_org_id = $2::uuid WHERE id = $1`,
-        [atores.colega.id, orgA],
-      );
-      await db.query('UPDATE resource_grants SET revoked_at = NOW() WHERE id = $1::uuid', [doColega.id]);
-    }
+    // O PISO DA TRILHA: a poda deixa rastro, e com a origem PRÓPRIA. Sem `origem`, a
+    // leitura seria "o administrador revogou uma concessão que ele nunca deu", e nada
+    // explicaria a autoridade dele para isso.
+    const trilha = await trilhaDaPoda(criada.id);
+    assert.equal(trilha.length, 1, 'uma linha de trilha para a concessão derrubada');
+    assert.equal(trilha[0].action, 'PERMISSION_REVOKE');
+    assert.equal(trilha[0].details.origem, 'USER_DEMOTION');
+    assert.equal(trilha[0].details.granteeId, atores[beneficiario].id);
+  });
+
+  it('o PREDICADO não é quem derruba: rebaixar por SQL cru deixa a concessão viva', async () => {
+    // A DISCRIMINAÇÃO QUE SEPARA O PAR, e o motivo de este caso sobreviver à inversão.
+    // Ele é o caso antigo inteiro, com o mesmo método e a mesma medição; o que mudou foi
+    // a pergunta que ele responde. Ele mede o PREDICADO sozinho (`fn_principal_vivo`
+    // pergunta se a CONTA está viva, e rebaixar não desativa ninguém), e o caso acima
+    // mede o GANCHO. Sem ele, um verde lá seria compatível com uma poda que nasceu do
+    // lado do SQL, alcançando também a reativação e a desativação de OM — outro
+    // comportamento, com a mesma cara.
+    const produtor = await ator('rebSql', orgA);
+    const beneficiario = await ator('benSql');
+
+    const criada = (await conceder(produtor, DELE, {
+      granteeId: atores[beneficiario].id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(criada.parent_grant_id, null, 'piso: é concessão de RAIZ');
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'piso: o beneficiário vê');
+
+    await db.query(
+      `UPDATE users SET role = 'user', producer_org_id = NULL WHERE id = $1`,
+      [atores[produtor].id],
+    );
+
+    const { rows: produz } = await db.query(
+      `SELECT fn_can_produce_resource($1::uuid, 'tileset', $2) AS ok`,
+      [atores[produtor].id, DELE],
+    );
+    assert.equal(produz[0].ok, false, 'o concedente deixou de produzir');
+    const { rows: vivo } = await db.query(
+      'SELECT fn_principal_vivo($1::uuid) AS ok', [atores[produtor].id],
+    );
+    assert.equal(vivo[0].ok, true, 'e continua VIVO: é a conta que ela mede, não a autoridade');
+
+    assert.equal(
+      (await linhaDaConcessao(criada.id)).revoked_at, null,
+      'nenhuma linha foi revogada: quem revoga é o serviço, e ele não foi chamado',
+    );
+    assert.ok(
+      (await visiveis(beneficiario)).includes(DELE),
+      'e o beneficiário CONTINUA vendo: a raiz não é reavaliada contra a autoridade',
+    );
+  });
+
+  it('DISCRIMINAÇÃO: um PUT que não toca papel nem escopo não poda nada', async () => {
+    const produtor = await ator('rebNome', orgA);
+    const beneficiario = await ator('benNome');
+
+    const criada = (await conceder(produtor, DELE, {
+      granteeId: atores[beneficiario].id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(criada.parent_grant_id, null, 'piso: é concessão de RAIZ');
+
+    await editarUsuario('admin', atores[produtor].id, { nome: 'Nome Trocado' }).expect(200);
+
+    // O PISO DO ATO, e sem ele o caso inteiro é vazio: um PUT que não mudasse NADA
+    // passaria nesta asserção de forma idêntica, e "não podou" não significaria coisa
+    // nenhuma. O que se afirma é que uma edição EFETIVA, fora dos dois eixos de
+    // autoridade, não derruba acesso.
+    const depois = await papelGravado(atores[produtor].id);
+    assert.equal(depois.nome, 'Nome Trocado', 'piso: a edição teve efeito');
+    assert.equal(depois.role, 'producer', 'e o papel não se mexeu');
+    assert.equal(depois.producer_org_id, orgA, 'nem o escopo de produção');
+
+    assert.equal(
+      (await linhaDaConcessao(criada.id)).revoked_at, null,
+      'a concessão continua viva',
+    );
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'e o beneficiário continua vendo');
+    assert.equal((await trilhaDaPoda(criada.id)).length, 0, 'e a poda não deixou rastro nenhum');
+  });
+
+  it('DISCRIMINAÇÃO: PROMOVER não poda, nem quando a promoção LIMPA o escopo de produção', async () => {
+    // O CASO MAIS AFIADO DA DEFINIÇÃO, e a razão de ela não poder ser "o escopo mudou":
+    // promover um produtor a administrador APAGA `producer_org_id` (o CHECK bicondicional
+    // não deixa um admin carregar escopo), então uma regra escrita sobre a coluna leria a
+    // promoção como perda e derrubaria o acervo no ato que AUMENTA a autoridade. Quem
+    // termina com acesso global de dado não perdeu fundamento nenhum: `admin` e
+    // `credenciado` concedem qualquer recurso privado.
+    const produtor = await ator('rebProm', orgA);
+    const beneficiario = await ator('benProm');
+
+    const criada = (await conceder(produtor, DELE, {
+      granteeId: atores[beneficiario].id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(criada.parent_grant_id, null, 'piso: é concessão de RAIZ');
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'piso: o beneficiário vê');
+
+    await editarUsuario('admin', atores[produtor].id, { role: 'admin' }).expect(200);
+    const promovido = await papelGravado(atores[produtor].id);
+    assert.equal(promovido.role, 'admin');
+    assert.equal(
+      promovido.producer_org_id, null,
+      'piso: a promoção LIMPOU o escopo, que é exatamente o que uma regra ingênua leria como perda',
+    );
+    assert.equal((await linhaDaConcessao(criada.id)).revoked_at, null, 'e nada foi podado');
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'o beneficiário continua vendo');
+
+    // O MOVIMENTO LATERAL entre os DOIS papéis de dado global também não poda: nenhum
+    // dos dois contém o outro, e os dois concedem o acervo privado inteiro.
+    await editarUsuario('admin', atores[produtor].id, { role: 'credenciado' }).expect(200);
+    assert.equal((await papelGravado(atores[produtor].id)).role, 'credenciado');
+    assert.equal((await linhaDaConcessao(criada.id)).revoked_at, null, 'lateral também não poda');
+    assert.ok((await visiveis(beneficiario)).includes(DELE));
+
+    // FECHA POR CIMA, no MESMO ator e pela MESMA rota: sair do eixo global PODA. Sem
+    // esta linha, os três verdes acima seriam compatíveis com um gancho que nunca roda.
+    await editarUsuario('admin', atores[produtor].id, { role: 'user' }).expect(200);
+    assert.ok(
+      (await linhaDaConcessao(criada.id)).revoked_at !== null,
+      'o mesmo PUT, ao tirar o acesso global de dado, derruba',
+    );
+    assert.ok(!(await visiveis(beneficiario)).includes(DELE));
+  });
+
+  it('trocar a OM de produção PODA: em relação ao acervo antigo, deixou de produzir', async () => {
+    // A DECISÃO ESCRITA: `omAntes !== omDepois`, e não `omDepois === null`. A pessoa
+    // continua sendo Produtor e continua podendo conceder de raiz — só que da OM B, e a
+    // concessão viva é sobre um tileset da OM A, que ela não mantém mais.
+    const produtor = await ator('rebOm', orgA);
+    const beneficiario = await ator('benOm');
+
+    const criada = (await conceder(produtor, DELE, {
+      granteeId: atores[beneficiario].id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(criada.parent_grant_id, null, 'piso: é concessão de RAIZ');
+    assert.ok((await visiveis(beneficiario)).includes(DELE), 'piso: o beneficiário vê');
+
+    await editarUsuario('admin', atores[produtor].id, { producer_org_id: orgB }).expect(200);
+    const depois = await papelGravado(atores[produtor].id);
+    assert.equal(depois.role, 'producer', 'piso: ele CONTINUA produtor, e não foi rebaixado de papel');
+    assert.equal(depois.producer_org_id, orgB, 'só que de outra OM');
+
+    assert.ok(
+      (await linhaDaConcessao(criada.id)).revoked_at !== null,
+      'e a concessão sobre o acervo da OM antiga cai',
+    );
+    assert.ok(!(await visiveis(beneficiario)).includes(DELE), 'medido na porta');
+  });
+
+  it('DISCRIMINAÇÃO: quem tem outro caminho vivo é REPAI-ADO, não derrubado', async () => {
+    // A PRESERVAÇÃO DE ALCANÇABILIDADE (D3) é de `podarPorRaizes`, e este caso prova que
+    // ela vale TAMBÉM por este caminho novo — reusar a função não garante que o chamador
+    // novo lhe entregue as raízes certas: um chamador que passasse a subárvore inteira
+    // como raiz teria três listas com a mesma cara e derrubaria o neto.
+    const produtor = await ator('rebRepai', orgA);
+    const meio = await ator('meioRepai');
+    const fim = await ator('fimRepai');
+
+    const doProdutor = (await conceder(produtor, DELE, {
+      granteeId: atores[meio].id, grantLevel: 'view_share',
+    }).expect(201)).body.data;
+    // A ORDEM É O PISO DESTE CASO: a derivada nasce ANTES do segundo caminho, então ela
+    // pendura no `view_share` do produtor, que é a raiz que vai cair. Criar o caminho do
+    // administrador primeiro deixaria a paternidade indefinida e o caso mediria outra
+    // coisa (um neto que a poda nem alcança).
+    const derivada = (await conceder(meio, DELE, {
+      granteeId: atores[fim].id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(
+      derivada.parent_grant_id, doProdutor.id,
+      'piso: o neto pendura na raiz do produtor',
+    );
+
+    const doAdmin = (await supertest(app)
+      .post(`/api/v1/resource-access/tileset/${DELE}/grants`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ granteeId: atores[meio].id, grantLevel: 'view_share' })
+      .expect(201)).body.data;
+    assert.ok((await visiveis(fim)).includes(DELE), 'piso: o neto vê');
+
+    await editarUsuario('admin', atores[produtor].id, { role: 'user' }).expect(200);
+
+    assert.ok(
+      (await linhaDaConcessao(doProdutor.id)).revoked_at !== null,
+      'a raiz do rebaixado cai',
+    );
+    const neto = await linhaDaConcessao(derivada.id);
+    assert.equal(neto.revoked_at, null, 'mas o neto NÃO cai junto');
+    assert.equal(
+      neto.parent_grant_id, doAdmin.id,
+      'ele foi RE-PENDURADO no outro caminho vivo do mesmo concedente',
+    );
+    assert.ok((await visiveis(fim)).includes(DELE), 'e continua vendo NA PORTA');
+    assert.ok((await visiveis(meio)).includes(DELE), 'assim como o intermediário, pelo caminho do admin');
+
+    // A TRILHA DISTINGUE AS DUAS CLASSES, e é o que responde "por que Fulano MANTEVE":
+    // a queda é `PERMISSION_REVOKE`, o resgate é `PERMISSION_REPARENT`, os dois com a
+    // origem nova.
+    const trilhaDoNeto = await trilhaDaPoda(derivada.id);
+    assert.equal(trilhaDoNeto.length, 1, 'uma linha sobre o neto');
+    assert.equal(trilhaDoNeto[0].action, 'PERMISSION_REPARENT');
+    assert.equal(trilhaDoNeto[0].details.kind, 'reparent');
+    assert.equal(trilhaDoNeto[0].details.parentGrantId, doAdmin.id);
   });
 });

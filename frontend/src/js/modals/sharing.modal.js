@@ -44,7 +44,11 @@ import { showConfirm } from '@modals/index.js';
 // MESMO nos dois eixos porque o problema é o mesmo: desde que a unicidade de nome de grupo
 // passou a ser por dono, dois grupos homônimos de gente diferente são estado legal, e uma
 // lista que mostre só o nome faz escolher o coletivo errado sem erro nenhum.
-import { groupOptionLabel } from '@js/catalog/grant-tree.js';
+// `accessLossClause` vem do mesmo lugar e pela mesma razão: conjugar "perde"/"perdem" com
+// uma contagem, e dizer o CONTRÁRIO quando a contagem é zero, é regra que já foi paga uma
+// vez do lado do catálogo. Reescrevê-la aqui daria a terceira cópia de uma frase que os
+// dois eixos precisam ter igual.
+import { accessLossClause, groupOptionLabel } from '@js/catalog/grant-tree.js';
 // A DICA DO SELETOR MANDA A PESSOA PARA UMA PORTA, então ela precisa dizer o nome que ESTA
 // pessoa vê escrito naquela porta — "Grupos" para uma sessão comum, "Catálogo" para o
 // produtor, "Administração" para o administrador. Escrever "Administração" fixo mandaria o
@@ -144,9 +148,57 @@ export function sharingGroupOwnerLabel(group) {
  * @returns {string}
  */
 export function sharingGroupSizeLabel(group) {
-    const n = Number(group?.memberCount);
-    if (!Number.isFinite(n) || n <= 0) return 'sem membros';
+    const n = sharingGroupMemberCount(group);
+    if (n === 0) return 'sem membros';
     return `${n} ${n === 1 ? 'pessoa' : 'pessoas'}`;
+}
+
+/**
+ * O tamanho do grupo como inteiro não negativo.
+ *
+ * `memberCount` atravessa a rede vindo de um `COUNT` do SQL, e ausente, string, `NaN` e
+ * negativo colapsam todos em 0 de propósito: nenhum deles descreve gente perdendo acesso,
+ * e todos conjugariam no plural por acidente se fossem adiante como número. É o mesmo
+ * colapso de `groupMemberCount` (`js/catalog/grant-tree.js`), no eixo de recurso.
+ *
+ * Módulo-privado porque a tela nunca mostra o número cru: quem mostra é
+ * {@link sharingGroupSizeLabel}, e quem decide o verbo é `accessLossClause`.
+ * @param {{memberCount?: *}} group
+ * @returns {number}
+ */
+function sharingGroupMemberCount(group) {
+    const n = Number(group?.memberCount);
+    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+/**
+ * O QUE O DIÁLOGO DESTRUTIVO DIZ ANTES DE TIRAR UM GRUPO DO ATLAS.
+ *
+ * A frase anterior era `${sharingGroupSizeLabel(grupo)} perdem o acesso`, e o verbo fixo
+ * no plural fazia dois dos três ramos mentirem: "1 pessoa perdem o acesso" e, o caso caro,
+ * "sem membros perdem o acesso" — um `destructive: true` afirmando uma perda que não vai
+ * acontecer. Quem conjuga agora é `accessLossClause`, do eixo de recurso, onde essa mesma
+ * classe já tinha sido paga.
+ *
+ * O RAMO ZERO DIZ O CONTRÁRIO, não a mesma coisa mais curta: um grupo sem membros não
+ * entrega acesso a ninguém, então tirá-lo não tira nada de ninguém, e prometer uma queda
+ * impossível gasta a credibilidade da frase alta no caso em que ela É alta (é a mesma
+ * escolha de `groupDeletionWarning`, em `js/admin/group-phrases.js`).
+ *
+ * Pura, e exportada por isso: é a parte desta tela que se verifica em node.
+ * @param {{name?: string, memberCount?: *}} group
+ * @returns {string}
+ */
+export function sharingGroupRemovalWarning(group) {
+    // `?? 'este grupo'`: a linha some da lista entre o clique e a busca por `groupId` se o
+    // servidor for relido no meio, e um diálogo destrutivo sem sujeito é pior que genérico.
+    const nome = group?.name ?? 'este grupo';
+    const membros = sharingGroupMemberCount(group);
+    if (membros === 0) {
+        return `Tirar ${nome} deste atlas? Ele não tem membros hoje: ${accessLossClause(0)}.`;
+    }
+    return `Tirar ${nome} deste atlas? `
+        + `${accessLossClause(membros, sharingGroupSizeLabel(group))} que vinha por ele.`;
 }
 
 /**
@@ -676,6 +728,12 @@ export class SharingModal extends ModalBase {
      * O `<select>` NÃO OFERECE O QUE O SERVIDOR RECUSA: as opções ACIMA do nível vigente
      * ficam desabilitadas quando o chamador não administra o grupo, porque subir exige posse
      * e as outras três ações não (ver `groupLevelOptions`).
+     *
+     * A META LEVA `title` COM O TEXTO INTEIRO porque `.sharing-group__meta` a corta com
+     * reticências (`css/sharing.css`), e o que fica de fora é justamente o nome do dono, que
+     * é a mitigação da delegação. Alargar o modal para caber o nome mais longo possível
+     * resolveria um caso e quebraria o layout; o `title` é o padrão da casa para isto (mesmo
+     * par de `.catalog-layer-name` em `js/features_tab/catalog-layers.component.js`).
      * @param {{groupId:string, name:string, permission:string, memberCount:number}} group
      */
     _renderGroupItem(group) {
@@ -694,7 +752,8 @@ export class SharingModal extends ModalBase {
                 <span class="sharing-group__icon" aria-hidden="true">${ICONS.group}</span>
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
-                    <span class="sharing-group__meta" data-testid="sharing-group-owner">${escapeHtml(meta)}</span>
+                    <span class="sharing-group__meta" data-testid="sharing-group-owner"
+                          title="${escapeHtml(meta)}">${escapeHtml(meta)}</span>
                 </div>
                 <select class="sharing-member__permission" data-action="group-permission"
                         data-testid="sharing-group-permission" aria-label="Permissão do grupo ${escapeHtml(nome)}">
@@ -1010,10 +1069,8 @@ export class SharingModal extends ModalBase {
     async _handleRemoveGroup(groupId) {
         if (this._busy || !groupId) return;
         const grupo = this._groups.find((g) => String(g.groupId) === String(groupId));
-        const nome = grupo?.name ?? 'este grupo';
-        const quantos = sharingGroupSizeLabel(grupo);
         const ok = await showConfirm(
-            `Tirar ${nome} deste atlas? ${quantos} perdem o acesso que vinha por ele.`,
+            sharingGroupRemovalWarning(grupo),
             { destructive: true, confirmText: 'Remover' }
         );
         if (!ok) return;

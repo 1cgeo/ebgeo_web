@@ -272,10 +272,13 @@ class GroupsTab {
         // podem divergir. A coluna existe para o ADMINISTRADOR, o único que vê grupo alheio —
         // e sem ela a lista dele mostraria N grupos homônimos de gente diferente, porque a
         // unicidade de nome passou a ser POR DONO.
-        for (const h of ['Grupo', 'Membros', 'Recursos', 'Dono', '']) {
+        // "Atlas" é o SEGUNDO eixo de alcance do grupo (D2, 2026-08-21). Enquanto só
+        // "Recursos" existia, a tela mostrava metade do que a exclusão derruba.
+        for (const h of ['Grupo', 'Membros', 'Recursos', 'Atlas', 'Dono', '']) {
             const th = document.createElement('th');
             th.textContent = h;
             if (h === 'Recursos') th.title = 'Recursos privados a que este grupo dá acesso.';
+            if (h === 'Atlas') th.title = 'Atlas compartilhados com este grupo.';
             if (h === 'Dono') th.title = 'Quem administra este grupo.';
             hrow.appendChild(th);
         }
@@ -307,6 +310,7 @@ class GroupsTab {
 
             tr.appendChild(cell(String(toCount(group.member_count))));
             tr.appendChild(cell(String(toCount(group.grant_count))));
+            tr.appendChild(cell(String(toCount(group.atlas_share_count))));
             tr.appendChild(cell(group.owner_nome || group.owner_username || 'Sem dono definido'));
 
             const actions = document.createElement('td');

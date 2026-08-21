@@ -469,3 +469,122 @@ export async function createStreetview360Data(db, mapId, overrides = {}) {
   );
   return rows[0];
 }
+
+// ============================================================================
+// REFERÊNCIAS DE CATÁLOGO QUE UMA OP DE SYNC CARREGA
+//
+// Desde que `unseenResourceDenialReason` cobre as cinco superfícies (e não só a camada de
+// catálogo), uma op que aponte para um `tileset_id`, um `photo_name`, um `model_id`/`photo_id`
+// ou um `base_layer` é RECUSADA quando aquele id não resolve para um recurso que o autor
+// enxerga. E "não existe" é tratado como "não posso ver", de propósito, para que o ack não vire
+// oráculo de existência sobre o acervo privado.
+//
+// Consequência para os testes: um arquivo que empurre uma op 3D/360/slide/base precisa que o id
+// referenciado EXISTA. Estes helpers criam a metade PÚBLICA desse mundo — o caso comum, em que o
+// arquivo mede outra coisa (envelope, snapshot, broadcast) e a referência é só cenário.
+//
+// Quem mede o GATE em si não usa estes helpers: `tests/integration/sync-referencia-privada.test.js`
+// monta os três estados de acesso (público, privado, emprestado) por conta própria.
+//
+// A LIMPEZA É DO CHAMADOR, e não é opcional: as quatro tabelas de catálogo e o schema `sv360`
+// são COMPARTILHADOS pela suíte inteira (o banco é criado uma vez por rodada, não por arquivo),
+// e casos que comparam listagens inteiras reprovam longe daqui por causa de uma linha esquecida.
+// ============================================================================
+
+/** Tabela de catálogo por chave do argumento de `seedCatalogRefs`. */
+const CATALOG_REF_TABLES = {
+  tilesets: 'tilesets',
+  basemaps: 'basemaps',
+  dataLayers: 'data_layers',
+  analysisLayers: 'analysis_layers',
+};
+
+/**
+ * Cria linhas de catálogo PÚBLICAS para os ids dados, sem falhar se já existirem.
+ *
+ * @param {import('pg').PoolClient} db
+ * @param {{tilesets?: string[], basemaps?: string[], dataLayers?: string[], analysisLayers?: string[]}} ids
+ * @returns {Promise<void>}
+ */
+export async function seedCatalogRefs(db, ids = {}) {
+  for (const [chave, tabela] of Object.entries(CATALOG_REF_TABLES)) {
+    for (const id of ids[chave] ?? []) {
+      await db.query(
+        `INSERT INTO ${tabela} (id, name, config, sort_order, access_level)
+         VALUES ($1, $2, '{}'::jsonb, 900, 'public')
+         ON CONFLICT (id) DO NOTHING`,
+        [id, `Fixture ${id}`]
+      );
+    }
+  }
+}
+
+/**
+ * Desfaz `seedCatalogRefs`. Recebe o MESMO objeto, para que a lista não se duplique.
+ *
+ * @param {import('pg').PoolClient} db
+ * @param {{tilesets?: string[], basemaps?: string[], dataLayers?: string[], analysisLayers?: string[]}} ids
+ * @returns {Promise<void>}
+ */
+export async function dropCatalogRefs(db, ids = {}) {
+  for (const [chave, tabela] of Object.entries(CATALOG_REF_TABLES)) {
+    const lista = ids[chave] ?? [];
+    if (lista.length === 0) continue;
+    await db.query(`DELETE FROM atlas_resources WHERE resource_id = ANY($1::text[])`, [lista]);
+    await db.query(`DELETE FROM resource_grants WHERE resource_id = ANY($1::text[])`, [lista]);
+    await db.query(`DELETE FROM ${tabela} WHERE id = ANY($1::text[])`, [lista]);
+  }
+}
+
+/**
+ * Cria um projeto 360 PÚBLICO, com uma foto por nome dado.
+ *
+ * Os nomes são os `original_name` das fotos, que é o que `streetview360_data.photo_name` guarda
+ * e o que `RESOLVE_SV360_REFS` traduz para o id do projeto.
+ *
+ * @param {import('pg').PoolClient} db
+ * @param {string[]} photoNames - Os `original_name`.
+ * @returns {Promise<{orgId: string, projectId: string, slug: string}>} Para o `after` desfazer.
+ */
+export async function seedPublic360Photos(db, photoNames = []) {
+  const sufixo = randomUUID().slice(0, 8);
+  const slug = `fixture-360-${sufixo}`;
+  const { rows: orgs } = await db.query(
+    `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+    [`OM fixture 360 ${sufixo}`, `om-fixture-360-${sufixo}`, 'FX']
+  );
+  const orgId = orgs[0].id;
+  const { rows: projs } = await db.query(
+    `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level,
+                                 center_lat, center_long, photo_count)
+     VALUES ($1, $2, $3, $4, 'enabled', 'public', -22.9, -43.2, $5) RETURNING id`,
+    [orgId, slug, `Projeto fixture ${sufixo}`, `${orgId}__${slug}.db`, photoNames.length]
+  );
+  const projectId = projs[0].id;
+
+  let sequencia = 0;
+  for (const nome of photoNames) {
+    sequencia += 1;
+    await db.query(
+      `INSERT INTO sv360.photos (id, project_id, original_name, sequence_number, lat, lon)
+       VALUES ($1, $2, $3, $4, -22.9, -43.2)`,
+      [`fixture-foto-${sufixo}-${sequencia}`, projectId, nome, sequencia]
+    );
+  }
+  return { orgId, projectId, slug };
+}
+
+/**
+ * Desfaz `seedPublic360Photos` (as fotos caem por `ON DELETE CASCADE` do projeto).
+ *
+ * @param {import('pg').PoolClient} db
+ * @param {{orgId: string, projectId: string}} semeado
+ * @returns {Promise<void>}
+ */
+export async function drop360Fixture(db, semeado) {
+  if (!semeado) return;
+  await db.query('DELETE FROM atlas_resources WHERE resource_id = $1', [semeado.projectId]);
+  await db.query('DELETE FROM resource_grants WHERE resource_id = $1', [semeado.projectId]);
+  await db.query('DELETE FROM sv360.projects WHERE id = $1', [semeado.projectId]);
+  await db.query('DELETE FROM organizations WHERE id = $1', [semeado.orgId]);
+}

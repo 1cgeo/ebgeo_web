@@ -8,7 +8,7 @@ Tabelas de níveis e capacidades: `PERMISSION_LEVELS` (`backend/src/middleware/p
 
 **`permission` decide, `role` rotula.** O eixo `role` existe porque a UI precisa de rótulos que misturam duas dimensões que o backend guarda separadas: a permissão naquele atlas e o papel global do usuário. Um admin global não tem linha em `atlas_shares`, mas precisa ver "Admin do sistema" e ganhar acesso total. `owner` também nunca aparece em `atlas_shares`, é sintetizado de `atlas.owner_id`.
 
-**Desde 2026-08-21 uma pessoa pode alcançar o atlas por DOIS caminhos**, o share direto e o share de um grupo de que ela participa, e o nível efetivo é o **máximo** dos dois (`fn_user_atlas_shares`). Nada aqui muda de forma: a escada continua a mesma e o gate continua sendo por hierarquia. O que muda é onde a resposta nasce — quem resolver "qual o meu nível" lendo `atlas_shares` direto lê metade do eixo, sem erro nenhum. Ver [[compartilhamento-atlas]].
+**Desde 2026-08-21 uma pessoa pode alcançar o atlas por DOIS caminhos**, o share direto e o share de um grupo de que ela participa, e o nível efetivo é o **máximo** dos dois (`fn_user_atlas_shares`). Nada aqui muda de forma: a escada continua a mesma e o gate continua sendo por hierarquia. O que muda é onde a resposta nasce: quem resolver "qual o meu nível" lendo `atlas_shares` direto lê metade do eixo, sem erro nenhum. Ver [[compartilhamento-atlas]].
 
 Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`backend/src/utils/roles.js`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
 

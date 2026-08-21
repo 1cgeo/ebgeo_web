@@ -42,7 +42,9 @@ import { showError, showSuccess } from '@utils/toast_service.js';
 import { GRANT_LEVELS, CATALOG_UI_ICONS } from './catalog.constants.js';
 import {
     alreadyGranted,
+    deadGrantorChip,
     fallenGrants,
+    grantOriginLabel,
     granteeGroupOwnerLabel,
     granteeName,
     granteeSubject,
@@ -300,6 +302,12 @@ export class ResourceShareModal extends ModalBase {
      * pode acrescentar beneficiários a este recurso sem passar por quem concedeu, e esta
      * lista é a única tela onde isso aparece. A concessão a PESSOA não ganha rótulo
      * nenhum, e essa diferença é o que faz o rótulo significar alguma coisa.
+     *
+     * O `title` NO DONO NÃO É ENFEITE: o rótulo ("Dono: Fulano (@fulano)") passa por DOIS
+     * clipes de reticências em série (`.sharing-member__name` e `.sharing-member__username`
+     * carregam os dois o trio `nowrap`/`overflow`/`ellipsis`), então numa linha estreita
+     * ele corta justamente no nome. Alargar a coluna quebraria a linha de membro
+     * compartilhada com o modal de atlas; o `title` é o padrão da casa para isso.
      * @param {Object} grant
      * @param {string} nome
      */
@@ -310,7 +318,8 @@ export class ResourceShareModal extends ModalBase {
             const dono = granteeGroupOwnerLabel(grant);
             return `<span class="sharing-member__name">${escapeHtml(nome)}
                         <span class="resource-share__group-count" data-testid="resource-share-group-count">${escapeHtml(texto)}</span>
-                        <span class="sharing-member__username" data-testid="resource-share-group-owner">${escapeHtml(dono)}</span>
+                        <span class="sharing-member__username" data-testid="resource-share-group-owner"
+                              title="${escapeHtml(dono)}">${escapeHtml(dono)}</span>
                     </span>`;
         }
         const username = grant?.grantee_username ?? '';
@@ -319,14 +328,20 @@ export class ResourceShareModal extends ModalBase {
     }
 
     /**
-     * @private Uma concessão viva, de pessoa ou de grupo.
+     * @private Uma concessão da listagem, de pessoa ou de grupo.
+     *
+     * "VIVA" AQUI SÓ QUER DIZER NÃO REVOGADA E NÃO VENCIDA, e a diferença virou visível:
+     * a listagem devolve também a linha cujo CONCEDENTE morreu, que o predicado do
+     * servidor já não honra. Ela é marcada por `deadGrantorChip`, nunca escondida — quem
+     * a esconde tira da tela o único caminho para revogá-la. As decisões (o predicado, o
+     * texto do chip e a frase de origem) moram em `grant-tree.js`, que é onde elas são
+     * testáveis em node; aqui fica só o HTML.
      * @param {Object} grant
      */
     _renderGrantItem(grant) {
         const id = String(grant?.id ?? '');
         const nome = granteeName(grant);
         const grupo = isGroupGrant(grant);
-        const concedente = grant?.granted_by_nome || grant?.granted_by_username || null;
         // Quantos caem junto: mostrado NA LINHA, e não só na confirmação, para que o
         // alcance da poda seja visível antes de o dedo ir para o botão. `fallenGrants` e
         // não o fecho ingênuo: quem tem outro `view_share` vivo do mesmo concedente é
@@ -335,9 +350,16 @@ export class ResourceShareModal extends ModalBase {
         const cascata = caidos > 0
             ? `<span class="resource-share__cascade" title="Revogar esta concessão derruba as que derivam dela">+${caidos} dependente(s)</span>`
             : '';
-        const origem = concedente
-            ? `<span class="sharing-member__username">recebido de ${escapeHtml(concedente)}</span>`
-            : '<span class="sharing-member__username">concedido pela administração</span>';
+        // A LINHA QUE O PREDICADO DO SERVIDOR JÁ NEGA. Ela fica na lista (é revogável, e
+        // some da tela seria pior), mas para de ser desenhada como acesso vigente: chip
+        // âmbar, porque é a mesma família de "o que surpreende" da cascata, e a frase de
+        // origem muda de verbo sem perder o nome de quem concedeu.
+        const morto = deadGrantorChip(grant);
+        const semEfeito = morto
+            ? `<span class="resource-share__dead" data-testid="resource-share-dead"
+                     title="${escapeHtml(morto.title)}">${escapeHtml(morto.label)}</span>`
+            : '';
+        const origem = `<span class="sharing-member__username">${escapeHtml(grantOriginLabel(grant))}</span>`;
         const vence = expiryLabel(grant?.expires_at);
         const prazo = vence
             ? `<span class="resource-share__expiry" data-testid="resource-share-expiry"
@@ -346,12 +368,14 @@ export class ResourceShareModal extends ModalBase {
 
         return `
             <div class="sharing-member" data-testid="resource-share-grant"
-                 data-grantee-kind="${grupo ? 'grupo' : 'pessoa'}" data-grant-id="${escapeHtml(id)}">
+                 data-grantee-kind="${grupo ? 'grupo' : 'pessoa'}"
+                 data-grant-effective="${morto ? 'false' : 'true'}" data-grant-id="${escapeHtml(id)}">
                 ${this._renderGranteeAvatar(grant, nome)}
                 <div class="sharing-member__info">
                     ${this._renderGranteeNameLine(grant, nome)}
                     ${origem}
                 </div>
+                ${semEfeito}
                 ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>

@@ -26,6 +26,7 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser, createAdminUser, createProducerUser, loginUser,
+  createAtlas, createShare, createGroupShare,
 } from '../helpers/fixtures.js';
 
 /** A OM semeada, usada como escopo de PRODUÇÃO do produtor (lotação não autoriza nada). */
@@ -72,6 +73,7 @@ describe('F16 — grupo de acesso: CRUD e o eixo de posse', () => {
   });
 
   after(async () => {
+    await db.query('DELETE FROM atlas WHERE name LIKE $1', [`%${sufixo}%`]);
     await db.query('DELETE FROM access_groups WHERE name LIKE $1', [`%${sufixo}%`]);
     await teardownTestEnv(db);
   });
@@ -289,6 +291,114 @@ describe('F16 — grupo de acesso: CRUD e o eixo de posse', () => {
       .set('Authorization', `Bearer ${tokens.membro}`)
       .expect(200);
     assert.ok(!depois.body.data.some((g) => g.id === grupo.id));
+  });
+
+  it('a listagem conta os ATLAS do grupo, e o alcance da exclusão os reporta', async () => {
+    // O SEGUNDO EIXO DO GRUPO (D2, 2026-08-21). `atlas_shares.group_id` faz um grupo
+    // carregar acesso a ATLAS, e a listagem contava só `resource_grants`: o aviso de
+    // exclusão prometia menos do que o ato tira, que é a direção errada do erro numa
+    // confirmação irreversível.
+    //
+    // AS DUAS CONSULTAS SÃO GÊMEAS e este caso mede as duas no mesmo corpo:
+    // `LIST_GROUPS` (o aviso, ANTES do clique) e `GET_GROUP_REACH` (a trilha e a
+    // resposta, DEPOIS). Um eixo que exista só de um lado faz o aviso e o registro do
+    // ato discordarem sobre o que aconteceu.
+    const grupo = (await criar('comum', nomeDeGrupo('atlas')).expect(201)).body.data;
+    await supertest(app)
+      .post(`/api/v1/access-groups/${grupo.id}/members`)
+      .set('Authorization', `Bearer ${tokens.comum}`)
+      .send({ userId: atores.membro.id })
+      .expect(200);
+
+    const naLista = async () => {
+      const res = await supertest(app)
+        .get('/api/v1/access-groups')
+        .set('Authorization', `Bearer ${tokens.comum}`)
+        .expect(200);
+      const linha = res.body.data.find((g) => g.id === grupo.id);
+      assert.ok(linha, 'o dono precisa enxergar o próprio grupo na listagem');
+      return linha;
+    };
+
+    // O PISO: a contagem ANTES de qualquer share. Sem esta linha, um `atlas_share_count`
+    // que devolvesse sempre 2 passaria na asserção de baixo.
+    const antes = await naLista();
+    assert.equal(antes.atlas_share_count, 0, 'piso: grupo recém-criado não alcança atlas nenhum');
+
+    const um = await createAtlas(db, atores.comum.id, { name: `Atlas A ${sufixo}` });
+    const dois = await createAtlas(db, atores.comum.id, { name: `Atlas B ${sufixo}` });
+    await createGroupShare(db, um.id, grupo.id, 'read', atores.comum.id);
+    await createGroupShare(db, dois.id, grupo.id, 'manage', atores.comum.id);
+
+    const comDois = await naLista();
+    assert.equal(comDois.atlas_share_count, 2, 'os dois atlas compartilhados COM O GRUPO contam');
+    assert.equal(comDois.grant_count, 0, 'e o eixo de recurso não se contamina com o de atlas');
+
+    // DISCRIMINAÇÃO (1): o atlas na LIXEIRA sai da conta. Ele já não é alcançável por
+    // ninguém, e contá-lo prometeria uma perda que não vai acontecer.
+    const lixeira = await createAtlas(db, atores.comum.id, { name: `Atlas C ${sufixo}` });
+    await createGroupShare(db, lixeira.id, grupo.id, 'read', atores.comum.id);
+    assert.equal((await naLista()).atlas_share_count, 3, 'piso da lixeira: com ele vivo são três');
+    await db.query('UPDATE atlas SET deleted_at = NOW() WHERE id = $1', [lixeira.id]);
+    assert.equal(
+      (await naLista()).atlas_share_count, 2,
+      'o atlas apagado (soft) sai da contagem, embora a linha de `atlas_shares` continue lá',
+    );
+
+    // DISCRIMINAÇÃO (2): o share NOMINAL do mesmo atlas não é do grupo. Sem esta
+    // metade, um `COUNT(*)` sem o `s.group_id = g.id` passaria idêntico.
+    const nominal = await createAtlas(db, atores.comum.id, { name: `Atlas D ${sufixo}` });
+    await createShare(db, nominal.id, atores.membro.id, 'write', atores.comum.id);
+    await createShare(db, um.id, atores.membro.id, 'write', atores.comum.id);
+    assert.equal(
+      (await naLista()).atlas_share_count, 2,
+      'compartilhar com uma PESSOA não é compartilhar com o grupo',
+    );
+
+    // DISCRIMINAÇÃO (3): o share coletivo de OUTRO grupo não entra neste.
+    const outro = (await criar('comum', nomeDeGrupo('atlas-vizinho')).expect(201)).body.data;
+    await createGroupShare(db, nominal.id, outro.id, 'read', atores.comum.id);
+    const listaFinal = await supertest(app)
+      .get('/api/v1/access-groups')
+      .set('Authorization', `Bearer ${tokens.comum}`)
+      .expect(200);
+    assert.equal(
+      listaFinal.body.data.find((g) => g.id === grupo.id).atlas_share_count, 2,
+      'a subconsulta é por grupo, não um total da tabela',
+    );
+    assert.equal(
+      listaFinal.body.data.find((g) => g.id === outro.id).atlas_share_count, 1,
+      'e o vizinho conta o dele',
+    );
+
+    // O PISO DA CONSEQUÊNCIA: ANTES de apagar, o membro alcança o atlas PELO GRUPO. Sem
+    // esta leitura, o zero de baixo seria indistinguível de "ele nunca alcançou".
+    const alcanceDoMembro = () => db.query(
+      'SELECT permission FROM fn_user_atlas_shares($1::uuid, $2::uuid)',
+      [atores.membro.id, dois.id],
+    );
+    const { rows: antesDoAto } = await alcanceDoMembro();
+    assert.equal(antesDoAto.length, 1, 'piso: o membro alcança o atlas pelo grupo');
+    assert.equal(antesDoAto[0].permission, 'manage');
+
+    // A GÊMEA: `GET_GROUP_REACH`, lida DENTRO da transação da exclusão, precisa dar o
+    // mesmo número que a listagem deu.
+    const apagado = await supertest(app)
+      .delete(`/api/v1/access-groups/${grupo.id}`)
+      .set('Authorization', `Bearer ${tokens.comum}`)
+      .expect(200);
+    assert.equal(apagado.body.data.atlasShares, 2, 'o alcance do ato reporta os mesmos dois atlas');
+    assert.equal(apagado.body.data.grantsAffected, 0);
+
+    // E A CONSEQUÊNCIA REAL, que é o motivo de o número existir: o acesso morre no
+    // PREDICADO (a exclusão é soft e não dispara o `ON DELETE CASCADE`), então a linha
+    // de `atlas_shares` continua lá, INERTE.
+    const { rows: sobreviventes } = await db.query(
+      'SELECT count(*)::int AS n FROM atlas_shares WHERE group_id = $1', [grupo.id],
+    );
+    assert.equal(sobreviventes[0].n, 3, 'as linhas ficam (soft delete não cascateia)');
+    const { rows: resolvido } = await alcanceDoMembro();
+    assert.equal(resolvido.length, 0, 'e mesmo assim o membro já não alcança o atlas pelo grupo');
   });
 
   it('nome duplicado é POR DONO: 409 para o mesmo, 201 para outro, e recriar volta a passar', async () => {

@@ -26,6 +26,8 @@ E exige um quarto, do outro lado: o backend precisa conhecer o alvo (`APPLIABLE_
 - **Sub-entidades de mapa** (`mapPosition`, `baseLayer`, `mapNotes`, `gridStyle`, `mapTemporal`): `createMapSettingLogger` recebe **um único id** e o usa como `entityId` **e** como `mapId`. Não têm tabela própria: o backend as converte em `UPDATE` na linha de `maps`, e o handler inbound **ignora `operationType`**, porque sub-entidade de mapa só faz sentido como update.
 - **`slide`**: `frontend/src/js/store/briefing.operations.js` passa o `briefingId` no slot `mapId`. Passa o guard só porque briefingId também é UUID. **Nunca trate `op.mapId` de um `slide` como mapa.**
 
+Essas duas subversões têm consequência no **gate de referência privada** da escrita, e ela não se adivinha: o gate lê a chave do payload que a ESCRITA lê, então no slide ele olha `model_id`/`photo_id` (e não o `mapId`, que é briefing), e na sub-entidade de mapa ele só olha `base_layer` quando o sub-tipo é `baseLayer`, porque nos outros quatro a coluna irmã é descartada pela própria escrita, e recusar por ela custaria a operação inteira. Detalhe em [[sair-do-servidor]].
+
 Formato do envelope em [[envelope-operacao]]; fila e compactação em [[fila-operacoes-outbound]].
 
 ## Dois guards descartam ops em silêncio, e existem por um bug real
@@ -73,7 +75,7 @@ Errar o lado é o bug mais comum de feature nova: ou o usuário sobrescreve a vi
 
 Os casos em que a intuição erra:
 
-- **Exagero de terreno é atlas-wide**, não por mapa (`frontend/src/js/store/atlas-appearance.service.js` → `atlas.settings.terrainExaggeration`). Mudá-lo em um mapa muda em todos. Desde 2026-08-16 ele tem uma irmã na mesma chave de grupo, `globeProjection`, e as duas são gravadas JUNTAS num patch só — a compactação da fila colapsa patches parciais do mesmo grupo para o último, então escrevê-las em duas ops perderia uma.
+- **Exagero de terreno é atlas-wide**, não por mapa (`frontend/src/js/store/atlas-appearance.service.js` → `atlas.settings.terrainExaggeration`). Mudá-lo em um mapa muda em todos. Desde 2026-08-16 ele tem uma irmã na mesma chave de grupo, `globeProjection`, e as duas são gravadas JUNTAS num patch só, porque a compactação da fila colapsa patches parciais do mesmo grupo para o último, então escrevê-las em duas ops perderia uma.
 - **Visibilidade e bloqueio de feição, camada e grupo não são preferência de visualização**: são propriedade persistida. Esconder uma camada esconde para todo mundo no atlas.
 - **Ordem dos mapas, cores de badge e ícones customizados** são `setting` de **atlas**, não de mapa.
 - **Seleção de feições parece local mas é espelhada** como awareness, não como dado ([[presenca-colaborativa]]).

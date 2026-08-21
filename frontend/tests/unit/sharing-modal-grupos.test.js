@@ -1,7 +1,7 @@
 // Path: tests/unit/sharing-modal-grupos.test.js
 //
 // A PARTE VERIFICÁVEL EM NODE do modal de compartilhar atlas depois que ele ganhou o eixo
-// de GRUPO: a forma do payload e as três frases puras.
+// de GRUPO: a forma do payload e as frases puras (inclusive a do diálogo destrutivo).
 //
 // POR QUE ELAS FORAM EXTRAÍDAS. `_load()` fazia parse e render juntos, então NADA da forma
 // do payload tinha cobertura — e o payload acabou de ganhar um segundo array. Um cliente
@@ -18,6 +18,7 @@ import {
     partitionSharingConfig,
     sharingGroupOwnerLabel,
     sharingGroupSizeLabel,
+    sharingGroupRemovalWarning,
     selectableGroups,
     groupLevelOptions,
 } from '../../src/js/modals/sharing.modal.js';
@@ -103,6 +104,66 @@ describe('sharingGroupSizeLabel', () => {
         expect(sharingGroupSizeLabel({})).toBe('sem membros');
         expect(sharingGroupSizeLabel({ memberCount: 'três' })).toBe('sem membros');
         expect(sharingGroupSizeLabel(null)).toBe('sem membros');
+    });
+});
+
+describe('sharingGroupRemovalWarning — o que o diálogo destrutivo AFIRMA', () => {
+    // O DEFEITO QUE ESTE BLOCO PRENDE: a frase colava um verbo fixo no plural no
+    // sintagma de `sharingGroupSizeLabel`, e dois dos três ramos ficavam falsos —
+    // "1 pessoa perdem o acesso" e, o caro, "sem membros perdem o acesso", um
+    // `destructive: true` anunciando uma perda que não vai acontecer. O helper está
+    // certo como sintagma; quem conjuga é `accessLossClause`.
+
+    it('PISO: com N membros, a frase inteira, em asserção ABSOLUTA', () => {
+        expect(sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: 3 }))
+            .toBe('Tirar Equipe Alfa deste atlas? 3 pessoas perdem o acesso que vinha por ele.');
+    });
+
+    it('UM membro fala no singular, e a frase DIFERE da de N', () => {
+        const um = sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: 1 });
+        expect(um).toBe('Tirar Equipe Alfa deste atlas? 1 pessoa perde o acesso que vinha por ele.');
+        expect(um).not.toContain('perdem');
+        // DISCRIMINAÇÃO: as duas contagens não podem produzir o mesmo texto.
+        expect(um).not.toBe(sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: 3 }));
+    });
+
+    it('grupo VAZIO diz o CONTRÁRIO, e a palavra "perdem" não aparece', () => {
+        const zero = sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: 0 });
+        expect(zero).toBe('Tirar Equipe Alfa deste atlas? Ele não tem membros hoje: ninguém perde o acesso.');
+        expect(zero).not.toContain('perdem');
+        // E não sobra o sintagma da meta: "sem membros perdem" era a frase antiga.
+        expect(zero).not.toContain('sem membros');
+    });
+
+    it('contagem SUJA cai no mesmo ramo do grupo vazio, e nunca no plural', () => {
+        // `memberCount` vem de um `COUNT` pela rede: ausente, nulo, NaN, texto e negativo
+        // são todos "não sei" ou "nenhum", e nenhum deles descreve uma perda.
+        const vazio = sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: 0 });
+        for (const sujo of [undefined, null, NaN, -2, 'três', {}]) {
+            const texto = sharingGroupRemovalWarning({ name: 'Equipe Alfa', memberCount: sujo });
+            expect(texto).toBe(vazio);
+            expect(texto).not.toContain('NaN');
+        }
+    });
+
+    it('contagem que chega como STRING ainda conjuga certo nos dois lados', () => {
+        expect(sharingGroupRemovalWarning({ name: 'Alfa', memberCount: '1' }))
+            .toContain('1 pessoa perde o acesso');
+        expect(sharingGroupRemovalWarning({ name: 'Alfa', memberCount: '2' }))
+            .toContain('2 pessoas perdem o acesso');
+    });
+
+    it('grupo que sumiu da lista entre o clique e a busca vira sujeito genérico, sem lançar', () => {
+        // `_handleRemoveGroup` procura por `groupId` numa lista que pode ter sido relida:
+        // um diálogo destrutivo sem sujeito é pior que um genérico.
+        expect(sharingGroupRemovalWarning(undefined))
+            .toBe('Tirar este grupo deste atlas? Ele não tem membros hoje: ninguém perde o acesso.');
+        expect(sharingGroupRemovalWarning(null)).toContain('Tirar este grupo deste atlas?');
+    });
+
+    it('o NOME entra literal, e o do grupo é quem aparece', () => {
+        expect(sharingGroupRemovalWarning({ name: 'Seção de Inteligência', memberCount: 12 }))
+            .toContain('Tirar Seção de Inteligência deste atlas?');
     });
 });
 

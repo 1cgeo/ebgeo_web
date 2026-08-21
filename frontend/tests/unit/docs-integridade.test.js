@@ -48,6 +48,25 @@ const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const ALVOS = [
     'CLAUDE.md',
     'README.md',
+    // A CONSTITUIÇÃO ESTEVE FORA DESTA LISTA ATÉ 2026-08-21, e o preço apareceu inteiro de
+    // uma vez: o commit que virou cinco ondas de decisão em código mudou o estado de UMA
+    // cláusula e deixou 23 dizendo `[em obra]` sobre coisas já entregues, doze delas com uma
+    // frase começando em "Hoje" que afirmava o OPOSTO do código. Uma auditoria por seções
+    // achou todas. Nenhuma das quatro classes de podridão alcançava o arquivo, porque ele
+    // mora na raiz e a raiz não é varrida: `PASTAS` cobre `docs/` e `.claude/`, e `ALVOS` é
+    // uma lista escrita à mão. Documento que orienta e não é vigiado envelhece exatamente
+    // como este envelheceu, e este envelhece pior que os outros, porque é ele que diz o que
+    // o produto DEVE fazer.
+    //
+    // SAIBA O ALCANCE, que é o de sempre: isto valida CAMINHO, LINK e SÍMBOLO citados. Não
+    // valida que uma cláusula `[vigente]` seja verdadeira. Quem faz isso é
+    // `frontend/tests/unit/constituicao-estado-das-clausulas.test.js`, e o que ele alcança
+    // está escrito lá.
+    'CONSTITUICAO.md',
+    // Entra pela mesma razão, e com a ressalva registrada mais abaixo sobre documento de
+    // trabalho pendente: este é citado pela cláusula 10.1, então precisa existir e precisa
+    // que os caminhos que ele cita resolvam.
+    'PENDENCIA-TILE-PRIVADO.md',
     // MEMORY.md e livro-razao.md moraram na RAIZ até 2026-08-14, quando o dono
     // pediu os dois dentro de `docs/`. A mudança de uma linha de caminho aqui é o
     // passo que mais fácil se esquece e o único que falha CALADO: a montagem de
@@ -320,7 +339,15 @@ describe('integridade da documentação', () => {
             }
         }
         expect(quebrados, `caminhos citados que não existem mais:\n${quebrados.join('\n')}`).toEqual([]);
-    });
+        // O PISO, e ele existe porque este caso é do tipo que passa VAZIO: se `DOCS` viesse
+        // vazio, ou se `RE_CAMINHO` deixasse de casar, `quebrados` seria `[]` e o verde não
+        // provaria nada.
+        expect(DOCS.length).toBeGreaterThan(50);
+    // TETO DE TEMPO EXPLÍCITO, como o irmão de símbolos abaixo. Este caso faz um `existsSync`
+    // por raiz de resolução por citação, e passou de 5 s (o default do vitest) quando
+    // `CONSTITUICAO.md` entrou na vigilância em 2026-08-21, sob máquina carregada. Guarda que
+    // reprova por RELÓGIO em vez de por conteúdo ensina a ignorar o próprio vermelho.
+    }, 30000);
 
     it('todo link markdown relativo aponta para um arquivo existente', () => {
         const quebrados = [];

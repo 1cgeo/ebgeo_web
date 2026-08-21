@@ -77,8 +77,13 @@
 // nao envia zoom (frontend/src/js/search/search-bar.search-providers.js), entao o
 // caminho real e o dos defaults.
 //
-// Filtro de acesso EMBUTIDO (defense in depth): nome privado so aparece para admin ou
-// para quem tem zona que o contem. Anonimo ($5 null) ve so publico.
+// ESTE BLOCO AFIRMOU ATE 2026-08-21 que havia "filtro de acesso EMBUTIDO (defense in
+// depth)" aqui, com nome privado so visivel a admin ou a quem tivesse zona, e anonimo
+// em `$5 null` vendo so publico. Era falso nos tres pontos, e falso CONTRADIZENDO o
+// cabecalho desta mesma consulta, vinte linhas acima, que diz por extenso que nao ha
+// predicado de acesso. A consulta tem QUATRO parametros; `$5` nunca existiu. Prosa que
+// promete um gate inexistente e pior que prosa ausente: ela faz quem le concluir que o
+// endurecimento ja esta feito.
 export const BUSCA = `
 WITH q AS (
   SELECT ng.f_unaccent($1) AS term,

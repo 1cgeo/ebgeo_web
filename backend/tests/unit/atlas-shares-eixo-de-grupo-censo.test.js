@@ -96,6 +96,18 @@ const CENSO = [
     'GET_SHARING_CONFIG: monta a TELA de compartilhamento (quem esta na lista, com que '
     + 'nivel de vinculo). Nao gateia nada: quem gateia a rota e requireAtlasPermission.'
   ),
+  naoResolve(
+    'src/modules/access-groups/access-groups.queries.js',
+    '(SELECT COUNT(*) FROM atlas_shares s',
+    'LIST_GROUPS e GET_GROUP_REACH: CONTAM quantos atlas o grupo alcanca, para que o aviso '
+    + 'de APAGAR O GRUPO diga o tamanho do estrago. Contagem, nunca resolucao: nenhuma '
+    + 'permissao sai daqui, e a linha de quem alcanca continua vindo de fn_user_atlas_shares. '
+    + 'Entraram em 2026-08-21 porque o aviso contava so recursos e omitia atlas, isto e, '
+    + 'avisava de MENOS sobre um ato irreversivel. O JOIN com atlas mais o deleted_at IS NULL '
+    + 'e o irmao do expires_at > NOW() da contagem vizinha: nao prometer perda de acesso a '
+    + 'atlas que ja esta na lixeira.',
+    2
+  ),
 ];
 
 // ---------------------------------------------------------------------------

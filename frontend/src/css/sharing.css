@@ -1008,6 +1008,28 @@
     white-space: nowrap;
 }
 
+/* A CONCESSÃO QUE JÁ NÃO ENTREGA ACESSO, porque quem concedeu teve a conta ou a OM
+   desativada. Âmbar pela mesma divisão da cascata (cinza é o estado normal, âmbar é o
+   que surpreende), e aqui a surpresa é a maior da tela: a lista se chama "quem tem
+   acesso" e esta linha é a exceção a ela. Ela NÃO é vermelha de propósito — vermelho é
+   erro, e isto é um estado reversível (reativar a OM devolve o acesso). */
+.resource-share__dead {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+/* O nome fica legível e o RESTO recua: o texto de origem ("veio de Fulano") não pode
+   continuar com o peso de uma afirmação vigente ao lado do chip que a desmente. */
+.sharing-member[data-grant-effective='false'] .sharing-member__username {
+    color: var(--gray-400);
+}
+
 /* O PRAZO DA CONCESSÃO. Neutro de propósito: ele não é um aviso (toda concessão tem
    prazo, é o estado normal), enquanto o âmbar ao lado marca o que surpreende — quantas
    pessoas caem junto numa revogação. */

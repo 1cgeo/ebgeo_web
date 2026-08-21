@@ -29,6 +29,22 @@
 // (soft) e a concessão fica REVOGADA (soft, com `revoked_by`). As duas juntas são a
 // resposta de auditoria "por que o grupo X tinha acesso ao recurso Y". O que some de
 // verdade é o ROSTER, e é por isso que ele é copiado para os detalhes da trilha.
+//
+// OS DOIS ATOS CONVERGIRAM EM 2026-08-21 (decisão do dono), e o último caso deste arquivo
+// é onde isso fica escrito. Até então eles davam desfechos OPOSTOS para o mesmo fato: o
+// membro com `view_share` próprio sobre o mesmo recurso MANTINHA o repasse quando o grupo
+// era apagado (lá ele é DESCENDENTE da coletiva, logo resgatável) e PERDIA quando era
+// retirado do grupo (lá ele é a ÂNCORA da poda, e âncora não se resgatava). A cláusula 3.7
+// da constituição — "se B não caiu, o que B concedeu não cai" — decidiu para MANTER, e
+// `podarPorRaizes` ganhou `resgatarRaiz`, ligado SÓ por `removeMember`: quem sai de um
+// grupo não mandou revogar concessão nenhuma, mandou fechar um CAMINHO.
+//
+// O CENÁRIO NÃO ERA EXERCITADO POR NINGUÉM antes daquele caso, e é o tipo de buraco que
+// nenhum verde denuncia: no caso `tirar um membro poda o que ELE alimentou PELO grupo` a
+// autoridade própria do membro1 é sobre OUTRO recurso, então a montagem nunca chegou perto
+// do resgate. A igualdade entre os dois atos é asserida como igualdade E em absoluto nos
+// dois lados, porque comparar duas medições sozinho deixa passar duas cópias erradas do
+// mesmo jeito.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -433,6 +449,232 @@ describe('F17 — apagar o grupo e tirar membro PODAM a subárvore', () => {
     );
     assert.equal(doRemove.length, 1);
     assert.equal(doRemove[0].details.grantsAffected, 1);
+  });
+
+  // -------------------------------------------------------------------------
+  // A CONVERGÊNCIA (decisão do dono, 2026-08-21): apagar o grupo e tirar o membro
+  // passam a dar o MESMO desfecho para o repasse de quem tem autoridade própria.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Nenhuma cadeia de `parent_grant_id` revisita um id. Aciclicidade MEDIDA.
+   *
+   * CÓPIA DELIBERADA da helper homônima de `resource-grants-alcancabilidade.test.js`, e o
+   * preço está reconhecido: uma correção feita de um lado não chega ao outro. Ela não foi
+   * promovida a `tests/helpers/` porque as duas suítes são editadas por trabalhos
+   * paralelos e um arquivo compartilhado entre elas é conflito garantido; e porque o corpo
+   * é travessia de grafo pura, sem uma linha de conhecimento do domínio. O que ela prende
+   * é o que a decisão (2) de `REVOKE_SUBTREE_PRESERVING_REACH` exige de quem mexe no
+   * conjunto que alimenta o repai: a prova de aciclicidade, medida em vez de afirmada.
+   */
+  async function assertSemCiclo(recurso) {
+    const { rows } = await db.query(
+      'SELECT id, parent_grant_id FROM resource_grants WHERE resource_id = $1 AND revoked_at IS NULL',
+      [recurso],
+    );
+    assert.ok(rows.length > 0, 'guarda: a varredura precisa ter o que percorrer');
+    const paiDe = new Map(rows.map((l) => [String(l.id), l.parent_grant_id && String(l.parent_grant_id)]));
+    assert.equal(paiDe.size, rows.length, 'guarda: uma entrada por linha viva');
+    for (const [inicio] of paiDe) {
+      const vistos = new Set([inicio]);
+      let atual = paiDe.get(inicio);
+      while (atual) {
+        assert.ok(!vistos.has(atual), `ciclo na cadeia de pais a partir de ${inicio}`);
+        vistos.add(atual);
+        atual = paiDe.get(atual) ?? null;
+      }
+    }
+  }
+
+  /** A linha crua de uma concessão, para ler pai e revogação sem passar por rota. */
+  async function linhaCrua(id) {
+    const { rows } = await db.query(
+      'SELECT parent_grant_id, revoked_at FROM resource_grants WHERE id = $1', [id],
+    );
+    assert.equal(rows.length, 1, 'a linha precisa existir para ser medida');
+    return rows[0];
+  }
+
+  /**
+   * A ÚNICA MONTAGEM EM QUE O CASO APARECE, e por isso ela é função: os dois atos que
+   * precisam convergir têm de ser medidos sobre arranjos idênticos.
+   *
+   * DOIS RECURSOS, e é o que separa "o membro foi poupado" de "o repasse dele naquele
+   * recurso foi poupado": o grupo concede `view_share` nos dois, o membro1 repassa nos
+   * dois, e a autoridade PRÓPRIA dele existe só no primeiro. A ordem de criação é
+   * deliberada — a coletiva vem ANTES da pessoal, porque `LIVE_GRANTS_OF_ACTOR` prefere o
+   * `view_share` mais ANTIGO e é assim que o repasse nasce pendurado no GRUPO. Com a
+   * pessoal primeiro, o repasse nasceria fora do alcance da poda e o caso não mediria nada.
+   */
+  async function montarDuplaAutoridade(rotulo) {
+    const comProprio = await novaCamada(`${rotulo}-com-proprio`);
+    const semProprio = await novaCamada(`${rotulo}-sem-proprio`);
+    const grupo = await novoGrupo('dono', rotulo);
+    await porMembro('dono', grupo.id, atores.membro1.id);
+    await porMembro('dono', grupo.id, atores.membro2.id);
+
+    const coletivaCom = (await conceder('admin', comProprio, {
+      granteeGroupId: grupo.id, grantLevel: 'view_share',
+    }).expect(201)).body.data;
+    const coletivaSem = (await conceder('admin', semProprio, {
+      granteeGroupId: grupo.id, grantLevel: 'view_share',
+    }).expect(201)).body.data;
+
+    const repasseCom = (await conceder('membro1', comProprio, {
+      granteeId: atores.terceiro.id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(
+      repasseCom.parent_grant_id, coletivaCom.id,
+      'piso: o repasse do membro1 pendura na concessão AO GRUPO, lido da resposta',
+    );
+    const repasseSem = (await conceder('membro1', semProprio, {
+      granteeId: atores.terceiro.id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(
+      repasseSem.parent_grant_id, coletivaSem.id,
+      'piso: e o do outro recurso também, no MESMO grupo',
+    );
+
+    // O repasse de quem NÃO tem outra autoridade, no mesmo recurso e pelo mesmo grupo.
+    const repasseDoMembro2 = (await conceder('membro2', comProprio, {
+      granteeId: atores.terceiro2.id, grantLevel: 'view',
+    }).expect(201)).body.data;
+    assert.equal(repasseDoMembro2.parent_grant_id, coletivaCom.id, 'piso: e o do membro2 também');
+
+    // SÓ AGORA a autoridade PRÓPRIA do membro1, e SÓ no primeiro recurso.
+    const pessoal = (await conceder('admin', comProprio, {
+      granteeId: atores.membro1.id, grantLevel: 'view_share',
+    }).expect(201)).body.data;
+
+    assert.ok((await camadasVisiveis('terceiro')).includes(comProprio), 'piso: o terceiro vê os dois');
+    assert.ok((await camadasVisiveis('terceiro')).includes(semProprio), 'piso: inclusive o segundo');
+    assert.ok((await camadasVisiveis('terceiro2')).includes(comProprio), 'piso: o terceiro2 vê');
+
+    return {
+      comProprio, semProprio, grupo, coletivaCom, coletivaSem,
+      repasseCom, repasseSem, repasseDoMembro2, pessoal,
+    };
+  }
+
+  /**
+   * O DESFECHO DO MEMBRO1, em forma comparável entre os dois atos. Os ids diferem de uma
+   * montagem para a outra, então o pai vira o BOOLEANO "é a concessão pessoal dele", que é
+   * a pergunta que a decisão responde.
+   */
+  async function retratoDoMembro1(m) {
+    const noCom = await linhaCrua(m.repasseCom.id);
+    const noSem = await linhaCrua(m.repasseSem.id);
+    const vistos = await camadasVisiveis('terceiro');
+    return {
+      ondeTemAutoridadePropria: {
+        vivo: noCom.revoked_at === null,
+        paiEhAConcessaoPessoal: String(noCom.parent_grant_id ?? '') === String(m.pessoal.id),
+        beneficiarioEnxerga: vistos.includes(m.comProprio),
+      },
+      ondeNaoTem: {
+        vivo: noSem.revoked_at === null,
+        beneficiarioEnxerga: vistos.includes(m.semProprio),
+      },
+    };
+  }
+
+  /**
+   * O DESFECHO ESPERADO, escrito UMA vez e cobrado dos DOIS atos em ABSOLUTO. A igualdade
+   * entre eles é a decisão, mas comparar os dois sozinho deixaria passar duas cópias
+   * erradas do mesmo jeito — é a lição das duas cópias do projetor 360.
+   */
+  const MANTEM_ONDE_TEM_AUTORIDADE = {
+    ondeTemAutoridadePropria: { vivo: true, paiEhAConcessaoPessoal: true, beneficiarioEnxerga: true },
+    ondeNaoTem: { vivo: false, beneficiarioEnxerga: false },
+  };
+
+  it('tirar do grupo e apagar o grupo CONVERGEM: o repasse de quem tem autoridade própria sobrevive', async () => {
+    // A DIVERGÊNCIA QUE ESTE CASO FECHA estava escrita por extenso no docblock de
+    // `removeMember`: o membro com autoridade PRÓPRIA sobre o mesmo recurso MANTINHA o
+    // repasse quando o grupo era apagado (lá ele é DESCENDENTE da coletiva, logo
+    // resgatável) e PERDIA quando era retirado do grupo (lá ele é a ÂNCORA, e âncora não
+    // se resgatava). O dono decidiu convergir para MANTER, pela cláusula 3.7.
+    //
+    // O CENÁRIO NÃO ERA EXERCITADO POR NINGUÉM: no caso "tirar um membro poda o que ELE
+    // alimentou PELO grupo" a autoridade própria do membro1 é sobre OUTRO recurso, então
+    // ela nunca chegou perto do resgate.
+
+    // ---- ATO A: tirar o membro do grupo -------------------------------------
+    const a = await montarDuplaAutoridade('conv-saida');
+    const saida = await supertest(app)
+      .delete(`/api/v1/access-groups/${a.grupo.id}/members/${atores.membro1.id}`)
+      .set('Authorization', `Bearer ${tokens.dono}`)
+      .expect(200);
+    const retratoA = await retratoDoMembro1(a);
+
+    // O PISO, em absoluto: o repasse sobrevive REPAI-ADO no caminho próprio.
+    assert.deepEqual(
+      retratoA, MANTEM_ONDE_TEM_AUTORIDADE,
+      'a saída do grupo mantém o repasse onde há autoridade própria e o derruba onde não há',
+    );
+    // E a contagem da resposta concorda: caiu UM (o do recurso sem autoridade própria).
+    assert.equal(
+      saida.body.data.grantsAffected, 1,
+      'a resposta conta só o que CAIU, e o repasse resgatado não está aí',
+    );
+    await assertSemCiclo(a.comProprio);
+
+    // A TRILHA CLASSIFICA O ATO como repai e não como revogação, com a origem do caso.
+    // O FILTRO É `rootGrantId` E NÃO `grantId`, e a diferença não é estilo: `grantId`
+    // também é escrito pelo `PERMISSION_GRANT` da criação, então filtrar por ele traz duas
+    // linhas para uma concessão tocada uma vez e transforma a guarda de disjunção (uma
+    // linha por concessão tocada) num falso vermelho. Só a poda carimba `rootGrantId`.
+    const { rows: trilhaA } = await db.query(
+      `SELECT action, details FROM audit_trail WHERE details->>'rootGrantId' = $1`,
+      [a.repasseCom.id],
+    );
+    assert.equal(trilhaA.length, 1, 'exatamente uma linha para a concessão tocada');
+    assert.equal(trilhaA[0].details.grantId, a.repasseCom.id, 'e ela é sobre a própria âncora');
+    assert.equal(trilhaA[0].action, 'PERMISSION_REPARENT');
+    assert.equal(trilhaA[0].details.kind, 'reparent');
+    assert.equal(trilhaA[0].details.origem, 'ACCESS_GROUP_MEMBER_REMOVE');
+    assert.equal(
+      trilhaA[0].details.parentGrantId, a.pessoal.id,
+      'e o pai novo registrado é a concessão pessoal',
+    );
+
+    // DISCRIMINAÇÃO 1 — a poda NÃO virou inócua: quem não tem autoridade própria continua
+    // perdendo. É também a guarda da ordem `DELETE_MEMBER` antes de `podarPorRaizes`: com
+    // a ordem trocada, o resgate acharia a própria concessão coletiva como "outro
+    // caminho" e a saída não teria efeito nenhum, com 200 na resposta.
+    const saidaDoMembro2 = await supertest(app)
+      .delete(`/api/v1/access-groups/${a.grupo.id}/members/${atores.membro2.id}`)
+      .set('Authorization', `Bearer ${tokens.dono}`)
+      .expect(200);
+    assert.equal(saidaDoMembro2.body.data.grantsAffected, 1, 'o repasse do membro2 CAI');
+    assert.notEqual(
+      (await linhaCrua(a.repasseDoMembro2.id)).revoked_at, null,
+      'e a linha dele está revogada na tabela',
+    );
+    assert.ok(
+      !(await camadasVisiveis('terceiro2')).includes(a.comProprio),
+      'o beneficiário dele perde o acesso',
+    );
+    await assertSemCiclo(a.comProprio);
+
+    // ---- ATO B: apagar o grupo, na MESMA montagem ---------------------------
+    const b = await montarDuplaAutoridade('conv-exclusao');
+    await apagarGrupo('dono', b.grupo.id);
+    const retratoB = await retratoDoMembro1(b);
+
+    // DISCRIMINAÇÃO 2, em absoluto: apagar o grupo continua com o mesmo desfecho.
+    assert.deepEqual(
+      retratoB, MANTEM_ONDE_TEM_AUTORIDADE,
+      'apagar o grupo já mantinha o repasse repai-ado, e continua mantendo',
+    );
+    await assertSemCiclo(b.comProprio);
+
+    // A DECISÃO É A IGUALDADE, e ela é asserida como igualdade: as duas asserções
+    // absolutas acima é que impedem duas cópias erradas do mesmo jeito de passar.
+    assert.deepEqual(
+      retratoA, retratoB,
+      'os dois atos concordam sobre o mesmo fato: o membro deixou de alcançar PELO grupo',
+    );
   });
 
   it('o roster da trilha inclui o membro DESATIVADO, e a contagem concorda com a lista', async () => {

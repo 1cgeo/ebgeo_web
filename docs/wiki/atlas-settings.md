@@ -6,7 +6,7 @@ O objeto e seus campos estão declarados em `backend/src/modules/atlas/atlas.sch
 
 ## Duas chaves de `settings` NÃO passam por aqui
 
-`terrainExaggeration` e `globeProjection` moram no mesmo `atlas.settings`, e chegam lá por outra porta: **operação de sync**, pela whitelist de `backend/src/modules/sync/sync.service.js`. Quem lê o schema Joi do PATCH e conclui que a lista dele é o conteúdo do objeto se engana — e o engano é caro, porque um cliente que mandasse as duas pelo PATCH receberia 422 sem entender por quê.
+`terrainExaggeration` e `globeProjection` moram no mesmo `atlas.settings`, e chegam lá por outra porta: **operação de sync**, pela whitelist de `backend/src/modules/sync/sync.service.js`. Quem lê o schema Joi do PATCH e conclui que a lista dele é o conteúdo do objeto se engana, e o engano é caro, porque um cliente que mandasse as duas pelo PATCH receberia 422 sem entender por quê.
 
 O motivo é o que elas são: as duas dizem como o mapa 2D deste projeto se PARECE, não o que ele oferece. Daí decorrem as três diferenças que importam:
 

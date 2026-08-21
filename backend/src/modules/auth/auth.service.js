@@ -433,7 +433,6 @@ export async function register(data, origin = '', req = null) {
       self: true,
       role: 'user',
       organization_id: data.organization_id || null,
-      hasEmail: Boolean(email),
     },
   });
 

@@ -394,11 +394,28 @@ const CENSO_CONSULTA = [
   },
   {
     arquivo: 'src/modules/sync/sync.queries.js', unidade: 'canSeeCatalogResource', n: 1,
-    classe: ESCRITA, predicado: 'unseenCatalogResourceDenialReason',
-    motivo: 'O gate de ESCRITA de camada de catálogo: quem cria ou atualiza precisa ENXERGAR o '
+    classe: ESCRITA, predicado: 'unseenResourceDenialReason',
+    motivo: 'O gate de ESCRITA de referência de CATÁLOGO: quem cria ou atualiza precisa ENXERGAR o '
       + 'recurso referenciado. Endurecimento, não a defesa principal (essa é a leitura acima), e pela '
       + 'mesma razão de `assertCanSeeResource` no empréstimo: sem ele um co-Gestor referencia por '
-      + 'adivinhação de id um recurso que não pode abrir. Recusa POR OPERAÇÃO, nunca por lote.',
+      + 'adivinhação de id um recurso que não pode abrir. Recusa POR OPERAÇÃO, nunca por lote. '
+      + 'Ele serviu SÓ a camada de catálogo até 2026-08-21, quando o gate passou a ser uma tabela '
+      + 'de extratores por `op.target` e ele passou a responder também pelo `tileset_id` do 3D, '
+      + 'pelo `model_id` do slide e pelo `base_layer` do mapa — as quatro tabelas de catálogo, uma '
+      + 'consulta só.',
+  },
+  {
+    arquivo: 'src/modules/sync/sync.queries.js', unidade: 'CAN_SEE_SV360_REF', n: 1,
+    classe: ESCRITA, predicado: 'unseenResourceDenialReason',
+    motivo: 'A metade 360 do MESMO gate de escrita, e ela existe separada por uma razão de dado, '
+      + 'não de estilo: a referência que o atlas guarda é NOME DE FOTO (ou slug, ou nome de '
+      + 'projeto, ou id da foto de entrada), nunca o id que `fn_can_see_resource` julga. A tradução '
+      + 'vem de `RESOLVE_SV360_REFS`, COMPOSTA aqui em vez de reescrita, porque uma segunda cópia '
+      + 'do desempate classificaria a referência contra um projeto e a serviria por outro — defeito '
+      + 'já pago nesta casa. O `atlasId` da ROTA viaja até o predicado, e essa é a diferença que '
+      + 'separa este gate da classificação do CLONE (`CLASSIFY_RESOURCE_REFS`, que passa '
+      + '`NULL::uuid` de propósito): na cópia o recurso SAI do atlas, no sync ele FICA, então o '
+      + 'empréstimo conta.',
   },
 
   // O SEGUNDO CATÁLOGO DE MODELO 3D SAIU DAQUI, e a ausência é o registro: `ng.catalogo_3d`

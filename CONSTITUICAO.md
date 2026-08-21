@@ -15,6 +15,25 @@ Cada cláusula carrega um estado, e ele é o que impede este documento de mentir
 Documentação desatualizada engana mais do que documentação ausente, e engana em dobro um agente, que a trata
 como verdade. Ao mudar o código, mude o estado da cláusula no mesmo commit.
 
+**E essa regra já falhou uma vez, então ela deixou de ser regra escrita.** Em 2026-08-21 uma auditoria por
+seções mediu as 55 cláusulas contra o código e achou que o commit das cinco ondas virara o estado de UMA:
+vinte e três diziam "em obra" sobre coisas entregues, e doze carregavam uma frase começando em "Hoje" que
+afirmava o oposto do código. Numa especificação isso não é ruído, é instrução: quem lê "não existe X em
+lugar nenhum do servidor" vai implementar X uma segunda vez. Daí as duas amarras de hoje, e a segunda é a
+que tem dentes:
+
+- **toda cláusula vigente cita, entre crases, o arquivo de teste que a prende.** Apagar ou renomear esse
+  teste fica vermelho apontando para a cláusula, porque `frontend/tests/unit/docs-integridade.test.js` valida
+  todo caminho citado. É o que transforma "e há teste" de honra em verificação;
+- **a lista das cláusulas não-vigentes é declarada em teste**, com o motivo de cada uma, por
+  `frontend/tests/unit/constituicao-estado-das-clausulas.test.js`. Fechar uma, abrir uma nova ou mudar a
+  natureza de uma exige tocar naquela lista.
+
+Saiba o alcance, para não concluir do verde mais do que ele diz: nada disso verifica que uma cláusula é
+VERDADE. O teste citado pode não provar o que a cláusula afirma, e nenhuma varredura sabe disso. O que está
+garantido é que a citação existe, que ela aponta para arquivo que existe, e que o que está aberto é curto e
+declarado.
+
 ---
 
 ## 1. Quem existe
@@ -22,7 +41,8 @@ como verdade. Ao mudar o código, mude o estado da cláusula no mesmo commit.
 **1.1** Existem quatro papéis globais, e eles **não formam uma escada**: `user` (Usuário), `producer`
 (Produtor), `credenciado` (Credenciado) e `admin` (Administrador). Nenhum contém o outro. Comparar papel
 global por ordem é erro de leitura, e um gate escrito como "diferente de usuário comum" promove o credenciado
-em silêncio. **[vigente]**
+em silêncio. **[vigente]** Preso por `backend/tests/unit/papel-global-censo.test.js`, que é censo: sítio
+novo não classificado reprova, em vez de passar por omissão.
 
 **1.2** Além dos quatro, o sistema conhece mais três tipos de principal, e omiti-los de um raciocínio de
 autorização é como se erra:
@@ -32,9 +52,18 @@ autorização é como se erra:
   ao atlas que emitiu o link;
 - o **principal por chave de API**, revogado por rotação de chave. **[vigente]**
 
+Preso em três pedaços, e o terceiro é o mais fraco: o confinamento do visitante de link por
+`backend/tests/integration/public-token-atlas-scope.repro.test.js`, a rotação de chave por
+`backend/tests/integration/identity.test.js`, e "deslogado não é papel" apenas de lado, pelo CHECK que
+`backend/tests/integration/papel-credenciado.test.js` cobra sobre os quatro valores. Ou seja: nada reprovaria
+se alguém representasse o deslogado por um pseudo-papel fora da coluna.
+
 **1.3** Somente o administrador promove alguém a produtor ou a credenciado. O papel é lido do banco a cada
 requisição, nunca do token, de modo que um administrador rebaixado não sobrevive à validade do token que já
-emitiu. O administrador não pode rebaixar a si mesmo. **[vigente]**
+emitiu. O administrador não pode rebaixar a si mesmo. **[vigente]** São três afirmações e três guardas: o
+auto-rebaixamento por `backend/tests/integration/users-admin.test.js`, "só o administrador promove" por
+`backend/tests/integration/escopo-de-producao-bicondicional.test.js`, e "o papel vem do banco a cada
+requisição" por `backend/tests/integration/auth-live-reconciliation.test.js`.
 
 **1.4** **Não existe eixo de papel dentro da organização.** A coluna `org_role` (dono, administrador, editor,
 leitor da OM) era resíduo de um desenho anterior, em que ela autorizava a escrita do 360. Foi substituída pelo
@@ -43,7 +72,9 @@ crachá dentro de uma organização que a própria pessoa escolheu não autoriza
 nada no servidor e, no cliente, contaminava o papel do eixo por atlas: quem tivesse o crachá de administrador
 da OM abria a interface de Administrador de atlas sem ter permissão em atlas nenhum. **Saiu do código
 inteiro em 2026-08-20**: coluna, claim do token, consultas, formulário e a semente do papel por atlas na
-hidratação da sessão, que hoje começa em Leitor. **[vigente]**
+hidratação da sessão, que hoje começa em Leitor. **[vigente]** Preso por
+`frontend/tests/unit/org-role-nao-promove-em-atlas.repro.test.js`, que guarda o defeito pelo nome, e por
+`backend/tests/integration/register-tenant-claim.test.js`, que cobra a ausência do claim no token.
 
 **1.5** O usuário deslogado cria a própria conta. Ela nasce sempre como `user`: papel, escopo de produção e
 vínculo institucional não são escolhíveis no cadastro. A organização declarada no cadastro é **lotação** e
@@ -56,109 +87,170 @@ existir, a conta é criada pelo administrador.
 ## 2. Recursos
 
 **2.1** Um recurso é de um destes cinco tipos: **mapa base**, **3D**, **360**, **camada de dados** e **camada
-de análise**. Cada um é **público ou privado**. **[vigente]**
+de análise**. Cada um é **público ou privado**. **[vigente]** Preso por
+`backend/tests/integration/basemap-quinto-tipo.test.js`, que mede os dois CHECKs de tipo.
 
 **2.2** Topônimos (gazetteer) **não** têm eixo público/privado. Não é omissão: o eixo existiu e foi removido
-em 2026-08-19. Quem quiser privacidade de topônimo está propondo funcionalidade nova. **[vigente]**
+em 2026-08-19. Quem quiser privacidade de topônimo está propondo funcionalidade nova. **[vigente]** Preso
+por `frontend/tests/e2e/nomes-busca-anon.e2e.test.js`, que exige o anônimo recebendo todo nome semeado.
 
 **2.3** O administrador define a visibilidade de qualquer recurso. **O produtor define a visibilidade dos
-recursos que administra**, que são os da própria organização. **[em obra]** Hoje só o administrador define.
+recursos que administra**, que são os da própria organização. **[vigente]** desde 2026-08-20: o gate da
+rota é `requireResourceMaintainer`, e o `WHERE` da escrita recorta a linha por `fn_can_produce_resource`, de
+modo que recurso de outra OM devolve não-encontrado em vez de proibido. Preso por
+`backend/tests/integration/produtor-define-visibilidade.test.js`.
 
 **2.4** O produtor **mantém** o acervo da própria organização: cria, edita e remove as linhas de catálogo
 dela, incluindo nome, metadados, miniatura e vídeo de prévia. Recurso institucional, sem organização dona,
-não é de produtor nenhum. **[vigente]**, exceto o vídeo, que hoje existe só para 3D e passa a existir nos
-demais tipos. **[em obra]**
+não é de produtor nenhum. **[vigente]**, e o vídeo de prévia vale para **quatro** dos cinco tipos: 3D,
+dados, análise e 360. O **mapa base fica de fora**, e não por esquecimento: ele é o único dos cinco que não
+vira cartão de catálogo, então não haveria onde ler o valor. A exceção está escrita na migração que criou o
+campo. Preso por `backend/tests/integration/catalogo-video-de-previa.test.js`, cujo próprio título diz
+"quatro tipos".
 
 **2.5** O produtor **lê** os recursos públicos e os que a própria organização produziu. Ele **não** lê o
-acervo privado alheio. **[vigente]**
+acervo privado alheio. **[vigente]** Preso por `backend/tests/integration/resource-access-funcoes.test.js`,
+no ramo de produtor de `fn_can_see_resource`.
 
-**2.6** O credenciado **lê todo recurso privado**, sem precisar de concessão. **[vigente]**
+**2.6** O credenciado **lê todo recurso privado**, sem precisar de concessão. **[vigente]** Preso por
+`backend/tests/integration/papel-credenciado.test.js`.
 
-**2.7** O administrador lê tudo e configura tudo. **[vigente]**
+**2.7** O administrador lê tudo e configura tudo. **[vigente]** para "lê tudo", preso por
+`backend/tests/integration/resource-access-funcoes.test.js`. Já **"configura tudo" é um universal sem guarda
+universal**: ele é provado rota a rota (`backend/tests/integration/config-admin.test.js`,
+`backend/tests/integration/admin-panel-authz.test.js`), e uma superfície de configuração NOVA que não desse
+caminho ao administrador não deixaria nada vermelho. O censo que existe classifica gate de privacidade, não
+alcance do administrador.
 
 ---
 
 ## 3. Compartilhamento de recurso
 
 **3.1** Um recurso é compartilhado com **uma pessoa** ou com **um grupo**, nunca com os dois na mesma
-concessão. **[vigente]**
+concessão. **[vigente]** Preso por `backend/tests/integration/resource-grants-grupo.test.js`, que mede os
+três desfechos da borda: os dois juntos, nenhum, e um só.
 
 **3.2** Há **dois níveis**: **ver** e **ver e compartilhar**. Quem recebe "ver" acessa e não repassa; quem
 recebe "ver e compartilhar" repassa. Vale igual para grupo: quem recebe o nível maior através de um grupo
-repassa como se o tivesse recebido nominalmente. **[vigente]**
+repassa como se o tivesse recebido nominalmente. **[vigente]** Preso por
+`backend/tests/integration/resource-grants-escalonamento.test.js`, que compara os dois níveis com o MESMO
+corpo de requisição.
 
 **3.3** Origina uma concessão quem tem **papel global de dado** (administrador ou credenciado) ou quem
 **produz** aquele recurso. Repassa, além desses, **qualquer pessoa que tenha recebido o recurso com permissão
-de compartilhar**. **[em obra]** Hoje o produtor não concede: falta-lhe uma concessão de onde pendurar a que
-daria, e é isso que a onda de implementação resolve, fazendo o produtor conceder de raiz sobre o acervo da
-própria organização.
+de compartilhar**. **[vigente]** desde 2026-08-20. A premissa que atrasava isto (o produtor precisaria de
+uma concessão de onde pendurar) foi abandonada: produção virou **raiz**, igual ao papel global, e a
+concessão do produtor nasce com pai nulo. Preso por
+`backend/tests/integration/produtor-concede-de-raiz.test.js`.
 
 **3.4** Toda concessão **expira**. O teto e o padrão são de um ano, e nenhuma concessão vive mais que a de
-quem a concedeu. Expirada e revogada são estados distintos. **[vigente]**
+quem a concedeu. Expirada e revogada são estados distintos. **[vigente]** Preso por
+`backend/tests/integration/resource-grants-prazo.test.js`, que mede o teto de dois anos recusado, a concessão
+que nasceria morta recusada, e 364 dias aceitos.
 
 **3.5** Revogar derruba **a cadeia que deriva daquela concessão**. Se você compartilhou com A e A compartilhou
-com B, tirar de A tira de B. **[vigente]**
+com B, tirar de A tira de B. **[vigente]** Preso por
+`backend/tests/integration/resource-grants-poda.test.js`, cuja discriminação é o ramo irmão ficando de pé.
 
 **3.6** **Caminhos independentes são preservados.** Se B recebeu de A **e** de C, ou por um grupo, tirar A não
-tira B. **[vigente]**
+tira B. **[vigente]** Preso por `backend/tests/integration/resource-grants-poda.test.js`.
 
 **3.7** E a preservação alcança os descendentes: **se B não caiu, o que B concedeu não cai**. Ao podar, um
 descendente cujo concedente ainda tenha permissão de compartilhar viva é repai-ado nesse outro caminho, em
-vez de revogado. **[em obra]** Hoje ele cai, porque cada concessão pendura em um pai só.
+vez de revogado. **[vigente]** `parent_grant_id` continua sendo **um pai só** (é coluna única, e isso não
+mudou), mas deixou de implicar queda: o repai TROCA a aresta em vez de derrubar o nó, e o prazo do pai novo
+é teto, nunca elástico. Preso por `backend/tests/integration/resource-grants-alcancabilidade.test.js`, que
+leva o controle negativo da disjunção dos três UPDATE, porque o Postgres não levanta erro quando duas CTEs
+modificadoras tocam a mesma linha: ele dá resultado imprevisível.
 
 **3.8** Apagar um grupo, ou remover alguém de um grupo, **poda a cadeia** que derivava daquele acesso, com a
-mesma regra de preservação de 3.6 e 3.7. **[em obra]** Hoje o acesso direto morre e a cadeia abaixo dele
-sobrevive.
+mesma regra de preservação de 3.6 e 3.7. **[vigente]** nos dois atos, pelo mesmo motor de poda, e é o
+contrário do que esta linha afirmou por um tempo: a cadeia é justamente o que a poda alcança. Preso por
+`backend/tests/integration/access-groups-exclusao-cascata.test.js`.
+
+E os **dois atos convergem** desde 2026-08-21. Havia uma divergência estrutural: o membro com autoridade
+PRÓPRIA sobre o mesmo recurso mantinha o repasse ao se apagar o grupo (lá ele é descendente da concessão
+coletiva, logo resgatável) e o perdia ao ser retirado do grupo (lá ele é a ÂNCORA da poda, e âncora nunca se
+resgatava). O dono decidiu por MANTER, que é o que a 3.7 já mandava. A regra da âncora **não** foi removida,
+porque ela existe para a revogação DELIBERADA: os chamadores é que passaram a se separar em dois grupos, e
+sair de um grupo é remoção de CAMINHO, não revogação de uma concessão que alguém escolheu derrubar.
 
 ---
 
 ## 4. Grupos
 
 **4.1** **Qualquer usuário logado cria grupo.** Grupo serve a recurso e a atlas, e compartilhar atlas é
-direito de qualquer um. **[em obra]** Hoje exige papel global.
+direito de qualquer um. **[vigente]** O único middleware da rota de criação é o de sessão: os quatro papéis
+globais percorrem o ciclo inteiro no próprio grupo, e o anônimo não. Preso por
+`backend/tests/integration/access-groups-crud.test.js`.
 
 **4.2** Quem cria é o **dono**. Somente ele adiciona e remove pessoas, renomeia, e apaga o grupo. O
-administrador é exceção universal. **[em obra]** Hoje `created_by` é decorativo e qualquer credenciado manda
-em qualquer grupo.
+administrador é exceção universal. **[vigente]** A autoridade mora em `owner_id`, uma coluna NOVA, e não em
+`created_by`, que segue sendo história e não poder: fundir as duas impediria transferir a posse sem
+falsificar o registro de criação. Cinco rotas são fechadas pelo mesmo predicado, e a recusa é
+não-encontrado, nunca proibido. Preso por `backend/tests/integration/access-groups-crud.test.js`, que trata
+as cinco rotas como censo e mede o dono contra o estranho, o credenciado e o produtor.
 
 **4.3** Apagar o grupo **remove os membros e remove as concessões vinculadas a ele**, antes de apagar.
-**[em obra]** Hoje é exclusão lógica: o acesso cai pelo predicado, mas nada é removido.
+**[vigente]** A ordem é contrato: ler o alcance, podar as concessões, esvaziar a composição, e só então
+apagar. A composição é apagada **fisicamente**; as concessões são revogadas e a linha do grupo sobrevive, as
+duas por auditoria: hard delete destruiria a resposta a "por que Fulano perdeu acesso". Preso por
+`backend/tests/integration/access-groups-exclusao-cascata.test.js`.
 
 **4.4** O usuário vê **os grupos que administra**, com a lista de membros. O administrador vê todos.
-**[em obra]** Hoje todo logado vê todos os grupos vivos do sistema.
+**[vigente]** O recorte mora na CONSULTA, não no middleware, e é por isso que a rota é só de sessão. Preso
+por `backend/tests/integration/access-groups-crud.test.js`.
 
 **4.5** O usuário vê também **os grupos de que participa**, com o nome e o **dono** de cada um, e **não** vê
 os membros deles. Um mecanismo que decide o acesso da pessoa a recursos privados não pode ser invisível para
-ela. **[em obra]**
+ela. **[vigente]** A projeção é exatamente nome e dono: roster, contagens e descrição ficam de fora, e a
+discriminação inclui o próprio dono (ser dono não é participar). Preso por
+`backend/tests/integration/access-groups-crud.test.js`.
 
 **4.6** O credenciado **não** tem poder especial sobre grupo. Ele é dono dos grupos dele, como qualquer um.
-**[em obra]** Isto supera por escrito, e não apaga, a decisão de 2026-08-19 que fazia da administração de
+**[vigente]**, e por ausência estrutural: o predicado de administração de grupo tem dois ramos só, posse viva
+e administrador do sistema. Preso por `backend/tests/integration/access-groups-crud.test.js`, em que o
+credenciado é controle negativo nas cinco rotas e passa no ciclo do grupo DELE, por posse e não por papel.
+Isto supera por escrito, e não apaga, a decisão de 2026-08-19 que fazia da administração de
 grupo a única escrita do papel.
 
 ---
 
 ## 5. Atlas
 
-**5.1** Um atlas é compartilhado com **pessoas** e com **grupos**. **[em obra]** Hoje só com pessoas: não
-existe eixo de grupo em atlas em lugar nenhum do servidor.
+**5.1** Um atlas é compartilhado com **pessoas** e com **grupos**. **[vigente]** desde 2026-08-21. O eixo de
+grupo existe em coluna, CHECK de alvo único, unicidade, índice, nas funções que resolvem acesso e nas rotas;
+esta linha afirmou o contrário ("em lugar nenhum do servidor") depois de o eixo existir, que é o tipo de
+negação absoluta capaz de fazer a próxima sessão reimplementar o que já está lá. Preso por
+`backend/tests/integration/atlas-share-por-grupo.test.js`.
 
 **5.2** São **cinco níveis**, e eles **formam uma escada**: leitura < comentário < edição < gestão < dono.
 Todo gate é por hierarquia. Lista fechada de níveis é proibida: ela exclui a gestão em silêncio, e isso já
-causou bug real duas vezes, nos dois pacotes. **[vigente]**
+causou bug real duas vezes, nos dois pacotes. **[vigente]** Preso por
+`backend/tests/integration/permission-hierarchy-matrix.test.js`, que percorre os 25 pares de (nível resolvido,
+nível exigido) em vez de amostrar.
 
 **5.3** O compartilhamento por grupo alcança os **quatro níveis concedíveis**, gestão inclusive. Dono não é
 concedível por caminho nenhum. Duas salvaguardas são parte da regra, não detalhe de implementação: só se
 compartilha atlas com **grupo próprio**, e a lista de quem tem acesso **nomeia o dono do grupo**, para que o
-gestor veja de quem é a composição que está aceitando. **[em obra]**
+gestor veja de quem é a composição que está aceitando. **[vigente]** nas três partes, e as duas
+salvaguardas têm teste próprio. Uma assimetria deliberada: **subir** o nível de um grupo exige posse do
+grupo, **rebaixar** e **remover** não: tirar acesso nunca precisa da mesma autoridade que dá. Preso por
+`backend/tests/integration/sharing-grupo-rotas.test.js` e, do lado da tela,
+`frontend/tests/unit/sharing-modal-grupos.test.js`.
 
 **5.4** Um atlas pode ter **link público**, e ele é **somente leitura**, imposta no servidor e não na
-interface. O visitante do link é anônimo e confinado àquele atlas. O link é revogável. **[vigente]**
+interface. O visitante do link é anônimo e confinado àquele atlas. O link é revogável. **[vigente]** Preso
+por `backend/tests/integration/public-token-atlas-scope.repro.test.js`.
 
 **5.5** O administrador global tem **posse** em todo atlas. É o quinto caminho de acesso, ao lado de dono,
-compartilhamento nominal, grupo e link público. **[vigente]**
+compartilhamento nominal, grupo e link público. **[vigente]** Preso por
+`backend/tests/integration/sharing-gaps.test.js`.
 
 **5.6** Quem não tem relação nenhuma com um atlas recebe "não encontrado", não "proibido". É decisão
-anti-enumeração: "proibido" fica reservado a quem tem acesso insuficiente. **[vigente]**
+anti-enumeração: "proibido" fica reservado a quem tem acesso insuficiente. **[vigente]** Preso por
+`backend/tests/integration/atlas-404-vs-403-escada.test.js`, cuja asserção é que o estranho fica
+indistinguível de atlas inexistente.
 
 ---
 
@@ -166,38 +258,58 @@ anti-enumeração: "proibido" fica reservado a quem tem acesso insuficiente. **[
 
 **6.1** Os recursos que aparecem num atlas são os que **o dono do atlas** pode ver. Se o dono anexa ao atlas
 um recurso privado a que tem acesso, **todos que acessam o atlas acessam aquele recurso enquanto usam aquele
-atlas**, e só ali. **[vigente]**
+atlas**, e só ali. **[vigente]** Preso por `backend/tests/integration/atlas-emprestimo-recurso.test.js`,
+cuja discriminação é o mesmo recurso NÃO aparecendo fora do atlas nem sob o atlas errado.
 
 **6.2** O empréstimo é recalculado a partir do dono **a cada leitura**. Não é congelado no momento do
 compartilhamento. Portanto: trocar o dono, ou o dono perder o acesso ao recurso, **derruba o empréstimo para
-todos**, sem varredura e sem atraso. **[vigente]**
+todos**, sem varredura e sem atraso. **[vigente]** Preso por
+`backend/tests/integration/atlas-emprestimo-revogacao.test.js`.
 
 **6.3** O empréstimo alcança **inclusive o visitante do link público**. É a consequência aceita da regra 6.1:
 quem publica um atlas que empresta um recurso privado está publicando aquele recurso naquele contexto. O que
-a torna defensável é que a cadeia começa em alguém com autoridade de repasse. **[vigente]**
+a torna defensável é que a cadeia começa em alguém com autoridade de repasse. **[vigente]** Preso por
+`backend/tests/integration/resource-access-visitante-publico.test.js`.
 
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
-organização. **[em obra]** Hoje ele anexa, passa em todos os gates, e o empréstimo não resolve para ninguém,
-em silêncio.
+organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na
+disjunção do empréstimo. E ela é reavaliada a cada leitura como as outras, então perder a produção (ou a OM
+produtora ser desativada) derruba o empréstimo sem varredura. Preso por
+`backend/tests/integration/emprestimo-do-produtor-resolve.test.js`.
 
 **6.5** O empréstimo **não viaja em cópia**: nem no clone, nem no arquivo, nem na versão local. **[vigente]**
+Preso por `backend/tests/integration/clone-poda-por-destinatario.test.js`, no caso em que B alcança o recurso
+SÓ pelo empréstimo da origem e ele não viaja.
 
 ---
 
 ## 7. Atlas local e atlas remoto
 
-**7.1** O usuário deslogado tem **vários atlas locais**. **[vigente]**
+**7.1** O usuário deslogado tem **vários atlas locais**. **[vigente]** Preso por
+`frontend/tests/unit/local-atlas-api.test.js`, que mede o décimo aceito e o décimo primeiro recusado com erro
+nomeado.
 
-**7.2** O usuário logado **envia um atlas local ao servidor**, tornando-o remoto. **[vigente]**
+**7.2** O usuário logado **envia um atlas local ao servidor**, tornando-o remoto. **[vigente]** Preso por
+`frontend/tests/e2e/local-atlas-import.e2e.test.js`.
 
-**7.3** E **salva um atlas remoto como local**. **[em obra]** Hoje só existe o caminho de dois passos
-(exportar arquivo e reabrir) e o resgate automático no logout.
+**7.3** E **salva um atlas remoto como local**. **[vigente]** Existe comando de um passo, e ele **não** é um
+round-trip de `.ebgeo`: é cópia banco a banco mais a poda de saída, então a aba não troca de atlas nem
+recarrega. Preso por `frontend/tests/integration/salvar-remoto-como-local.test.js` e, do lado da tela, por
+`frontend/tests/unit/aba-mapas-acoes-por-estado.test.js`, que exige o comando na grade de ações e
+só na linha do atlas de servidor.
 
 **7.4** Locais e remotos podem ser **duplicados e apagados**. Duplicar um atlas remoto é **clonar para si**:
 a cópia nasce em posse de quem clonou. Apagar um remoto vai para a lixeira e é restaurável. **[vigente]**
+São quatro afirmações e quatro guardas, porque uma citação só deixaria três quartos sem endereço: duplicar
+local por `frontend/tests/unit/copia-de-atlas-local.test.js`, apagar local por
+`frontend/tests/unit/local-atlas-api.test.js`, clonar remoto por
+`backend/tests/integration/clone-visitante-publico.test.js`, e a lixeira restaurável por
+`backend/tests/integration/atlas-restore-integrity.test.js`, que cobra o CONTEÚDO de volta e não só a linha.
 
 **7.5** **Somente atlas remotos** se compartilham pelo sistema. Atlas local se compartilha por arquivo
-`.ebgeo`. **[vigente]**
+`.ebgeo`. **[vigente]** Preso por `frontend/tests/unit/aba-mapas-acoes-por-estado.test.js`, do lado do cliente
+(no servidor a regra é verdadeira por construção: atlas local não tem linha), e a segunda metade de lado por
+`frontend/tests/unit/poda-de-saida-fiacao.test.js`.
 
 ---
 
@@ -209,18 +321,33 @@ Esta é a regra que separa o que o servidor consegue impor do que ele não conse
 perde **todo recurso privado**, incondicionalmente, nos cinco tipos: 360, 3D, mapa base, dados e análise.
 Vale inclusive quando quem exporta é o dono, e inclusive para o `.ebgeo` de um atlas que já era local. Fora
 do servidor não existe ponto de imposição: um arquivo circula por e-mail e pendrive, e um banco local não tem
-predicado. **[em obra]** Hoje não há filtragem nenhuma nesse caminho.
+predicado. **[vigente]** desde 2026-08-21, e a regra é **keep-list**: sobrevive só o que resolve para
+público, e o desconhecido sai junto com o privado (falha fechado). Esta linha afirmou "não há filtragem
+nenhuma" depois de a poda existir, o que convidava a próxima sessão a escrever um SEGUNDO caminho de saída,
+que é exatamente o que o teste estrutural de fiação foi escrito para impedir. Preso por
+`frontend/tests/unit/poda-de-referencia-privada.test.js` e `frontend/tests/unit/poda-de-saida-fiacao.test.js`,
+com a falha-fechada medida à parte em `frontend/tests/unit/poda-fecha-no-desconhecido.test.js`.
 
 **8.2** **Ficar no servidor preserva o predicado.** No clone, a poda é **por destinatário**: a cópia perde o
 que o clonador não pode ver, e mantém o que ele legitimamente vê por papel, produção ou concessão própria.
-**[em obra]**
+**[vigente]**, e vale também para o import, não só para o clone: nos dois quem decide é o SQL, com o
+predicado avaliado para o DESTINATÁRIO. A consequência que surpreende: um recurso privado a que o clonador
+tem concessão própria SOBREVIVE ao clone e NÃO sobrevive ao `.ebgeo`. Preso por
+`backend/tests/integration/clone-poda-por-destinatario.test.js` e
+`backend/tests/integration/import-poda-referencia-privada.test.js`.
 
 **8.3** O portador de um link público **logado** pode clonar o atlas para si, e pode exportar e salvar como
 local. O visitante **anônimo** pode exportar e salvar como local, porque são operações de cliente, e **não**
-pode clonar no servidor, porque um atlas precisa de um dono que exista. **[em obra]** Hoje o anônimo é
-recusado por erro de tipo, não por gate.
+pode clonar no servidor, porque um atlas precisa de um dono que exista. **[vigente]** O anônimo leva recusa
+por **gate explícito**, e a ordem dos middlewares é contrato: atlas inexistente responde não-encontrado ANTES
+de a rota revelar que a ação exige conta. Preso por
+`backend/tests/integration/clone-visitante-publico.test.js`.
 
-**8.4** Quem exporta ou salva como local **é avisado do que perdeu**. **[em obra]**
+**8.4** Quem exporta ou salva como local **é avisado do que perdeu**. **[vigente]** O aviso conta por
+superfície, rotula em termos do que a pessoa vê (uma camada, um marcador, um slide) e nomeia no máximo
+três; id cru nunca aparece, porque no 360 ele é o nome do arquivo da foto e nos demais não informa quem
+lê. Preso por `frontend/tests/unit/aviso-de-perda-de-recursos.test.js`, que mede o texto e exige, nos
+DOIS chamadores, que a confirmação exista e que o "Cancelar" aborte antes do trabalho irreversível.
 
 **8.5** **A autoridade morre com quem a exercia.** Desativar uma conta (ou a organização dela) tira dela
 todos os acessos, e alcança o que ela sustentava:
@@ -232,9 +359,24 @@ todos os acessos, e alcança o que ela sustentava:
 - as concessões que ela originou caem, com a preservação de 3.6 e 3.7: quem tiver outro caminho vivo é
   repai-ado, não derrubado.
 
-**[vigente]** para os acessos próprios da pessoa e para o empréstimo por atlas. **[em obra]** para grupo e
-para concessão de raiz, que hoje sobrevivem ao dono: o grupo porque nada pergunta pela vida dele, e a
-concessão de raiz porque não tem pai para morrer, então a desativação não tem por onde propagar.
+**[vigente]** nos três, desde 2026-08-21. O grupo passou a perguntar pela vida do dono no lugar FUNDO (a
+função que resolve os grupos da pessoa), o que fecha leitura, repasse e o eixo de grupo em atlas de uma vez;
+a concessão de raiz ganhou os dois lados, o predicado que a esconde na leitura seguinte e a poda que alcança
+os descendentes. Preso por `backend/tests/integration/access-groups-dono.test.js` e
+`backend/tests/integration/resource-grants-alcancabilidade.test.js`.
+
+**E ela alcança o REBAIXAMENTO desde 2026-08-21**, que é o irmão do ato acima: lá a autoridade morre com a
+CONTA, aqui com o crachá. Perder o papel global de dado, ou perder (ou trocar) o escopo de produção, poda
+tudo o que a pessoa concedeu de raiz, na mesma transação em que o papel muda. A forma escolhida foi a
+SIMPLES, e o que ela cobra está dito: poda-se **toda** raiz daquela pessoa, sem distinguir sob qual
+autoridade cada uma nasceu, porque o schema não registra isso. Registrar custaria uma coluna nova que
+deixaria todo o passado como desconhecido, e portanto não podado, que é justamente a metade que importa. O
+preço aceito é derrubar também o que ela poderia manter pelo papel que sobrou: numa revogação, a direção
+certa de falha é a fechada. A preservação de 3.6 e 3.7 continua valendo, então quem tem outro caminho vivo é
+repai-ado. **[vigente]**, preso por `backend/tests/integration/produtor-concede-de-raiz.test.js`, cujo caso
+de caracterização da lacuna foi INVERTIDO em vez de apagado: ele mede o rebaixamento pela ROTA (que é onde o
+gancho vive) e mantém um caso por SQL cru, para separar o predicado, que não mudou, deste gancho, que é quem
+derruba.
 
 A propagação é por predicado, na leitura seguinte, sem varredura e sem processo de fundo. Quem for desativar
 uma conta que concedeu muito deve reconceder antes, porque não há transferência automática de autoridade.
@@ -244,16 +386,22 @@ uma conta que concedeu muito deve reconceder antes, porque não há transferênc
 ## 9. Auditoria
 
 **9.1** O administrador acessa **toda** a trilha e todas as configurações do sistema e dos recursos.
-**[vigente]** no servidor, **[em obra]** na tela: hoje não existe interface de auditoria para ninguém, e o
-administrador só alcança a trilha por requisição direta.
+**[vigente]** nos dois: existe aba de Auditoria, com agrupamento por dia, uma frase por linha e o de-para
+atrás de botão. Preso por `frontend/tests/unit/admin-audiencia.test.js` e
+`frontend/tests/unit/auditoria-rotulos.test.js`.
 
 **9.2** O produtor acessa a trilha **dos recursos produzidos pela própria organização**. O recorte é imposto
-pelo servidor e nunca é parâmetro do cliente. **[em obra]** Hoje a trilha não tem eixo de organização.
+pelo servidor e nunca é parâmetro do cliente. **[vigente]** A trilha ganhou coluna de organização no alvo,
+com índice e backfill, e o recorte é imposto no serviço: pedir a OM alheia pela URL não alarga nada, e escopo
+ausente LEVANTA em vez de listar tudo. Preso por `backend/tests/integration/auditoria-por-om.test.js` e
+`backend/tests/integration/auditoria-gate.test.js`.
 
 **9.3** A trilha registra **o que mudou, e não apenas que mudou**. O de-para é seletivo: campos que carregam
 endereço de serviço, segredo ou conteúdo binário são elididos, e a lista do que fica de fora é escrita.
-**[em obra]** Hoje ela grava só os nomes dos campos, de modo que trocar a miniatura é indistinguível de
-trocar a URL do serviço.
+**[vigente]** para catálogo e 360, que são as famílias em que a distinção importava: são três regimes (valor
+literal, impressão criptográfica e nome-só como piso para o desconhecido), com teto de tamanho que degrada
+tudo para nome-só e DIZ que degradou. Preso por `backend/tests/unit/audit-diff.test.js`. As demais famílias de ação (usuários, atlas, permissões, grupos)
+continuam com registro próprio, sem de-para. **[em obra]** para elas.
 
 ---
 
@@ -285,3 +433,11 @@ cadastrar, e nada verifica isso. É por essa razão que a lotação não autoriz
 dentro da organização foi removido (cláusula 1.4). Um dia em que a lotação passe a ser verificada, a decisão
 de 1.4 pode ser revisitada; enquanto não for, qualquer autorização apoiada em organização declarada é
 autorização que o próprio interessado se concede.
+
+**10.6** **Uma conta pendente cativa o nome de usuário e o endereço de e-mail para sempre.** Quem se cadastra
+e nunca confirma o e-mail deixa aquele par reservado indefinidamente: as consultas de unicidade não perguntam
+pela vivacidade, e os dois índices únicos são totais, não parciais. A assimetria é a parte que surpreende: o
+TOKEN de verificação caduca em 48 horas, e a conta que ele deveria ativar não caduca nunca. Decidido em
+2026-08-21 **deixar como está**, e o desbloqueio passa a ser ato de administrador. Não é buraco esquecido: é
+custo aceito, e a alternativa (expirar cadastro não confirmado) fica registrada como a saída, se um dia o
+volume justificar.

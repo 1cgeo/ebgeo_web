@@ -427,11 +427,30 @@ export async function grantResource({
  * trilha registraria o dono de um grupo revogando concessões que ele nunca concedeu, e
  * nada explicaria a autoridade dele para isso. Ela vale para as TRÊS classes.
  *
+ * `resgatarRaiz` SEPARA OS QUATRO CHAMADORES EM DOIS GRUPOS, e é a única diferença de
+ * semântica entre eles. Em três (revogar, apagar grupo, desativar conta) a raiz é
+ * PRECISAMENTE o que se mandou derrubar, e ela cai sempre — sem isso, revogar a concessão
+ * de quem tem outro caminho vivo seria um no-op com 200 na resposta. No quarto (tirar um
+ * membro do grupo) não se mandou derrubar concessão nenhuma: caiu um CAMINHO, e as raízes
+ * são os REPASSES DO MEMBRO, que ninguém pediu para revogar. Para eles a raiz entra no
+ * resgate como qualquer descendente entraria, e a decisão (1) de
+ * `REVOKE_SUBTREE_PRESERVING_REACH` traz o argumento por extenso, com a alternativa
+ * recusada. O default é `false` porque o caso comum é a revogação deliberada.
+ *
+ * A BANDEIRA NÃO ATRAVESSA A FILA. Uma raiz REENFILEIRADA pela `fronteira` é um
+ * descendente cuja cadeia de justificativa já caiu, e acima do teto de 32 o desenho é
+ * fail-closed de propósito, então ela volta com `false`. Na prática a combinação nem
+ * ocorre (raiz resgatada deixa `podados` vazio, e sem `podados` não há fronteira), mas
+ * carimbar explicitamente é o que impede a propriedade de depender dessa coincidência.
+ *
  * @param {{raizes: Array<{id: string, resource_type: string, resource_id: string}>,
- *          actor: object, req: object, trx?: object|null, origem?: string|null}} params
+ *          actor: object, req: object, trx?: object|null, origem?: string|null,
+ *          resgatarRaiz?: boolean}} params
  * @returns {Promise<{revoked: Array, reparented: Array, trimmed: Array}>}
  */
-export async function podarPorRaizes({ raizes, actor, req, trx = null, origem = null }) {
+export async function podarPorRaizes({
+  raizes, actor, req, trx = null, origem = null, resgatarRaiz = false,
+}) {
   if (raizes.length === 0) return { revoked: [], reparented: [], trimmed: [] };
   for (const r of raizes) {
     if (!r?.id || !r?.resource_type || !r?.resource_id) {
@@ -466,9 +485,58 @@ export async function podarPorRaizes({ raizes, actor, req, trx = null, origem = 
     const revoked = [];
     const reparented = [];
     const trimmed = [];
-    for (const raiz of raizes) {
-      const linhas = await t.any(Q.REVOKE_SUBTREE_PRESERVING_REACH, [raiz.id, actor.id]);
+
+    // FILA, E NÃO LAÇO SIMPLES, porque a poda trunca em 32 níveis (a CTE `fronteira` em
+    // `REVOKE_SUBTREE_PRESERVING_REACH`). Até 2026-08-21 o que passava do teto ficava
+    // VIVO pendurado num pai revogado, e como o predicado de leitura nunca sobe a cadeia
+    // de `parent_grant_id`, aquela pessoa mantinha o acesso depois de a raiz inteira ter
+    // caído: fail-OPEN numa operação de revogação. Agora a consulta devolve a fronteira e
+    // ela volta como raiz nova, até a fila esvaziar.
+    //
+    // O `rootGrantId` DA TRILHA CONTINUA SENDO A RAIZ ORIGINAL em todas as voltas. Quem
+    // pergunta "por que Fulano perdeu acesso" precisa da revogação que alguém PEDIU, não
+    // do elo intermediário que esta fila fabricou; carimbar o elo tornaria a trilha uma
+    // resposta tecnicamente verdadeira e inútil.
+    //
+    // NÃO PRECISA DE LOCK NOVO: filho e pai são concessões do MESMO recurso (o pai vem de
+    // `LIVE_GRANTS_OF_ACTOR`, que filtra por `resource_type`/`resource_id`), então a
+    // chave de lock de uma raiz reenfileirada já está entre as tomadas lá em cima.
+    const fila = raizes.map((r) => ({ ...r, rootId: r.id, resgatavel: resgatarRaiz === true }));
+
+    // Backstop, não a razão de terminar. A terminação vem de duas propriedades: toda raiz
+    // reenfileirada é ela mesma revogada na volta que a processa (a âncora está sempre em
+    // `podados`), e um nó revogado nunca reaparece como fronteira, porque os dois braços
+    // que o alcançariam cobram `revoked_at IS NULL` e enxergam a escrita da volta anterior
+    // na mesma transação. Logo `reenfileiradas <= revoked.length`, e o conjunto é finito.
+    // O teto existe para que um defeito futuro apareça como erro em vez de laço infinito
+    // segurando os locks consultivos da transação.
+    const MAX_REENFILEIRADAS = 100000;
+    let reenfileiradas = 0;
+
+    while (fila.length > 0) {
+      const raiz = fila.shift();
+      const linhas = await t.any(
+        Q.REVOKE_SUBTREE_PRESERVING_REACH, [raiz.id, actor.id, raiz.resgatavel === true]
+      );
       for (const l of linhas) {
+        if (l.acao === 'frontier') {
+          reenfileiradas += 1;
+          if (reenfileiradas > MAX_REENFILEIRADAS) {
+            throw new Error(
+              `podarPorRaizes: a fronteira não convergiu em ${MAX_REENFILEIRADAS} reenfileiramentos`
+            );
+          }
+          fila.push({
+            id: l.id,
+            resource_type: l.resource_type,
+            resource_id: l.resource_id,
+            rootId: raiz.rootId,
+            // NUNCA `raiz.resgatavel`: ver o docblock. A fronteira é descendente de uma
+            // cadeia que já caiu, e acima do teto o desenho é fail-closed.
+            resgatavel: false,
+          });
+          continue;
+        }
         const alvo = {
           targetType: assertAuditTargetTypeOfResource(l.resource_type),
           targetId: l.resource_id,
@@ -490,7 +558,7 @@ export async function podarPorRaizes({ raizes, actor, req, trx = null, origem = 
               granteeGroupId: l.grantee_group_id,
               grantId: l.id,
               parentGrantId: l.pai_antigo,
-              rootGrantId: raiz.id,
+              rootGrantId: raiz.rootId,
               ...(origem ? { origem } : {}),
             },
           }, t);
@@ -514,7 +582,7 @@ export async function podarPorRaizes({ raizes, actor, req, trx = null, origem = 
               parentGrantId: repai ? l.novo_pai : l.pai_antigo,
               expiresAtAnterior: l.prazo_antigo,
               expiresAt: l.prazo_novo,
-              rootGrantId: raiz.id,
+              rootGrantId: raiz.rootId,
               ...(origem ? { origem } : {}),
             },
           }, t);

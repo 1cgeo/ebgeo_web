@@ -9,9 +9,73 @@ import * as Q from './users.queries.js';
 // D8(b): desativar uma conta derruba o que ela concedeu. A semantica de queda tem UMA
 // definicao, e ela mora no modulo de acesso a recurso: importar a funcao e o que impede
 // a segunda copia da regra de nascer aqui.
-import { podarConcessoesDeQuemFoiDesativado } from '../resource-access/resource-access.service.js';
+import { podarConcessoesDeQuemFoiDesativado, podarPorRaizes } from '../resource-access/resource-access.service.js';
+// O CONJUNTO DE RAIZES DE UMA PESSOA tem UMA definicao, e ela e a mesma que a
+// desativacao usa. Reescrever o `WHERE granted_by = $1 AND revoked_at IS NULL` aqui
+// seria a segunda copia, e a segunda e a que envelhece quando a coluna mudar.
+import { LIVE_GRANT_IDS_BY_GRANTER } from '../resource-access/resource-access.queries.js';
 
 const SALT_ROUNDS = 12;
+
+/**
+ * Os DOIS papeis globais que dao autoridade sobre TODO recurso privado. Nao e uma
+ * escada, e por isso e um conjunto e nao uma comparacao: `role !== 'user'` promoveria o
+ * produtor a esta lista, e `role >= x` nao significa nada neste eixo.
+ */
+const PAPEIS_DE_DADO_GLOBAL = new Set(['admin', 'credenciado']);
+
+/**
+ * REBAIXAMENTO = PERDA DE UM FUNDAMENTO DE CONCESSAO DE RAIZ. Devolve o nome do
+ * fundamento perdido, ou `null` quando nada foi perdido.
+ *
+ * POR QUE ISTO PRECISA DE UMA DEFINICAO ESCRITA. Os quatro papeis globais NAO formam
+ * escada (`user`, `producer`, `credenciado`, `admin`), entao "rebaixar" nao e "ficou
+ * menor" e nao existe comparacao que responda a pergunta. O que interessa aqui e uma
+ * pergunta mais estreita: a pessoa continua tendo de onde tirar uma concessao de RAIZ?
+ * `grantResource` responde isso com dois fundamentos, e sao esses dois que esta funcao
+ * mede: `hasGlobalAccess` (papel `admin`/`credenciado`) e `producesResource` (a OM de
+ * `users.producer_org_id`).
+ *
+ * (1) QUEM TERMINA COM ACESSO GLOBAL DE DADO NAO PERDEU NADA, e este ramo vem primeiro
+ *     de proposito. `admin` e `credenciado` concedem QUALQUER recurso privado, o que
+ *     COBRE tudo o que os dois fundamentos anteriores cobriam. Sem ele, promover um
+ *     produtor a administrador seria lido como perda (o `producer_org_id` cai junto, por
+ *     forca do CHECK bicondicional) e a promocao derrubaria o acervo dele — poda no ato
+ *     que AUMENTA a autoridade, que e o contrario do que a decisao quis.
+ *
+ * (2) DEIXAR DE TER PAPEL GLOBAL DE DADO e perda, e nao ha o que compensar: o escopo de
+ *     producao, quando ele existe, cobre uma OM, nunca o acervo inteiro.
+ *
+ * (3) TROCAR A OM DE PRODUCAO E PERDA, e a decisao aqui e do dono: em relacao ao acervo
+ *     ANTIGO a pessoa deixou de produzir, e uma concessao viva sobre um tileset da OM A
+ *     dada por quem hoje so mantem a OM B nao tem mais fundamento nenhum. Por isso a
+ *     comparacao e `omAntes !== omDepois`, e nao `omDepois === null`.
+ *
+ * O QUE ESTA FUNCAO DELIBERADAMENTE NAO FAZ: distinguir sob qual autoridade cada
+ * concessao nasceu. Essa e a forma SIMPLES escolhida pelo dono (2026-08-21), de olhos
+ * abertos: quem for rebaixado perde tambem o que poderia manter pelo fundamento que
+ * sobrou. Numa revogacao a direcao de falha correta e a fechada, e a forma alternativa
+ * (carimbar o fundamento na linha da concessao) custa coluna nova e uma segunda
+ * definicao de autoridade, escrita no INSERT, para envelhecer separada desta.
+ *
+ * `is_active` NAO ENTRA AQUI: desativar por este PUT e recusado com 409 mais acima, e
+ * quem desativa (`deleteUser`) tem a poda dele, com origem propria.
+ * `organization_id` tambem nao: lotacao e auto-declarada no cadastro e nao autoriza nada.
+ *
+ * @param {{role: string, producer_org_id?: string|null}} antes - A linha ANTES do UPDATE.
+ * @param {{role: string, producer_org_id?: string|null}} depois - A linha GRAVADA.
+ * @returns {'acesso_global_de_dado'|'escopo_de_producao'|null}
+ */
+function fundamentoDeRaizPerdido(antes, depois) {
+  if (PAPEIS_DE_DADO_GLOBAL.has(depois.role)) return null;
+  if (PAPEIS_DE_DADO_GLOBAL.has(antes.role)) return 'acesso_global_de_dado';
+
+  const omAntes = antes.producer_org_id ?? null;
+  const omDepois = depois.producer_org_id ?? null;
+  if (omAntes && omAntes !== omDepois) return 'escopo_de_producao';
+
+  return null;
+}
 
 /**
  * Normaliza um campo opcional de uuid: `''` e `undefined` viram null.
@@ -399,6 +463,48 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
           details: { fields: campos },
         }, t);
       }
+    }
+
+    // O REBAIXAMENTO DERRUBA O QUE A PESSOA CONCEDEU (decisao do dono, 2026-08-21).
+    //
+    // E O IRMAO DE D8(b) NO OUTRO ATO: la a autoridade morre com a CONTA, aqui ela morre
+    // com o CRACHA. Ate esta linha, `fn_principal_vivo(g.granted_by)` era a unica coisa
+    // que reavaliava a raiz depois de criada, e ela pergunta se a conta esta ATIVA, nunca
+    // se a autoridade continua de pe: um administrador rebaixado a `user`, ou um produtor
+    // que perdeu a OM, seguia com conta ativa e com todo o acervo privado que distribuiu
+    // vivo por ate um ano. `tests/integration/produtor-concede-de-raiz.test.js` media essa
+    // lacuna como comportamento; agora mede o contrario, e um caso por SQL cru continua la
+    // para separar o PREDICADO (que nao mudou) deste GANCHO (que e quem derruba).
+    //
+    // A COMPARACAO E ANTES x LINHA GRAVADA, nunca contra o corpo da requisicao, pela mesma
+    // razao que `PRODUCER_SCOPE_CHANGE` acima: rebaixar de Produtor limpa o escopo como
+    // EFEITO (`resolveProducerScope` resolve o par), sem `producer_org_id` no corpo, e
+    // comparar com o corpo perderia exatamente essa perda.
+    //
+    // NA MESMA TRANSACAO, com o `t` passado adiante: se o UPDATE der rollback, a poda
+    // volta junto — senao a conta continua com o papel antigo e o acesso que ela concedeu
+    // teria desaparecido.
+    //
+    // NAO E GATEADA POR `actingUserId`, e a diferenca com o bloco de auditoria acima e
+    // deliberada: uma revogacao nao pode depender de haver ou nao quem auditar. Este
+    // caminho tem SEMPRE um administrador autenticado (`auth` + `requireAdmin` na rota);
+    // se um chamador futuro omitir o ator, `audit_trail.actor_id` e NOT NULL e a
+    // transacao inteira falha em voz alta, que e a direcao certa do erro — nunca podar
+    // sem deixar registro.
+    const fundamentoPerdido = fundamentoDeRaizPerdido(existing, atualizado);
+    if (fundamentoPerdido) {
+      const raizes = await t.any(LIVE_GRANT_IDS_BY_GRANTER, [userId]);
+      // `origem` E O QUE SEPARA ISTO DE UMA REVOGACAO DELIBERADA na trilha, no espirito
+      // de `USER_DELETE`/`ACCESS_GROUP_DELETE`: sem ela, a leitura seria "o administrador
+      // X revogou 40 concessoes que ele nunca deu", e nada explicaria a autoridade dele
+      // para isso. Ela e detalhe (`details.origem`), nao `action`: as acoes emitidas
+      // continuam sendo `PERMISSION_REVOKE`/`PERMISSION_REPARENT`, que ja estao no CHECK
+      // de `audit_trail.action` e no censo — nao ha valor novo de CHECK, logo nao ha
+      // migracao. O fundamento perdido nao entra aqui de proposito: quem quer saber O QUE
+      // mudou tem `ROLE_CHANGE`/`PRODUCER_SCOPE_CHANGE` na MESMA transacao, com from/to.
+      await podarPorRaizes({
+        raizes, actor: { id: actingUserId }, req, trx: t, origem: 'USER_DEMOTION',
+      });
     }
 
     return atualizado;

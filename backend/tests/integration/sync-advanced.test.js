@@ -18,7 +18,37 @@ import {
   createGroup,
   createBriefing,
   loginUser,
+  seedCatalogRefs, dropCatalogRefs, seedPublic360Photos, drop360Fixture,
 } from '../helpers/fixtures.js';
+
+// ============================================================================================
+// AS REFERÊNCIAS DE CATÁLOGO QUE AS OPS DE SLIDE DESTE ARQUIVO CARREGAM.
+//
+// Os dois casos de slide apontavam para um `randomUUID()`, isto é, para um modelo 3D e um
+// projeto 360 que não existem em lugar nenhum. Desde que `unseenResourceDenialReason` cobre as
+// CINCO superfícies, uma referência que não resolve é recusada POR OPERAÇÃO — e "não existe"
+// conta como "não posso ver", para que o ack não vire oráculo de existência sobre o acervo
+// privado. O que estes casos medem é o MODO do slide (`3d`/`360`) atravessar o sync, então a
+// referência aqui é cenário e precisa ser um recurso de verdade, público.
+// ============================================================================================
+const MODELO_PUBLICO = 'sync-adv-modelo-3d';
+const FOTO_PUBLICA = 'sync-adv-foto-360.jpg';
+const REFS_DE_CATALOGO = { tilesets: [MODELO_PUBLICO] };
+let refs360Semeadas;
+
+before(async () => {
+  const env = await setupTestEnv();
+  await seedCatalogRefs(env.db, REFS_DE_CATALOGO);
+  refs360Semeadas = await seedPublic360Photos(env.db, [FOTO_PUBLICA]);
+  await teardownTestEnv(env.db);
+});
+
+after(async () => {
+  const env = await setupTestEnv();
+  await dropCatalogRefs(env.db, REFS_DE_CATALOGO);
+  await drop360Fixture(env.db, refs360Semeadas);
+  await teardownTestEnv(env.db);
+});
 
 describe('Group-Feature Association via Sync', () => {
   let app, db, user, token, atlas, map, group, feature;
@@ -720,7 +750,7 @@ describe('Slide Operations via Sync', () => {
               title: 'Vista 3D',
               content: 'Visao tridimensional',
               mode: '3d',
-              model_id: randomUUID(),
+              model_id: MODELO_PUBLICO,
               position: { longitude: -43.2, latitude: -22.9, height: 5000 },
               orientation: { heading: 45, pitch: -30, roll: 0 },
             },
@@ -750,7 +780,7 @@ describe('Slide Operations via Sync', () => {
               title: 'Vista 360',
               content: 'Foto panoramica',
               mode: '360',
-              photo_id: randomUUID(),
+              photo_id: FOTO_PUBLICA,
               position: {},
               orientation: { heading: 180, pitch: 0 },
             },

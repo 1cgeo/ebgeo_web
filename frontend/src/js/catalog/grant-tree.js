@@ -40,6 +40,25 @@
 export const MAX_GRANT_DEPTH = 32;
 
 /**
+ * Se esta concessão já NÃO entrega acesso porque quem a concedeu foi desativado
+ * (conta ou OM), o que D8(b) transformou em morte de caminho no servidor.
+ *
+ * É O ÚNICO LUGAR ONDE A COMPARAÇÃO ACONTECE, e ela é com `false`, nunca a negação
+ * nua. `undefined` é "a listagem não mandou o campo" (servidor antigo, implantação em
+ * duas etapas), e ali o certo é o comportamento de antes; `!granted_by_vivo` trataria
+ * TODA linha como morta, o que faz o resgate de `fallenGrants` sumir e a tela marcar o
+ * recurso inteiro como sem efeito. Concessão sem concedente (`granted_by` nulo, a da
+ * administração) vem com o campo VERDADEIRO do servidor por construção, então este
+ * predicado nunca a acusa.
+ *
+ * @param {{granted_by_vivo?: boolean}} grant
+ * @returns {boolean}
+ */
+export function isGrantorDead(grant) {
+    return grant?.granted_by_vivo === false;
+}
+
+/**
  * As concessões que caem JUNTO com `rootId`, sem incluir a própria raiz.
  *
  * @param {Array<{id: string, parent_grant_id: string|null}>} grants - As concessões
@@ -146,10 +165,11 @@ export function fallenGrants(grants, rootId) {
         if (g?.grant_level !== 'view_share') continue;
         if (alcance.has(String(g?.id ?? ''))) continue;
         // D8(b): concessão de concedente MORTO não é caminho de acesso, então não
-        // resgata ninguém. A comparação é com `false` e não um booleano nu de propósito:
-        // `undefined` é "a listagem não mandou o campo" (servidor antigo), e ali o certo
-        // é o comportamento de antes, não tratar toda linha como morta.
-        if (g?.granted_by_vivo === false) continue;
+        // resgata ninguém. O predicado é `isGrantorDead` e não a comparação escrita à
+        // mão porque ele é o MESMO fato que o marcador da lista mostra: duas cópias da
+        // comparação divergem, e a divergência aqui é o aviso pré-clique discordando do
+        // que a tela acabou de afirmar sobre a mesma linha.
+        if (isGrantorDead(g)) continue;
         const dono = g?.grantee_id;
         if (dono == null) continue;
         const chave = String(dono);
@@ -325,6 +345,55 @@ export function groupOptionLabel(group, viewerId = null) {
 }
 
 /**
+ * O MARCADOR da linha cujo concedente morreu, ou `null` quando ela vale.
+ *
+ * A LISTA SE CHAMA "QUEM TEM ACESSO" E ESTAVA AFIRMANDO ACESSO QUE O PREDICADO DO
+ * SERVIDOR JÁ NEGA. A linha continua ali de propósito (ela é a única superfície por
+ * onde alguém a revoga de vez, e reativar a OM a devolve), mas sem marcador ela é
+ * indistinguível de uma concessão viva: quem olha conta uma pessoa a mais com acesso e
+ * quem administra deixa de revogar a aresta que uma cascata futura ainda alcança.
+ *
+ * SEM `title` O CHIP SERIA UM ENIGMA. "sem efeito" diz o estado e não a causa, e a causa
+ * é acionável (reativar a conta ou a OM devolve o acesso, revogar encerra a linha), então
+ * ela vai por extenso na dica em vez de virar um rótulo comprido no meio da linha.
+ *
+ * @param {{granted_by_vivo?: boolean}} grant
+ * @returns {{label: string, title: string}|null}
+ */
+export function deadGrantorChip(grant) {
+    if (!isGrantorDead(grant)) return null;
+    return {
+        label: 'sem efeito',
+        title: 'Quem concedeu este acesso teve a conta ou a OM desativada, e por isso esta '
+            + 'linha já não entrega acesso a ninguém. Ela continua aqui só para poder ser '
+            + 'revogada; reativar a conta ou a OM devolve o acesso.',
+    };
+}
+
+/**
+ * DE QUEM veio esta concessão, na frase que a linha exibe embaixo do nome.
+ *
+ * O NOME CONTINUA VISÍVEL QUANDO O CONCEDENTE MORRE, e é o ponto desta função. Quem
+ * decide entre revogar e pedir a reativação da OM precisa saber DE QUEM a concessão
+ * veio; esconder o nome trocaria uma afirmação errada ("recebido de X", com X já
+ * desativado) por uma tela sem informação nenhuma. O que muda é só o verbo: a frase
+ * deixa de afirmar um acesso vigente e passa a narrar a origem no passado.
+ *
+ * `granted_by` nulo é a concessão da ADMINISTRAÇÃO (raiz sem concedente), e ela nunca
+ * cai no ramo de morto: ver {@link isGrantorDead}.
+ *
+ * @param {{granted_by_nome?: string, granted_by_username?: string,
+ *   granted_by_vivo?: boolean}} grant
+ * @returns {string}
+ */
+export function grantOriginLabel(grant) {
+    // `||` e não `??`, como em `granteeName`: string vazia é ausência de nome, não nome.
+    const concedente = grant?.granted_by_nome || grant?.granted_by_username || '';
+    if (!concedente) return 'concedido pela administração';
+    return isGrantorDead(grant) ? `veio de ${concedente}` : `recebido de ${concedente}`;
+}
+
+/**
  * O beneficiário na forma PREPOSICIONADA, para entrar numa frase sem concordar
  * errado: "de Ana" e "do grupo Equipe Alfa".
  *
@@ -395,13 +464,48 @@ function granteeListLabel(grant) {
 }
 
 /**
+ * A ORAÇÃO "quem perde o acesso": o sujeito que o chamador já flexionou, o verbo
+ * concordando com a CONTAGEM, e o ramo ZERO dizendo o CONTRÁRIO de uma perda.
+ *
+ * EXISTE PORQUE A MESMA REGRA JÁ FOI ERRADA EM DOIS DIÁLOGOS DESTRUTIVOS. Um sintagma
+ * nominal ("3 pessoas", "sem membros", "2 pessoas e 1 grupo") é feito para caber numa
+ * meta de linha, e ele está certo como sintagma; o que ele não sabe é conjugar. Colar um
+ * verbo fixo no plural ao lado dele produz "1 pessoa perdem o acesso" e, pior, "sem
+ * membros perdem o acesso" — um `destructive: true` afirmando uma perda que não vai
+ * acontecer, que é a forma de gastar a credibilidade do aviso justamente no dia em que
+ * ele for verdadeiro. A conjugação mora aqui, uma vez, e não em cada frase.
+ *
+ * O RAMO ZERO NÃO É A MESMA FRASE MAIS CURTA, É A FRASE CONTRÁRIA, na mesma linha do que
+ * `groupDeletionWarning` (`js/admin/group-phrases.js`) já faz com o grupo vazio: quando
+ * ninguém cai, o texto tem de dizer que ninguém cai. Por isso ele descarta o sujeito.
+ *
+ * A CONTAGEM É NORMALIZADA COMO EM {@link groupMemberCount}: string de `COUNT`, `null`,
+ * `NaN` e negativo colapsam em 0. É o mesmo motivo dos dois lados — nenhuma dessas
+ * entradas descreve uma perda, e todas elas conjugariam no plural por acidente.
+ *
+ * @param {*} count - Quantos caem. Só o número decide o verbo.
+ * @param {string} [subject] - O sujeito já flexionado. Ignorado no ramo zero; vazio
+ *   degrada para o próprio número, que continua verdadeiro, em vez de abrir a frase
+ *   com um espaço.
+ * @returns {string}
+ */
+export function accessLossClause(count, subject = '') {
+    const n = Number(count);
+    const total = Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+    if (total === 0) return 'ninguém perde o acesso';
+    const sujeito = String(subject ?? '').trim() || String(total);
+    return `${sujeito} ${total === 1 ? 'perde' : 'perdem'} o acesso`;
+}
+
+/**
  * O resumo do que cai junto, verdadeiro nos três casos (só pessoas, só grupos,
  * misto).
  *
  * "N pessoas perdem o acesso" era verdade enquanto beneficiário era sinônimo de
  * pessoa e vira mentira com um grupo no meio. A saída é contar cada tipo pelo nome:
  * "2 pessoas e 1 grupo perdem o acesso". O verbo concorda com o TOTAL de
- * concessões, não com a última parcela, porque é o total que cai.
+ * concessões, não com a última parcela, porque é o total que cai — e quem conjuga é
+ * {@link accessLossClause}, para que a regra não exista em duas cópias.
  *
  * @param {Array<Object>} caidos
  * @returns {string}
@@ -411,8 +515,7 @@ function fallenSummary(caidos) {
     const partes = [];
     if (pessoas > 0) partes.push(`${pessoas} ${pessoas === 1 ? 'pessoa' : 'pessoas'}`);
     if (grupos > 0) partes.push(`${grupos} ${grupos === 1 ? 'grupo' : 'grupos'}`);
-    const verbo = (pessoas + grupos) === 1 ? 'perde' : 'perdem';
-    return `${partes.join(' e ')} ${verbo} o acesso`;
+    return accessLossClause(pessoas + grupos, partes.join(' e '));
 }
 
 /**

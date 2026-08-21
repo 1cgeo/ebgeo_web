@@ -1,6 +1,9 @@
 // Path: src/modules/sync/sync.queries.js
 import { assertTable } from '../catalog/catalog.tables.js';
 import { catalogAuthorizationPredicate, resourceTypeLiteral } from '../catalog/catalog.queries.js';
+// A tradução de referência 360 -> projeto tem UMA definição, e é a que a poda do clone usa.
+// Ver `CAN_SEE_SV360_REF`.
+import { RESOLVE_SV360_REFS } from '../resource-access/resource-access.queries.js';
 
 export const INSERT_OPERATION = `
   INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp)
@@ -184,7 +187,13 @@ ${catalogDefinitionsOf('data_layers', 'data_layer', '$4::text[]')}
 `;
 
 /**
- * The WRITE gate of a catalog layer: may this actor SEE the resource the layer refers to?
+ * The WRITE gate of a CATALOG reference: may this actor SEE the resource an op refers to?
+ *
+ * Serves every one of the four catalog tables, and therefore every catalog-typed surface of
+ * `../atlas/resource-reference.registry.js` that travels in a sync op: the catalog layer
+ * (`data_layer`/`analysis_layer`/`tileset`), the 3D entity's `tileset_id`, the slide's
+ * `model_id` and the map's `base_layer`. The 360 half is `CAN_SEE_SV360_REF`, below, because
+ * `sv360_project` is not a catalog table and its references are not ids.
  *
  * `fn_can_see_resource` — the same composed predicate the rest of the house uses, never a second
  * copy of the rule — evaluated against the row's own `access_level`, read in the same statement
@@ -203,6 +212,41 @@ export const canSeeCatalogResource = (table) => `
   SELECT fn_can_see_resource($1::uuid, $2::uuid, $3::text, $4::text, t.access_level) AS ok
     FROM ${assertTable(table)} t
    WHERE t.id = $4 AND t.active = true
+`;
+
+/**
+ * The same WRITE gate for a 360 reference, which needs one extra leg the catalog does not.
+ *
+ * WHAT A 360 REFERENCE IS. `streetview360_data.photo_name` holds the ORIGINAL NAME of a photo
+ * and `slides.photo_id` accepts five different spellings of the same thing (project id, slug,
+ * project name, entry-photo id, photo id). None of them is the id `fn_can_see_resource` judges,
+ * which is the PROJECT's. `RESOLVE_SV360_REFS` is the single definition of that translation
+ * (it is what `classifyResourceRefs` uses for the clone/import prune), so it is COMPOSED here
+ * rather than re-spelled: a second copy of the tie-break would classify a reference against one
+ * project while the photo server delivered another, which is a defect this house has already
+ * paid for once.
+ *
+ * WHY NOT `CLASSIFY_RESOURCE_REFS` INSTEAD. That query passes `NULL::uuid` as the atlas in
+ * focus ON PURPOSE, because in a clone the resource LEAVES the atlas and the loan must not
+ * travel. In a sync write the data STAYS in the atlas, so the loan counts and the atlas of the
+ * ROUTE is the right parameter — the same one `canSeeCatalogResource` already takes. Reusing
+ * the clone's classification here would refuse legitimate writes over a resource the atlas
+ * itself lends (see `../atlas/atlas-resource-prune.js`).
+ *
+ * NO ROW MEANS REFUSE, exactly as above and for the same reason: a reference that resolves to
+ * no project is indistinguishable from one whose project the caller may not see, so the ack
+ * never becomes an existence oracle over the private stock. A `delete` is not gated, so a
+ * dangling reference can always be taken off the map.
+ *   $1 = the reference, as a one-element text[]; $2 = userId (uuid|null);
+ *   $3 = atlasId (uuid|null) — the atlas of the ROUTE, which is what makes the loan branch count.
+ */
+export const CAN_SEE_SV360_REF = `
+  WITH resolvido AS (
+${RESOLVE_SV360_REFS}
+  )
+  SELECT fn_can_see_resource($2::uuid, $3::uuid, 'sv360_project', p.id::text, p.access_level) AS ok
+    FROM resolvido r
+    JOIN sv360.projects p ON p.id = r.project_id::uuid
 `;
 
 export const GET_ATLAS_LAYERS = `

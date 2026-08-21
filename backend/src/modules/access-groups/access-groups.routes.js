@@ -45,7 +45,8 @@ const router = Router();
 
 /**
  * GET /api/v1/access-groups — os grupos QUE ESTE CHAMADOR ADMINISTRA, com contagem de
- * membros e de concessões vivas. O administrador do sistema vê todos.
+ * membros, de concessões vivas e de ATLAS alcançados. O administrador do sistema vê
+ * todos.
  *
  * `auth` sozinho, porque o recorte mora na CONSULTA: não há gate a aplicar quando a
  * resposta já é, por construção, o que o chamador administra.

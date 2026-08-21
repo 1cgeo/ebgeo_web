@@ -9,13 +9,27 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { createServer } from 'http';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, createShare, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAtlas, createMap, createShare, loginUser,
+  seedCatalogRefs, dropCatalogRefs, seedPublic360Photos, drop360Fixture,
+} from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
+
+// AS REFERÊNCIAS DE CATÁLOGO QUE AS OPS DESTE ARQUIVO CARREGAM.
+//
+// Desde que `unseenResourceDenialReason` cobre as CINCO superfícies (e não só a camada de
+// catálogo), uma op cujo `tileset_id`/`photo_name` não resolve para um recurso que o autor
+// ENXERGA é recusada POR OPERAÇÃO — e "não existe" conta como "não posso ver", para que o ack
+// não vire oráculo de existência sobre o acervo privado. Uma op recusada não é retransmitida,
+// então sem estas linhas este arquivo mediria o silêncio da recusa em vez do broadcast.
+const REFS_DE_CATALOGO = { tilesets: ['PCL'] };
+const FOTO_360 = 'p.jpg';
 
 describe('WebSocket collab — 3D/360 op broadcast to peers', () => {
   let app, db, server;
   let owner, ownerToken, peer, peerToken, atlas, map;
   let openClients;
+  let refs360Semeadas;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -35,6 +49,9 @@ describe('WebSocket collab — 3D/360 op broadcast to peers', () => {
     atlas = await createAtlas(db, owner.id, { name: '3D/360 Broadcast Atlas' });
     map = await createMap(db, atlas.id);
     await createShare(db, atlas.id, peer.id, 'write', owner.id);
+
+    await seedCatalogRefs(db, REFS_DE_CATALOGO);
+    refs360Semeadas = await seedPublic360Photos(db, [FOTO_360]);
   });
 
   beforeEach(() => {
@@ -57,6 +74,8 @@ describe('WebSocket collab — 3D/360 op broadcast to peers', () => {
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
     }
+    await dropCatalogRefs(db, REFS_DE_CATALOGO);
+    await drop360Fixture(db, refs360Semeadas);
     await teardownTestEnv(db);
   });
 

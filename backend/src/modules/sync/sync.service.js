@@ -12,6 +12,7 @@ import {
 import { assertCatalogTableOf } from '../resource-access/resource-access.types.js';
 import { markResourceDefinitionAuthorized } from '../catalog/resource-payload.prune.js';
 import { pruneCatalogLayerOperation } from './catalog-layer-op.js';
+import { UNSEEN_RESOURCE_REASONS, declaredResourceRefs } from './resource-ref.extractors.js';
 
 /**
  * Whitelisted `setting` op keys whose value is a KEYED OBJECT that must be
@@ -767,7 +768,7 @@ export async function getAtlasSyncInfo(atlasId) {
 // F11 — catalog layers travel as REFERENCE + per-atlas state; the DEFINITION is rehydrated.
 //
 // The three functions below are the read half of that change. The write half is
-// `unseenCatalogResourceDenialReason`, further down with the other per-op refusals.
+// `unseenResourceDenialReason`, further down with the other per-op refusals.
 //
 // THE DELIVERED SHAPE DOES NOT MOVE, and that is a hard constraint: `map.catalogLayers` is an
 // array, each item spreads the stored keys at the TOP level next to `id` and `sync`, and the
@@ -1279,24 +1280,56 @@ async function lockedMapDenialReason(t, op) {
 }
 
 /**
- * Refusal for a catalog-layer write whose actor cannot SEE the resource the layer refers to.
+ * Is this reference visible to the actor, in the scope of THIS atlas?
+ *
+ * Two queries, one rule: `fn_can_see_resource` decides both. The 360 branch exists only because
+ * its reference is not an id and has to be resolved to a project first (`CAN_SEE_SV360_REF`).
+ *
+ * @param {Object} t - Transaction context.
+ * @param {{resourceType: string, resourceId: string}} ref
+ * @param {string|null} userId
+ * @param {string} atlasId
+ * @returns {Promise<boolean>}
+ */
+async function canSeeResourceRef(t, ref, userId, atlasId) {
+  const row = ref.resourceType === 'sv360_project'
+    ? await t.oneOrNone(Q.CAN_SEE_SV360_REF, [[ref.resourceId], userId, atlasId])
+    : await t.oneOrNone(
+      Q.canSeeCatalogResource(assertCatalogTableOf(ref.resourceType)),
+      [userId, atlasId, ref.resourceType, ref.resourceId],
+    );
+  return row?.ok === true;
+}
+
+/**
+ * Refusal for a write whose actor cannot SEE a resource the operation refers to.
  *
  * HARDENING, NOT THE MAIN DEFENCE. The main defence is on the read side: the snapshot no longer
  * serves a definition the caller may not see, so a forged payload never comes back out. This gate
  * exists so that a private resource is not silently referenced into an atlas by someone who
  * cannot open it — the same reason `assertCanSeeResource` guards the atlas-loan route.
  *
+ * IT USED TO SPEAK FOR ONE SURFACE ONLY. Its first line was `if (op.target !== 'catalog_layer')
+ * return null;`, so the 3D tileset, the 360 photo, the slide's model/photo and the map's base
+ * layer went through with no check at all — four of the eleven client-side surfaces of the
+ * reference registry, all of them reachable by any `write` member. The prune paths (`.ebgeo`,
+ * save-as-local, clone, import) covered them and sync did not, which is the "one resource, many
+ * doors" lesson of `tests/unit/superficies-de-recurso-censo.test.js` in its write-side form.
+ *
  * NO SECOND COPY OF THE RULE: it asks `fn_can_see_resource`, composed of the same three SQL
  * functions everything else uses, against the row's own `access_level` in one statement.
+ *
+ * WHICH KEY OF WHICH PAYLOAD carries a reference is `RESOURCE_REF_EXTRACTORS`
+ * (`./resource-ref.extractors.js`), one entry per surface, next to the reasons: this function is
+ * only the loop and the refusal.
  *
  * SCOPE, and each exclusion is load-bearing:
  *   - only `create`/`update`. A DELETE must always be allowed: a user who LOST access to a
  *     resource still has to be able to take the dead layer off the map, and refusing that would
  *     be the dead end this file has fixed three times already.
- *   - only entries that REFER to a catalog resource, through any of the three carriers the
- *     client writes (id prefix, `originalId`, `config.id`). Hillshade is built-in (no row
- *     anywhere) and the legacy whole-array form carries no per-layer type; both return null from
- *     the ref resolver and are not this gate's business.
+ *   - only payload keys that REFER to a resource. Hillshade is built-in (no row anywhere), the
+ *     legacy whole-array catalog form carries no per-layer type, and an absent/null/empty value
+ *     is not a reference; none of them is this gate's business.
  *
  * Returns a reason instead of throwing, like every other per-op refusal here: throwing aborts the
  * batch tx and the client, which does not dequeue a non-2xx, replays the poisoned batch every
@@ -1308,20 +1341,15 @@ async function lockedMapDenialReason(t, op) {
  * @param {string} atlasId - The atlas of the ROUTE: the scope its loan applies in.
  * @returns {Promise<string|null>} Refusal reason, or null when the write may proceed.
  */
-async function unseenCatalogResourceDenialReason(t, op, userId, atlasId) {
-  if (op.target !== 'catalog_layer') return null;
+async function unseenResourceDenialReason(t, op, userId, atlasId) {
   if (op.type !== 'create' && op.type !== 'update') return null;
 
-  const payload = op.changes ?? op.data ?? {};
-  const ref = catalogLayerReference(payload, op.targetId);
-  if (!ref) return null;
-
-  const row = await t.oneOrNone(
-    Q.canSeeCatalogResource(assertCatalogTableOf(ref.resourceType)),
-    [userId, atlasId, ref.resourceType, ref.resourceId],
-  );
-  if (row && row.ok === true) return null;
-  return 'Alteração descartada: você não tem acesso a esta camada de catálogo.';
+  for (const ref of declaredResourceRefs(op)) {
+    // Serial on purpose: `t` is ONE transaction context and the common case is a single
+    // reference, so there is nothing to parallelise but a two-element slide payload.
+    if (!await canSeeResourceRef(t, ref, userId, atlasId)) return UNSEEN_RESOURCE_REASONS[op.target];
+  }
+  return null;
 }
 
 /**
@@ -1429,7 +1457,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       assertOperationAllowed(op, permission);
 
       // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
-      // locked map, catalog layer whose resource the actor cannot see): refuse THIS
+      // locked map, any op that REFERS to a resource the actor cannot see): refuse THIS
       // operation without aborting the transaction, so one denied op cannot freeze the
       // client's queue. The unknown-target check runs first because it is the cheapest
       // and needs no database round-trip; the two that DO need one come last.
@@ -1437,7 +1465,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         ?? unknownTargetDenialReason(op)
         ?? operationDenialReason(op, permission)
         ?? await lockedMapDenialReason(t, op)
-        ?? await unseenCatalogResourceDenialReason(t, op, principalIdOrNull(userId), atlasId);
+        ?? await unseenResourceDenialReason(t, op, principalIdOrNull(userId), atlasId);
       if (denialReason) {
         acks.push({
           opId: rawOp.id,

@@ -701,29 +701,27 @@ describe('D3 — a poda preserva quem alcança o recurso por outro caminho', () 
     return elos;
   }
 
-  it('o teto de 32 é fail-closed para o RESGATE e fail-OPEN para a PODA', async () => {
+  it('o teto de 32 é fail-closed para o RESGATE, e a PODA reenfileira a fronteira até o fim', async () => {
     // O RESGATE SÓ É SEGURO ENQUANTO `alcance` CONTÉM TODOS OS DESCENDENTES. Truncada a
     // travessia, a prova de aciclicidade deixa de valer, e o resgate degrada para o
-    // comportamento anterior (revogar), que é o lado fechado.
+    // comportamento anterior (revogar), que é o lado fechado. Isso NÃO mudou.
     //
-    // O NOME DESTE CASO DIZIA SÓ "fail-closed" E ISSO ERA METADE DO FATO, apontando para o
-    // lado errado. O único assert do braço (a) media o que NÃO foi resgatado e nada media
-    // o que caiu; instrumentado numa revisão adversarial, o que se viu foi: numa cadeia de
-    // 33 elos a poda derruba 32 e DEIXA O 33º VIVO, pendurado num pai já revogado. Como
-    // `fn_granted_resource_ids` nunca sobe a cadeia de `parent_grant_id`, essa pessoa
-    // segue com acesso depois de a raiz inteira ter caído — fail-OPEN.
+    // O QUE MUDOU FOI A OUTRA METADE, em 2026-08-21. Este caso mediu, e por um tempo
+    // apenas REGISTROU, um fail-OPEN: numa cadeia de 33 elos a poda derrubava 32 e deixava
+    // o 33º VIVO, pendurado num pai já revogado. Como `fn_granted_resource_ids` nunca sobe
+    // a cadeia de `parent_grant_id`, aquela pessoa seguia com acesso depois de a raiz
+    // inteira ter caído. O conserto não foi aumentar o teto (a cadeia seguinte teria 34):
+    // a CTE devolve a `fronteira` e `podarPorRaizes` a reenfileira como raiz nova.
     //
-    // ISSO É HERDADO, NÃO REGRESSÃO: a `REVOKE_GRANT_SUBTREE` anterior tinha o mesmo teto.
-    // Fica MEDIDO aqui em vez de escondido, porque um caso chamado "fail-closed" ao lado
-    // de um desfecho aberto é documentação que engana. O conserto não é aumentar o teto (a
-    // cadeia seguinte teria 34): é a poda devolver `truncado` e o serviço recusar ou
-    // reenfileirar, o que é decisão do dono.
+    // O CASO (b) É O QUE DISCRIMINA LAÇO DE REMENDO. Com 33 elos, um único
+    // reenfileiramento já dá o resultado certo, então 33 sozinho não distingue "a fila
+    // roda até esvaziar" de "a fila roda uma vez". 65 elos exigem TRÊS voltas.
     const pessoas = [];
-    for (let i = 0; i <= 34; i += 1) {
+    for (let i = 0; i <= 66; i += 1) {
       pessoas.push(await createUser(db, { username: `alc_len_${i}_${sufixo}` }));
     }
 
-    // (a) A CADEIA LONGA: 33 elos.
+    // (a) A CADEIA LONGA: 33 elos, uma volta de reenfileiramento.
     const rLongo = await novoTileset('teto-longo');
     const longa = await cadeia(rLongo, 33, pessoas);
     const meioLongo = 16;
@@ -743,22 +741,22 @@ describe('D3 — a poda preserva quem alcança o recurso por outro caminho', () 
     const longoPodado = await revogar('admin', longa[0]);
     assert.deepEqual(
       longoPodado.reparented, [],
-      'travessia truncada desliga o resgate: fail-closed',
-    );
-
-    // E O QUE ELA FAZ COM A PODA, dito por extenso em vez de deixado fora do quadro.
-    assert.equal(
-      longoPodado.revoked.length, 32,
-      'a poda TAMBÉM trunca em 32: dos 33 elos, 32 caem',
+      'travessia truncada desliga o resgate: fail-closed, e isto continua valendo',
     );
     assert.equal(
+      longoPodado.revoked.length, 33,
+      'a poda alcança os 33 elos: a segunda volta cobre o que passou do teto',
+    );
+    assert.equal(
+      typeof (await linha(longa[32])).revoked_at, 'object',
+      'e o 33º elo CAI, em vez de sobreviver pendurado num pai revogado',
+    );
+    assert.notEqual(
       (await linha(longa[32])).revoked_at, null,
-      'e o 33º elo SOBREVIVE pendurado num pai revogado — o teto é fail-OPEN para a poda, '
-      + 'porque o predicado de leitura não sobe a cadeia de pais',
+      'piso do assert acima: `typeof null` também é "object", então a data é cobrada à parte',
     );
-    // A CONSEQUÊNCIA REAL, medida na porta e não na tabela: o beneficiário do 33º elo
-    // continua enxergando o recurso depois de a raiz inteira ter sido revogada. É o que
-    // torna esta linha um fato de produto, e não uma curiosidade de CTE.
+    // A CONSEQUÊNCIA REAL, medida na porta e não na tabela. Era ela que tornava o buraco
+    // um fato de produto, e é ela que agora prova o conserto.
     const tokenSobrevivente = await loginUser(
       app, pessoas[33].username, pessoas[33].password,
     );
@@ -767,11 +765,26 @@ describe('D3 — a poda preserva quem alcança o recurso por outro caminho', () 
       .set('Authorization', `Bearer ${tokenSobrevivente}`)
       .expect(200);
     assert.ok(
-      vistos.body.data.tilesets.map((t) => t.id).includes(rLongo),
-      'o beneficiário do elo além do teto continua VENDO o recurso: buraco conhecido e herdado',
+      !vistos.body.data.tilesets.map((t) => t.id).includes(rLongo),
+      'o beneficiário do elo além do teto DEIXA de ver o recurso',
     );
 
-    // (b) O CONTROLE: a MESMA montagem com 3 elos resgata o mesmo nó do meio.
+    // (b) TRÊS VOLTAS: 65 elos = 32 + 32 + 1. Um reenfileiramento só pararia em 64.
+    const rFundo = await novoTileset('teto-fundo');
+    const funda = await cadeia(rFundo, 65, pessoas);
+    const fundoPodado = await revogar('admin', funda[0]);
+    assert.equal(
+      fundoPodado.revoked.length, 65,
+      'a fila roda até esvaziar: 65 elos exigem três voltas, e nenhum sobra vivo',
+    );
+    const { rows: sobrouFundo } = await db.query(
+      'SELECT COUNT(*)::int AS n FROM resource_grants WHERE resource_id = $1 AND revoked_at IS NULL',
+      [rFundo],
+    );
+    assert.equal(sobrouFundo[0].n, 0, 'e a contagem na tabela concorda com o RETURNING');
+
+    // (c) O CONTROLE: a MESMA montagem com 3 elos resgata o mesmo nó do meio, o que prova
+    // que o vazio de `reparented` em (a) é o teto e não a montagem.
     const rCurto = await novoTileset('teto-curto');
     const curta = await cadeia(rCurto, 3, pessoas);
     await db.query(

@@ -106,7 +106,10 @@ export const updateUserAdminSchema = Joi.object({
   // desmarcado junto). Os quatro casos estao em
   // `tests/integration/user-deactivate-via-put.repro.test.js`, com controle negativo.
   // Consequencia para D8(b): a poda de `deleteUser` nao e contornavel por aqui, porque
-  // por aqui nao se desativa ninguem.
+  // por aqui nao se desativa ninguem. Desde 2026-08-21 este PUT tem poda PROPRIA, por
+  // outro fato: `role` e `producer_org_id` acima sao os dois fundamentos de concessao de
+  // RAIZ, e perder um deles derruba o que a pessoa concedeu (`fundamentoDeRaizPerdido` em
+  // `users.service.js`, com origem `USER_DEMOTION` na trilha).
   is_active: Joi.boolean(),
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.

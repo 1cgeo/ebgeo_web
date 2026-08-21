@@ -555,8 +555,12 @@ describe('Censo do papel global (fase F0 de recursos privados)', () => {
   // deste censo. É o preço de mover a decisão para o banco (que é a direção certa), e
   // quem cobra aquele lado é `resource-access-funcoes.test.js`, por introspecção.
   //
-  // E ele não migra nada: o gazetteer (`nomes.queries.js`) continua com o eixo
-  // ANTIGO, resolvendo só `role = 'admin'`, então o credenciado NÃO vê zona privada de
-  // nomes hoje. Está classificado como DADO porque é o que ele é; a unificação é
-  // trabalho próprio, com o repro do bug que a causar, nunca por arrumação.
+  // ESTE PARÁGRAFO DIZIA, ATÉ 2026-08-21, que o gazetteer (`nomes.queries.js`) continua
+  // com o eixo ANTIGO, resolvendo só `role = 'admin'`, e que por isso o credenciado não
+  // vê zona privada de nomes. Era falso, e falso contra o PISO 1 escrito neste mesmo
+  // arquivo trinta linhas acima, que registra a REMOÇÃO daquela entrada em 2026-08-19,
+  // quando o eixo de acesso do `ng` saiu inteiro. Não há zona, não há `access_level` e
+  // não há papel na busca de topônimo: é a cláusula 2.2 da constituição. Duas prosas
+  // opostas no mesmo arquivo é a pior forma da classe, porque quem lê uma delas nunca
+  // chega à outra.
 });

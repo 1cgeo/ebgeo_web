@@ -138,10 +138,19 @@ CREATE TABLE users (
     -- Multi-org: organization_id é a LOTAÇÃO (FK); papel org-scoped (vocabulário
     -- UserRole do frontend). Repare que `organization_id` NÃO AUTORIZA nada: ele é
     -- auto-declarado no auto-cadastro (`POST /auth/register` aceita a OM de
-    -- qualquer organização ativa, e conta sem e-mail nasce ativa na hora), então
-    -- autorizar por ele seria escalação de privilégio por formulário público. O
-    -- eixo de OM que autoriza é o de PRODUÇÃO (`producer_org_id`, abaixo), que só
-    -- um administrador concede.
+    -- qualquer organização ativa), então autorizar por ele seria escalação de
+    -- privilégio por formulário público. O eixo de OM que autoriza é o de PRODUÇÃO
+    -- (`producer_org_id`, abaixo), que só um administrador concede.
+    --
+    -- ANOTADO EM 2026-08-21, sem tocar em DDL: o parêntese acima dizia também que
+    -- "conta sem e-mail nasce ativa na hora", e isso deixou de valer quando o e-mail
+    -- virou obrigatório no auto-cadastro. Não confunda com a frase do bloco de
+    -- `email` abaixo, que continua verdadeira e fala de OUTRO caminho: conta criada
+    -- por ADMINISTRADOR não tem e-mail e nasce ativa mesmo. O argumento que este
+    -- comentário sustenta (lotação não autoriza) nunca dependeu da metade errada.
+    -- Corrigido AQUI, e não no cabeçalho da próxima migração, porque isto é
+    -- COMENTÁRIO e não DDL: quem lê a coluna encontra o argumento neste arquivo, e
+    -- um erro corrigido três arquivos adiante continua sendo lido como verdade.
     organization_id     UUID REFERENCES organizations(id),
     org_role            VARCHAR(20) NOT NULL DEFAULT 'viewer'
                           CHECK (org_role IN ('owner','admin','editor','viewer')),

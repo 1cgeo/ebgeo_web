@@ -3,6 +3,8 @@ import {
     toCount,
     peopleLabel,
     resourceLabel,
+    atlasLabel,
+    reachPhrase,
     groupReach,
     groupDeletionWarning,
     groupDeletionSummary,
@@ -16,8 +18,14 @@ import {
 //
 // Apagar um grupo REVOGA tudo o que ele concedia, e é a consequência que ninguém
 // adivinha: a pessoa acha que está limpando uma lista e está tirando acesso. O aviso
-// só vale se disser QUANTAS pessoas e QUANTOS recursos caem, e essa aritmética é o
+// só vale se disser QUANTAS pessoas e QUANTO acesso caem, e essa aritmética é o
 // que este arquivo prende.
+//
+// O ALCANCE TEM DOIS EIXOS desde D2 (2026-08-21): concessões de RECURSO e acesso a
+// ATLAS (`atlas_shares.group_id`). O aviso contava só o primeiro, isto é, avisava de
+// MENOS sobre um ato irreversível. A DISCRIMINAÇÃO que este arquivo cobra é que a frase
+// COM atlas seja diferente da frase SEM, em cada ramo — sem isso, um `atlas_share_count`
+// ignorado passaria verde em toda asserção de `toContain`.
 //
 // A armadilha que motivou o módulo: as duas contagens vêm de um `COUNT` do SQL, e o
 // node-postgres devolve bigint como STRING. Um plural escolhido com `n === 1` lê
@@ -58,14 +66,61 @@ describe('peopleLabel / resourceLabel — concordância', () => {
     });
 });
 
-describe('groupReach — a linha de alcance', () => {
-    it('junta as duas contagens', () => {
-        expect(groupReach({ member_count: 3, grant_count: 1 })).toBe('3 pessoas · 1 recurso');
+describe('atlasLabel — o eixo que faltava', () => {
+    it('"atlas" é invariável: o número muda, a palavra não', () => {
+        expect(atlasLabel(1)).toBe('1 atlas');
+        expect(atlasLabel('1')).toBe('1 atlas');
+        expect(atlasLabel(4)).toBe('4 atlas');
+        expect(atlasLabel(0)).toBe('0 atlas');
     });
 
-    it('grupo sem nenhum dos dois não quebra', () => {
-        expect(groupReach({})).toBe('0 pessoas · 0 recursos');
-        expect(groupReach(null)).toBe('0 pessoas · 0 recursos');
+    it('lixo da rede vira zero, como nos irmãos', () => {
+        expect(atlasLabel(undefined)).toBe('0 atlas');
+        expect(atlasLabel('abc')).toBe('0 atlas');
+        expect(atlasLabel(-3)).toBe('0 atlas');
+    });
+});
+
+describe('reachPhrase — os sintagmas não-vazios, compostos', () => {
+    it('junta os dois eixos com "e" quando os dois existem', () => {
+        expect(reachPhrase(2, 1)).toBe('2 recursos e 1 atlas');
+        expect(reachPhrase('2', '1')).toBe('2 recursos e 1 atlas');
+    });
+
+    it('DISCRIMINAÇÃO: o eixo zerado SOME, em vez de virar "0 recursos"', () => {
+        // É esta omissão que impede as oito combinações de virarem oito frases escritas
+        // à mão em `groupDeletionWarning`.
+        expect(reachPhrase(3, 0)).toBe('3 recursos');
+        expect(reachPhrase(0, 3)).toBe('3 atlas');
+        expect(reachPhrase(3, 0)).not.toContain('atlas');
+        expect(reachPhrase(0, 3)).not.toContain('recurso');
+    });
+
+    it('sem alcance nenhum devolve string VAZIA, que é o sinal que o chamador testa', () => {
+        expect(reachPhrase(0, 0)).toBe('');
+        expect(reachPhrase(undefined, undefined)).toBe('');
+        expect(reachPhrase(null, 'lixo')).toBe('');
+    });
+});
+
+describe('groupReach — a linha de alcance', () => {
+    it('junta as TRÊS contagens', () => {
+        expect(groupReach({ member_count: 3, grant_count: 1, atlas_share_count: 2 }))
+            .toBe('3 pessoas · 1 recurso · 2 atlas');
+    });
+
+    it('DISCRIMINAÇÃO: o eixo de atlas muda a linha, e ele não some quando é zero', () => {
+        // Aqui, ao contrário de `reachPhrase`, o zero APARECE: é o painel de estado de um
+        // grupo aberto, e "0 atlas" responde a pergunta que a pessoa está fazendo.
+        const com = groupReach({ member_count: 3, grant_count: 1, atlas_share_count: 2 });
+        const sem = groupReach({ member_count: 3, grant_count: 1 });
+        expect(com).not.toBe(sem);
+        expect(sem).toBe('3 pessoas · 1 recurso · 0 atlas');
+    });
+
+    it('grupo sem nenhum dos três não quebra', () => {
+        expect(groupReach({})).toBe('0 pessoas · 0 recursos · 0 atlas');
+        expect(groupReach(null)).toBe('0 pessoas · 0 recursos · 0 atlas');
     });
 });
 
@@ -109,19 +164,73 @@ describe('groupDeletionWarning — o aviso que precede o clique', () => {
     });
 
     it('grupo vazio diz que é inócuo, em vez de "0 pessoas a 0 recursos"', () => {
-        const frase = groupDeletionWarning({ name: 'Vazio', member_count: 0, grant_count: 0 });
-        expect(frase).toContain('não tem membros nem concessões');
+        const frase = groupDeletionWarning({
+            name: 'Vazio', member_count: 0, grant_count: 0, atlas_share_count: 0,
+        });
+        expect(frase).toContain('não tem membros, concessões nem atlas');
         expect(frase).not.toContain('0 pessoas');
+        expect(frase).not.toContain('0 atlas');
     });
 
-    it('sem concessões, o aviso fala só das pessoas; sem membros, só das concessões', () => {
-        const semRecurso = groupDeletionWarning({ name: 'A', member_count: 5, grant_count: 0 });
-        expect(semRecurso).toContain('5 pessoas');
-        expect(semRecurso).toContain('não concede acesso a nenhum recurso');
+    it('sem alcance, o aviso fala só das pessoas; sem membros, só do alcance', () => {
+        const semAlcance = groupDeletionWarning({ name: 'A', member_count: 5, grant_count: 0 });
+        expect(semAlcance).toContain('5 pessoas');
+        expect(semAlcance).toContain('não dá acesso a nenhum recurso nem atlas');
 
         const semGente = groupDeletionWarning({ name: 'B', member_count: 0, grant_count: 3 });
         expect(semGente).toContain('3 recursos');
         expect(semGente).toContain('não tem membros');
+    });
+
+    it('O EIXO DE ATLAS entra no aviso, e a frase COM atlas difere da SEM', () => {
+        // O piso desta tarefa: enquanto `atlas_share_count` era ignorado, as duas frases
+        // eram idênticas e toda asserção de `toContain` passava verde sobre um aviso que
+        // omitia metade do ato.
+        const com = groupDeletionWarning({
+            name: 'G', member_count: 4, grant_count: 2, atlas_share_count: 3,
+        });
+        const sem = groupDeletionWarning({ name: 'G', member_count: 4, grant_count: 2 });
+        expect(com).not.toBe(sem);
+        expect(com).toContain('2 recursos e 3 atlas');
+        expect(sem).not.toContain('atlas');
+    });
+
+    it('grupo que SÓ alcança atlas: o aviso é alto e NÃO fala de recurso', () => {
+        // A combinação que a versão anterior lia como grupo inócuo ("não concede acesso a
+        // nenhum recurso hoje"), enquanto apagá-lo tirava N atlas de todo o coletivo.
+        const frase = groupDeletionWarning({
+            name: 'Só atlas', member_count: 4, grant_count: 0, atlas_share_count: 2,
+        });
+        expect(frase).toContain('4 pessoas');
+        expect(frase).toContain('2 atlas');
+        expect(frase).not.toContain('recurso');
+        expect(frase).not.toContain('nada muda');
+        // E a cascata NÃO aparece: repasse é a aresta de `resource_grants`, e um grupo sem
+        // concessão viva não tem subárvore pendurada nele.
+        expect(frase).not.toContain('repasses');
+    });
+
+    it('grupo SEM membros que alcança atlas continua no ramo de alcance', () => {
+        const frase = groupDeletionWarning({
+            name: 'B', member_count: 0, grant_count: 0, atlas_share_count: 5,
+        });
+        expect(frase).toContain('5 atlas');
+        expect(frase).toContain('não tem membros');
+        expect(frase).not.toContain('não tem membros, concessões nem atlas');
+    });
+
+    it('CONCORDÂNCIA: a cascata acompanha o número de pessoas', () => {
+        // "1 pessoa (...) os repasses que elas fizeram" era a mesma classe de deslize que
+        // `toCount` existe para impedir do outro lado.
+        expect(groupDeletionWarning({ name: 'G', member_count: 1, grant_count: 1 }))
+            .toContain('que ela fez a partir dele');
+        expect(groupDeletionWarning({ name: 'G', member_count: 2, grant_count: 1 }))
+            .toContain('que elas fizeram a partir dele');
+    });
+
+    it('as contagens de atlas em string produzem a MESMA frase que as numéricas', () => {
+        expect(groupDeletionWarning({ name: 'G', member_count: 2, grant_count: 1, atlas_share_count: '1' }))
+            .toBe(groupDeletionWarning({ name: 'G', member_count: 2, grant_count: 1, atlas_share_count: 1 }));
     });
 
     it('grupo sem nome ou nulo não vira "undefined" na frase', () => {
@@ -141,6 +250,21 @@ describe('groupDeletionSummary — o que o servidor disse que caiu', () => {
     it('sem concessões afetadas, não anuncia uma revogação que não houve', () => {
         expect(groupDeletionSummary({ name: 'X', grantsAffected: 0 })).toBe('Grupo "X" apagado.');
         expect(groupDeletionSummary({ name: 'X' })).toBe('Grupo "X" apagado.');
+    });
+
+    it('os atlas saem em frase PRÓPRIA, porque não são linhas revogadas', () => {
+        // Somar os dois daria um total que não corresponde a nada no banco: a concessão
+        // cai por escrita, o atlas cai por predicado, sem linha alterada.
+        expect(groupDeletionSummary({ name: 'X', grantsAffected: 7, atlasShares: 2 }))
+            .toBe('Grupo "X" apagado. Concessões revogadas: 7. Atlas fora do alcance: 2.');
+        expect(groupDeletionSummary({ name: 'X', grantsAffected: 0, atlasShares: '2' }))
+            .toBe('Grupo "X" apagado. Atlas fora do alcance: 2.');
+    });
+
+    it('DISCRIMINAÇÃO: zero atlas não vira frase, como o zero de concessões', () => {
+        expect(groupDeletionSummary({ name: 'X', grantsAffected: 7, atlasShares: 0 }))
+            .toBe('Grupo "X" apagado. Concessões revogadas: 7.');
+        expect(groupDeletionSummary({ name: 'X', atlasShares: 0 })).toBe('Grupo "X" apagado.');
     });
 });
 
@@ -169,10 +293,24 @@ describe('memberRemovalWarning — o aviso antes de tirar alguém', () => {
         expect(frase).toContain('repassou');
     });
 
-    it('DISCRIMINAÇÃO: grupo sem concessão viva diz que nada muda, e não anuncia cascata', () => {
-        const frase = memberRemovalWarning({ name: 'G', grant_count: 0 });
+    it('DISCRIMINAÇÃO: grupo sem alcance nenhum diz que nada muda, e não anuncia cascata', () => {
+        const frase = memberRemovalWarning({ name: 'G', grant_count: 0, atlas_share_count: 0 });
         expect(frase).toContain('nada muda');
         expect(frase).not.toContain('repassou');
+    });
+
+    it('o eixo de ATLAS também sai daqui: tirar a pessoa tira o atlas do grupo', () => {
+        const so = memberRemovalWarning({ name: 'G', grant_count: 0, atlas_share_count: 2 });
+        expect(so).toContain('2 atlas');
+        expect(so).not.toContain('nada muda');
+        // Sem concessão viva não há repasse pendurado: a cascata continua presa ao eixo
+        // de recurso, e prometê-la aqui descreveria uma queda impossível.
+        expect(so).not.toContain('repassou');
+
+        const ambos = memberRemovalWarning({ name: 'G', grant_count: 2, atlas_share_count: 1 });
+        expect(ambos).toContain('2 recursos e 1 atlas');
+        expect(ambos).toContain('repassou');
+        expect(ambos).not.toBe(memberRemovalWarning({ name: 'G', grant_count: 2 }));
     });
 
     it('a contagem em string produz a MESMA frase que a numérica', () => {

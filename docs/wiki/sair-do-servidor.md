@@ -64,9 +64,15 @@ Com a poda na saída, o `.ebgeo` que este app produz já vem limpo. Mas `.ebgeo`
 
 O que a referência importada **não** entrega é byte: cada tipo tem gate próprio nos bytes. O que ela entrega é a **identidade** de um recurso privado, que é a mesma classe do vazamento que a poda de definição fechou, um degrau abaixo. Por isso a entrada também poda, e por isso ela **não** responde 4xx: recusar o arquivo inteiro por uma referência morta tornaria todo `.ebgeo` antigo inimportável.
 
-## O teto conhecido
+## Entrar pelo sync: a porta que ficou aberta mais tempo
 
-O caminho de **sync** continua sem essa guarda para 3D, 360, slide e camada de base: o gate de escrita por conteúdo (`unseenCatalogResourceDenialReason`, `backend/src/modules/sync/sync.service.js`) cobre só referência de camada de catálogo. Um cliente pode empurrar uma operação de câmera 3D com um `tilesetId` privado e ela entra. Fechar isso é a extensão natural da classificação em lote para o pusher, e não foi feito aqui.
+O caminho de **sync** ficou sem essa guarda para 3D, 360, slide e camada de base até 2026-08-21, e o gate de escrita por conteúdo (`unseenResourceDenialReason`, `backend/src/modules/sync/sync.service.js`) cobria só referência de camada de catálogo: qualquer membro com `write` empurrava uma operação de câmera 3D com um `tilesetId` privado e ela entrava. Hoje o gate é uma **tabela de extratores por `op.target`** (`RESOURCE_REF_EXTRACTORS`, `backend/src/modules/sync/resource-ref.extractors.js`), uma entrada por superfície, e o censo `backend/tests/unit/sync-referencia-de-recurso-censo.test.js` reprova superfície nova não classificada nos dois sentidos.
+
+Duas escolhas dele não se adivinham. A primeira: ele **não** reusa a classificação em lote do clone. `CLASSIFY_RESOURCE_REFS` passa `NULL::uuid` como atlas em foco de propósito, porque na cópia o recurso SAI do atlas; no sync o dado FICA, então o **empréstimo por atlas conta** e o parâmetro certo é o `atlasId` da rota. Reusar a consulta do clone recusaria escrita legítima sobre recurso que o próprio atlas empresta. A segunda: a referência 360 é um **nome de foto**, não um id de projeto, então o gate compõe `RESOLVE_SV360_REFS` (`CAN_SEE_SV360_REF`, `backend/src/modules/sync/sync.queries.js`) em vez de perguntar direto: é a mesma tradução que a poda usa, e não uma segunda cópia do desempate.
+
+Três coisas **não** mudaram, e são as que se quebram sem perceber. O `delete` continua passando, sempre: quem perdeu acesso precisa poder tirar a referência morta do mapa. A recusa é **por operação** (`rejected` + `reason`), nunca 4xx do lote, porque o cliente não faz dequeue de resposta não-2xx e um lote recusado volta a cada 1,5 s para sempre. E o gate espelha o **caminho de escrita**, não a intenção declarada no payload: um `mapTemporal` que traga um `base_layer` de carona não é recusado, porque `MAP_SUBTYPE_FIELDS` já descarta a coluna irmã, e recusar por um campo que a escrita joga fora custaria a operação inteira.
+
+## O teto conhecido
 
 `GET /atlas/public/:link` devolve a linha inteira do atlas, `settings` inclusive, para chamador **anônimo**. A poda desta página alcança a **cópia**, não a resposta do próprio atlas: quem publica um link decide publicar o overlay que escreveu. É uma superfície diferente e uma decisão diferente, anotada aqui para que a próxima leitura não a confunda com um buraco desta.
 

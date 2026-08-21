@@ -30,7 +30,10 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { createServer } from 'http';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, createShare, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAtlas, createMap, createShare, loginUser,
+  seedCatalogRefs, dropCatalogRefs, seedPublic360Photos, drop360Fixture,
+} from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
 
 /** The sync metadata the real frontend attaches to every 3D/360 entity (createSyncMetadata). */
@@ -111,10 +114,22 @@ const SUBTYPES = [
   },
 ];
 
+// AS REFERÊNCIAS DE CATÁLOGO QUE AS OPS DESTE ARQUIVO CARREGAM.
+//
+// Desde que `unseenResourceDenialReason` cobre as CINCO superfícies (e não só a camada de
+// catálogo), uma op cujo `tilesetId`/`photoName` não resolve para um recurso que o autor
+// ENXERGA é recusada POR OPERAÇÃO — e "não existe" conta como "não posso ver", para que o ack
+// não vire oráculo de existência sobre o acervo privado. Op recusada não é retransmitida nem
+// entra no log, então sem estas linhas os DOIS caminhos que este arquivo compara ficariam
+// vazios e a paridade passaria por igualdade de nada.
+const REFS_DE_CATALOGO = { tilesets: ['PCL'] };
+const FOTO_360 = 'foto-001.jpg';
+
 describe('3D/360 op: live broadcast and replay must deliver the SAME payload (repro)', () => {
   let app, db, server;
   let owner, ownerToken, peer, peerToken, atlas, map;
   let openClients;
+  let refs360Semeadas;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -134,6 +149,9 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
     atlas = await createAtlas(db, owner.id, { name: '3D/360 Path Parity Atlas' });
     map = await createMap(db, atlas.id);
     await createShare(db, atlas.id, peer.id, 'write', owner.id);
+
+    await seedCatalogRefs(db, REFS_DE_CATALOGO);
+    refs360Semeadas = await seedPublic360Photos(db, [FOTO_360]);
   });
 
   beforeEach(() => {
@@ -156,6 +174,8 @@ describe('3D/360 op: live broadcast and replay must deliver the SAME payload (re
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
     }
+    await dropCatalogRefs(db, REFS_DE_CATALOGO);
+    await drop360Fixture(db, refs360Semeadas);
     await teardownTestEnv(db);
   });
 

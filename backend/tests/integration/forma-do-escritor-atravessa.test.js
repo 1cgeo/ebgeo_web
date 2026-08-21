@@ -270,7 +270,7 @@ describe('F14 — a forma que o escritor do cliente produz atravessa a borda int
     slide = await createSlide(db, briefing.id, { title: `Slide forma ${sufixo}` });
 
     // O recurso PÚBLICO por trás da entrada de catálogo. Sem ele a op de catálogo é recusada por
-    // `unseenCatalogResourceDenialReason` e o arquivo mediria uma recusa em vez de uma escrita.
+    // `unseenResourceDenialReason` e o arquivo mediria uma recusa em vez de uma escrita.
     await db.query(
       `INSERT INTO analysis_layers (id, name, config, sort_order, access_level)
        VALUES ($1, $2, $3::jsonb, 0, 'public')`,

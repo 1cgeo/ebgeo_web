@@ -1,14 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+    accessLossClause,
     alreadyGranted,
+    deadGrantorChip,
     descendantGrants,
     fallenGrants,
+    grantOriginLabel,
     granteeCounts,
     granteeGroupOwnerLabel,
     granteeName,
     granteeSubject,
     groupMemberCount,
     groupOptionLabel,
+    isGrantorDead,
     isGroupGrant,
     revocationWarning,
     MAX_GRANT_DEPTH,
@@ -292,6 +296,62 @@ describe('revocationWarning — o aviso que o modal mostra', () => {
 });
 
 // ---------------------------------------------------------------------------
+// A CONJUGAÇÃO, QUE É O PEDAÇO QUE OS DOIS EIXOS COMPARTILHAM.
+//
+// Um sintagma nominal ("3 pessoas", "sem membros", "2 pessoas e 1 grupo") é feito para
+// caber numa meta de linha e não sabe conjugar. Colar um verbo fixo no plural ao lado
+// dele já produziu "1 pessoa perdem o acesso" e "sem membros perdem o acesso" — o
+// segundo num diálogo `destructive: true`, afirmando uma perda que não vai acontecer.
+// Por isso o ramo ZERO aqui não é a mesma frase mais curta: é a frase contrária.
+describe('accessLossClause — o verbo concorda e o zero diz o contrário', () => {
+    it('PISO: singular e plural saem por extenso, com o sujeito do chamador', () => {
+        expect(accessLossClause(1, '1 pessoa')).toBe('1 pessoa perde o acesso');
+        expect(accessLossClause(3, '3 pessoas')).toBe('3 pessoas perdem o acesso');
+    });
+
+    it('DISCRIMINAÇÃO: 1 e N produzem frases DIFERENTES, e a de 1 não tem "perdem"', () => {
+        // Sem esta linha, um verbo fixo no plural passaria nas duas asserções acima se
+        // alguém as escrevesse com `toContain`.
+        expect(accessLossClause(1, 'x')).not.toBe(accessLossClause(2, 'x'));
+        expect(accessLossClause(1, '1 pessoa')).not.toContain('perdem');
+        expect(accessLossClause(2, '2 pessoas')).not.toMatch(/\bperde\b/);
+    });
+
+    it('ZERO afirma o CONTRÁRIO de uma perda e descarta o sujeito', () => {
+        expect(accessLossClause(0, 'sem membros')).toBe('ninguém perde o acesso');
+        expect(accessLossClause(0, 'sem membros')).not.toContain('perdem');
+        expect(accessLossClause(0, 'sem membros')).not.toContain('sem membros');
+    });
+
+    it('contagem SUJA colapsa no ramo zero, e não conjuga no plural por acidente', () => {
+        // `memberCount`/`COUNT` atravessam a rede: ausente, nulo, texto e negativo não
+        // descrevem perda nenhuma, e todos virariam plural se seguissem como número.
+        for (const sujo of [undefined, null, NaN, -1, -0, 'três', '', {}, Infinity]) {
+            expect(accessLossClause(sujo, 'sem membros')).toBe('ninguém perde o acesso');
+        }
+    });
+
+    it('contagem que chega como STRING de `COUNT` ainda conjuga certo', () => {
+        expect(accessLossClause('1', '1 pessoa')).toBe('1 pessoa perde o acesso');
+        expect(accessLossClause('4', '4 pessoas')).toBe('4 pessoas perdem o acesso');
+    });
+
+    it('sujeito vazio degrada para o número, e não abre a frase com um espaço', () => {
+        expect(accessLossClause(2)).toBe('2 perdem o acesso');
+        expect(accessLossClause(1, '   ')).toBe('1 perde o acesso');
+        expect(accessLossClause(5, null).startsWith(' ')).toBe(false);
+    });
+
+    it('`fallenSummary` passou a conjugar POR AQUI: a soma dos tipos é quem decide', () => {
+        // O acoplamento que este caso prende é o do resumo misto: o verbo concorda com o
+        // TOTAL (1 + 2), não com a última parcela. Sem ele, reescrever `fallenSummary`
+        // sobre outra regra passaria despercebido.
+        expect(revocationWarning(MISTA, 'M')).toContain(accessLossClause(3, '1 pessoa e 2 grupos'));
+        expect(revocationWarning(ARVORE, 'X')).toContain(accessLossClause(1, '1 pessoa'));
+    });
+});
+
+// ---------------------------------------------------------------------------
 // A DELEGAÇÃO PRECISA APARECER EM ALGUMA TELA.
 //
 // Conceder um recurso privado a um GRUPO entrega ao dono daquele grupo o poder de
@@ -555,5 +615,96 @@ describe('fallenGrants — quem cai DEPOIS da preservação de alcançabilidade'
         // E a discriminação, no mesmo par: com o outro caminho em `view`, a frase volta.
         const SOVIEW = RESGATE.map((x) => (x.id === 'CB' ? { ...x, grant_level: 'view' } : x));
         expect(revocationWarning(SOVIEW, 'AB')).toContain('2 pessoas perdem o acesso');
+    });
+});
+
+// O MARCADOR DA LINHA QUE JÁ NÃO ENTREGA ACESSO.
+//
+// A lista "quem tem acesso" (`catalog/resource-share.modal.js`) mostrava como acesso
+// vigente a concessão cujo CONCEDENTE foi desativado, que o predicado do servidor já
+// nega desde D8(b). A linha CONTINUA na listagem de propósito (ela é revogável, e
+// reativar a OM a devolve), então o conserto não é filtrar, é MARCAR — e a decisão de
+// marcar é aritmética de um campo, não DOM, por isso mora aqui e é testável em node.
+//
+// A COMPARAÇÃO É `=== false` E ESSE É O PONTO DESTE BLOCO. O caso que a protege é o do
+// servidor ANTIGO, que não manda o campo: sob `!granted_by_vivo` toda linha da tela
+// ganharia o chip "sem efeito" numa implantação em duas etapas, isto é, a tela inteira
+// diria que ninguém tem acesso ao recurso. `descendantGrants`/`fallenGrants` acima já
+// exercitam o mesmo predicado no eixo do AVISO; aqui é o eixo do que se vê na linha.
+describe('isGrantorDead / deadGrantorChip / grantOriginLabel', () => {
+    /** Uma linha da listagem, como o servidor a devolve. */
+    const linha = (extra) => ({
+        id: 'g1', parent_grant_id: null, grant_level: 'view',
+        grantee_id: 'u-Ana', grantee_nome: 'Ana Lima',
+        granted_by: 'u-Bruno', granted_by_nome: 'Bruno Sá', granted_by_username: 'bruno',
+        ...extra,
+    });
+
+    it('PISO: `granted_by_vivo: false` acusa, produz chip e muda o verbo da origem', () => {
+        const g = linha({ granted_by_vivo: false });
+        expect(isGrantorDead(g)).toBe(true);
+
+        const chip = deadGrantorChip(g);
+        expect(chip).not.toBeNull();
+        // O rótulo é curto porque entra numa linha estreita; a causa (acionável: reativar
+        // a conta ou a OM devolve o acesso) vai no `title`, senão o chip é um enigma.
+        expect(chip.label).toBe('sem efeito');
+        expect(chip.title).toContain('conta ou a OM desativada');
+        expect(chip.title).toContain('revogada');
+
+        // A FRASE PERDE A AFIRMAÇÃO DE ACESSO E MANTÉM O NOME: quem decide entre revogar e
+        // pedir a reativação da OM precisa saber DE QUEM a concessão veio.
+        expect(grantOriginLabel(g)).toBe('veio de Bruno Sá');
+        expect(grantOriginLabel(g)).not.toContain('recebido');
+    });
+
+    it('DISCRIMINAÇÃO 1: `granted_by_vivo: true` não acusa, e a frase é a de sempre', () => {
+        const g = linha({ granted_by_vivo: true });
+        expect(isGrantorDead(g)).toBe(false);
+        expect(deadGrantorChip(g)).toBeNull();
+        expect(grantOriginLabel(g)).toBe('recebido de Bruno Sá');
+    });
+
+    it('DISCRIMINAÇÃO 2: campo AUSENTE (servidor antigo) não acusa NENHUMA linha', () => {
+        // ESTE É O CASO QUE `=== false` PROTEGE, e o único que separa as duas escritas.
+        // Sob `!granted_by_vivo` as três asserções abaixo viram o oposto e a tela marca
+        // como "sem efeito" todo mundo que um servidor pré-D8(b) devolve.
+        const g = linha({});
+        expect(g.granted_by_vivo).toBeUndefined();
+        expect(isGrantorDead(g)).toBe(false);
+        expect(deadGrantorChip(g)).toBeNull();
+        expect(grantOriginLabel(g)).toBe('recebido de Bruno Sá');
+    });
+
+    it('`null` explícito também NÃO acusa: é ausência de informação, não morte', () => {
+        // O COMPORTAMENTO ESCOLHIDO, dito em voz alta porque a coluna é
+        // `(granted_by IS NULL OR fn_principal_vivo(...))` e nunca devolve `null` hoje —
+        // um `null` aqui só chega de um servidor futuro que passe a admitir "não sei", e
+        // "não sei" é o mesmo caso do servidor antigo: falhar para o comportamento de
+        // antes, e não afirmar na tela uma morte que ninguém apurou. Marcar uma linha
+        // viva como sem efeito faz o usuário revogar um acesso que funcionava.
+        const g = linha({ granted_by_vivo: null });
+        expect(isGrantorDead(g)).toBe(false);
+        expect(deadGrantorChip(g)).toBeNull();
+        expect(grantOriginLabel(g)).toBe('recebido de Bruno Sá');
+    });
+
+    it('a concessão da ADMINISTRAÇÃO (sem concedente) nunca é marcada', () => {
+        // `granted_by IS NULL` faz a coluna vir VERDADEIRA do servidor por construção, e o
+        // texto muda porque não há nome para citar. Sem esta linha, uma implementação que
+        // caísse no ramo de morto por falta de nome passaria despercebida.
+        const raiz = linha({ granted_by: null, granted_by_nome: null, granted_by_username: null, granted_by_vivo: true });
+        expect(deadGrantorChip(raiz)).toBeNull();
+        expect(grantOriginLabel(raiz)).toBe('concedido pela administração');
+    });
+
+    it('sem `granted_by_nome`, a origem cai no @username, e string vazia é ausência', () => {
+        const so = linha({ granted_by_nome: '', granted_by_vivo: false });
+        expect(grantOriginLabel(so)).toBe('veio de bruno');
+        // Entrada degenerada não lança nem produz frase vazia.
+        expect(grantOriginLabel(null)).toBe('concedido pela administração');
+        expect(grantOriginLabel(undefined)).toBe('concedido pela administração');
+        expect(isGrantorDead(null)).toBe(false);
+        expect(deadGrantorChip(undefined)).toBeNull();
     });
 });

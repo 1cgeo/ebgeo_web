@@ -27,17 +27,28 @@
  * a unicidade de nome agora é POR DONO: sem o nome do dono, a lista dele mostraria N
  * grupos homônimos de gente diferente.
  *
- * AS DUAS CONTAGENS SÃO A TELA INTEIRA. "Quantas pessoas" responde se o grupo faz
- * alguma coisa, e "quantos recursos" responde o que se perde ao apagá-lo — que é a
+ * AS TRÊS CONTAGENS SÃO A TELA INTEIRA. "Quantas pessoas" responde se o grupo faz
+ * alguma coisa, e as outras duas respondem o que se perde ao apagá-lo — que é a
  * consequência que ninguém adivinha.
+ *
+ * `atlas_share_count` ENTROU EM 2026-08-21, com o eixo de grupo de `atlas_shares` (D2,
+ * 011_grupo_com_dono_e_producao.sql), e este bloco afirmava "as DUAS contagens são a
+ * tela inteira" enquanto o grupo já carregava acesso a ATLAS. A frase virou falsa no
+ * commit da decisão e a tela herdou a cegueira: o aviso de exclusão contava recurso e
+ * omitia atlas, isto é, avisava de MENOS sobre um ato irreversível. Apagar o grupo é
+ * soft, e soft não dispara o `ON DELETE CASCADE` da coluna — quem mata o share do grupo
+ * apagado é `fn_user_group_ids`, no predicado. A linha de `atlas_shares` fica inerte, o
+ * acesso morre na hora, e é por isso que ele precisa ser CONTADO antes do clique.
  *
  * A concessão viva inclui o PRAZO (`expires_at > NOW()`) porque uma concessão expirada
  * continua com `revoked_at IS NULL`: contá-la aqui prometeria um acesso que o
- * predicado já não entrega.
+ * predicado já não entrega. `a.deleted_at IS NULL` no eixo de atlas existe pela MESMA
+ * razão, do outro lado: um atlas na lixeira já não é alcançável por ninguém, e contá-lo
+ * prometeria uma perda que não vai acontecer.
  *
- * As duas subconsultas são escalares e não `LEFT JOIN` + `GROUP BY`, de propósito: um
- * join com duas tabelas de cardinalidade diferente multiplica as linhas e faz as duas
- * contagens mentirem uma sobre a outra.
+ * As três subconsultas são escalares e não `LEFT JOIN` + `GROUP BY`, de propósito: um
+ * join com tabelas de cardinalidade diferente multiplica as linhas e faz as contagens
+ * mentirem umas sobre as outras.
  *   $1 = o chamador
  */
 export const LIST_GROUPS = `
@@ -49,7 +60,11 @@ export const LIST_GROUPS = `
          (SELECT COUNT(*) FROM resource_grants rg
            WHERE rg.grantee_group_id = g.id
              AND rg.revoked_at IS NULL
-             AND rg.expires_at > NOW())::int AS grant_count
+             AND rg.expires_at > NOW())::int AS grant_count,
+         (SELECT COUNT(*) FROM atlas_shares s
+            JOIN atlas a ON a.id = s.atlas_id
+           WHERE s.group_id = g.id
+             AND a.deleted_at IS NULL)::int AS atlas_share_count
     FROM access_groups g
     LEFT JOIN users cu ON cu.id = g.created_by
     LEFT JOIN users ou ON ou.id = g.owner_id
@@ -114,7 +129,13 @@ export const CAN_ADMINISTER_GROUP = `
 `;
 
 /**
- * O ALCANCE de UM grupo: quantas pessoas e quantas concessões vivas.
+ * O ALCANCE de UM grupo: quantas pessoas, quantas concessões vivas e quantos atlas.
+ *
+ * A GÊMEA DE `LIST_GROUPS` DO LADO DO ATO, e as duas precisam contar as MESMAS coisas:
+ * a listagem alimenta o aviso ANTES do clique e esta alimenta a trilha DEPOIS dele. Um
+ * eixo que exista só de um lado produz um aviso que promete menos (ou mais) do que o
+ * registro do ato diz ter acontecido. `atlas_share_count` entrou nas duas no mesmo
+ * commit, por isso.
  *
  * Existe porque `deleteGroup` lia o alcance com `listGroups().find(...)` — uma
  * varredura da tabela inteira para achar uma linha — e, depois que a listagem passou a
@@ -132,7 +153,11 @@ export const GET_GROUP_REACH = `
          (SELECT COUNT(*) FROM resource_grants rg
            WHERE rg.grantee_group_id = g.id
              AND rg.revoked_at IS NULL
-             AND rg.expires_at > NOW())::int AS grant_count
+             AND rg.expires_at > NOW())::int AS grant_count,
+         (SELECT COUNT(*) FROM atlas_shares s
+            JOIN atlas a ON a.id = s.atlas_id
+           WHERE s.group_id = g.id
+             AND a.deleted_at IS NULL)::int AS atlas_share_count
     FROM access_groups g
    WHERE g.id = $1::uuid AND g.deleted_at IS NULL
 `;

@@ -35,6 +35,7 @@ import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser, createAtlas, createMap, createShare, createLayer, createGroup,
   createBriefing, createSlide, loginUser, makeAtlasPublic, getPublicToken,
+  seedCatalogRefs, dropCatalogRefs, seedPublic360Photos, drop360Fixture,
 } from '../helpers/fixtures.js';
 
 const sufixo = randomUUID().slice(0, 8);
@@ -43,6 +44,9 @@ const PRIVADO = `f14-legit-priv-${sufixo}`;
 const ID_ENTRADA_PRIVADA = `analysis-${PRIVADO}`;
 const URL_PRIVADA_VIVA = `/tiles/${sufixo}/privada-viva/{z}/{x}/{y}.pbf`;
 const URL_COPIA_VELHA = `/tiles/${sufixo}/copia-velha/{z}/{x}/{y}.pbf`;
+// O 3D e o 360 do lote legítimo apontam para recurso PÚBLICO e existente: ver o `before`.
+const TILESET_PUBLICO = 'PCL';
+const FOTO_PUBLICA = `foto-${sufixo}.jpg`;
 const URL_HILLSHADE = `/tiles/${sufixo}/relevo/{z}/{x}/{y}.png`;
 
 /**
@@ -66,6 +70,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
   let atlas, mapa, camada, grupo, briefing, slide;
   let idDaFeicao, idDoComentario, idDoMarcador3d, idDaOrientacao360;
   let acksDoLote, resultadosDoLote, versaoDoLote;
+  let fixture360;
 
   const push = async (token, operations, esperado = 200) => {
     const res = await supertest(app)
@@ -132,6 +137,14 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
       })],
     );
 
+    // O 3D e o 360 do lote LEGÍTIMO precisam apontar para recurso que EXISTE e que o autor
+    // enxerga: desde que o gate de referência privada cobre as cinco superfícies (e não só a
+    // camada de catálogo), um `tilesetId` ou um `photoName` que não resolve é recusado, pela
+    // convenção de que "não existe" e "não posso ver" são indistinguíveis. Este arquivo mede
+    // que a borda NÃO recusa o legítimo, então o legítimo tem de ser legítimo também aqui.
+    await seedCatalogRefs(db, { tilesets: [TILESET_PUBLICO] });
+    fixture360 = await seedPublic360Photos(db, [FOTO_PUBLICA]);
+
     tokenVisitante = await getPublicToken(app, await makeAtlasPublic(db, atlas.id));
 
     idDaFeicao = randomUUID();
@@ -144,6 +157,8 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
     await db.query('DELETE FROM resource_grants WHERE resource_id = $1', [PRIVADO]);
     await db.query('DELETE FROM atlas_resources WHERE resource_id = $1', [PRIVADO]);
     await db.query('DELETE FROM analysis_layers WHERE id = $1', [PRIVADO]);
+    await dropCatalogRefs(db, { tilesets: [TILESET_PUBLICO] });
+    await drop360Fixture(db, fixture360);
     await teardownTestEnv(db);
   });
 
@@ -249,7 +264,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
         entityType: 'marker3d', operationType: 'create', entityId: idDoMarcador3d, mapId: mapa.id,
         data: {
           id: idDoMarcador3d,
-          tilesetId: 'PCL',
+          tilesetId: TILESET_PUBLICO,
           position: { longitude: -43.2, latitude: -22.9, height: 150 },
           properties: { name: 'Alvo', color: '#ff0000' },
         },
@@ -258,7 +273,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
         entityType: 'orientation360', operationType: 'create', entityId: idDaOrientacao360, mapId: mapa.id,
         data: {
           id: idDaOrientacao360,
-          photoName: `foto-${sufixo}.jpg`,
+          photoName: FOTO_PUBLICA,
           heading: 120, pitch: -5, fov: 75,
         },
       }),
@@ -351,7 +366,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
 
     const { rows: tresD } = await db.query('SELECT data, tileset_id FROM cesium3d_data WHERE id = $1', [idDoMarcador3d]);
     assert.equal(tresD.length, 1, 'o marcador 3D foi criado');
-    assert.equal(tresD[0].tileset_id, 'PCL');
+    assert.equal(tresD[0].tileset_id, TILESET_PUBLICO);
     assert.deepEqual(tresD[0].data.position, { longitude: -43.2, latitude: -22.9, height: 150 });
     assert.deepEqual(tresD[0].data.properties, { name: 'Alvo', color: '#ff0000' });
 
@@ -359,7 +374,7 @@ describe('F14 — a borda aperta sem recusar op legítima, e o relevo continua c
       'SELECT data, photo_name FROM streetview360_data WHERE id = $1', [idDaOrientacao360],
     );
     assert.equal(trezentos.length, 1, 'a orientação 360 foi criada');
-    assert.equal(trezentos[0].photo_name, `foto-${sufixo}.jpg`);
+    assert.equal(trezentos[0].photo_name, FOTO_PUBLICA);
     assert.equal(trezentos[0].data.heading, 120);
 
     const { rows: atlasRows } = await db.query('SELECT settings FROM atlas WHERE id = $1', [atlas.id]);

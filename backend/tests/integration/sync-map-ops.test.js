@@ -8,7 +8,39 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAtlas, createMap, loginUser, seedCatalogRefs, dropCatalogRefs,
+} from '../helpers/fixtures.js';
+
+// ============================================================================================
+// AS REFERÊNCIAS DE CATÁLOGO QUE AS OPS DESTE ARQUIVO CARREGAM.
+//
+// Desde que `unseenResourceDenialReason` cobre as CINCO superfícies (e não só a camada de
+// catálogo), uma op cujo `tilesetId`/`photoName`/`modelId`/`photoId`/`baseLayer` não resolve
+// para um recurso que o autor ENXERGA é recusada POR OPERAÇÃO — e "não existe" conta como "não
+// posso ver", para que o ack não vire oráculo de existência sobre o acervo privado.
+//
+// Este arquivo mede outra coisa (envelope, alias, snapshot, isolamento), então a referência aqui
+// é só CENÁRIO: ela existe e é pública. Quem mede o gate em si é
+// `tests/integration/sync-referencia-privada.test.js`.
+//
+// O gancho é de RAIZ (fora de qualquer `describe`) porque o arquivo tem vários blocos e a
+// semeadura é do arquivo inteiro; a limpeza é obrigatória porque as tabelas de catálogo e o
+// schema `sv360` são compartilhados pela suíte.
+// ============================================================================================
+const REFS_DE_CATALOGO = { basemaps: ['satellite'] };
+
+before(async () => {
+  const env = await setupTestEnv();
+  await seedCatalogRefs(env.db, REFS_DE_CATALOGO);
+  await teardownTestEnv(env.db);
+});
+
+after(async () => {
+  const env = await setupTestEnv();
+  await dropCatalogRefs(env.db, REFS_DE_CATALOGO);
+  await teardownTestEnv(env.db);
+});
 
 describe('Map Operations via Sync', () => {
   let app, db, user, token, atlas;

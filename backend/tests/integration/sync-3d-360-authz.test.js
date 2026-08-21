@@ -9,7 +9,16 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAtlas, createMap, createShare, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser, createAtlas, createMap, createShare, loginUser, seedCatalogRefs, dropCatalogRefs,
+} from '../helpers/fixtures.js';
+
+// O tileset que a op 3D referencia. Ele precisa EXISTIR e ser visível ao autor: desde que
+// `unseenResourceDenialReason` cobre as cinco superfícies, uma op cujo `tileset_id` não resolve
+// é recusada POR OPERAÇÃO — e o caso positivo deste arquivo (o WRITER escreve) media o eixo de
+// permissão por ATLAS sobre um id que não era recurso nenhum, ou seja, passava por cima do
+// buraco que aquele gate fechou. A fixture é o conserto; afrouxar o gate seria o contrário.
+const TILESET = { tilesets: ['PCL'] };
 
 describe('3D/360 sync — write authorization (viewer & commenter blocked)', () => {
   let app, db, viewerTok, commenterTok, writerTok, atlas, map;
@@ -32,9 +41,12 @@ describe('3D/360 sync — write authorization (viewer & commenter blocked)', () 
     await createShare(db, atlas.id, viewer.id, 'read', owner.id);
     await createShare(db, atlas.id, commenter.id, 'comment', owner.id);
     await createShare(db, atlas.id, writer.id, 'write', owner.id);
+
+    await seedCatalogRefs(db, TILESET);
   });
 
   after(async () => {
+    await dropCatalogRefs(db, TILESET);
     await teardownTestEnv(db);
   });
 

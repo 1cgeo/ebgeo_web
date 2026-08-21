@@ -134,9 +134,9 @@ Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-
 
 Três fatos chegam por rotas que **não existem para o resto do app** e cujo desenho só se entende junto (`backend/src/modules/atlas/atlas.routes.js`, consumidas por `frontend/src/js/projects/atlas-drive.js`):
 
-- `GET /atlas/overview` — participantes, contagem e capas de todos os atlas que o chamador alcança, num pedido só.
-- `GET /atlas/presence` — só quem está conectado agora, para a atualização periódica.
-- `PUT` / `DELETE /atlas/:id/cover` — a capa, gate `write`.
+- `GET /atlas/overview`: participantes, contagem e capas de todos os atlas que o chamador alcança, num pedido só.
+- `GET /atlas/presence`: só quem está conectado agora, para a atualização periódica.
+- `PUT` / `DELETE /atlas/:id/cover`: a capa, gate `write`.
 
 **Por que não crescer o `GET /atlas`.** A listagem simples é chamada por quatro superfícies do cliente (controle de conta, aba Mapas, nome do atlas e esta tela), e três delas só querem id e nome. Agregar participante ali faria toda troca de mapa pagar dois subselects por atlas, e a capa viajaria por acidente em `SELECT a.*`. Daí também a capa morar em `atlas_covers`, tabela à parte.
 

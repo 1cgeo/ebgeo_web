@@ -138,7 +138,14 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   um SEGUNDO catálogo de modelo 3D, no schema `ng`, com eixo de acesso próprio que nenhuma rota
   alimentava; ele saiu inteiro em 2026-08-19 e `tilesets` é hoje a única descoberta de modelo 3D.
   O predicado de acesso é **uma definição só**, em função SQL (`fn_can_see_resource` e as cinco de
-  baixo), chamada de dentro das queries e nunca reimplementada em JS. **O papel é resolvido no
+  baixo), chamada de dentro das queries e nunca reimplementada em JS. **Ele também gateia a
+  ESCRITA por sync**: uma op que declare referência a recurso que o autor não enxerga é recusada
+  POR OPERAÇÃO, e as superfícies são uma TABELA (`RESOURCE_REF_EXTRACTORS`,
+  `src/modules/sync/resource-ref.extractors.js`), não um `if` por tipo — foi um `op.target !==
+  'catalog_layer'` que deixou 3D, 360, slide e camada de base entrarem sem checagem. Três
+  invariantes: `delete` NUNCA é gateado (quem perdeu acesso tira a referência morta), o atlas da
+  ROTA vai no predicado (o empréstimo conta, ao contrário do clone, que passa `NULL`), e o gate
+  espelha o caminho de ESCRITA, não o payload declarado. **O papel é resolvido no
   BANCO, nunca lido do JWT**: `flexibleAuth` não reconcilia, então um credenciado rebaixado
   carregaria o papel antigo por até 15 min.
 - **O beneficiário de uma concessão é uma pessoa OU um grupo, nunca os dois** (`CHECK

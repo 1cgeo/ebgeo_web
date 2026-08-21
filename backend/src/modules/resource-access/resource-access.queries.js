@@ -422,6 +422,15 @@ export const LIVE_GRANT_IDS_TO_GROUP = `
  * também uma concessão PESSOAL `view_share` sobre o mesmo recurso repassou por
  * autoridade própria, e esse repasse não cai quando ele sai do grupo: a justificativa
  * dele continua de pé.
+ *
+ * AS RAÍZES DAQUI SÃO AS ÚNICAS DO SISTEMA QUE PODEM SER RESGATADAS (2026-08-21). Elas
+ * chegam a `podarPorRaizes` com `resgatarRaiz: true`, porque quem sai de um grupo não
+ * mandou revogar concessão nenhuma: mandou fechar um CAMINHO. O efeito é que o repasse
+ * cujo autor tem `view_share` próprio VIVO sobre o MESMO recurso é RE-PENDURADO nele em
+ * vez de revogado, que é o desfecho que `deleteGroup` já dava para o mesmo fato. Ver a
+ * decisão (1) de `REVOKE_SUBTREE_PRESERVING_REACH`. Repare que este SELECT continua sendo
+ * o mesmo: a autoridade própria não muda quais linhas são raiz, só o que acontece com
+ * elas.
  *   $1 = o membro que saiu, $2 = o grupo
  */
 export const GRANT_IDS_FED_BY_MEMBER_VIA_GROUP = `
@@ -546,10 +555,58 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
  *
  * SEIS DECISÕES QUE O SQL NÃO CONTA SOZINHO:
  *
- * (1) A ÂNCORA NUNCA É RESGATADA (`a.id <> $1`, mais o `pai_antigo IN podados` de
- *     `salvos`). A revogação explícita sempre tem efeito; se a âncora pudesse ser
- *     resgatada, revogar a concessão de alguém que tem outro caminho vivo seria um no-op
- *     com 200 na resposta.
+ * (1) A ÂNCORA NÃO É RESGATADA, A MENOS QUE O CHAMADOR PEÇA (`$3`). Por default
+ *     (`$3 = false`) valem o `a.id <> $1` de `resgate` e o `pai_antigo IN podados` de
+ *     `salvos`, e a revogação explícita sempre tem efeito: se a âncora pudesse ser
+ *     resgatada sempre, revogar a concessão de alguém que tem outro caminho vivo seria um
+ *     no-op com 200 na resposta.
+ *
+ *     O MODO EXISTE PORQUE NEM TODO CHAMADOR ESTÁ REVOGANDO. `podarPorRaizes` tem QUATRO
+ *     chamadores e eles se dividem em dois grupos, que só agora ficaram distinguíveis. Em
+ *     três deles (revogar uma concessão, apagar um grupo, desativar uma conta) a âncora é
+ *     PRECISAMENTE o que se mandou derrubar. No quarto (tirar um membro do grupo) não se
+ *     mandou derrubar concessão nenhuma: o que caiu foi um CAMINHO, a participação no
+ *     grupo, e as âncoras que aquele chamador passa são os REPASSES DO MEMBRO — linhas que
+ *     ninguém pediu para revogar e que só estão ali por serem o ponto em que o caminho
+ *     morto toca a árvore. Para elas a pergunta certa é a mesma que a subárvore inteira já
+ *     responde: quem concedeu ainda tem `view_share` vivo sobre este recurso? Se tem, o
+ *     repasse é RE-PENDURADO nesse outro caminho em vez de revogado.
+ *
+ *     ISSO É A CONVERGÊNCIA DECIDIDA PELO DONO EM 2026-08-21, e ela fecha uma divergência
+ *     que o serviço de grupo descrevia por extenso como conhecida: o membro com autoridade
+ *     PRÓPRIA sobre o mesmo recurso MANTINHA o repasse quando o grupo era apagado (lá o
+ *     repasse dele é DESCENDENTE da coletiva, logo resgatável) e PERDIA quando era retirado
+ *     do grupo (aqui ele é a âncora). Dois atos com o mesmo significado (o membro deixou de
+ *     alcançar o recurso PELO grupo) davam desfechos opostos para o mesmo fato. A cláusula
+ *     3.7 da constituição — "se B não caiu, o que B concedeu não cai" — decide para o lado
+ *     de MANTER, e é o que `$3 = true` implementa.
+ *
+ *     A ALTERNATIVA RECUSADA foi não tocar nesta consulta e fazer o chamador passar OUTRAS
+ *     raízes: a concessão COLETIVA em vez dos repasses do membro. Ela é errada e o erro é
+ *     grande: a coletiva viraria a âncora e seria REVOGADA, isto é, tirar UM membro
+ *     equivaleria a apagar o grupo para TODO MUNDO. A variante "coletiva restrita ao
+ *     membro" precisaria de um filtro na travessia MAIS uma isenção de âncora, ou seja
+ *     estritamente mais mudança nesta CTE do que o parâmetro. E a variante em JS (o
+ *     chamador conferir antes se o membro tem `view_share` próprio e, se tiver, não podar)
+ *     seria uma SEGUNDA definição do predicado de resgate fora do SQL, e ainda deixaria o
+ *     repasse pendurado na coletiva: uma revogação futura daquela concessão pessoal não o
+ *     alcançaria, porque a aresta continuaria apontando para o grupo. Repai é escrita, e
+ *     escrita mora aqui.
+ *
+ *     O MODO ALCANÇA SÓ AS RAÍZES ORIGINAIS, nunca as reenfileiradas pela `fronteira`
+ *     (ver a decisão 2): um nó de fronteira é um descendente cuja cadeia de justificativa
+ *     JÁ caiu, e acima do teto de 32 o desenho é fail-closed de propósito. Na prática a
+ *     combinação nem ocorre — quando a âncora é resgatada, `podados` fica VAZIO e não há
+ *     fronteira —, mas `podarPorRaizes` carimba `false` nas reenfileiradas de qualquer
+ *     forma, para que a propriedade não dependa dessa coincidência.
+ *
+ *     AS DUAS CLÁUSULAS DO MODO SÃO A MESMA CONDIÇÃO, escrita duas vezes de propósito: a
+ *     âncora sai de `podados` (`NOT ($3 AND EXISTS resgate com novo_pai)`) exatamente
+ *     quando entra em `salvos` (`$3 AND r.id = $1`). Escrever uma delas sem gate, contando
+ *     com o `a.id <> $1` de `resgate` para torná-la vácua, faria o par se desacoplar em
+ *     silêncio no dia em que aquele filtro mudasse — e o desfecho seria uma âncora que não
+ *     cai e também não é re-pendurada, isto é, uma linha viva apontando para um pai
+ *     revogado, que é o fail-OPEN que a decisão 2 acabou de fechar.
  *
  *     SAIBA QUE NENHUM TESTE PRENDE ESTAS DUAS LINHAS, e a razão é o que as torna
  *     necessárias. Medido em 2026-08-21: removendo AS DUAS, a suíte inteira continua
@@ -580,14 +637,47 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
  *     SEGUNDO UPDATE desta coluna precisa repetir esta prova; sem ela, o teto de 32 vira
  *     a única barreira entre um ciclo e um laço.
  *
- *     "FAIL-CLOSED" AQUI VALE SÓ PARA O RESGATE, e a outra metade é o contrário. A PODA
- *     também trunca em 32 (`podados` tem o mesmo `depth < 32`), então numa cadeia de 33
- *     elos a revogação da raiz derruba 32 e DEIXA O 33º VIVO, pendurado num pai revogado
- *     — e como `fn_granted_resource_ids` nunca sobe a cadeia de `parent_grant_id`, essa
- *     pessoa continua com acesso depois de a raiz inteira ter caído. Isso é fail-OPEN, é
- *     HERDADO (a `REVOKE_GRANT_SUBTREE` anterior tinha o mesmo teto) e está MEDIDO no
- *     caso do teto. Não é regressão desta fase, e o conserto não é aumentar o teto: é a
- *     poda devolver `truncado` e o serviço recusar ou reenfileirar, que é decisão do dono.
+ *     A PROVA REFEITA PARA A ÂNCORA RESGATADA (`$3 = true`, 2026-08-21). O `UPDATE` de
+ *     `parent_grant_id` continua sendo UM SÓ (`repaiados`); o que mudou foi o CONJUNTO que
+ *     o alimenta, que passou a poder conter a âncora — e um conjunto novo exige a prova de
+ *     novo, porque a prova é sobre os elementos, não sobre a escrita. Ela vale, e para a
+ *     âncora é o caso mais apertado dos dois: `alcance` é enraizado EM `$1`, então o
+ *     conjunto é exatamente a subárvore viva da âncora, nem mais nem menos. O pai novo sai
+ *     do `LATERAL` com `NOT EXISTS (SELECT 1 FROM alcance x WHERE x.id = p.id)`, logo está
+ *     FORA dessa subárvore, logo não é descendente vivo da âncora; e `p.id <> g.id` impede
+ *     o laço de tamanho um. A aresta nova (âncora → pai novo) portanto não fecha ciclo. As
+ *     duas condições de contorno da prova geral seguem as mesmas: ela depende de a
+ *     travessia não ter sido truncada, e `resgate` continua exigindo `teto.truncado =
+ *     false` para TODA linha, âncora inclusive — no modo `$3` o truncamento desliga o
+ *     resgate da âncora junto com o do resto, e ela volta a cair. Medida (e não só
+ *     afirmada) por `assertSemCiclo` depois de cada poda dos casos de convergência em
+ *     `tests/integration/access-groups-exclusao-cascata.test.js`.
+ *
+ *     "FAIL-CLOSED" AQUI VALE SÓ PARA O RESGATE, e a PODA era o contrário até 2026-08-21.
+ *     A poda também trunca em 32 (`podados` tem o mesmo `depth < 32`), então numa cadeia
+ *     de 33 elos a revogação da raiz derrubava 32 e DEIXAVA O 33º VIVO, pendurado num pai
+ *     revogado — e como `fn_granted_resource_ids` nunca sobe a cadeia de
+ *     `parent_grant_id`, essa pessoa continuava com acesso depois de a raiz inteira ter
+ *     caído. Era fail-OPEN e era HERDADO (a `REVOKE_GRANT_SUBTREE` anterior tinha o mesmo
+ *     teto). O conserto NÃO foi aumentar o teto, que só move a fronteira: é a CTE
+ *     `fronteira` devolver as linhas que ficaram penduradas em pai revogado, na ação
+ *     `frontier`, e `podarPorRaizes` reenfileirá-las como raízes novas até a lista
+ *     esvaziar. Reenfileirar, e não recusar: recusar deixaria a raiz concedida E a
+ *     operação falhando, que é o pior dos dois mundos para uma revogação.
+ *
+ *     A DEGRADAÇÃO QUE SOBRA É DE RESGATE, NÃO DE PODA, e ela é deliberada: acima de 32
+ *     níveis `teto.truncado` já desligava o resgate, então os elos da primeira janela caem
+ *     sem chance de repai. Trocar acesso a mais por acesso a menos é a direção certa para
+ *     uma revogação.
+ *
+ *     `heranca` TEM O MESMO TETO E NUNCA PODE TRUNCAR, e a prova evita um segundo laço:
+ *     ela parte de `salvos`, que é vazio quando `teto.truncado`; logo ela só roda com
+ *     `alcance` inteiro, e aí todo descendente vivo está a no máximo 32 do ALVO, portanto
+ *     a no máximo 32 - d + 1 de um resgatado em profundidade d. A margem foi refeita para
+ *     `d = 1`, que a âncora resgatável (`$3`) tornou possível e antes não era: `truncado =
+ *     false` quer dizer que NENHUMA linha de `alcance` tem `depth >= 32`, logo a mais funda
+ *     está em 31, logo a cadeia de `heranca` a partir da âncora tem no máximo 31 elos,
+ *     dentro do `h.depth < 32` do braço recursivo. Continua sem poder truncar.
  *
  * (3) O PAI NOVO PODE ESTAR DENTRO DA PODA, e aí NÃO há resgate: é o caso de C→B
  *     pendurado em B→C. Excluí-lo é conservador de propósito — um resgate cujo único pai
@@ -622,6 +712,15 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
  *     de trilha: EXATAMENTE UMA linha de auditoria por concessão tocada, somando as três
  *     listas. Um nó em dois conjuntos ganha duas linhas e o caso fica vermelho.
  *
+ *     COM `$3 = true` E A ÂNCORA RESGATADA A PROVA FICA TRIVIAL, e vale escrever por quê,
+ *     porque o desenho muda de forma: a base de `podados` é só a âncora (`alcance` com
+ *     `depth = 1`), então excluí-la deixa `podados` VAZIO — o braço recursivo não tem de
+ *     onde descer. Logo `revogados` não toca linha nenhuma, `salvos` é exatamente a âncora
+ *     (nenhum outro nó satisfaz `pai_antigo IN podados`, que é o conjunto vazio), e
+ *     `aparar` é `heranca` com `depth > 1`, isto é, descendentes ESTRITOS da âncora, nunca
+ *     ela. Os três conjuntos continuam disjuntos, agora com um deles vazio. Nada muda
+ *     quando a âncora NÃO é resgatada: aí ela está em `podados` como sempre esteve.
+ *
  * (6) O PAI NOVO É O DE MAIOR PRAZO (`ORDER BY p.expires_at DESC`), não o mais antigo:
  *     ele minimiza o aparo. O desempate por `created_at, id` existe para o resultado ser
  *     determinístico entre execuções.
@@ -647,10 +746,11 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
  * NÃO troque `UNION ALL` por `UNION` "por segurança": ele deduplica por linha inteira,
  * não impede ciclo, e como cada linha carrega `depth` ele nem deduplicaria.
  *
- * O RETURNING É O PRODUTO, em três classes: quem caiu, quem mudou de origem e quem só
- * teve o prazo herdado. Um DELETE em cascata devolveria só a raiz, e "por que Fulano
+ * O RETURNING É O PRODUTO, em QUATRO classes: quem caiu, quem mudou de origem, quem só
+ * teve o prazo herdado, e a `frontier` — que não é resultado, é TRABALHO QUE SOBROU, e
+ * existe para o chamador reenfileirar em vez de parar no meio calado. Um DELETE em cascata devolveria só a raiz, e "por que Fulano
  * perdeu acesso" — e agora também "por que Fulano MANTEVE" — ficaria sem resposta.
- *   $1 = grant id (a âncora), $2 = revoked_by
+ *   $1 = grant id (a âncora), $2 = revoked_by, $3 = resgatar a âncora (ver a decisão 1)
  */
 export const REVOKE_SUBTREE_PRESERVING_REACH = `
 WITH RECURSIVE alcance AS (
@@ -691,13 +791,16 @@ resgate AS (
            ORDER BY p.expires_at DESC, p.created_at, p.id
            LIMIT 1
       ) alt ON true
-     WHERE a.id <> $1::uuid
+     WHERE (a.id <> $1::uuid OR $3::boolean)
        AND g.granted_by IS NOT NULL
        AND g.expires_at > NOW()
        AND teto.truncado = false
 ),
 podados AS (
-    SELECT a.id, 1 AS depth FROM alcance a WHERE a.depth = 1
+    SELECT a.id, 1 AS depth FROM alcance a
+     WHERE a.depth = 1
+       AND NOT ($3::boolean AND EXISTS (
+             SELECT 1 FROM resgate r WHERE r.id = a.id AND r.novo_pai IS NOT NULL))
     UNION ALL
     SELECT c.id, p.depth + 1
       FROM resource_grants c
@@ -708,7 +811,8 @@ podados AS (
 salvos AS (
     SELECT r.* FROM resgate r
      WHERE r.novo_pai IS NOT NULL
-       AND r.pai_antigo IN (SELECT id FROM podados)
+       AND ( r.pai_antigo IN (SELECT id FROM podados)
+          OR ($3::boolean AND r.id = $1::uuid) )
 ),
 heranca AS (
     SELECT s.id, s.prazo_novo AS prazo, 1 AS depth FROM salvos s
@@ -722,6 +826,12 @@ aparar AS (
     SELECT h.id, h.prazo, g.expires_at AS prazo_antigo, g.parent_grant_id
       FROM heranca h JOIN resource_grants g ON g.id = h.id
      WHERE h.depth > 1 AND g.expires_at > h.prazo
+),
+fronteira AS (
+    SELECT c.id, c.grantee_id, c.grantee_group_id, c.resource_type, c.resource_id
+      FROM resource_grants c
+      JOIN podados p ON c.parent_grant_id = p.id
+     WHERE c.revoked_at IS NULL AND p.depth >= 32
 ),
 revogados AS (
     UPDATE resource_grants g
@@ -759,6 +869,10 @@ UNION ALL
 SELECT 'trimmed', id, grantee_id, grantee_group_id, resource_type, resource_id,
        parent_grant_id, NULL::uuid, prazo_antigo, prazo
   FROM aparados
+UNION ALL
+SELECT 'frontier', id, grantee_id, grantee_group_id, resource_type, resource_id,
+       NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz
+  FROM fronteira
 `;
 
 // --- empréstimo por atlas --------------------------------------------------
