@@ -4,14 +4,20 @@
  * @fileoverview E2E "auth-session" scenario against the live backend.
  *
  * Exercises the auth lifecycle through the public ApiClient only:
- *   register -> login (tokens stored) -> token refresh (rotation) ->
+ *   register -> confirm e-mail -> login (tokens stored) -> token refresh (rotation) ->
  *   getConfig (frozen config contract) -> logout (tokens cleared).
  *
- * Each assertion is a real HTTP round-trip; no direct DB access.
+ * Every assertion is a real HTTP round-trip. There IS one direct DB read, and only one:
+ * self-registration requires an e-mail and the account is born pending, so the
+ * verification token has to come out of `email_verification_tokens` (no relay here).
+ * It is then spent through the public `POST /auth/verify-email`, so the confirmation
+ * itself is still an HTTP round-trip. This fileoverview said "no direct DB access" and
+ * that ceased to be achievable the day confirmation became mandatory.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { makeApi, getBaseUrl, E2E_SKIP } from './helpers/harness.js';
+import { pendingVerificationToken } from './helpers/db.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 import { ApiError } from '../../src/js/store/sync/api-client.js';
 
@@ -20,6 +26,7 @@ describe.skipIf(E2E_SKIP)('e2e auth-session', () => {
     let api;
     const username = `e2e_${generateUUID().replace(/-/g, '').slice(0, 16)}`;
     const password = 'Sup3r-Secret-Pw!';
+    const email = `${username}@example.mil`;
 
     beforeAll(() => {
         // Own isolated client; do NOT use registerAndLogin so we can assert each step.
@@ -31,15 +38,35 @@ describe.skipIf(E2E_SKIP)('e2e auth-session', () => {
         // whether the backend created one or found the username/e-mail already taken, so
         // /auth/register cannot be used to enumerate accounts. Proof that the account
         // exists is the login below, not this body.
-        const res = await api.register({ username, password, nome: 'Auth Session' });
+        const res = await api.register({ username, password, nome: 'Auth Session', email });
         expect(res).toEqual({ success: true });
+    });
+
+    it('the account is born PENDING: login is refused until the e-mail is confirmed', async () => {
+        // The gate is `user.email && !user.email_verified` in auth.service.login(). With
+        // e-mail mandatory on self-registration it always applies here, which is exactly
+        // how confirmation became mandatory without a new gate being written.
+        const pending = makeApi();
+        // The CODE, not just "some ApiError": a 401 for a wrong password, or for an account
+        // that was never created, would satisfy `toBeInstanceOf(ApiError)` identically, and
+        // "born pending" is exactly what those two would not prove.
+        await expect(pending.login(username, password)).rejects.toMatchObject({
+            name: 'ApiError',
+            status: 401,
+            code: 'EMAIL_NOT_VERIFIED',
+        });
+        expect(pending.isAuthenticated()).toBe(false);
+
+        // Confirm through the PUBLIC route with the token the backend actually issued.
+        const token = await pendingVerificationToken(username);
+        await expect(api.verifyEmail(token)).resolves.toBeTruthy();
     });
 
     it('a duplicate registration is indistinguishable from a new one (negative)', async () => {
         // Was: rejects with ApiError (the backend answered 409). That 409 WAS the
         // enumeration oracle. It now resolves the same way as the first call; the
         // refusal is real but reported only by e-mail, to the address' owner.
-        const res = await api.register({ username, password, nome: 'Dupe' });
+        const res = await api.register({ username, password, nome: 'Dupe', email });
         expect(res).toEqual({ success: true });
         // And the duplicate did not overwrite the account: the original password still works.
         const other = makeApi();

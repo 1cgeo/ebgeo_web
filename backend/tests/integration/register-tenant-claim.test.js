@@ -1,7 +1,11 @@
 // Path: tests/integration/register-tenant-claim.test.js
-// Item 53. `registerSchema` deixa `organization_id` livre e `email` OPCIONAL, então um
-// chamador de API (não a UI, que exige e-mail) cria uma conta ATIVA dentro de qualquer
-// OM na hora — o gate de login só dispara quando `email IS NOT NULL`.
+// Item 53. `registerSchema` deixa `organization_id` LIVRE: qualquer um se declara em
+// qualquer OM ativa, sem aprovação de ninguém, e a declaração chega ao JWT.
+//
+// A METADE "conta ATIVA na hora" DEIXOU DE VALER: `email` virou obrigatório, a conta
+// nasce PENDENTE e só entra depois do link de confirmação. O gate de login continua
+// disparando por `email IS NOT NULL`, o que agora sempre acontece por este caminho — e
+// nunca pelo caminho administrativo, que é o par de discriminação no fim do arquivo.
 //
 // O QUE MUDOU NESTE CABEÇALHO, e a mudança é o assunto da fase. Ele descrevia a
 // ameaça de tenant-hop e dizia que a declaração comprava os projetos 360 privados da
@@ -11,7 +15,7 @@
 // seria documentação que engana em dobro um agente, que a trata como verdade.
 //
 // O que este arquivo mede continua sendo o CAMINHO: a declaração chega ao JWT e a
-// sessão é utilizável na hora. A CONSEQUÊNCIA foi invertida no caso abaixo, e a prova
+// sessão é utilizável depois de confirmada. A CONSEQUÊNCIA foi invertida no caso abaixo, e a prova
 // completa de inocuidade (360 oculto, 360 privado, catálogo privado, escrita) mora em
 // `auto-cadastro-om-nao-autoriza.repro.test.js`.
 
@@ -22,7 +26,7 @@ import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import config from '../../src/config.js';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createAdminUser, loginUser } from '../helpers/fixtures.js';
+import { createAdminUser, loginUser, confirmRegistrationEmail } from '../helpers/fixtures.js';
 
 const DEFAULT_ORG = '00000000-0000-0000-0000-000000000001';
 
@@ -30,7 +34,12 @@ describe('POST /auth/register: the organization the applicant claims for themsel
   let app, db, adminToken, orgB, coronel;
   const tag = randomUUID().slice(0, 8);
 
-  const register = (payload) => supertest(app).post('/api/v1/auth/register').send(payload);
+  // `email` is required by registerSchema, so it is filled in from the username unless
+  // the caller wants a specific one. Every account created here is therefore PENDING and
+  // needs `confirmRegistrationEmail` before it can log in.
+  const register = (payload) => supertest(app)
+    .post('/api/v1/auth/register')
+    .send({ email: `${payload.username}@example.mil`, ...payload });
 
   const login = (username, password) => supertest(app)
     .post('/api/v1/auth/login').send({ username, password });
@@ -64,10 +73,17 @@ describe('POST /auth/register: the organization the applicant claims for themsel
     await teardownTestEnv(db);
   });
 
-  it('an e-mail-less signup into a chosen OM is active at once, and the JWT carries that OM', async () => {
+  it('a signup into a chosen OM is PENDING, and after confirming the JWT carries that OM', async () => {
+    // This case was "an e-mail-less signup is active at once". E-mail is mandatory now,
+    // so the account is born pending and the confirmation is part of the path; what the
+    // case exists to measure — which OM ends up in the token — is unchanged.
     const username = `p53_claim_${tag}`;
     await register({ username, password: 'Claim@1234', nome: 'Reivindicante', organization_id: orgB.id })
       .expect(201);
+
+    const bloqueado = await login(username, 'Claim@1234');
+    assert.equal(bloqueado.status, 401, 'pendente até confirmar');
+    await confirmRegistrationEmail(app, db, username);
 
     const res = await login(username, 'Claim@1234').expect(200);
     const payload = jwt.verify(res.body.data.accessToken, config.jwt.secret);
@@ -94,6 +110,7 @@ describe('POST /auth/register: the organization the applicant claims for themsel
     const username = `p53_sv360_${tag}`;
     await register({ username, password: 'Claim@1234', nome: 'Espião', organization_id: orgB.id })
       .expect(201);
+    await confirmRegistrationEmail(app, db, username);
     const token = (await login(username, 'Claim@1234').expect(200)).body.data.accessToken;
 
     const slug = `p53-secreto-${tag}`;
@@ -152,6 +169,7 @@ describe('POST /auth/register: the organization the applicant claims for themsel
       rank_id: coronel.id, organization_id: orgB.id,
     }).expect(201);
 
+    await confirmRegistrationEmail(app, db, username);
     const token = (await login(username, 'Claim@1234').expect(200)).body.data.accessToken;
     const me = await supertest(app)
       .get('/api/v1/users/me')
@@ -164,15 +182,25 @@ describe('POST /auth/register: the organization the applicant claims for themsel
     assert.equal(me.body.data.organization_id, orgB.id);
   });
 
-  it('an account WITH an e-mail is pending instead: the gate only exists for e-mail accounts', async () => {
-    const username = `p53_pending_${tag}`;
-    await register({
-      username, password: 'Claim@1234', nome: 'Pendente',
-      email: `${username}@example.mil`, organization_id: orgB.id,
-    }).expect(201);
+  it('DISCRIMINAÇÃO — a conta criada por ADMIN não tem e-mail e loga na hora', async () => {
+    // O par que impede o gate de `login()` de ser "simplificado" para
+    // `!user.email_verified`: por este caminho a conta nasce sem endereço, `email_verified`
+    // é false e ela entra mesmo assim. Este arquivo tinha o caso espelhado ("uma conta COM
+    // e-mail fica pendente"), que deixou de discriminar quando toda conta auto-cadastrada
+    // passou a ter e-mail: ele afirmaria o mesmo que os três casos acima.
+    const username = `p53_admin_made_${tag}`;
+    await supertest(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ username, password: 'Claim@1234', nome: 'Feito por admin', organization_id: orgB.id })
+      .expect(201);
 
-    const res = await login(username, 'Claim@1234');
-    assert.equal(res.status, 401);
-    assert.equal(res.body.error.code, 'EMAIL_NOT_VERIFIED');
+    const { rows } = await db.query(
+      'SELECT email, email_verified FROM users WHERE username = $1', [username]
+    );
+    assert.equal(rows[0].email, null, 'createUserAdminSchema não tem campo de e-mail');
+    assert.equal(rows[0].email_verified, false, 'e a flag continua falsa');
+
+    await login(username, 'Claim@1234').expect(200);
   });
 });

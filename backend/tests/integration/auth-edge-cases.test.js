@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, loginUser } from '../helpers/fixtures.js';
+import { createUser, loginUser, confirmRegistrationEmail } from '../helpers/fixtures.js';
 
 describe('Auth Edge Cases', () => {
   let app, db;
@@ -103,6 +103,7 @@ describe('Auth Edge Cases', () => {
           username: 'force_active_user',
           password: 'Test@1234',
           nome: 'Force Active',
+          email: 'force_active_user@example.mil',
           is_active: false, // Should be ignored
         })
         .expect(201);
@@ -110,11 +111,17 @@ describe('Auth Edge Cases', () => {
       // The 201 body carries no account data (anti-enumeration: it is byte-identical
       // whether the account was created or already existed), so the row is the proof.
       const { rows } = await db.query(
-        'SELECT id FROM users WHERE username = $1', ['force_active_user']
+        'SELECT id, is_active FROM users WHERE username = $1', ['force_active_user']
       );
       assert.ok(rows[0]?.id);
+      // The column IS the subject of this case, and it is asserted directly: the login
+      // below now also depends on the e-mail confirmation, so on its own it would no
+      // longer isolate `is_active`.
+      assert.equal(rows[0].is_active, true, 'is_active:false in the body was ignored');
 
-      // Verify user can login (proving is_active is true)
+      // Verify the user can log in — after confirming, since e-mail is mandatory on
+      // self-registration and the account is therefore born pending.
+      await confirmRegistrationEmail(app, db, 'force_active_user');
       const loginRes = await supertest(app)
         .post('/api/v1/auth/login')
         .send({ username: 'force_active_user', password: 'Test@1234' })

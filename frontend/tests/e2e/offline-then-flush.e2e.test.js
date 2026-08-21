@@ -16,6 +16,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getBaseUrl, E2E_SKIP } from './helpers/harness.js';
+import { pendingVerificationToken } from './helpers/db.js';
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
 import { apiClient } from '../../src/js/store/sync/api-client.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
@@ -69,7 +70,12 @@ describe.skipIf(E2E_SKIP)('e2e offline-then-flush', () => {
 
         const username = `e2e_${generateUUID().replace(/-/g, '').slice(0, 16)}`;
         const password = 'Sup3r-Secret-Pw!';
-        await syncEngine.register({ username, password, nome: 'Offline Flush User' });
+        await syncEngine.register({
+            username, password, nome: 'Offline Flush User', email: `${username}@example.mil`,
+        });
+        // Self-registration is confirmation-gated: the account is pending until the
+        // `?verify=` token is spent, so login would be 401 EMAIL_NOT_VERIFIED without this.
+        await apiClient.verifyEmail(await pendingVerificationToken(username));
         const user = await syncEngine.login({ username, password });
         expect(user).toBeTruthy();
         expect(user.id).toBeTruthy();

@@ -3,7 +3,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser } from '../helpers/fixtures.js';
+import { createUser, confirmRegistrationEmail } from '../helpers/fixtures.js';
 
 describe('Auth API', () => {
   let app, db, user;
@@ -173,6 +173,7 @@ describe('Auth API', () => {
           username: 'new_register_user',
           password: 'ValidPass@123',
           nome: 'Novo Usuario Registrado',
+          email: 'new_register_user@example.mil',
           posto_graduacao: 'Cap',
           organizacao_militar: 'OM Teste',
         })
@@ -189,6 +190,11 @@ describe('Auth API', () => {
       assert.ok(!JSON.stringify(res.body).includes('password'));
 
       // Verify user can login
+      // The account is born PENDING (e-mail is mandatory on self-registration), so this
+      // login only passes once the verification token is spent through the public route.
+      // Before that it is 401 EMAIL_NOT_VERIFIED — see auto-cadastro-exige-email.test.js.
+      await confirmRegistrationEmail(app, db, 'new_register_user');
+
       const loginRes = await supertest(app)
         .post('/api/v1/auth/login')
         .send({ username: 'new_register_user', password: 'ValidPass@123' })
@@ -197,13 +203,16 @@ describe('Auth API', () => {
       assert.ok(loginRes.body.data.accessToken);
     });
 
-    it('registers a user with minimal required fields', async () => {
+    it('registers a user with the minimal required fields — and e-mail is one of them', async () => {
+      // This case was named "minimal required fields" with no e-mail in the payload; the
+      // minimum now includes it, and that IS the change.
       await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           username: 'minimal_user',
           password: 'Pass123',
           nome: 'Usuario Minimo',
+          email: 'minimal_user@example.mil',
         })
         .expect(201);
 
@@ -222,6 +231,7 @@ describe('Auth API', () => {
           username: 'duplicate_user',
           password: 'Pass123',
           nome: 'First User',
+          email: 'duplicate_user@example.mil',
         })
         .expect(201);
 
@@ -231,6 +241,7 @@ describe('Auth API', () => {
           username: 'duplicate_user',
           password: 'Pass456',
           nome: 'Second User',
+          email: 'duplicate_user_other@example.mil',
         })
         .expect(201);
 
@@ -243,6 +254,7 @@ describe('Auth API', () => {
       assert.equal(rows[0].nome, 'First User', 'and the first account is untouched');
 
       // The original password still works — the second attempt did not overwrite it.
+      await confirmRegistrationEmail(app, db, 'duplicate_user');
       await supertest(app)
         .post('/api/v1/auth/login')
         .send({ username: 'duplicate_user', password: 'Pass123' })
@@ -256,6 +268,7 @@ describe('Auth API', () => {
           username: 'short_pwd_user',
           password: '12345', // Too short
           nome: 'Short Password User',
+          email: 'short_pwd_user@example.mil',
         })
         .expect(422);
 
@@ -275,6 +288,7 @@ describe('Auth API', () => {
           username: 'ab', // Too short
           password: 'ValidPass',
           nome: 'Short Username',
+          email: 'short_username@example.mil',
         })
         .expect(422);
     });
@@ -286,17 +300,23 @@ describe('Auth API', () => {
           username: 'invalid user!@#', // Invalid chars
           password: 'ValidPass',
           nome: 'Invalid Username',
+          email: 'invalid_username@example.mil',
         })
         .expect(422);
     });
 
     it('rejects missing required fields', async () => {
+      // Each payload omits exactly ONE field and carries all the others, e-mail included.
+      // Leaving e-mail out of them as well would make every case 422 BECAUSE of the
+      // e-mail, and all three would keep passing with the other rules deleted.
+
       // Missing username
       await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           password: 'ValidPass',
           nome: 'No Username',
+          email: 'no_username@example.mil',
         })
         .expect(422);
 
@@ -306,6 +326,7 @@ describe('Auth API', () => {
         .send({
           username: 'no_pwd_user',
           nome: 'No Password',
+          email: 'no_pwd_user@example.mil',
         })
         .expect(422);
 
@@ -315,8 +336,20 @@ describe('Auth API', () => {
         .send({
           username: 'no_nome_user',
           password: 'ValidPass',
+          email: 'no_nome_user@example.mil',
         })
         .expect(422);
+
+      // Missing e-mail — the field that became required.
+      const semEmail = await supertest(app)
+        .post('/api/v1/auth/register')
+        .send({
+          username: 'no_email_user',
+          password: 'ValidPass',
+          nome: 'No Email',
+        })
+        .expect(422);
+      assert.equal(semEmail.body.error.details[0].field, 'email');
     });
 
     it('always creates user with role "user" regardless of input', async () => {
@@ -326,6 +359,7 @@ describe('Auth API', () => {
           username: 'try_admin_user',
           password: 'ValidPass',
           nome: 'Try Admin',
+          email: 'try_admin_user@example.mil',
           role: 'admin', // Should be ignored
         })
         .expect(201);

@@ -50,7 +50,7 @@ async function dropTestDb() {
       SELECT pg_terminate_backend(pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = $1
-        AND pid <> pg_backend_pid()
+        AND pid <> pg_backend_pid() AND backend_type = 'client backend'
     `, [TEST_DB_NAME]);
 
     // Drop database

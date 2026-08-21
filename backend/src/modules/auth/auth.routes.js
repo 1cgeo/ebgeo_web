@@ -5,6 +5,7 @@ import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import {
   authLimiter,
+  registerLimiter,
   refreshLimiter,
   verifyEmailLimiter,
   resendVerificationLimiter,
@@ -16,8 +17,20 @@ const router = Router();
 
 // Self-registration is gated: disabled by default in production (military
 // network), enabled in dev/test. When disabled the route is not mounted (404).
+//
+// TWO limiters, in this order, because they key on different things. `registerLimiter`
+// is by ADDRESS and is the one that bounds mass creation: the `${ip}:${username}` key of
+// `authLimiter` is attacker-chosen here (the name never exists yet), so it hands out a
+// fresh bucket per request. `authLimiter` stays because it still throttles repetition
+// against one specific name.
 if (config.security.allowSelfRegistration) {
-  router.post('/register', authLimiter, validate({ body: schemas.registerSchema }), ctrl.register);
+  router.post(
+    '/register',
+    registerLimiter,
+    authLimiter,
+    validate({ body: schemas.registerSchema }),
+    ctrl.register
+  );
 }
 // One limiter per route, NOT one shared instance. `authLimiter` keys by
 // `${ip}:${body.username}`, which only means something on the two routes whose schema

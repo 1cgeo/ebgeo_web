@@ -289,9 +289,12 @@ export async function getMe(userId) {
 
 /**
  * Registers a new user (self-registration), WITHOUT telling the caller whether the account already
- * existed. When an e-mail is provided the account is created PENDING (email_verified=false) and a
- * verification token is issued + e-mailed; without an e-mail the account is immediately active
- * (username-only).
+ * existed. `email` is REQUIRED by `registerSchema`, so the account is ALWAYS created PENDING
+ * (email_verified=false) with a verification token issued + e-mailed, and the `?verify=` link is
+ * the only way into it. (This paragraph read "without an e-mail the account is immediately active"
+ * until e-mail became mandatory; the e-mail-less account still exists, but only through
+ * `POST /api/v1/users`, whose schema has no such field — which is why the gate in `login()` stays
+ * conditional on `user.email`.)
  *
  * ORACLE, and how it is closed. This route used to answer 409 for a taken username or e-mail and
  * 201 otherwise, while the comment sitting here claimed the single generic 409 message meant "an
@@ -324,7 +327,9 @@ export async function getMe(userId) {
  *   username/e-mail was taken. The CONTROLLER must not let that difference reach the response.
  */
 export async function register(data, origin = '', req = null) {
-  const email = data.email ? data.email.trim() : null;
+  // Always present: `registerSchema` requires it. The account is therefore always born
+  // pending, and the confirmation link is the only way in.
+  const email = data.email.trim();
 
   // The client picks its own organization here (the OM dropdown), and the value went
   // straight into the INSERT unchecked, so a caller could name any UUID — including a
@@ -337,8 +342,13 @@ export async function register(data, origin = '', req = null) {
   // unpublished (`disabled`) 360 projects via isProjectReadable — and every active
   // org's UUID is served by the anonymous GET /api/config to populate that dropdown.
   // Closing it properly needs an approval step; deliberately deferred (see
-  // bugs-backend.md #33). The exposure today is limited to deployments with
-  // ALLOW_SELF_REGISTRATION on, which is off in production.
+  // bugs-backend.md #33). What now bounds the exposure is confirmation, not rarity: the
+  // account is born pending and only a caller who controls the declared mailbox ever gets
+  // to use it. That is weaker than approval and it is the honest description — the
+  // declaration still goes unreviewed. (This paragraph used to close with "the exposure
+  // today is limited to deployments with ALLOW_SELF_REGISTRATION on, which is off in
+  // production"; that sentence is the whole argument for leaving the hole open, so it must
+  // not be the sentence that survives an unrelated deployment decision.)
   if (data.organization_id) {
     const { rows: org } = await query(Q.FIND_ACTIVE_ORGANIZATION, [data.organization_id]);
     if (org.length === 0) {
@@ -356,11 +366,8 @@ export async function register(data, origin = '', req = null) {
   const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
   const usernameTaken = existing.length > 0;
 
-  let emailTaken = false;
-  if (email) {
-    const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
-    emailTaken = emailRows.length > 0;
-  }
+  const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
+  const emailTaken = emailRows.length > 0;
 
   if (usernameTaken || emailTaken) {
     // Nothing is created and nothing is said back. The notice goes to the mailbox instead, which
@@ -369,22 +376,20 @@ export async function register(data, origin = '', req = null) {
     // Best-effort, exactly like the verification e-mail below and for a sharper reason: a throw
     // that escapes ONLY here would answer 500 for an existing account and 201 for a new one,
     // re-opening by exception the oracle the status code just closed.
-    if (email) {
-      try {
-        await sendAccountExistsEmail({ to: email, appLink: buildAppLink(origin) });
-      } catch (err) {
-        logger.error({ err }, 'Account-exists notice failed (nothing was created)');
-      }
+    try {
+      await sendAccountExistsEmail({ to: email, appLink: buildAppLink(origin) });
+    } catch (err) {
+      logger.error({ err }, 'Account-exists notice failed (nothing was created)');
     }
-    // KNOWN, DELIBERATE GAP: an e-mail-less caller (possible via the API, never via the UI form,
-    // where e-mail is required) gets a 201 and no message at all. Their signup silently did
-    // nothing. Telling them would be the username oracle again, over HTTP.
     logger.info({ usernameTaken, emailTaken }, 'Register attempt on an existing account — nothing created');
     return null;
   }
 
-  // Create user (role is always 'user' for self-registration; org defaults). email_verified starts
-  // false; login only gates when email IS NOT NULL, so a null-email account is active immediately.
+  // Create user (role is always 'user' for self-registration; org defaults). email_verified
+  // starts false, and since e-mail is mandatory here the login gate always applies: a
+  // self-registered account is unusable until the link is followed. Accounts created by an
+  // administrator carry no e-mail and are therefore active on creation, which is why the
+  // gate in login() must stay conditional on `user.email` rather than on the flag alone.
   const { rows } = await query(Q.INSERT_USER, [
     data.username,
     passwordHash,
@@ -431,12 +436,10 @@ export async function register(data, origin = '', req = null) {
   // Verification is best-effort: the account row is already committed, so a token/mail failure must
   // NOT 500 the request (that would orphan a pending account the user can neither re-register nor log
   // into). On failure the account simply stays pending and the user can re-trigger via resend.
-  if (email) {
-    try {
-      await issueAndSendVerification(user, email, origin);
-    } catch (err) {
-      logger.error({ err, userId: user.id }, 'Verification e-mail failed (account created; user can resend)');
-    }
+  try {
+    await issueAndSendVerification(user, email, origin);
+  } catch (err) {
+    logger.error({ err, userId: user.id }, 'Verification e-mail failed (account created; user can resend)');
   }
   return user;
 }

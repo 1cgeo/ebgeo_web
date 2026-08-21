@@ -7,8 +7,12 @@
 //   1. `POST /auth/register` aceita `organization_id` do CORPO. A validação é de
 //      existência e liveness da OM, nunca de pertencimento — a lista de OMs vem do
 //      `GET /api/config` ANÔNIMO, para preencher o próprio seletor da tela.
-//   2. Conta SEM e-mail nasce ATIVA na hora (o gate de verificação só dispara
-//      quando `email IS NOT NULL`), então o ciclo inteiro cabe em duas chamadas.
+//   2. Conta SEM e-mail nascia ATIVA na hora (o gate de verificação só dispara
+//      quando `email IS NOT NULL`), então o ciclo inteiro cabia em duas chamadas.
+//      ESTA METADE FOI FECHADA: `email` é obrigatório no `registerSchema`, a conta
+//      nasce PENDENTE e só quem controla a caixa declarada chega a usá-la. O que
+//      continua aberto é a auto-declaração de OM, que segue sem aprovação de
+//      ninguém — e é ela que o resto deste arquivo mede.
 //   3. `users.organization_id` AUTORIZAVA. O predicado de leitura do 360 tinha o
 //      ramo `organization_id = $orgId`, com o `$orgId` vindo daquela coluna, e
 //      `isProjectReadable`/`canWriteProject` comparavam a mesma coluna.
@@ -39,6 +43,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { confirmRegistrationEmail } from '../helpers/fixtures.js';
 import config from '../../src/config.js';
 
 describe('REPRO — auto-cadastrar-se numa OM alheia não compra acesso nenhum', () => {
@@ -113,28 +118,48 @@ describe('REPRO — auto-cadastrar-se numa OM alheia não compra acesso nenhum',
     await teardownTestEnv(db);
   });
 
-  it('PASSO 1 (o piso, que continua verdadeiro) — a conta nasce ATIVA dentro da OM escolhida', async () => {
-    // O FURO DE ENTRADA NÃO FOI FECHADO, e isso é deliberado: fechá-lo pede um
-    // fluxo de aprovação. O que a fase fez foi tirar o PODER da declaração. Se
-    // alguém um dia acrescentar a aprovação, este passo fica vermelho e a decisão
-    // volta à mesa em vez de ser contradita em silêncio.
+  it('PASSO 1 (o piso) — a OM alheia é aceita sem aprovação; a conta nasce PENDENTE e confirma por e-mail', async () => {
+    // O FURO DE ENTRADA CONTINUA ABERTO NA METADE QUE IMPORTA AQUI: a declaração de
+    // OM não passa por revisão de ninguém, e isso é deliberado (fechá-la pede um fluxo
+    // de aprovação). Se alguém um dia acrescentar a aprovação, este passo fica vermelho
+    // e a decisão volta à mesa em vez de ser contradita em silêncio.
+    //
+    // A OUTRA METADE — "duas chamadas e existe uma conta anônima utilizável" — foi
+    // fechada: `email` é obrigatório e a conta nasce com `email_verified = false`.
     await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username: USUARIO, password: SENHA, nome: 'Não Membro', organization_id: orgAlheia })
+      .send({
+        username: USUARIO,
+        password: SENHA,
+        nome: 'Não Membro',
+        email: `${USUARIO}@example.mil`,
+        organization_id: orgAlheia,
+      })
       .expect(201);
 
     const { rows } = await db.query(
-      'SELECT id, organization_id, producer_org_id, role, is_active FROM users WHERE username = $1',
+      'SELECT id, organization_id, producer_org_id, role, is_active, email_verified'
+      + ' FROM users WHERE username = $1',
       [USUARIO]
     );
     invasor = rows[0];
     assert.equal(invasor.organization_id, orgAlheia, 'a lotação auto-declarada é aceita como sempre');
-    assert.equal(invasor.is_active, true, 'e sem e-mail a conta já nasce utilizável');
+    assert.equal(
+      invasor.email_verified, false,
+      'a conta nasce PENDENTE: a confirmação por e-mail é o que sobrou de barreira na entrada'
+    );
     assert.equal(invasor.role, 'user', 'o auto-cadastro nunca cunha papel global');
     assert.equal(
       invasor.producer_org_id, null,
       'E O CRACHÁ DE PRODUÇÃO NÃO ACOMPANHA A LOTAÇÃO: é ele que autoriza, e só administrador o concede'
     );
+
+    // Pendente é pendente: sem confirmar, nem entra.
+    await supertest(app)
+      .post('/api/v1/auth/login').send({ username: USUARIO, password: SENHA })
+      .expect(401);
+
+    await confirmRegistrationEmail(app, db, USUARIO);
 
     token = (await supertest(app)
       .post('/api/v1/auth/login').send({ username: USUARIO, password: SENHA })

@@ -123,6 +123,32 @@ export const verifyEmailLimiter = credentialIpLimiter();
 export const resendVerificationLimiter = credentialIpLimiter();
 
 /**
+ * `POST /auth/register`, keyed by ADDRESS. Runs BEFORE `authLimiter` on that route;
+ * the two measure different things and both are wanted.
+ *
+ * What this one covers that `authLimiter` cannot: on a registration route the
+ * `username` is chosen by the caller and by definition does not exist yet, so the
+ * `${ip}:${username}` key buys a FRESH bucket on every request. N registrations from
+ * one address with N distinct names all pass. That is mass account creation and, worse,
+ * an e-mail amplifier — the collision branch of `register()` sends
+ * `sendAccountExistsEmail` to an address the caller picked. `authLimiter` stays mounted
+ * because it still throttles repetition against one specific name.
+ *
+ * NOT built from `credentialIpLimiter()`, which pins the auth window/max: registration
+ * needs its own numbers (see `config.rateLimit.registerWindowMs`). Own store, like every
+ * limiter in this file, so its traffic never drains a sibling route's budget.
+ */
+export const registerLimiter = rateLimit({
+  windowMs: config.rateLimit.registerWindowMs,
+  max: config.rateLimit.registerMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate,
+  handler,
+  skip,
+});
+
+/**
  * Looser limiter for the public-link route (no body). By IP only.
  */
 export const publicLinkLimiter = rateLimit({

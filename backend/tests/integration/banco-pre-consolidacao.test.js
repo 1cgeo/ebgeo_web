@@ -52,7 +52,8 @@ let pgp;
 async function recriarBanco() {
   const admin = pgp(ADMIN_URL);
   await admin.none(
-    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+       WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
     [DB_SONDA]
   );
   await admin.none(`DROP DATABASE IF EXISTS ${DB_SONDA}`);
@@ -80,7 +81,8 @@ async function derrubarBanco() {
   const admin = pgp(ADMIN_URL);
   try {
     await admin.none(
-      'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+       WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
       [DB_SONDA]
     );
     await admin.none(`DROP DATABASE IF EXISTS ${DB_SONDA}`);

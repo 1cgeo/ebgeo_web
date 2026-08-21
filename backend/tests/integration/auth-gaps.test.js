@@ -367,17 +367,26 @@ describe('Auth gaps', () => {
         .expect(422);
     });
 
+    // The two register cases carry an `email`, which became REQUIRED. Without it both
+    // payloads would be 422 for the missing e-mail and would keep passing with the
+    // length rules they exist to measure deleted — an empty green.
     it('register: 101-char username → 422 (max 100)', async () => {
       await supertest(app)
         .post('/api/v1/auth/register')
-        .send({ username: 'a'.repeat(101), password: 'ValidPass123', nome: 'Boundary User' })
+        .send({
+          username: 'a'.repeat(101), password: 'ValidPass123', nome: 'Boundary User',
+          email: `bound_${randomUUID().slice(0, 8)}@example.mil`,
+        })
         .expect(422);
     });
 
     it('register: 101-char password → 422 (max 100)', async () => {
       await supertest(app)
         .post('/api/v1/auth/register')
-        .send({ username: uname(), password: 'a'.repeat(101), nome: 'Boundary User' })
+        .send({
+          username: uname(), password: 'a'.repeat(101), nome: 'Boundary User',
+          email: `bound_${randomUUID().slice(0, 8)}@example.mil`,
+        })
         .expect(422);
     });
   });

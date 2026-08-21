@@ -102,11 +102,23 @@ async function createDatabase() {
       console.log(`📦 Database "${TEST_DB_NAME}" already exists, resetting...`);
       // Terminate connections and drop. pg_terminate_backend RETURNS rows, so use
       // .any (not .none, which throws "No return data was expected").
+      //
+      // `backend_type = 'client backend'` IS NOT A FILTER FOR TIDINESS. An autovacuum
+      // worker may be attached to the test database at this instant, and a plain role
+      // cannot signal one: Postgres answers 42501 ("only roles with privileges of
+      // pg_signal_autovacuum_worker...") and the whole backend leg dies during SETUP,
+      // with an error that names neither the suite nor the change under test. Measured
+      // on this machine before the filter: 4 reds in 10 runs of a single file. Nor do
+      // those workers need terminating — DROP DATABASE signals the autovacuum workers
+      // of its target itself; the connections it will NOT clear on its own are exactly
+      // the client ones that remain in this list. Every other copy of this statement in
+      // the repo carries the same filter, and `tests/unit/derrubar-conexao-so-de-cliente.test.js`
+      // is what stops the eleventh copy from being written without it.
       await adminDb.any(`
         SELECT pg_terminate_backend(pg_stat_activity.pid)
         FROM pg_stat_activity
         WHERE pg_stat_activity.datname = $1
-          AND pid <> pg_backend_pid()
+          AND pid <> pg_backend_pid() AND backend_type = 'client backend'
       `, [TEST_DB_NAME]);
       await adminDb.none(`DROP DATABASE ${TEST_DB_NAME}`);
     }
@@ -224,7 +236,7 @@ async function dropDatabase() {
       SELECT pg_terminate_backend(pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = $1
-        AND pid <> pg_backend_pid()
+        AND pid <> pg_backend_pid() AND backend_type = 'client backend'
     `, [TEST_DB_NAME]);
 
     // Drop database

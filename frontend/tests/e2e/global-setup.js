@@ -11,7 +11,8 @@
  *   3. Run the backend migrations (reusing `runMigrations` from the backend).
  *   4. Spawn `node src/index.js` (NODE_ENV=test) on an ephemeral port, pointed at
  *      the e2e DB, and poll `/api/v1/health` until it reports `{status:'ok'}`.
- *   5. Publish the origin via `process.env.EBGEO_E2E_BASE_URL`.
+ *   5. Publish the origin via `process.env.EBGEO_E2E_BASE_URL` and the throwaway DB's
+ *      connection string via `process.env.EBGEO_E2E_DB_URL`.
  *
  * If any prerequisite is missing (no Postgres reachable, no superuser, backend
  * fails to boot), `process.env.EBGEO_E2E_SKIP` is set to '1' so individual tests
@@ -81,7 +82,7 @@ async function createDatabase() {
             await adminDb.any(
                 `SELECT pg_terminate_backend(pid)
                  FROM pg_stat_activity
-                 WHERE datname = $1 AND pid <> pg_backend_pid()`,
+                 WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
                 [DB_NAME]
             );
             await adminDb.none(`DROP DATABASE ${DB_NAME}`);
@@ -113,7 +114,7 @@ async function dropDatabase() {
         await adminDb.any(
             `SELECT pg_terminate_backend(pid)
              FROM pg_stat_activity
-             WHERE datname = $1 AND pid <> pg_backend_pid()`,
+             WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
             [DB_NAME]
         );
         await adminDb.none(`DROP DATABASE IF EXISTS ${DB_NAME}`);
@@ -209,8 +210,18 @@ export default async function setup() {
         return skip('backend did not become healthy within timeout');
     }
 
-    // 5: publish base URL for the harness.
+    // 5: publish base URL for the harness, plus the DB connection string.
+    //
+    // The DB URL is not a shortcut around the API. Self-registration now REQUIRES an
+    // e-mail and the account is born pending, so `registerAndLogin` has to consume a
+    // real verification token before it can log in — and that token only exists as a row
+    // in `email_verification_tokens` (it is delivered by e-mail, and there is no relay
+    // here). The helper reads the row and then confirms through the PUBLIC route
+    // `POST /auth/verify-email`, so the route stays exercised by every spec instead of
+    // being bypassed by a hand-written `email_verified = true`. Same reason the
+    // Playwright leg already opens pg-promise against its throwaway DB.
     process.env.EBGEO_E2E_BASE_URL = origin;
+    process.env.EBGEO_E2E_DB_URL = E2E_DB_URL;
     process.env.EBGEO_E2E_SKIP = '0';
 
     // Teardown: kill backend, then drop DB.

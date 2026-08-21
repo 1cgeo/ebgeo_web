@@ -54,13 +54,19 @@ describe('self-registration validates the chosen organization', () => {
     await teardownTestEnv(db);
   });
 
-  const register = (body) =>
-    supertest(app).post('/api/v1/auth/register').send({
-      username: `reg_${randomUUID().slice(0, 8)}`,
+  const register = (body) => {
+    const username = body?.username ?? `reg_${randomUUID().slice(0, 8)}`;
+    return supertest(app).post('/api/v1/auth/register').send({
+      username,
       password: 'Test@1234',
       nome: 'Fulano de Tal',
+      // Mandatory since e-mail became required on self-registration. Derived from the
+      // username so it is unique per call: a repeated address would take the collision
+      // branch (201, nothing written) and every case here would silently stop measuring.
+      email: `${username}@example.mil`,
       ...body,
     });
+  };
 
   it('refuses an organization_id that does not exist', async () => {
     const ghost = randomUUID();
@@ -87,7 +93,10 @@ describe('self-registration validates the chosen organization', () => {
     const username = `reg_ok_${randomUUID().slice(0, 8)}`;
     await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username, password: 'Test@1234', nome: 'Beltrano', organization_id: activeOrgId })
+      .send({
+        username, password: 'Test@1234', nome: 'Beltrano',
+        email: `${username}@example.mil`, organization_id: activeOrgId,
+      })
       .expect(201);
 
     const { rows } = await db.query(
@@ -100,7 +109,7 @@ describe('self-registration validates the chosen organization', () => {
     const username = `reg_def_${randomUUID().slice(0, 8)}`;
     await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username, password: 'Test@1234', nome: 'Sicrano' })
+      .send({ username, password: 'Test@1234', nome: 'Sicrano', email: `${username}@example.mil` })
       .expect(201);
 
     const { rows } = await db.query(
@@ -118,7 +127,10 @@ describe('self-registration validates the chosen organization', () => {
     const username = `reg_gap_${randomUUID().slice(0, 8)}`;
     await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username, password: 'Test@1234', nome: 'Não Membro', organization_id: activeOrgId })
+      .send({
+        username, password: 'Test@1234', nome: 'Não Membro',
+        email: `${username}@example.mil`, organization_id: activeOrgId,
+      })
       .expect(201);
 
     const { rows } = await db.query(
@@ -132,5 +144,83 @@ describe('self-registration validates the chosen organization', () => {
       rows[0].producer_org_id, null,
       'E O CRACHÁ NÃO ACOMPANHA A LOTAÇÃO: é ele que autoriza, e só administrador o concede'
     );
+  });
+
+  it('o corpo do cadastro não alcança papel, crachá, papel de organização, atividade nem verificação',
+    async () => {
+      // PISO MEDIDO ANTES DO ATO: já havia guarda para `role`, `org_role`,
+      // `producer_org_id` e `organization_id` (o caso acima). NÃO havia nenhuma para
+      // `is_active` nem para `email_verified` vindos do corpo, e é justamente por
+      // `email_verified` que a obrigatoriedade do e-mail passaria a valer zero se o
+      // chamador pudesse declará-la: bastaria mandar `email_verified: true` e a conta
+      // nasceria confirmada. O que os remove hoje é o `stripUnknown` do validate.
+      const username = `reg_inj_${randomUUID().slice(0, 8)}`;
+      await supertest(app)
+        .post('/api/v1/auth/register')
+        .send({
+          username,
+          password: 'Test@1234',
+          nome: 'Injetor',
+          email: `${username}@example.mil`,
+          organization_id: activeOrgId,
+          role: 'admin',
+          producer_org_id: activeOrgId,
+          org_role: 'owner',
+          is_active: false,
+          email_verified: true,
+        })
+        .expect(201);
+
+      const { rows } = await db.query(
+        `SELECT role, producer_org_id, org_role, is_active, email_verified, organization_id
+           FROM users WHERE username = $1`,
+        [username]
+      );
+      assert.equal(rows[0].role, 'user', 'papel global não vem do corpo');
+      assert.equal(rows[0].producer_org_id, null, 'nem o crachá de produção');
+      assert.equal(rows[0].org_role, 'viewer', 'nem o papel de organização');
+      assert.equal(rows[0].is_active, true, 'nem a atividade da conta');
+      assert.equal(
+        rows[0].email_verified, false,
+        'E NEM A VERIFICAÇÃO: declará-la esvaziaria a obrigatoriedade do e-mail inteira'
+      );
+      assert.equal(rows[0].organization_id, activeOrgId, 'só a lotação, que é o campo declarável');
+    });
+
+  it('DISCRIMINAÇÃO — o MESMO corpo, pelo caminho ADMINISTRATIVO, é aceito', async () => {
+    // Sem este par, "os campos foram ignorados" seria indistinguível de "o servidor
+    // ignora esses campos em todo lugar", e alguém poderia fechar o caminho de admin
+    // junto sem nada ficar vermelho. Aqui `role` e `producer_org_id` GRAVAM.
+    const { createAdminUser, loginUser } = await import('../helpers/fixtures.js');
+    const admin = await createAdminUser(db);
+    const adminToken = await loginUser(app, admin.username, admin.password);
+
+    const username = `adm_inj_${randomUUID().slice(0, 8)}`;
+    await supertest(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        username,
+        password: 'Test@1234',
+        nome: 'Criado por admin',
+        role: 'producer',
+        producer_org_id: activeOrgId,
+        organization_id: activeOrgId,
+      })
+      .expect(201);
+
+    const { rows } = await db.query(
+      'SELECT role, producer_org_id, email FROM users WHERE username = $1', [username]
+    );
+    assert.equal(rows[0].role, 'producer', 'pelo caminho de admin o papel É do corpo');
+    assert.equal(rows[0].producer_org_id, activeOrgId, 'e o crachá também');
+    assert.equal(rows[0].email, null, 'e a conta de admin nasce SEM e-mail: o schema nem tem o campo');
+
+    // E ela loga NA HORA, sem confirmar nada: é o caso legítimo que obriga o gate de
+    // login() a continuar condicional a `user.email`.
+    await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username, password: 'Test@1234' })
+      .expect(200);
   });
 });

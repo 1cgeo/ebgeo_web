@@ -170,7 +170,7 @@ async function recreateDatabase() {
   try {
     // `any` (não `none`): este SELECT retorna uma linha por conexão derrubada.
     await admin.any(
-      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
       [DB_NAME]
     );
     await admin.none(`DROP DATABASE IF EXISTS ${qName(DB_NAME)}`);

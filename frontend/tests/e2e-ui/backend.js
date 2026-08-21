@@ -48,7 +48,7 @@ async function createDatabase(dbName) {
         if (exists) {
             await adminDb.any(
                 `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-                 WHERE datname = $1 AND pid <> pg_backend_pid()`,
+                 WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
                 [dbName]
             );
             await adminDb.none(`DROP DATABASE ${dbName}`);
@@ -79,7 +79,7 @@ export async function dropDatabase(dbName) {
     try {
         await adminDb.any(
             `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-             WHERE datname = $1 AND pid <> pg_backend_pid()`,
+             WHERE datname = $1 AND pid <> pg_backend_pid() AND backend_type = 'client backend'`,
             [dbName]
         );
         await adminDb.none(`DROP DATABASE IF EXISTS ${dbName}`);

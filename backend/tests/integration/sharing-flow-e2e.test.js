@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { confirmRegistrationEmail } from '../helpers/fixtures.js';
 
 const API = '/api/v1';
 
@@ -46,10 +47,15 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
         username: actor.username,
         password: actor.password,
         nome: 'E2E Actor',
+        email: `${actor.username}@example.mil`,
         posto_graduacao: 'Cap',
         organizacao_militar: 'OM Teste',
       })
       .expect(201);
+    // The account is born PENDING (e-mail is mandatory on self-registration), so the
+    // login of every actor below would be 401 without confirming first. Done through
+    // the public verify-email route, not by writing the column.
+    await confirmRegistrationEmail(app, db, actor.username);
     // /auth/register answers an account-free body (it must be identical whether the
     // account was created or already existed), so the id comes from the table.
     const { rows } = await db.query('SELECT id FROM users WHERE username = $1', [actor.username]);

@@ -157,6 +157,20 @@ const config = Object.freeze({
     // é a memoização (config.cache.js), não este número.
     configWindowMs: parseInt(optional('RATE_LIMIT_CONFIG_WINDOW_MS', '60000'), 10), // 1 min
     configMax: parseInt(optional('RATE_LIMIT_CONFIG_MAX', '600'), 10),
+    // POST /auth/register, keyed by ADDRESS. Separate from the auth knobs above on
+    // purpose: `authLimiter` keys by `${ip}:${username}`, and on a registration route
+    // the username is chosen by the caller and never exists yet, so every request buys
+    // a fresh bucket. This is the only ceiling that actually bounds mass account
+    // creation (and the e-mail amplification that comes with it).
+    //
+    // Reusing authWindowMs/authMax (10 per 15 min) would be wrong in the OTHER
+    // direction: the documented deployment is a whole OM behind an egress NAT, so a
+    // rollout day with a class signing up together would hit the ceiling and the
+    // symptom would read as "EBGeo won't let anyone register". One hour and 20 cuts
+    // bulk creation without reaching human use. The knob exists because 20 is a
+    // calibrated guess, not a measurement.
+    registerWindowMs: parseInt(optional('RATE_LIMIT_REGISTER_WINDOW_MS', '3600000'), 10), // 1 h
+    registerMax: parseInt(optional('RATE_LIMIT_REGISTER_MAX', '20'), 10),
   }),
 
   // Memoização em processo do payload de GET /api/config (src/modules/config/config.cache.js).
@@ -170,10 +184,12 @@ const config = Object.freeze({
 
   security: Object.freeze({
     allowSelfRegistration: resolveAllowSelfRegistration(nodeEnv, process.env.ALLOW_SELF_REGISTRATION),
-    // Self-registration e-mail confirmation. Channel-agnostic: 'email' (verify via link),
-    // 'admin' (an admin approves the pending account), or 'both' (either path activates it).
-    // Activation always flips users.email_verified; the mode is informational/forward-looking.
-    verificationMode: optional('AUTH_VERIFICATION_MODE', 'both'),
+    // There is no "verification mode" knob. There used to be one, read at its own
+    // definition and nowhere else in src/ — a name promising to choose the account
+    // activation regime while choosing nothing. It was removed when e-mail became
+    // mandatory on self-registration: a no-op switch is worse than an absent one,
+    // because it invites the next reader to set it and expect an approval flow that
+    // does not exist. Self-registration confirms by e-mail link, period.
     verificationTtlHours: parseInt(optional('AUTH_VERIFICATION_TTL_HOURS', '48'), 10),
   }),
 
@@ -271,6 +287,8 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   RATE_LIMIT_GAZETTEER_MAX: { min: 1 },
   RATE_LIMIT_CONFIG_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_CONFIG_MAX: { min: 1 },
+  RATE_LIMIT_REGISTER_WINDOW_MS: { min: 1000 },
+  RATE_LIMIT_REGISTER_MAX: { min: 1 },
   // 0 é VÁLIDO e significa "sem memoização" (o desligamento explícito do cache do
   // /config). É a única entrada desta tabela cujo piso é zero, e é o que permite
   // desligar a memoização por env sem editar código.
@@ -362,6 +380,38 @@ export function validateEnvVariables() {
       errors.push(
         'CORS_ORIGIN deve ser uma ORIGEM canônica (esquema://host[:porta]), sem caminho, '
         + `sem barra final, sem espaços e sem lista — recebido: "${raw}", esperado: "${parsed.origin}"`
+      );
+    }
+  }
+
+  // Self-registration needs a delivery channel, and only in production.
+  //
+  // With e-mail mandatory on `POST /auth/register`, an account is born pending and is
+  // activated ONLY by the `?verify=` link. If there is no relay, `deliver()` degrades to
+  // a `logger.error` — so the door keeps creating accounts nobody can ever activate, and
+  // it does it quietly. That is the "check that does not check" class, so the boot
+  // refuses instead. APP_BASE_URL rides along because `resolveVerificationBase`
+  // (utils/mailer.js) only honours a client-supplied origin when it equals cors.origin;
+  // unset, the link comes out RELATIVE, which is useless inside an e-mail (and
+  // `resend-verification` has no client origin at all).
+  //
+  // Conditional on self-registration being ON, so a closed installation that never
+  // needed a relay still boots. Read at call time, exactly like `isProd` above.
+  const selfRegistration = resolveAllowSelfRegistration(
+    process.env.NODE_ENV || 'development',
+    process.env.ALLOW_SELF_REGISTRATION
+  );
+  if (isProd && selfRegistration) {
+    if (!process.env.SMTP_HOST) {
+      errors.push(
+        'SMTP_HOST é obrigatório em produção com auto-cadastro ligado: sem relay nenhuma conta '
+        + 'nova pode ser confirmada'
+      );
+    }
+    if (!process.env.APP_BASE_URL) {
+      errors.push(
+        'APP_BASE_URL é obrigatório em produção com auto-cadastro ligado: sem ele o link de '
+        + 'confirmação sai relativo'
       );
     }
   }

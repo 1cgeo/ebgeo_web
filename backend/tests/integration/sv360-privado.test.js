@@ -14,8 +14,8 @@
 //
 // A TERCEIRA MUDANÇA DE FORMA, desta fase: "a OM dona" deixou de significar
 // `users.organization_id`. Aquela coluna é LOTAÇÃO auto-declarada no auto-cadastro
-// (`POST /auth/register` aceita qualquer OM ativa e a conta sem e-mail nasce ativa na
-// hora), então escolher a OM numa tela abria o acervo oculto e privado dela. Quem vê
+// (`POST /auth/register` aceita qualquer OM ativa, sem aprovação de ninguém), então
+// escolher a OM numa tela abria o acervo oculto e privado dela. Quem vê
 // o próprio acervo agora é a OM PRODUTORA (`users.producer_org_id`), que só um
 // administrador concede — e o predicado a resolve no SQL, a partir do UUID.
 //

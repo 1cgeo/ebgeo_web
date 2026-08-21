@@ -15,6 +15,7 @@ import { ConnectionState } from '../../../src/js/store/sync/connection-state.js'
 import { createOperation } from '../../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../../src/js/utilities/uuid.js';
 import { setTracing, clearTrace, getTrace } from '../../../src/js/store/sync/diag/trace-core.js';
+import { pendingVerificationToken } from './db.js';
 
 /** True when prerequisites were missing in global-setup; tests describe.skipIf this. */
 export const E2E_SKIP = process.env.EBGEO_E2E_SKIP === '1';
@@ -36,18 +37,30 @@ export function makeApi() {
 }
 
 /**
- * Registers a brand-new user (unique username) and logs in, storing tokens on `api`.
+ * Registers a brand-new user (unique username), confirms the e-mail, and logs in,
+ * storing tokens on `api`.
+ *
+ * THREE calls, not two, and the middle one is not optional: `registerSchema` requires
+ * `email`, so the account is created PENDING and `login` answers 401 EMAIL_NOT_VERIFIED
+ * until the `?verify=` link is followed. Since there is no SMTP relay here, the token is
+ * read straight out of `email_verification_tokens` (`helpers/db.js`) and then spent
+ * through the PUBLIC route `POST /auth/verify-email` — the real path, so the route stays
+ * exercised by every spec in this leg instead of being bypassed by writing
+ * `email_verified` by hand.
+ *
  * @param {ApiClient} api
  * @param {Object} [opts]
  * @param {string} [opts.nome='Test User']
- * @returns {Promise<{ user: Object, username: string, password: string }>}
+ * @returns {Promise<{ user: Object, username: string, password: string, email: string }>}
  */
 export async function registerAndLogin(api, { nome = 'Test User' } = {}) {
     const username = `e2e_${generateUUID().replace(/-/g, '').slice(0, 16)}`;
     const password = 'Sup3r-Secret-Pw!';
-    await api.register({ username, password, nome });
+    const email = `${username}@example.mil`;
+    await api.register({ username, password, nome, email });
+    await api.verifyEmail(await pendingVerificationToken(username));
     const user = await api.login(username, password);
-    return { user, username, password };
+    return { user, username, password, email };
 }
 
 /**

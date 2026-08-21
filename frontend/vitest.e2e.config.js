@@ -34,9 +34,11 @@ export default defineConfig({
         environment: 'node',
         globals: true,
         globalSetup: ['./tests/e2e/global-setup.js'],
-        // Runs inside the test fork: registers an in-memory LocalForage driver so
-        // operation-queue.js (IndexedDB-backed) works under Node.
-        setupFiles: ['./tests/e2e/setup-storage.js'],
+        // Run inside the test fork: an in-memory LocalForage driver so
+        // operation-queue.js (IndexedDB-backed) works under Node, and the teardown that
+        // closes the pg-promise pool `helpers/db.js` opens there (globalSetup's teardown
+        // runs in another process and cannot reach it).
+        setupFiles: ['./tests/e2e/setup-storage.js', './tests/e2e/setup-db-teardown.js'],
         testTimeout: 30000,
         hookTimeout: 40000,
         // One backend for the whole run: a single fork avoids races on the shared

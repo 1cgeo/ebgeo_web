@@ -48,7 +48,7 @@ Não alcança `DATABASE_URL` (`backend/src/config.js`) nem `JWT_SECRET`: as duas
 
 Cada regra existe por um estrago observado, não por higiene (`config.js`):
 
-- **Faixas numéricas de 17 knobs** (`NUMERIC_ENV_RULES`, `config.js`): `parseInt` falha em silêncio. `MAX_BULK_UPLOAD_MB=abc` virava `limit: 'NaNmb'`, ou seja, **sem limite de body**; `WS_HEARTBEAT_INTERVAL_MS=abc` virava `setInterval(NaN)`, quase 1ms, uma tempestade de queries. Só variáveis **setadas** são checadas, os defaults são known-good.
+- **Faixas numéricas de todo knob inteiro** (`NUMERIC_ENV_RULES`, `config.js`): `parseInt` falha em silêncio. `MAX_BULK_UPLOAD_MB=abc` virava `limit: 'NaNmb'`, ou seja, **sem limite de body**; `WS_HEARTBEAT_INTERVAL_MS=abc` virava `setInterval(NaN)`, quase 1ms, uma tempestade de queries. Só variáveis **setadas** são checadas, os defaults são known-good.
 - **Gramática de expiração JWT** `^\d+[smhd]$` (`config.js`): `1w` é a armadilha clássica, natural de escrever e não aceita. O parser retornaria 0 e **todo refresh token nasceria expirado**.
 - `CORS_ORIGIN` é obrigatória em produção (`config.js`) justamente porque o default é placeholder de dev. São **três** as obrigatórias em prod, não duas: `DATABASE_URL`, `JWT_SECRET` e `CORS_ORIGIN`. O default é `http://localhost:3000`, a origem do **Vite**, e não a porta do backend.
 
@@ -58,12 +58,13 @@ Cada regra existe por um estrago observado, não por higiene (`config.js`):
 
 `NODE_ENV=production` é o **interruptor único de segurança**: liga HSTS 180 dias (`backend/src/app.js`), cookies `Secure`/`SameSite=strict`, exige `JWT_SECRET` >= 32 e desliga self-registration por default (`config.js`). `COOKIE_SECRET` e `USE_HTTPS` **não existem no código**, configurá-las é no-op. TLS termina no NGINX.
 
-**O bloco de e-mail e confirmação de conta não está em `backend/.env.example`**, que é o primeiro lugar onde um operador procura, então ele existe só no `config.js` e nesta página:
+**O bloco de e-mail e confirmação de conta** está em `backend/.env.example` desde que o auto-cadastro passou a exigir e-mail (esta página dizia que ele não estava lá, e a ausência era o achado: o operador não tinha como descobrir que precisava de relay).
 
+- **Auto-cadastro sem relay não sobe em produção.** Com `ALLOW_SELF_REGISTRATION` ligado e `NODE_ENV=production`, `validateEnvVariables` exige `SMTP_HOST` **e** `APP_BASE_URL`. É falha ruidosa no lugar da silenciosa: e-mail é obrigatório no cadastro, a conta nasce pendente, e sem canal de entrega a porta cria contas que ninguém consegue ativar enquanto o `deliver()` degrada para `logger.error`. A exigência é **condicional** ao auto-cadastro, então instalação fechada que nunca precisou de relay continua bootando. Ordem de implantação: relay e `APP_BASE_URL` primeiro, subir, e só então mexer na flag.
 - `APP_BASE_URL` (default vazio) constrói o link `?verify=`. Vazia, o link sai **relativo**, e não apontando para a origem da requisição: `resolveVerificationBase` (`backend/src/utils/mailer.js`) só honra uma origem vinda do cliente quando ela é igual à de `CORS_ORIGIN`, justamente para que um `Origin` forjado não vire link de verificação para o host do atacante. Em produção com o app noutro host, configure-a.
 - `SMTP_HOST` ausente (o default) deixa o mailer em no-op que **loga o link** em vez de enviá-lo. É o modo esperado em dev e em rede fechada sem relay, e é silencioso: ninguém recebe e-mail e nada falha. `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e `MAIL_FROM` completam o bloco (`backend/src/config.js`).
 - `AUTH_VERIFICATION_TTL_HOURS`, default 48 (`backend/src/config.js`).
-- `AUTH_VERIFICATION_MODE` (`backend/src/config.js`) entra na **mesma lista de no-op** de `COOKIE_SECRET`/`USE_HTTPS`: é lida na definição e em nenhum outro ponto de `backend/src`. Setá-la como `admin` esperando trocar o fluxo de ativação não dá erro nem efeito.
+- **Não existe knob de "modo de verificação".** Existiu um, lido na própria definição e em nenhum outro ponto de `backend/src`, e ele saiu junto com a obrigatoriedade do e-mail: um interruptor que promete escolher o regime de ativação e não escolhe nada é pior que ausente, porque convida a próxima pessoa a esperar um fluxo de aprovação que não existe. O auto-cadastro confirma por link de e-mail, e só.
 
 ## Config servido em runtime
 

@@ -119,7 +119,7 @@ describe('Auth hardening', () => {
     const username = `selfreg_${user.id.slice(0, 8)}`;
     await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username, password: 'Test@1234', nome: 'Self Reg' })
+      .send({ username, password: 'Test@1234', nome: 'Self Reg', email: `${username}@example.mil` })
       .expect(201);
     // The 201 body is account-free by design (it must not distinguish "created" from
     // "already existed"), so the row is what proves the route is mounted and working.

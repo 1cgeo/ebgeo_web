@@ -33,6 +33,8 @@ Duas consequências que geram bug de UI:
 
 A chave do `authLimiter` é `` `${req.ip}:${username}` ``, e ela só significa alguma coisa nas duas rotas cujo schema declara `username`: `/login` e `/register`. As outras três (`/refresh`, `/verify-email`, `/resend-verification`) têm limitador próprio por endereço (`credentialIpLimiter`, `backend/src/middleware/rate-limit.js`), e o de `/refresh` só contabiliza falha.
 
+**`/register` tem DOIS**, e a contagem importa: ali o `username` é escolhido por quem chama e ainda não existe, então cada tentativa com um nome novo compra um balde novo e o `authLimiter` não limita nada que valha. Quem limita é `registerLimiter`, por endereço, montado **antes** dele, com janela e teto próprios (`RATE_LIMIT_REGISTER_*`). O `authLimiter` fica porque ainda estrangula a repetição contra um nome específico. Ver [[hardening-borda-api]].
+
 Trate `429` como backoff puro, **nunca** como gatilho de logout ou de novo refresh, e note por que isso é mais que etiqueta: o cliente converte **qualquer** erro de refresh em logout definitivo, então um 429 mal tratado vira sessão perdida. Mais em [[hardening-borda-api]] e [[refresh-token-rotacao]].
 
 ## Contratos congelados e decisões deliberadas

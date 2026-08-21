@@ -195,6 +195,49 @@ export async function loginUser(app, username, password) {
 }
 
 /**
+ * Confirms the e-mail of a SELF-REGISTERED account, the way the user would.
+ *
+ * `registerSchema` requires `email`, so an account created through `POST /auth/register`
+ * is born pending and `login` answers 401 EMAIL_NOT_VERIFIED until the `?verify=` link is
+ * followed. The token in that link is only ever delivered by e-mail, so a test reads the
+ * row — and then spends it through the PUBLIC route, deliberately: flipping
+ * `users.email_verified` with an UPDATE would leave `POST /auth/verify-email`
+ * unexercised in every file that uses this helper, which is the shortcut this project
+ * calls a check that does not check.
+ *
+ * Newest token first: `resend-verification` issues an extra row for the same user.
+ *
+ * @param {Object} app - The Express app (supertest target).
+ * @param {Object} db - The test DB handle.
+ * @param {string} username
+ * @returns {Promise<string>} The token that was consumed.
+ */
+export async function confirmRegistrationEmail(app, db, username) {
+  const supertest = (await import('supertest')).default;
+  const { rows } = await db.query(
+    `SELECT t.token
+       FROM email_verification_tokens t
+       JOIN users u ON u.id = t.user_id
+      WHERE LOWER(u.username) = LOWER($1)
+        AND t.consumed_at IS NULL
+        AND t.expires_at > NOW()
+      ORDER BY t.created_at DESC
+      LIMIT 1`,
+    [username]
+  );
+  if (rows.length === 0) {
+    throw new Error(`confirmRegistrationEmail: no live verification token for "${username}"`);
+  }
+  const res = await supertest(app)
+    .post('/api/v1/auth/verify-email')
+    .send({ token: rows[0].token });
+  if (res.status !== 200) {
+    throw new Error(`verify-email failed: ${res.status} - ${JSON.stringify(res.body)}`);
+  }
+  return rows[0].token;
+}
+
+/**
  * Creates a briefing inside an atlas.
  */
 export async function createBriefing(db, atlasId, overrides = {}) {

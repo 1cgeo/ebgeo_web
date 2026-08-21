@@ -89,13 +89,28 @@ describe('register / resend — existence oracle and best-effort verification (7
   const register = (body) => supertest(app).post('/api/v1/auth/register').send(body);
   const resend = (email) => supertest(app).post('/api/v1/auth/resend-verification').send({ email });
 
-  /** Base payload; caller overrides username/email. */
-  const payload = (over) => ({
-    username: `rg_${randomUUID().slice(0, 8)}`,
-    password: 'Test@1234',
-    nome: 'Registro Teste',
-    ...over,
-  });
+  /**
+   * Base payload; caller overrides username/email.
+   *
+   * `email` is in the base because it became REQUIRED, and it is derived from the
+   * generated username so every call gets a fresh, unique address. That is what keeps
+   * the three collision shapes distinct instead of collapsing into one:
+   *   payload({ username: base.username }) → collides by USERNAME, e-mail inédito
+   *   payload({ email: base.email })       → collides by E-MAIL, username inédito
+   *   payload()                            → collides with nothing
+   * A fixed address in the base would make every one of them an e-mail collision, and
+   * the username branch would stop being exercised without a single case turning red.
+   */
+  const payload = (over) => {
+    const username = `rg_${randomUUID().slice(0, 8)}`;
+    return {
+      username,
+      password: 'Test@1234',
+      nome: 'Registro Teste',
+      email: `${username}@example.mil`,
+      ...over,
+    };
+  };
 
   async function tokenCount(userId) {
     const { rows } = await db.query(
@@ -136,12 +151,31 @@ describe('register / resend — existence oracle and best-effort verification (7
 
     it('conta nova, colisão de USERNAME e colisão de E-MAIL: mesmo status e MESMO corpo', async () => {
       const nova = await register(payload({ email: `rg_dist_${SFX}@example.mil` })).expect(201);
+      // Colide por USERNAME carregando um e-mail INÉDITO: é o par que separa os dois
+      // ramos de colisão, e sem ele os dois vieram a ser o mesmo caso.
       const porUsername = await register(payload({ username: base.username })).expect(201);
+      // Colide por E-MAIL carregando um username inédito.
       const porEmail = await register(payload({ email: base.email })).expect(201);
 
       assert.deepEqual(nova.body, CORPO_201, 'o corpo não pode carregar a conta criada');
       assert.deepEqual(porUsername.body, nova.body, 'as respostas têm de ser indistinguíveis');
       assert.deepEqual(porEmail.body, nova.body, 'as respostas têm de ser indistinguíveis');
+    });
+
+    it('o 422 de e-mail AUSENTE não vira um segundo canal de distinção', async () => {
+      // A obrigatoriedade do e-mail acrescenta um status que /register não tinha. Ele
+      // não pode depender de NADA sobre a conta: um cadastro sem e-mail contra um
+      // username livre e contra um username TOMADO precisa responder igual, senão o
+      // oráculo que o 201 uniforme fechou reabre pela porta da validação.
+      const livre = await register({
+        username: `rg_semmail_${randomUUID().slice(0, 8)}`, password: 'Test@1234', nome: 'Sem Mail',
+      }).expect(422);
+      const tomado = await register({
+        username: base.username, password: 'Test@1234', nome: 'Sem Mail',
+      }).expect(422);
+
+      assert.deepEqual(tomado.body, livre.body, 'o 422 não pode variar com a existência da conta');
+      assert.equal(livre.body.error.details[0].field, 'email');
     });
 
     it('nenhum 201 vaza id, username ou e-mail (nem o do caminho feliz)', async () => {

@@ -1,8 +1,18 @@
 // Path: tests/integration/auth-email-verification.test.js
-// F2: self-registration e-mail confirmation. An account registered WITH an e-mail is created
-// PENDING (email_verified=false) and a verification token is issued; login is blocked until the
-// token is confirmed. An account registered WITHOUT an e-mail stays immediately active (the login
-// key is the username) — this keeps every existing username-only flow working unchanged.
+// F2: self-registration e-mail confirmation. E-MAIL IS MANDATORY on `POST /auth/register`,
+// so every self-registered account is created PENDING (email_verified=false) with a
+// verification token issued, and login is blocked until that token is confirmed.
+//
+// This header used to end with "an account registered WITHOUT an e-mail stays immediately
+// active", and the case below asserted it. That was the written form of an accepted risk:
+// two HTTP calls produced a usable account nobody could contact, revoke by mailbox
+// ownership, or correlate. The case was INVERTED rather than joined by a new one, because
+// leaving both would make this suite contract the two opposite behaviours at once.
+//
+// The e-mail-less account did not disappear from the product — it moved to the path that
+// always owned it, `POST /api/v1/users` (admin), whose schema has no e-mail field. That is
+// why the gate in login() is `user.email && !user.email_verified` and must stay
+// conditional; the discrimination for it lives in auto-cadastro-exige-email.test.js.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -84,16 +94,29 @@ describe('Auth — e-mail verification (F2)', () => {
     await supertest(app).post('/api/v1/auth/verify-email').send({ token }).expect(400);
   });
 
-  it('register WITHOUT e-mail → immediately active (login works right away)', async () => {
+  it('register WITHOUT e-mail is REFUSED (422) and creates nothing', async () => {
     const username = `noemail_${uniq()}`;
-    await supertest(app)
+    const res = await supertest(app)
       .post('/api/v1/auth/register')
       .send({ username, password: PW, nome: 'No Email' })
-      .expect(201);
+      .expect(422);
+
+    // The status alone is not enough: an unmounted route would answer 404, but a 422 for
+    // some OTHER field would read identically here. Name the field.
+    assert.equal(res.body.error.details[0].field, 'email');
+
+    // And nothing was written. A 422 that still inserted a row would pass the check above.
+    const { rows } = await db.query(
+      'SELECT COUNT(*)::int AS n FROM users WHERE LOWER(username) = LOWER($1)',
+      [username]
+    );
+    assert.equal(rows[0].n, 0, 'the refused registration created no row');
+
+    // The account cannot be reached by the front door either.
     await supertest(app)
       .post('/api/v1/auth/login')
       .send({ username, password: PW })
-      .expect(200);
+      .expect(401);
   });
 
   it('verify-email rejects an unknown/invalid token (400)', async () => {
