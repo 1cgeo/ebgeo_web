@@ -221,9 +221,16 @@ function validatePyramidCoverage(tilesDbPath, manifest) {
  *
  * Pure validation — never written. Throws BadRequestError (400) on any mismatch
  * so PASSO 0 fails before anything is touched.
+ *
+ * RETORNA QUAL DOS DOIS FORMATOS CHEGOU. A sonda de PRAGMA que decide isso está aqui,
+ * e só aqui; quem precisa da resposta para tomar OUTRA decisão — o ETL offline aplica o
+ * piso de bytes ao arquivo copiado, e o piso só faz sentido sobre um acervo com blob —
+ * a recebe em vez de sondar por conta própria. Uma segunda cópia da sonda diverge, e o
+ * sintoma seria um caminho aceitar o que o outro recusa. O upload ignora o retorno.
  * @param {string} imagesDbPath - tmp path of the uploaded images.db
  * @param {Object} manifest - the validated manifest
  * @param {string|null} [tilesDbPath] - tmp path of the uploaded {slug}_tiles.db, when present
+ * @returns {{temBlob: boolean}} true quando o acervo ainda tem full_webp/preview_webp
  * @throws {BadRequestError} on a missing table/row, size mismatch or uncovered pyramid
  */
 export function validateImagesDb(imagesDbPath, manifest, tilesDbPath = null) {
@@ -260,7 +267,7 @@ export function validateImagesDb(imagesDbPath, manifest, tilesDbPath = null) {
 
     if (!temBlob) {
       validatePyramidCoverage(tilesDbPath, manifest);
-      return;
+      return { temBlob: false };
     }
 
     const stmt = db.prepare(
@@ -282,6 +289,7 @@ export function validateImagesDb(imagesDbPath, manifest, tilesDbPath = null) {
         );
       }
     }
+    return { temBlob: true };
   } catch (err) {
     if (err instanceof AppError) throw err;
     throw new BadRequestError('images.db is not a valid SQLite file');
