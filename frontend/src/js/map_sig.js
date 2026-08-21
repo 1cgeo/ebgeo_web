@@ -31,6 +31,9 @@ import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager
 import { MapManager, DragRotateHandler } from './map';
 import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
+// Static, and it costs no eager weight: the barrel above already pulls
+// add_street_view_control.js, which imports this same module statically.
+import { sv360TransformRequest } from './street_view_tool/streetview-api.service.js';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
 import { VectorTileInfoControl } from './vector_info';
 import { FeatureSearchControl, SearchBarComponent } from './search';
@@ -136,7 +139,14 @@ export function createMap() {
         maxZoom: config.map2d.maxZoom,
         maxPitch: config.map2d.maxPitch,
         bounds: config.map2d.bounds,
-        validateStyle: false
+        validateStyle: false,
+        // What stamps the credential on the 360 tiles, and on NOTHING else. The MVT
+        // route is flexibleAuth: with no principal it answers 200 with the PUBLIC
+        // subset, so serving the 360 from another origin (SV360_SERVICE_URL) makes the
+        // user's private projects vanish from the layer with no error at all. The
+        // predicate compares ORIGIN, never a string prefix, and returns falsy for
+        // everything else (basemap, glyphs, BDGEx) — MapLibre's "leave it alone".
+        transformRequest: sv360TransformRequest
     });
 
     map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
