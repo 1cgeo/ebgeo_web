@@ -73,15 +73,77 @@ O modelo sai do laser ou da fotogrametria com Z para cima e o modo de caminhada 
 
 Duas notas de escala do mesmo pipeline: o voxel de 5 cm é a precisão de tudo que encosta no octree (caminhada, raio do marcador, trena), então a trena serve para a dimensão de um móvel ou de um vão, não para a cota de uma peça. E a opção de preenchimento de piso do voxelizador (floorFill, nome da ferramenta externa, sem correspondente neste código) existe porque a cobertura medida do chão foi de 91,6%: nos 8,4% restantes dá para cair pelo chão.
 
-## Gramática de entrada: três recusas deliberadas
+## Gramática de entrada: o que o protótipo fazia, e o que ficou
 
-O protótipo fazia diferente nos três casos, e cada troca tem motivo.
+O protótipo fazia diferente em três pontos. Um deles voltou, em outros termos, e um
+terceiro envelheceu mal: esta seção já afirmou que o botão direito "não gira nada", e
+isso deixou de ser verdade em 2026-08-14, sem que nada ficasse vermelho.
 
-**Não existe modo de ponteiro preso.** O protótipo capturava o ponteiro no clique e substituía o cursor por uma mira, no estilo de jogo em primeira pessoa. Aqui girar é sempre arrastar, e quem separa girar de clicar é o **arrasto**, não o botão: clique curto vai para o marcador e para a trena. O visitante precisa do cursor o tempo todo (rótulos, trena, barra de ferramentas, painel lateral), e ponteiro preso é um modo que se descobre por acidente e do qual se sai por acidente. A cascata do `Escape` em `frontend/src/js/first_person_3d_tool/services/keyboard-service-fp.js` não tem passo de soltar ponteiro, e isso é ausência de propósito.
+**A trena é `T` e não `D`**, porque `D` anda para a direita. Pelo mesmo tipo de razão,
+`Ctrl` não agacha: `Ctrl+W` fecha a aba do Chrome e nenhum `preventDefault` da página
+cancela isso. `CROUCH_KEYS`
+(`frontend/src/js/first_person_3d_tool/walk/constants.js`) ficou só com Shift, porque o
+`C` saiu depois. O teclado inteiro só chega à página em tela cheia, pela Keyboard Lock
+API, e não há tela cheia aqui, então `Ctrl+W` continua sendo do navegador.
 
-**A trena é `T` e não `D`**, porque `D` anda para a direita. Pelo mesmo tipo de razão, `Ctrl` não agacha: `Ctrl+W` fecha a aba do Chrome e nenhum `preventDefault` da página cancela isso. `CROUCH_KEYS` (`frontend/src/js/first_person_3d_tool/walk/constants.js`) ficou com Shift e C. O teclado inteiro só chega à página em tela cheia, pela Keyboard Lock API, e não há tela cheia no MVP, então `Ctrl+W` continua sendo do navegador.
+**O botão direito gira a câmera, MENOS quando a trena o toma.** A frase anterior desta
+seção dizia o contrário, e o código a contradizia: `_lookWithRightButton`
+(`frontend/src/js/first_person_3d_tool/walk/walk-mode.js`) nasce `true`, e
+`setLookWithRightButton` é o que a trena chama para pedir o botão emprestado enquanto
+mede. O que continua valendo é a razão de a trena poder tomá-lo: um botão que gira e
+também encerra a medição faria de todo arrasto com ele uma aposta sobre se a trena
+percebeu o movimento. Desde o modo imersivo, esse botão tem um terceiro papel, abaixo.
 
-**O botão direito não gira nada.** Ele só fecha a medição, como no mapa 2D. Um botão que gira a câmera e também encerra a medição transforma todo arrasto com ele numa aposta sobre se a trena percebeu o movimento, então o `contextmenu` do viewer nem testa arrasto.
+### O modo imersivo, e por que ele voltou
+
+**Existe um modo de ponteiro preso, e ele é opcional.** O protótipo tinha um que ligava
+sozinho: o clique capturava o ponteiro, o olhar passava a seguir o mouse sem botão
+nenhum e uma mira substituía o cursor. Aquele foi removido, e a razão continua de pé: o
+visitante precisa do cursor para os rótulos, para a trena, para a barra de ferramentas
+e para o painel lateral, e um modo que se descobre por acidente e do qual se sai por
+acidente é pior do que não ter modo nenhum.
+
+O que voltou não é aquele. **A diferença inteira é que este é deliberado**, e cada peça
+responde a uma metade daquela objeção:
+
+| peça | responde a |
+| --- | --- |
+| botão próprio na barra (`immersive-fp`), e nenhuma outra entrada | "se descobre por acidente" |
+| aviso fixo no topo, dizendo o modo e nomeando as saídas | "se sai por acidente" |
+| mira no centro, com o clique resolvido por `pickAtCenter` | "precisa do cursor para os rótulos" |
+| a trena desliga ao entrar | "precisa do cursor para a trena" |
+
+Sai-se com **ESC**, com o **botão direito**, ou clicando num rótulo que cobre outros.
+
+O ESC é do navegador, não deste código: ele solta o ponteiro sozinho e, no Chrome, nem
+entrega esse `keydown` para a página. O degrau `exitImmersive` no topo da cascata de
+`frontend/src/js/first_person_3d_tool/services/keyboard-service-fp.js` é rede para o
+navegador que entregar. O botão direito pode ser a segunda saída justamente porque a
+trena, a outra dona daquele botão, está desligada dentro do modo.
+
+**O botão direito é tratado no `mousedown`, e não no `contextmenu`.** Medido: o Chrome
+não dispara `contextmenu` nenhum enquanto o ponteiro está preso, porque suprime o menu
+abaixo da página, então um handler esperando ali nunca roda. A consequência de tratar no
+`mousedown` é que soltar a trava devolve o cursor à posição que ele tinha ANTES dela (em
+geral o botão da barra por onde se entrou), e o menu que o Chrome dispara depois cai
+sobre a barra, que é irmã do container e não filha. Por isso a saída arma uma janela de
+200 ms e um handler no documento engole esse menu, endereçado por TEMPO, porque o alvo é
+justamente o que não se pode prever.
+
+**Mirar numa pilha sai do modo.** Um rótulo com "+N" abre a lista daquela pilha, e lista
+é linha para clicar: com o ponteiro preso não há cursor para clicar nenhuma. Então esse
+clique devolve o cursor junto com a lista. Escolher entre itens é tarefa de cursor, e o
+botão da barra repõe o modo num clique.
+
+A trava em si é `frontend/src/js/first_person_3d_tool/walk/pointer-lock.js`, e ela é o
+único arquivo novo de `walk/` desde a voxelização. Ela foi acrescentada à regra de chunk
+de `first-person-3d`, que casa `walk/` por subcaminho EXPLÍCITO (porque
+`walk/voxel-collision` e `walk/constants` são fixados em `core`). Isso é declaração, não
+conserto: medido num `dist` limpo, com a cláusula trocada por `false`, o arquivo cai no
+mesmo chunk de qualquer jeito, porque `entriesAware` subdivide por entrada e o único
+importador dele é lazy. A primeira versão deste parágrafo dizia que sem a regra o arquivo
+iria para o bundle da entrada, e a medição derrubou isso.
+
 
 A trena inteira (`frontend/src/js/first_person_3d_tool/tools/measurement_tool_fp.js`) segue a gramática da medição 2D e reusa `createDistanceResultsPanel`, o mesmo card. O protótipo exigia Shift para manter a polilinha aberta e empilhava medições: era uma segunda gramática para o mesmo verbo.
 

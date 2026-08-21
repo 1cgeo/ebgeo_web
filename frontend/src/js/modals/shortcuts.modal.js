@@ -123,9 +123,13 @@ const SHORTCUTS_DATA = {
             { key: 'L', icon: SHORTCUT_ICONS.labels, description: 'Mostrar/ocultar rótulos' },
             { key: 'Backspace', description: 'Desfazer último ponto da medição' },
             { key: 'Delete', description: 'Limpar todas as medições' },
-            // The cascade in `services/keyboard-service-fp.js`, in its order. It
-            // never releases a pointer lock: this viewer deliberately has none.
-            { key: 'Escape', description: 'Fecha a ficha, depois encerra a medição, depois desliga a trena' },
+            // The cascade in `services/keyboard-service-fp.js`, in its order. Step 0
+            // is `exitImmersive`: the viewer DOES have a pointer lock now (an opt-in
+            // immersive mode, entered only from its own toolbar button). That step is
+            // a net for whichever browser delivers the keydown — Chrome releases the
+            // lock itself and does not dispatch it — so the description below names
+            // the immersive exit first, the same order the code runs.
+            { key: 'Escape', description: 'Sai do modo imersivo, fecha a ficha, encerra a medição, desliga a trena' },
         ],
     },
 };

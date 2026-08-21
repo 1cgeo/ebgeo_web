@@ -90,6 +90,17 @@ export class FpMarkersLayer {
          * @type {Map<HTMLButtonElement, string[]>}
          */
         this._covered = new Map();
+        /**
+         * Labels drawn in the last frame, with where they landed. Read only by
+         * `pickAtCenter`, which is the crosshair's hit test.
+         * @type {Array<{id: string, sx: number, sy: number}>}
+         */
+        this._placed = [];
+        /** True while the crosshair replaces the cursor (immersive mode). */
+        this._aiming = false;
+        this._aimRadiusPx = 0;
+        /** Label currently lit by the aim, so the class moves instead of piling up. */
+        this._aimedEl = null;
 
         this._root = document.createElement('div');
         this._root.className = 'fp3d-labels';
@@ -117,6 +128,10 @@ export class FpMarkersLayer {
         }
         this._items.clear();
         this._covered.clear();
+        // Stale aim targets would let the crosshair open an item of the scene
+        // that was just replaced, in the frame before the next `update`.
+        this._placed = [];
+        this._aimedEl = null;
 
         for (const marker of markers || []) {
             if (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y) || !Number.isFinite(marker.z)) {
@@ -177,6 +192,9 @@ export class FpMarkersLayer {
         this._labelsVisible = !this._labelsVisible;
         if (!this._labelsVisible) {
             this.closePanel();
+            // The aim goes with them: a highlight left on a hidden label comes
+            // back lit when the labels return, pointing at nothing.
+            this._setAimed(null);
             for (const { el } of this._items.values()) {
                 el.classList.add('fp3d-label--hidden');
             }
@@ -298,7 +316,7 @@ export class FpMarkersLayer {
             c.el.classList.remove('fp3d-label--hidden');
             const w = (c.el.offsetWidth || FALLBACK_LABEL_WIDTH_PX) + BOX_SLACK_PX;
             const h = (c.el.offsetHeight || FALLBACK_LABEL_HEIGHT_PX) + BOX_SLACK_PX;
-            const box = { x: c.sx - w / 2, y: c.sy - h / 2, w, h, owner: c.el };
+            const box = { x: c.sx - w / 2, y: c.sy - h / 2, w, h, owner: c.el, id: c.id, sx: c.sx, sy: c.sy };
             const conflict = placed.find(
                 (o) =>
                     Math.abs(o.x + o.w / 2 - (box.x + box.w / 2)) < (o.w + box.w) / 2 &&
@@ -321,6 +339,12 @@ export class FpMarkersLayer {
             c.el.style.opacity = String(Math.max(MIN_LABEL_OPACITY, 1 - c.dist / MAX_DISTANCE_M));
         }
 
+        // Kept for the crosshair: with the pointer LOCKED the browser sends every
+        // click to the locked element, so no label can be hit by DOM hit-testing
+        // and the only way to know what the visitor is aiming at is where the
+        // labels ended up this frame. See `pickAtCenter`.
+        this._placed = placed;
+
         for (const box of placed) {
             const n = this._covered.get(box.owner)?.length ?? 0;
             const base = box.owner.dataset.title ?? '';
@@ -332,6 +356,13 @@ export class FpMarkersLayer {
             box.owner.title = n > 0
                 ? `${base} e mais ${n} ${n === 1 ? 'item' : 'itens'} neste ponto. Clique para escolher.`
                 : '';
+        }
+
+        // The aim, last, because it reads `_placed` that the loop above just
+        // finished writing. Outside the immersive mode this costs nothing: the
+        // flag is false and `:hover` is doing the job instead.
+        if (this._aiming) {
+            this._setAimed(this._nearestToCenter(width, height, this._aimRadiusPx)?.owner ?? null);
         }
     }
 
@@ -347,6 +378,105 @@ export class FpMarkersLayer {
         this._covered.clear();
         this.closePanel();
         this._root.remove();
+    }
+
+    /**
+     * Opens whatever the CROSSHAIR is on, for the immersive mode.
+     *
+     * IT EXISTS BECAUSE A LOCKED POINTER CANNOT CLICK. Every label is a real DOM
+     * button and an ordinary click reaches it by hit-testing — but with the
+     * pointer locked the browser delivers all mouse events to the locked element
+     * and the labels never see one. So the aim is resolved here, in screen
+     * space, against the labels this frame actually drew (`_placed`, written by
+     * `update`).
+     *
+     * NEAREST TO THE CENTRE WINS, inside a radius, rather than "the label whose
+     * box contains the centre". The boxes are small, they never overlap (the
+     * layer's own tie-break guarantees it) and a crosshair that only fires on a
+     * direct hit makes the visitor sweep the room hunting for a pixel. The
+     * radius is what keeps it from opening a label on the far side of the view.
+     *
+     * @param {number} width - Canvas width, in pixels.
+     * @param {number} height - Canvas height, in pixels.
+     * @param {number} radiusPx - How far from the centre a label still counts.
+     * @returns {string} What it did: `'none'`, `'item'`, `'closed'` or `'pile'`.
+     *   The caller needs `'pile'` apart from the rest, because a list of items to
+     *   choose from is useless to somebody with no cursor.
+     */
+    pickAtCenter(width, height, radiusPx) {
+        const best = this._nearestToCenter(width, height, radiusPx);
+        if (!best) return 'none';
+
+        const entry = this._items.get(best.id);
+        if (!entry) return 'none';
+
+        // The very same call the label's own click makes, so a pile opens its
+        // list here too and there is one behaviour to keep true, not two.
+        return this._toggleMarker(best.id, entry.marker);
+    }
+
+    /**
+     * The label the crosshair is on, or null.
+     *
+     * THE HIGHLIGHT AND THE CLICK MUST NOT BE TWO ANSWERS. Both go through here,
+     * so what lights up is by construction what a click would open — the one
+     * failure a crosshair cannot afford is pointing at one thing and firing at
+     * another.
+     *
+     * @param {number} width - Canvas width, in pixels.
+     * @param {number} height - Canvas height, in pixels.
+     * @param {number} radiusPx - How far from the centre a label still counts.
+     * @returns {{id: string, sx: number, sy: number, owner: HTMLButtonElement}|null} The aimed label.
+     * @private
+     */
+    _nearestToCenter(width, height, radiusPx) {
+        if (!this._labelsVisible || !this._interactive || !this._placed?.length) {
+            return null;
+        }
+        const cx = width / 2;
+        const cy = height / 2;
+
+        let best = null;
+        let bestDist = radiusPx;
+        for (const box of this._placed) {
+            const dist = Math.hypot(box.sx - cx, box.sy - cy);
+            if (dist <= bestDist) {
+                bestDist = dist;
+                best = box;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Turns the crosshair aim on or off.
+     *
+     * Only the immersive mode uses it: outside it there is a cursor, the labels
+     * are ordinary buttons and `:hover` already does this job — running an aim
+     * test every frame to light a label nobody is pointing at would be work
+     * spent to mislead.
+     *
+     * @param {boolean} enabled - True while the pointer is locked.
+     * @param {number} radiusPx - Same radius the click uses.
+     */
+    setAim(enabled, radiusPx) {
+        this._aiming = enabled === true;
+        this._aimRadiusPx = Number.isFinite(radiusPx) && radiusPx > 0 ? radiusPx : 0;
+        if (!this._aiming) {
+            this._setAimed(null);
+        }
+    }
+
+    /**
+     * Moves the aim highlight to one label, or to none.
+     * @param {HTMLButtonElement|null} el - Label to light, or null.
+     * @private
+     */
+    _setAimed(el) {
+        if (this._aimedEl === el) return;
+        this._aimedEl?.classList.remove('fp3d-label--aimed');
+        el?.classList.add('fp3d-label--aimed');
+        this._aimedEl = el ?? null;
     }
 
     /**
@@ -382,18 +512,21 @@ export class FpMarkersLayer {
      *
      * @param {string} id - Marker id.
      * @param {FpMarker} marker - Marker data.
+     * @returns {string} `'pile'`, `'closed'` or `'item'` — what the click did.
+     *   The crosshair caller acts on `'pile'`; the label's own click ignores it.
      */
     _toggleMarker(id, marker) {
         const coveredIds = this._covered.get(this._items.get(id)?.el) ?? [];
         if (coveredIds.length > 0) {
             this._emitList([marker, ...this._markersOf(coveredIds)], 'Itens neste ponto', true);
-            return;
+            return 'pile';
         }
         if (this._openId === id) {
             this.closePanel();
-            return;
+            return 'closed';
         }
         this._open(id, marker);
+        return 'item';
     }
 
     /**

@@ -41,6 +41,16 @@ let callbacks = {
     undoMeasurement: null,
     /** Delete - clears every measurement. */
     clearMeasurement: null,
+    /**
+     * Esc 0 - leaves the immersive mode.
+     *
+     * A SAFETY NET, and expected to be dead code in Chrome: the browser exits
+     * pointer lock on Escape ITSELF and does not deliver that keydown to the
+     * page, so this step normally never runs. It is here for the browser that
+     * delivers it, where without it one Escape would leave the mode AND close
+     * the card behind it.
+     */
+    exitImmersive: null,
     /** Esc 1 - closes the open marker card. */
     closeMarkerPanel: null,
     /** Esc 2 - closes the polyline still being drawn. */
@@ -162,6 +172,8 @@ function handleKeyDown(e) {
 
 /**
  * Esc - the cascade, in this order, stopping at the first step that acts:
+ *   0. immersive mode on -> leave it (see `exitImmersive`: normally the browser
+ *      has already done this and never told us);
  *   1. marker card open -> close it (otherwise the visitor is stuck with the
  *      card on screen and no way out through the keyboard);
  *   2. measurement being drawn -> finish the open polyline;
@@ -173,6 +185,7 @@ function handleKeyDown(e) {
  */
 function runEscapeCascade() {
     const cascade = [
+        callbacks.exitImmersive,
         callbacks.closeMarkerPanel,
         callbacks.finishMeasurement,
         callbacks.disableMeasurement

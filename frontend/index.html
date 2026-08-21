@@ -368,6 +368,28 @@
              Os mesmos atalhos estão na modal de atalhos (bloco "Primeira
              Pessoa"); esta é a cópia visível para quem entra na cena e não abriu
              a modal. Se um atalho mudar, mude nos dois lugares. -->
+        <!-- MODO IMERSIVO: a mira e o aviso, ambos escondidos até o ponteiro
+             ser preso de fato. Vivem DENTRO do container pelo mesmo motivo da
+             legenda de teclas: aparecem e somem com a cena.
+
+             A mira não recebe ponteiro NUNCA: ela fica no centro exato, que é
+             justamente onde o visitante mira, e um alvo clicável ali seria um
+             buraco no arrasto que gira a câmera fora do modo. -->
+        <div class="fp3d-crosshair fp3d-hidden" aria-hidden="true">
+            <span class="fp3d-crosshair__dot"></span>
+        </div>
+        <!-- O aviso é um BOTÃO de verdade, e desliga o modo. Enquanto o ponteiro
+             está preso ele não pode ser clicado (o navegador entrega todo clique
+             ao elemento travado e some com o cursor), então ali ele é aviso, e a
+             saída são ESC e o botão direito, que é o que o texto dele diz. Solto
+             o ponteiro — o navegador devolve sozinho ao trocar de aba ou perder
+             o foco — ele volta a ser o caminho de clique para sair. -->
+        <button type="button" class="fp3d-immersive-badge fp3d-hidden"
+            aria-label="Modo imersivo ligado. Sair com ESC ou botão direito">
+            <span class="fp3d-immersive-badge__dot"></span>
+            <span>Modo imersivo</span>
+            <span class="fp3d-immersive-badge__hint">ESC ou botão direito para sair</span>
+        </button>
         <div class="fp3d-keyhints">
             <!-- O teclado direcional desenhado na forma dele: o W em cima do S,
                  e A S D embaixo. A FORMA é a legenda, então não há texto ao
@@ -604,6 +626,17 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12.6 2.6a2 2 0 0 0-1.4-.6H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.2 8.2a2 2 0 0 0 2.8 0l7.2-7.2a2 2 0 0 0 0-2.8z"/>
                 <circle cx="7" cy="7" r="1.2" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
+        <button id="immersive-fp" class="button-tool-fp" type="button" aria-pressed="false"
+            aria-label="Modo imersivo: a visão segue o mouse">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="8"/>
+                <line x1="12" y1="1.5" x2="12" y2="6"/>
+                <line x1="12" y1="18" x2="12" y2="22.5"/>
+                <line x1="1.5" y1="12" x2="6" y2="12"/>
+                <line x1="18" y1="12" x2="22.5" y2="12"/>
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
             </svg>
         </button>
         <div class="toolbar-fp-separator"></div>
