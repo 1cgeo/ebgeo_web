@@ -79,6 +79,41 @@ async function convergedValue(db, pages, id, ler, timeout = 25000) {
     return valor;
 }
 
+/**
+ * Mesma ideia do `convergedValue`, para GEOMETRIA: relê o servidor A CADA amostra e cobra dos
+ * clientes o valor que ele tem NAQUELE instante, devolvendo a chave vencedora.
+ *
+ * O `waitForAcked` que antecede a chamada prova só que cada cliente recebeu o ack da PRÓPRIA
+ * op. Ele não prova que a op do OUTRO cliente já foi ordenada e gravada, então o servidor
+ * ainda pode trocar de vencedor depois de uma leitura única. Congelar o alvo nessa leitura
+ * fazia o poll perseguir uma geometria já morta, e o resultado virava sorteio: passava se a
+ * op perdedora chegasse antes da leitura, falhava se chegasse depois.
+ *
+ * O `esperadas` mantém o alvo amarrado à REALIDADE, e é o que impede a tautologia: enquanto o
+ * servidor não tiver uma das geometrias em disputa (pode ainda estar na do create), a amostra
+ * não vale e o poll continua. Sem isso, "cliente igual ao servidor" passaria com o servidor
+ * guardando qualquer coisa. Uma geometria ilegítima ESTÁVEL nunca satisfaz o predicado, e a
+ * mensagem de falha traz o valor que o servidor tinha.
+ */
+async function convergedGeomKey(db, pages, id, esperadas, timeout = 25000) {
+    let vencedora = null;
+    await expect
+        .poll(async () => {
+            const row = await db.queryFeatureRow(id);
+            const servidor = row?.geometry?.coordinates ? JSON.stringify(row.geometry.coordinates) : null;
+            if (!servidor) return 'servidor-sem-geometria';
+            if (!esperadas.includes(servidor)) return `servidor-fora-da-disputa(${servidor})`;
+            const clientes = await Promise.all(pages.map((p) => lineGeomKey(p, id)));
+            vencedora = clientes.every((c) => c === servidor) ? servidor : null;
+            return vencedora ? 'convergiu' : `servidor=${servidor} clientes=${clientes.join(' | ')}`;
+        }, {
+            timeout,
+            message: 'todos os clientes concordam com a geometria que o servidor tem AGORA, e ela é uma das que estavam em disputa',
+        })
+        .toBe('convergiu');
+    return vencedora;
+}
+
 // The coordinates the real line tool draws (also where the camera is fit before the clicks).
 const LINE_COORDS = [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
@@ -286,8 +321,8 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
 
         // Mesma correção do teste de cor, pelo mesmo motivo: esperar "A e B concordam" e
         // depois só conferir que o backend tem UMA DAS DUAS geometrias aceita um estado
-        // transitório como se fosse convergência. O servidor decide primeiro; os clientes
-        // respondem a ele.
+        // transitório como se fosse convergência. O servidor decide, e é relido a cada
+        // amostra; os clientes respondem a ele.
         const ka = JSON.stringify(geomA.coordinates);
         const kb = JSON.stringify(geomB.coordinates);
         for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
@@ -295,18 +330,16 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
             expect(enq, `o move de ${quem} virou operação na fila`).toBeTruthy();
             await waitForAcked(page, enq.opId, 25000);
         }
-        const frow = await collab.db.queryFeatureRow(id);
-        const backendKey = JSON.stringify(frow?.geometry?.coordinates);
-        expect([ka, kb], 'o backend gravou uma das duas geometrias em disputa').toContain(backendKey);
+        // Servidor e clientes AMOSTRADOS JUNTOS, como nos casos irmãos. A versão anterior lia
+        // `queryFeatureRow` UMA vez, congelava a chave e polava os clientes contra esse retrato:
+        // o alvo nunca era reavaliado, e uma escrita que chegasse ao backend depois da leitura
+        // deixava o poll perseguindo uma geometria que já tinha morrido. Como o ack só prova a
+        // op do próprio cliente, essa chegada tardia é o caso NORMAL, não a exceção.
+        const vencedora = await convergedGeomKey(collab.db, [A, B], id, [ka, kb]);
 
-        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
-            await expect
-                .poll(() => lineGeomKey(page, id), {
-                    timeout: 20000,
-                    message: `${quem} convergiu para a geometria que o servidor gravou`,
-                })
-                .toBe(backendKey);
-        }
+        // Absoluta, e não só o poll acima: é ela que impede o teste de virar tautologia, porque
+        // "cliente igual ao servidor" nada vale se ninguém olhar o que o servidor gravou.
+        expect([ka, kb], 'o backend gravou uma das duas geometrias em disputa').toContain(vencedora);
     });
 
     collabTest('concurrent UPDATE (A) vs DELETE (B) of the SAME line → both clients converge', async ({ collab }) => {
