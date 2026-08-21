@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { query } from '../../database/index.js';
 import * as Q from './sv360.queries.js';
+import * as PQ from './sv360.pyramid.queries.js';
 import * as TQ from './sv360.tiles.queries.js';
 import * as blobstore from './sv360.blobstore.js';
 import { TILES_GEOJSON_MAX_FEATURES } from './sv360.schemas.js';
@@ -391,6 +392,54 @@ export async function getPhotoImageMeta(uuid, quality, user, atlasId = null) {
     // sozinho já errou: `disabled` oculta, `private` restringe, e a imagem de um
     // projeto `enabled + private` viajava marcada `public, immutable` (P6, corrigido
     // na fase F9).
+    projectStatus: row.project_status,
+    projectAccessLevel: row.access_level,
+  };
+}
+
+/**
+ * Metadado da PIRÂMIDE de uma foto: o descritor que o cliente lê antes de pedir tile.
+ *
+ * O gate é o MESMO de `getPhotoImageMeta`, e ser o mesmo é o requisito, não o estilo:
+ * a pirâmide é uma segunda porta para o mesmo pixel, e um recurso que sai por muitas
+ * portas não fica protegido pelo predicado de uma delas. O censo de superfícies dos
+ * dois pacotes cobra esta linha.
+ *
+ * O ETAG NÃO É `immutable`, e a diferença em relação à imagem é de natureza: o WebP de
+ * uma foto é imutável enquanto existir, mas a ESCADA se regera. A assinatura junta
+ * `built_at` e `total_bytes` justamente porque os dois mudam numa regeração; marcar o
+ * descritor como imutável pregaria a escada velha no navegador por um ano.
+ * @param {string} uuid - photo id (TEXT uuid v5)
+ * @param {Object} [user] - caller
+ * @param {string|null} [atlasId] - atlas em foco, JÁ confirmado pelo gate de rota
+ * @returns {Promise<Object>} descritor + o que o controller precisa para cache e leitura
+ */
+export async function getPhotoPyramidMeta(uuid, user, atlasId = null) {
+  const { rows } = await query(PQ.GET_PHOTO_PYRAMID, [uuid, ...readScope(user, atlasId)]);
+  const row = rows[0];
+  if (!row) throw new NotFoundError('Pyramid');
+  enforceProjectReadable(
+    { status: row.project_status, organization_id: row.organization_id },
+    user,
+    'Pyramid'
+  );
+
+  const builtAt = row.built_at instanceof Date ? row.built_at.toISOString() : String(row.built_at);
+  return {
+    descritor: {
+      photoId: uuid,
+      tileSize: row.tile_size,
+      maxLevel: row.max_level,
+      width: row.width,
+      height: row.height,
+      quality: row.quality,
+      tileCount: row.tile_count,
+      totalBytes: Number(row.total_bytes),
+      builtAt,
+      razao: row.razao,
+    },
+    tilesDbFile: blobstore.resolveTilesDbPath(row.db_filename),
+    etag: `"${uuid}-pyr-${Number(row.total_bytes)}-${builtAt}"`,
     projectStatus: row.project_status,
     projectAccessLevel: row.access_level,
   };

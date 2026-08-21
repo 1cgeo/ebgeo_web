@@ -51,6 +51,70 @@ export async function getImage(dbFile, photoId, quality) {
 }
 
 /**
+ * Resolves the absolute path of a project's {slug}_tiles.db — the SECOND SQLite file
+ * of a project, holding the tile pyramids of its panoramas.
+ *
+ * WHY A SECOND FILE, and not more columns in {slug}.db. It mirrors the origin
+ * (ebgeo_360 writes `{slug}_tiles.db` beside `{slug}.db`), which is what lets a bundle
+ * be copied over without a conversion step. It also keeps the two lifetimes apart: the
+ * origin RETIRED the `full_webp`/`preview_webp` columns of 29 projects (64.6 GB freed)
+ * and the pyramid file is now the only source of pixels for them, so a project can
+ * legitimately arrive with one file and not the other.
+ *
+ * The name is DERIVED from db_filename, which always comes from Postgres, never from
+ * user input; path.basename strips any directory component as a traversal defense —
+ * same rule as resolveDbPath, applied BEFORE the suffix is appended so that a crafted
+ * value cannot escape by hiding in the extension.
+ * @param {string} dbFilename - the project's db_filename (e.g. 'org__proj.db')
+ * @returns {string} absolute path of the tiles db under config.sv360.dbDir
+ */
+export function resolveTilesDbPath(dbFilename) {
+  const base = path.basename(String(dbFilename));
+  const semExtensao = base.endsWith('.db') ? base.slice(0, -3) : base;
+  return path.resolve(config.sv360.dbDir, `${semExtensao}_tiles.db`);
+}
+
+/**
+ * Reads ONE tile of a photo's pyramid from {slug}_tiles.db, on a worker thread.
+ *
+ * The four bound values are the table's PRIMARY KEY, so the lookup is a btree seek.
+ * Range validation belongs to the CALLER: a tile outside the pyramid is a 404 here,
+ * not a 400, because the client addresses tiles from a descriptor this server issued.
+ *
+ * Same swap-window guard as getImage: during an ingestion the destination file is
+ * momentarily ABSENT (it lives under .bak while .tmp is renamed over it), and a bare
+ * existsSync would report a live tile as missing.
+ * @param {string} tilesDbFile - absolute path from resolveTilesDbPath()
+ * @param {string} photoId - TEXT uuid v5 photo id (bound parameter)
+ * @param {number} level - pyramid level (0 is the coarsest)
+ * @param {number} x - column, origin at the left
+ * @param {number} y - row, origin at the top
+ * @returns {Promise<Buffer|null>} the WebP BLOB, or null if db/row is absent
+ */
+export async function getTile(tilesDbFile, photoId, level, x, y) {
+  if (typeof blobPool.whenAvailable === 'function') await blobPool.whenAvailable(tilesDbFile);
+  if (!existsSync(tilesDbFile)) return null;
+  return blobPool.read(
+    tilesDbFile,
+    'SELECT webp FROM tiles WHERE photo_id = ? AND level = ? AND x = ? AND y = ?',
+    [photoId, level, x, y]
+  );
+}
+
+/**
+ * Does this project have a tiles db at all?
+ *
+ * Used by the ingest to tell "só-tiles archive" (a NORMAL state since the origin
+ * retired the blobs) apart from "project with no source of pixels at all" (a defect
+ * that would only surface as a photo that never paints).
+ * @param {string} dbFilename - the project's db_filename
+ * @returns {boolean} true when the {slug}_tiles.db file exists
+ */
+export function hasTilesDb(dbFilename) {
+  return existsSync(resolveTilesDbPath(dbFilename));
+}
+
+/**
  * Terminates the worker pool, releasing every {slug}.db file handle. Required
  * before deleting a .db on Windows (EBUSY otherwise) — used in test teardown and
  * graceful shutdown. The pool is shared with the assets3d store.

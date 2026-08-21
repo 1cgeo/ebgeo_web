@@ -342,6 +342,24 @@ const CENSO_CONSULTA = [
       + '`public, max-age=1ano, immutable`.',
   },
   {
+    arquivo: 'src/modules/streetview360/sv360.pyramid.queries.js', unidade: 'GET_PHOTO_PYRAMID', n: 2,
+    classe: SQL, predicado: P_360,
+    motivo: 'A SEGUNDA porta para o mesmo pixel: desde que a origem aposentou `full_webp`, a '
+      + 'panorâmica chega em pirâmide de tiles, e esta consulta é o descritor da escada mais o '
+      + 'caminho do {slug}_tiles.db. Ela nasce com o predicado porque a lição já foi paga uma vez '
+      + 'neste módulo: o predicado do MVT passou verde ao ser revertido, já que a suíte media '
+      + 'privacidade na listagem e nunca no tile.',
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.pyramid.queries.js', unidade: 'COUNT_PROJECT_PYRAMIDS', n: 1,
+    classe: ESCRITA, predicado: 'requireUploadCapability',
+    motivo: 'Conferência de INGESTÃO, não superfície de leitura: conta quantas fotos vivas de um '
+      + 'projeto têm pirâmide, para o ingest recusar acervo que chegou sem nenhuma fonte de pixel. '
+      + 'Roda atrás do upload de bundle, que é administrador ou produtor da OM, e nunca responde a '
+      + 'chamador anônimo. Não recorta por leitor porque não entrega dado: devolve uma contagem '
+      + 'sobre o projeto que o próprio chamador está subindo.',
+  },
+  {
     arquivo: 'src/modules/streetview360/sv360.queries.js', unidade: 'NEARBY_PHOTOS', n: 2,
     classe: SQL, predicado: P_360,
     motivo: 'A busca ESPACIAL de fotos, que alimenta `/photos/nearest`. Sem predicado ela dispensava '
@@ -472,6 +490,13 @@ const CENSO_CONSULTA = [
     motivo: `${DERIVA_DA_FOTO} Ela devolve TAMBÉM o `
       + '`access_level`, porque o escopo de cache da imagem tem dois eixos e um deles não estava '
       + 'sendo consultado.',
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.service.js', unidade: 'getPhotoPyramidMeta', n: 1,
+    classe: DERIVADO,
+    predicado: 'src/modules/streetview360/sv360.pyramid.queries.js::GET_PHOTO_PYRAMID',
+    motivo: `${DERIVA_DA_FOTO} Serve as DUAS rotas da pirâmide (descritor e tile), então o gate `
+      + 'roda uma vez por pedido de tile também, e não só na abertura da foto.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.service.js', unidade: 'nearby', n: 1,
@@ -779,6 +804,19 @@ const CENSO_ROTA = [
       + 'imagem e ainda a marcava `public, max-age=1ano, immutable`.',
   },
   {
+    arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'GET /photos/:uuid/tiles.json',
+    classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
+    motivo: `${LEITURA_360} O descritor da pirâmide: diz que a foto existe, o tamanho nativo dela e `
+      + 'quantos níveis tem. Sem predicado, seria um oráculo de existência do acervo restrito, '
+      + 'mesmo sem entregar um pixel.',
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'GET /photos/:uuid/tiles/:level/:x/:y',
+    classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
+    motivo: `${LEITURA_360} Esta serve os BYTES, como a de imagem: desde a poda dos blobs na origem, `
+      + 'é por aqui que a panorâmica inteira sai, um tile por vez.',
+  },
+  {
     arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'GET /photos/nearest',
     classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
     motivo: `${LEITURA_360} Esta é a que dispensa identificador: a resposta vem de um par lon/lat, `
@@ -881,6 +919,15 @@ const CENSO_ROTA = [
 /** @type {EntradaDeCache[]} */
 const CENSO_CACHE = [
   {
+    arquivo: 'src/modules/streetview360/sv360.controller.js',
+    trecho: "isPublic ? 'no-cache' : 'private, no-cache'", n: 1,
+    classe: C_CONDICIONAL,
+    motivo: 'O DESCRITOR da pirâmide, e o único regime deste módulo que NÃO é imutável: a escada se '
+      + 'regera, então pregá-lo por um ano deixaria o cliente pedindo tiles de uma pirâmide que não '
+      + 'existe mais. `no-cache` guarda e revalida, então em regime normal continua custando um 304. '
+      + 'Os dois eixos (status + access_level) decidem `public` vs `private`, como na imagem.',
+  },
+  {
     arquivo: 'src/modules/config/config.controller.js', trecho: "'Cache-Control', 'no-cache'", n: 1,
     classe: C_SEM,
     motivo: 'O documento de boot é público e memoizado no servidor, mas o cliente precisa revalidar: '
@@ -953,9 +1000,12 @@ const CENSO_CACHE = [
   },
   {
     arquivo: 'src/modules/streetview360/sv360.controller.js',
-    trecho: 'isPublic ? IMMUTABLE_PUBLIC : IMMUTABLE_PRIVATE', n: 1, classe: C_CONDICIONAL,
+    trecho: 'isPublic ? IMMUTABLE_PUBLIC : IMMUTABLE_PRIVATE', n: 2, classe: C_CONDICIONAL,
     motivo: 'A linha em que os dois eixos viram um cabeçalho. Entra separada da função porque é o '
-      + 'ponto exato onde a conjunção pode virar disjunção sem ninguém notar.',
+      + 'ponto exato onde a conjunção pode virar disjunção sem ninguém notar. São DUAS ocorrências '
+      + 'desde 2026-08-20, e o texto delas é idêntico de propósito: `setImmutableHeaders` serve a '
+      + 'imagem e a miniatura, `setTileHeaders` serve o tile da pirâmide. Duas portas para o mesmo '
+      + 'pixel, mesma regra de escopo; se um dia divergirem, é aqui que a contagem avisa.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.controller.js',
@@ -970,10 +1020,13 @@ const CENSO_CACHE = [
       + 'e a que mais interessa a um cache — e por isso a que menos pode errar de escopo.',
   },
   {
-    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: "'no-store'", n: 1, classe: C_SEM,
-    motivo: 'O caminho de erro do serviço de blob: nada do que ele devolve pode ser guardado, porque '
-      + 'a divergência entre Postgres e o {slug}.db é transitória e um 404 cacheado a tornaria '
-      + 'permanente para aquele cliente.',
+    arquivo: 'src/modules/streetview360/sv360.controller.js', trecho: "'no-store'", n: 3, classe: C_SEM,
+    motivo: 'Os caminhos de ERRO do serviço de blob: nada do que eles devolvem pode ser guardado, '
+      + 'porque a divergência entre Postgres e o arquivo SQLite é transitória e um 404 cacheado a '
+      + 'tornaria permanente para aquele cliente. São TRÊS desde 2026-08-20: a imagem ausente, o '
+      + 'tile ausente, e o tile FORA DA ESCADA — este último é o único que não vem de divergência, '
+      + 'e mesmo assim não se cacheia, porque a escada muda numa regeração e um 404 pregado no '
+      + 'navegador sobreviveria à pirâmide nova.',
   },
 ];
 
@@ -993,6 +1046,14 @@ const SV360_CTRL = 'src/modules/streetview360/sv360.controller.js';
 const M_JSON = 'marcarEscopoJson(';
 const M_TILE = 'marcarEscopoDeTile(';
 const M_BYTES = 'setImmutableHeaders(';
+// A pirâmide NÃO usa `setImmutableHeaders`, e a divergência é de natureza, não de estilo.
+// O descritor é metadado MUTÁVEL: a escada se regera, então ele sai `no-cache` (guarde e
+// revalide) com validador, e nunca `immutable` — pregá-lo por um ano deixaria o cliente
+// pedindo tiles de uma pirâmide que não existe mais. O TILE, esse sim, é imutável de
+// verdade. Os dois decidem `public` vs `private` pelos MESMOS dois eixos da imagem
+// (status + access_level), que é o que esta varredura cobra.
+const M_PIRAMIDE_DESCRITOR = 'setPyramidDescriptorHeaders(';
+const M_PIRAMIDE_TILE = 'setTileHeaders(';
 
 /** Uma rota JSON do 360, que são onze e têm todas o mesmo regime. */
 const json360 = (rota, handler) => ({
@@ -1030,6 +1091,14 @@ const CENSO_REGIME = [
   {
     arquivo: SV360_ROTAS, rota: 'GET /photos/:uuid/image', handler: 'getPhotoImage',
     controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_BYTES,
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /photos/:uuid/tiles.json', handler: 'getPhotoPyramid',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_PIRAMIDE_DESCRITOR,
+  },
+  {
+    arquivo: SV360_ROTAS, rota: 'GET /photos/:uuid/tiles/:level/:x/:y', handler: 'getPhotoTile',
+    controller: SV360_CTRL, classe: C_CONDICIONAL, marcador: M_PIRAMIDE_TILE,
   },
 
   // ---------------- catálogo e payload aditivo -------------------------------
@@ -1596,7 +1665,7 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     assert.deepEqual(semRisco, [], 'rota pública por desenho precisa dizer qual é o RISCO');
   });
 
-  it('as QUINZE rotas de leitura do 360 têm TODAS o gate de escopo de atlas', () => {
+  it('as DEZESSETE rotas de leitura do 360 têm TODAS o gate de escopo de atlas', () => {
     // A COBRANÇA COLETIVA, e ela existe porque o modo de falha desta família é ficar
     // PARA TRÁS, nunca quebrar: quando o eixo de empréstimo foi ligado, as rotas de foto
     // não entraram, e a ausência delas não deu erro nenhum — deu 404 num panorama que o
@@ -1605,9 +1674,13 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
       (e) => e.arquivo === 'src/modules/streetview360/sv360.routes.js'
     );
     const deLeitura = doSv360.filter((e) => e.rota !== 'GET /admin/projects');
+    // Eram QUINZE até 2026-08-20, quando a pirâmide de tiles acrescentou duas (o descritor
+    // e o tile). O número é conferido de propósito, e não derivado: derivá-lo faria uma
+    // rota nova entrar na contagem sozinha, que é exatamente o descuido que esta cobrança
+    // existe para impedir.
     assert.equal(
-      deLeitura.length, 15,
-      `as rotas de leitura do 360 sao quinze; o censo lista ${deLeitura.length}`
+      deLeitura.length, 17,
+      `as rotas de leitura do 360 sao dezessete; o censo lista ${deLeitura.length}`
     );
     const semEscopo = deLeitura
       .filter((e) => e.gate !== 'requireAtlasScopeWhenPresent')
