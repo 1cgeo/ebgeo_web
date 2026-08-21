@@ -135,11 +135,23 @@ const photoSchema = Joi.object({
   // both level 0 in the Beira-Rio survey), so the label is not derivable from the
   // number. Null for a flat project, which has no floor to name.
   floor_label: Joi.string().trim().max(255).allow(null, ''),
-  // The O(1) ETag source — MUST be a non-negative integer (matches the images.db
-  // BLOB byte length; the cross-check against the actual BLOB is done by the
-  // service's validateImagesDb, not here).
-  full_size_bytes: Joi.number().integer().min(0).required(),
-  preview_size_bytes: Joi.number().integer().min(0).required(),
+  // The O(1) ETag source — a non-negative integer matching the images.db BLOB byte
+  // length (the cross-check against the actual BLOB is done by the service's
+  // validateImagesDb, not here).
+  //
+  // OPCIONAIS COM DEFAULT 0 desde 2026-08-20, e a mudanca e de CONTRATO CONGELADO,
+  // tomada de proposito. A origem aposentou `full_webp`/`preview_webp` e o acervo
+  // passou a ser so piramide de tiles: um manifesto desses simplesmente NAO TEM
+  // tamanho de blob para declarar. Enquanto os dois campos eram `.required()`, o
+  // manifesto novo morria na borda Joi, antes de qualquer leitura de arquivo, com
+  // uma mensagem sobre campo ausente que nao diz nada sobre o formato do acervo.
+  //
+  // Afrouxar aqui NAO afrouxa a exigencia de pixel: quem cobra passou a ser
+  // `validateImagesDb`, que ao ver `images` sem as colunas de blob EXIGE o
+  // `{slug}_tiles.db` com piramide cobrindo toda foto viva. A guarda foi TROCADA,
+  // e o zero significa "esta foto nao tem blob", nunca "nao conferimos".
+  full_size_bytes: Joi.number().integer().min(0).optional().default(0),
+  preview_size_bytes: Joi.number().integer().min(0).optional().default(0),
   calibration_reviewed: Joi.boolean().allow(null),
   capture_date: captureDate.allow(null),
 }).unknown(true);
