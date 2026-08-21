@@ -68,13 +68,13 @@ const ALVOS = [
     // exatamente como este envelheceu.
     'frontend/tests/TESTING.md',
     'frontend/tests/TESTING-BACKLOG.md',
-    // Pendências da integração de 2026-08-20, na RAIZ a pedido do dono. Ela cita cerca
-    // de trinta caminhos e uma dúzia de símbolos dos dois pacotes, e é escrita para ser
-    // EXECUTADA por quem chegar depois: um caminho que apodreça aqui manda a próxima
-    // sessão procurar arquivo que não existe. Documento de trabalho pendente é o que
-    // mais depressa perde sincronia, porque ele descreve o que ainda vai mudar.
-    'PENDENCIAS-INTEGRACAO-MAIN-360.md',
 ];
+// O `PENDENCIAS-INTEGRACAO-MAIN-360.md` esteve aqui até 2026-08-21, e saiu com o
+// arquivo. Ele não foi marcado como resolvido: foi APAGADO, e o que sobrou dele
+// (as dívidas que continuam abertas) virou entrada em `docs/decisions/decisions-2026.md`.
+// A razão está lá por extenso, e é a mesma que este guarda já servia: documento de
+// trabalho pendente é o que mais depressa perde sincronia, porque descreve o que ainda
+// vai mudar, e conferir código contra ele confirma frase falsa com ar de verificação.
 // `.claude/agents` entrou depois: a auditoria de 2026-07-18 achou erro real em
 // arquivo de agente (e no extinto launch.json) justamente por estarem fora desta
 // lista. Cobertura que para na borda de um diretório é cobertura que não cobre.
