@@ -58,9 +58,17 @@ export const sv360AccessPredicate = (pUser, pAtlas, alias = '') => `(
 // List projects. `enabled` is always public; disabled projects are visible only
 // to a global admin/credenciado or to the PRODUCING organization.
 //   $1 = userId (uuid, nullable), $2 = atlasId (uuid, nullable)
+//
+// `db_filename` VIAJA NO SELECT e NÃO é dado público: `publicProjectView` é uma
+// LISTA DE PERMISSÃO, e o nome do store em disco só sai dela para o admin (como já
+// saía em GET_PROJECT_BY_SLUG). A coluna entrou porque a miniatura é ORG-KEYED
+// ({orgId}__{slug}.webp) e é DELA que o nome do arquivo se deriva: sem a coluna, a
+// listagem não teria como saber se o arquivo existe e voltaria a prometer uma
+// imagem que responde 404. A checagem de disco roda DEPOIS deste WHERE, ou seja,
+// só sobre linhas que o predicado já entregou ao chamador.
 export const LIST_PROJECTS = `
   SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
-         capture_date
+         capture_date, db_filename
   FROM sv360.projects
   WHERE ${sv360AccessPredicate(1, 2)}
   ORDER BY name

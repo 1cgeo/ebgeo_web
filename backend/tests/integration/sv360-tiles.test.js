@@ -13,7 +13,7 @@
 // blobs AND a small {slug}.webp thumbnail into config.sv360.dbDir. TEARDOWN order
 // (Windows EBUSY): closeStore() before deleting the .db, then files, then rows.
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
@@ -386,5 +386,201 @@ describe('StreetView 360 — cross-org thumbnail isolation (stage 3b)', () => {
       .set('Authorization', `Bearer ${otherOrgToken}`)
       .expect(200);
     assert.ok(res.body.equals(secretThumb), 'owning-org member sees their own org thumbnail');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `previewThumbnail` SÓ QUANDO O ARQUIVO EXISTE — e a checagem DEPOIS do gate.
+//
+// O DEFEITO CONSERTADO: o campo era interpolação pura (`/thumbnails/${slug}.webp`)
+// em `publicProjectView` e em `buildPhotoMetadata`, emitida para TODO projeto. Mas
+// a miniatura sempre foi OPCIONAL do lado do escritor (`sv360.admin.service.js` só
+// a copia `if (thumbnailPath && existsSync(thumbnailPath))`, e engole a falha de
+// propósito), então projeto sem miniatura é caso NORMAL. O catálogo pedia uma
+// imagem que respondia 404 em cada um deles.
+//
+// A ARMADILHA, e é ela que o último caso guarda: as quatro camadas do gate de
+// leitura da rota de miniatura (basename, predicado no SQL, isProjectReadable,
+// existsSync) desabam no MESMO 404. "Projeto não existe", "existe mas você não o
+// alcança" e "existe, você o alcança, mas não tem arquivo" são INDISTINGUÍVEIS
+// para o cliente, e essa indistinguibilidade é propriedade de segurança, não
+// acidente. Um `hasThumbnail` calculado ANTES do gate viraria canal lateral: o
+// disco denunciaria a existência de projeto privado.
+//
+// Por isso a checagem roda sobre linha que o predicado do SQL JÁ entregou. Quem
+// alcança o projeto descobre se ele tem miniatura; quem não alcança continua vendo
+// exatamente o mesmo nada — com ou sem arquivo em disco.
+// ---------------------------------------------------------------------------
+describe('StreetView 360 — previewThumbnail só quando o arquivo existe', () => {
+  let app, db, orgOutraId, produtorToken;
+  let idComThumb, idSemThumb, idPrivado;
+  let thumbComPath, thumbPrivadoPath;
+  const sufixo = crypto.randomUUID().slice(0, 8);
+  const SLUG_COM = `thumb-com-${sufixo}`;
+  const SLUG_SEM = `thumb-sem-${sufixo}`;
+  const SLUG_PRIV = `thumb-priv-${sufixo}`;
+  const bufComThumb = Buffer.from('RIFFxxxxWEBP-tem-miniatura');
+  const bufPrivado = Buffer.from('RIFFxxxxWEBP-miniatura-de-projeto-privado');
+
+  // A resposta que o anônimo vê, inteira: lista + projeto por slug + miniatura.
+  // É a superfície ONDE o canal lateral apareceria, então o controle negativo
+  // compara as três de uma vez, e não só a que ele lembrou de olhar.
+  const respostaAnonima = async () => {
+    const lista = await supertest(app).get('/api/v1/sv360/projects').expect(200);
+    const porSlug = await supertest(app).get(`/api/v1/sv360/projects/${SLUG_PRIV}`);
+    const miniatura = await supertest(app).get(`/api/v1/sv360/thumbnails/${SLUG_PRIV}.webp`);
+    return {
+      lista: lista.body,
+      statusPorSlug: porSlug.status,
+      corpoPorSlug: porSlug.body,
+      statusMiniatura: miniatura.status,
+    };
+  };
+
+  before(async () => {
+    const env = await setupTestEnv();
+    app = env.app;
+    db = env.db;
+
+    const org = await db.query(`SELECT id FROM public.organizations WHERE slug = 'default'`);
+    const orgDefaultId = org.rows[0].id;
+    const org2 = await db.query(
+      `INSERT INTO public.organizations (nome, slug, sigla) VALUES ($1, $2, 'THUMBO')
+       ON CONFLICT (slug) DO UPDATE SET nome = EXCLUDED.nome RETURNING id`,
+      [`OM Thumb ${sufixo}`, `sv360-thumb-om-${sufixo}`]
+    );
+    orgOutraId = org2.rows[0].id;
+
+    const inserir = async (orgId, slug, nome, accessLevel) => {
+      const { rows } = await db.query(
+        `INSERT INTO sv360.projects
+           (organization_id, slug, name, center_lat, center_long, db_filename,
+            status, photo_count, access_level)
+         VALUES ($1, $2, $3, -23, -46, $4, 'enabled', 0, $5) RETURNING id`,
+        [orgId, slug, nome, `${orgId}__${slug}.db`, accessLevel]
+      );
+      return rows[0].id;
+    };
+
+    idComThumb = await inserir(orgDefaultId, SLUG_COM, 'Com miniatura', 'public');
+    idSemThumb = await inserir(orgDefaultId, SLUG_SEM, 'Sem miniatura', 'public');
+    // ENABLED + PRIVATE de OUTRA OM: o anônimo não o alcança, e o eixo é o de
+    // PRIVACIDADE (não o de ocultação), que é o que o predicado do SQL resolve.
+    idPrivado = await inserir(orgOutraId, SLUG_PRIV, 'Privado', 'private');
+
+    const produtor = await createProducerUser(db, orgOutraId, {
+      username: `thumb_prod_${sufixo}`,
+    });
+    produtorToken = jwt.sign(
+      {
+        sub: produtor.id, role: 'producer',
+        organization_id: orgOutraId, org_role: 'viewer', producer_org_id: orgOutraId,
+      },
+      config.jwt.secret,
+      { algorithm: 'HS256', expiresIn: '5m' }
+    );
+
+    // O NOME EM DISCO É ORG-KEYED, derivado do `db_filename`, e a URL é slug-only.
+    // Escrever `${slug}.webp` aqui daria um falso negativo com cara de conserto.
+    mkdirSync(config.sv360.dbDir, { recursive: true });
+    thumbComPath = path.join(config.sv360.dbDir, `${orgDefaultId}__${SLUG_COM}.webp`);
+    thumbPrivadoPath = path.join(config.sv360.dbDir, `${orgOutraId}__${SLUG_PRIV}.webp`);
+    writeFileSync(thumbComPath, bufComThumb);
+    writeFileSync(thumbPrivadoPath, bufPrivado);
+    // SLUG_SEM não ganha arquivo nenhum: é o projeto legível SEM miniatura.
+  });
+
+  // OS CASOS ALTERNAM O ARQUIVO DO PROJETO PRIVADO, então cada um começa do mesmo
+  // estado. Sem isto, um caso que falha no meio deixa o disco sujo e o CONTROLE
+  // NEGATIVO seguinte falha por arrasto, escondendo o que ele mede de verdade.
+  beforeEach(() => {
+    if (!existsSync(thumbPrivadoPath)) writeFileSync(thumbPrivadoPath, bufPrivado);
+  });
+
+  after(async () => {
+    for (const f of [thumbComPath, thumbPrivadoPath]) {
+      if (f && existsSync(f)) rmSync(f, { force: true });
+    }
+    await db.query(`DELETE FROM sv360.projects WHERE id = ANY($1::uuid[])`, [
+      [idComThumb, idSemThumb, idPrivado],
+    ]);
+    await db.query('DELETE FROM public.users WHERE producer_org_id = $1', [orgOutraId]);
+    await db.query(`DELETE FROM public.organizations WHERE id = $1`, [orgOutraId]);
+    await teardownTestEnv(db);
+  });
+
+  it('projeto legível COM arquivo: o campo continua vindo, relativo e sem /api/v1', async () => {
+    const res = await supertest(app).get('/api/v1/sv360/projects').expect(200);
+    const p = res.body.find((x) => x.slug === SLUG_COM);
+    assert.ok(p, 'o projeto público está listado');
+    assert.equal(p.previewThumbnail, `/thumbnails/${SLUG_COM}.webp`);
+    assert.ok(!p.previewThumbnail.startsWith('/api/v1'), 'relativo, sem /api/v1');
+
+    // E a URL anunciada RESPONDE. Uma asserção que só olha a string não reprova o
+    // defeito consertado: era exatamente uma string bem formada que dava 404.
+    const img = await supertest(app).get(`/api/v1/sv360${p.previewThumbnail}`).expect(200);
+    assert.ok(img.body.equals(bufComThumb), 'a miniatura anunciada é a que está em disco');
+  });
+
+  it('projeto legível SEM arquivo: o campo não promete a imagem', async () => {
+    const res = await supertest(app).get('/api/v1/sv360/projects').expect(200);
+    const p = res.body.find((x) => x.slug === SLUG_SEM);
+    assert.ok(p, 'o projeto público está listado (só a miniatura falta)');
+    assert.ok('previewThumbnail' in p, 'a chave não some da forma congelada');
+    assert.equal(p.previewThumbnail, null, 'null, e não uma URL que responde 404');
+
+    // A prova de que o null está CERTO: a URL que o código emitia responde 404.
+    await supertest(app).get(`/api/v1/sv360/thumbnails/${SLUG_SEM}.webp`).expect(404);
+
+    // O mesmo pelo caminho de projeto por slug, que é outra função (`getProject`)
+    // sobre a MESMA view: consertar uma e esquecer a outra é o erro provável.
+    const um = await supertest(app).get(`/api/v1/sv360/projects/${SLUG_SEM}`).expect(200);
+    assert.equal(um.body.previewThumbnail, null);
+  });
+
+  it('quem ALCANÇA o projeto privado descobre a miniatura (a descoberta é pós-gate)', async () => {
+    const res = await supertest(app)
+      .get(`/api/v1/sv360/projects/${SLUG_PRIV}`)
+      .set('Authorization', `Bearer ${produtorToken}`)
+      .expect(200);
+    assert.equal(res.body.previewThumbnail, `/thumbnails/${SLUG_PRIV}.webp`);
+
+    // Sem o arquivo, o MESMO chamador passa a ver null. É esta diferença — visível
+    // a quem pode ver o projeto — que o caso seguinte exige ser INVISÍVEL ao anônimo.
+    rmSync(thumbPrivadoPath, { force: true });
+    const semArquivo = await supertest(app)
+      .get(`/api/v1/sv360/projects/${SLUG_PRIV}`)
+      .set('Authorization', `Bearer ${produtorToken}`)
+      .expect(200);
+    assert.equal(semArquivo.body.previewThumbnail, null);
+    writeFileSync(thumbPrivadoPath, bufPrivado);
+  });
+
+  // O CONTROLE NEGATIVO QUE IMPEDE O CONSERTO DE VIRAR CANAL LATERAL.
+  //
+  // Ele REPROVA qualquer implementação que anuncie a existência antes do gate: se
+  // a miniatura em disco mudasse UM byte da resposta anônima, o disco de uma OM
+  // estaria respondendo perguntas sobre um projeto privado de outra.
+  it('projeto PRIVADO fora do alcance: a MESMA resposta, com ou sem miniatura em disco', async () => {
+    assert.ok(existsSync(thumbPrivadoPath), 'o caso começa COM a miniatura em disco');
+    const comArquivo = await respostaAnonima();
+
+    rmSync(thumbPrivadoPath, { force: true });
+    const semArquivo = await respostaAnonima();
+
+    assert.deepEqual(
+      semArquivo,
+      comArquivo,
+      'a presença do arquivo em disco não move um byte da resposta ao anônimo'
+    );
+    // E as duas continuam sendo o mesmo NADA de antes do conserto.
+    assert.equal(comArquivo.statusPorSlug, 404, 'o projeto privado é 404 para o anônimo');
+    assert.equal(comArquivo.statusMiniatura, 404, 'e a miniatura dele também');
+    assert.ok(
+      !comArquivo.lista.some((p) => p.slug === SLUG_PRIV),
+      'e ele não aparece na listagem anônima'
+    );
+
+    writeFileSync(thumbPrivadoPath, bufPrivado);
   });
 });

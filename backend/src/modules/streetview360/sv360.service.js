@@ -244,6 +244,69 @@ export async function listProjectFloors(slug, user, atlasId = null) {
 const THUMBNAILS_SEGMENT = '/thumbnails';
 
 /**
+ * Absolute FS path of a project's thumbnail, derived from its STORED
+ * `db_filename` — the single definition of the rule, shared by the reader
+ * (`resolveThumbnailPath`, which serves the bytes) and by the metadata views
+ * (which only need to know whether the file is there).
+ *
+ * The thumbnail is ORG-KEYED ({orgId}__{slug}.webp, parallel to the {orgId}__{slug}.db
+ * store), so two orgs sharing a slug never collide on disk nor leak across tenants.
+ * The URL is slug-only; the FILE is not, and that asymmetry is exactly why this
+ * derivation must not be re-typed at each call site.
+ *
+ * `path.basename` strips any directory component before the value reaches the
+ * filesystem (defense in depth: the name is server-derived at ingestion, never
+ * user input, but a second writer of that column would inherit the guard).
+ * @param {string} [dbFilename] - sv360.projects.db_filename
+ * @returns {string|null} absolute path, or null when the row carries no filename
+ */
+function thumbnailFilePath(dbFilename) {
+  if (!dbFilename) return null;
+  const thumbFile = String(dbFilename).replace(/\.db$/i, '.webp');
+  return path.resolve(config.sv360.dbDir, path.basename(thumbFile));
+}
+
+/**
+ * The `previewThumbnail` of a project ALREADY PAST THE READ GATE, or null when
+ * the file is absent.
+ *
+ * WHY THE EXISTENCE CHECK AND NOT A CONSTANT STRING: the writer treats the
+ * thumbnail as OPTIONAL (`sv360.admin.service.js` only copies it
+ * `if (thumbnailPath && existsSync(thumbnailPath))`, and swallows a failure on
+ * purpose), so a project with no thumbnail is a NORMAL case — not an error. An
+ * unconditional URL promised an image that answered 404 for every one of them,
+ * and the three consumers all have a placeholder branch that could never be
+ * reached because the key was never falsy.
+ *
+ * WHY IT MUST STAY AFTER THE GATE, and this is the whole point: the four layers of
+ * `resolveThumbnailPath` (basename, SQL predicate, isProjectReadable, existsSync)
+ * collapse into the SAME 404, so "no such project", "private and out of your reach"
+ * and "readable but has no file" are indistinguishable to the client. That is a
+ * SECURITY PROPERTY. This function is only ever called on a row the SQL predicate
+ * already handed the caller, so whoever may see the project learns whether it has a
+ * thumbnail, and whoever may not keeps seeing exactly the same nothing. Never
+ * compute it for a row the caller has not been cleared for — a `hasThumbnail`
+ * column on an unfiltered listing would be a side channel revealing the existence
+ * of a private project.
+ *
+ * CUSTO MEDIDO (2026-08-21, Windows/NTFS, node 24, cache quente): 18 us por
+ * `existsSync`, 0,52 ms para os 29 projetos do corpus — abaixo do custo da própria
+ * consulta ao Postgres. A curva é linear e sai de graça só nessa ordem de grandeza:
+ * 1,9 ms a 100 projetos e 12,2 ms a 500. Se a listagem chegar às centenas, a saída
+ * medida é um `readdirSync` do dbDir por requisição (27 us a 29 arquivos, 138 us a
+ * 500), que troca o custo POR LINHA por um custo POR DIRETÓRIO. Não vale a
+ * complicação hoje, e o número está aqui para que a decisão de trocar seja medida
+ * e não intuída.
+ * @param {Object} project - row já liberado pelo gate de leitura, com `db_filename` e `slug`
+ * @returns {string|null} caminho RELATIVO (sem /api/v1), ou null quando não há arquivo
+ */
+function previewThumbnailUrl(project) {
+  const filePath = thumbnailFilePath(project.db_filename);
+  if (!filePath || !existsSync(filePath)) return null;
+  return `${THUMBNAILS_SEGMENT}/${project.slug}.webp`;
+}
+
+/**
  * Maps a `sv360.projects` row to the FROZEN public project shape.
  *
  * This shape is NOT this module's invention: it is the contract of the legacy
@@ -294,13 +357,23 @@ function publicProjectView(project, user) {
     location: project.location ?? null, // no column: always null
     center: { lat: project.center_lat, lon: project.center_long },
     entryPhotoId: project.entry_photo_id ?? null,
-    previewThumbnail: `${THUMBNAILS_SEGMENT}/${project.slug}.webp`,
+    // NULL QUANDO NÃO HÁ ARQUIVO, e a chave nunca some: os três consumidores
+    // (`catalog.service.js`, `atlas-settings.modal.js`, `streetview_markers.js`)
+    // testam a VERDADE do campo antes de montar a URL, então null cai no
+    // placeholder que cada um já tem. A chave presente segue a mesma regra de
+    // `description`/`location`/`captureDate` acima: a forma congelada não perde
+    // chave, ela perde VALOR. A checagem de disco roda AQUI, depois de a linha já
+    // ter passado pelo predicado do SQL — ver `previewThumbnailUrl`.
+    previewThumbnail: previewThumbnailUrl(project),
     photoCount: project.photo_count,
     status: project.status,
   };
   if (user?.role === 'admin') {
-    // The admin surface manages the on-disk stores by name. Undefined when the
-    // query did not select them (LIST_PROJECTS does not), and JSON drops those.
+    // The admin surface manages the on-disk stores by name. `db_filename` now
+    // travels in LIST_PROJECTS too (the thumbnail probe derives the ORG-KEYED
+    // name from it), so the admin listing carries it; `organization_id` is still
+    // only selected by the single-project queries. Undefined when the query did
+    // not select the column, and JSON drops undefined.
     view.db_filename = project.db_filename;
     view.organization_id = project.organization_id;
   }
@@ -832,12 +905,11 @@ export async function resolveThumbnailPath(slug, user, atlasId = null) {
   // Project missing OR hidden from the caller → indistinguishable 404 (no leak).
   if (!project || !isProjectReadable(project, user)) return null;
 
-  // The thumbnail is ORG-KEYED (parallel to {orgId}__{slug}.db), so two orgs that
-  // share a slug never collide on disk nor leak across tenants. Derive it from the
-  // resolved project's stored db_filename (already server-derived at ingestion).
-  const thumbFile = String(project.db_filename).replace(/\.db$/i, '.webp');
-  const filePath = path.resolve(config.sv360.dbDir, path.basename(thumbFile));
-  if (!existsSync(filePath)) return null;
+  // A derivação do nome ORG-KEYED mora em `thumbnailFilePath`, e é a MESMA que
+  // `previewThumbnailUrl` usa para decidir se anuncia a miniatura: duas cópias da
+  // regra fariam o catálogo prometer um arquivo que esta rota procura noutro nome.
+  const filePath = thumbnailFilePath(project.db_filename);
+  if (!filePath || !existsSync(filePath)) return null;
 
   // OS DOIS EIXOS viajam com o caminho, porque é com os dois que o controller decide
   // o escopo de cache: só um projeto `enabled` E `public` pode ir para um cache
@@ -898,7 +970,15 @@ export function buildPhotoMetadata(photo, targets, { includeHidden = false } = {
     // The URL is slug-only, but the FILE on disk is org-keyed
     // ({orgId}__{slug}.webp, derived from db_filename at ingestion); the route
     // GET /sv360/thumbnails/:slug.webp resolves one to the other.
-    previewThumbnail: `${THUMBNAILS_SEGMENT}/${photo.project_slug}.webp`,
+    //
+    // NULL when the project has no thumbnail on disk: the writer treats it as
+    // optional, so promising the URL unconditionally made the viewer request an
+    // image that 404s. Every row reaching here already passed the read gate (the
+    // four photo queries carry sv360AccessPredicate), so the check leaks nothing.
+    previewThumbnail: previewThumbnailUrl({
+      db_filename: photo.db_filename,
+      slug: photo.project_slug,
+    }),
     targets: targets.map((t) => ({
       id: t.target_id,
       img: t.target_name,

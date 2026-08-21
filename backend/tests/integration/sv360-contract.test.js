@@ -162,7 +162,15 @@ describe('StreetView 360 — read-only contract', () => {
 
     assert.deepEqual(p.center, { lat: -23.5, lon: -46.6 }, 'coordinates nested under center');
     assert.equal(p.photoCount, 2, 'photoCount is camelCase');
-    assert.equal(p.previewThumbnail, `/thumbnails/${SLUG}.webp`, 'relative, without /api/v1');
+    // ESTE FIXTURE NÃO ESCREVE MINIATURA EM DISCO, e por isso o campo é NULL.
+    // A chave continua presente (a forma congelada perde VALOR, nunca CHAVE) e os
+    // três consumidores caem no placeholder que já têm. Até 2026-08-21 esta linha
+    // esperava a URL, e o que ela media era o defeito: o backend anunciava
+    // `/thumbnails/{slug}.webp` para TODO projeto, arquivo em disco ou não, e o
+    // catálogo pedia uma imagem que respondia 404. A forma da URL, quando o arquivo
+    // existe, está pinada em `sv360-tiles.test.js`.
+    assert.ok('previewThumbnail' in p, 'a chave nunca some da forma congelada');
+    assert.equal(p.previewThumbnail, null, 'sem arquivo em disco, o campo não promete imagem');
     assert.ok('entryPhotoId' in p, 'entryPhotoId is camelCase');
     assert.ok('captureDate' in p, 'captureDate is present (null when unknown)');
 
