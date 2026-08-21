@@ -102,6 +102,39 @@ export function razaoParaLargura(largura, explicita) {
 }
 
 /**
+ * Numera a escada do mais grosso ao nativo e conta a grade de cada nivel.
+ *
+ * ESTA FUNCAO EXISTE PARA A CONTA SER UMA SO. O trecho estava escrito IDENTICO,
+ * byte a byte, dentro de `montarEscada` e dentro de `escadaGravada`, e uma
+ * terceira copia dele vive no backend (`sv360.escada.js`), onde a fronteira
+ * entre os dois pacotes a obriga. O guarda de paridade
+ * (`backend/tests/unit/escada-espelha-o-cliente.test.js`) so amarra
+ * `escadaGravada`, entao a copia de `montarEscada` era a DESPROTEGIDA: medido,
+ * trocar `Math.ceil` por `Math.floor` la nao deixava nenhum teste vermelho. Com
+ * as duas chamando daqui sobram duas copias em vez de tres, e as duas que
+ * sobram estao cobertas: a daqui pelo guarda, a do backend pelo mesmo guarda do
+ * outro lado.
+ *
+ * A LISTA ENTRA DO NATIVO PARA O GROSSO e sai ao contrario, entao esta funcao
+ * INVERTE o arranjo recebido, em vez de copia-lo. Quem chamar precisa saber
+ * disso: a lista dada muda de ordem.
+ *
+ * @param {Array<{width:number,height:number}>} niveis - Do nativo ao mais grosso.
+ * @param {number} tileSize - Lado do tile em pixels.
+ * @returns {Array<{level:number,width:number,height:number,cols:number,rows:number}>}
+ */
+function numerarEscada(niveis, tileSize) {
+  niveis.reverse();
+  return niveis.map((nivel, level) => ({
+    level,
+    width: nivel.width,
+    height: nivel.height,
+    cols: Math.ceil(nivel.width / tileSize),
+    rows: Math.ceil(nivel.height / tileSize),
+  }));
+}
+
+/**
  * Monta a escada de niveis, do mais grosso (level 0) ao nativo.
  *
  * A REGRA E A DO GERADOR, e nao a da rota. O gerador e quem escreve o dado, e
@@ -138,14 +171,7 @@ export function montarEscada(width, height, tileSize, razao = RAZAO_PADRAO) {
     h = proximaH;
     escada.push({ width: w, height: h });
   }
-  escada.reverse();
-  return escada.map((nivel, level) => ({
-    level,
-    width: nivel.width,
-    height: nivel.height,
-    cols: Math.ceil(nivel.width / tileSize),
-    rows: Math.ceil(nivel.height / tileSize),
-  }));
+  return numerarEscada(escada, tileSize);
 }
 
 /**
@@ -163,16 +189,21 @@ export function montarEscada(width, height, tileSize, razao = RAZAO_PADRAO) {
  * calculado. Enquanto a regra de parada morar so no codigo, toda mudanca nela
  * reinterpreta silenciosamente todo o acervo ja escrito.
  *
- * `max_level` esta gravado em `tile_pyramids` desde o primeiro dia, entao o
- * numero de niveis nao precisa ser adivinhado: divide-se `max_level` vezes, e a
- * escada sai igual a que produziu aquele dado, qualquer que tenha sido a regra
- * de parada em vigor.
+ * `max_level` esta gravado desde o primeiro dia, entao o numero de niveis nao
+ * precisa ser adivinhado: divide-se `max_level` vezes, e a escada sai igual a
+ * que produziu aquele dado, qualquer que tenha sido a regra de parada em vigor.
+ *
+ * O NOME DA TABELA MUDA COM O LADO, e a confusao ja rendeu JSDoc divergente
+ * entre as duas copias. Aqui o cliente le o numero do DESCRITOR, e o descritor
+ * sai de `sv360.photo_pyramids` (migracao `011_sv360_piramide.sql`). O
+ * `tile_pyramids` do SQLite e a tabela da ORIGEM, que a ingestao le uma vez para
+ * preencher aquela; o cliente nunca a enxerga.
  *
  * @param {number} width - Largura nativa em pixels.
  * @param {number} height - Altura nativa em pixels.
  * @param {number} tileSize - Lado do tile em pixels.
  * @param {number} razao - Fator entre um nivel e o proximo.
- * @param {number} maxLevel - `tile_pyramids.max_level`, o nivel nativo.
+ * @param {number} maxLevel - `photo_pyramids.max_level`, o nivel nativo.
  * @returns {Array<{level:number,width:number,height:number,cols:number,rows:number}>}
  */
 export function escadaGravada(width, height, tileSize, razao, maxLevel) {
@@ -186,14 +217,7 @@ export function escadaGravada(width, height, tileSize, razao, maxLevel) {
     h = Math.max(1, Math.round(h / r));
     escada.push({ width: w, height: h });
   }
-  escada.reverse();
-  return escada.map((nivel, level) => ({
-    level,
-    width: nivel.width,
-    height: nivel.height,
-    cols: Math.ceil(nivel.width / tileSize),
-    rows: Math.ceil(nivel.height / tileSize),
-  }));
+  return numerarEscada(escada, tileSize);
 }
 
 /**
