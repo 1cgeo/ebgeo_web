@@ -357,6 +357,23 @@ export async function listAtlasResources(atlasId) {
 }
 
 /**
+ * A pergunta inversa de {@link listAtlasResources}: que atlas emprestam este recurso.
+ *
+ * Sem transação, sem auditoria e sem gate, de propósito: o único consumidor é o aviso
+ * ao vivo da revogação, que precisa de ENDEREÇO DE SALA e não de autorização. Quem
+ * decide o que cada receptor pode ver é o payload aditivo que ele mesmo re-pede
+ * depois do frame.
+ *
+ * @param {string} type - Tipo de recurso já validado pelo chamador.
+ * @param {string} resourceId
+ * @returns {Promise<string[]>} Ids de atlas, sem repetição.
+ */
+export async function atlasesLendingResource(type, resourceId) {
+  const { rows } = await query(Q.ATLASES_LENDING_RESOURCE, [type, resourceId]);
+  return rows.map((r) => r.atlas_id);
+}
+
+/**
  * Anexa um recurso ao atlas: ele passa a EMPRESTAR acesso, no escopo dele.
  *
  * O GATE É DUPLO e os dois lados são necessários: `manage` no atlas (quem pode

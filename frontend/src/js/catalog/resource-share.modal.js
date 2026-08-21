@@ -595,8 +595,14 @@ export class ResourceShareModal extends ModalBase {
      *
      * Só a revogação precisa disto, e só para o PRÓPRIO ator: quem revoga pode ter
      * derrubado a si mesmo de um caminho, e o catálogo dele precisa refletir isso
-     * sem um F5. Quem RECEBE a revogação a percebe no próximo pedido do payload
-     * (troca de atlas ou F5) — janela conhecida e aceita, sem push em socket vivo.
+     * sem um F5.
+     *
+     * QUEM RECEBE a revogação tem DOIS alcances, e eles não se confundem. Quem está
+     * numa sala de atlas que EMPRESTA o recurso é avisado ao vivo (o servidor emite
+     * `atlas_resources_updated` para essas salas) e re-soma na hora, sem F5. O
+     * beneficiário pessoal ou de grupo fora de um atlas que empresta continua sem push:
+     * o socket dele pode estar noutra sala ou não existir, e ele percebe no próximo
+     * pedido do payload aditivo (troca de atlas ou F5).
      */
     async _refreshVisible() {
         try {

@@ -389,6 +389,26 @@ export const LIST_ATLAS_RESOURCES = `
 `;
 
 /**
+ * QUEM EMPRESTA ESTE RECURSO AGORA — o endereço das salas que uma revogação pode
+ * ter esvaziado.
+ *
+ * Não é uma consulta de acesso e não decide conteúdo: devolve só ids de sala, e o
+ * frame que sai delas não carrega recurso nenhum. Os dois filtros de vivacidade são
+ * o que a torna endereço e não histórico: o empréstimo desfeito (`removed_at`) e o
+ * atlas na lixeira (`deleted_at`) já não emprestam nada, e acordar as salas deles
+ * seria avisar sobre um vínculo que não existe.
+ *   $1 = tipo, $2 = id do recurso
+ */
+export const ATLASES_LENDING_RESOURCE = `
+  SELECT DISTINCT ar.atlas_id
+    FROM atlas_resources ar
+    JOIN atlas a ON a.id = ar.atlas_id AND a.deleted_at IS NULL
+   WHERE ar.removed_at IS NULL
+     AND ar.resource_type = $1
+     AND ar.resource_id = $2
+`;
+
+/**
  * Anexa um recurso ao atlas.
  *
  * `uq_atlas_resources_live` faz a segunda tentativa VIVA colidir; o

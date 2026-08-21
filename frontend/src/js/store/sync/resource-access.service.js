@@ -39,6 +39,25 @@ import { sessionContext } from './session-context.js';
 let _escopo;
 
 /**
+ * O número do último pedido de soma, monotônico.
+ *
+ * OS DOIS DISPAROS POR FRAME SAEM SEM `await` (`sync-engine.js` os larga com `.then()`),
+ * então a guarda de `isOnline()` que eles carregam roda ANTES da chamada e não diz nada
+ * sobre o instante em que a resposta VOLTA. Nessa janela cabem duas coisas ruins: um
+ * logout, e a resposta velha de um pedido anterior. Sem este número, quem aterrissava
+ * por último vencia — a resposta de antes da revogação sobrescrevia a de depois, e a
+ * resposta que voltava pós-logout re-somava os privados num catálogo já anônimo.
+ *
+ * É A MESMA DOUTRINA DO CARIMBO DE ESCOPO (`resource-scope.js`): comparar NA VOLTA, em
+ * vez de sair cancelando na saída. Cancelar exige que todo caminho de saída se lembre do
+ * voo em curso; comparar na volta falha FECHADO para o caminho de que ninguém se lembrou.
+ * Um número, e não o carimbo de escopo, porque dois pedidos do MESMO escopo também se
+ * superam e teriam carimbos idênticos.
+ * @type {number}
+ */
+let _pedido = 0;
+
+/**
  * Os cinco grupos do payload aditivo, na ordem em que o servidor os nomeia
  * (`PAYLOAD_KEY_BY_TYPE`, no backend).
  *
@@ -96,10 +115,13 @@ function indexarPayload(payload) {
  * e entrar noutro que não empresta precisa tirar o que o primeiro deu.
  *
  * @param {string|null} [atlasId] - O atlas em foco, ou null.
- * @returns {Promise<boolean>} true se a soma aconteceu.
+ * @returns {Promise<boolean>} true se a soma aconteceu. `false` cobre TRÊS casos que o
+ *   chamador trata igual (não emitir aviso de UI): servidor inalcançável, soma apagada
+ *   no meio do voo, e pedido superado por outro mais novo.
  */
 export async function refreshVisibleResources(atlasId = null) {
     const escopo = atlasId ?? null;
+    const meuPedido = ++_pedido;
     // O CARIMBO DE ESCOPO VAI ANTES DA CHAMADA, e a ordem é o ponto: quem guarda
     // resposta em cache (a lista de projetos do 360, hoje) compara o carimbo na
     // LEITURA, então o instante em que o escopo passa a ser outro é o instante em que
@@ -109,6 +131,11 @@ export async function refreshVisibleResources(atlasId = null) {
     setResourceScope(resourceScopeKey(sessionContext.userId, escopo));
     try {
         const payload = await apiClient.getVisibleResources(escopo);
+        // SUPERADO: alguém pediu depois de mim, ou a soma foi apagada enquanto eu voava.
+        // Aterrissar aqui reescreveria o `config` com um retrato do passado. Sair ANTES
+        // de `mergeGrantedIntoBaseline` é o ponto: ela é síncrona e auto-inversa, então
+        // depois dela o estrago já está no baseline e no array vivo.
+        if (meuPedido !== _pedido) return false;
         mergeGrantedIntoBaseline(payload);
         indexarPayload(payload);
         _escopo = escopo;
@@ -125,6 +152,11 @@ export async function refreshVisibleResources(atlasId = null) {
  * @returns {void}
  */
 export function clearVisibleResources() {
+    // O MESMO número que invalida um pedido superado invalida o voo em curso: apagar a
+    // soma e deixar uma resposta a caminho é como o privado voltava ao catálogo depois
+    // do logout. `logoutAndDisconnect` já desliga a re-soma que ELE dispara
+    // (`resumeGranted: false`), mas não tem como cancelar a que um frame disparou.
+    _pedido += 1;
     revertGrantedResources();
     indexarPayload(null);
     _escopo = undefined;

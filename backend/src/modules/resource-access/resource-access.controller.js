@@ -2,6 +2,8 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { principalUserId } from '../../utils/principal.js';
+import { broadcastToRoom } from '../collab/collab.rooms.js';
+import logger from '../../utils/logger.js';
 import * as svc from './resource-access.service.js';
 
 /**
@@ -71,8 +73,58 @@ export const createGrant = asyncHandler(async (req, res) => {
   res.status(201).json({ data });
 });
 
+/**
+ * Avisa AO VIVO as salas dos atlas que EMPRESTAM cada recurso tocado pela poda.
+ *
+ * O frame é `atlas_resources_updated`, reusado e não inventado: ele já é "só um aviso,
+ * sem payload", e o receptor já faz exatamente o certo (re-pede o PRÓPRIO payload
+ * aditivo). Como o conjunto visível é diferente por pessoa, mandar conteúdo no frame de
+ * todos seria vazamento; por isso ele não carrega tipo nem id de recurso, e é isso que
+ * o teste de fronteira afirma pelas chaves da mensagem.
+ *
+ * ENDEREÇAMENTO. A sala do atlas que empresta é o único subconjunto de afetados que os
+ * frames existentes alcançam corretamente, e é onde o dano é COLETIVO (revogar a
+ * concessão do dono derruba o empréstimo de todos de uma vez). O beneficiário PESSOAL ou
+ * de grupo fora de um atlas que empresta continua sem push: o socket dele pode estar
+ * noutra sala ou não existir. Falho ABERTO na notificação de propósito: um aviso a mais é
+ * um GET a mais, um aviso a menos é o defeito.
+ *
+ * SÓ OS REVOGADOS ENTRAM, e esta linha é escrita hoje para uma lista que ainda não
+ * existe. Quando a poda passar a devolver `{ revoked, reparented, trimmed }` (o resgate
+ * por alcançabilidade), quem foi REPAI-ADO não perdeu acesso nenhum, e acordar a sala por
+ * ele diria "algo que você via mudou" a quem nada mudou. A normalização abaixo já lê só
+ * `revoked` nas duas formas, para que aquela fase não precise voltar aqui.
+ *
+ * O par (tipo, recurso) vem das LINHAS PODADAS e não do alvo da rota: a subárvore não é,
+ * necessariamente, de um recurso só.
+ *
+ * @param {Array|{ revoked?: Array }} podadas - O que a poda devolveu.
+ * @returns {Promise<void>} Best-effort: nunca lança (a revogação já aconteceu).
+ */
+async function avisarAtlasQueEmprestam(podadas) {
+  const revogadas = Array.isArray(podadas) ? podadas : (podadas?.revoked ?? []);
+  if (revogadas.length === 0) return;
+  try {
+    const pares = new Map();
+    for (const linha of revogadas) {
+      pares.set(`${linha.resource_type}|${linha.resource_id}`, [linha.resource_type, linha.resource_id]);
+    }
+    const salas = new Set();
+    for (const [tipo, id] of pares.values()) {
+      for (const atlasId of await svc.atlasesLendingResource(tipo, id)) salas.add(atlasId);
+    }
+    // Sem `minPermission`: o frame não carrega nada que precise de nível, e um gate por
+    // nível aqui deixaria de acordar justamente o Leitor, que é quem mais depende de o
+    // catálogo estar certo. O aviso vale para a sala inteira.
+    for (const atlasId of salas) broadcastToRoom(atlasId, { type: 'atlas_resources_updated' });
+  } catch (error) {
+    logger.warn({ err: error }, 'revokeGrant: falha ao avisar as salas dos atlas que emprestam');
+  }
+}
+
 export const revokeGrant = asyncHandler(async (req, res) => {
   const revoked = await svc.revokeGrant({ grantId: req.params.grantId, actor: req.user, req });
+  await avisarAtlasQueEmprestam(revoked);
   // A LISTA DOS DERRUBADOS É O PRODUTO, não um detalhe: quem revogou precisa ver
   // que a subárvore caiu junto, e a UI usa a contagem para confirmar antes de
   // fechar o modal.

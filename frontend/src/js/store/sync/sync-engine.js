@@ -702,6 +702,34 @@ class SyncEngine {
             } catch {
                 // No UI bus (headless).
             }
+
+            // E A SOMA DOS RECURSOS PRIVADOS MUDA JUNTO, que é o que ninguém re-pedia.
+            // O braço do EMPRÉSTIMO (`fn_granted_resource_ids`, no servidor) pergunta pelo
+            // DONO do atlas: trocado o dono, o que o atlas emprestava pode deixar de valer
+            // para TODA a sala de uma vez. Sem esta re-soma o `config` continua listando o
+            // recurso que o servidor já recusa, e o usuário vê CAMADA QUEBRADA em vez de
+            // camada ausente — o pior dos dois, porque não se explica sozinho.
+            //
+            // O guard de `isOnline` cobre SÓ a re-soma, pela mesma razão do handler de
+            // settings: um frame atrasado, chegando depois do disconnect, mexeria num
+            // baseline que já foi restaurado. O bloco de papel acima fica fora dele de
+            // propósito (re-gatear o papel é barato e não toca o baseline).
+            if (!connectionState.isOnline()) return;
+            // Pelo atlas CONECTADO, nunca pelo `msg.atlasId`: o payload aditivo é do escopo
+            // em foco, e o frame só chega pela sala em que estamos.
+            refreshVisibleResources(this._atlasId).then((ok) => {
+                if (!ok) return;
+                try {
+                    // O MESMO evento do overlay, e não um novo, pela razão escrita no
+                    // handler de `atlasResources`: os assinantes que releem o `config`
+                    // (catálogo, seletor de base, barra inferior) assinam este. Os únicos
+                    // assinantes de ATLAS_OWNER_CHANGED cuidam do menu de conta, então
+                    // emitir só aquele mudaria a soma e não mudaria a tela.
+                    getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_owner' });
+                } catch {
+                    // No UI bus (headless).
+                }
+            }).catch(() => {});
         });
 
         // A share for THIS client changed live (`sharing_updated`): re-gate the local role from the

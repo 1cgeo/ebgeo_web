@@ -105,8 +105,8 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
   configuração continuam fora do alcance dele. Censo em `tests/unit/papel-global-censo.test.js`, que
   reprova sítio novo não classificado.
 - **`users.organization_id` é LOTAÇÃO e não autoriza nada.** Ele é auto-declarado no
-  auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, e conta sem e-mail nasce ativa na
-  hora), e enquanto autorizava era escalação de privilégio por formulário público: escolher a OM
+  auto-cadastro (`POST /auth/register` aceita qualquer OM ativa, sem revisão de ninguém), e enquanto
+  autorizava era escalação de privilégio por formulário público: escolher a OM
   alheia num `<select>` entregava todo projeto 360 oculto e privado dela. Todo ramo de autorização
   que lia lotação lê hoje o escopo de PRODUÇÃO. Repro em
   `tests/integration/auto-cadastro-om-nao-autoriza.repro.test.js`.
@@ -230,6 +230,17 @@ duas delas) e em `/atlas/public/:link` · bcrypt
 custo 12 + login timing-safe + rotação/detecção-de-reuso de refresh · `jwt.verify` **só HS256** · upload
 allowlist `png/jpeg/webp` + magic-bytes (**sem SVG**), download como `attachment` · helmet CSP/HSTS ·
 self-registration gateada por `ALLOW_SELF_REGISTRATION` (off em prod).
+
+**Auto-cadastro: e-mail é OBRIGATÓRIO e é o que torna a confirmação obrigatória.** `registerSchema`
+exige `email`, então a conta nasce pendente e o gate que já existia em `login()`
+(`user.email && !user.email_verified`) passa a bater sempre neste caminho, sem gate novo. O gate
+continua **condicional ao e-mail** de propósito: `POST /api/v1/users` (caminho administrativo) não tem
+campo de e-mail e a conta que ele cria loga na hora, e é ela que se tranca fora se alguém "simplificar"
+a condição para `!user.email_verified`. A rota carrega **dois** limitadores, e a ordem importa:
+`registerLimiter` (por ENDEREÇO) antes de `authLimiter`, porque num cadastro o `username` da chave
+`${ip}:${username}` é escolhido pelo chamador e nunca existe ainda, logo balde novo a cada requisição.
+Em produção com auto-cadastro ligado o boot **recusa subir** sem `SMTP_HOST` e `APP_BASE_URL`
+(verificação obrigatória sem canal de entrega cria conta que ninguém ativa, e o mailer degrada calado).
 
 ## SyncLedger (observabilidade de sync, test/dev)
 

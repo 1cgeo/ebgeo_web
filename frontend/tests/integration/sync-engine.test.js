@@ -74,7 +74,13 @@ const h = vi.hoisted(() => {
         // `disconnect` a consulta para decidir se re-soma a concessão PESSOAL (que
         // não depende de atlas nenhum). Um mock sem ela derruba o disconnect inteiro
         // num TypeError, que é o modo de falha que um mock parcial sempre teve.
-        sessionContextMock: { setSession: vi.fn(), clearSession: vi.fn(), isAuthenticated: vi.fn(() => false) },
+        // `updateRole` entrou com o handler de troca de dono: ele re-resolve o papel
+        // LOCALMENTE a partir do frame. Sem ele no dublê, o handler morre num TypeError
+        // antes de chegar à re-soma, e o caso mediria o TypeError, não a re-soma.
+        sessionContextMock: {
+            setSession: vi.fn(), clearSession: vi.fn(), updateRole: vi.fn(),
+            isAuthenticated: vi.fn(() => false),
+        },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
         setRemoteHandlerEventBus: vi.fn(),
@@ -91,6 +97,13 @@ const h = vi.hoisted(() => {
         eventBusMock: { emit: vi.fn(), on: vi.fn(), off: vi.fn() },
         // syncResponse only arrives while connected; the engine now gates its apply on this.
         connectionStateMock: { isOnline: vi.fn(() => true) },
+        // A SOMA DOS RECURSOS PRIVADOS PRECISA DE DUBLÊ, e não é conveniência.
+        // Sem ele o módulo real roda contra o `apiClient` dublado (que não tem
+        // `getVisibleResources`), o TypeError cai no `catch` de best-effort do próprio
+        // serviço e a chamada fica INVISÍVEL: um caso que afirmasse "não chamou" passaria
+        // verde com e sem a mudança, que é a cobertura vazia nomeada na constituição.
+        refreshVisibleResourcesMock: vi.fn(async () => true),
+        clearVisibleResourcesMock: vi.fn(),
     };
 });
 
@@ -168,6 +181,11 @@ vi.mock('../../src/js/store/sync/connection-state.js', () => ({
     connectionState: h.connectionStateMock,
 }));
 
+vi.mock('../../src/js/store/sync/resource-access.service.js', () => ({
+    refreshVisibleResources: h.refreshVisibleResourcesMock,
+    clearVisibleResources: h.clearVisibleResourcesMock,
+}));
+
 vi.mock('../../src/js/store/services.js', () => ({
     getEventBus: vi.fn(() => h.eventBusMock),
 }));
@@ -187,6 +205,9 @@ vi.mock('../../src/js/utilities/toast_service.js', () => ({
 
 import { syncEngine } from '../../src/js/store/sync/sync-engine.js';
 import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+// O barramento é dublê, mas os NOMES dos eventos vêm do módulo real: uma cópia literal
+// aqui deixaria de acompanhar a de produção sem ficar vermelha.
+import { EventTypes } from '../../src/js/events/event_types.js';
 
 // ============================================================================
 // Setup
@@ -479,6 +500,86 @@ describe('connect', () => {
         expect(apiClientMock.pullSync).not.toHaveBeenCalled();
         expect(applyRemoteOperation).toHaveBeenCalledTimes(2);
         expect(syncEngine.lastVersion).toBe(7);
+    });
+});
+
+// ============================================================================
+// atlas_owner_changed: o papel E a soma dos recursos privados
+// ============================================================================
+// O braço D4 do empréstimo (`fn_granted_resource_ids`, no backend) pergunta pelo DONO
+// do atlas: trocado o dono, o recurso que o atlas emprestava pode deixar de valer para
+// TODA a sala. Antes disto ninguém re-pedia o payload aditivo, e o membro ficava com a
+// camada QUEBRADA (o config ainda a lista, o servidor já recusa os bytes) até um F5.
+
+/** Deixa o `.then` do handler (que não é aguardado por ninguém) aterrissar. */
+const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe('atlas_owner_changed re-soma o payload aditivo', () => {
+    it('re-soma pelo atlas CONECTADO e avisa a UI, sem trocar o bloco de papel', async () => {
+        sessionContextMock.userId = 'user-1';
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        // PISO: a soma do próprio connect (`_applyAtlasSettingsOverlay`) já aconteceu e
+        // não pode ser confundida com a do frame. Zerado aqui, o contador volta a ser
+        // uma medida do handler, e só dele.
+        h.refreshVisibleResourcesMock.mockClear();
+        eventBusMock.emit.mockClear();
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(0);
+
+        // `atlasId` do frame DIFERENTE do conectado de propósito: a re-soma é do escopo
+        // em foco, e somar pelo id que veio no frame seria pedir o payload de outro atlas.
+        await wsClientMock._handlers.atlasOwnerChanged({ atlasId: 'atlas-outro', newOwnerId: 'user-1' });
+        await flushMicrotasks();
+
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(1);
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledWith('atlas-1');
+        expect(eventBusMock.emit).toHaveBeenCalledWith(
+            EventTypes.ATLAS_SETTINGS_CHANGED, { reason: 'atlas_owner' }
+        );
+        // DISCRIMINAÇÃO (b): somamos comportamento, não trocamos um pelo outro. O bloco
+        // de papel do mesmo handler continua rodando e o evento antigo continua saindo.
+        expect(sessionContextMock.updateRole).toHaveBeenCalledWith('owner');
+        expect(eventBusMock.emit).toHaveBeenCalledWith(
+            EventTypes.ATLAS_OWNER_CHANGED, { atlasId: 'atlas-outro', newOwnerId: 'user-1' }
+        );
+    });
+
+    it('DISCRIMINAÇÃO: o frame de settings continua sem re-somar nada', async () => {
+        sessionContextMock.userId = 'user-1';
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.refreshVisibleResourcesMock.mockClear();
+
+        // O vizinho mais próximo: mesmo método de fiação, mesmo guard de `isOnline`, e
+        // ele NÃO deve re-somar. Sem esta metade, "a re-soma acontece" seria satisfeito
+        // por uma re-soma pendurada em todo frame que passa.
+        await wsClientMock._handlers.atlasSettings({ settings: {} });
+        await flushMicrotasks();
+
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(0);
+    });
+
+    it('DISCRIMINAÇÃO: nenhum handler novo foi fiado (continuam oito)', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        expect(wsClientMock.on).toHaveBeenCalledTimes(8);
+    });
+
+    it('frame que chega DEPOIS do disconnect não re-soma, e o par sim/não é o que prova o guard', async () => {
+        sessionContextMock.userId = 'user-1';
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        h.refreshVisibleResourcesMock.mockClear();
+
+        // Metade OFFLINE: a janela disconnect -> revert, onde re-somar mexeria num
+        // baseline que já foi restaurado.
+        h.connectionStateMock.isOnline.mockReturnValue(false);
+        await wsClientMock._handlers.atlasOwnerChanged({ atlasId: 'atlas-1', newOwnerId: 'user-9' });
+        await flushMicrotasks();
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(0);
+
+        // Metade ONLINE, no MESMO caso: sem ela, um handler que nunca chamasse nada
+        // passaria verde na metade de cima.
+        h.connectionStateMock.isOnline.mockReturnValue(true);
+        await wsClientMock._handlers.atlasOwnerChanged({ atlasId: 'atlas-1', newOwnerId: 'user-9' });
+        await flushMicrotasks();
+        expect(h.refreshVisibleResourcesMock).toHaveBeenCalledTimes(1);
     });
 });
 
