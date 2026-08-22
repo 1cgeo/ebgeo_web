@@ -189,6 +189,75 @@ export function createMap() {
  */
 export async function createControls(map, analysisLayersManager, dataLayersManager) {
 
+    // ===== PREFLIGHT DOS SERVICOS, ANTES DE QUALQUER COISA QUE LEIA O CATALOGO
+    //
+    // A POSICAO AQUI E O CONTRATO. Estes dois blocos ja estiveram mais abaixo,
+    // logo antes do `map.addControl` de cada visualizador, e ali era tarde: o
+    // `ChipsComponent`, criado no meio desta funcao, pergunta ao
+    // `CatalogService.hasItems()` se ha algo a mostrar, e ESCONDE o chip
+    // "Catalogo" quando nao ha. Com o catalogo 3D vindo do servico, ele so
+    // existe depois do preflight, e o chip sumia da barra inteira.
+    //
+    // O sintoma nao tinha erro no console: o chip simplesmente nao era criado.
+    // Foi o chefe quem viu, na tela, em 2026-08-22.
+    //
+    // Quem entrar aqui com preflight novo: ponha junto, e nao perto do controle
+    // que consome. O catalogo le TODAS as fontes.
+
+    // ===== STREET VIEW 360 PREFLIGHT =====
+    // Must run BEFORE map.addControl(addStreetViewControl) so onAdd() sees the
+    // correct flag and avoids loading PMTiles sources for a service that is
+    // unreachable — and before ChipsComponent, which asks the catalog whether
+    // there is anything to show.
+    if (config.features.imagens_panoramicas) {
+        if (!config.streetView360?.serviceUrl) {
+            config.features.imagens_panoramicas = false;
+        } else {
+            try {
+                const { preflightCheck } = await import('./street_view_tool/streetview-api.service.js');
+                if (!(await preflightCheck())) {
+                    config.features.imagens_panoramicas = false;
+                }
+            } catch {
+                config.features.imagens_panoramicas = false;
+            }
+        }
+    }
+
+    // ===== MODELOS 3D PREFLIGHT =====
+    // Preenche `config.tilesets` e `config.firstPerson3d.scenes` a partir do
+    // servico ebgeo_3d. Dois consumidores dependem de ele ter rodado: o
+    // `ChipsComponent`, mais abaixo, e o `onAdd()` do controle do visualizador.
+    //
+    // A FORMA E A MESMA DO 360 ACIMA, e isso e decisao do chefe: sem
+    // `serviceUrl`, com o preflight negativo ou com excecao, a feature CAI.
+    //
+    // Desligar `map_3d` e seguro, e a razao merece registro: essa flag governa
+    // so o botao "Modelos 3D" do rodape. O terreno tem toggle proprio
+    // (`map2d.terrainSource`), e as ferramentas 3D vivem DENTRO do visualizador
+    // de modelo, que nao abre sem modelo nenhum. Nao ha o que esconder.
+    //
+    // O criterio antigo era o array cheio ou vazio, e ele continua valendo por
+    // outro caminho: o toggle do rodape tambem checa `config.hasTilesets?.()`.
+    // O que muda e a feature cair de uma vez, em vez de o botao aparecer
+    // desabilitado.
+    if (config.features.map_3d) {
+        if (!config.models3d?.serviceUrl) {
+            config.features.map_3d = false;
+        } else {
+            try {
+                const { preflightCheck: preflightModelos3d } =
+                    await import('./3d_models_viewer_tool/services/models-api.service.js');
+                if (!(await preflightModelos3d())) {
+                    config.features.map_3d = false;
+                }
+            } catch {
+                config.features.map_3d = false;
+            }
+        }
+    }
+
+
     // ===== TOOL CONTROLS =====
 
     const selectionManager = new SelectionManager(map);
@@ -532,44 +601,6 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         selectionManager: selectionManager,
     });
     searchBarComponent.init(document.body);
-
-    // ===== STREET VIEW 360 PREFLIGHT =====
-    // Must run BEFORE map.addControl(addStreetViewControl) so onAdd() sees the correct flag
-    // and avoids loading PMTiles sources for a service that is unreachable.
-    if (config.features.imagens_panoramicas) {
-        if (!config.streetView360?.serviceUrl) {
-            config.features.imagens_panoramicas = false;
-        } else {
-            try {
-                const { preflightCheck } = await import('./street_view_tool/streetview-api.service.js');
-                if (!(await preflightCheck())) {
-                    config.features.imagens_panoramicas = false;
-                }
-            } catch {
-                config.features.imagens_panoramicas = false;
-            }
-        }
-    }
-
-    // ===== MODELOS 3D PREFLIGHT =====
-    // Roda ANTES de map.addControl(add3DModelsViewerControl), pela mesma razao
-    // do preflight do 360 logo acima: o onAdd() do controle le
-    // `config.tilesets`, e se ele rodar antes o array ainda esta so com os
-    // modelos locais.
-    //
-    // O RESULTADO NAO DESLIGA `map_3d` SOZINHO. Um GLB declarado a mao no
-    // config continua sendo modelo 3D valido, e derrubar o visualizador porque
-    // o SERVICO nao respondeu esconderia o que ainda funciona. Quem decide e o
-    // array cheio ou vazio, que e o mesmo criterio de antes.
-    if (config.features.map_3d && config.models3d?.serviceUrl) {
-        try {
-            const { preflightCheck: preflightModelos3d } =
-                await import('./3d_models_viewer_tool/services/models-api.service.js');
-            await preflightModelos3d();
-        } catch (erro) {
-            console.error('[map_sig] preflight dos modelos 3D falhou:', erro);
-        }
-    }
 
     // Standalone controls managed by BottomControlsControl
     // Still need to be added to the map for their functionality (sources, layers, etc.)
