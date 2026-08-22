@@ -139,8 +139,42 @@ async function enableTemporalUI(page) {
     await expect(page.locator('.maps-tab #current-map-name-input'))
         .not.toHaveValue('', { timeout: 15000 });
     await expect(clock).toHaveAttribute('data-temporal', 'false');
+
     await clock.click();
-    await expect(clock).toHaveAttribute('data-temporal', 'true', { timeout: 15000 });
+    try {
+        await expect(clock).toHaveAttribute('data-temporal', 'true', { timeout: 15000 });
+    } catch (erro) {
+        // O ATRIBUTO PARADO TEM TRÊS CAUSAS E A MENSAGEM NÃO SEPARA NENHUMA: o clique não fez
+        // efeito nenhum, o store mudou e a UI não refletiu, ou o cartão está olhando para OUTRO
+        // mapa. Elas têm consertos diferentes e a mesma cara — 33 leituras iguais de "false".
+        //
+        // Medido em 2026-08-22: a causa foi o guarda de reentrância de `_loadMaps` DESCARTANDO o
+        // pedido de refresh que chegava durante uma passada (corrigido em `maps.tab.js`, que
+        // agora coalesce). O que fechou o diagnóstico foi este bloco, com `temporalNoStore: true`
+        // e o atributo em "false" — a leitura que separa UI-não-refletiu de clique-sem-efeito.
+        // Ele fica porque a mesma tela tem outros caminhos de atualização, e o próximo atributo
+        // parado merece resposta em vez de outra hora de investigação.
+        const estado = await page.evaluate(async () => {
+            const store = await import('/src/js/store/index.js');
+            const btn = document.querySelector('#current-map-temporal-btn');
+            const mapaDoStore = await store.getCurrentMapName();
+            return {
+                atributo: btn?.dataset.temporal ?? '(sem botão)',
+                desabilitado: btn?.disabled ?? null,
+                mapaNoCartao: document.querySelector('#current-map-name-input')?.value ?? null,
+                mapaNoStore: mapaDoStore,
+                temporalNoStore: await store.isMapTemporalEnabled(mapaDoStore),
+                bloqueado: await store.isMapLocked(mapaDoStore),
+                botoesComEsseId: document.querySelectorAll('#current-map-temporal-btn').length,
+                abaDeMapasVisivel: !!document.querySelector('.maps-tab'),
+            };
+        }).catch((e) => ({ erroAoLer: String(e.message) }));
+        erro.message += `\n\nESTADO NO INSTANTE DA FALHA:\n${JSON.stringify(estado, null, 2)}`
+            + '\n\nLeia assim: `temporalNoStore` verdadeiro com `atributo` "false" é UI que não'
+            + ' refletiu; os dois falsos é clique sem efeito; `mapaNoCartao` diferente de'
+            + ' `mapaNoStore` é o cartão olhando para outro mapa.';
+        throw erro;
+    }
 }
 
 collabTest.describe('Briefing + temporal collaboration cross-client (full chain)', () => {

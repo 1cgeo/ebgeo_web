@@ -179,6 +179,8 @@ export class MapsTab {
         this._currentMapName = null;
         this._sortableInstance = null;
         this._isLoadingMaps = false;
+        // Um pedido de refresh que chegou DURANTE um carregamento, honrado depois dele.
+        this._loadMapsPendente = false;
 
         // Atlas header (name + origin chip) and the action buttons, keyed by action id so the
         // per-state visibility table can be applied by name instead of by hand-held references.
@@ -784,7 +786,28 @@ export class MapsTab {
      */
     async _loadMaps() {
         // Guard against concurrent calls
+        // COALESCE, NAO DESCARTE. O guarda existe para nao rodar duas passadas ao mesmo tempo,
+        // o que e correto; o errado era JOGAR FORA o pedido chegado durante uma passada, porque
+        // ele costuma ser o unico aviso de que algo mudou.
+        //
+        // MEDIDO em 2026-08-22, com um contador no proprio guarda e a suite sob carga: o botao
+        // do relogio (`data-temporal`) so e escrito por `_updateCurrentMapCard`, que so roda
+        // aqui dentro. Um clique enquanto a lista ainda carregava trocava o estado no store,
+        // mostrava o toast de sucesso, e o botao seguia dizendo desligado. O diagnostico da
+        // falha trouxe `temporalNoStore: true` com o atributo em "false" e EXATAMENTE UM
+        // descarte contado. Nao era lentidao (nada estava a caminho), entao prazo maior nao
+        // consertava; a UI mentia sobre o estado ate que outro evento recarregasse.
+        //
+        // Isolado o defeito nao aparece: a janela so abre quando a maquina divide CPU. Treze
+        // rodadas limpas em sequencia nao o mostraram, e duas rodadas com quatro arquivos de
+        // colaboracao juntos o mostraram duas vezes.
+        //
+        // A marcacao e UM bit, nao uma fila: N pedidos durante a mesma passada valem UMA
+        // repeticao, que e o que "recarregar a lista" significa. O bit e limpo ANTES da
+        // rechamada, entao um pedido que chegue durante a repeticao marca de novo em vez de se
+        // perder, e a cadeia termina quando ninguem mais pede.
         if (this._isLoadingMaps) {
+            this._loadMapsPendente = true;
             return;
         }
 
@@ -804,6 +827,16 @@ export class MapsTab {
             console.error('Error loading maps:', _error);
         } finally {
             this._isLoadingMaps = false;
+        }
+
+        // Fora do `finally` porque a repeticao e trabalho novo, nao limpeza. Ela roda tambem
+        // depois de uma passada que falhou, ja que o `catch` acima registra e NAO relanca: isso
+        // e desejado, porque o pedido pendente veio de uma mudanca real e uma passada que
+        // quebrou no meio e justamente a que deixou a tela desatualizada. Nao ha laco: o bit so
+        // e marcado por chamada externa, e e limpo antes da rechamada.
+        if (this._loadMapsPendente) {
+            this._loadMapsPendente = false;
+            await this._loadMaps();
         }
     }
 
