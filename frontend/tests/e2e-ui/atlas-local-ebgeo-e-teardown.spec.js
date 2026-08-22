@@ -31,6 +31,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { fileURLToPath } from 'node:url';
+import { loadEbgeoFixture, countFixture } from '../helpers/ebgeo-fixture.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -161,6 +162,93 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // o impede de criar de novo é o mesmo que impede a reimportação (a entrega já não existe):
         // um consumidor que criasse ANTES de ler a entrega gastaria um dos dez atlas a cada F5.
         expect(depois.nomes.length).toBe(slotsAntes + 1);
+    });
+
+    // O CASO ACIMA CONTA MAPAS; ESTE CONTA O QUE ESTÁ DENTRO DELES.
+    //
+    // Onze cartões na lista provam que o importador criou os mapas, e não provam que ele trouxe
+    // as feições, os briefings, os ícones nem os blobs: um importador que criasse onze mapas
+    // VAZIOS satisfaria cada asserção daquele caso. O buraco não era teórico para este arquivo,
+    // porque foi exatamente essa a forma do bug que a geração destas fixtures encontrou no
+    // exportador do `main` (os grupos sumiam em silêncio, e o usuário só descobria ao reabrir).
+    //
+    // O ESPERADO VEM DO ARQUIVO, NUNCA DE NÚMERO ESCRITO À MÃO. `countFixture` lê o mesmo
+    // `.ebgeo` que o navegador vai importar, então trocar a fixture não deixa este caso
+    // afirmando o conteúdo da anterior. É a razão de o helper existir, e a suíte de nó já o usa
+    // pelo mesmo motivo.
+    test('o conteúdo do arquivo chega inteiro: feições por mapa, briefings, ícones e blobs', async ({ page }) => {
+        test.setTimeout(180000);
+
+        const fixture = await loadEbgeoFixture('01-completo.ebgeo');
+        const esperado = countFixture(fixture);
+        const idsDeImagem = [...fixture.images.keys()];
+
+        await page.goto('/atlas.html');
+        await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 20000 });
+        await page.locator('[data-testid="local-atlas-file-input"]').setInputFiles(FIXTURE);
+        await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
+        await esperarMapa(page);
+
+        // ESPERA PELO FIM DO IMPORT, e a condição é o número de CHAVES, não o de feições: esperar
+        // pela própria quantia que se vai asserir transforma a asserção num timeout mudo quando
+        // ela falha. São `maps + 1` porque o slot recém-criado traz um `Principal` em branco ao
+        // lado dos onze do arquivo (o caso acima explica a de-duplicação por nome).
+        await expect
+            .poll(async () => page.evaluate(async () => {
+                const { getRepository } = await import('/src/js/store/repositories/index.js');
+                return (await getRepository().getAllMapIds()).length;
+            }), { timeout: 60000, message: 'o importador terminou de escrever os mapas' })
+            .toBe(esperado.maps + 1);
+
+        const chegou = await page.evaluate(async (ids) => {
+            const { getRepository } = await import('/src/js/store/repositories/index.js');
+            const { getCustomIcons } = await import('/src/js/store/customIcons.operations.js');
+            const repo = getRepository();
+
+            // SOMA POR NOME, porque o mesmo nome pode ter duas chaves: os mapas do arquivo entram
+            // com chave UUID e o `Principal` em branco do slot novo é keyado pelo NOME. Somar
+            // resolve os dois no único número que o arquivo declara, e o `Principal` em branco
+            // soma zero.
+            const feicoesPorNome = {};
+            for (const [, registro] of await repo.getAllMaps()) {
+                const nome = registro?.name;
+                if (!nome) continue;
+                let n = 0;
+                for (const lista of Object.values(registro.features ?? {})) {
+                    if (Array.isArray(lista)) n += lista.length;
+                }
+                feicoesPorNome[nome] = (feicoesPorNome[nome] ?? 0) + n;
+            }
+
+            const briefings = await repo.getAllBriefings();
+            const listaDeBriefings = briefings instanceof Map ? [...briefings.values()] : (briefings ?? []);
+
+            const blobs = [];
+            for (const id of ids) blobs.push(await repo.hasImage(id));
+
+            return {
+                feicoesPorNome,
+                briefings: listaDeBriefings.length,
+                slides: listaDeBriefings.reduce((soma, b) => soma + (b?.slides?.length ?? 0), 0),
+                icones: (await getCustomIcons()).length,
+                blobsPresentes: blobs.filter(Boolean).length,
+            };
+        }, idsDeImagem);
+
+        // POR MAPA, e não só no total: um total certo com feições no mapa errado é o defeito que
+        // um import de mapas mistura, e a soma o esconderia.
+        expect(chegou.feicoesPorNome, 'as feições de cada mapa do arquivo chegaram àquele mapa')
+            .toMatchObject(esperado.featuresByMap);
+        const total = Object.values(chegou.feicoesPorNome).reduce((soma, n) => soma + n, 0);
+        expect(total, 'nenhuma feição a mais além das do arquivo').toBe(esperado.features);
+
+        expect(chegou.briefings, 'os briefings do arquivo chegaram').toBe(esperado.briefings);
+        expect(chegou.slides, 'com todos os slides').toBe(esperado.slides);
+        expect(chegou.icones, 'os ícones customizados chegaram').toBe(esperado.customIcons);
+        // OS BYTES, e não a referência: uma feição de imagem cujo blob não veio junto rende um
+        // ícone de erro no mapa, e nenhuma contagem de feição acusa isso.
+        expect(chegou.blobsPresentes, 'os blobs de imagem do zip chegaram ao repositório')
+            .toBe(esperado.images);
     });
 });
 
