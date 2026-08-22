@@ -287,9 +287,9 @@ ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`
 commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
 da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
 Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. **A lista tem DUAS linhas hoje**, as duas da `011_grupo_com_dono_e_producao.sql`:
-o `DROP COLUMN` de `org_role` e o CHECK de ação alargado para `PERMISSION_REPARENT`. Não conte por
-esta frase antes de acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu duas vezes.
+como destrutivo. **A lista está VAZIA hoje**, por construção: as migrações são baselines escritas
+no estado final, e nada é criado ali para ser derrubado depois. Não conte por esta frase antes de
+acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu três vezes.
 Ela só discrimina alguma coisa por causa do teste de controle negativo, que roda os mesmos padrões
 contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai daqui**:
 reescrever uma baseline só é honesto enquanto nenhum banco fora do branch a aplicou, o que hoje é o

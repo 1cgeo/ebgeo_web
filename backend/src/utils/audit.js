@@ -26,7 +26,7 @@ export async function createAudit(req, params, t) {
     // A OM DONA DO RECURSO ALVO, e é o EMISSOR quem a conhece. Ela não é resolvida na
     // leitura, e o argumento decisivo é o hard-delete do 360: a linha de `SV360_DELETE`
     // nasce DEPOIS do DELETE, na mesma transação, então depois do commit não há mais de
-    // onde tirá-la. Ver o BLOCO D de `011_grupo_com_dono_e_producao.sql`.
+    // onde tirá-la. Ver `audit_trail.target_org_id` em `002_auditoria.sql`.
     //
     // O `?? null` mantém compatíveis os emissores que não têm OM alvo (USER, ATLAS,
     // ORG, CONFIG) e o acervo institucional, que é `owner_org_id` nulo por definição.

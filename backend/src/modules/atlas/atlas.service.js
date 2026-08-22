@@ -1048,7 +1048,7 @@ export async function transferOwnership(atlasId, currentOwnerId, newOwnerId, req
     // ownership to a deactivated account (which could no longer delete/transfer it, orphaning it).
     //
     // A POSSE EXIGE SHARE DIRETO, e o `s.user_id IS NOT NULL` diz isso em voz alta desde que
-    // `atlas_shares` ganhou o alvo de GRUPO (011_grupo_com_dono_e_producao.sql). Hoje o `JOIN
+    // `atlas_shares` aceita o alvo de GRUPO (003_atlas.sql). Hoje o `JOIN
     // users u ON u.id = s.user_id` já descartaria a linha coletiva por acidente; a linha
     // explícita existe para que um futuro `LEFT JOIN` não abra o caso calado. A regra: posse é
     // nominal por construção (`atlas.owner_id` é uma coluna, não um coletivo), e transferi-la a

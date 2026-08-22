@@ -212,6 +212,12 @@ async function runTests() {
         DATABASE_URL: TEST_DB_URL,
         JWT_SECRET: 'test-secret-key-for-testing-purposes-only-32chars',
         IMAGES_DIR: './data/test-images',
+        // O ACERVO 3D TAMBEM PRECISA DE CAMINHO PROPRIO, e a razao e que um teste o APAGA:
+        // `assets3d-sqlite.test.js` limpa o arquivo apontado por esta variavel antes e depois
+        // de escrever nele. Sem esta linha valia o default, que e o caminho de
+        // DESENVOLVIMENTO, e rodar a suite destruia o acervo importado — sem erro, e so
+        // percebido na proxima vez que alguem abrisse um modelo.
+        ASSETS_3D_SQLITE: './data/test-assets3d.sqlite',
       },
     });
 

@@ -5,7 +5,7 @@
 // são as ÚNICAS que escrevem na tabela pelo caminho de compartilhamento.
 //
 // O QUE NÃO MORA AQUI, e a ausência é contrato: a RESOLUÇÃO de nível. "Quem alcança este
-// atlas, e em que nível" é `fn_user_atlas_shares` (011_grupo_com_dono_e_producao.sql),
+// atlas, e em que nível" é `fn_user_atlas_shares` (008_acesso_a_recurso.sql),
 // chamada pelo gate REST, pelo gate do WebSocket e pelas três listagens de
 // `atlas.queries.js`. Uma consulta de resolução escrita aqui seria a segunda definição da
 // precedência, e a segunda é a que envelhece.

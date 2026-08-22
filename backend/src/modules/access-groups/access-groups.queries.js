@@ -9,7 +9,7 @@
 //
 // A AUTORIDADE É POSSE, E ELA MORA NUMA FUNÇÃO SQL. Desde 2026-08-20 quem administra
 // um grupo é o DONO dele (ou o administrador do sistema), e a pergunta tem UMA
-// definição: `fn_can_administer_group` (011_grupo_com_dono_e_producao.sql). Ela é
+// definição: `fn_can_administer_group` (008_acesso_a_recurso.sql). Ela é
 // chamada daqui, do gate das rotas e do `GET_ADDRESSABLE_LIVE_GROUP` do módulo de
 // concessão — três portas, um predicado. Escrever `owner_id = $1 OR ...` à mão em
 // qualquer uma delas seria a segunda definição, e a segunda é a que envelhece.
@@ -32,7 +32,7 @@
  * consequência que ninguém adivinha.
  *
  * `atlas_share_count` ENTROU EM 2026-08-21, com o eixo de grupo de `atlas_shares` (D2,
- * 011_grupo_com_dono_e_producao.sql), e este bloco afirmava "as DUAS contagens são a
+ * 008_acesso_a_recurso.sql), e este bloco afirmava "as DUAS contagens são a
  * tela inteira" enquanto o grupo já carregava acesso a ATLAS. A frase virou falsa no
  * commit da decisão e a tela herdou a cegueira: o aviso de exclusão contava recurso e
  * omitia atlas, isto é, avisava de MENOS sobre um ato irreversível. Apagar o grupo é

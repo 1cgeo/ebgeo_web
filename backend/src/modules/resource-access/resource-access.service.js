@@ -572,7 +572,7 @@ export async function podarPorRaizes({
             details: {
               // `kind` DISCRIMINA OS DOIS EFEITOS de uma ação só: o nó que trocou de pai
               // e o descendente dele que só herdou um teto de prazo menor. Ver o BLOCO E
-              // de `011_grupo_com_dono_e_producao.sql` para o porquê de não serem duas ações.
+              // de `002_auditoria.sql` para o porquê de não serem duas ações.
               kind: repai ? 'reparent' : 'prazo_herdado',
               resourceType: l.resource_type,
               granteeId: l.grantee_id,

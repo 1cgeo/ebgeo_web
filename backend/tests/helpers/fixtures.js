@@ -191,7 +191,7 @@ export async function createShare(db, atlasId, userId, permission, addedBy) {
  * Creates an ACCESS GROUP (the collective of users), owned by `ownerId`.
  *
  * `owner_id` é obrigatório na prática, mesmo sendo nullable no schema: desde a
- * 011_grupo_com_dono_e_producao.sql um grupo SEM dono não concede nada
+ * 008_acesso_a_recurso.sql um grupo SEM dono não concede nada
  * (`fn_user_group_ids` exige `fn_principal_vivo(ag.owner_id)`). Um teste que o omitisse
  * mediria o grupo órfão sem saber, e todo caso de acesso nasceria verde-por-vazio.
  */

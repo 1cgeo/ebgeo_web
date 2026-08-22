@@ -441,14 +441,17 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
       'consulta que define "concessão viva" só por `revoked_at IS NULL` está definindo errado'
     );
 
-    // A DEFINIÇÃO VIVA, POR INTROSPECÇÃO, e não o texto do arquivo de migração — esta
-    // é a re-ancoragem de 2026-08-20 e ela É o fix, não higiene. O bloco anterior lia
-    // `008_acesso_a_recurso.sql` do disco e contava as ocorrências ali; desde que a
-    // `011_grupo_com_dono_e_producao.sql` redefine `fn_granted_resource_ids` com `CREATE OR REPLACE`, aquele texto
-    // descreve uma definição MORTA. Reverter o termo de produção do braço D4 deixava o
-    // teste VERDE, porque `008_acesso_a_recurso.sql` continua lá com três ocorrências: o
-    // empréstimo do produtor voltava a não resolver para ninguém e nada ficava
-    // vermelho. Verificação-fantasma de manual.
+    // A DEFINIÇÃO VIVA, POR INTROSPECÇÃO, e não o texto do arquivo de migração — esta é a
+    // re-ancoragem de 2026-08-20 e ela É o fix, não higiene. O bloco anterior lia a baseline
+    // do disco e contava as ocorrências ali, e naquele momento havia uma migração posterior
+    // que redefinia `fn_granted_resource_ids` com `CREATE OR REPLACE`: o texto lido descrevia
+    // uma definição MORTA. Reverter o termo de produção do braço D4 deixava o teste VERDE,
+    // porque o arquivo continuava lá com três ocorrências — o empréstimo do produtor voltava
+    // a não resolver para ninguém e nada ficava vermelho. Verificação-fantasma de manual.
+    //
+    // A migração que motivou isto foi absorvida pela baseline em 2026-08-22, e hoje há UMA
+    // definição só. A introspecção fica assim mesmo: ela é a única leitura que continua certa
+    // no dia em que alguém acrescentar o próximo degrau.
     const { rows } = await db.query(
       "SELECT pg_get_functiondef(oid) AS def FROM pg_proc WHERE proname = 'fn_granted_resource_ids'"
     );
@@ -483,9 +486,8 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     // de passagem: ela não é asserida em nenhum outro lugar do repositório.
     //
     // Repare que as duas asserções olham para ALVOS DIFERENTES: a de cima, para a
-    // definição VIVA no banco (a da `011_grupo_com_dono_e_producao.sql`, onde
-    // `CREATE OR REPLACE` é o certo); estas, para o TEXTO da baseline no disco. Uma não
-    // substitui a outra.
+    // definição VIVA no banco; estas, para o TEXTO da baseline no disco. Uma não substitui
+    // a outra.
     const baseline = fs.readFileSync(
       path.join(RAIZ, 'src/database/migrations/008_acesso_a_recurso.sql'), 'utf8'
     );
@@ -497,16 +499,36 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
       baseline, /CREATE OR REPLACE FUNCTION fn_granted_resource_ids\(/,
       'na baseline não há nada a substituir: `OR REPLACE` ali sobrescreveria em silêncio'
     );
-    // Discriminação do próprio par: `011_grupo_com_dono_e_producao.sql` é o degrau em que
-    // `CREATE OR REPLACE` é a forma CERTA, e sem esta linha as duas de cima passariam num
-    // mundo em que ninguém redefine.
-    const degrau = fs.readFileSync(
-      path.join(RAIZ, 'src/database/migrations/011_grupo_com_dono_e_producao.sql'), 'utf8'
-    );
-    const redefinicoes = degrau.match(/CREATE OR REPLACE FUNCTION fn_granted_resource_ids\(/g) ?? [];
-    assert.equal(
-      redefinicoes.length, 1,
-      'UMA redefinição por arquivo: uma segunda vence a primeira sem erro nenhum'
+    // A DISCRIMINAÇÃO MUDOU DE ALVO com a consolidação do schema. Ela era sobre um PAR (a
+    // baseline cria, o degrau seguinte redefine com `CREATE OR REPLACE`), e o degrau foi
+    // absorvido: sem ele, aquela metade mediria um arquivo que não existe.
+    //
+    // O QUE ESTA ASSERÇÃO PEGA, E SÓ ELA: a SOBRECARGA. Medido, não suposto. Duplicar uma
+    // função com a MESMA assinatura já é pego duas vezes antes daqui — o Postgres recusa
+    // ("já existe com os mesmos tipos de argumento"), e a asserção de cima exige que a
+    // baseline use `CREATE FUNCTION` sem `OR REPLACE`, que é o que faz o banco falhar alto em
+    // vez de sobrescrever calado. Já duas definições com assinaturas DIFERENTES o Postgres
+    // ACEITA, e o que sobra é um leitor achando duas definições da mesma função e descrevendo
+    // a que o chamador não usa.
+    const migracoes = fs.readdirSync(path.join(RAIZ, 'src/database/migrations'))
+      .filter((f) => f.endsWith('.sql'));
+    assert.ok(migracoes.length >= 5, `esperava >= 5 migrações, achei ${migracoes.length}`);
+    const definicoes = migracoes.flatMap((f) => {
+      const texto = fs.readFileSync(path.join(RAIZ, 'src/database/migrations', f), 'utf8');
+      return [...texto.matchAll(/^CREATE (?:OR REPLACE )?FUNCTION\s+([\w.]+)\s*\(/gm)]
+        .map((m) => `${f} -> ${m[1]}`);
+    });
+    assert.ok(definicoes.length >= 10, `esperava >= 10 funções declaradas, achei ${definicoes.length}`);
+    const porNome = new Map();
+    for (const d of definicoes) {
+      const nome = d.split(' -> ')[1];
+      porNome.set(nome, (porNome.get(nome) ?? 0) + 1);
+    }
+    const duplicadas = [...porNome.entries()].filter(([, n]) => n > 1).map(([nome]) => nome);
+    assert.deepEqual(
+      duplicadas, [],
+      'função declarada em MAIS DE UM lugar entre as migrações: a última vence sem erro, e o '
+      + 'Postgres ACEITA a sobrecarga, e o leitor passa a achar duas definições da mesma função'
     );
   });
 

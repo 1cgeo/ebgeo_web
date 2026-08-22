@@ -63,18 +63,7 @@ function todasAsLinhas(arquivos = FILES) {
 // `ALTER TABLE x DROP CONSTRAINT ...` começam iguais, e um prefixo compartilhado faria os
 // dois casarem a MESMA entrada — a contagem acusaria "DDL a mais" e a lista deixaria de
 // discriminar qual foi autorizada.
-const EXCECOES_DESTRUTIVAS = [
-  {
-    arquivo: '011_grupo_com_dono_e_producao.sql',
-    trecho: 'ALTER TABLE users DROP COLUMN org_role;',
-    motivo: 'D7: o eixo de papel dentro da OM sai do código inteiro. A coluna não autorizava nada no servidor desde que a escrita do 360 passou para o escopo de produção, e no cliente ela ALIMENTAVA o papel POR ATLAS na hidratação da sessão, promovendo a Dono/Administrador de atlas quem não tinha permissão nenhuma. Apagar a coluna é o que impede o eixo de voltar por analogia. O CHECK inline cai junto, sem DROP CONSTRAINT próprio: por isso esta é UMA linha e não duas, ao contrário das duas de 009.',
-  },
-  {
-    arquivo: '011_grupo_com_dono_e_producao.sql',
-    trecho: 'ALTER TABLE audit_trail DROP CONSTRAINT audit_trail_action_check;',
-    motivo: "Alargar o CHECK de ação para 'PERMISSION_REPARENT' (BLOCO E), a poda que NÃO derrubou: com a preservação de alcançabilidade, revogar deixou de derrubar todo descendente, e quem foi re-pendurado em outro pai vivo precisa de uma linha de trilha própria — sem ela, um acesso que sobrevive a uma revogação fica indistinguível de um acesso que a revogação nunca alcançou. Postgres não tem ALTER CONSTRAINT para expressão, então o CHECK cai e volta na linha seguinte, no mesmo arquivo e na mesma transação do runner. Este é o SEGUNDO par destrutivo do arquivo (o outro é o DROP COLUMN de org_role) e o par DROP/ADD do CHECK de ação tem de continuar sendo ÚNICO aqui: um segundo par venceria o primeiro sem erro nenhum.",
-  },
-];
+const EXCECOES_DESTRUTIVAS = [];
 const PADROES_DESTRUTIVOS = [
   /\bDROP\s+TABLE\b/i,
   /\bDROP\s+COLUMN\b/i,

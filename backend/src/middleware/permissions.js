@@ -133,7 +133,7 @@ export function requireAtlasPermission(requiredLevel) {
 
       // O share MAIS FORTE que alcança esta pessoa: o direto e o dos grupos VIVOS de
       // que ela participa, resolvidos pelo MÁXIMO dentro de `fn_user_atlas_shares`
-      // (011_grupo_com_dono_e_producao.sql). A aritmética da precedência mora lá, uma
+      // (008_acesso_a_recurso.sql). A aritmética da precedência mora lá, uma
       // vez só, porque as três listagens de atlas e o gate do WebSocket precisam
       // responder o mesmo — duas cópias de uma escada é o defeito que esta casa já
       // pagou duas vezes.

@@ -393,7 +393,7 @@ describe('F1 — resolução de acesso a recurso privado (as três funções SQL
     assert.equal(await podeVer(produtor.id, null, outroRecurso), false);
   });
   // ==========================================================================
-  // A DEFINIÇÃO VIVA, por introspecção (`011_grupo_com_dono_e_producao.sql` substitui a da baseline)
+  // A DEFINIÇÃO VIVA, por introspecção (a baseline `008_acesso_a_recurso.sql` a cria uma vez)
   // ==========================================================================
 
   it('a definição VIVA de `fn_granted_resource_ids` é a da migração nova, e é UMA só', async () => {
