@@ -1,7 +1,12 @@
 /**
  * Path: js/3d_models_viewer_tool/services/models-api.service.js
  *
- * Catálogo de modelos 3D vindo do serviço ebgeo_3d.
+ * Catálogo 3D vindo do serviço ebgeo_3d: os modelos e as cenas navegáveis a pé.
+ *
+ * OS DOIS NO MESMO PREFLIGHT, e não em dois. Eles saem do mesmo serviço, são
+ * pedidos no mesmo instante da partida e caem juntos quando ele não responde.
+ * Dois preflights seriam dois pontos de espera na inicialização, dois tempos
+ * limite a acertar e duas chances de alguém ligar um e esquecer o outro.
  *
  * POR QUE ESTE ARQUIVO EXISTE. Antes o array `config.tilesets` era escrito à
  * mão, entrada por entrada, no `config.js` de cada instância: URL, nome,
@@ -29,6 +34,9 @@ import config from '../../config.js';
 
 /** Cache do catálogo do serviço. Preenchido pelo preflight, lido pelo resto. */
 let _modelos = null;
+
+/** Cache das cenas navegáveis a pé. */
+let _cenas = null;
 
 /**
  * Os modelos que o `config.js` declara à mão, guardados ANTES do primeiro
@@ -95,9 +103,30 @@ function paraTileset(m) {
 }
 
 /**
- * Busca o catálogo e preenche `config.tilesets`.
+ * Converte a entrada de cena do serviço na que `config.firstPerson3d.scenes`
+ * espera.
  *
- * @returns {Promise<boolean>} true quando há ao menos um modelo servido.
+ * SÓ O `basePath` MUDA, e ele é o campo inteiro. O
+ * `scene-config.service.js` deriva dele os sete endereços da cena (o splat, o
+ * octree em duas partes, os marcadores, as fotos e as duas prévias). Publicar
+ * um caminho em vez de sete fecha sete chances de errar, e o erro não seria
+ * barulhento: o splat carrega, o `voxel-meta.json` volta 404, e a cena abre
+ * bonita com a colisão desligada.
+ *
+ * @param {object} c Entrada de /api/v1/scenes.json
+ * @returns {object}
+ */
+function paraCena(c) {
+    const saida = { ...c, basePath: `${base()}${c.basePath}` };
+    // O serviço publica `data_captura`; o resto do objeto já vem no formato do
+    // config, então ele atravessa como está.
+    return saida;
+}
+
+/**
+ * Busca o catálogo e preenche `config.tilesets` e `config.firstPerson3d.scenes`.
+ *
+ * @returns {Promise<boolean>} true quando há ao menos um modelo ou cena servida.
  */
 export async function preflightCheck() {
     const b = base();
@@ -116,33 +145,54 @@ export async function preflightCheck() {
         const controle = new AbortController();
         const relogio = setTimeout(() => controle.abort(), 5000);
 
-        let resposta;
+        // AS DUAS BUSCAS EM PARALELO, sob o MESMO tempo limite. Em série a
+        // partida esperaria a soma das duas, e a segunda nem começaria enquanto
+        // a primeira não voltasse.
+        let respModelos;
+        let respCenas;
         try {
-            resposta = await fetch(`${b}/models`, { signal: controle.signal });
+            [respModelos, respCenas] = await Promise.all([
+                fetch(`${b}/models`, { signal: controle.signal }),
+                fetch(`${b}/scenes.json`, { signal: controle.signal }),
+            ]);
         } finally {
             clearTimeout(relogio);
         }
 
-        if (!resposta.ok) return false;
+        const corpoModelos = respModelos.ok ? await respModelos.json() : null;
+        const corpoCenas = respCenas.ok ? await respCenas.json() : null;
 
-        const corpo = await resposta.json();
-        const lista = Array.isArray(corpo?.tilesets) ? corpo.tilesets : [];
-        if (lista.length === 0) return false;
+        const modelos = Array.isArray(corpoModelos?.tilesets) ? corpoModelos.tilesets : [];
+        const cenas = Array.isArray(corpoCenas?.scenes) ? corpoCenas.scenes : [];
 
-        _modelos = lista.map(paraTileset);
+        // UMA CENA SERVIDA JÁ VALE, mesmo sem nenhum modelo, e vice-versa.
+        // Exigir os dois apagaria do mapa o que está funcionando por causa do
+        // que não está.
+        if (modelos.length === 0 && cenas.length === 0) return false;
 
-        // CONCATENA, e nao substitui. O que estava declarado a mao no config e
-        // modelo servido como ARQUIVO ESTATICO (o `type: 'glb'`), que o
-        // ebgeo_3d nao cobre. Substituir apagaria esses modelos do mapa sem um
+        _modelos = modelos.map(paraTileset);
+
+        // CONCATENA, e não substitui. O que estava declarado à mão no config é
+        // modelo servido como ARQUIVO ESTÁTICO (o `type: 'glb'`), que o
+        // ebgeo_3d não cobre. Substituir apagaria esses modelos do mapa sem um
         // erro no console.
         //
-        // O SERVICO GANHA em caso de id repetido: se alguem deixou no config a
-        // entrada a mao de um modelo que ja migrou para o servico, o dado vivo
+        // O SERVIÇO GANHA em caso de id repetido: se alguém deixou no config a
+        // entrada à mão de um modelo que já migrou para o serviço, o dado vivo
         // manda. `map_3d.js` e os outros seis consumidores usam `find`, que para
-        // no PRIMEIRO, entao o do servico tem de vir antes.
+        // no PRIMEIRO, então o do serviço tem de vir antes.
         const idsDoServico = new Set(_modelos.map((m) => m.id));
         const locais = (_locaisOriginais || []).filter((t) => !idsDoServico.has(t.id));
         config.tilesets = [..._modelos, ...locais];
+
+        _cenas = cenas.map(paraCena);
+        // As cenas NÃO concatenam com o config: diferente do glb, não há cena
+        // servida como arquivo estático fora do serviço. Se houver uma declarada
+        // à mão, ela é resquício da configuração que este preflight aposenta.
+        if (!config.firstPerson3d) config.firstPerson3d = { enabled: true, scenes: [] };
+        config.firstPerson3d.scenes = _cenas;
+        if (_cenas.length > 0) config.firstPerson3d.enabled = true;
+
         return true;
     } catch (erro) {
         console.error('[models-api] preflightCheck falhou:', erro);
@@ -156,6 +206,14 @@ export async function preflightCheck() {
  */
 export function getCachedModels() {
     return _modelos;
+}
+
+/**
+ * Cenas já buscadas. NUNCA faz pedido de rede.
+ * @returns {object[]|null}
+ */
+export function getCachedScenes() {
+    return _cenas;
 }
 
 /**

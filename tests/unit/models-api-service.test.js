@@ -62,12 +62,19 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-/** Importa o módulo já com o fetch trocado, para o cache dele nascer limpo. */
-async function carrega(resposta, { ok = true, locais = [{ ...GLB_LOCAL }] } = {}) {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-        ok,
-        json: async () => resposta,
-    })));
+/**
+ * Importa o módulo já com o fetch trocado, para o cache dele nascer limpo.
+ *
+ * O preflight busca DUAS rotas em paralelo, então o duplo tem de responder
+ * conforme a URL. Um duplo que devolve o mesmo corpo às duas faria o catálogo
+ * de cenas receber a lista de modelos, e o teste passaria medindo outra coisa.
+ */
+async function carrega(resposta, { ok = true, locais = [{ ...GLB_LOCAL }], cenas = null, okCenas = true } = {}) {
+    vi.stubGlobal('fetch', vi.fn(async (url) => (
+        String(url).includes('/scenes.json')
+            ? { ok: okCenas, json: async () => (cenas ?? { count: 0, scenes: [] }) }
+            : { ok, json: async () => resposta }
+    )));
     config = (await import('../../src/js/config.js')).default;
     config.tilesets = locais;
     config.models3d = { serviceUrl: serviceUrlBase };
@@ -175,8 +182,12 @@ describe('preflightCheck', () => {
         const svc = await carrega(respostaDoServico());
         await svc.preflightCheck();
 
-        const [, opcoes] = globalThis.fetch.mock.calls[0];
-        expect(opcoes?.signal).toBeInstanceOf(AbortSignal);
+        // AS DUAS buscas levam o sinal: uma sem ele penduraria a partida do
+        // mesmo jeito, e seria a mais fácil de esquecer.
+        expect(globalThis.fetch.mock.calls).toHaveLength(2);
+        for (const [, opcoes] of globalThis.fetch.mock.calls) {
+            expect(opcoes?.signal).toBeInstanceOf(AbortSignal);
+        }
     });
 });
 
@@ -242,5 +253,71 @@ describe('modelo GLB solto', () => {
         expect(t.type).toBe('3dtiles');
         expect(t.position).toBeUndefined();
         expect(t.rotation).toBeUndefined();
+    });
+});
+
+describe('cenas navegáveis a pé', () => {
+    /** Uma cena como o ebgeo_3d a publica. */
+    function respostaCenas() {
+        return {
+            count: 1,
+            scenes: [{
+                id: 'museu-1cgeo',
+                name: 'Sala Historica General Malan',
+                basePath: '/scenes/museu-1cgeo',
+                description: 'Acervo do 1o CGEO',
+                local: 'Porto Alegre, RS',
+                data_captura: '04/08/2026',
+                keywords: ['museu'],
+                locate: { lon: -51.2, lat: -30.03 },
+                poseInicial: { x: 3.82, y: 0.55, z: 1.42, yaw: 0, pitch: 0 },
+                velocidade: 2.4,
+                fov: 60,
+            }],
+        };
+    }
+
+    it('preenche config.firstPerson3d.scenes com o basePath ABSOLUTO', async () => {
+        // O DEFEITO QUE ESTE TESTE TRAVA: um basePath relativo faria o
+        // scene-config.service.js derivar sete endereços a partir da raiz do
+        // site, e não do serviço. O splat carregaria de um lugar que não existe,
+        // e a cena abriria vazia.
+        const svc = await carrega(respostaDoServico(), { cenas: respostaCenas() });
+        expect(await svc.preflightCheck()).toBe(true);
+
+        const cena = config.firstPerson3d.scenes[0];
+        expect(cena.basePath).toBe(`${BASE}/scenes/museu-1cgeo`);
+        expect(cena.id).toBe('museu-1cgeo');
+        expect(cena.poseInicial).toEqual({ x: 3.82, y: 0.55, z: 1.42, yaw: 0, pitch: 0 });
+        expect(cena.velocidade).toBe(2.4);
+        expect(cena.fov).toBe(60);
+    });
+
+    it('uma CENA sozinha ja vale, mesmo sem nenhum modelo', async () => {
+        // Exigir os dois apagaria do mapa o que está funcionando por causa do
+        // que não está.
+        const svc = await carrega({ count: 0, tilesets: [] }, { cenas: respostaCenas(), locais: [] });
+        expect(await svc.preflightCheck()).toBe(true);
+        expect(config.firstPerson3d.scenes).toHaveLength(1);
+        expect(config.tilesets).toHaveLength(0);
+    });
+
+    it('um MODELO sozinho ja vale, mesmo sem nenhuma cena', async () => {
+        const svc = await carrega(respostaDoServico(), { cenas: { count: 0, scenes: [] }, locais: [] });
+        expect(await svc.preflightCheck()).toBe(true);
+        expect(config.tilesets).toHaveLength(1);
+        expect(config.firstPerson3d.scenes).toHaveLength(0);
+    });
+
+    it('devolve false so quando NENHUM dos dois responde nada', async () => {
+        const svc = await carrega({ count: 0, tilesets: [] }, { cenas: { count: 0, scenes: [] }, locais: [] });
+        expect(await svc.preflightCheck()).toBe(false);
+    });
+
+    it('a rota de cenas fora do ar nao derruba os modelos', async () => {
+        const svc = await carrega(respostaDoServico(), { okCenas: false, locais: [] });
+        expect(await svc.preflightCheck()).toBe(true);
+        expect(config.tilesets).toHaveLength(1);
+        expect(config.firstPerson3d.scenes).toHaveLength(0);
     });
 });
