@@ -190,3 +190,57 @@ describe('getCachedModels', () => {
         expect(globalThis.fetch.mock.calls.length).toBe(antes);
     });
 });
+
+describe('modelo GLB solto', () => {
+    /** Uma entrada `type: 'glb'` como o ebgeo_3d a publica. */
+    function respostaGlb() {
+        return {
+            count: 1,
+            tilesets: [{
+                id: 'estatua',
+                name: 'Estatua',
+                type: 'glb',
+                url: '/api/v1/models/estatua/model.glb',
+                heightOffset: 50,
+                position: { lon: -44.447668, lat: -22.454757 },
+                rotation: { heading: 180, pitch: 0, roll: 0 },
+                locate: { lon: -44.447668, lat: -22.454757, height: 350 },
+            }],
+        };
+    }
+
+    it('aponta o model.glb, e nao o tileset.json', async () => {
+        // O DEFEITO QUE ESTE TESTE TRAVA: um cliente que monta sempre
+        // `tileset.json` pede um arquivo que nao existe no modelo glb. O Cesium
+        // trata 404 de tileset como arvore vazia, e o modelo some sem erro.
+        const svc = await carrega(respostaGlb(), { locais: [] });
+        await svc.preflightCheck();
+
+        const e = config.tilesets.find(t => t.id === 'estatua');
+        expect(e.type).toBe('glb');
+        expect(e.url).toBe(`${BASE}/models/estatua/model.glb`);
+    });
+
+    it('traz position e rotation, que so o glb usa', async () => {
+        // Sem `position` o `createGlbModel` do map_3d.js chama
+        // `Cartesian3.fromDegrees(undefined, undefined)` e o modelo vai para o
+        // centro da Terra.
+        const svc = await carrega(respostaGlb(), { locais: [] });
+        await svc.preflightCheck();
+
+        const e = config.tilesets.find(t => t.id === 'estatua');
+        expect(e.position).toEqual({ lon: -44.447668, lat: -22.454757 });
+        expect(e.rotation).toEqual({ heading: 180, pitch: 0, roll: 0 });
+        expect(e.heightOffset).toBe(50);
+    });
+
+    it('o 3dtiles NAO ganha position nem rotation', async () => {
+        const svc = await carrega(respostaDoServico(), { locais: [] });
+        await svc.preflightCheck();
+
+        const t = config.tilesets.find(x => x.id === 'ponte-quatis');
+        expect(t.type).toBe('3dtiles');
+        expect(t.position).toBeUndefined();
+        expect(t.rotation).toBeUndefined();
+    });
+});

@@ -57,13 +57,26 @@ function base() {
  */
 function paraTileset(m) {
     const b = base();
+    const tipo = m.type || '3dtiles';
+    // O TIPO DECIDE O ARQUIVO E O CARREGADOR. O 3dtiles abre por
+    // `Cesium3DTileset.fromUrl` e aponta o tileset.json; o glb abre por
+    // `Model.fromGltfAsync` e aponta o proprio arquivo. O serviço serve o
+    // segundo sempre com o mesmo nome, então o cliente não precisa saber o
+    // nome que o arquivo tinha na origem.
+    const arquivo = tipo === 'glb' ? 'model.glb' : 'tileset.json';
     const saida = {
-        url: `${b}/models/${m.id}/tileset.json`,
+        url: `${b}/models/${m.id}/${arquivo}`,
         id: m.id,
         name: m.name,
-        type: m.type || '3dtiles',
+        type: tipo,
         heightOffset: m.heightOffset ?? 0
     };
+
+    // ONDE PLANTAR, e como orientar. Só o glb usa, e sem `position` o Cesium o
+    // põe no centro da Terra.
+    if (m.position) saida.position = m.position;
+    if (m.rotation) saida.rotation = m.rotation;
+    if (m.scale != null) saida.scale = m.scale;
 
     if (m.description) saida.description = m.description;
     if (m.local) saida.local = m.local;
