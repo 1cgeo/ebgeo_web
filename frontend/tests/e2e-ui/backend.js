@@ -98,19 +98,33 @@ export function killPid(pid) {
     }
 }
 
-/** Polls the health endpoint until ok or timeout. */
-async function waitForHealth(origin) {
+/** Uma checagem de saude: true quando ALGUEM responde `ok` naquela origem. */
+async function healthOnce(origin) {
+    try {
+        const res = await fetch(`${origin}/api/v1/health`);
+        if (!res.ok) return false;
+        const body = await res.json();
+        return body?.status === 'ok';
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Polls the health endpoint until ok, until the spawned child dies, or until the timeout.
+ *
+ * O PREDICADO DE MORTE DO FILHO NAO E OTIMIZACAO, E CORRETUDE: a saude e da PORTA, e a porta
+ * responde por qualquer processo. Sem ele, um filho que morre no berco (EADDRINUSE) deixa a
+ * espera colher o `ok` do OUTRO backend e declarar sucesso.
+ * @param {string} origin
+ * @param {() => boolean} filhoMorreu
+ * @returns {Promise<boolean>}
+ */
+async function waitForHealth(origin, filhoMorreu) {
     const deadline = Date.now() + HEALTH_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        try {
-            const res = await fetch(`${origin}/api/v1/health`);
-            if (res.ok) {
-                const body = await res.json();
-                if (body?.status === 'ok') return true;
-            }
-        } catch {
-            // not up yet
-        }
+        if (filhoMorreu()) return false;
+        if (await healthOnce(origin)) return true;
         await new Promise((r) => setTimeout(r, HEALTH_INTERVAL_MS));
     }
     return false;
@@ -126,12 +140,40 @@ async function waitForHealth(origin) {
  * @returns {Promise<{ baseUrl: string, pid: number, dbName: string }>}
  */
 export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }) {
+    const origin = `http://127.0.0.1:${port}`;
+
+    // PORTA JA OCUPADA E ERRO, NUNCA "ja esta pronto", e esta guarda existe porque uma rodada
+    // inteira foi paga para descobri-la.
+    //
+    // MEDIDO em 2026-08-21: uma rodada morta por timeout deixou o backend do e2e vivo na porta.
+    // Na rodada seguinte o filho novo morreu no berco com EADDRINUSE, e como `waitForHealth`
+    // pergunta a PORTA (nunca ao filho), o `ok` do orfao passou por sucesso: o setup gravou o pid
+    // de um processo MORTO, os specs falaram com o backend antigo, e este mesmo `startBackend` ja
+    // tinha derrubado e recriado o banco por baixo dele. Resultado: 254 casos pulados, 19
+    // instaveis e 2 vermelhos, nenhum deles sobre o codigo do app.
+    //
+    // A checagem vem ANTES de `createDatabase`, e a ordem e o ponto: e o wipe do banco que
+    // transforma "porta ocupada" (um estorvo) em "o outro backend agora fala com um banco vazio"
+    // (uma rodada inteira medindo o sujeito errado).
+    //
+    // SONDADA em 2026-08-21, nos dois sentidos, porque guarda vale o que a ultima sondagem provou:
+    // com um servidor trivial respondendo `{status:'ok'}` na porta, a rodada morre aqui com exit 1
+    // e ZERO migracoes aplicadas (o banco nao foi tocado); com a porta livre, os 4 casos de
+    // `toolbar-drawing-tools` passam. Ao re-sondar, anote data e resultado: sem prazo, "sondei" e
+    // conselho vencido.
+    if (await healthOnce(origin)) {
+        const erro = new Error(
+            `a porta ${port} ja responde /api/v1/health antes de subirmos: outro backend esta de pe `
+            + '(tipicamente orfao de uma rodada anterior interrompida). Encerre-o e rode de novo.',
+        );
+        erro.fatal = true;
+        throw erro;
+    }
+
     await createDatabase(dbName);
     await ensureExtensions(dbName);
     const { runMigrations } = await import(MIGRATE_URL);
     await runMigrations(appDbUrl(dbName));
-
-    const origin = `http://127.0.0.1:${port}`;
     const child = spawn('node', ['src/index.js'], {
         cwd: BACKEND_DIR,
         env: {
@@ -154,10 +196,24 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
         stdio: ['ignore', 'inherit', 'inherit'],
     });
 
-    const healthy = await waitForHealth(origin);
+    // A MORTE DO FILHO E SINAL, e sem escuta-la ela e silencio: o `spawn` devolve um pid mesmo
+    // quando o processo morre no primeiro tick, e este evento e o unico lugar onde isso aparece.
+    let saidaDoFilho = null;
+    child.on('exit', (code, signal) => { saidaDoFilho = { code, signal }; });
+
+    const healthy = await waitForHealth(origin, () => saidaDoFilho !== null);
     if (!healthy) {
         killPid(child.pid);
         await dropDatabase(dbName).catch(() => {});
+        if (saidaDoFilho) {
+            const erro = new Error(
+                `o backend do e2e morreu antes de ficar saudavel (code=${saidaDoFilho.code}, `
+                + `signal=${saidaDoFilho.signal}): veja o stderr acima. A causa mais comum e a `
+                + `porta ${port} ocupada por outra rodada.`,
+            );
+            erro.fatal = true;
+            throw erro;
+        }
         throw new Error('backend did not become healthy within timeout');
     }
     return { baseUrl: origin, pid: child.pid, dbName };

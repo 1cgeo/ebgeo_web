@@ -145,6 +145,30 @@ export async function openAtlasUI(page, atlasId) {
         () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.getZoom === 'function' && globalThis.__ebgeoMap.loaded(),
         { timeout: 20000 },
     );
+
+    // ABRIR O ATLAS SÓ TERMINA QUANDO O MAPA DELE ESTÁ ATIVO, e nenhuma das três esperas acima
+    // diz isso: a badge fica `online` assim que o socket conecta, e `map.loaded()` também vale
+    // para o mapa LOCAL que ainda está montado. O pipeline de abertura
+    // (`account/open-atlas.service.js`) segue trabalhando depois deste ponto — wipe do escopo,
+    // marcação de origem remota, ativação do mapa do atlas e a recarga de estilo do
+    // `switchMap` — e quem desenhar dentro dessa janela desenha no mapa que vai embora.
+    //
+    // MEDIDO, não suposto: `browser-logout-clears-map` flakou numa suíte cheia com o ponto nunca
+    // aparecendo em `points` e o diagnóstico do tool em `isActive:false, toolAtivo:null`, ou
+    // seja, a ferramenta caiu junto com a troca de mapa. Isolado, 6 de 6 verdes; sob carga da
+    // suíte inteira, a janela abre.
+    //
+    // A espera EXISTIA, mas no lugar errado: `openClient` a fazia DEPOIS de chamar este helper,
+    // então ela valia só para quem entrasse por ele, e os dois chamadores diretos
+    // (`browser-logout-clears-map`, `browser-idle-timeout`) ficavam sem. Guarda que protege o
+    // chamador em vez do sujeito é guarda que o próximo chamador não terá.
+    await expect
+        .poll(() => currentMapKeyIsUuid(page), {
+            timeout: 20000,
+            message: 'o mapa do atlas nao ficou ativo depois de abrir (mapa local e chaveado '
+                + 'pelo nome, mapa de atlas por UUID)',
+        })
+        .toBe(true);
 }
 
 /**
@@ -268,9 +292,59 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     await page.waitForTimeout(300); // let the camera settle before projecting
 
     await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn').click();
+    // A PALETA ABERTA É PRÉ-CONDIÇÃO DO CLIQUE NA FERRAMENTA, e este helper era o único a não
+    // esperar por ela (`drawMilitarySymbolUI`, no mesmo arquivo, sempre esperou). O botão do
+    // grupo ALTERNA a paleta, então clicar na ferramenta antes de a paleta assentar é agir sobre
+    // um estado que ainda está mudando.
+    await expect(page.locator('.toolbar-group[data-group-id="draw"] .toolbar-popup'))
+        .toHaveAttribute('data-visible', 'true', { timeout: 5000 });
     const btn = page.locator(`.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="${toolId}"]`);
-    await btn.click();
-    await expect(btn).toHaveAttribute('data-active', 'true', { timeout: 5000 });
+
+    // O BOTÃO QUE NÃO ACENDE TEM TRÊS CAUSAS, e o timeout mudo não separa nenhuma:
+    //   1. o controle não estava no registro da barra — `_handleToolClick`
+    //      (`toolbar/components/toolbar-group.js`) avisa no console e VOLTA, sem ativar nada;
+    //   2. o clique caiu num toggle — `setActiveTool` DESATIVA quando a ferramenta clicada já é
+    //      a ativa, então um botão que já estava aceso apaga;
+    //   3. algo desativou a ferramenta logo depois de ativá-la — `MAP_LOCK_CHANGED` chama
+    //      `deactivateCurrentTool` (`toolbar/toolbar.control.js`), e a recarga de estilo derruba
+    //      os controles do mapa.
+    // As três se distinguem lendo o estado do app AQUI, que é o único ponto onde ele existe.
+    // MEDIDO: `browser-collab-lock` flakou numa suíte cheia com 13 amostras de
+    // `data-active="false"` na PRIMEIRA linha do teste, e o relatório não permitia escolher entre
+    // as três. Isolado, 6 de 6 verdes.
+    const avisosDoConsole = [];
+    const ouvirConsole = (msg) => {
+        const t = msg.type();
+        if (t === 'warning' || t === 'error') avisosDoConsole.push(`${t}: ${msg.text()}`.slice(0, 200));
+    };
+    page.on('console', ouvirConsole);
+    try {
+        await btn.click();
+        await expect(btn).toHaveAttribute('data-active', 'true', { timeout: 5000 });
+    } catch (erro) {
+        const barra = await page.evaluate(async () => {
+            const s2 = await import('/src/js/store/index.js');
+            const grupo = document.querySelector('.toolbar-group[data-group-id="draw"]');
+            const popup = grupo?.querySelector('.toolbar-popup');
+            return {
+                toolAtivo: s2.getStateManager?.()?.getActiveTool?.() ?? null,
+                mapaBloqueado: s2.isCurrentMapLockedSync?.() ?? null,
+                grupoVisivel: !!grupo && getComputedStyle(grupo).display !== 'none',
+                popupVisivel: popup?.dataset?.visible ?? null,
+                botoes: [...(grupo?.querySelectorAll('.toolbar-tool-btn') ?? [])]
+                    .map((b) => `${b.dataset.toolId}=${b.dataset.active}`),
+            };
+        }).catch(() => null);
+        erro.message += `
+  [estado da barra] ${JSON.stringify(barra)}`;
+        if (avisosDoConsole.length > 0) {
+            erro.message += `
+  [console durante o clique] ${avisosDoConsole.join(' | ')}`;
+        }
+        throw erro;
+    } finally {
+        page.off('console', ouvirConsole);
+    }
 
     // THE BUTTON FLIPPING IS NOT THE TOOL BEING READY. `data-active` is set on click, while the
     // control's `activate()` — which wires the map 'click' handler — runs after; in a
