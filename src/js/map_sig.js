@@ -551,6 +551,26 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         }
     }
 
+    // ===== MODELOS 3D PREFLIGHT =====
+    // Roda ANTES de map.addControl(add3DModelsViewerControl), pela mesma razao
+    // do preflight do 360 logo acima: o onAdd() do controle le
+    // `config.tilesets`, e se ele rodar antes o array ainda esta so com os
+    // modelos locais.
+    //
+    // O RESULTADO NAO DESLIGA `map_3d` SOZINHO. Um GLB declarado a mao no
+    // config continua sendo modelo 3D valido, e derrubar o visualizador porque
+    // o SERVICO nao respondeu esconderia o que ainda funciona. Quem decide e o
+    // array cheio ou vazio, que e o mesmo criterio de antes.
+    if (config.features.map_3d && config.models3d?.serviceUrl) {
+        try {
+            const { preflightCheck: preflightModelos3d } =
+                await import('./3d_models_viewer_tool/services/models-api.service.js');
+            await preflightModelos3d();
+        } catch (erro) {
+            console.error('[map_sig] preflight dos modelos 3D falhou:', erro);
+        }
+    }
+
     // Standalone controls managed by BottomControlsControl
     // Still need to be added to the map for their functionality (sources, layers, etc.)
     // but their buttons are hidden via CSS since BottomControlsControl provides the toggle UI

@@ -46,6 +46,24 @@ const STREETVIEW_360_BASE = (globalThis.location?.origin
   : STREETVIEW_360_BASE_BRUTA
 ).replace(/\/+$/, '');
 
+// Base PUBLICA da API do servico de modelos 3D (ebgeo_3d). Mesmo desenho da
+// STREETVIEW_360_BASE acima, e pelas mesmas razoes: um lugar so a trocar por
+// ambiente, o /api/v1 embutido porque em producao o prefixo do proxy o ocupa, e
+// o padrao apontando PRODUCAO para que esquecer a edicao seja inofensivo.
+//
+// O tileset e a miniatura sao endereados a partir DAQUI, e nunca da URL que o
+// servico publica no proprio catalogo. Ele nao enxerga o prefixo sob o qual e
+// publicado, entao a URL que ele monta responde 404 do lado de fora. E o mesmo
+// defeito que o tile do 360 pagou.
+const MODELS_3D_BASE_BRUTA = import.meta.env.DEV
+  ? 'http://localhost:8082/api/v1'
+  : '/ebgeo_3d';
+
+const MODELS_3D_BASE = (globalThis.location?.origin
+  ? new URL(MODELS_3D_BASE_BRUTA, globalThis.location.origin).toString()
+  : MODELS_3D_BASE_BRUTA
+).replace(/\/+$/, '');
+
 const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
@@ -387,29 +405,36 @@ const config = {
     }
   },
 
+  // ===== SERVICO DE MODELOS 3D (ebgeo_3d) =====
+  //
+  // Um endereco so. O catalogo, a miniatura, o video de previa, o ponto de
+  // navegacao e o offset de altura de cada modelo saem daqui, e nao deste
+  // arquivo. Ver `models-api.service.js`.
+  //
+  // Deixe `serviceUrl` vazio para desligar: a feature `map_3d` cai sozinha se
+  // nao houver modelo servido nem modelo local declarado abaixo.
+  models3d: {
+    serviceUrl: MODELS_3D_BASE
+  },
+
   // ===== 3D TILESETS & MODELS =====
-  // Supported types: '3dtiles' (default) and 'glb'
-  // 3D Tiles entries use: url (tileset.json), heightOffset
-  // GLB entries use: url (.glb), position, heightOffset, rotation, scale
+  //
+  // ESTE ARRAY E PREENCHIDO PELO SERVICO, e nao a mao. O
+  // `models-api.service.js` busca `/api/v1/models` do ebgeo_3d na partida e
+  // CONCATENA o resultado ao que estiver declarado aqui. Antes cada modelo
+  // entrava a mao neste arquivo, com URL, nome, descricao, palavras-chave,
+  // ponto de navegacao, offset de altura e miniatura, e o mapa so o enxergava
+  // depois de um redeploy do frontend. E o mesmo defeito que o 360 pagou com os
+  // PMTiles, e a saida e a mesma.
+  //
+  // O QUE CONTINUA ENTRANDO AQUI: modelo servido como ARQUIVO ESTATICO, que o
+  // ebgeo_3d nao cobre. O caso vivo e o `type: 'glb'`, um modelo pontual solto
+  // em `public/3d/models/`. Tileset 3D Tiles de acervo vai para o servico.
+  //
+  // Types: '3dtiles' (default) e 'glb'.
+  //   3D Tiles: url (tileset.json), heightOffset
+  //   GLB: url (.glb), position, heightOffset, rotation, scale
   tilesets: [
-    {
-      url: "/3d/PCL/tileset.json",
-      heightOffset: 35,
-      id: "PCL",
-      name: "Posto de Comando Logístico",
-      description: "Modelo 3D do Posto de Comando Logístico capturado por drone",
-      keywords: ["PCL", "posto comando", "logística", "drone"],  // Optional: extra searchable terms
-      data_captura: "15/03/2024",
-      local: "Resende, RJ",
-      previewVideo: "/3d/videos/preview.webm",
-      previewThumbnail: "/3d/videos/thumbnail.jpg",
-      // maximumScreenSpaceError: 16,  // Qualidade do modelo (menor = mais detalhado, default: 16)
-      locate: {
-        lon: -44.47332385414955,
-        lat: -22.43976556982974,
-        height: 1000
-      }
-    },
     // ===== GLB MODEL EXAMPLE =====
     {
       type: 'glb',                              // Required for GLB models
