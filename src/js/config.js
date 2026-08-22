@@ -435,35 +435,39 @@ const config = {
   //   3D Tiles: url (tileset.json), heightOffset
   //   GLB: url (.glb), position, heightOffset, rotation, scale
   tilesets: [
+    // EXEMPLO, e nao modelo publicado. Descomente e troque os valores para
+    // servir um GLB solto de `public/3d/models/`. Ele ficou ATIVO por engano
+    // ate 2026-08-22, e aparecia no catalogo como "Hangar Principal" apontando
+    // um arquivo que nao existe.
     // ===== GLB MODEL EXAMPLE =====
-    {
-      type: 'glb',                              // Required for GLB models
-      id: "hangar-01",
-      name: "Hangar Principal",
-      description: "Modelo 3D do hangar",
+    // {
+      // type: 'glb',                              // Required for GLB models
+      // id: "hangar-01",
+      // name: "Hangar Principal",
+      // description: "Modelo 3D do hangar",
       // keywords: ["TGL", "hangar"],           // Optional: extra searchable terms
-      url: "/3d/models/TGL.glb",             // Path to .glb file
-      position: {                                // Where to place the model
-        lon: -44.42332,
-        lat: -22.43976
-      },
-      heightOffset: 10,                           // Meters above ellipsoid
-      rotation: {                                // Rotation in degrees
-        heading: 180,                              // 0-360 compass bearing
-        pitch: 0,                                // -90 to 90
-        roll: 0                                  // -180 to 180
-      },
-      scale: 1.0,                                // Uniform scale factor
-      maximumScale: 20000,                       // Max scale (optional)
-      data_captura: "20/01/2025",
-      local: "Resende, RJ",
+      // url: "/3d/models/TGL.glb",             // Path to .glb file
+      // position: {                                // Where to place the model
+        // lon: -44.42332,
+        // lat: -22.43976
+      // },
+      // heightOffset: 10,                           // Meters above ellipsoid
+      // rotation: {                                // Rotation in degrees
+        // heading: 180,                              // 0-360 compass bearing
+        // pitch: 0,                                // -90 to 90
+        // roll: 0                                  // -180 to 180
+      // },
+      // scale: 1.0,                                // Uniform scale factor
+      // maximumScale: 20000,                       // Max scale (optional)
+      // data_captura: "20/01/2025",
+      // local: "Resende, RJ",
       // previewThumbnail: "/3d/models/hangar-thumb.jpg",
-      locate: {                                  // Camera fly-to position
-        lon: -44.42332,
-        lat: -22.43976,
-        height: 500
-      }
-    }
+      // locate: {                                  // Camera fly-to position
+        // lon: -44.42332,
+        // lat: -22.43976,
+        // height: 500
+      // }
+    // }
   ],
 
   // ===== 3D PRIMEIRA PESSOA (GAUSSIAN SPLATTING) =====
