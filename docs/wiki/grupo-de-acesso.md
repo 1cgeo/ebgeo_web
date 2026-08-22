@@ -65,7 +65,7 @@ Um caso degenerado é recusado com 409: conceder ao mesmo grupo de onde a própr
 
 ## O nome qualifica de propósito
 
-`public.groups` existe desde a primeira baseline e é outra coisa: os grupos de feição dentro de um mapa. Daí a tabela ser `access_groups`, e daí o alvo de auditoria da migração `backend/src/database/migrations/009_grupos_de_acesso.sql` ser `ACCESS_GROUP` e **não** reusar o `GROUP` que já estava no vocabulário. Reusar faria as duas trilhas caírem no mesmo balde do índice de alvo, e "o que já foi feito com este grupo" passaria a ter duas respostas misturadas.
+`public.groups` existe desde a primeira baseline e é outra coisa: os grupos de feição dentro de um mapa. Daí a tabela ser `access_groups`, e daí o alvo de auditoria declarado em `backend/src/database/migrations/002_auditoria.sql` ser `ACCESS_GROUP` e **não** reusar o `GROUP` que já estava no vocabulário. Reusar faria as duas trilhas caírem no mesmo balde do índice de alvo, e "o que já foi feito com este grupo" passaria a ter duas respostas misturadas.
 
 As cinco ações são `ACCESS_GROUP_CREATE`, `ACCESS_GROUP_UPDATE`, `ACCESS_GROUP_DELETE`, `ACCESS_GROUP_MEMBER_ADD` e `ACCESS_GROUP_MEMBER_REMOVE`: cinco e não três porque o ciclo de vida do grupo e a composição dele são perguntas diferentes na investigação, e "desde quando esta pessoa estava no grupo" (a pergunta que explica por que ela viu um recurso) exige uma linha por movimento de membro. **Conceder a um grupo não tem ação própria**: continua emitindo `PERMISSION_GRANT` com o recurso como alvo, porque o fato auditado é o mesmo e separar por tipo de beneficiário partiria a história de um acesso em duas listas que não se cruzam.
 

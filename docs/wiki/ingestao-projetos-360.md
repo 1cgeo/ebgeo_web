@@ -38,6 +38,15 @@ O módulo está fora do sync/CRDT do atlas ([[sintese-modulos-fora-do-sync]], [[
 
 `backend/scripts/sv360-import.js` reusa o mesmo `mergeProject`, mas mantém a cópia do arquivo **dentro** da transação, porque no import a frio não há leitores vivos. **Não replique essa ordem no caminho online**: lá o arquivo já está sendo servido, e é exatamente por isso que existe o protocolo evict/`.bak`/rename com rollback externo.
 
+## Acervo em PASTA precisa de uma ponte, e ela não ingere nada
+
+Antes do `index.db` existiu um acervo em pasta: uma foto equirretangular por arquivo e um JSON irmão com `camera` (id/lon/lat/ele/heading) e `targets`. Nenhum dos dois caminhos de ingestão o aceita, porque os dois falam SQLite. A ponte é `backend/scripts/sv360-folder-import.js`, e o que ela decide é o que não se adivinha lendo o importador:
+
+- **Ela não fala com o Postgres.** Só escreve o par (`index.db` mais `{slug}.db`) e manda ingerir pelo `sv360-import.js`, para que `mergeProject` continue sendo o único lugar onde estado de projeto nasce.
+- **O id da foto é cunhado como UUID v5**, com o nome do arquivo entrando no namespace junto do slug. O acervo em pasta não traz id nenhum, e a armadilha está a duas seções daqui: o formato é validado e nunca recalculado, então gravar o nome como id passa por toda a ingestão sem um erro e derruba a leitura depois, com 422 em cada foto. Medido em 657 fotos.
+- **Distância e azimute são derivados** das coordenadas (haversine mais azimute inicial), porque o JSON legado só traz a posição de cada alvo, e o visualizador ordena a fila de uma direção pela distância.
+- **A saída é o formato COM BLOB**, aceito por `validateImagesDb` ao lado do formato de pirâmide. Uma pasta de JPGs não tem tiles, e inventar níveis seria fabricar dado que ninguém mediu.
+
 É a ferramenta da migração de verdade (`npm run sv360:import`) e absorve o `index.db` **inteiro**: projetos, fotos, targets, tombstones, trechos e **thumbnails**. A miniatura é passo à parte porque o disco a guarda org-keyed (`{orgId}__{slug}.webp`) enquanto o acervo legado a nomeia `{slug}.webp` num diretório irmão; ela é best-effort de propósito (o acervo real tem 6 de 28 sem miniatura) e um projeto sem ela importa normalmente.
 
 O modo `--link` troca a cópia por **hardlink NTFS**. Existe porque um acervo real é dezenas de GB (65 GB nos 28 projetos) e duplicá-lo só para dar a cada arquivo seu nome derivado pode custar mais disco do que a máquina tem. As duas restrições que um hardlink impõe e uma cópia não: origem e destino no **mesmo volume** (senão `EXDEV`), e o destino é o **mesmo inode** da origem, então qualquer escrita nele atravessa para o original. Para um store que o servidor possa reingerir por cima, use o modo padrão.

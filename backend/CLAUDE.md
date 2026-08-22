@@ -271,9 +271,11 @@ qual é com `ls src/database/migrations/`, nunca por esta linha: ela já afirmou
 das duas estava desatualizada, porque número fixo em prosa envelhece a cada migração.
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
 
-**A base é um conjunto de BASELINES POR DOMÍNIO, escritas no ESTADO FINAL do schema** (esmagamento de
-2026-08-19, o segundo desta casa: 22 arquivos incrementais viraram 8). A ordem entre elas é a de
-dependência de FK, não cronologia, e a última é pura consumidora (nada depende dela). Consequências
+**A base é um conjunto de BASELINES POR DOMÍNIO, escritas no ESTADO FINAL do schema.** Foram dois
+esmagamentos (2026-08-19, de 22 arquivos para 8) e uma dobra (2026-08-22, que trouxe as três
+migrações seguintes para dentro das baselines). Descubra a contagem com `ls`, nunca por esta linha.
+A ordem entre elas é a de dependência de FK, não cronologia, e a última é pura consumidora (nada
+depende dela). Consequências
 que mordem quem não sabe: um banco criado antes do esmagamento **não é alcançável por upgrade** e
 precisa ser recriado (a guarda no topo da primeira baseline detecta os nomes antigos em `_migrations`
 e levanta com a instrução, em vez do enigmático "relation already exists"); e **nenhuma baseline pode
@@ -285,15 +287,14 @@ ocorrência** em `EXCECOES_DESTRUTIVAS` (`tests/unit/migrations-higiene.test.js`
 commit**; esquecer deixa a suíte vermelha com uma mensagem que não parece ter relação com o assunto
 da migração. Alargar um CHECK é compatível para trás (todo valor aceito antes continua aceito), mas
 Postgres não tem `ALTER CONSTRAINT` para expressão, então o constraint cai e volta, e isso conta
-como destrutivo. **A lista tem QUATRO linhas hoje**: duas do arquivo 009 (os dois CHECK de
-`audit_trail` alargados para o vocabulário do grupo de acesso) e duas da 011 (o `DROP COLUMN` de
-`org_role` e o CHECK de ação alargado de novo, para `PERMISSION_REPARENT`). O esmagamento a deixou
-vazia e cada migração depois dele voltou a povoá-la, que é o comportamento esperado (num schema
-esmagado nada é criado para ser derrubado, mas todo CHECK alargado depois cai e volta). Não conte
-por esta frase antes de acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu uma vez. Ela só discrimina alguma
-coisa por causa do teste de controle negativo que roda os mesmos padrões contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai
-daqui**: reescrever um degrau só é honesto enquanto nenhum banco fora do branch o aplicou, e nesse
-caso o `UPDATE` defensivo para os bancos de desenvolvimento que rodaram a versão antiga é obrigatório.
+como destrutivo. **A lista tem DUAS linhas hoje**, as duas da `011_grupo_com_dono_e_producao.sql`:
+o `DROP COLUMN` de `org_role` e o CHECK de ação alargado para `PERMISSION_REPARENT`. Não conte por
+esta frase antes de acrescentar a sua: a contagem é asserida EXATA, e ela já envelheceu duas vezes.
+Ela só discrimina alguma coisa por causa do teste de controle negativo, que roda os mesmos padrões
+contra SQL que os contém. **Forward-only vale a partir do momento em que a migração sai daqui**:
+reescrever uma baseline só é honesto enquanto nenhum banco fora do branch a aplicou, o que hoje é o
+caso porque não há produção; no dia em que houver, alargar um CHECK volta a exigir arquivo novo e
+linha nesta lista.
 
 **Migração roda por `t.none()`, que LANÇA se o arquivo devolver qualquer linha.** Chamar função numa
 migração é `PERFORM` dentro de um bloco `DO`, nunca um `SELECT` solto: o `SELECT` aborta a transação

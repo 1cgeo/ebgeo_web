@@ -18,7 +18,7 @@
  * caro: a regra de PARADA da escada morava só no código, então mudá-la reinterpretava
  * em silêncio todo o acervo já escrito — 98.854 das 99.035 fotos passaram a ser lidas
  * com uma escada diferente da que as produziu. Por isso `max_level` e `razao` são
- * colunas (migração `012_sv360_piramide.sql`) e por isso a função abaixo os RECEBE em vez de deduzi-los.
+ * colunas (`007_sv360.sql`) e por isso a função abaixo os RECEBE em vez de deduzi-los.
  */
 
 /** Razão entre um nível e o próximo, quando a gravada não disser outra coisa. */
@@ -79,7 +79,7 @@ export function gradeDoNivel(descritor, level) {
   const { width, height, tileSize, razao, maxLevel } = descritor;
   // `> 0`, e não apenas finito: zero é um número perfeitamente finito, e uma dimensão
   // zero produziria uma grade de zero colunas — um nível que o descritor anuncia e que
-  // não tem tile nenhum. O CHECK da migração `012_sv360_piramide.sql` impede isso no banco; aqui a guarda
+  // não tem tile nenhum. O CHECK de `007_sv360.sql` impede isso no banco; aqui a guarda
   // vale para o descritor que chegar por outro caminho.
   if (!(width > 0) || !(height > 0) || !(tileSize > 0)) return null;
   if (level > maxLevel) return null;

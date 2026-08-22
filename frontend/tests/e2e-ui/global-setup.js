@@ -22,6 +22,12 @@ export default async function globalSetup() {
         state = { skip: false, baseUrl, pid, dbName };
         console.info(`[ui-e2e] backend up at ${baseUrl} (cors ${APP_ORIGIN})`);
     } catch (err) {
+        // AMBIENTE AUSENTE PULA; ESTADO SUJO REPROVA, e misturar os dois e o que faz uma rodada
+        // inteira passar por verde sem ter verificado nada. Sem Postgres, pular e a decisao antiga
+        // e continua valendo (o ambiente nao tem como rodar). Ja "a porta esta ocupada por outro
+        // backend" e "o filho morreu no berco" sao estado sujo DESTA maquina: pular ali esconderia
+        // 277 casos atras de um exit 0. `startBackend` marca esses dois com `fatal`.
+        if (err.fatal) throw err;
         state = { skip: true, reason: err.message };
         console.warn(`[ui-e2e] backend unavailable — UI E2E will SKIP: ${err.message}`);
     }

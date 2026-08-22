@@ -5,7 +5,7 @@
 // A regra de parada da escada morava só no código, na origem, e mudá-la reinterpretou em
 // silêncio todo o acervo já escrito: 98.854 das 99.035 fotos passaram a ser lidas com uma
 // escada diferente da que as produziu. O sintoma não é erro, é tile faltando. Por isso
-// `max_level` e `razao` são colunas (migração `012_sv360_piramide.sql`) e por isso `escadaGravada` os RECEBE.
+// `max_level` e `razao` são colunas (`007_sv360.sql`) e por isso `escadaGravada` os RECEBE.
 //
 // ESTE ARQUIVO EXISTE PORQUE O TESTE DE INTEGRAÇÃO NÃO ALCANÇA A RAZÃO. Medido, não
 // suposto: em `sv360-piramide-tiles.test.js` o fixture é 1024x512 com tile 512, e trocar

@@ -629,18 +629,30 @@ export function classifyKeySamples(samples) {
  * pass. A skipped gate measured NOTHING that run, the reason says so in as many words, and the
  * file's opening meta-case already establishes that a skip is not a pass.
  *
+ * O DEFEITO INTERMITENTE PRECISA DE MAIS DE UMA MEDIÇÃO, e é para isso que serve `tentativas`.
+ * Com uma só, "o gate passou" e "o defeito não se manifestou desta vez" são a mesma saída, e a
+ * segunda reprova a rodada anunciando um conserto que ninguém fez. MEDIDO em 2026-08-21 no portão
+ * de E3: o vazamento reproduziu em 4 de 5 rodadas cheias, e na quinta o portão saiu vermelho com
+ * "Expected to fail, but passed". Com N tentativas, o defeito só é declarado fechado quando NÃO
+ * aparece em nenhuma delas, e basta uma reprodução para o caso voltar a ser a falha esperada. É a
+ * regra da casa aplicada ao próprio instrumento: uma medição de algo probabilístico não é medição.
+ *
  * @param {import('@playwright/test').TestInfo} testInfo
  * @param {Object} spec
  * @param {() => Promise<*>} spec.setup - Everything that must work today. A throw here is a
- *   harness failure, never the defect.
+ *   harness failure, never the defect. Runs once per tentativa.
  * @param {(ctx: *) => Promise<void>} spec.gate - The single assertion the etapa closes.
  * @param {string} spec.marca - Substring the gate's failure message must contain.
+ * @param {number} [spec.tentativas=1] - Quantas vezes repetir setup+gate antes de declarar o
+ *   defeito fechado. Mantenha 1 para defeito determinístico.
+ * @param {(ctx: *) => Promise<void>} [spec.encerrar] - Fecha o contexto de uma tentativa
+ *   descartada (chamado só quando ainda há tentativa pela frente).
  * @param {number} [spec.reserveMs=20000] - Slack left to the runner for teardown and reporting.
  * @returns {Promise<{ passed: boolean, context: * }>} `passed` is true only when the gate
  *   itself succeeded, i.e. the defect closed. The context is handed back so the caller can
  *   go on with the rest of the gate instead of building the scenario a second time.
  */
-export async function pendingGate(testInfo, { setup, gate, marca, reserveMs = 20000 }) {
+export async function pendingGate(testInfo, { setup, gate, marca, tentativas = 1, encerrar, reserveMs = 20000 }) {
     const deadline = Date.now() + Math.max(5000, testInfo.timeout - reserveMs);
 
     /**
@@ -680,39 +692,57 @@ export async function pendingGate(testInfo, { setup, gate, marca, reserveMs = 20
         throw new Error('unreachable');
     };
 
-    const montagem = await withinBudget(setup);
-    if (!montagem.done) await semOrcamento('setup');
-    if (montagem.error) {
-        await testInfo.attach('SETUP QUEBRADO (isto NÃO é o defeito esperado)', {
-            body: String(montagem.error.stack ? montagem.error.stack : montagem.error),
-            contentType: 'text/plain',
-        });
-        return { passed: false, context: null };
+    let ultimoContexto = null;
+
+    for (let n = 1; n <= tentativas; n++) {
+        const montagem = await withinBudget(setup);
+        if (!montagem.done) await semOrcamento(`setup (tentativa ${n}/${tentativas})`);
+        if (montagem.error) {
+            await testInfo.attach('SETUP QUEBRADO (isto NÃO é o defeito esperado)', {
+                body: String(montagem.error.stack ? montagem.error.stack : montagem.error),
+                contentType: 'text/plain',
+            });
+            return { passed: false, context: null };
+        }
+        const context = montagem.value;
+
+        const medicao = await withinBudget(() => gate(context));
+        if (!medicao.done) await semOrcamento(`gate (tentativa ${n}/${tentativas})`);
+        const erro = medicao.error ?? null;
+
+        if (erro) {
+            const mensagem = String(erro.message ?? erro);
+            if (!mensagem.includes(marca)) {
+                await testInfo.attach('O GATE CAIU POR OUTRO MOTIVO (isto NÃO é o defeito esperado)', {
+                    body: `esperada a asserção contendo:\n  ${marca}\n\nrecebido:\n${erro.stack ?? mensagem}`,
+                    contentType: 'text/plain',
+                });
+                return { passed: false, context };
+            }
+            // UMA REPRODUÇÃO BASTA: o defeito continua aberto, e o caso volta a ser a falha
+            // esperada. A tentativa em que ele apareceu vai no anexo, porque a distância entre
+            // "1 de 3" e "3 de 3" é a diferença entre corrida e determinismo.
+            if (tentativas > 1) {
+                await testInfo.attach('O DEFEITO REPRODUZIU', {
+                    body: `tentativa ${n} de ${tentativas}\nmarca: ${marca}`,
+                    contentType: 'text/plain',
+                });
+            }
+            throw erro;
+        }
+
+        ultimoContexto = context;
+        if (n < tentativas && encerrar) {
+            await Promise.resolve(encerrar(context)).catch(() => { /* teardown best-effort */ });
+        }
     }
-    const context = montagem.value;
 
-    const medicao = await withinBudget(() => gate(context));
-    if (!medicao.done) await semOrcamento('gate');
-    const erro = medicao.error ?? null;
-
-    if (!erro) {
-        await testInfo.attach('O GATE PASSOU', {
-            body: `O defeito parece fechado. Remova o test.fail() desta spec no MESMO commit.\nmarca: ${marca}`,
-            contentType: 'text/plain',
-        });
-        return { passed: true, context };
-    }
-
-    const mensagem = String(erro.message ?? erro);
-    if (!mensagem.includes(marca)) {
-        await testInfo.attach('O GATE CAIU POR OUTRO MOTIVO (isto NÃO é o defeito esperado)', {
-            body: `esperada a asserção contendo:\n  ${marca}\n\nrecebido:\n${erro.stack ?? mensagem}`,
-            contentType: 'text/plain',
-        });
-        return { passed: false, context };
-    }
-
-    throw erro;
+    await testInfo.attach('O GATE PASSOU', {
+        body: `O defeito nao apareceu em ${tentativas} de ${tentativas} tentativas. `
+            + `Remova o test.fail() desta spec no MESMO commit.\nmarca: ${marca}`,
+        contentType: 'text/plain',
+    });
+    return { passed: true, context: ultimoContexto };
 }
 
 /**

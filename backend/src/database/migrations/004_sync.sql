@@ -68,28 +68,14 @@ FOR EACH ROW
 EXECUTE FUNCTION update_atlas_current_version();
 
 -- ============================================================================
--- ACTIVE SESSIONS (WebSocket presence awareness). client_id TEXT (id do cliente).
+-- ACTIVE SESSIONS — o vocabulário de presença. RESERVADA E SEM ESCRITOR: a presença
+-- viva é o `Map` em memória de `collab.rooms.js`, e nenhum SELECT desta tabela existe em
+-- `backend/src`. As escritas antigas eram fire-and-forget, sem reaper, e todo restart com
+-- usuário conectado orfanava as linhas em silêncio.
 --
--- RESERVADA E SEM ESCRITOR, e a decisão é de 2026-07-25. Até então
--- `collab.service.createSession/deleteSession` escreviam aqui a cada connect/close,
--- e NENHUM `SELECT` desta tabela existia em todo `backend/src`: a presença viva é o
--- `Map` em memória de `collab.rooms.js`. As chamadas eram fire-and-forget (podiam
--- commitar fora de ordem e orfanar linha), não havia reaper, e todo restart com
--- usuário conectado orfanava todas as linhas vivas em silêncio. As duas chamadas
--- foram removidas.
---
--- A TABELA CONTINUA AQUI POR ESCOLHA DELIBERADA, e o esmagamento das migrações
--- torna essa escolha explícita: até ele, "a tabela fica porque migração é
--- forward-only e aditiva" era argumento suficiente, e num schema reescrito do zero
--- esse argumento não existe mais — recriá-la é decisão, não inércia. A razão que
--- permanece é a mesma que valia antes: coluna viva pela metade engana MAIS que
--- coluna ausente (mesma lição do `org_role` sem escritor), e o vocabulário de
--- presença é o que uma implementação futura vai querer encontrar.
---
--- As colunas de presença abaixo (cursor_position, current_map_id,
--- selected_features) e o índice idx_sessions_heartbeat nunca tiveram escritor de
--- verdade e permanecem pelo mesmo motivo. RESSUSCITAR ISTO COMEÇA PELO LEITOR,
--- NÃO PELO INSERT.
+-- FICA POR ESCOLHA, e num schema reescrito do zero isso é decisão e não inércia: o
+-- vocabulário de presença é o que uma implementação futura vai querer encontrar.
+-- RESSUSCITAR ISTO COMEÇA PELO LEITOR, NUNCA PELO INSERT.
 -- ============================================================================
 CREATE TABLE active_sessions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

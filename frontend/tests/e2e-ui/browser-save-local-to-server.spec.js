@@ -220,6 +220,19 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
             await pendingGate(testInfo, {
                 marca: '(local) não recebeu a edição feita no atlas de servidor',
 
+                // O DEFEITO É CORRIDA, ENTÃO UMA MEDIÇÃO NÃO DECIDE NADA. Medido em 2026-08-21,
+                // em cinco suítes cheias seguidas: o vazamento reproduziu em QUATRO, e na quinta
+                // o portão saiu vermelho com "Expected to fail, but passed", anunciando um
+                // conserto que ninguém tinha feito (o commit anterior desta linha ja tinha pago
+                // esse mesmo pedágio ao contrário, tirando a marca e tendo de repô-la). Com três
+                // tentativas, uma reprodução basta para o caso voltar a ser a falha esperada, e
+                // "fechou" passa a exigir três limpas em sequência.
+                //
+                // O contexto de cada tentativa descartada é fechado aqui: sem isso, três jornadas
+                // completas deixariam três contextos de navegador abertos até o fim do caso.
+                tentativas: 3,
+                encerrar: async ({ ctx }) => { await ctx.close(); },
+
                 setup: async () => {
                     const driven = await driveSaveLocalToServer(browser, state.baseUrl);
                     // A EDIÇÃO AO VIVO, e ela é o instrumento: só existe depois de a aba estar

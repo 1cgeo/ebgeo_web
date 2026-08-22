@@ -113,18 +113,17 @@ export function isForma3D(valor) {
  * derivation otherwise.
  *
  * HOW LONG THE COMPAT HALF HAS TO LIVE, and what makes it removable. It reads rows written before
- * the axis existed. Migration `010_forma_3d.sql` backfills `tilesets.config` in every database it
- * runs on, so after that migration the only rows without the field are ones written by a client
- * that predates it. Two conditions make the derivation deletable, and BOTH are needed:
- *   1. every deployed database has run the 010 (forward-only migrations make this a matter of
- *      deploying, not of waiting);
- *   2. the write border refuses a `tilesets` config WITHOUT `forma3d` — today it only refuses a
- *      value outside the four, so a row created by an old client or by direct SQL still arrives
- *      bare. Tightening that Joi field to `.required()` for the tileset table is the act that
- *      retires this function.
- * Until both hold, deleting the fallback turns every legacy `glb` row into a tileset load — a
- * model that renders as nothing, with no error, which is exactly the silence this axis exists to
- * end.
+ * the axis existed. There is no backfill migration any more: the schema was consolidated into
+ * per-domain baselines, a fresh database starts with an EMPTY `tilesets` table, and the axis is
+ * part of the write border from the first row. What still arrives bare is a row written by a
+ * client that predates the axis, or by direct SQL.
+ *
+ * ONE condition retires this function: the write border refusing a `tilesets` config WITHOUT
+ * `forma3d`. Today it only refuses a value outside the four, so tightening that Joi field to
+ * `.required()` for the tileset table is the act that deletes the derivation.
+ *
+ * Until then, deleting the fallback turns every legacy `glb` row into a tileset load — a model
+ * that renders as nothing, with no error, which is exactly the silence this axis exists to end.
  *
  * A shape outside the four (which the Joi border rejects, so it can only arrive by direct SQL)
  * is NOT trusted: it degrades to the legacy derivation rather than propagating an unknown value
@@ -141,8 +140,9 @@ export function derivarForma3d(entrada) {
 
     if (entrada.viewer === VIEWER_LEGADO_INDOOR) return Forma3D.INDOOR;
     if (entrada.type === TYPE_LEGADO_GLB) return Forma3D.GLB;
-    // The historical default: anything that was neither is a tileset. The point cloud lands here
-    // and that is a KNOWN, deliberate limitation of the backfill — see the header of the 010.
+    // The historical default: anything that was neither is a tileset. The point cloud lands here,
+    // and that is DELIBERATE: in the database a cloud is indistinguishable from a plain tileset, so
+    // any heuristic would invent a classification. Marking one is manual, through the admin panel.
     return Forma3D.TILES3D;
 }
 

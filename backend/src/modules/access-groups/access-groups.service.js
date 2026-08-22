@@ -31,7 +31,7 @@ import { podarPorRaizes } from '../resource-access/resource-access.service.js';
 import * as RA from '../resource-access/resource-access.queries.js';
 import * as Q from './access-groups.queries.js';
 
-/** O `audit_trail.target_type` de todo ato de grupo (migração 009_grupos_de_acesso.sql). */
+/** O `audit_trail.target_type` de todo ato de grupo (declarado em `002_auditoria.sql`). */
 const ALVO = 'ACCESS_GROUP';
 
 /**
