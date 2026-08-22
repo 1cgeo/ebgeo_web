@@ -78,16 +78,35 @@ const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x)
  */
 async function convergedValue(db, pages, id, ler, timeout = 25000) {
     let valor = null;
-    await expect
-        .poll(async () => {
-            const row = await db.queryFeatureRow(id);
-            const servidor = String(row?.properties?.lineColor ?? '').toLowerCase();
-            if (!servidor) return null;
-            const clientes = await Promise.all(pages.map((p) => ler(p)));
-            valor = clientes.every((c) => c === servidor) ? servidor : null;
-            return valor ?? `servidor=${servidor} clientes=${clientes.join(',')}`;
-        }, { timeout, message: 'todos os clientes concordam com o valor que o servidor tem AGORA' })
-        .toMatch(/^#[0-9a-f]{6}$/);
+    try {
+        await expect
+            .poll(async () => {
+                const row = await db.queryFeatureRow(id);
+                const servidor = String(row?.properties?.lineColor ?? '').toLowerCase();
+                if (!servidor) return null;
+                const clientes = await Promise.all(pages.map((p) => ler(p)));
+                valor = clientes.every((c) => c === servidor) ? servidor : null;
+                return valor ?? `servidor=${servidor} clientes=${clientes.join(',')}`;
+            }, { timeout, message: 'todos os clientes concordam com o valor que o servidor tem AGORA' })
+            .toMatch(/^#[0-9a-f]{6}$/);
+    } catch (erro) {
+        // O QUE A MENSAGEM PADRÃO NÃO SEPARA. "servidor=X clientes=X,Y" diz QUE divergiu e não
+        // diz ONDE: a op do vencedor nunca chegou àquele cliente, chegou e não foi aplicada, ou
+        // foi aplicada e depois desfeita. As três têm consertos diferentes e a mesma cara. Os
+        // spans do SyncLedger daquela entidade respondem a pergunta, e este é o único instante
+        // em que eles ainda existem (o anel vive na página, que fecha ao fim do caso).
+        const linhas = await Promise.all(pages.map(async (p, i) => {
+            const spans = await p.evaluate((eid) => {
+                const t = window.__ebgeoSyncTrace;
+                if (!t) return ['(trace desligado)'];
+                return t.get((s) => s.entityId === eid)
+                    .map((s) => `${s.stage}${s.outcome && s.outcome !== 'ok' ? `:${s.outcome}` : ''}`);
+            }, id).catch(() => ['(página indisponível)']);
+            return `  cliente ${i}: valor=${await ler(p).catch(() => '?')} spans=[${spans.join(' ')}]`;
+        }));
+        erro.message += `\n\nDIVERGÊNCIA, POR CLIENTE (spans da entidade ${id}):\n${linhas.join('\n')}`;
+        throw erro;
+    }
     return valor;
 }
 

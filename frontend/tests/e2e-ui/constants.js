@@ -67,3 +67,20 @@ export const BACKEND_DIR =
 // para dizer isso é uma a mais para esquecer — esquecê-la faria a segunda rodada
 // sobrescrever o `pid`/`dbName` da primeira, e o teardown mataria o backend alheio.
 export const STATE_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-state-${BACKEND_PORT}.json`);
+
+/**
+ * Onde o harness anota a MORTE DO BACKEND durante a rodada.
+ *
+ * A supervisão que existia cobria só a SUBIDA: `startBackend` espera o `/health` e
+ * reprova se o filho morrer antes de responder. Depois disso ninguém mais olhava, e
+ * um backend que caia no meio da rodada não deixava rastro nenhum. O que se via era
+ * cada teste seguinte falhando em `toBeAttached` de um elemento da barra de conta,
+ * porque o boot do app é fail-fast em `GET /api/config` e a página parava na tela de
+ * indisponível. Medido em 2026-08-22: 254 reprovações a partir do 25º caso, todas com
+ * essa mensagem, e nada em lugar nenhum dizendo que o backend tinha morrido.
+ *
+ * O listener de `exit` já existia e só guardava numa variável de escopo local. Agora
+ * ele grava aqui, e o teardown lê e anuncia. O arquivo deriva da porta pela mesma
+ * razão que `STATE_FILE`: duas rodadas em portas diferentes não podem misturar óbitos.
+ */
+export const OBITO_FILE = path.join(os.tmpdir(), `ebgeo-ui-e2e-obito-${BACKEND_PORT}.json`);

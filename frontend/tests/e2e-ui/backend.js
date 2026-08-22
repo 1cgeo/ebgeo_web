@@ -10,10 +10,11 @@
  * from the backend's node_modules / source via absolute file URLs.
  */
 
+import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-import { BACKEND_DIR } from './constants.js';
+import { BACKEND_DIR, OBITO_FILE } from './constants.js';
 
 const backendRequire = createRequire(pathToFileURL(`${BACKEND_DIR}/package.json`).href);
 /** pg-promise factory, resolved from the backend's node_modules. Exported so the
@@ -199,7 +200,20 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
     // A MORTE DO FILHO E SINAL, e sem escuta-la ela e silencio: o `spawn` devolve um pid mesmo
     // quando o processo morre no primeiro tick, e este evento e o unico lugar onde isso aparece.
     let saidaDoFilho = null;
-    child.on('exit', (code, signal) => { saidaDoFilho = { code, signal }; });
+    try { fs.unlinkSync(OBITO_FILE); } catch { /* nao havia obito anterior */ }
+    child.on('exit', (code, signal) => {
+        saidaDoFilho = { code, signal };
+        // ANOTAR EM DISCO, e nao so na variavel: este listener vive no processo do
+        // globalSetup, que segue de pe durante a rodada inteira, mas os testes correm em
+        // OUTRO processo e nunca enxergam esta variavel. Sem o arquivo, um backend que
+        // morre no meio da rodada e silencio, e o que aparece e cada teste seguinte
+        // falhando por um elemento que nao existe porque o app nao bootou.
+        try {
+            fs.writeFileSync(OBITO_FILE, JSON.stringify({
+                code, signal, quando: new Date().toISOString(), pid: child.pid, port,
+            }));
+        } catch { /* disco cheio ou temp somiu: nao piorar a falha que ja esta em curso */ }
+    });
 
     const healthy = await waitForHealth(origin, () => saidaDoFilho !== null);
     if (!healthy) {
