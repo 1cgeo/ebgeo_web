@@ -9,7 +9,7 @@
  * atlas id and pulling a FRESH snapshot from the backend over HTTP — that the local store was
  * packaged into a NEW server atlas (feature present) AND that the app went live on it (sync online).
  *
- * TWO TESTS, ONE FLOW, AND THE SPLIT IS THE POINT (E0 item 7 of `docs/decisions/fase-multiaba-2026-08.md`).
+ * TWO TESTS, ONE FLOW, AND THE SPLIT IS THE POINT.
  * The first test asserts facts of the SERVER and is green. It was green while the namespace furo
  * was wide open, because a spec that only reads the server cannot see WHERE ON DISK the client put
  * the atlas it just created. The second test drives the same flow and asserts facts of INDEXEDDB.

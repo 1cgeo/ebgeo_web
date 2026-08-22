@@ -14,7 +14,7 @@ Esse é literalmente o defeito que a 008 removeu do schema `ng`, onde a escrita 
 
 ## A autoridade é a POSSE, e o grupo é coisa de usuário
 
-Administra grupo o **dono vivo** dele, ou o administrador do sistema. A pergunta tem uma definição só, `fn_can_administer_group` (`backend/src/database/migrations/011_grupo_com_dono_e_producao.sql`), chamada de três lugares que precisam concordar: o gate das cinco rotas de escrita (`requireGroupAuthority`), o recorte da listagem (`LIST_GROUPS`) e o beneficiário coletivo de uma concessão nova (`GET_ADDRESSABLE_LIVE_GROUP`). O literal do papel mora em SQL, e não em JavaScript, pelo motivo de sempre: o token vive até 15 min e `flexibleAuth` não reconcilia.
+Administra grupo o **dono vivo** dele, ou o administrador do sistema. A pergunta tem uma definição só, `fn_can_administer_group` (`backend/src/database/migrations/008_acesso_a_recurso.sql`), chamada de três lugares que precisam concordar: o gate das cinco rotas de escrita (`requireGroupAuthority`), o recorte da listagem (`LIST_GROUPS`) e o beneficiário coletivo de uma concessão nova (`GET_ADDRESSABLE_LIVE_GROUP`). O literal do papel mora em SQL, e não em JavaScript, pelo motivo de sempre: o token vive até 15 min e `flexibleAuth` não reconcilia.
 
 Qualquer sessão autenticada cria um grupo, e quem cria vira o dono (`access_groups.owner_id`, coluna separada de `created_by`: quem criou é história e quem manda é autoridade, e fundir as duas impediria qualquer transferência sem falsificar o registro de criação).
 

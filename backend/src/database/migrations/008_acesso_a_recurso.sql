@@ -29,44 +29,14 @@
 -- `DELETE /sv360/admin/projects/:slug`, cujo service apaga as concessões na MESMA
 -- transação.
 -- ---------------------------------------------------------------------------
--- GRUPO DE ACESSO: conceder a um COLETIVO em vez de a uma pessoa
+-- ONDE MORA O GRUPO DE ACESSO
 -- ---------------------------------------------------------------------------
 --
--- NAO SE CHAMA `groups` porque o nome ja e outra coisa neste schema: `public.groups`
--- sao os grupos de FEICAO de um mapa. Duas coisas homonimas no mesmo schema e o defeito
--- que este repositorio ja pagou em `streetview_markers`, onde uma tabela morta e um
--- modulo vivo dividiam o nome.
---
--- NAO MORA EM `ng` porque aquele schema e dado de REFERENCIA carregado por ETL, e declara
--- que nao participa da integridade da aplicacao (os `user_id` de la sao UUID SEM FK, de
--- proposito). Um grupo que concede acesso quer FK, cascata, e morrer junto com o usuario.
---
--- SUBSTITUEM `ng.groups`/`ng.user_groups`, que existiam e NUNCA TIVERAM ESCRITOR: uma
--- zona podia ser concedida a um grupo em que ninguem podia estar, e aquele ramo do
--- predicado nunca devolvia linha.
-CREATE TABLE access_groups (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        VARCHAR(100) NOT NULL,
-    description TEXT,
-    created_by  UUID REFERENCES users(id),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at  TIMESTAMPTZ
-);
--- Nome unico entre os VIVOS. Parcial pelo mesmo motivo de `uq_atlas_resources_live`:
--- sem o `WHERE`, um grupo apagado ocuparia o nome para sempre e recriar seria
--- impossivel, que e o beco documentado em `catalog-soft-delete-resurrect.repro`.
-CREATE UNIQUE INDEX uq_access_groups_nome_vivo
-    ON access_groups (LOWER(name)) WHERE deleted_at IS NULL;
-
-CREATE TABLE access_group_members (
-    group_id  UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
-    user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    added_by  UUID REFERENCES users(id),
-    added_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (group_id, user_id)
-);
--- O indice que a resolucao percorre: "de que grupos esta pessoa participa?".
-CREATE INDEX idx_access_group_members_user ON access_group_members (user_id);
+-- `access_groups` e `access_group_members` nascem em `001_identidade.sql`, e nao aqui.
+-- Duas razoes, e a segunda e a que obriga: grupo de acesso e uma colecao de USUARIOS, e
+-- desde que ganhou dono e entidade de usuario; e `atlas_shares` (003) o referencia, entao
+-- ele TEM de existir antes, porque a ordem entre as baselines e a de dependencia de FK.
+-- Aqui ficam so as funcoes que o LEEM, que e o papel deste arquivo.
 
 CREATE TABLE resource_grants (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -270,59 +240,47 @@ RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
     );
 $$;
 
+-- O DONO MORTO DERRUBA O GRUPO INTEIRO: `fn_principal_vivo(ag.owner_id)` e o que faz a
+-- desativacao do dono cortar, de uma vez, todo acesso que o grupo dele concedia. Sem isso
+-- um grupo continuaria emprestando permissao depois de o responsavel sair.
 CREATE FUNCTION fn_user_group_ids(p_user_id UUID)
 RETURNS TABLE (group_id UUID) LANGUAGE sql STABLE AS $$
     SELECT gm.group_id
       FROM access_group_members gm
       JOIN access_groups ag ON ag.id = gm.group_id AND ag.deleted_at IS NULL
-     WHERE p_user_id IS NOT NULL AND gm.user_id = p_user_id;
+     WHERE p_user_id IS NOT NULL
+       AND gm.user_id = p_user_id
+       AND fn_principal_vivo(ag.owner_id);
 $$;
 
-CREATE FUNCTION fn_granted_resource_ids(
-    p_user_id UUID, p_atlas_id UUID, p_type TEXT
-) RETURNS TABLE (resource_id TEXT) LANGUAGE sql STABLE AS $$
-    SELECT g.resource_id
-      FROM resource_grants g
-     WHERE g.revoked_at IS NULL
-       AND g.expires_at > NOW()
-       AND g.resource_type = p_type
-       AND fn_principal_vivo(p_user_id)
-       AND g.grantee_id = p_user_id
-    UNION
-    -- O MESMO braço, pelo COLETIVO. Separado por UNION em vez de um OR dentro do
-    -- WHERE de cima porque cada metade entra por um índice parcial próprio
-    -- (`..._grantee` e `..._grantee_group`); um OR faria o planejador escolher
-    -- entre eles em vez de usar os dois.
-    SELECT g.resource_id
-      FROM resource_grants g
-     WHERE g.revoked_at IS NULL
-       AND g.expires_at > NOW()
-       AND g.resource_type = p_type
-       AND fn_principal_vivo(p_user_id)
-       AND g.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(p_user_id))
-    UNION
-    SELECT ar.resource_id
-      FROM atlas_resources ar
-      JOIN atlas a ON a.id = ar.atlas_id AND a.deleted_at IS NULL
-     WHERE ar.removed_at IS NULL
-       AND ar.resource_type = p_type
-       AND p_atlas_id IS NOT NULL
-       AND ar.atlas_id = p_atlas_id
-       -- D4: o empréstimo vive enquanto o DONO do atlas vir o recurso. Condição
-       -- ESTÁVEL (o dono é uma coluna, não uma cadeia), que faz a revogação E a
-       -- expiração propagarem sozinhas para todos os membros do atlas e para o
-       -- visitante de link público, sem varredura periódica. Este ramo NÃO
-       -- recorre: consulta papel global e concessão DIRETA, nunca o empréstimo,
-       -- então a avaliação termina em dois níveis.
-       AND ( fn_has_global_data_access(a.owner_id)
-             OR (fn_principal_vivo(a.owner_id) AND EXISTS (SELECT 1 FROM resource_grants og
-                         WHERE og.revoked_at IS NULL
-                           AND og.expires_at > NOW()
-                           AND og.resource_type = ar.resource_type
-                           AND og.resource_id   = ar.resource_id
-                           AND ( og.grantee_id = a.owner_id
-                                 OR og.grantee_group_id IN
-                                      (SELECT group_id FROM fn_user_group_ids(a.owner_id)) ))) );
+-- Papel global de ADMINISTRADOR DO SISTEMA, resolvido no banco pelo mesmo motivo de
+-- `fn_has_global_data_access`: o token vive ate 15 min e nao reconcilia.
+CREATE FUNCTION fn_is_global_admin(p_user_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+    SELECT p_user_id IS NOT NULL AND EXISTS (
+        SELECT 1
+          FROM users u
+          LEFT JOIN organizations o ON o.id = u.organization_id
+         WHERE u.id = p_user_id
+           AND u.is_active = true
+           AND COALESCE(o.is_active, true) = true
+           AND u.role = 'admin'
+    );
+$$;
+
+-- Quem pode administrar ESTE grupo: o dono vivo, ou o administrador do sistema. Repare
+-- que credenciado NAO entra: ler todo recurso privado nao e o mesmo que mandar no grupo
+-- de outra pessoa.
+CREATE FUNCTION fn_can_administer_group(p_user_id UUID, p_group_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+    SELECT p_user_id IS NOT NULL AND p_group_id IS NOT NULL AND EXISTS (
+        SELECT 1
+          FROM access_groups g
+         WHERE g.id = p_group_id
+           AND g.deleted_at IS NULL
+           AND ( (g.owner_id = p_user_id AND fn_principal_vivo(p_user_id))
+                 OR fn_is_global_admin(p_user_id) )
+    );
 $$;
 
 -- O gate de PRODUÇÃO: "este usuário MANTÉM este recurso?" — uma pergunta, UMA
@@ -349,9 +307,10 @@ CREATE FUNCTION fn_can_produce_resource(
     p_user_id UUID, p_type TEXT, p_resource_id TEXT
 ) RETURNS BOOLEAN LANGUAGE plpgsql STABLE AS $$
 DECLARE
-    v_role      TEXT;
-    v_scope     UUID;
-    v_owner_org UUID;
+    v_role       TEXT;
+    v_scope      UUID;
+    v_prod_ativa BOOLEAN;
+    v_owner_org  UUID;
 BEGIN
     -- Visitante anônimo (p_user_id NULL) não produz nada. O early return também
     -- é o que impede a função de levantar por tipo desconhecido num caminho
@@ -360,10 +319,11 @@ BEGIN
         RETURN false;
     END IF;
 
-    SELECT u.role, u.producer_org_id
-      INTO v_role, v_scope
+    SELECT u.role, u.producer_org_id, COALESCE(po.is_active, false)
+      INTO v_role, v_scope, v_prod_ativa
       FROM users u
-      LEFT JOIN organizations o ON o.id = u.organization_id
+      LEFT JOIN organizations o  ON o.id  = u.organization_id
+      LEFT JOIN organizations po ON po.id = u.producer_org_id
      WHERE u.id = p_user_id
        AND u.is_active = true
        AND COALESCE(o.is_active, true) = true;
@@ -381,7 +341,13 @@ BEGIN
     -- função é lida por quem está decidindo acesso. `v_scope IS NULL` aqui pararia
     -- num FALSE de qualquer jeito (NULL = NULL não é verdadeiro), e a linha
     -- explícita diz o porquê.
-    IF v_role <> 'producer' OR v_scope IS NULL THEN
+    --
+    -- `NOT v_prod_ativa` fecha o caso da OM produtora DESATIVADA. Repare que ele NÃO usa
+    -- `COALESCE(.., true)` como o ramo de lotação, e a assimetria é deliberada: lotação
+    -- ausente é o estado normal de quem não declarou OM, enquanto produtora ausente é
+    -- impossível neste ponto (o `v_scope IS NULL` acima já saiu). Aqui `false` só pode
+    -- significar "a OM produtora existe e está desativada", e a resposta é não produzir.
+    IF v_role <> 'producer' OR v_scope IS NULL OR NOT v_prod_ativa THEN
         RETURN false;
     END IF;
 
@@ -413,6 +379,65 @@ BEGIN
 END;
 $$;
 
+
+CREATE FUNCTION fn_granted_resource_ids(
+    p_user_id UUID, p_atlas_id UUID, p_type TEXT
+) RETURNS TABLE (resource_id TEXT) LANGUAGE sql STABLE AS $$
+    SELECT g.resource_id
+      FROM resource_grants g
+     WHERE g.revoked_at IS NULL
+       AND g.expires_at > NOW()
+       AND g.resource_type = p_type
+       AND fn_principal_vivo(p_user_id)
+       -- O CONCEDENTE TAMBEM PRECISA ESTAR VIVO: desativar quem concedeu derruba o que
+       -- ele concedeu, sem varredura e sem revogacao explicita. `granted_by` nulo e a
+       -- concessao de raiz, que nao tem concedente para morrer.
+       AND (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by))
+       AND g.grantee_id = p_user_id
+    UNION
+    -- O MESMO braço, pelo COLETIVO. Separado por UNION em vez de um OR dentro do
+    -- WHERE de cima porque cada metade entra por um índice parcial próprio
+    -- (`..._grantee` e `..._grantee_group`); um OR faria o planejador escolher
+    -- entre eles em vez de usar os dois.
+    SELECT g.resource_id
+      FROM resource_grants g
+     WHERE g.revoked_at IS NULL
+       AND g.expires_at > NOW()
+       AND g.resource_type = p_type
+       AND fn_principal_vivo(p_user_id)
+       AND (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by))
+       AND g.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(p_user_id))
+    UNION
+    SELECT ar.resource_id
+      FROM atlas_resources ar
+      JOIN atlas a ON a.id = ar.atlas_id AND a.deleted_at IS NULL
+     WHERE ar.removed_at IS NULL
+       AND ar.resource_type = p_type
+       AND p_atlas_id IS NOT NULL
+       AND ar.atlas_id = p_atlas_id
+       -- D4: o empréstimo vive enquanto o DONO do atlas vir o recurso. Condição
+       -- ESTÁVEL (o dono é uma coluna, não uma cadeia), que faz a revogação E a
+       -- expiração propagarem sozinhas para todos os membros do atlas e para o
+       -- visitante de link público, sem varredura periódica. Este ramo NÃO
+       -- recorre: consulta papel global e concessão DIRETA, nunca o empréstimo,
+       -- então a avaliação termina em dois níveis.
+       -- TRES MANEIRAS de o dono do atlas alcancar o recurso que ele empresta: o papel
+       -- global de dado, PRODUZIR o recurso (a OM dele o mantem), ou ter concessao viva.
+       -- O ramo de producao entrou depois: sem ele, o produtor emprestava ao proprio atlas
+       -- um recurso da propria OM e o emprestimo nao resolvia.
+       AND ( fn_has_global_data_access(a.owner_id)
+             OR fn_can_produce_resource(a.owner_id, ar.resource_type, ar.resource_id)
+             OR (fn_principal_vivo(a.owner_id) AND EXISTS (SELECT 1 FROM resource_grants og
+                         WHERE og.revoked_at IS NULL
+                           AND og.expires_at > NOW()
+                           AND og.resource_type = ar.resource_type
+                           AND og.resource_id   = ar.resource_id
+                           AND (og.granted_by IS NULL OR fn_principal_vivo(og.granted_by))
+                           AND ( og.grantee_id = a.owner_id
+                                 OR og.grantee_group_id IN
+                                      (SELECT group_id FROM fn_user_group_ids(a.owner_id)) ))) );
+$$;
+
 -- Predicado escalar, COMPOSTO dos três acima. Não repete uma linha de regra.
 --
 -- Usado para checagem PONTUAL (o gate de anexar ao atlas, o caminho de foto do
@@ -438,4 +463,105 @@ CREATE FUNCTION fn_can_see_resource(
         OR fn_can_produce_resource(p_user_id, p_type, p_resource_id)
         OR EXISTS (SELECT 1 FROM fn_granted_resource_ids(p_user_id, p_atlas_id, p_type) r
                     WHERE r.resource_id = p_resource_id);
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4. O compartilhamento de atlas com um GRUPO
+-- ---------------------------------------------------------------------------
+--
+-- `atlas_shares` (003) aceita como alvo UMA pessoa OU UM grupo, nunca os dois, pelo mesmo
+-- `num_nonnulls` de `resource_grants`. As funções abaixo respondem as duas perguntas que a
+-- soma das duas formas cria, e existem para que essa soma tenha UMA definição só.
+
+-- A ESCADA DO EIXO POR ATLAS, como número. Existe porque o compartilhamento agora chega
+-- por dois caminhos (direto e por grupo) e o mesmo usuário pode receber os dois: sem uma
+-- ordem, "qual permissão vale" não teria resposta única.
+CREATE FUNCTION fn_permission_rank(p_level TEXT) RETURNS INT
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE p_level
+             WHEN 'read'    THEN 1
+             WHEN 'comment' THEN 2
+             WHEN 'write'   THEN 3
+             WHEN 'manage'  THEN 4
+             WHEN 'owner'   THEN 5
+             ELSE 0
+           END;
+$$;
+
+-- Os atlas que este usuário alcança por compartilhamento, com a MAIOR permissão de cada
+-- um. O desempate secundário é `direto DESC`: com o mesmo nível vindo dos dois caminhos,
+-- vale o direto, que é o que a tela de compartilhamento mostra e o que o dono editou.
+CREATE FUNCTION fn_user_atlas_shares(p_user_id UUID, p_atlas_id UUID DEFAULT NULL)
+RETURNS TABLE (atlas_id UUID, permission TEXT)
+LANGUAGE sql STABLE AS $$
+    SELECT c.atlas_id,
+           (ARRAY_AGG(c.permission
+                      ORDER BY fn_permission_rank(c.permission) DESC, c.direto DESC))[1]
+      FROM (
+            SELECT s.atlas_id, s.permission::text AS permission, true AS direto
+              FROM atlas_shares s
+             WHERE p_user_id IS NOT NULL
+               AND s.user_id = p_user_id
+               AND (p_atlas_id IS NULL OR s.atlas_id = p_atlas_id)
+            UNION ALL
+            SELECT s.atlas_id, s.permission::text, false
+              FROM atlas_shares s
+             WHERE p_user_id IS NOT NULL
+               AND s.group_id IN (SELECT g.group_id FROM fn_user_group_ids(p_user_id) g)
+               AND (p_atlas_id IS NULL OR s.atlas_id = p_atlas_id)
+           ) c
+     GROUP BY c.atlas_id;
+$$;
+
+-- A pergunta inversa: quem são os membros deste atlas. `UNION` (e não `UNION ALL`) porque
+-- a mesma pessoa pode chegar pelos dois caminhos e a presença é um conjunto.
+CREATE FUNCTION fn_atlas_member_ids(p_atlas_id UUID)
+RETURNS TABLE (user_id UUID)
+LANGUAGE sql STABLE AS $$
+    SELECT s.user_id
+      FROM atlas_shares s
+     WHERE s.atlas_id = p_atlas_id AND s.user_id IS NOT NULL
+    UNION
+    SELECT gm.user_id
+      FROM atlas_shares s
+      JOIN access_groups ag ON ag.id = s.group_id AND ag.deleted_at IS NULL
+                           AND fn_principal_vivo(ag.owner_id)
+      JOIN access_group_members gm ON gm.group_id = s.group_id
+     WHERE s.atlas_id = p_atlas_id AND s.group_id IS NOT NULL;
+$$;
+
+-- O que a OM deste produtor mantém e está PRIVADO. É a lista que a tela de produção
+-- mostra, e ela não passa por concessão nenhuma: produzir já é o título.
+CREATE FUNCTION fn_produced_private_resource_ids(p_user_id UUID)
+RETURNS TABLE (resource_type TEXT, resource_id TEXT) LANGUAGE sql STABLE AS $$
+    WITH ator AS (
+        SELECT u.producer_org_id AS escopo
+          FROM users u
+          LEFT JOIN organizations o  ON o.id  = u.organization_id
+          JOIN organizations po ON po.id = u.producer_org_id AND po.is_active = true
+         WHERE u.id = p_user_id
+           AND u.is_active = true
+           AND COALESCE(o.is_active, true) = true
+           AND u.role = 'producer'
+           AND u.producer_org_id IS NOT NULL
+    )
+    SELECT 'basemap'::text, b.id
+      FROM basemaps b JOIN ator ON b.owner_org_id = ator.escopo
+     WHERE b.active = true AND b.access_level = 'private'
+    UNION ALL
+    SELECT 'tileset'::text, t.id
+      FROM tilesets t JOIN ator ON t.owner_org_id = ator.escopo
+     WHERE t.active = true AND t.access_level = 'private'
+    UNION ALL
+    SELECT 'data_layer'::text, d.id
+      FROM data_layers d JOIN ator ON d.owner_org_id = ator.escopo
+     WHERE d.active = true AND d.access_level = 'private'
+    UNION ALL
+    SELECT 'analysis_layer'::text, al.id
+      FROM analysis_layers al JOIN ator ON al.owner_org_id = ator.escopo
+     WHERE al.active = true AND al.access_level = 'private'
+    UNION ALL
+    SELECT 'sv360_project'::text, p.id::text
+      FROM sv360.projects p JOIN ator ON p.organization_id = ator.escopo
+     WHERE p.status = 'enabled' AND p.access_level = 'private';
 $$;

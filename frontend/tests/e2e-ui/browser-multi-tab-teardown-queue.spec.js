@@ -37,8 +37,8 @@
  * ---------------------------------------------------------------------------
  * O QUE ESTA BATERIA NÃO COBRE, ESCRITO PARA NÃO SER CONFUNDIDO COM O REQUISITO
  * ---------------------------------------------------------------------------
- *  - O WEB LOCK SOB `pagehide`/bfcache, que é a janela em que a Decisão 1 (`docs/decisions/fase-multiaba-2026-08.md`)
- *    alega que o lock é melhor que um lease. NÃO É REPRODUZÍVEL AQUI, e a razão é medida, não
+ *  - O WEB LOCK SOB `pagehide`/bfcache, que é a janela em que o lock ganha do lease
+ *    (`docs/wiki/namespace-por-atlas.md`). NÃO É REPRODUZÍVEL AQUI, e a razão é medida, não
  *    suposta: o Playwright 1.61.1 sobe o Chromium com `--disable-back-forward-cache` entre os
  *    switches PADRÃO (`node_modules/playwright-core/lib/coreBundle.js`, na lista
  *    `chromiumSwitches`), então nenhuma página deste runner entra em bfcache. B0 mede o efeito
@@ -417,8 +417,8 @@ describeOrSkip('Duas abas, um usuário: fila de saída e aviso de desmontagem', 
         // código do dia em que foi escrita. O código mudou depois, e a razão é a que segue.
         //
         // A DECISÃO QUE ELA CITAVA VENCEU, E VENCEU POR UMA MUDANÇA EM OUTRO LUGAR.
-        // `docs/decisions/fase-multiaba-2026-08.md` (E2) dizia: "O logout NÃO poupa depois do aviso confirmado; sem
-        // sessão não existe aba legítima segurando dado de servidor". Isso foi decidido quando a
+        // A regra anterior dizia: "o logout NÃO poupa depois do aviso confirmado; sem sessão não
+        // existe aba legítima segurando dado de servidor". Isso foi decidido quando a
         // fila de saída era GLOBAL: o namespace destruído continha então apenas dado de SERVIDOR,
         // que o próximo login refaz. Com a fila FÍSICA por atlas (`perAtlas: true`), a mesma
         // destruição leva junto OPERAÇÃO PENDENTE, que não existe em lugar nenhum senão ali.

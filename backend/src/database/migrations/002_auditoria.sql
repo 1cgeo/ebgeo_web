@@ -49,7 +49,8 @@ CREATE TABLE audit_trail (
                   'PERMISSION_PURGE',
                   'USER_REACTIVATE',
                   'ACCESS_GROUP_CREATE','ACCESS_GROUP_UPDATE','ACCESS_GROUP_DELETE',
-                  'ACCESS_GROUP_MEMBER_ADD','ACCESS_GROUP_MEMBER_REMOVE'
+                  'ACCESS_GROUP_MEMBER_ADD','ACCESS_GROUP_MEMBER_REMOVE',
+                  'PERMISSION_REPARENT'
                 )),
 
     -- Sem FK, e é deliberado: o log precisa sobreviver ao delete do usuário que
@@ -86,7 +87,15 @@ CREATE TABLE audit_trail (
     details     JSONB,
     ip          VARCHAR(45) NOT NULL,
     user_agent  TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- A OM DONA DO RECURSO ALVO, na época do ato: não é a OM do ator e não é a lotação
+    -- dele. É o que permite perguntar "o que aconteceu com o acervo desta OM" sem
+    -- reconstruir a posse a partir do estado de hoje, que já mudou.
+    --
+    -- POR ÚLTIMO, e não ao lado de `target_name`, onde a leitura pediria: a coluna nasceu
+    -- num `ALTER TABLE ADD COLUMN` e a ordem das colunas é observável.
+    target_org_id UUID
 );
 CREATE INDEX idx_audit_actor ON audit_trail(actor_id);
 CREATE INDEX idx_audit_target ON audit_trail(target_type, target_id);
@@ -94,3 +103,11 @@ CREATE INDEX idx_audit_action ON audit_trail(action);
 CREATE INDEX idx_audit_created ON audit_trail(created_at DESC);
 CREATE INDEX idx_audit_created_act ON audit_trail(created_at DESC, action);
 CREATE INDEX idx_audit_details_gin ON audit_trail USING GIN (details);
+-- Parcial: a maioria das linhas não tem OM dona (ato de sistema, acervo institucional).
+CREATE INDEX idx_audit_target_org
+    ON audit_trail (target_org_id, created_at DESC)
+ WHERE target_org_id IS NOT NULL;
+
+COMMENT ON COLUMN audit_trail.target_org_id IS
+  'OM dona do RECURSO ALVO na epoca do ato (nao a OM do ator, nao a lotacao). '
+  'Gravada pelo emissor; NULL para alvo sem OM dona e para acervo institucional.';

@@ -1,6 +1,6 @@
 # Compartilhamento com Usuários
 
-Concessão de acesso a um atlas gravada em `atlas_shares`, gerida por quem tem `manage`. O alvo é **uma pessoa OU um grupo de acesso**, nunca os dois (`CHECK (num_nonnulls(user_id, group_id) = 1)`, `backend/src/database/migrations/011_grupo_com_dono_e_producao.sql`). As rotas e o enum se leem no código; esta página cobre o que ele não conta.
+Concessão de acesso a um atlas gravada em `atlas_shares`, gerida por quem tem `manage`. O alvo é **uma pessoa OU um grupo de acesso**, nunca os dois (`CHECK (num_nonnulls(user_id, group_id) = 1)`, `backend/src/database/migrations/003_atlas.sql`). As rotas e o enum se leem no código; esta página cobre o que ele não conta.
 
 > Até 2026-08-21 a abertura dizia "concessão **nominal**", e a palavra era exata. Deixou de ser: um gate ou uma tela que assuma `user_id` não-nulo ignora a concessão coletiva sem erro nenhum, que é a lista fechada da constituição na forma de SQL.
 
@@ -22,7 +22,7 @@ O JSDoc de `frontend/src/js/modals/sharing.modal.js` afirmava, em dois lugares, 
 
 **Coluna nova, e não tabela irmã.** O padrão já existia em `resource_grants`, com o mesmo `num_nonnulls`. Uma tabela irmã custaria o oposto: cada leitor de `atlas_shares` que decide acesso ganharia um JOIN e um UNION próprios, e "quem alcança este atlas" passaria a ter duas respostas que precisam concordar. `permission`, `added_by` e `added_at` são idênticos nos dois alvos, então a tabela irmã seria a mesma tabela com outro nome.
 
-**A precedência é o MÁXIMO, e o máximo é a razão de ser da escolha.** `fn_user_atlas_shares` devolve o maior nível entre o share direto e os dos grupos vivos da pessoa (`backend/src/database/migrations/011_grupo_com_dono_e_producao.sql`). A propriedade que isso garante: **acrescentar um caminho nunca rebaixa ninguém**, porque máximo é monótono sob inclusão de conjunto, e o caso antigo (só o direto) é o conjunto de um elemento. Quem tem `manage` direto e entra num grupo `read` continua `manage`.
+**A precedência é o MÁXIMO, e o máximo é a razão de ser da escolha.** `fn_user_atlas_shares` devolve o maior nível entre o share direto e os dos grupos vivos da pessoa (`backend/src/database/migrations/008_acesso_a_recurso.sql`). A propriedade que isso garante: **acrescentar um caminho nunca rebaixa ninguém**, porque máximo é monótono sob inclusão de conjunto, e o caso antigo (só o direto) é o conjunto de um elemento. Quem tem `manage` direto e entra num grupo `read` continua `manage`.
 
 **Uma definição, cinco consumidores.** A mesma função responde ao gate REST (`requireAtlasPermission`), ao gate do WebSocket (`resolvePermission` em `backend/src/modules/collab/collab.gateway.js`, rechamado por `reconcileAuthorization` a cada heartbeat) e às três listagens de `backend/src/modules/atlas/atlas.queries.js`. Sem o ramo no gate do socket a permissão por grupo valeria no handshake e morreria ~30 s depois, que é o pior desfecho possível: a pessoa entra, trabalha e cai sem explicação. `backend/tests/unit/atlas-shares-eixo-de-grupo-censo.test.js` reprova o sexto leitor que resolver acesso por conta própria.
 

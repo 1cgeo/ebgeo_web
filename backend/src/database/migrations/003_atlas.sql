@@ -59,19 +59,30 @@ CREATE INDEX idx_atlas_not_deleted ON atlas(id) WHERE deleted_at IS NULL;
 -- ============================================================================
 -- ATLAS SHARES (per-user access control)
 -- ============================================================================
+-- O ALVO É UMA PESSOA OU UM GRUPO, NUNCA OS DOIS, pelo mesmo `num_nonnulls` de
+-- `resource_grants`: gate ou tela que assuma `user_id` não-nulo ignora o
+-- compartilhamento coletivo sem erro nenhum. Quem resolve "qual permissão este usuário
+-- tem neste atlas" somando os dois caminhos é `fn_user_atlas_shares` (008), e não uma
+-- segunda cópia da regra em JavaScript.
 CREATE TABLE atlas_shares (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
-    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
     permission      VARCHAR(10) NOT NULL CHECK (permission IN ('read', 'comment', 'write', 'manage')),
     added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     added_by        UUID REFERENCES users(id),
+    -- POR ULTIMO, e nao ao lado de `user_id`: a coluna nasceu num `ADD COLUMN` e a ordem
+    -- das colunas e observavel.
+    group_id        UUID REFERENCES access_groups(id) ON DELETE CASCADE,
 
-    UNIQUE(atlas_id, user_id)
+    CONSTRAINT atlas_shares_alvo_unico_check CHECK (num_nonnulls(user_id, group_id) = 1),
+    UNIQUE(atlas_id, user_id),
+    CONSTRAINT atlas_shares_atlas_id_group_id_key UNIQUE (atlas_id, group_id)
 );
 
 CREATE INDEX idx_atlas_shares_atlas ON atlas_shares(atlas_id);
 CREATE INDEX idx_atlas_shares_user ON atlas_shares(user_id);
+CREATE INDEX idx_atlas_shares_group ON atlas_shares (group_id) WHERE group_id IS NOT NULL;
 
 -- ============================================================================
 -- ATLAS COVERS — a imagem que substitui as duas letras sobre cor no cartão da

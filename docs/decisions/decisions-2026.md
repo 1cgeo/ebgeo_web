@@ -642,3 +642,19 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - **Um caso do censo de forma 3D mudou de sujeito.** Ele lia o SQL do backfill para pinar "não se adivinha nuvem de pontos"; agora mede `derivarForma3d`, que é o código vivo, com as entradas que uma heurística tentaria capturar.
   - **Banco pré-consolidação continua inalcançável por upgrade**, e a guarda no topo da 001 segue detectando os nomes antigos. Um banco que aplicou 001..011 tem o mesmo schema e três nomes órfãos em `_migrations`, que o runner ignora; recriar é mais limpo e foi o que se fez em desenvolvimento.
 - **Status:** aceita. Supera a parte da entrada de 2026-08-19 que dizia que forward-only voltava a valer a partir da 009: volta a valer a partir da PRÓXIMA migração, e enquanto não houver banco em produção uma baseline pode ser reescrita.
+
+---
+
+### 2026-08-22: o registro da fase multi-aba sai de `docs/decisions/`, porque o durável dele já vive na wiki
+
+- **Contexto:** `fase-multiaba-2026-08.md` tinha 359 linhas e três camadas misturadas: as sete decisões de desenho (D1 a D7) com a alternativa rejeitada e a evidência medida, o roteiro de execução (E0 a E8) e a lista do que a suíte precisava deixar de afirmar. Nove comentários de teste o citavam pelos identificadores ("E0 item 6", "D4", "a Decisão 1"), e o índice `DECISIONS.md` apontava para ele. Enquanto a fase corria, esse vocabulário era o que dizia a um leitor o que cada spec estava provando.
+- **Decisão:** remover o arquivo. O levantamento mostrou que **todo o conteúdo durável já tinha sido absorvido pela wiki**, alternativas rejeitadas incluídas: o Web Lock contra o roster e o lease, o lock que não é fencing, o prazo do perdão e a chave por atlas em vez de array estão em [`../wiki/namespace-por-atlas.md`](../wiki/namespace-por-atlas.md); a regra do dono, a ordem total e o aviso antes de destruir estão em [`../wiki/coordenacao-entre-abas.md`](../wiki/coordenacao-entre-abas.md); a fila por atlas está em [`../wiki/fila-operacoes-outbound.md`](../wiki/fila-operacoes-outbound.md). As nove citações passam a nomear a PROPRIEDADE que cada caso prova e a apontar para a página de wiki.
+- **Alternativas rejeitadas:**
+  - *Manter como estava.* O que sobrava depois da absorção era vocabulário de fase, e identificador de etapa é a primeira coisa que perde sentido quando a fase acaba: "E0 item 6" não diz nada a quem chega depois, e ainda assim obriga a abrir um arquivo de 359 linhas para descobrir o que o teste mede.
+  - *Podar o arquivo mantendo os identificadores.* Preservaria as citações ao custo de manter vivo justamente o que envelheceu. E a poda teria de conservar `D1`…`D7` e `E0`…`E8` inteiros, ou seja, quase tudo.
+  - *Promover o arquivo a página de wiki.* Recusada por duplicação: as três páginas que cobrem o assunto já existem e estão mais atualizadas que ele. Uma quarta página com o mesmo conteúdo é a divergência de amanhã.
+- **Consequências:**
+  - O registro do EVENTO continua onde pertence: as entradas de 2026-08-15 deste arquivo (namespace por atlas, fila por atlas).
+  - Some do repositório uma classe de citação que nenhum guarda alcançava: o arquivo usava `arquivo:linha` como evidência (`store.js:243`, `tab-lock.js:325-328`), forma que a convenção proíbe hoje justamente porque apodrece sem deixar rastro.
+  - A afirmação "`main` É produção", que o arquivo carregava numa análise de revert, sai junto. Ela já não valia.
+- **Status:** aceita.

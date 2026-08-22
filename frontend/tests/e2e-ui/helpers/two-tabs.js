@@ -28,7 +28,7 @@
  *     vacuously. `idbDatabaseNames` THROWS instead of returning an empty list.
  *   - reading a database with `indexedDB.open(name)` CREATES it when absent, so a reader used
  *     as an existence check would manufacture the very database it is asked about (the same
- *     defect `clearAtlasDatabases` has, recorded as D4 in `docs/decisions/fase-multiaba-2026-08.md`). Every read
+ *     defect `clearAtlasDatabases` has, recorded in `docs/wiki/namespace-por-atlas.md`). Every read
  *     here is gated on the name being present in `databases()` first, and returns
  *     `{ exists: false }` without opening anything.
  *

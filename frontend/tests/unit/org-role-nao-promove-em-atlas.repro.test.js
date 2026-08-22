@@ -152,14 +152,17 @@ describe('censo: org_role não sobrevive em código de produção', () => {
         expect(FONTES.some((f) => f.startsWith('backend/src'))).toBe(true);
     });
 
-    it('os ÚNICOS arquivos que ainda citam org_role em código são as duas migrações', () => {
-        // Asserção ABSOLUTA, e a lista é a história do eixo: 001 o cria (é a baseline, e um
-        // banco existente tem a coluna), 011 o apaga. Qualquer terceiro arquivo aqui é o eixo
-        // voltando — por consulta, por claim ou por campo de formulário.
-        expect(COM_EIXO.sort()).toEqual([
-            'backend/src/database/migrations/001_identidade.sql',
-            'backend/src/database/migrations/011_grupo_com_dono_e_producao.sql'
-        ]);
+    it('org_role não aparece em NENHUM arquivo de código', () => {
+        // Asserção ABSOLUTA, e ela ficou VAZIA na consolidação do schema: enquanto havia uma
+        // migração que criava a coluna e outra que a apagava, esta lista tinha as duas e a
+        // história do eixo se lia aqui. Com as baselines escritas no estado final, a coluna
+        // nunca nasce, e o eixo sumiu do disco.
+        //
+        // Lista vazia não discrimina sozinha — é a "cobertura vazia passa verde" que a
+        // constituição nomeia. Quem lhe dá sentido é o CONTROLE DE VÁCUO logo abaixo: a MESMA
+        // varredura, sobre a MESMA lista de fontes, precisa achar o eixo que continua vivo.
+        // Qualquer arquivo aqui é o eixo voltando, por consulta, por claim ou por formulário.
+        expect(COM_EIXO.sort()).toEqual([]);
     });
 
     it('CONTROLE DE VÁCUO: a mesma varredura ACHA o eixo que continua vivo', () => {

@@ -122,9 +122,11 @@ CREATE TABLE users (
     -- LOTAÇÃO, e ela NÃO AUTORIZA NADA: é auto-declarada no auto-cadastro (que aceita
     -- qualquer OM ativa), então autorizar por ela seria escalação de privilégio por
     -- formulário público. O eixo de OM que autoriza é o de PRODUÇÃO.
+    -- NÃO EXISTE `org_role` AQUI, e a ausência é decisão: o eixo de papel DENTRO da OM
+    -- saiu do sistema inteiro. Ele não autorizava nada no servidor, e coluna viva pela
+    -- metade engana mais que coluna ausente — enquanto ela existisse, alguém voltaria a
+    -- lê-la como se decidisse alguma coisa.
     organization_id     UUID REFERENCES organizations(id),
-    org_role            VARCHAR(20) NOT NULL DEFAULT 'viewer'
-                          CHECK (org_role IN ('owner','admin','editor','viewer')),
 
     -- Chave M2M viva; o histórico de rotação fica em api_key_history.
     api_key             UUID UNIQUE,
@@ -241,3 +243,55 @@ CREATE TABLE api_key_history (
     UNIQUE (user_id, api_key)
 );
 CREATE INDEX idx_api_key_history_user ON api_key_history(user_id);
+
+-- ============================================================================
+-- GRUPO DE ACESSO (uma coleção de usuários, com dono)
+-- ============================================================================
+-- NAO SE CHAMA `groups` porque o nome ja e outra coisa neste schema: `public.groups`
+-- sao os grupos de FEICAO de um mapa. Duas coisas homonimas no mesmo schema e o defeito
+-- que este repositorio ja pagou em `streetview_markers`, onde uma tabela morta e um
+-- modulo vivo dividiam o nome.
+--
+-- NAO MORA EM `ng` porque aquele schema e dado de REFERENCIA carregado por ETL, e declara
+-- que nao participa da integridade da aplicacao (os `user_id` de la sao UUID SEM FK, de
+-- proposito). Um grupo que concede acesso quer FK, cascata, e morrer junto com o usuario.
+--
+-- SUBSTITUEM `ng.groups`/`ng.user_groups`, que existiam e NUNCA TIVERAM ESCRITOR: uma
+-- zona podia ser concedida a um grupo em que ninguem podia estar, e aquele ramo do
+-- predicado nunca devolvia linha.
+-- O GRUPO TEM DONO, e a autoridade sobre ele e POSSE, nao papel global: quem administra
+-- e o dono (enquanto principal vivo) ou o administrador do sistema. `created_by` registra
+-- quem criou e nao decide nada; `owner_id` decide.
+CREATE TABLE access_groups (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_by  UUID REFERENCES users(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ,
+    -- POR ULTIMO, e nao ao lado de `created_by`, onde a leitura pediria: a coluna nasceu
+    -- num `ALTER TABLE ADD COLUMN` e a ordem das colunas e observavel (`SELECT *`, e todo
+    -- `INSERT` sem lista). Consolidar nao pode mudar isso.
+    owner_id    UUID REFERENCES users(id)
+);
+CREATE INDEX idx_access_groups_owner ON access_groups (owner_id) WHERE deleted_at IS NULL;
+
+-- Nome unico POR DONO entre os VIVOS, e nao globalmente: com dono, dois usuarios podem
+-- ter cada um o seu "Turma da Sala" sem colidir. Parcial pelo mesmo motivo de
+-- `uq_atlas_resources_live`: sem o `WHERE`, um grupo apagado ocuparia o nome para sempre
+-- e recriar seria impossivel, que e o beco documentado em
+-- `catalog-soft-delete-resurrect.repro`.
+CREATE UNIQUE INDEX uq_access_groups_nome_vivo_do_dono
+    ON access_groups (owner_id, LOWER(name)) WHERE deleted_at IS NULL;
+-- E o indice NAO-unico de nome, que a busca por nome percorre.
+CREATE INDEX idx_access_groups_nome_vivo ON access_groups (LOWER(name)) WHERE deleted_at IS NULL;
+
+CREATE TABLE access_group_members (
+    group_id  UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+    user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    added_by  UUID REFERENCES users(id),
+    added_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (group_id, user_id)
+);
+-- O indice que a resolucao percorre: "de que grupos esta pessoa participa?".
+CREATE INDEX idx_access_group_members_user ON access_group_members (user_id);

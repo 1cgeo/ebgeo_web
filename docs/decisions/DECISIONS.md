@@ -81,7 +81,6 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-21 | O `details` da trilha carrega um de-para seletivo (valor, impressão HMAC, nome-só), e o vídeo de prévia vale para quatro tipos, sem o basemap | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-21 | As pendências da integração main/360 são pagas, e o inventário que as listava é apagado | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-21 | As pendências da constituição são pagas, o inventário é apagado, e o estado das cláusulas ganha guarda por citação de teste | [decisions-2026.md](decisions-2026.md) |
-| 2026-08-15 | Fase multi-aba: o plano como executado (registro, com as sete decisões de desenho por extenso) | [fase-multiaba-2026-08.md](fase-multiaba-2026-08.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

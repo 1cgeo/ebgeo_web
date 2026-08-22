@@ -52,12 +52,19 @@ CREATE TABLE sv360.projects (
     capture_date    TEXT,
     access_level    VARCHAR(20) NOT NULL DEFAULT 'public'
                       CHECK (access_level IN ('public','private')),
+    -- Só o ENDEREÇO do vídeo de prévia: o arquivo vive fora de banda, como nas tabelas de
+    -- catálogo (onde o mesmo dado é `config.previewVideo`).
+    preview_video   TEXT,
     UNIQUE (organization_id, slug)
 );
 CREATE INDEX idx_sv360_projects_org ON sv360.projects(organization_id);
 -- Parcial no lado PRIVADO: é o conjunto pequeno, e é ele que a resolução de acesso
 -- visita.
 CREATE INDEX idx_sv360_projects_private ON sv360.projects(id) WHERE access_level = 'private';
+
+COMMENT ON COLUMN sv360.projects.preview_video IS
+  'URL do video de previa do projeto (fora de banda; a coluna guarda so o endereco). '
+  'Espelha config.previewVideo das tabelas de catalogo. NULL = sem video.';
 
 -- ============================================================================
 -- 3) capture_runs — as FAIXAS DE COLETA

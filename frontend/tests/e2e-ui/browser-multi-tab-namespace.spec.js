@@ -1,8 +1,9 @@
 // Path: e2e-ui/browser-multi-tab-namespace.spec.js
 
 /**
- * @fileoverview E0 — DUAS ABAS do mesmo usuário, um contexto só. The gates of the multi-tab
- * plan (`docs/decisions/fase-multiaba-2026-08.md`, E0 item 6 and E7's Portão).
+ * @fileoverview DUAS ABAS do mesmo usuário, um contexto só: o instrumento que prova a regra do
+ * dono sobre o endereço de bancos (`docs/wiki/coordenacao-entre-abas.md`,
+ * `docs/wiki/namespace-por-atlas.md`).
  *
  * The requirement being instrumented: two tabs in DIFFERENT atlases work; two tabs in the
  * SAME atlas collide; one tab never holds two atlases. Until this file, that requirement had
@@ -40,11 +41,10 @@
  * was ever found.
  *
  * A3 WAS REMOVED, NOT FORGOTTEN, and the clause quoted here when it went was RISCADA four days
- * later. The version of E2 that said "o logout NÃO poupa depois do aviso confirmado; sem sessão
- * não existe aba legítima segurando dado de servidor" is marked SUPERADA EM 2026-08-15 in
- * `docs/decisions/fase-multiaba-2026-08.md`: its premise (a GLOBAL outbound queue, so the
- * destroyed namespace held only server data a re-login refetches) died when E2B made the queue
- * physical per atlas, and a logout then destroyed a sibling's unsent operations through the very
+ * later. The earlier rule — "o logout NÃO poupa depois do aviso confirmado; sem sessão não existe
+ * aba legítima segurando dado de servidor" — was SUPERSEDED on 2026-08-15: its premise (a GLOBAL
+ * outbound queue, so the destroyed namespace held only server data a re-login refetches) died when
+ * the queue became physical per atlas, and a logout then destroyed a sibling's unsent operations through the very
  * door the notice had opened to protect it. WHAT VALE HOJE: "a aba avisada PARA de escrever e NÃO
  * solta a montagem. O aviso é informação; soltar o lock seria entrega, e conflatar os dois era o
  * defeito." The implementation agrees — `store/sync/tab-lock-sync-brake.js` stops the tab and
@@ -586,9 +586,8 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
     });
 
     test('A2b — o bloqueio PARA a aba bloqueada, não apenas a cobre', async ({ browser }, testInfo) => {
-        // FECHADO EM 2026-08-21 — ACHADO NOVO DESTE INSTRUMENTO, não previsto no
-        // `docs/decisions/fase-multiaba-2026-08.md`, e a causa não é nenhuma das que a suspeita
-        // original listava.
+        // FECHADO EM 2026-08-21 — ACHADO NOVO DESTE INSTRUMENTO, não previsto no plano da fase,
+        // e a causa não é nenhuma das que a suspeita original listava.
         //
         // MEDIDO (2026-08-15, e ainda em 2026-08-20 em 4 de 5 rodadas): a segunda aba no MESMO
         // atlas mostra o overlay e, cerca de dois segundos depois, CONECTA assim mesmo. Amostras
