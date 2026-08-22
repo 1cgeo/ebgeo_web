@@ -23,7 +23,7 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 async function bootApp(page) {
     await page.goto('/');
     await expect(page.locator('#toolbar-container')).toBeAttached({ timeout: 20000 });
-    await expect(page.locator('.maplibregl-canvas')).toBeAttached({ timeout: 20000 });
+    await expect(page.locator('#map-sig .maplibregl-canvas')).toBeAttached({ timeout: 20000 });
     await page.waitForFunction(
         () =>
             globalThis.__ebgeoMap &&
@@ -64,7 +64,7 @@ async function activateUtilityTool(page, toolId) {
 
 /** Returns the live map canvas bounding box (asserting it is present). */
 async function canvasBox(page) {
-    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     expect(box).not.toBeNull();
     return box;
 }

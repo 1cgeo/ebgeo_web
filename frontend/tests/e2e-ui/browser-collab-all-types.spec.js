@@ -37,14 +37,38 @@ function sourceToStorage(source) {
 
 const C = [-43.2, -22.9];
 
-/** Closes any feature panel a prior draw's auto-select left over the canvas. */
+/**
+ * Closes any feature panel a prior draw's auto-select left over the canvas.
+ *
+ * ESTE LAÇO DESISTIA EM SILÊNCIO, e o custo aparecia longe daqui. A versão anterior tentava
+ * seis vezes com `Escape` e seguia em frente sem conferir nada. Quando o `Escape` não fecha (o
+ * foco está num campo do painel, ou um tool ativo consome a tecla), o painel continua sobre o
+ * terço esquerdo do mapa, os três vértices do polígono caem TODOS nele, o canvas nunca os vê e
+ * o desenho fica pendurado: tool ativo, `drawPoints: 0`, nenhuma feição e nenhum erro. O que
+ * reprovava era o `expect.poll` do desenho, 20 s depois, dizendo só que a feição não apareceu.
+ * Medido em 2026-08-22, em dez rodadas em série: uma reprodução, com o diagnóstico do harness
+ * nomeando o obstáculo (`div.feature-tab-content active`).
+ *
+ * O BOTÃO DE FECHAR do próprio painel entra como caminho preferido, porque o `Escape` depende
+ * de foco e o clique no botão não. O que NÃO se faz aqui é reprovar quando o painel resiste:
+ * o desenho deixou de depender dele. `drawViaToolUI` passou a reservar no enquadramento a
+ * faixa que o painel ocupa (`collab-helpers.js`), então um painel teimoso não intercepta mais
+ * vértice nenhum. Reprovar aqui viraria falso positivo sobre um estado que não atrapalha mais,
+ * e regra que reprova comportamento correto é pior que regra nenhuma.
+ */
 async function dismissPanels(page) {
+    const aberto = page.locator('.feature-panel[data-expanded="true"]');
     for (let i = 0; i < 6; i++) {
-        if ((await page.locator('.feature-panel[data-expanded="true"]').count()) === 0) break;
+        if ((await aberto.count()) === 0) break;
+        const fechar = aberto.locator('.sidebar-panel-close');
+        if (await fechar.count()) {
+            await fechar.first().click({ force: true }).catch(() => { /* Escape abaixo */ });
+        }
         await page.evaluate(() => document.activeElement?.blur?.());
         await page.keyboard.press('Escape');
         await page.waitForTimeout(250);
     }
+    // A saída do painel é uma transição de `transform`; esperar o atributo não espera o pixel.
     await page.waitForTimeout(250);
 }
 
@@ -56,7 +80,7 @@ async function drawMilitarySymbolUI(page) {
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
     await page.waitForTimeout(300);
-    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
     let id = null;
     await expect.poll(async () => {

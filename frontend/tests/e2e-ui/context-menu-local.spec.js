@@ -26,7 +26,7 @@ test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 /** Boots the app and waits for the 2D MapLibre map + its canvas to be ready. */
 async function bootMap(page) {
     await page.goto('/');
-    await expect(page.locator('.maplibregl-canvas')).toBeAttached({ timeout: 20000 });
+    await expect(page.locator('#map-sig .maplibregl-canvas')).toBeAttached({ timeout: 20000 });
     await page.waitForFunction(
         () =>
             globalThis.__ebgeoMap &&
@@ -46,7 +46,7 @@ const bearing = (page) => page.evaluate(() => Math.abs(globalThis.__ebgeoMap.get
 
 /** Returns the viewport-centre point of the live map canvas. */
 async function canvasCenter(page) {
-    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     expect(box).not.toBeNull();
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }

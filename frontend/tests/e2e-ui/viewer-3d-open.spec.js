@@ -103,6 +103,54 @@ async function registerTileset(page) {
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
 }
 
+/**
+ * Esvazia o catálogo de tilesets PELA ROTA, como um administrador faria.
+ *
+ * POR QUE PELA ROTA, e não por um UPDATE no banco. O `GET /api/config` é memoizado no
+ * processo do backend e a invalidação está pendurada na ESCRITA que passa pelo roteador
+ * (`backend/src/modules/config/config.cache.js`). Um `UPDATE` direto no Postgres deixa o
+ * payload memoizado intacto: o servidor continua entregando o catálogo velho, e o app
+ * continua vendo um tileset que o banco já não tem. Medido em 2026-08-22: a versão por SQL
+ * passava sozinha (o cache ainda estava frio no primeiro boot da rodada) e reprovava na
+ * suíte inteira, onde um spec anterior já o tinha aquecido. Passar isolado e falhar em
+ * conjunto É a assinatura de estado memoizado.
+ *
+ * @param {import('@playwright/test').Page} page - qualquer página na origem do app
+ * @returns {Promise<number>} quantos tilesets foram removidos
+ */
+async function clearTilesets(page) {
+    await page.goto('/');
+    const creds = await createVerifiedUser({ prefix: 't3dclean', nome: 'Tileset Cleaner' });
+    await createDb(state.dbName).raw.none(
+        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
+
+    const out = await page.evaluate(async ({ url, creds: c }) => {
+        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
+        const api = new ApiClient({ baseUrl: `${url}/api/v1` });
+        await api.login(c.username, c.password);
+        const cabecalho = { Authorization: `Bearer ${api.getAccessToken()}` };
+
+        const lista = await (await fetch(`${url}/api/v1/tilesets`, { headers: cabecalho })).json();
+        const ids = (Array.isArray(lista) ? lista : (lista.data ?? lista.items ?? [])).map((t) => t.id);
+        const status = [];
+        for (const id of ids) {
+            const res = await fetch(`${url}/api/v1/tilesets/${encodeURIComponent(id)}`, {
+                method: 'DELETE', headers: cabecalho,
+            });
+            status.push(res.status);
+        }
+        return { ids, status };
+    }, { url: state.baseUrl, creds });
+
+    for (const s of out.status) {
+        expect(s, `o DELETE de tileset devolveu ${s}`).toBeLessThan(300);
+    }
+    // A sessão de administrador sai antes do boot, pela mesma razão escrita em
+    // `registerTileset`: sessão viva numa URL nua leva a `atlas.html`, que não tem mapa.
+    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+    return out.ids.length;
+}
+
 /** Boots the app and waits for the 2D map + bottom controls to be ready. */
 async function bootApp(page) {
     await page.goto('/');
@@ -141,6 +189,11 @@ describeOrSkip('§20 3D models viewer (real browser, local open/close)', () => {
         // The property migration 015 created, and the control that keeps the case below
         // honest: without this, "the toggle works" could be satisfied by a toggle that is
         // always enabled, and the disabled state that broke this file would go unmeasured.
+        //
+        // O catálogo é GLOBAL e a rodada é UMA: o vazio que este caso mede era herdado da
+        // ordem dos arquivos, e o primeiro spec a semear um tileset o levou embora. Declarar
+        // a precondição custa uma linha e vale para qualquer ordem.
+        await clearTilesets(page);
         await bootApp(page);
 
         const toggle = page.locator('#feature-toggle-models3d');

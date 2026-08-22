@@ -94,7 +94,7 @@ describeOrSkip('§25 Coordinate display (real browser, local UI)', () => {
         const realZoom = await page.evaluate(() => globalThis.__ebgeoMap.getZoom());
         expect(Math.abs(realZoom - z0)).toBeGreaterThan(0.5); // the zoom actually changed
 
-        const box = await page.locator('.maplibregl-canvas').boundingBox();
+        const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
         let jig = 0;
         await expect.poll(
             async () => {

@@ -85,7 +85,11 @@ async function pendingVerificationToken(dbName, username) {
         );
         return row?.token ?? null;
     } finally {
-        await pgp.end();
+        // SÓ O POOL DESTA CONEXÃO. `pgp.end()` derruba TODOS os pools do processo, e não
+        // apenas os desta instância: enquanto era ele aqui, criar uma conta no meio de um
+        // spec matava a conexão memoizada de `db.js` e a leitura seguinte voltava
+        // "Connection pool of the database object has been destroyed" — longe da causa.
+        await conn.$pool.end();
     }
 }
 

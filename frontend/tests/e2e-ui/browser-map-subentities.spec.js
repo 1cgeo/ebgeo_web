@@ -63,7 +63,9 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
             ]);
 
             // 2. baseLayer: switch the basemap.
-            const baseLayerValue = 'imagem-satelite';
+            // Um basemap REAL do catálogo semeado: a borda de escrita do sync recusa uma op
+            // que referencia recurso invisível, e linha ausente conta como invisível.
+            const baseLayerValue = 'carta-ortoimagem';
             await api.pushOperations(atlas.id, [
                 createOperation('baseLayer', 'update', mapId, mapId, { baseLayer: baseLayerValue }),
             ]);
@@ -159,7 +161,7 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
             // A `baseLayer` sub-op carrying a smuggled `name`. The per-subtype column
             // whitelist allows ONLY base_layer through; the `name` must be ignored so a
             // viewport/basemap toggle can never silently rename (or relock) a map.
-            const newBaseLayer = 'imagem-satelite';
+            const newBaseLayer = 'carta-ortoimagem'; // real, pelo mesmo motivo do teste acima
             const smuggledName = 'HIJACKED NAME';
             await api.pushOperations(atlas.id, [
                 createOperation('baseLayer', 'update', mapId, mapId, {

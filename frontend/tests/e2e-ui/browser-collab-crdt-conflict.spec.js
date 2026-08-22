@@ -63,6 +63,18 @@ const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x)
  * Sampling server and clients together makes the claim the one that actually matters:
  * at one instant, everyone agrees. A permanent divergence never satisfies it and the
  * failure message names both sides.
+ *
+ * QUANTO A CONVERGÊNCIA DEMORA, MEDIDO em 2026-08-22 com o prazo alargado a 120 s e um
+ * carimbo de tempo em cada chamada: VINTE amostras, todas entre 58 ms e 1,5 s, sem UMA
+ * sequer acima disso. Isso muda a leitura das reprovações deste arquivo: os 25 s não são
+ * apertados, são quatro ordens de grandeza acima do caso típico, e uma reprovação aqui NÃO
+ * se explica por lentidão nem se conserta alargando o prazo. Quando o predicado estoura, o
+ * que ele viu foi um cliente parado no PRÓPRIO valor (por exemplo
+ * `servidor=#0000ff clientes=#0000ff,#ff0000`), e isso é divergência, não atraso. Medida em
+ * dez rodadas em série: três reprovações, em três casos DIFERENTES deste arquivo. A causa
+ * está aberta, e o próximo a pegá-la deve começar pelo relatório do SyncLedger anexado à
+ * falha, que já descarta a hipótese mais barata: `acked-but-no-effect` vem ZERO, então não
+ * é op confirmada pelo servidor e ignorada pelo cliente.
  */
 async function convergedValue(db, pages, id, ler, timeout = 25000) {
     let valor = null;
@@ -380,6 +392,16 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
     collabTest.use({ collabOptions: { peers: 2, permission: 'write' } });
 
     collabTest('conflito de TRÊS clientes na mesma linha converge para um único vencedor', async ({ collab }) => {
+        // O ENVELOPE PRECISA CABER O PRAZO QUE O CASO PEDE, e por um tempo não coube. A espera
+        // de convergência lá embaixo recebe 60 s por decisão medida, mas o teto padrão do teste
+        // é 60 s TAMBÉM, e o setup de três navegadores mais o desenho, o full-sync e os três
+        // acks já gastam cerca de 30 s: a espera nunca teve mais que a metade do prazo que o
+        // comentário dela afirma. Medido em 2026-08-22, com `--retries=0` e um só worker: 35,8 s,
+        // 35,6 s e 36,3 s isolado, contra "Test timeout of 60000ms exceeded" na suíte inteira,
+        // onde a mesma máquina divide CPU. Prazo escrito que o envelope não deixa gastar não é
+        // prazo, é comentário.
+        collabTest.setTimeout(180000);
+
         // Com dois clientes, "convergiram" e "um sobrescreveu o outro" são
         // indistinguíveis: só há dois valores possíveis e acertar por acaso é 50%. Com
         // três, um merge parcial (dois clientes num valor, o terceiro noutro) fica

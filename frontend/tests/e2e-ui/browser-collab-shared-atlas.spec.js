@@ -18,7 +18,7 @@ const SHARED_MAP = 'Mapa Tático';
 const CENTER = { lng: -43.2, lat: -22.9 };
 const ZOOM = 13;
 
-const canvasBox = (page) => page.locator('.maplibregl-canvas').boundingBox();
+const canvasBox = (page) => page.locator('#map-sig .maplibregl-canvas').boundingBox();
 
 /** Moves the mouse across the live canvas so the app broadcasts the local cursor. */
 async function moveCursorOverCanvas(page) {

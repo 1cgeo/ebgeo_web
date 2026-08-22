@@ -61,7 +61,11 @@ collabTest.describe('Client-generated symbol raster survives a snapshot (open/re
         // apply.persist / remote.applied spans for it — the full chain has no op to walk.
         // Arrival via snapshot is exactly what this test needs to wait for, so the store poll
         // stays.
-        await pollPeerFeature(B2, 'military_symbols', id);
+        //
+        // `viaSnapshot` diz isso ao helper, que por padrão espera o span `remote.applied`
+        // ANTES de olhar a store. Sem a marca ele esperava 20 s por um sinal que este caminho
+        // não emite, e o teste passava sozinho e estourava o orçamento sob carga da suíte.
+        await pollPeerFeature(B2, 'military_symbols', id, { viaSnapshot: true });
 
         // The regression: the snapshot peer must REBUILD the raster from props — a local blob
         // is (re)stored and a real image installed. Pre-fix the blob fetch 404'd, so no local

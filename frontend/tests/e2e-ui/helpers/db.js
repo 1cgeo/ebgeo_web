@@ -76,10 +76,16 @@ export function createDb(dbName) {
     };
 }
 
-/** Closes the shared connection + driver. Safe to call when nothing was opened. */
+/**
+ * Closes the shared connection. Safe to call when nothing was opened.
+ *
+ * `conn.$pool.end()`, NOT `pgp.end()`: the latter shuts down every pool in the process, so one
+ * spec's teardown would poison another helper's live connection. Measured — see the note in
+ * `accounts.js`.
+ */
 export async function closeDb() {
-    if (_pgp) {
-        _pgp.end();
+    if (_conn) {
+        await _conn.$pool.end();
         _pgp = null;
         _conn = null;
     }

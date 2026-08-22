@@ -50,7 +50,7 @@ async function bootApp(page) {
 
 /** Returns the bounding box of the live map canvas. */
 async function canvasBox(page) {
-    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     expect(box).not.toBeNull();
     return box;
 }

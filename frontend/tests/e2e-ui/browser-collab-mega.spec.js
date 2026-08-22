@@ -175,7 +175,7 @@ async function deleteSelectedViaUI(page, featureId) {
     // The tree-select → Delete-keypress handoff can race (selection not yet registered when the
     // key fires), so retry the keypress until the destructive confirm modal actually appears.
     await expect(async () => {
-        await page.locator('.maplibregl-canvas').first().press('Delete');
+        await page.locator('#map-sig .maplibregl-canvas').press('Delete');
         await expect(confirmBtn).toBeVisible({ timeout: 1500 });
     }).toPass({ timeout: 10000 });
     await confirmBtn.click();
@@ -202,7 +202,7 @@ async function focusView(page, zoom = 12) {
 
 /** Moves the REAL mouse across the map so the peer sees this client's live cursor move. */
 async function sweepCursor(page, passes = 1) {
-    const box = await page.locator('.maplibregl-canvas').first().boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     if (!box) return;
     for (let p = 0; p < passes; p++) {
         for (let i = 0; i <= 8; i++) {
@@ -408,11 +408,11 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             const undoId = await drawLineUI(B, [[-43.05, -22.7], [-43.0, -22.65], [-42.95, -22.6]]);
             await pollPeerFeature(A, 'lines', undoId);
             await demoPause(A);
-            await B.locator('.maplibregl-canvas').first().press('Control+z');
+            await B.locator('#map-sig .maplibregl-canvas').press('Control+z');
             await expect.poll(async () => hasLine(B, undoId), { timeout: 10000 }).toBe(false);
             await pollPeerFeatureGone(A, 'lines', undoId);
             await demoPause(A);
-            await B.locator('.maplibregl-canvas').first().press('Control+y');
+            await B.locator('#map-sig .maplibregl-canvas').press('Control+y');
             await expect.poll(async () => hasLine(B, undoId), { timeout: 10000 }).toBe(true);
             await pollPeerFeature(A, 'lines', undoId);
             await demoPause(A);

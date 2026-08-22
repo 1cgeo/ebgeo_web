@@ -97,7 +97,7 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         await expect(dialog).toContainText('outros atlas não são afetados');
     });
 
-    test('logado no local: 5 ações; conectado ao servidor: 4, com "Compartilhar" e sem "Limpar tudo"', async ({ browser, page }) => {
+    test('logado no local: 5 ações; conectado ao servidor: 5, com "Compartilhar" e sem "Limpar tudo"', async ({ browser, page }) => {
         const seed = await seedSharedAtlas(browser, state.baseUrl, { permission: 'write' });
 
         await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
@@ -120,7 +120,10 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         // do atlas, e a linha remota tinha três botões. O estado remoto é o único que o oferece, e a
         // tela deliberadamente NÃO o esconde por papel (quem não tem `manage` é recusado pelo
         // backend), então ele aparece também para o colaborador `write` logo abaixo.
-        expect(await actionLabels(owner)).toEqual(['Abrir', 'Importar', 'Exportar', 'Compartilhar']);
+        // "Salvar como local" entrou NESTA linha depois, e é o SIMÉTRICO de "Enviar ao servidor":
+        // cada estado oferece a travessia que falta. A ordem vem da tabela por estado em
+        // `maps.tab.js`, não da ordem em que os botões foram criados.
+        expect(await actionLabels(owner)).toEqual(['Abrir', 'Importar', 'Exportar', 'Salvar como local', 'Compartilhar']);
         await expect(owner.locator('[data-testid="atlas-origin-chip"]')).toHaveText('Servidor');
 
         // The owner reaches the manage rung, so the field is writable and the rename goes to the

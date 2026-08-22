@@ -49,8 +49,8 @@ collabTest.describe('Map lock — owner-only, local read-only enforcement, colla
         // gated and a real canvas gesture lands NOTHING on A.
         await expect(A.locator('.toolbar-group[data-group-id="draw"]')).toBeHidden({ timeout: 5000 });
         const beforeA = new Set((await readFeatures(A, 'lines')).map((x) => x.id));
-        await A.locator('.maplibregl-canvas').first().press('l');
-        const box = await A.locator('.maplibregl-canvas').first().boundingBox();
+        await A.locator('#map-sig .maplibregl-canvas').press('l');
+        const box = await A.locator('#map-sig .maplibregl-canvas').boundingBox();
         await A.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.45);
         await A.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.55, { button: 'right' });
         await A.waitForTimeout(2500);

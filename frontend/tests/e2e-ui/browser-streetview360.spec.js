@@ -44,6 +44,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { seedSv360Photo } from './helpers/catalog-seed.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -52,9 +53,11 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
     test('FLAT orientation360 + marker360 create/clear; snapshot preserves photoName', async ({ page }) => {
         const user = await createVerifiedUser({ prefix: 'sv360', nome: 'SV360 User' });
 
+        const { photoName } = await seedSv360Photo(state.dbName);
+
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
+        const result = await page.evaluate(async ({ baseUrl, u, photoName }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -68,7 +71,6 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
             // FLAT orientation360: photoName at the top level, extra fields (yaw/pitch)
             // belong to the JSONB `data` payload after the backend reshape.
             const orientId = crypto.randomUUID();
-            const photoName = `pano_${crypto.randomUUID().slice(0, 8)}.jpg`;
             const orientation = { id: orientId, photoName, yaw: 90, pitch: -12, sync: 'pending' };
             // no-UI: orientation360 is viewer-only (saved inside the Three.js 360 viewer,
             // which self-skips headless) — driven on the real transport.
@@ -132,7 +134,7 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
                 markerClearedFromMarkers: !(svAfter.markers || []).some((m) => m.id === markerId),
                 orientationSurvivesClear: Boolean(svAfter.orientations && svAfter.orientations[photoName]),
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { baseUrl: state.baseUrl, u: user, photoName });
 
         // Orientation landed, keyed by photoName, with id + FLAT payload round-tripped.
         expect(result.orientationKeyed).toBe(true);

@@ -274,11 +274,31 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     const before = new Set((await readFeatures(page, storage)).map((f) => f.id));
 
     // Fit/center the map so every vertex is guaranteed in-frame for the clicks.
+    //
+    // "IN-FRAME" NÃO É "ALCANÇÁVEL", e a diferença custou uma reprodução em dez rodadas em
+    // série (2026-08-22). O padding era 100 px por todos os lados, e `fitBounds` enquadra no
+    // CANVAS INTEIRO: ele não sabe que os 400 px da esquerda (`--sidebar-panel-width`) podem
+    // estar cobertos pelo painel de feição que o desenho anterior abriu. O vértice mais a
+    // oeste caía a ~100 px da borda, isto é, DENTRO do painel; o clique ia para o painel, o
+    // canvas nunca o via, e o desenho ficava pendurado com `drawPoints: 0` e nenhum erro. O
+    // diagnóstico do próprio helper nomeou o obstáculo (`div.feature-tab-content active`).
+    //
+    // A reserva é MEDIDA no instante do enquadramento, não um número fixo: painel fechado sai
+    // da tela por `translateX(-100%)` e devolve `right` negativo, então ele não reserva nada.
+    // Isso trata a causa para todo chamador, em vez de mover as coordenadas de um spec.
     await page.evaluate((cs) => {
         const map = globalThis.__ebgeoMap;
         if (cs.length === 1) { map.jumpTo({ center: cs[0], zoom: 14 }); return; }
+        const bordaDireita = (sel) => {
+            const el = document.querySelector(sel);
+            return el ? el.getBoundingClientRect().right : 0;
+        };
+        const esquerda = Math.max(100, bordaDireita('.feature-panel'), bordaDireita('.sidebar-panel')) + 20;
         const lngs = cs.map((c) => c[0]); const lats = cs.map((c) => c[1]);
-        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 100, duration: 0 });
+        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], {
+            padding: { top: 100, bottom: 100, left: esquerda, right: 100 },
+            duration: 0,
+        });
     }, coords);
     await page.waitForTimeout(300); // let the camera settle before projecting
 
@@ -740,11 +760,26 @@ export async function drawMilitarySymbolUI(page, lngLat) {
  * first waits deterministically for the peer's `remote.applied` span (the op was applied
  * + lifecycle event emitted), then asserts the store. Falls back to a store poll if the
  * trace never fires, so the assertion stays honest. Replaces the old blind 20s poll.
+ *
+ * `viaSnapshot: true` PULA o passo de trace, e a razão é que ele não pode funcionar ali.
+ * Um par que abre (ou reabre) um atlas recebe o acervo por SNAPSHOT, não como sequência de
+ * ops, então nenhum `remote.applied` é emitido POR ENTIDADE e a espera determinística fica
+ * sem sinal: ela gasta o timeout inteiro e só então o poll de store, que já tinha a
+ * resposta, confirma. Medido em 2026-08-22 num spec de reabertura: 20 s parados, num teste
+ * cujo orçamento era 60 s, o que o fazia estourar sob carga da suíte e passar sozinho. O
+ * `catch` abaixo chama isso de "genuine miss" porque foi escrito para o caminho de op, em
+ * que ausência de sinal é mesmo suspeita; na chegada por snapshot não há op nenhuma para
+ * sentir falta.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} type - storage bucket ('lines', 'military_symbols', ...)
+ * @param {string} id - feature id
+ * @param {{timeout?: number, viaSnapshot?: boolean}} [opcoes]
  */
-export async function pollPeerFeature(page, type, id, timeout = 20000) {
+export async function pollPeerFeature(page, type, id, { timeout = 20000, viaSnapshot = false } = {}) {
     let traced = false;
     try {
-        traced = await waitForRemoteEntity(page, id, { timeout });
+        traced = viaSnapshot ? false : await waitForRemoteEntity(page, id, { timeout });
     } catch {
         // Trace was active but the signal never came → genuine miss; a short store poll confirms.
         traced = true;

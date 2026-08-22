@@ -41,7 +41,7 @@ async function bootApp(page) {
 
 /** Returns the viewport-centre bounding box of the live map canvas. */
 async function canvasCenter(page) {
-    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     expect(box).not.toBeNull();
     return box;
 }

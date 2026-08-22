@@ -50,6 +50,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { seedTileset } from './helpers/catalog-seed.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -91,10 +92,12 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_marker_crud');
 
+        // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
+        // referencia recurso invisível, e linha ausente conta como invisível.
+        const tilesetId = await seedTileset(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const markerId = crypto.randomUUID();
 
                 const pullMarker = async (id) => {
@@ -147,7 +150,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
                 return { tilesetId, markerId, afterCreate, afterUpdate, updateCount, afterDelete };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         // CREATE assertions: flat fields + temporal window present, tilesetId preserved.
@@ -178,10 +181,12 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_measure_crud');
 
+        // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
+        // referencia recurso invisível, e linha ausente conta como invisível.
+        const tilesetId = await seedTileset(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const measurementId = crypto.randomUUID();
 
                 const pullMeasurement = async () => {
@@ -210,7 +215,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
                 return { tilesetId, afterCreate, afterDelete };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         expect(result.afterCreate).toBeTruthy();
@@ -226,10 +231,12 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_viewshed_crud');
 
+        // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
+        // referencia recurso invisível, e linha ausente conta como invisível.
+        const tilesetId = await seedTileset(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const viewshedId = crypto.randomUUID();
 
                 const pullViewshed = async () => {
@@ -272,7 +279,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
 
                 return { tilesetId, afterCreate, afterUpdate, afterDelete };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         // CREATE assertions.
@@ -301,10 +308,12 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_camera_crud');
 
+        // O tileset tem de EXISTIR no catálogo: a borda de escrita do sync recusa uma op que
+        // referencia recurso invisível, e linha ausente conta como invisível.
+        const tilesetId = await seedTileset(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3dCrud;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const cameraId = crypto.randomUUID();
 
                 const pullCamera = async () => {
@@ -340,7 +349,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     clearedHasKey: Object.prototype.hasOwnProperty.call(afterClear, tilesetId),
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         // SAVE assertions: keyed by tilesetId (object, not array), flat fields preserved.
@@ -362,8 +371,9 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
         const victim = await seed(page, state.baseUrl, 'c3d_idor_victim');
         const attacker = await createVerifiedUser({ prefix: 'c3d_idor_attacker', nome: 'Attacker' });
 
+        const victimTileset = await seedTileset(state.dbName);
         const result = await page.evaluate(
-            async ({ victimAtlasId, victimMapId, baseUrl: url, u }) => {
+            async ({ victimAtlasId, victimMapId, baseUrl: url, u, victimTileset }) => {
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -372,7 +382,6 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                 // unreachable through any UI, so the whole flow rides the real transport.
                 // The victim (current window.__c3dCrud) plants a marker on their own map.
                 const victimApi = window.__c3dCrud.api;
-                const victimTileset = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const markerId = crypto.randomUUID();
                 await victimApi.pushOperations(victimAtlasId, [
                     createOperation('marker3d', 'create', markerId, victimMapId, {
@@ -404,7 +413,7 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                 const marker = (map?.cesium3d?.markers || []).find((m) => m.id === markerId) || null;
                 return { name: marker?.properties?.name, present: Boolean(marker) };
             },
-            { victimAtlasId: victim.atlasId, victimMapId: victim.mapId, baseUrl: state.baseUrl, u: attacker },
+            { victimAtlasId: victim.atlasId, victimMapId: victim.mapId, baseUrl: state.baseUrl, u: attacker, victimTileset },
         );
 
         // The victim's marker is untouched: still present, name NOT overwritten.

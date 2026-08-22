@@ -56,6 +56,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { seedSv360Photo } from './helpers/catalog-seed.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
@@ -187,7 +188,10 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
         const user = await createVerifiedUser({ prefix: 'brfadv9', nome: 'Briefing Orient' });
         await page.goto('/');
 
-        const result = await page.evaluate(async ({ baseUrl, u }) => {
+        // A foto tem de EXISTIR num projeto 360 visível: o slide REFERENCIA o projeto por ela,
+        // e a borda de escrita do sync recusa a op cuja referência não resolve.
+        const { photoName } = await seedSv360Photo(state.dbName);
+        const result = await page.evaluate(async ({ baseUrl, u, photoName }) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
@@ -203,7 +207,6 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
             // A SAVED 360 orientation (flat orientation360 entity, keyed by photoName in
             // the snapshot under map.streetview360.orientations). The editor's dropdown
             // lists these; selecting one applies its angles to the slide.
-            const photoName = `pano-${crypto.randomUUID().slice(0, 8)}`;
             const orientId = crypto.randomUUID();
             const savedAngles = { bearing: 137, pitch: -12, heading: 137 };
             await api.pushOperations(atlas.id, [
@@ -281,7 +284,7 @@ describeOrSkip('Briefing editor advanced §22.8-10 (real Chromium + real backend
                 expectedPhoto: photoName,
                 ghostPresent,
             };
-        }, { baseUrl: state.baseUrl, u: user });
+        }, { baseUrl: state.baseUrl, u: user, photoName });
 
         expect(result.isSnapshot).toBe(true);
         // The saved orientation round-tripped (dropdown source).

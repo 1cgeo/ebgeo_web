@@ -38,6 +38,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { createVerifiedUser } from './helpers/accounts.js';
+import { seedTileset } from './helpers/catalog-seed.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -80,11 +81,11 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_create');
+        const tilesetId = await seedTileset(state.dbName);
 
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3d;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
 
                 // FLAT camelCase entities, exactly the shape the real frontend emits:
                 // ids + tilesetId at the top level, the rest is opaque `data`.
@@ -139,7 +140,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                 const map = pulled.snapshot?.maps?.find((m) => m.id === mid);
                 return { isSnapshot: pulled.isSnapshot, cesium3d: map?.cesium3d, ids: { markerId, measurementId, viewshedId, tilesetId, cameraId } };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         expect(result.isSnapshot).toBe(true);
@@ -153,7 +154,8 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
         expect(typeof c3d.cameraPositions).toBe('object');
         expect(Array.isArray(c3d.cameraPositions)).toBe(false);
 
-        const { markerId, measurementId, viewshedId, tilesetId, cameraId } = result.ids;
+        // `tilesetId` NAO sai daqui: ele e o do seed, criado no Node antes do evaluate.
+        const { markerId, measurementId, viewshedId, cameraId } = result.ids;
 
         const marker = c3d.markers.find((m) => m.id === markerId);
         expect(marker).toBeTruthy();
@@ -181,11 +183,11 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('update merges into the entity JSONB; delete soft-removes it from the snapshot', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_mutate');
+        const tilesetId = await seedTileset(state.dbName);
 
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3d;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const keepId = crypto.randomUUID();
                 const dropId = crypto.randomUUID();
 
@@ -229,7 +231,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                     tilesetId,
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         // Update took effect (merged into the JSONB data).
@@ -245,11 +247,11 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('LWW by arrival: create then update on the SAME id keeps ONE entry with the last payload', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_lww');
+        const tilesetId = await seedTileset(state.dbName);
 
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3d;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const id = crypto.randomUUID();
 
                 // no-UI: viewer-only viewshed3d (Cesium viewer self-skips headless) —
@@ -271,7 +273,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                 const viewsheds = (map?.cesium3d?.viewsheds || []).filter((v) => v.id === id);
                 return { matches: viewsheds.length, radius: viewsheds[0]?.radius, tilesetId, viewshedTileset: viewsheds[0]?.tilesetId };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         // Exactly one entry for the id (no duplication), reflecting the last arrival.
@@ -283,11 +285,11 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
     test('idempotency: a REPEATED create for a live id is a no-op (the FIRST payload survives)', async ({ page }) => {
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'c3d_idem');
+        const tilesetId = await seedTileset(state.dbName);
 
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, tilesetId }) => {
                 const { api, createOperation } = window.__c3d;
-                const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const id = crypto.randomUUID();
 
                 // no-UI: viewer-only viewshed3d (Cesium viewer self-skips headless) —
@@ -315,7 +317,7 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                     radius: viewsheds.find((v) => v.id === id)?.radius,
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, tilesetId },
         );
 
         expect(result.matches).toBe(1);

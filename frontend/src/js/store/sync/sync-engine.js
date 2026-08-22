@@ -157,6 +157,12 @@ function recordPushAcks(resp, ops) {
             traceId: op.traceId,
             serverVersion: sv,
             outcome: r.idempotent ? TraceOutcome.IDEMPOTENT : (r.success === false ? TraceOutcome.FAILED : TraceOutcome.OK),
+            // The server's own words for WHY, on the span and not only in the toast. A denial is
+            // invisible to a headless spec (no UI to show the toast), so the spec fails later and
+            // elsewhere — on a poll that times out waiting for an entity the server refused. That
+            // is what a whole family of 3D/360/basemap specs did when a write gate started
+            // refusing references to catalog rows the specs had invented.
+            ...(r.reason ? { reason: r.reason } : {}),
         });
         // Seed the author's own applied serverVersion (LWW convergence): the author filters its
         // own WS echo, so without this it would never learn its op's server arrival order, and a

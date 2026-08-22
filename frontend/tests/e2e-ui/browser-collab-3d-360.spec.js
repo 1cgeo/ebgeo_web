@@ -19,6 +19,7 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 import { seedSharedAtlas, openClient } from './helpers/collab-helpers.js';
+import { seedTileset, seedSv360Photo } from './helpers/catalog-seed.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -49,14 +50,17 @@ describeOrSkip('3D / 360 collaboration — a peer converges on remote entities',
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            const markerId = await A.evaluate(async () => {
+            // O tileset tem de EXISTIR: a borda de escrita do sync recusa uma op que
+            // referencia recurso invisível, e linha ausente conta como invisível.
+            const tilesetId = await seedTileset(state.dbName);
+            const markerId = await A.evaluate(async (tid) => {
                 const c3d = await import('/src/js/store/cesium3d.operations.js');
-                const m = await c3d.addMarker('tileset-peer-3d', {
+                const m = await c3d.addMarker(tid, {
                     position: { longitude: -43.2, latitude: -22.9, height: 50 },
                     properties: { nome: 'Marcador 3D colaborativo' },
                 });
                 return m.id;
-            });
+            }, tilesetId);
             expect(markerId).toBeTruthy();
 
             // B (a real second browser) must end up with the marker in its local cesium3d store.
@@ -72,14 +76,17 @@ describeOrSkip('3D / 360 collaboration — a peer converges on remote entities',
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            const markerId = await A.evaluate(async () => {
+            // Mesma razão do tileset: `photo_name` resolve para um PROJETO 360, e um nome
+            // que não resolve para projeto nenhum é recusado na borda de escrita.
+            const { photoName } = await seedSv360Photo(state.dbName);
+            const markerId = await A.evaluate(async (pn) => {
                 const sv = await import('/src/js/store/streetview360.operations.js');
-                const m = await sv.addMarker360('foto-peer.jpg', {
+                const m = await sv.addMarker360(pn, {
                     position: { heading: 45, pitch: 0, distance: 5 },
                     properties: { nome: 'Marcador 360 colaborativo' },
                 });
                 return m.id;
-            });
+            }, photoName);
             expect(markerId).toBeTruthy();
 
             await expect.poll(() => peerHasStreetview360Marker(B, markerId), { timeout: 20000 }).toBe(true);

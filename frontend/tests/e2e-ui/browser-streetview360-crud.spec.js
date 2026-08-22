@@ -41,6 +41,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { seedSv360Photo } from './helpers/catalog-seed.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
@@ -87,10 +88,12 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_marker');
 
+        // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um
+        // PROJETO, e a borda de escrita do sync recusa a op cuja referência não resolve.
+        const { photoName } = await seedSv360Photo(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, photoName }) => {
                 const { api, createOperation } = window.__sv360;
-                const photoName = `pano_${crypto.randomUUID().slice(0, 8)}.webp`;
                 const keepId = crypto.randomUUID();
                 const dropId = crypto.randomUUID();
 
@@ -165,7 +168,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                     photoName,
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, photoName },
         );
 
         // structure
@@ -195,11 +198,12 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_orient');
 
+        // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um
+        // PROJETO, e a borda de escrita do sync recusa a op cuja referência não resolve.
+        const [semeadaA, semeadaB] = await Promise.all([seedSv360Photo(state.dbName), seedSv360Photo(state.dbName)]);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, photoA, photoB }) => {
                 const { api, createOperation } = window.__sv360;
-                const photoA = `pano_${crypto.randomUUID().slice(0, 8)}.webp`;
-                const photoB = `pano_${crypto.randomUUID().slice(0, 8)}.webp`;
                 const idA = crypto.randomUUID();
                 const idB = crypto.randomUUID();
 
@@ -253,7 +257,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                     photoA,
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, photoA: semeadaA.photoName, photoB: semeadaB.photoName },
         );
 
         // §21.6 save — orientation keyed by photoName, payload round-trips.
@@ -275,10 +279,12 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
         await page.goto('/');
         const { atlasId, mapId } = await seed(page, state.baseUrl, 'sv360_temporal');
 
+        // A foto tem de EXISTIR num projeto 360 visível: `photo_name` resolve para um
+        // PROJETO, e a borda de escrita do sync recusa a op cuja referência não resolve.
+        const { photoName } = await seedSv360Photo(state.dbName);
         const result = await page.evaluate(
-            async ({ atlasId: aid, mapId: mid }) => {
+            async ({ atlasId: aid, mapId: mid, photoName }) => {
                 const { api, createOperation } = window.__sv360;
-                const photoName = `pano_${crypto.randomUUID().slice(0, 8)}.webp`;
                 const timedId = crypto.randomUUID();
                 const permanentId = crypto.randomUUID();
 
@@ -341,7 +347,7 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                     editedFim: timed2?.temporalFim,
                 };
             },
-            { atlasId, mapId },
+            { atlasId, mapId, photoName },
         );
 
         // window round-trips on the timed marker
