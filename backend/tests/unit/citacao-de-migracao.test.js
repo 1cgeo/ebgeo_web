@@ -88,6 +88,12 @@ const NAO_SAO_CITACAO = new Map([
    'tests/integration/migrations-tracking-vs-disco.test.js fabrica este nome como CONTROLE '
    + 'NEGATIVO: ele existe para NÃO existir em disco, e é assim que aquele teste prova que a '
    + 'comparação banco × disco enxerga uma linha órfã.'],
+  ['099_alarga.sql',
+   'tests/unit/auditoria-censo.test.js fabrica este nome numa FIXTURE SINTÉTICA de duas '
+   + 'declarações do CHECK de `action`, para exercitar a regra "a mais recente vence" sem '
+   + 'depender de o repositório ter duas migrações que a declarem. Enquanto essa regra era '
+   + 'exercitada contando arquivos, consolidar o schema reprovava o guarda — o piso premiava '
+   + 'quem reintroduzisse um degrau.'],
 ]);
 
 /**

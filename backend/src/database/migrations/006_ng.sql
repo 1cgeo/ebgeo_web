@@ -5,27 +5,18 @@
 -- PostGIS exige superusuário para criar a extensão; em teste e em dev ela é
 -- pré-criada pelo runner (scripts/run-tests.js, scripts/dev-db.js).
 --
--- NÃO EXISTE AQUI UM CATÁLOGO DE MODELO 3D, e a ausência é decisão registrada.
--- Houve `ng.catalogo_3d` com um par de tabelas de permissão próprias
--- (`ng.model_permissions`, `ng.model_group_permissions`) e uma rota
--- `GET /nomes/catalogo3d`: era o SEGUNDO catálogo de modelo 3D do sistema, sem
--- consumidor nenhum no frontend, e as duas tabelas de permissão não tinham
--- escritor nenhum em `src/` — o filtro existia e era inalcançável. O catálogo que
--- sobrevive é `public.tilesets`, servido por `GET /api/config` e resolvido pelo
--- visualizador, com o eixo de acesso de `resource_grants`/`atlas_resources`. O
--- importador do gazetteer carrega o acervo 3D direto em `tilesets`.
+-- ESTE SCHEMA TEM UMA TABELA SÓ, `ng.nomes_geograficos`. Duas ausências são decisão e
+-- não lacuna, e ambas já foram afirmadas ao contrário aqui:
 --
--- `ng.groups` e `ng.user_groups` NAO EXISTEM, e esta linha afirmava o contrario
--- ("FICAM: as zonas de acesso geografico as usam e estao vivas") ate 2026-08-19. O
--- acesso geografico por zonas saiu inteiro no MESMO trabalho que escreveu esta
--- baseline, e as duas tabelas foram junto: quem lia o comentario concluia que elas
--- estavam de pe, e o DDL abaixo cria UMA tabela neste schema, `ng.nomes_geograficos`.
--- Medido contra o banco: `information_schema.tables` com `table_schema = 'ng'`
--- devolve uma linha.
+--   Não há catálogo de modelo 3D. Houve `ng.catalogo_3d` com tabelas de permissão
+--   próprias e rota própria: era o SEGUNDO catálogo do sistema, sem consumidor no
+--   frontend, e as tabelas de permissão não tinham escritor em `src/` (o filtro existia
+--   e era inalcançável). O catálogo que sobrevive é `public.tilesets`.
 --
--- O que conceder a um COLETIVO virou esta escrito na 008_acesso_a_recurso.sql:
--- `access_groups` e `access_group_members`, no schema da aplicacao, com FK de
--- verdade para `users`. Elas SUBSTITUEM a ideia, e nao renomeiam a tabela.
+--   Não há `ng.groups` nem `ng.user_groups`. O acesso geográfico por zonas saiu inteiro,
+--   e conceder a um COLETIVO virou `access_groups`/`access_group_members` no schema da
+--   aplicação (008), com FK de verdade para `users`. Elas SUBSTITUEM a ideia, não
+--   renomeiam a tabela.
 
 -- ============================================================================
 -- 1) Extensions (idempotente). pgcrypto já criado em 001; postgis/pg_trgm/
@@ -59,12 +50,10 @@ CREATE TABLE ng.nomes_geograficos (
   -- COPY POSICIONAL, e mover uma coluna para o meio desalinha todo arquivo de carga
   -- já produzido.
   --
-  -- HOUVE UM `access_level` no fim desta lista, e ele saiu em 2026-08-19 com o eixo
-  -- de acesso do gazetteer inteiro (as três tabelas de zona, a função de predicado e
-  -- `ng.edificacoes`). Busca de topônimo não tem restrição: era sistema antigo, com
-  -- API de admin e nenhuma tela, e a tabela de membros de grupo que o sustentaria
-  -- nunca teve escritor. Quem for reintroduzir privacidade aqui está ressuscitando
-  -- isso, e o lugar certo passou a ser `access_groups` no schema da aplicação.
+  -- NÃO HÁ `access_level` aqui: busca de topônimo não tem restrição. O eixo antigo (as
+  -- zonas geográficas e a função de predicado) saiu inteiro, porque a tabela de membros
+  -- que o sustentaria nunca teve escritor. Quem for reintroduzir privacidade aqui deve
+  -- usar `access_groups` (008), e não ressuscitar aquilo.
   geom         GEOMETRY(POINT, 4674) NOT NULL
 );
 CREATE INDEX idx_ng_geom ON ng.nomes_geograficos USING GIST (geom);

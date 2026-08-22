@@ -4,7 +4,7 @@
 //
 // "Ação declarada no CHECK sem emissor lê como 'isto é auditado' e não é": foi assim
 // que `LOGIN`, `LOGOUT` e `ATLAS_DELETE` viveram desde o primeiro dia.
-// `009_grupos_de_acesso.sql` declarou cinco ações e um `target_type` novo, e o que este arquivo mede é que as
+// `002_auditoria.sql` declara cinco ações de grupo e o `target_type` `ACCESS_GROUP`, e o que este arquivo mede é que as
 // cinco TÊM EMISSOR e que a linha emitida responde às perguntas que a investigação
 // faz. Sem isto, o CHECK alargado é vocabulário sem falante.
 //

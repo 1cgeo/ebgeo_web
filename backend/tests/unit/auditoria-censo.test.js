@@ -180,7 +180,7 @@ const CENSO = [
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'DELETE /grants/:grantId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: RA_SVC },
 
   // ---------------- grupo de acesso -------------------------------------------
-  // As CINCO ações nasceram com a 009_grupos_de_acesso.sql. O ciclo de vida e a
+  // As CINCO ações são declaradas em `002_auditoria.sql`. O ciclo de vida e a
   // composição são separados de propósito: "quem criou este grupo" e "desde quando o
   // Fulano estava nele" são perguntas diferentes na investigação, e a segunda é a que
   // responde por que alguém viu um recurso.
@@ -330,19 +330,17 @@ function naoClassificadas(achadas) {
 
 const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.routes.js'));
 
-// O VOCABULÁRIO DA TRILHA NÃO MORA MAIS NUM ARQUIVO SÓ, e por isso estas funções
-// varrem as migrações em vez de abrir a baseline por nome.
+// O VOCABULÁRIO DA TRILHA É LIDO POR VARREDURA, e não abrindo a baseline por nome.
 //
-// A consolidação (F15) fez os dois CHECK nascerem INLINE no `CREATE TABLE
-// audit_trail` de `002_auditoria.sql`, e enquanto ela era a única declaração, ler aquele
-// arquivo por nome era a leitura certa. `009_grupos_de_acesso.sql` alargou os dois (o grupo
-// de acesso trouxe cinco ações e um alvo), e forward-only obriga a alargar por
-// `DROP CONSTRAINT` + `ADD CONSTRAINT` num arquivo NOVO — `002_auditoria.sql` não pode ser
-// editada, porque nenhum banco que já a aplicou a roda de novo.
+// Hoje `002_auditoria.sql` é a ÚNICA declaração dos dois CHECK, e ler aquele arquivo por
+// nome daria a resposta certa. A varredura existe pelo que vem depois: a primeira migração
+// forward-only que alargar o vocabulário terá de fazê-lo por `DROP CONSTRAINT` +
+// `ADD CONSTRAINT` num arquivo NOVO, porque nenhum banco que já aplicou a baseline a roda
+// de novo. Um leitor fixado no nome passaria verde e ficaria cego para toda ação nova.
 //
 // O EFEITO DE NÃO TER CORRIGIDO ISTO seria o pior formato deste defeito: o censo
 // continuaria verde e passaria a MENTIR na direção mais cara. Ele reprovaria toda
-// rota nova cuja ação foi declarada em `009_grupos_de_acesso.sql` ("essa ação não existe"),
+// rota nova cuja ação só apareça numa migração posterior à que ele lê ("essa ação não existe"),
 // e ao mesmo tempo
 // deixaria de cobrar emissor para as cinco ações novas — ou seja, exatamente a classe
 // "ação declarada sem emissor" que este arquivo existe para impedir voltaria pela
@@ -351,8 +349,10 @@ const arquivosDeRota = () => arquivosDoInventario().filter((a) => a.endsWith('.r
 // A REGRA É "A ÚLTIMA DECLARAÇÃO VENCE", que é o que o banco faz: percorre-se os
 // arquivos em ordem numérica decrescente e usa-se o primeiro que declare aquele
 // CHECK, tomando dentro dele a ÚLTIMA ocorrência (um arquivo que derrube e reponha o
-// constraint termina no `ADD`). Um caso-piso abaixo exige que a varredura alcance
-// mais de uma migração, senão ela degeneraria em ler só `002_auditoria.sql` de novo.
+// constraint termina no `ADD`). A regra "a mais recente vence" é exercitada por um caso
+// com fixture SINTÉTICA, e não pela contagem de arquivos do repositório: enquanto houver
+// uma declaração só, contar arquivos não discrimina nada — e exigir duas transformaria a
+// consolidação do schema em vermelho, premiando quem reintroduzisse um degrau.
 const DIR_MIGRACOES = 'src/database/migrations';
 
 /** Os arquivos de migração, do MAIOR número para o menor. */
@@ -380,17 +380,30 @@ function valoresDoCheck(sql, marcador) {
 }
 
 /**
+ * A escolha da declaração vigente, SEM tocar no disco: recebe a lista já ordenada do maior
+ * número para o menor e devolve a primeira que declara o marcador. Separada de
+ * `checkVigente` para que a regra possa ser exercitada contra uma fixture sintética.
+ * @param {{nome: string, sql: string}[]} arquivos - Do MAIOR número para o menor.
+ * @param {string} marcador
+ * @returns {{valores: string[], arquivo: string}}
+ */
+function checkVigenteEm(arquivos, marcador) {
+  for (const { nome, sql } of arquivos) {
+    const valores = valoresDoCheck(sql, marcador);
+    if (valores.length > 0) return { valores, arquivo: nome };
+  }
+  return { valores: [], arquivo: '' };
+}
+
+/**
  * Os valores do CHECK vigente, lidos da migração mais recente que o declara.
  * @param {string} marcador - `'CHECK (action IN ('` ou `'CHECK (target_type IN ('`.
  * @returns {{valores: string[], arquivo: string}}
  */
 function checkVigente(marcador) {
-  for (const { nome, sql } of migracoesDecrescentes()) {
-    const valores = valoresDoCheck(sql, marcador);
-    if (valores.length > 0) return { valores, arquivo: nome };
-  }
-  assert.fail(`nenhuma migração declara ${marcador}`);
-  return { valores: [], arquivo: '' };
+  const achado = checkVigenteEm(migracoesDecrescentes(), marcador);
+  if (achado.valores.length === 0) assert.fail(`nenhuma migração declara ${marcador}`);
+  return achado;
 }
 
 /** As ações declaradas no CHECK vigente (nunca uma terceira cópia). */
@@ -535,38 +548,34 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     assert.deepEqual(malFormadas, [], 'entrada com classe inválida, ou com ação declarada sem auditar');
   });
 
-  it('piso: o vocabulário vigente é lido da migração MAIS RECENTE que o declara', () => {
-    // O GUARDA DO GUARDA. Estas duas funções liam `002_auditoria.sql` por nome, e
-    // `009_grupos_de_acesso.sql` alargou os dois CHECK num arquivo novo (forward-only não
-    // deixa editar um degrau já aplicado). Uma varredura que voltasse a fixar
-    // `002_auditoria.sql` passaria verde e
-    // ficaria cega para toda ação nova — que é a classe "ação declarada sem emissor"
-    // reentrando pela porta do próprio censo.
-    const arquivos = migracoesDecrescentes();
-    const declaramAcao = arquivos.filter((m) => m.sql.includes('CHECK (action IN ('));
+  it('a leitura pega a declaração MAIS RECENTE, e não a primeira que encontrar', () => {
+    // O GUARDA DO GUARDA, contra fixture SINTÉTICA. Enquanto o repositório tinha duas
+    // declarações (a baseline mais um alargamento), este caso as contava; com o schema
+    // consolidado há UMA, e contar arquivos deixaria de discriminar qualquer coisa — pior,
+    // exigir duas faria a consolidação reprovar e premiaria quem reintroduzisse um degrau.
+    // A afirmação que a contagem aproximava é esta: dadas duas declarações, vence a de
+    // maior número, e o resultado não pode PERDER valor da anterior.
+    const sintetico = [
+      { nome: '099_alarga.sql', sql: "ALTER TABLE audit_trail ADD CONSTRAINT x CHECK (action IN ('LOGIN','LOGOUT','NOVA_ACAO'));" },
+      { nome: '002_auditoria.sql', sql: "action VARCHAR(50) NOT NULL CHECK (action IN ('LOGIN','LOGOUT'))" },
+    ];
+    const vigente = checkVigenteEm(sintetico, 'CHECK (action IN (');
+    assert.equal(vigente.arquivo, '099_alarga.sql', 'a leitura não pegou a migração mais recente');
+    assert.deepEqual(vigente.valores, ['LOGIN', 'LOGOUT', 'NOVA_ACAO']);
+
+    // Alargar não pode ESTREITAR: uma leitura que perdesse valor antigo passaria num teste
+    // de contagem e quebraria o banco no primeiro INSERT com a ação perdida.
+    const antigos = valoresDoCheck(sintetico[1].sql, 'CHECK (action IN (');
+    assert.deepEqual(antigos.filter((a) => !vigente.valores.includes(a)), []);
+
+    // E o repositório real: a declaração vigente existe, sai de um arquivo que está no
+    // disco, e carrega o vocabulário inteiro.
+    const real = checkVigente('CHECK (action IN (');
     assert.ok(
-      declaramAcao.length >= 2,
-      'esperava o CHECK de `action` declarado em MAIS DE UMA migração (a baseline e o alargamento); '
-      + `achei ${declaramAcao.length}, então a regra "a última vence" não está sendo exercitada`
+      migracoesDecrescentes().some((m) => m.nome === real.arquivo),
+      `a declaração vigente veio de um arquivo fora do diretório de migrações: ${real.arquivo}`
     );
-
-    // A vigente é a de MAIOR número, não a baseline.
-    const vigente = checkVigente('CHECK (action IN (');
-    assert.equal(vigente.arquivo, declaramAcao[0].nome, 'a leitura não pegou a migração mais recente');
-    assert.notEqual(
-      vigente.arquivo, '002_auditoria.sql',
-      'o vocabulário vigente voltou a ser o da baseline: ou o alargamento sumiu, ou a varredura regrediu'
-    );
-
-    // E o resultado precisa ser um SUPERCONJUNTO do da baseline: alargar um CHECK é
-    // compatível para trás, e uma leitura que perdesse valores antigos passaria neste
-    // arquivo e quebraria o banco.
-    const daBaseline = arquivos.find((m) => m.nome === '002_auditoria.sql');
-    assert.ok(daBaseline, 'a baseline de auditoria sumiu do disco');
-    const antigos = valoresDoCheck(daBaseline.sql, 'CHECK (action IN (');
-    assert.ok(antigos.length >= 29, `esperava >= 29 acoes na baseline, achei ${antigos.length}`);
-    const perdidos = antigos.filter((a) => !vigente.valores.includes(a));
-    assert.deepEqual(perdidos, [], 'o CHECK vigente PERDEU ações da baseline: alargar não pode estreitar');
+    assert.ok(real.valores.length >= 29, `esperava >= 29 acoes no CHECK vigente, achei ${real.valores.length}`);
   });
 
   it('toda ação declarada no CHECK tem pelo menos UM emissor em src/', () => {

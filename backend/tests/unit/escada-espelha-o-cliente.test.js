@@ -200,7 +200,7 @@ describe('a faixa que o servidor aceita é a que o cliente pede', () => {
     // O LIMITE `!(width > 0)`, e a razão de ele ser `> 0` e não `Number.isFinite`: zero
     // passa em qualquer teste de finitude e produziria uma grade de zero colunas, um
     // nível que o descritor anuncia e que não tem tile nenhum. O CHECK da migração
-    // `011_sv360_piramide.sql` impede isso no banco; esta guarda vale para o descritor
+    // `007_sv360.sql` impede isso no banco; esta guarda vale para o descritor
     // que chegar por outro caminho.
     const descritor = { width: 1024, height: 512, tileSize: 512, razao: 2, maxLevel: 1 };
     for (const campo of ['width', 'height', 'tileSize']) {

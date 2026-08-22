@@ -48,6 +48,7 @@ import {
     Visualizador3D,
     VISUALIZADOR_POR_FORMA,
     visualizadorDaForma,
+    derivarForma3d,
 } from '@catalog/forma-3d.js';
 import { FORMA_3D_LABELS, FORMA_3D_ICONS } from '@catalog/catalog.constants.js';
 
@@ -60,10 +61,7 @@ const DIR_JS = fileURLToPath(URL_JS);
 const ARQ_BACKEND = fileURLToPath(
     new URL('../../../backend/src/modules/catalog/forma-3d.js', import.meta.url),
 );
-/** A migracao que retro-preencheu o campo nas linhas existentes. */
-const ARQ_MIGRACAO = fileURLToPath(
-    new URL('../../../backend/src/database/migrations/010_forma_3d.sql', import.meta.url),
-);
+
 
 // ============================================================================
 // O CENSO
@@ -171,11 +169,6 @@ function semComentarios(src) {
     const normalizado = src.replace(/\r\n?/g, '\n');
     const semBloco = normalizado.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
     return semBloco.split('\n').map((linha) => linha.replace(/\/\/.*/, '')).join('\n');
-}
-
-/** Comentario `--` de SQL fora, para perguntar o que o SQL FAZ e nao o que ele explica. */
-function semComentariosSql(src) {
-    return src.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/--.*/, '')).join('\n');
 }
 
 /**
@@ -437,21 +430,29 @@ describe('forma 3D: as copias fora deste pacote', () => {
         ).toEqual([...FORMAS_3D]);
     });
 
-    it('a migracao 010 deriva glb e indoor, e NAO adivinha nuvem de pontos', () => {
-        const sql = semComentariosSql(readFileSync(ARQ_MIGRACAO, 'utf8'));
-        expect(sql, 'a migracao nao escreve o campo').toContain('forma3d');
-        expect(sql, 'a migracao nao deriva a cena indoor').toContain("'indoor'");
-        expect(sql, 'a migracao nao deriva o modelo isolado').toContain("'glb'");
-        expect(sql, 'a migracao nao tem o default historico').toContain("'tiles3d'");
+    // A DERIVACAO DE COMPATIBILIDADE E O SUJEITO, e ela nao e mais a migracao. Ate a
+    // consolidacao do schema havia uma migracao de backfill e este caso lia o SQL dela;
+    // com as baselines por dominio o backfill deixou de existir, porque um banco novo nasce com
+    // `tilesets` VAZIA. O que sobrevive, e e o que sempre importou, e `derivarForma3d`: ela le a
+    // linha escrita antes do eixo existir.
+    it('a derivacao le glb e indoor da linha legada, e NAO adivinha nuvem de pontos', () => {
+        expect(derivarForma3d({ forma3d: Forma3D.POINTCLOUD }), 'o campo DECLARADO manda')
+            .toBe(Forma3D.POINTCLOUD);
+        expect(derivarForma3d({ viewer: 'firstPerson' }), 'a cena indoor legada').toBe(Forma3D.INDOOR);
+        expect(derivarForma3d({ type: 'glb' }), 'o modelo isolado legado').toBe(Forma3D.GLB);
+        expect(derivarForma3d({}), 'o default historico').toBe(Forma3D.TILES3D);
+
         // A DECISAO DO DONO, PINADA: no banco a nuvem e indistinguivel de um tileset comum, entao
-        // qualquer heuristica aqui inventaria classificacao. Marcar nuvem e trabalho manual pela
-        // tela do admin. Se alguem acrescentar o valor a esta migracao, este caso explica por que.
-        expect(
-            sql,
-            'a migracao passou a ADIVINHAR nuvem de pontos. Isso foi decidido em 2026-08-19 e '
-            + 'recusado: no banco ela e indistinguivel de um tileset, e a marcacao e manual, uma a '
-            + 'uma, pelo painel de administracao.',
-        ).not.toContain('pointcloud');
+        // qualquer heuristica inventaria classificacao. Marcar nuvem e trabalho manual pela tela do
+        // admin. As entradas abaixo sao as que uma heuristica "esperta" tentaria capturar.
+        for (const legada of [{ type: 'pointcloud' }, { url: '/x/nuvem.json' }, { name: 'Nuvem de pontos' }]) {
+            expect(
+                derivarForma3d(legada),
+                'a derivacao passou a ADIVINHAR nuvem de pontos. Isso foi decidido em 2026-08-19 e '
+                + 'recusado: no banco ela e indistinguivel de um tileset, e a marcacao e manual, uma '
+                + 'a uma, pelo painel de administracao.',
+            ).toBe(Forma3D.TILES3D);
+        }
     });
 });
 

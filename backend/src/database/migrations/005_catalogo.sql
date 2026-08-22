@@ -10,41 +10,31 @@
 -- CRUD admin em `/api/v1/<tipo>`; servidas no `/config` público. Alternativa
 -- recusada por extenso em docs/wiki/resources-catalogo.md.
 --
--- SÃO QUATRO TABELAS E NÃO CINCO, e a ausência da quinta é decisão registrada.
--- Existiu uma `streetview_markers`, nascida de `LIKE basemaps INCLUDING ALL` e
--- que nunca teve consumidor: não alimentava `GET /api/config`, nenhum código do
--- frontend chamava a rota dela, nenhum seed a populava, e as únicas escritas que
--- já existiram foram de teste. O que ela custava era ambiguidade — existe um
--- ARQUIVO homônimo no frontend (`street_view_tool/streetview_markers.js`) que é a
--- camada VIVA de marcadores do 360 no mapa 2D e lê de `sv360.projects`. Não a
--- recrie por simetria. O valor `'STREETVIEW_MARKER'` sobrevive no CHECK de
--- `audit_trail.target_type` como alvo declarado sem escritor, e só por isso.
+-- SÃO QUATRO TABELAS E NÃO CINCO: existiu uma `streetview_markers` que nunca teve
+-- consumidor (não alimentava o `/config`, nenhuma tela chamava a rota, nenhum seed a
+-- populava). O que ela custava era ambiguidade com o arquivo homônimo do frontend, que é
+-- a camada VIVA de marcadores do 360 e lê de `sv360.projects`. Não a recrie por simetria.
 --
--- AS QUATRO SÃO ESCRITAS POR EXTENSO, e não clonadas por `LIKE ... INCLUDING ALL`
--- como já foram: `LIKE` não copia FOREIGN KEY (nenhuma de suas opções copia), e
--- as quatro precisam da FK própria de `owner_org_id`; e `INCLUDING ALL` copiaria
--- os índices com nome auto-gerado. Escrever as quatro cria a obrigação de mantê-las
--- em paridade, e o guarda dessa paridade é
--- `tests/integration/catalog-tabelas-paridade.test.js`, que exige conjuntos
--- idênticos de (nome, tipo, nullable, default).
+-- AS QUATRO SÃO ESCRITAS POR EXTENSO, e não clonadas por `LIKE ... INCLUDING ALL` como já
+-- foram: `LIKE` não copia FOREIGN KEY em nenhuma de suas opções, e as quatro precisam da
+-- FK de `owner_org_id`. O preço é manter a paridade, cobrada por
+-- `tests/integration/catalog-tabelas-paridade.test.js` em (nome, tipo, nullable, default).
 
 -- ---------------------------------------------------------------------------
 -- O EIXO PÚBLICO/PRIVADO (`access_level`) e a OM PRODUTORA (`owner_org_id`)
 -- ---------------------------------------------------------------------------
 --
--- `access_level` nasce 'public' em toda linha: a marca cria o vocabulário, não
--- tira nada da tela até um administrador marcar alguma coisa.
+-- `access_level` nasce 'public' em toda linha: a marca cria o vocabulário e não tira
+-- nada da tela até um administrador marcar alguma coisa.
 --
--- `owner_org_id` NULL = INSTITUCIONAL, e é um estado terminal legítimo, não "sem
--- dono a definir": as camadas de base que vieram do seed não foram produzidas por
--- nenhuma OM. O gate de produção compara IGUALDADE, e NULL nunca é igual a nada,
--- então o produtor não alcança essas linhas por construção, sem precisar de um
--- ramo `IS NULL` que alguém escreveria errado.
+-- `owner_org_id` NULL = INSTITUCIONAL, estado terminal legítimo e não "sem dono a
+-- definir": camada de base vinda do seed não foi produzida por OM nenhuma. O gate de
+-- produção compara IGUALDADE, e NULL nunca é igual a nada, então o produtor não alcança
+-- essas linhas por construção, sem um ramo `IS NULL` que alguém escreveria errado.
 --
--- Os ÍNDICES PARCIAIS ficam no lado PRIVADO e no lado PRODUZIDO, que são os
--- conjuntos pequenos (o inverso do padrão de `ng`, que indexa o lado público
--- porque lá o pequeno é o outro). Eles servem a TELA, não o gate: o gate resolve
--- a linha pela PK e não passa por aqui.
+-- Os ÍNDICES PARCIAIS ficam nos lados PRIVADO e PRODUZIDO, que são os conjuntos pequenos
+-- (o inverso de `ng`, onde o pequeno é o outro). Servem à TELA, não ao gate, que resolve
+-- a linha pela PK.
 
 CREATE TABLE basemaps (
     id          VARCHAR(100) PRIMARY KEY,
@@ -167,19 +157,14 @@ INSERT INTO data_layers (id, name, sort_order, config) VALUES
 -- `tilesets` NASCE VAZIA, E A AUSÊNCIA É A DECISÃO
 -- ---------------------------------------------------------------------------
 --
--- Não há INSERT de tileset aqui, e não é esquecimento: TILESET É CONFIGURADO,
--- NÃO SEMEADO. Houve um registro de demonstração (`PCL`, Posto de Comando
--- Logístico) apontando para `/3d/PCL/tileset.json`, e o asset NUNCA esteve no
--- repositório: `public/3d/` é ignorado pelo versionamento. Toda instalação limpa
--- prometia um modelo que o servidor não serve, e o sintoma é silencioso do jeito
--- ruim — o item aparece listado e clicável no mapa 2D, e abrir o visualizador 3D
--- dá 404, que o `openViewer` captura e devolve para o 2D sem dizer nada.
+-- TILESET É CONFIGURADO, NÃO SEMEADO. Houve um registro de demonstração apontando para
+-- um asset que nunca esteve no repositório, e toda instalação limpa prometia um modelo
+-- que o servidor não serve: o item aparecia listado e clicável no 2D, e abrir o
+-- visualizador dava 404, que o cliente captura e devolve para o 2D sem dizer nada.
 --
 -- A DECISÃO, do dono do produto: o catálogo é ponto de configuração, não lugar de
--- conteúdo de exemplo. Um tileset entra pelo Painel do Administrador, ou pelo
--- import de acervo 3D, apontando para uma URL que existe. Semear conteúdo numa
--- migração faz o dado nascer errado em toda instalação nova e obriga cada
--- deployment a limpar o que nunca pediu.
+-- conteúdo de exemplo. Um tileset entra pelo Painel do Administrador ou pelo import de
+-- acervo 3D, apontando para uma URL que existe.
 --
--- Sem efeito colateral de integridade: NÃO existe chave estrangeira para
--- `tilesets`. As tabelas de 3D guardam `tileset_id` como texto livre.
+-- Sem efeito colateral de integridade: não há FK para `tilesets`; as tabelas de 3D
+-- guardam `tileset_id` como texto livre.

@@ -78,19 +78,14 @@ CREATE INDEX idx_atlas_shares_user ON atlas_shares(user_id);
 -- tela "Seus atlas".
 -- ============================================================================
 --
--- TABELA À PARTE, e não coluna em `atlas`, por uma razão medida: `LIST_USER_ATLAS`,
--- `FIND_ATLAS_BY_ID` e o snapshot de sync fazem `SELECT a.*`, e quatro telas do cliente
--- chamam `listAtlas()` (o controle de conta, a aba Mapas, o nome do atlas e esta tela).
--- Uma coluna de imagem viajaria nas quatro por acidente. Aqui a capa só sai quando
--- alguém a pede.
+-- TABELA À PARTE, e não coluna em `atlas`: as consultas de atlas e o snapshot fazem
+-- `SELECT a.*`, e quatro telas chamam `listAtlas()`. Uma coluna de imagem viajaria nas
+-- quatro por acidente; aqui a capa só sai quando alguém a pede.
 --
--- BYTEA, não a data URI que o cliente manda: o serviço decodifica na borda, confere o
--- número mágico contra o mime declarado (mesma regra do upload de imagem: png/jpeg/webp,
--- SEM svg) e guarda os bytes. Base64 no banco seria 33% maior e guardaria sem conferir.
+-- BYTEA, não a data URI que o cliente manda: o serviço decodifica na borda e confere o
+-- número mágico contra o mime declarado. Base64 seria 33% maior e guardaria sem conferir.
 --
--- Sem soft-delete: "Remover imagem" apaga a linha. A regra de nunca apagar de verdade
--- vale para entidade principal, e capa é atributo de apresentação, recriável em dois
--- cliques.
+-- Sem soft-delete: capa é atributo de apresentação, recriável em dois cliques.
 CREATE TABLE atlas_covers (
     atlas_id    UUID PRIMARY KEY REFERENCES atlas(id) ON DELETE CASCADE,
     mime_type   VARCHAR(20) NOT NULL
@@ -110,15 +105,12 @@ COMMENT ON TABLE atlas_covers IS
 -- MAPS
 -- ============================================================================
 --
--- NÃO EXISTE COLUNA `catalog_layers` AQUI, e a ausência é decisão, não lacuna. A
--- camada de catálogo de um mapa mora em UM lugar só: a tabela dedicada
--- `catalog_layers`, mais abaixo. Enquanto a coluna existiu em paralelo, ela era
--- uma SEGUNDA cópia sem leitor, servida crua por três saídas que não passam pela
--- reidratação do snapshot (`GET /atlas/:id/maps`, `GET /atlas/:id/maps/:id` e
--- `POST /maps/:id/duplicate`), URL de recurso privado inclusive. Filtrar a
--- resposta das três protegeria as rotas que alguém LEMBROU; sem leitor, o dado não
--- precisa de filtro, precisa não existir. `POST /atlas/import` continua ACEITANDO
--- `map.catalog_layers` no payload e materializa direto na tabela.
+-- NÃO EXISTE COLUNA `catalog_layers` AQUI, e a ausência é decisão. A camada de
+-- catálogo mora em UM lugar só, a tabela dedicada mais abaixo. Enquanto a coluna existiu
+-- em paralelo, era uma segunda cópia sem leitor, servida CRUA por três saídas que não
+-- passam pela reidratação do snapshot, URL de recurso privado inclusive. Filtrar as três
+-- protegeria as rotas que alguém lembrou; sem leitor, o dado não precisa de filtro,
+-- precisa não existir. O import continua aceitando `map.catalog_layers` no payload.
 CREATE TABLE maps (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
@@ -218,20 +210,14 @@ CREATE TABLE features (
 
     -- Organizational layer reference.
     --
-    -- SEM "REFERENCES layers(id)", E ISSO E DELIBERADO. Repare que as irmas deste mesmo
-    -- arquivo TEM a FK (groups.parent_id, group_features.group_id), entao a ausencia aqui
-    -- parece esquecimento e nao e: acrescentar a FK e uma regressao de sync, nao higiene
-    -- de schema.
-    --
-    -- O motivo: as operacoes chegam por ordem de chegada num log, nao numa ordem
-    -- topologica. Uma feicao pode referenciar uma camada cujo CREATE ainda nao chegou, ou
-    -- cujo CREATE foi eliminado pela compactacao da fila de saida do cliente
-    -- (CREATE+DELETE some do par). Com FK, esses casos viram 23503 e ENVENENAM o lote
-    -- inteiro, travando a fila daquele cliente para sempre. Sem FK, viram uma referencia
-    -- pendurada, que o cliente degrada mostrando a feicao fora de camada.
-    --
-    -- Integridade referencial nao e imponivel num log de aplicacao por ordem de chegada.
-    -- Registrado em docs/wiki/atlas-modelo-de-dados.md.
+    -- SEM "REFERENCES layers(id)", E E DELIBERADO: as irmas deste arquivo TEM a FK
+    -- (groups.parent_id, group_features.group_id), entao a ausencia parece esquecimento.
+    -- Acrescenta-la e regressao de SYNC, nao higiene de schema. As operacoes chegam por
+    -- ordem de chegada num log, nunca em ordem topologica, e uma feicao pode referenciar
+    -- camada cujo CREATE ainda nao chegou ou foi eliminado pela compactacao da fila
+    -- (CREATE+DELETE some do par). Com FK isso vira 23503, ENVENENA o lote inteiro e trava
+    -- a fila daquele cliente para sempre; sem FK vira referencia pendurada, que o cliente
+    -- degrada mostrando a feicao fora de camada. Ver docs/wiki/atlas-modelo-de-dados.md.
     layer_id        UUID,
 
     -- Sync metadata
@@ -268,11 +254,10 @@ CREATE TABLE group_features (
 CREATE INDEX idx_group_features_feature ON group_features(feature_id);
 
 -- ============================================================================
--- COMMENTS (comentário espacial — ver docs/visao-e-principios.md §11 no frontend)
--- Raiz (parent_id NULL, com lng/lat → pin no mapa) e respostas (parent_id → raiz).
--- Sincroniza pelo pipeline de ops (entityType 'comment'). NÃO é enviado a conexões
--- de nível 'read' (Visualizador/anônimo) — filtro de transmissão no snapshot/broadcast.
--- Respostas são entidades próprias (parent_id) para não haver clobber LWW (P10).
+-- COMMENTS — comentário espacial. Raiz (parent_id NULL, com lng/lat) e respostas.
+-- Sincroniza pelo pipeline de ops e NÃO é transmitido a conexões de nível 'read' (filtro
+-- no snapshot e no broadcast). Resposta é entidade própria, e não item dentro da raiz,
+-- para não haver clobber LWW.
 -- ============================================================================
 CREATE TABLE comments (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -304,34 +289,19 @@ CREATE INDEX idx_comments_parent ON comments(parent_id) WHERE parent_id IS NOT N
 -- domínio de sync (soft-delete + version).
 -- ============================================================================
 --
--- `id` É TEXT, E NUNCA FOI UUID. O cliente é a autoridade sobre esse id e o
--- `CatalogService` monta ids literais (`frontend/src/js/catalog/catalog.service.js`):
+-- `id` É TEXT PORQUE VEM DO CLIENTE, que monta ids literais ('hillshade',
+-- `analysis-<id>`, `3d-<id>`, `360-<id>`). Com a coluna tipada UUID o INSERT levantava
+-- 22P02, e como todo o push roda num `tx()` o LOTE abortava junto, feições incluídas,
+-- ficando na fila do IndexedDB para falhar igual no flush seguinte: poison pill que
+-- matava a sincronização daquele cliente. Mesmo raciocínio em `operations.client_id`,
+-- `operations.op_id` e `sv360.photos.id`.
 --
---     'hillshade' | `analysis-${layer.id}` | `data-${layer.id}`
---     `3d-${tileset.id}` | `360-${p.id}`
---
--- Esse valor vira o id da camada no store e viaja como entityId da operação de
--- sync, e o handler inbound do cliente indexa `mapData.catalogLayers` por ele.
--- Com a coluna tipada UUID o INSERT levantava 22P02 (que a borda traduz em 400);
--- como todo o push roda num único `tx()`, o lote INTEIRO abortava, inclusive as
--- feições que viajavam junto, e a operação permanecia na fila do IndexedDB: todo
--- flush seguinte remontava o mesmo lote e falhava igual. Era um poison pill que
--- matava a sincronização daquele cliente em definitivo. O mesmo raciocínio vale
--- onde o id também vem do cliente: `operations.client_id`, `operations.op_id` e
--- `sv360.photos.id` são TEXT.
---
--- A PK É `(map_id, id)`, e é consequência direta do acima. O id do cliente NÃO é
--- globalmente único: ele é uma CONSTANTE do catálogo. Todo mapa que adicionar
--- "Sombreamento do Relevo" usa o mesmo id `hillshade`. Com `PRIMARY KEY (id)`, o
--- primeiro mapa ficava com a linha e todos os outros caíam no
--- `ON CONFLICT (id) DO NOTHING` em silêncio: a camada sumia do segundo mapa em
--- diante, sem erro, e o push ainda era acked como sucesso. Isso nunca apareceu
--- porque toda a suíte usava `randomUUID()` como id de camada, e UUID é
--- globalmente único por construção. O escopo real da unicidade sempre foi
--- (map_id, id), que é como as queries de update e delete deste módulo já filtram.
---
--- Regressão: tests/integration/sync-catalog-layer.test.js, bloco "real catalog
--- ids (non-UUID) round-trip".
+-- A PK É `(map_id, id)` por consequência: o id do cliente é uma CONSTANTE do catálogo e
+-- não é globalmente único (todo mapa com "Sombreamento do Relevo" usa `hillshade`). Com
+-- `PRIMARY KEY (id)` o primeiro mapa ficava com a linha e os outros caíam num
+-- `ON CONFLICT DO NOTHING` silencioso, com o push ainda acked como sucesso. Não aparecia
+-- porque a suíte usava `randomUUID()` como id. Regressão em
+-- tests/integration/sync-catalog-layer.test.js, "real catalog ids (non-UUID) round-trip".
 CREATE TABLE catalog_layers (
     id          TEXT NOT NULL,               -- layer id comes from the client
     map_id      UUID NOT NULL REFERENCES maps(id) ON DELETE CASCADE,

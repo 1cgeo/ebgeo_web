@@ -195,7 +195,7 @@ export function montarEscada(width, height, tileSize, razao = RAZAO_PADRAO) {
  *
  * O NOME DA TABELA MUDA COM O LADO, e a confusao ja rendeu JSDoc divergente
  * entre as duas copias. Aqui o cliente le o numero do DESCRITOR, e o descritor
- * sai de `sv360.photo_pyramids` (migracao `011_sv360_piramide.sql`). O
+ * sai de `sv360.photo_pyramids` (`007_sv360.sql`). O
  * `tile_pyramids` do SQLite e a tabela da ORIGEM, que a ingestao le uma vez para
  * preencher aquela; o cliente nunca a enxerga.
  *

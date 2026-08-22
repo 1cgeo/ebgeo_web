@@ -32,24 +32,18 @@
 -- GRUPO DE ACESSO: conceder a um COLETIVO em vez de a uma pessoa
 -- ---------------------------------------------------------------------------
 --
--- POR QUE NAO SE CHAMA `groups`: o nome ja existe neste schema e e outra coisa
--- (`public.groups` sao os grupos de FEICAO dentro de um mapa, do dominio do
--- atlas). Duas coisas com o mesmo nome no mesmo schema e o defeito que este
--- repositorio acabou de pagar em `streetview_markers`, onde uma tabela morta e um
--- modulo vivo do 360 dividiam o nome e uma varredura por nome teria derrubado o
--- lado vivo.
+-- NAO SE CHAMA `groups` porque o nome ja e outra coisa neste schema: `public.groups`
+-- sao os grupos de FEICAO de um mapa. Duas coisas homonimas no mesmo schema e o defeito
+-- que este repositorio ja pagou em `streetview_markers`, onde uma tabela morta e um
+-- modulo vivo dividiam o nome.
 --
--- POR QUE SAI DO SCHEMA `ng`, onde as antecessoras moravam: aquele schema e dado
--- de REFERENCIA, carregado por ETL externo, e por isso declara explicitamente que
--- nao participa da integridade do schema da aplicacao (os `user_id` de la sao UUID
--- SEM FK, de proposito). Um grupo que concede acesso e o oposto disso: ele quer FK,
--- quer cascata, e quer morrer junto com o usuario que o compoe.
+-- NAO MORA EM `ng` porque aquele schema e dado de REFERENCIA carregado por ETL, e declara
+-- que nao participa da integridade da aplicacao (os `user_id` de la sao UUID SEM FK, de
+-- proposito). Um grupo que concede acesso quer FK, cascata, e morrer junto com o usuario.
 --
--- O QUE ELAS SUBSTITUEM: `ng.groups` e `ng.user_groups` existiam e NUNCA TIVERAM
--- ESCRITOR, nem rota nem tela, enquanto `ng.zone_group_permissions` escrevia de
--- verdade. Ou seja, uma zona podia ser concedida a um grupo em que ninguem podia
--- estar, e aquele ramo do predicado nunca devolvia linha. A metade que faltava era
--- a que fazia o mecanismo existir.
+-- SUBSTITUEM `ng.groups`/`ng.user_groups`, que existiam e NUNCA TIVERAM ESCRITOR: uma
+-- zona podia ser concedida a um grupo em que ninguem podia estar, e aquele ramo do
+-- predicado nunca devolvia linha.
 CREATE TABLE access_groups (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(100) NOT NULL,
@@ -149,12 +143,9 @@ CREATE INDEX idx_resource_grants_resource
 CREATE INDEX idx_resource_grants_parent
     ON resource_grants (parent_grant_id) WHERE revoked_at IS NULL;
 
--- NÃO HÁ ÍNDICE SOBRE `expires_at`, e a ausência é medida, não esquecimento.
--- O índice que a resolução usa é `idx_resource_grants_grantee`, parcial em
--- `revoked_at IS NULL`; acrescentar `AND expires_at > NOW()` a um predicado de
--- índice parcial é IMPOSSÍVEL (NOW() não é IMMUTABLE), e um índice separado em
--- `expires_at` não ajuda uma consulta que já entrou pelo beneficiário e devolve
--- unidades de linhas. O filtro de prazo roda sobre esse punhado.
+-- NÃO HÁ ÍNDICE SOBRE `expires_at`, e a ausência é medida: pôr `AND expires_at > NOW()`
+-- num índice parcial é IMPOSSÍVEL (NOW() não é IMMUTABLE), e um índice separado não
+-- ajuda uma consulta que já entrou pelo beneficiário e devolve unidades de linhas.
 
 -- ---------------------------------------------------------------------------
 -- 2. O vínculo atlas -> recurso (o empréstimo)
@@ -203,10 +194,9 @@ CREATE INDEX idx_atlas_resources_resource
 -- 3. A resolução de acesso: UMA pergunta, UMA definição
 -- ---------------------------------------------------------------------------
 --
--- O repositório já pagou pelo predicado duplicado verbatim entre duas queries do
--- gazetteer, cujo comentário nomeava uma função `fn_user_can_see_model` que nunca
--- existiu. Aqui o predicado NASCE como função SQL, e a de cima é COMPOSTA das de
--- baixo, para que não exista uma segunda cópia da regra.
+-- O repositório já pagou pelo predicado duplicado verbatim entre duas queries, com um
+-- comentário nomeando uma função que nunca existiu. Aqui o predicado NASCE como função
+-- SQL, e a de cima é COMPOSTA das de baixo: não há segunda cópia da regra.
 
 -- Papel global que enxerga TODO recurso privado.
 --
@@ -238,12 +228,9 @@ $$;
 -- desejado (R4 — "compartilhei o atlas, quem acessar acessa os recursos" inclui o
 -- link público).
 --
--- OS DOIS `IS NOT NULL` SÃO DECLARAÇÃO DE INTENÇÃO, NÃO O MECANISMO. A lógica de
--- três valores já entrega o mesmo resultado sem eles (`grantee_id = NULL` é NULL,
--- nunca verdadeiro, então o braço não devolve linha), e isso foi MEDIDO: removê-los
--- deixa a suíte inteira verde. Ficam porque tornam legível, no ponto de leitura,
--- qual braço atende o visitante anônimo — mas não conte com um teste para
--- segurá-los, porque não há o que segurar.
+-- OS DOIS `IS NOT NULL` SÃO DECLARAÇÃO DE INTENÇÃO, NÃO O MECANISMO: a lógica de três
+-- valores já entrega o mesmo resultado sem eles, e isso foi MEDIDO (removê-los deixa a
+-- suíte verde). Ficam por legibilidade, mas nenhum teste os segura.
 --
 -- O PRAZO ENTRA NOS DOIS SÍTIOS em que esta função consulta `resource_grants`: o
 -- braço direto e o `EXISTS (... og ...)` dentro do braço D4. Pô-lo só no primeiro
