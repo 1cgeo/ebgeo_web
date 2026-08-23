@@ -102,19 +102,6 @@ export async function getTile(tilesDbFile, photoId, level, x, y) {
 }
 
 /**
- * Does this project have a tiles db at all?
- *
- * Used by the ingest to tell "só-tiles archive" (a NORMAL state since the origin
- * retired the blobs) apart from "project with no source of pixels at all" (a defect
- * that would only surface as a photo that never paints).
- * @param {string} dbFilename - the project's db_filename
- * @returns {boolean} true when the {slug}_tiles.db file exists
- */
-export function hasTilesDb(dbFilename) {
-  return existsSync(resolveTilesDbPath(dbFilename));
-}
-
-/**
  * Terminates the worker pool, releasing every {slug}.db file handle. Required
  * before deleting a .db on Windows (EBUSY otherwise) — used in test teardown and
  * graceful shutdown. The pool is shared with the assets3d store.

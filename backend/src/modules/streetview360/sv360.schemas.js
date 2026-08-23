@@ -150,14 +150,6 @@ export const tilesGeojsonQuerySchema = Joi.object({
   atlasId: Joi.string().trim().guid(),
 }).unknown(true);
 
-// Reserved for stage-2 /nearby (lat/lon/radius numerics). Defined now so the
-// numeric contract is fixed; not wired into a stage-1 route.
-export const nearbyQuerySchema = Joi.object({
-  lat: Joi.number().min(-90).max(90).required(),
-  lon: Joi.number().min(-180).max(180).required(),
-  radius: Joi.number().positive().max(50000),
-}).unknown(true);
-
 // --- stage 2b ---------------------------------------------------------------
 
 // ?include_hidden=true on GET /photos/:uuid — ask for the HIDDEN links too.

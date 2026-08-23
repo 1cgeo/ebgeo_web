@@ -605,7 +605,7 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - **A causa registrada numa suspeita envelhece igual a qualquer outra prosa.** A spec do A2b apontava o replay do open adiado rodando "sem a aba ter recuperado a claim". O thunk replayado começa por `claimRemoteAtlas`. A causa real era o ATALHO daquela função: a chave que ele confiava vinha de `resolveTabMountOrigin`, que cai no marcador de origem da INSTALAÇÃO quando a aba não tem ponteiro próprio, então uma aba nova bootava anunciando o atlas da irmã e o atalho lia isso como direito adquirido, pulando settle, ordem total e testemunha de uma vez.
   - **Nem todo erro fica vermelho: alguns PENDURAM.** No controle negativo do guarda da escada, trocar `Math.ceil` por `Math.floor` em `cols` perde a última coluna parcial, e `tilesVisiveis` calcula `fim - px = 0` com o `while (restante > 0)` nunca terminando. O sinal não é falha, é a suíte travada, e quem depurar isso sem o aviso perde a tarde.
 - **O que NÃO foi feito, e é dívida nomeada:**
-  - **A cena `museu-1cgeo` continua fora**, porque o ativo de 28,6 MB não está em disco em clone nenhum. O cadastro em si é barato e NÃO precisa da aba Catálogo do Admin: `npm run fp:register -- --dry-run <basePath>` faz o mesmo trabalho, é idempotente, e o próprio script avisa que os bytes têm de estar no disco ANTES, senão o pino aparece e o clique dá 404.
+  - **A cena `museu-1cgeo` continua fora**, porque o ativo de 28,6 MB não está em disco em clone nenhum. O cadastro em si é barato e NÃO precisa da aba Catálogo do Admin: `npm run models3d:importar-cena -- --base-path <caminho>` faz o mesmo trabalho e ainda registra a produção (o roteiro citado aqui, `fp:register`, foi aposentado em 2026-08-23). Os bytes têm de estar no disco ANTES, senão o pino aparece e o clique dá 404.
   - **A suíte `e2e-ui` não tira screenshot de nada**, e nenhum spec dela menciona primeira pessoa. O laço aprovado desta casa (captura Playwright seguida de LEITURA da imagem) não tem infraestrutura nesta pasta, então destravar a verificação visual é construí-la, não só cadastrar a cena.
   - **O porte da calibração não tem teste que o cubra.** `calibracao-espelha-marcador-andar.test.js` passa com 15 casos, mas nenhum toca tile nem pirâmide. A prova pendente é abrir o estúdio e ver o nível subir com o zoom.
   - **As chamadas `fetch()` do módulo do 360** (`fetchProjects`, `fetchPhotoMetadata`, `fetchNearestPhoto`, `fetchProjectFloors`, `validatePhoto`) são `fetch(url)` puro, sem header e sem `credentials`. Em deploy cross-origin elas degradam para anônimo pelo mesmo motivo do worker, e o conserto da camada 2D não as cobre.
@@ -651,6 +651,19 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - **Um caso do censo de forma 3D mudou de sujeito.** Ele lia o SQL do backfill para pinar "não se adivinha nuvem de pontos"; agora mede `derivarForma3d`, que é o código vivo, com as entradas que uma heurística tentaria capturar.
   - **Banco pré-consolidação continua inalcançável por upgrade.** A guarda no topo da 001 detectava os nomes antigos e explicava o conserto; ela foi REMOVIDA em 2026-08-23, a pedido do dono, junto com a sonda dela. O que resta é o `relation already exists` do primeiro `CREATE TABLE`, e a instrução vive no README. Um banco que aplicou 001..011 tem o mesmo schema e três nomes órfãos em `_migrations`, que o runner ignora; recriar é mais limpo e foi o que se fez em desenvolvimento.
 - **Status:** aceita. Supera a parte da entrada de 2026-08-19 que dizia que forward-only voltava a valer a partir da 009: volta a valer a partir da PRÓXIMA migração, e enquanto não houver banco em produção uma baseline pode ser reescrita.
+
+---
+
+### 2026-08-23: `POST /sv360/photos/batch-calibration` fica, como API de roteiro, com prazo de cobrança
+
+- **Contexto:** a revisão do módulo 360 achou a rota viva e sem nenhum cliente. Ela tem controller, schema com teto de 500 itens, serviço com SAVEPOINT por item e uma seção de wiki que instrui o cliente a "tratar `failed` sempre". O frontend chama apenas as duas irmãs, por PROJETO e por FAIXA (`api-client.js`, usadas pelo painel de calibração); a rota por FOTO só aparece em teste e nos censos. Pela doutrina de poda, ela sairia.
+- **Decisão:** mantê-la, e cobrar a decisão em **2026-11-23**. Se até lá nenhum roteiro de operação a usar, ela sai com o repro e as duas entradas de censo.
+- **Por que ela não saiu junto com os outros doze achados da mesma varredura:** ela é a ÚNICA superfície onde a política de erro por item é exercitada, e o guarda dessa política é um repro de auditoria (`backend/tests/integration/sv360-batch-error-leak.repro.test.js`, achado 109): mensagem de driver não pode vazar em `failed[].error` dentro de uma resposta 200, e `NotFound` não pode virar texto genérico. Removendo a rota, o guarda morre com ela, e a política volta a não ter onde ser medida. As duas irmãs vivas são de outra forma (uma transação só, sem `failed` por item), então o repro não migra: não há para onde.
+- **Alternativas rejeitadas:**
+  - **Remover a rota e migrar o repro para as irmãs.** Não é migração, é reescrita: o que o repro mede (erro por item dentro de um 200) não existe nas irmãs.
+  - **Remover a rota e o repro.** Perde a única medição de uma política de vazamento real, para ganhar a remoção de uma superfície que nada exercita. O saldo é negativo.
+  - **Escrever um cliente para ela.** Seria inventar requisito para justificar código, que é o defeito ao contrário.
+- **Status:** aceita, com prazo. É a exceção declarada de uma varredura em que os outros doze achados foram corrigidos ou podados.
 
 ---
 

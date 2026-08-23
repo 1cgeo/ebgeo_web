@@ -86,6 +86,7 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-22 | As três migrações posteriores ao esmagamento voltam para dentro das baselines, e o comentário encolhe um sexto | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-22 | O registro da fase multi-aba sai de `docs/decisions/`, porque o durável dele já vive na wiki | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-23 | `active_sessions` não é recriada: a presença fica em memória por decisão, e o guarda passa a medir escrita no pool | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-23 | `POST /sv360/photos/batch-calibration` fica, como API de roteiro, com prazo de cobrança em 2026-11-23 | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

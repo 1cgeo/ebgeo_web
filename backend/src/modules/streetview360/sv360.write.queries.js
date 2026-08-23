@@ -43,12 +43,6 @@ export const GET_PHOTO_FOR_WRITE = `
   WHERE p.id = $1
 `;
 
-// NOTE: the calibration SET clause is assembled in the service from the
-// whitelist above. This constant documents the invariant tail the service
-// always appends: `updated_at = now()` + `WHERE id = $N`. Kept as a marker so
-// callers don't reinvent the WHERE/updated_at handling.
-export const UPDATE_PHOTO_CALIBRATION_TAIL = `updated_at = now() WHERE id = $1`;
-
 // Per-link visibility toggle. hidden = true REMOVES the link from the read
 // GET_TARGETS_FOR_PHOTO result (which filters hidden = false).
 //   $1 = source_id, $2 = target_id, $3 = hidden
