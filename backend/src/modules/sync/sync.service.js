@@ -2148,7 +2148,16 @@ function asUuidOrNull(v) {
 async function applyCommentOp(t, atlasId, op, type, userId, permission) {
   const data = op.changes ?? op.data ?? {};
   // Editors and above may act on ANY comment; a Comentarista only on their OWN (authorship gate).
-  const isEditor = permission === 'write' || permission === 'manage' || permission === 'owner';
+  //
+  // Gate by RANK, never by a closed list. This read
+  //   `permission === 'write' || permission === 'manage' || permission === 'owner'`
+  // which enumerated the three tiers that happen to sit above the floor today. It was
+  // correct only by maintenance: a tier inserted above `write` would drop out of the
+  // gate in silence, and this file already imports the ladder it was transcribing.
+  // `PERMISSION_LEVELS[permission]` is `undefined` for an unknown tier and every
+  // comparison against it is false, so the gate stays CLOSED on garbage, and the value
+  // is always a real boolean (it is bound as a SQL parameter below).
+  const isEditor = PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.write;
 
   if (type === 'create') {
     // Robustness: a non-UUID authorId/parentId is dropped to NULL — otherwise Postgres 22P02

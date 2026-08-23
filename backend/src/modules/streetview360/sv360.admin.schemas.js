@@ -100,8 +100,10 @@ const projectSchema = Joi.object({
       'string.pattern.base': 'Identificador do projeto aceita apenas letras minúsculas, números, hífen e sublinhado.',
     }),
   name: Joi.string().trim().min(1).max(512).required(),
-  // OPTIONAL: resolved to organization_id by the service (global admin may set
-  // any OM; an om_data_admin is forced to its own org). Default org if omitted.
+  // OPTIONAL: resolved to organization_id by the service (global admin may set any
+  // OM; a PRODUCER is forced to its own `producer_org_id`, and a slug resolving to a
+  // different OM is a 403 in `resolveUploadOrgId`). Default org if omitted. This note
+  // said `om_data_admin`, an axis removed with its column in 2026-08-20.
   orgSlug: Joi.string().trim().min(1).max(255).allow(null),
   center_lat: finiteNumber.min(-90).max(90).allow(null),
   center_long: finiteNumber.min(-180).max(180).allow(null),

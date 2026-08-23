@@ -2,8 +2,10 @@
 // HTTP layer for the StreetView 360 ADMIN / INGESTION routes (Fase 9, stage 3a).
 //
 // Every handler is reached only AFTER the STRICT `auth` middleware (401 if no
-// credential). Ownership (admin global vs om_data_admin) lives in the SERVICE,
-// not here. Responses follow the FROZEN flat 360 contract: bare JSON (NOT wrapped
+// credential). Ownership lives in the SERVICE, not here: `canWriteProject`
+// (sv360.write.service.js) admits the global admin and the PRODUCER of the owning
+// OM (`producer_org_id`). This line said `om_data_admin`, a role axis dropped with
+// its column in 2026-08-20. Responses follow the FROZEN flat 360 contract: bare JSON (NOT wrapped
 // in {data}); errors bubble to the router-level sv360ErrorHandler ({ error }).
 //
 // The upload reads the multer.fields() result (req.files.{manifest,imagesDb,

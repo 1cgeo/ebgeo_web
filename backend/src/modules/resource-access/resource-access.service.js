@@ -387,10 +387,13 @@ export async function grantResource({
  * APARA o prazo de quem herdou um teto mais curto.
  *
  * ESTE É O ÚNICO PONTO EM QUE A SEMÂNTICA DE QUEDA É DECIDIDA, e é por isso que ele
- * aceita N raízes em vez de uma. QUATRO chamadores diferentes precisam da mesma regra: a
+ * aceita N raízes em vez de uma. Cinco chamadores diferentes precisam da mesma regra hoje: a
  * revogação de uma concessão, a EXCLUSÃO de um grupo (que derruba as concessões feitas
  * àquele coletivo), a SAÍDA de um membro (que derruba o que ele alimentou através do
- * grupo) e a DESATIVAÇÃO de uma conta (D8(b): a autoridade morre com quem a exercia). Um
+ * grupo), a DESATIVAÇÃO de uma conta (D8(b): a autoridade morre com quem a exercia, origem
+ * `USER_DELETE`) e o REBAIXAMENTO de papel ou perda de escopo de produção, que mata o
+ * fundamento em vez de quem o exercia (origem `USER_DEMOTION`). A lista viva sai de um grep
+ * pelo nome da função, nunca desta prosa: ela já disse quatro depois de o quinto existir. Um
  * `WITH RECURSIVE` escrito dentro de qualquer um desses módulos seria a segunda
  * definição da regra, e a segunda é a que envelhece.
  *

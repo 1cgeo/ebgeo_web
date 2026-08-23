@@ -145,7 +145,9 @@ async function resolveUploadOrgId(user, manifest) {
 
 /**
  * Loads a project by slug WITHIN the caller's authorization scope and enforces
- * write ownership. An om_data_admin resolves it inside its OWN org only. A global
+ * write ownership (`canWriteProject`). A PRODUCER resolves it inside its own
+ * production OM (`user.producer_org_id`) only; the retired `om_data_admin` axis this
+ * line used to name did not survive 2026-08-20, and lotação never authorized it. A global
  * admin resolves it across OMs — but slug is only UNIQUE per org, so if the SAME
  * slug exists in ≥2 orgs the lookup is AMBIGUOUS: FIX-5 returns 409 asking the
  * caller to disambiguate via ?orgId (uuid) or ?orgSlug, instead of silently acting

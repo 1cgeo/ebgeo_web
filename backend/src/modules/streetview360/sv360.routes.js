@@ -429,8 +429,11 @@ router.put(
 );
 
 // --- admin / ingestion (stage 3a) ------------------------------------------
-// STRICT `auth` (anon → 401). Ownership (admin global vs om_data_admin) is
-// enforced in the SERVICE. The upload runs multer BEFORE the handler (multipart,
+// STRICT `auth` (anon → 401). Ownership is enforced in the SERVICE, by
+// `canWriteProject` (sv360.write.service.js): global admin, OR the PRODUCER of the
+// owning OM (`user.producer_org_id === project.organization_id`). This line named
+// `om_data_admin`, an axis removed with its column in 2026-08-20; lotação
+// (`organization_id`) authorizes nothing, production scope does. The upload runs multer BEFORE the handler (multipart,
 // the manifest is validated in the service after reading the tmp file — NOT via
 // `validate`, which only sees the parsed multipart body). The static
 // '/admin/projects/upload' and '/admin/projects' paths are declared before the

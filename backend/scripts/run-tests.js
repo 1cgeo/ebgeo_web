@@ -29,9 +29,19 @@ const testPattern = padraoExplicito || 'tests/**/*.test.js';
 //
 // MEDIDO em 2026-08-16, mesmo arquivo de dez casos, `time` nos dois modos: **2,76 s** com
 // o ciclo completo de banco contra **1,53 s** reaproveitando. Vale para o laço apertado, e
-// o número está aqui porque a estimativa que motivou esta bandeira era 40 s — tempo de
-// parede percebido, nunca medido — e errava por mais de uma ordem de grandeza. Derrubar,
-// recriar e aplicar as dezesseis migrações custa ~1,2 s, não os 99% do relógio.
+// o número está aqui porque a estimativa que motivou esta bandeira era 40 s (tempo de
+// parede percebido, nunca medido) e errava por mais de uma ordem de grandeza. Derrubar,
+// recriar e aplicar as migrações de `src/database/migrations/` custa cerca de um segundo,
+// não os 99% do relógio.
+//
+// RE-MEDIDO em 2026-08-23, depois do esmagamento das migrações em baselines por domínio:
+// três pares alternados sobre `tests/integration/comments-manage-tier.test.js` deram
+// delta de 1016, 1136 e 743 ms (full 2,6 a 3,2 s contra reuse 1,6 a 2,1 s). Mesma ordem
+// de grandeza, e a conclusão não mudou. Esta linha dizia "as dezesseis migrações" e o
+// número já estava errado por quase o dobro: conte com `ls src/database/migrations/`,
+// nunca por prosa, porque a contagem envelhece a cada esmagamento e não tem guarda.
+// Uma medição só de coisa temporal não é medição: os três pares acima estão aqui para
+// que o próximo a duvidar tenha uma série, não um ponto.
 //
 // Consequência que essa medição impõe a quem vier depois: se o laço parece lento, o banco
 // NÃO é o suspeito. O custo está na suíte inteira (que roda sob `c8` e verifica o piso de

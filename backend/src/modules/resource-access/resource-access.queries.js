@@ -561,10 +561,12 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
  *     resgatada sempre, revogar a concessão de alguém que tem outro caminho vivo seria um
  *     no-op com 200 na resposta.
  *
- *     O MODO EXISTE PORQUE NEM TODO CHAMADOR ESTÁ REVOGANDO. `podarPorRaizes` tem QUATRO
- *     chamadores e eles se dividem em dois grupos, que só agora ficaram distinguíveis. Em
- *     três deles (revogar uma concessão, apagar um grupo, desativar uma conta) a âncora é
- *     PRECISAMENTE o que se mandou derrubar. No quarto (tirar um membro do grupo) não se
+ *     O MODO EXISTE PORQUE NEM TODO CHAMADOR ESTÁ REVOGANDO. Os chamadores de
+ *     `podarPorRaizes` se dividem em dois grupos, que só agora ficaram distinguíveis (a
+ *     lista viva sai de um grep pelo nome, e não desta prosa, que já a contou a menos).
+ *     No PRIMEIRO grupo (revogar uma concessão, apagar um grupo, desativar uma conta pela
+ *     origem `USER_DELETE`, rebaixar o papel de alguém pela origem `USER_DEMOTION`) a
+ *     âncora é PRECISAMENTE o que se mandou derrubar. No SEGUNDO (tirar um membro do grupo) não se
  *     mandou derrubar concessão nenhuma: o que caiu foi um CAMINHO, a participação no
  *     grupo, e as âncoras que aquele chamador passa são os REPASSES DO MEMBRO — linhas que
  *     ninguém pediu para revogar e que só estão ali por serem o ponto em que o caminho

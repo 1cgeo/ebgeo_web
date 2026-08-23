@@ -93,11 +93,18 @@ export const createGrant = asyncHandler(async (req, res) => {
  * noutra sala ou não existir. Falho ABERTO na notificação de propósito: um aviso a mais é
  * um GET a mais, um aviso a menos é o defeito.
  *
- * SAIBA QUE ESSA POLÍTICA VALE PARA UM DOS QUATRO CHAMADORES DA PODA, e não para os
- * quatro. `podarPorRaizes` é chamada por revogar, apagar grupo, tirar membro e desativar
- * conta; só a revogação passa por aqui, porque esta função é do controller de
- * resource-access e os outros três vivem em `access-groups.controller.js` e
- * `users.controller.js`. Os três podam sem acordar sala nenhuma.
+ * SAIBA QUE ESSA POLÍTICA VALE PARA UM SÓ DOS CHAMADORES DA PODA, e não para todos.
+ * `podarPorRaizes` é chamada por revogar (aqui), apagar grupo, tirar membro, desativar
+ * conta (`USER_DELETE`) e REBAIXAR O PAPEL de quem concedeu (`USER_DEMOTION`, em
+ * `users.service.js`, o irmão de D8(b): lá a autoridade morre com a conta, aqui com o
+ * crachá). Descubra a lista com um grep por `podarPorRaizes`, não por esta frase: ela já
+ * disse "quatro" depois de o quinto chamador existir, e contagem em prosa não tem guarda.
+ *
+ * SÓ A REVOGAÇÃO PASSA POR AQUI, porque esta função é do controller de resource-access e
+ * os demais vivem em `access-groups.controller.js` e `users.controller.js`. TODOS os
+ * outros podam sem acordar sala nenhuma, e o rebaixamento de papel é o que mais custa
+ * nessa lacuna: ele derruba de uma vez tudo o que o produtor ou administrador rebaixado
+ * distribuiu, para gente que segue com o catálogo antigo na tela.
  *
  * NÃO É VAZAMENTO, e é por isso que ficou assim: o predicado SQL nega toda leitura real
  * do que caiu, então o efeito é catálogo obsoleto na TELA até o próximo

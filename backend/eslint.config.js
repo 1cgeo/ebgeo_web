@@ -35,13 +35,20 @@ export default [
     },
   },
   {
-    // Tests frequently declare bindings for readability/intent (response
-    // objects asserted inline, scaffolding). Keep no-undef strict but downgrade
-    // unused-vars to a warning so CI stays green without churning test files.
+    // This block used to downgrade `no-unused-vars` to 'warn' "so CI stays green
+    // without churning test files". Both halves were dead: there is no CI in this
+    // repository (no .github/, no git hook outside the .sample files), and the lint
+    // script runs eslint with `--max-warnings 0`, which fails on a warning exactly
+    // like an error. The tolerance the comment promised never existed, and reading it
+    // as if it did is how a run comes back red for a reason nobody expected.
+    //
+    // Promoted to 'error' because the tree is clean today, so the level now says what
+    // the command already does. A severity-only entry keeps the options configured
+    // above (argsIgnorePattern, caughtErrors), which is why they are not repeated.
     files: ['tests/**/*.js'],
     plugins: { 'ebgeo-tests': ebgeoTests },
     rules: {
-      'no-unused-vars': 'warn',
+      'no-unused-vars': 'error',
       // Structural blind spot #3 of testes-backend.md: an assertion that only
       // runs when an unverified condition holds is empty coverage — it passes
       // green with the code arbitrarily wrong. Negative control for these three

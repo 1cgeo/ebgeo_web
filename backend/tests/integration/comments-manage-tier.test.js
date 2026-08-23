@@ -1,12 +1,19 @@
 // Path: tests/integration/comments-manage-tier.test.js
 // Item 65 (testes-backend.md) — the co-Gestor ('manage') inside applyCommentOp.
 //
-// `sync.service.js` computes the authorship gate as a LITERAL closed list:
+// `sync.service.js` USED TO compute the authorship gate as a LITERAL closed list:
 //   const isEditor = permission === 'write' || permission === 'manage' || permission === 'owner';
-// which is the exact anti-pattern CLAUDE.md forbids in both packages, correct here
+// which is the exact anti-pattern CLAUDE.md forbids in both packages, correct there
 // only by accident of maintenance. comments.test.js exercises 'write' and 'comment'
 // and stops there, so deleting `|| permission === 'manage'` turned the co-Gestor into
 // a Comentarista on other people's comments with the whole suite still green.
+//
+// It is a rank comparison against `PERMISSION_LEVELS` since 2026-08-23, so the closed
+// list quoted above no longer exists in the source. This file did NOT become redundant:
+// it is the only place that measures the gate's EFFECT on Postgres, and the negative
+// control for the change (floor moved from `write` to `manage`) dropped three of its
+// five cases. The FORM of the expression is pinned separately, and more cheaply, by
+// `tests/unit/comentario-gate-por-posto.test.js`.
 //
 // The assertions are TABLED over all five tiers x acting-on-someone-else's-comment, so
 // a sixth tier (or a reshuffle of the hierarchy) forces this table to be updated rather

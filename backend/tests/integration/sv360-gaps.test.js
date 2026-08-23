@@ -586,7 +586,7 @@ describe('StreetView 360 — audit gap coverage', () => {
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('sv360-11: om_data_admin upload targeting a DIFFERENT org slug → 403', async () => {
+  it('sv360-11: producer upload targeting a DIFFERENT org slug → 403', async () => {
     const slug = `gap-crossorg-${RID}`;
     const okId = uuidv5(`cross/${slug}/c001.jpg`);
     const imagesDbPath = buildImagesDb('crossorg-images.db', [
