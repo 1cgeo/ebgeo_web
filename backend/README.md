@@ -199,6 +199,37 @@ em um lugar só.
   banco do serviço antigo use o `dev/import-gazetteer.mjs` da raiz do monorepo, que já faz esse
   passo.
 
+## Acervo 3D convertido (`.3dtiles` por modelo)
+
+Os modelos fotogramétricos são servidos de UM arquivo SQLite por modelo, sob o prefixo `m/` da
+rota `/api/v1/assets3d`. O porquê da conversão, o token de geração e as armadilhas que já puseram
+modelo deitado e a 3,6 km do lugar estão em [../docs/wiki/acervo-3d-convertido.md](../docs/wiki/acervo-3d-convertido.md).
+
+Os roteiros (todos por `npm run`, que é o que passa o `.env`):
+
+| comando | o que faz |
+|---|---|
+| `models3d:importar` | converte uma ÁRVORE de 3D Tiles para `.3dtiles` (Draco + KTX2) e registra |
+| `models3d:importar-glb` | o mesmo para um GLB solto, que precisa de `--lon` e `--lat` |
+| `models3d:importar-cena` | instala e registra uma cena caminhável (Gaussian splatting) |
+| `models3d:adotar` | registra um `.3dtiles` que já está em disco, lendo o cabeçalho `meta` |
+| `models3d:verificar` | confere UM modelo publicado, abrindo o arquivo como o serviço abre |
+| `models3d:verificar-lote` | confere todos os arquivos de um diretório, contra a origem quando ela responde |
+| `models3d:remedir` | refaz a medida do ponto e das alturas sem reconverter |
+| `models3d:lote` | converte o acervo inteiro, um modelo por vez, com estado em arquivo |
+| `models3d:cleanup-wal` | tira os arquivos do WAL (num volume `:ro`, o `-shm` derruba o serviço) |
+
+Três coisas que mordem quem opera:
+
+- **A importação exige o `ktx`** do KTX-Software 4.4+ (`KTX_BIN`), e só ela: o serviço não precisa.
+  Ele é conferido depois do inventário e antes da primeira escrita, porque um binário ausente
+  viraria "textura pulada" em cada um dos milhares de tiles, sem um erro.
+- **No Windows, o serviço no ar segura o arquivo publicado.** A troca falha com `EBUSY`, o
+  `.parcial` é preservado e a saída manda rodar `--promover` depois de parar o serviço.
+- **Quem escreve o catálogo é a adoção, sempre.** Os importadores gravam o cabeçalho e chamam
+  `adotarModelo`; nenhum deles tem lista de campos própria, porque uma segunda lista é o que
+  fica para trás quando a primeira muda (já custou quatro modelos e 40 minutos de conversão).
+
 ---
 
 ## O que este README deliberadamente não repete

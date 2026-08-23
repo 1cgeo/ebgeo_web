@@ -39,6 +39,8 @@ npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run test:fast -- tests/integration/x.test.js  # laço apertado: reaproveita o banco
 npm run lint           # probe das regras próprias + eslint (rode antes de finalizar) | npm run format
+npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, remedir, lote.
+                       #   A lista e as três armadilhas de operação estão no README.
 ```
 
 - `npm test` é hermético (cria/dropa `ebgeo_test`). **PostGIS** é extensão *untrusted*: o runner
@@ -100,6 +102,14 @@ npm run lint           # probe das regras próprias + eslint (rode antes de fina
 - **Conflito = LWW por ordem de chegada** (NÃO por timestamp); idempotência por `op_id`
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
   sem requisito de produto.
+- **O acervo 3D convertido é `.3dtiles` POR MODELO**, servido pelo prefixo reservado `m/` da rota
+  `/api/v1/assets3d` (o mesmo gate, o mesmo semáforo, o mesmo índice de regime). O catálogo do
+  cliente continua sendo `public.tilesets`; o schema `a3d` guarda só o registro de PRODUÇÃO
+  (arquivo, token de geração, contagens, histórico de importação) e **não repete** os dois eixos
+  de acesso. Quem escreve a linha de catálogo é a ADOÇÃO (`scripts/models3d-adotar.js`), que lê o
+  cabeçalho `meta` do próprio arquivo: nenhum importador tem lista de campos própria, porque a
+  segunda lista é a que fica para trás. Detalhe e armadilhas em
+  [`../docs/wiki/acervo-3d-convertido.md`](../docs/wiki/acervo-3d-convertido.md).
 - **Geometria do atlas é JSONB** (schema `public`, mesmo formato do IndexedDB). **PostGIS vive só nos
   schemas `ng`** (gazetteer) **e `sv360`**. **Nunca** adicione PostGIS ao schema
   do atlas (decisão: filtro espacial do atlas seria bbox em JS, não `ST_Intersects`).
