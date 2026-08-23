@@ -26,6 +26,8 @@ import { getEventBus } from './services.js';
 import { EventTypes } from '../events/event_types.js';
 import { uploadImageBlob, fetchImageBlob } from './sync/image-sync.js';
 import { logAtlasSetting } from './sync/operation-dispatcher.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
 const SETTING_KEY = 'custom_icons';
 
@@ -102,9 +104,22 @@ export function invalidateCustomIconsCache() {
  * @param {Blob} params.blob - Normalized PNG blob
  * @param {string} params.thumbnail - Small data URL preview for the picker
  * @param {string} [params.type='image/png'] - MIME type of the stored blob
- * @returns {Promise<Object>} The created registry entry
+ * @returns {Promise<Object|null>} The created registry entry, or null when the atlas
+ *   permission refuses the write (a blocked operation, not an error)
  */
 export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' }) {
+    // The tail enqueues an `atlas.settings.customIcons` op, refused by the server from a reader,
+    // and a refused op stalls the outbound queue. Gate FIRST, before the upload: without this
+    // the blob would already be on the server by the time the registry write is refused.
+    const perm = checkPermission(GuardAction.UPDATE_ATLAS_SETTINGS);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'addCustomIcon',
+            reason: perm.reason
+        });
+        return null;
+    }
+
     await ensureLoaded();
     // §17.19: when online, upload the blob so collaborators can fetch it; the backend
     // image id becomes the icon id (referenced on the feature's markerSymbol). Offline

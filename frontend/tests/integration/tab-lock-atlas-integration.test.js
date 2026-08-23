@@ -61,6 +61,12 @@ vi.mock('@store/sync/sync-flush.js', () => ({
 }));
 vi.mock('@store/atlas-namespace.js', () => ({
     StoreScopeKind: { LOCAL: 'local', REMOTE: 'remote' },
+    // Só a chave que a cadeia deste arquivo lê, e ela entra por um caminho que não se adivinha
+    // olhando os imports do topo: `open-atlas.service` puxa `atlas-appearance.service`, que
+    // desde 2026-08-23 consulta o guard de permissão, que lê `store-origin.js`, que resolve
+    // `GlobalKey.STORE_ORIGIN` no LOAD do módulo. Um dublê sem esta chave não devolve
+    // `undefined`: o vitest lança na hora, e o arquivo inteiro morre antes do primeiro caso.
+    GlobalKey: { STORE_ORIGIN: '__store_origin__' },
     getActiveScope: () => fixture.scope.value,
     // Dublê do parser do sufixo. Que ele CASE com o de verdade é medido em
     // `tests/integration/namespace-remoto-fiacao.test.js`, onde a adoção roda com a fábrica de

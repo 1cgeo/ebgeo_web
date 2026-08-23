@@ -21,6 +21,8 @@
 
 import { getRepository } from '@store/repositories/index.js';
 import { logSettingOperation, OperationType } from '@store/sync/operation-dispatcher.js';
+import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from '@store/store-errors.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '@store/atlas/atlas.entity.js';
 
 /** Limites do exagero, iguais aos do controle que o desenha. */
@@ -74,6 +76,18 @@ export async function readAtlasAppearance() {
  *   estado normal e agora é resolvido criando o registro.
  */
 export async function saveAtlasAppearance(patch) {
+    // The tail of this function enqueues a `setting` op, which the server refuses from a
+    // reader, and a refused op stalls the whole outbound queue. Permissive offline and on a
+    // local store, so the anonymous user keeps full control of their own workspace.
+    const perm = checkPermission(GuardAction.UPDATE_ATLAS_SETTINGS);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'saveAtlasAppearance',
+            reason: perm.reason
+        });
+        return false;
+    }
+
     const changes = {};
     for (const key of APPEARANCE_KEYS) {
         if (patch[key] !== undefined) changes[key] = patch[key];

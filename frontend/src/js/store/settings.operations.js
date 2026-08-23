@@ -21,6 +21,8 @@ import {
 import { mapResolver } from './services/map-resolver.service.js';
 import mapManager from './store-state-manager.js';
 import { logGridStyleOperation, logMapNotesOperation, OperationType } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { fetchImageBlob } from './sync/image-sync.js';
 
 // ===== HELPERS =====
@@ -65,6 +67,20 @@ export async function getMapNotes(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function setMapNotes(mapName, notes) {
+    // Same gate, same reason as `setMapTemporalConfig` (the long version of the rationale
+    // lives there): the tail of this function enqueues a `mapNotes` op, which the server
+    // refuses for a reader, and a refused op stops the whole outbound queue. It is permissive
+    // offline and on a local store, so notes keep working for the anonymous user and through
+    // a `.ebgeo` import.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'setMapNotes',
+            reason: perm.reason
+        });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot set map notes.');
         return;
@@ -113,6 +129,17 @@ export async function getGridStyle(mapName) {
  * @returns {Promise<void>}
  */
 export async function setGridStyle(mapName, gridStyle) {
+    // Same gate, same reason as `setMapNotes` above: `logGridStyleOperation` at the tail is a
+    // map-setting write the server refuses for a reader.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'setGridStyle',
+            reason: perm.reason
+        });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot set grid style.');
         return;

@@ -536,6 +536,18 @@ export async function getCurrentBaseLayer(mapName = null) {
  * @returns {Promise<void>}
  */
 export async function setBaseLayer(layer, mapName = null) {
+    // Same gate and same reason as the map settings in `settings.operations.js`: the tail of
+    // this function enqueues a `baseLayer` op, which the server refuses for a reader, and a
+    // refused op stalls the whole outbound queue. Permissive offline and on a local store, so
+    // the anonymous user and the `.ebgeo` import path are untouched. The boot-time sanitising
+    // call in `base-layer.control.js` keeps rendering the fallback either way: only the
+    // PERSISTENCE of someone else's map preference is refused, never the drawing.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setBaseLayer', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot change base layer.');
         return;
@@ -574,6 +586,16 @@ export async function setBaseLayer(layer, mapName = null) {
  * @returns {Promise<void>}
  */
 export async function updateMapPosition(center_lat, center_long, zoom, bearing, pitch, mapName = null) {
+    // Same gate as `setBaseLayer` above: the tail enqueues a `mapPosition` op the server
+    // refuses for a reader. This one is only reached through the explicit "salvar posição"
+    // gesture (`map.manager.saveMapPosition`), never on pan or zoom, so the gate costs one
+    // refusal per click and not one per frame.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateMapPosition', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update position.');
         return;

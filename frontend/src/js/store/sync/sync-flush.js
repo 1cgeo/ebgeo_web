@@ -35,7 +35,27 @@ import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
 
-/** Local change events that should trigger an opportunistic flush. */
+/**
+ * Events that trigger an opportunistic flush, on top of the 1.5 s interval.
+ *
+ * THEY ARE NOT "LOCAL CHANGE EVENTS", which is what this comment used to say. Checked against
+ * every emitter in `src/`, the only entries with a LOCAL producer are MAP_CREATED (`addMap`),
+ * MAP_MODIFIED (`map-lock.controller.js`) and the three BRIEFING_* (the briefings tab and the
+ * briefing editor). The whole FEATURE_*, LAYER_* and GROUP_* families, and MAP_DELETED, are
+ * emitted by `remote-operation-handler.js` and by nothing else: they announce a PEER's
+ * operation being applied here. The local edit path never emits them. It writes the store and
+ * calls its `logXxxOperation` directly (`operation-dispatcher.js`), so the op is already in the
+ * queue before any of these events could fire. Reading FEATURE_MODIFIED here as "the user moved
+ * a geometry" is the exact misreading this note exists to stop.
+ *
+ * The remote-only entries are therefore REDUNDANT rather than wrong: each can only fire while
+ * an inbound operation is being applied, and `applyRemoteOperation` ends by emitting
+ * REMOTE_OPERATION_APPLIED for every operation it applies, which is the last entry in this
+ * list. They cost nothing (`flushOnce` returns immediately when a flush is in flight or the
+ * queue has no work), and they are kept on purpose: they are what would already be wired the
+ * day one of those events gains a local producer, and dropping them would change when a flush
+ * happens in exchange for nothing measurable.
+ */
 const FLUSH_TRIGGER_EVENTS = [
     EventTypes.FEATURE_CREATED,
     EventTypes.FEATURE_MODIFIED,

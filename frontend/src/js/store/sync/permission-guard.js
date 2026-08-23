@@ -26,6 +26,18 @@ export const GuardAction = Object.freeze({
     DELETE_LAYER: PermissionAction.DELETE,
 
     CREATE_MAP: PermissionAction.EDIT,
+    // The key for editing the map document AND its per-map settings, which travel as separate
+    // sync entities but answer to ONE authority on the server: `assertOperationAllowed` refuses
+    // every non-comment write from a reader, whatever the target. So map notes, grid style and
+    // temporal config gate on this key too, and get no key of their own, because a client gate
+    // finer than the server's could only refuse work the server would have accepted.
+    //
+    // FIVE writers consulted NO gate at all until 2026-08-23: map notes, grid style, temporal
+    // config, `setBaseLayer` and `updateMapPosition`. The reader was offered the control, the op
+    // was queued, the push came back 403 and the OUTBOUND QUEUE STOPPED, with a message blaming
+    // the user's access for a button the screen itself had offered. The shape to look for when
+    // writing a new one: an operation that calls a `logXxxOperation` and no `checkPermission`.
+    // The trigger is enqueuing a sync op, not how important the operation looks.
     UPDATE_MAP: PermissionAction.EDIT,
     DELETE_MAP: PermissionAction.DELETE_MAP,
     LOCK_MAP: PermissionAction.LOCK_MAPS,
@@ -62,6 +74,13 @@ export const GuardAction = Object.freeze({
     DELETE_MARKER_3D: PermissionAction.DELETE,
     CREATE_MARKER_360: PermissionAction.EDIT,
     DELETE_MARKER_360: PermissionAction.DELETE,
+
+    // Writes that land on `atlas.settings` rather than on a map document: the appearance
+    // (terrain exaggeration and friends) and the custom-icon registry. They travel as a
+    // `setting` sync op, which the server refuses from a reader like any other write, so they
+    // need the same gate as the map settings above. Separate key from `UPDATE_MAP` because the
+    // OBJECT is different, not because the authority is: both resolve to EDIT today.
+    UPDATE_ATLAS_SETTINGS: PermissionAction.EDIT,
 
     MANAGE_USERS: PermissionAction.MANAGE_USERS
 });

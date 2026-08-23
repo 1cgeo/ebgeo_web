@@ -20,6 +20,8 @@ import { EventTypes } from '../events';
 import { withSideDocument } from './document-lock.js';
 import { DEFAULT_TEMPORAL_CONFIG } from '../temporal/temporal.constants.js';
 import { logMapTemporalOperation, OperationType } from './sync/operation-dispatcher.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
 const STORE_PREFIX = 'temporal_';
 
@@ -85,9 +87,37 @@ export async function isMapTemporalEnabled(mapName = null) {
  *
  * @param {string|null} mapName - Map name (null = current).
  * @param {Partial<{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}>} patch
- * @returns {Promise<Object>} The merged, persisted config.
+ * @returns {Promise<Object|null>} The merged, persisted config, or null when the write was refused.
  */
 export async function setMapTemporalConfig(mapName, patch) {
+    // Gate BEFORE the local write, exactly like the sibling map ops (`renameMap`,
+    // `toggleMapLock`). The tail of this function enqueues a `mapTemporal` op, and the server
+    // refuses a map-setting write from a reader (`assertOperationAllowed`, backend
+    // sync.service). Without the gate the timeline switch was offered to a reader, the op was
+    // queued, the push came back 403 and the OUTBOUND QUEUE STOPPED, with a message blaming
+    // the user's access for a control the screen itself had offered. UPDATE_MAP is the right
+    // key: this edits settings of the map document, like a rename, and it already maps to
+    // PermissionAction.EDIT (the server gate for this op is the same 'write' level).
+    //
+    // Local work is untouched, and that is a property of `checkPermission`, not of a special
+    // case here: it returns allowed whenever the session is offline OR the store is not a
+    // connected remote atlas. So an anonymous visitor, and a logged-in user on their own local
+    // atlas, keep the full timeline. That early return is also what keeps the `.ebgeo` import
+    // working, since a project import is a local restore (see `setMapComments`), and an import
+    // INTO a remote atlas is already refused upstream by `addMap` (GuardAction.CREATE_MAP).
+    //
+    // Refusal is an EXPECTED failure, so it emits and returns null rather than throwing: the
+    // temporal settings modal wraps this call in a try/catch that only logs, so a throw would
+    // be swallowed and the user would be told nothing at all.
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'setMapTemporalConfig',
+            reason: perm.reason
+        });
+        return null;
+    }
+
     const target = resolveMapName(mapName);
 
     // MERGE de patch sobre o estado anterior, e por isso um read-modify-write de
@@ -136,5 +166,9 @@ export async function toggleMapTemporal(mapName = null) {
     const target = resolveMapName(mapName);
     const current = await isMapTemporalEnabled(target);
     const next = await setMapTemporalConfig(target, { ativo: !current });
+    // A refused write returns null (the blocked event is already out). Report the UNCHANGED
+    // state: reading `.ativo` off null would throw a TypeError out of a refusal that is not an
+    // error, and the caller announces whatever comes back.
+    if (!next) return current;
     return next.ativo;
 }

@@ -151,6 +151,10 @@ export function createMarkerSymbolPicker({ value, onChange }) {
             type: normalized.type,
         });
 
+        // A refused write returns null (the store already told the user why through
+        // STORE_OPERATION_BLOCKED); building a tile from it would throw on `entry.id`.
+        if (!entry) return;
+
         const tile = buildCustomTile(entry);
         insertCustomTile(tile);
         setActive(tile);
