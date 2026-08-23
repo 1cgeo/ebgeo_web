@@ -120,6 +120,7 @@ const CENSO = [
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'baseLayer', n: 1, classe: PODA, superficies: ['mapa.baseLayer'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'catalogLayers', n: 1, classe: PODA, superficies: ['mapa.catalogLayers'] },
     { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', campo: 'tilesetId', classe: RUNTIME },
+    { arquivo: 'src/js/3d_models_viewer_tool/marker-features.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/components/marker-panel-3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/components/measurement-panel-3d.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/components/panel-shared-3d.js', campo: 'tilesetId', classe: RUNTIME },

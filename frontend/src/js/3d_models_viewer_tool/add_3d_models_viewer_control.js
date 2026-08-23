@@ -12,7 +12,7 @@ import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from 
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@utils/event-cleanup.js';
 import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
-import { getFirstPersonScenes, resolveSceneAssets } from '@js/first_person_3d_tool/scene-config.service.js';
+import { MARKER_KIND, buildMarkerFeatures, resolveMarkerDescriptor } from './marker-features.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -44,12 +44,6 @@ const MARKER_POPUP_OFFSET = 55;
 
 // Badge color for feature count
 const BADGE_COLOR = '#e53935';
-
-// Marker kinds carried by the GeoJSON `kind` property
-const MARKER_KIND = {
-    TILESET: 'tileset',
-    FIRST_PERSON: 'firstPerson'
-};
 
 // Map image ids for each marker kind
 const MARKER_IMAGE = {
@@ -362,70 +356,17 @@ class Add3DModelsViewerControl {
     }
 
     /**
-     * Builds GeoJSON FeatureCollection from config tilesets (with feature counts)
-     * and from the configured first-person scenes.
+     * Builds the GeoJSON FeatureCollection of the marker layer: one pin per positioned catalog
+     * row, routed to its viewer by the shape partition (`marker-features.js`).
      * @returns {Promise<Object>} GeoJSON FeatureCollection
      * @private
      */
     async _buildGeoJSON() {
         const featureCounts = await getFeatureCountsByTileset();
 
-        // The `locate` guard mirrors the one the first-person branch below already had, and it
-        // is not defensive decoration: `config.tilesets` comes from the catalog, whose `config`
-        // column an admin edits as FREE JSON (Painel do Administrador, aba Catálogo). A row
-        // saved without `locate` made this line throw, and the throw took down the whole
-        // marker layer — so one malformed row disabled the 3D-models toggle for every user,
-        // with nothing on screen to say why. A tileset with no position has no marker to draw;
-        // it is skipped, exactly like a scene with no position.
-        const tilesetFeatures = config.tilesets
-            .filter(tileset => Number.isFinite(tileset?.locate?.lon)
-                && Number.isFinite(tileset?.locate?.lat))
-            .map(tileset => ({
-                type: 'Feature',
-                geometry: {
-                    type: 'Point',
-                    coordinates: [tileset.locate.lon, tileset.locate.lat]
-                },
-                properties: {
-                    kind: MARKER_KIND.TILESET,
-                    markerId: tileset.id,
-                    tilesetId: tileset.id,
-                    name: tileset.name,
-                    dataCaptura: tileset.data_captura || null,
-                    previewVideo: tileset.previewVideo || null,
-                    previewThumbnail: tileset.previewThumbnail || null,
-                    featureCount: featureCounts.get(tileset.id) || 0
-                }
-            }));
-
-        // First-person scenes persist nothing, so they never carry a feature count
-        const sceneFeatures = getFirstPersonScenes()
-            .filter(scene => Number.isFinite(scene?.locate?.lon) && Number.isFinite(scene?.locate?.lat))
-            .map(scene => {
-                const assets = resolveSceneAssets(scene);
-
-                return {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Point',
-                        coordinates: [scene.locate.lon, scene.locate.lat]
-                    },
-                    properties: {
-                        kind: MARKER_KIND.FIRST_PERSON,
-                        markerId: scene.id,
-                        sceneId: scene.id,
-                        name: scene.name,
-                        dataCaptura: scene.data_captura || null,
-                        previewVideo: assets?.previewVideo || null,
-                        previewThumbnail: assets?.previewThumbnail || null,
-                        featureCount: 0
-                    }
-                };
-            });
-
         return {
             type: 'FeatureCollection',
-            features: [...tilesetFeatures, ...sceneFeatures]
+            features: buildMarkerFeatures(config.tilesets, featureCounts)
         };
     }
 
@@ -1091,44 +1032,19 @@ class Add3DModelsViewerControl {
     }
 
     /**
-     * Resolves a marker id into the popup descriptor, looking in both the
-     * configured tilesets and the first-person scenes.
+     * Resolves a marker id into the popup descriptor, over the SAME partition that produced the
+     * pins, so the id of a walk-through scene never comes back as a Cesium model.
+     *
+     * `locate` is optional on either half: without it the row still exists in the catalog and in
+     * the search, but it has no pin on the 2D map, so there is nowhere to fly to and no popup to
+     * anchor, and the lookup answers null.
+     *
      * @param {string} markerId - Tileset id or first-person scene id
      * @returns {Object|null} Descriptor with coordinates and popup fields, or null
      * @private
      */
     _resolveMarkerInfo(markerId) {
-        const tileset = config.tilesets.find(t => t.id === markerId);
-        if (tileset) {
-            return {
-                coordinates: [tileset.locate.lon, tileset.locate.lat],
-                kind: MARKER_KIND.TILESET,
-                markerId: tileset.id,
-                name: tileset.name,
-                dataCaptura: tileset.data_captura || null,
-                previewVideo: tileset.previewVideo || null,
-                previewThumbnail: tileset.previewThumbnail || null
-            };
-        }
-
-        // `locate` is optional on a scene: without it the scene still exists in
-        // the catalog and in the search, but it has no pin on the 2D map, so
-        // there is nowhere to fly to and no popup to anchor.
-        const scene = getFirstPersonScenes().find(s => s.id === markerId);
-        if (scene && Number.isFinite(scene.locate?.lon) && Number.isFinite(scene.locate?.lat)) {
-            const assets = resolveSceneAssets(scene);
-            return {
-                coordinates: [scene.locate.lon, scene.locate.lat],
-                kind: MARKER_KIND.FIRST_PERSON,
-                markerId: scene.id,
-                name: scene.name,
-                dataCaptura: scene.data_captura || null,
-                previewVideo: assets?.previewVideo || null,
-                previewThumbnail: assets?.previewThumbnail || null
-            };
-        }
-
-        return null;
+        return resolveMarkerDescriptor(config.tilesets, markerId);
     }
 
     /**

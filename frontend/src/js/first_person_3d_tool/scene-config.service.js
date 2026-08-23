@@ -22,7 +22,7 @@
 
 import config from '@js/config.js';
 import { cabecalhosDeAsset, escoparUrlDeAsset } from '@store/sync/assets3d-request.js';
-import { VIEWER_LEGADO_INDOOR, ehEntradaIndoor } from '@catalog/forma-3d.js';
+import { VIEWER_LEGADO_INDOOR, ehEntradaIndoor, ehEntradaDoCesium } from '@catalog/forma-3d.js';
 import { VoxelCollision } from './walk/voxel-collision.js';
 
 // ============================================================
@@ -128,21 +128,62 @@ export function hasFirstPersonScenes() {
 }
 
 /**
+ * Split a catalog list into the two halves that have DIFFERENT VIEWERS, in one pass.
+ *
+ * WHY THIS IS ONE FUNCTION AND NOT TWO FILTERS. The two halves have to be complementary, and two
+ * filters written apart are free to overlap: that is not hypothetical, it is the bug this
+ * function was extracted to fix. The 2D marker layer built its model pins from the WHOLE list
+ * (filtering only by position) and then ADDED the scenes, so the single indoor scene in
+ * production got two pins stacked under `icon-allow-overlap`, and roughly half the clicks landed
+ * on the model pin, whose "Visualizar em 3D" hands the id to the Cesium loader. There
+ * `visualizadorDaForma` throws on purpose rather than defaulting, so half the clicks were an
+ * exception. No guard caught it because a consumer that filters by NOTHING matches no forbidden
+ * pattern.
+ *
+ * BOTH PREDICATES ARE POSITIVE, and the leftovers get a name. `ehEntradaIndoor` and
+ * `ehEntradaDoCesium` both resolve the DECLARED shape (`derivarForma3d`, which still reads the
+ * legacy `viewer`/`type` fields), and they are total over the four declared shapes today. Writing
+ * one half as "everything the other rejected" is what lets a fifth shape be drawn by a viewer
+ * that cannot open it, so an entry that satisfies neither is returned in `unrouted` instead of
+ * being swept into the Cesium half.
+ *
+ * An indoor row missing `id` or `basePath` is also `unrouted`: it cannot be addressed nor
+ * resolved, and putting it in either drawable half would only fail later, inside a viewer.
+ *
+ * @param {Array<Object>|*} entries - A catalog list shaped like `config.tilesets`
+ * @returns {{cesium: Array<Object>, scenes: Array<Object>, unrouted: Array<Object>}}
+ *   `cesium`: rows the 3D viewer draws. `scenes`: usable walk-through scenes.
+ *   `unrouted`: rows with no viewer at all.
+ */
+export function partitionTilesetEntries(entries) {
+    const cesium = [];
+    const scenes = [];
+    const unrouted = [];
+
+    for (const entry of Array.isArray(entries) ? entries : []) {
+        if (ehEntradaIndoor(entry)) {
+            (isUsableScene(entry) ? scenes : unrouted).push(entry);
+        } else if (ehEntradaDoCesium(entry)) {
+            cesium.push(entry);
+        } else {
+            unrouted.push(entry);
+        }
+    }
+
+    return { cesium, scenes, unrouted };
+}
+
+/**
  * Get every usable first-person scene.
  *
- * Partitions `config.tilesets` by the DECLARED shape (`config.forma3d === 'indoor'`, resolved by
- * `derivarForma3d`, which still reads the legacy `viewer` field): a row of any other shape is
- * drawn by Cesium and belongs to the 3D viewer, not here.
- *
- * Entries missing `id` or `basePath` are dropped: they cannot be addressed nor
- * resolved, and letting them through would only fail later, inside the viewer.
+ * Derived from `partitionTilesetEntries` for the same reason `hasFirstPersonScenes` is derived
+ * from this function: a second rule here would be free to disagree with the partition, and the
+ * disagreement would be invisible, because both answers are well-formed lists.
  *
  * @returns {Array<Object>} Scene entries, or [] when none is configured
  */
 export function getFirstPersonScenes() {
-    const tilesets = config.tilesets;
-    if (!Array.isArray(tilesets)) return [];
-    return tilesets.filter(entry => ehEntradaIndoor(entry) && isUsableScene(entry));
+    return partitionTilesetEntries(config.tilesets).scenes;
 }
 
 /**
