@@ -7,22 +7,6 @@
 -- desfaz o que este mesmo arquivo criou. O histórico de como o schema chegou aqui
 -- vive no git, não em degraus.
 
--- ============================================================================
--- GUARDA DE BANCO PRÉ-CONSOLIDAÇÃO
--- ============================================================================
--- O runner casa arquivo com linha de `_migrations` pelo NOME, sem checksum. Um
--- banco criado antes da consolidação tem nomes que não casam com nenhum destes,
--- então o runner tentaria aplicar tudo de novo e o primeiro `CREATE TABLE`
--- estouraria com 42P07, mensagem que não diz o que aconteceu. Este bloco falha
--- alto e explica. (`_migrations` já existe: o runner a cria antes do laço.)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM _migrations WHERE name IN ('001_core.sql','002_atlas.sql','003_sync.sql')) THEN
-    RAISE EXCEPTION 'Banco criado antes da consolidacao de migracoes. O historico '
-      'incremental foi esmagado em baselines por dominio e este schema NAO e alcancavel '
-      'por upgrade. Em desenvolvimento: node scripts/dev-db.js recreate.';
-  END IF;
-END $$;
-
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";    -- gen_random_uuid()
 
 -- ============================================================================

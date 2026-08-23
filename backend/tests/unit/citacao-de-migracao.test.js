@@ -38,8 +38,8 @@
 //
 //   - Ele lê COMENTÁRIO, não código. Número de migração dentro de string literal
 //     escapa: título de `describe`, mensagem de `assert`, nome montado em runtime.
-//     `banco-pre-consolidacao.test.js` depende disso de propósito (ele fabrica em
-//     runtime o nome de uma migração que precisa NÃO existir).
+//     Um teste que precise nomear uma migração que NÃO existe mais monta o nome em
+//     runtime justamente por isso.
 //   - Ele reconhece o número no formato zero-padded de três dígitos. Citação por nome
 //     de tabela ("a migração do gazetteer"), por data ou por fase (`F15`) passa, e passa
 //     de propósito: nenhuma delas aponta para um arquivo.

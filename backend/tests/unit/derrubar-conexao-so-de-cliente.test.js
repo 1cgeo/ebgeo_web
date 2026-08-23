@@ -67,12 +67,12 @@ function chamadasVersionadas() {
     .filter((linha) => linha.length > 0 && !linha.includes('node_modules'));
   const achados = [];
   for (const arquivo of arquivos) {
-    // SEM OS COMENTÁRIOS, e a razão veio de um vermelho real: a integração main/360
-    // trouxe, no cabeçalho de `banco-pre-consolidacao.test.js`, uma explicação em prosa
-    // sobre `pg_terminate_backend` e o 42501. A varredura casou o NOME dentro daquela
-    // frase, olhou a janela ao redor, não achou filtro nenhum (prosa não tem WHERE) e
-    // acusou um arquivo cuja única chamada de verdade estava correta. Guarda que lê prosa
-    // acusa quem o documenta, que é o pior incentivo possível: some o comentário.
+    // SEM OS COMENTÁRIOS, e a razão veio de um vermelho real: um arquivo de teste trazia,
+    // no cabeçalho, uma explicação em prosa sobre `pg_terminate_backend` e o 42501. A
+    // varredura casou o NOME dentro daquela frase, olhou a janela ao redor, não achou
+    // filtro nenhum (prosa não tem WHERE) e acusou um arquivo cuja única chamada de
+    // verdade estava correta. Guarda que lê prosa acusa quem o documenta, que é o pior
+    // incentivo possível: some o comentário.
     const fonte = semComentarios(readFileSync(join(RAIZ, arquivo), 'utf-8'));
     // O próprio nome da constante aparece neste arquivo de teste; ele se exclui.
     if (arquivo.endsWith('derrubar-conexao-so-de-cliente.test.js')) continue;
@@ -99,12 +99,16 @@ describe('derrubar conexão: só a de cliente', () => {
     // foi a varredura passando a ler CÓDIGO em vez de prosa. A décima "chamada" era o
     // nome da função dentro de um comentário. Piso calibrado sobre texto que inclui
     // comentário sobe e desce quando alguém documenta melhor, e é por isso que ele estava
-    // medindo a coisa errada. As nove vivem em `scripts/dev-db.js`, `scripts/run-tests.js`
-    // (2), `scripts/test-db.js`, `tests/integration/banco-pre-consolidacao.test.js`,
-    // `frontend/tests/e2e-ui/backend.js` (2) e `frontend/tests/e2e/global-setup.js` (2).
+    // medindo a coisa errada.
+    //
+    // CAIU DE 9 PARA 8 em 2026-08-23, e desta vez foi mesmo uma chamada que saiu: a sonda
+    // da guarda de banco pré-consolidação foi removida junto com a guarda, por decisão do
+    // dono. As oito vivem em `scripts/dev-db.js`, `scripts/run-tests.js` (2),
+    // `scripts/test-db.js`, `frontend/tests/e2e-ui/backend.js` (2) e
+    // `frontend/tests/e2e/global-setup.js` (2).
     assert.ok(
-      achados.length >= 9,
-      `esperava ao menos 9 chamadas versionadas, achei ${achados.length}: a varredura quebrou`
+      achados.length >= 8,
+      `esperava ao menos 8 chamadas versionadas, achei ${achados.length}: a varredura quebrou`
     );
 
     const semFiltro = achados.filter((a) => !a.trecho.includes(FILTRO));
