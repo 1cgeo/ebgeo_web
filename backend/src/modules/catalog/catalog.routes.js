@@ -43,9 +43,13 @@ export function makeCatalogRouter(table) {
     requireAtlasScopeWhenPresent,
     ctrl.get(table),
   );
-  router.post('/', auth, produtor, validate({ body: schemas.createSchema }), ctrl.create(table));
+  // O SCHEMA DE ESCRITA É POR TABELA, e a diferença é uma só: o mapa base recusa o vídeo de
+  // prévia (cláusula 2.4). Até 2026-08-23 o schema era único para as quatro, então a norma
+  // vivia apenas no formulário do painel e a API gravava o campo em `basemaps` sem reclamar.
+  const escrita = schemas.schemasDeEscrita(table);
+  router.post('/', auth, produtor, validate({ body: escrita.create }), ctrl.create(table));
   router.put('/:id', auth, produtor,
-    validate({ params: schemas.idParamsSchema, body: schemas.updateSchema }), ctrl.update(table));
+    validate({ params: schemas.idParamsSchema, body: escrita.update }), ctrl.update(table));
   router.delete('/:id', auth, produtor, validate({ params: schemas.idParamsSchema }), ctrl.remove(table));
   return router;
 }

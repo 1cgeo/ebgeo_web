@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createSchema, updateSchema } from '../../src/modules/catalog/catalog.schemas.js';
+import { createSchema, updateSchema, schemasDeEscrita } from '../../src/modules/catalog/catalog.schemas.js';
 import { CAMPO_FORMA_3D, FORMAS_3D } from '../../src/modules/catalog/forma-3d.js';
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -107,8 +107,28 @@ describe('Borda de escrita do catalogo: o eixo `forma3d`', () => {
 
   it('os dois schemas continuam pendurados nas rotas de escrita', () => {
     // A metade que o teste de schema sozinho nao cobre: um schema perfeito que ninguem chama.
+    //
+    // A FIACAO MUDOU DE FORMA em 2026-08-23 e a propriedade nao: as rotas deixaram de citar
+    // `createSchema`/`updateSchema` direto e passam pela fabrica `schemasDeEscrita(table)`,
+    // porque o mapa base recusa `previewVideo` (clausula 2.4) e as outras tres o aceitam.
+    // Continuar exigindo o nome antigo faria este guarda reprovar uma fiacao correta.
     const rotas = fs.readFileSync(path.join(RAIZ, 'src/modules/catalog/catalog.routes.js'), 'utf8');
-    assert.match(rotas, /createSchema/, 'a rota de criacao deixou de validar o corpo');
-    assert.match(rotas, /updateSchema/, 'a rota de atualizacao deixou de validar o corpo');
+    assert.match(rotas, /schemasDeEscrita\(table\)/, 'as rotas deixaram de resolver o schema por tabela');
+    assert.match(rotas, /validate\(\{ body: escrita\.create \}\)/, 'a rota de criacao deixou de validar o corpo');
+    assert.match(rotas, /body: escrita\.update/, 'a rota de atualizacao deixou de validar o corpo');
+  });
+
+  it('a fabrica devolve schema DIFERENTE para o mapa base, e igual para os outros tres', () => {
+    // Sem esta discriminacao, uma fabrica que devolvesse sempre o mesmo par passaria no caso
+    // acima e a clausula 2.4 voltaria a nao ter imposicao nenhuma no servidor.
+    const base = schemasDeEscrita('basemaps');
+    const tileset = schemasDeEscrita('tilesets');
+    assert.notEqual(base.create, tileset.create, 'o mapa base precisa de schema proprio');
+    assert.equal(tileset.create, createSchema, 'as outras tres continuam no schema comum');
+    assert.equal(tileset.update, updateSchema);
+
+    const comVideo = { id: 'x', name: 'X', config: { previewVideo: 'https://a/b.webm' } };
+    assert.ok(base.create.validate(comVideo).error, 'o mapa base tem de recusar o video de previa');
+    assert.equal(tileset.create.validate(comVideo).error, undefined, 'o tileset tem de aceitar');
   });
 });

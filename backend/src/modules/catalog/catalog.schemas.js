@@ -23,9 +23,18 @@ import { CAMPO_FORMA_3D, FORMAS_3D } from './forma-3d.js';
 // Ela existia desde sempre em `tilesets` e passou livre porque `config` é livre. O que
 // muda em 2026-08-21 é o ALCANCE: o campo deixa de ser só do 3D e passa a valer também
 // para camada de dados, camada de análise e projeto 360 (este último em coluna, porque
-// `sv360.projects` não tem `config`). Basemap fica de fora, e o motivo está escrito por
-// extenso no comentário de `sv360.projects.preview_video`: ele é o único dos cinco tipos
-// que não vira cartão de catálogo, então não haveria onde LER o valor.
+// `sv360.projects` não tem `config`). Basemap fica de fora: ele é o único dos cinco tipos
+// que não vira cartão de catálogo, então não haveria onde LER o valor. A regra é a cláusula
+// 2.4 da constituição, e desde 2026-08-23 ela é IMPOSTA aqui.
+//
+// ATÉ 2026-08-23 A EXCLUSÃO NÃO EXISTIA NO SERVIDOR, e esta prosa apontava para o lugar
+// errado: dizia que o motivo estava "escrito por extenso no comentário de
+// `sv360.projects.preview_video`", e aquele comentário diz apenas que a coluna espelha
+// `config.previewVideo` das tabelas de catálogo, sem excetuar o basemap. Nenhuma migração
+// restringe a chave (o `config` é JSONB livre nas quatro tabelas), e este mesmo schema era
+// UM SÓ para as quatro: `POST /api/v1/basemaps` com `config.previewVideo` era aceito e
+// gravado. O que segurava a norma era o formulário do painel, que não oferece o campo.
+// Achado por uma revisão da constituição contra as migrações; ver a cláusula 2.4.
 //
 // O NOME É `previewVideo` E NÃO UM NOME NOVO: é a chave que o visualizador 3D, o
 // `scene-config.service` e o índice de `assets3d-regime.js` já leem. Um `videoUrl` ao
@@ -68,6 +77,27 @@ const configSchema = Joi.object({
   previewVideo: previewVideoSchema,
 }).unknown(true);
 
+/**
+ * O MESMO `config`, com o vídeo de prévia RECUSADO. É o schema do mapa base.
+ *
+ * `forbidden()` e não omissão: `configSchema` é `.unknown(true)`, então tirar a chave da
+ * lista a deixaria passar como qualquer outra desconhecida. O que se quer aqui é a recusa
+ * NOMEADA — 422 dizendo o que é, em vez de gravar um campo que nada lê.
+ */
+const configSchemaSemPreviewVideo = Joi.object({
+  [CAMPO_FORMA_3D]: Joi.string().valid(...FORMAS_3D),
+  // SEM `.messages()` AQUI, e a ausência é a convenção da casa, não esquecimento: a
+  // tradução das falhas de validação é feita no EDGE, por tipo de erro
+  // (`utils/validation-messages.js`), e uma mensagem escrita no schema seria descartada
+  // ali — código que promete um texto que nunca sai. O chamador recebe 422 nomeando o
+  // campo (`config.previewVideo` não é aceito aqui), e o PORQUÊ vive na cláusula 2.4 da
+  // constituição e no comentário do topo deste arquivo.
+  previewVideo: Joi.any().forbidden(),
+}).unknown(true);
+
+/** A tabela cujo `config` recusa o vídeo de prévia. Uma só, e a constituição diz qual. */
+const TABELA_SEM_PREVIEW_VIDEO = 'basemaps';
+
 export const createSchema = Joi.object({
   id: Joi.string().max(100).required(),
   name: Joi.string().max(255).required(),
@@ -86,6 +116,25 @@ export const updateSchema = Joi.object({
 export const idParamsSchema = Joi.object({
   id: Joi.string().max(100).required(),
 });
+
+/**
+ * Os schemas de ESCRITA daquela tabela.
+ *
+ * A fábrica existe porque a diferença entre as quatro tabelas de catálogo é UMA: o mapa
+ * base não tem vídeo de prévia (cláusula 2.4 da constituição). Um schema por tabela
+ * escrito à mão seria quatro cópias para uma diferença; um schema só, que era o que havia,
+ * deixava a regra sem imposição nenhuma no servidor.
+ *
+ * @param {string} table - uma das quatro tabelas de catálogo
+ * @returns {{create: Joi.ObjectSchema, update: Joi.ObjectSchema}}
+ */
+export function schemasDeEscrita(table) {
+  if (table !== TABELA_SEM_PREVIEW_VIDEO) return { create: createSchema, update: updateSchema };
+  return {
+    create: createSchema.keys({ config: configSchemaSemPreviewVideo.default({}) }),
+    update: updateSchema.keys({ config: configSchemaSemPreviewVideo }),
+  };
+}
 
 // ?atlasId= nas duas rotas de LEITURA — o atlas em foco, para o braco de EMPRESTIMO do
 // predicado de acesso. Declarado (e nao deixado passar de largada) para que um valor
