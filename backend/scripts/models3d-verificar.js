@@ -26,8 +26,12 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 import Database from 'better-sqlite3';
 import config from '../src/config.js';
-import { pgp } from '../src/database/index.js';
+import { pgp, query } from '../src/database/index.js';
 import { obterModelo3d } from '../src/modules/models3d/models3d.import.service.js';
+import { GET_SCENE_3D } from '../src/modules/models3d/models3d.queries.js';
+import {
+  medirCena, validarLayoutDeCena, caminhoLocalDaCena,
+} from '../src/modules/models3d/models3d.scene.js';
 
 function args() {
   const a = process.argv.slice(2);
@@ -46,16 +50,84 @@ function resolve(base, uri) {
   return partes.join('/');
 }
 
+/**
+ * Confere uma CENA instalada: o layout obrigatorio e a assinatura do manifesto.
+ *
+ * A ASSINATURA E A CONFERENCIA INTEIRA, e ela pega o que a contagem nao pega: arquivo
+ * trocado, truncado, renomeado e A MAIS. Um `.3dtiles` carrega no proprio arquivo o
+ * cabecalho que o identifica; uma pasta nao carrega nada, e sem este registro "a cena
+ * esta inteira?" so teria resposta na hora da instalacao.
+ *
+ * @param {object} c - linha de `a3d.scenes` com o que o catalogo diz
+ * @returns {Promise<number>} quantos pontos reprovaram
+ */
+async function verificaCena(c) {
+  let falhas = 0;
+  const reprova = (msg) => { console.log(`  REPROVA ${msg}`); falhas++; };
+
+  console.log(`cena      ${c.scene_id}  (${c.name})`);
+  console.log(`basePath  ${c.base_path}`);
+  console.log(`registro  ${c.file_count} arquivos, ${(Number(c.total_bytes) / 2 ** 20).toFixed(1)} MiB`);
+  console.log(`assinado  ${c.manifest_sha256.slice(0, 16)}...  (${c.imported_at})`);
+  console.log(`publicado ${c.active ? 'sim' : 'NAO'}`);
+
+  const raiz = caminhoLocalDaCena(c.base_path, config.assets3d);
+  if (!raiz) {
+    // NAO E REPROVACAO: o endereco publicado pode estar fora desta rota (o nginx serve o
+    // mesmo diretorio por outro prefixo), e ai este processo nao sabe onde os bytes estao.
+    console.log(`
+  base_path fora de ${config.assets3d.baseUrl}: os bytes nao sao servidos por este processo,`);
+    console.log('  e a conferencia local nao se aplica. Verifique no servidor que publica esse prefixo.');
+    return falhas;
+  }
+  if (!existsSync(raiz)) {
+    reprova(`a pasta nao esta em disco: ${raiz}`);
+    return falhas;
+  }
+
+  console.log('\n1. o layout que o visualizador exige');
+  const medida = await medirCena(raiz);
+  const veredito = validarLayoutDeCena(medida.arquivos.map((a) => a.rel));
+  if (!veredito.ok) reprova(veredito.motivo);
+  else if (veredito.avisos.length) console.log(`   sem ${veredito.avisos.join(', ')} (o cartao fica pobre)`);
+  console.log(`   ${medida.arquivos.length} arquivos, ${(medida.totalBytes / 2 ** 20).toFixed(1)} MiB`);
+
+  console.log('\n2. a assinatura do manifesto');
+  if (medida.sha256 !== c.manifest_sha256) {
+    reprova('a pasta em disco NAO e a que foi registrada');
+    const registradosFaltando = medida.arquivos.length !== c.file_count;
+    if (registradosFaltando) {
+      console.log(`   o registro diz ${c.file_count} arquivos e a pasta tem ${medida.arquivos.length}`);
+    }
+    console.log(`   registrado ${c.manifest_sha256.slice(0, 16)}...  medido ${medida.sha256.slice(0, 16)}...`);
+  } else {
+    console.log('   identica ao registro');
+  }
+
+  return falhas;
+}
+
 async function main() {
   const o = args();
   if (!o.id) {
-    console.error('Uso: node scripts/verificar.js --id <slug> [--origem <dir>]');
+    console.error('Uso: npm run models3d:verificar -- --id <slug> [--origem <dir>]');
     process.exit(2);
   }
 
   const m = await obterModelo3d(o.id);
   if (!m) {
-    console.error(`ERRO: modelo "${o.id}" nao esta no catalogo.`);
+    // O SERVICO 3D PUBLICA DUAS FORMAS, e a segunda nao e 3D Tiles: a cena caminhavel
+    // (Gaussian splatting) mora numa PASTA e abre por outro visualizador. Verificar so a
+    // primeira deixaria metade do acervo sem conferencia nenhuma depois da instalacao.
+    const { rows } = await query(GET_SCENE_3D, [o.id]);
+    if (rows.length) {
+      const falhas = await verificaCena(rows[0]);
+      await encerrar();
+      console.log(`
+=== ${falhas === 0 ? 'APROVADA' : `REPROVADA em ${falhas} pontos`} ===`);
+      process.exit(falhas === 0 ? 0 : 1);
+    }
+    console.error(`ERRO: "${o.id}" nao e modelo nem cena registrada.`);
     await encerrar();
     process.exit(3);
   }

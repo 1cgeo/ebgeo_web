@@ -33,29 +33,17 @@
  *     [--pose "3.82,0.55,1.42,0,0"] [--velocidade 2.4] [--fov 60] [--dry-run]
  */
 
-import {
-  existsSync, mkdirSync, readdirSync, statSync, copyFileSync, rmSync, createReadStream,
-} from 'node:fs';
-import { join, relative, dirname } from 'node:path';
-import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import config from '../src/config.js';
-import { query, pgp } from '../src/database/index.js';
+import { query, tx, pgp } from '../src/database/index.js';
 import { invalidateAppConfigCache } from '../src/modules/config/config.cache.js';
 import {
-  UPSERT_TILESET_3D, CATALOG_ROW_EXISTS,
+  UPSERT_TILESET_3D, UPSERT_SCENE_3D, CATALOG_ROW_EXISTS,
 } from '../src/modules/models3d/models3d.queries.js';
-
-/**
- * Arquivos que a cena PRECISA ter.
- *
- * Sem o splat nao ha o que ver; sem o octree a cena abre bonita e o visitante
- * atravessa parede, sem nada no console. Faltar em silencio e o modo de falha
- * que este portao fecha.
- */
-const OBRIGATORIOS = ['cena.sog', 'voxel/voxel-meta.json', 'voxel/voxel.bin'];
-
-/** Arquivos que a cena costuma ter, e cuja ausencia so vira aviso. */
-const ESPERADOS = ['marcadores.json', 'preview/preview.webm', 'preview/thumbnail.jpg'];
+// O LAYOUT E A ASSINATURA moram no modulo, e nao aqui: eles sao o CONTRATO da cena, e a
+// verificacao (que roda muito depois desta importacao) precisa dos mesmos.
+import { medirCena, validarLayoutDeCena } from '../src/modules/models3d/models3d.scene.js';
 
 function args() {
   const a = process.argv.slice(2);
@@ -77,31 +65,6 @@ function args() {
     forcar: a.includes('--forcar'),
     dryRun: a.includes('--dry-run'),
   };
-}
-
-/** Lista todos os arquivos da pasta, em caminho relativo com barra normal. */
-function inventaria(raiz) {
-  const arquivos = [];
-  let bytes = 0;
-  (function anda(dir) {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) { anda(p); continue; }
-      arquivos.push(relative(raiz, p).replace(/\\/g, '/'));
-      bytes += statSync(p).size;
-    }
-  })(raiz);
-  return { arquivos: arquivos.sort(), bytes };
-}
-
-/** sha256 de um arquivo, por fluxo: o splat passa de 20 MB. */
-function sha256(caminho) {
-  return new Promise((resolve, reject) => {
-    const h = createHash('sha256');
-    createReadStream(caminho).on('data', (d) => h.update(d))
-      .on('end', () => resolve(h.digest('hex')))
-      .on('error', reject);
-  });
 }
 
 async function main() {
@@ -132,20 +95,24 @@ async function main() {
   }
 
   passo('1. inventario da origem');
-  const inv = inventaria(o.origem);
-  log(`  ${inv.arquivos.length.toLocaleString('pt-BR')} arquivos, ${(inv.bytes / 2 ** 20).toFixed(1)} MiB`);
+  // A MEDIDA JA E A CONFERENCIA: cada arquivo sai daqui com o sha256, e a assinatura do
+  // manifesto (a lista ordenada de caminho + hash) e o que identifica a cena inteira.
+  const inv = await medirCena(o.origem);
+  log(`  ${inv.arquivos.length.toLocaleString('pt-BR')} arquivos, ${(inv.totalBytes / 2 ** 20).toFixed(1)} MiB`);
+  log(`  assinatura ${inv.sha256.slice(0, 16)}...`);
 
-  const faltando = OBRIGATORIOS.filter((f) => !inv.arquivos.includes(f));
-  if (faltando.length) {
-    console.error(`ERRO: a cena nao tem ${faltando.join(', ')}.`);
+  const veredito = validarLayoutDeCena(inv.arquivos.map((a) => a.rel));
+  if (!veredito.ok) {
+    console.error(`ERRO: ${veredito.motivo}.`);
     console.error('Sem o splat nao ha o que ver; sem o octree o visitante atravessa parede,');
     console.error('e a cena abre bonita sem nada no console.');
     await encerrar();
     process.exit(4);
   }
-  const ausentes = ESPERADOS.filter((f) => !inv.arquivos.includes(f));
-  if (ausentes.length) log(`  ATENCAO: sem ${ausentes.join(', ')} (a cena abre, o cartao fica pobre)`);
-  const itens = inv.arquivos.filter((f) => f.startsWith('itens/')).length;
+  if (veredito.avisos.length) {
+    log(`  ATENCAO: sem ${veredito.avisos.join(', ')} (a cena abre, o cartao fica pobre)`);
+  }
+  const itens = inv.arquivos.filter((a) => a.rel.startsWith('itens/')).length;
   log(`  fotos de ficha: ${itens}`);
 
   let pose = null;
@@ -173,37 +140,34 @@ async function main() {
   // que a nova versao nao tem, e o visualizador o serviria como se fosse dela.
   if (existsSync(destino)) rmSync(destino, { recursive: true, force: true });
   mkdirSync(destino, { recursive: true });
-  for (const rel of inv.arquivos) {
+  for (const { rel } of inv.arquivos) {
     const alvo = join(destino, rel);
     mkdirSync(dirname(alvo), { recursive: true });
     copyFileSync(join(o.origem, rel), alvo);
   }
-  const copiado = inventaria(destino);
-  log(`  ${copiado.arquivos.length.toLocaleString('pt-BR')} arquivos, ${(copiado.bytes / 2 ** 20).toFixed(1)} MiB`);
+  const copiado = await medirCena(destino);
+  log(`  ${copiado.arquivos.length.toLocaleString('pt-BR')} arquivos, ${(copiado.totalBytes / 2 ** 20).toFixed(1)} MiB`);
 
   passo('3. conferencia');
-  // A CONFERENCIA COBRE A MESMA EXTENSAO DA ESCRITA: copiou N arquivos, confere
-  // os N, por sha256 na origem e no destino. Comparar so o tamanho deixaria
-  // passar copia truncada que casa por acaso, e comparar so a contagem nem isso.
-  if (copiado.arquivos.length !== inv.arquivos.length) {
-    console.error(`ERRO: copiou ${copiado.arquivos.length} de ${inv.arquivos.length} arquivos.`);
+  // A CONFERENCIA COBRE A MESMA EXTENSAO DA ESCRITA, e agora numa comparacao so: a
+  // assinatura e o hash da lista ORDENADA de (caminho, sha256), entao ela pega arquivo
+  // faltando, arquivo A MAIS, arquivo truncado e arquivo renomeado. Comparar so o tamanho
+  // deixaria passar copia truncada que casa por acaso; comparar so a contagem, nem isso.
+  if (copiado.sha256 !== inv.sha256) {
+    console.error('ERRO: o que foi copiado NAO bate com a origem.');
+    const naOrigem = new Map(inv.arquivos.map((a) => [a.rel, a.sha256]));
+    const noDestino = new Map(copiado.arquivos.map((a) => [a.rel, a.sha256]));
+    for (const [rel, hash] of naOrigem) {
+      if (!noDestino.has(rel)) console.error(`  AUSENTE  ${rel}`);
+      else if (noDestino.get(rel) !== hash) console.error(`  DIVERGE  ${rel}`);
+    }
+    for (const rel of noDestino.keys()) {
+      if (!naOrigem.has(rel)) console.error(`  A MAIS   ${rel}`);
+    }
     await encerrar();
     process.exit(5);
   }
-  let divergentes = 0;
-  for (const rel of inv.arquivos) {
-    const [a, b] = await Promise.all([
-      sha256(join(o.origem, rel)),
-      sha256(join(destino, rel)),
-    ]);
-    if (a !== b) { console.error(`  DIVERGE ${rel}`); divergentes++; }
-  }
-  if (divergentes) {
-    console.error(`ERRO: ${divergentes} arquivos divergem da origem.`);
-    await encerrar();
-    process.exit(5);
-  }
-  log(`  ${inv.arquivos.length.toLocaleString('pt-BR')} arquivos conferidos por sha256, zero divergencias`);
+  log(`  ${inv.arquivos.length.toLocaleString('pt-BR')} arquivos conferidos por sha256, assinatura identica`);
 
   passo('4. catalogo');
   const basePath = `${config.assets3d.baseUrl}/primeira-pessoa/${o.id}`;
@@ -227,12 +191,26 @@ async function main() {
   if (o.velocidade != null) cfg.velocidade = o.velocidade;
   if (o.fov != null) cfg.fov = o.fov;
 
-  await query(UPSERT_TILESET_3D, {
-    id: o.id,
-    name: o.nome || o.id,
-    description: o.descricao ?? null,
-    config: JSON.stringify(cfg),
-    ativo: true,
+  // AS DUAS ESCRITAS SAO UMA SO: `a3d.scenes` tem FK para `tilesets`, entao a ordem e
+  // obrigatoria, e sem transacao a falha da segunda deixa uma linha de catalogo apontando
+  // para uma pasta que o registro de producao desconhece -- um item que aparece na lista e
+  // que ninguem consegue verificar depois.
+  await tx(async (t) => {
+    await t.none(UPSERT_TILESET_3D, {
+      id: o.id,
+      name: o.nome || o.id,
+      description: o.descricao ?? null,
+      config: JSON.stringify(cfg),
+      ativo: true,
+    });
+    await t.one(UPSERT_SCENE_3D, {
+      sceneId: o.id,
+      basePath,
+      fileCount: copiado.arquivos.length,
+      totalBytes: copiado.totalBytes,
+      manifestSha256: copiado.sha256,
+      sourcePath: o.origem,
+    });
   });
   invalidateAppConfigCache();
 
@@ -242,7 +220,7 @@ async function main() {
   if (!pose) {
     log('  ATENCAO: sem --pose o visitante entra na pose padrao do visualizador.');
   }
-  log(`  ${copiado.arquivos.length} arquivos, ${(copiado.bytes / 2 ** 20).toFixed(1)} MiB registrados`);
+  log(`  ${copiado.arquivos.length} arquivos, ${(copiado.totalBytes / 2 ** 20).toFixed(1)} MiB registrados`);
 
   log(`
 === IMPORTADA: ${o.id} ===`);

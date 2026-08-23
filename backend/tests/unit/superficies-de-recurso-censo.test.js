@@ -753,6 +753,52 @@ const CENSO_CONSULTA = [
 
   // ================= acervo 3D convertido: registro por linha de comando =====
   {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'LIST_MODELS_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A varredura que monta o ÍNDICE EM MEMÓRIA de modelo -> arquivo, sem filtro nenhum e '
+      + 'de propósito: ele é construído UMA vez para TODOS os chamadores, e é exatamente isso que '
+      + 'permite decidir a requisição de um tile sem consultar o banco (o Cesium abre uma por tile '
+      + 'por LOD). O RISCO é o mesmo do índice de regime: a estrutura carrega em memória o id e o '
+      + 'endereço de todo modelo, e um chamador futuro que a EXPONHA entregaria o inventário. Ela '
+      + 'traz `active` justamente para que a rota trate o não publicado como inexistente; quem '
+      + 'decide ACESSO continua sendo `fn_can_see_resource`, por caminho, em `assets3d-acesso.js`.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'GET_MODEL_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A ficha de produção de UM modelo (arquivo, token, contagens), lida por roteiro de '
+      + 'linha de comando: o importador pergunta "este id já está tomado" e o verificador pergunta '
+      + '"qual arquivo devo abrir". Sem predicado porque um modelo privado que respondesse "não '
+      + 'existe" faria a importação seguinte sobrescrevê-lo em silêncio. O RISCO é montar rota '
+      + 'sobre ela: a resposta confirma a existência e revela o endereço em disco.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'LIST_MODELS_3D_COM_PONTO', n: 1,
+    classe: PUBLICO,
+    motivo: 'A lista que a REMEDIÇÃO percorre para comparar o ponto do catálogo com o medido no '
+      + 'arquivo. Mesmo chamador de linha de comando, mesmo motivo para não filtrar: um modelo '
+      + 'privado deslocado precisa ser remedido como qualquer outro. O RISCO é o mesmo dos dois '
+      + 'acima, e some junto com eles se alguém publicar isto numa rota.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'GET_SCENE_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A ficha de produção de uma CENA caminhável, o outro tipo que este serviço publica: '
+      + 'ela não é 3D Tiles, mora numa pasta e abre por outro visualizador. Lida pelo verificador '
+      + 'para saber ONDE estão os bytes e QUAL assinatura eles deveriam ter. Sem predicado pela '
+      + 'razão dos irmãos acima. O RISCO é o mesmo e é maior num ponto: a resposta traz o caminho '
+      + 'público da pasta inteira, então expô-la numa rota entregaria o endereço de todo arquivo '
+      + 'da cena de uma vez. O acesso dela é decidido por caminho, como o do modelo, e o índice de '
+      + 'regime a alcança porque indexa `config.basePath` como pasta.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'LIST_SCENES_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A mesma leitura, em lote, para conferir todas as cenas instaladas de uma vez. RISCO '
+      + 'idêntico ao de `LIST_MODELS_3D`: é um inventário completo em memória, e o que o mantém '
+      + 'inofensivo é ter um só chamador, de linha de comando.',
+  },
+  {
     arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'UPSERT_TILESET_3D', n: 1,
     classe: PUBLICO,
     motivo: 'A escrita da linha de catálogo de um modelo `.3dtiles`, e ela NÃO tem gate de produção '
@@ -1405,7 +1451,13 @@ const lerCodigo = (arquivo) => semComentarios(fs.readFileSync(path.join(RAIZ, ar
  */
 const CONTATO = [
   /\b(?:FROM|JOIN|INTO|UPDATE)\s+sv360\.(?:projects|photos)\b/i,
-  /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:tilesets|data_layers|analysis_layers|basemaps)\b/i,
+  // O QUALIFICADOR DE SCHEMA É OPCIONAL, e essa metade faltava: `JOIN public.tilesets` não
+  // casava, então uma consulta que qualificasse o schema ficava INVISÍVEL para o censo. O
+  // buraco foi medido em 2026-08-23, quando três consultas de `models3d` (as que juntam o
+  // registro de produção com a linha de catálogo) passaram sem classificação. Escrever
+  // `public.` é estilo, não semântica: quem decide o que a consulta alcança é a tabela, e
+  // o censo tem de vê-la das duas formas.
+  /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?(?:tilesets|data_layers|analysis_layers|basemaps)\b/i,
   /\bFROM\s+\$\{/,
   /\b(?:listCatalog|getCatalogItem)\(/,
   /\b(?:isProjectReadable|enforceProjectReadable|resolveReadableProject)\(/,

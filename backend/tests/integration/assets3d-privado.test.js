@@ -53,7 +53,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { installPoolQueryCounter } from '../helpers/query-counter.js';
@@ -65,6 +65,9 @@ import { invalidateAppConfigCache } from '../../src/modules/config/config.cache.
 import {
   openWritable, putAsset, closeStore, getAssetMeta,
 } from '../../src/modules/nomes/assets3d.store.js';
+import Database from 'better-sqlite3';
+import { blobPool } from '../../src/utils/sqlite-blob-pool.js';
+import { resolveDbPath, resetOpenModels } from '../../src/modules/models3d/models3d.store.js';
 
 const ROOT = resolve('./data/assets3d');
 const SQLITE = resolve(process.env.ASSETS_3D_SQLITE || './data/assets3d.sqlite');
@@ -86,6 +89,17 @@ const URL_SQL_PUB = `/api/v1/assets3d/${PASTA_SQL_PUB}/tileset.json`;
 const URL_SQL_PRIV = `/api/v1/assets3d/${PASTA_SQL_PRIV}/tileset.json`;
 const TILE_SQL_PRIV = `/api/v1/assets3d/${PASTA_SQL_PRIV}/0/0.b3dm`;
 
+// O TERCEIRO ramo: um `.3dtiles` POR MODELO, sob o prefixo reservado `m/`. Os arquivos
+// vivem em MODELS_3D_DIR e não existem nem em disco sob `assets3d/` nem no store plano,
+// que é o que garante que a bateria exercita a camada nova e não uma das duas antigas.
+const MOD_PUB = `f11-mpub-${SUFIXO}`;
+const MOD_PRIV = `f11-mpriv-${SUFIXO}`;
+const URL_MOD_PUB = `/api/v1/assets3d/m/${MOD_PUB}/Data/c00.glb`;
+const URL_MOD_PRIV = `/api/v1/assets3d/m/${MOD_PRIV}/Data/c00.glb`;
+const TILE_MOD_PRIV = `/api/v1/assets3d/m/${MOD_PRIV}/Data/c01.glb`;
+const DOC_MOD_PUB = `/api/v1/assets3d/m/${MOD_PUB}/tileset.json`;
+const DOC_MOD_PRIV = `/api/v1/assets3d/m/${MOD_PRIV}/tileset.json`;
+
 const CACHE_PRIVADO = 'private, max-age=31536000, immutable';
 const CACHE_PUBLICO = 'public, max-age=31536000, immutable';
 
@@ -95,7 +109,27 @@ const CACHE_PUBLICO = 'public, max-age=31536000, immutable';
 const RAMOS = [
   { nome: 'filesystem', publico: URL_PUB, privado: URL_PRIV, filho: TILE_PRIV },
   { nome: 'SQLite', publico: URL_SQL_PUB, privado: URL_SQL_PRIV, filho: TILE_SQL_PRIV },
+  // No ramo por MODELO a bateria aponta para TILES, e não para o `tileset.json`: só o tile
+  // tem o mesmo regime imutável dos outros dois ramos, porque o documento de um modelo é
+  // revalidável de propósito (uma reimportação troca a árvore inteira). O documento tem
+  // casos próprios, logo abaixo da bateria, e é lá que o regime dele é cobrado.
+  { nome: 'modelo .3dtiles', publico: URL_MOD_PUB, privado: URL_MOD_PRIV, filho: TILE_MOD_PRIV },
 ];
+
+/** Escreve um `.3dtiles` mínimo, com dois tiles e o documento da raiz. */
+function escreverModelo3dtiles(id) {
+  const caminho = resolveDbPath(`${id}.3dtiles`);
+  mkdirSync(dirname(caminho), { recursive: true });
+  rmSync(caminho, { force: true });
+  const db = new Database(caminho);
+  db.exec('CREATE TABLE media (key TEXT PRIMARY KEY, content BLOB NOT NULL)');
+  db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)');
+  const ins = db.prepare('INSERT INTO media (key, content) VALUES (?, ?)');
+  ins.run('tileset.json', Buffer.from(CORPO));
+  ins.run('Data/c00.glb', BINARIO);
+  ins.run('Data/c01.glb', BINARIO);
+  db.close();
+}
 
 /**
  * Fecha as conexões (inclusive as do worker pool) e apaga o arquivo do store.
@@ -164,10 +198,25 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     putAsset(w, `${PASTA_SQL_PRIV}/0/0.b3dm`, BINARIO, 'application/octet-stream');
     w.close();
 
+    // O TERCEIRO ramo: dois modelos, cada um num `.3dtiles` próprio, com a linha de
+    // catálogo apontando para o `tileset.json` deles (é dela que o índice de regime deriva
+    // o prefixo, e é por isso que o gate alcança os tiles sem nenhuma linha por tile).
+    escreverModelo3dtiles(MOD_PUB);
+    escreverModelo3dtiles(MOD_PRIV);
+
     await criarTileset(db, idPub, 'public', { url: URL_PUB });
     await criarTileset(db, idPriv, 'private', { url: URL_PRIV });
     await criarTileset(db, idSqlPub, 'public', { url: URL_SQL_PUB });
     await criarTileset(db, idSqlPriv, 'private', { url: URL_SQL_PRIV });
+    await criarTileset(db, MOD_PUB, 'public', { url: DOC_MOD_PUB, forma3d: 'tiles3d' });
+    await criarTileset(db, MOD_PRIV, 'private', { url: DOC_MOD_PRIV, forma3d: 'tiles3d' });
+    for (const id of [MOD_PUB, MOD_PRIV]) {
+      await db.query(
+        `INSERT INTO a3d.models (model_id, db_filename, build_token, tile_count, total_bytes)
+         VALUES ($1, $2, 'tokf11aa', 2, 8192)`,
+        [id, `${id}.3dtiles`],
+      );
+    }
 
     admin = await createAdminUser(db);
     dono = await createUser(db);
@@ -208,7 +257,10 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     //
     // Ela é também o POSITIVO do par de concessão: `dono` não é administrador, não produz
     // nada e não tem papel global de dado, então tudo o que ele traz é esta linha.
-    for (const resourceId of [idPriv, idSqlPriv]) {
+    // UM POR RAMO, e a lista tem de acompanhar `RAMOS`: um ramo cujo recurso privado não
+    // ganhe concessão nem empréstimo aqui reprova os dois casos positivos da bateria, e o
+    // diagnóstico aponta para o produto quando o buraco é da fixture (medido).
+    for (const resourceId of [idPriv, idSqlPriv, MOD_PRIV]) {
       for (const grantee of [dono.id, beneficiario.id]) {
         await db.query(
           `INSERT INTO resource_grants (resource_type, resource_id, grantee_id, grant_level, granted_by)
@@ -257,8 +309,20 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
     // administrador excede a do usuário comum em EXATAMENTE uma linha. Dois tilesets
     // privados deixados para trás transformam aquele teste num vermelho que não tem nada a
     // ver com o assunto dele — foi o que aconteceu na primeira rodada completa.
+    // Os arquivos do terceiro ramo saem com a janela de quarentena: no Windows não se
+    // apaga arquivo com handle aberto, e o pool de leitura tem um por modelo servido.
+    for (const id of [MOD_PUB, MOD_PRIV]) {
+      const caminho = resolveDbPath(`${id}.3dtiles`);
+      try {
+        await blobPool.withEvicted(caminho, () => rmSync(caminho, { force: true }));
+      } catch {
+        // Um `after` que não consegue limpar não é motivo para reprovar a suíte.
+      }
+    }
+    resetOpenModels();
     await db.query("DELETE FROM atlas_resources WHERE resource_id LIKE 'f11-%'");
     await db.query("DELETE FROM resource_grants WHERE resource_id LIKE 'f11-%'");
+    await db.query("DELETE FROM a3d.models WHERE model_id LIKE 'f11-%'");
     await db.query("DELETE FROM tilesets WHERE id LIKE 'f11-%'");
     invalidateAppConfigCache();
     await teardownTestEnv(db);
@@ -812,6 +876,29 @@ describe('F11 — os bytes do /assets3d seguem o recurso', () => {
   }
 
   // --- (g) nenhuma consulta por requisição --------------------------------------
+
+  // --- (g) o DOCUMENTO de um modelo: o único regime revalidável desta rota ---------
+
+  it('o `tileset.json` de um modelo PÚBLICO sai revalidável, e não imutável', async () => {
+    // Uma reimportação troca a árvore inteira; `immutable` prenderia o cliente por um ano
+    // a uma geração que morreu. O eixo de acesso continua o do recurso.
+    const res = await supertest(app).get(DOC_MOD_PUB).expect(200);
+    assert.equal(res.headers['cache-control'], 'public, no-cache');
+    assert.ok(res.headers.etag, 'o ETag é o que torna a revalidação barata');
+    assert.ok(!/Authorization|Cookie/i.test(res.headers.vary ?? ''));
+  });
+
+  it('o `tileset.json` de um modelo PRIVADO segue o mesmo gate dos tiles', async () => {
+    await supertest(app).get(DOC_MOD_PRIV).expect(404);
+
+    const autorizado = await supertest(app)
+      .get(DOC_MOD_PRIV)
+      .set('Authorization', `Bearer ${tokenBeneficiario}`)
+      .expect(200);
+    assert.equal(autorizado.headers['cache-control'], 'private, no-cache');
+    assert.match(autorizado.headers.vary ?? '', /Authorization/i);
+    assert.match(autorizado.headers.vary ?? '', /Cookie/i);
+  });
 
   it('NENHUMA consulta ao banco por requisição de asset, público ou privado', async () => {
     // A propriedade que decide se o desenho presta. Medida com o contador de POOL, que

@@ -161,3 +161,44 @@ export const LIST_MODELS_3D_COM_PONTO = `
     JOIN public.tilesets t ON t.id = m.model_id
    ORDER BY m.model_id
 `;
+
+/**
+ * O registro de produção de uma CENA. Mesmo lugar dos modelos, forma diferente: ela não
+ * tem tile, token de geração nem árvore, e o que a identifica é a assinatura do manifesto.
+ *
+ * `base_path` entra no SET porque reinstalar a cena noutro endereço é operação legítima
+ * (produção e desenvolvimento servem a mesma pasta por caminhos diferentes), e o registro
+ * precisa apontar para onde os bytes ESTÃO, não para onde estavam.
+ */
+export const UPSERT_SCENE_3D = `
+  INSERT INTO a3d.scenes (
+    scene_id, base_path, file_count, total_bytes, manifest_sha256, source_path, imported_at
+  ) VALUES (
+    $<sceneId>, $<basePath>, $<fileCount>, $<totalBytes>, $<manifestSha256>, $<sourcePath>, now()
+  )
+  ON CONFLICT (scene_id) DO UPDATE SET
+    base_path       = EXCLUDED.base_path,
+    file_count      = EXCLUDED.file_count,
+    total_bytes     = EXCLUDED.total_bytes,
+    manifest_sha256 = EXCLUDED.manifest_sha256,
+    source_path     = COALESCE(EXCLUDED.source_path, a3d.scenes.source_path),
+    imported_at     = EXCLUDED.imported_at,
+    updated_at      = now()
+  RETURNING scene_id
+`;
+
+/** Uma cena registrada, com o que o catálogo diz dela. */
+export const GET_SCENE_3D = `
+  SELECT s.*, t.name, t.active, t.access_level, t.owner_org_id
+    FROM a3d.scenes s
+    JOIN public.tilesets t ON t.id = s.scene_id
+   WHERE s.scene_id = $1
+`;
+
+/** Toda cena registrada, para a verificação em lote. */
+export const LIST_SCENES_3D = `
+  SELECT s.scene_id, s.base_path, s.file_count, s.total_bytes, s.manifest_sha256, t.active
+    FROM a3d.scenes s
+    JOIN public.tilesets t ON t.id = s.scene_id
+   ORDER BY s.scene_id
+`;
