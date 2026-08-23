@@ -186,10 +186,10 @@ em um lugar só.
   DUAS vezes, sempre antes de haver produção: 19 arquivos incrementais viraram 5 baselines, e em
   2026-08-19 os 22 de então viraram **8 baselines por DOMÍNIO**, escritas no ESTADO FINAL do
   schema (sem um único `ALTER` que desfaça o que o próprio lote criou). Um banco criado antes do
-  último esmagamento **não é alcançável por upgrade** e precisa ser recriado; ele não falha com o
-  enigmático "relation already exists", porque a guarda no topo de `001_identidade.sql` detecta os
-  nomes antigos em `_migrations` e levanta com a instrução. Conserto em dev:
-  `node scripts/dev-db.js recreate`.
+  último esmagamento **não é alcançável por upgrade** e precisa ser recriado. A guarda que detectava
+  os nomes antigos em `_migrations` e levantava com a instrução foi REMOVIDA em 2026-08-23, a pedido
+  do dono: um banco assim falha com o `relation already exists` do primeiro `CREATE TABLE`, que é
+  verdadeiro e pouco explicativo. Conserto em dev: `node scripts/dev-db.js recreate`.
 - **Migração roda por `t.none()`, que LANÇA se o arquivo devolver qualquer linha.** Uma migração
   que precise chamar função usa `PERFORM` dentro de um bloco `DO`, nunca um `SELECT` solto: o
   `SELECT` aborta a transação com "No return data was expected", que não aponta para o SQL culpado
@@ -199,11 +199,14 @@ em um lugar só.
   banco do serviço antigo use o `dev/import-gazetteer.mjs` da raiz do monorepo, que já faz esse
   passo.
 
-## Acervo 3D convertido (`.3dtiles` por modelo)
+## Acervo 3D (modelos convertidos e cena caminhável)
 
-Os modelos fotogramétricos são servidos de UM arquivo SQLite por modelo, sob o prefixo `m/` da
-rota `/api/v1/assets3d`. O porquê da conversão, o token de geração e as armadilhas que já puseram
-modelo deitado e a 3,6 km do lugar estão em [../docs/wiki/acervo-3d-convertido.md](../docs/wiki/acervo-3d-convertido.md).
+O serviço 3D publica DUAS formas de conteúdo. O **modelo** (árvore de 3D Tiles ou GLB isolado) é
+servido de UM arquivo SQLite por modelo, sob o prefixo `m/` da rota `/api/v1/assets3d`. A **cena**
+caminhável (Gaussian splatting) NÃO é 3D Tiles: ela abre por outro visualizador, é lida em faixa e
+por isso mora numa PASTA, servida pela mesma rota. O porquê da conversão, o token de geração, a
+assinatura que confere a cena e as armadilhas que já puseram modelo deitado e a 3,6 km do lugar
+estão em [../docs/wiki/acervo-3d-convertido.md](../docs/wiki/acervo-3d-convertido.md).
 
 Os roteiros (todos por `npm run`, que é o que passa o `.env`):
 
@@ -213,7 +216,7 @@ Os roteiros (todos por `npm run`, que é o que passa o `.env`):
 | `models3d:importar-glb` | o mesmo para um GLB solto, que precisa de `--lon` e `--lat` |
 | `models3d:importar-cena` | instala e registra uma cena caminhável (Gaussian splatting) |
 | `models3d:adotar` | registra um `.3dtiles` que já está em disco, lendo o cabeçalho `meta` |
-| `models3d:verificar` | confere UM modelo publicado, abrindo o arquivo como o serviço abre |
+| `models3d:verificar` | confere UM modelo publicado (abrindo o arquivo como o serviço abre) ou UMA cena (recomputando a assinatura do manifesto) |
 | `models3d:verificar-lote` | confere todos os arquivos de um diretório, contra a origem quando ela responde |
 | `models3d:remedir` | refaz a medida do ponto e das alturas sem reconverter |
 | `models3d:lote` | converte o acervo inteiro, um modelo por vez, com estado em arquivo |

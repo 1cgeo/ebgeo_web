@@ -102,11 +102,12 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
 - **Conflito = LWW por ordem de chegada** (NÃO por timestamp); idempotência por `op_id`
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
   sem requisito de produto.
-- **O acervo 3D convertido é `.3dtiles` POR MODELO**, servido pelo prefixo reservado `m/` da rota
-  `/api/v1/assets3d` (o mesmo gate, o mesmo semáforo, o mesmo índice de regime). O catálogo do
-  cliente continua sendo `public.tilesets`; o schema `a3d` guarda só o registro de PRODUÇÃO
-  (arquivo, token de geração, contagens, histórico de importação) e **não repete** os dois eixos
-  de acesso. Quem escreve a linha de catálogo é a ADOÇÃO (`scripts/models3d-adotar.js`), que lê o
+- **O serviço 3D publica DUAS formas, e só uma é 3D Tiles.** O MODELO é `.3dtiles` por modelo,
+  servido pelo prefixo reservado `m/` da rota `/api/v1/assets3d`; a CENA caminhável (Gaussian
+  splatting) abre por outro visualizador, é lida em FAIXA e mora numa PASTA na mesma rota. As duas
+  compartilham o que decide acesso: a linha de `public.tilesets` e o gate por CAMINHO (o índice de
+  regime indexa `config.url` e `config.basePath`). O schema `a3d` guarda só o registro de PRODUÇÃO
+  (`models` e `scenes`) e **não repete** os dois eixos de acesso. Quem escreve a linha de catálogo é a ADOÇÃO (`scripts/models3d-adotar.js`), que lê o
   cabeçalho `meta` do próprio arquivo: nenhum importador tem lista de campos própria, porque a
   segunda lista é a que fica para trás. Detalhe e armadilhas em
   [`../docs/wiki/acervo-3d-convertido.md`](../docs/wiki/acervo-3d-convertido.md).
@@ -287,8 +288,9 @@ migrações seguintes para dentro das baselines). Descubra a contagem com `ls`, 
 A ordem entre elas é a de dependência de FK, não cronologia, e a última é pura consumidora (nada
 depende dela). Consequências
 que mordem quem não sabe: um banco criado antes do esmagamento **não é alcançável por upgrade** e
-precisa ser recriado (a guarda no topo da primeira baseline detecta os nomes antigos em `_migrations`
-e levanta com a instrução, em vez do enigmático "relation already exists"); e **nenhuma baseline pode
+precisa ser recriado (`node scripts/dev-db.js recreate`; a guarda que detectava os nomes antigos em
+`_migrations` saiu em 2026-08-23, então o sintoma é o "relation already exists" do primeiro
+`CREATE TABLE`); e **nenhuma baseline pode
 conter um `ALTER` que desfaça o que ela mesma criou** — se o CHECK precisa ser mais largo, ele nasce
 largo.
 

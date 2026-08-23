@@ -1,6 +1,6 @@
-# Acervo 3D convertido (.3dtiles por modelo)
+# Acervo 3D convertido
 
-O acervo fotogramétrico servido como UM arquivo SQLite por modelo, com geometria Draco e textura KTX2. Absorvido do serviço `ebgeo_3d`, que era um processo à parte. Esta página cobre o que o código não conta: o porquê da conversão, o que o token de geração compra, e as armadilhas que já custaram tempo de máquina.
+O que o serviço 3D publica: o acervo fotogramétrico como UM arquivo SQLite por modelo (Draco mais KTX2), e a cena caminhável como PASTA. Absorvido do serviço `ebgeo_3d`, que era um processo à parte. Esta página cobre o que o código não conta: o porquê da conversão, o que o token de geração compra, por que as duas formas de conteúdo têm armazenamento diferente, e as armadilhas que já custaram tempo de máquina.
 
 ## Por que converter, com os números que decidiram
 
@@ -30,22 +30,35 @@ Três consequências que não se adivinham:
 2. **O token de hoje NÃO se compara com o do pedido.** No instante seguinte a uma reimportação o cliente ainda segura o `tileset.json` anterior; recusar o token velho pintaria a cena de buraco em vez de servir o tile bom.
 3. **O `tileset.json` é o único conteúdo desta rota que não é imutável.** Ele sai `no-cache` (guarde e revalide), porque uma reimportação troca a árvore inteira. O ETag é derivado de (modelo, chave, token), então a revalidação custa um 304 que nunca abre o arquivo. Ver [[sintese-cache-http-imutavel]].
 
+## Duas formas de conteúdo, dois armazenamentos, um serviço
+
+O serviço 3D publica DUAS coisas, e a segunda não é 3D Tiles:
+
+- **modelo** (`a3d.models`): árvore de 3D Tiles ou GLB isolado, num único `.3dtiles`. O que ele resolve é a MULTIDÃO de objetos pequenos.
+- **cena** (`a3d.scenes`): o interior caminhável em Gaussian splatting, servido como PASTA, com visualizador próprio (o motor de caminhada do cliente, que não entende 3D Tiles).
+
+A cena fica em pasta por medida, não por inércia: ela tem dezenas de arquivos, não milhares, e dois deles são grandes e lidos EM FAIXA pelo visualizador (o octree de colisão). Enfiar isso num BLOB obrigaria o serviço a reconstruir o que o sistema de arquivos já faz melhor, e o `Range` sairia mais caro.
+
+**O que as duas compartilham é o que importa:** a linha de catálogo em `tilesets` (com os dois eixos de acesso), a rota que serve os bytes, e o gate que decide o regime POR CAMINHO. A cena não precisou de uma linha de gate própria porque o índice de regime já indexa `config.basePath` como pasta, e é por isso que o arquivo de dentro dela (o octree, as fichas) nega igual à raiz.
+
+**A assinatura é o que faltava à cena.** Um `.3dtiles` carrega dentro de si um cabeçalho `meta` que o identifica; uma pasta não carrega nada, e "a cena está inteira?" só teria resposta no instante da instalação, que é justamente quando ninguém pergunta. `a3d.scenes.manifest_sha256` é o hash da lista ORDENADA de (caminho, sha256), então verificar depois é recomputar e comparar. Três propriedades dela têm teste: não depende da ordem em que o disco devolveu os arquivos, inclui o CAMINHO (senão um arquivo renomeado passa) e muda quando aparece arquivo a mais.
+
 ## Catálogo em `tilesets`, produção em `a3d.models`
 
 O serviço `ebgeo_3d` mantinha um `index.db` central que era catálogo E registro de produção. Aqui os dois se separam, e a divisão é a que decide quem responde o quê:
 
 - **`public.tilesets`** é o catálogo: nome, `config` JSONB, `active`, e os dois eixos de acesso (`access_level`, `owner_org_id`). É o que o `/api/config` publica, o que a allowlist `available_3d_models` filtra por id e o que um briefing salvo referencia. Ver [[resources-catalogo]].
-- **`a3d.models`** é o registro de produção: qual arquivo serve, com que token, quantos tiles, medido em quê. Ele NÃO repete `access_level` nem `owner_org_id`, e a ausência é a decisão: uma segunda cópia do eixo de acesso seria a lista fechada duplicada que a constituição proíbe, com a cópia desatualizada decidindo quem vê o quê.
+- **`a3d.models`** (e `a3d.scenes`, para a cena) é o registro de produção: qual arquivo serve, com que token, quantos tiles, medido em quê. Ele NÃO repete `access_level` nem `owner_org_id`, e a ausência é a decisão: uma segunda cópia do eixo de acesso seria a lista fechada duplicada que a constituição proíbe, com a cópia desatualizada decidindo quem vê o quê.
 
 Por que não colunas novas em `tilesets`: as quatro tabelas de catálogo são obrigadas a ter colunas idênticas (`catalog-tabelas-paridade.test.js`), porque `catalog.service.js` roda a mesma string de colunas contra as quatro. Uma coluna útil só a `tilesets` custaria três colunas mortas.
 
-`a3d.imports` guarda o histórico e NÃO tem FK para `models`, de propósito: a importação abre o registro ANTES de converter, e é isso que permite registrar as importações que não terminaram, que é a pergunta que o histórico existe para responder.
+`a3d.imports` guarda o histórico e NÃO tem FK para `models`, de propósito: a importação abre o registro ANTES de converter, e é isso que permite registrar as importações que não terminaram, que é a pergunta que o histórico existe para responder. Ela serve aos DOIS tipos, e a coluna se chama `model_id` por herança: o que ela guarda é o id do que foi importado, modelo ou cena.
 
 ## Onde os bytes saem, e por que sob a rota que já existia
 
 Os modelos são servidos pelo prefixo reservado `m/` de `/api/v1/assets3d` (`parsePedidoDeModelo`, `backend/src/modules/models3d/models3d.service.js`), e não por rota própria. A razão é o gate: o regime de acesso é indexado POR CAMINHO a partir de `config.url` do catálogo (`assets3d-regime.js`), então uma linha publicada como `/api/v1/assets3d/m/<slug>/tileset.json` é gateada sem mudança nenhuma. Uma rota própria teria exigido uma segunda inversão do mesmo catálogo, que é o tipo de segunda resposta que apodrece calada. Ver [[assets3d-distribuicao]] e [[acesso-a-recurso-privado]].
 
-O armazém plano (`assets(rel_path, data)`) continua existindo e é a camada seguinte na mesma rota: ele guarda o que ainda não foi convertido (a árvore PCL) e a cena caminhável, ver [[primeira-pessoa-3d]].
+São TRÊS armazéns atrás de um caminho só, e a ordem em que a rota os tenta é `m/` (modelo), depois o armazém plano `assets(rel_path, data)` (o que ainda não foi convertido, como a árvore PCL), depois o sistema de arquivos (a cena caminhável, que precisa de `Range` e de streaming). Ver [[primeira-pessoa-3d]] para o lado do cliente.
 
 ## As armadilhas que já custaram tempo
 
@@ -65,6 +78,6 @@ Duas propriedades da readoção, que é o caso comum de uma reimportação: o `c
 
 - [[assets3d-distribuicao]] - a rota, o gate e os outros dois modos de armazenamento.
 - [[resources-catalogo]] - a tabela de catálogo e o que ela promete ao cliente.
-- [[primeira-pessoa-3d]] - a cena caminhável, que é linha de `tilesets` e não vem daqui.
+- [[primeira-pessoa-3d]] - a cena caminhável do lado do CLIENTE: o visualizador, o motor de caminhada e as medições que escolheram o motor.
 - [[streetview-360]] - o módulo irmão, de quem este desenho herda o metadado em Postgres com binário em SQLite por unidade.
 - [[sintese-cache-http-imutavel]] - o quadro dos regimes de cache do backend.
