@@ -30,7 +30,9 @@
 //       SO-TILES (the normal shape since the origin ran `aposentar-full.js`): the
 //         blob columns are GONE, so there are no bytes to sum and the byte floor
 //         does not apply. The guard is TRADED, not waived: the project must bring a
-//         `{slug}_tiles.db` whose pyramid covers EVERY live photo of the manifest.
+//         `{slug}_tiles.db` whose pyramid covers EVERY live photo of the manifest,
+//         and that pyramid is WRITTEN to sv360.photo_pyramids in the same tx (a
+//         copied file with an empty table is a panorama that never paints).
 //     A failed transfer/check rolls the project's row back (the transfer runs
 //     INSIDE the same tx callback, so a throw aborts the commit).
 //   - Progress logging via the injected logger (defaults to console).
@@ -86,6 +88,11 @@ import { mergeProject, resolveOrgIdBySlug } from '../src/modules/streetview360/s
 // `resolveTilesDbPath` comes along for the same reason: whoever INSTALLS the tiles
 // file and whoever READS it must derive the same name.
 import { validateImagesDb, resolveTilesDbPath } from '../src/modules/streetview360/sv360.ingest.js';
+// A PIRÂMIDE TAMBÉM ATRAVESSA, e por muito tempo não atravessava: o ETL copiava o
+// `{slug}_tiles.db` e deixava `sv360.photo_pyramids` VAZIA, então `tiles.json`
+// respondia 404 para toda foto de um acervo que só tem tiles. Mesma leitura do
+// upload, mesmo arquivo, para os dois caminhos não divergirem.
+import { lerPiramides, gravarPiramides } from '../src/modules/streetview360/sv360.pyramid.js';
 // The floor-label rule, ported verbatim from ebgeo_360 scripts/lib/floors.js. It
 // is imported rather than re-typed here: two copies of "what a level is called"
 // diverge silently, and the symptom is a wrong name on screen, never an error.
@@ -663,7 +670,8 @@ const SET_PROJECT_CAPTURE_DATE = `
  * @param {Object} [opts.logger]      - { info, warn, error } (default: console)
  * @returns {Promise<{imported: Array<{slug:string, photos:number, targets:number,
  *                                     tracks:number, floors:number,
- *                                     thumbnail:boolean, tiles:boolean}>,
+ *                                     thumbnail:boolean, tiles:boolean,
+ *                                     pyramids:number}>,
  *                    skipped: Array<{slug:string, error:string}>}>}
  */
 export async function importIndexDb(indexDbPath, opts = {}) {
@@ -709,6 +717,7 @@ export async function importIndexDb(indexDbPath, opts = {}) {
         // (incl. the verified transfer) rolls the whole project back.
         let derivedDbFilename;
         let tilesTransferred = false;
+        let pyramidCount = 0;
         await tx(async (t) => {
           const orgId = await resolveOrgIdBySlug(t, manifest.orgSlug);
           // mergeProject returns the SERVER-DERIVED db_filename (org-scoped). Copy
@@ -731,6 +740,15 @@ export async function importIndexDb(indexDbPath, opts = {}) {
             transfer
           );
           tilesTransferred = store.tilesDest !== null;
+          // DEPOIS do merge, e NA MESMA tx: `mergeProject` purga e reinsere
+          // `sv360.photos`, e `photo_pyramids.photo_id` cascateia. A leitura é do
+          // arquivo JÁ INSTALADO no destino, que é o que a rota do tile vai abrir:
+          // ler a origem deixaria o Postgres descrevendo um arquivo e o servidor
+          // servindo outro, se a cópia divergisse.
+          pyramidCount = await gravarPiramides(
+            t,
+            lerPiramides(store.tilesDest, manifest.photos.map((p) => p.id))
+          );
         });
 
         // Thumbnail AFTER the commit and OUTSIDE the tx: it is presentation-only,
@@ -757,6 +775,9 @@ export async function importIndexDb(indexDbPath, opts = {}) {
           floors: manifest.floors.length,
           thumbnail: thumb.transferred,
           tiles: tilesTransferred,
+          // QUANTAS pirâmides o projeto trouxe. Um `tiles: true` com zero aqui é o
+          // estado que fazia a panorâmica não pintar: arquivo copiado, Postgres vazio.
+          pyramids: pyramidCount,
         });
         logger.info?.(`[sv360-import] project '${slug}': OK`);
       } catch (err) {
@@ -815,10 +836,15 @@ if (isMain) {
       await blobPool.closeAll().catch(() => {});
       const noThumb = imported.filter((r) => !r.thumbnail);
       const comTiles = imported.filter((r) => r.tiles);
+      // A CONTAGEM DE PIRÂMIDES VIAJA JUNTO da de arquivos, e as duas juntas é que
+      // dizem alguma coisa: "com tiles db" e zero pirâmide é o defeito que fazia a
+      // panorâmica não pintar (arquivo no disco, Postgres vazio, 404 no descritor).
+      const piramides = imported.reduce((n, r) => n + (r.pyramids || 0), 0);
       console.log(
         `\nsv360-import complete: ${imported.length} imported, ${skipped.length} skipped, ` +
           `${imported.length - noThumb.length}/${imported.length} with a thumbnail, ` +
-          `${comTiles.length}/${imported.length} with a tiles db.`
+          `${comTiles.length}/${imported.length} with a tiles db, ` +
+          `${piramides} pyramid(s) written.`
       );
       if (noThumb.length > 0) {
         console.log(`  sem thumbnail: ${noThumb.map((r) => r.slug).join(', ')}`);

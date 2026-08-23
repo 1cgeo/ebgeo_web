@@ -44,6 +44,8 @@ import Database from 'better-sqlite3';
 import { task } from '../../database/index.js';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
 import { mergeProject, deriveDbFilename } from './sv360.merge.js';
+import { lerPiramides, gravarPiramides } from './sv360.pyramid.js';
+import { COUNT_PROJECT_PYRAMIDS } from './sv360.pyramid.queries.js';
 import { manifestSchema } from './sv360.admin.schemas.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
@@ -155,43 +157,27 @@ function validatePyramidCoverage(tilesDbPath, manifest) {
       + 'so a {slug}_tiles.db with the tile pyramids is required and none was uploaded'
     );
   }
-  let tdb;
-  try {
-    tdb = new Database(tilesDbPath, { readonly: true, fileMustExist: true });
-  } catch {
-    throw new BadRequestError('tiles.db is not a valid SQLite file');
-  }
-  try {
-    const tabela = tdb
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tile_pyramids'")
-      .get();
-    if (!tabela) throw new BadRequestError('tiles.db has no `tile_pyramids` table');
+  // A LEITURA É A MESMA QUE ESCREVE, e essa identidade é o ponto. Enquanto esta
+  // função tinha o próprio `prepare`, ela conferia uma escada e o Postgres recebia
+  // outra (ou, por mais tempo ainda, nenhuma). Ver `sv360.pyramid.js`.
+  const piramides = lerPiramides(tilesDbPath, manifest.photos.map((p) => p.id));
 
-    const stmt = tdb.prepare(
-      'SELECT max_level, tile_size, width, height FROM tile_pyramids WHERE photo_id = ?'
-    );
-    for (const p of manifest.photos) {
-      const linha = stmt.get(p.id);
-      if (!linha) {
-        throw new BadRequestError(`tiles.db has no pyramid for photo ${p.id}`);
-      }
-      // Uma escada degenerada e pior que ausente: ela passa na contagem e produz um
-      // descritor que o cliente segue ate um nivel sem tile nenhum.
-      if (!(linha.tile_size > 0) || !(linha.width > 0) || !(linha.height > 0)) {
-        throw new BadRequestError(
-          `tiles.db has a degenerate pyramid for photo ${p.id} `
-          + `(tile_size=${linha.tile_size}, width=${linha.width}, height=${linha.height})`
-        );
-      }
+  for (const p of manifest.photos) {
+    const linha = piramides.get(p.id);
+    if (!linha) {
+      throw new BadRequestError(`tiles.db has no pyramid for photo ${p.id}`);
     }
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-    throw new BadRequestError('tiles.db is not a valid SQLite file');
-  } finally {
-    try {
-      tdb.close();
-    } catch {
-      // fechar ja fechado nao e erro
+    // Uma escada degenerada e pior que ausente: ela passa na contagem e produz um
+    // descritor que o cliente segue ate um nivel sem tile nenhum. `max_level` entra
+    // na mesma conferencia porque `escadaGravada` conta niveis a partir dele: um
+    // valor negativo ou fracionario nao lanca, produz uma escada errada em silencio.
+    if (!(linha.tileSize > 0) || !(linha.width > 0) || !(linha.height > 0)
+        || !Number.isInteger(linha.maxLevel) || linha.maxLevel < 0) {
+      throw new BadRequestError(
+        `tiles.db has a degenerate pyramid for photo ${p.id} `
+        + `(tile_size=${linha.tileSize}, width=${linha.width}, height=${linha.height}, `
+        + `max_level=${linha.maxLevel})`
+      );
     }
   }
 }
@@ -518,30 +504,18 @@ export async function rollbackSwap(destPath, bakMade) {
 }
 
 /**
- * @deprecated kept for compatibility — installSwap + commitSwap is the FIX-3
- * swap-first-then-commit protocol. This wrapper installs and immediately commits
- * (the old commit-then-swap behavior), used only if a caller still wants a single
- * atomic-looking swap with no external rollback hook.
- * @param {string} destPath
- * @param {string} srcTmpPath
- * @returns {Promise<void>}
- */
-export async function swapProjectDb(destPath, srcTmpPath) {
-  await installSwap(destPath, srcTmpPath);
-  commitSwap(destPath);
-}
-
-/**
  * End-to-end ingestion of ONE project bundle, shared by the admin upload and the
  * ETL. Order is SWAP-FIRST-THEN-COMMIT (FIX-3) — the Postgres commit is the single
  * atomic commit point, so Postgres never gets ahead of the disk:
- *   PASSO 0 — validateManifest + validateImagesDb (size-check). Anything fails
- *             here => 4xx, NOTHING touched.
+ *   PASSO 0 — validateManifest + validateImagesDb (size-check) + lerPiramides
+ *             (leitura do {slug}_tiles.db). Anything fails here => 4xx, NOTHING
+ *             touched.
  *   PASSO 1 — installSwap(dest, imagesDb): install the new {slug}.db but PRESERVE
  *             the .bak (so it is still reversible). dest is derived from
  *             (orgId, slug) — the SAME server-derived name mergeProject writes.
- *   PASSO 2 — tx(t => mergeProject(...)): collision guard (409), upsert
- *             (status/created_at preserved), purge + reinsert. If it THROWS,
+ *   PASSO 2 — tx(t => mergeProject(...) + gravarPiramides(...)): collision guard
+ *             (409), upsert (status/created_at preserved), purge + reinsert, e a
+ *             pirâmide de cada foto em `sv360.photo_pyramids`. If it THROWS,
  *             rollbackSwap (restore .bak / drop the new file) then rethrow — disk
  *             and Postgres stay consistent. If it SUCCEEDS, commitSwap (drop .bak).
  *
@@ -587,6 +561,19 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
   // PASSO 0b — validate the bundle carries the pixels the manifest promises, seja por
   // BLOB (acervo historico) seja por PIRAMIDE (acervo so-tiles).
   validateImagesDb(dbTmpPath, validated, tilesTmpPath);
+
+  // PASSO 0c — a piramide que o bundle traz, lida UMA vez e FORA da transacao.
+  //
+  // Fora de proposito: `better-sqlite3` e sincrono, entao ler dezenas de milhares de
+  // linhas com a transacao aberta segura o event loop E a conexao do pool ao mesmo
+  // tempo. Aqui a leitura e do arquivo TEMPORARIO, que o `installSwap` copia (nunca
+  // move), entao ele continua valido depois do PASSO 1.
+  //
+  // Sem ESTA leitura chegando ao Postgres, `sv360.photo_pyramids` fica sem escritor:
+  // `tiles.json` responde 404 para toda foto, o cliente entende "esta foto tem blob" e
+  // pede a imagem inteira, que a origem apagou. O acervo nao pinta, e nada fica
+  // vermelho.
+  const piramides = lerPiramides(tilesTmpPath, validated.photos.map((p) => p.id));
 
   // The dest filename is DERIVED from (orgId, slug) — identical to the value
   // mergeProject persists, so the file and Postgres always agree (FIX-1/FIX-3).
@@ -637,7 +624,41 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
       // Runs on the lock-holding connection, so the lock covers it.
       let merged;
       try {
-        merged = await conn.tx((t) => mergeProject(t, validated, { orgId, source: source ?? 'upload' }));
+        merged = await conn.tx(async (t) => {
+          const r = await mergeProject(t, validated, { orgId, source: source ?? 'upload' });
+          // DEPOIS do merge, e nao antes: `mergeProject` purga e reinsere
+          // `sv360.photos`, e `photo_pyramids.photo_id` e FK com ON DELETE CASCADE.
+          // Gravar primeiro escreveria linhas que o purge apaga em seguida, sem erro.
+          await gravarPiramides(t, piramides);
+
+          // A CONFERENCIA E POR UM CAMINHO INDEPENDENTE DO QUE ESCREVEU. `gravarPiramides`
+          // sabe quantas linhas mandou gravar, e uma checagem que usasse esse numero
+          // confirmaria a si mesma. Esta conta as pirâmides que o BANCO tem para foto VIVA
+          // deste projeto, que é a pergunta que o serviço fará depois, e cobra a cobertura
+          // total: uma foto sem pirâmide num acervo só-tiles não tem fonte de pixel nenhuma,
+          // e o sintoma aparece longe daqui, como panorâmica que não pinta.
+          //
+          // Dentro da tx de propósito: reprovar aqui desfaz o merge inteiro, e o
+          // `rollbackSwap` do chamador devolve o arquivo. Meio acervo publicado é pior que
+          // acervo recusado, porque ninguém vai procurar o que falta.
+          //
+          // A COMPARACAO E CONTRA O QUE FOI LIDO, e nao contra o total de fotos: um acervo
+          // COM blob chega legitimamente sem `tilesDb` nenhum, e cobrar cobertura total ali
+          // recusaria projeto sao. A cobertura da ORIGEM ja foi cobrada antes da tx, por
+          // `validatePyramidCoverage`, e so no caso so-tiles. O que falta verificar depois
+          // do merge, e o que esta linha verifica, e que a ESCRITA pegou: nenhuma linha se
+          // perdeu no cascade do purge nem num ON CONFLICT que nao casou.
+          if (piramides.size > 0) {
+            const { com_piramide: comPiramide } = await t.one(COUNT_PROJECT_PYRAMIDS, [r.projectId]);
+            if (comPiramide !== piramides.size) {
+              throw new BadRequestError(
+                `pyramid write incomplete: read ${piramides.size}, `
+                + `${comPiramide} survived the merge`
+              );
+            }
+          }
+          return r;
+        });
       } catch (err) {
         // Merge failed (409 collision / orphan FK / I/O): undo the file install so
         // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.

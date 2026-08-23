@@ -473,11 +473,15 @@ const CENSO_CONSULTA = [
   {
     arquivo: 'src/modules/streetview360/sv360.pyramid.queries.js', unidade: 'COUNT_PROJECT_PYRAMIDS', n: 1,
     classe: ESCRITA, predicado: 'requireUploadCapability',
-    motivo: 'Conferência de INGESTÃO, não superfície de leitura: conta quantas fotos vivas de um '
-      + 'projeto têm pirâmide, para o ingest recusar acervo que chegou sem nenhuma fonte de pixel. '
-      + 'Roda atrás do upload de bundle, que é administrador ou produtor da OM, e nunca responde a '
-      + 'chamador anônimo. Não recorta por leitor porque não entrega dado: devolve uma contagem '
-      + 'sobre o projeto que o próprio chamador está subindo.',
+    motivo: 'Conferência de INGESTÃO, não superfície de leitura: conta as pirâmides que o banco '
+      + 'tem para foto VIVA do projeto, DENTRO da transação do merge, e reprova quando o número '
+      + 'não bate com o que foi lido do SQLite enviado. É o caminho independente da escrita: '
+      + '`gravarPiramides` sabe quantas mandou gravar, e conferir por esse número confirmaria a '
+      + 'si mesmo. Roda atrás do upload de bundle e do ETL, que são administrador ou produtor da '
+      + 'OM, e nunca responde a chamador anônimo. Não recorta por leitor porque não entrega dado: '
+      + 'devolve uma contagem sobre o projeto que o próprio chamador está subindo. Esta entrada '
+      + 'afirmou que ela rodava atrás do upload enquanto ela não tinha chamador NENHUM, de '
+      + '2026-08-22 a 2026-08-23.',
   },
   {
     arquivo: 'src/modules/streetview360/sv360.queries.js', unidade: 'NEARBY_PHOTOS', n: 2,
@@ -795,8 +799,14 @@ const CENSO_CONSULTA = [
     arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'LIST_SCENES_3D', n: 1,
     classe: PUBLICO,
     motivo: 'A mesma leitura, em lote, para conferir todas as cenas instaladas de uma vez. RISCO '
-      + 'idêntico ao de `LIST_MODELS_3D`: é um inventário completo em memória, e o que o mantém '
-      + 'inofensivo é ter um só chamador, de linha de comando.',
+      + 'idêntico ao de `LIST_MODELS_3D`: ela devolve o inventário INTEIRO, privado e inativo '
+      + 'inclusive, sem predicado nenhum, então ligá-la a uma rota entregaria a lista completa do '
+      + 'acervo a quem chamasse. O que a mantém inofensiva é o chamador ser um só e de linha de '
+      + 'comando: `scripts/models3d-verificar-lote.js`. Esta entrada afirmou que esse chamador '
+      + 'existia enquanto ele NÃO existia (de 2026-08-22 a 2026-08-23), e nesse intervalo o lote '
+      + 'se calava sobre as cenas, que ele não alcança por varrer o diretório de `.3dtiles` (uma '
+      + 'cena é uma PASTA). Censo que descreve errado o que censa é a falha que este arquivo existe '
+      + 'para impedir.',
   },
   {
     arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'UPSERT_TILESET_3D', n: 1,

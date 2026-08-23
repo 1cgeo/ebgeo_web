@@ -72,6 +72,8 @@
 
 import * as THREE from '../../vendor/three/three.module.js';
 import config from '../config.js';
+import { stampAtlasOnUrl } from './tile-scope.js';
+import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
 import {
     escolherNivel,
     larguraNecessaria,
@@ -485,14 +487,28 @@ export function createTileLoader({
     // ========================================================================
 
     /**
-     * Resolve uma URL do descritor contra o proprio endereco do `tiles.json`.
+     * Resolve uma URL do descritor contra o proprio endereco do `tiles.json`, e
+     * CARIMBA o atlas em foco.
+     *
      * O contrato proibe URL absoluta no documento, e e essa resolucao que faz o
      * prefixo publico /ebgeo_360/ continuar valendo.
+     *
+     * O CARIMBO TEM DE SER AQUI, e nao so na URL do descritor, porque a resolucao
+     * relativa DESCARTA a query da base: `new URL('tiles/0/0/0?v=N', '.../tiles.json
+     * ?atlasId=X')` devolve o tile SEM o `atlasId`. Carimbar so o `tiles.json` daria
+     * um descritor que chega e uma grade inteira de 404 logo atras, que e o pior dos
+     * dois mundos: a foto anuncia niveis que ela nao consegue baixar.
+     *
+     * O escopo e lido A CADA USO (`currentResourceAtlasId`), nunca congelado no load
+     * do modulo, e a funcao de carimbo e a MESMA do cliente do mapa e do estudio
+     * (`stampAtlasOnUrl`): um segundo `?atlasId=` escrito a mao em algum lugar E o
+     * defeito voltando. Sem atlas em foco (visitante anonimo, mapa local, pagina de
+     * calibracao) ela devolve a URL inalterada, caractere por caractere.
      * @param {string} relativa
      * @returns {string}
      */
     function resolver(relativa) {
-        return new URL(relativa, urlDescritor).href;
+        return stampAtlasOnUrl(new URL(relativa, urlDescritor).href, currentResourceAtlasId());
     }
 
     /**
@@ -1137,7 +1153,15 @@ export function createTileLoader({
             publicar();
 
             const g = geracao;
-            urlDescritor = new URL(`${raizApi}/photos/${uuid}/tiles.json`, location.href);
+            // O DESCRITOR TAMBEM LEVA O ESCOPO. A piramide e a imagem em si, e o
+            // servidor honra `?atlasId=` em TODA leitura do modulo: sem ele, um
+            // projeto 360 privado EMPRESTADO por um atlas responde 404 aqui, o
+            // visualizador entende "esta foto tem blob" e cai no full que a origem
+            // apagou. Mesmo sintoma de nao haver piramide nenhuma, por outra causa.
+            urlDescritor = new URL(
+                stampAtlasOnUrl(`${raizApi}/photos/${uuid}/tiles.json`, currentResourceAtlasId()),
+                location.href,
+            );
             estat.requests++;
             const resposta = await fetch(urlDescritor.href, {
                 signal: controlador.signal,

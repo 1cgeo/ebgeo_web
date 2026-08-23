@@ -49,11 +49,18 @@ function validateTileParams(req, res, next) {
 // --- multer (bundle upload) -------------------------------------------------
 // diskStorage STREAMS the (multi-GB) images.db to a tmp path on the SAME volume
 // as SV360_DB_DIR (so the later .tmp->dest rename is atomic, not cross-device).
-// The manifest + thumbnail are small; all three land in tmp and are cleaned by
-// the controller's finally. Field names: manifest / imagesDb / thumbnail.
+// The manifest + thumbnail are small; all four land in tmp and are cleaned by
+// the controller's finally. Field names: manifest / imagesDb / tilesDb / thumbnail.
+//
+// `tilesDb` É O SEGUNDO ARQUIVO SQLITE DO PROJETO ({slug}_tiles.db, as pirâmides) e
+// ele faltava aqui. `ingestBundle` sempre aceitou `tilesTmpPath`, mas NADA o
+// preenchia: um acervo só-tiles (o normal desde que a origem apagou os blobs) era
+// recusado na borda com "so-tiles archive ... and none was uploaded", e não havia
+// campo por onde enviá-lo. Só o ETL offline conseguia ingerir esse acervo.
 const ALLOWED_FIELD_MIME = {
   manifest: ['application/json', 'application/octet-stream', 'text/plain'],
   imagesDb: ['application/octet-stream', 'application/x-sqlite3', 'application/vnd.sqlite3', ''],
+  tilesDb: ['application/octet-stream', 'application/x-sqlite3', 'application/vnd.sqlite3', ''],
   thumbnail: ['image/webp', 'application/octet-stream'],
 };
 
@@ -74,19 +81,21 @@ const uploadStorage = multer.diskStorage({
 
 const uploadBundle = multer({
   storage: uploadStorage,
-  limits: { fileSize: config.sv360.maxUploadBytes, files: 3 },
+  limits: { fileSize: config.sv360.maxUploadBytes, files: 4 },
   fileFilter: (req, file, cb) => {
     const allowed = ALLOWED_FIELD_MIME[file.fieldname];
     if (!allowed) return cb(new BadRequestError(`Unexpected upload field: ${file.fieldname}`));
     if (allowed.includes(file.mimetype)) return cb(null, true);
     // octet-stream is the catch-all for SQLite/binary; if the client mislabels,
-    // accept anything for imagesDb (validated as SQLite later by validateImagesDb).
-    if (file.fieldname === 'imagesDb') return cb(null, true);
+    // accept anything for the two SQLite fields (validated as SQLite later by
+    // validateImagesDb / lerPiramides).
+    if (file.fieldname === 'imagesDb' || file.fieldname === 'tilesDb') return cb(null, true);
     return cb(new BadRequestError(`Invalid mime for ${file.fieldname}: ${file.mimetype}`));
   },
 }).fields([
   { name: 'manifest', maxCount: 1 },
   { name: 'imagesDb', maxCount: 1 },
+  { name: 'tilesDb', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
 ]);
 

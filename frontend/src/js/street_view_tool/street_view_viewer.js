@@ -756,8 +756,18 @@ async function tentarTiles(photoId, data, controlador) {
         // aqui, e e este o ramo certo para ele.
         if (error?.name === 'AbortError' || activeTextureAbort !== controlador) return true;
 
-        // 404 e o CAMINHO NORMAL, e nao excecao: 28 dos 29 projetos nao tem
-        // piramide gerada. So o que nao for 404 merece barulho no console.
+        // 404 AQUI SIGNIFICA "esta foto tem BLOB, nao piramide", e depois do
+        // `aposentar-full` da origem (2026-08-20) isso virou a MINORIA: 29 dos 29
+        // projetos so tem piramide. Esta linha dizia o inverso ("28 dos 29 projetos
+        // nao tem piramide gerada"), heranca da linha `main`, e enquanto ela valeu o
+        // 404 parecia rotina justamente quando passou a ser sintoma.
+        //
+        // O SILENCIO CONTINUA, e nao por inercia: o ramo em que este `return false`
+        // cai (preview -> full) tem denuncia PROPRIA e alta na FASE 3, que faz
+        // `console.error` e RELANCA quando o full nao existe. Avisar aqui tambem
+        // duplicaria o barulho na foto quebrada e criaria barulho novo na foto sadia
+        // que ainda tem blob (o Estadio Serra Dourada). Se um dia o full sumir de
+        // TODO acervo, o certo e apagar as fases 2 e 3, nao passar a gritar aqui.
         if (error?.status !== 404) {
             console.warn('[street-view-viewer] Tiles indisponiveis, caindo no full:', error);
         }

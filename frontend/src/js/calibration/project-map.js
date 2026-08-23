@@ -20,7 +20,9 @@
  */
 
 import config from '@js/config.js';
-import { fetchProjectMap, getPhotoImageUrl } from './api.js';
+import { fetchProjectMap, getPhotoImageUrl, sv360Base } from './api.js';
+import { stampAtlasOnUrl } from '@js/street_view_tool/tile-scope.js';
+import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
 // Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
 // arrastaria a store inteira pelo caminho transitivo.
 import { escapeHtml } from '@utils/html-escape.js';
@@ -568,14 +570,29 @@ function renderCard() {
  * Sem piramide, cai no preview de sempre. Isso vale enquanto houver foto sem
  * piramide, e some junto com o `preview_webp`.
  *
+ * O ENDERECO SE COMPOE A PARTIR DO CAMINHO, e nao arrancando a query de outra URL.
+ * Aqui morava `getPhotoImageUrl(...).replace(/\/image\?.*$/, '')`, e desde que
+ * `getPhotoImageUrl` passou a carimbar `?atlasId=` esse `replace` engolia o escopo
+ * junto com o `?quality=`: o `tiles.json` saia sem atlas nenhum. Hoje e inocuo (esta
+ * pagina nao boota o motor de sync, entao o escopo fica nulo), mas era uma armadilha
+ * plantada para o dia em que o estudio abrir projeto por atlas — e o defeito
+ * apareceria longe da causa, como miniatura que nunca pinta.
+ *
+ * O CARIMBO SE REPETE NA URL DO TILE porque a resolucao relativa DESCARTA a query da
+ * base: `new URL('tiles/0/0/0?v=N', '.../tiles.json?atlasId=X')` nao herda o atlas.
+ *
  * @param {HTMLImageElement|null} img - A tag do cartao.
  * @param {string} photoId - UUID da foto.
  */
 async function pintarMiniatura(img, photoId) {
     if (!img) return;
-    const base = getPhotoImageUrl(photoId, 'preview').replace(/\/image\?.*$/, '');
+    const escopo = currentResourceAtlasId();
+    const docTiles = stampAtlasOnUrl(
+        `${sv360Base()}/photos/${encodeURIComponent(photoId)}/tiles.json`,
+        escopo,
+    );
     try {
-        const r = await fetch(`${base}/tiles.json`);
+        const r = await fetch(docTiles);
         if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
         // O nivel 0 e sempre o mais grosso, e desde a escada de um tile ele e
@@ -587,7 +604,8 @@ async function pintarMiniatura(img, photoId) {
         // para sempre no preview, sem nada no console. E o mesmo idioma que
         // `tile-loader.js` usa para resolver o descritor.
         const rel = d.template.replace('{level}', '0').replace('{x}', '0').replace('{y}', '0');
-        img.src = new URL(rel, new URL(`${base}/tiles.json`, location.href)).href;
+        const absoluta = new URL(rel, new URL(docTiles, location.href)).href;
+        img.src = stampAtlasOnUrl(absoluta, escopo);
     } catch {
         // Foto sem piramide: o caminho de sempre.
         img.src = getPhotoImageUrl(photoId, 'preview');

@@ -407,6 +407,35 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       [TILES_SLUG]
     );
     assert.equal(rows[0].n, 2, 'as duas fotos do projeto podado entraram');
+
+    // A PIRÂMIDE TAMBÉM ATRAVESSA, e não só o arquivo. Copiar o `{slug}_tiles.db` e
+    // deixar `sv360.photo_pyramids` vazia produzia exatamente o sintoma que o caso
+    // acima existe para impedir: `GET /photos/:uuid/tiles.json` respondia 404, o
+    // cliente entendia "esta foto tem blob" e pedia a imagem inteira, que não existe
+    // neste formato. Arquivo no disco, Postgres vazio, panorama preto.
+    assert.equal(podado.pyramids, 2, 'o relatório tem de contar as pirâmides gravadas');
+    const { rows: pyr } = await db.query(
+      `SELECT photo_id, tile_size, max_level, width, height, quality,
+              tile_count, total_bytes, razao
+         FROM sv360.photo_pyramids WHERE photo_id = ANY($1::text[]) ORDER BY photo_id`,
+      [[t1, t2]]
+    );
+    assert.equal(pyr.length, 2, 'as duas fotos vivas precisam ter linha de pirâmide');
+    for (const p of pyr) {
+      // Os números do `buildTilesDb`: (512, 1, 4096, 2048, 80, 5, 999). A asserção é
+      // absoluta porque uma linha com zeros passaria em qualquer "existe".
+      assert.equal(p.tile_size, 512);
+      assert.equal(p.max_level, 1);
+      assert.equal(p.width, 4096);
+      assert.equal(p.height, 2048);
+      assert.equal(p.quality, 80);
+      assert.equal(p.tile_count, 5);
+      assert.equal(Number(p.total_bytes), 999);
+      // A tabela do fixture NÃO tem a coluna `razao` (o acervo real tem os dois
+      // esquemas), e o default precisa ser o mesmo de `escadaGravada`: com outro
+      // valor, o descritor anunciaria uma escada que os tiles não têm.
+      assert.equal(Number(p.razao), 2);
+    }
   });
 
   it('RECUSA o projeto SÓ-TILES cuja pirâmide não cobre uma foto viva', async () => {

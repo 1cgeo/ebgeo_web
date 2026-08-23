@@ -17,6 +17,7 @@ import * as Q from './sv360.queries.js';
 import * as PQ from './sv360.pyramid.queries.js';
 import * as TQ from './sv360.tiles.queries.js';
 import * as blobstore from './sv360.blobstore.js';
+import { escadaGravada } from './sv360.escada.js';
 import { TILES_GEOJSON_MAX_FEATURES } from './sv360.schemas.js';
 import config from '../../config.js';
 import { NotFoundError } from '../../utils/errors.js';
@@ -506,8 +507,17 @@ export async function getPhotoPyramidMeta(uuid, user, atlasId = null) {
   );
 
   const builtAt = row.built_at instanceof Date ? row.built_at.toISOString() : String(row.built_at);
+  const totalBytes = Number(row.total_bytes);
   return {
     descritor: {
+      // O CONTRATO É `schemaVersion`, `levels` e `template`, e não os campos planos.
+      // O cliente (`frontend/src/js/street_view_tool/tile-loader.js`) LANÇA quando
+      // `schemaVersion !== 1`, itera `levels` e monta a URL do tile por `template`;
+      // ele nunca deduz a escada nem monta caminho por conta própria, de propósito
+      // (dado gravado manda em descritor calculado). Enquanto este objeto era só a
+      // linha do banco achatada, o cliente morria na primeira linha e caía no
+      // `image?quality=full` que a origem apagou: tela preta, sem erro de servidor.
+      schemaVersion: 1,
       photoId: uuid,
       tileSize: row.tile_size,
       maxLevel: row.max_level,
@@ -515,9 +525,26 @@ export async function getPhotoPyramidMeta(uuid, user, atlasId = null) {
       height: row.height,
       quality: row.quality,
       tileCount: row.tile_count,
-      totalBytes: Number(row.total_bytes),
+      totalBytes,
       builtAt,
       razao: row.razao,
+      // A ESCADA SAI DA MESMA FUNÇÃO QUE DECIDE O 404 DO TILE (`escadaGravada`, usada
+      // aqui e por `gradeDoNivel` no controller). Publicar `levels` calculado por uma
+      // segunda conta faria o cliente pedir exatamente os tiles que a rota recusa, e o
+      // sintoma seria buraco na tela com 404 no log, nunca um erro que aponte a causa.
+      levels: escadaGravada(row.width, row.height, row.tile_size, row.razao, row.max_level),
+      // RELATIVO AO PRÓPRIO `tiles.json`, que é o que o contrato manda e o que faz um
+      // prefixo público continuar valendo: o cliente resolve com
+      // `new URL(template, urlDoDescritor)`, e o diretório-base de
+      // `.../photos/<uuid>/tiles.json` é `.../photos/<uuid>/`. Daí `tiles/{level}/{x}/{y}`
+      // cair exatamente em `GET /photos/:uuid/tiles/:level/:x/:y`. SEM `.webp`: a rota
+      // real não tem extensão, e o template da origem tinha — copiá-lo daria 404 em
+      // todo tile. O `?v=` é o token de geração que quebra o cache imutável do tile
+      // numa regeração; o handler o IGNORA de propósito (ver `getPhotoTile`).
+      template: `tiles/{level}/{x}/{y}?v=${totalBytes}`,
+      // LEGADO, e mantido só enquanto houver `preview_webp` em disco: a estratégia de
+      // fundo padrão do cliente é o tile de nível 0 e nunca toca este campo.
+      base: 'image?quality=preview',
     },
     tilesDbFile: blobstore.resolveTilesDbPath(row.db_filename),
     etag: `"${uuid}-pyr-${Number(row.total_bytes)}-${builtAt}"`,

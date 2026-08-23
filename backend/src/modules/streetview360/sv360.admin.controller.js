@@ -31,13 +31,17 @@ function cleanTmp(p) {
 
 /**
  * POST /sv360/admin/projects/upload — ingest a bundle (manifest.json + images.db
- * + optional thumbnail.webp) via multipart. 201 with the project summary.
+ * + optional {slug}_tiles.db + optional thumbnail.webp) via multipart. 201 with the
+ * project summary.
  * Ownership + merge tx + atomic {slug}.db swap happen in the service/ingest.
  */
 export const uploadProject = asyncHandler(async (req, res) => {
   const files = req.files || {};
   const manifestPath = files.manifest?.[0]?.path;
   const imagesDbPath = files.imagesDb?.[0]?.path;
+  // OPCIONAL, e obrigatório na prática para acervo só-tiles: sem ele
+  // `validateImagesDb` recusa o bundle, porque não sobraria fonte de pixel nenhuma.
+  const tilesDbPath = files.tilesDb?.[0]?.path;
   const thumbnailPath = files.thumbnail?.[0]?.path;
 
   try {
@@ -51,6 +55,7 @@ export const uploadProject = asyncHandler(async (req, res) => {
     const { orgId, ...result } = await asvc.uploadBundle(req.user, {
       manifestPath,
       imagesDbPath,
+      tilesDbPath,
       thumbnailPath,
     });
     // A TRILHA FICA AQUI, FORA DO INGEST, e é decisão e não descuido: a transação do
@@ -83,6 +88,7 @@ export const uploadProject = asyncHandler(async (req, res) => {
     cleanTmp(manifestPath);
     cleanTmp(thumbnailPath);
     cleanTmp(imagesDbPath);
+    cleanTmp(tilesDbPath);
   }
 });
 

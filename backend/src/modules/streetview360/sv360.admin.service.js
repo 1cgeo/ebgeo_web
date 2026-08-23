@@ -412,7 +412,8 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
 }
 
 /**
- * Ingests a multipart bundle (manifest.json + images.db + optional thumbnail).
+ * Ingests a multipart bundle (manifest.json + images.db + optional {slug}_tiles.db
+ * + optional thumbnail).
  * Parses + validates the manifest, resolves+authorizes the target org (ownership
  * HERE), then hands off to ingestBundle. The order there is swap-THEN-commit: the
  * atomic {orgId}__{slug}.db swap is PASSO 1 and the Postgres merge tx is PASSO 2
@@ -426,7 +427,8 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
  *
  * @param {Object} user - req.user
  * @param {Object} files - resolved multer files:
- *   { manifestPath: string, imagesDbPath: string, thumbnailPath?: string }
+ *   { manifestPath: string, imagesDbPath: string, tilesDbPath?: string,
+ *     thumbnailPath?: string }
  * @returns {Promise<{projectId:string, slug:string, dbFilename:string, photoCount:number}>}
  * @throws {ForbiddenError} 403 when the caller may not write the target OM
  * @throws {BadRequestError} 400 on a missing manifest/images.db
@@ -434,7 +436,7 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
  * @throws {ConflictError} 409 on a cross-OM photo-id collision (from mergeProject)
  */
 export async function uploadBundle(user, files = {}) {
-  const { manifestPath, imagesDbPath, thumbnailPath } = files;
+  const { manifestPath, imagesDbPath, tilesDbPath, thumbnailPath } = files;
   if (!manifestPath) throw new BadRequestError('manifest.json is required');
   if (!imagesDbPath) throw new BadRequestError('images.db is required');
 
@@ -462,6 +464,10 @@ export async function uploadBundle(user, files = {}) {
   const result = await ingestBundle({
     manifest,
     dbTmpPath: imagesDbPath,
+    // O SEGUNDO ARQUIVO DO PROJETO. Ele é opcional no formato COM blob e obrigatório
+    // no só-tiles, e quem cobra a diferença é `validateImagesDb`, lendo a FORMA do
+    // arquivo — nunca uma bandeira do chamador.
+    tilesTmpPath: tilesDbPath ?? null,
     orgId,
     source: 'upload',
   });

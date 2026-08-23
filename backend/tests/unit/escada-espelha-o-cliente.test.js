@@ -5,8 +5,21 @@
 // A escada da pirâmide é calculada duas vezes neste repositório, de propósito:
 //   - `backend/src/modules/streetview360/sv360.escada.js`, para o servidor conferir a
 //     faixa de um pedido ANTES de tocar o disco;
-//   - `frontend/src/js/street_view_tool/pyramid-math.js`, para o cliente saber quais
-//     tiles pedir.
+//   - `frontend/src/js/street_view_tool/pyramid-math.js`, que NÃO é mais o que o cliente
+//     executa, e o nome deste arquivo por isso promete demais.
+//
+// O QUE MUDOU EM 2026-08-23. Desde que o descritor passou a publicar `levels` (a saída de
+// `escadaGravada` do SERVIDOR, no `tiles.json`), o `tile-loader.js` INDEXA a escada
+// recebida e nunca a calcula: dado gravado manda em conta refeita. Logo a cópia do
+// cliente deixou de ter chamador de produção, e o único importador dela é este teste.
+//
+// ELA FICA, e a razão é o que este arquivo mede. A conta do servidor decide DUAS coisas
+// hoje (o 404 do tile e o `levels` que ele publica), então ela é a que precisa estar
+// certa, e uma implementação sozinha não tem contra o que ser conferida. A segunda cópia
+// é a REFERÊNCIA INDEPENDENTE dessa conferência, não o cliente. Apagá-la deixaria a conta
+// viva confirmando a si mesma, que é a forma de verificação que este repositório mais
+// pagou para aprender. É também por isso que cada bloco leva asserção ABSOLUTA: comparar
+// as duas entre si deixaria passar duas cópias erradas do mesmo jeito.
 //
 // A duplicação é o preço de os dois pacotes serem independentes: o backend não importa
 // do `frontend/` em runtime, e o cliente não pode arrastar código de servidor. Este
