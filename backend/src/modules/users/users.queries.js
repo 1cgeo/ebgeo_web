@@ -5,6 +5,11 @@
 // keep seeing strings while storage is normalized. Write queries take the FK ids and re-join in a
 // CTE so RETURNING still emits the derived names.
 
+// O UNICO IMPORT DESTE ARQUIVO, e ele e um fragmento de SQL de outro modulo: o predicado
+// de "concessao viva feita por" pertence ao modulo de acesso a recurso, e a listagem de
+// usuarios so o pendura. Ver `LIVE_GRANTS_BY_GRANTER_AGG`, abaixo.
+import { LIVE_GRANT_COUNT_BY_GRANTER } from '../resource-access/resource-access.queries.js';
+
 export const FIND_USER_BY_ID = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.created_at, u.last_login_at
@@ -66,14 +71,46 @@ export const SEARCH_USERS = `
 // Admin queries
 // ============================================
 
+/**
+ * A JUNCAO QUE TRAZ `live_grant_count` PARA A LINHA DO USUARIO.
+ *
+ * POR QUE A LISTAGEM CARREGA ISTO. Trocar o papel global, ou a OM produtora, de quem
+ * concedeu acesso DERRUBA o que essa pessoa concedeu (`fundamentoDeRaizPerdido` +
+ * `podarPorRaizes`, em `users.service.js`). A aba de administracao precisa dizer QUANTAS
+ * concessoes o salvamento vai revogar ANTES do clique, e o irmao dela ja resolve o mesmo
+ * problema do mesmo jeito: a listagem de grupos traz `grant_count` por linha e
+ * `groupDeletionWarning` monta o aviso a partir dele.
+ *
+ * O SELECT VEM DE `resource-access.queries.js`, E NAO ESTA ESCRITO AQUI, por dois motivos.
+ * O primeiro e o de sempre neste arquivo: "concessao viva feita por" tem UMA definicao, ao
+ * lado da lista de raizes que a poda consome, e a segunda copia e a que envelhece.
+ *
+ * O SEGUNDO FOI MEDIDO, e sozinho ja bastaria. O censo de
+ * `tests/integration/resource-grants-prazo.test.js` caca varredura de expiracao pelo PAR
+ * (o arquivo nomeia a tabela de concessoes E carimba a coluna de revogacao com a hora
+ * corrente), e `REVOKE_ALL_USER_TOKENS`, mais abaixo, carimba essa coluna em
+ * `refresh_tokens`, que e outro assunto. Enquanto a tabela de concessoes era nomeada neste
+ * arquivo o censo reprovava, e com razao: o filtro por tabela dele depende de os dois
+ * assuntos nao se encostarem no mesmo arquivo. Repare que o censo le o TEXTO, comentario
+ * incluso, entao esta nota tambem nao pode escrever os dois literais.
+ *
+ * `LEFT JOIN` e nao `JOIN`: quem nunca concedeu nada precisa aparecer na lista, e o
+ * `COALESCE` do SELECT le a ausencia como zero.
+ */
+const LIVE_GRANTS_BY_GRANTER_AGG = `
+  LEFT JOIN (${LIVE_GRANT_COUNT_BY_GRANTER}) lg ON lg.granted_by = u.id
+`;
+
 export const LIST_ALL_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
-         u.email, u.email_verified, u.created_at, u.last_login_at
+         u.email, u.email_verified, u.created_at, u.last_login_at,
+         COALESCE(lg.n, 0) AS live_grant_count
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
+  ${LIVE_GRANTS_BY_GRANTER_AGG}
   ORDER BY u.created_at DESC
 `;
 
@@ -81,10 +118,12 @@ export const LIST_ACTIVE_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.role,
          u.producer_org_id, u.is_active,
-         u.email, u.email_verified, u.created_at, u.last_login_at
+         u.email, u.email_verified, u.created_at, u.last_login_at,
+         COALESCE(lg.n, 0) AS live_grant_count
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
+  ${LIVE_GRANTS_BY_GRANTER_AGG}
   WHERE u.is_active = true
   ORDER BY u.nome
 `;

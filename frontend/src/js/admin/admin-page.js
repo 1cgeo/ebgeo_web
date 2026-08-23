@@ -112,9 +112,15 @@ async function initAdminPage() {
         return;
     }
     // NOT `initializeAppConfig()`: that sets the document title to the bare app name, which on this
-    // page would replace "Administração — EBGeo" with "EBGeo" and lose the tab's identity. The
-    // session is not restored yet here, so the title is refined below once the role is known.
-    document.title = `Administração — ${config?.app?.title || 'EBGeo'}`;
+    // page would lose the tab's identity. The session is not restored yet here, so the title is
+    // refined below once the role is known.
+    //
+    // AND THE PROVISIONAL TITLE IS NOT "Administração". It used to be, on both the static tag and
+    // this line, so a producer read the administrator's word on the tab for the whole boot and
+    // again on any path that returns before the refinement below. The provisional word has to be
+    // one that is true for EVERY audience this page admits, and "Painel" is: the three audiences
+    // (Administração, Catálogo, Grupos) are all panels, and none of them is a claim of authority.
+    document.title = `Painel — ${config?.app?.title || 'EBGeo'}`;
 
     await restoreSession();
     // Gate: a audiência decide, e ela é UMA função (`admin-audience.js`), a mesma que a barra do

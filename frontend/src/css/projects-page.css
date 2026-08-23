@@ -30,6 +30,10 @@
    never account.css (that is the map's account control). */
 @import url('./login-modal.css');
 
+/* "Minha conta" (modals/account-settings.modal.js) is opened from all three pages that
+   have a top bar, so its rules are imported by all three manifests. */
+@import url('./account-settings.css');
+
 /* ===== The page itself ===== */
 @import url('./projects-sections.css');
 @import url('./atlas-drive.css');

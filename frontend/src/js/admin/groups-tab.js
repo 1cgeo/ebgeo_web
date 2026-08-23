@@ -52,6 +52,8 @@ import {
     memberRemovalSummary,
     groupOwnerLabel,
     memberDisplayName,
+    memberAddedByLabel,
+    memberAdmissionTitle,
 } from './group-phrases.js';
 
 /** The user search waits this long after the last keystroke before hitting the backend. */
@@ -407,12 +409,43 @@ class GroupsTab {
     }
 
     /**
+     * @private OS NÚMEROS DO AVISO, RELIDOS DO SERVIDOR.
+     *
+     * As contagens da listagem são uma FOTO tirada quando a aba montou, e entre ela e o clique
+     * alguém pode ter concedido um recurso ao grupo ou compartilhado outro atlas com ele.
+     * Avisar sobre um ato irreversível com número velho é a forma de verificação fantasma que
+     * cabe numa confirmação: a frase é precisa, e está errada.
+     *
+     * A releitura é a LISTAGEM inteira, e não uma rota de alcance: não existe
+     * `GET /access-groups/:id` no servidor, e inventá-la aqui seria mudar o backend por causa
+     * de uma frase. Uma requisição por clique em "Apagar" não é tempestade.
+     *
+     * FALHAR AQUI NÃO CANCELA O ATO: quem quer apagar continua podendo, com a ressalva de que
+     * o número pode estar defasado. O grupo que sumiu da listagem cai no mesmo ramo, porque
+     * "não achei" é exatamente tão desconhecido quanto "não consegui perguntar".
+     * @param {Object} group
+     * @returns {Promise<{group: Object, stale: boolean}>}
+     */
+    async _reachForWarning(group) {
+        try {
+            const lista = await apiClient.listAccessGroups();
+            const fresco = (Array.isArray(lista) ? lista : [])
+                .find((g) => String(g?.id) === String(group?.id));
+            return fresco ? { group: fresco, stale: false } : { group, stale: true };
+        } catch {
+            return { group, stale: true };
+        }
+    }
+
+    /**
      * @private
      * @param {Object} group
      */
     async _delete(group) {
+        const { group: alvo, stale } = await this._reachForWarning(group);
+        if (!this._alive) return;
         const ok = await showConfirm(`Apagar o grupo "${group.name || ''}"?`, {
-            message: groupDeletionWarning(group),
+            message: groupDeletionWarning(alvo, { countsStale: stale }),
             destructive: true,
             confirmText: 'Apagar',
             cancelText: 'Manter',
@@ -585,9 +618,14 @@ class GroupsTab {
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Pessoa', 'Posto/Graduação', 'Entrou em', '']) {
+        // "Adicionado por" entrou em 2026-08-23. O servidor mandava `added_by` e
+        // `added_by_username` desde sempre (`LIST_MEMBERS`) e a tela não os lia: quem pôs a
+        // pessoa num grupo que decide acesso a recurso privado chegava pela rede e morria sem
+        // leitor. É a informação que responde "por que este nome está aqui".
+        for (const h of ['Pessoa', 'Posto/Graduação', 'Entrou em', 'Adicionado por', '']) {
             const th = document.createElement('th');
             th.textContent = h;
+            if (h === 'Adicionado por') th.title = 'Quem pôs esta pessoa no grupo.';
             hrow.appendChild(th);
         }
         thead.appendChild(hrow);
@@ -617,7 +655,15 @@ class GroupsTab {
             tr.appendChild(idTd);
 
             tr.appendChild(cell(member.posto_graduacao || '—'));
-            tr.appendChild(cell(formatDate(member.added_at)));
+            const quando = formatDate(member.added_at);
+            tr.appendChild(cell(quando));
+            // O `title` carrega a frase inteira (quem E quando) porque a célula sozinha diz
+            // só o arroba, e as duas ausências possíveis ("não registrado" e "conta removida")
+            // precisam de contexto para não parecerem a mesma coisa.
+            const autoria = cell(memberAddedByLabel(member));
+            autoria.className = 'admin-groups__added-by';
+            autoria.title = memberAdmissionTitle(member, quando);
+            tr.appendChild(autoria);
 
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';

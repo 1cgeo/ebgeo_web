@@ -19,7 +19,10 @@
  *   grupo de acesso, nunca aos dois, e o eixo de grupo não existe no atlas. É por
  *   isso que a linha da lista tem duas formas (avatar de presença para pessoa, selo
  *   e tamanho para grupo) e que conceder tem dois caminhos: ver `_renderGroupRow`,
- *   que explica por que o grupo é seletor e a pessoa é busca.
+ *   que explica por que o grupo é seletor e a pessoa é busca. Desde 2026-08-23 o
+ *   coletivo também se CRIA daqui, e a lista de grupos é relida a cada `_load()`:
+ *   antes ela era lida uma vez por abertura, então criar um grupo noutra página não
+ *   aparecia sem fechar e reabrir o modal.
  *
  * O GATE É DO SERVIDOR, e este modal só é oferecido a quem `canShareResource`
  * aprova. Quem chegar aqui sem poder repassar (uma concessão revogada entre o
@@ -39,6 +42,15 @@ import { refreshVisibleResources } from '@store/sync/resource-access.service.js'
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
+// Do ARQUIVO, nunca de um barrel: este modal é alcançado a partir de páginas que bootam sem a
+// store. `admin-audience.js` e `group-phrases.js` têm zero imports, de propósito.
+import { adminAudience } from '@js/admin/admin-audience.js';
+import {
+    groupPickerEmptyNotice,
+    groupPickerExhaustedNotice,
+    groupsLoadFailureNotice,
+    newGroupEmptyHint,
+} from '@js/admin/group-phrases.js';
 import { GRANT_LEVELS, CATALOG_UI_ICONS } from './catalog.constants.js';
 import {
     alreadyGranted,
@@ -60,6 +72,10 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MIN_CHARS = 2;
 /** O nível padrão ao conceder. A permissão padrão ABAIXA, nunca eleva. */
 const DEFAULT_GRANT_LEVEL = 'view';
+/** O teto de `access_groups.name` (VARCHAR(100)), espelhado do `createGroupSchema` do servidor. */
+const GROUP_NAME_MAX = 100;
+/** O piso do mesmo schema. Abaixo dele a requisição só voltaria como 422. */
+const GROUP_NAME_MIN = 2;
 
 /**
  * O selo de um beneficiário COLETIVO, no lugar onde a pessoa tem avatar.
@@ -131,16 +147,26 @@ export class ResourceShareModal extends ModalBase {
         this._name = resourceName || resourceId;
         /** @type {Array<Object>} As concessões VIVAS deste recurso. */
         this._grants = [];
-        /** @type {Array<Object>} Os grupos de acesso, lidos UMA vez por abertura. */
+        /** @type {Array<Object>} Os grupos de acesso, relidos a cada `_load()`. */
         this._groups = [];
         /** @type {boolean} A leitura dos grupos já aconteceu (mesmo que tenha falhado). */
         this._groupsLoaded = false;
+        /** @type {?Promise} A leitura em voo, para que duas chamadas próximas não virem duas
+         *  requisições. É o que deixa `_load()` reler a lista sempre sem tempestade. */
+        this._groupsInFlight = null;
         /** @type {boolean} A leitura FALHOU. Separado de "veio vazia": a dica de lista vazia
          *  afirma que a pessoa não tem grupo, e afirmar isso depois de um erro de rede é dizer
          *  uma coisa falsa com cara de estado. */
         this._groupsFailed = false;
         /** @type {string} O grupo escolhido no seletor, zerado a cada redesenho. */
         this._groupId = '';
+        /** @type {string} O grupo que o PRÓXIMO desenho já nasce com escolhido (o recém-criado),
+         *  consumido em `_renderBody`. */
+        this._pendingGroupId = '';
+        /** @type {boolean} O formulário de criar grupo está aberto. */
+        this._creatingGroup = false;
+        /** @type {string} O nome digitado, guardado para sobreviver a um redesenho. */
+        this._newGroupName = '';
         /** @type {boolean} Uma escrita por vez. */
         this._busy = false;
         /** @type {number|null} */
@@ -177,7 +203,9 @@ export class ResourceShareModal extends ModalBase {
             if (!this.getBody()) return;
             this._grants = Array.isArray(grants) ? grants : [];
             this._denied = false;
-            await this._loadGroups();
+            // FORÇADO: `_load()` roda na abertura e depois de toda mutação (conceder, revogar,
+            // criar grupo), e é aí que a lista de grupos pode ter mudado.
+            await this._loadGroups({ force: true });
             if (!this.getBody()) return;
             this._renderBody();
         } catch (error) {
@@ -192,23 +220,45 @@ export class ResourceShareModal extends ModalBase {
     }
 
     /**
-     * @private Lê os grupos de acesso UMA vez, e nunca derruba o modal.
+     * @private Lê os grupos de acesso, e nunca derruba o modal.
      *
-     * Falha em silêncio de propósito: os grupos são o SELETOR, não o conteúdo da
-     * tela. Se a chamada falhar (ou não houver grupo nenhum cadastrado), a seção de
-     * conceder deixa de oferecer a linha de grupo e o resto continua funcionando.
-     * Deixar o erro subir daqui levaria a listagem inteira para a tela de falha, que
-     * é dizer "não deu para ver quem tem acesso" por causa de um seletor.
+     * ELA DEIXOU DE SER UMA VEZ POR ABERTURA em 2026-08-23. O `if (this._groupsLoaded)
+     * return` congelava a lista no primeiro desenho: criar um grupo (aqui ou noutra aba) não
+     * aparecia enquanto o modal não fosse FECHADO e reaberto, e a única saída oferecida era
+     * "vá a outra página e volte". Hoje `_load()` relê, e quem impede a tempestade é a
+     * promessa em voo: duas chamadas próximas compartilham a mesma requisição.
+     *
+     * A FALHA CONTINUA NÃO DERRUBANDO A TELA (os grupos são o SELETOR, não o conteúdo), mas
+     * deixou de ser silenciosa: `_groupsFailed` agora desenha um aviso com "Tentar de novo",
+     * porque um seletor que some por erro de rede é indistinguível de um seletor que some por
+     * não haver grupo. Zerar `_groups` na falha é deliberado: mostrar a lista velha ao lado do
+     * aviso ofereceria escolha sobre um estado que não se pôde confirmar.
+     *
+     * @param {{force?: boolean}} [options]
+     * @returns {Promise<void>}
      */
-    async _loadGroups() {
-        if (this._groupsLoaded) return;
-        this._groupsLoaded = true;
+    async _loadGroups({ force = false } = {}) {
+        if (this._groupsLoaded && !force && !this._groupsFailed) return;
+        if (this._groupsInFlight) {
+            await this._groupsInFlight;
+            return;
+        }
+        this._groupsInFlight = (async () => {
+            try {
+                const grupos = await apiClient.listAccessGroups();
+                this._groups = Array.isArray(grupos) ? grupos : [];
+                this._groupsFailed = false;
+            } catch {
+                this._groups = [];
+                this._groupsFailed = true;
+            } finally {
+                this._groupsLoaded = true;
+            }
+        })();
         try {
-            const grupos = await apiClient.listAccessGroups();
-            this._groups = Array.isArray(grupos) ? grupos : [];
-        } catch {
-            this._groups = [];
-            this._groupsFailed = true;
+            await this._groupsInFlight;
+        } finally {
+            this._groupsInFlight = null;
         }
     }
 
@@ -249,8 +299,11 @@ export class ResourceShareModal extends ModalBase {
         clearScopedListeners(this, 'body');
         // O seletor de grupo é redesenhado com o placeholder escolhido, então a
         // escolha anterior não sobrevive ao redesenho e guardá-la concederia a um
-        // grupo que já não está mais selecionado na tela.
-        this._groupId = '';
+        // grupo que já não está mais selecionado na tela. A ÚNICA exceção é o grupo
+        // recém-criado aqui dentro: ele nasce escolhido no `<option>` e o estado tem de
+        // casar com a tela, senão o botão viria habilitado sobre uma escolha vazia.
+        this._groupId = this._pendingGroupId || '';
+        this._pendingGroupId = '';
         body.innerHTML = `
             <div class="sharing resource-share">
                 ${this._renderGrantsSection()}
@@ -415,17 +468,37 @@ export class ResourceShareModal extends ModalBase {
      * grupo" virou o caso NORMAL de quem chega — antes significava "ninguém no
      * sistema cadastrou grupo". Sumir com a linha inteira ali esconderia uma
      * funcionalidade que existe e faria a pessoa concluir que ela não existe.
+     *
+     * E FALHA DE LEITURA DEIXOU DE SER SILÊNCIO em 2026-08-23. Ela devolvia string vazia, e o
+     * seletor sumia igualzinho ao caso "não tenho grupo": duas causas, uma aparência. Agora
+     * são três estados desenhados diferente (falhou, vazio, esgotado), e os três oferecem uma
+     * saída: tentar de novo, ou criar o grupo aqui mesmo.
+     *
+     * CRIAR AQUI É O QUE TIRA A REMISSÃO DO CAMINHO CRÍTICO. Antes, conceder a um grupo que
+     * ainda não existia custava fechar o modal, ir a outra página, criar, voltar e REABRIR (o
+     * seletor nem relia). O servidor sempre permitiu: `POST /access-groups` é gateado só por
+     * sessão. A remissão continua, como alternativa, e o rótulo da porta vem de
+     * `adminAudience`: ela se chama "Administração" para o administrador, "Catálogo" para o
+     * produtor e "Grupos" para o resto, e o texto fixo "página Grupos" mandava dois dos quatro
+     * papéis procurar uma página com outro nome.
      */
     _renderGroupRow() {
-        // Leitura falhada continua sendo SILÊNCIO, e é o que separa as duas ausências: "você
-        // não tem grupo" é um estado, e dizê-lo por causa de um erro de rede seria inventar um.
-        if (this._groupsFailed) return '';
+        if (this._groupsFailed) {
+            return `
+                <div class="resource-share__groups-failed" data-testid="resource-share-groups-failed">
+                    <p class="sharing-section__hint">${escapeHtml(groupsLoadFailureNotice())}</p>
+                    <button type="button" class="prompt-modal-btn" data-action="retry-groups"
+                            data-testid="resource-share-groups-retry">Tentar de novo</button>
+                </div>
+            `;
+        }
+        const porta = this._doorLabel();
         if (!this._groups.length) {
             return `
                 <p class="sharing-section__hint" data-testid="resource-share-groups-empty">
-                    Você ainda não tem grupos de acesso. O seletor só oferece grupos seus:
-                    crie um na página Grupos e conceda a ele em vez de pessoa por pessoa.
+                    ${escapeHtml(groupPickerEmptyNotice(porta))}
                 </p>
+                ${this._renderGroupCreate(porta)}
             `;
         }
         const { groupIds } = alreadyGranted(this._grants);
@@ -433,9 +506,16 @@ export class ResourceShareModal extends ModalBase {
         if (!escolhiveis.length) {
             return `
                 <p class="sharing-section__hint" data-testid="resource-share-groups-exhausted">
-                    Todos os seus grupos de acesso já receberam este recurso.
+                    ${escapeHtml(groupPickerExhaustedNotice(porta))}
                 </p>
+                ${this._renderGroupCreate(porta)}
             `;
+        }
+        // A pré-seleção só vale se o grupo ainda estiver na lista oferecida: sem esta guarda,
+        // um `_groupId` fora de `escolhiveis` habilitaria o botão sobre uma opção que a tela
+        // não mostra, que é o clique que não faz nada e não explica.
+        if (this._groupId && !escolhiveis.some((g) => String(g?.id) === this._groupId)) {
+            this._groupId = '';
         }
         // O rótulo é `grant-tree.js`, que é onde ele é testável em node: ele nomeia o DONO
         // do grupo alheio, porque a unicidade de nome passou a ser por dono e o
@@ -443,22 +523,84 @@ export class ResourceShareModal extends ModalBase {
         // linhas idênticas.
         const eu = sessionContext.userId;
         const opcoes = escolhiveis.map((g) => {
+            const id = String(g?.id ?? '');
             const rotulo = groupOptionLabel(g, eu);
-            return `<option value="${escapeHtml(String(g?.id ?? ''))}">${escapeHtml(rotulo)}</option>`;
+            const escolhido = id && id === this._groupId ? ' selected' : '';
+            return `<option value="${escapeHtml(id)}"${escolhido}>${escapeHtml(rotulo)}</option>`;
         }).join('');
         return `
             <div class="resource-share__group-row">
                 <label class="resource-share__level-label" for="resource-share-group-select">Grupo</label>
                 <select class="sharing-member__permission" id="resource-share-group-select"
                         data-action="group" data-testid="resource-share-group-select">
-                    <option value="">Escolher um grupo…</option>
+                    <option value=""${this._groupId ? '' : ' selected'}>Escolher um grupo…</option>
                     ${opcoes}
                 </select>
                 <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm"
-                        data-action="grant-group" data-testid="resource-share-grant-group" disabled>
+                        data-action="grant-group" data-testid="resource-share-grant-group"
+                        ${this._groupId ? '' : 'disabled'}>
                     Conceder ao grupo
                 </button>
             </div>
+            ${this._renderGroupCreate(porta)}
+        `;
+    }
+
+    /**
+     * @private O rótulo da porta de administração PARA ESTE PRINCIPAL, ou nulo.
+     *
+     * A mesma definição que a barra do mapa e o modal de atlas usam. Chamar `adminAudience`
+     * em vez de escrever o nome da página é o que impede o rótulo de divergir por tela.
+     * @returns {string|null}
+     */
+    _doorLabel() {
+        const { label } = adminAudience({
+            isAuthenticated: sessionContext.isAuthenticated(),
+            isAdmin: sessionContext.isAdmin(),
+            isProducer: sessionContext.isProducer(),
+        });
+        return label;
+    }
+
+    /**
+     * @private Criar um grupo sem sair do fluxo: botão fechado, formulário de um campo aberto.
+     *
+     * Um campo só (nome), e a descrição fica de fora de propósito: aqui o grupo está sendo
+     * criado para receber ESTE recurso agora, e um segundo campo opcional no meio do fluxo é
+     * o atrito que o passo existe para remover. Quem quiser descrever renomeia depois na
+     * página de grupos, que continua sendo a tela de gestão.
+     * @param {string|null} porta - o rótulo da porta de administração.
+     * @returns {string}
+     */
+    _renderGroupCreate(porta) {
+        if (!this._creatingGroup) {
+            return `
+                <div class="resource-share__group-create">
+                    <button type="button" class="prompt-modal-btn" data-action="new-group"
+                            data-testid="resource-share-new-group">Criar um grupo</button>
+                </div>
+            `;
+        }
+        return `
+            <div class="resource-share__group-create">
+                <label class="resource-share__level-label" for="resource-share-new-group-name">
+                    Nome do grupo
+                </label>
+                <input type="text" class="resource-share__group-create-input"
+                       id="resource-share-new-group-name" data-action="new-group-name"
+                       data-testid="resource-share-new-group-name" maxlength="${GROUP_NAME_MAX}"
+                       autocomplete="off" placeholder="Ex.: Célula de Inteligência"
+                       value="${escapeHtml(this._newGroupName)}">
+                <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm"
+                        data-action="create-group" data-testid="resource-share-create-group">
+                    Criar
+                </button>
+                <button type="button" class="prompt-modal-btn" data-action="cancel-new-group"
+                        data-testid="resource-share-cancel-new-group">Cancelar</button>
+            </div>
+            <p class="sharing-section__hint" data-testid="resource-share-new-group-hint">
+                ${escapeHtml(newGroupEmptyHint(porta))}
+            </p>
         `;
     }
 
@@ -559,6 +701,57 @@ export class ResourceShareModal extends ModalBase {
         }
         if (grantGroup) {
             addScopedDomListener(this, 'body', grantGroup, 'click', () => this._handleGrantGroup(this._groupId));
+        }
+
+        const retryGroups = body.querySelector('[data-action="retry-groups"]');
+        if (retryGroups) {
+            addScopedDomListener(this, 'body', retryGroups, 'click', async () => {
+                await this._loadGroups({ force: true });
+                if (this.getBody()) this._renderBody();
+            });
+        }
+
+        const newGroup = body.querySelector('[data-action="new-group"]');
+        if (newGroup) {
+            addScopedDomListener(this, 'body', newGroup, 'click', () => {
+                this._creatingGroup = true;
+                // Abrir o formulário não pode desfazer a escolha já feita no seletor: o
+                // redesenho zera `_groupId`, e sem este repasse o grupo escolhido voltaria
+                // para o placeholder por causa de um clique que não fala do seletor.
+                this._pendingGroupId = this._groupId;
+                this._renderBody();
+                this.getBody()?.querySelector('[data-action="new-group-name"]')?.focus();
+            });
+        }
+
+        const cancelNewGroup = body.querySelector('[data-action="cancel-new-group"]');
+        if (cancelNewGroup) {
+            addScopedDomListener(this, 'body', cancelNewGroup, 'click', () => {
+                this._creatingGroup = false;
+                this._newGroupName = '';
+                this._pendingGroupId = this._groupId;
+                this._renderBody();
+            });
+        }
+
+        const newGroupName = body.querySelector('[data-action="new-group-name"]');
+        if (newGroupName) {
+            // O nome fica no estado a cada tecla porque o corpo do modal é redesenhado inteiro
+            // (uma resposta de `_load` que chegue com o formulário aberto apagaria o que foi
+            // digitado). O Enter cria, que é o gesto que um campo único de nome promete.
+            addScopedDomListener(this, 'body', newGroupName, 'input', () => {
+                this._newGroupName = newGroupName.value;
+            });
+            addScopedDomListener(this, 'body', newGroupName, 'keydown', (event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                this._handleCreateGroup();
+            });
+        }
+
+        const createGroup = body.querySelector('[data-action="create-group"]');
+        if (createGroup) {
+            addScopedDomListener(this, 'body', createGroup, 'click', () => this._handleCreateGroup());
         }
 
         const search = body.querySelector('[data-action="search"]');
@@ -662,6 +855,41 @@ export class ResourceShareModal extends ModalBase {
             await this._load();
         } catch (error) {
             showError(shareErrorMessage(error, 'Não foi possível conceder o acesso ao grupo.'));
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Cria o grupo no ponto de uso e o deixa ESCOLHIDO, pronto para receber.
+     *
+     * O ganho não é o botão, é o estado: depois de criar, a lista é relida e o seletor já
+     * nasce com o grupo novo, então o próximo clique é "Conceder ao grupo". Sem isto, criar
+     * aqui teria o mesmo custo de criar noutra página.
+     *
+     * O piso de dois caracteres é o do `createGroupSchema`, conferido aqui só para trocar um
+     * 422 por uma frase: quem impõe continua sendo o servidor, e o 409 de nome repetido chega
+     * como mensagem legível dele (a unicidade é POR DONO, e o cliente não a conhece).
+     */
+    async _handleCreateGroup() {
+        if (this._busy) return;
+        const nome = (this._newGroupName || '').trim();
+        if (nome.length < GROUP_NAME_MIN) {
+            showError(`O nome do grupo precisa de pelo menos ${GROUP_NAME_MIN} caracteres.`);
+            return;
+        }
+        this._busy = true;
+        try {
+            const grupo = await apiClient.createAccessGroup({ name: nome, description: null });
+            showSuccess(`Grupo "${nome}" criado.`);
+            this._creatingGroup = false;
+            this._newGroupName = '';
+            this._pendingGroupId = String(grupo?.id ?? '');
+            await this._loadGroups({ force: true });
+            if (!this.getBody()) return;
+            this._renderBody();
+        } catch (error) {
+            showError(shareErrorMessage(error, 'Não foi possível criar o grupo.'));
         } finally {
             this._busy = false;
         }

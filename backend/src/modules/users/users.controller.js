@@ -50,6 +50,12 @@ export const createUser = asyncHandler(async (req, res) => {
   res.status(201).json({ data: user });
 });
 
+// `data` NAO E SO A LINHA: alem das colunas do usuario, ela carrega `grantsAffected`,
+// `grantsReparented` e `fundamentoPerdido`, que sao o EFEITO da poda que este PUT pode
+// disparar (ver `fundamentoDeRaizPerdido` no service). Eles vao no mesmo objeto, e nao
+// num envelope irmao, porque `_request` do cliente desembrulha `data` e devolve so ele:
+// um segundo campo no topo nao chegaria a tela sem mudar o cliente HTTP. Os tres viajam
+// sempre, com zero quando nada foi podado.
 export const updateUser = asyncHandler(async (req, res) => {
   const user = await usersService.updateUser(req.params.userId, req.body, req.user.id, req);
   res.json({ data: user });

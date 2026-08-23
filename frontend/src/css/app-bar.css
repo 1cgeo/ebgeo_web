@@ -126,6 +126,14 @@
     letter-spacing: 0.02em;
 }
 
+/* Name over role: the identity is two lines now, so the column bounds both of them. */
+.app-bar__identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
 .app-bar__username {
     overflow: hidden;
     font-size: var(--font-size-sm);
@@ -134,9 +142,38 @@
     white-space: nowrap;
 }
 
+/* O papel GLOBAL: uma palavra e um title que explica o que ela permite. A OM do produtor, quando
+   houver, vem depois, separada por um ponto médio desenhado pelo CSS (não pelo texto). */
+.app-bar__role {
+    display: flex;
+    gap: var(--space-1);
+    overflow: hidden;
+    font-size: var(--font-size-xs);
+    color: rgb(255 255 255 / 80%);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-bar__role-name {
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.02em;
+}
+
+.app-bar__role-org {
+    overflow: hidden;
+    color: rgb(255 255 255 / 65%);
+    text-overflow: ellipsis;
+}
+
+.app-bar__role-org::before {
+    content: "·";
+    padding-right: var(--space-1);
+}
+
 /* Narrow viewports: shed the text, keep the affordances. */
 @media (width <= 900px) {
-    .app-bar__username {
+    .app-bar__username,
+    .app-bar__role {
         display: none;
     }
 }

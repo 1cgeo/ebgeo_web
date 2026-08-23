@@ -7,6 +7,11 @@
  * owns atlases requires reassigning ownership — the backend returns a conflict and
  * this tab collects the new owner via the user search before retrying.
  *
+ * UMA EDIÇÃO DESTA ABA É DESTRUTIVA, e não parece: trocar o papel global ou a OM produtora
+ * revoga TODA concessão viva que a pessoa deu. O aviso antes e o relato depois vivem em
+ * `producer-scope-phrases.js`, que é onde está escrito por que a prévia não é um endpoint
+ * e onde o espelho da regra do servidor é declarado.
+ *
  * All dynamic text is set via textContent (never innerHTML with user data).
  */
 
@@ -17,6 +22,14 @@ import { showSuccess, showError } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
 import { orgLabel, buildDomainOptions } from './org-options.js';
+import {
+    verdictOfChange,
+    producerScopeChangeTitle,
+    producerScopeChangeWarning,
+    producerScopeChangeConfirmLabel,
+    producerScopeChangeSummary,
+} from './producer-scope-phrases.js';
+import { GLOBAL_ROLE_LABELS } from '@ui/role-labels.js';
 
 /**
  * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
@@ -30,15 +43,24 @@ const PRODUCER_ROLE = 'producer';
  * SÃO QUATRO PAPÉIS E ELES NÃO SÃO UMA ESCADA: nenhum contém o outro, e a tela nunca os
  * ordena por poder. Mapa em vez de ternário porque o eixo deixou de ser binário, e um
  * ternário com quatro valores é a forma que silenciosamente mostra "Usuário" para o papel
- * novo — foi o que já aconteceu uma vez.
+ * novo, e foi o que já aconteceu uma vez.
+ *
+ * DERIVADO, nunca escrito à mão: o rótulo pt-BR de cada papel nasce em `@ui/role-labels.js`,
+ * que é a fonte única desde que o próprio usuário passou a ver o seu papel no menu da conta e
+ * na barra superior. Enquanto as duas listas eram literais gêmeos, "as duas telas chamam a
+ * mesma pessoa por dois nomes" era um estado alcançável, prendido só por teste; agora é
+ * impossível por construção. A `variante` continua daqui porque é nome de classe CSS desta
+ * aba, e ela coincide com a chave do papel por escolha do CSS, não por acaso do rótulo.
  * @type {Object<string, {rotulo: string, variante: string}>}
  */
-const ROLE_CHIP = {
-    admin: { rotulo: 'Administrador', variante: 'admin' },
-    credenciado: { rotulo: 'Credenciado', variante: 'credenciado' },
-    producer: { rotulo: 'Produtor', variante: 'producer' },
-    user: { rotulo: 'Usuário', variante: 'user' },
-};
+const ROLE_CHIP = Object.freeze(
+    Object.fromEntries(
+        Object.entries(GLOBAL_ROLE_LABELS).map(([papel, rotulo]) => [
+            papel,
+            { rotulo, variante: papel },
+        ])
+    )
+);
 
 /**
  * As opções do papel global, na ordem em que a tela as oferece.
@@ -423,8 +445,42 @@ class UsersTab {
                     // one, and resending `false` for an already-inactive user is a no-op edit.
                     if (user.is_active === false && active.checked) payload.is_active = true;
                     if (emailVerified) payload.email_verified = emailVerified.checked;
-                    await apiClient.updateUser(user.id, payload);
-                    showSuccess('Usuário atualizado.');
+
+                    // ESTE SALVAMENTO PODE DESTRUIR ACESSO, e até 2026-08-23 a tela não dizia
+                    // nada. Trocar o papel global, ou a OM produtora, apaga o FUNDAMENTO das
+                    // concessões que a pessoa deu, e o servidor revoga TODAS elas com a
+                    // subárvore (`fundamentoDeRaizPerdido` + `podarPorRaizes`, origem
+                    // `USER_DEMOTION`). O gesto que mais surpreende é o segundo: a poda dispara
+                    // na simples desigualdade `omAntes !== omDepois`, então corrigir um erro de
+                    // digitação na OM de um produtor derrubava tudo o que ele havia concedido.
+                    //
+                    // O NÚMERO VEM DA LISTAGEM (`live_grant_count`), como o do irmão que apaga
+                    // um grupo vem de `grant_count`. Ele é um retrato e pode ter envelhecido;
+                    // quem diz o que de fato caiu é a resposta do PUT, logo abaixo.
+                    const motivo = verdictOfChange(user, payload);
+                    if (motivo) {
+                        const ok = await showConfirm(
+                            producerScopeChangeTitle({ motivo, username: user.username }),
+                            {
+                                message: producerScopeChangeWarning({
+                                    motivo, liveGrants: user.live_grant_count,
+                                }),
+                                destructive: true,
+                                confirmText: producerScopeChangeConfirmLabel(user.live_grant_count),
+                                cancelText: 'Manter',
+                            },
+                        );
+                        if (!ok) {
+                            saveBtn.disabled = false;
+                            return;
+                        }
+                    }
+
+                    // O TOAST RELATA O EFEITO MEDIDO. `grantsAffected`/`grantsReparented` vêm no
+                    // mesmo objeto da linha atualizada e valem zero quando nada foi podado, e é
+                    // aí que a frase volta a ser o "Usuário atualizado." de sempre.
+                    const result = await apiClient.updateUser(user.id, payload);
+                    showSuccess(producerScopeChangeSummary(result));
                 } else {
                     payload.password = password.value;
                     if (!payload.password) {

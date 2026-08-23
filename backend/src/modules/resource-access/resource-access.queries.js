@@ -541,6 +541,37 @@ export const LIVE_GRANT_IDS_BY_GRANTER = `
 `;
 
 /**
+ * QUANTAS concessões vivas cada pessoa deu, agregadas de uma vez. É a MESMA pergunta de
+ * `LIVE_GRANT_IDS_BY_GRANTER`, contada em vez de listada, e por isso mora ao lado dela: o
+ * predicado de "concessão viva feita por" tem UMA definição, e reescrever o
+ * `granted_by ... AND revoked_at IS NULL` no módulo consumidor seria a segunda cópia, que
+ * é a que envelhece quando a coluna mudar.
+ *
+ * QUEM PRECISA DISSO É A TELA DE ADMINISTRAÇÃO DE USUÁRIOS. Trocar o papel global, ou a OM
+ * produtora, de quem concedeu acesso DERRUBA o que essa pessoa concedeu
+ * (`fundamentoDeRaizPerdido` + `podarPorRaizes`), e a aba precisa dizer QUANTAS concessões
+ * o salvamento vai revogar ANTES do clique. A listagem de usuários pendura esta consulta
+ * como subconsulta juntável, exatamente como a listagem de grupos já carrega `grant_count`.
+ *
+ * FRAGMENTO SEM `ON`, de propósito: a condição de junção é do consumidor (ele é quem sabe o
+ * apelido da sua tabela de usuários), e a alternativa (embutir `ON lg.granted_by = u.id`
+ * aqui) amarraria este arquivo ao apelido de quem chama.
+ *
+ * UM AGREGADO, NÃO UM ESCALAR CORRELACIONADO: `resource_grants` não tem índice por
+ * `granted_by` (os quatro de `008_acesso_a_recurso.sql` são por beneficiário, por recurso e
+ * por pai), então uma subconsulta por linha seria uma varredura por usuário listado.
+ *
+ * `::int` porque `COUNT` é bigint e o driver o devolve como STRING, e um plural escolhido
+ * com `n === 1` lê "1 concessões" no instante em que o valor chega como `'1'`.
+ */
+export const LIVE_GRANT_COUNT_BY_GRANTER = `
+  SELECT granted_by, COUNT(*)::int AS n
+    FROM resource_grants
+   WHERE revoked_at IS NULL
+   GROUP BY granted_by
+`;
+
+/**
  * PODA A SUBÁRVORE DE $1 PRESERVANDO ALCANÇABILIDADE, num statement só.
  *
  * Ela substituiu uma consulta chamada REVOKE_GRANT_SUBTREE, que só revogava. O nome

@@ -1818,6 +1818,80 @@ export class ApiClient {
         return this._request('GET', `/users/search?q=${encodeURIComponent(q)}`);
     }
 
+    // ===== USERS — SELF (`auth` only; the caller is always the target) =====
+    //
+    // The four routes below answered nobody until 2026-08-23: they were mounted, audited and
+    // documented, and no call site existed in `frontend/src/`. `modals/account-settings.modal.js`
+    // is the screen that reaches them.
+    //
+    // WHAT `GET /users/me` DOES NOT RETURN, measured against `FIND_USER_BY_ID` in
+    // `backend/src/modules/users/users.queries.js`: `role`, `producer_org_id`, `email` and
+    // `email_verified`. The GLOBAL role and the production scope come from `GET /auth/me`
+    // instead (`getMe` above, whose query is a different `FIND_USER_BY_ID`, in
+    // `backend/src/modules/auth/auth.queries.js`, and does select both). Two routes with the
+    // same name and different columns is exactly the trap worth naming here.
+
+    /**
+     * Reads the signed-in user's own profile.
+     *
+     * NOT the same document as {@link getMe}: this one carries no global role and no production
+     * scope. See the block comment above before adding a consumer that needs either.
+     * @returns {Promise<{ id: string, username: string, nome: string, rank_id: string|null,
+     *   posto_graduacao: string|null, organization_id: string|null,
+     *   organizacao_militar: string|null, created_at: string, last_login_at: string|null }>}
+     */
+    async getMyProfile() {
+        return this._request('GET', '/users/me');
+    }
+
+    /**
+     * Updates the signed-in user's own profile.
+     *
+     * THE SCHEMA ACCEPTS TWO FIELDS AND ONLY TWO (`updateProfileSchema`,
+     * `backend/src/modules/users/users.schemas.js`): `nome` (max 255) and `rank_id` (uuid, or
+     * null/'' to clear it). `organization_id` (the posting) and `producer_org_id` (the
+     * production scope) are refused ON PURPOSE and are administrator-only; sending either is
+     * not an error, it is SILENTLY DROPPED by `stripUnknown`, so a caller written from a wrong
+     * field list gets a 200 and no change.
+     * @param {{ nome?: string, rank_id?: string|null }} payload
+     * @returns {Promise<Object>} The updated profile (same shape as {@link getMyProfile}).
+     */
+    async updateMyProfile(payload) {
+        return this._request('PUT', '/users/me', { body: payload });
+    }
+
+    /**
+     * Changes the signed-in user's own password.
+     *
+     * EVERY SESSION OF THE ACCOUNT DIES, this one included: the service runs
+     * `REVOKE_ALL_USER_TOKENS`, which revokes the refresh family AND stamps
+     * `users.sessions_valid_from`, and the route hands back NO new token pair. So the next
+     * request on this tab answers 401 and the person has to sign in again. Warn BEFORE the
+     * click; the mechanism is in `docs/wiki/refresh-token-rotacao.md`.
+     * @param {string} currentPassword
+     * @param {string} newPassword - Between 6 and 100 characters (`updatePasswordSchema`).
+     * @returns {Promise<{ success: boolean }>}
+     */
+    async updateMyPassword(currentPassword, newPassword) {
+        return this._request('PUT', '/users/me/password', {
+            body: { currentPassword, newPassword },
+        });
+    }
+
+    /**
+     * Rotates the signed-in user's own M2M API key, and issues the FIRST one when there is none
+     * (`ROTATE_API_KEY` archives zero rows for a user without a key, then updates it in).
+     *
+     * THE RESPONSE IS THE ONLY TIME THE KEY IS EVER READABLE: no route reads it back, no query
+     * of the `users` module selects `api_key`, and the previous key stops authenticating in the
+     * same instant. Whatever shows it must let the person copy it before the surface goes away,
+     * and must never log it, put it in a `title`, or persist it. The design is in `docs/wiki/api-keys.md`.
+     * @returns {Promise<{ apiKey: string }>}
+     */
+    async rotateMyApiKey() {
+        return this._request('POST', '/users/me/api-key/rotate');
+    }
+
     // ===== AUDIT TRAIL (requireAuditReader server-side) =====
 
     /**

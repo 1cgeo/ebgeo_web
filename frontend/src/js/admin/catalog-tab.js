@@ -28,6 +28,9 @@ import { orgLabel } from './org-options.js';
 // without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
 import { CAMPO_FORMA_3D, FORMAS_3D, Forma3D, derivarForma3d } from '@catalog/forma-3d.js';
 import { FORMA_3D_LABELS } from '@catalog/catalog.constants.js';
+// Terceiro módulo FOLHA do catálogo, pela mesma razão dos dois de cima: as frases do eixo de
+// acesso são compartilhadas com o modal de configurações do atlas, e o barrel arrastaria a store.
+import { visibilityChangeWarning, visibilityChangeSummary } from '@catalog/visibility-phrases.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -339,6 +342,7 @@ class CatalogTab {
         const isEdit = !!resource;
         const c = this._content;
         c.replaceChildren();
+        const categoriaRotulo = CATEGORIES.find((x) => x.key === category)?.label ?? category;
 
         const form = document.createElement('form');
         form.className = 'admin-form admin-form--wide';
@@ -588,6 +592,33 @@ class CatalogTab {
                 }
             }
 
+            // A CONFIRMAÇÃO DA PRIVATIZAÇÃO VEM ANTES DE QUALQUER ESCRITA, e não junto do
+            // PATCH lá embaixo: perguntar depois de gravar deixaria a pessoa respondendo
+            // sobre um ato já consumado pela metade. Só o sentido DESTRUTIVO pergunta, e
+            // quem decide isso é `visibilityChangeWarning` devolvendo null (ver aquele
+            // arquivo): tornar público não tira nada de ninguém.
+            //
+            // O "Cancelar" NÃO aborta a gravação inteira: ele devolve o `<select>` ao valor
+            // de partida e o resto do formulário salva normalmente. Abortar tudo faria o
+            // recuo numa das escritas descartar em silêncio a edição de nome, descrição e
+            // JSON que a pessoa acabou de fazer, e o controle revertido é visível na tela.
+            let accessAfter = accessInput ? accessInput.value : accessBefore;
+            if (accessType && accessAfter !== accessBefore) {
+                const aviso = visibilityChangeWarning(accessAfter, { nome: name, tipoRotulo: categoriaRotulo });
+                if (aviso) {
+                    const ok = await showConfirm(`Tornar "${name}" privado?`, {
+                        message: aviso,
+                        destructive: true,
+                        confirmText: 'Tornar privado',
+                        cancelText: 'Manter como está',
+                    });
+                    if (!ok) {
+                        accessInput.value = accessBefore;
+                        accessAfter = accessBefore;
+                    }
+                }
+            }
+
             const sort = Number(sortInput.value.trim());
             const payload = {
                 name,
@@ -611,9 +642,9 @@ class CatalogTab {
             // A visibilidade vai DEPOIS e numa chamada própria, e o erro dela é
             // relatado à parte de propósito: o item já foi gravado quando ela falha,
             // e um "falha ao salvar" genérico faria o administrador salvar de novo
-            // achando que perdeu tudo. Só chama quando o valor MUDOU — um PATCH a
-            // cada gravação invalidaria o memo do /api/config sem motivo.
-            const accessAfter = accessInput ? accessInput.value : accessBefore;
+            // achando que perdeu tudo. Só chama quando o valor MUDOU (`accessAfter` já
+            // foi resolvido acima, e o recuo da confirmação o igualou ao de partida):
+            // um PATCH a cada gravação invalidaria o memo do /api/config sem motivo.
             if (accessType && accessAfter !== accessBefore) {
                 try {
                     await apiClient.setResourceVisibility(accessType, isEdit ? resource.id : id, accessAfter);
@@ -624,7 +655,13 @@ class CatalogTab {
                 }
             }
 
-            showSuccess(isEdit ? 'Item atualizado.' : 'Item criado.');
+            // O TOAST RELATA O EFEITO. "Item atualizado." é verdade e é pouco quando a
+            // gravação acabou de tirar o item do catálogo de outras pessoas: o eixo que
+            // mudou o que os OUTROS veem é o que precisa aparecer na frase.
+            const base = isEdit ? 'Item atualizado.' : 'Item criado.';
+            showSuccess(accessAfter !== accessBefore
+                ? `${base} ${visibilityChangeSummary({ nome: name, accessLevel: accessAfter })}`
+                : base);
             if (this._alive) this._selectCategory(category);
         };
         saveBtn.addEventListener('click', onSave);
@@ -798,13 +835,29 @@ class CatalogTab {
      * A rota é a mesma dos outros três tipos (`/resource-access/:type/:id/visibility`)
      * e a chave é o UUID do projeto, não o slug: o slug é único por OM, não
      * globalmente, e o eixo de acesso é resolvido por id.
+     *
+     * PERGUNTA SÓ NO SENTIDO DESTRUTIVO, e quem decide o ramo é `visibilityChangeWarning`,
+     * que devolve null no aditivo. Esta tela já confirmava a EXCLUSÃO e não confirmava a
+     * privatização, que também retira o projeto do catálogo de quem não tem acesso próprio:
+     * a inconsistência era interna a este arquivo.
      * @param {Object} project
      * @param {'public'|'private'} accessLevel
      */
     async _toggle360Access(project, accessLevel) {
+        const nome = project.name || project.slug || project.id;
+        const aviso = visibilityChangeWarning(accessLevel, { nome, tipoRotulo: 'Projeto 360°' });
+        if (aviso) {
+            const ok = await showConfirm(`Tornar "${nome}" privado?`, {
+                message: aviso,
+                destructive: true,
+                confirmText: 'Tornar privado',
+                cancelText: 'Manter público',
+            });
+            if (!ok) return;
+        }
         try {
             await apiClient.setResourceVisibility('sv360_project', project.id, accessLevel);
-            showSuccess(accessLevel === 'private' ? 'Projeto 360° agora é privado.' : 'Projeto 360° agora é público.');
+            showSuccess(visibilityChangeSummary({ nome, accessLevel }));
             if (this._alive) this._render360List();
         } catch (err) {
             console.warn('[catalog-tab] falha ao alterar a visibilidade do projeto 360:', err);

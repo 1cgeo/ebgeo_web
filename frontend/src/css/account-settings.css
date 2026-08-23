@@ -1,0 +1,368 @@
+/* Path: src/css/account-settings.css */
+
+/**
+ * @fileoverview BEM styles for the "Minha conta" modal
+ * (`src/js/modals/account-settings.modal.js`).
+ *
+ * It sits on the shared modal shell (.modal-overlay / .modal-container / .modal-body, in
+ * modals-redesign.css) and only adds the block below, so the screen looks like the rest of
+ * the product instead of a page from another one. Fully tokenized: every colour, radius,
+ * spacing and transition comes from design-tokens.css.
+ *
+ * Block:
+ *   - .account-settings            (the three stacked sections)
+ *     - __section, __section-header, __section-title, __section-hint
+ *     - __readonly, __readonly-row, __readonly-label, __readonly-value, __readonly-note
+ *     - __form, __field, __label, __input, __field-note
+ *     - __warning (the box that has to be seen before an irreversible click)
+ *     - __state (--loading / --error / --done: three DIFFERENT looks on purpose)
+ *     - __actions, __btn (--primary / --danger / --ghost)
+ *     - __key (the one-time secret block), __key-value, __key-warning
+ */
+
+.account-settings-modal-container {
+    max-width: 560px;
+}
+
+.account-settings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+/* =========================================================================
+   SECTION
+   ========================================================================= */
+
+.account-settings__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.account-settings__section + .account-settings__section {
+    padding-top: var(--space-5);
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.account-settings__section-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.account-settings__section-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.account-settings__section-hint {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    line-height: var(--line-height-normal);
+}
+
+/* =========================================================================
+   READ-ONLY ROWS (what only an administrator changes)
+   ========================================================================= */
+
+.account-settings__readonly {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.account-settings__readonly-row {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: var(--space-1) var(--space-3);
+    align-items: baseline;
+}
+
+.account-settings__readonly-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.account-settings__readonly-value {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+    overflow-wrap: anywhere;
+}
+
+.account-settings__readonly-note {
+    grid-column: 2;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    line-height: var(--line-height-normal);
+}
+
+/* =========================================================================
+   FORM
+   ========================================================================= */
+
+.account-settings__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.account-settings__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.account-settings__label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.account-settings__input {
+    /* A classe veste `input` E `select`, e sem isto os dois se comportam DIFERENTE: o navegador já
+       entrega `select` como border-box, enquanto `input` é content-box, então `width: 100%` mais o
+       padding e a borda faziam só o campo de texto transbordar a direita do modal. Medido em
+       captura, e invisível em revisão de código, porque a regra que falta não aparece no diff.
+       Não há reset global neste projeto: cada componente declara o seu. */
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    background: white;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.account-settings__input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.account-settings__field-note {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    line-height: var(--line-height-normal);
+}
+
+/* =========================================================================
+   WARNING BOX (shown BEFORE the irreversible click, never after)
+   ========================================================================= */
+
+.account-settings__warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: #fffbeb;
+    border: var(--border-width) solid var(--color-warning);
+    border-left-width: 4px;
+    border-radius: var(--radius-md);
+}
+
+.account-settings__warning-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    color: white;
+    background: var(--color-warning);
+    border-radius: var(--radius-full);
+}
+
+.account-settings__warning-text {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-800);
+    line-height: var(--line-height-normal);
+}
+
+/* =========================================================================
+   STATES: loading, failure and success must NOT look alike
+   ========================================================================= */
+
+.account-settings__state {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    border-radius: var(--radius-md);
+}
+
+.account-settings__state--loading {
+    color: var(--gray-500);
+    background: var(--gray-50);
+    border: var(--border-width) dashed var(--border-color-dark);
+}
+
+.account-settings__state--error {
+    color: #7f1d1d;
+    background: #fef2f2;
+    border: var(--border-width) solid var(--color-error);
+}
+
+.account-settings__state--done {
+    color: var(--primary-800);
+    background: var(--primary-50);
+    border: var(--border-width) solid var(--primary);
+}
+
+/* =========================================================================
+   ACTIONS
+   ========================================================================= */
+
+.account-settings__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+}
+
+.account-settings__btn {
+    padding: var(--space-2) var(--space-4);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.account-settings__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.account-settings__btn--primary {
+    color: white;
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
+.account-settings__btn--primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.account-settings__btn--danger {
+    color: white;
+    background: var(--color-error);
+    border-color: var(--color-error);
+}
+
+.account-settings__btn--danger:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+.account-settings__btn--ghost {
+    color: var(--gray-700);
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+}
+
+.account-settings__btn--ghost:hover:not(:disabled) {
+    background: var(--gray-200);
+}
+
+.account-settings__btn.is-copied {
+    background: var(--color-success);
+    border-color: var(--color-success);
+}
+
+/* =========================================================================
+   THE ONE-TIME KEY
+   ========================================================================= */
+
+.account-settings__key {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--gray-900);
+    border-radius: var(--radius-md);
+}
+
+.account-settings__key-label {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-300);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.account-settings__key-value {
+    display: block;
+    padding: var(--space-3);
+    font-family: ui-monospace, sfmono-regular, 'Courier New', monospace;
+    font-size: var(--font-size-sm);
+    color: var(--primary-200);
+    background: black;
+    border-radius: var(--radius-sm);
+    user-select: all;
+    overflow-wrap: anywhere;
+}
+
+.account-settings__key-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.account-settings__key-warning {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: #fca5a5;
+    line-height: var(--line-height-normal);
+}
+
+.account-settings__key-note {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--primary-300);
+}
+
+/* =========================================================================
+   RESPONSIVE / TOUCH
+   ========================================================================= */
+
+@media (width <= 520px) {
+    .account-settings__readonly-row {
+        grid-template-columns: 1fr;
+    }
+
+    .account-settings__readonly-note {
+        grid-column: 1;
+    }
+}
+
+@media (pointer: coarse) {
+    .account-settings__btn {
+        min-height: var(--touch-target-min);
+    }
+
+    .account-settings__input {
+        min-height: var(--touch-target-min);
+    }
+}

@@ -44,6 +44,8 @@
  */
 
 import { ModalBase } from './modal.base.js';
+import { showConfirm } from './confirm.modal.js';
+import { lendingRemovalWarning, lendingSummary, lendingScopeNote } from '@catalog/visibility-phrases.js';
 import { addScopedDomListener, clearScopedListeners } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { apiClient } from '@store/sync/api-client.js';
@@ -707,6 +709,18 @@ export class AtlasSettingsModal extends ModalBase {
         }
 
         section.appendChild(this._lendingList());
+
+        // O ESCOPO DO EMPRÉSTIMO, DEPOIS DA LISTA E ANTES DO SELETOR, que é onde a pessoa
+        // decide anexar mais um. O selo "Privado" do catálogo diz a mesma palavra para três
+        // origens de acesso e só esta some sozinha ao trocar de atlas; a frase mora em
+        // `lendingScopeNote` (com o número, que aqui é honesto porque é o tamanho da lista
+        // acima, e não uma audiência estimada).
+        const escopo = document.createElement('p');
+        escopo.className = 'atlas-config__note';
+        escopo.dataset.testid = 'atlas-lending-scope';
+        escopo.textContent = lendingScopeNote(this._lent.length);
+        section.appendChild(escopo);
+
         section.appendChild(this._lendingPicker());
         pane.appendChild(section);
     }
@@ -830,7 +844,10 @@ export class AtlasSettingsModal extends ModalBase {
         this._lendingBusy = true;
         try {
             await apiClient.addAtlasResource(this._atlasId, { resourceType: tipo, resourceId: id });
-            showSuccess('Recurso emprestado por este atlas.');
+            // SEM CONFIRMAÇÃO, e é a metade deliberada da assimetria: emprestar é ADITIVO
+            // (ninguém deixa de ver nada), e confirmar os dois sentidos treinaria o Gestor a
+            // clicar em "Confirmar" sem ler justamente antes da retirada, que é destrutiva.
+            showSuccess(lendingSummary({ nome: this._lentName(tipo, id), acao: 'add' }));
             await this._afterLendingChange();
         } catch (error) {
             showError(error?.message || 'Não foi possível emprestar este recurso.');
@@ -840,15 +857,32 @@ export class AtlasSettingsModal extends ModalBase {
     }
 
     /**
-     * @private Desfaz o empréstimo e redesenha.
+     * @private Desfaz o empréstimo e redesenha, DEPOIS de dizer quem deixa de ver.
+     *
+     * ESTA É A ÚNICA ESCRITA DESTRUTIVA DA SEÇÃO, e ela não se parece com uma: a linha some
+     * de uma lista de configuração e o recurso some da tela de todo participante do atlas,
+     * link público inclusive. O aviso nomeia essa consequência por extenso e SEM número,
+     * porque nenhuma resposta disponível traz a audiência (o porquê está por extenso no
+     * `@fileoverview` de `js/catalog/visibility-phrases.js`).
+     *
+     * O `_lendingBusy` é tomado ANTES da pergunta, e não depois: ele também impede dois
+     * diálogos abertos ao mesmo tempo sobre duas linhas diferentes.
      * @param {string} tipo @param {string} id
      */
     async _removeLending(tipo, id) {
         if (this._lendingBusy) return;
         this._lendingBusy = true;
         try {
+            const nome = this._lentName(tipo, id);
+            const ok = await showConfirm(`Retirar o empréstimo de "${nome}"?`, {
+                message: lendingRemovalWarning({ nome, tipoRotulo: ROTULO_POR_TIPO[tipo] ?? tipo }),
+                destructive: true,
+                confirmText: 'Retirar empréstimo',
+                cancelText: 'Manter',
+            });
+            if (!ok) return;
             await apiClient.removeAtlasResource(this._atlasId, tipo, id);
-            showSuccess('Empréstimo retirado.');
+            showSuccess(lendingSummary({ nome, acao: 'remove' }));
             await this._afterLendingChange();
         } catch (error) {
             showError(error?.message || 'Não foi possível retirar o empréstimo.');

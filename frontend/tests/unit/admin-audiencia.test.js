@@ -57,6 +57,22 @@ const semComentarios = (texto) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace
 const GATILHO = /admin\.html|Administração/;
 
 /**
+ * O SEGUNDO gatilho, e ele existe por um efeito colateral que custou um vermelho para aparecer.
+ *
+ * O gatilho acima acha o sítio pelo LITERAL da porta, e essa é a sua força: quem escreve o rótulo
+ * à mão é exatamente quem pode divergir. Mas ele tem o avesso: um sítio que PARA de conter o
+ * literal some da varredura, e some em silêncio. Foi o que aconteceu com `admin/admin-page.js`
+ * quando o título provisório da aba deixou de dizer "Administração" (o produtor lia a palavra do
+ * administrador durante todo o boot). O arquivo continuou sendo o gate de rota da página, continuou
+ * consumindo a definição, e a varredura simplesmente parou de vigiá-lo.
+ *
+ * Daí o segundo sinal: quem IMPORTA a definição também é sítio. Ele não substitui o primeiro, e as
+ * duas asserções abaixo continuam separadas de propósito: o piso conta o conjunto INTEIRO, e a
+ * cobrança de consumo mede só quem entrou pelo literal, senão ela se provaria a si mesma.
+ */
+const GATILHO_DE_CONSUMO = /from '[^']*admin-audience\.js'/;
+
+/**
  * Os DOIS que casam o gatilho e NÃO consomem a função, com o motivo escrito.
  *
  * Sem motivo escrito uma allowlist é só a lista à mão de volta, com um nome melhor.
@@ -84,12 +100,21 @@ function varrerSitios() {
         { cwd: SRC, encoding: 'utf8' });
     return saida.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean)
         .map((rel) => `src/${rel}`)
-        .filter((rel) => GATILHO.test(semComentarios(fonte(rel))))
+        .filter((rel) => {
+            const codigo = semComentarios(fonte(rel));
+            return GATILHO.test(codigo) || GATILHO_DE_CONSUMO.test(codigo);
+        })
         .sort();
 }
 
 const VARRIDOS = varrerSitios();
 const SITIOS = VARRIDOS.filter((rel) => !(rel in DISPENSADOS));
+/**
+ * Os que entraram pelo LITERAL da porta. É este recorte, e não `SITIOS`, que a asserção de consumo
+ * cobra: um arquivo varrido por importar a definição já a consome por construção, e cobrá-lo seria
+ * a cobertura vazia que este arquivo inteiro existe para não ter.
+ */
+const SITIOS_POR_LITERAL = SITIOS.filter((rel) => GATILHO.test(semComentarios(fonte(rel))));
 
 const ADMIN = { isAuthenticated: true, isAdmin: true, isProducer: false };
 const PRODUTOR = { isAuthenticated: true, isAdmin: false, isProducer: true };
@@ -183,6 +208,10 @@ describe('adminAudience — as propriedades estruturais que a função pura não
         // parasse de casar, deixariam as duas asserções abaixo trivialmente satisfeitas.
         expect(VARRIDOS.length, 'a varredura não achou sítio nenhum').toBeGreaterThanOrEqual(4);
         expect(SITIOS.length, 'todos os sítios foram dispensados').toBeGreaterThanOrEqual(4);
+        // E o recorte por literal não pode esvaziar: se ele zerar, a asserção seguinte deixa de
+        // medir o que a definição única existe para impedir, sem ficar vermelha.
+        expect(SITIOS_POR_LITERAL.length, 'nenhum sítio escreve o rótulo da porta')
+            .toBeGreaterThanOrEqual(3);
         for (const rel of Object.keys(DISPENSADOS)) {
             expect(VARRIDOS, `${rel} saiu da varredura: a dispensa virou entrada morta`)
                 .toContain(rel);

@@ -670,6 +670,12 @@ async function initProjectsPage() {
     const appBar = createAppBar({
         logo: EBGEO_LOGO_BASE64,
         title: config?.app?.title || 'EBGeo',
+        // Só id e nome. O SELO DO PAPEL GLOBAL é desenhado pela própria barra, que o lê do
+        // `sessionContext`: `admin.html` monta a mesma barra por `admin/admin-panel.js`, que não
+        // tem como passar campo novo, e um selo que aparecesse aqui e faltasse lá seria a
+        // divergência que a barra compartilhada existe para impedir. O anônimo continua sem
+        // `user`, sem selo e sem "Sair": ele não tem papel, e inventar um diria o que o servidor
+        // não disse.
         user: signedIn ? { id: sessionContext.userId, name: sessionContext.username } : null,
         actions: buildActions(),
         onLogout: signedIn ? () => { endSession(); } : null,

@@ -1114,6 +1114,58 @@
     min-width: 0;
 }
 
+/* ----- Criar grupo sem sair do modal -----
+
+   A linha repete a geometria de `.resource-share__group-row` de propósito: as duas são o
+   MESMO passo do fluxo (escolher um coletivo, ou fabricar o que falta), e formas diferentes
+   ali fariam a criação parecer outra tela. O campo cresce e os botões não, senão o "Criar"
+   escapa da linha no modal estreito. */
+
+.resource-share__group-create {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+}
+
+.resource-share__group-create-input {
+    flex: 1 1 12rem;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    background: var(--white, #fff);
+}
+
+.resource-share__group-create-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+/* A FALHA NÃO PODE PARECER LISTA VAZIA, e é o CSS que carrega metade disso: o bloco tem
+   moldura e um botão de ação, enquanto o vazio é uma dica solta. Duas causas, duas formas. */
+.resource-share__groups-failed {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    border: var(--border-width) solid rgb(245 158 11 / 35%);
+    border-radius: var(--radius-md);
+    background: rgb(245 158 11 / 10%);
+}
+
+.resource-share__groups-failed p {
+    flex: 1 1 14rem;
+    min-width: 0;
+    margin: 0;
+}
+
 /* ----- Empréstimo por atlas (seção do modal de configuração) ----- */
 
 .atlas-config__lend-picker {

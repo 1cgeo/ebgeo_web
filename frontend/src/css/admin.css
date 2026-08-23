@@ -745,6 +745,14 @@
     cursor: default;
 }
 
+/* A autoria da entrada no grupo é PROCEDÊNCIA, não identidade: ela responde "por que este
+   nome está aqui" e não deve competir com o nome da pessoa, que é o que se lê primeiro na
+   linha. Daí o peso menor; o `title` da célula carrega a frase inteira, com a data. */
+.admin-groups__added-by {
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
 /* ===== Aba Auditoria =====
 
    A tela existe para NÃO ser um dump, e o CSS carrega metade dessa decisão: o dia é um

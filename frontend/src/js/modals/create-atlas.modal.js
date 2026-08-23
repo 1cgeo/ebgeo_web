@@ -5,8 +5,8 @@
  *
  * Collects a new atlas NAME plus optional sharing intent BEFORE the atlas exists:
  *   - Public link: a switch; when on, the created atlas is made public (read).
- *   - Add people: a debounced user search; picked users are staged locally with a
- *     read/write permission.
+ *   - Add people: a debounced user search; picked users are staged locally at one of the
+ *     GRANTABLE levels (`projects/permission-levels.js`, every rung below `owner`).
  *
  * Because there is no atlasId yet, sharing is staged locally and handed to the caller via
  * onCreate(name, { isPublic, members }); the caller creates the atlas and applies the public
@@ -25,6 +25,11 @@ import {
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { apiClient } from '@store/sync/api-client.js';
+// Import DIRETO por arquivo, e a razão é a página: `atlas-drive.js`, o corpo de `atlas.html`,
+// importa ESTE modal, e aquela página boota sem a store. `permission-levels.js` tem ZERO
+// imports por contrato (asserido em `frontend/tests/unit/permission-levels.test.js`), então
+// trazê-lo não arrasta nada; um barrel (`@utils`, `@modals`, `@store`) arrastaria.
+import { grantablePermissionOptions, isGrantablePermission } from '@js/projects/permission-levels.js';
 
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -32,13 +37,14 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MIN_CHARS = 2;
 /** Default permission staged when a searched user is picked. */
 const DEFAULT_GRANT_PERMISSION = 'write';
-/** Grantable permission levels (pt-BR labels) — mirrors sharing.modal.js. */
-const PERMISSION_LEVELS = [
-    { value: 'read', label: 'Leitura' },
-    { value: 'comment', label: 'Comentário' },
-    { value: 'write', label: 'Edição' },
-    { value: 'manage', label: 'Gestão' },
-];
+/**
+ * Grantable permission levels (pt-BR labels, ascending access).
+ *
+ * DERIVED from the canonical ladder (`projects/permission-levels.js`), not mirrored from
+ * `sharing.modal.js`: this array was a hand-written copy of that one, which is how the two
+ * screens would come to call the same level by two different names, or offer different levels.
+ */
+const PERMISSION_LEVELS = grantablePermissionOptions();
 
 /** Static SVG icons (currentColor). */
 const ICONS = {
@@ -180,7 +186,7 @@ export class CreateAtlasModal extends ModalBase {
         const userId = String(member?.userId ?? '');
         const nome = member?.nome ?? member?.username ?? '';
         const username = member?.username ?? '';
-        const current = PERMISSION_LEVELS.some((p) => p.value === member?.permission) ? member.permission : 'write';
+        const current = isGrantablePermission(member?.permission) ? member.permission : 'write';
         const color = escapeHtml(getPresenceColor(userId));
         const initials = escapeHtml(getInitials(nome));
         const options = PERMISSION_LEVELS.map((p) =>
@@ -328,7 +334,9 @@ export class CreateAtlasModal extends ModalBase {
      */
     _setMemberPermission(userId, permission) {
         const member = this._members.find((m) => String(m.userId) === String(userId));
-        if (member) member.permission = PERMISSION_LEVELS.some((p) => p.value === permission) ? permission : 'write';
+        // Um valor fora da escada concedível (inclusive `owner`, que não se concede) cai no
+        // padrão em vez de ser encenado: o caller aplica esta lista contra o servidor.
+        if (member) member.permission = isGrantablePermission(permission) ? permission : 'write';
     }
 
     /**

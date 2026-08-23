@@ -7,7 +7,11 @@
  *   - Public link: a toggle that enables/disables an anonymous read link, with a
  *     copy-to-clipboard affordance.
  *   - Members: the list of users the atlas is shared with, each with a permission
- *     select (Leitura/Edição → read/write) and a destructive remove button.
+ *     select over the GRANTABLE levels (`projects/permission-levels.js`: every rung below
+ *     `owner`) and a destructive remove button. Ownership itself moves only through the
+ *     "Tornar dono" button, offered to whoever the server resolves as owner of this atlas
+ *     ({@link serverTreatsAsAtlasOwner}: the owner, plus the GLOBAL administrator, whom
+ *     `requireAtlasPermission` short-circuits to `owner` on every atlas).
  *   - Add people: a debounced user search; picking a result grants 'read' (Leitura) by default
  *     (DEFAULT_GRANT_PERMISSION — "default lowers, never raises"; elevate via the member dropdown).
  *
@@ -57,6 +61,19 @@ import { accessLossClause, groupOptionLabel } from '@js/catalog/grant-tree.js';
 // de atlas consultam; `frontend/tests/unit/admin-audiencia.test.js` varre o versionamento e
 // reprova quem escreve o rótulo sem consultá-la.
 import { adminAudience } from '@js/admin/admin-audience.js';
+// A ESCADA DE PERMISSÃO POR ATLAS VEM DE UM LUGAR SÓ. Este arquivo mantinha o próprio array de
+// quatro níveis e fazia aritmética de posto com `findIndex` sobre ele, o que é uma segunda
+// implementação da hierarquia que a arquitetura declara existir uma vez só. Import DIRETO por
+// arquivo (não pelo barrel `@js/projects`, que nem existe): o módulo tem ZERO imports de
+// propósito, porque `create-atlas.modal.js`, seu vizinho, é importado por `atlas-drive.js`, o
+// corpo de `atlas.html`, que boota sem a store.
+import {
+    getPermissionLabel,
+    grantablePermissionOptions,
+    isGrantablePermission,
+    permissionRank,
+    serverTreatsAsAtlasOwner,
+} from '@js/projects/permission-levels.js';
 
 /**
  * The message to show for a failed sharing mutation: the SERVER's explanation when it sent one,
@@ -218,6 +235,35 @@ export function selectableGroups(administrados, jaNoAtlas) {
 }
 
 /**
+ * A DICA DO SELETOR quando não há grupo nenhum a oferecer, e ela nunca pode ser silêncio: uma
+ * seção sem controle nenhum lê como "esta função não existe".
+ *
+ * SÃO DOIS MOTIVOS DIFERENTES para a mesma ausência, e a frase precisa distingui-los: quem
+ * administra grupos e já pôs todos neste atlas não tem nada a fazer, e quem não administra
+ * nenhum tem uma ação, criar um.
+ *
+ * O DESTINO É O RÓTULO CALCULADO, nunca a palavra "Grupos": a porta se chama "Administração"
+ * para o administrador, "Catálogo" para o produtor e "Grupos" para o resto de quem entrou
+ * (`adminAudience`, `js/admin/admin-audience.js`). Escrever o rótulo fixo mandaria três das
+ * quatro audiências procurar um botão com outro nome. Sem porta (visitante anônimo, ou de link
+ * público) a frase simplesmente não indica destino, em vez de indicar um inexistente.
+ *
+ * Pura, e exportada por isso: é a parte desta dica que se verifica em node.
+ * @param {number} administrados - quantos grupos o chamador administra.
+ * @param {string|null} porta - o rótulo de `adminAudience`, ou `null` para quem não abre a página.
+ * @returns {string}
+ */
+export function sharingGroupPickerHint(administrados, porta) {
+    const quantos = Number(administrados);
+    if (Number.isFinite(quantos) && quantos > 0) {
+        return 'Todos os seus grupos já estão neste atlas.';
+    }
+    const destino = typeof porta === 'string' && porta.trim() ? porta.trim() : null;
+    const onde = destino ? ` Crie um em ${destino}.` : '';
+    return `Só é possível compartilhar com grupos que você administra.${onde}`;
+}
+
+/**
  * As `<option>` do seletor de nível de UMA linha de grupo, já com o que está SELECIONADO e o
  * que está DESABILITADO.
  *
@@ -237,22 +283,58 @@ export function selectableGroups(administrados, jaNoAtlas) {
  * Pura — sem DOM, sem I/O, sem `sessionContext`: quem responde "eu administro este grupo?"
  * é o chamador, porque a resposta envolve o papel GLOBAL de administrador, que é outro eixo.
  *
+ * A ARITMÉTICA DE POSTO É `permissionRank`, e não um `findIndex` sobre uma lista local: a
+ * hierarquia por atlas tem UMA implementação neste repositório (`projects/permission-levels.js`),
+ * e um índice de array é uma segunda, que diverge no dia em que a escada ganhar um degrau.
+ *
  * @param {{permission?: string, ownerId?: string}} group - a linha de grupo do payload.
  * @param {{userId?: string|null, isAdmin?: boolean}} sessao
  * @returns {Array<{value: string, label: string, selected: boolean, disabled: boolean}>}
  */
 export function groupLevelOptions(group, sessao = {}) {
-    const indice = PERMISSION_LEVELS.findIndex((p) => p.value === group?.permission);
-    const atual = indice >= 0 ? indice : 0;
-    const dono = group?.ownerId ? String(group.ownerId) : null;
-    const administra = Boolean(sessao?.isAdmin)
-        || (dono !== null && sessao?.userId != null && dono === String(sessao.userId));
-    return PERMISSION_LEVELS.map((p, i) => ({
+    // NÍVEL DESCONHECIDO (ou `owner`, que não é concedível) normaliza para o menor: falha
+    // fechada, e evita um `<select>` sem seleção nenhuma.
+    const atual = isGrantablePermission(group?.permission) ? group.permission : 'read';
+    const posto = permissionRank(atual);
+    const administra = podeAdministrarGrupo(group, sessao);
+    return PERMISSION_LEVELS.map((p) => ({
         value: p.value,
         label: p.label,
-        selected: i === atual,
-        disabled: !administra && i > atual,
+        selected: p.value === atual,
+        disabled: !administra && permissionRank(p.value) > posto,
     }));
+}
+
+/**
+ * "ESTA SESSÃO ADMINISTRA ESTE GRUPO?", DA FORMA OTIMISTA QUE O CLIENTE CONSEGUE RESPONDER.
+ *
+ * A autoridade é do servidor e mora em `fn_can_administer_group` (função SQL declarada na
+ * baseline de acesso a recurso), que exige TRÊS coisas: o grupo vivo, e então ou o papel global
+ * de administrador, ou ser dono do grupo E `fn_principal_vivo` desse dono (conta ativa e
+ * organização ativa).
+ *
+ * ESTA CÓPIA OMITE A LIVENESS, e a omissão é declarada em vez de disfarçada: o payload de
+ * `GET /sharing` traz `ownerId`, `ownerNome` e `ownerUsername`, e NENHUM campo que diga se
+ * aquele principal continua vivo (a consulta que monta a linha de grupo não o seleciona). Não
+ * há como espelhar o predicado inteiro daqui; inventar um campo seria pior.
+ *
+ * A CONSEQUÊNCIA É DE UM LADO SÓ, e é a tolerável: quem tiver a conta ou a OM desativada entre
+ * dois carregamentos vê o `<select>` oferecer uma subida que o servidor recusa com 404, e a
+ * recusa chega como frase do servidor por `sharingErrorMessage`. O erro na direção contrária
+ * (esconder uma ação que o servidor aceitaria) não acontece, porque a condição que falta só
+ * pode ESTREITAR a resposta do servidor. Nada aqui é fronteira de segurança.
+ *
+ * @param {{ownerId?: string}} group
+ * @param {{userId?: string|null, isAdmin?: boolean}} sessao - `isAdmin` é o papel GLOBAL.
+ * @returns {boolean}
+ */
+export function podeAdministrarGrupo(group, sessao = {}) {
+    if (sessao?.isAdmin === true) return true;
+    const dono = group?.ownerId != null && group.ownerId !== '' ? String(group.ownerId) : null;
+    // Os dois nulos NÃO se encontram: sessão sem identidade num grupo sem dono não administra.
+    if (dono === null || sessao?.userId == null) return false;
+    // Comparação por String: o id vem do JSON da rede e pode chegar como número.
+    return dono === String(sessao.userId);
 }
 
 /** Debounce (ms) for the user-search input. */
@@ -267,13 +349,15 @@ const COPY_FEEDBACK_MS = 1800;
  * explicit, deliberate raise via the member dropdown, never an accident of inviting someone.
  */
 const DEFAULT_GRANT_PERMISSION = 'read';
-/** Permission levels offered in the member dropdown (pt-BR labels, ascending access). */
-const PERMISSION_LEVELS = [
-    { value: 'read', label: 'Leitura' },
-    { value: 'comment', label: 'Comentário' },
-    { value: 'write', label: 'Edição' },
-    { value: 'manage', label: 'Gestão' },
-];
+/**
+ * Permission levels offered in the member dropdown (pt-BR labels, ascending access).
+ *
+ * DERIVED from the canonical ladder, never written out here: it used to be a literal array of
+ * four `{value, label}` pairs, and an identical one lived in `create-atlas.modal.js` plus two
+ * more copies of the same value list in `applyAtlasSharing`. A rung added to the ladder now
+ * reaches this dropdown by itself.
+ */
+const PERMISSION_LEVELS = grantablePermissionOptions();
 
 /**
  * O QUE O SERVIDOR DE FATO APLICA, quando isso é MAIOR que a linha desta pessoa.
@@ -296,10 +380,13 @@ const PERMISSION_LEVELS = [
  * @returns {{label: string}|null} o rótulo do nível efetivo, ou null quando não há excedente
  */
 export function excedenteDeGrupo(share) {
-    const linha = PERMISSION_LEVELS.findIndex((p) => p.value === share?.permission);
-    const efetiva = PERMISSION_LEVELS.findIndex((p) => p.value === share?.effectivePermission);
-    if (efetiva < 0 || linha < 0 || efetiva <= linha) return null;
-    return { label: PERMISSION_LEVELS[efetiva].label };
+    const linha = share?.permission;
+    const efetiva = share?.effectivePermission;
+    // Os DOIS precisam ser níveis concedíveis. `owner` não é (não se concede posse por caminho
+    // nenhum), e um payload velho chega sem `effectivePermission`: nos dois casos, sem selo.
+    if (!isGrantablePermission(linha) || !isGrantablePermission(efetiva)) return null;
+    if (permissionRank(efetiva) <= permissionRank(linha)) return null;
+    return { label: getPermissionLabel(efetiva) };
 }
 
 /**
@@ -395,6 +482,14 @@ export class SharingModal extends ModalBase {
         this._overlay.dataset.testid = 'sharing-modal';
         this.getContainer().classList.add('sharing-modal-container');
 
+        // O CACHE DE GRUPOS MORRE A CADA ABERTURA, e é aqui que ele morre. `render()` é o
+        // ponto de entrada de UMA abertura (`showSharingModal` chama render + show; uma
+        // instância reusada via `toggle()` volta por aqui também, porque `destroyOnHide`
+        // desmontou o corpo), então zerar aqui é o que torna a releitura uma propriedade e
+        // não um acidente de o chamador construir uma instância nova. DENTRO da abertura o
+        // cache continua de pé de propósito: ver `_loadMyGroups`.
+        this._myGroups = null;
+
         const body = this.getBody();
         body.innerHTML = this._renderLoading();
 
@@ -464,7 +559,14 @@ export class SharingModal extends ModalBase {
     /**
      * @private Lê os grupos que o chamador ADMINISTRA, para o seletor.
      *
-     * UMA VEZ POR ABERTURA, e não a cada `_load()`. `_load()` roda depois de toda mutação, e
+     * UMA VEZ POR ABERTURA, e não a cada `_load()`, e as duas metades dessa frase são regras
+     * separadas: quem garante o "por abertura" é o `this._myGroups = null` de `render()`, sem o
+     * qual a releitura dependia de o chamador construir uma instância nova; quem garante o "não
+     * a cada `_load()`" é o early-return abaixo. Um grupo criado em outra aba entre duas
+     * aberturas aparece; criado no meio de UMA abertura, não, e o preço de buscá-lo seria uma
+     * requisição por mutação mais o re-render fora de ordem descrito a seguir.
+     *
+     * `_load()` roda depois de toda mutação, e
      * esta função re-renderiza o corpo quando termina: refazê-la a cada vez traria um
      * `_renderBody()` fora de ordem, capaz de aterrissar enquanto a pessoa digita na busca de
      * pessoas e arrancar o campo debaixo dela. O que muda entre duas mutações é QUAIS grupos
@@ -690,13 +792,20 @@ export class SharingModal extends ModalBase {
         const userId = String(share?.userId ?? '');
         const nome = share?.nome ?? share?.username ?? '';
         const username = share?.username ?? '';
-        const current = PERMISSION_LEVELS.some((p) => p.value === share?.permission) ? share.permission : 'read';
+        const current = isGrantablePermission(share?.permission) ? share.permission : 'read';
         const excedente = excedenteDeGrupo(share);
         const options = PERMISSION_LEVELS.map((p) =>
             `<option value="${p.value}"${current === p.value ? ' selected' : ''}>${p.label}</option>`
         ).join('');
-        // Only the current owner may hand ownership to a member.
-        const transferBtn = sessionContext.role === 'owner'
+        // Quem pode passar a posse adiante é quem o SERVIDOR trata como dono deste atlas, e são
+        // dois casos, não um: o dono e o administrador GLOBAL, que `toFrontendRole` dobra para
+        // dentro da mesma escada. `POST /atlas/:atlasId/transfer` é gateado em
+        // `requireAtlasPermission('owner')`, e aquele middleware resolve o administrador global
+        // como `owner` em qualquer atlas — ou seja, a rota já aceitava a transferência que esta
+        // tela não oferecia. O predicado é NOMEADO e mora em `permission-levels.js` de propósito:
+        // `account.control.js` respondia a mesma pergunta com uma lista fechada própria, e duas
+        // listas fechadas para um gate só é como elas divergem.
+        const transferBtn = serverTreatsAsAtlasOwner(sessionContext.role)
             ? `<button type="button" class="sharing-member__transfer" data-action="transfer"
                         data-testid="sharing-member-transfer" aria-label="Tornar ${escapeHtml(nome)} o dono">Tornar dono</button>`
             : '';
@@ -819,10 +928,7 @@ export class SharingModal extends ModalBase {
                 isAdmin: sessionContext.isAdmin(),
                 isProducer: sessionContext.isProducer(),
             });
-            const onde = porta ? ` Crie um em ${porta}.` : '';
-            const frase = this._myGroups.length
-                ? 'Todos os seus grupos já estão neste atlas.'
-                : `Só é possível compartilhar com grupos que você administra.${onde}`;
+            const frase = sharingGroupPickerHint(this._myGroups.length, porta);
             return `<p class="sharing-group__hint" data-testid="sharing-group-hint">${escapeHtml(frase)}</p>`;
         }
         const options = disponiveis.map((g) =>
@@ -1120,7 +1226,9 @@ export class SharingModal extends ModalBase {
     }
 
     /**
-     * @private Transfers ownership to a member (owner-only). After a confirmation, calls the API
+     * @private Transfers ownership to a member. Offered to whoever the server resolves as owner
+     * of this atlas (the owner, and the global administrator by short-circuit — see
+     * `serverTreatsAsAtlasOwner`). After a confirmation, calls the API
      * and re-reads the config. The current user stops being the owner (becomes a Gestor); the WS
      * `atlas_owner_changed` broadcast re-gates the rest of the UI.
      * @param {string} userId

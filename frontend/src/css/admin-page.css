@@ -23,5 +23,9 @@
    which reuses the shared .modal-overlay/.modal-container/.confirm-modal-* rules. */
 @import url('./modals-redesign.css');
 
+/* "Minha conta" (modals/account-settings.modal.js) is opened from all three pages that
+   have a top bar, so its rules are imported by all three manifests. */
+@import url('./account-settings.css');
+
 /* ===== The page itself ===== */
 @import url('./admin.css');

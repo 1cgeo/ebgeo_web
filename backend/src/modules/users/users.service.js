@@ -58,6 +58,14 @@ const PAPEIS_DE_DADO_GLOBAL = new Set(['admin', 'credenciado']);
  * (carimbar o fundamento na linha da concessao) custa coluna nova e uma segunda
  * definicao de autoridade, escrita no INSERT, para envelhecer separada desta.
  *
+ * EXISTE UM ESPELHO NO CLIENTE, e quem mexer aqui precisa saber disso:
+ * `frontend/src/js/admin/producer-scope-phrases.js` reimplementa esta decisao para saber
+ * SE deve pedir confirmacao antes do PUT. Ele nao impoe nada (a imposicao e aqui, e o
+ * toast pos-acao relata os numeros que ESTE servico devolve), mas um espelho que derive
+ * volta a deixar o administrador sem aviso, que e o defeito de 2026-08-23. Nao ha teste
+ * ligando os dois: o espelho e um modulo folha de zero imports e este arquivo puxa banco
+ * e bcrypt, entao o par se mantem por leitura. Mude os dois no mesmo commit.
+ *
  * `is_active` NAO ENTRA AQUI: desativar por este PUT e recusado com 409 mais acima, e
  * quem desativa (`deleteUser`) tem a poda dele, com origem propria.
  * `organization_id` tambem nao: lotacao e auto-declarada no cadastro e nao autoriza nada.
@@ -491,7 +499,21 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
     // se um chamador futuro omitir o ator, `audit_trail.actor_id` e NOT NULL e a
     // transacao inteira falha em voz alta, que e a direcao certa do erro — nunca podar
     // sem deixar registro.
+    //
+    // O EFEITO VOLTA NA RESPOSTA, e nao so na trilha. Ate 2026-08-23 este PUT devolvia a
+    // linha atualizada e mais nada: a tela dizia "Usuario atualizado." depois de ter
+    // destruido N concessoes, e o administrador nao tinha como saber. Os numeros sao os
+    // que `podarPorRaizes` ja devolve, propagados pelas MESMAS chaves do irmao que ja faz
+    // isso certo (`deleteGroup`, em `access-groups.service.js`): `grantsAffected` conta a
+    // poda inteira (raizes mais descendentes) e `grantsReparented` conta quem MANTEVE o
+    // acesso por outro caminho, com prazo igual ou aparado. Sem o segundo, um
+    // `grantsAffected` menor que o esperado parece poda incompleta.
+    //
+    // ELES VIAJAM SEMPRE, com zero quando nao houve poda: a tela precisa distinguir
+    // "nenhuma caiu" de "o servidor nao me disse", e um campo que so aparece as vezes faz
+    // as duas coisas terem a mesma cara do lado do cliente.
     const fundamentoPerdido = fundamentoDeRaizPerdido(existing, atualizado);
+    const efeitoDaPoda = { grantsAffected: 0, grantsReparented: 0, fundamentoPerdido };
     if (fundamentoPerdido) {
       const raizes = await t.any(LIVE_GRANT_IDS_BY_GRANTER, [userId]);
       // `origem` E O QUE SEPARA ISTO DE UMA REVOGACAO DELIBERADA na trilha, no espirito
@@ -502,12 +524,14 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       // de `audit_trail.action` e no censo — nao ha valor novo de CHECK, logo nao ha
       // migracao. O fundamento perdido nao entra aqui de proposito: quem quer saber O QUE
       // mudou tem `ROLE_CHANGE`/`PRODUCER_SCOPE_CHANGE` na MESMA transacao, com from/to.
-      await podarPorRaizes({
+      const { revoked, reparented, trimmed } = await podarPorRaizes({
         raizes, actor: { id: actingUserId }, req, trx: t, origem: 'USER_DEMOTION',
       });
+      efeitoDaPoda.grantsAffected = revoked.length;
+      efeitoDaPoda.grantsReparented = reparented.length + trimmed.length;
     }
 
-    return atualizado;
+    return { ...atualizado, ...efeitoDaPoda };
   });
 }
 

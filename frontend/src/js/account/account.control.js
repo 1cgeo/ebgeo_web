@@ -44,6 +44,14 @@ import { sessionContext } from '@store/sync/session-context.js';
 // Do ARQUIVO, folha e sem imports: é a definição única das audiências de `admin.html`,
 // compartilhada com a própria página e com o seletor de atlas.
 import { adminAudience } from '@js/admin/admin-audience.js';
+// Os rótulos do eixo GLOBAL, de um módulo folha e sem imports: é a única fonte deles fora da aba
+// de administração, que nomeia o papel dos OUTROS.
+import { globalRoleBadge } from '@ui/role-labels.js';
+// A ÚNICA implementação da escada por atlas neste repositório (cinco valores do servidor). Nunca
+// uma lista fechada: `perm === 'write' || perm === 'owner'` já excluiu `manage` em silêncio duas vezes.
+import { getPermissionLabel } from '@js/projects/permission-levels.js';
+// A resolução id → nome de OM da casa, sobre o payload de `GET /api/config`.
+import { orgLabel } from '@js/admin/org-options.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { showSharingModal } from '@modals/sharing.modal.js';
@@ -62,6 +70,8 @@ const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
 const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="10" r="2.5"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>';
+const ICON_ACCOUNT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>';
+const ICON_CALIBRATION = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>';
 const ICON_PROJECTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>';
 
 /**
@@ -292,6 +302,18 @@ export class AccountControl {
         this._saveToServerBtn = null;
         /** @type {HTMLButtonElement|null} The "Excluir atlas" menu item (owner/admin + connected). */
         this._deleteAtlasBtn = null;
+        /** @type {HTMLButtonElement|null} The "Minha conta" menu item (any signed-in user). */
+        this._accountBtn = null;
+        /** @type {HTMLButtonElement|null} The "Calibração 360" menu item (global admin or producer). */
+        this._calibrationBtn = null;
+        /** @type {HTMLElement|null} Global-role badge (word + explaining title + producing OM). */
+        this._roleLabel = null;
+        /** @type {HTMLElement|null} The badge's word. */
+        this._roleName = null;
+        /** @type {HTMLElement|null} The producing OM, shown only for a producer. */
+        this._roleOrg = null;
+        /** @type {HTMLElement|null} This user's level on the CONNECTED atlas (server vocabulary). */
+        this._atlasLevelEl = null;
         /** @type {boolean} Whether the account menu is open. */
         this._open = false;
         /** @type {((event: Event) => void)|null} Document-level dismiss handler. */
@@ -346,6 +368,23 @@ export class AccountControl {
         this._userLabel.setAttribute('data-testid', 'account-user');
         this._menu.appendChild(this._userLabel);
 
+        // O PAPEL GLOBAL DE QUEM ESTÁ AQUI, que nenhuma das quatro páginas mostrava. Uma palavra
+        // com `title` explicando o que ela permite, mais a OM de produção quando houver: era o
+        // único jeito de um produtor descobrir que pode calibrar, ou um credenciado entender por
+        // que enxerga recurso que o colega não enxerga. O anônimo não ganha selo nenhum.
+        this._roleLabel = document.createElement('span');
+        this._roleLabel.className = 'account-control__role';
+        this._roleLabel.setAttribute('data-testid', 'account-role');
+        this._roleLabel.hidden = true;
+        this._roleName = document.createElement('span');
+        this._roleName.className = 'account-control__role-name';
+        this._roleOrg = document.createElement('span');
+        this._roleOrg.className = 'account-control__role-org';
+        this._roleOrg.hidden = true;
+        this._roleLabel.appendChild(this._roleName);
+        this._roleLabel.appendChild(this._roleOrg);
+        this._menu.appendChild(this._roleLabel);
+
         // Current-atlas context: a muted caption + the atlas name (truncated). Resolved
         // lazily on open from the project list (no synchronous source for the name).
         this._atlasLabel = document.createElement('span');
@@ -357,9 +396,28 @@ export class AccountControl {
         atlasCaption.textContent = 'Atlas atual';
         this._atlasNameEl = document.createElement('span');
         this._atlasNameEl.className = 'account-control__atlas-name';
+        // O MEU NÍVEL NESTE ATLAS, ao lado do nome. Em `atlas.html` o selo já existia; com o atlas
+        // aberto no mapa, o único sinal de estar em leitura era a ausência das barras de ferramenta.
+        // Só para atlas de SERVIDOR: o atlas local não tem nível.
+        this._atlasLevelEl = document.createElement('span');
+        this._atlasLevelEl.className = 'account-control__atlas-level';
+        this._atlasLevelEl.setAttribute('data-testid', 'account-atlas-level');
+        this._atlasLevelEl.hidden = true;
         this._atlasLabel.appendChild(atlasCaption);
         this._atlasLabel.appendChild(this._atlasNameEl);
+        this._atlasLabel.appendChild(this._atlasLevelEl);
         this._menu.appendChild(this._atlasLabel);
+
+        // "Minha conta" — os dados da própria conta, num modal carregado sob demanda. Qualquer
+        // sessão autenticada.
+        this._accountBtn = document.createElement('button');
+        this._accountBtn.type = 'button';
+        this._accountBtn.className = 'account-control__btn account-control__btn--account';
+        this._accountBtn.setAttribute('role', 'menuitem');
+        this._accountBtn.setAttribute('data-testid', 'account-settings-btn');
+        setMenuButtonContent(this._accountBtn, ICON_ACCOUNT, 'Minha conta');
+        this._accountBtn.hidden = true;
+        this._menu.appendChild(this._accountBtn);
 
         // "Seus atlas" — back to the chooser page. Shown to anyone signed in: it is the way
         // OUT of the current atlas (and out of the local map) without logging out, which the menu
@@ -406,6 +464,21 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
+        // A PORTA DO ESTÚDIO DE CALIBRAÇÃO 360, que não era linkada de lugar nenhum: a página era
+        // gateada por `isAdmin() || isProducer()` e só se chegava a ela digitando a URL. O gate
+        // desenhado aqui é o MESMO par de chamadas de `calibracao-page.js`, nunca uma cópia do
+        // predicado; quem recusa a escrita continua sendo o servidor, por OM dona do projeto.
+        this._calibrationBtn = document.createElement('button');
+        this._calibrationBtn.type = 'button';
+        this._calibrationBtn.className = 'account-control__btn account-control__btn--calibration';
+        this._calibrationBtn.setAttribute('role', 'menuitem');
+        this._calibrationBtn.setAttribute('data-testid', 'account-calibration-btn');
+        setMenuButtonContent(this._calibrationBtn, ICON_CALIBRATION, 'Calibração 360');
+        this._calibrationBtn.title =
+            'Abrir o estúdio de calibração 360: alinhar as fotos esféricas dos projetos que você mantém';
+        this._calibrationBtn.hidden = true;
+        this._menu.appendChild(this._calibrationBtn);
+
         // A PORTA DA PÁGINA DE ADMINISTRAÇÃO. O rótulo muda com a audiência
         // (`_updateAdminVisibility`, que consulta `adminAudience`): "Administração" para o
         // administrador global, "Catálogo" para o produtor e "Grupos" para qualquer outra sessão
@@ -438,6 +511,8 @@ export class AccountControl {
         addDomListener(this, this._projectsBtn, 'click', () => this._handleOpenProjects());
         addDomListener(this, this._saveToServerBtn, 'click', () => this.saveLocalToServer());
         addDomListener(this, this._deleteAtlasBtn, 'click', () => this._handleDeleteAtlas());
+        addDomListener(this, this._accountBtn, 'click', () => this._handleOpenAccountSettings());
+        addDomListener(this, this._calibrationBtn, 'click', () => this._handleOpenCalibration());
         addDomListener(this, this._adminBtn, 'click', () => this._handleOpenAdmin());
         addDomListener(this, this._logoutBtn, 'click', () => this._handleLogout());
 
@@ -470,7 +545,13 @@ export class AccountControl {
         subscribe(this, getEventBus(), EventTypes.ATLAS_DELETED_REMOTE, () => this._handleRemoteAtlasDeleted());
         // Ownership changed (this user gained/lost ownership, or a peer did) — re-gate the menu:
         // Excluir/Compartilhar visibility depend on the role, which the sync engine already updated.
-        subscribe(this, getEventBus(), EventTypes.ATLAS_OWNER_CHANGED, () => this._render());
+        subscribe(this, getEventBus(), EventTypes.ATLAS_OWNER_CHANGED, () => {
+            // O cache guarda TAMBÉM o meu nível neste atlas, e é justamente ele que acabou de
+            // mudar: mantê-lo faria o selo continuar anunciando o posto anterior até a próxima
+            // troca de atlas. Descartar força a releitura na abertura seguinte do menu.
+            this._atlasCache = null;
+            this._render();
+        });
 
         this._render();
 
@@ -519,10 +600,13 @@ export class AccountControl {
         if (this._avatarBtn) {
             this._avatarBtn.setAttribute('title', loggedIn ? name : '');
         }
+        this._updateRoleBadge();
         this._updateShareVisibility();
         this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
+        this._updateAccountSettingsVisibility();
+        this._updateCalibrationVisibility();
         this._updateAdminVisibility();
         // Logging out (or switching identity) must never leave the menu open.
         if (!loggedIn) {
@@ -549,10 +633,13 @@ export class AccountControl {
         this._menu.hidden = false;
         this._container?.setAttribute('data-menu-open', 'true');
         this._avatarBtn?.setAttribute('aria-expanded', 'true');
+        this._updateRoleBadge();
         this._updateShareVisibility();
         this._updateProjectsVisibility();
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
+        this._updateAccountSettingsVisibility();
+        this._updateCalibrationVisibility();
         this._updateAdminVisibility();
         // Resolve the current atlas name lazily (fire-and-forget).
         this._renderAtlasName();
@@ -571,17 +658,22 @@ export class AccountControl {
             return;
         }
         if (this._atlasCache && this._atlasCache.id === atlasId) {
-            this._applyAtlasName(this._atlasCache.name);
+            this._applyAtlasName(this._atlasCache.name, this._atlasCache.permission);
             return;
         }
         try {
             const projects = await apiClient.listAtlas();
-            const name = Array.isArray(projects)
-                ? (projects.find((p) => p && p.id === atlasId)?.name ?? null)
+            const entry = Array.isArray(projects)
+                ? (projects.find((p) => p && p.id === atlasId) ?? null)
                 : null;
-            this._atlasCache = { id: atlasId, name };
+            const name = entry?.name ?? null;
+            // `user_permission` é o contrato do SERVIDOR (cinco valores em escada), a mesma coluna
+            // que o cartão do Drive desenha. Não é `sessionContext.role`, que é o vocabulário do
+            // cliente (seis valores, com o `admin` global dobrado para dentro).
+            const permission = entry?.user_permission ?? null;
+            this._atlasCache = { id: atlasId, name, permission };
             // Guard against a close/identity-change while the fetch was in flight.
-            if (syncEngine.atlasId === atlasId) this._applyAtlasName(name);
+            if (syncEngine.atlasId === atlasId) this._applyAtlasName(name, permission);
         } catch {
             this._atlasLabel.hidden = true;
         }
@@ -589,9 +681,12 @@ export class AccountControl {
 
     /**
      * @param {string|null} name
+     * @param {string|null} [permission] - The atlas-axis level, as the server names it. An
+     *   unrecognized value degrades to its RAW text (`getPermissionLabel`), like the Drive's chip:
+     *   a badge reading `superuser` is a legible surprise, no badge is a silent one.
      * @private
      */
-    _applyAtlasName(name) {
+    _applyAtlasName(name, permission = null) {
         if (!this._atlasLabel || !this._atlasNameEl) return;
         if (name) {
             this._atlasNameEl.textContent = name;
@@ -600,6 +695,49 @@ export class AccountControl {
         } else {
             this._atlasLabel.hidden = true;
         }
+        if (this._atlasLevelEl) {
+            const nivel = getPermissionLabel(permission);
+            this._atlasLevelEl.textContent = nivel;
+            this._atlasLevelEl.setAttribute('title', nivel
+                ? `Seu nível neste atlas: ${nivel}`
+                : '');
+            this._atlasLevelEl.hidden = nivel === '';
+        }
+    }
+
+    /**
+     * Desenha o selo do papel GLOBAL: uma palavra, o `title` que diz o que ela permite, e a OM de
+     * produção quando houver.
+     *
+     * O ANÔNIMO NÃO GANHA SELO. `globalRoleBadge` devolve null quando não há papel, e é assim que
+     * tem de ser: o visitante não tem papel, e escrever "Visitante" seria afirmar o que o servidor
+     * nunca disse. Papel desconhecido (um valor que o servidor passe a emitir depois deste build)
+     * aparece cru, com uma frase dizendo que o app não o conhece, em vez de sumir ou virar
+     * "Usuário".
+     *
+     * Os quatro rótulos vêm de `ui/role-labels.js`, folha e sem imports, para que as páginas sem
+     * mapa possam usá-los sem arrastar a store.
+     * @private
+     */
+    _updateRoleBadge() {
+        if (!this._roleLabel || !this._roleName || !this._roleOrg) return;
+        const orgId = sessionContext.producerOrgId;
+        // '' e não '—' quando a OM não resolve: o traço é o vazio da tabela do admin, e num selo
+        // ele leria como se a OM se chamasse assim.
+        const orgName = orgId ? orgLabel(orgId, '') : '';
+        const badge = sessionContext.isAuthenticated()
+            ? globalRoleBadge(sessionContext.globalRole, { orgName })
+            : null;
+        if (!badge) {
+            this._roleLabel.hidden = true;
+            return;
+        }
+        this._roleName.textContent = badge.label;
+        this._roleLabel.setAttribute('title', badge.title);
+        this._roleLabel.hidden = false;
+        const mostraOm = !!orgName && sessionContext.isProducer();
+        this._roleOrg.textContent = mostraOm ? orgName : '';
+        this._roleOrg.hidden = !mostraOm;
     }
 
     /**
@@ -653,6 +791,55 @@ export class AccountControl {
         const canDelete = !!syncEngine.atlasId
             && (sessionContext.role === 'owner' || sessionContext.role === 'admin');
         this._deleteAtlasBtn.hidden = !canDelete;
+    }
+
+    /**
+     * "Minha conta" aparece para qualquer sessão autenticada, e para mais ninguém: sem conta não
+     * há o que ajustar.
+     * @private
+     */
+    _updateAccountSettingsVisibility() {
+        if (!this._accountBtn) return;
+        this._accountBtn.hidden = !sessionContext.isAuthenticated();
+    }
+
+    /**
+     * Mostra a porta da calibração 360 a quem o gate da PRÓPRIA PÁGINA aceita.
+     *
+     * O PREDICADO NÃO É REIMPLEMENTADO: é o mesmo par de chamadas de `calibracao-page.js`, no eixo
+     * GLOBAL (`isProducer()` já exige o escopo de produção, porque no banco crachá e escopo são um
+     * bicondicional). Uma cópia que divergisse ofereceria uma porta que redireciona de volta para o
+     * mapa, ou esconderia do produtor a página que existe para o trabalho dele.
+     * @private
+     */
+    _updateCalibrationVisibility() {
+        if (!this._calibrationBtn) return;
+        this._calibrationBtn.hidden = !(sessionContext.isAdmin() || sessionContext.isProducer());
+    }
+
+    /** @private Fecha o menu e abre o estúdio de calibração 360 (navegação real, outra página). */
+    _handleOpenCalibration() {
+        this._closeMenu();
+        window.location.assign('./calibracao.html');
+    }
+
+    /**
+     * Abre "Minha conta" — os dados da própria conta, num modal carregado SOB DEMANDA.
+     *
+     * O `import()` é dinâmico porque o modal é uma tela rara, e é PROTEGIDO porque um módulo que
+     * não carregue (build parcial, rede caída no chunk) não pode derrubar o menu inteiro: o pior
+     * caso é uma frase dizendo que não deu.
+     * @private
+     */
+    async _handleOpenAccountSettings() {
+        this._closeMenu();
+        try {
+            const { showAccountSettingsModal } = await import('@modals/account-settings.modal.js');
+            await showAccountSettingsModal();
+        } catch (error) {
+            console.error('[AccountControl] account settings modal failed:', error);
+            showError('Não foi possível abrir "Minha conta" agora.');
+        }
     }
 
     /**
@@ -1227,6 +1414,12 @@ export class AccountControl {
         this._projectsBtn = null;
         this._deleteAtlasBtn = null;
         this._adminBtn = null;
+        this._accountBtn = null;
+        this._calibrationBtn = null;
+        this._roleLabel = null;
+        this._roleName = null;
+        this._roleOrg = null;
+        this._atlasLevelEl = null;
         this._saveToServerBtn = null;
         this._onDocPointerDown = null;
         this._onKeyDown = null;

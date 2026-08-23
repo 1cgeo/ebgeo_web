@@ -28,6 +28,10 @@
 @import url('./modals-redesign.css');
 @import url('./account.css');
 
+/* "Minha conta" (modals/account-settings.modal.js) is opened from all three pages that
+   have a top bar, so its rules are imported by all three manifests. */
+@import url('./account-settings.css');
+
 /* admin.css is NOT imported here: Administração is its own page (admin.html → admin-page.css). */
 @import url('./idle-timeout.css');
 
