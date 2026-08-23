@@ -25,6 +25,10 @@ import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 vi.mock('../../src/vendor/three/three.module.js', () => ({
     SRGBColorSpace: 'srgb',
     LinearFilter: 1006,
+    // O carregador fecha a emenda da equirretangular com wrapS de
+    // repeticao: sem estas duas o mock estoura em vez de medir.
+    RepeatWrapping: 1000,
+    ClampToEdgeWrapping: 1001,
     Vector2: class {
         constructor(x, y) { this.x = x; this.y = y; }
     },
