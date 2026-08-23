@@ -6,18 +6,23 @@
  * search, plus per-card actions. WHICH actions is {@link cardMenuActions}, a pure function, and the
  * list here would be a second copy of it that ages: read that one.
  *
- * SHARING CANNOT BE ADMINISTERED FROM THIS PAGE, and that is a MEASUREMENT, not an oversight.
- * `modals/sharing.modal.js` is the screen that grants and revokes, and it cannot be loaded here:
- * walking its import graph on 2026-08-23 reached 188 modules against this page's 50, including
- * `@store/services.js` (and through it `store/store.js`, `store/index.js`, `layers/index.js`,
- * `state/index.js`, `tool_manager/index.js`, `@utils/index.js`), plus `@modals/index.js` and
- * `@store/sync/sync-engine.js`. And the weight is the smaller half: its `render()` calls
- * `getEventBus()`, which throws when `initServices()` never ran, which is the definition of this
- * page. A dynamic `import()` would move the download and keep the crash. What this page offers
- * instead is {@link AtlasAccessModal}, the READING half, gated at `manage` like the server route it
- * calls. Making the full modal reachable means first cutting its three store-bound imports (all
- * three serve the "Vendo agora" presence block, which is meaningless outside a live atlas), and
- * that is a change to THAT file, not to this one.
+ * SHARING IS ADMINISTERED FROM HERE, since 2026-08-23, and the paragraph that used to sit in this
+ * spot said the opposite with a measurement to back it: `modals/sharing.modal.js` reached 188
+ * modules against this page's 48, and its `render()` called `getEventBus()`, which THROWS when
+ * `initServices()` never ran, which is the definition of this page. Both facts were true. What
+ * changed is the screen, not the page: it was cut in two, and the core (`sharing.modal.core.js`,
+ * REST plus DOM, 16 modules) carries no store, no event bus and no sync engine. All three
+ * store-bound imports served the "Vendo agora" presence block, which has no meaning without a live
+ * collaboration session, so out here it simply does not exist.
+ *
+ * `_showAccess` opens the core by dynamic `import()`, and the header of that method is where the
+ * trap is written out: importing `@modals/sharing.modal.js` (the MAP's entry point, which injects
+ * the live presence source) drags the store straight back. `compartilhar-sem-a-store.test.js` is
+ * the structural guard.
+ *
+ * The read-only `AtlasAccessModal` that lived here for one day was deleted in the same change. It
+ * existed only because the real screen was unreachable, and keeping it beside the real one would be
+ * two screens answering "who reaches this atlas".
  *
  * It is the BODY of `atlas.html`, not a modal: it used to be a full-screen overlay stacked on the
  * booted map (`modals/project-picker.modal.js`), which meant choosing a project happened on top of a
@@ -42,7 +47,6 @@ import { showPrompt } from '@modals/prompt.modal.js';
 // Import DIRETO do arquivo, NUNCA `@modals` (o barrel): `modal.base.js` alcança dois módulos ao
 // todo (ele mesmo e `@utils/event-cleanup.js`), enquanto o barrel arrasta a store para uma página
 // que boota sem ela. Medido em 2026-08-23; o mesmo critério que já rege `confirm`/`prompt` acima.
-import { ModalBase } from '@modals/modal.base.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { fileToCoverPayload } from './cover-image.js';
 import {
@@ -50,9 +54,9 @@ import {
 } from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import {
-    getPermissionLabel, isKnownPermission, hasAtLeast, permissionRank,
+    getPermissionLabel, isKnownPermission, hasAtLeast, permissionRank, serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
-import { showSuccess, showError } from '@utils/toast_service.js';
+import { showToast, showSuccess, showWarning, showError } from '@utils/toast_service.js';
 
 const ICONS = {
     plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
@@ -136,6 +140,57 @@ function accessGroupSizeLabel(group) {
 }
 
 /**
+ * OS PARTICIPANTES AGRUPADOS PELO NÍVEL DELES, do topo da escada para baixo.
+ *
+ * É ASSIM QUE O NÍVEL CABE NUM CARTÃO. Escrever o nível ao lado de cada nome ("Cap Silva
+ * (Edição), Ten Souza (Edição), Lima (Leitura)") repete a palavra mais longa da frase uma vez por
+ * pessoa e estoura o cartão com dez participantes; fatorar o nível para fora do grupo escreve cada
+ * um UMA vez, e o número de linhas passa a ser limitado pela ESCADA (cinco), não pela lista de
+ * gente. Nenhum nome é cortado por isso.
+ *
+ * O NÍVEL AUSENTE É UM GRUPO SEM RÓTULO, e ele fica por último. Um servidor que ainda não mande
+ * `permission` por membro (o campo nasceu em 2026-08-23) cai inteiro nesse grupo, e o rodapé
+ * degrada exatamente para a lista corrida de nomes que ele desenhava antes. Nível DESCONHECIDO é
+ * outra coisa: ele mantém o valor cru como rótulo, pela mesma razão que o selo do cartão o mantém.
+ *
+ * Pura. Interna porque {@link describeCardAccess} é a superfície que a tela consome.
+ * @param {Array<{nome?: string, posto_graduacao?: string, permission?: *}>} members
+ * @returns {Array<{permission: string, label: string, names: string[], count: number}>}
+ */
+function groupMembersByLevel(members) {
+    const buckets = new Map();
+    for (const member of members) {
+        const raw = typeof member?.permission === 'string' ? member.permission.trim() : '';
+        if (!buckets.has(raw)) buckets.set(raw, []);
+        buckets.get(raw).push(accessPersonLabel(member));
+    }
+    const groups = [...buckets.entries()].map(([permission, names]) => ({
+        permission,
+        label: getPermissionLabel(permission),
+        names,
+        count: names.length,
+    }));
+    return groups.sort((a, b) => {
+        // `permissionRank` devolve -1 para tudo o que não é degrau, então o desconhecido e o
+        // ausente empatam aqui e são desempatados abaixo: o SEM RÓTULO por último de todos.
+        const rank = permissionRank(b.permission) - permissionRank(a.permission);
+        if (rank !== 0) return rank;
+        if (Boolean(a.label) !== Boolean(b.label)) return a.label ? -1 : 1;
+        return a.label.localeCompare(b.label, 'pt-BR');
+    });
+}
+
+/**
+ * Quantas pessoas o servidor NÃO nomeou, por extenso, ou string vazia quando nomeou todas.
+ * @param {number} overflow
+ * @returns {string}
+ */
+function accessOverflowLabel(overflow) {
+    if (!Number.isFinite(overflow) || overflow <= 0) return '';
+    return overflow === 1 ? 'e mais 1 pessoa' : `e mais ${overflow} pessoas`;
+}
+
+/**
  * O QUE O RODAPÉ DO CARTÃO DIZ sobre quem tem acesso, em texto VISÍVEL.
  *
  * Até 2026-08-23 os nomes moravam só no atributo `title`: invisíveis no toque, invisíveis para
@@ -144,12 +199,21 @@ function accessGroupSizeLabel(group) {
  * atrás de um hover. Agora `detail` é desenhado como texto e o `title` é REFORÇO, nunca o único
  * portador.
  *
- * O QUE ESTE PAYLOAD NÃO TEM É O NÍVEL. `GET /atlas/overview` devolve por membro apenas
- * `{id, nome, posto_graduacao}` mais o `member_count` (medido no `LIST_USER_ATLAS_MEMBERS` de
- * `backend/src/modules/atlas/atlas.queries.js`), e o único endpoint que carrega o nível de cada
- * participante, `GET /atlas/:atlasId/sharing`, é gateado em `manage`. Ou seja, "quem tem acesso e
- * com que nível" NÃO é respondível abaixo de `manage` com o servidor de hoje; quem chega lá vê a
- * resposta em {@link AtlasAccessModal}. Não invente nível a partir daqui.
+ * DESDE 2026-08-23 O PAYLOAD TRAZ O NÍVEL de cada membro, e é isso que `levels` reparte
+ * (`GET /atlas/overview` devolve `{id, nome, posto_graduacao, permission}` por membro, mais o
+ * `member_count`; ver `LIST_USER_ATLAS_MEMBERS` em `backend/src/modules/atlas/atlas.queries.js`).
+ * O nível é o EFETIVO, o máximo entre o share direto e os dos grupos vivos, com `owner`
+ * sintetizado para o dono. Nenhum Leitor precisa mais chegar a `manage` para saber com que posto
+ * cada um está ali, que era o dado que evitava o pedido errado à pessoa errada (cláusula 5.7).
+ *
+ * O QUE O PAYLOAD DELIBERADAMENTE NÃO TRAZ É O CAMINHO. Ele não diz por qual porta cada pessoa
+ * entrou, e a tela não pode inferir: dizer "por grupo" entregaria a adesão dela a um coletivo
+ * alheio, e é pela mesma razão que nenhum grupo aparece como participante aqui. Não escreva
+ * origem de acesso a partir deste objeto.
+ *
+ * `detail` E `title` CONTINUAM SENDO A LISTA CORRIDA de nomes, sem nível: eles alimentam o
+ * atributo `title`, que é REFORÇO da informação desenhada e não pode virar a única portadora dela.
+ * O que a tela DESENHA é `levels`.
  *
  * A AUSÊNCIA DE LINHA CONTINUA DESENHANDO NADA (devolve `null`): quando o pedido de overview
  * falhou não há linha para este atlas, e um rodapé que dissesse "Só você" leria como "este
@@ -159,7 +223,9 @@ function accessGroupSizeLabel(group) {
  * Pura — sem DOM, sem rede.
  * @param {{member_count?: *, members?: Array}|null|undefined} row - a linha de `getAtlasOverview`.
  * @param {{is_public?: boolean}} [project]
- * @returns {{count: number, summary: string, detail: string, title: string}|null}
+ * @returns {{count: number, summary: string, detail: string, title: string,
+ *   levels: Array<{permission: string, label: string, names: string[], count: number}>,
+ *   overflowLabel: string}|null}
  */
 export function describeCardAccess(row, project = {}) {
     if (!row) return null;
@@ -170,7 +236,7 @@ export function describeCardAccess(row, project = {}) {
     if (count <= 1) {
         // `is_public` muda o FATO, não o tom: um atlas solitário com link público não é privado.
         const summary = project?.is_public ? 'Só você e o link público' : 'Só você';
-        return { count, summary, detail: '', title: summary };
+        return { count, summary, detail: '', title: summary, levels: [], overflowLabel: '' };
     }
 
     const summary = `${count} pessoas`;
@@ -179,11 +245,21 @@ export function describeCardAccess(row, project = {}) {
         // Contagem sem lista é estado real (o `json_agg` do servidor corta em 10, e um payload
         // truncado por outro motivo cairia aqui): dizer o número sozinho é honesto, inventar
         // nomes não seria.
-        return { count, summary, detail: '', title: summary };
+        return { count, summary, detail: '', title: summary, levels: [], overflowLabel: '' };
     }
     const overflow = Math.max(0, count - names.length);
     const detail = overflow > 0 ? `${names.join(', ')} e mais ${overflow}` : names.join(', ');
-    return { count, summary, detail, title: `Com acesso: ${detail}` };
+    return {
+        count,
+        summary,
+        detail,
+        title: `Com acesso: ${detail}`,
+        levels: groupMembersByLevel(members),
+        // O EXCEDENTE FICA FORA DOS GRUPOS, e não pendurado no último deles: o servidor corta a
+        // lista em 10 e não manda o nível de quem ficou de fora, então somá-lo a um nível
+        // qualquer seria afirmar um posto que ninguém mediu.
+        overflowLabel: accessOverflowLabel(overflow),
+    };
 }
 
 /**
@@ -205,7 +281,17 @@ export function describeCardAccess(row, project = {}) {
  *     identidade visível do projeto; `manage` é a régua do compartilhamento, que é outra coisa);
  *   - quem tem acesso → `GET /atlas/:atlasId/sharing`, `manage`;
  *   - fazer uma cópia → `POST /atlas/:atlasId/clone`, que só exige alcançar o atlas;
- *   - lixeira → `DELETE /atlas/:atlasId`, `owner`.
+ *   - lixeira → `DELETE /atlas/:atlasId`, `owner`;
+ *   - sair → `DELETE /atlas/:atlasId/sharing/me`, que não tem piso nenhum (o gate é `auth` e mais
+ *     nada, porque a autoridade exercida é sobre si mesmo), mas RECUSA o dono com 409.
+ *
+ * POR ISSO "SAIR" É O ÚNICO ITEM ESCONDIDO DE CIMA PARA BAIXO, e o predicado é
+ * `serverTreatsAsAtlasOwner`, nunca uma comparação com o literal do topo: quem o servidor trata
+ * como dono (o dono da coluna `owner_id` e o administrador GLOBAL, que `toFrontendRole` dobra para
+ * o mesmo degrau) levaria o 409, e oferecer o que o servidor recusa é o defeito que este lote já
+ * corrigiu em outra tela. O nível DESCONHECIDO também não vê o item, por `isKnownPermission`: ele
+ * não é dono, mas também não é participante que este build saiba descrever, e falhar fechado num
+ * item destrutivo custa um clique a menos, não um acesso a mais.
  *
  * O `testid` VAI ESCRITO POR EXTENSO, e a repetição aparente é obrigatória: montá-lo como
  * `project-picker-${id}` deixava `frontend/tests/unit/e2e-testids-existem.test.js` reprovar três
@@ -241,13 +327,74 @@ export function cardMenuActions({ permission, hasCover = false } = {}) {
         }
     }
     if (canManage) {
-        actions.push({ id: 'access', testid: 'project-picker-access', label: 'Quem tem acesso', danger: false });
+        actions.push({ id: 'access', testid: 'project-picker-access', label: 'Compartilhar', danger: false });
     }
     actions.push({ id: 'duplicate', testid: 'project-picker-duplicate', label: 'Fazer uma cópia', danger: false });
     if (canOwn) {
         actions.push({ id: 'trash', testid: 'project-picker-trash', label: 'Mover para lixeira', danger: true });
     }
+    if (isKnownPermission(permission) && !serverTreatsAsAtlasOwner(permission)) {
+        actions.push({ id: 'leave', testid: 'project-picker-leave', label: 'Sair do atlas', danger: true });
+    }
     return actions;
+}
+
+/**
+ * O QUE A TELA DIZ DEPOIS DE SAIR, a partir do que o servidor MEDIU.
+ *
+ * `DELETE /atlas/:atlasId/sharing/me` não responde sim ou não: ele responde o nível EFETIVO
+ * DEPOIS do ato, e ele pode continuar preenchido, porque um grupo de acesso vivo ou o link público
+ * mantêm o acesso por outro caminho. A pessoa clicou em sair e continua vendo o atlas; um
+ * "Você saiu" incondicional seria a tela mentindo sobre o que acabou de acontecer, e o usuário
+ * descobriria a mentira na própria lista, um segundo depois.
+ *
+ * SÃO QUATRO DESFECHOS, não dois, porque `removed` e `effectivePermission` são independentes:
+ *   - removeu e não sobrou nada → saiu de vez;
+ *   - não removeu e não sobrou nada → já não participava (é também a resposta a atlas inexistente,
+ *     que o servidor faz idêntica de propósito, para a rota não virar oráculo de existência);
+ *   - removeu e sobrou nível → o convite direto caiu, o acesso continua por outra porta;
+ *   - não removeu e sobrou nível → nunca houve convite direto; o acesso sempre veio de fora.
+ *
+ * NENHUMA DAS FRASES NOMEIA A PORTA que sobrou, e a omissão é a mesma da cláusula 5.7: o servidor
+ * não diz qual é, e adivinhar "por grupo" entregaria adesão a coletivo alheio. Ela diz que existe
+ * outra porta e de que tamanho ela é, que é o que muda a decisão de quem lê.
+ *
+ * Pura — sem DOM, sem rede, sem toast.
+ * @param {{removed?: boolean, effectivePermission?: *}|null|undefined} result
+ * @param {string} [atlasName]
+ * @returns {{gone: boolean, tone: 'success'|'info'|'warning', message: string}}
+ */
+export function describeLeaveOutcome(result, atlasName = '') {
+    const nome = String(atlasName ?? '').trim();
+    // As DUAS preposições vêm montadas com o alvo, e não concatenadas depois: sem nome, "de este
+    // atlas" e "a este atlas" são as contrações erradas, e o atlas sem nome é estado real (o
+    // servidor responde igual a atlas inexistente, para a rota não virar oráculo).
+    const deAlvo = nome ? `de "${nome}"` : 'deste atlas';
+    const aAlvo = nome ? `a "${nome}"` : 'a este atlas';
+    const removed = result?.removed === true;
+    // `getPermissionLabel` devolve o valor CRU para um nível que este build não conhece, e '' só
+    // para a ausência real: um nível novo do servidor continua sendo lido como acesso remanescente.
+    const nivel = getPermissionLabel(result?.effectivePermission);
+
+    if (!nivel) {
+        return {
+            gone: true,
+            tone: removed ? 'success' : 'info',
+            message: removed
+                ? `Você saiu ${deAlvo}. Ele não aparece mais na sua lista.`
+                : `Você já não participava ${deAlvo}. Nada mudou.`,
+        };
+    }
+    return {
+        gone: false,
+        tone: 'warning',
+        message: removed
+            ? `Seu convite direto ${aAlvo} foi retirado, mas você continua com acesso de ${nivel} `
+                + 'por outro caminho, e o atlas segue na sua lista. Para sair de vez, fale com quem '
+                + 'administra o atlas.'
+            : `Você não tinha convite direto ${aAlvo}: o acesso de ${nivel} vem de outro caminho, `
+                + 'e só quem administra o atlas pode retirá-lo.',
+    };
 }
 
 /**
@@ -724,6 +871,12 @@ export class AtlasDrive {
      * the card showed four circles and a number, and the one question the footer exists to answer
      * stayed behind a hover. The `title` is still set, as REINFORCEMENT of the same sentence.
      *
+     * SINCE 2026-08-23 EACH PERSON'S LEVEL IS DRAWN TOO, and the layout is what makes it fit: one
+     * ROW PER LEVEL, the level written once as a chip and the names of that level beside it. A
+     * level repeated next to every name would write the longest word of the sentence ten times on
+     * a card 320 px wide; factored out, the row count is bounded by the LADDER (five), not by the
+     * roster. Nobody is truncated to make room, and nothing moves into `title`.
+     *
      * The wording (and every edge of it) is {@link describeCardAccess}, which is where it is
      * verified; this method is the DOM around it.
      */
@@ -759,15 +912,67 @@ export class AtlasDrive {
         head.appendChild(label);
         foot.appendChild(head);
 
-        if (access.detail) {
-            const names = document.createElement('p');
-            names.className = 'atlas-drive__share-names';
-            names.dataset.testid = 'project-card-sharing-names';
-            names.textContent = access.detail;
-            foot.appendChild(names);
-        }
+        const levels = this._shareLevels(access);
+        if (levels) foot.appendChild(levels);
         foot.title = access.title;
         return foot;
+    }
+
+    /**
+     * @private The "who, at what level" block: one row per level, plus the uncounted tail.
+     *
+     * A ROW WITHOUT A CHIP IS A LEGITIMATE STATE, not a half-drawn one: a server that does not
+     * send `permission` per member (the field was born on 2026-08-23) collapses into a single
+     * unlabelled row, which is exactly the plain name list this footer drew before. An UNKNOWN
+     * level keeps its raw value as the chip's text and loses only the colour, the same degradation
+     * the card's own permission chip already does.
+     *
+     * DIV E SPAN, não `ul`/`li`, e a razão é o contêiner: este rodapé é montado DENTRO do
+     * `<button>` que é o cartão, cujo modelo de conteúdo não admite lista. O `<p>` que estava aqui
+     * antes já era desse tipo, e a página inteira segue a mesma convenção (`atlas-drive__card-body`
+     * é um `div` no mesmo lugar).
+     *
+     * @param {{levels: Array<Object>, overflowLabel: string}} access - from `describeCardAccess`.
+     * @returns {HTMLElement|null}
+     */
+    _shareLevels(access) {
+        const rows = Array.isArray(access?.levels) ? access.levels : [];
+        if (rows.length === 0 && !access?.overflowLabel) return null;
+
+        const list = document.createElement('div');
+        list.className = 'atlas-drive__share-levels';
+        list.dataset.testid = 'project-card-sharing-names';
+
+        for (const group of rows) {
+            const item = document.createElement('div');
+            item.className = 'atlas-drive__share-level';
+            if (group.label) {
+                const chip = document.createElement('span');
+                chip.className = isKnownPermission(group.permission)
+                    ? `atlas-drive__level-chip atlas-drive__level-chip--${group.permission}`
+                    : 'atlas-drive__level-chip';
+                chip.textContent = group.label;
+                item.appendChild(chip);
+            }
+            const names = document.createElement('span');
+            names.className = 'atlas-drive__share-names';
+            names.textContent = group.names.join(', ');
+            item.appendChild(names);
+            list.appendChild(item);
+        }
+
+        if (access.overflowLabel) {
+            // Sem chip de propósito: o servidor corta a lista em 10 e não manda o nível de quem
+            // ficou de fora, então esta linha diz quantos são e cala sobre o posto deles.
+            const tail = document.createElement('div');
+            tail.className = 'atlas-drive__share-level atlas-drive__share-level--more';
+            const names = document.createElement('span');
+            names.className = 'atlas-drive__share-names';
+            names.textContent = access.overflowLabel;
+            tail.appendChild(names);
+            list.appendChild(tail);
+        }
+        return list;
     }
 
     /** @private A single atlas card (the `project-picker-item`) wrapped with its actions menu button. */
@@ -898,6 +1103,7 @@ export class AtlasDrive {
             access: () => this._showAccess(project),
             duplicate: () => this._duplicate(project),
             trash: () => this._trash(project),
+            leave: () => this._leave(project),
         };
 
         const actions = cardMenuActions({
@@ -940,18 +1146,47 @@ export class AtlasDrive {
     }
 
     /**
-     * @private "Quem tem acesso" — the read-only access panel for one atlas.
+     * @private "Compartilhar" — the FULL sharing screen, opened for one card.
      *
      * Only reached from a menu item that {@link cardMenuActions} draws at `manage` or above, which
-     * is EXACTLY the gate the server puts on `GET /atlas/:atlasId/sharing`. The panel re-checks
-     * nothing: the server decides on every request, and a 403 arriving here is drawn as the
-     * server's own sentence.
+     * is EXACTLY the gate the server puts on the four `/atlas/:atlasId/sharing` routes. The modal
+     * re-checks nothing: the server decides on every request, and a 403 arriving there is drawn as
+     * the server's own sentence.
+     *
+     * THIS PAGE COULD NOT OPEN IT UNTIL 2026-08-23, and the reason was measured, not assumed:
+     * `@modals/sharing.modal.js` reached 188 modules against this page's 48, and, worse than the
+     * payload, its `render()` called `getEventBus()`, which THROWS when `initServices()` never ran,
+     * which is the definition of this page. What unlocked it was cutting the screen in two: the
+     * core (REST plus DOM, 16 modules) and the live presence source, which is where all three
+     * store-bound imports went. This page costs 2 extra modules to open it.
+     *
+     * SO IMPORT THE CORE, NEVER THE WRAPPER. `@modals/sharing.modal.js` is the map's entry point:
+     * it injects `livePresenceSource` and drags the store back in. There is a structural test for
+     * exactly this (`frontend/tests/unit/compartilhar-sem-a-store.test.js`), and it fails loudly.
+     *
+     * Omitting `presence` is what removes the "Vendo agora" block, and that is the truth of the
+     * product rather than a degradation: there is no presence without a live collaboration session,
+     * and this page has none.
+     *
+     * The `import()` is dynamic so the core stays out of this page's eager payload; it is also why
+     * the failure has to be handled here, since a chunk that fails to load must not leave the click
+     * silent.
+     *
+     * (This method used to open `AtlasAccessModal`, a READ-ONLY roll written the day before, which
+     * existed only because the real screen was unreachable. It was deleted with this change rather
+     * than kept beside it: two screens answering "who reaches this atlas" is the drift this
+     * codebase already pays for elsewhere, and the one that reads and writes strictly contains the
+     * one that only reads.)
      * @param {Object} project
      */
-    _showAccess(project) {
-        const modal = new AtlasAccessModal(project);
-        modal.render();
-        modal.show();
+    async _showAccess(project) {
+        try {
+            const { openSharingModal } = await import('@modals/sharing.modal.core.js');
+            openSharingModal(project.id, { atlasName: project.name });
+        } catch (error) {
+            console.error('[atlas-drive] falha ao abrir o compartilhamento:', error);
+            showToast('Não foi possível abrir o compartilhamento. Tente de novo.', 'error');
+        }
     }
 
     /**
@@ -1096,6 +1331,48 @@ export class AtlasDrive {
         }
     }
 
+    /**
+     * @private Leave a shared atlas on one's own authority → `DELETE /atlas/:id/sharing/me`.
+     *
+     * THE CONFIRMATION NAMES THE TWO CONSEQUENCES, and neither of them is guessable from the word
+     * "sair". First, the atlas LENT things: private layers, 3D models and 360 projects that were
+     * visible only because this atlas borrowed them from its owner (clause 6.1), and they go with
+     * it. Second, and this is the irreversible half, the way back is not the user's to take: only
+     * whoever administers the atlas can invite again. "Tem certeza?" would have said neither.
+     *
+     * WHAT IS REPORTED AFTERWARDS IS WHAT THE SERVER MEASURED, never the intention: the wording
+     * is {@link describeLeaveOutcome}, because a live access group or the public link can keep the
+     * access alive down another path, and the card would still be there to contradict a
+     * premature "você saiu". The refusal for the OWNER (409) is shown in the server's own words:
+     * it names transferring ownership or trashing the atlas, and the menu already hides the item
+     * from him, so reaching it means the level changed under this page.
+     *
+     * The grid refreshes rather than reloading the page: `_refresh` re-fetches the list and the
+     * card either disappears or moves tab on its own, according to what is left.
+     */
+    async _leave(project) {
+        const nome = String(project?.name ?? '').trim();
+        const ok = await showConfirm(nome ? `Sair de "${nome}"?` : 'Sair deste atlas?', {
+            message: 'Você perde o acesso a este atlas e ao que ele emprestava: as camadas, os '
+                + 'modelos 3D e os projetos 360 privados que só apareciam por causa dele.\n'
+                + 'E você não pode voltar sozinho: só quem administra o atlas pode convidar você '
+                + 'de novo.',
+            confirmText: 'Sair do atlas',
+            cancelText: 'Continuar no atlas',
+            destructive: true,
+        });
+        if (!ok) return;
+        try {
+            const outcome = describeLeaveOutcome(await apiClient.leaveAtlas(project?.id), nome);
+            if (outcome.tone === 'success') showSuccess(outcome.message);
+            else if (outcome.tone === 'warning') showWarning(outcome.message);
+            else showToast(outcome.message);
+            await this._refresh();
+        } catch (error) {
+            showError(error?.message || 'Não foi possível sair do atlas.');
+        }
+    }
+
     /** @private A trashed-atlas card: not openable; offers a Restaurar action. */
     _trashCard(project) {
         const id = String(project?.id ?? '');
@@ -1169,187 +1446,6 @@ export class AtlasDrive {
         if (!this._onCreate) return;
         const onCreate = this._onCreate;
         showCreateAtlasModal({ onCreate: (name, sharing) => onCreate(name, sharing) });
-    }
-}
-
-/**
- * "Quem tem acesso" — a READ-ONLY roll of everybody who reaches one atlas, with their level.
- *
- * WHY IT EXISTS SEPARATELY FROM THE SHARING MODAL, which would be the obvious reuse:
- * `modals/sharing.modal.js` cannot be loaded on this page. Measured on 2026-08-23 by walking its
- * import graph: it reaches 188 modules against this page's 48, and among them `@store/services.js`
- * (and through it `store/store.js`, `store/index.js`, `layers/index.js`, `state/index.js`,
- * `tool_manager/index.js` and `@utils/index.js`), plus `@modals/index.js` and
- * `@store/sync/sync-engine.js`. Worse than the payload, it would not even run: its `render()`
- * calls `getEventBus()`, and `getServices()` throws when `initServices()` never ran, which is the
- * definition of this page. A dynamic `import()` moves the download, not the crash.
- *
- * SO THIS IS THE READING HALF ONLY, and it says so on screen. It deliberately does NOT
- * re-implement the mutations: a second copy of grant/revoke would be two screens that drift, and
- * the working one is a click away (open the atlas, then Compartilhar). What it does deliver is the
- * one fact the card cannot show, because `GET /atlas/overview` does not carry it: the LEVEL of
- * each participant.
- *
- * Everything dynamic goes through `textContent`; the only `innerHTML` is a static icon.
- *
- * @extends ModalBase
- */
-class AtlasAccessModal extends ModalBase {
-    /**
-     * @param {{id?: string, name?: string}} project - the atlas card this was opened from.
-     */
-    constructor(project) {
-        const nome = String(project?.name ?? '').trim();
-        super({
-            id: 'atlas-access-modal',
-            title: nome ? `Quem tem acesso a ${nome}` : 'Quem tem acesso',
-            icon: ICONS.people,
-            destroyOnHide: true,
-        });
-        this._atlasId = String(project?.id ?? '');
-    }
-
-    /**
-     * Builds the shell and fires the fetch (the loading state is already on screen).
-     * @returns {HTMLElement}
-     */
-    render() {
-        const overlay = super.render();
-        this._overlay.dataset.testid = 'atlas-access-modal';
-        this.getContainer().classList.add('atlas-access-container');
-        this._setState('Carregando…', 'atlas-access-loading');
-        document.body.appendChild(overlay);
-        this._load();
-        return overlay;
-    }
-
-    /**
-     * @private A one-sentence body (loading / error / empty).
-     *
-     * `destroyOnHide` means Escape during the in-flight fetch tears the DOM down and `getBody()`
-     * starts answering undefined, so every path that writes checks first.
-     * @param {string} text
-     * @param {string} testid
-     */
-    _setState(text, testid) {
-        const body = this.getBody();
-        if (!body) return;
-        body.replaceChildren();
-        const p = document.createElement('p');
-        p.className = 'atlas-access__state';
-        p.dataset.testid = testid;
-        p.textContent = text;
-        body.appendChild(p);
-    }
-
-    /** @private Reads the sharing config and draws it. */
-    async _load() {
-        try {
-            const cfg = await apiClient.getSharing(this._atlasId);
-            if (!this.getBody()) return; // closed while the request was in flight
-            this._renderRows(accessRowsFromSharing(cfg), Boolean(cfg?.isPublic));
-        } catch (error) {
-            if (!this.getBody()) return;
-            // The server's own sentence when it sent one: it distinguishes the real cases here
-            // (a co-Gestor demoted mid-session gets 403 from `requireAtlasPermission('manage')`),
-            // and `HTTP <status>` is a placeholder `_request` invents, never user copy.
-            const message = typeof error?.message === 'string' ? error.message.trim() : '';
-            this._setState(
-                message && !/^HTTP \d{3}$/.test(message)
-                    ? message
-                    : 'Não foi possível carregar quem tem acesso.',
-                'atlas-access-error',
-            );
-        }
-    }
-
-    /**
-     * @private Draws the roll.
-     * @param {Array<Object>} rows - from {@link accessRowsFromSharing}.
-     * @param {boolean} isPublic
-     */
-    _renderRows(rows, isPublic) {
-        const body = this.getBody();
-        if (!body) return;
-        body.replaceChildren();
-
-        if (isPublic) {
-            const pub = document.createElement('p');
-            pub.className = 'atlas-access__public';
-            pub.dataset.testid = 'atlas-access-public';
-            // Said FIRST because it is the widest fact on the screen: the named list below is
-            // beside the point while anybody with the link can read the atlas.
-            pub.textContent = 'Link público ativo: qualquer pessoa com o link visualiza este atlas, '
-                + 'sem entrar e sem aparecer na lista abaixo.';
-            body.appendChild(pub);
-        }
-
-        if (rows.length === 0) {
-            this._setState('Ninguém ainda.', 'atlas-access-empty');
-            return;
-        }
-
-        const list = document.createElement('ul');
-        list.className = 'atlas-access__list';
-        list.dataset.testid = 'atlas-access-list';
-        for (const row of rows) list.appendChild(this._row(row));
-        body.appendChild(list);
-
-        const hint = document.createElement('p');
-        hint.className = 'atlas-access__hint';
-        hint.dataset.testid = 'atlas-access-hint';
-        // The panel reads; it does not write. Saying where writing happens is the difference
-        // between a limitation and a dead end.
-        hint.textContent = 'Para convidar, mudar nível ou remover alguém, abra o atlas e use Compartilhar.';
-        body.appendChild(hint);
-    }
-
-    /**
-     * @private One participant.
-     * @param {{kind: string, id: string, name: string, meta: string, levelLabel: string,
-     *   note: string}} row
-     * @returns {HTMLElement}
-     */
-    _row(row) {
-        const item = document.createElement('li');
-        item.className = 'atlas-access__row';
-        item.dataset.testid = row.kind === 'group' ? 'atlas-access-group' : 'atlas-access-person';
-
-        const avatar = document.createElement('span');
-        if (row.kind === 'group') {
-            avatar.className = 'atlas-access__icon';
-            avatar.innerHTML = ICONS.people; // static icon
-        } else {
-            avatar.className = 'atlas-access__avatar';
-            avatar.textContent = getInitials(row.name);
-            // Runtime-computed colour, so it belongs in JS; everything else is a class.
-            avatar.style.backgroundColor = getPresenceColor(row.id || row.name);
-        }
-        avatar.setAttribute('aria-hidden', 'true');
-        item.appendChild(avatar);
-
-        const info = document.createElement('div');
-        info.className = 'atlas-access__info';
-        const name = document.createElement('span');
-        name.className = 'atlas-access__name';
-        name.textContent = row.name;
-        info.appendChild(name);
-        const meta = [row.meta, row.note].filter(Boolean).join(' · ');
-        if (meta) {
-            const metaEl = document.createElement('span');
-            metaEl.className = 'atlas-access__meta';
-            metaEl.textContent = meta;
-            info.appendChild(metaEl);
-        }
-        item.appendChild(info);
-
-        const level = document.createElement('span');
-        level.className = 'atlas-access__level';
-        level.dataset.testid = 'atlas-access-level';
-        level.textContent = row.levelLabel || '—';
-        item.appendChild(level);
-
-        return item;
     }
 }
 

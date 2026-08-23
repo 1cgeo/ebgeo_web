@@ -86,8 +86,13 @@ describe('cartão de projeto · participantes, capa e presença', () => {
     assert.ok(cartao);
     assert.equal(cartao.member_count, 2);
     assert.deepEqual(cartao.members.map((m) => m.id).sort(), [dono.id, leitor.id].sort());
-    // E nada de identidade de login: nome e posto bastam para desenhar um avatar.
-    assert.deepEqual(Object.keys(cartao.members[0]).sort(), ['id', 'nome', 'posto_graduacao']);
+    // E nada de identidade de login: nome, posto e NÍVEL bastam para desenhar um avatar e dizer
+    // a quem pedir permissão. `username` e e-mail continuam fora — a decisão de 2026-08-23
+    // acrescentou UM campo, e a lista aqui é o que impede a próxima a acrescentar outros.
+    assert.deepEqual(
+      Object.keys(cartao.members[0]).sort(),
+      ['id', 'nome', 'permission', 'posto_graduacao']
+    );
   });
 
   it('quem não tem acesso não vê o projeto no overview', async () => {

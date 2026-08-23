@@ -51,6 +51,34 @@ through the real line tool and asserts native cross-client render. When a featur
 genuinely has no single-gesture UI create (e.g. `processed_los`/`processed_visibility` are
 **analysis outputs**, `image` needs a file pick), document the exception inline.
 
+## Contas: papel global e escopo de produção — `helpers/accounts.js`
+
+`createVerifiedUser()` é o único caminho para uma conta usável nesta camada, e desde 2026-08-23
+ele sabe o eixo GLOBAL inteiro, não só `role='user'`:
+
+```js
+const admin    = await createVerifiedUser({ prefix: 'x', role: 'admin' });
+const produtor = await createVerifiedUser({ prefix: 'x', role: 'producer', producerOrgSlug: 'dsg' });
+const om       = await resolveOrganization({ slug: '1-cgeo' });   // { id, nome, sigla, slug }
+```
+
+Três coisas que não se adivinham:
+
+- **O par (papel, OM de produção) é BICONDICIONAL no banco** (`users_producer_scope_check`), e o
+  helper não oferece o estado que o banco recusa: `role: 'producer'` sem OM resolve a OM semeada,
+  e OM com qualquer outro papel LEVANTA. Aceitar o par impossível devolveria um 23514 disfarçado
+  de 500, vinte passos adiante.
+- **`resolveOrganization` falha ALTO** quando o slug não existe, listando os que existem. Sem
+  isso, uma base semeada diferente viraria um 401 lá adiante, que se lê como bug do app.
+- **A conta continua NASCENDO pela rota pública**, com o e-mail confirmado pela rota pública; só
+  a PROMOÇÃO é SQL, porque criar administrador exige administrador e esta camada parte de banco
+  vazio. O `UPDATE` que cinco specs copiavam saiu delas; o `accessToken` do login de prova volta
+  no retorno, cunhado DEPOIS da promoção (um token anterior carregaria o papel velho até
+  expirar, porque `flexibleAuth` não reconcilia).
+
+`helpers/catalog-seed.js` continua escrevendo recurso por SQL, e o `fileoverview` de lá diz qual
+metade da justificativa caiu com isto e qual continua de pé.
+
 ## SyncLedger trace helpers
 
 The collaboration specs are wired to **SyncLedger** (the additive, env-gated sync

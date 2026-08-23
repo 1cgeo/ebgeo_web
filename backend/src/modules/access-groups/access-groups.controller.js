@@ -109,3 +109,25 @@ export const removeMember = asyncHandler(async (req, res) => {
   });
   res.json({ data });
 });
+
+/**
+ * DELETE /:groupId/members/me — sair do grupo por conta própria.
+ *
+ * `principalUserId` E NÃO `req.user.id`: um principal sem linha em `users` (o visitante de link
+ * público) carrega `public-<uuid>`, que num cast `::uuid` levanta 22P02 — um 500 sem relação
+ * aparente com o assunto. `null` chega ao serviço como "não participa de grupo nenhum", que é a
+ * verdade sobre ele, e sai por 200 com `removed: false`.
+ *
+ * 200 SEMPRE (salvo o 409 do dono), com `removed` dizendo o que houve, pela mesma razão que
+ * `addMember` responde 200 e não 201: a operação é idempotente e alternar códigos obrigaria o
+ * cliente a tratar dois caminhos para o mesmo estado final.
+ */
+export const leaveGroup = asyncHandler(async (req, res) => {
+  const data = await svc.leaveGroup({
+    groupId: req.params.groupId,
+    userId: principalUserId(req.user),
+    actor: req.user,
+    req,
+  });
+  res.json({ data });
+});

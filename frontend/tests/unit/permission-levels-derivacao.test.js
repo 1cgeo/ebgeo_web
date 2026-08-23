@@ -96,7 +96,7 @@ describe('grantablePermissionOptions — as linhas do `<select>`', () => {
 });
 
 describe('os dois modais DERIVAM, e não mantêm cópia própria', () => {
-    const SHARING = leia('../../src/js/modals/sharing.modal.js');
+    const SHARING = leia('../../src/js/modals/sharing.modal.core.js');
     const CREATE = leia('../../src/js/modals/create-atlas.modal.js');
 
     it('nenhum dos dois escreve os rótulos à mão', () => {
@@ -251,7 +251,7 @@ describe('sharingGroupPickerHint — a dica manda para a porta que ESTA pessoa v
 });
 
 describe('o cache de grupos morre a cada abertura do modal', () => {
-    const SHARING = leia('../../src/js/modals/sharing.modal.js');
+    const SHARING = leia('../../src/js/modals/sharing.modal.core.js');
 
     it('`render()` zera `_myGroups` antes de disparar o carregamento', () => {
         // O defeito: `_loadMyGroups` sai cedo por `if (this._myGroups !== null) return;`, e a

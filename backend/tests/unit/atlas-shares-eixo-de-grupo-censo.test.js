@@ -70,6 +70,11 @@ const CENSO = [
   fn('src/modules/atlas/atlas.queries.js', 'LEFT JOIN fn_user_atlas_shares($1::uuid) us ON us.atlas_id = a.id', 3),
   fn('src/modules/atlas/atlas.queries.js', '1 + (SELECT COUNT(*) FROM fn_atlas_member_ids(a.id) mc'),
   fn('src/modules/atlas/atlas.queries.js', 'FROM fn_atlas_member_ids(a.id) ms'),
+  // O NÍVEL DE CADA PARTICIPANTE NO CARTÃO (decisão do dono, 2026-08-23). Ele resolve pela
+  // função única pelo mesmo motivo das cinco de cima e da sexta: ler a COLUNA de
+  // `atlas_shares` faria o cartão anunciar `read` para quem o servidor trata como `manage`
+  // por um coletivo — a interface mentindo sobre um nível que o servidor nunca mudou.
+  fn('src/modules/atlas/atlas.queries.js', 'LEFT JOIN LATERAL fn_user_atlas_shares(ms.user_id, a.id) ef ON true'),
   fn('src/modules/sharing/sharing.queries.js', 'LEFT JOIN LATERAL (SELECT permission FROM fn_user_atlas_shares(m.uid, $1::uuid)) us ON true'),
 
   // ---- escrita ---------------------------------------------------------------------

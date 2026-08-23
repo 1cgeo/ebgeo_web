@@ -21,6 +21,27 @@ router.post('/users', auth, requireAtlasPermission('manage'), validate({ body: s
 router.put('/users/:userId', auth, requireAtlasPermission('manage'), validate({ body: schemas.updateUserShareSchema }), ctrl.updateUserShare);
 router.delete('/users/:userId', auth, requireAtlasPermission('manage'), ctrl.removeUserShare);
 
+// SAIR DO ATLAS POR CONTA PRÓPRIA (decisão do dono, 2026-08-23).
+//
+// O GATE É `auth` E MAIS NADA, e é a única rota deste módulo assim. `requireAtlasPermission`
+// mediria a autoridade sobre o ATLAS, e a autoridade exercida aqui é sobre SI MESMO: pedir
+// `manage` para se retirar é o que deixava um Editor preso num projeto, dependendo de quem
+// administra para sair. Nem sequer `read` serve de piso — quem já perdeu o nível de leitura por
+// outro caminho continua com a linha de share pendurada, e ela é dele para apagar.
+//
+// `validate({ params })` SUBSTITUI O GATE COMO GUARDA DE FORMA. Era `requireAtlasPermission` que
+// barrava um `:atlasId` malformado antes do cast `::uuid`; sem ele, a validação da borda é o único
+// lugar que sobra (ver `atlasIdParamsSchema`).
+//
+// A ORDEM CONTRA `/users/:userId` NÃO IMPORTA aqui — os caminhos não colidem —, mas o irmão do
+// módulo de grupos colide, e lá a ordem é contrato. Ver `access-groups.routes.js`.
+router.delete(
+  '/me',
+  auth,
+  validate({ params: schemas.atlasIdParamsSchema }),
+  ctrl.leaveAtlas,
+);
+
 // O EIXO DE GRUPO (desde 2026-08-21). Um share tem como alvo uma PESSOA **ou** um GRUPO de
 // acesso, com os MESMOS quatro níveis concedíveis — inclusive `manage`.
 //

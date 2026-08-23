@@ -54,6 +54,7 @@ import {
     familiaDeAcao,
     fraseDoEvento,
     horaDoEvento,
+    linhasDeDetalhe,
     linhasDoDePara,
     nomeDaOm,
     nomeDoAlvo,
@@ -62,7 +63,6 @@ import {
     rotuloDeAlvo,
     rotuloDeFamilia,
     rotuloDoDia,
-    chavesJaDitasPeloDePara,
 } from './audit-phrases.js';
 
 /** Quantas linhas por página. O servidor aceita até 200; 50 é o padrão dele e desta tela. */
@@ -474,6 +474,14 @@ class AuditTab {
      * entra nessa retirada SÓ quando há frases (a decisão é `chavesJaDitasPeloDePara`, no
      * módulo puro): numa linha antiga, sem de-para, ela é a única informação de campo que
      * existe.
+     *
+     * ELA DEIXOU DE SER CHAVE/VALOR CRU em 2026-08-23, e o defeito que isso fecha era
+     * concreto: `origem: USER_DEMOTION` saía em inglês e em maiúsculas num painel em
+     * português, exatamente onde o leitor precisava entender por que uma concessão que
+     * ninguém revogou aparecia revogada. Quem decide a frase é `linhasDeDetalhe`, no
+     * módulo puro, e ele devolve DUAS bandeiras: o que não tem verbete continua
+     * aparecendo, e aparece com a classe de CÓDIGO. Esconder é pior que mostrar; mostrar
+     * um enum com cara de frase é pior que mostrá-lo como código.
      * @param {Object} detalhes
      * @returns {HTMLElement}
      */
@@ -492,15 +500,13 @@ class AuditTab {
             dl.append(dt, dd);
         }
 
-        const pular = chavesJaDitasPeloDePara(detalhes);
-        for (const [chave, valor] of Object.entries(detalhes)) {
-            if (pular.has(chave)) continue;
+        for (const linha of linhasDeDetalhe(detalhes)) {
             const dt = document.createElement('dt');
-            dt.textContent = chave;
+            dt.textContent = linha.chave;
+            if (linha.chaveEhCodigo) dt.classList.add('admin-audit__details-codigo');
             const dd = document.createElement('dd');
-            dd.textContent = valor === null || valor === undefined
-                ? '—'
-                : (typeof valor === 'object' ? JSON.stringify(valor) : String(valor));
+            dd.textContent = linha.texto;
+            if (linha.textoEhCodigo) dd.classList.add('admin-audit__details-codigo');
             dl.append(dt, dd);
         }
         return dl;

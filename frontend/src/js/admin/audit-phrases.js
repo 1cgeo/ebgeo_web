@@ -144,6 +144,17 @@ const ALVOS = Object.freeze({
  * é o mesmo em toda linha de catálogo.
  */
 const CAMPOS = Object.freeze({
+    // --- conta (família USUÁRIOS) -------------------------------------------
+    role: 'Papel global',
+    producer_org_id: 'OM produtora',
+    organization_id: 'OM de lotação',
+    rank_id: 'Posto ou graduação',
+    is_active: 'Conta ativa',
+    email_verified: 'E-mail confirmado',
+    nome: 'Nome',
+    username: 'Nome de usuário',
+    email: 'E-mail',
+    // --- catálogo e 360 ------------------------------------------------------
     name: 'Nome',
     description: 'Descrição',
     sort_order: 'Ordem',
@@ -408,6 +419,150 @@ export function chavesJaDitasPeloDePara(detalhes) {
     const base = new Set(CHAVES_DO_DEPARA);
     if (linhasDoDePara(detalhes).length > 0) base.add('fields');
     return base;
+}
+
+/**
+ * `details.origem` → por que a concessão caiu, em pt-BR.
+ *
+ * ELA EXISTE PORQUE A GAVETA DESPEJAVA `origem: USER_DEMOTION` CRU, num painel em
+ * português, exatamente onde o leitor precisava entender por que uma concessão que
+ * ninguém revogou deliberadamente aparece revogada.
+ *
+ * O VOCABULÁRIO É O DOS CHAMADORES de `podarPorRaizes` (`backend/src/modules/`), e são
+ * QUATRO carimbos mais um quinto estado que não carimba nada: a revogação deliberada não
+ * põe `origem` nenhuma, e é por isso que ela não aparece aqui — ausência de origem já
+ * significa "alguém revogou de propósito", e inventar um verbete para ela transformaria
+ * um silêncio informativo numa frase.
+ *
+ * O FALLBACK É O DO RESTO DO ARQUIVO: origem sem verbete devolve o PRÓPRIO CÓDIGO, e
+ * quem a desenha marca o texto como CÓDIGO (ver {@link linhasDeDetalhe}), para que ele
+ * não se leia como uma frase em português mal escrita.
+ */
+const ORIGENS = Object.freeze({
+    USER_DEMOTION: 'quem concedeu perdeu o papel global ou a OM produtora',
+    USER_DELETE: 'a conta de quem concedeu foi desativada',
+    ACCESS_GROUP_DELETE: 'o grupo de acesso foi apagado',
+    ACCESS_GROUP_MEMBER_REMOVE: 'a pessoa saiu do grupo de acesso',
+});
+
+/** Os quatro papéis GLOBAIS, que não formam escada. Eles saem crus em `details.role`. */
+const PAPEIS_GLOBAIS = Object.freeze({
+    user: 'Usuário',
+    producer: 'Produtor',
+    credenciado: 'Credenciado',
+    admin: 'Administrador',
+});
+
+/**
+ * `details.<chave>` → rótulo pt-BR da SEGUNDA seção da gaveta.
+ *
+ * DELIBERADAMENTE PARCIAL. `details` é um documento livre, escrito por uma dúzia de
+ * emissores, e um dicionário que tentasse cobrir tudo estaria errado na semana seguinte.
+ * Aqui entra só o que foi lido no emissor; o resto cai no nome cru, marcado como código.
+ */
+const CHAVES_DE_DETALHE = Object.freeze({
+    origem: 'Motivo da queda',
+    self: 'Ato do próprio titular',
+    fields: 'Campos tocados',
+    table: 'Tabela',
+    from: 'De',
+    to: 'Para',
+    role: 'Papel global',
+    organization_id: 'OM de lotação',
+    producer_org_id: 'OM produtora',
+    resourceType: 'Tipo de recurso',
+    atlasTransferred: 'Atlas transferidos',
+    grantsRevoked: 'Concessões derrubadas',
+    grantsAffected: 'Concessões derrubadas',
+    grantsReparented: 'Concessões preservadas por outro caminho',
+    sessionsRevoked: 'Sessões encerradas',
+});
+
+/**
+ * As chaves cujo VALOR é um código de vocabulário fechado, e o dicionário de cada uma.
+ *
+ * É esta tabela que separa "campo sem verbete" (o nome sai cru) de "valor sem verbete"
+ * (o valor sai cru): as duas coisas acontecem em lugares diferentes da linha, e fundi-las
+ * esconderia qual das duas metades ninguém traduziu.
+ *
+ * `from`/`to` SÃO AMBÍGUOS DE PROPÓSITO, e vale saber por quê antes de "consertar": as
+ * duas chaves servem `ROLE_CHANGE` (papel global) e `PRODUCER_SCOPE_CHANGE` (id de OM), e
+ * a chave sozinha não diz qual. Com o dicionário de papéis os dois casos saem certos: o
+ * papel vira frase e o id de OM, que não casa com nada, sai marcado como CÓDIGO, que é
+ * exatamente o que ele é.
+ */
+const VALORES_DE_DETALHE = Object.freeze({
+    origem: ORIGENS,
+    role: PAPEIS_GLOBAIS,
+    from: PAPEIS_GLOBAIS,
+    to: PAPEIS_GLOBAIS,
+});
+
+/**
+ * O motivo pelo qual uma concessão caiu, ou o PRÓPRIO CÓDIGO quando ninguém o traduziu.
+ * @param {string} origem
+ * @returns {string}
+ */
+export function rotuloDeOrigem(origem) {
+    const chave = String(origem ?? '');
+    return ORIGENS[chave] ?? (chave || '—');
+}
+
+/**
+ * A SEGUNDA SEÇÃO DA GAVETA: o resto do `details`, já em pt-BR onde há verbete.
+ *
+ * Devolve, por entrada, o par (chave, texto) mais DUAS bandeiras que dizem qual das duas
+ * metades saiu sem tradução. Quem desenha usa as bandeiras para pintar aquele pedaço como
+ * CÓDIGO, e essa é a regra que a cláusula 9.3 pede: esconder o não traduzido é pior que
+ * mostrá-lo, e mostrá-lo com cara de frase em português é pior que mostrá-lo como código.
+ *
+ * As chaves que o de-para já disse saem daqui (`chavesJaDitasPeloDePara`), senão a gaveta
+ * imprimiria duas vezes a mesma mudança, uma em frase e outra em JSON.
+ * @param {Object} detalhes - O `details` da linha.
+ * @returns {Array<{chave: string, chaveEhCodigo: boolean, texto: string, textoEhCodigo: boolean}>}
+ */
+export function linhasDeDetalhe(detalhes) {
+    if (detalhes === null || typeof detalhes !== 'object') return [];
+    const pular = chavesJaDitasPeloDePara(detalhes);
+    const saida = [];
+
+    // `Object.hasOwn` E NÃO O ACESSO DIRETO, nos dois lados: as tabelas são literais e
+    // herdam de `Object.prototype`, então uma chave de `details` chamada `constructor` ou
+    // `toString` acharia um verbete que ninguém escreveu e a gaveta imprimiria
+    // "[object Object]" no lugar do dado. As chaves vêm do servidor, o que torna isso
+    // improvável e não impossível, e o custo de fechar é uma chamada.
+    for (const [chave, valor] of Object.entries(detalhes)) {
+        if (pular.has(chave)) continue;
+        const temRotulo = Object.hasOwn(CHAVES_DE_DETALHE, chave);
+        const dicionario = Object.hasOwn(VALORES_DE_DETALHE, chave) ? VALORES_DE_DETALHE[chave] : null;
+
+        let texto;
+        let textoEhCodigo = false;
+        if (valor === null || valor === undefined) {
+            texto = '—';
+        } else if (typeof valor === 'boolean') {
+            texto = valor ? 'sim' : 'não';
+        } else if (dicionario && typeof valor === 'string') {
+            const traduzido = Object.hasOwn(dicionario, valor);
+            texto = traduzido ? dicionario[valor] : valor;
+            textoEhCodigo = !traduzido;
+        } else if (typeof valor === 'object') {
+            // Estrutura livre (lista de campos, objeto aninhado): ela É dado cru, e sai
+            // marcada como tal em vez de fingir ser uma frase.
+            texto = JSON.stringify(valor);
+            textoEhCodigo = true;
+        } else {
+            texto = String(valor);
+        }
+
+        saida.push({
+            chave: temRotulo ? CHAVES_DE_DETALHE[chave] : chave,
+            chaveEhCodigo: !temRotulo,
+            texto,
+            textoEhCodigo,
+        });
+    }
+    return saida;
 }
 
 /**

@@ -44,6 +44,9 @@ import { mapResolver } from '@store/services/map-resolver.service.js';
 import { resolveRedirectTarget } from './remote-map-redirect.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+// A ÚNICA implementação da escada por atlas. `_canRenameAtlas` já gateia por capacidade
+// (`checkPermission`); `_handleOpenSettings` precisa do POSTO, e posto se compara por hierarquia.
+import { atlasRoleHasAtLeast } from '@js/projects/permission-levels.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 // DIRECT import, not the `@store` barrel: the barrel re-exports only `adoptRemoteAtlasAsLocal`
@@ -1706,10 +1709,14 @@ export class MapsTab {
      */
     async _handleOpenSettings() {
         const { showAtlasSettingsModal } = await import('@modals/atlas-settings.modal.js');
-        const role = sessionContext.role;
+        // POR HIERARQUIA, e não pela lista fechada que morava aqui. A ironia estava medida: o
+        // `fileoverview` de `_canRenameAtlas`, oito linhas acima, explica em nove linhas por que
+        // não se usa lista fechada, e esta linha escrevia uma. O posto do servidor é `manage`
+        // (`PATCH /atlas/:atlasId/settings`), e `atlasRoleHasAtLeast` traduz o `UserRole` do
+        // cliente para a escada antes de comparar.
         showAtlasSettingsModal(syncEngine.atlasId || null, {
             atlasName: this._atlasName || '',
-            canManage: role === 'owner' || role === 'manager' || role === 'admin',
+            canManage: atlasRoleHasAtLeast(sessionContext.role, 'manage'),
         });
     }
 

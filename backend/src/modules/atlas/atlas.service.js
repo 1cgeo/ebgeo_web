@@ -300,6 +300,11 @@ export async function listUserAtlas(userId) {
  * SEPARATE FROM `listUserAtlas` on purpose — see the comment on LIST_USER_ATLAS_MEMBERS: the plain
  * listing is on the hot path of four client surfaces, and only this page draws members.
  *
+ * Cada item de `members` traz `{ id, nome, posto_graduacao, permission }`, e `permission` é o nível
+ * EFETIVO (a escada de cinco, `owner` inclusive), não a coluna de `atlas_shares`. Ver o comentário
+ * de LIST_USER_ATLAS_MEMBERS: o campo entrou em 2026-08-23 e é o que torna "quem tem acesso e com
+ * que nível" respondível abaixo de `manage`.
+ *
  * @param {string} userId
  * @returns {Promise<Object[]>} `{ id, member_count, members, has_cover, cover_updated_at }`.
  */

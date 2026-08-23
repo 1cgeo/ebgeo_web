@@ -29,23 +29,28 @@ import {
 const ids = (options) => cardMenuActions(options).map((a) => a.id);
 
 describe('cardMenuActions — o menu do cartão por nível', () => {
-    it('não oferece NADA além de copiar a quem só lê', () => {
-        expect(ids({ permission: 'read' })).toEqual(['duplicate']);
+    // `leave` entrou em 2026-08-23 (cláusula 5.8) e aparece para TODO nível conhecido que não
+    // seja o topo, por isso ele acompanha as quatro listas abaixo. O gate dele, com o dono e o
+    // desconhecido, é asserido nos dois sentidos em `atlas-drive-sair.test.js`.
+    it('não oferece NADA além de copiar e sair a quem só lê', () => {
+        expect(ids({ permission: 'read' })).toEqual(['duplicate', 'leave']);
     });
 
     it('não promove o comentarista: comment fica onde read está', () => {
-        expect(ids({ permission: 'comment' })).toEqual(['duplicate']);
+        expect(ids({ permission: 'comment' })).toEqual(['duplicate', 'leave']);
     });
 
     it('abre renomear e imagem no editor', () => {
-        expect(ids({ permission: 'write' })).toEqual(['rename', 'cover', 'duplicate']);
+        expect(ids({ permission: 'write' })).toEqual(['rename', 'cover', 'duplicate', 'leave']);
     });
 
     it('dá ao co-Gestor (manage) tudo o que o editor tem MAIS o acesso', () => {
         // A escada é read < comment < write < manage < owner. Uma lista fechada
         // `=== 'write' || === 'owner'` deixaria `manage` sem renomear, que é o bug que
         // esta casa já embarcou duas vezes.
-        expect(ids({ permission: 'manage' })).toEqual(['rename', 'cover', 'access', 'duplicate']);
+        expect(ids({ permission: 'manage' })).toEqual([
+            'rename', 'cover', 'access', 'duplicate', 'leave',
+        ]);
     });
 
     it('NÃO dá a lixeira ao co-Gestor: excluir é do dono', () => {

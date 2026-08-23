@@ -17,29 +17,25 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { createDb, closeDb } from './helpers/db.js';
+import { closeDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * Registers a fresh user (role='user') and promotes it to GLOBAL admin.
+ * Registers a fresh user and promotes it to GLOBAL admin.
  *
- * DUAS escritas de natureza diferente, e a distinção é o ponto. A conta nasce pela rota
- * pública, com o e-mail confirmado pela rota pública (`helpers/accounts.js`) — o portão de
- * verificação continua exercitado. A PROMOÇÃO é SQL porque não existe rota: criar um
- * administrador exige um administrador, e esta camada parte de um banco vazio cuja única
- * porta é `POST /auth/register`. A galinha e o ovo não têm solução em forma de rota, então a
- * escrita é honesta aqui em vez de escondida.
+ * DUAS escritas de natureza diferente, e a distinção é o ponto — ela agora está dita uma vez
+ * só, no `fileoverview` de `helpers/accounts.js`. A conta nasce pela rota pública, com o
+ * e-mail confirmado pela rota pública, então o portão de verificação continua exercitado; a
+ * PROMOÇÃO é SQL porque não existe rota: criar um administrador exige um administrador, e
+ * esta camada parte de um banco vazio cuja única porta é `POST /auth/register`. A galinha e o
+ * ovo não têm solução em forma de rota, então a escrita é honesta no helper em vez de
+ * espalhada por cinco specs, que era o estado até 2026-08-23.
  */
 async function registerAdmin() {
-    const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' });
-    await createDb(state.dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)",
-        [user.username]
-    );
-    return user;
+    return createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester', role: 'admin' });
 }
 
 /** Boots the app anonymous (backend override + cleared storage) and logs in through the UI. */

@@ -37,8 +37,10 @@ import {
     familiaDeAcao,
     fraseDoEvento,
     horaDoEvento,
+    linhasDeDetalhe,
     linhasDoDePara,
     nomeDaOm,
+    rotuloDeOrigem,
     nomeDoAlvo,
     nomeDoAtor,
     rotuloDeAcao,
@@ -362,13 +364,37 @@ describe('audit-phrases — o DE-PARA em frases', () => {
         // novo classificado lá sem frase aqui, e rótulo apagado aqui. CONTROLE NEGATIVO
         // EXECUTADO: apagar três rótulos (`url`, `bounds`, `locate`) deixa DOIS casos
         // vermelhos deste arquivo, este e o do fallback.
+        //
+        // A EXTRAÇÃO É POR NOME DE LISTA, e não "toda string indentada com dois espaços",
+        // que é como ela nasceu. O motivo apareceu quando `audit-diff.js` ganhou uma
+        // TERCEIRA lista, a do que fica FORA do de-para (`CAMPOS_FORA_DO_DEPARA`, com
+        // `password_hash` e `updated_at` dentro): pela extração antiga, um campo que o
+        // servidor decide NUNCA gravar passaria a exigir rótulo de tela aqui, e o conserto
+        // óbvio seria escrever "Senha" no dicionário de campos de uma trilha que jamais
+        // grava senha. Casar o NOME da lista mantém o guarda medindo o que ele diz medir:
+        // campo CLASSIFICADO tem frase.
         const fonte = readFileSync(
             resolve(RAIZ, 'backend/src/utils/audit-diff.js'), 'utf8',
         );
-        const campos = [...fonte.matchAll(/^ {2}'([A-Za-z0-9_.]+)',$/gm)].map((m) => m[1]);
-        // PISO — a regex ainda casa a fonte do backend. Uma lista vazia passaria em tudo
+        const listas = [...fonte.matchAll(
+            /export const (CAMPOS_COM_VALOR|CAMPOS_COM_IMPRESSAO) = Object\.freeze\(\[([\s\S]*?)\n\]\);/g,
+        )];
+        // PISO 1 — as DUAS listas foram achadas. Com uma só (ou nenhuma), tudo abaixo
+        // compararia um recorte pela metade sem nada ficar vermelho.
+        expect(listas.map((m) => m[1]).sort()).toEqual(['CAMPOS_COM_IMPRESSAO', 'CAMPOS_COM_VALOR']);
+        const campos = listas.flatMap(
+            (m) => [...m[2].matchAll(/^ {2}'([A-Za-z0-9_.]+)',$/gm)].map((x) => x[1]),
+        );
+        // PISO 2 — a regex ainda casa a fonte do backend. Uma lista vazia passaria em tudo
         // o que vem abaixo sem verificar nada.
         expect(campos.length).toBeGreaterThanOrEqual(20);
+        // DISCRIMINAÇÃO — o recorte é mesmo o das duas listas de CLASSIFICAÇÃO. Se a
+        // extração voltar a varrer o arquivo inteiro, o que está fora do de-para entra
+        // aqui e este caso acusa, em vez de cobrar rótulo para uma coluna de credencial.
+        expect(campos).not.toContain('password_hash');
+        expect(campos).not.toContain('updated_at');
+        // E o piso positivo do mesmo par: o miolo da família de usuários ESTÁ classificado.
+        expect(campos).toEqual(expect.arrayContaining(['role', 'producer_org_id', 'nome']));
 
         // Os que ficam com o NOME CRU por decisão: são chaves técnicas de MapLibre, cujo
         // nome já é o vocabulário de quem investiga, e um rótulo inventado ("Camada de
@@ -391,5 +417,135 @@ describe('audit-phrases — o DE-PARA em frases', () => {
             return !campo || !texto;
         });
         expect(semFrase).toEqual([]);
+    });
+});
+
+describe('audit-phrases — a SEGUNDA seção da gaveta, e o motivo da queda em português', () => {
+    it('`origem` deixa de ser um enum cru: os QUATRO carimbos têm frase em pt-BR', () => {
+        // O DEFEITO MEDIDO: a gaveta despejava `origem: USER_DEMOTION` cru, em inglês e em
+        // maiúsculas, num painel em português — exatamente onde o leitor precisava
+        // entender por que uma concessão que ninguém revogou aparecia revogada.
+        //
+        // O INVENTÁRIO SÃO OS CHAMADORES de `podarPorRaizes` que CARIMBAM origem. A
+        // revogação deliberada não carimba nada, e é por isso que ela não está aqui: a
+        // ausência já significa "alguém revogou de propósito".
+        const CARIMBOS = [
+            'USER_DEMOTION',
+            'USER_DELETE',
+            'ACCESS_GROUP_DELETE',
+            'ACCESS_GROUP_MEMBER_REMOVE',
+        ];
+        for (const carimbo of CARIMBOS) {
+            const frase = rotuloDeOrigem(carimbo);
+            // Traduzido de verdade: nem o código de volta, nem string vazia.
+            expect(frase, `${carimbo} sem frase`).not.toBe(carimbo);
+            expect(frase.length).toBeGreaterThan(10);
+            expect(frase).toMatch(/^[a-zà-ú]/, 'a frase completa "porque…", então começa em minúscula');
+        }
+        // O caso NOMEADO no defeito, por extenso, para que apagar o verbete fique vermelho
+        // com o nome dele e não dentro de um laço. CONTROLE NEGATIVO EXECUTADO E MEDIDO:
+        // apagar a linha `USER_DEMOTION` de `ORIGENS` deixa DOIS casos vermelhos deste
+        // arquivo (este e o do fallback), e os outros 26 verdes.
+        expect(rotuloDeOrigem('USER_DEMOTION')).toBe('quem concedeu perdeu o papel global ou a OM produtora');
+    });
+
+    it('a origem DESCONHECIDA aparece, e aparece como CÓDIGO', () => {
+        // A regra da cláusula 9.3 na parte que é fácil errar nos dois sentidos: esconder o
+        // não traduzido é pior que mostrá-lo, e mostrá-lo com cara de frase em português é
+        // pior que mostrá-lo como código.
+        expect(rotuloDeOrigem('ORIGEM_INVENTADA')).toBe('ORIGEM_INVENTADA');
+        expect(rotuloDeOrigem(undefined)).toBe('—');
+
+        const [linha, ...resto] = linhasDeDetalhe({ origem: 'ORIGEM_INVENTADA' });
+        expect(resto).toEqual([]);
+        expect(linha.chave).toBe('Motivo da queda');
+        expect(linha.chaveEhCodigo, 'a CHAVE tem verbete, então não é código').toBe(false);
+        expect(linha.texto).toBe('ORIGEM_INVENTADA');
+        expect(linha.textoEhCodigo, 'o VALOR não tem verbete, então é código').toBe(true);
+
+        // DISCRIMINAÇÃO — a origem CONHECIDA não é marcada como código, senão a bandeira
+        // valeria sempre e não discriminaria nada.
+        const [conhecida] = linhasDeDetalhe({ origem: 'USER_DEMOTION' });
+        expect(conhecida.textoEhCodigo).toBe(false);
+        expect(conhecida.texto).not.toBe('USER_DEMOTION');
+    });
+
+    it('a chave sem verbete sai crua e marcada, e a de-para nunca sai duas vezes', () => {
+        const linhas = linhasDeDetalhe({
+            origem: 'USER_DEMOTION',
+            self: true,
+            chaveQueNinguemTraduziu: 'valor',
+            fields: ['nome'],
+            mudou: [{ campo: 'role', de: 'user', para: 'admin' }],
+            outros: [],
+            truncado: false,
+        });
+        // PISO — a função devolveu linhas. Um array vazio passaria em toda ausência abaixo.
+        const porChave = Object.fromEntries(linhas.map((l) => [l.chave, l]));
+        expect(Object.keys(porChave).sort()).toEqual(
+            ['Ato do próprio titular', 'Motivo da queda', 'chaveQueNinguemTraduziu'],
+        );
+        // `mudou`/`outros`/`truncado` são matéria-prima do de-para e nunca saem aqui; e
+        // `fields` sai junto porque HÁ frases, senão a gaveta diria a mesma coisa duas
+        // vezes. A igualdade EXATA acima é quem cobra isso: uma lista que crescesse com a
+        // chave repetida reprovaria nomeando-a.
+        expect(porChave['Campos tocados']).toBeUndefined();
+
+        expect(porChave['Ato do próprio titular'].texto).toBe('sim');
+        expect(porChave['Ato do próprio titular'].textoEhCodigo).toBe(false);
+        expect(porChave.chaveQueNinguemTraduziu.chaveEhCodigo).toBe(true);
+        expect(porChave.chaveQueNinguemTraduziu.texto).toBe('valor');
+    });
+
+    it('`fields` SOBREVIVE na linha antiga, e sai como código porque é dado cru', () => {
+        // A metade que uma retirada incondicional erraria: sem de-para, `fields` é a única
+        // informação de campo que a trilha guarda.
+        const linhas = linhasDeDetalhe({ table: 'tilesets', fields: ['config', 'name'] });
+        const porChave = Object.fromEntries(linhas.map((l) => [l.chave, l]));
+        expect(Object.keys(porChave).sort()).toEqual(['Campos tocados', 'Tabela']);
+        expect(porChave['Campos tocados'].texto).toBe('["config","name"]');
+        expect(porChave['Campos tocados'].textoEhCodigo, 'estrutura livre é dado cru').toBe(true);
+        expect(porChave.Tabela.texto).toBe('tilesets');
+    });
+
+    it('o papel global sai traduzido, e o id de OM da MESMA chave sai como código', () => {
+        // `from`/`to` servem duas ações (`ROLE_CHANGE` com papel, `PRODUCER_SCOPE_CHANGE`
+        // com id de OM) e a chave sozinha não diz qual. Com o dicionário de papéis os dois
+        // saem certos, e é essa ambiguidade resolvida que este caso prende.
+        const papel = Object.fromEntries(
+            linhasDeDetalhe({ from: 'user', to: 'admin' }).map((l) => [l.chave, l]),
+        );
+        expect(papel.De.texto).toBe('Usuário');
+        expect(papel.De.textoEhCodigo).toBe(false);
+        expect(papel.Para.texto).toBe('Administrador');
+
+        const om = Object.fromEntries(
+            linhasDeDetalhe({ from: null, to: '3f2b1c4d-0000-4000-8000-000000000001' }).map((l) => [l.chave, l]),
+        );
+        expect(om.De.texto, 'nulo é um estado com nome, não um código').toBe('—');
+        expect(om.De.textoEhCodigo).toBe(false);
+        expect(om.Para.texto).toBe('3f2b1c4d-0000-4000-8000-000000000001');
+        expect(om.Para.textoEhCodigo, 'um UUID É um código, e sai marcado como tal').toBe(true);
+    });
+
+    it('os campos de CONTA têm rótulo pt-BR no de-para, papel e OM produtora inclusive', () => {
+        // O par do caso estrutural acima, do lado da FRASE: a lista do servidor ganhou a
+        // família de usuários, e sem rótulo aqui a gaveta mostraria `producer_org_id` cru.
+        const linhas = linhasDoDePara({
+            mudou: [
+                { campo: 'role', de: 'user', para: 'admin' },
+                { campo: 'producer_org_id', de: null, para: 'om-1' },
+                { campo: 'nome', regime: 'impressao', de: 'aaaaaaaaaaaa', para: 'bbbbbbbbbbbb', bytesDe: 5, bytesPara: 7 },
+            ],
+            outros: [],
+        });
+        expect(linhas.length).toBe(3);
+        const porCampo = Object.fromEntries(linhas.map((l) => [l.campo, l.texto]));
+        expect(porCampo['Papel global']).toBe('“user” → “admin”');
+        expect(porCampo['OM produtora']).toBe('(vazio) → “om-1”');
+        // O NOME por impressão, e a frase precisa DIZER que é impressão: sem a palavra,
+        // doze hexadecimais leem-se como o nome que a pessoa passou a ter.
+        expect(porCampo.Nome).toContain('impressão');
+        expect(porCampo.Nome).toContain('aaaaaaaaaaaa');
     });
 });

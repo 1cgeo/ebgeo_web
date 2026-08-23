@@ -48,6 +48,10 @@ import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { PromptModal } from '@modals/prompt.modal.js';
 import { showLoginModal } from '@modals/login.modal.js';
+// A escada por atlas, de um módulo folha e SEM imports (contrato asserido em
+// `tests/unit/permission-levels.test.js`): esta página boota sem a store, então o barrel está fora
+// de questão. Nunca uma lista fechada de níveis escrita aqui.
+import { isGrantablePermission } from '@js/projects/permission-levels.js';
 // The local-atlas registry, by FILE. This is the only module of the page that talks to it, which
 // is what `tests/unit/portao-de-montagem.test.js` records for `createLocalAtlas`.
 import {
@@ -513,11 +517,14 @@ async function applyAtlasSharing(atlasId, sharing) {
             console.warn('[projects] enablePublicSharing failed:', error);
         }
     }
-    const validPerms = ['read', 'comment', 'write', 'manage'];
     for (const member of (sharing.members || [])) {
         if (!member?.userId) continue;
-        // Least-privilege fallback for an unrecognized staged value (never silently escalate to edit).
-        const permission = validPerms.includes(member.permission) ? member.permission : 'read';
+        // Least-privilege fallback for an unrecognized staged value (never silently escalate to
+        // edit). The acceptable set is DERIVED from the ladder (`isGrantablePermission`: every rung
+        // below `owner`), not a local array: the same list lived hand-written here and in
+        // `account/account.control.js`, so a rung added to `PERMISSION_ORDER` would have been
+        // demoted to 'read' by both, silently and in two places.
+        const permission = isGrantablePermission(member.permission) ? member.permission : 'read';
         try {
             await apiClient.addShare(atlasId, member.userId, permission);
         } catch (error) {

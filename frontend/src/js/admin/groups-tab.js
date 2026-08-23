@@ -31,6 +31,7 @@
  */
 
 import { apiClient } from '@store/sync/api-client.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 // From the FILES, never from the `@utils` / `@modals` barrels: this page does not load the
@@ -54,6 +55,12 @@ import {
     memberDisplayName,
     memberAddedByLabel,
     memberAdmissionTitle,
+    LEAVE_AVAILABILITY,
+    leaveGroupAvailability,
+    leaveGroupWarning,
+    leaveGroupSummary,
+    groupOwnerCannotLeaveNotice,
+    participatingReachUnknownNotice,
 } from './group-phrases.js';
 
 /** The user search waits this long after the last keystroke before hitting the backend. */
@@ -182,11 +189,20 @@ class GroupsTab {
     }
 
     /**
-     * @private A segunda seção: os grupos de que a pessoa PARTICIPA, com o dono e nada mais.
+     * @private A segunda seção: os grupos de que a pessoa PARTICIPA, com o dono e a SAÍDA.
      *
-     * O que NÃO tem aqui é a metade que importa: sem roster, sem contagem e sem botão. Quem
-     * participa vê QUE participa e DE QUEM é o grupo (é a quem pedir entrada ou saída); quem
-     * mais está dentro continua sendo informação de quem administra.
+     * O QUE NÃO SAI POR AQUI continua sendo o roster e as contagens: quem participa vê QUE
+     * participa e DE QUEM é o grupo (é a quem pedir entrada), e quem mais está dentro é
+     * informação de quem administra (cláusula 4.5). A seção diz isso em voz alta
+     * (`participatingReachUnknownNotice`) em vez de deixar a ausência do número se ler como
+     * zero.
+     *
+     * O QUE PASSOU A SAIR, em 2026-08-23, é o BOTÃO (cláusula 4.7). Antes disto a seção era
+     * inteiramente informativa, e a única remoção existente passava por `requireGroupAuthority`,
+     * que responde 404 ao próprio membro: participar era um estado do qual não havia saída pela
+     * interface. O botão é gateado por `leaveGroupAvailability`, e não aparece para o dono,
+     * porque o servidor lhe responde 409 e oferecer o que o servidor recusa é pior que não
+     * oferecer nada.
      *
      * O que a seção 1 já mostrou sai daqui, e o caso que motiva o filtro é o do administrador:
      * ele vê TODOS os grupos na seção de gestão, e sem o filtro veria de novo, sem gestão
@@ -220,6 +236,18 @@ class GroupsTab {
             return;
         }
 
+        // A ressalva de escopo entra ANTES do cartão e só quando há linha para ela explicar:
+        // numa seção vazia ela descreveria colunas que não existem na tela.
+        const escopo = document.createElement('p');
+        escopo.className = 'admin-groups__participating-scope';
+        escopo.dataset.testid = 'admin-groups-participating-note';
+        escopo.textContent = participatingReachUnknownNotice();
+        host.insertBefore(escopo, wrap);
+
+        // Lido UMA vez para a seção inteira: é o mesmo espectador em todas as linhas, e uma
+        // leitura por linha só multiplicaria a chance de as linhas discordarem entre si.
+        const viewerId = sessionContext.userId;
+
         const list = document.createElement('ul');
         list.className = 'admin-groups__participating-list';
         for (const group of outros) {
@@ -243,10 +271,29 @@ class GroupsTab {
             identity.appendChild(text);
             item.appendChild(identity);
 
-            // Nome e dono, e NADA MAIS. A descrição foi renderizada aqui por uma revisão e
-            // saiu em 2026-08-21: o servidor deixou de mandá-la, e o motivo é o mesmo que
-            // mantém o roster e as contagens de fora — a decisão enumera o que o participante
-            // vê, e o fileoverview desta aba já o dizia enquanto o código fazia o contrário.
+            // Nome e dono como TEXTO, e nada mais. A descrição foi renderizada aqui por uma
+            // revisão e saiu em 2026-08-21: o servidor deixou de mandá-la, e o motivo é o mesmo
+            // que mantém o roster e as contagens de fora. O que entrou depois foi AÇÃO, não
+            // informação de terceiro: sair é direito de quem entrou.
+            const acoes = document.createElement('div');
+            acoes.className = 'admin-groups__participating-actions';
+            const saida = leaveGroupAvailability(group, viewerId);
+            if (saida === LEAVE_AVAILABILITY.PODE) {
+                acoes.appendChild(this._button('Sair do grupo',
+                    'admin-btn admin-btn--danger admin-btn--sm', 'admin-group-leave',
+                    () => this._leave(group)));
+            } else if (saida === LEAVE_AVAILABILITY.DONO) {
+                // Espaço vazio se lê como tela quebrada; a nota diz por que não há botão, e o
+                // `title` carrega os dois caminhos que o servidor nomeia na recusa.
+                const nota = document.createElement('span');
+                nota.className = 'admin-groups__leave-blocked';
+                nota.dataset.testid = 'admin-group-leave-blocked';
+                nota.textContent = 'Você é o dono';
+                nota.title = groupOwnerCannotLeaveNotice();
+                acoes.appendChild(nota);
+            }
+            item.appendChild(acoes);
+
             list.appendChild(item);
         }
         wrap.appendChild(list);
@@ -457,6 +504,40 @@ class GroupsTab {
             if (this._alive) this._renderList();
         } catch (err) {
             showError(err?.message || 'Falha ao apagar o grupo.');
+        }
+    }
+
+    /**
+     * @private SAIR DO GRUPO POR CONTA PRÓPRIA (cláusula 4.7).
+     *
+     * NÃO HÁ RELEITURA AQUI, ao contrário de `_delete`, e a assimetria é medida e não descuido:
+     * `_reachForWarning` relê a listagem de GESTÃO para refrescar números que o aviso cita, e
+     * este aviso não cita número nenhum, porque a listagem que serve esta seção
+     * (`LIST_GROUPS_OF_MEMBER`) não traz contagem. Uma requisição a mais que não muda uma
+     * palavra da frase é custo sem produto.
+     *
+     * O 409 do dono chega como erro com a mensagem do SERVIDOR, que nomeia apagar o grupo ou
+     * transferir a posse. Ele não deveria acontecer (o botão nem aparece para o dono), e por
+     * isso mesmo o `catch` não o reescreve: se acontecer, a explicação certa é a de quem
+     * recusou.
+     * @param {Object} group
+     */
+    async _leave(group) {
+        const ok = await showConfirm(`Sair do grupo "${group.name || ''}"?`, {
+            message: leaveGroupWarning(group),
+            destructive: true,
+            confirmText: 'Sair do grupo',
+            cancelText: 'Continuar no grupo',
+        });
+        if (!ok) return;
+        try {
+            const result = await apiClient.leaveGroup(group.id);
+            // `removed` e `grantsAffected` são do servidor, e o primeiro é o que distingue o ato
+            // realizado da resposta idempotente (grupo inexistente, ou já não participo).
+            showSuccess(leaveGroupSummary({ ...result, name: group.name || '' }));
+            if (this._alive) this._renderList();
+        } catch (error) {
+            showError(error?.message || 'Falha ao sair do grupo.');
         }
     }
 

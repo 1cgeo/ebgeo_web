@@ -130,13 +130,74 @@ export function grantablePermissionOptions() {
 }
 
 /**
- * The per-atlas role values the server resolves to `owner` on THIS atlas.
+ * The CLIENT vocabulary of the per-atlas axis, translated to the SERVER's ladder.
  *
- * Kept as data rather than inlined into the predicate so the count is visible: there
- * are TWO, and the second one is the whole point.
- * @type {ReadonlyArray<string>}
+ * TWO VOCABULARIES, ONE AXIS, and this map is the only place the second turns into the
+ * first. `sessionContext.role` (a `UserRole`, `store/sync/session-context.js`) carries
+ * SIX values because `toFrontendRole` (`backend/src/utils/roles.js`) folds the GLOBAL
+ * `admin` into the per-atlas ladder before the role reaches the client; the server's
+ * `permission`, which is what `user_permission` and every share row carry, has FIVE and
+ * is the ladder {@link PERMISSION_ORDER} implements.
+ *
+ * This map is the exact INVERSE of `toFrontendRole`, and the two must move together.
+ * Written as data rather than as a chain of `if`s so a value added on either side shows
+ * up as a missing KEY here, not as a branch nobody noticed.
+ *
+ * `producer` and `credenciado` are deliberately ABSENT: `toFrontendRole` folds only
+ * `admin`, so those two reach the client already resolved onto the ladder as ordinary
+ * accounts, and giving them a key here would invent a short-circuit the server does not
+ * have. That is the error the `fileoverview` of `roles.js` exists to prevent.
+ * @type {Readonly<Object<string, string>>}
  */
-const ATLAS_OWNER_ROLES = Object.freeze(['owner', 'admin']);
+const ROLE_TO_PERMISSION = Object.freeze({
+    admin: 'owner',
+    owner: 'owner',
+    manager: 'manage',
+    editor: 'write',
+    commenter: 'comment',
+    viewer: 'read',
+});
+
+/**
+ * The server `permission` a per-atlas role stands for, or `null` for anything unknown.
+ *
+ * Accepts EITHER vocabulary: a raw `permission` (already a rung) comes back unchanged, a
+ * client `UserRole` is translated. That is what lets a single gate serve both kinds of
+ * call site, and it is safe because the two vocabularies overlap on `owner` alone, where
+ * they agree.
+ * @param {*} role - a `UserRole` or a raw server `permission`
+ * @returns {string|null}
+ */
+export function toAtlasPermission(role) {
+    if (isKnownPermission(role)) return role;
+    if (typeof role === 'string' && Object.hasOwn(ROLE_TO_PERMISSION, role)) {
+        return ROLE_TO_PERMISSION[role];
+    }
+    return null;
+}
+
+/**
+ * THE GATE FOR `sessionContext.role`: does this role reach at least `required`?
+ *
+ * {@link hasAtLeast} speaks the server's five-value vocabulary and answers `false` for
+ * `manager`, `editor`, `commenter` and `viewer`, which is why screens holding a
+ * `UserRole` kept writing closed lists instead of using it: `role === 'owner' || role
+ * === 'manager' || role === 'admin'` was what a Gestor gate looked like in three places,
+ * and `[UserRole.OWNER, UserRole.ADMIN]` was a fourth. Each was correct against the six
+ * values of the day and wrong the moment a rung appears, which is the bug that already
+ * shipped twice in this repository.
+ *
+ * FAIL-CLOSED IN BOTH DIRECTIONS: an unrecognized role resolves to `null`, ranks below
+ * `read` and reaches nothing; an unrecognized `required` returns `false` instead of
+ * letting a typo open the gate.
+ *
+ * @param {*} role - `sessionContext.role`, or a raw server `permission`
+ * @param {string} required - the minimum SERVER rung the action needs ('manage', ...)
+ * @returns {boolean}
+ */
+export function atlasRoleHasAtLeast(role, required) {
+    return hasAtLeast(toAtlasPermission(role), required);
+}
 
 /**
  * WHOM THE SERVER TREATS AS THE OWNER OF THIS ATLAS.
@@ -159,13 +220,15 @@ const ATLAS_OWNER_ROLES = Object.freeze(['owner', 'admin']);
  * `admin`), so they fall on the ladder as ordinary accounts. Completing this list
  * with them is the error the `fileoverview` of `roles.js` exists to prevent.
  *
- * Safe for either vocabulary: `admin` is not a value of the server's five-level
- * `permission`, so a raw `permission` string lands on the same answer. The one
- * thing it is NOT is a security boundary: the server re-decides on every request.
+ * Safe for either vocabulary, because {@link atlasRoleHasAtLeast} normalizes first: a
+ * raw `permission` string lands on the same answer. It is a NAMED case of the ladder,
+ * not a second implementation of it, which is why it is defined in terms of the gate
+ * rather than as its own pair of literals. The one thing it is NOT is a security
+ * boundary: the server re-decides on every request.
  *
  * @param {*} role - `sessionContext.role` (a `UserRole`), or a raw server permission.
  * @returns {boolean}
  */
 export function serverTreatsAsAtlasOwner(role) {
-    return typeof role === 'string' && ATLAS_OWNER_ROLES.includes(role);
+    return atlasRoleHasAtLeast(role, 'owner');
 }

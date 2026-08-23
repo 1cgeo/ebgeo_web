@@ -1180,6 +1180,26 @@ export class ApiClient {
         );
     }
 
+    /**
+     * LEAVES the group on one's own authority, the sibling of {@link leaveAtlas} and gated the
+     * same way: `auth` and nothing else, because belonging to a collective is not something one
+     * should need its administrator's permission to end.
+     *
+     * `grantsAffected` is the PRUNING, not a formality: leaving takes down what the member passed
+     * on THROUGH the group, whose justification no longer exists. It is the number a screen
+     * reports, and it is not derivable from anything the caller already holds.
+     *
+     * Idempotent in the same shape as the atlas route: an unknown group and "I am not a member"
+     * both answer 200 with `removed: false`, so the route is no inventory oracle. The one refusal
+     * is 409 for the group's OWNER, whose message names apagar or transferir a posse.
+     * @param {string} groupId
+     * @returns {Promise<{groupId: string, userId: string, removed: boolean,
+     *   grantsAffected: number}>}
+     */
+    async leaveGroup(groupId) {
+        return this._request('DELETE', `/access-groups/${encodeURIComponent(groupId)}/members/me`);
+    }
+
     // ===== CATALOG — 360 PROJECTS (admin metadata; the bundle upload is out-of-band) =====
 
     /** Lists 360 projects (incl. disabled). Bare array contract. @returns {Promise<Array<Object>>} */
@@ -1647,6 +1667,32 @@ export class ApiClient {
      */
     async removeShare(atlasId, userId) {
         return this._request('DELETE', `/atlas/${atlasId}/sharing/users/${userId}`);
+    }
+
+    /**
+     * LEAVES the atlas on one's own authority — the only route in this module gated on `auth`
+     * alone, because the authority exercised is over ONESELF, not over the atlas. Asking for
+     * `manage` here is what used to leave an Editor stuck in a project, depending on whoever
+     * administers it to get out.
+     *
+     * `effectivePermission` IS THE LEVEL AFTER THE ACT, not a yes/no, and it can come back
+     * FILLED: a live access group or the public link keeps the access alive down another path,
+     * and the screen has to say so instead of announcing a departure that did not happen.
+     * `null` is the only answer that means "gone for good".
+     *
+     * A nonexistent atlas and "I do not take part" answer IDENTICALLY (200, `removed: false`),
+     * deliberately, so the route cannot be used to probe which atlas ids exist. Repeating the
+     * call is therefore safe and answers `removed: false`.
+     *
+     * The one refusal is 409, for the OWNER: an atlas whose owner walked out would be orphaned,
+     * and the server's message names the two ways out (transfer ownership, or trash the atlas).
+     * Show that message rather than a sentence of your own.
+     * @param {string} atlasId
+     * @returns {Promise<{atlasId: string, removed: boolean,
+     *   effectivePermission: 'owner'|'manage'|'write'|'comment'|'read'|null}>}
+     */
+    async leaveAtlas(atlasId) {
+        return this._request('DELETE', `/atlas/${encodeURIComponent(atlasId)}/sharing/me`);
     }
 
     // ----- compartilhamento com GRUPO de acesso ---------------------------------------

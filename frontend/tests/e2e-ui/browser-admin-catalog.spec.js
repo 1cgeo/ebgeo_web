@@ -10,25 +10,24 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { createDb, closeDb } from './helpers/db.js';
+import { closeDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /**
- * DUAS escritas de natureza diferente. A conta nasce pela rota pública e tem o e-mail
- * confirmado pela rota pública, no lado Node (`helpers/accounts.js`), porque o token só existe
- * como linha em `email_verification_tokens` e o browser não alcança o Postgres. A PROMOÇÃO a
- * administrador global é SQL porque não existe rota: criar um administrador exige um
- * administrador, e esta camada parte de banco vazio cuja única porta é `POST /auth/register`.
+ * DUAS escritas de natureza diferente, e as duas moram em `helpers/accounts.js` desde
+ * 2026-08-23. A conta nasce pela rota pública e tem o e-mail confirmado pela rota pública,
+ * porque o token só existe como linha em `email_verification_tokens` e o browser não alcança
+ * o Postgres. A PROMOÇÃO a administrador global é SQL porque não existe rota: criar um
+ * administrador exige um administrador, e esta camada parte de banco vazio cuja única porta é
+ * `POST /auth/register`. O `UPDATE` que ficava aqui era um de cinco iguais espalhados pela
+ * pasta, e nenhum deles sabia do bicondicional do par (papel, OM de produção).
  */
 async function seedAdmin(page) {
     await page.goto('/');
-    const creds = await createVerifiedUser({ prefix: 'catadmin', nome: 'Cat Admin' });
-    await createDb(state.dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
-    return creds;
+    return createVerifiedUser({ prefix: 'catadmin', nome: 'Cat Admin', role: 'admin' });
 }
 
 async function loginAndOpenCatalog(page, baseUrl, creds) {

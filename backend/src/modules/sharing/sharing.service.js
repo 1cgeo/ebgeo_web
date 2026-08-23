@@ -7,7 +7,7 @@
 // those actions got zero rows every time — a filter that could never match, which
 // reads as "nothing happened" rather than "never wired".
 import { query, tx } from '../../database/index.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import * as atlasService from '../atlas/atlas.service.js';
 import { assertCanAdministerGroup } from '../access-groups/access-groups.service.js';
@@ -89,6 +89,80 @@ export async function removeUserShare(atlasId, userId, actorId = null, req = nul
     await createAudit(req, atlasAudit('PERMISSION_REVOKE', atlasId, actorId, { userId }), t);
     return true;
   });
+}
+
+/**
+ * SAIR DO ATLAS POR CONTA PRÓPRIA (decisão do dono, 2026-08-23).
+ *
+ * POR QUE ELA NÃO É `removeUserShare` COM OUTRO GATE. A remoção por terceiro exige `manage`, então
+ * um Editor não conseguia se retirar de um projeto: a única saída era pedir a quem administra. A
+ * autoridade aqui é sobre SI MESMO, e é isso que autoriza o gate ser só `auth`.
+ *
+ * O DONO NÃO SAI, e a recusa é 409, não 403. 403 diria "você não tem permissão" a quem tem a
+ * MAIOR de todas, e 404 mentiria sobre um atlas que ele está olhando. O que existe é um conflito
+ * de estado — o atlas ficaria órfão —, e a mensagem nomeia a saída (transferir a posse antes, pela
+ * rota de transferência, ou mandar o atlas para a lixeira).
+ *
+ * IDEMPOTENTE, E O SILÊNCIO É UNIFORME. Sair de onde não se está devolve 200 com `removed: false`,
+ * e o atlas INEXISTENTE devolve exatamente o mesmo: são as duas metades da mesma decisão, porque
+ * um 404 só no segundo caso transformaria esta rota num oráculo de existência para qualquer
+ * portador de token. O único desfecho que distingue alguma coisa é o 409, e ele só chega a quem já
+ * sabe que é dono.
+ *
+ * O QUE A SAÍDA DERRUBA É SÓ UMA LINHA, e o resto cai por PREDICADO. O que a pessoa alcançava POR
+ * AQUELE atlas é o EMPRÉSTIMO de recurso (`atlas_resources`), que não é concessão e não tem linha
+ * em `resource_grants`: ele vive dentro de `fn_granted_resource_ids(user, atlasId, tipo)`, avaliado
+ * a cada leitura com o atlas em foco (cláusula 6.2). Fora do atlas, o termo simplesmente não é
+ * alcançado. Já a concessão de CAMINHO PRÓPRIO (papel global, produção, ou uma concessão nominal)
+ * nunca dependeu do atlas e continua de pé. Por isso não há poda nenhuma aqui: escrever uma seria
+ * derrubar o que a saída não devia derrubar.
+ *
+ * SAIR NÃO É SAIR DE UM GRUPO. Quem alcança o atlas também por um coletivo continua alcançando —
+ * a linha do grupo não é dele para apagar. É por isso que a resposta carrega `effectivePermission`
+ * DEPOIS do ato: sem ele a tela anunciaria "você saiu" e o atlas continuaria na lista, que é a
+ * classe de defeito que ninguém consegue reproduzir.
+ *
+ * O ADMINISTRADOR GLOBAL não é caso especial aqui, e isso é decisão: ele sai da linha de share, se
+ * tiver uma, e continua com posse em todo atlas pelo curto-circuito de papel (cláusula 5.5), que
+ * não vem de share nenhum. Sem linha, ele recebe `removed: false`, como qualquer um. "Sair" de uma
+ * autoridade que não é compartilhamento seria outra funcionalidade, com outro nome.
+ *
+ * @param {string} atlasId
+ * @param {string|null} userId - `null` para o principal sem linha em `users` (visitante de link
+ *   público): ele não tem share, então o desfecho é o mesmo `removed: false`.
+ * @param {object} [req]
+ * @returns {Promise<{atlasId: string, removed: boolean, effectivePermission: string|null}>}
+ * @throws {ConflictError} Quando o chamador é o DONO do atlas.
+ */
+export async function leaveAtlas(atlasId, userId, req = null) {
+  const atlas = (await query(Q.FIND_ATLAS_OWNER, [atlasId])).rows[0] ?? null;
+  if (atlas && userId && String(atlas.owner_id) === String(userId)) {
+    throw new ConflictError(
+      'O dono não pode sair do próprio atlas: transfira a posse a outro participante antes, '
+      + 'ou mande o atlas para a lixeira.'
+    );
+  }
+  if (!atlas || !userId) {
+    return { atlasId, removed: false, effectivePermission: null };
+  }
+
+  const removed = await tx(async (t) => {
+    const row = await t.oneOrNone(Q.DELETE_USER_SHARE, [atlasId, userId]);
+    if (!row) return false;
+    // `self: true` DISCRIMINA os dois emissores da MESMA ação, e a forma tem precedente nesta
+    // casa (`users.service.js`, nas duas auto-edições de perfil). Ação nova custaria alargar o
+    // CHECK de `audit_trail.action` — DROP + ADD CONSTRAINT, uma entrada em EXCECOES_DESTRUTIVAS
+    // e uma migração a mais — para partir a história de um acesso em duas listas que não se
+    // cruzam. Quem lê a trilha vê `actor_id` igual ao `details.userId`, e `self` diz por escrito
+    // o que essa igualdade já sugeria.
+    await createAudit(req, atlasAudit('PERMISSION_REVOKE', atlasId, userId, {
+      userId, self: true,
+    }), t);
+    return true;
+  });
+
+  const efetivo = await effectiveRolesFor(atlasId, [String(userId)]);
+  return { atlasId, removed, effectivePermission: efetivo.get(String(userId)) ?? null };
 }
 
 // ---------------------------------------------------------------------------

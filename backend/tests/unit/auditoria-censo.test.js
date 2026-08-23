@@ -187,6 +187,12 @@ const CENSO = [
   { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'DELETE /:groupId', classe: AUDITADA, acao: 'ACCESS_GROUP_DELETE', emissor: AG_SVC },
   { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'POST /:groupId/members', classe: AUDITADA, acao: 'ACCESS_GROUP_MEMBER_ADD', emissor: AG_SVC },
   { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'DELETE /:groupId/members/:userId', classe: AUDITADA, acao: 'ACCESS_GROUP_MEMBER_REMOVE', emissor: AG_SVC },
+  // A SAÍDA VOLUNTÁRIA (2026-08-23) REUSA A AÇÃO DA REMOÇÃO POR TERCEIRO, e a forma é a das duas
+  // auto-edições de conta logo abaixo: `details.self === true` discrimina os dois emissores. Uma
+  // ação nova custaria alargar o CHECK de `audit_trail.action` (DROP + ADD CONSTRAINT, uma linha
+  // em EXCECOES_DESTRUTIVAS e uma migração) para partir em duas listas a história de um mesmo
+  // acesso — que é justamente a pergunta que a trilha responde.
+  { arquivo: 'src/modules/access-groups/access-groups.routes.js', rota: 'DELETE /:groupId/members/me', classe: AUDITADA, acao: 'ACCESS_GROUP_MEMBER_REMOVE', emissor: AG_SVC },
 
   // ---------------- compartilhamento de atlas ---------------------------------
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'POST /public', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
@@ -194,6 +200,9 @@ const CENSO = [
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'POST /users', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: SHARING_SVC },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'PUT /users/:userId', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: SHARING_SVC },
   { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'DELETE /users/:userId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: SHARING_SVC },
+  // Idem à saída voluntária de grupo: mesma ação da revogação por terceiro, `details.self` a
+  // discrimina, e o `actor_id` passa a ser a própria pessoa afetada.
+  { arquivo: 'src/modules/sharing/sharing.routes.js', rota: 'DELETE /me', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: SHARING_SVC },
   // O EIXO DE GRUPO reusa as TRÊS ações do eixo de pessoa, e a reutilização é decisão: uma
   // ação nova exigiria alargar o CHECK de `audit_trail` (DROP + ADD CONSTRAINT, uma entrada
   // em EXCECOES_DESTRUTIVAS e uma migração a mais). Quem discrimina o eixo na trilha é

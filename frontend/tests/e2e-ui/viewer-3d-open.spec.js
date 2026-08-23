@@ -26,7 +26,6 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { createDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
@@ -52,19 +51,16 @@ const TILESET_ID = 'e2e-tileset-3d';
 /**
  * Registers one tileset in the catalog, as a global admin, over the real HTTP API.
  *
- * Admin is granted the same way `browser-admin-users.spec.js` does it: the account is born on
- * the NODE side through the public route with its e-mail confirmed (`helpers/accounts.js`),
- * then the row is promoted directly in Postgres. There is no self-service path to `admin`, and
- * inventing one for a test would be inventing a product feature.
+ * Admin comes from `helpers/accounts.js`, which does BOTH halves in one place since
+ * 2026-08-23: the account is born on the NODE side through the public route with its e-mail
+ * confirmed, then the row is promoted directly in Postgres. There is no self-service path to
+ * `admin`, and inventing one for a test would be inventing a product feature.
  * @param {import('@playwright/test').Page} page - Any page on the app origin.
  * @returns {Promise<void>}
  */
 async function registerTileset(page) {
     await page.goto('/');
-    const creds = await createVerifiedUser({ prefix: 't3dadmin', nome: 'Tileset Admin' });
-
-    await createDb(state.dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
+    const creds = await createVerifiedUser({ prefix: 't3dadmin', nome: 'Tileset Admin', role: 'admin' });
 
     const created = await page.evaluate(async ({ url, creds: c, id }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');
@@ -120,9 +116,7 @@ async function registerTileset(page) {
  */
 async function clearTilesets(page) {
     await page.goto('/');
-    const creds = await createVerifiedUser({ prefix: 't3dclean', nome: 'Tileset Cleaner' });
-    await createDb(state.dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
+    const creds = await createVerifiedUser({ prefix: 't3dclean', nome: 'Tileset Cleaner', role: 'admin' });
 
     const out = await page.evaluate(async ({ url, creds: c }) => {
         const { ApiClient } = await import('/src/js/store/sync/api-client.js');

@@ -28,15 +28,16 @@ import {
     getCurrentMapIdSync,
 } from '@store';
 import { getEventBus } from '@store/services.js';
-import { sessionContext, UserRole } from '@store/sync/session-context.js';
+import { sessionContext } from '@store/sync/session-context.js';
+// A ÚNICA implementação da escada por atlas. Os dois predicados deste arquivo eram listas
+// fechadas de `UserRole` (uma do TOPO, outra do FUNDO), e o `UserRole` do cliente não é
+// comparável à escada de cinco valores do servidor sem a tradução que estes dois fazem.
+import { atlasRoleHasAtLeast, serverTreatsAsAtlasOwner } from '@js/projects/permission-levels.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import { logMapOperation } from '@store/sync/operation-dispatcher.js';
 import { showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, cleanup } from '@utils/event-cleanup.js';
-
-/** Roles allowed to lock/unlock a map when online (owner is also backend-enforced). */
-const LOCK_CAPABLE_ROLES = Object.freeze([UserRole.OWNER, UserRole.ADMIN]);
 
 /** Message shown when a non-privileged online user attempts to toggle the lock. */
 const NO_PERMISSION_MESSAGE = 'Apenas o dono pode bloquear o mapa';
@@ -77,26 +78,39 @@ export class MapLockController {
      * logged-in editor the padlock on their OWN local map — the same distinction
      * `isReadOnly()` below already makes with `isRemoteStoreSync()`.
      *
+     * The predicate is NAMED (`serverTreatsAsAtlasOwner`) and not a local
+     * `[UserRole.OWNER, UserRole.ADMIN]`, which is what stood here: the two members
+     * of that array are not two roles, they are the ONE server answer (`owner`)
+     * arriving under two client names, because `toFrontendRole` folds the global
+     * administrator into the ladder. Written as an array it read like a closed list
+     * that someone could "complete" with `manager`, which the server refuses.
+     *
      * @returns {boolean}
      */
     canToggleLock() {
         if (!isRemoteStoreSync()) {
             return true;
         }
-        return LOCK_CAPABLE_ROLES.includes(sessionContext.role);
+        return serverTreatsAsAtlasOwner(sessionContext.role);
     }
 
     /**
-     * Whether the active remote session is READ-ONLY: a connected remote atlas where the user is a
-     * viewer/commenter, OR an anonymous public-link visitor (a VIEWER). In that case the map must
+     * Whether the active remote session is READ-ONLY: a connected remote atlas where the user does
+     * not reach the `write` rung, which today means Visualizador and Comentarista, the anonymous
+     * public-link visitor included (the server hands them `read`). In that case the map must
      * present as locked and the padlock must NOT be toggleable. The local store is never read-only
      * (offline/local = full control), so this returns false there.
+     *
+     * BY HIERARCHY, and stated as the ABSENCE of `write`. The closed list of the BOTTOM that stood
+     * here (`viewer || commenter`) is the same defect as a closed list of the top, only turned
+     * around, and it failed OPEN: a role this build does not recognize was not viewer and not
+     * commenter, so the padlock unlocked itself for it. `atlasRoleHasAtLeast` ranks an unknown
+     * role below `read`, so the same input now reads as read-only.
      * @returns {boolean}
      */
     isReadOnly() {
         if (!isRemoteStoreSync()) return false;
-        const role = sessionContext.role;
-        return role === UserRole.VIEWER || role === UserRole.COMMENTER;
+        return !atlasRoleHasAtLeast(sessionContext.role, 'write');
     }
 
     /**

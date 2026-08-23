@@ -130,7 +130,7 @@ describe('serverTreatsAsAtlasOwner — entrada suja falha FECHADA', () => {
 
 describe('a tela consome o predicado, e não uma lista fechada própria', () => {
     const SHARING = readFileSync(
-        fileURLToPath(new URL('../../src/js/modals/sharing.modal.js', import.meta.url)),
+        fileURLToPath(new URL('../../src/js/modals/sharing.modal.core.js', import.meta.url)),
         'utf8',
     );
 

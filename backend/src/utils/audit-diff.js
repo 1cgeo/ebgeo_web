@@ -40,6 +40,22 @@
 // é o regime 3 e por isso `CAMPOS_COM_VALOR` não tem nenhum campo cujo nome sugira
 // endereço, arquivo, chave ou credencial.
 //
+// ============================ AS FAMÍLIAS ====================================
+//
+// As listas são GLOBAIS e não por família, e isso é escolha, não descuido. Elas
+// nasceram cobrindo catálogo e 360; em 2026-08-23 a família de USUÁRIOS entrou pelo
+// mesmo caminho (cláusula 9.3), e a alternativa recusada foi um segundo par de listas
+// com um segundo motor de comparação. O motivo é o de sempre nesta casa: a segunda
+// cópia da regra é a que envelhece sozinha, e a pergunta que o de-para responde
+// ("mudou? voltou ao que era? sem carregar o segredo") não muda com a família.
+//
+// O PREÇO DA ESCOLHA, dito por extenso, porque ele é real: os nomes de campo passam a
+// competir num espaço único. Hoje não há colisão (a linha de catálogo tem `name` e a
+// de conta tem `nome`; nenhuma família tem coluna com o nome da outra), e o guarda que
+// mede isso é a asserção de disjunção entre as duas listas em
+// `tests/unit/audit-diff.test.js`. Família nova com nome repetido precisa parar aqui e
+// decidir, em vez de herdar o regime da vizinha por acidente.
+//
 // ============================ O QUE FICA DE FORA =============================
 //
 // Dito por extenso, porque "o que o guarda não pega" é a parte que envelhece se não
@@ -62,7 +78,32 @@
 //   - QUALQUER OUTRA CHAVE de `config` — regime nome-só, por construção.
 //   - A SENHA e qualquer campo de credencial de conta: eles não passam por aqui de
 //     jeito nenhum. `updatePassword` grava `PASSWORD_RESET` com `{ self: true }` e
-//     nada mais; este módulo nunca vê o corpo daquela rota.
+//     nada mais; este módulo nunca vê o corpo daquela rota. Desde a entrada da família
+//     de usuários há também a rede explícita de {@link CAMPOS_FORA_DO_DEPARA}, abaixo.
+//
+// E DA FAMÍLIA DE USUÁRIOS, que entrou em 2026-08-23:
+//
+//   - `nome`, `username` e `email` são IMPRESSÃO, nunca valor. Os três identificam uma
+//     PESSOA, e a trilha não se edita: gravar o nome civil de alguém literalmente, para
+//     sempre, legível por todo administrador, é dado pessoal a mais do que a pergunta
+//     da auditoria exige. A impressão responde "mudou? voltou ao que era?", que é a
+//     pergunta de uma investigação de identidade (renomear uma conta para se passar por
+//     outra, e desfazer depois). O `username` acompanha os outros dois porque ele é
+//     METADE de uma credencial, e o `email` porque ele é o canal de recuperação da
+//     conta.
+//   - `password`, `password_hash`, `api_key` e `sessions_valid_from` NÃO ENTRAM NEM
+//     COMO NOME. São o único fator de autenticação da casa e a chave de API que vale
+//     pelo usuário inteiro; para eles o piso nome-só é generoso demais, porque o
+//     próprio NOME do campo numa linha de trilha convida a próxima revisão a "melhorar"
+//     pondo o valor. Eles são elididos antes da comparação.
+//   - `id`, `created_at`, `updated_at` e `last_login_at` ficam de fora por RUÍDO, não
+//     por segredo: `updated_at` muda em TODA gravação por construção (`SET updated_at =
+//     NOW()`), então sem esta linha toda edição de conta traria uma entrada nome-só que
+//     não informa nada e empurra o resto para perto do teto.
+//   - `posto_graduacao` e `organizacao_militar` ficam de fora por DERIVAÇÃO: são nomes
+//     trazidos por `LEFT JOIN` a partir de `rank_id` e `organization_id`, que estão
+//     classificados. Registrar os dois lados diria a mesma mudança duas vezes, e o id é
+//     o que dura (renomear a OM amanhã não reescreve a história de hoje).
 //
 // O QUE O REGIME 2 DIVULGA, E É DELIBERADO: além da impressão, a entrada grava o
 // COMPRIMENTO EXATO em bytes de cada lado (`bytesDe`/`bytesPara`). Não é um byte do
@@ -113,6 +154,23 @@ export const LIMITE_DETALHES_BYTES = 4096;
  * aqui é uma decisão de segurança, não de conveniência: o que entrar não sai mais.
  */
 export const CAMPOS_COM_VALOR = Object.freeze([
+  // --- conta (família USUÁRIOS) --------------------------------------------
+  // O MIOLO DO QUE SE AUDITA NUMA CONTA. `role` e `producer_org_id` são os dois
+  // fundamentos de concessão de RAIZ (`fundamentoDeRaizPerdido`, em
+  // `src/modules/users/users.service.js`): mudar qualquer um dos dois derruba tudo o
+  // que a pessoa concedeu, e uma trilha que diga "houve USER_UPDATE" sem dizer o que
+  // virou o quê não responde a pergunta que essa queda levanta. Os quatro seguintes
+  // são escalares fechados (um id de lista controlada, um id de OM, dois booleanos):
+  // pequenos, não-endereçáveis e sem chance de carregar segredo, que é o critério
+  // desta lista. `nome`, `username` e `email` NÃO estão aqui de propósito; ver o
+  // cabeçalho.
+  'role',
+  'producer_org_id',
+  'organization_id',
+  'rank_id',
+  'is_active',
+  'email_verified',
+  // --- catálogo e 360 -------------------------------------------------------
   'name',
   'description',
   'sort_order',
@@ -136,6 +194,16 @@ export const CAMPOS_COM_VALOR = Object.freeze([
  * nome-só, ele ganha a impressão, que é o que permite responder "voltou ao que era".
  */
 export const CAMPOS_COM_IMPRESSAO = Object.freeze([
+  // --- conta (família USUÁRIOS) --------------------------------------------
+  // Os TRÊS CAMPOS DE IDENTIDADE. Estar aqui é uma decisão de dois lados: eles não
+  // caem para nome-só (a trilha continua respondendo "voltou ao que era?", que é a
+  // pergunta de quem investiga uma conta renomeada) e não entram literais (a trilha
+  // não se edita, e o nome civil de uma pessoa gravado para sempre é dado pessoal a
+  // mais do que a auditoria precisa).
+  'nome',
+  'username',
+  'email',
+  // --- catálogo e 360 -------------------------------------------------------
   'config.url',
   'config.basePath',
   'config.source',
@@ -150,8 +218,45 @@ export const CAMPOS_COM_IMPRESSAO = Object.freeze([
   'config.keywords',
 ]);
 
+/**
+ * Os caminhos que NÃO CHEGAM À TRILHA, nem sequer como nome.
+ *
+ * Esta lista é o único ponto do módulo em que o piso nome-só é considerado generoso
+ * DEMAIS, e ela tem duas metades com razões diferentes, escritas porque a cláusula 9.3
+ * manda escrever o que fica de fora:
+ *
+ *   - CREDENCIAL. `password`, `password_hash`, `api_key`, `sessions_valid_from`. Nome de
+ *     campo de credencial numa linha de trilha não vaza nada hoje e convida a próxima
+ *     revisão a "melhorar" pondo o valor; senha em log já foi defeito real neste
+ *     projeto duas vezes. Nenhuma das consultas que alimentam o de-para hoje traz estas
+ *     colunas, então a lista é rede e não conserto: ela existe para o dia em que um
+ *     `SELECT *` alargar a projeção sem que ninguém pense nisto aqui.
+ *   - RUÍDO E DERIVAÇÃO. `updated_at` muda em TODA gravação por construção; `id`,
+ *     `created_at` e `last_login_at` não são editáveis pelos caminhos que produzem
+ *     de-para; `posto_graduacao` e `organizacao_militar` são nomes trazidos por
+ *     `LEFT JOIN` a partir de `rank_id` e `organization_id`, que já estão
+ *     classificados, e diriam a mesma mudança duas vezes.
+ *
+ * ELA NÃO SUBSTITUI O PISO, e a distinção decide o comportamento de uma coluna NOVA:
+ * uma coluna que ninguém classificar continua caindo em nome-só, calada e fechada. É só
+ * o que está NESTA lista que desaparece.
+ */
+export const CAMPOS_FORA_DO_DEPARA = Object.freeze([
+  'password',
+  'password_hash',
+  'api_key',
+  'sessions_valid_from',
+  'id',
+  'created_at',
+  'updated_at',
+  'last_login_at',
+  'posto_graduacao',
+  'organizacao_militar',
+]);
+
 const COM_VALOR = new Set(CAMPOS_COM_VALOR);
 const COM_IMPRESSAO = new Set(CAMPOS_COM_IMPRESSAO);
+const FORA = new Set(CAMPOS_FORA_DO_DEPARA);
 
 /**
  * As chaves de primeiro nível cujos FILHOS estão classificados (hoje: `config`).
@@ -250,6 +355,11 @@ function chavesUniao(a, b) {
 function caminhosComparaveis(antes, depois) {
   const saida = [];
   for (const chave of chavesUniao(antes, depois)) {
+    // A ELISÃO VEM ANTES DE TUDO, inclusive da descida nos filhos: o que está em
+    // {@link CAMPOS_FORA_DO_DEPARA} não é comparado, não vira nome e não conta para o
+    // teto. Filtrar depois deixaria o valor passar pelo comparador, que é onde o
+    // descuido de amanhã moraria.
+    if (FORA.has(chave)) continue;
     if (!RAIZES_COM_FILHOS.has(chave)) {
       saida.push(chave);
       continue;
@@ -277,7 +387,7 @@ function caminhosComparaveis(antes, depois) {
  */
 
 /**
- * O de-para AUDITÁVEL entre duas versões de uma linha de catálogo.
+ * O de-para AUDITÁVEL entre duas versões de uma linha (catálogo, 360 ou conta).
  *
  * Comparação por VALOR canônico, nunca por identidade de objeto: o chamador entrega
  * a linha lida antes da escrita e a linha devolvida pelo `RETURNING`, que são dois

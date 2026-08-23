@@ -173,7 +173,28 @@ export const UPDATE_PUBLIC_LINK = `
 // níveis. É mais frouxo que `GET /sharing`, que exige `manage`, e a diferença é deliberada: aquela
 // rota ENTREGA o controle (adicionar, promover, remover) e esta responde "com quem eu divido este
 // projeto", que qualquer membro descobre no primeiro instante de colaboração, quando os avatares
-// aparecem no mapa. Não devolve e-mail, username nem nível de acesso alheio: nome, posto e id.
+// aparecem no mapa. Não devolve e-mail nem username: nome, posto, id e NÍVEL.
+//
+// O NÍVEL ENTROU EM 2026-08-23, por decisão do dono, e ele muda o que esta consulta responde: até
+// aqui "quem tem acesso e com que nível" só era respondível a quem tem `manage`, então um Leitor ou
+// um Editor não tinha COMO saber a quem pedir permissão, nem por que um vizinho consegue apagar o
+// que ele não consegue. A alternativa recusada, por extenso, está em `docs/decisions/decisions-2026.md`.
+//
+// ELE É O NÍVEL EFETIVO, resolvido por `fn_user_atlas_shares`, e não a coluna de `atlas_shares`.
+// São coisas diferentes desde que o share ganhou o eixo de grupo: quem tem `read` direto e `manage`
+// por um coletivo aparece com o `manage` que o servidor de fato aplica. É a mesma escolha do
+// `effectivePermission` de `GET /sharing`, e ela é o ponto todo — um nível que não é o aplicado
+// seria pior que nenhum nível.
+//
+// O DONO NÃO TEM LINHA DE SHARE, então o nível dele é literal (`'owner'`), sintetizado como
+// `resolvePermission` faz. Sem isso a metade do dono viria com o campo NULO, que é exatamente a
+// forma de "vazio" que a decisão manda não produzir.
+//
+// O QUE ESTA CONSULTA CONTINUA NÃO DIZENDO é POR QUAL CAMINHO cada pessoa chega (o `effectiveVia`
+// de `GET /sharing`), e a omissão é deliberada: dizer "por grupo" a todo membro de leitura revela
+// que aquela pessoa está num coletivo, dedução sobre COMPOSIÇÃO que as cláusulas 4.5 e 5.3 reservam
+// a quem administra o grupo e a quem tem `manage` no atlas. O nível responde a pergunta que a
+// decisão abriu; o caminho não faz parte dela.
 //
 // O dono entra na lista SEMPRE e em primeiro lugar (`ord = 0`), porque ele não tem linha em
 // `atlas_shares`. O teto de dez existe para o payload; a contagem verdadeira vai em `member_count`,
@@ -194,19 +215,24 @@ export const LIST_USER_ATLAS_MEMBERS = `
                WHERE mc.user_id <> a.owner_id)::int AS member_count,
          COALESCE((
            SELECT json_agg(
-                    json_build_object('id', m.id, 'nome', m.nome, 'posto_graduacao', m.posto_graduacao)
+                    json_build_object('id', m.id, 'nome', m.nome,
+                                      'posto_graduacao', m.posto_graduacao,
+                                      'permission', m.permission)
                     ORDER BY m.ord, m.nome
                   )
            FROM (
-             SELECT ow.id, ow.nome, orank.nome AS posto_graduacao, 0 AS ord
+             SELECT ow.id, ow.nome, orank.nome AS posto_graduacao,
+                    'owner'::text AS permission, 0 AS ord
              FROM users ow
              LEFT JOIN ranks orank ON orank.id = ow.rank_id
              WHERE ow.id = a.owner_id
              UNION ALL
-             SELECT mu.id, mu.nome, mrank.nome AS posto_graduacao, 1 AS ord
+             SELECT mu.id, mu.nome, mrank.nome AS posto_graduacao,
+                    ef.permission, 1 AS ord
              FROM fn_atlas_member_ids(a.id) ms
              JOIN users mu ON mu.id = ms.user_id
              LEFT JOIN ranks mrank ON mrank.id = mu.rank_id
+             LEFT JOIN LATERAL fn_user_atlas_shares(ms.user_id, a.id) ef ON true
              WHERE ms.user_id <> a.owner_id
              ORDER BY ord, nome
              LIMIT 10

@@ -713,10 +713,20 @@
 }
 
 /* ----- Segunda seção da aba: "Grupos de que participo" -----
-   Ela é LEITURA, e a forma diz isso: lista, não tabela, sem coluna de ações e sem contagem.
-   Uma tabela igual à de cima convidaria a procurar os botões que ela deliberadamente não tem. */
+   Ela continua sendo LISTA e não tabela, e a razão mudou de metade em 2026-08-23. Antes era
+   "não tem ação nenhuma"; agora tem UMA (sair), e a lista segue certa justamente por isso: uma
+   tabela com uma coluna de ações de um botão só convidaria a procurar as outras (roster,
+   contagens) que a cláusula 4.5 mantém do lado de quem administra. */
 .admin-groups__participating {
     margin-top: var(--space-8);
+}
+
+/* A ressalva de escopo é PROSA sobre a lista, não um item dela: fica acima do cartão, no peso
+   de legenda, para não competir com os nomes dos grupos. */
+.admin-groups__participating-scope {
+    margin: 0 0 var(--space-3);
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
 }
 
 .admin-groups__participating-list {
@@ -725,16 +735,40 @@
     list-style: none;
 }
 
+/* A linha virou ROW (era COLUMN, quando só havia identidade): a identidade à esquerda e a
+   ação à direita. `align-items: center` e não `flex-start` porque o alvo do clique fica na
+   altura do nome, que é o que a pessoa está lendo quando decide sair. */
 .admin-groups__participating-item {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
     padding: var(--space-4) var(--space-6);
     border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .admin-groups__participating-item:last-child {
     border-bottom: none;
+}
+
+/* `flex-shrink: 0` para o botão não ser esmagado por um nome de grupo longo: quem encolhe é a
+   identidade, que já tem para onde quebrar. */
+.admin-groups__participating-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+/* A nota que OCUPA O LUGAR do botão para o dono. Ela é deliberadamente discreta (não é alerta,
+   é explicação de ausência), e não se parece com botão: cor de legenda, sem moldura, sem
+   cursor de mão. Prometer clique onde não há clique é o mesmo defeito que um botão inerte. */
+.admin-groups__leave-blocked {
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    font-style: italic;
+    cursor: help;
 }
 
 /* Reaproveita a moldura de `.admin-transfer__option`, mas a linha inteira NÃO é clicável
@@ -960,6 +994,14 @@
 
 .admin-audit__details-depara {
     font-variant-numeric: tabular-nums;
+}
+
+/* CÓDIGO, e não texto. A gaveta mostra o que não tem tradução em vez de esconder, e a
+   fonte monoespaçada é o que impede um enum do servidor (`USER_DEMOTION`, um UUID de OM)
+   de se ler como uma frase em português mal escrita. Vale para o nome da chave e para o
+   valor, independentemente: são duas metades que podem faltar separadas. */
+.admin-audit__details-codigo {
+    font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .admin-audit__pager {

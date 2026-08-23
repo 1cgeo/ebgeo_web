@@ -5,6 +5,11 @@ import {
   NotFoundError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError,
 } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
+// O DE-PARA DA TRILHA (clausula 9.3) tem UMA implementacao, e ela e a mesma do catalogo
+// e do 360: tres regimes por lista fechada, com o nome-so como piso do desconhecido. A
+// familia de usuarios entrou nela em 2026-08-23 acrescentando os campos de conta as
+// listas daquele arquivo, e nao um segundo motor aqui.
+import { diffAuditavel } from '../../utils/audit-diff.js';
 import * as Q from './users.queries.js';
 // D8(b): desativar uma conta derruba o que ela concedeu. A semantica de queda tem UMA
 // definicao, e ela mora no modulo de acesso a recurso: importar a funcao e o que impede
@@ -153,6 +158,19 @@ export async function getProfile(userId) {
  * Updates user profile.
  */
 export async function updateProfile(userId, data, req = null) {
+  // A LINHA DE ANTES, lida antes da escrita, e é o custo do de-para neste caminho: uma
+  // consulta a mais numa rota que não é caminho quente. A projeção de `FIND_USER_BY_ID`
+  // é um SUBCONJUNTO da que o UPDATE devolve (as duas trazem `username`, `nome`,
+  // `rank_id` e `organization_id`, que são os campos classificados aqui), então o
+  // de-para compara maçã com maçã.
+  //
+  // AUSENTE, NÃO NULO: se a leitura não achar linha (conta inativa é filtrada por essa
+  // consulta), o de-para não é calculado. `diffAuditavel(null, depois)` reportaria TODO
+  // campo como mudado, o que seria uma linha de trilha falsa — e falsa exatamente na
+  // direção que assusta quem investiga.
+  const { rows: anteriores } = await query(Q.FIND_USER_BY_ID, [userId]);
+  const antes = anteriores[0] ?? null;
+
   // For nullable fields, pass [value, provided?]: an explicit null/'' clears the
   // column (value normalized to null), an omitted field leaves it unchanged.
   const { rows } = await query(Q.UPDATE_USER_PROFILE, [
@@ -177,8 +195,10 @@ export async function updateProfile(userId, data, req = null) {
   // `target_id` já diria isso, mas exige que o leitor compare duas colunas para
   // descobrir de que caminho a linha veio; o campo torna a pergunta filtrável.
   //
-  // SÓ OS NOMES DOS CAMPOS, nunca os valores: é a mesma regra do `USER_UPDATE`
-  // administrativo, e aqui ela alcança `nome`, que é dado pessoal.
+  // O DE-PARA vale aqui pela MESMA lista do caminho administrativo (cláusula 9.3), e o
+  // efeito prático é que `nome` sai por IMPRESSÃO: a auto-edição responde "mudou? voltou
+  // ao que era?" sem gravar o nome civil da pessoa numa trilha que não se edita. O
+  // `fields` continua, como piso.
   //
   // FORA DE TRANSAÇÃO porque a escrita é uma query só: não há transação a que aderir.
   // A consequência honesta é que uma falha da trilha responde 500 sobre um perfil que
@@ -189,7 +209,11 @@ export async function updateProfile(userId, data, req = null) {
     targetType: 'USER',
     targetId: userId,
     targetName: rows[0].nome,
-    details: { fields: Object.keys(data || {}), self: true },
+    details: {
+      fields: Object.keys(data || {}),
+      self: true,
+      ...(antes ? diffAuditavel(antes, rows[0]) : {}),
+    },
   });
 
   return rows[0];
@@ -461,14 +485,33 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
         }, t);
       }
 
+      // O DE-PARA (cláusula 9.3), sobre a LINHA LIDA e a LINHA GRAVADA, nunca sobre o
+      // corpo do request: rebaixar de Produtor limpa o escopo como EFEITO, e comparar
+      // com o corpo perderia exatamente a mudança que mais importa. As duas projeções
+      // são a MESMA (`FIND_USER_BY_ID_ADMIN` e o SELECT final de `UPDATE_USER_ADMIN`),
+      // então nenhum campo aparece como mudado só por existir de um lado.
+      //
+      // A REGRA ANTIGA ("só os nomes dos campos") continua sendo o PISO e não sumiu:
+      // `fields` viaja junto, e o que a lista de `audit-diff.js` não classifica entra
+      // por nome, sem valor. O que mudou é que `role` e `producer_org_id`, que decidem
+      // TODO recurso que a conta mantém e derrubam concessão viva ao mudar, passam a
+      // dizer o que virou o quê; e `nome`/`username`/`email` entram por IMPRESSÃO, que
+      // responde "voltou ao que era?" sem gravar dado pessoal para sempre.
+      const dePara = diffAuditavel(existing, atualizado);
+      const oDeParaDisseAlgo = dePara.mudou.length > 0 || dePara.outros.length > 0;
       const campos = Object.keys(data).filter((k) => k !== 'role');
-      if (campos.length > 0 || !mudouPapel) {
+      // O TERCEIRO DISJUNTO É NOVO, e sem ele a família ficaria fechada em todo lugar
+      // menos no campo mais importante: um PUT que traga SÓ `role` tem `campos` vazio e
+      // `mudouPapel` verdadeiro, então nenhuma linha de `USER_UPDATE` nascia e o de-para
+      // não tinha onde morar. `ROLE_CHANGE` continua sendo a ação que se FILTRA (é ela
+      // que o índice `idx_audit_action` serve); esta é a linha que diz o estado inteiro
+      // da conta antes e depois, e a redundância entre as duas é a mesma que o catálogo
+      // já carrega entre `fields` e o de-para.
+      if (campos.length > 0 || !mudouPapel || oDeParaDisseAlgo) {
         await createAudit(req, {
           action: 'USER_UPDATE', actorId: actingUserId, targetType: 'USER',
           targetId: userId, targetName: atualizado.nome,
-          // Só os NOMES dos campos: o valor pode carregar dado pessoal, e a
-          // trilha é lida por qualquer admin. Senha nem chega aqui (rota própria).
-          details: { fields: campos },
+          details: { fields: campos, ...dePara },
         }, t);
       }
     }

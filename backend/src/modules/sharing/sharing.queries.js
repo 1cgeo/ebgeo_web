@@ -127,6 +127,20 @@ export const FIND_USER_BY_ID = `
   SELECT id FROM users WHERE id = $1 AND is_active = true
 `;
 
+/**
+ * O dono de um atlas VIVO, para a única recusa de `DELETE /sharing/me`.
+ *
+ * ZERO LINHA É DESFECHO NORMAL, e não 404: a saída voluntária responde o MESMO para o atlas que
+ * não existe e para aquele com que o chamador não tem relação nenhuma (200, `removed: false`).
+ * Distinguir os dois daria a quem tivesse um UUID um oráculo de existência pela porta dos fundos —
+ * exatamente o que o 404 uniforme de `requireAtlasPermission` existe para negar, e esta rota não
+ * passa por ele.
+ *   $1 = atlas
+ */
+export const FIND_ATLAS_OWNER = `
+  SELECT owner_id FROM atlas WHERE id = $1::uuid AND deleted_at IS NULL
+`;
+
 // ---------------------------------------------------------------------------
 // O EIXO DE GRUPO. As três escritas espelham as de pessoa, statement por statement,
 // e a simetria é deliberada: uma forma diferente aqui seria uma segunda semântica de

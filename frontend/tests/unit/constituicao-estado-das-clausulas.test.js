@@ -84,7 +84,8 @@ const ABERTAS = [
         numero: '9.3',
         estado: 'em obra',
         natureza: 'trabalho',
-        motivo: 'o de-para vale para catálogo e 360; as demais famílias de ação seguem com registro próprio',
+        motivo: 'o de-para vale para catálogo, 360 e usuários; atlas, permissões e grupos seguem com'
+            + ' registro próprio, sem antes e depois',
     },
     {
         numero: '10.1',

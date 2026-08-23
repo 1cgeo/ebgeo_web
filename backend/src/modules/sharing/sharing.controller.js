@@ -1,5 +1,6 @@
 // Path: src/modules/sharing/sharing.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { principalUserId } from '../../utils/principal.js';
 import * as sharingService from './sharing.service.js';
 import { broadcastToRoom, getRoomUsers } from '../collab/collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
@@ -116,6 +117,31 @@ export const removeUserShare = asyncHandler(async (req, res) => {
   // dizer o que sobrou em vez de anunciar uma remoção que não aconteceu.
   await broadcastEffectiveForUser(req.atlasId, req.params.userId, 'user_updated');
   res.status(204).send();
+});
+
+/**
+ * DELETE /:atlasId/sharing/me — sair do atlas por conta própria.
+ *
+ * `req.atlasId` NÃO EXISTE AQUI, e é a única rota do módulo em que isso acontece: quem o punha era
+ * `requireAtlasPermission`, e esta rota não passa por ele (a autoridade é sobre si mesmo). O valor
+ * vem de `req.params`, que o `mergeParams` do router traz e o schema de params preserva.
+ *
+ * A FRAME É A MESMA DA REMOÇÃO POR TERCEIRO, e de propósito: `broadcastEffectiveForUser` com
+ * `user_updated`, que vira `user_removed` sozinho quando não sobra caminho nenhum. Inventar um
+ * `user_left` obrigaria o cliente a tratar dois caminhos para o mesmo estado final, e o estado
+ * final é o que ele re-gateia. A sessão de collab ao vivo cai pelo MESMO lugar de sempre: o sweep
+ * de `reconcileAuthorization` (~30 s) reconcilia a autorização e fecha com 4003 quando ela some.
+ *
+ * SÓ EMITE QUANDO ALGO MUDOU: uma frame por chamada idempotente anunciaria uma remoção que não
+ * aconteceu a todo gestor conectado.
+ */
+export const leaveAtlas = asyncHandler(async (req, res) => {
+  const userId = principalUserId(req.user);
+  const data = await sharingService.leaveAtlas(req.params.atlasId, userId, req);
+  if (data.removed) {
+    await broadcastEffectiveForUser(req.params.atlasId, userId, 'user_updated');
+  }
+  res.json({ data });
 });
 
 // ---------------------------------------------------------------------------

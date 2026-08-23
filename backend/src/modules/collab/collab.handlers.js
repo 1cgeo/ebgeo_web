@@ -5,6 +5,7 @@ import { broadcastToRoom, broadcastOperations } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
 import { VALIDATION_OPTIONS } from '../../middleware/validate.js';
+import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import {
   cursorPresenceSchema,
   temporalPresenceSchema,
@@ -153,7 +154,15 @@ export function handleTemporal(ws, data) {
  * per-feature type so a 2D peer can resolve the right highlight without a lookup.
  */
 export function handleSelection(ws, data) {
-  if (ws.permission === 'read' || ws.permission === 'comment') {
+  // Editor and up. This was a CLOSED LIST of the two tiers that happen to sit below the floor
+  // (`read || comment`), and it is the exact shape this codebase has paid for twice: a tier
+  // inserted between `comment` and `write` would fall THROUGH the gate, and so would any value a
+  // future server sends that this build does not know. The ladder is imported rather than
+  // transcribed, and the test is written POSITIVELY (`>= write`) on purpose: `PERMISSION_LEVELS`
+  // yields `undefined` for an unknown tier, every comparison against it is false, and only the
+  // positive form turns that into a REFUSAL. The negative form (`< write`) reads the same and
+  // fails OPEN on the same garbage.
+  if (!(PERMISSION_LEVELS[ws.permission] >= PERMISSION_LEVELS.write)) {
     return;
   }
 

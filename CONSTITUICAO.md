@@ -230,6 +230,15 @@ credenciado é controle negativo nas cinco rotas e passa no ciclo do grupo DELE,
 Isto supera por escrito, e não apaga, a decisão de 2026-08-19 que fazia da administração de
 grupo a única escrita do papel.
 
+**4.7** Participar de um grupo é ato de duas vontades, e **sair é direito de quem entrou**. Qualquer
+membro se remove sozinho, sem depender de quem administra. **[vigente]** desde 2026-08-23. O dono é a
+exceção, e por necessidade estrutural, não por hierarquia: o predicado de administração exige dono VIVO,
+então um grupo abandonado pelo dono ficaria sem ninguém que o administre. Ele recebe recusa que nomeia os
+dois caminhos, apagar ou transferir a posse. Sair derruba o que o GRUPO dava e preserva o que a pessoa
+tinha por autoridade própria, que é a mesma regra da remoção por terceiro, no mesmo código. Preso por
+`backend/tests/integration/sair-do-grupo.test.js`, cujo controle negativo é a concessão de caminho
+próprio que sobrevive.
+
 ---
 
 ## 5. Atlas
@@ -267,6 +276,21 @@ compartilhamento nominal, grupo e link público. **[vigente]** Preso por
 anti-enumeração: "proibido" fica reservado a quem tem acesso insuficiente. **[vigente]** Preso por
 `backend/tests/integration/atlas-404-vs-403-escada.test.js`, cuja asserção é que o estranho fica
 indistinguível de atlas inexistente.
+
+**5.7** Todo participante de um atlas vê **quem mais participa e com que nível**, e não só quem
+administra. **[vigente]** desde 2026-08-23. A regra anterior era o silêncio, e ele não protegia nada: o
+Leitor já via os NOMES no cartão do atlas, e o que lhe faltava era justamente o dado que evita o pedido
+errado à pessoa errada. O que continua reservado é o CAMINHO: o payload não diz por qual porta cada um
+entrou, porque dizer "por grupo" entregaria adesão a coletivo alheio, e é pela mesma razão que o grupo
+não é nomeado como participante. Preso por
+`backend/tests/integration/overview-nivel-do-participante.test.js`.
+
+**5.8** Sair de um atlas compartilhado é **direito de quem foi convidado**, e não pedido a quem
+administra. **[vigente]** desde 2026-08-23, pela mesma razão da 4.7 e com a mesma exceção: o dono não
+sai, porque o atlas ficaria órfão, e a recusa nomeia transferir a posse ou mandar à lixeira. A resposta
+diz o nível EFETIVO depois do ato, e não um sim ou não, porque um grupo vivo ou o link público podem
+manter o acesso por outro caminho. Atlas inexistente e "não participo" respondem igual, para a rota não
+virar oráculo de existência. Preso por `backend/tests/integration/sair-do-atlas.test.js`.
 
 ---
 
@@ -414,10 +438,17 @@ ausente LEVANTA em vez de listar tudo. Preso por `backend/tests/integration/audi
 
 **9.3** A trilha registra **o que mudou, e não apenas que mudou**. O de-para é seletivo: campos que carregam
 endereço de serviço, segredo ou conteúdo binário são elididos, e a lista do que fica de fora é escrita.
-**[vigente]** para catálogo e 360, que são as famílias em que a distinção importava: são três regimes (valor
-literal, impressão criptográfica e nome-só como piso para o desconhecido), com teto de tamanho que degrada
-tudo para nome-só e DIZ que degradou. Preso por `backend/tests/unit/audit-diff.test.js`. As demais famílias de ação (usuários, atlas, permissões, grupos)
-continuam com registro próprio, sem de-para. **[em obra]** para elas.
+**[vigente]** para catálogo, 360 e USUÁRIOS: são três regimes (valor literal, impressão criptográfica e
+nome-só como piso para o desconhecido), com teto de tamanho que degrada tudo para nome-só e DIZ que
+degradou, mais uma lista escrita do que não chega à trilha nem como nome (credencial, carimbo de hora que
+muda em toda gravação, nome derivado por junção). Preso por `backend/tests/unit/audit-diff.test.js` e
+`backend/tests/integration/auditoria-usuarios-de-para.test.js`. Na família de usuários o papel global e a OM
+produtora entram literais, porque são os dois fundamentos de concessão de raiz e mudá-los derruba acervo
+alheio; nome, login e e-mail entram por impressão, que responde "voltou ao que era" sem gravar dado pessoal
+para sempre. A gaveta da trilha traduz o motivo da queda de uma concessão em português e mostra como
+CÓDIGO, nunca como frase, o que ninguém traduziu (`frontend/tests/unit/auditoria-rotulos.test.js`).
+As famílias de ATLAS, PERMISSÕES e GRUPOS continuam com registro próprio, sem de-para. **[em obra]** para
+essas três.
 
 ---
 

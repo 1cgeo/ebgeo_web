@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { createDb, closeDb } from './helpers/db.js';
+import { closeDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
@@ -19,14 +19,12 @@ const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 /**
  * A conta nasce no lado NODE (`helpers/accounts.js`), com o e-mail confirmado pela rota
  * pública; só a PROMOÇÃO a admin global é SQL, porque não existe rota para ela — criar um
- * administrador exigiria um administrador, e esta camada parte de um banco vazio.
+ * administrador exigiria um administrador, e esta camada parte de um banco vazio. As duas
+ * escritas moram no helper desde 2026-08-23, com o par (papel, OM de produção) imposto lá.
  */
-async function seedAdmin(page, dbName) {
+async function seedAdmin(page) {
     await page.goto('/');
-    const user = await createVerifiedUser({ prefix: 'cfgadmin', nome: 'Cfg Admin' });
-    await createDb(dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [user.username]);
-    return user;
+    return createVerifiedUser({ prefix: 'cfgadmin', nome: 'Cfg Admin', role: 'admin' });
 }
 
 async function loginThroughUi(page, baseUrl, creds) {
@@ -49,7 +47,7 @@ describeOrSkip('Admin panel — Sistema (config) tab (real browser + real backen
     test.afterAll(async () => { await closeDb(); });
 
     test('an admin edits app.title + features.grid and it propagates to GET /config', async ({ page }) => {
-        const admin = await seedAdmin(page, state.dbName);
+        const admin = await seedAdmin(page);
         await loginThroughUi(page, state.baseUrl, admin);
 
         await page.locator('[data-testid="account-control"] .account-control__identity').click();

@@ -22,7 +22,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { createDb, closeDb } from './helpers/db.js';
+import { closeDb } from './helpers/db.js';
 import { createVerifiedUser } from './helpers/accounts.js';
 
 const state = readState();
@@ -36,14 +36,12 @@ const COR_ESTILO = '#c2185b';
  * pública e tem o e-mail confirmado pela rota pública, no lado NODE (`helpers/accounts.js`),
  * porque o token de confirmação só existe como linha no Postgres, fora do alcance do browser.
  * A PROMOÇÃO é SQL porque não existe rota: criar um administrador exige um administrador, e
- * esta camada parte de um banco vazio cuja única porta é `POST /auth/register`.
+ * esta camada parte de um banco vazio cuja única porta é `POST /auth/register`. As duas
+ * passaram a morar no helper em 2026-08-23, junto com o par (papel, OM de produção).
  */
-async function seedAdmin(page, dbName) {
+async function seedAdmin(page) {
     await page.goto('/');
-    const creds = await createVerifiedUser({ prefix: 'bmadmin', nome: 'BM Admin' });
-    await createDb(dbName).raw.none(
-        "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER($1)", [creds.username]);
-    return creds;
+    return createVerifiedUser({ prefix: 'bmadmin', nome: 'BM Admin', role: 'admin' });
 }
 
 async function loginAndOpenCatalog(page, baseUrl, creds) {
@@ -85,6 +83,22 @@ async function criarBasemap(page, { id, nome, acesso }) {
     }));
     await page.locator('[data-testid="admin-catalog-access"]').selectOption(acesso);
     await page.locator('[data-testid="admin-catalog-save"]').click();
+
+    // A PRIVATIZAÇÃO PASSOU A PERGUNTAR ANTES DE GRAVAR, e este spec afirmava o mundo
+    // anterior a isso: o `showConfirm` de `admin/catalog-tab.js` interceptava o salvamento e
+    // a linha nunca aparecia, com os dois casos vermelhos e a mensagem falando de uma linha
+    // ausente em vez do diálogo aberto. Medido em 2026-08-23 contra a versão do spec em HEAD,
+    // sem nenhuma edição desta fatia: falha idêntica, então a causa é o produto novo.
+    //
+    // SÓ O SENTIDO DESTRUTIVO PERGUNTA (`visibilityChangeWarning` devolve null para o outro),
+    // e o `if` reproduz essa assimetria em vez de aceitar um diálogo opcional: um `catch`
+    // silencioso aqui deixaria de notar o dia em que a pergunta sumir do caminho privado.
+    if (acesso === 'private') {
+        const dialogo = page.locator('.confirm-modal-overlay');
+        await expect(dialogo).toBeVisible({ timeout: 10000 });
+        await dialogo.locator('.confirm-modal-btn-confirm').click();
+    }
+
     await expect(page.locator('[data-testid="admin-catalog-row"]', { hasText: id }))
         .toBeVisible({ timeout: 10000 });
 }
@@ -93,7 +107,7 @@ describeOrSkip('Camada base privada (browser real + backend real)', () => {
     test.afterAll(async () => { await closeDb(); });
 
     test('o eixo de acesso do basemap aparece na Administração como o dos outros tipos', async ({ page }) => {
-        const admin = await seedAdmin(page, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `bm_${Math.random().toString(36).slice(2, 8)}`;
@@ -110,7 +124,7 @@ describeOrSkip('Camada base privada (browser real + backend real)', () => {
     });
 
     test('a camada base privada chega ao seletor, desenha, e oferece "Compartilhar"', async ({ page }) => {
-        const admin = await seedAdmin(page, state.dbName);
+        const admin = await seedAdmin(page);
         await loginAndOpenCatalog(page, state.baseUrl, admin);
 
         const id = `bm_${Math.random().toString(36).slice(2, 8)}`;

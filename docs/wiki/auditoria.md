@@ -99,7 +99,7 @@ Até 2026-08-21 `CATALOG_UPDATE` gravava só os NOMES dos campos tocados (`detai
 
 Só que "o nome do campo" não responde a pergunta que a investigação faz. "Fulano alterou `config`" não distingue trocar a opacidade de apontar a camada para outro servidor, e não responde de jeito nenhum à pergunta mais frequente: *mudou e depois voltou ao que era?*
 
-A resolução é um de-para de **três regimes**, por lista fechada de caminhos, em `backend/src/utils/audit-diff.js`:
+A resolução é um de-para de **três regimes**, por lista fechada de caminhos, em `backend/src/utils/audit-diff.js`. Ele nasceu para catálogo e 360 e passou a valer também para a família de **usuários** em 2026-08-23 (cláusula 9.3), pelas MESMAS listas e pelo mesmo motor: as listas são globais, não por família, e o preço dessa escolha é que os nomes de campo competem num espaço único (hoje sem colisão, porque a linha de catálogo tem `name` e a de conta tem `nome`).
 
 | regime | o que entra na linha | quem entra |
 |---|---|---|
@@ -121,6 +121,16 @@ Cinco propriedades que não se deduzem lendo a tabela:
 
 O guarda é `backend/tests/unit/audit-diff.test.js`, e o caso que vale a pena conhecer é o controle: uma edição planta uma URL com credencial e uma miniatura embutida, e a asserção procura a substring do segredo no **JSON inteiro** da linha de trilha, não no campo onde se esperaria encontrá-la. A metade de integração é `backend/tests/integration/catalogo-video-de-previa.test.js`.
 
+### O que a família de USUÁRIOS acrescentou
+
+Três coisas que não se deduzem da tabela acima, porque a família de conta levanta perguntas que a de catálogo não levantava.
+
+- **O miolo entra LITERAL, e a razão é de autoridade, não de tamanho.** `role` e `producer_org_id` são os dois fundamentos de concessão de RAIZ (`fundamentoDeRaizPerdido`, em `backend/src/modules/users/users.service.js`): mudar qualquer um dos dois derruba, na mesma transação, tudo o que aquela pessoa concedeu. Uma linha que dissesse "o papel mudou" sem dizer de onde para onde não responde a pergunta que essa queda levanta. Junto com eles entram `organization_id`, `rank_id`, `is_active` e `email_verified`, que são escalares fechados.
+- **A identidade entra por IMPRESSÃO.** `nome`, `username` e `email` não caem para nome-só (a trilha continua respondendo "renomearam a conta e desfizeram?") e não entram literais, porque a trilha não se edita e o nome civil de uma pessoa gravado para sempre é dado pessoal a mais do que a auditoria exige.
+- **Existe uma TERCEIRA lista, e ela é mais forte que o piso**: `CAMPOS_FORA_DO_DEPARA` elide caminhos antes da comparação, então eles não viram valor, nem impressão, nem nome. Ela tem duas metades com razões diferentes: CREDENCIAL (`password_hash`, `api_key`, `sessions_valid_from`, porque nome de campo de credencial numa trilha convida a próxima revisão a pôr o valor) e RUÍDO/DERIVAÇÃO (`updated_at`, que muda em TODA gravação por construção, mais `id`, `created_at`, `last_login_at`, `posto_graduacao` e `organizacao_militar`, que são nomes trazidos por junção a partir de ids já classificados). Coluna NOVA que ninguém classifique continua caindo em nome-só: só o que está nessa lista desaparece.
+
+Duas consequências no emissor. A primeira: `USER_UPDATE` passou a nascer também quando o PUT traz **só** o papel, caso em que `fields` fica vazio; antes disso nenhuma linha nascia (o `ROLE_CHANGE` bastava) e o de-para do campo mais importante da família não teria onde morar. A segunda: **um PUT que não muda nada escreve a linha com o de-para VAZIO**, e isso é escolha, não descuido, porque lista vazia distingue "nada mudou" de "esta linha é antiga e não tem de-para". Guarda: `backend/tests/integration/auditoria-usuarios-de-para.test.js`.
+
 ## A aba Auditoria, e o que ela decide para não virar um dump
 
 O cliente passou a consumir a rota em 2026-08-21 (`listAudit`, em `frontend/src/js/store/sync/api-client.js`), e a tela é a aba Auditoria do painel de administração (`frontend/src/js/admin/audit-tab.js`). Ela é oferecida ao administrador e ao **produtor**; o credenciado não a recebe, porque o gate do servidor lhe daria 403 e oferecer a aba seria a pior forma de dizer não.
@@ -131,6 +141,8 @@ Quatro decisões governam a tela, e todas respondem ao mesmo risco (uma trilha b
 - as linhas são agrupadas por **dia**, com cabeçalho pegajoso;
 - cada linha é uma **frase** em pt-BR (`frontend/src/js/admin/audit-phrases.js`), não cinco colunas de código em maiúsculas;
 - o `details` fica **atrás de um botão**, e dentro dele o de-para vem primeiro, em frases (`linhasDoDePara`), com o regime dito por extenso: uma impressão de doze hexadecimais sem a palavra "impressão" ao lado lê-se como um valor gravado.
+
+A SEGUNDA seção da gaveta (o resto do `details`) deixou de ser chave/valor cru em 2026-08-23, e o defeito que isso fecha era concreto: `origem: USER_DEMOTION` saía em inglês e em maiúsculas num painel em português, exatamente onde o leitor precisava entender por que uma concessão que ninguém revogou aparecia revogada. Quem decide é `linhasDeDetalhe` (`frontend/src/js/admin/audit-phrases.js`), e o vocabulário de `origem` são os quatro carimbos que `podarPorRaizes` recebe; a revogação deliberada não carimba nada, e a ausência já significa "alguém revogou de propósito". A regra do que fica sem verbete é a mesma do resto do arquivo, com uma metade nova: o não traduzido **aparece**, e aparece com a classe de CÓDIGO. Esconder é pior que mostrar; mostrar um enum com cara de frase em português é pior que mostrá-lo como código. A função devolve as duas bandeiras separadas (chave e valor), porque as duas metades podem faltar independentemente.
 
 A ação aparece **uma vez por linha**, no chip. O texto ao lado é `alvoDoEvento` (ator e alvo) e não `fraseDoEvento`, que já embute o rótulo da ação: as duas versões da linha foram escritas na mesma onda e ambas ficaram, e a linha saía com "Item de catálogo alterado" duas vezes, uma no chip e outra na frase. `fraseDoEvento` sobrevive no `title`, que é onde ela é útil (ler o evento sem o chip ao lado). O caso que prende isso é **negativo** (o texto do chip não pode aparecer na frase da linha), com o par positivo ao lado, porque uma frase vazia passaria na asserção de ausência sozinha.
 

@@ -49,7 +49,12 @@ import { adminAudience } from '@js/admin/admin-audience.js';
 import { globalRoleBadge } from '@ui/role-labels.js';
 // A ÚNICA implementação da escada por atlas neste repositório (cinco valores do servidor). Nunca
 // uma lista fechada: `perm === 'write' || perm === 'owner'` já excluiu `manage` em silêncio duas vezes.
-import { getPermissionLabel } from '@js/projects/permission-levels.js';
+import {
+    atlasRoleHasAtLeast,
+    getPermissionLabel,
+    isGrantablePermission,
+    serverTreatsAsAtlasOwner,
+} from '@js/projects/permission-levels.js';
 // A resolução id → nome de OM da casa, sobre o payload de `GET /api/config`.
 import { orgLabel } from '@js/admin/org-options.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
@@ -748,9 +753,8 @@ export class AccountControl {
      */
     _updateShareVisibility() {
         if (!this._shareBtn) return;
-        const role = sessionContext.role;
         const canShare = !!syncEngine.atlasId
-            && (role === 'owner' || role === 'manager' || role === 'admin');
+            && atlasRoleHasAtLeast(sessionContext.role, 'manage');
         this._shareBtn.hidden = !canShare;
     }
 
@@ -788,8 +792,7 @@ export class AccountControl {
      */
     _updateDeleteAtlasVisibility() {
         if (!this._deleteAtlasBtn) return;
-        const canDelete = !!syncEngine.atlasId
-            && (sessionContext.role === 'owner' || sessionContext.role === 'admin');
+        const canDelete = !!syncEngine.atlasId && serverTreatsAsAtlasOwner(sessionContext.role);
         this._deleteAtlasBtn.hidden = !canDelete;
     }
 
@@ -920,11 +923,14 @@ export class AccountControl {
                 console.warn('[AccountControl] enablePublicSharing failed:', error);
             }
         }
-        const validPerms = ['read', 'comment', 'write', 'manage'];
         for (const member of (sharing.members || [])) {
             if (!member?.userId) continue;
-            // Least-privilege fallback for an unrecognized staged value (never silently escalate to edit).
-            const permission = validPerms.includes(member.permission) ? member.permission : 'read';
+            // Least-privilege fallback for an unrecognized staged value (never silently escalate to
+            // edit). The acceptable set is DERIVED from the ladder (`isGrantablePermission`: every
+            // rung below `owner`), not a local array: the same list lived hand-written here and in
+            // `projects/projects-page.js`, so a rung added to `PERMISSION_ORDER` would have been
+            // demoted to 'read' by both, silently and in two places.
+            const permission = isGrantablePermission(member.permission) ? member.permission : 'read';
             try {
                 await apiClient.addShare(atlasId, member.userId, permission);
             } catch (error) {

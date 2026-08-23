@@ -30,6 +30,12 @@
  * naquele eixo. Um grupo com N atlas e ZERO concessão não tem repasse pendurado nele, e
  * anunciar a queda de repasses ali seria prometer um efeito impossível.
  *
+ * SAIR DO GRUPO ENTROU EM 2026-08-23 (cláusula 4.7), e trouxe o caso oposto ao de cima: aqui
+ * NÃO HÁ NÚMERO. As frases de saída são servidas por `LIST_GROUPS_OF_MEMBER`, que devolve nome
+ * e dono e nada mais, e a ausência das contagens é decisão do produto, não buraco. Uma frase
+ * que inventasse "você perde acesso a N recursos" ali estaria fabricando aritmética, que é o
+ * defeito exato que o resto deste arquivo existe para evitar na direção contrária.
+ *
  * Every counter crosses the wire from a SQL `COUNT`, and node-postgres returns a bigint
  * count as a STRING. So every number here goes through `toCount()` instead of being
  * trusted: a plural picked with `count === 1` reads "1 pessoas" the moment the value
@@ -401,6 +407,132 @@ export function groupOwnerLabel(group) {
     if (nome) return `Dono: ${nome}`;
     if (username) return `Dono: @${username}`;
     return 'Sem dono definido';
+}
+
+/**
+ * OS TRÊS ESTADOS DA AÇÃO "SAIR", como valor e não como booleano.
+ *
+ * Um booleano só distingue "mostra o botão" de "não mostra", e as duas razões de não mostrar
+ * pedem telas diferentes: o DONO precisa ler por que não pode (e quais são os dois caminhos),
+ * e o caso em que a tela não sabe quem está olhando não pode afirmar posse que não mediu.
+ * @enum {string}
+ */
+export const LEAVE_AVAILABILITY = Object.freeze({
+    /** Não é o dono: a rota aceita, e o botão aparece. */
+    PODE: 'pode-sair',
+    /** É o dono: o servidor responde 409, então nem se oferece. */
+    DONO: 'e-dono',
+    /** Não dá para saber de quem é o grupo, ou quem está olhando. */
+    INDETERMINADO: 'indeterminado',
+});
+
+/**
+ * SE ESTA PESSOA PODE SAIR DESTE GRUPO, decidido só com o que a listagem devolve.
+ *
+ * `LIST_GROUPS_OF_MEMBER` (servidor) traz `owner_id`, e é o único campo desta consulta que
+ * responde à pergunta. Oferecer "Sair" ao dono seria oferecer um 409: o predicado de
+ * administração de grupo exige dono VIVO, então um grupo abandonado pelo dono ficaria sem
+ * ninguém que o administre, e o servidor recusa por isso.
+ *
+ * OS DOIS RAMOS DE AUSÊNCIA CAEM PARA LADOS OPOSTOS, de propósito. Sem `owner_id` o grupo não
+ * tem dono nenhum (estado real: o backfill adota `created_by`, que pode ser nulo), logo quem
+ * pergunta certamente NÃO é o dono e pode sair. Sem `viewerId` a tela não mediu nada, e aí ela
+ * não oferece o ato destrutivo nem acusa a pessoa de ser dona: falhar fechado num ato que não
+ * se desfaz custa um clique a mais, e falhar aberto custa um 409 na cara de quem clicou.
+ *
+ * A comparação é por `String`, porque um id vem de JSON e o outro do contexto de sessão, e
+ * um `===` entre formas diferentes do mesmo uuid daria "não é dono" para o dono.
+ *
+ * @param {{owner_id?: string|null}} group
+ * @param {string|null|undefined} viewerId - o `userId` de quem está olhando.
+ * @returns {string} um valor de {@link LEAVE_AVAILABILITY}
+ */
+export function leaveGroupAvailability(group, viewerId) {
+    const dono = group?.owner_id;
+    if (!dono) return LEAVE_AVAILABILITY.PODE;
+    if (!viewerId) return LEAVE_AVAILABILITY.INDETERMINADO;
+    return String(dono) === String(viewerId)
+        ? LEAVE_AVAILABILITY.DONO
+        : LEAVE_AVAILABILITY.PODE;
+}
+
+/**
+ * O AVISO ANTES DE SAIR, e ele é QUALITATIVO por medição, não por preguiça.
+ *
+ * O irmão `groupDeletionWarning` cita números porque a listagem de gestão os traz. Esta seção
+ * é servida por `LIST_GROUPS_OF_MEMBER`, que devolve nome e dono e nada mais: nem contagem de
+ * membros, nem de concessões, nem de atlas. Isso é decisão do produto (cláusula 4.5: as
+ * contagens diriam ao membro o TAMANHO de um acervo que ele não pode enumerar), então a frase
+ * não tem número para citar e NÃO INVENTA UM. O número existe depois do ato, e é o
+ * `grantsAffected` do servidor, que `leaveGroupSummary` relata.
+ *
+ * A frase diz TRÊS coisas, e nenhuma é decorativa:
+ *   1. o que cai é o que o GRUPO dava (concessões ao grupo e atlas compartilhados com ele);
+ *   2. o que a pessoa tem por autoridade PRÓPRIA sobrevive, senão ela lê "perco tudo";
+ *   3. ela não volta sozinha. Sair é direito dela, entrar não é: só quem administra o grupo
+ *      a inclui de novo, e sem esta linha a saída parece um interruptor reversível.
+ *
+ * @param {{name?: string}} group
+ * @returns {string}
+ */
+export function leaveGroupWarning(group) {
+    const nome = group?.name ?? '';
+    return `Sair do grupo "${nome}" derruba o acesso que ele dava a você: os recursos privados `
+        + 'concedidos a este grupo e os atlas compartilhados com ele. O que você tem por conta '
+        + 'própria continua valendo. Esta tela não sabe quantos acessos caem, e o número só '
+        + 'aparece depois do ato. Você não volta sozinho: só quem administra o grupo pode '
+        + 'incluir você de novo.';
+}
+
+/**
+ * O TOAST DEPOIS DE SAIR, com o número do servidor.
+ *
+ * TRÊS RAMOS, e o primeiro é o que a rota obriga: ela responde IGUAL para grupo inexistente e
+ * para "não participo" (`removed: false`), de propósito, para não virar oráculo de existência.
+ * Repetir o ato cai aí também. Anunciar "você saiu" nesse caso afirmaria uma mudança que não
+ * houve, que é a mesma classe do `added === false` no caminho de adicionar.
+ *
+ * Zero não vira frase: "0 acessos revogados" transforma o caso comum num susto, como no irmão
+ * `memberRemovalSummary`. O `removed` é comparado com `=== false` para que um servidor que
+ * não mande o campo caia no ramo do ato realizado, e não no da negativa.
+ *
+ * @param {{name?: string, removed?: boolean, grantsAffected?: *}} result
+ * @returns {string}
+ */
+export function leaveGroupSummary(result) {
+    const nome = result?.name ?? '';
+    if (result?.removed === false) return `Você já não participava do grupo "${nome}".`;
+    const caidos = toCount(result?.grantsAffected);
+    if (caidos === 0) return `Você saiu do grupo "${nome}".`;
+    return `Você saiu do grupo "${nome}". Acessos revogados: ${caidos}.`;
+}
+
+/**
+ * POR QUE O DONO NÃO TEM O BOTÃO, no lugar do botão.
+ *
+ * Espaço vazio é indistinguível de tela quebrada, e a pessoa que não acha a saída conclui que
+ * ela não existe. A frase espelha a recusa do servidor e nomeia os DOIS caminhos que ele
+ * nomeia, porque uma negativa sem saída é só um muro.
+ * @returns {string}
+ */
+export function groupOwnerCannotLeaveNotice() {
+    return 'Você é o dono deste grupo, e o dono não sai: um grupo sem dono fica sem quem o '
+        + 'administre. Apague o grupo, ou transfira a posse dele.';
+}
+
+/**
+ * O QUE ESTA SEÇÃO NÃO SABE, dito em voz alta.
+ *
+ * Sem esta linha, a ausência das contagens se lê como zero: quem vê um grupo sem número
+ * nenhum ao lado conclui que ele não alcança nada, e decide sair com base numa leitura que a
+ * tela nunca afirmou. Dizer que a informação é de quem administra separa "não tem" de "não
+ * sai por aqui", que é a mesma distinção de `groupsLoadFailureNotice` entre vazio e falha.
+ * @returns {string}
+ */
+export function participatingReachUnknownNotice() {
+    return 'Esta lista mostra o nome e o dono de cada grupo. Quantas pessoas estão dentro, e a '
+        + 'que recursos ou atlas o grupo dá acesso, é informação de quem o administra e não sai '
+        + 'por aqui: a ausência do número não quer dizer que ele seja zero.';
 }
 
 /**

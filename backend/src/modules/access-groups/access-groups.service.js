@@ -354,6 +354,30 @@ export async function addMember({ groupId, userId, actor, req }) {
  */
 export async function removeMember({ groupId, userId, actor, req }) {
   const grupo = await getGroup(groupId);
+  return retirarMembro({ grupo, userId, actor, req, self: false });
+}
+
+/**
+ * O CORPO COMPARTILHADO das duas saídas de um grupo: a por terceiro (`removeMember`) e a
+ * VOLUNTÁRIA (`leaveGroup`).
+ *
+ * ELE EXISTE PARA QUE A PODA TENHA UMA DEFINIÇÃO SÓ. A parte difícil deste ato não é apagar a
+ * linha de composição, é o que ela alimentava: as raízes, a ordem `DELETE_MEMBER` antes de
+ * `podarPorRaizes`, e o `resgatarRaiz: true` que faz valer a cláusula 3.7. Uma segunda cópia disso
+ * na rota nova divergiria da primeira no primeiro conserto que alguém fizesse em um dos lados, e o
+ * sintoma seria acesso órfão — a classe que o JSDoc acima descreve por extenso.
+ *
+ * A ÚNICA DIFERENÇA ENTRE OS DOIS CHAMADORES É A TRILHA (`details.self`) e o ator; a origem da
+ * poda continua `ACCESS_GROUP_MEMBER_REMOVE` porque o FATO podado é o mesmo (um caminho caiu), e
+ * `origem` responde por que a poda aconteceu, não quem a pediu.
+ *
+ * @param {{grupo: Object, userId: string, actor: object, req: object, self: boolean}} params
+ * @returns {Promise<{groupId: string, userId: string, removed: true, grantsAffected: number}>}
+ * @throws {NotFoundError} `Group member` quando não há linha de composição (só no caminho por
+ *   terceiro: a saída voluntária trata isso antes, como estado já alcançado).
+ */
+async function retirarMembro({ grupo, userId, actor, req, self }) {
+  const groupId = grupo.id;
   // O usuário pode ter sido DESATIVADO depois de entrar no grupo, e nesse caso
   // `GET_ACTIVE_USER` não o acha. Tirá-lo do grupo continua sendo legítimo (a
   // linha de composição existe), então o nome para a trilha é opcional aqui.
@@ -382,8 +406,63 @@ export async function removeMember({ groupId, userId, actor, req }) {
         // Ver a nota gemea em `deleteGroup`: o repasse que sobreviveu repai-ado e o que
         // explica um `grantsAffected` menor que o alcance que a tela mostrou.
         grantsReparented: reparented.length + trimmed.length,
+        // `self: true` SÓ NO CAMINHO VOLUNTÁRIO, e ausente no outro: é a mesma discriminação
+        // das duas auto-edições de conta (`users.service.js`), e é ela que responde QUEM
+        // DECIDIU quando `actor_id` e `details.userId` são a mesma pessoa por coincidência
+        // (um dono que se tira do próprio grupo pela rota administrativa).
+        ...(self ? { self: true } : {}),
       },
     }, trx);
-    return { groupId, userId, grantsAffected: revoked.length };
+    return { groupId, userId, removed: true, grantsAffected: revoked.length };
   });
+}
+
+/**
+ * SAIR DE UM GRUPO POR CONTA PRÓPRIA (decisão do dono, 2026-08-23).
+ *
+ * POR QUE ELA NÃO É A ROTA DE CIMA COM OUTRO GATE. `requireGroupAuthority` responde 404 ao PRÓPRIO
+ * membro — ele não administra o grupo —, então quem foi posto num coletivo por outra pessoa não
+ * tinha como sair dele: a composição decide o acesso dele a recurso privado e a atlas, e ele
+ * dependia de pedir a quem administra. A cláusula 4.5 já dizia que esse mecanismo não pode ser
+ * invisível para quem está dentro; sair é a metade dela que faltava.
+ *
+ * O DONO NÃO SAI, e a recusa é 409. Aqui é pior que no atlas: `fn_can_administer_group` tem dois
+ * ramos, posse VIVA e administrador do sistema, então um grupo cujo dono se retirasse ficaria sem
+ * administrador salvo pelo segundo ramo — e o predicado de acesso derruba junto todo alcance dele
+ * (`fn_user_group_ids` exige `fn_principal_vivo(owner)`). A recusa não prende ninguém: o dono que
+ * por acaso também esteja na composição continua tirando a própria linha pela rota administrativa,
+ * que ele já pode; o que ele não faz por esta porta é abandonar o coletivo. Apagar ou transferir é
+ * outro ato, com outro nome.
+ *
+ * IDEMPOTENTE, E O SILÊNCIO É UNIFORME, exatamente como em `leaveAtlas`: não estar no grupo e o
+ * grupo não existir respondem a mesma coisa (200, `removed: false`). O 404 uniforme deste módulo
+ * existe para que o invisível seja indistinguível do inexistente, e uma rota que distinguisse os
+ * dois aqui devolveria por outra porta o oráculo de inventário que ele nega.
+ *
+ * @param {{groupId: string, userId: string|null, actor: object, req: object}} params
+ * @returns {Promise<{groupId: string, userId: string|null, removed: boolean,
+ *                    grantsAffected: number}>}
+ * @throws {ConflictError} Quando o chamador é o DONO do grupo.
+ */
+export async function leaveGroup({ groupId, userId, actor, req }) {
+  const grupo = await oneOrNone(Q.GET_GROUP, [groupId]);
+  if (grupo && userId && String(grupo.owner_id) === String(userId)) {
+    throw new ConflictError(
+      'O dono não pode sair do próprio grupo de acesso: um grupo sem dono deixa de entregar '
+      + 'acesso e fica sem quem o administre. Apague o grupo, ou transfira a posse dele.'
+    );
+  }
+  const naoParticipa = { groupId, userId, removed: false, grantsAffected: 0 };
+  if (!grupo || !userId) return naoParticipa;
+
+  try {
+    return await retirarMembro({ grupo, userId, actor, req, self: true });
+  } catch (err) {
+    // A LEITURA E A ESCRITA SÃO SEPARADAS POR UMA JANELA, e neste caminho a ausência da linha é
+    // desfecho normal em vez de erro. `retirarMembro` levanta porque o caminho por terceiro
+    // PRECISA levantar (apontar para o grupo errado é a informação); aqui a mesma ausência
+    // significa "já não participo", que é o estado pedido.
+    if (err instanceof NotFoundError) return naoParticipa;
+    throw err;
+  }
 }

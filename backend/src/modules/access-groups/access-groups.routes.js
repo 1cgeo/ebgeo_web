@@ -118,6 +118,29 @@ router.post(
 );
 
 /**
+ * DELETE /api/v1/access-groups/:groupId/members/me — SAIR do grupo por conta própria
+ * (decisão do dono, 2026-08-23).
+ *
+ * A ORDEM É CONTRATO, e aqui ela é do tipo que falha em silêncio: Express casa na ordem de
+ * declaração, então `/me` DEPOIS de `/:userId` nunca seria alcançada — a rota de baixo
+ * casaria com `userId = 'me'` e o `validate({ params })` dela responderia 422 dizendo que
+ * `userId` precisa ser UUID. O sintoma não apontaria para ordem nenhuma. Mesmo motivo de
+ * `/trash` e `/overview` virem antes de `/:atlasId` em `atlas.routes.js`.
+ *
+ * O GATE É `auth` E MAIS NADA, e é a única rota com `:groupId` assim. `requireGroupAuthority`
+ * responde 404 ao próprio membro — ele não administra o grupo —, e era exatamente isso que
+ * prendia quem foi posto num coletivo por outra pessoa. A autoridade exercida aqui é sobre si
+ * mesmo. O grupo alheio continua indistinguível do inexistente: os dois respondem 200 com
+ * `removed: false`.
+ */
+router.delete(
+  '/:groupId/members/me',
+  auth,
+  validate({ params: schemas.groupIdParamsSchema }),
+  ctrl.leaveGroup,
+);
+
+/**
  * DELETE /api/v1/access-groups/:groupId/members/:userId — tira alguém e poda o que ele
  * alimentou pelo grupo.
  */

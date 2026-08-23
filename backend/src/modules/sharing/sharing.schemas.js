@@ -50,3 +50,15 @@ export const groupIdParamsSchema = Joi.object({
   atlasId: Joi.string().uuid().required(),
   groupId: Joi.string().uuid().required(),
 });
+
+/**
+ * `:atlasId` de `DELETE /sharing/me`.
+ *
+ * ELA PRECISA EXISTIR porque esta é a primeira rota do módulo SEM `requireAtlasPermission`, e era
+ * aquele gate que barrava um `:atlasId` malformado antes de ele chegar a um cast `::uuid` (o 22P02
+ * que a borda traduz num 400 sem relação aparente com o assunto). Sem gate na frente, a validação
+ * de params é o único guarda que sobra.
+ */
+export const atlasIdParamsSchema = Joi.object({
+  atlasId: Joi.string().uuid().required(),
+});

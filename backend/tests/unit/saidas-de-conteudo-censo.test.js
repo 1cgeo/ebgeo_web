@@ -207,6 +207,7 @@ const CENSO_ROTA = [
   json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId'),
   json('src/modules/access-groups/access-groups.routes.js', 'GET /:groupId/members'),
   json('src/modules/access-groups/access-groups.routes.js', 'POST /:groupId/members'),
+  json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId/members/me'),
   json('src/modules/access-groups/access-groups.routes.js', 'DELETE /:groupId/members/:userId'),
 
   json('src/modules/sharing/sharing.routes.js', 'GET /'),
@@ -215,6 +216,7 @@ const CENSO_ROTA = [
   json('src/modules/sharing/sharing.routes.js', 'POST /users'),
   json('src/modules/sharing/sharing.routes.js', 'PUT /users/:userId'),
   json('src/modules/sharing/sharing.routes.js', 'DELETE /users/:userId'),
+  json('src/modules/sharing/sharing.routes.js', 'DELETE /me'),
   json('src/modules/sharing/sharing.routes.js', 'POST /groups'),
   json('src/modules/sharing/sharing.routes.js', 'PUT /groups/:groupId'),
   json('src/modules/sharing/sharing.routes.js', 'DELETE /groups/:groupId'),

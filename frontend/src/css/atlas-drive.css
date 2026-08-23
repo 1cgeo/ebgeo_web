@@ -339,10 +339,50 @@
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+    min-width: 0;
     margin: 0;
     overflow: hidden;
     color: var(--gray-500);
     font-size: var(--font-size-xs);
+    line-height: 1.35;
+}
+
+/* ----- O nível de cada participante, uma linha por NÍVEL -----
+
+   O nível repetido ao lado de cada nome escreveria a palavra mais longa da frase uma vez por
+   pessoa e estouraria um cartão de 320 px com dez participantes. Fatorado para fora, o número de
+   linhas passa a ser limitado pela ESCADA (cinco degraus), não pela lista de gente, e nenhum nome
+   precisa ser cortado. */
+.atlas-drive__share-levels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.atlas-drive__share-level {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+/* A linha do excedente não tem selo (o servidor não manda o nível de quem cortou da lista), então
+   ela se alinha ao texto das outras em vez de encostar na borda. */
+.atlas-drive__share-level--more .atlas-drive__share-names {
+    font-style: italic;
+}
+
+/* Menor que o selo do cartão de propósito: ali ele é o rótulo do projeto, aqui é a etiqueta de uma
+   sublista. As cores vêm das mesmas regras `--<nível>` do selo, logo abaixo. */
+.atlas-drive__level-chip {
+    flex-shrink: 0;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
     line-height: 1.35;
 }
 
@@ -395,7 +435,11 @@
     font-weight: var(--font-weight-semibold);
 }
 
-.atlas-drive__chip--owner {
+/* As cinco cores servem DOIS selos: o do cartão (o nível de quem está olhando) e o do rodapé (o
+   nível de cada participante). Um mesmo nível pintado de duas cores na mesma tela seria lido como
+   dois níveis, então as regras são compartilhadas em vez de copiadas. */
+.atlas-drive__chip--owner,
+.atlas-drive__level-chip--owner {
     background: var(--primary-100);
     color: var(--primary-700);
 }
@@ -403,23 +447,27 @@
 /* The permission ladder has FIVE levels (read < comment < write < manage <
    owner); the two middle ones are grantable from the sharing modal, so every
    level needs a chip of its own. */
-.atlas-drive__chip--manage {
+.atlas-drive__chip--manage,
+.atlas-drive__level-chip--manage {
     background: var(--primary-50);
     color: var(--primary-800);
 }
 
-.atlas-drive__chip--write {
+.atlas-drive__chip--write,
+.atlas-drive__level-chip--write {
     background: rgb(59 130 246 / 12%);
     color: #1d4ed8;
 }
 
-.atlas-drive__chip--comment {
+.atlas-drive__chip--comment,
+.atlas-drive__level-chip--comment {
     background: var(--gray-50);
     color: var(--gray-700);
     border: var(--border-width) solid var(--gray-300);
 }
 
-.atlas-drive__chip--read {
+.atlas-drive__chip--read,
+.atlas-drive__level-chip--read {
     background: var(--gray-100);
     color: var(--gray-600);
 }
