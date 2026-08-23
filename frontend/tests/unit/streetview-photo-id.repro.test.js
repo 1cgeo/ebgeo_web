@@ -7,9 +7,10 @@ import { isUUID } from '../../src/js/street_view_tool/streetview-api.service.js'
  * that way (`.guid({ version: ['uuidv5'] })` in sv360.schemas.js,
  * sv360.write.schemas.js and sv360.admin.schemas.js).
  *
- * The two call sites in the same module branch on this predicate, and both took
- * the wrong branch: `resolveToUUID` sent a valid id off to be resolved as a
- * legacy filename, and `getPhotoDisplayName` returned early with the raw id as
+ * The two call sites in the same module branched on this predicate, and both took
+ * the wrong branch. One of them, `resolveToUUID`, was REMOVED on 2026-08-23: it had
+ * no caller of its own, so the branch it took never reached anyone. What remains and
+ * still matters is the other: `getPhotoDisplayName` returned early with the raw id as
  * the "display name" — which is what the briefing editor
  * (`briefing-editor.control.js:1433`) and the 360 section of the features tab
  * (`streetview360-section.component.js:86`) render to the operator.

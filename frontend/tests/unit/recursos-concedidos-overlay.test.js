@@ -4,7 +4,6 @@ import {
     revertAtlasSettings,
     mergeGrantedIntoBaseline,
     revertGrantedResources,
-    getGrantedViews360,
     getDeployTilesets,
     getDeployDataLayers,
     _resetAtlasSettingsBaseline,
@@ -86,10 +85,19 @@ describe('soma dos recursos concedidos (ampliativa)', () => {
         expect(idsDe(config.dataLayers.layers)).toEqual(['pub-data']);
     });
 
+    // O 360 NÃO MORA EM `config`, e desde que as leituras do 360 carimbam `?atlasId=` ele
+    // também não tem leitor no cliente: quem monta a seção 360 do catálogo é `fetchProjects()`,
+    // e a resposta do servidor já traz o panorama emprestado (o predicado do 360 é um
+    // superconjunto do delta privado que este payload carrega). O acessor `getGrantedViews360`
+    // existia sem nenhum chamador de produção e saiu junto com o comentário que dizia, falsamente,
+    // que o catálogo o consumia. O que continua sendo contrato é o NEGATIVO abaixo: um payload de
+    // 360 não pode vazar para nenhum dos grupos que moram em `config`.
     it('os panoramas 360 ficam FORA do `config` (eles não moram lá)', () => {
         mergeGrantedIntoBaseline({ views360: [{ id: 'v1', slug: 'x' }] });
-        expect(getGrantedViews360().map((v) => v.id)).toEqual(['v1']);
         expect(idsDe(config.tilesets)).toEqual(['pub-3d']);
+        expect(idsDe(config.dataLayers.layers)).toEqual(['pub-data']);
+        expect(idsDe(config.analysisLayers.layers)).toEqual([]);
+        expect(Object.keys(config.basemaps)).toEqual(['a']);
     });
 
     // O BASEMAP É O ÚNICO GRUPO QUE NÃO É ARRAY, e a superfície dele é o seletor de

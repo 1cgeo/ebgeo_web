@@ -13,7 +13,7 @@ import {
     getCurrentPhotoIndex, resetAllReviewedState, getProjectPhoto,
     getCurrentRunId, getRunEntryPhotoId, setCalibrationSource,
 } from './state.js';
-import { batchUpdateProject, resetProjectReviewed, batchUpdateRun, sv360Base } from './api.js';
+import { batchUpdateProject, resetProjectReviewed, batchUpdateRun, url as sv360Url } from './api.js';
 import { descreverAlvo } from './descricao.js';
 // Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
 // arrastaria a store inteira pelo caminho transitivo.
@@ -1350,7 +1350,12 @@ function attachEvents() {
     // e nao do `/api/v1` da origem: aquele caminho responde 404 neste backend.
     document.getElementById('btn-open-json')?.addEventListener('click', () => {
         if (state.currentPhotoId) {
-            window.open(`${sv360Base()}/photos/${state.currentPhotoId}?include_hidden=true`, '_blank');
+            // PELA MESMA COMPOSICAO das outras leituras: montar o endereco a mao aqui
+            // deixava de fora o `?atlasId=` que o servidor honra em toda rota do modulo.
+            // Hoje o escopo desta pagina e nulo (a calibracao nao boota o motor de sync),
+            // entao o efeito e nenhum; o que se evita e a armadilha plantada, que
+            // apareceria longe da causa no dia em que a pagina ganhar escopo.
+            window.open(sv360Url(`/photos/${state.currentPhotoId}?include_hidden=true`), '_blank');
         }
     });
 

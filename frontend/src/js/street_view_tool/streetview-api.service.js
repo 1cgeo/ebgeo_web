@@ -9,7 +9,7 @@
 import config from '../config.js';
 import { currentResourceAtlasId, currentResourceScope } from '@store/sync/resource-scope.js';
 import { apiClient } from '@store/sync/api-client.js';
-import { stampAtlasOnTiles } from './tile-scope.js';
+import { stampAtlasOnTiles, stampAtlasOnUrl } from './tile-scope.js';
 
 // ============================================================
 // Configuration
@@ -83,6 +83,35 @@ export function sv360AtlasScope() {
  */
 export function sv360TileSource(source, atlasId = sv360AtlasScope()) {
   return stampAtlasOnTiles(withAbsoluteTiles(source), atlasId);
+}
+
+/**
+ * The address of ONE read of the 360 service, with the atlas in focus already on it.
+ *
+ * EVERY READ IN THIS MODULE GOES THROUGH HERE, and that is the whole correction. The server has
+ * honoured `?atlasId=` on all fourteen read routes since 2026-08-18, but the client stamped it on
+ * the MVT template alone — which is the most misleading half to ship: the 2D layer drew the dot of
+ * a borrowed private panorama (tiles carried the scope) and every other surface refused it. The
+ * click called `/photos/nearest` unscoped, took the 404 as "nothing nearby", and opened nothing;
+ * the project was absent from the catalog and from the search. The map proved the resource existed
+ * and the interface denied it.
+ *
+ * A SECOND `?atlasId=` WRITTEN BY HAND SOMEWHERE ELSE IS THE DEFECT COMING BACK, so the stamp is
+ * not written here either: it is {@link stampAtlasOnUrl}, the same function the tile templates go
+ * through and the same one `calibration/api.js` builds its reads with.
+ *
+ * NO ATLAS IN FOCUS PRODUCES TODAY'S URL, character for character — no `atlasId=`, no
+ * `atlasId=undefined`. That is not a nicety: the field is validated as a GUID, so either of those
+ * is a 422 for the anonymous visitor and the local map, who are the majority of readers.
+ *
+ * `atlasId` is an ARGUMENT with a default so the caller that also has to REMEMBER which atlas it
+ * used (the projects cache) reads the scope once and passes the same value here.
+ * @param {string} path - Path under the service root, leading slash included (`/projects`).
+ * @param {string|null} [atlasId] - The atlas in focus; defaults to {@link sv360AtlasScope}.
+ * @returns {string} The URL to fetch.
+ */
+export function sv360ReadUrl(path, atlasId = sv360AtlasScope()) {
+  return stampAtlasOnUrl(`${getServiceUrl()}${path}`, atlasId);
 }
 
 // ============================================================
@@ -222,7 +251,7 @@ function photoMetadataUrl(photoIdOrName) {
   const path = isUUID(photoIdOrName)
     ? `/photos/${photoIdOrName}`
     : `/photos/by-name/${encodeURIComponent(photoIdOrName)}`;
-  return `${getServiceUrl()}${path}`;
+  return sv360ReadUrl(path);
 }
 
 /**
@@ -261,7 +290,11 @@ export async function fetchPhotoMetadata(photoIdOrName) {
  * thinning.
  *
  * NOTHING NEARBY IS A 404, not a fault, and it lands on the same null as a
- * network error: the caller only decides whether to open the viewer.
+ * network error: the caller only decides whether to open the viewer. THAT
+ * TOLERANCE IS WHY THE ATLAS SCOPE MATTERS MOST HERE: an unscoped request for a
+ * panorama borrowed by the atlas in focus is also a 404, so it arrived as "nada
+ * por perto" and the click on a dot the 2D layer had just drawn did nothing at
+ * all, with a clean console.
  *
  * @param {number} lon - Longitude of the clicked point
  * @param {number} lat - Latitude of the clicked point
@@ -270,7 +303,7 @@ export async function fetchPhotoMetadata(photoIdOrName) {
  */
 export async function fetchNearestPhoto(lon, lat) {
   try {
-    const response = await fetch(`${getServiceUrl()}/photos/nearest?lon=${lon}&lat=${lat}`);
+    const response = await fetch(sv360ReadUrl(`/photos/nearest?lon=${lon}&lat=${lat}`));
     if (!response.ok) return null;
     const data = await response.json();
     return data.photo ?? null;
@@ -299,7 +332,7 @@ export async function fetchNearestPhoto(lon, lat) {
 export async function fetchProjectFloors(slug) {
   if (!slug) return [];
   try {
-    const response = await fetch(`${getServiceUrl()}/projects/${encodeURIComponent(slug)}/floors`);
+    const response = await fetch(sv360ReadUrl(`/projects/${encodeURIComponent(slug)}/floors`));
     if (!response.ok) return [];
     const data = await response.json();
     return Array.isArray(data.floors) ? data.floors : [];
@@ -335,46 +368,17 @@ export async function validatePhoto(photoId) {
 
 /**
  * Returns the URL for a photo image at a given quality.
+ *
+ * The bytes are gated like the metadata (`/photos/:uuid/image` runs the same
+ * `liftOptionalAtlasId` → `requireAtlasScopeWhenPresent` pair), so the atlas in
+ * focus goes on this address too — an unscoped one 404s for a borrowed private
+ * panorama and the viewer opens on a blank sphere.
  * @param {string} photoId - Photo UUID
  * @param {'full'|'preview'} [quality='full'] - Image quality variant
  * @returns {string} Image URL
  */
 export function getPhotoImageUrl(photoId, quality = 'full') {
-  return `${getServiceUrl()}/photos/${photoId}/image?quality=${quality}`;
-}
-
-// ============================================================
-// Backward compatibility: original name → UUID resolution
-// ============================================================
-
-/**
- * Resolves a legacy original filename to a UUID.
- * Used for backward compat with old deep links and saved data.
- * @param {string} originalName - Original photo filename (e.g., "MULTICAPTURA_0466_001369")
- * @returns {Promise<string|null>} UUID or null if not found
- */
-export async function resolveOriginalName(originalName) {
-  try {
-    const response = await fetch(`${getServiceUrl()}/photos/by-name/${encodeURIComponent(originalName)}`);
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.id;
-  } catch (error) {
-    console.error(`[streetview-api] resolveOriginalName failed for "${originalName}":`, error);
-    return null;
-  }
-}
-
-/**
- * Resolves a photo identifier to a UUID.
- * If the input is already a UUID, returns it as-is.
- * If it's a legacy filename, resolves it via the API.
- * @param {string} photoIdOrName - UUID or original filename
- * @returns {Promise<string|null>} UUID or null if not found
- */
-export async function resolveToUUID(photoIdOrName) {
-  if (isUUID(photoIdOrName)) return photoIdOrName;
-  return resolveOriginalName(photoIdOrName);
+  return sv360ReadUrl(`/photos/${photoId}/image?quality=${quality}`);
 }
 
 // ============================================================
@@ -434,15 +438,23 @@ let _cacheScope = null;
  *
  * The display-name cache goes with it for the same reason and not for a weaker one: those names
  * come from photo metadata of projects that may be private.
- * @returns {string} The scope now in force.
+ *
+ * IT RETURNS BOTH HALVES OF THE SCOPE, and that is not convenience. Until the reads carried
+ * `?atlasId=`, a scope change here only bought a refetch of the SAME answer, because the request
+ * did not name the atlas; now the atlas half decides what comes back, and the caller has to stamp
+ * the URL with the very atlas it will label the answer with. Reading the scope for the stamp and
+ * again for the label would be two reads of a value that changes under both.
+ * @returns {{scope: string, atlasId: string|null}} The scope now in force, and its atlas half.
  */
 function adoptCurrentScope() {
   const scope = currentResourceScope();
-  if (_cacheScope === scope) return scope;
+  // Two reads of the same module-global, with no `await` between them: they cannot interleave.
+  const atlasId = currentResourceAtlasId();
+  if (_cacheScope === scope) return { scope, atlasId };
   _projectsCache = null;
   _displayNameCache.clear();
   _cacheScope = scope;
-  return scope;
+  return { scope, atlasId };
 }
 
 /**
@@ -463,10 +475,12 @@ export function normalizeProjects(data) {
  * @returns {Promise<Array>} Array of project objects
  */
 export async function fetchProjects(forceRefresh = false) {
-  const scope = adoptCurrentScope();
+  const { scope, atlasId } = adoptCurrentScope();
   if (_projectsCache && !forceRefresh) return _projectsCache;
 
-  const response = await fetch(`${getServiceUrl()}/projects`);
+  // The atlas that decides the answer is the one the stamp above adopted, never a fresh lookup:
+  // the URL and the label of the answer have to name the same atlas.
+  const response = await fetch(sv360ReadUrl('/projects', atlasId));
   if (!response.ok) {
     throw new Error(`Failed to fetch projects (HTTP ${response.status})`);
   }

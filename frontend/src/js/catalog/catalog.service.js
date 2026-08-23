@@ -316,12 +316,11 @@ export class CatalogService {
         if (!config.features.imagens_panoramicas) return [];
 
         try {
-            const { getCachedProjects, fetchProjects } = await import('../street_view_tool/streetview-api.service.js');
+            const { getCachedProjects, fetchProjects, sv360ReadUrl } = await import('../street_view_tool/streetview-api.service.js');
 
             const projects = getCachedProjects() ?? await fetchProjects();
             if (!projects || projects.length === 0) return [];
 
-            const serviceUrl = config.streetView360.serviceUrl;
 
             const items = projects.map(p => ({
                 id: `360-${p.id}`,
@@ -329,15 +328,19 @@ export class CatalogService {
                 name: p.name,
                 description: p.description || null,
                 keywords: p.keywords || null,
+                // A MINIATURA TAMBEM E ESCOPADA. A rota `/thumbnails/:slug.webp` passa pelo
+                // mesmo predicado de acesso do resto do modulo, entao um projeto
+                // emprestado por atlas aparece no cartao com a imagem quebrada se a URL
+                // sair sem o `atlasId`. Montar o endereco a mao aqui era o que fazia isso.
                 thumbnail: p.previewThumbnail
-                    ? `${serviceUrl}${p.previewThumbnail}`
+                    ? sv360ReadUrl(p.previewThumbnail)
                     : DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
                 date: p.captureDate || null,
                 local: p.location || null,
                 // Vem da forma pública do projeto (coluna `preview_video`, servida em
                 // camelCase), não de um `config` — `sv360.projects` não tem um.
                 //
-                // E NÃO leva o prefixo `serviceUrl` que a `thumbnail` acima leva, de
+                // E NÃO passa por `sv360ReadUrl`, que a `thumbnail` acima usa, de
                 // propósito: a miniatura é um caminho RELATIVO ao serviço 360 (o servidor a
                 // devolve assim, por contrato congelado), enquanto esta coluna guarda um
                 // endereço LIVRE, digitado no painel — a única borda do servidor sobre ele é

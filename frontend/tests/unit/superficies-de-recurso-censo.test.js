@@ -250,8 +250,11 @@ const CENSO = [
     {
         arquivo: 'src/js/calibration/api.js', gatilho: 'projetos', n: 1, classe: OUTRO_MODULO,
         motivo: 'HOMÔNIMO, não consumidor: a página de calibração tem cliente HTTP próprio, sem '
-            + 'cache nenhum, e não importa o serviço do 360. Está no censo justamente para que a '
-            + 'colisão de nome fique declarada em vez de descoberta por quem for mexer no cache.',
+            + 'cache nenhum, e não importa o serviço do 360. Desde 2026-08-23 ela compartilha UMA '
+            + 'coisa com ele, e só uma: o carimbo de escopo de atlas (`stampAtlasOnUrl`, de '
+            + '`tile-scope.js`, folha de zero imports), para que não nasça uma segunda noção de '
+            + 'escopo naquela página. Está no censo justamente para que a colisão de nome fique '
+            + 'declarada em vez de descoberta por quem for mexer no cache.',
     },
     {
         arquivo: 'src/js/calibration/app.js', gatilho: 'projetos', n: 1, classe: OUTRO_MODULO,

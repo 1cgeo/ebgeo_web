@@ -51,11 +51,19 @@ let _granted = { basemaps: [], tilesets: [], dataLayers: [], analysisLayers: [],
  * Os três grupos de catálogo que são ARRAY, cada um com o array VIVO em `config` e o
  * campo correspondente do baseline.
  *
- * Dois grupos ficam de fora, por razões diferentes: `views360` não mora em `config`
- * (vem do preflight do sv360) e quem o consome é o catálogo, por
- * `getGrantedViews360()`; `basemaps` mora em `config` mas como OBJETO indexado por
- * id, com o estilo MapLibre numa segunda chave, então tem caminho próprio em
- * `aplicarBasemapsConcedidos`.
+ * Dois grupos ficam de fora, por razões diferentes.
+ *
+ * `views360` não mora em `config` (vem do preflight do sv360) e NINGUÉM O CONSOME, de propósito.
+ * Esta linha afirmou por um bom tempo que "quem o consome é o catálogo", e era falso: a seção 360
+ * do catálogo se monta de `fetchProjects()`, contra `GET /sv360/projects`. Desde que essa leitura
+ * carimba o `?atlasId=` do atlas em foco, a resposta do SERVIDOR já traz o panorama emprestado, e
+ * o predicado que a decide (`sv360AccessPredicate`) é um SUPERCONJUNTO do que este payload
+ * carrega — `views360` é só o delta PRIVADO. Manter uma segunda lista no cliente não somaria nada
+ * e só teria como divergir. A soma continua acontecendo (é ela que zera o grupo na troca de
+ * escopo); o que não existe é leitor.
+ *
+ * `basemaps` mora em `config` mas como OBJETO indexado por id, com o estilo MapLibre numa segunda
+ * chave, então tem caminho próprio em `aplicarBasemapsConcedidos`.
  */
 const GRUPOS_CONCEDIDOS = [
     { chave: 'tilesets', vivo: () => config.tilesets, campoBaseline: 'tilesets' },
@@ -293,11 +301,6 @@ export function mergeGrantedIntoBaseline(payload) {
     // baseline recém-somado. Sem isto, um recurso concedido que a allowlist do
     // atlas não lista continuaria visível até o próximo apply.
     if (_baseline) applyAtlasSettings(_lastSettings);
-}
-
-/** Os panoramas 360 privados concedidos (o 360 não mora em `config`). @returns {Array} */
-export function getGrantedViews360() {
-    return _granted.views360;
 }
 
 /**

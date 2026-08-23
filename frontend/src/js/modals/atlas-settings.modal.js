@@ -443,11 +443,11 @@ export class AtlasSettingsModal extends ModalBase {
         // entrar num atlas, ou seja, quase sempre depois de uma troca de escopo: ler o miss como
         // "não há 360" deixaria o Gestor sem nada para restringir. Miss busca.
         try {
-            const { getCachedProjects, fetchProjects } = await import('@js/street_view_tool/streetview-api.service.js');
-            const serviceUrl = config.streetView360?.serviceUrl || '';
+            const { getCachedProjects, fetchProjects, sv360ReadUrl } = await import('@js/street_view_tool/streetview-api.service.js');
             for (const p of (getCachedProjects() ?? await fetchProjects())) {
                 items.push({ id: `360-${p.id}`, type: T.PANORAMIC_360, name: p.name, description: p.description || null,
-                    thumbnail: p.previewThumbnail ? `${serviceUrl}${p.previewThumbnail}` : DEFAULT_THUMBNAILS[T.PANORAMIC_360],
+                    // Escopada como no catálogo: sem o `atlasId` a miniatura do projeto emprestado quebra.
+                    thumbnail: p.previewThumbnail ? sv360ReadUrl(p.previewThumbnail) : DEFAULT_THUMBNAILS[T.PANORAMIC_360],
                     originalData: p });
             }
         } catch { /* sv360 indisponível — sem itens 360 */ }

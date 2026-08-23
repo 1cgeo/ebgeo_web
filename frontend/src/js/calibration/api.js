@@ -23,10 +23,21 @@
  *   `cache: 'no-cache'`, que `_request` nao oferece. Elas levam o token mesmo assim
  *   (`apiClient.authHeader()`): as rotas de leitura sao `flexibleAuth`, e sem credencial um
  *   projeto DESABILITADO simplesmente nao aparece.
+ *
+ * O ESCOPO DE ATLAS. Toda leitura passa por {@link url}, que carimba `?atlasId=` com a MESMA
+ * funcao do cliente do mapa (`stampAtlasOnUrl`), lendo o MESMO registro de escopo
+ * (`currentResourceAtlasId`). Hoje o valor aqui e sempre nulo, e isso e proposital e nao um
+ * descuido: `calibracao.html` nao boota o motor de sync, entao ninguem chama
+ * `refreshVisibleResources` e o escopo desta pagina fica no anonimo — o estudio ve o acervo que o
+ * proprio papel global alcanca, nunca um emprestimo de atlas. O que a fiacao compra e que a
+ * pagina nao carrega uma SEGUNDA nocao de escopo: no dia em que ela abrir um projeto por atlas,
+ * as leituras ja o nomeiam, em vez de calarem-se num 404 como as do mapa faziam.
  */
 
 import config from '@js/config.js';
 import { apiClient, ApiError } from '@store/sync/api-client.js';
+import { stampAtlasOnUrl } from '@js/street_view_tool/tile-scope.js';
+import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
 
 /**
  * Prefixo do modulo 360 no backend. O `/api/config` sobrescreve isto no boot, entao a pagina
@@ -39,6 +50,25 @@ export function sv360Base() {
 
 /** Atalho interno para `sv360Base()`. */
 const base = sv360Base;
+
+/**
+ * O endereco de UMA leitura do 360, com o atlas em foco ja carimbado.
+ *
+ * TODA leitura deste arquivo passa por aqui, `fetchPhotoMetadata` e `getPhotoImageUrl` inclusive,
+ * que montam a propria URL por precisarem de query propria. Espalhar `?atlasId=` por chamador e o
+ * defeito que esta correcao veio desfazer do outro lado: o cliente do mapa carimbava so o template
+ * dos tiles, e as outras quatorze leituras saiam sem escopo — o ponto aparecia no mapa 2D e nada
+ * mais abria.
+ *
+ * SEM ATLAS EM FOCO A URL SAI LIMPA, que hoje e o unico caso desta pagina. Isso e contrato e nao
+ * detalhe: o campo e validado como GUID no servidor, entao um `atlasId=` vazio (ou a string
+ * `undefined`) seria 422 em vez de leitura anonima.
+ * @param {string} path - Caminho sob a raiz do modulo, com a barra inicial ('/projects').
+ * @returns {string} A URL a buscar.
+ */
+export function url(path) {
+    return stampAtlasOnUrl(`${base()}${path}`, currentResourceAtlasId());
+}
 
 /** Timeout padrao (ms) para todas as leituras do cliente de calibracao. */
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -166,7 +196,7 @@ async function read(path, { signal, what = path } = {}) {
     const { signal: reqSignal, cleanup } = withTimeout(signal);
     try {
         const headers = await apiClient.authHeader();
-        const response = await fetch(`${base()}${path}`, {
+        const response = await fetch(url(path), {
             cache: 'no-cache',
             headers,
             signal: reqSignal,
@@ -204,7 +234,7 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
     const { signal: reqSignal, cleanup } = withTimeout(signal);
     try {
         const headers = await apiClient.authHeader();
-        const response = await fetch(`${base()}/photos/${encodeURIComponent(photoId)}?include_hidden=true`, {
+        const response = await fetch(url(`/photos/${encodeURIComponent(photoId)}?include_hidden=true`), {
             cache: 'no-cache',
             headers,
             signal: reqSignal,
@@ -226,7 +256,7 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
  * @returns {string} Image URL
  */
 export function getPhotoImageUrl(photoId, quality = 'full') {
-    return `${base()}/photos/${encodeURIComponent(photoId)}/image?quality=${quality}`;
+    return url(`/photos/${encodeURIComponent(photoId)}/image?quality=${quality}`);
 }
 
 /**

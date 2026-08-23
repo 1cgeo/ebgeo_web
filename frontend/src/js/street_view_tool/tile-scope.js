@@ -1,15 +1,26 @@
 // Path: js/street_view_tool/tile-scope.js
 
 /**
- * @fileoverview The ATLAS SCOPE of the 360 vector tiles, carried on the URL of the SOURCE.
+ * @fileoverview The ATLAS SCOPE of a 360 read, carried on the URL — the ONE place that knows how
+ * `?atlasId=` is written onto an address of the 360 service.
  *
  * WHAT THIS EXISTS FOR. The decision of 2026-08-18 ("o emprestimo por atlas alcanca o 360, e o
- * UUID do atlas nao e senha") made the MVT route honour `?atlasId=`: `validate` →
+ * UUID do atlas nao e senha") made every read route honour `?atlasId=`: `validate` →
  * `liftOptionalAtlasId` → `requireAtlasScopeWhenPresent`, which composes a real
- * `requireAtlasPermission('read')`. The server half shipped; the client half never did.
- * `/api/config` publishes `${sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf` with no `atlasId`, and
- * nothing on the client added one — so a 360 project LENT by an atlas was invisible on the 2D
+ * `requireAtlasPermission('read')`. The server half shipped; the client half shipped ONLY for the
+ * MVT tiles. `/api/config` publishes `${sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf` with no `atlasId`,
+ * and nothing on the client added one — so a 360 project LENT by an atlas was invisible on the 2D
  * layer, in every deploy. This module is the client half.
+ *
+ * WHY THE STAMP IS ONE FUNCTION AND NOT A `?atlasId=` PER CALL SITE. The half-shipped state above
+ * was the worst possible one: the tiles carried the scope and the fourteen other reads did not, so
+ * the map PROVED a borrowed panorama existed (a dot on the 2D layer) and every other surface
+ * refused it — the click resolved `/photos/nearest` with no scope, got a 404, and opened nothing.
+ * A rule spread over N call sites fails exactly like that, at the site nobody remembered. The
+ * whole file name is historical: the module is named after tiles because they were the first
+ * caller, and {@link stampAtlasOnUrl} is the general one both 360 clients (the map's
+ * `streetview-api.service.js` and the studio's `calibration/api.js`) build every read address
+ * with.
  *
  * WHY ON THE SOURCE URL AND NOT IN `transformRequest`, WHICH ALREADY EXISTS. Measured in the
  * vendored bundle (`public/vendors/maplibre-gl.js`), and the measurement decides it:
@@ -85,16 +96,29 @@ export function stampAtlasOnTiles(source, atlasId) {
 
 /**
  * The same URL with `atlasId` in the query, preserving an existing query and an existing hash.
- * Idempotent: a template that already carries an `atlasId` comes back untouched, so a second
- * pass over an already-stamped source cannot produce two of them (the second would win in
- * Express and Joi would still accept it, which is precisely the kind of silent disagreement that
- * is cheaper to make impossible).
- * @param {string} url
- * @param {string} atlasId
- * @returns {string}
+ *
+ * NO ATLAS IN FOCUS RETURNS THE INPUT UNCHANGED, and that guard belongs HERE rather than in each
+ * caller for the same reason the whole module exists: "no atlas" is the NORMAL state (the
+ * anonymous visitor, the local map, the calibration studio), so the branch that must never
+ * regress is the one that runs most. A stamp of `atlasId=` with an empty or `undefined` value
+ * would not be harmless noise — `atlasScopeQuerySchema` validates the field as a GUID, so
+ * `atlasId=` dies as a 422 and `atlasId=undefined` with it, taking the read down for everyone
+ * including the caller who never had an atlas.
+ *
+ * Idempotent: an address that already carries an `atlasId` comes back untouched, so a second
+ * pass cannot produce two of them (the second would win in Express and Joi would still accept it,
+ * which is precisely the kind of silent disagreement that is cheaper to make impossible).
+ *
+ * STRING CONCATENATION, NEVER `new URL()`: this is the same function the tile templates go
+ * through, and the URL constructor percent-encodes the braces of `{z}/{x}/{y}`, which MapLibre
+ * substitutes by literal text replacement.
+ * @param {string} url - Any address of the 360 service, relative or absolute.
+ * @param {string|null} [atlasId] - The atlas in focus, or null/'' when there is none.
+ * @returns {string} The stamped URL, or `url` unchanged.
  */
-function stampAtlasOnUrl(url, atlasId) {
-    if (url === '' || /[?&]atlasId=/.test(url)) return url;
+export function stampAtlasOnUrl(url, atlasId) {
+    if (typeof atlasId !== 'string' || atlasId === '') return url;
+    if (typeof url !== 'string' || url === '' || /[?&]atlasId=/.test(url)) return url;
     const [semHash, ...resto] = url.split('#');
     const hash = resto.length > 0 ? `#${resto.join('#')}` : '';
     const separador = semHash.includes('?') ? '&' : '?';
