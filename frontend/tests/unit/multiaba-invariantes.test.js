@@ -141,6 +141,21 @@ vi.mock('@utils/tab-lock.js', async (importOriginal) => ({
     setTabLockKey: vi.fn(() => false)
 }));
 
+/**
+ * TETO DE TEMPO dos casos que rodam o FLUXO INTEIRO de salvar o atlas local no servidor.
+ *
+ * O padrão do vitest é 5 s, e o fluxo custa cerca de 0,7 s numa máquina livre. Sob carga
+ * (a suíte inteira em paralelo, ou a máquina ocupada com outra coisa) ele passa disso, e o
+ * estouro NÃO fica contido no caso que estourou: o vitest segue para o próximo, a promessa
+ * pendente continua correndo e a chamada tardia cai no contador do caso SEGUINTE, já
+ * zerado pelo `beforeEach`. Medido: 1 rodada vermelha em 8, sempre com o par
+ * "timeout no caso A" e "upload chamado 2 vezes no caso B".
+ *
+ * Subir o teto não mascara defeito: um fluxo que TRAVE continua reprovando, agora dizendo
+ * que travou em vez de contaminar o vizinho.
+ */
+const TETO_DE_FLUXO_MS = 20000;
+
 const X = '11111111-1111-4111-8111-111111111111';
 const Y = '22222222-2222-4222-8222-222222222222';
 /** A third server atlas NOBODY has mounted: the one every sweep must destroy. */
@@ -304,7 +319,7 @@ describe('o timer órfão do boot', () => {
         await vi.advanceTimersByTimeAsync(1000);
         await voltasDoLaco();
         expect(await databaseState(remoteMapsDb(X))).toBe('empty');
-    });
+    }, TETO_DE_FLUXO_MS);
 });
 
 // =====================================================================================
@@ -369,7 +384,7 @@ describe('salvar atlas local no servidor', () => {
         expect(toast.showSuccess).toHaveBeenCalledTimes(1);
         expect(toast.showError).not.toHaveBeenCalled();
         expect(origem.getStoreOriginSync()).toEqual({ kind: 'remote', atlasId: X });
-    });
+    }, TETO_DE_FLUXO_MS);
 
     // FECHADO POR E3 em 2026-08-15, promovido de `it.fails`. Era verde-como-defeito porque o
     // atlas novo nunca era registrado nem ativado: a origem dizia REMOTE enquanto o escopo
@@ -381,7 +396,7 @@ describe('salvar atlas local no servidor', () => {
         expect(ns.getActiveScope().kind).toBe(ns.StoreScopeKind.REMOTE);
         expect(ns.resolveDbName(ns.StoreName.MAPS)).toBe(remoteMapsDb(X));
         expect((await remoteApi.listRemoteAtlases()).map(e => e.atlasId)).toEqual([X]);
-    });
+    }, TETO_DE_FLUXO_MS);
 
     // FECHADO POR E3 em 2026-08-15, promovido de `it.fails`. Era verde-como-defeito porque o
     // snapshot do servidor era escrito no escopo ATIVO, que era o slot local: ficava fora de
@@ -399,7 +414,7 @@ describe('salvar atlas local no servidor', () => {
         await origem.markStoreLocal();
 
         expect(await vivo('ebgeo_maps', SENT_SERVIDOR)).toBe(false);
-    });
+    }, TETO_DE_FLUXO_MS);
 });
 
 // =====================================================================================
@@ -1267,7 +1282,7 @@ describe('a chave do tab-lock contra o banco realmente montado', () => {
             .toBe('ebgeo_maps');
         // ...e a aba A anuncia um atlas de SERVIDOR, porque a origem foi marcada REMOTE.
         expect(origem.getStoreOriginSync()).toEqual({ kind: 'remote', atlasId: X });
-    });
+    }, TETO_DE_FLUXO_MS);
 
     // O outro lado do mesmo fato, e a razão de o par existir: o predicado agora ACERTA porque
     // os endereços são de fato distintos, não porque foi afrouxado. As duas asserções juntas
@@ -1282,5 +1297,5 @@ describe('a chave do tab-lock contra o banco realmente montado', () => {
         // medindo. Sem esta linha, um predicado que devolvesse `false` para tudo passaria.
         expect(ns.resolveDbName(ns.StoreName.MAPS, ns.getActiveScope()))
             .not.toBe(ns.resolveDbName(ns.StoreName.MAPS, localApi.scopeOfLocalAtlas(slot)));
-    });
+    }, TETO_DE_FLUXO_MS);
 });
