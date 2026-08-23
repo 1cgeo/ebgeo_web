@@ -2,7 +2,7 @@
 
 Fatos **duráveis** do sistema EBGeo. Injetado em toda sessão, teto de 200 linhas / 25KB (acima disso o excedente é descartado em silêncio; há teste que falha antes). Ao passar de ~80%, consolide na retrospectiva e mova o detalhe para [`docs/wiki/`](wiki/index.md).
 
-**Fato, não estado.** Fato: "a transação do store é persistence-first". Estado: "a fase B está em andamento" — isso o git, o código e os testes sabem melhor, e apodrece em dias. Estado gravado aqui envenena decisões futuras, porque o agente não distingue crença desatualizada de contexto legítimo.
+**Fato, não estado.** Fato: "a transação do store é persistence-first". Estado: "a fase B está em andamento", que o git, o código e os testes sabem melhor, e apodrece em dias. Estado gravado aqui envenena decisões futuras, porque o agente não distingue crença desatualizada de contexto legítimo.
 
 Quando um fato aqui conflitar com o código, **o código vence** e este arquivo se corrige (doutrina, princípio 2).
 
@@ -16,7 +16,7 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 
 ## Invariantes de arquitetura (não violar sem decisão registrada)
 
-- **Login é opcional; servidor não é.** O app roda anônimo (sem conta), mas o boot é fail-fast em `GET /api/config`: sem backend alcançável, tela "EBGeo indisponível". Não existe fallback estático — `frontend/src/js/config.js` é só o *shape* que o servidor hidrata.
+- **Login é opcional; servidor não é.** O app roda anônimo (sem conta), mas o boot é fail-fast em `GET /api/config`: sem backend alcançável, tela "EBGeo indisponível". Não existe fallback estático: `frontend/src/js/config.js` é só o *shape* que o servidor hidrata.
 - **Permissão por atlas tem CINCO níveis**: `read < comment < write < manage < owner`. `owner` é sintetizado de `atlas.owner_id`; o CHECK da coluna é `read|comment|write|manage`. Sempre gate pela hierarquia. Lista fechada tipo `permission === 'write' || 'owner'` exclui o `manage` em silêncio, e já causou bug real.
 - **Escrita de entidade colaborativa é só via sync** (`POST /atlas/:id/sync` ou WS `operation`). Não crie rota REST de escrita para feature/layer/group/map/briefing/slide/3D/360.
 - **Conflito = LWW por ordem de chegada ao servidor**, não por timestamp; idempotência por `op_id`. Não é CRDT de verdade: o servidor define a ordem total.
@@ -35,10 +35,10 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 - **URL de serviço interno deve ser relativa.** O deploy real serve tudo same-origin atrás de proxy. Default absoluto `http://localhost:*` funciona por acidente do proxy do Vite e quebra em produção.
 - **Migração é rastreada por NOME de arquivo, não por conteúdo.** Migrations foram consolidadas no lugar pré-release: todo banco criado antes disso ficou preso no schema antigo com o runner reportando "already applied". Sintoma: tabela que some (`basemaps` não existe → `/api/config` 500). Conserto em dev: `node scripts/dev-db.js recreate`.
 - **`pkill` do Git Bash não mata processo Node do Windows.** Matar por PID (`Get-NetTCPConnection` + `Stop-Process`) e conferir a porta antes de medir.
-- **`db.none()` num `SELECT` falha** — inclusive em `SELECT pg_advisory_lock(...)`, que retorna linha. Erro cometido três vezes numa sessão.
+- **`db.none()` num `SELECT` falha**, inclusive em `SELECT pg_advisory_lock(...)`, que retorna linha. Erro cometido três vezes numa sessão.
 - **Postgres 15+**: só o dono do banco cria no schema `public`. O runner de teste acerta por acidente (cria o banco como o papel da app); dev precisa de `npm run db:setup`.
-- **`setStyle()` do MapLibre não emite `styledata` quando o diff é vazio.** `Style.setState` sai com `return false` se `operations.length === 0`, sem disparar evento nenhum. Quem espera o evento para prosseguir trava até o timeout. Dispara sempre que dois basemaps do `STYLE_MAP` guardam o mesmo estilo — e `carta_topografica.js` é byte a byte igual a `osm_layer.js` nas duas linhas do produto. Preso por `baselayer-style-uniqueness.repro.test.js`.
-- **Data do catálogo chega em dois formatos do backend**: `data_captura` dos modelos 3D é `DD/MM/YYYY` (o formato que o catálogo carrega em `config`) e `capture_date` das fotos 360 é `TIMESTAMPTZ` (baseline do 360, validado como `isoDate`). Parser que só lê um formato devolve `NaN`, e comparador que devolve `NaN` deixa o `Array.sort` **indefinido** — a lista parece ordenada e não está. Preso por `catalog-sort.test.js`.
+- **`setStyle()` do MapLibre não emite `styledata` quando o diff é vazio.** `Style.setState` sai com `return false` se `operations.length === 0`, sem disparar evento nenhum. Quem espera o evento para prosseguir trava até o timeout. Dispara sempre que dois basemaps do `STYLE_MAP` guardam o mesmo estilo, e `carta_topografica.js` é byte a byte igual a `osm_layer.js` nas duas linhas do produto. Preso por `baselayer-style-uniqueness.repro.test.js`.
+- **Data do catálogo chega em dois formatos do backend**: `data_captura` dos modelos 3D é `DD/MM/YYYY` (o formato que o catálogo carrega em `config`) e `capture_date` das fotos 360 é `TIMESTAMPTZ` (baseline do 360, validado como `isoDate`). Parser que só lê um formato devolve `NaN`, e comparador que devolve `NaN` deixa o `Array.sort` **indefinido**: a lista parece ordenada e não está. Preso por `catalog-sort.test.js`.
 - **Esperar um evento de disparo único é corrida, e a versão perdedora trava para sempre.** `if (!map.loaded()) await new Promise(r => map.on('load', r))` nunca resolve se o `load` passou entre o teste e o registro do listener. Quando esse `await` está numa cadeia de abertura, o que se vê é a feature parando **antes** da primeira requisição: sem erro, sem pedido falho, intermitente. Foi assim que o link 360 compartilhado abria preto em ~metade dos boots. O padrão certo já existe no repo (`waitForGlobal`, `frontend/src/js/3d_models_viewer_tool/map_3d.js`): pré-checagem, polling e timeout que **resolve** em vez de rejeitar, porque dependência auxiliar não pode barrar a principal. Preso por `streetview-minimap-sync-race.test.js`.
 - **Sonda que faz `import()` no dev server pode receber outra instância do módulo.** O Vite serve o arquivo recém-editado com `?t=` de HMR, então o `import()` de um `page.evaluate` carrega uma segunda cópia, com estado próprio e vazio. Sintoma: a função do app comprovadamente rodou (efeito visível no DOM) e mesmo assim o estado lido diz que não. Meça por rede, DOM ou pixel, que não dependem de identidade de módulo.
 - **Piso de teste que exige ACHAR pendência vira contradição quando a lista zera.** Um censo com `PENDENTES = []` mais `achados.length > 0` exigia que sobrasse um pendente para poder afirmar que não sobrava nenhum: no dia em que a conversão terminou, o guarda reprovou por ter dado certo. O conserto não é apagar o piso, é trocá-lo por um que não dependa da árvore estar suja (controle positivo de que a regra ainda reconhece a forma proibida, mais o inventário cobrado não-vazio).
@@ -50,14 +50,14 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 - E2E de UI: `npm run test:e2e:ui` (Playwright sobe o backend real de `backend/`). É o guarda da fronteira entre os pacotes, e não está dentro do `npm test`.
 - **A suíte `e2e-ui` usa porta e banco FIXOS e não suporta duas execuções ao mesmo tempo.** O `global-setup` faz DROP/CREATE do banco descartável e mata a migração da outra execução; a atropelada termina com `N skipped` e **código de saída 0**, ou seja, uma colisão produz verde que não verificou nada. Serialize as execuções, e trate `skipped` em massa como falha de medição, não como sucesso.
 - **Controle negativo é obrigatório** para teste de regressão: reverter o fix e confirmar que o teste falha. Sem isso não se sabe se o teste prende alguma coisa.
-- **Lint e teste em comando separado, ANTES do `git commit`.** Na mesma linha de comando a saída chega depois do commit já ter passado — verificação que chega depois da ação não é verificação.
+- **Lint e teste em comando separado, ANTES do `git commit`.** Na mesma linha de comando a saída chega depois do commit já ter passado; verificação que chega depois da ação não é verificação.
 - Topologia de dev: Vite em **:3000**, backend em **:8080** (o Vite faz proxy de `/api`). Inverter derruba o boot.
 - Não use ferramenta de preview/browser para validar UI; o E2E do Playwright é o caminho aprovado.
 
 ## Onde mora o conhecimento
 
-- [`CONSTITUICAO.md`](../CONSTITUICAO.md) — quem pode o quê, no produto. Cada cláusula carrega estado (vigente, em obra, pendente); ao mudar o código, mude o estado no mesmo commit. É a fonte para pergunta de permissão, acima da wiki.
-- [`docs/wiki/index.md`](wiki/index.md) — **é** a documentação do projeto. Os 17 guias de integração e o docs/deploy.md (removido) foram absorvidos e removidos; não procure por eles. Critério das páginas: o código já é a evidência, então a wiki carrega o porquê, a armadilha e o contrato, não a descrição do que o código faz. Antes de pesquisar do zero, cheque se já existe página.
-- [`docs/decisions/DECISIONS.md`](decisions/DECISIONS.md) — decisões de arquitetura.
-- [`docs/livro-razao.md`](livro-razao.md) — o espelho das correções; a retrospectiva lê para achar recorrência.
-- [`docs/doutrina.md`](doutrina.md) — os seis princípios, texto integral.
+- [`CONSTITUICAO.md`](../CONSTITUICAO.md): quem pode o quê, no produto. Cada cláusula carrega estado (vigente, em obra, pendente); ao mudar o código, mude o estado no mesmo commit. É a fonte para pergunta de permissão, acima da wiki.
+- [`docs/wiki/index.md`](wiki/index.md): **é** a documentação do projeto. Os 17 guias de integração e o docs/deploy.md (removido) foram absorvidos e removidos; não procure por eles. Critério das páginas: o código já é a evidência, então a wiki carrega o porquê, a armadilha e o contrato, não a descrição do que o código faz. Antes de pesquisar do zero, cheque se já existe página.
+- [`docs/decisions/DECISIONS.md`](decisions/DECISIONS.md): índice das decisões de arquitetura; o diário do ano corrente é [`docs/decisions/decisions-2026.md`](decisions/decisions-2026.md).
+- [`docs/livro-razao.md`](livro-razao.md): o espelho das correções; a retrospectiva lê para achar recorrência.
+- [`docs/doutrina.md`](doutrina.md): os seis princípios, texto integral.

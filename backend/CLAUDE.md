@@ -58,18 +58,26 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
 ## Decisões de arquitetura: NÃO violar (e o porquê)
 
 - **Escrita INCREMENTAL de entidade colaborativa é só via sync** (`POST /atlas/:id/sync` ou WS
-  `operation`). **Não crie rotas REST de escrita** para feature/group/layer/map/briefing/slide/
-  cesium3d/streetview360: elas viajam como operações. `briefings` é de fato GET-only; `maps`
-  **não é**, e QUATRO exceções estruturais são deliberadas.
-  - `POST /maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js`, `manage`): re-parenteia
-    seis tabelas filhas.
+  `operation`): a mudança viaja como operação. **Não crie rota REST de escrita para nenhum alvo de
+  sync**, e a lista dos alvos é o SÍMBOLO, nunca uma enumeração escrita aqui: `APPLIABLE_TARGETS`
+  (`src/modules/sync/sync.service.js`), derivado de `TARGET_TABLE_MAP` mais o que `ENTITY_TYPE_MAP`
+  traduz, mais `setting`. Esta linha nomeava oito alvos enquanto o servidor aplicava quatorze, e o
+  que ficava de fora não era detalhe: o COMENTÁRIO espacial é entidade colaborativa de primeira
+  classe, com gate de autoria próprio (`applyCommentOp`), e proibição que não nomeia um alvo é
+  proibição que não o alcança. Hoje não há violação, e **nenhum teste dos dois pacotes cobra "alvo de
+  sync não ganha rota REST de escrita"**: a única guarda é esta leitura. `briefings` é de fato
+  GET-only; `maps` **não é**, e QUATRO exceções estruturais são deliberadas.
+  - `POST /maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js`, `manage`): re-parenteia as
+    tabelas filhas de `MAP_CHILD_TABLES`, e o símbolo está aqui no lugar do número de propósito:
+    símbolo tem guarda (`docs-integridade`), aritmética não tem, e a contagem que morava nesta linha
+    envelheceu no dia em que `comments` entrou na lista.
   - `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js`): cria atlas inteiro a partir
     de um `.ebgeo`.
   - `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js`, `write`).
   - `POST /atlas/:atlasId/clone` (`backend/src/modules/atlas/atlas.routes.js`, `read` na ORIGEM
     MAIS `requireAccountPrincipal`): `cloneAtlas` copia imagens, mapas, sub-entidades, briefings
     e slides para um atlas NOVO, do chamador. Gate de leitura porque o efeito não toca a origem;
-    o destino nasce do requisitante — e é por isso que o segundo gate existe: o visitante ANÔNIMO
+    o destino nasce do requisitante, e é por isso que o segundo gate existe: o visitante ANÔNIMO
     de link público passa nos dois anteriores e não tem linha em `users` para ser dono. A cópia é
     PODADA por destinatário (o que o novo dono não vê não viaja), o que vale também para
     `POST /atlas/import`; as duas regras de poda e por que elas diferem estão em
@@ -94,11 +102,19 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   caminho inteiro, sem número de linha.
 
   O que as quatro têm em comum, e é o critério real: são operações de ENTIDADE INTEIRA, cujo efeito
-  não é representável como uma sequência de ops incrementais. Duas armadilhas conhecidas: escrita
-  por REST não avança `atlas.current_version`, então o peer offline não recebe nada no replay (o
-  merge resolve isso emitindo uma op MARCADORA na mesma transação); e o gate do merge protege uma
-  rota que **este** cliente não chama, porque ele combina localmente e sincroniza como ops comuns, com o
-  gate real em `map.manager.combineSelectedMapsIntoTarget`. Os dois precisam continuar alinhados.
+  não é representável como uma sequência de ops incrementais. Duas armadilhas conhecidas. A primeira:
+  escrita por REST não avança `atlas.current_version`, então o peer offline não recebe nada no replay
+  (o merge resolve isso emitindo uma op MARCADORA na mesma transação).
+
+  A segunda são as DUAS rotas que **este** cliente não chama, e elas não correm o mesmo risco. O
+  `merge` é gateado em `manage` aqui, mas o cliente combina localmente e sincroniza como ops comuns,
+  então o gate do servidor ficaria inalcançável: por isso `map.manager.combineSelectedMapsIntoTarget`
+  ganhou um `checkPermission(GuardAction.COMBINE_MAPS)` explícito, e os dois precisam continuar
+  alinhados. O `duplicate` está na MESMA situação de descolamento (nenhum chamador em
+  `frontend/src/`; o cliente copia em `copyMap`, no mesmo
+  `frontend/src/js/map/map.manager.js`, e sincroniza como ops) e
+  **não** ganhou guard nenhum: `copyMap` depende de o servidor recusar as ops uma a uma. Quem for
+  fechar essa ponta olhe o par inteiro, porque o assunto é o mesmo e só metade dele foi resolvida.
 - **Conflito = LWW por ordem de chegada** (NÃO por timestamp); idempotência por `op_id`
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido**; não religar
   sem requisito de produto.
@@ -106,8 +122,10 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   servido pelo prefixo reservado `m/` da rota `/api/v1/assets3d`; a CENA caminhável (Gaussian
   splatting) abre por outro visualizador, é lida em FAIXA e mora numa PASTA na mesma rota. As duas
   compartilham o que decide acesso: a linha de `public.tilesets` e o gate por CAMINHO (o índice de
-  regime indexa `config.url` e `config.basePath`). O schema `a3d` guarda só o registro de PRODUÇÃO
-  (`models` e `scenes`) e **não repete** os dois eixos de acesso. Quem escreve a linha de catálogo é a ADOÇÃO (`scripts/models3d-adotar.js`), que lê o
+  regime indexa `config.url` e `config.basePath`). O schema `a3d` guarda o registro de PRODUÇÃO **mais
+  o histórico das importações** (`a3d.models`, `a3d.scenes` e `a3d.imports`, declaradas em
+  `src/database/migrations/009_a3d.sql`, cujo cabeçalho é a fonte) e **não repete** os dois eixos de
+  acesso. Quem escreve a linha de catálogo é a ADOÇÃO (`scripts/models3d-adotar.js`), que lê o
   cabeçalho `meta` do próprio arquivo: nenhum importador tem lista de campos própria, porque a
   segunda lista é a que fica para trás. Detalhe e armadilhas em
   [`../docs/wiki/acervo-3d-convertido.md`](../docs/wiki/acervo-3d-convertido.md).
@@ -152,7 +170,7 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   baixo), chamada de dentro das queries e nunca reimplementada em JS. **Ele também gateia a
   ESCRITA por sync**: uma op que declare referência a recurso que o autor não enxerga é recusada
   POR OPERAÇÃO, e as superfícies são uma TABELA (`RESOURCE_REF_EXTRACTORS`,
-  `src/modules/sync/resource-ref.extractors.js`), não um `if` por tipo — foi um `op.target !==
+  `src/modules/sync/resource-ref.extractors.js`), não um `if` por tipo, porque foi um `op.target !==
   'catalog_layer'` que deixou 3D, 360, slide e camada de base entrarem sem checagem. Três
   invariantes: `delete` NUNCA é gateado (quem perdeu acesso tira a referência morta), o atlas da
   ROTA vai no predicado (o empréstimo conta, ao contrário do clone, que passa `NULL`), e o gate
@@ -166,7 +184,7 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
 - **Concessão tem PRAZO obrigatório, teto de um ano, e ele morre no PREDICADO** (`expires_at >
   NOW()` em toda query de concessão viva), nunca por varredura: um sweeper de expiração seria mais
   um verificador quebrando calado. Filho nunca expira depois do pai: o clamp é por `LEAST`, e desde
-  2026-08-21 ele mora em DOIS lugares, não um — no INSERT e no repai da poda, que é a primeira
+  2026-08-21 ele mora em DOIS lugares, não um: no INSERT e no repai da poda, que é a primeira
   escrita de `parent_grant_id` fora do INSERT. Mudar o pai sem aparar o prazo (e sem descer o aparo
   pela subárvore) quebra a invariante em silêncio.
   A assimetria com o escopo de produção é deliberada: concessão vence sozinha, `producer_org_id`
@@ -176,8 +194,14 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   da poda, é RE-PENDURADO nele (`REVOKE_SUBTREE_PRESERVING_REACH`), e a rota devolve TRÊS listas:
   `revoked`, `reparented`, `trimmed`. Só a primeira significa perda de acesso, e é só ela que o
   aviso ao vivo e o broadcast usam. A semântica de queda tem UMA definição (`podarPorRaizes`) e
-  QUATRO chamadores: revogar, apagar grupo, tirar membro e DESATIVAR CONTA. O último é D8(b) — a
-  autoridade morre com quem a exercia —, e ele tem um irmão do lado do predicado
+  CINCO chamadores, cada um identificado na trilha pela `origem` que carimba: a revogação deliberada
+  (que não carimba nenhuma), `ACCESS_GROUP_DELETE`, `ACCESS_GROUP_MEMBER_REMOVE`, `USER_DELETE` e
+  `USER_DEMOTION`. Os dois últimos são a mesma regra D8(b), a autoridade morre com quem a exercia:
+  desativar a conta mata quem exercia, e rebaixar o papel ou tirar o `producer_org_id` mata o
+  FUNDAMENTO de raiz (`fundamentoDeRaizPerdido` no `PUT /users/:userId`, podando na MESMA transação
+  do UPDATE, coberto por `tests/integration/produtor-concede-de-raiz.test.js`). Esta linha disse
+  QUATRO e omitiu justamente o rebaixamento, que é o mais fácil de esquecer porque é o único que não
+  se parece com uma revogação. Do lado do predicado os cinco têm um irmão
   (`fn_principal_vivo(g.granted_by)` em `fn_granted_resource_ids`) que faz outra coisa: esconde na
   hora, alcança a desativação de ORGANIZAÇÃO e é reversível, enquanto a poda é definitiva e é a
   única que alcança descendente. Detalhe e as recusas conservadoras em
@@ -194,7 +218,7 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   share direto e os dos grupos vivos: escrever `FROM atlas_shares WHERE user_id = $x` lê metade do
   eixo, compila, devolve linhas e parece certo. O censo estrutural
   `tests/unit/atlas-shares-eixo-de-grupo-censo.test.js` reprova o leitor novo que resolver à mão.
-  **Conceder** a um grupo exige **grupo próprio** (`assertCanAdministerGroup`, erro 404) — o `POST`
+  **Conceder** a um grupo exige **grupo próprio** (`assertCanAdministerGroup`, erro 404): o `POST`
   sempre, o `PUT` só quando SOBE o nível; tirar (o `DELETE` e o `PUT` que rebaixa) não exige nada
   além de `manage` no atlas, porque tirar acesso nunca pode ser mais difícil que dar. E a lista de
   quem tem acesso **nomeia o dono do grupo**: as duas mitigações são o que tira a amplificação de
@@ -203,10 +227,16 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   faça hard-DELETE de entidade principal. `atlas.owner_id`/`images.uploaded_by`/`atlas_shares.added_by`
   são FK **sem `ON DELETE`** → reatribua (`?transferTo`) antes de qualquer hard-delete de usuário.
 - **A trilha de auditoria (`audit_trail`) é global e vive FORA do atlas**: ela não é entidade
-  colaborativa, não viaja em op de sync e não tem namespace por atlas. Desde a 020 o alvo é coluna
-  de primeira classe (`target_id` virou TEXT, porque id de catálogo é slug e gravar slug em coluna
-  UUID levanta `22P02`, que a borda traduz num 400 sem relação aparente com o assunto), e `'SYSTEM'`
-  voltou a significar sistema em vez de depósito do alvo que não coube. **Ação declarada no CHECK
+  colaborativa, não viaja em op de sync e não tem namespace por atlas. O alvo é coluna de primeira
+  classe: `audit_trail.target_id` nasce **TEXT** na baseline de auditoria
+  (`src/database/migrations/002_auditoria.sql`), porque id de catálogo é slug e gravar slug em coluna
+  UUID levanta `22P02`, que a borda traduz num 400 sem relação aparente com o assunto; e `'SYSTEM'`
+  significa sistema, não depósito do alvo que não coube. (A âncora desta frase era um NÚMERO de
+  migração, e ele morreu no rebaselinamento, com o fato intacto. Cite o SÍMBOLO ou o arquivo
+  VIGENTE, nunca o número: é o que `tests/unit/citacao-de-migracao.test.js` impõe a todo `.js` do
+  pacote, e este arquivo está FORA do alcance dele, porque o inventário daquele teste é `git
+  ls-files` filtrado por extensão `.js`, enquanto `docs-integridade` valida caminho e símbolo e nunca
+  número. Documento sem guarda é onde o número solto sobrevive.) **Ação declarada no CHECK
   sem emissor lê como "isto é auditado" e não é**: `LOGIN`, `LOGOUT` e `ATLAS_DELETE` viveram assim
   desde o primeiro dia. Quem cobra hoje é `tests/unit/auditoria-censo.test.js`, com piso decrescente de
   buracos conhecidos.
@@ -239,8 +269,23 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   claim, `org_role`** (papel dentro da OM), removida em 2026-08-20 com a coluna: um token já assinado
   continua chegando com ela e os dois mapeadores a IGNORAM, porque claim aposentada se ignora, nunca se
   reage a ela, e a condição de reconciliação da sessão deslizante perdeu o disjunto dela pelo mesmo
-  motivo (com ele de pé, um legado que trouxesse só a claim morta promoveria a lotação do banco). **Nenhum ramo de autorização deve LER
-  `producer_org_id` do token**: ele alimenta INSERT e pré-filtro, e a garantia fica no SQL.
+  motivo (com ele de pé, um legado que trouxesse só a claim morta promoveria a lotação do banco).
+
+  **Ler `producer_org_id` do token é EXCEÇÃO, não regra, e a exceção tem nome.** A regra: o escopo de
+  produção alimenta INSERT e pré-filtro, e quem GARANTE é o SQL (`fn_can_produce_resource` e as
+  irmãs), porque predicado no banco não depende de nenhum ramo de JS ter lembrado de conferir. A
+  exceção é o gate de posse de TODA escrita do 360: `canWriteProject`
+  (`src/modules/streetview360/sv360.write.service.js`) compara o `producer_org_id` do chamador com o
+  `organization_id` do projeto, e `enforceProjectWritable` o aplica a calibração, alvos, soft-delete
+  e lotes. Ele está CORRETO, por um motivo estrutural que precisa continuar valendo: o `sv360` está
+  fora do sync e o conteúdo dele nem mora em Postgres (BLOBs em SQLite por projeto), então não há
+  query onde embutir o predicado, e a garantia vem da RECONCILIAÇÃO VIVA do middleware `auth`
+  estrito, que reescreve `req.user.producer_org_id` a partir do banco a cada requisição (produtor
+  rebaixado perde a escrita na hora, não em até 15 min). O que segue proibido é ler a claim num
+  caminho NÃO reconciliado (`flexibleAuth` não reconcilia) ou onde exista SQL para carregar a
+  garantia. O censo de papel global já classifica este sítio; a frase é que dizia o contrário, e
+  proibição absoluta com exceção não escrita é o que faz a próxima sessão "consertar" o código certo.
+
   `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
   `x-api-key`, preserva anônimo); rotas de escrita usam o middleware `auth` **estrito** (401 sem token).
   `flexibleAuth` faz **sliding session**: renova o cookie `token` quando faltam <5 min p/ expirar.
@@ -291,7 +336,7 @@ que mordem quem não sabe: um banco criado antes do esmagamento **não é alcan�
 precisa ser recriado (`node scripts/dev-db.js recreate`; a guarda que detectava os nomes antigos em
 `_migrations` saiu em 2026-08-23, então o sintoma é o "relation already exists" do primeiro
 `CREATE TABLE`); e **nenhuma baseline pode
-conter um `ALTER` que desfaça o que ela mesma criou** — se o CHECK precisa ser mais largo, ele nasce
+conter um `ALTER` que desfaça o que ela mesma criou**: se o CHECK precisa ser mais largo, ele nasce
 largo.
 
 **DDL destrutiva** (`DROP CONSTRAINT`, `DROP TABLE`, `ALTER COLUMN ... TYPE`) exige **uma linha por

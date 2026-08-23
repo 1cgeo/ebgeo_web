@@ -70,9 +70,16 @@ frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
    export { add<Name>AttributesToPanel } from './<name>_attributes_panel.js';
    ```
 
-5. **Register in `toolbar/toolbar.constants.js`** — add the icon SVG to `TOOLBAR_ICONS` AND a tool-button entry in the group's `tools` array: `{ id, label (pt-BR), icon, shortcut, controlKey }`. The `controlKey` must match the key used in the `controls:` object in step 6.
+5. **Register in `toolbar/toolbar.constants.js`** — add the icon SVG to `TOOLBAR_ICONS` AND a tool-button entry in the group's `tools` array: `{ id, label (pt-BR), icon, shortcut, controlKey }`. The `controlKey` must match the key used in BOTH `controls:` literals of step 6.
 
-6. **Wire up in `map_sig.js`** — `registerControl()` alone does NOT make a toolbar button work. Instantiate (`new Add<Name>Control(toolManager)`), then add the instance to: `SELECTION_CONTROLS` (→ `selectionManager.registerControl`), `CONTROL_REGISTRY` (keyed by class name, e.g. `'Add<Name>Control'`), and the `controls:` object passed to both `ToolbarControl` and `KeyboardShortcuts` (keyed by `controlKey`, e.g. `<name>Control`). The toolbar resolves its button via `controlKey` against that `controls` map.
+6. **Wire up in `map_sig.js` — FOUR edit sites, not three.** `registerControl()` alone does NOT make a toolbar button work. Instantiate (`new Add<Name>Control(toolManager)`), then add the instance to every one of:
+
+   1. `SELECTION_CONTROLS` (→ `selectionManager.registerControl`);
+   2. `CONTROL_REGISTRY` (keyed by class name, e.g. `'Add<Name>Control'`);
+   3. the `controls:` literal inside `new KeyboardShortcuts({...})`;
+   4. the `controls:` literal inside `new ToolbarControl({...})`.
+
+   **3 and 4 are two SEPARATE object literals**, not one object passed twice. They carry the same controls in a DIFFERENT order and nothing ties them together — no shared constant, no test. Adding your control to one and not the other yields a toolbar button with no shortcut (or a shortcut with no button), with no error anywhere. Both are keyed by `controlKey` (e.g. `<name>Control`), and the toolbar resolves its button via `controlKey` against its own map.
 
 7. **Add the feature type — ONE row, in ONE file.** Since 2026-08-16 a type is born in
    `frontend/src/js/store/feature-type.registry.js`: append a row with `type`, `storage`,
@@ -84,7 +91,7 @@ frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
    Then run `npx vitest run tests/unit/registro-tipos-cobertura.test.js` from `frontend/`.
    It goes RED and hands you the rest of the work: it names, in one message, every list
    that promises to carry all types and has not heard of yours (the empty map shape, the
-   live MapLibre sources, the feature tab, the import gate, the KMZ classifier, the three
+   live MapLibre sources, the feature tab, the import gate, the KMZ classifier, the
    registries of `map_sig.js`, the feature panel header and the feature dropdown). That
    red list is the checklist; there is no second copy of it to keep in sync here, on
    purpose. If your tool touches a file the census does not know, the same test says so
@@ -104,8 +111,10 @@ frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 - [ ] English code comments and JSDoc
 - [ ] Import aliases (`@store`, `@tools`, `@utils`) in new code. Be aware this is
       **convention, not enforcement**: there is no `no-restricted-imports` rule, and
-      64 of 567 files under `frontend/src/js/` still import via `../../`, the reference tool
-      below among them. Copy its structure, not its import style.
+      roughly one in ten files under `frontend/src/js/` still imports via `../../`, the
+      reference tool below among them. (A proportion, not a count: the absolute number
+      here aged twice, since both terms move with every commit.) Copy its structure, not
+      its import style.
 - [ ] Event cleanup in `onRemove()` (map.off, timers, handlers)
 - [ ] XSS: use `textContent`, never `innerHTML` with user data
 - [ ] CSS: BEM classes in CSS file, no inline styles

@@ -20,7 +20,7 @@ Estão **acima** das regras operacionais da constituição: regra que conflitar 
 
 ### 1. Competência só compõe se for codificada, nunca lembrada
 
-Lição durável vira página de wiki, decisão registrada, learning de skill, regra na constituição ou — o melhor de todos — **teste**. O corolário prático em software: a forma mais forte de codificar uma lição é o teste de regressão que falha se ela for esquecida. Prosa descreve; teste impõe.
+Lição durável vira página de wiki, decisão registrada, learning de skill, regra na constituição ou, o melhor de todos, **teste**. O corolário prático em software: a forma mais forte de codificar uma lição é o teste de regressão que falha se ela for esquecida. Prosa descreve; teste impõe.
 
 Uma correção que não gerou nem teste nem regra não foi codificada, foi anotada. Anotação sem gancho apodrece.
 
@@ -56,8 +56,8 @@ Deletar a regra morta, a página dormente, o teste que não testa nada e a memó
 
 O humano não se automatiza para fora. Ele assume dois papéis que o sistema não pode assumir por si:
 
-- **A função de fitness** — o julgamento do que é bom, ancorado no produto e no usuário, não no sistema.
-- **O ponto fixo** — a autoridade que protege o núcleo e autoriza o irreversível.
+- **A função de fitness**: o julgamento do que é bom, ancorado no produto e no usuário, não no sistema.
+- **O ponto fixo**: a autoridade que protege o núcleo e autoriza o irreversível.
 
 ## Referências
 

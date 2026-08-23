@@ -85,7 +85,7 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 ---
 
-## 5. `active_sessions`: RESOLVIDO em 2026-08-23 — a tabela saiu do schema
+## 5. `active_sessions`: RESOLVIDO em 2026-08-23, a tabela saiu do schema
 
 **O que é.** Nove colunas, dois índices, uma UNIQUE, duas FKs, e nenhuma linha jamais escrita por código de produção.
 
@@ -93,7 +93,7 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 **Custo que ela impunha.** O custo declarado na própria 003 é o certo ("coluna viva pela metade engana MAIS que coluna ausente"), e ele continua valendo. O custo novo é outro: **o argumento que a manteve era a regra forward-only, e a consolidação a suspende por autorização do dono.** Num schema esmagado, recriar `active_sessions` é uma escolha deliberada de criar uma tabela morta.
 
-**Resolução (2026-08-23).** O dono decidiu **não recriar**. A tabela e os dois índices saíram de `backend/src/database/migrations/004_sync.sql`, que agora explica a ausência no lugar em que ela morava. A afirmação que os testes protegiam mudou de forma junto: em vez de contar linhas de UMA tabela, `backend/tests/ws/collab-presenca-sem-banco.test.js` mede com contador de pool que um ciclo de socket não emite escrita NENHUMA — o que é mais forte, porque uma escrita de presença que fosse parar noutra tabela passava pelo teste antigo. Registrado em [[presenca-colaborativa]] e em [[canal-collab-websocket]]. Se a presença durável voltar, começa pelo LEITOR, com reaper e heartbeat no mesmo commit.
+**Resolução (2026-08-23).** O dono decidiu **não recriar**. A tabela e os dois índices saíram de `backend/src/database/migrations/004_sync.sql`, que agora explica a ausência no lugar em que ela morava. A afirmação que os testes protegiam mudou de forma junto: em vez de contar linhas de UMA tabela, `backend/tests/ws/collab-presenca-sem-banco.test.js` mede com contador de pool que um ciclo de socket não emite escrita NENHUMA, o que é mais forte, porque uma escrita de presença que fosse parar noutra tabela passava pelo teste antigo. Registrado em [[presenca-colaborativa]] e em [[canal-collab-websocket]]. Se a presença durável voltar, começa pelo LEITOR, com reaper e heartbeat no mesmo commit.
 
 ---
 

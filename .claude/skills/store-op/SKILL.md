@@ -17,6 +17,59 @@ store/
   └── store-transaction.js     # runTransaction helper
 ```
 
+## Permission Gate
+
+**Ask the guard BEFORE the transaction, or you queue work that dies on the other side.**
+An operation that enqueues a sync op writes into a *remote* atlas. If the session's role
+does not allow that write, the server refuses the push and the OUTBOUND QUEUE STOPS: every
+later op of every entity is stuck behind the one op the UI should never have offered. No
+error reaches the user; sync just quietly stops. This has shipped more than once.
+
+**How to decide whether your op needs a gate.** The criterion is not how important the
+operation looks, nor whether the entity feels "shared". It is one question: **does this
+operation enqueue a sync op?** If anywhere in it (including inside `tx.deferAsync`) you
+call one of the entity loggers of `store/sync/operation-dispatcher.js` (`logFeatureOperation`,
+`logMapOperation`, `logLayerOperation`, `logAtlasSetting`, and their siblings), it needs a
+gate. An operation that only writes IndexedDB and emits an event does not.
+
+**The pattern**, verbatim from the sibling ops (`store/map.operations.js` is the model):
+
+```javascript
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+
+export async function createWidget(data) {
+    const perm = checkPermission(GuardAction.CREATE_FEATURE);   // pick the matching action
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'createWidget', reason: perm.reason
+        });
+        return null;   // match your own signature: null / false / { success: false }
+    }
+
+    await runTransaction(async (tx) => { /* ... */ });
+}
+```
+
+Three properties that decide how you use it:
+
+- **Refusal is an EXPECTED failure, never a throw.** Emit `STORE_OPERATION_BLOCKED` and
+  return the falsy value your signature already documents. Callers routinely wrap these in
+  a `try/catch` that only logs, so a throw is swallowed and the user is told nothing at all.
+- **`checkPermission` is already permissive where it must be.** It returns
+  `{ allowed: true }` whenever the session is offline OR the store is not a connected
+  remote atlas, so an anonymous visitor, and a logged-in user on their own local atlas,
+  keep full control. Do NOT write a local-work special case: that early return is it, and
+  it is also what keeps `.ebgeo` import working.
+- **Gate through `GuardAction`, never by comparing role strings.** `GuardAction` maps your
+  operation to a `PermissionAction` and `checkPermission` resolves it against the
+  hierarchy. A hand-rolled `perm === 'write' || perm === 'owner'` silently excludes
+  `manage`, and that exact bug has shipped twice in this repository, in both packages.
+
+Pick the `GuardAction` key by what the operation IS to the server, not by the entity name:
+map settings (notes, timeline config, base layer) go through `UPDATE_MAP`, because the
+server gates them at the same level as a rename.
+
 ## Transaction Pattern
 
 All mutating operations MUST use `runTransaction`. Side effects only run after IndexedDB succeeds:
@@ -112,6 +165,8 @@ in your own operation file rather than importing these helpers.
 
 ## Quick Validation
 
+- [ ] If it enqueues a sync op, it calls `checkPermission(GuardAction.X)` FIRST and
+      returns on refusal
 - [ ] Uses `runTransaction` for all mutations
 - [ ] `throw` for invalid args, `return + emit` for expected failures
 - [ ] Sync metadata set (`createdAt` / `updatedAt` / `version`)
