@@ -79,6 +79,8 @@ import {
     larguraNecessaria,
     tilesVisiveis,
 } from './pyramid-math.js';
+import { juntarPedaco, loteParaSubir } from './tile-upload-rects.js';
+import { createReevalThrottle } from './reeval-throttle.js';
 
 /** Margem, em tiles, ao redor do que a camera enxerga no nivel ALVO. */
 const MARGEM_TILES = 1;
@@ -117,7 +119,25 @@ export const ESTRATEGIAS_FUNDO = ['nivel0', 'preview'];
  */
 export const ESTRATEGIA_FUNDO_PADRAO = 'nivel0';
 
-/** Espera de camera parada antes de recalcular nivel e tiles visiveis (ms). */
+/**
+ * Intervalo minimo entre duas reavaliacoes de nivel e tiles visiveis (ms).
+ *
+ * ERA UM DEBOUNCE DE RESET, E ELE NAO DISPARAVA NO GESTO. `atualizarCamera`
+ * roda por quadro, e cada chamada fazia `clearTimeout`: enquanto o dedo estava
+ * na tela, o temporizador reiniciava mais rapido que 120 ms e a reavaliacao
+ * nunca acontecia. Medido na aplicacao real, numa rodada que aprovou as
+ * proprias provas: uma volta de 360 graus baixou ZERO tiles e subiu ZERO bytes
+ * de textura, nas duas repeticoes, com 36 quadros em 1374 ms. O operador
+ * girava a volta inteira olhando o que ja estava no canvas, e os tiles finos so
+ * chegavam 120 ms depois de ele soltar.
+ *
+ * AGORA E ESTRANGULAMENTO COM BORDA DE ENTRADA: a primeira mudanca de camera
+ * dispara na hora, e as seguintes esperam a janela. O gesto passa a carregar
+ * enquanto acontece, e a ultima posicao continua garantida pela borda de saida.
+ * O mecanismo mora em `reeval-throttle.js`, que e node-testavel; este arquivo
+ * nao e.
+ * @constant {number}
+ */
 const DEBOUNCE_MS = 120;
 
 /** Banda morta da troca de nivel, conforme o contrato. */
@@ -364,10 +384,24 @@ export function createTileLoader({
      */
     let pedeQuadro = false;
     /**
-     * A caixa que envolve tudo que mudou no canvas desde o ultimo quadro, em
-     * pixels do canvas. Nula quando nao ha nada a subir.
+     * Os retangulos do canvas que mudaram desde o ultimo quadro, em pixels do
+     * canvas. Lista vazia quando nao ha nada a subir.
+     *
+     * ERA UMA CAIXA SO, E A CAIXA ERA O CANVAS. A versao anterior guardava a
+     * envolvente por `min`/`max`, apostando que os tiles de uma rajada chegam
+     * vizinhos. Medido na aplicacao real, numa rodada que aprovou as proprias
+     * provas: 187,3 MB subidos em 3 chamadas para pintar 55 tiles, e a MAIOR
+     * das chamadas mediu 75,5 MB, que e o canvas de 6144x3072 inteiro. Os
+     * retangulos dos 55 tiles somam 36,9 MB. A subida parcial subia o todo.
+     *
+     * A CAUSA E GEOMETRICA, e nao acidental: o frustum tem 9 colunas por 6
+     * linhas, entao a envolvente de um lote qualquer ja cobre quase tudo.
+     *
+     * A contabilidade (fusao, teto de oito e a guarda da envolvente) mora em
+     * `tile-upload-rects.js`, que e node-testavel; este arquivo nao e.
+     * @type {Array<{x0:number,y0:number,x1:number,y1:number}>}
      */
-    let pedaco = null;
+    let pedacos = [];
     // Relogio do agrupamento de uploads. Zero significa que ainda nao houve
     // upload nesta foto, e o primeiro sempre passa direto: e ele que tira a
     // tela do preview borrado.
@@ -391,7 +425,22 @@ export function createTileLoader({
     let controlador = null;
 
     let camera = { lon: 0, lat: 0, fov: 75, largura: 1920, altura: 1080 };
-    let temporizador = null;
+    /**
+     * O estrangulamento da reavaliacao, com borda de entrada e de saida.
+     *
+     * ERA UM `setTimeout` COM `clearTimeout` A CADA CHAMADA, e por isso nunca
+     * disparava durante o gesto: `atualizarCamera` roda por quadro. Medido na
+     * aplicacao real: uma volta de 360 graus baixou ZERO tiles e subiu ZERO
+     * bytes de textura, nas duas repeticoes. Ver `DEBOUNCE_MS`.
+     *
+     * `reavaliar` e declaracao de funcao neste mesmo escopo, entao esta chamada
+     * roda antes dela no texto e depois dela no hoisting; o wrapper deixa isso
+     * explicito em vez de depender da ordem.
+     */
+    const estrangulador = createReevalThrottle({
+        intervaloMs: DEBOUNCE_MS,
+        executar: () => reavaliar(),
+    });
 
     const fila = [];
     /**
@@ -632,9 +681,9 @@ export function createTileLoader({
      */
     function prepararSubidaParcial() {
         precisaSubirTudo = true;
-        // O retangulo pendente e do canvas ANTIGO. Aplicado no novo, subiria
-        // pixel de outro tamanho para a coordenada errada.
-        pedaco = null;
+        // Os retangulos pendentes sao do canvas ANTIGO. Aplicados no novo,
+        // subiriam pixel de outro tamanho para a coordenada errada.
+        pedacos = [];
         if (!renderizador) return;
 
         textura.flipY = false;
@@ -694,6 +743,17 @@ export function createTileLoader({
         textura.generateMipmaps = false;
         textura.minFilter = THREE.LinearFilter;
         textura.magFilter = THREE.LinearFilter;
+        // A EMENDA DA EQUIRRETANGULAR FECHA EM 360 GRAUS, e a UV da esfera vai
+        // de 0 a 1: a costura cai exatamente em u=0/1. Sem `RepeatWrapping` a
+        // textura fica no `ClampToEdgeWrapping` padrao, e o amostrador GRAMPEIA
+        // no ultimo texel em vez de misturar com o lado oposto. Sobra uma
+        // descontinuidade de meio texel na emenda vertical inteira.
+        //
+        // O `wrapT` fica GRAMPEADO de proposito. Com `repeat.set(1,-1)` e
+        // `offset.set(0,1)` o v anda dentro de [0,1], e o polo nao pode dar a
+        // volta: repetir em T costuraria o zenite no nadir.
+        textura.wrapS = THREE.RepeatWrapping;
+        textura.wrapT = THREE.ClampToEdgeWrapping;
 
         if (bitmapPreview) pintarFundo(bitmapPreview);
         repintarDoCache(0);
@@ -773,12 +833,7 @@ export function createTileLoader({
         const y1 = Math.min(canvas.height, Math.ceil(dy + dh));
         if (x1 <= x0 || y1 <= y0) return true;
 
-        pedaco = pedaco
-            ? {
-                x0: Math.min(pedaco.x0, x0), y0: Math.min(pedaco.y0, y0),
-                x1: Math.max(pedaco.x1, x1), y1: Math.max(pedaco.y1, y1),
-            }
-            : { x0, y0, x1, y1 };
+        juntarPedaco(pedacos, { x0, y0, x1, y1 });
         return true;
     }
 
@@ -791,28 +846,39 @@ export function createTileLoader({
      * custaram 117 ms de `drawImage` no perfil de maquina fraca, contra 10 ms
      * antes: a economia de banda voltava como custo de leitura.
      *
-     * Juntar por quadro reduz as leituras a um punhado, e a caixa que envolve os
-     * tiles de uma rajada e apertada porque eles chegam do centro da tela para
-     * fora, um ao lado do outro. No pior caso a caixa e o canvas inteiro, que e
-     * exatamente o que a versao anterior a esta fazia sempre.
+     * Juntar por quadro reduz as leituras a um punhado. A APOSTA DE QUE UMA
+     * CAIXA SO BASTAVA FOI MEDIDA E PERDEU: os tiles chegam do centro para fora,
+     * mas o frustum tem 9 colunas por 6 linhas, entao a envolvente de qualquer
+     * lote ja e quase o canvas. Medido na aplicacao real, 187,3 MB em 3 chamadas
+     * para pintar 55 tiles, a maior delas de 75,5 MB (o canvas de 6144x3072
+     * inteiro), contra 36,9 MB somando os retangulos reais. Agora sobe uma LISTA
+     * com fusao e teto (`tile-upload-rects.js`), e a guarda da envolvente ali
+     * garante que o pior caso desta versao seja exatamente o comportamento
+     * anterior, nunca pior que ele.
      *
      * @returns {boolean} true se algo subiu
      */
     function subirPedacoAcumulado() {
-        if (!pedaco || !renderizador || !textura || !recorte) return false;
-        const { x0, y0, x1, y1 } = pedaco;
-        pedaco = null;
-        const w = x1 - x0;
-        const h = y1 - y0;
+        if (pedacos.length === 0 || !renderizador || !textura || !recorte) return false;
+        const lote = loteParaSubir(pedacos);
+        pedacos = [];
 
         try {
-            recorte.canvas.width = w;
-            recorte.canvas.height = h;
-            recorte.ctx.drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
-            recorte.textura.needsUpdate = true;
-            renderizador.copyTextureToTexture(new THREE.Vector2(x0, y0), recorte.textura, textura);
-            estat.uploadsParciais++;
-            estat.bytesParaGpu += w * h * 4;
+            for (const { x0, y0, x1, y1 } of lote) {
+                const w = x1 - x0;
+                const h = y1 - y0;
+                // Redimensionar o canvas de recorte ja o limpa, entao nao ha
+                // resto do retangulo anterior a vazar para este.
+                recorte.canvas.width = w;
+                recorte.canvas.height = h;
+                recorte.ctx.drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
+                recorte.textura.needsUpdate = true;
+                renderizador.copyTextureToTexture(
+                    new THREE.Vector2(x0, y0), recorte.textura, textura,
+                );
+                estat.uploadsParciais++;
+                estat.bytesParaGpu += w * h * 4;
+            }
             return true;
         } catch (erro) {
             // Uma falha aqui nao pode deixar o tile invisivel: volta para a
@@ -1077,12 +1143,23 @@ export function createTileLoader({
         pedirTiles(nivel, visiveis(nivel), true);
     }
 
+    /**
+     * Pede uma reavaliacao, no maximo uma a cada `DEBOUNCE_MS`.
+     *
+     * BORDA DE ENTRADA E DE SAIDA, e as duas importam:
+     *
+     * - A de ENTRADA faz o primeiro movimento pedir tile na hora. E ela que
+     *   conserta o giro que nao carregava nada (ver `DEBOUNCE_MS`).
+     * - A de SAIDA garante que a posicao FINAL do gesto seja avaliada. Sem ela,
+     *   parar dentro da janela deixaria a tela no conjunto de tiles de 120 ms
+     *   atras, que e um buraco visivel na direcao para onde o operador olhou.
+     *
+     * A deduplicacao de `chavesEmVoo`, `cache` e `desenhados` e o que torna a
+     * borda de entrada barata: reavaliar mais vezes nao rebaixa tile nenhum,
+     * so descobre mais cedo o que ja seria pedido.
+     */
     function agendarReavaliacao() {
-        if (temporizador) clearTimeout(temporizador);
-        temporizador = setTimeout(() => {
-            temporizador = null;
-            reavaliar();
-        }, DEBOUNCE_MS);
+        estrangulador.pedir();
     }
 
     /**
@@ -1137,10 +1214,7 @@ export function createTileLoader({
             // disparasse no meio desta carga, pediria o nivel alvo junto com o
             // fundo, as duas rajadas disputariam o mesmo pool de 24 e o tempo
             // ate o alvo completo mediria a briga, nao o desenho.
-            if (temporizador) {
-                clearTimeout(temporizador);
-                temporizador = null;
-            }
+            estrangulador.cancelar();
             geracao++;
             nivelAtual = null;
             soltarCaches();
@@ -1407,10 +1481,7 @@ export function createTileLoader({
          */
         soltarFoto() {
             if (controlador) controlador.abort();
-            if (temporizador) {
-                clearTimeout(temporizador);
-                temporizador = null;
-            }
+            estrangulador.cancelar();
             // A geracao sobe junto do abort. Tile que ja tinha resposta em maos
             // resolve mesmo depois do abort, e sem isto pintaria num canvas que
             // nao e mais de foto nenhuma.
@@ -1460,9 +1531,16 @@ export function createTileLoader({
         /** Libera bitmaps, textura e requisicoes em voo. */
         dispose() {
             if (controlador) controlador.abort();
-            if (temporizador) clearTimeout(temporizador);
+            estrangulador.cancelar();
             soltarCaches();
             if (textura) textura.dispose();
+            // O RECORTE TAMBEM E TEXTURA DE GPU. Ele nasce em
+            // `prepararSubidaParcial` com canvas e textura proprios, e ficava
+            // vivo depois do dispose: uma textura vazada por carregador
+            // desmontado, e a pagina de calibracao monta dois.
+            if (recorte?.textura) recorte.textura.dispose();
+            recorte = null;
+            pedacos = [];
             textura = null;
             canvas = null;
             ctx = null;

@@ -111,6 +111,75 @@ e cor próprios no minimapa do operador. É realce de tela, não entrada da proj
 azimute servido é derivado da geometria por `ST_Azimuth`). O que corrige alinhamento é a
 rotação de malha da calibração, que nivela a esfera antes de qualquer desenho.
 
+## O par que DIVERGE é `tile-loader.js`, e ele é de outro repositório
+
+Antes de qualquer conferência à mão, saiba onde a dívida está hoje. Ela **não** está nos cinco
+arquivos de navegação da seção seguinte: conferidos em 2026-08-23, os cinco estão convergidos com
+`ebgeo_360`, e num deles nós estamos à frente. O que diverge é
+`frontend/src/js/street_view_tool/tile-loader.js`, cujo original vive em
+public/calibration/js/tile-loader.js do ebgeo_360, no repositório vizinho, que **não** foi
+aposentado: ele é o microsserviço 360 que este backend consome, e continua commitando.
+
+**O delta esperado é declarado, e é isso que torna o porte barato.** O commit `741a9a4` do
+`ebgeo_360` (2026-08-19) diz por extenso que os dois arquivos são cópia com trechos de adaptação
+conhecidos. Hoje são CINCO, os três de lá mais dois nossos:
+
+1. o comentário de caminho na linha 1;
+2. `import * as THREE from '../../vendor/three/three.module.js'` e o `config.js` do monorepo, no
+   lugar do `import ... from 'three'` de lá;
+3. a raiz da API por `raizApiPadrao()` lendo `config.streetView360.serviceUrl`, no lugar de
+   `raizDaApi(location.pathname)`, mais o carimbo de escopo por `stampAtlasOnUrl` e
+   `currentResourceAtlasId` em DOIS pontos (o descritor e cada URL resolvida contra ele);
+4. `frontend/src/js/street_view_tool/tile-upload-rects.js`, que é a contabilidade de retângulos da
+   subida parcial, lá uma closure dentro do arquivo;
+5. `frontend/src/js/street_view_tool/reeval-throttle.js`, que é o estrangulamento da reavaliação,
+   lá `agendarReavaliacao` mais duas variáveis do mesmo escopo.
+
+**Os dois últimos NÃO existem porque `tile-loader.js` seja intestável em node.** Ele é testável, e
+cinco suítes o dirigem lá, com `vi.mock` sobre `frontend/src/vendor/three/three.module.js`; a
+primeira versão desta seção afirmou o contrário, e estava errada. A razão é mais estreita e foi
+medida revertendo: a guarda da envolvente (`loteParaSubir`) é **invisível** do carregador, porque
+ele só expõe o lote que já sobreviveu a ela, e apagá-la deixa
+`frontend/tests/unit/tile-loader-consertos-de-desempenho.test.js` inteiro verde. Ela é justamente a
+peça cuja primeira versão mediu PIOR que o defeito, então é a que precisa de vermelho ao ser
+revertida. Do estrangulamento, a borda de ENTRADA é síncrona e É cobrada pelo carregador real; o
+resto (janela, borda de saída, aritmética da espera) precisa de relógio injetado, e falsear
+`Date.now` em volta do carregador falsearia junto a fila de pedidos dele.
+
+**Se for mexer no `wrapS` ou em qualquer constante do three, lembre dos cinco mocks.** Eles são
+literais de objeto, não `importOriginal`, então uma propriedade nova do three usada em
+`tile-loader.js` derruba as cinco suítes com "No X export is defined on the mock". Isso é bom
+(fecha vermelho, não verde), mas não se adivinha antes da primeira rodada.
+
+**O comando de conferência**, que roda DENTRO do `ebgeo_360` sem checkout, sem trocar de branch e
+sem escrever nada lá (ele é só leitura):
+
+```bash
+cd /c/Users/diniz/OneDrive/Desktop/Desenvolvimento/ebgeo_360
+git show HEAD:public/calibration/js/tile-loader.js > /tmp/tl-360.js
+diff --strip-trailing-cr /tmp/tl-360.js \
+  ../ebgeo_web/frontend/src/js/street_view_tool/tile-loader.js
+```
+
+O `--strip-trailing-cr` não é opcional: o nosso arquivo é CRLF e o de lá é LF, e sem ele o diff
+acusa as 1600 linhas. **Diferença maior que os cinco trechos acima é conserto não portado.** Foi
+assim que os quatro consertos de cliente do commit `ff01e06` (2026-08-23) chegaram aqui, e é assim
+que o próximo lote chega. Os sete consertos restantes daquele commit são de servidor (Fastify,
+SQLite, ETag) e **não** transferem: o nosso 360 é servido pelo backend em Express, com ETag
+próprio.
+
+**Este arquivo é IMPORTADO pela calibração, não copiado**, e é a única peça do 360 de que isso vale:
+`frontend/src/js/calibration/viewer.js` e `frontend/src/js/calibration/preview-viewer.js` fazem
+`import { createTileLoader } from '../street_view_tool/tile-loader.js'`. Um conserto aqui chega de
+graça às duas montagens do estúdio, ao contrário dos cinco arquivos de navegação da seção seguinte,
+que são cópia de verdade. Repare no efeito colateral, que é o que dá peso ao `dispose()`: a página
+de calibração monta DOIS carregadores, então toda textura de GPU não descartada vaza em dobro.
+
+Última conferência: 2026-08-23, com o `ebgeo_360` em `ff01e06`. Anote a data ao re-conferir, senão
+esta seção vira um "confira" sem prazo de validade.
+
+## Os cinco arquivos de navegação, que hoje estão CONVERGIDOS
+
 **O acoplamento que importa agora é interno, e é de PASTA, não de arquivo.**
 `frontend/src/js/calibration/` carrega uma cópia da navegação de
 `frontend/src/js/street_view_tool/navigation/`, e são CINCO pares, não um projetor:

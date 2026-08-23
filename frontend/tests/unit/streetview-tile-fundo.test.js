@@ -29,6 +29,10 @@ import { montarEscada } from '@js/street_view_tool/pyramid-math.js';
 // inteira num ambiente `node`, sem `document` e sem contexto grafico.
 vi.mock('../../src/vendor/three/three.module.js', () => ({
     SRGBColorSpace: 'srgb',
+    // Os dois valores reais do three: a costura da equirretangular repete em S
+    // e o polo continua grampeado em T. Ver o conserto em `reconstruirCanvas`.
+    RepeatWrapping: 1000,
+    ClampToEdgeWrapping: 1001,
     LinearFilter: 1006,
     CanvasTexture: class {
         constructor(imagem) {
