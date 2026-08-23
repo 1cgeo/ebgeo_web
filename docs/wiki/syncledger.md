@@ -38,7 +38,9 @@ Caso que confunde mais: mutações fora do log de ops (`atlas_updated`, `map_dup
 
 `apply.persist` é o span que fecha a cadeia completa ("escreveu no IndexedDB") e é o que falta em toda enumeração herdada de emissores, que costuma parar em dispatcher, engine, ws-client e gateway. Ele sai de **quatro** pontos, dois de cada lado: `frontend/src/js/store/sync/operation-dispatcher.js` (autor) e `frontend/src/js/store/sync/remote-operation-handler.js` (peer). Um teste que espera cadeia completa e não vê esses quatro está medindo transporte, não persistência.
 
-O espelho de backend do enum de estágios é `backend/src/utils/sync-trace.js`, e só ele; os dois lados se citam pelo caminho real e precisam ficar em lockstep, porque estágio desconhecido faz o merger sinalizar.
+O espelho de backend do enum de estágios é `backend/src/utils/sync-trace.js`, e só ele; os dois lados se citam pelo caminho real e precisam ficar em lockstep. **A razão não é o merger, e supor que é custa caro:** `frontend/tests/e2e-ui/helpers/ledger.js` não importa `TraceStage` nem valida estágio contra enum nenhum. Todo estágio ali é literal solto, então renomear um deixa o ledger **verde e mudo**: as condições que procuram o literal apenas param de casar, e o silêncio chega exatamente quando alguém está diagnosticando.
+
+Quem cobra o lockstep é `frontend/tests/unit/sync-trace-espelha-backend.test.js`, que importa os dois enums no mesmo processo e compara o recorte `server.*`. O alcance dele é o **vocabulário** (nomes de estágio e de outcome), nunca a semântica: um `server.applied` emitido no lugar errado passa verde. Ele é a única rede que existe aqui, e o próprio `fileoverview` dele diz as duas coisas por extenso.
 
 ## O anel do servidor: dois guardas, não um
 
@@ -49,4 +51,5 @@ O segundo não-óbvio é o gate: o anel é **por atlas**, então ler ou limpar �
 ## Histórico
 
 - 2026-07-24: o JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js` apontava para um espelho de backend em `collab/trace/`, caminho morto duas vezes (prefixo do layout pré-monorepo mais um diretório que nunca existiu). Não eram dois arquivos distintos, era um ponteiro podre; os dois lados passaram a se citar pelo caminho real.
-- 2026-07-25: apagado um `[!CONTRADICAO]` que registrava a ausência de `apply.persist` na enumeração de spans de um guia absorvido. Contradição contra prosa já removida é irresolvível por construção; o fato virou a seção sobre o quarto elo.
+- 2026-07-25: apagado um `[!CONTRADICAO]` que registrava a ausência de `apply.persist` numa enumeração de spans que já não existia. Contradição contra prosa removida é irresolvível por construção; o fato virou a seção sobre o quarto elo.
+- 2026-08-23: a seção sobre o quarto elo justificava o lockstep dos dois enums dizendo que "estágio desconhecido faz o merger sinalizar". O merger não valida estágio nenhum, e a justificativa correta é a oposta: o modo de falha é MUDO, e o que existe é um teste de espelho de vocabulário.

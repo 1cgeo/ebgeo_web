@@ -20,10 +20,13 @@ Dentro do comentário há um segundo gate, de **autoria**, invisível fora do SQ
 
 ## Divergências cliente/backend que produzem 403 tardio
 
-A tabela `ROLE_PERMISSIONS` (`frontend/src/js/store/sync/session-context.js`) não espelha o backend. Duas folgas conhecidas:
+A tabela `ROLE_PERMISSIONS` (`frontend/src/js/store/sync/session-context.js`) não espelha o backend. A folga que resta:
 
-1. **`canLockMaps` do `manager` é folgado demais.** `manager` compartilha `FULL_PERMISSIONS`, logo `canLockMaps: true`, mas o backend só aceita lock do `owner` (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`). Quem realmente decide na UI é `LOCK_CAPABLE_ROLES = [OWNER, ADMIN]` (`frontend/src/js/locking/map-lock.controller.js`). **Não use `canLockMaps` como fonte de verdade.**
-2. **`editor` tem `canDelete: true`**, e `DELETE_MAP → canDelete` (`frontend/src/js/store/sync/permission-guard.js`). Apagar mapa é `manage` para cima no servidor, então um Editor enfileira o delete localmente e ele volta **recusado por política**, não com 403 do lote: a op é ackada como rejeitada e o cliente a descarta da fila. O desenho é deliberado, e a alternativa foi rejeitada por causa real: lançar dali rolava a transação inteira, o cliente só re-enfileira em resposta não-2xx, e um único delete recusado congelava a sincronização daquele usuário para sempre. Ver [[fila-operacoes-outbound]] e [[erros-api]].
+- **`canLockMaps` do `manager` é folgado demais.** `manager` compartilha `FULL_PERMISSIONS`, logo `canLockMaps: true`, mas o backend só aceita lock do `owner` (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`). Quem realmente decide na UI é `LOCK_CAPABLE_ROLES = [OWNER, ADMIN]` (`frontend/src/js/locking/map-lock.controller.js`). **Não use `canLockMaps` como fonte de verdade.**
+
+**Nota histórica: a folga do delete de mapa foi FECHADA, e o racional dela é que continua valendo.** Esta página listou como segunda divergência que o Editor enfileirava um delete de mapa que voltava recusado, porque `DELETE_MAP` mapeava para `canDelete`, que o Editor tem. Não mapeia mais: `GuardAction.DELETE_MAP` aponta para `PermissionAction.DELETE_MAP`, que é `'canDeleteMap'` (`frontend/src/js/store/sync/permission-guard.js` e `frontend/src/js/store/sync/session-context.js`), e o Editor o tem em `false`. Ou seja, ele é barrado no cliente, antes de a op nascer. Repare que `canDeleteMap` é flag SEPARADA de `canDelete` exatamente por isso, e juntá-las de volta reabre a folga.
+
+O que fica da entrada antiga é o motivo de a recusa do servidor ser POR OPERAÇÃO e não um 403 do lote: lançar de dentro do `applyOperation` rolava a transação inteira, o cliente só re-enfileira em resposta não-2xx, e um único delete recusado congelava a sincronização daquele usuário para sempre. A recusa por op é ackada como rejeitada e o cliente a descarta. Ver [[fila-operacoes-outbound]] e [[erros-api]].
 
 Travar mapa tem efeito colateral que não aparece no gate de papel: com o mapa travado, ops sobre `feature/group/layer/cesium3d/streetview360/catalog_layer/group_feature` levam `ConflictError` "Map is locked" (`LOCKABLE_CHILD_TARGETS`, `backend/src/modules/sync/sync.service.js`), **independente de papel**; só o dono destrava. Ver [[modelo-conflito-lww]] e [[tipos-entidade-sync]].
 
@@ -51,3 +54,7 @@ O link público não cria papel, cria portador de `read` (`backend/src/modules/a
 No cliente, `setVisitorSession()` (`frontend/src/js/store/sync/session-context.js`) deixa `isAuthenticated()` em `false` (sem menu de conta) mas ONLINE com papel `viewer`, então o guard bloqueia a edição. Ver [[link-publico]] e [[auth-flexivel]].
 
 Admin global curto-circuita tudo: vira `admin` na tradução (`toFrontendRole`, `backend/src/utils/roles.js`) e recebe `req.atlasPermission = 'owner'` em qualquer atlas (`backend/src/middleware/permissions.js`). Ver [[sync-admin-operacoes]] e [[gestao-usuarios]].
+
+## Páginas comparadas
+
+[[permissoes-atlas]] · [[sintese-eixos-de-permissao]] · [[comentario-espacial]] · [[presenca-colaborativa]] · [[link-publico]] · [[sintese-limites-collab]] · [[sintese-rest-vs-sync]] · [[sintese-decisoes-arquiteturais]]

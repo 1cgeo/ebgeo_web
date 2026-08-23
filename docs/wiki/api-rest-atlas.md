@@ -2,7 +2,7 @@
 
 Superfície REST do [[atlas-modelo-de-dados]]: só metadados de atlas, permissão e posse. Conteúdo (mapas, feições, camadas, grupos, briefings, slides) não tem rota de escrita e viaja como operação de sync, ver [[sintese-rest-vs-sync]] e [[envelope-operacao]].
 
-Rotas e permissão mínima leem-se direto em `backend/src/modules/atlas/atlas.routes.js` (53 linhas, comentadas); o cliente é `frontend/src/js/store/sync/api-client.js`.
+Rotas e permissão mínima leem-se direto em `backend/src/modules/atlas/atlas.routes.js` (comentado linha a linha); o cliente é `frontend/src/js/store/sync/api-client.js`.
 
 Regra de manutenção que a leitura casual não protege: rota literal nova sob `/atlas` precisa ser declarada **acima** de `/:atlasId`, senão Express a captura como parâmetro (foi por isso que `/trash` e `/public/:link` estão onde estão).
 
@@ -47,7 +47,7 @@ A armadilha está na FORMA da concessão, e ela é o que se leva daqui: o alcanc
 
 ## Clone e duplicate: a coluna nova que ninguém lembra de copiar
 
-Os três caminhos de cópia montam a linha de `maps` pelo mesmo helper (`mapRow`, `backend/src/modules/atlas/atlas.service.js`) desde `d15b330` (2026-07-24), quando `grid_style` e `temporal_config` deixaram de se perder. A regra de manutenção que sobrou: **coluna nova em `maps` precisa entrar no `mapRow`**, senão a perda volta, sem erro. O sintoma aparece longe da causa, ao abrir a cópia, e nada no INSERT acusa.
+São **dois** sítios, não um, e essa é a armadilha da seção. Clone e `duplicateMap` montam a linha de `maps` pelo mesmo helper (`mapRow`, `backend/src/modules/atlas/atlas.service.js`) desde `d15b330` (2026-07-24), quando `grid_style` e `temporal_config` deixaram de se perder; o **import** monta o objeto inline no próprio `insertMany` (mesmo arquivo), e o JSDoc do helper diz isso por extenso ("The import path already carries them"). A regra de manutenção, então, é dupla: **coluna nova em `maps` precisa entrar no `mapRow` E na lista do import**. Escrita como "o helper único" ela manda conferir metade, e o import perde a coluna em silêncio. O sintoma aparece longe da causa, ao abrir a cópia, e nada no INSERT acusa.
 
 O clone tampouco copia `is_public`/`public_link`, shares ou histórico de operações, e isso é deliberado: cópia nasce privada e sem herdar audiência. Ver [[clone-atlas]].
 
@@ -58,7 +58,7 @@ Todas as rotas de `/sharing` exigem `manage` (`backend/src/modules/sharing/shari
 - `POST /sharing/users` é **upsert** (`backend/src/modules/sharing/sharing.queries.js`): reenviar para usuário já compartilhado altera a permissão e responde **201**, não 200 nem 409.
 - Remover o dono responde **404 `Share`**, nunca 204: o dono não tem linha em `atlas_shares`, o `DELETE ... RETURNING` não casa nada e o service levanta `NotFoundError` (`backend/src/modules/sharing/sharing.service.js`). Não é no-op silencioso; ver [[compartilhamento-atlas]].
 - Toda mutação faz broadcast `sharing_updated` com o `role` já traduzido para o vocabulário do front (`backend/src/modules/sharing/sharing.controller.js`), para o par re-gatear a UI ao vivo sem reconectar. Ver [[sintese-capacidades-por-papel]] e [[presenca-colaborativa]].
-- **Existe um trio irmão para GRUPO** (`POST /sharing/groups`, `PUT` e `DELETE /sharing/groups/:groupId`), com o mesmo gate `manage` no atlas e um SEGUNDO gate sobre o grupo: conceder exige que o chamador o administre, e a recusa é **404**, nunca 403. Remover não exige. As três rotas de grupo validam `:groupId` na borda (**422** com `details`), ao contrário das de usuário, onde um `:userId` malformado vira 22P02 traduzido em 400 (`backend/tests/integration/sharing-params-validation.test.js`). Detalhe em [[compartilhamento-atlas]].
+- **Existe um trio irmão para GRUPO** (`POST /sharing/groups`, `PUT` e `DELETE /sharing/groups/:groupId`), com o mesmo gate `manage` no atlas e um SEGUNDO gate sobre o grupo: conceder exige que o chamador o administre, e a recusa é **404**, nunca 403. Remover não exige. Só as DUAS que trazem o id no caminho validam `:groupId` na borda (**422** com `details`), porque no `POST` o id viaja no corpo e o que se valida é o `body` (`backend/src/modules/sharing/sharing.routes.js`). Nas rotas de usuário não há validação de parâmetro nenhuma: um `:userId` malformado vira 22P02 traduzido em 400 (`backend/tests/integration/sharing-params-validation.test.js`). Detalhe em [[compartilhamento-atlas]].
 
 ## Transferência de posse exige membro ATIVO
 
@@ -94,7 +94,7 @@ Origem fora do atlas devolve **404**, não 403: guarda anti-IDOR que evita vazar
 
 - As rotas de atlas devolvem **snake_case cru do Postgres** (`SELECT a.*`); o sub-router de sharing devolve camelCase na leitura e snake_case cru na escrita. **Não compartilhe desserializador**, nem entre as duas famílias nem entre o `GET` e o `POST` de sharing; a assimetria interna está explicada em [[compartilhamento-atlas]].
 - `owner_nome`/`owner_username`/`user_permission` existem só na listagem e na lixeira, **não** no `GET /atlas/:atlasId` (`LIST_USER_ATLAS`/`LIST_DELETED_USER_ATLAS` vs `FIND_ATLAS_BY_ID`, `backend/src/modules/atlas/atlas.queries.js`). UI que depende deles quebra ao navegar de lista para detalhe.
-- `GET /atlas` casa apenas `owner_id = $1 OR s.user_id = $1`: **um atlas público ao qual você não foi convidado nunca aparece aqui**, mesmo sendo legível. Ele só chega por [[link-publico]].
+- `GET /atlas` casa apenas posse mais o que `fn_user_atlas_shares` devolve (`LIST_USER_ATLAS`, `backend/src/modules/atlas/atlas.queries.js`): **um atlas público ao qual você não foi convidado nunca aparece aqui**, mesmo sendo legível. Ele só chega por [[link-publico]]. O share não se lê por JOIN cru na tabela, e o comentário da query registra por quê: o cru enxergava só a linha de pessoa e escondia quem alcança o atlas por grupo, dando à listagem menos acesso que o gate ([[grupo-de-acesso]]).
 - O array `maps` do `GET /atlas/:atlasId` vem `ORDER BY created_at`, **não** na ordem de `map_order` (`backend/src/modules/atlas/atlas.queries.js`). Ordenar é responsabilidade do cliente.
 - Slide tem shape diferente por superfície, e é o mesmo caso do `map_order` acima. Pelo snapshot cada slide ganha `order` derivado do canônico `briefings.slide_order`, mais `temporalCursor` e o bloco `sync`; pelo REST vem `SELECT *` cru em `ORDER BY created_at` (`backend/src/modules/briefings/briefings.queries.js`), sem nenhum dos três e fora da ordem de apresentação.
 
@@ -125,7 +125,7 @@ Acoplamento a vigiar: o enum de `feature_type` do schema (`backend/src/modules/a
 O seletor de projetos (`frontend/src/js/projects/atlas-drive.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
 
 - Em 2026-08-05 deixou de ser modal e virou o **corpo de `atlas.html`** (entry `frontend/src/js/projects/projects-page.js`). Os `data-testid` `project-picker-*`, incluindo o raiz `project-picker-modal`, cujo nome ficou mentindo de propósito, foram **preservados verbatim**: são contrato de teste, e renomear qualquer um quebra e2e. Sumiram na mudança o botão de fechar e o Esc-para-fechar (página não fecha). O componente **não toca no store nem no sync engine**: abrir é navegar para `./?atlas=<uuid>` e deixar o roteador de boot do mapa fazer o resto. O que ele NÃO faz mais é perguntar sobre trabalho local: desde o namespace por atlas o wipe de entrada cai no namespace que está sendo aberto, e o aviso que dizia o contrário saiu em 2026-08-16 ([[sessao-boot-e-ciclo-de-vida]]).
-- As abas são filtros client-side sobre a **mesma** resposta de `GET /atlas` (exceto a Lixeira, com endpoint próprio e carga lazy). Três dos cinco filtros dependem de `user_permission`, que só existe em `LIST_USER_ATLAS`, daí a aba "Públicos" mostrar apenas atlas públicos aos quais você já tem acesso, nunca os demais.
+- As abas são filtros client-side sobre a **mesma** resposta de `GET /atlas` (exceto a Lixeira, com endpoint próprio e carga lazy). Dois dos cinco filtros dependem de `user_permission` (`_visible`, `frontend/src/js/projects/atlas-drive.js`), que só existe em `LIST_USER_ATLAS`; a aba "Públicos" filtra por `is_public` e mesmo assim mostra apenas atlas públicos aos quais você já tem acesso, porque quem recorta é a RESPOSTA de `GET /atlas`, não o filtro de tela.
 - **A identidade visual do cartão é a faixa colorida com as iniciais**, cor determinística do nome, e desde 2026-08-16 uma **capa** enviada pelo usuário toma o lugar dela quando existe. Continua não havendo snapshot automático do mapa, e essa metade da recusa de 2026-07-25 é que segue valendo: snapshot apodrece sozinho, imagem escolhida por alguém não. Ver a seção seguinte e [[sintese-decisoes-arquiteturais]].
 
 Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-ciclo-de-vida]].
@@ -147,3 +147,8 @@ Três fatos chegam por rotas que **não existem para o resto do app** e cujo des
 **Presença é POLL, e por uma razão estrutural:** o socket de colaboração é por atlas ([[canal-collab-websocket]]), então presença ao vivo numa grade de vinte projetos seria vinte conexões abertas por uma página que não entrou em nenhum deles. A fonte é o registro de salas em memória (`getRoomUsers`), o que traz dois limites: a resposta é **por processo**, e conta a PESSOA, não o socket, senão duas abas de alguém virariam "2 no mapa". Ver [[presenca-colaborativa]].
 
 **A capa é `BYTEA` no banco e data URI no fio.** O cliente reduz a imagem antes de subir (`frontend/src/js/projects/cover-image.js`); o servidor decodifica na borda e casa o **número mágico** com o mime declarado, porque o mime é texto que o cliente escolhe e a allowlist (png/jpeg/webp, sem svg) valeria zero sem essa conferência. Volta como data URI, e não por uma rota de imagem, porque a tela autentica por cabeçalho `Bearer` e `<img src>` não manda cabeçalho.
+
+## Histórico
+
+- 2026-08-23: a seção de clone/duplicate dizia que "os TRÊS caminhos de cópia" montavam a linha de `maps` pelo mesmo helper, e fazia disso a regra de manutenção. São dois: o import monta a linha inline. Escrita assim, a regra mandava conferir metade dos sítios.
+- 2026-08-23: o item de `GET /atlas` citava o literal `owner_id = $1 OR s.user_id = $1`. O share deixou de ser lido por JOIN cru quando o grupo virou alvo de `atlas_shares` (2026-08-21); a conclusão sobre atlas público não convidado não mudou.

@@ -4,6 +4,8 @@ O que o serviço 3D publica: o acervo fotogramétrico como UM arquivo SQLite por
 
 ## Por que converter, com os números que decidiram
 
+Todos os números desta seção e da seguinte são de **2026-08-22**, a absorção do serviço `ebgeo_3d`, medidos sobre o acervo daquele dia. Eles decidiram o desenho e envelhecem com o acervo: ao remedir, troque o número e a data juntos, ou troque o número pela propriedade que ele sustenta.
+
 A árvore de origem tem **115 modelos, 2.261.536 arquivos e 96,8 GiB**, com textura JPEG ou WebP. Dois problemas medidos, e nenhum deles é tamanho de download:
 
 - **Memória de vídeo.** Uma vista de 110 m sobre um dos modelos MENORES pede **1,4 GiB de VRAM só de textura**, porque o JPEG descomprime para RGBA8 na placa. Depois da conversão, 206 MiB: o KTX2/ETC1S fica comprimido em BC1 na memória da GPU.
@@ -17,7 +19,7 @@ Um `.3dtiles` é uma tabela `media(key, content)` num SQLite: é o formato do `3
 
 Duas escolhas de armazenamento que têm número atrás e não se mexem sem remedir:
 
-- **`page_size = 4096`**, e não os 65536 do 360. Lá o BLOB é uma foto de megabytes; aqui o tile médio tem 39,9 KiB, menor que uma página de 64 KB, e o resto vira desperdício. Medido no Ponte_Quatis: 4 KB custa +2,1% de disco e 64 KB custa +21,9%, com a diferença de leitura dentro da variação das medidas. Em 104 GiB de acervo isso são cerca de 20 GiB.
+- **`page_size = 4096`**, e não os 65536 do 360. Lá o BLOB é uma foto de megabytes; aqui o tile médio tem 39,9 KiB, menor que uma página de 64 KB, e o resto vira desperdício. Medido no Ponte_Quatis: 4 KB custa +2,1% de disco e 64 KB custa +21,9%, com a diferença de leitura dentro da variação das medidas. Sobre os cerca de 104 GiB do acervo CONVERTIDO (os 96,8 GiB de origem mais os 8% que a conversão custa) isso são cerca de 20 GiB, e é essa a conta: os dois totais desta página não se contradizem, um é a árvore de entrada e o outro é a saída.
 - **`journal_mode = DELETE` no fecho**, e não WAL. Em WAL o SQLite cria o `-shm` ao abrir, e num volume montado `:ro` isso derruba o serviço com um erro que não aponta a causa. Fora do WAL o modelo vira arquivo único, que é o que se copia para produção.
 
 ## O token de geração é o que autoriza o `immutable`
@@ -73,6 +75,11 @@ São TRÊS armazéns atrás de um caminho só, e a ordem em que a rota os tenta 
 `scripts/models3d-adotar.js` registra um `.3dtiles` que já está em disco, lendo o cabeçalho `meta`. Ele **recusa** em vez de completar: cabeçalho incompleto, id do cabeçalho diferente do nome do arquivo (arquivo renomeado à mão publicaria o conteúdo de um modelo sob o id de outro) e contagem de tiles divergente (conversão interrompida no meio carrega em tela com buracos, sem erro).
 
 Duas propriedades da readoção, que é o caso comum de uma reimportação: o `config` do catálogo é MESCLADO, então o que um operador acrescentou pela tela sobrevive; e os dois eixos de acesso ficam de fora do UPDATE, então um modelo que alguém fechou não volta a público por causa de uma reimportação.
+
+## Histórico
+
+- **2026-08-22.** O serviço `ebgeo_3d`, que era um processo à parte com `index.db` central, foi absorvido pelo backend: o catálogo passou a `public.tilesets`, o registro de produção a `a3d.models`/`a3d.scenes`, e os bytes passaram a sair pelo prefixo reservado `m/` da rota que já existia, em vez de rota própria. É a data de todas as medições desta página.
+- **2026-08-23.** As medições ganharam data e os dois totais foram reconciliados: os 96,8 GiB são a árvore de ENTRADA e os cerca de 104 GiB são o acervo CONVERTIDO, que é a mesma coisa mais os 8% da conversão. Antes disso os dois números apareciam a seis linhas de distância sem que nada dissesse que mediam coisas diferentes.
 
 ## Relacionados
 

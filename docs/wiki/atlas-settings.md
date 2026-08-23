@@ -52,7 +52,9 @@ Corolário na direção oposta: o modal só oferece basemaps habilitados no depl
 
 ## Campos aceitos mas não consumidos
 
-`bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` são validados, persistidos e devolvidos no GET, mas **nenhum módulo do frontend os lê**: `grep` por esses identificadores em `frontend/src/` não retorna ocorrência alguma, o modal nem os envia e `intersectAvailability` não os considera. São contrato reservado, não comportamento. Um relato de "limite de zoom não funciona" não é bug: é feature ausente.
+`bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` são validados, persistidos e devolvidos no GET, mas **nenhum consumidor de comportamento do frontend os lê**: o modal nem os envia e `intersectAvailability` não os considera. São contrato reservado, não comportamento. Um relato de "limite de zoom não funciona" não é bug: é feature ausente.
+
+A conferência disso **não** é um `grep` pelos identificadores, e a diferença já enganou esta página: `default_basemap` tem ocorrência viva em `frontend/src/js/catalog/resource-reference.registry.js`, na entrada `settings.default_basemap`, que é o inventário de onde um id de catálogo mora dentro de um atlas ([[sair-do-servidor]]). Aparecer num inventário de referência não é ter leitor de comportamento, e é exatamente por isso que a receita por ausência de ocorrência falha: o que se procura é quem MUDA a tela a partir do valor, não quem cita o nome.
 
 ## Pontos de contato
 

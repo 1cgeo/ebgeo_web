@@ -4,7 +4,7 @@ Por que a fronteira de escrita foi cortada entre contêiner (REST) e conteúdo (
 
 ## A regra e o motivo
 
-O **contêiner** é REST. O **conteúdo** é sync. Só o atlas tem CRUD REST completo ([[api-rest-atlas]]); mapas e briefings expõem leitura mais **uma** escrita estrutural (`merge`), a exceção descrita abaixo; feature, layer e group não têm rota nenhuma, só aparecem no dispatch de `applyOperation`.
+O **contêiner** é REST. O **conteúdo** é sync. Só o atlas tem CRUD REST completo ([[api-rest-atlas]]). **Briefing expõe SÓ leitura**, dois GET e nada mais (`backend/src/modules/briefings/briefings.routes.js`). **Mapa expõe leitura mais DUAS escritas estruturais, e elas moram em routers diferentes**, o que é a razão de esta linha ter contado uma só: `POST /:mapId/merge` está no router de mapas (`backend/src/modules/maps/maps.routes.js`, gate `manage`) e o `duplicate` está no de atlas (`POST /:atlasId/maps/:mapId/duplicate`, `backend/src/modules/atlas/atlas.routes.js`, gate `write`). Ler um arquivo de rotas e concluir a superfície do recurso subconta; as exceções estão listadas por inteiro abaixo. Feature, layer e group não têm rota nenhuma, só aparecem no dispatch de `applyOperation`.
 
 Sync existe para mudanças de granularidade fina, frequentes e concorrentes, cujo mérito é convergir por [[modelo-conflito-lww]] (LWW por ordem de chegada). Mover um vértice 30 vezes por segundo não cabe num `PUT`.
 

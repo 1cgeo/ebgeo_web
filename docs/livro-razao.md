@@ -24,14 +24,19 @@ Uma entrada só vale se responder **onde a lição foi codificada**. Sem isso vi
 
 Correção sem nenhum dos quatro é sinal de que ela não foi entendida ainda.
 
-## Duas fontes (a da realidade é o ouro)
+## As fontes (a da realidade é o ouro)
 
 - `sessao`: o desvio foi pego no meio da tarefa. Rápido, mas é julgamento na hora.
 - `realidade`: o mundo rendeu o veredito: teste quebrou, controle negativo mostrou que o teste não prendia nada, bug voltou, comportamento no ambiente contradisse o esperado. Verdade-terreno; é o dado externo que sustenta o laço (princípio 2).
+- `teste` e `codigo`: dois recortes de `realidade` que o corpo do arquivo já usava sem estarem declarados aqui. O primeiro diz que quem rendeu o veredito foi a suíte; o segundo, que foi a leitura do código contra o que se afirmava. Declarados em 2026-08-23.
 
 ## Vocabulário de classes (extensível)
 
-`doc-sobre-codigo` (afirmou a partir da prosa que descreve o código, em vez do código real) · `eco-de-sessao` (repetiu conclusão de sessão anterior sem reconferir) · `verificacao-fantasma` (deu como verificado o que não foi; assumiu que um comando fez efeito sem conferir) · `teste-que-nao-prende` (teste passa com e sem o fix; faltou controle negativo) · `escopo` (fez mais ou menos que o pedido) · `premissa-inventada` (agiu sobre premissa que não foi dada nem confirmada) · `aprovacao-presumida` (tratou esclarecimento de escopo como autorização para ação específica) · `estado-como-fato` (gravou na memória durável algo que é estado efêmero) · `default-irreal` (default que só funciona por acidente do ambiente de dev) · `regressao-propria` (o fix introduziu o defeito seguinte)
+`doc-sobre-codigo` (afirmou a partir da prosa que descreve o código, em vez do código real) · `eco-de-sessao` (repetiu conclusão de sessão anterior sem reconferir) · `verificacao-fantasma` (deu como verificado o que não foi; assumiu que um comando fez efeito sem conferir) · `teste-que-nao-prende` (teste passa com e sem o fix; faltou controle negativo) · `escopo` (fez mais ou menos que o pedido) · `premissa-inventada` (agiu sobre premissa que não foi dada nem confirmada) · `aprovacao-presumida` (tratou esclarecimento de escopo como autorização para ação específica) · `estado-como-fato` (gravou na memória durável algo que é estado efêmero) · `default-irreal` (default que só funciona por acidente do ambiente de dev) · `regressao-propria` (o fix introduziu o defeito seguinte) · `contrato-implicito` (dependeu de acordo que nenhum dos dois lados declara) · `cobertura-vazia` (o verde não prova nada, porque a regra não casa com nada)
+
+As duas últimas entraram no vocabulário em 2026-08-23, DEPOIS de já serem a sexta e a sétima classes
+mais usadas do arquivo: elas nasceram no corpo e ninguém as promoveu. `doc-que-mente` é sinônimo de
+`doc-sobre-codigo`; prefira o segundo.
 
 ## Sínteses (classes resolvidas)
 
@@ -49,10 +54,22 @@ Classes resolvidas e sem reincidência posterior, condensadas dos eventos crus. 
 
 Classes que **recorreram** e por isso continuam cruas abaixo, ao contrário das sínteses. Este índice
 existe porque a recorrência é o produto deste arquivo e ela estava ilegível: para vê-la era preciso
-ler 79 linhas e contar à mão. Cada bloco diz quantas vezes, em que datas, e qual foi a mudança de
-ABORDAGEM (não a re-anotação), como manda a regra de PODAR.
+ler o arquivo inteiro e contar à mão. Cada bloco diz qual foi a mudança de ABORDAGEM (não a
+re-anotação), como manda a regra de PODAR.
 
-- **Conferir um subconjunto e tratar como o conjunto (9 eventos: 2026-07-18, 07-24, 07-25 ×3, 08-14 ×2, 08-18 ×2).**
+**A CONTAGEM NÃO MORA MAIS AQUI, e a razão é a lição deste próprio arquivo.** Cada bloco carregava o
+número de eventos e a data do último, escritos à mão; em 2026-08-23 os cinco estavam vencidos, três
+deles por mais de um mês, e o índice que se anuncia como o instrumento de contagem era o único lugar
+do arquivo que contava errado. Número escrito à mão num arquivo append-only só espera o próximo
+evento para ficar falso. Conte assim, e a data do último sai junto:
+
+```bash
+grep -c '`verificacao-fantasma`' docs/livro-razao.md          # uma classe
+grep -oE '`[a-z-]+`' docs/livro-razao.md | sort | uniq -c | sort -rn | head   # o ranking inteiro
+```
+
+
+- **Conferir um subconjunto e tratar como o conjunto.**
   `grep` em dois arquivos da raiz, `grep -v` que excluía o próprio alvo, `lint`/`test`/`test:coverage`
   da raiz delegando só para o frontend, `npm test -- <a> <b>` rodando só o primeiro padrão, o E2E que
   não estava no comando prescrito, e o inventário de cobertura montado a partir de uma lista de
@@ -64,26 +81,26 @@ ABORDAGEM (não a re-anotação), como manda a regra de PODAR.
   `--cached --others --exclude-standard`, medida nos quatro censos), e o comando de teste do
   backend recorreu pela segunda vez com dois alvos numa linha só, ou seja, a prosa continuou não
   segurando onde não há mecanismo.
-- **Medir enquanto a coisa medida se move (6 eventos: 2026-07-18, 07-19 ×2, 07-25 ×3).** Processo
+- **Medir enquanto a coisa medida se move.** Processo
   velho ainda servindo, arquivo pela metade, banco `ebgeo_test` compartilhado entre duas execuções,
   produção mutada por outro agente para o controle negativo dele, cobertura medida com seis agentes
   escrevendo. Abordagem atual: árvore parada antes de medir; banco por EXECUÇÃO e não por agente;
   mutação de produção para controle negativo só em cópia ou em janela declarada; afirmação de um
   agente sobre arquivo fora da sua lista é hipótese, não evidência.
-- **O verificador quebra calado (8 eventos: 2026-07-18, 07-19, 07-24, 07-25 ×4, 08-14).** Hooks que
+- **O verificador quebra calado.** Hooks que
   liam variável inexistente, âncora de script de manutenção que nem sempre existe, `git rev-parse`
   ecoando no stdout ao falhar, reversão por regex que não reverteu, `git checkout` apagando a edição
   de outro autor, substituição multilinha que não casou em arquivo CRLF, e a lista de alvos do
   guarda de doc montada com `filter` em vez de asserção. Abordagem atual: toda operação de mutação e
   de reversão precisa DIZER se aconteceu (contar ocorrências antes e depois), e a conferência final
   vem por caminho independente do que produziu o resultado.
-- **Cobertura vazia: verde que não prova nada (7 eventos, de 2026-07-18 a 07-26).** Regra que não
+- **Cobertura vazia: verde que não prova nada.** Regra que não
   casa com nada, teste cujo sítio nunca é alcançado, guarda com `skip` em ambiente de teste,
   igualdade entre dois `undefined`, sinal que não distingue o caminho certo do caminho nenhum.
   Abordagem atual: a pergunta "o que este verde estaria provando se o código estivesse errado?" a
   cada teste, controle negativo obrigatório, e três regras de lint próprias no backend
   (`backend/eslint-rules/`) que pegam a forma estrutural.
-- **Comportamento observado registrado como esperado (6 eventos: 2026-07-19 ×3, 07-24, 07-25, 08-17).**
+- **Comportamento observado registrado como esperado.**
   Teste de caracterização cujo nome ou comentário descreve o defeito com precisão e o AFIRMA, o que
   transforma verde em cimento. Abordagem atual: para risco aceito de propósito, marcador `KNOWN GAP`
   que QUEBRA quando alguém fechar o buraco, em vez de asserção que o congela. O evento de 08-17

@@ -86,9 +86,10 @@ Um socket já aberto **não** revalida o token depois do handshake: a sessão do
 
 ## Armadilhas de status code
 
-- `422 VALIDATION_ERROR`, não `401`: senha de **5 caracteres no login** (o mínimo de 6 do `loginSchema` vale para autenticar, não só para cadastrar) e `token` de verificação fora do formato UUID. Se a UI trata "erro no login" como "credenciais inválidas", a mensagem sai errada.
+- `422 VALIDATION_ERROR`, não `401`: `token` de verificação fora do formato UUID (`verifyEmailSchema`, `backend/src/modules/auth/auth.schemas.js`). Uma UI que trate todo erro daquele fluxo como "link inválido ou expirado" mostra a mensagem errada para um link truncado na cópia.
+- **O login NÃO faz isso, e a assimetria é deliberada.** `loginSchema` (mesmo arquivo) exige a senha e limita o tamanho máximo, e **não** tem mínimo: o `min(6)` é política de CADASTRO e mora em `registerSchema` e `updatePasswordSchema`. Cobrá-lo ao autenticar trancaria fora toda conta cuja senha antecede a regra, responderia a um palpite curto com um `422` que nomeia a política enquanto um palpite longo recebe `401` (vazando a regra para quem não está autenticado), e diria a quem só errou a digitação que a senha "é curta demais". Senha errada é `401`, independente do comprimento.
 - `401`, `403` e `429` são coisas distintas: `401` aciona refresh (uma vez) e depois login; `403` de OM inativa **não** se resolve com refresh ([[organizacoes-om]]); `429` é só espera.
-- Não use `GET /health` para decidir online/offline no boot; o boot é fail-fast em `GET /api/config` ([[config-runtime-urls-relativas]]).
+- Não use `GET /api/v1/health` (`backend/src/app.js`) para decidir online/offline no boot; o boot é fail-fast em `GET /api/config` ([[config-runtime-urls-relativas]]).
 - Login e logout **aparecem** na trilha desde 2026-08-17, e estão entre as poucas chamadas best-effort dela (`createAuditBestEffort`): uma falha de escrita da trilha não pode derrubar a entrada nem a saída de ninguém. Login **falho** continua fora, por impossibilidade estrutural (`audit_trail.actor_id` é NOT NULL e uma tentativa recusada não tem ator identificado). Ver [[auditoria]].
 - **Nunca case por string de mensagem, use o `code` do envelope.** O idioma varia por camada e sem regra: o serviço de auth emite português (`Usuário ou senha inválidos`, `Conta desativada`, `Sessão inválida. Entre novamente.`), o middleware de JWT emite inglês (`Token expired`, `Account is inactive`). Uma UI que casa texto quebra ao atravessar essa fronteira.
 

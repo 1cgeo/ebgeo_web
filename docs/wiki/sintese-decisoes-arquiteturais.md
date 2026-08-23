@@ -24,13 +24,17 @@ A colaboração é **server-authoritative last-write-wins pela ordem de chegada 
 
 **Por que não CRDT:** o custo de um CRDT verdadeiro (estrutura de dados, tamanho de metadados, complexidade de merge por propriedade) não se paga para o padrão de uso real, no qual duas pessoas raramente editam a mesma feição no mesmo segundo. O modelo escolhido é o do Google Docs em espírito (sem locks, ninguém trava ninguém), mas com autoridade central. O preço aceito é que a granularidade é a **feição inteira**: dois usuários editando propriedades diferentes da mesma feição não fazem merge. Detalhe em [[modelo-conflito-lww]], [[envelope-operacao]] e [[idempotencia-e-convergence-guard]].
 
-O `locked` de mapa não contradiz isso: é **aviso de UI, frontend-only**, não um lock de concorrência.
+**O `locked` de MAPA é a exceção, e ele é imposto pelo servidor.** Com o mapa travado, toda op cujo alvo esteja em `LOCKABLE_CHILD_TARGETS` é recusada POR OPERAÇÃO, sem derrubar o lote (`lockedMapDenialReason`, `backend/src/modules/sync/sync.service.js`), e virar o próprio `locked` é exclusivo do `owner` (`operationDenialReason`, no mesmo arquivo). Op de nível mapa não passa pelo gate de travamento, que é o que permite ao dono destravar.
+
+O que **é** convenção de cliente é o lock FINO: camada, grupo e feição. Ver [[sintese-limites-collab]] §4 e [[sintese-capacidades-por-papel]]. Esta linha dizia que o lock de mapa era "aviso de UI, frontend-only", o que contradizia as duas páginas irmãs e convidava a escrever cliente que ignora a recusa do servidor.
 
 ## P12 caiu: o namespace por atlas existe (2026-08-15)
 
 **Esta seção declarava "múltiplos atlas locais nomeados NÃO serão feitos", com namespacing por atlas no IndexedDB como refactor rejeitado. Deixou de valer.** O argumento da rejeição (a separação local↔remoto já está garantida pelo marcador de origem, então o namespace não traz ganho de princípio) foi vencido por um caso que o marcador não cobre: duas abas em atlas de SERVIDOR diferentes eram, com um scratch único, o mesmo conjunto de dez bancos. Isso não é contenção que um lock arbitre, é um endereço com dois donos.
 
-O que existe hoje: um namespace por atlas no nome do banco (a fila de saída inclusa), um registro de atlas locais com teto de 10, e um expurgo do remoto derivado de registro, que POUPA o namespace montado por outro cliente vivo até um prazo. O que **não** existe: tela que TROQUE ou exclua um atlas local. Criar um tem um gesto só, o import de `.ebgeo` dentro de um atlas de servidor. Ver [[namespace-por-atlas]] e [[coordenacao-entre-abas]].
+O que existe hoje na persistência: um namespace por atlas no nome do banco (a fila de saída inclusa), um registro de atlas locais com teto de 10, e um expurgo do remoto derivado de registro, que POUPA o namespace montado por outro cliente vivo até um prazo.
+
+**E o produto os EXPÕE, o que esta seção negou por tempo demais.** O Atlas Drive troca, renomeia, duplica e exclui atlas local: `setCurrentLocalAtlas`, `renameLocalAtlas`, `duplicateLocalAtlas` e `deleteLocalAtlas` estão ligados aos handlers da tela em `frontend/src/js/projects/projects-page.js`. Criar também tem mais de um gesto: além do import de `.ebgeo`, a aba de mapas oferece "Salvar como local" dentro de um atlas de servidor (`frontend/src/js/sidebar/tabs/maps.tab.js`). As cláusulas 7.1, 7.3 e 7.4 de [`CONSTITUICAO.md`](../../CONSTITUICAO.md) marcam os quatro como vigentes. Ver [[namespace-por-atlas]] e [[coordenacao-entre-abas]].
 
 Dois corolários que causam bug se ignorados:
 
@@ -41,7 +45,9 @@ Dois corolários que causam bug se ignorados:
 
 Dado de atlas remoto vive no IndexedDB apenas enquanto conectado, e é apagado no logout/desconexão; um *boot guard* descarta dado remoto órfão encontrado com ninguém autenticado.
 
-**O porquê:** dado remoto sobrevivendo ao logout seria editável offline sem sincronizar com ninguém. O usuário acharia que está colaborando quando estaria editando uma cópia morta. A regra de ouro operacional é: **baixe o `.ebgeo` antes de desconectar** se quiser guardar. Ver [[sessao-boot-e-ciclo-de-vida]] e [[formato-ebgeo-roundtrip]].
+**O porquê:** dado remoto sobrevivendo ao logout seria editável offline sem sincronizar com ninguém. O usuário acharia que está colaborando quando estaria editando uma cópia morta.
+
+A regra de ouro operacional é: **guarde uma cópia local antes de desconectar**, e isso é um comando de um passo, não um round-trip de arquivo. A ação "Salvar como local" da aba de mapas (`frontend/src/js/sidebar/tabs/maps.tab.js`) copia o atlas de servidor para um slot local (cláusula 7.3 de [`CONSTITUICAO.md`](../../CONSTITUICAO.md), vigente). O `.ebgeo` continua sendo o caminho para tirar o trabalho DA MÁQUINA, que é outra necessidade. E há uma rede embaixo das duas: quando a sessão cai sem gesto do usuário com op pendente, `preserveUnsyncedWorkAsLocal` (`frontend/src/js/account/account.control.js`) adota o namespace remoto como atlas local antes do expurgo, e avisa quando o resgate falha em vez de prometer trabalho salvo. Ver [[sessao-boot-e-ciclo-de-vida]] e [[formato-ebgeo-roundtrip]].
 
 Isso amarra dois princípios de cobertura que valem como checklist ao adicionar qualquer tipo de dado persistido:
 
@@ -88,13 +94,15 @@ No cliente vale o mesmo princípio, com um encadeamento próprio de versões no 
 
 ## Identidade: um único emissor de JWT
 
-Há **um** emissor de token, este backend, e ele carrega dois eixos ortogonais: papel global e identidade org-scoped. Como agora o **mesmo processo** valida o token, sumiu o problema de "alinhar dois serviços"; o custo remanescente são os aliases mantidos por compatibilidade com o que o 360 lia, e a degradação de token legado sem claim de org. Ver [[autenticacao-jwt]], [[jwt-emissor-unico]], [[refresh-token-rotacao]], [[auth-flexivel]] e [[organizacoes-om]].
+Há **um** emissor de token, este backend. Como agora o **mesmo processo** valida o token, sumiu o problema de "alinhar dois serviços"; o custo remanescente são os aliases mantidos por compatibilidade com o que o 360 lia, e a degradação de token legado sem claim de org.
+
+**O que o token carrega não são dois eixos, e chamá-los assim convida ao gate proibido.** O que autoriza é o papel GLOBAL, e no caminho estrito ele nem vem do token: `auth` (`backend/src/middleware/auth.js`) sobrescreve `role` e `producer_org_id` com o valor VIVO do banco a cada requisição. A claim de organização que o token traz é `organization_id`, e ela é **lotação**, auto-declarada no cadastro: o middleware a deixa de fora da reconciliação de propósito, porque ela não decide nada (cláusulas 1.4 e 10.5 de [`CONSTITUICAO.md`](../../CONSTITUICAO.md)). O eixo de OM que de fato autoriza é o de PRODUÇÃO, `users.producer_org_id`. Ver [[autenticacao-jwt]], [[jwt-emissor-unico]], [[refresh-token-rotacao]], [[auth-flexivel]], [[organizacoes-om]] e [[sintese-eixos-de-permissao]].
 
 A permissão por atlas é um **terceiro** eixo, resolvido em waterfall (owner, depois share, depois público, senão 403), na hierarquia `owner > manage > write > comment > read`. Ver [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
 
 ## Decisões menores com consequência grande
 
-- **Link público = somente leitura, e "acesso geral" = só o link.** Não há papel por organização concedido implicitamente; convidar é sempre share explícito por usuário. Decisão de produto para um GIS sensível. O token do link expira em ~1h e o visitante público **não recebe comentários**. Ver [[link-publico]] e [[compartilhamento-atlas]].
+- **Link público = somente leitura, e "acesso geral" = só o link.** Não há papel por organização concedido implicitamente: alcançar um atlas exige share explícito. O que mudou é o ALVO do share, que desde 2026-08-21 são dois, a pessoa **ou** um grupo de acesso (`atlas_shares.group_id`, com o CHECK `atlas_shares_alvo_unico_check` em `backend/src/database/migrations/003_atlas.sql`, mais as três rotas de grupo em `backend/src/modules/sharing/sharing.routes.js`; cláusulas 5.1 e 5.3 de [`CONSTITUICAO.md`](../../CONSTITUICAO.md), vigentes). Quem resolve acesso lendo só a coluna de usuário lê metade do eixo, compila e devolve linhas. Decisão de produto para um GIS sensível. O token do link expira em ~1h e o visitante público **não recebe comentários**. Ver [[link-publico]] e [[compartilhamento-atlas]].
 - **Visualizador não recebe comentários do servidor**: é **filtro de transmissão** (snapshot e broadcast não enviam), não esconde-UI. Ver [[comentario-espacial]].
 - **"A permissão padrão abaixa, nunca eleva"**: convite concede Leitura por padrão; elevar é ação deliberada.
 - **Config por atlas é interseção, nunca expansão**: um `atlas.settings` só desliga o que o deploy suporta, jamais liga o que não existe, e é revertido ao desconectar. Ver [[atlas-settings]], [[resources-catalogo]] e [[modos-operacao]].
@@ -111,12 +119,12 @@ Gazetteer, catálogo, assets e panoramas 360 são **REST read-only**, e a autori
 
 ## Não-objetivos declarados (lista curta)
 
-1. ~~Múltiplos atlas locais nomeados no IndexedDB (P12)~~ **caiu em 2026-08-15** (ver a seção acima): a persistência os suporta, o produto ainda não os expõe.
+1. ~~Múltiplos atlas locais nomeados no IndexedDB (P12)~~ **caiu em 2026-08-15** (ver a seção acima): a persistência os suporta e o produto os expõe, com criar, trocar, renomear, duplicar e excluir no Atlas Drive.
 2. CRDT verdadeiro com merge por propriedade.
-3. Locks de edição, ninguém bloqueia ninguém.
+3. Lock de edição por FEIÇÃO ou por USUÁRIO: ninguém reserva uma feição para si. O lock de MAPA existe e é imposto pelo servidor por operação (ver §LWW acima); o de camada, grupo e feição é convenção de cliente.
 4. Undo/redo global ou sincronizado.
 5. Backend como pré-requisito de qualquer ação de edição, salvo o bootstrap de config.
 6. Escala horizontal do WebSocket sem backplane.
-7. PMTiles e GeoJSON-como-fonte no 360 (descontinuados; não provisionar tippecanoe).
+7. PMTiles e GeoJSON-como-fonte no 360 (descontinuados; não provisionar tippecanoe). **No SERVIDOR.** O CLIENTE ainda registra o protocolo: `frontend/src/js/street_view_tool/add_street_view_control.js` chama `maplibregl.addProtocol` com `"pmtiles"` no `onAdd` e de novo dentro de `setupMiniMapWithPMTiles`. Código vivo, não violação a limpar.
 8. Suporte a lista de origens em CORS (uma única origem, `credentials:true`, então `'*'` não funciona).
 9. Rate limit global entre réplicas (store in-memory, por instância).

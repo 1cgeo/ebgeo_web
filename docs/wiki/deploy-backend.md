@@ -1,6 +1,6 @@
 # Deploy do backend único
 
-Um processo Node 20 (HTTP + WebSocket no mesmo servidor) atrás de NGINX, com PostgreSQL/PostGIS em três schemas, binários fora do banco e migrações forward-only rodadas como passo separado do CMD.
+Um processo Node 20 (HTTP + WebSocket no mesmo servidor) atrás de NGINX, com PostgreSQL/PostGIS em quatro schemas, binários fora do banco e migrações forward-only rodadas como passo separado do CMD.
 
 ## Uma instância, não por acaso
 
@@ -10,9 +10,11 @@ Em produção: **uma instância** (scaling vertical). Horizontalizar exige stick
 
 Não existe upstream `:8081`: o módulo 360 foi absorvido em `/api/v1/sv360` ([[streetview-360]]).
 
-## Banco: um cluster, três schemas
+## Banco: um cluster, quatro schemas
 
-`public` (atlas), `ng` (gazetteer PostGIS) e `sv360` (metadados) num cluster só. Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[resources-catalogo]], [[tabela-operations]].
+`public` (atlas), `ng` (gazetteer PostGIS), `sv360` (metadados do 360) e `a3d` (registro de produção do acervo 3D, desde a absorção do serviço em 2026-08-22) num cluster só. Cada um nasce no `CREATE SCHEMA` da baseline do seu domínio, e um `grep` por ele nas migrações é a lista autoritativa. Ver [[atlas-modelo-de-dados]], [[gazetteer-nomes-geograficos]], [[resources-catalogo]], [[tabela-operations]], [[acervo-3d-convertido]].
+
+O `a3d` é o único **sem** PostGIS, e a ausência é decisão escrita na própria baseline (`backend/src/database/migrations/009_a3d.sql`): a posição do modelo já viaja no `config` JSONB de `tilesets`, e uma geometria aqui seria uma segunda resposta para "onde está o modelo".
 
 PostGIS **nunca** entra no schema do atlas, e é decisão deliberada: a geometria do atlas mora em **JSONB** e o filtro espacial é bbox em JS, não `ST_Intersects`.
 
@@ -21,22 +23,22 @@ PostGIS **nunca** entra no schema do atlas, e é decisão deliberada: a geometri
 Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, tracking por **nome de arquivo** em `_migrations`, cada arquivo numa transação junto com o `INSERT` de tracking (`backend/src/database/migrate.js`).
 
 - **Nunca renomeie nem renumere** migração já aplicada: o tracking é por nome, renomear reaplica o DDL.
-  A ÚNICA exceção é o esmagamento deliberado do histórico enquanto nenhum banco de produção o aplicou, e ele já ocorreu DUAS vezes (a última em 2026-08-19, quando 22 arquivos incrementais viraram 8 baselines por domínio). Depois de um esmagamento, banco pré-existente **tem de ser recriado**: não há caminho de upgrade. O schema chegou a recusar a tentativa com mensagem própria, por uma guarda no topo de `backend/src/database/migrations/001_identidade.sql`, removida em 2026-08-23 a pedido do dono; hoje o sintoma é o "relation already exists" que o runner produz no primeiro `CREATE TABLE`, verdadeiro e pouco explicativo.
+  A ÚNICA exceção é o esmagamento deliberado do histórico enquanto nenhum banco de produção o aplicou, e ele já ocorreu DUAS vezes (a última em 2026-08-19, quando os arquivos incrementais viraram uma baseline por domínio). Depois de um esmagamento, banco pré-existente **tem de ser recriado**: não há caminho de upgrade. O schema chegou a recusar a tentativa com mensagem própria, por uma guarda no topo de `backend/src/database/migrations/001_identidade.sql`, removida em 2026-08-23 a pedido do dono; hoje o sintoma é o "relation already exists" que o runner produz no primeiro `CREATE TABLE`, verdadeiro e pouco explicativo.
 - **Editar o CONTEÚDO de uma migração já aplicada não faz nada e não avisa.** Esta é a terceira forma da regra, e é a única que de fato ocorreu aqui. O tracking guarda só o nome, sem checksum (`backend/src/database/migrate.js`), então a edição é indetectável por construção: quem já aplicou o arquivo nunca a verá. Foi assim que a tabela `comments` entrou, editando um baseline in-place: um banco que tivesse aplicado aquele arquivo antes da edição não teria a tabela, nada futuro o corrigiria (forward-only, o nome já consta em `_migrations`) e a falha só apareceria no primeiro uso, como `42P01` em `GET_ATLAS_COMMENTS` (`backend/src/modules/sync/sync.queries.js`). O esmagamento de 2026-08-19 fechou ESTA instância do problema por outro caminho, e não a classe: as baselines nascem no estado final e o banco antigo é recusado na entrada, mas a próxima migração incremental que alguém editar depois de aplicada volta a ser indetectável.
-- Baseline em 8 arquivos por DOMÍNIO desde 2026-08-19 (identidade, auditoria, atlas, sync, catálogo, gazetteer, 360 e acesso a recurso, nessa ordem, que é a de dependência de FK); correção é sempre um **novo** número. Descubra o head com `ls`, nunca por esta linha.
+- Baseline de **um arquivo por DOMÍNIO** desde 2026-08-19, numerados na ordem de **dependência de FK** (identidade primeiro, porque tudo referencia `users`; acesso a recurso e acervo 3D por último, porque referenciam o catálogo). Correção é sempre um **novo** número, nunca uma edição do baseline. Quantos são e como se chamam se descobre com `ls`, nunca por esta linha: ela já carregou uma contagem que envelheceu no primeiro domínio novo.
 - **Advisory lock database-wide** (`SELECT pg_advisory_lock(0x4d494752)`, `backend/src/database/migrate.js`). Sem ele, dois containers subindo juntos aplicavam o mesmo DDL duas vezes antes de o `UNIQUE(name)` falhar, ou seja, o efeito colateral já tinha rodado quando o erro apareceu. Rolling deploy é seguro, mas o perdedor **espera**, não falha.
 - **PostGIS é extensão untrusted** e exige superusuário (`backend/src/database/migrations/006_ng.sql`, e desde 2026-08-19 também `backend/src/database/migrations/007_sv360.sql`, que passou a criar a extensão por conta própria para deixar de depender da ordem). Como as duas rodam incondicionalmente, PostGIS é pré-requisito de **qualquer** deploy, mesmo um deploy só de atlas. Resolva antes: imagem `postgis/postgis` (habilita no `template1`) ou DBA pré-criando a extensão em managed DB.
 - **Tipo de feição novo tem ordem de implantação, e ela é a única regra desta página sem guarda mecânico.** A lista de tipos vive em quatro cópias (cliente, Joi, o CHECK `valid_feature_type` e o `typeToCollection` do snapshot; ver [[atlas-import-offline]]), e as do backend chegam por caminhos diferentes: o CHECK vem por migração, as outras duas vêm na imagem. **Migre primeiro, publique depois.** Publicar o cliente (ou a imagem) antes da migração deixa a feição nova recusada pelo banco; migrar antes é sempre seguro, porque alargar o CHECK não quebra cliente antigo. `backend/tests/integration/tipos-feicao-constraint-viva.test.js` pergunta ao catálogo do Postgres em vez de ler o `.sql`, então flagra o desalinhamento no ambiente em que roda, mas nenhum teste deste repositório alcança produção: a troca de symlink ([[deploy-web]]), a imagem que não roda migração e o compose fora do repositório são três decisões operacionais fora do alcance da suíte.
-- O `CMD` da imagem (`Dockerfile`) **só inicia o servidor**. Quem espera o comportamento do compose se engana: é o `docker-compose.yml` que encadeia `migrate.js && index.js`. Fora do compose, rode a migração como init-container/job/hook.
+- O `CMD` da imagem (`backend/Dockerfile`) **só inicia o servidor**. Quem espera o comportamento do compose se engana: é o `backend/docker-compose.yml` que encadeia `migrate.js && index.js`. Fora do compose, rode a migração como init-container/job/hook.
 - Pós-carga em massa de topônimos, `SELECT ng.refresh_busca();` (`backend/src/database/migrations/006_ng.sql`) é **obrigatório e manual**, e o motivo é o `cluster_id`: **nenhum trigger o calcula**, só `ng.recomputar_clusters()`. Sem o refresh a busca degrada **em silêncio**, porque a dedup por `(nome, tipo, cluster_id)` trata NULLs como iguais e colapsa homônimos legítimos numa linha só ([[gazetteer-nomes-geograficos]], [[ranking-busca-toponimos]]). O racional que esta linha deu até 2026-07-24, "`COPY` bypassa o trigger `BEFORE INSERT`", é **falso** e foi medido contra esta instalação: `COPY` dispara trigger de linha, o que ele não dispara são RULES. Importa porque quem testar essa metade e vê-la falhar conclui que o refresh é dispensável, remove a chamada e perde os clusters, que é justamente a parte que nada mais recompõe.
 
 ## Imagem
 
-`node:20-bookworm-slim` (debian, não alpine) de propósito (`Dockerfile`): `bcrypt` e `better-sqlite3` publicam prebuilds **glibc/x64** e o Dockerfile não instala toolchain. Em ARM, air-gapped ou sem prebuild, o `npm ci` tenta compilar e falha por falta de gcc/python/make; nesse caso adicione `build-essential` + `python3` ao estágio `deps`.
+`node:20-bookworm-slim` (debian, não alpine) de propósito (`backend/Dockerfile`): `bcrypt` e `better-sqlite3` publicam prebuilds **glibc/x64** e o Dockerfile não instala toolchain. Em ARM, air-gapped ou sem prebuild, o `npm ci` tenta compilar e falha por falta de gcc/python/make; nesse caso adicione `build-essential` + `python3` ao estágio `deps`.
 
-Runtime roda como uid/gid **1001** (`Dockerfile`) e o `chown` do build cobre `/app/data` (`Dockerfile`), mas um volume montado ali chega com a dono do host e **sobrescreve** esse chown. Só `/app/data/images` é pré-criado; os diretórios de assets 3D e 360 nascem em runtime pelo app. Volume não gravável por 1001 dá `EACCES` na primeira escrita, não no boot.
+Runtime roda como uid/gid **1001** (`backend/Dockerfile`) e o `chown` do build cobre `/app/data` (`backend/Dockerfile`), mas um volume montado ali chega com a dono do host e **sobrescreve** esse chown. Só `/app/data/images` é pré-criado; os diretórios de assets 3D e 360 nascem em runtime pelo app. Volume não gravável por 1001 dá `EACCES` na primeira escrita, não no boot.
 
-O `HEALTHCHECK` (`Dockerfile`) bate em `/api/v1/health`, que executa `SELECT 1` e responde 503 (`backend/src/app.js`). É **readiness real**, não liveness: se o Postgres cai o container fica unhealthy com o processo vivo. Não martele com intervalo curto, cada probe toca o pool.
+O `HEALTHCHECK` (`backend/Dockerfile`) bate em `/api/v1/health`, que executa `SELECT 1` e responde 503 (`backend/src/app.js`). É **readiness real**, não liveness: se o Postgres cai o container fica unhealthy com o processo vivo. Não martele com intervalo curto, cada probe toca o pool.
 
 O piso é **Node 20.19.0** (`backend/package.json`), não 20.0.0: o boot usa `--env-file-if-exists`, que só existe a partir dessa versão. Um 20.12 ou 20.18 satisfaz "Node 20 LTS" e mesmo assim morre na flag desconhecida.
 
@@ -54,7 +56,7 @@ Cada regra existe por um estrago observado, não por higiene (`config.js`):
 
 **Armadilha do `optional()`** (`config.js`): é `process.env[key] || fallback`, então **string vazia cai no fallback**. Não existe caminho por env vazia para "desabilitar" uma URL cujo default é não-vazio.
 
-**A topologia de porta inverte entre dev e compose**, e isso já derrubou o boot uma vez. Em dev o backend é **:8080** e o Vite **:3000**, que faz proxy de `/api` (`backend/.env.example`). No `docker-compose.yml` o app escuta **:3000** e o `CORS_ORIGIN` aponta para :8080. Cada um é coerente consigo, mas ler um e aplicar no outro produz um CORS que recusa exatamente a origem certa. Confira de qual dos dois mundos veio o valor antes de copiá-lo.
+**A topologia de porta inverte entre dev e compose**, e isso já derrubou o boot uma vez. Em dev o backend é **:8080** e o Vite **:3000**, que faz proxy de `/api` (`backend/.env.example`). No `backend/docker-compose.yml` o app escuta **:3000** e o `CORS_ORIGIN` aponta para :8080. Cada um é coerente consigo, mas ler um e aplicar no outro produz um CORS que recusa exatamente a origem certa. Confira de qual dos dois mundos veio o valor antes de copiá-lo.
 
 `NODE_ENV=production` é o **interruptor único de segurança**: liga HSTS 180 dias (`backend/src/app.js`), cookies `Secure`/`SameSite=strict`, exige `JWT_SECRET` >= 32 e desliga self-registration por default (`config.js`). `COOKIE_SECRET` e `USE_HTTPS` **não existem no código**, configurá-las é no-op. TLS termina no NGINX.
 
@@ -79,12 +81,14 @@ Não existe tabela única `resources`: o catálogo tem uma tabela **por tipo**, 
 
 ## Stores binários e volumes
 
-Tudo que é binário fica **fora** do Postgres, que guarda só metadados e ponteiro: `IMAGES_DIR` ([[imagens-atlas]]), `ASSETS_3D_SQLITE` (servido primeiro) com `ASSETS_3D_DIR` de fallback ([[assets3d-distribuicao]]), `SV360_DB_DIR` (~41 GB reais de WebP) e `SV360_TMP_DIR`.
+Tudo que é binário fica **fora** do Postgres, que guarda só metadados e ponteiro: `IMAGES_DIR` ([[imagens-atlas]]), `ASSETS_3D_SQLITE` (servido primeiro) com `ASSETS_3D_DIR` de fallback ([[assets3d-distribuicao]]), `MODELS_3D_DIR` (um `.3dtiles` por modelo do acervo convertido, ponteiro em `a3d.models`), `SV360_DB_DIR` (~41 GB reais de WebP) e `SV360_TMP_DIR`.
+
+O acervo 3D tem **duas** formas de armazenamento e uma só rota, e confundi-las custa um restore incompleto: o modelo é arquivo único em `MODELS_3D_DIR` e a cena caminhável é **pasta** sob `ASSETS_3D_DIR`. A decisão está na baseline (`backend/src/database/migrations/009_a3d.sql`) e o detalhe em [[acervo-3d-convertido]].
 
 Armadilhas que custam dados:
 
 - **`SV360_TMP_DIR` e `SV360_DB_DIR` precisam estar no MESMO volume.** O multer streama o `images.db` multi-GB para o tmp e depois faz `rename`. Em filesystems diferentes o rename vira cópia cross-device e o swap **perde a atomicidade** ([[ingestao-projetos-360]]).
-- O `docker-compose.yml` só persiste `ebgeo_pgdata` e `ebgeo_images`. `assets3d*` e `sv360*` são **efêmeros** nesse stack e somem no recreate. Adicione volumes antes de produção.
+- O `backend/docker-compose.yml` só persiste `ebgeo_pgdata` e `ebgeo_images`. `assets3d*` e `sv360*` são **efêmeros** nesse stack e somem no recreate. Adicione volumes antes de produção.
 - O `db_filename` do 360 é **derivado no servidor** de `(orgId, slug)`. Restaurar arquivos com o nome legado `{slug}.db` quebra o serving mesmo com o Postgres íntegro.
 
 **Controle de RSS:** `better-sqlite3` materializa o BLOB inteiro como `Buffer` no heap, sem stream incremental. O `SELECT` roda num pool de worker threads (`SQLITE_BLOB_WORKERS`, default `min(4, cpus-1)`, `backend/src/utils/sqlite-blob-pool.js`) e o ETag O(1) com 304 acontece **antes** de qualquer leitura de BLOB ([[sintese-cache-http-imutavel]]). Os semáforos `ASSETS_3D_MAX_INFLIGHT` e `SV360_MAX_INFLIGHT` (default 8) são o controle direto de memória: subi-los em container apertado estoura o heap.
@@ -136,9 +140,11 @@ Só aparecem em ambiente de desenvolvimento local, e os dois se manifestam como 
 
 Duas fontes precisam ficar **consistentes entre si**: o Postgres (metadados, incluindo `db_filename` e os `*_size_bytes` que ancoram o ETag O(1)) e os arquivos binários. Backup de um só deixa o outro órfão, e o sintoma é 404 por arquivo, não erro de restore.
 
-`pg_dump` cobre os 3 schemas num dump só; rsync de `SV360_DB_DIR` (thumbnails no mesmo diretório), `ASSETS_3D_SQLITE`/`ASSETS_3D_DIR` e `IMAGES_DIR`.
+`pg_dump` cobre os quatro schemas num dump só; rsync de `SV360_DB_DIR` (thumbnails no mesmo diretório), `ASSETS_3D_SQLITE`/`ASSETS_3D_DIR`, `MODELS_3D_DIR` e `IMAGES_DIR`.
 
-No restore, na ordem: habilitar PostGIS **antes** de aplicar `ng`; garantir que cada `db_filename` anunciado pelo Postgres exista no disco como `{orgId}__{slug}.db`; rodar `SELECT ng.refresh_busca();` se recarregou nomes em massa; reconstruir o SQLite 3D com `node scripts/assets3d-import.js <dir>` se necessário.
+No restore, na ordem: habilitar PostGIS **antes** de aplicar `ng`; garantir que cada `db_filename` anunciado pelo Postgres exista no disco, como `{orgId}__{slug}.db` para o 360 e como o nome guardado em `a3d.models` para o acervo 3D (ele é **guardado, não derivado do id**, justamente para que renomear no catálogo não obrigue a renomear o arquivo); rodar `SELECT ng.refresh_busca();` se recarregou nomes em massa; reconstruir o SQLite 3D com `node scripts/assets3d-import.js <dir>` se necessário.
+
+Um restore que leve o Postgres e esqueça `MODELS_3D_DIR` não falha: o catálogo lista o modelo, a rota responde 404 por tile, e o sintoma chega na tela como cena que não carrega. Ver [[acervo-3d-convertido]].
 
 ## Carga de dados
 

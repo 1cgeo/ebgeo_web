@@ -65,6 +65,8 @@ Esta é a virada de uma decisão anterior: enquanto o eixo estava desligado, o a
 
 Filtro e ordenação de `targets` vêm do SQL, não do JS: alvo oculto ou apontando para foto com tombstone simplesmente **não existe** para o viewer. Não replique essa filtragem no cliente.
 
+**E o "viewer" são DOIS.** `frontend/src/js/calibration/` carrega uma cópia deliberada de cinco arquivos de `frontend/src/js/street_view_tool/navigation/`, porque a página de calibração não pode arrastar a store nem o MapLibre. Toda mudança de desenho de marcador precisa ser feita nos dois lados, e a guarda que existe (`frontend/tests/unit/calibracao-espelha-marcador-andar.test.js`) cobre só uma parte. Detalhe em [[calibracao-e-grafo-360]].
+
 **`/projects` tem contrato próprio, e ele NÃO é a linha do Postgres.** O shape público é o do serviço legado que o frontend consome: camelCase, com as coordenadas **aninhadas** em `center: { lat, lon }`. A coluna se chama `center_long`; o campo exposto é `center.lon`. Esta linha dizia só "em `/projects` o campo é `center_long`", que descrevia a coluna e dava a entender que a linha saía crua, e ela saía, até 2026-07-26. Com dado real isso quebrou os três consumidores de uma vez e em silêncio: a camada 360 do mapa 2D nunca aparecia (lançava em `p.center.lon`), a busca perdia as coordenadas e o catálogo de atlas perdia as miniaturas. Preso por `sv360-contract.test.js` (o shape, não só os slugs); a forma nasce em `publicProjectView` (`backend/src/modules/streetview360/sv360.service.js`).
 
 A forma pública ganhou `previewVideo` em 2026-08-21, e ele ilustra a regra: a coluna é `preview_video`, o campo exposto é camelCase, e `sv360-contract.test.js` afirma a ausência de snake_case no payload. O valor vem de coluna e não de um `config`, porque `sv360.projects` é a única das cinco tabelas de recurso sem JSONB de configuração, e daí a rota de escrita própria `PATCH /admin/projects/:slug`, que nasce com um campo só de propósito. Ver [[resources-catalogo]].
@@ -73,7 +75,7 @@ A forma pública ganhou `previewVideo` em 2026-08-21, e ele ilustra a regra: a c
 
 ## Validação de calibração não tem faixas (de propósito)
 
-Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas não têm CHECK (`backend/src/modules/streetview360/sv360.write.schemas.js`). `heading: 400` e `distance_scale: 0` são **aceitos**. Não adivinhe faixas: as reais vivem no fonte não portado `1cgeo/ebgeo_360`, e apertar aqui rejeitaria valores que o cliente legítimo já envia. Corpo vazio ou campo desconhecido dá 422 (todos os schemas são `.min(1)` + `.unknown(false)`).
+Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas não têm CHECK (`backend/src/modules/streetview360/sv360.write.schemas.js`). `heading: 400` e `distance_scale: 0` são **aceitos**. Não adivinhe faixas: apertar aqui rejeitaria valores que o acervo já carrega, gerados pelo pipeline de ingestão e não pelo estúdio. As únicas faixas do produto são de tela, valem só para as três rotações de malha e vivem no estúdio, que hoje mora aqui: ver [[calibracao-e-grafo-360]]. Corpo vazio ou campo desconhecido dá 422 (todos os schemas são `.min(1)` + `.unknown(false)`).
 
 ## Tiles e o quirk do cliente
 
@@ -89,7 +91,7 @@ Quirk que confunde na leitura do cliente: a camada de pontos usa o source id lit
 
 O pré-filtro passou a perguntar pelo **escopo de produção**, e a troca fechou o buraco em vez de renomeá-lo: enquanto ele perguntava por `org_role`, qualquer conta que se dissesse editora de qualquer OM (crachá dentro de uma lotação auto-declarada) passava por ali e escrevia o teto inteiro de upload em disco antes do 403 do serviço. `producer_org_id` só um administrador concede, e o caminho é `auth` estrito, que o reconcilia contra o banco antes de chegar aqui. O `diskStorage` grava no mesmo volume de `SV360_DB_DIR` para que o rename final seja atômico, não cross-device.
 
-`PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `frontend/src/js/admin/catalog-tab.js`, ao lado de [[resources-catalogo]] e [[resources-catalogo]].
+`PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `frontend/src/js/admin/catalog-tab.js`, ao lado de [[resources-catalogo]].
 
 Thumbnail: a **URL** é por slug, mas o **arquivo em disco é org-keyed** (`{orgId}__{slug}.webp`), então duas OMs com o mesmo slug não colidem nem vazam. O `:slug` passa por `path.basename` ([[hardening-borda-api]]) e o **underscore** faz parte do charset aceito, por uma razão que importa: ele é o que `sanitizeSlug` (`backend/src/modules/streetview360/sv360.merge.js`) define como seguro em disco, e slug real tem underscore (14 dos 28 projetos do acervo). Enquanto o padrão aqui era kebab-only, metade do acervo respondia 422 na própria miniatura. O que o padrão precisa barrar é separador de caminho, e `_` não é.
 

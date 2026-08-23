@@ -7,8 +7,15 @@
  * author's initials; REPLIES are separate entities (parentId) so concurrent replies never clobber
  * (P10). Persistence-first via runTransaction (like feature.operations); the sync op is logged in
  * deferAsync. Each op emits a COMMENT_* event so the map overlay + thread panel refresh — local and
- * remote are symmetric (remote-operation-handler emits the same events). On the local-only map the
- * dispatcher drops the op (non-UUID mapId), so commenting works fully offline (P1).
+ * remote are symmetric (remote-operation-handler emits the same events).
+ *
+ * COMMENTING DOES NOT WORK OFFLINE, and this header claimed the opposite until 2026-08-23 ("so
+ * commenting works fully offline (P1)"). `guardComment`, twenty lines below, refuses every write
+ * with `not-authenticated` when there is no session, and the reason is in its own comment: a comment
+ * needs an AUTHOR, and anonymous has none. What the dispatcher's non-UUID drop buys is narrower:
+ * on the local-only map a LOGGED-IN user comments without the op leaking to a server that has no
+ * such map. Two opposite claims lived in one file, and the false one was the one a reader meets
+ * first. Anonymous can only VIEW comments, e.g. ones imported from a remote `.ebgeo`.
  */
 
 import { getRepository } from './repositories/index.js';

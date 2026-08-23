@@ -1,10 +1,12 @@
 # Modelo de dados: revisão do ER
 
-Revisão transversal dos quatro schemas do banco (`public`, `ng`, `sv360` e o `_migrations` do runner), procurando duplicidade de conceito, coluna sem escritor, tabela sem leitor e relação sem FK. Complementa [[atlas-modelo-de-dados]], que cobre o domínio do atlas em profundidade e não sai dele.
+Revisão transversal do banco, procurando duplicidade de conceito, coluna sem escritor, tabela sem leitor e relação sem FK. Complementa [[atlas-modelo-de-dados]], que cobre o domínio do atlas em profundidade e não sai dele.
+
+**Escopo da medida: os schemas `public`, `ng` e `sv360`, como estavam em 2026-08-19.** O `a3d` nasceu depois ([[acervo-3d-convertido]]) e nada aqui foi medido contra ele. E `_migrations` não é schema, é a TABELA de tracking do runner (`backend/src/database/migrate.js`), que uma versão anterior desta linha contava como o quarto.
 
 ## Como isto foi medido, e o que a medida não alcança
 
-A MEDIÇÃO É ANTERIOR À CONSOLIDAÇÃO das migrações, e os números abaixo refletem o schema daquele momento: um banco limpo foi criado e migrado pelas 22 migrações de então (hoje são 8 baselines por domínio, e o schema que elas produzem é o mesmo menos o que os achados 1, 2 e 3 derrubaram: o catálogo 3D do `ng` com as duas tabelas de permissão de modelo, as duas tabelas de grupo daquele schema com o subsistema de zonas inteiro, a tabela de edificações e o eixo de acesso do gazetteer). A estrutura veio de `information_schema.columns`, `pg_constraint`, `pg_indexes`, `pg_proc` e `pg_trigger`, nunca da leitura dos arquivos `.sql`: prosa de migração descreve a intenção, e o que vale é o que ficou de pé. Números da estrutura: **49 tabelas, 441 colunas, 161 índices, 62 chaves estrangeiras, 13 funções e 5 triggers próprios**.
+A MEDIÇÃO É ANTERIOR À CONSOLIDAÇÃO das migrações, e os números abaixo refletem o schema daquele momento: um banco limpo foi criado e migrado pelas 22 migrações de então (hoje é uma baseline por domínio, e o schema que elas produzem é o mesmo menos o que os achados 1, 2 e 3 derrubaram: o catálogo 3D do `ng` com as duas tabelas de permissão de modelo, as duas tabelas de grupo daquele schema com o subsistema de zonas inteiro, a tabela de edificações e o eixo de acesso do gazetteer). A estrutura veio de `information_schema.columns`, `pg_constraint`, `pg_indexes`, `pg_proc` e `pg_trigger`, nunca da leitura dos arquivos `.sql`: prosa de migração descreve a intenção, e o que vale é o que ficou de pé. Números da estrutura: **49 tabelas, 441 colunas, 161 índices, 62 chaves estrangeiras, 13 funções e 5 triggers próprios**.
 
 O uso foi medido por três caminhos independentes, porque nenhum deles sozinho decide:
 
@@ -18,8 +20,8 @@ O uso foi medido por três caminhos independentes, porque nenhum deles sozinho d
 
 ## Estado desta revisão: o que JÁ foi executado
 
-Esta página foi escrita como revisão, para o dono ler e decidir. Os três primeiros achados foram
-autorizados e executados na mesma fase, e cada um carrega seu desfecho no corpo:
+Esta página foi escrita como revisão, para o dono ler e decidir. Os achados abaixo já têm desfecho, e
+cada um o carrega no corpo:
 
 - **Achado 1 (dois catálogos de modelo 3D): FEITO.** O catálogo do schema `ng`, as duas tabelas de
   permissão de modelo, a rota e as consultas saíram; o importador foi repontado para `tilesets`.
@@ -29,11 +31,19 @@ autorizados e executados na mesma fase, e cada um carrega seu desfecho no corpo:
 - **Achado 3 (eixo de grupo sem escritor): FEITO, e nas duas metades.** As tabelas de grupo do `ng`
   e o subsistema de zonas que as consumia saíram; conceder a um coletivo renasceu no schema da
   aplicação, com entidade, membros e alvo de concessão.
+- **Achado 5 (`active_sessions` sem leitor): FEITO, em 2026-08-23.** A tabela e os dois índices não
+  foram recriados; `backend/src/database/migrations/004_sync.sql` explica a ausência no lugar em que
+  ela morava, e a asserção passou a medir que um ciclo de socket não emite escrita nenhuma, em vez
+  de contar linhas daquela tabela.
+- **Achado 14 (alvos de auditoria sem emissor): DECIDIDO, ao contrário do que esta página
+  recomendava.** Os quatro valores foram redeclarados como vocabulário reservado, com o motivo ao
+  lado da coluna; `ZONE` não foi, e a assimetria é a armadilha registrada lá.
 
-**Todo o resto desta página segue sendo recomendação, não histórico.** Nenhum outro achado foi
-executado, e um deles (o 14) foi decidido ao contrário do que esta página recomendava, com o motivo
-registrado lá: a fase que produziu esta revisão executou apenas o que a especificação autorizou por
-escrito, e uma revisão que se auto-executa deixa de ser revisão.
+**O resto desta página segue sendo recomendação, não histórico**, e a distinção importa para quem a
+lê como plano: a fase que produziu a revisão executou apenas o que a especificação autorizou por
+escrito, e uma revisão que se auto-executa deixa de ser revisão. Antes de agir sobre um achado que
+não esteja na lista acima, confira no código: o desfecho pode ter chegado depois dela, que foi
+exatamente o caso do 5 e do 14.
 
 ---
 
@@ -91,7 +101,7 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 **Evidência (medida enquanto a tabela existia).** A varredura de escritores não achou `INSERT` nem `UPDATE` em `active_sessions` em lugar nenhum de `backend/src`. A estatística do banco real confirma pelo outro lado: depois da suíte inteira, `n_tup_ins = 1` (um caso de teste), `active_sessions_pkey` e `idx_sessions_heartbeat` com `idx_scan = 0`. A presença viva é o `Map` em memória de `backend/src/modules/collab/collab.rooms.js`. A migração `backend/src/database/migrations/004_sync.sql` documenta a remoção das duas chamadas em 2026-07-25 e diz por que a tabela ficou: "migração é forward-only e aditiva".
 
-**Custo que ela impunha.** O custo declarado na própria 003 é o certo ("coluna viva pela metade engana MAIS que coluna ausente"), e ele continua valendo. O custo novo é outro: **o argumento que a manteve era a regra forward-only, e a consolidação a suspende por autorização do dono.** Num schema esmagado, recriar `active_sessions` é uma escolha deliberada de criar uma tabela morta.
+**Custo que ela impunha.** O custo declarado ao lado dela é o certo ("coluna viva pela metade engana mais que coluna ausente"), e ele continua valendo: a frase sobreviveu ao rebaselinamento e hoje mora no bloco que explica a ausência, em `backend/src/database/migrations/004_sync.sql`. O custo novo é outro: **o argumento que a manteve era a regra forward-only, e a consolidação a suspende por autorização do dono.** Num schema esmagado, recriar `active_sessions` é uma escolha deliberada de criar uma tabela morta.
 
 **Resolução (2026-08-23).** O dono decidiu **não recriar**. A tabela e os dois índices saíram de `backend/src/database/migrations/004_sync.sql`, que agora explica a ausência no lugar em que ela morava. A afirmação que os testes protegiam mudou de forma junto: em vez de contar linhas de UMA tabela, `backend/tests/ws/collab-presenca-sem-banco.test.js` mede com contador de pool que um ciclo de socket não emite escrita NENHUMA, o que é mais forte, porque uma escrita de presença que fosse parar noutra tabela passava pelo teste antigo. Registrado em [[presenca-colaborativa]] e em [[canal-collab-websocket]]. Se a presença durável voltar, começa pelo LEITOR, com reaper e heartbeat no mesmo commit.
 
@@ -119,7 +129,7 @@ O que fecha hoje é a poda por conteúdo em `backend/src/modules/catalog/resourc
 
 **Custo de deixar como está.** Um portador cujo fechamento depende de um filtro de saída em vez de não existir dado para filtrar. O `free-field.schemas.js` explica por que ele não é fechável por validação (os testes de contrato congelam valores aninhados dentro dele, do domínio da grade) e diz, com todas as letras, que esvaziá-lo é pergunta de `DROP COLUMN`, não de validação.
 
-**Recomendação.** **Fica, com motivo escrito, e o motivo é o do `free-field.schemas.js`.** Esta fase não deve derrubá-lo: ao contrário de `maps.catalog_layers`, ele tem contrato de cliente congelado apontando para dentro. O que a F15 deve fazer é **não perder a prosa** na consolidação: o comentário de `002_atlas.sql` sobre o bloco JSONB é justamente o tipo de material que a Parte 2 tem de preservar.
+**Recomendação.** **Fica, com motivo escrito, e o motivo é o do `free-field.schemas.js`.** Esta fase não deve derrubá-lo: ao contrário de `maps.catalog_layers`, ele tem contrato de cliente congelado apontando para dentro. O que a F15 devia fazer era **não perder a prosa** na consolidação, e ela sobreviveu: o comentário sobre o bloco JSONB de `maps` está em `backend/src/database/migrations/003_atlas.sql`, ao lado da coluna.
 
 ---
 
@@ -131,7 +141,7 @@ O que fecha hoje é a poda por conteúdo em `backend/src/modules/catalog/resourc
 
 **Custo de deixar como está.** `idx_operations_entity`, sobre `(entity_type, entity_id)`, não responde "o histórico desta camada de catálogo": todas as camadas de um atlas colidem no mesmo valor. E qualquer código futuro que chaveie por `entityId` no log herda o mesmo verde vazio. A estatística do banco real dá o tamanho da perda pelo outro lado: `idx_operations_entity` foi escaneado **5 vezes** na suíte inteira, contra 690 de `idx_operations_atlas_version` e 1362 de `operations_atlas_op_id_uniq`.
 
-**Recomendação.** **Fica agora, decide depois, e o registro é o entregável.** Alargar `entity_id` para TEXT é o mesmo alargamento já feito duas vezes nesta casa (a 006 e a 020) e pelo mesmo motivo (o id do domínio nunca foi UUID), mas ele mexe no log, que é a estrutura mais quente do sistema, e a fase que o fizer precisa de repro próprio. O que **não** deve acontecer é o alargamento entrar de carona na consolidação: a Parte 2 promete estado final idêntico, e trocar o tipo desta coluna é mudança de comportamento disfarçada de arrumação. Ver [[tabela-operations]].
+**Recomendação.** **Fica agora, decide depois, e o registro é o entregável.** Alargar `entity_id` para TEXT é o mesmo alargamento já feito duas vezes nesta casa, e pelo mesmo motivo (o id do domínio nunca foi UUID): `catalog_layers.id` (`backend/src/database/migrations/003_atlas.sql`, que explica o poison pill ao lado da coluna) e `audit_trail.target_id` (`backend/src/database/migrations/002_auditoria.sql`, TEXT para caber slug e chave textual). Mas ele mexe no log, que é a estrutura mais quente do sistema, e a fase que o fizer precisa de repro próprio. O que **não** deve acontecer é o alargamento entrar de carona na consolidação: a Parte 2 promete estado final idêntico, e trocar o tipo desta coluna é mudança de comportamento disfarçada de arrumação. Ver [[tabela-operations]].
 
 ---
 
@@ -172,7 +182,7 @@ Fora da família, dois índices GIN com custo de manutenção alto e nenhuma con
 
 **O que é.** `atlas.settings.available_*` (quatro listas dentro do JSONB) e a tabela `atlas_resources` respondem à mesma pergunta de tela ("que recursos este atlas oferece") com regras invertidas.
 
-**Evidência.** A 017 escreve a distinção por extenso: `settings.available_*` é **restritivo** com "vazio igual a sem restrição" (contrato congelado), e `atlas_resources` é **ampliativo** com "vazio igual a não empresta nada". Os dois estão vivos: o restritivo é montado em `frontend/src/js/modals/atlas-settings.modal.js` e aplicado em `frontend/src/js/store/sync/atlas-settings.service.js`; o ampliativo é o segundo braço de `fn_granted_resource_ids`.
+**Evidência.** A distinção está escrita por extenso ao lado de `atlas_resources`, em `backend/src/database/migrations/008_acesso_a_recurso.sql`: `settings.available_*` é **restritivo** com "vazio igual a sem restrição" (contrato congelado), e `atlas_resources` é **ampliativo** com "vazio igual a não empresta nada". Os dois estão vivos: o restritivo é montado em `frontend/src/js/modals/atlas-settings.modal.js` e aplicado em `frontend/src/js/store/sync/atlas-settings.service.js`; o ampliativo é o segundo braço de `fn_granted_resource_ids`.
 
 **Custo de deixar como está.** O administrador vê **duas** superfícies para o mesmo recurso, e o efeito de marcar uma não é o inverso de marcar a outra. Um recurso privado emprestado por `atlas_resources` e ausente de `available_3d_models` continua invisível, e nada explica isso na tela.
 
@@ -262,8 +272,8 @@ Trinta e duas colunas de referência não tinham chave estrangeira na medida (ci
 
 | coluna | o que a segura |
 |---|---|
-| `features.layer_id` | Nada, e é o ponto. A migração `002_atlas.sql` explica em vinte linhas: op chega por ordem de chegada num log, não em ordem topológica, então a FK viraria `23503` envenenando o lote inteiro e travando a fila daquele cliente para sempre. O cliente degrada mostrando a feição fora de camada |
-| `resource_grants.resource_id`, `atlas_resources.resource_id` | Polimorfismo. Quatro tabelas alvo com tipos de chave diferentes, e o Postgres não tem FK polimórfica. A órfã é contida por catálogo ser soft-delete e pelo único hard-delete apagar as concessões na mesma transação (017) |
+| `features.layer_id` | Nada, e é o ponto. `backend/src/database/migrations/003_atlas.sql` explica ao lado da coluna: op chega por ordem de chegada num log, não em ordem topológica, então a FK viraria `23503` envenenando o lote inteiro e travando a fila daquele cliente para sempre. O cliente degrada mostrando a feição fora de camada |
+| `resource_grants.resource_id`, `atlas_resources.resource_id` | Polimorfismo. Quatro tabelas alvo com tipos de chave diferentes, e o Postgres não tem FK polimórfica. A órfã é contida por catálogo ser soft-delete e pelo único hard-delete apagar as concessões na mesma transação (`backend/src/database/migrations/008_acesso_a_recurso.sql`) |
 | `audit_trail.actor_id`, `audit_trail.target_id` | Nada, deliberadamente: a trilha precisa sobreviver ao `DELETE` do usuário e do alvo. `target_id` é TEXT para caber slug e chave textual |
 | `sv360.deleted_photos.photo_id` | Nada: é lápide, e a linha da foto pode já ter sumido |
 | `operations.entity_id`, `operations.map_id` | Nada: log de aplicação. Ver o achado 8 para o outro problema desta coluna |
@@ -273,10 +283,10 @@ Trinta e duas colunas de referência não tinham chave estrangeira na medida (ci
 | coluna | aponta para | o que a segura |
 |---|---|---|
 | `maps.base_layer` | `basemaps.id` | Nada. O DEFAULT `'carta-topografica'` casa com uma linha semeada, e é só isso. Um basemap removido do catálogo deixa mapas apontando para o vazio |
-| `cesium3d_data.tileset_id` | `tilesets.id` | Nada. A 015 registra que é assim de propósito: um tileset removido deixa marcador e medição existindo sem catálogo |
+| `cesium3d_data.tileset_id` | `tilesets.id` | Nada, e `backend/src/database/migrations/005_catalogo.sql` registra que é assim de propósito ("as tabelas de 3D guardam `tileset_id` como texto livre"): um tileset removido deixa marcador e medição existindo sem catálogo |
 | `slides.model_id` | `tilesets.id` | Nada. O slide de briefing referencia modelo por `modelId` |
 | `slides.photo_id` | `sv360.photos.id` | Nada. Mesma família |
-| `sv360.projects.entry_photo_id` | `sv360.photos.id` | Nada, e a 005 diz por quê: a foto pode não existir no momento da ingestão |
+| `sv360.projects.entry_photo_id` | `sv360.photos.id` | Nada, e `backend/src/database/migrations/007_sv360.sql` diz por quê ao lado da tabela: é referência LÓGICA, porque a foto pode não existir no momento da ingestão |
 
 Nesta família o que **de fato** protege o usuário é o `is_broken` de `slides`, e ele só cobre um dos quatro casos (mapa apagado), por trigger.
 
@@ -304,7 +314,7 @@ Nenhuma remoção além da que a especificação da F15 autoriza. Em particular,
 
 - **`ng.nomes_geograficos` fica inteira.** Ela não tem escritor em `backend/src` e isso é o desenho: é dado de referência alimentado por ETL e servido em leitura. (A tabela de edificações caiu depois, com a rota que a servia, e não por este critério.)
 - **`sv360.targets.override_bearing` não entra na lista de remoção** do achado 15, porque tem leitor, ainda que só da nulidade. Medir o valor e medir a existência do valor são coisas diferentes.
-- **A distinção entre `atlas.settings.available_*` e `atlas_resources` não é para ser unificada** (achado 11), e a 017 já explica por quê.
+- **A distinção entre `atlas.settings.available_*` e `atlas_resources` não é para ser unificada** (achado 11), e `backend/src/database/migrations/008_acesso_a_recurso.sql` já explica por quê.
 - **`maps.analysis_layers` não é para cair junto com `maps.catalog_layers`** (achado 7), e a diferença é contrato de cliente congelado apontando para dentro dele.
 
 ---
@@ -312,4 +322,5 @@ Nenhuma remoção além da que a especificação da F15 autoriza. Em particular,
 ## Histórico
 
 - 2026-08-19: página criada como entregável da Parte 1 da fase F15 (revisão do ER), medida contra o banco real migrado pelas 22 migrações e contra a estatística de execução da suíte de backend (3249 casos, verde, zero skips).
+- 2026-08-23: a seção-índice dizia que "nenhum outro achado foi executado" enquanto o corpo da mesma página já registrava o desfecho do 5 e do 14, ou seja, o índice contradizia o texto que indexava. Os dois entraram na lista, e a frase absoluta virou um convite a conferir no código. Junto saíram os números de migração soltos que o rebaselinamento matou (a 003, a 005, a 006, a 015, a 017, a 020 e as duas citações de um arquivo de atlas numerado 002, que nunca existiu com esse nome: a baseline de atlas é `backend/src/database/migrations/003_atlas.sql`): cada um foi trocado pelo caminho completo do arquivo que hoje carrega aquele texto, e a lição é a que a convenção já dizia por outro motivo, que número de migração não é endereço estável. Também saiu o "8 baselines por domínio", que envelheceu na primeira baseline nova, e o `_migrations` contado como schema.
 - 2026-08-19, depois da remoção: os achados 2 e 3 tinham metade do texto no presente sobre objetos que a própria fase apagou, e a recomendação binária do 3 continuava viva depois de decidida. Os dois viraram desfecho, e as linhas dos dois inventários que apontavam para as tabelas de zona e de grupo do `ng` saíram com elas. O que a página conserva desses achados é a lição (predicado copiado é lista fechada; meio eixo de permissão mente), não o objeto.

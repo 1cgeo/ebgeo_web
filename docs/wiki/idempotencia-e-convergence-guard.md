@@ -14,7 +14,7 @@ O código é denso em comentários de projeto: o bloco que abre `CONVERGENCE_GUA
 
 ## O invariante que atravessa três arquivos
 
-O contador de edição pendente é incrementado em `frontend/src/js/store/sync/operation-dispatcher.js`, decrementado via ack HTTP em `recordPushAcks` e varrido em `reconcilePendingLocalEdits` (`frontend/src/js/store/sync/sync-engine.js`). Nenhum arquivo mostra o laço inteiro.
+O contador de edição pendente é incrementado em `frontend/src/js/store/sync/operation-dispatcher.js`, decrementado via ack HTTP em `recordPushAcks` (`frontend/src/js/store/sync/sync-engine.js`) e varrido por `reconcilePendingLocalEdits`, que é **definida** em `frontend/src/js/store/sync/remote-operation-handler.js`, junto do estado que ela reconcilia, e **chamada** pelo engine ao fim de todo flush. A separação é a própria razão da seção: o dono do contador e o dono da fila são arquivos diferentes, e nenhum dos dois mostra o laço inteiro.
 
 **Não confie no par mark/resolve.** A simetria vaza por compactação de fila, ops em lote, ack sem versão ou lote envenenado, e uma contagem vazada adia ops remotas *para sempre* naquela entidade (divergência silenciosa, sem log). Quem conserta é `reconcilePendingLocalEdits`, que reconcilia contra a fila de operações como fonte de verdade e roda tanto no sucesso quanto na falha do flush. Ao mexer na guarda, o teste de aceitação é esse caminho, não o par feliz.
 

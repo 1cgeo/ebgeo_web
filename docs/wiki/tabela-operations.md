@@ -6,7 +6,9 @@ DDL, colunas e índices em `backend/src/database/migrations/004_sync.sql`; o INS
 
 ## Por que ela é a única porta de escrita
 
-Não existe rota REST de escrita para feature/layer/group/map/briefing/slide/3D/360: toda mutação vira uma linha aqui e, na mesma transação, um write na tabela de entidade (ver [[sintese-rest-vs-sync]] e [[api-rest-atlas]]).
+Não existe rota REST de escrita **incremental** para feature/layer/group/map/briefing/slide/3D/360: toda mutação de um pedaço dessas entidades vira uma linha aqui e, na mesma transação, um write na tabela de entidade (ver [[sintese-rest-vs-sync]] e [[api-rest-atlas]]).
+
+**A palavra "incremental" é o que impede a leitura errada**, e a leitura errada custou: sem ela a regra parece proibir as **quatro** exceções estruturais que existem de propósito, todas operações de entidade INTEIRA cujo efeito não se expressa como sequência de ops. São merge de mapas, import de atlas, duplicação de mapa (`POST /:atlasId/maps/:mapId/duplicate`) e clone de atlas (`POST /:atlasId/clone`, `backend/src/modules/atlas/atlas.routes.js`, ver [[clone-atlas]]). Racional em [[modelo-conflito-lww]].
 
 A tabela acumula duas funções distintas, e confundi-las é o erro clássico: **ordenação** (`server_version` decide quem vence, ver [[modelo-conflito-lww]]) e **replay incremental** (`WHERE server_version > $cursor` alimenta o pull, ver [[snapshot-e-pull-incremental]]).
 
@@ -21,7 +23,7 @@ A tabela acumula duas funções distintas, e confundi-las é o erro clássico: *
 
 Assimetria que confunde em debug: o push devolve `serverVersion` de um `MAX(server_version)` sobre `operations`, enquanto o pull devolve `atlas.current_version`, mantido pelo trigger `trg_update_atlas_version`. Fontes diferentes para o mesmo número, ver [[atlas-modelo-de-dados]].
 
-> **Nota histórica.** O guia *arquitetura-sync* (absorvido) §8.1 diz que o trigger mantém `atlas.current_version = MAX(server_version)`; ele na verdade faz `SET current_version = NEW.server_version`, o valor da **última linha inserida**, sem `MAX`. Coincide na prática porque o advisory lock serializa os inserts por atlas. Quem inserir na tabela fora de `pushOperations` quebra a igualdade.
+> **O trigger não faz `MAX`, e é fácil supor que sim.** `trg_update_atlas_version` faz `SET current_version = NEW.server_version`, ou seja o valor da **última linha inserida**. Coincide com o máximo na prática só porque o advisory lock serializa os inserts por atlas; quem inserir na tabela fora de `pushOperations` quebra a igualdade sem nenhum erro.
 
 ## Idempotência: onde ela não vale
 
@@ -53,13 +55,14 @@ Ainda assim, **a deduplicação de eco é por `clientId`, não por esse id** ([[
 
 Todo o batch roda numa transação só, dentro de `pushOperations` (`backend/src/modules/sync/sync.service.js`), mas **cada op corre num SAVEPOINT próprio**: uma violação de dado reverte só ela, log e entidade juntos. Mas o log é escrito **antes** do apply. Um update que casou zero linhas (mapId de outro atlas, guarda `EXISTS`) é acked com sucesso e mesmo assim não escreveu nada. Essa cegueira é exatamente o que o span `SERVER_APPLIED` com `rowsAffected` existe para expor (ver [[syncledger]]). Lote acima de `MAX_OPS_PER_PUSH = 500` dá 422, ver [[erros-api]].
 
-**Falha não é o mesmo que recusa, e essa distinção é recente.** Uma violação de *nível* (principal `read` ou `comment` empurrando escrita) segue lançando de `assertOperationAllowed` e derrubando o lote inteiro com 403, porque um lote assim é inteiramente suspeito. Já a recusa **por operação** não aborta nada e hoje tem três famílias, com a mesma forma de ack (`rejected: true` + `reason`, 200 no lote):
+**Falha não é o mesmo que recusa, e essa distinção é recente.** Uma violação de *nível* (principal `read` ou `comment` empurrando escrita) segue lançando de `assertOperationAllowed` e derrubando o lote inteiro com 403, porque um lote assim é inteiramente suspeito. Já a recusa **por operação** não aborta nada, e ela não é um número: é uma cadeia de predicados encadeada por `??` em `pushOperations`, todos com a mesma forma de ack (`rejected: true` + `reason`, 200 no lote). Cinco correm **antes** do INSERT, na ordem do mais barato para o que precisa do banco, e a sexta forma é apanhada depois:
 
-- *política* (`operationDenialReason`, `lockedMapDenialReason`): excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado;
-- *violação de dado*: SQLSTATE classe 22/23 (CHECK, FK, `22P02`, NOT NULL), classificada por `integrityRejectionReason` e traduzida num motivo genérico em pt-BR, porque o texto do driver carrega nome de constraint e depende do locale;
-- *alvo desconhecido* (`unknownTargetDenialReason`): `entityType` que o `applyOperation` não sabe aplicar. É a única das três recusada **antes** do INSERT, porque uma op que ninguém consegue aplicar não pode consumir `server_version` nem ser replicada. Até 2026-07-25 ela era gravada aqui e acked como sucesso, o que fazia esta tabela guardar a única cópia de um dado que o cliente já tinha descartado.
+- *endereçamento e alvo*: `foreignAtlasDenialReason` (a op DECLARA ter nascido em outro atlas) e `unknownTargetDenialReason` (`entityType` que o `applyOperation` não sabe aplicar). Elas não podem consumir `server_version` nem ser replicadas; até 2026-07-25 a segunda era gravada aqui e acked como sucesso, o que fazia esta tabela guardar a única cópia de um dado que o cliente já tinha descartado;
+- *política*: `operationDenialReason` (excluir mapa sem `manage`, travar ou destravar sem ser dono) e `lockedMapDenialReason` (escrever em mapa bloqueado), esta última já com round-trip ao banco;
+- *visibilidade de recurso*: `unseenResourceDenialReason`, o predicado que nenhuma outra página de sync nomeava. Um `create`/`update` que REFERE um recurso privado invisível ao autor é recusado, para que ninguém plante no atlas uma referência que não consegue abrir; `delete` fica de fora de propósito. Ver [[acesso-a-recurso-privado]] e [[sair-do-servidor]];
+- *violação de dado*: SQLSTATE classe 22/23 (CHECK, FK, `22P02`, NOT NULL), classificada por `integrityRejectionReason` no `catch` do SAVEPOINT e traduzida num motivo genérico em pt-BR, porque o texto do driver carrega nome de constraint e depende do locale. É a única que chega **depois** da escrita no log, e por isso a única que precisa do rollback do savepoint.
 
-As três compartilham o motivo de existir, e vale reter: enquanto isso lançava, uma única recusa congelava a fila outbound daquele usuário **para sempre**, porque o cliente não faz dequeue de lote que o servidor rejeitou. O que **continua** abortando o lote é só o que pode dar certo na retentativa (403 de nível, `40001`, `55P03`, queda de conexão), porque descartar op boa é irreversível e fila travada não é. Ver [[ack-idempotencia]], [[permissoes-atlas]] e [[sintese-contrato-erros-http]].
+Todas compartilham o motivo de existir, e vale reter: enquanto isso lançava, uma única recusa congelava a fila outbound daquele usuário **para sempre**, porque o cliente não faz dequeue de lote que o servidor rejeitou. O que **continua** abortando o lote é só o que pode dar certo na retentativa (403 de nível, `40001`, `55P03`, queda de conexão), porque descartar op boa é irreversível e fila travada não é. Ver [[ack-idempotencia]], [[permissoes-atlas]] e [[sintese-contrato-erros-http]].
 
 ## Não é arquivo histórico permanente
 
@@ -70,6 +73,8 @@ As três compartilham o motivo de existir, e vale reter: enquanto isso lançava,
 Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o cliente avançar o próprio relógio; nunca é comparado no servidor, nem o `client_timestamp`. O vencedor é sempre a última linha a chegar. Ver [[modelo-conflito-lww]].
 
 ## Histórico
+
+- 2026-08-23: esta página e [[ack-idempotencia]] contavam "três famílias" de recusa por op. A contagem envelheceu com a cadeia: faltavam a op que declara outro atlas e a recusa por recurso privado invisível ao autor, que nenhuma página de sync nomeava. Trocado o número pelos predicados, que têm nome e guarda.
 
 - 2026-07-25: a seção "Uma linha aqui prova recebimento, não efeito" dizia que qualquer op recusada revertia o lote inteiro. Isso valeu até `1d23ac9` (2026-07-19) e `aec63f8` (2026-07-24), que converteram as recusas de política (delete de mapa, lock/unlock, mapa bloqueado) em ack por op sem abortar a transação. A violação de nível continua abortando.
 - 2026-07-25: fechada a última porta do poison batch. A violação de **dado** (classe 22/23) também abortava o lote e devolvia um 400 genérico que não dizia QUAL op ofendeu, então o cliente reenviava o mesmo lote indefinidamente. Cada op passou a rodar num SAVEPOINT e a recusa virou por operação, com motivo genérico. Medido em `backend/tests/integration/sync-check-constraint-poison.test.js`, que até este dia pinava o defeito como comportamento aceito.

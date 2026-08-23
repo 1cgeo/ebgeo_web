@@ -1,7 +1,14 @@
 -- Path: src/database/migrations/006_ng.sql
 -- NG: o gazetteer PostGIS (schema `ng`) — dado de referência read-only, isolado
--- do atlas JSONB, com controle de acesso embutido na query (zonas geográficas).
--- Busca por 7 critérios, f_unaccent, tipo_peso, clusters DBSCAN.
+-- do atlas JSONB. f_unaccent, tipo_peso, clusters DBSCAN.
+--
+-- NÃO HÁ CONTROLE DE ACESSO AQUI, e esta linha afirmou o contrário até 2026-08-23
+-- ("controle de acesso embutido na query (zonas geográficas)"). A `BUSCA`
+-- (`backend/src/modules/nomes/nomes.queries.js`) tem QUATRO parâmetros e nenhum predicado
+-- de acesso; não existe tabela de zona neste schema. Todo nome de `ng.nomes_geograficos`
+-- é servido a qualquer chamador, anônimo inclusive, e isso é o desenho: dado de
+-- referência público. A mesma promessa falsa vivia em três arquivos e foi apagada nos
+-- três no mesmo commit.
 -- PostGIS exige superusuário para criar a extensão; em teste e em dev ela é
 -- pré-criada pelo runner (scripts/run-tests.js, scripts/dev-db.js).
 --

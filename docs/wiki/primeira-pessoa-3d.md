@@ -18,7 +18,7 @@ Fora de `config.tilesets`, a cena ficaria fora dos três em silêncio, que é ex
 
 **A armadilha de premissa aqui é sutil e vale registrar, porque a versão original desta decisão errou nela.** Dizer "uma seção escrita em `frontend/src/js/config.js` seria apagada no boot" é mecanicamente falso: `deepMergeInto` (`frontend/src/js/store/sync/runtime-config.js`) preserva chave ausente no payload do servidor. A restrição continua valendo por razões melhores, e são estas: o `fileoverview` do próprio `config.js` proíbe dado de deploy ali; não haveria caminho de administração sem rebuild; e no dia em que o backend emitir a chave, o valor do cliente é substituído sem aviso. **Apostar na ausência de uma chave não é contrato.**
 
-Não há seed e não haverá. A migração `015_remove_seeded_tileset.sql` já decidiu que o catálogo é ponto de configuração e não lugar de conteúdo de exemplo, e uma cena semeada faria toda instalação nova prometer 28,6 MB que ela não tem, com o sintoma silencioso de sempre: o pino aparece, o clique dá 404, e o viewer volta ao 2D sem dizer nada.
+Não há seed e não haverá. A remoção do tileset de demonstração já decidiu que o catálogo é ponto de configuração e não lugar de conteúdo de exemplo (o racional inteiro está em [[resources-catalogo]] §"O seed do catálogo é dado de PRODUÇÃO"), e uma cena semeada faria toda instalação nova prometer 28,6 MB que ela não tem, com o sintoma silencioso de sempre: o pino aparece, o clique dá 404, e o viewer volta ao 2D sem dizer nada.
 
 ## Um caminho só, sete endereços derivados
 

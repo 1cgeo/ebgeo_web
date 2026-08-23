@@ -8,11 +8,15 @@ São dados de *deploy*, não de atlas: carregados por job externo (FME, ingestã
 
 O preço: toda mudança (calibração 360, ingestão, revogação de concessão) só chega ao cliente na próxima requisição que ele decidir fazer. É o oposto do modelo assumido em [[canal-collab-websocket]] e [[presenca-colaborativa]], e é fácil escrever código novo assumindo o modelo errado.
 
-## A armadilha central: ninguém invalida nada hoje
+## A armadilha central: o MISS de escopo lido como "não existe 360"
 
-`_projectsCache` (`frontend/src/js/street_view_tool/streetview-api.service.js`) é populado **uma única vez** pelo `preflightCheck` no boot (`frontend/src/js/map_sig.js`), e só se invalida via `fetchProjects(true)`, que ninguém mais chama. O catálogo ([[resources-catalogo]]) e as configurações de atlas leem esse cache sem rede.
+O cache de projetos 360 (`frontend/src/js/street_view_tool/streetview-api.service.js`) **é invalidado**, e o mecanismo é o que surpreende: ele é chaveado por ESCOPO de acesso e zerado na LEITURA, não por um listener pendurado num evento. `adoptCurrentScope` compara o carimbo do cache com `currentResourceScope()` (`frontend/src/js/store/sync/resource-scope.js`) e, na divergência, esvazia antes de responder. Comparar na leitura falha FECHADO: um cache que ninguém lembrou de limpar no `disconnect` não vaza o acervo emprestado de um atlas para fora dele.
 
-Efeito atravessado: login/logout **não** refazem nada, e nenhum desses módulos escuta `SESSION_CHANGED` ([[sessao-boot-e-ciclo-de-vida]]; grep sem ocorrências em `search/`, `catalog/`, `street_view_tool/`). Um usuário que faz login continua vendo a lista de projetos 360 que o anônimo enxergava. Se você adicionar um consumidor novo, prenda-o a `SESSION_CHANGED`; não confie em o cache estar correto para a sessão atual.
+*(Esta seção afirmava o contrário em três pontos, e os três são falsos: que ninguém chama `fetchProjects(true)` (chama, é o `preflightCheck` do próprio módulo), que o cache é populado uma única vez, e que login e logout não refazem nada (`syncEngine.login` chama `refreshVisibleResources`). Planejar em cima dela produzia invalidação duplicada.)*
+
+**O modo de falha real é o oposto, e é o silencioso.** Fechado o vazamento, o MISS de escopo passa a ser indistinguível de "este deploy não tem 360": quem lê `getCachedProjects()` e trata `null` como lista vazia mostra tela VAZIA a cada troca de escopo, sem erro em lugar nenhum e sem suíte vermelha, porque lista vazia é resposta bem-formada. Aconteceu com três consumidores de uma vez.
+
+A forma canônica no ponto de leitura é `getCachedProjects() ?? await fetchProjects()`, e ela não depende de disciplina: o censo `frontend/tests/unit/cache-projetos-consumidores.test.js` varre por `git ls-files` e reprova tanto o leitor novo não classificado quanto o leitor que perdeu o refetch, nomeando o arquivo. **Não prenda consumidor novo a `SESSION_CHANGED`**: a soma dos recursos privados já roda nos dois caminhos de sessão, e um segundo mecanismo de invalidação só reintroduz a divergência que a chave por escopo fecha.
 
 ## Contratos congelados que quebram o cliente padrão
 
@@ -24,7 +28,9 @@ Os três divergem do envelope global, e a tabela canônica dessa divergência é
 
 ## O eixo de acesso não é uniforme entre estes módulos
 
-Catálogo, assets 3D e sv360 decidem visibilidade no servidor, cada um no seu ponto ([[acesso-a-recurso-privado]], [[assets3d-distribuicao]], [[hardening-borda-api]]): o que o chamador não pode ver não chega, então **não filtre no cliente**, renderize o que vier. Papel no atlas ([[permissoes-atlas]]), papel na OM ([[organizacoes-om]]) e concessão de recurso são eixos independentes ([[sintese-eixos-de-permissao]]).
+Catálogo, assets 3D e sv360 decidem visibilidade no servidor, cada um no seu ponto ([[acesso-a-recurso-privado]], [[assets3d-distribuicao]], [[hardening-borda-api]]): o que o chamador não pode ver não chega, então **não filtre no cliente**, renderize o que vier. Os eixos independentes são o papel no atlas ([[permissoes-atlas]]), o escopo de PRODUÇÃO da OM ([[organizacoes-om]]) e a concessão de recurso ([[sintese-eixos-de-permissao]]).
+
+**Não existe papel DENTRO da OM**, e esta seção o citava: a coluna `users.org_role` saiu do sistema em 2026-08-20, com o repro `frontend/tests/unit/org-role-nao-promove-em-atlas.repro.test.js` de pé (cláusula 1.4 de [`CONSTITUICAO.md`](../../CONSTITUICAO.md), vigente), e a baseline de identidade declara a ausência por extenso. O eixo de OM é a produção: `users.producer_org_id`, comparado com a OM dona do projeto em `canWriteProject` (`backend/src/modules/streetview360/sv360.write.service.js`), que é o gate de posse de toda escrita do 360. `users.organization_id` é lotação e não autoriza nada.
 
 A armadilha é generalizar isso para o módulo vizinho. O gazetteer **não tem eixo de acesso nenhum**: a marca de privacidade na linha e a concessão espacial por zona saíram em 2026-08-19, medidas como resíduo (as rotas de administração de zona não tinham tela, e a tabela de membros de grupo nunca teve escritor, então aquele ramo do predicado jamais devolveu linha), e busca de topônimo é aberta por decisão de produto. Quem for endurecer a borda aqui está reintroduzindo um sistema morto, e o cabeçalho de `backend/src/modules/nomes/nomes.queries.js` diz isso ao lado da consulta.
 

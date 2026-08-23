@@ -41,12 +41,12 @@ O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`openP
 
 O overlay de configuração por atlas continua valendo para o visitante, então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
 
-## Lacunas conhecidas
+## Propriedades permanentes do desenho
 
-- **Não existe renovação do token.** `setEphemeralToken` não arma timer e nada rechama `getPublicAtlas` depois do boot. O socket aberto sobrevive (a permissão é revalidada contra o banco, não contra o `exp`), mas uma **reconexão** após 1 hora falha com 401 no upgrade; a única recuperação é recarregar a página.
-- **A UI copia o token cru, não uma URL.** `frontend/src/js/modals/sharing.modal.js` escreve o `publicLink` no clipboard; o usuário precisa montar `…/?atlasPublico=<token>` na mão. É a lacuna mais visível da feature hoje.
-- **A resposta vaza mais que o mínimo.** A rota devolve `SELECT a.*` mais `owner_nome`/`owner_username`, sem projeção e sem auth, atrás apenas do `publicLinkLimiter`. Identidade do dono, `owner_id` e o próprio `public_link` saem para chamador anônimo. Se um dia a projeção for reduzida, o boot só exige de fato `id` e `publicToken`. Consequência para consumidores: o corpo é snake_case do banco com **um** campo camelCase enxertado (`publicToken`).
-- **O caminho é query string, não path.** O front lê `?atlasPublico=` (fixado em `frontend/tests/unit/atlas-link.test.js`); a rota `/atlas/public/:link` existe apenas como endpoint de API, e desenhar a URL do usuário em cima dela produz um link que não abre nada.
+- **A sessão de visitante tem teto de uma hora, e não há renovação.** `setEphemeralToken` não arma timer e nada rechama `getPublicAtlas` depois do boot. O socket já aberto sobrevive ao `exp`, porque a permissão é revalidada contra o banco e não contra o token; o que morre é a **reconexão**, que volta 401 no upgrade. A recuperação é recarregar a página, e é a mesma recuperação para qualquer perda de contexto do visitante, já que a fonte de verdade dele é a URL.
+- **O que se copia é o TOKEN, não uma URL.** O modal escreve o `publicLink` cru no clipboard (`frontend/src/js/modals/sharing.modal.js`), e é o usuário que monta `…/?atlasPublico=<token>`. Quem for automatizar a distribuição do link precisa montar a URL do seu lado; não existe forma canônica vinda do servidor.
+- **A resposta pública é a linha do banco, não uma projeção.** A rota devolve `SELECT a.*` mais `owner_nome`/`owner_username` (`FIND_ATLAS_BY_PUBLIC_LINK`, `backend/src/modules/atlas/atlas.queries.js`), sem auth e atrás apenas do `publicLinkLimiter`, então identidade do dono, `owner_id` e o próprio `public_link` chegam a chamador anônimo. O boot consome de fato só `id` e `publicToken`: qualquer estreitamento da projeção é compatível com o cliente, e qualquer coluna nova em `atlas` sai por aqui sozinha. Para consumidores, o corpo é snake_case do banco com **um** campo camelCase enxertado (`publicToken`).
+- **O endereço do usuário é query string, e o da API é path.** O front lê `?atlasPublico=` (fixado em `frontend/tests/unit/atlas-link.test.js`); `/atlas/public/:link` é endpoint de API e nada mais. Desenhar a URL do usuário em cima dela produz um link que não abre nada.
 
 ## Ver também
 

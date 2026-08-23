@@ -76,9 +76,9 @@ Três coisas **não** mudaram, e são as que se quebram sem perceber. O `delete`
 
 `GET /atlas/public/:link` devolve a linha inteira do atlas, `settings` inclusive, para chamador **anônimo**. A poda desta página alcança a **cópia**, não a resposta do próprio atlas: quem publica um link decide publicar o overlay que escreveu. É uma superfície diferente e uma decisão diferente, anotada aqui para que a próxima leitura não a confunda com um buraco desta.
 
-`CLASSIFY_RESOURCE_REFS` não filtra `sv360.projects` por `status = 'enabled'`, então a referência a um projeto público **desabilitado** sobrevive à cópia. O resíduo é pequeno (id de projeto público não é segredo) e ficou aberto.
+A classificação é **por nível de acesso, não por disponibilidade**, e o ramo do 360 é onde isso se vê: das cinco fontes que `CLASSIFY_RESOURCE_REFS` une (`backend/src/modules/resource-access/resource-access.queries.js`), quatro filtram por `active = true` e a de `sv360.projects` não filtra por `status`. Consequência: a referência a um projeto público **desabilitado** sobrevive à cópia. É o limite certo para o que a poda promete (ela decide quem PODE ver, e `disabled` é decisão de exibição, não de acesso), e o resíduo é um id de projeto público, que não é segredo. Quem for uni-los precisa decidir antes se `disabled` passa a significar "não copiável", que é uma pergunta de produto e não de poda.
 
-`slideSchema` valida `model_id` e `photo_id` como **UUID** enquanto as colunas são `VARCHAR(100)` e um id de catálogo é slug: um `.ebgeo` com slide 3D apontando para um tileset por slug leva 422 na borda. É anterior a esta poda e foi achado ao escrever a fixture hostil.
+`slideSchema` (`backend/src/modules/atlas/atlas.schemas.js`) valida `model_id` e `photo_id` como **UUID** enquanto as colunas são `VARCHAR(100)` e um id de catálogo é slug. A borda é, portanto, **mais estreita que o schema do banco**: um `.ebgeo` com slide 3D apontando para um tileset por slug leva 422 na entrada, antes de a poda chegar a opinar. Não é efeito desta poda (é anterior a ela, e apareceu ao escrever a fixture hostil), e importa aqui por um motivo só: um arquivo recusado na borda nunca produz relatório de poda, então a ausência de aviso não prova que nada foi podado.
 
 ## Onde isso encaixa
 

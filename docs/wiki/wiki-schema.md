@@ -8,7 +8,9 @@ As regras perenes de **como** a wiki é mantida, separadas do diretório de pág
 - **Wiki**: estas páginas. O agente é dono e mantém.
 - **Schema**: as regras abaixo.
 
-Cuidado com o vão de verificação aqui: o teste de integridade só valida link para **arquivo** com extensão conhecida (`frontend/tests/unit/docs-integridade.test.js`), então link para diretório (como o `../guias/` que esta seção manteve por horas depois da pasta sumir) apodrece sem quebrar nada.
+*(Nota histórica: esta seção avisava que link para DIRETÓRIO apodrecia sem quebrar nada, porque a regra de link exigia extensão conhecida. Fechado: `RE_LINK_DIR` e o laço ao lado dele em `frontend/tests/unit/docs-integridade.test.js` checam o diretório citado, e o comentário da própria constante registra o achado que a motivou.)*
+
+**O vão que sobra é outro, e é de SÍMBOLO, não de link.** O guarda de símbolo reconhece só três formas: camelCase, maiúsculas com underscore e o prefixo `fn_`. Então **nome de tabela ou de coluna entre crases é invisível para ele**, e snake_case minúsculo em geral também: citar uma tabela que nunca existiu, ou uma coluna removida no mês passado, passa verde. Onde a afirmação depender de um nome assim, ancore junto algo que o guarda enxergue (a função que consulta a coluna, o nome do CHECK em maiúsculas) ou o caminho do arquivo de migração, que a regra de caminho verifica.
 
 ## O critério: o código já é a evidência
 
@@ -41,7 +43,7 @@ Regra prática de proporção: se uma página é majoritariamente descrição do
 
 - **conceito**: um mecanismo ou ideia (`sync-crdt`, `permissoes-atlas`).
 - **entidade**: uma coisa concreta do sistema (`atlas`, `streetview-360`, `operacao-de-sync`).
-- **síntese** (prefixo `sintese-` no slug): conhecimento de segunda ordem que **cruza** páginas existentes: comparações, quadros de decisão, análises transversais. Crie quando uma comparação recorrente hoje vive espalhada. Seções: Comparação, Análise, Recomendações e Páginas comparadas (esta fechando o cross-link de volta).
+- **síntese** (prefixo `sintese-` no slug): conhecimento de segunda ordem que **cruza** páginas existentes: comparações, quadros de decisão, análises transversais. Crie quando uma comparação recorrente hoje vive espalhada. **Duas exigências de forma, e só duas:** a linha de resumo no topo (que vale para toda página) e uma seção FINAL de cross-link de volta, intitulada `## Páginas comparadas` ou `## Ver também`, listando as páginas que a síntese cruza. O corpo se organiza por armadilha, não por gabarito. *(Esta linha prescrevia as seções "Comparação, Análise, Recomendações"; nenhuma das sínteses existentes as tem, e uma regra que zero páginas cumprem não é regra, é ruído que ensina a ignorar o schema.)*
 
 ## Forma
 

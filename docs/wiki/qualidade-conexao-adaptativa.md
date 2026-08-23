@@ -35,7 +35,7 @@ O servidor não aplica nenhum dos três nem verifica se o cliente obedeceu.
 - **O servidor nunca mede RTT.** O heartbeat do servidor (`WS_HEARTBEAT_INTERVAL_MS`) mata conexão morta, não mede latência. A medição é responsabilidade exclusiva do cliente.
 - **A mensagem é unicast**, ao contrário de cursor e seleção da [[presenca-colaborativa]]. Ausência de `adaptive-settings` significa "banda inalterada", que é o caso comum, e não erro.
 - **`critical` não é motivo para derrubar o socket.** Reconexão e recuperação são assunto de [[snapshot-e-pull-incremental]] e do backoff em [[canal-collab-websocket]].
-- **`truncateCoords` parece dead code e não é.** Sem call site em `backend/src/`, coberta só por `backend/tests/unit/collab-quality.test.js` e marcada como preservação deliberada em `backend/src/modules/collab/collab.quality.js`. Uma limpeza automática (`npm run knip`) vai querer apagá-la.
+- **`truncateCoords` parece dead code e não é.** Sem call site em `backend/src/`, coberta só por `backend/tests/unit/collab-quality.test.js` e marcada como preservação deliberada em `backend/src/modules/collab/collab.quality.js`. O que a segura são essas duas coisas e nada mais: **nenhuma varredura de dead-code alcança o backend**, porque o `knip` da raiz delega só ao frontend (`package.json`) e o pacote do backend não tem nem script nem dependência de `knip`. A propriedade a reter é a inversa da intuição: aqui a função sobrevive por leitura humana e por um teste, não por estar fora do alcance de uma ferramenta que alguém acha que rodou.
 - Se for instrumentar, o span de transporte já existe no [[syncledger]]; qualidade de conexão não gera span próprio hoje.
 
 ## Nota histórica

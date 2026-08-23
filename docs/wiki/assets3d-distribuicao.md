@@ -1,6 +1,16 @@
 # Distribuição de binários 3D (/assets3d)
 
-Rota que serve tilesets e binários 3D como arquivos imutáveis, com dois backends de armazenamento (SQLite e filesystem) que expõem o mesmo contrato HTTP. O contrato está no código; esta página cobre o que ele não conta.
+Rota que serve tilesets e binários 3D como arquivos imutáveis, com TRÊS armazéns atrás de um caminho só (um `.3dtiles` por modelo, o SQLite plano e o sistema de arquivos) que expõem o mesmo contrato HTTP. O contrato está no código; esta página cobre o que ele não conta.
+
+## Três armazéns, uma rota, e a ordem é contrato
+
+`serveAsset` (`backend/src/modules/nomes/assets3d.controller.js`) tenta os três **nesta ordem**, e cada um responde a uma pergunta diferente:
+
+1. **um `.3dtiles` por modelo**, endereçado pelo prefixo reservado `m/<slug>/` (`parsePedidoDeModelo` e `computeTileETag` em `backend/src/modules/models3d/models3d.service.js`, `resolverModelo3d` em `backend/src/modules/models3d/models3d.index.js`). É por onde sai o acervo fotogramétrico convertido, e ele nasceu com a absorção do serviço 3D em 2026-08-22. Ver [[acervo-3d-convertido]];
+2. **o SQLite plano** `assets(rel_path, data)`, que serve o que ainda não foi convertido;
+3. **o sistema de arquivos**, que serve o que precisa de streaming e de `Range` barato, como a cena caminhável ([[primeira-pessoa-3d]]).
+
+O prefixo reservado é o que permitiu acrescentar o primeiro sem mexer no gate: o regime de acesso é indexado POR CAMINHO, então uma linha de catálogo publicada sob `m/<slug>/` é gateada sem nenhuma mudança. Um modelo que o catálogo não publica (sem linha, ou `active = false`) responde **404**, nunca 403, pela mesma escada de todo o resto desta página.
 
 ## O regime segue o RECURSO, não a rota
 
@@ -55,15 +65,21 @@ Compare com o 360, que resolve exatamente isso: `installSwap` (`backend/src/modu
 
 ## O semáforo, e por que ele libera em `finish` **e** `close`
 
-Só o ramo SQLite tem semáforo (`backend/src/modules/nomes/assets3d.controller.js`), porque ele materializa o Buffer inteiro no heap; o ramo filesystem faz `pipe` e não precisa. A liberação é idempotente e amarrada aos dois eventos (`backend/src/modules/nomes/assets3d.controller.js`) porque o Cesium **aborta requisições o tempo todo** ao trocar de LOD. Só com `finish`, cada abort vazaria um slot e a rota inteira travaria após 8 aborts (default de `ASSETS_3D_MAX_INFLIGHT`). Não simplifique isso para um único listener.
+O critério é onde o BLOB **materializa no heap**, e não qual ramo é qual: os DOIS armazéns de SQLite (o `.3dtiles` por modelo e o plano) passam pelo mesmo `comVaga`, sobre o mesmo `sem` (`backend/src/modules/nomes/assets3d.controller.js`); o ramo de filesystem faz `pipe` e fica de fora de propósito. A liberação é idempotente e amarrada aos dois eventos porque o Cesium **aborta requisições o tempo todo** ao trocar de LOD. Só com `finish`, cada abort vazaria um slot e a rota inteira travaria após 8 aborts (default de `ASSETS_3D_MAX_INFLIGHT`). Não simplifique isso para um único listener.
 
-Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire`. Revalidação de cache nunca fica na fila atrás de leituras de BLOB. Se alguém mover o `acquire` para o topo do handler "por clareza", a latência de 304 passa a depender da carga.
+Detalhe deliberado de ordem: **o 304 acontece antes do `acquire` nos três armazéns**, sem exceção, e é essa a propriedade que não se mexe. Revalidação de cache nunca fica na fila atrás de leituras de BLOB. Se alguém mover o `acquire` para o topo do handler "por clareza", a latência de 304 passa a depender da carga.
+
+O **416 é que não é uniforme**, e a assimetria é medida, não descuido. Nos dois armazéns de baixo o tamanho é conhecido de graça (`size_bytes` na linha do SQLite plano, `fs.stat` no filesystem), então o Range é interpretado antes da vaga e um Range inválido nem entra na fila. Dentro de um `.3dtiles` não existe tamanho O(1) para uma chave (o formato não guarda coluna de comprimento), e pagar uma segunda consulta para descobri-lo custaria mais que a fatia que ela pouparia: ali o Range é lido **depois** da leitura, já dentro de `comVaga`. É trade-off barato porque o Cesium não busca tile por Range, e o Range naquele ramo existe por completude de protocolo.
 
 E uma ordem que puxa para o lado contrário, pela razão contrária: o gate de recurso roda **antes** do 304, e não depois. Responder 304 a quem não pode ver o modelo confirma a existência dele e ainda entrega o ETag. O que torna isso pagável é o gate não custar nada no caminho quente: caminho público é uma consulta a um índice em memória, caminho privado é uma decisão memoizada. Medido em série, 60 amostras por caso, o 304 público ficou em 0,47 ms (era 0,64 na mesma máquina antes da mudança, dentro do ruído) e o 304 privado em 0,53 ms.
 
 ## Armadilhas de ETag e de chave
 
-**mtime.** O ETag do filesystem é derivado do `fs.stat` (`backend/src/modules/nomes/assets3d.service.js`). Um `rsync` que preserva mtime mantém o ETag; um `cp` sem `-p` muda o mtime e invalida o cache do mundo inteiro sem que um byte tenha mudado. No SQLite isso não ocorre, porque o ETag é sha1 do conteúdo (`backend/src/modules/nomes/assets3d.store.js`). Republicar o mesmo caminho com conteúdo novo funciona nos dois modos.
+São **três famílias de ETag**, uma por armazém, e elas falham de jeitos diferentes.
+
+**mtime.** O ETag do filesystem é derivado do `fs.stat` (`backend/src/modules/nomes/assets3d.service.js`). Um `rsync` que preserva mtime mantém o ETag; um `cp` sem `-p` muda o mtime e invalida o cache do mundo inteiro sem que um byte tenha mudado. No SQLite plano isso não ocorre, porque o ETag é sha1 do conteúdo (`backend/src/modules/nomes/assets3d.store.js`). Republicar o mesmo caminho com conteúdo novo funciona nesses dois modos.
+
+**Token de geração.** No armazém de modelo o ETag é `computeTileETag(modelId, chave, token)` (`backend/src/modules/models3d/models3d.service.js`), derivado do `build_token` da linha de produção: **nunca** do conteúdo, nunca do mtime. É isso que torna o 304 gratuito ali (revalidar não abre o arquivo), e é isso que muda a regra de publicação: **republicar um `.3dtiles` sem trocar o `build_token` serve bytes novos sob o ETag antigo**, e com `max-age` de um ano e `immutable` o cliente compõe tile velho dentro da árvore nova, sem erro nenhum. O token existe exatamente para impedir esse defeito, então trocá-lo não é higiene opcional: é a condição que autoriza o cache imutável. Quem registra o modelo sem reconverter (`scripts/models3d-adotar.js`) lê o token do cabeçalho do próprio arquivo, e é por isso que ele **recusa** cabeçalho incompleto em vez de inventar um. Ver [[acervo-3d-convertido]].
 
 **Igualdade exata.** O ramo SQLite busca por `rel_path` exato, então traversal é inócuo ali por construção, mas variantes de caminho (`./aman/x.json`, `aman//x.json`, qualquer coisa com `..` colapsável) **erram o índice e caem silenciosamente no filesystem**. Se o asset só existe no store, o resultado é um 404 sem explicação óbvia. As chaves são gravadas em posix pelo CLI, inclusive quando o import roda no Windows.
 
@@ -76,6 +92,8 @@ E uma ordem que puxa para o lado contrário, pela razão contrária: o gate de r
 ## Divergência plantada no Content-Type
 
 O mapa de extensão para Content-Type existe duas vezes: `CONTENT_TYPES` em `backend/src/modules/nomes/assets3d.service.js` e, copiado, em `backend/scripts/assets3d-import.js`. A duplicação é deliberada (o CLI não carrega o módulo do service), e o que a torna segura é um guarda: `backend/tests/unit/assets3d-content-types.test.js` importa **os dois** mapas e exige igualdade exata, então acrescentar extensão num só reprova em `npm test`.
+
+**Há uma TERCEIRA resolução na mesma rota, e ela não tem guarda nenhuma.** O ramo de modelo não usa nenhum dos dois: ele chama `tipoDe`, sobre um mapa próprio em `backend/src/modules/models3d/models3d.service.js`. O teste de paridade importa só as duas primeiras cópias, então uma extensão acrescentada lá (ou faltando lá) passa verde. É a cópia que serve o acervo convertido inteiro, ou seja a que hoje tem mais tráfego, e o modo de falha é o silencioso de sempre: tipo errado não dá erro, dá visualizador que não inicia. Ao mexer em qualquer um dos três mapas, abra os três.
 
 O que NÃO tem guarda, e é a parte durável desta seção: o ramo SQLite serve o `content_type` **gravado na importação** (`backend/src/modules/nomes/assets3d.store.js`, lido em `backend/src/modules/nomes/assets3d.controller.js`), sem recalcular no request. Um tipo errado que chegue ao banco fica congelado ali até reimportar, e o teste de paridade não alcança dado já gravado. O ramo filesystem recalcula por request e não sofre disso.
 

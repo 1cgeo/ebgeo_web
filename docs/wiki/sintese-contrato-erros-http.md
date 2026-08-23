@@ -60,7 +60,7 @@ Se a rota tem schema Joi, input ruim é 422 com `details[]`. Se não tem, o valo
 
 **Armadilha de compatibilidade:** `validate()` roda com `stripUnknown: true` (`backend/src/middleware/validate.js`), então campo desconhecido é silenciosamente **removido**, não rejeitado. Um cliente novo contra um servidor antigo recebe 200 com o campo apagado. Nenhum status sinaliza isso.
 
-Outra ausência de sinal: no lote base64 de imagens a falha é **por item**, dentro de `failed[]`, com HTTP 200 (`backend/src/modules/images/images.service.js`). Um 200 ali não significa que tudo entrou. Ver [[upload-imagens-seguranca]], [[imagens-atlas]].
+Outra ausência de sinal: no lote base64 de imagens a falha é **por item**, dentro de `failed[]` (`bulkUploadImages`, `backend/src/modules/images/images.service.js`), e o lote inteiro sai com **HTTP 201**, não 200 (o controller ao lado, `backend/src/modules/images/images.controller.js`, responde `res.status(201)`). Um 2xx ali não significa que tudo entrou, e o 201 é ainda mais enganoso que o 200 porque afirma criação. Ver [[upload-imagens-seguranca]], [[imagens-atlas]].
 
 ## 503 é para o orquestrador, não para o boot
 

@@ -71,7 +71,7 @@ Seis lugares: `PERMISSION_LEVELS`, `assertOperationAllowed`, `applyCommentOp`, `
 Os outros cinco falham **fechados**, por motivos diferentes, e nenhum é cosmético:
 
 - `PERMISSION_LEVELS` deixou de ser fail-open em 2026-07-25 (ver armadilha acima): nível desconhecido derruba o boot no `requireAtlasPermission`.
-- `applyCommentOp` decide a moderação de comentário alheio com `permission === 'write' || permission === 'manage' || permission === 'owner'`, lista fechada por igualdade que alimenta as queries de update e delete. Hoje está completa por sorte, já que `read` nunca chega ali e `comment` cai no ramo do autor. Um nível novo acima de `comment` nasce **sem poder moderar**, em silêncio: nega em vez de liberar, mas é o mesmo padrão de lista fechada que a constituição proíbe e que já custou dois bugs reais. É um eixo separado do `assertOperationAllowed`, e a única ocorrência viva do padrão no módulo de sync.
+- `applyCommentOp` decide a moderação de comentário alheio comparando **posto** contra o piso `write` (`PERMISSION_LEVELS[permission] >= PERMISSION_LEVELS.write`), e o booleano alimenta as queries de update e delete. Um nível novo ACIMA de `write` entra no gate sozinho, que é a propriedade que a lista fechada anterior não tinha; um nível novo entre `comment` e `write` nasce sem poder moderar, o que é a direção segura. Posto desconhecido é `undefined`, e toda comparação contra ele é falsa, então o gate fecha em cima de lixo.
 - `toFrontendRole`, `UserRole` e `ROLE_PERMISSIONS` são derivação de rótulo e degradam para `viewer`.
 
 Duas versões anteriores desta seção erraram aqui, nas duas direções: até 2026-07-18 ela dizia que os cinco "degradam para `viewer` sem erro" (falso para os que decidem), e depois disso passou a dizer que "os três primeiros falham abertos", o que contradizia o parágrafo do `applyCommentOp` logo abaixo dela e já não valia para `PERMISSION_LEVELS`. Corrigido em 2026-08-14 contra o código.
@@ -87,3 +87,7 @@ O modo seguro deriva "posso editar" do **mesmo** `checkPermission('UPDATE_FEATUR
 ## Relação com o resto do sync
 
 Papel decide **se** a op entra; a ordem de chegada no servidor decide **quem vence** ([[modelo-conflito-lww]]). O papel não participa da resolução de conflito. O overlay `atlas.settings` é um eixo separado, restritivo por interseção ([[atlas-settings]]). Ver também [[compartilhamento-atlas]], [[atlas-modelo-de-dados]], [[api-rest-atlas]], [[erros-api]], [[presenca-colaborativa]], [[sessao-boot-e-ciclo-de-vida]], [[autenticacao-jwt]] e [[jwt-emissor-unico]].
+
+## Histórico
+
+- 2026-08-23: a seção "Adicionou um nível de permissão?" descrevia `applyCommentOp` como lista fechada por igualdade (`write`/`manage`/`owner`) e a chamava "a única ocorrência viva do padrão no módulo de sync". Ele passou a gatear por posto contra o piso `write`. O gate por igualdade que resta no módulo é o `assertOperationAllowed`, que a mesma seção já classifica à parte como o único que falha ABERTO.

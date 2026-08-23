@@ -14,7 +14,7 @@ Esse é literalmente o defeito que a 008 removeu do schema `ng`, onde a escrita 
 
 ## A autoridade é a POSSE, e o grupo é coisa de usuário
 
-Administra grupo o **dono vivo** dele, ou o administrador do sistema. A pergunta tem uma definição só, `fn_can_administer_group` (`backend/src/database/migrations/008_acesso_a_recurso.sql`), chamada de três lugares que precisam concordar: o gate das cinco rotas de escrita (`requireGroupAuthority`), o recorte da listagem (`LIST_GROUPS`) e o beneficiário coletivo de uma concessão nova (`GET_ADDRESSABLE_LIVE_GROUP`). O literal do papel mora em SQL, e não em JavaScript, pelo motivo de sempre: o token vive até 15 min e `flexibleAuth` não reconcilia.
+Administra grupo o **dono vivo** dele, ou o administrador do sistema. A pergunta tem uma definição só, `fn_can_administer_group` (`backend/src/database/migrations/008_acesso_a_recurso.sql`), chamada de três lugares que precisam concordar: o gate das cinco rotas que ela protege (quatro de escrita mais o roster, `requireGroupAuthority`), o recorte da listagem (`LIST_GROUPS`) e o beneficiário coletivo de uma concessão nova (`GET_ADDRESSABLE_LIVE_GROUP`). O literal do papel mora em SQL, e não em JavaScript, pelo motivo de sempre: o token vive até 15 min e `flexibleAuth` não reconcilia.
 
 Qualquer sessão autenticada cria um grupo, e quem cria vira o dono (`access_groups.owner_id`, coluna separada de `created_by`: quem criou é história e quem manda é autoridade, e fundir as duas impediria qualquer transferência sem falsificar o registro de criação).
 
@@ -50,7 +50,7 @@ Uma consequência a aceitar de olhos abertos: o dono passa a revogar concessões
 
 **E desde 2026-08-21 apagar o grupo derruba TAMBÉM o acesso a ATLAS que ele dava**, pelo mesmo mecanismo e sem escrita nenhuma: `fn_user_atlas_shares` consulta `fn_user_group_ids`, que exige grupo vivo. O socket de colaboração de um membro cai no primeiro heartbeat (~30 s) com `4003`, e a linha continua fisicamente em `atlas_shares` (o soft-delete não dispara o `ON DELETE CASCADE`), inerte. Ver [[compartilhamento-atlas]].
 
-**BURACO CONHECIDO, e ele é de AVISO, não de mecanismo.** A frase de confirmação de apagar grupo (`groupDeletionWarning`, `frontend/src/js/admin/group-phrases.js`) conta só recursos, porque `LIST_GROUPS` só devolve `grant_count`: ela diz "derruba as concessões dele a 3 recursos" e cala sobre os atlas cujo acesso morre no mesmo ato. O toast pós-ato tem a mesma lacuna (`groupDeletionSummary` lê `grantsAffected`, que conta a poda de concessões). O conserto é uma subconsulta de `atlas_shares` em `LIST_GROUPS` e em `GET_GROUP_REACH`, mais um ramo na frase; a direção do erro é avisar de MENOS sobre um ato destrutivo, que é a direção ruim.
+Por isso o aviso de confirmação fala dos DOIS eixos: `LIST_GROUPS` devolve `grant_count` e `atlas_share_count`, e `groupDeletionWarning` compõe a frase pelos dois (`reachPhrase`, `frontend/src/js/admin/group-phrases.js`). A propriedade a preservar, se alguém acrescentar um terceiro alcance ao grupo: um ato destrutivo tem de avisar de MAIS, nunca de menos, e a frase é composta justamente para que um eixo novo entre sem multiplicar as variantes de texto.
 
 ## As três consultas que precisam concordar
 
@@ -91,6 +91,10 @@ Duas propriedades que atravessam arquivos:
 - **A linha de uma concessão coletiva não tem identidade de pessoa**, e o desenho da lista precisa perguntar (`isGroupGrant`, `frontend/src/js/catalog/grant-tree.js`) em vez de assumir: é a mesma armadilha do INNER JOIN, na camada de desenho.
 
 A confirmação de apagar mostra o alcance antes do clique, e o aviso posterior reporta a contagem que o **servidor** devolveu, não a que a listagem tinha em mão: as duas podem discordar, e a que vale é a do ato.
+
+## Histórico
+
+- 2026-08-23: esta página trazia um bloco BURACO CONHECIDO dizendo que o aviso de apagar grupo contava só recursos, porque `LIST_GROUPS` só devolvia `grant_count`, e prescrevia a subconsulta de `atlas_shares` como conserto. Os dois eixos já chegam na consulta e a frase já os compõe. Além de falso, era a forma que o esquema da wiki proíbe: lista de furo aberto vence por trabalho alheio, e o que fica no lugar é a propriedade do desenho.
 
 ## Relacionados
 

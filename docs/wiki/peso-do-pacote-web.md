@@ -6,7 +6,7 @@ Estrutura dos grupos de chunk e a armadilha dos nomes gerados ficam em `.claude/
 
 ## O aviso de tamanho de chunk deixou de ser sinal limpo, de propósito
 
-Desde 2026-08-14 o `npm run build` emite o aviso de "chunks are larger than" para o grupo `first-person-3d`, que tem cerca de 1,9 MB minificados contra um `chunkSizeWarningLimit` de 1200 ([[primeira-pessoa-3d]]). Metade daquilo é WASM em base64 dentro do motor de splatting, que não minifica nem se divide. Subir o limite silenciaria o alarme para todo chunk presente e futuro, então o aviso ficou. **Consequência para quem usa "build limpo" como verificação: esse é o único aviso esperado, e mais de um significa chunk novo passando do teto.**
+Desde 2026-08-14 o `npm run build` emite o aviso de "chunks are larger than" para o grupo `first-person-3d`, que tem cerca de 1,9 MB minificados contra um `chunkSizeWarningLimit` de 1200 ([[primeira-pessoa-3d]]). Metade daquilo é WASM em base64 dentro do motor de splatting, que não minifica nem se divide. Subir o limite silenciaria o alarme para todo chunk presente e futuro, então o aviso ficou. **Consequência para quem usa "build limpo" como verificação: esse é o único aviso de TAMANHO esperado, e um segundo chunk acusado significa chunk novo passando do teto.** O que é UM é o chunk, não a linha de aviso: o mesmo build também emite o aviso de import dinâmico inefetivo e o sumário de tempos de plugin, e repete o conjunto inteiro na passada legacy, porque `frontend/vite.config.js` liga o `@vitejs/plugin-legacy`. Contar linhas de aviso, e não chunks acusados, é o que faz um build normal parecer regressão. A medição está em `.claude/rules/architecture.md`, §Páginas e chunks.
 
 ## O que decide o payload é o import estático, não o grupo de chunk
 
@@ -27,4 +27,10 @@ Fechar uma ponta não tira um byte de `proj4` do bundle, porque a outra continua
 
 Tudo em `frontend/public/` é copiado verbatim para `dist/` e vai para o servidor a cada publicação, e o deploy retém as três últimas releases ([[deploy-web]]). Dado de amostra deixado ali não aparece em nenhum import, não é acusado por nenhum guarda de código morto e multiplica o custo de toda publicação: foi assim que 828 MB de panorâmicas de exemplo passaram a viajar em cada deploy até 2026-08-14.
 
-O diretório continua pesado depois daquela limpeza (156 MB em 2026-08-14, dos quais 78 MB em `public/docs` e 65 MB em `public/vendors`), então a armadilha segue viva. Antes de acrescentar dado pesado ali, meça o diretório, e prefira servi-lo pelo backend ([[assets3d-distribuicao]], [[streetview-360]]).
+O diretório continua pesado depois daquela limpeza, e a série de duas medidas conta mais que qualquer uma delas sozinha: **156 MB em 2026-08-14, 185 MB em 2026-08-23**, com `public/docs` (78 MB) e `public/vendors` (65 MB) **inalterados** entre as duas. Ou seja, os 29 MB que entraram não passaram por nenhuma das pastas que a medida anterior vigiava: são os assets de primeira pessoa em `public/3d/primeira-pessoa` ([[primeira-pessoa-3d]]), que nasceram inteiros no intervalo.
+
+É exatamente o modo de falha que esta seção existe para vigiar, e ele reincidiu: o peso não cresce nos lugares onde alguém já olhou, cresce numa pasta nova que ninguém pensou em medir. Por isso a instrução é medir o **diretório inteiro** antes de acrescentar dado pesado ali (`du -sm frontend/public/*`, ordenado por tamanho), e não conferir as pastas grandes conhecidas. E prefira servir dado pesado pelo backend ([[assets3d-distribuicao]], [[streetview-360]], [[acervo-3d-convertido]]).
+
+## Histórico
+
+- **2026-08-23.** Duas correções de leitura, e as duas eram da mesma família (um absoluto lido como propriedade). O aviso de tamanho de chunk era descrito como "o único aviso esperado", o que fazia um build normal parecer regressão: o build emite outros avisos que não são de tamanho, e repete tudo na passada legacy. E a medida de `frontend/public` foi refeita, subindo de 156 MB para 185 MB sem que nenhuma das duas pastas nomeadas na medida antiga mudasse.

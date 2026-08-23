@@ -2,14 +2,14 @@
 
 A razão de ser da camada de memória deste repositório, e os seis princípios que a governam. A constituição ([`CLAUDE.md`](../CLAUDE.md)) carrega a versão condensada; aqui está o texto integral, com a exposição de cada princípio.
 
-Adaptado do vault de doutrina do `chefe_dgeo`, cuja tese central transfere sem perda: **competência que não é codificada não compõe, ela zera**. Lá o risco é a troca de chefe ou de tropa. Aqui é a troca de sessão: um agente começa toda conversa do zero, e um humano esquece por que decidiu algo seis meses atrás. O ciclo é o mesmo (lição aprendida, revisão pós-ação, norma reescrita), em latência de máquina.
+Adaptado do vault de doutrina do chefe_dgeo (outro repositório, não um símbolo deste), cuja tese central transfere sem perda: **competência que não é codificada não compõe, ela zera**. Lá o risco é a troca de chefe ou de tropa. Aqui é a troca de sessão: um agente começa toda conversa do zero, e um humano esquece por que decidiu algo seis meses atrás. O ciclo é o mesmo (lição aprendida, revisão pós-ação, norma reescrita), em latência de máquina.
 
 ## Por que este repositório tem memória
 
-Um monorepo de ~170 mil linhas com colaboração multiusuário em tempo real acumula conhecimento que não está no código e não se deriva dele:
+Um monorepo da ordem de duzentas mil linhas de fonte própria (medido em 2026-08-23 sobre `frontend/src` e `backend/src`, fora o Three.js vendorizado) com colaboração multiusuário em tempo real acumula conhecimento que não está no código e não se deriva dele:
 
 - **O porquê das decisões.** O código mostra que a geometria do atlas é JSONB. Não mostra que PostGIS foi rejeitado deliberadamente, nem o que se perde ao reverter isso.
-- **As armadilhas.** O código mostra o `CHECK` de cinco níveis de permissão. Não avisa que escrever `permission === 'write' || 'owner'` exclui o co-Gestor em silêncio, e que isso já aconteceu.
+- **As armadilhas.** O código mostra o `CHECK` de QUATRO valores da coluna de permissão, mais o `owner` sintetizado do dono do atlas, que somam os cinco degraus da escada. Não avisa que escrever `permission === 'write' || 'owner'` exclui o co-Gestor em silêncio, e que isso já aconteceu. (Este exemplo dizia "o `CHECK` de cinco níveis" até 2026-08-23: a frase que ENSINA a armadilha da lista fechada descrevia o código errado.)
 - **Os contratos congelados.** O código de hoje não distingue o que pode mudar livremente do que quebra o frontend se o shape mudar.
 
 Esse conhecimento vive na wiki, nas decisões e nos learnings das skills. O que não é externalizado, considera-se perdido.

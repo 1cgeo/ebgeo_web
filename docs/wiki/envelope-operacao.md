@@ -10,7 +10,7 @@ Não há rota REST de escrita **incremental** para entidades colaborativas (fei�
 
 `flush()` empurra os objetos da fila sem projeção (`frontend/src/js/store/sync/sync-engine.js`, `frontend/src/js/store/sync/api-client.js`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
 
-Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js`) vence o `stripUnknown: true` do middleware (`middleware/validate.js`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. **Remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
+Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js`) vence o `stripUnknown: true` do middleware (`middleware/validate.js`). Verificado empiricamente no Joi 17.13.x desta instalação: campos não declarados sobrevivem intactos. **Remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
 
 Declarar um campo explicitamente (o schema faz isso com `traceId`, `atlasId` e `scopeSuffix`) não é redundância: o `.unknown(true)` transporta qualquer valor, e a declaração é o que impõe o TIPO. Sem ela um `atlasId` numérico atravessa intacto, e a guarda que o lê no servidor vê um não-string e cala. Medido pela recusa de tipo errado em `backend/tests/integration/sync-carimbo-de-atlas.test.js`, que é o controle negativo daquelas duas linhas do schema.
 

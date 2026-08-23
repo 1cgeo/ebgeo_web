@@ -8,11 +8,13 @@ Chave UUID única por usuário para integração máquina-a-máquina, não expir
 
 **A chave não tem escopo, rótulo nem expiração, e é uma só por usuário.** Ela carrega **exatamente** a identidade do dono, portanto todo o poder dele (ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]]). Não existe chave de permissão reduzida nem múltiplas chaves para separar integrações: se duas integrações compartilham a chave, rotacionar por causa de uma derruba a outra.
 
-## Precedência: a armadilha número um
+## Precedência: a chave é uma TENTATIVA, não uma escolha de mecanismo
 
-`flexibleAuth` (`backend/src/middleware/flexible-auth.js`) faz curto-circuito duro: se `x-api-key` (ou `?api_key=`) está presente, a função retorna `next()` **sempre**, e cookie e `Authorization: Bearer` nunca chegam a ser lidos.
+`flexibleAuth` (`backend/src/middleware/flexible-auth.js`) tenta a API key antes de tudo, mas a tentativa só encerra a decisão quando ela **resolve** para um usuário: o `return next()` mora **dentro** do `if (rows[0])`, e o `UUID_RE` barra a string malformada antes de qualquer ida ao banco. Chave malformada, chave já rotacionada e chave ausente de `users` caem no ramo seguinte, e o cookie ou o `Authorization: Bearer` do mesmo request continuam valendo.
 
-O código convida ao erro porque o ramo parece um simples "tenta a API key primeiro". Não é: uma chave já rotacionada, ou uma string que não é UUID, deixa a requisição **anônima** mesmo com um Bearer válido no mesmo request, e as rotas estritas respondem `401`. Sintoma clássico: um cliente que guarda a chave antiga num interceptor global passa a receber 401 em tudo depois da rotação, e o Bearer "que estava lá" não salva. Chave malformada nem consulta o banco (`UUID_RE` barra antes) e é tratada como anônimo, comportamento fixado em `backend/tests/integration/identity.test.js`. Ver [[auth-flexivel]].
+A precedência que sobra é estrita e vale a pena saber: chave **boa** ganha do Bearer bom, e a identidade que vale é a do dono da chave. Um cliente que mande as duas credenciais no mesmo request não escolhe qual delas responde.
+
+Chave malformada não toca o Postgres, comportamento fixado em `backend/tests/integration/identity.test.js`. As outras armadilhas de precedência do mesmo middleware (cookie ganhando do Bearer, entre elas) estão em [[auth-flexivel]].
 
 ## O comportamento que só emerge de dois middlewares
 
@@ -44,3 +46,7 @@ Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `4
 - **Chave não é para browser.** Não expira e não tem proteção própria contra CSRF (não sendo cookie, ao menos não é auto-enviada). Na SPA use `Authorization: Bearer`.
 - **`mapDbUser` descarta campos que a query traz.** `FIND_USER_BY_API_KEY` seleciona `organizacao_militar` e `rank_id`, mas `mapDbUser` (`backend/src/middleware/flexible-auth.js`) não os copia para `req.user`. Um handler que dependa desses campos funciona no caminho JWT e quebra no caminho API key.
 - **Nenhum rate limit na rotação.** As rotas levam só `auth`/`requireAdmin`. Rotação em loop é barata para o cliente e cresce `api_key_history` sem teto.
+
+## Histórico
+
+- **2026-08-23.** A seção de precedência acima descrevia o BUG como comportamento vigente, e por isso contradizia [[auth-flexivel]], que já registrava o estado certo. Reescrita por supersessão temporal. O que ela dizia: até 2026-07-25 o `return next()` do ramo da chave ficava **fora** do `if (rows[0])`, então a mera PRESENÇA de `x-api-key` ou `?api_key=` pulava cookie e Bearer, e chave rotacionada ou malformada deixava a requisição anônima mesmo com um Bearer válido no mesmo request (rota estrita respondendo `401`). Como o gatilho morava também na query string, bastava conseguir que a vítima abrisse `...?api_key=qualquercoisa` para demovê-la da própria sessão. O comentário de `flexibleAuth` documenta a correção no ponto onde ela vive.

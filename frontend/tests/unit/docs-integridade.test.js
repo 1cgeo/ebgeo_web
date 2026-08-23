@@ -67,6 +67,16 @@ const ALVOS = [
     // trabalho pendente: este é citado pela cláusula 10.1, então precisa existir e precisa
     // que os caminhos que ele cita resolvam.
     'PENDENCIA-TILE-PRIVADO.md',
+    // A PROPOSTA solar/lunar entrou em 2026-08-23, e ela mostra por que a lista escrita a mao e o
+    // ponto fraco deste guarda: o arquivo vivia na raiz desde 2026-08-14, com decisao de escopo do
+    // Chefe da DGEO dentro, e NENHUM caminho ou simbolo dele era verificado, porque a raiz nao e
+    // varrida e ninguem o declarou aqui. Documento de PROPOSTA e o caso em que a checagem de caminho
+    // mais rende: ele cita o codigo que vai ANCORAR o trabalho (`geomagnetic/` como molde,
+    // `pdf-cartographic-elements.js` como destino), e uma ancora que se move sem aviso e o que
+    // transforma uma proposta viva numa proposta impossivel de executar. O que ele NAO deve fazer e
+    // citar em crase o codigo que ainda nao existe: proposta se escreve em prosa (CLAUDE.md,
+    // Documentacao), e a regra de simbolo abaixo cobra isso.
+    'PROPOSTA-DADOS-SOLARES-E-LUNARES.md',
     // MEMORY.md e livro-razao.md moraram na RAIZ até 2026-08-14, quando o dono
     // pediu os dois dentro de `docs/`. A mudança de uma linha de caminho aqui é o
     // passo que mais fácil se esquece e o único que falha CALADO: a montagem de

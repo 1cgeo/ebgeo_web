@@ -40,7 +40,7 @@ Não acredite no JSDoc de `frontend/src/js/presence/presence-store.js` ("keyed b
 
 Não há sub-canal por mapa no servidor; toda mensagem vai para a sala inteira e **filtrar é do cliente**. O bridge carimba `getCurrentMapNameSync()` na saída (`frontend/src/js/presence/presence-bridge.js`) e os overlays resolvem o mapa ativo com a mesma função. As duas pontas precisam usar a mesma. Se alguém "corrigir" um lado para UUID, o filtro nunca casa e **nenhum cursor remoto renderiza, sem erro no console**. Contexto do dualismo nome/UUID em [[dominio-local-vs-remoto]].
 
-> **Nota histórica.** As guias 04-websocket-collab §3.2 e 06-presenca-imagens §1.1 documentam `mapId` como UUID (`"mapId": "map-uuid"`). O backend trata o campo como opaco (só reencaminha), então funciona; o contrato real é "chave de mapa acordada entre clientes".
+O campo não é UUID e não precisa ser: o backend o trata como **opaco**, só reencaminha, então o contrato real é "chave de mapa acordada entre os clientes". Ler o UUID como obrigatório é o caminho mais curto para a "correção" que quebra o filtro.
 
 Corolário: `getCursors()` sem argumento devolve cursores de **todos** os mapas, por isso o overlay recusa renderizar quando o mapa ativo é `null` (`frontend/src/js/presence/remote-cursors.layer.js`).
 
@@ -82,9 +82,9 @@ Não existe chamada de `stopPresence` fora do módulo: o bridge vive enquanto o 
 
 Regra dura complementar: **overlays nunca mutam presença**, só leem e reconciliam. E o store guarda a figura completa, inclusive você; quem exclui self é a UI.
 
-## O que não existe, apesar das guias
+## O que não existe
 
-> **Nota histórica.** A guia 06-presenca-imagens §1.3 descreve um `CursorManager` que auto-esconde o cursor após 5 s de inatividade. O overlay real **não tem timer nenhum**: o marcador some quando o peer sai da sala, troca de mapa ou some do store. O código da guia é Leaflet enquanto o app usa `maplibregl.Marker`; trate como pseudocódigo.
+**O cursor remoto não tem timer de inatividade.** O overlay não esconde nada por tempo: o marcador some quando o peer sai da sala, troca de mapa ou some do store. É a expectativa que mais volta, porque quase todo produto de colaboração desvanece o cursor parado, e aqui a ausência é o desenho.
 
 Também não existem, por design: replay de frames de presença perdidos, lock a partir do indicador de briefing, e escala multi-instância.
 
@@ -110,6 +110,6 @@ Salas, presença e `awayTimers` são `Map` em memória por processo, sem Redis n
 
 ## Depuração
 
-Presença não gera spans de operação; o tap de barramento do [[syncledger]] registra `presence` só como probe de efeito de UI. Para "o peer não aparece", cheque nesta ordem: socket conectado ([[canal-collab-websocket]]), snapshot `connected` recebido, **chave resolvida** (o bug do `user_joined` com descritor aninhado, que fazia `resolveKey` não achar identidade e descartar o join em silêncio) e só então a UI. Ao adicionar um frame novo, decida onde fica o descritor e teste o roteamento.
+Presença não gera span nenhum. `TraceStage.PRESENCE` existe só na declaração (`frontend/src/js/store/sync/diag/trace-stages.js`), sem um único emissor: o tap de barramento do [[syncledger]] grava apenas `RENDER_SOURCE` e `REMOTE_APPLIED` (`frontend/src/js/store/sync/diag/bus-tap.js`). Esperar por essa etapa num teste trava até o timeout. Para "o peer não aparece", cheque nesta ordem: socket conectado ([[canal-collab-websocket]]), snapshot `connected` recebido, **chave resolvida** (o bug do `user_joined` com descritor aninhado, que fazia `resolveKey` não achar identidade e descartar o join em silêncio) e só então a UI. Ao adicionar um frame novo, decida onde fica o descritor e teste o roteamento.
 
 Nunca use presença como fonte de verdade: ela é descartável por construção, e quem move estado real é [[aplicacao-operacoes-remotas]].

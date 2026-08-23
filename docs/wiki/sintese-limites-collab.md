@@ -36,7 +36,9 @@ O único lock com enforcement server-side é o do **mapa**:
 Duas lacunas importantes:
 
 - **`comment` não está em `LOCKABLE_CHILD_TARGETS`.** Comentários espaciais continuam sendo escritos em um mapa travado. Isso é coerente com o papel de Comentarista, mas surpreende quem espera "mapa travado = nada muda".
-- **`layers.locked`, `groups.locked` e `properties.bloqueado` da feição são apenas colunas/propriedades sincronizadas.** O servidor as persiste e nunca as consulta como gate; o respeito é 100% do cliente (os controles de desenho testam `bloqueado` antes de aceitar edição, e `frontend/src/js/store/layer.operations.js` bloqueia localmente por mapa travado). Um cliente modificado, ou com bug, escreve por cima de camada/feição "bloqueada" e o servidor aceita. Trate lock fino como **convenção de UI**, não como garantia. Ver [[modelo-conflito-lww]].
+- **`layers.locked`, `groups.locked` e o `bloqueado` da feição são apenas colunas e propriedades SINCRONIZADAS, e essa assimetria é propriedade do desenho, não buraco de implementação.** O servidor escreve as três (o UPSERT de `layers` e o de `groups` em `backend/src/modules/sync/sync.service.js` carregam a coluna; o da feição viaja dentro do JSONB de propriedades) e **nunca as lê como gate**. A única coluna de travamento que ele CONSULTA é `maps.locked`, nos dois pontos que a impõem: `lockedMapDenialReason`, para os alvos de `LOCKABLE_CHILD_TARGETS`, e a recusa de mesclar mapa travado em `backend/src/modules/maps/maps.service.js`. O termo `bloqueado` não aparece em nenhum ramo de decisão do backend.
+
+  A consequência é de SEGURANÇA, não de UX: o respeito ao lock fino é 100% do cliente (os controles de desenho testam a propriedade antes de aceitar edição, e `frontend/src/js/store/layer.operations.js` bloqueia localmente por mapa travado), então um cliente modificado, ou com bug, escreve por cima de camada, grupo ou feição "bloqueada" e o servidor aceita e propaga a todos os pares. Não construa nada que dependa de lock fino para proteger dado: para isso o instrumento é o papel por atlas ou o lock de mapa. Ver [[modelo-conflito-lww]] e [[sintese-capacidades-por-papel]].
 
 ## 5. Backpressure: presença é descartável, socket lento é morto
 
@@ -58,7 +60,9 @@ Também há um limite de concorrência: pushes do mesmo atlas são serializados 
 
 O socket resolve a permissão no handshake e vive por horas; a reconciliação com o banco acontece no sweep de heartbeat, então **a janela de staleness é o intervalo de heartbeat**, e um usuário revogado escreve dentro dela. O mesmo sweep é o mecanismo de morte por inatividade: sem pong, `terminate()` (close 1006), que vira `away`, não `user_left`. Detalhe do gate em [[sintese-eixos-de-permissao]] e [[permissoes-atlas]].
 
-**O custo escondido não está na janela, está no fan-out**, e não se calcula lendo a função de seis linhas. `reconcileAuthorization` é chamada **sem `await`** dentro do laço, e cada chamada abre até três queries: `getLiveAuthState` (`backend/src/utils/org-status.js`) mais o SELECT de `atlas` e o de shares dentro de `resolvePermission`. Com N sockets, cada tique solta até 3N queries concorrentes contra um pool de 10 (`DATABASE_POOL_MAX`, `backend/src/config.js`), então sala grande faz o sweep competir com o tráfego HTTP. É a mesma classe que já mordeu neste arquivo: o dispatch de mensagem também era disparado sem `await`, um cliente em rajada esgotava o pool sozinho, e por isso hoje é serializado por socket (`backend/src/modules/collab/collab.gateway.js`). O sweep ficou com o padrão antigo; se for mexer nele, serialize ou limite a concorrência antes de qualquer outra coisa.
+**O fan-out do sweep está limitado, e essa é uma propriedade a preservar, não uma pendência.** Cada reconciliação abre até três queries (`getLiveAuthState`, `backend/src/utils/org-status.js`, mais o SELECT de `atlas` e o de shares dentro de `resolvePermission`), então uma sala grande dispararia N vezes isso contra um pool de dez (`DATABASE_POOL_MAX`, `backend/src/config.js`). Hoje `heartbeatSweep` (`backend/src/modules/collab/collab.gateway.js`) faz `await reconcileAuthorization(ws)` dentro de workers contados por `AUTHZ_SWEEP_CONCURRENCY`, e devolve uma promessa que só assenta quando todas as reconciliações daquele tique terminaram. Se for mexer no sweep, mantenha as duas metades: sem o teto o sweep compete com o tráfego HTTP pelo pool, e sem esperar o fim do tique um sweep ainda drenando quando o seguinte começa dobra a janela de staleness, que é justamente a garantia que ele existe para dar.
+
+O que **sobra** como limite, e é permanente: a janela é o intervalo de heartbeat, e um usuário revogado escreve dentro dela. Reconciliação que falha é contada, não engolida (`AUTHZ_MAX_CONSECUTIVE_FAILURES`), então uma indisponibilidade sustentada do banco alarga essa janela antes de fechar o socket.
 
 ## 8. "Offline" não significa "sem servidor"
 
@@ -77,3 +81,7 @@ Resolvido em 2026-08-14, e a armadilha continua valendo para código novo. A con
 A guarda vive no repositório: remoção por nome só quando nenhum outro registro de mapa responde por aquele nome (`frontend/src/js/store/repositories/local.repository.js`). Detalhe e regressão em [[modulo-temporal]].
 
 Regra que fica: todo estado por mapa chaveado por **nome** é compartilhado por nome, e num store onde mapa remoto é chaveado por UUID e mapa local por nome, dois registros podem responder pelo mesmo nome ao mesmo tempo. Ao criar lateral novo, prefira chavear por id do mapa, como faz `gridStyle_<id>`, que atravessou o bug intacto.
+
+## Páginas comparadas
+
+[[canal-collab-websocket]] · [[presenca-colaborativa]] · [[tabela-operations]] · [[modelo-conflito-lww]] · [[snapshot-e-pull-incremental]] · [[sintese-capacidades-por-papel]] · [[sintese-decisoes-arquiteturais]] · [[sintese-rest-vs-websocket]]

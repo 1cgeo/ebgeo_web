@@ -17,9 +17,8 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[modelo-conflito-lww]] - o vencedor de edições concorrentes é a maior serverVersion, nunca o relógio de parede.
 - [[idempotencia-e-convergence-guard]] - reenvio seguro por op_id e adiamento de ops remotas sobre edição local pendente.
 - [[snapshot-e-pull-incremental]] - quando o servidor devolve snapshot completo e quando devolve operações incrementais.
-- [[fila-operacoes-outbound]] - da mutação local ao push HTTP: transação, fila IndexedDB, compaction e flush.
+- [[fila-operacoes-outbound]] - da mutação local ao push HTTP (transação, fila IndexedDB, compaction e flush) e o destino do que se acumulou offline na reconexão.
 - [[aplicacao-operacoes-remotas]] - o caminho inbound até persistir no store e redesenhar o mapa.
-- [[fila-operacoes-outbound]] - o que acontece com as operações acumuladas offline e a sequência de reconexão.
 - [[ack-idempotencia]] - o ack por operação e por que idempotent:true conta como sucesso.
 - [[tabela-operations]] - o log append-only no PostgreSQL e a sequência global que define a ordem.
 - [[sync-admin-operacoes]] - estatísticas e cleanup do log de operações, com efeito de forçar snapshot.

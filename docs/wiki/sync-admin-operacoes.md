@@ -10,13 +10,11 @@ A tabela `operations` ([[tabela-operations]]) cresce indefinidamente: todo push 
 
 ## Armadilhas
 
-**1. O gate é papel global, não papel no atlas.** `requireAdmin` (`backend/src/middleware/require-admin.js`) só olha `req.user.role`; as rotas admin de sync são as únicas do router de atlas que não usam `requireAtlasPermission`. Consequência: o dono de um atlas que não seja admin da plataforma **não** limpa o próprio log, e um admin global limpa qualquer atlas sem ser membro dele. É um eixo de permissão à parte de [[permissoes-atlas]]; ver [[sintese-eixos-de-permissao]].
+**1. O gate é papel global, não papel no atlas.** `requireAdmin` (`backend/src/middleware/require-admin.js`) só olha `req.user.role`; as rotas admin de sync são as únicas do router de atlas gateadas por papel **global**. Não são as únicas sem `requireAtlasPermission`: `POST /:atlasId/restore` (`backend/src/modules/atlas/atlas.routes.js`) também não o usa, e por outro motivo, explicado no comentário ao lado, o middleware só enxerga atlas vivo e o restore trabalha sobre um soft-deleted, então a conferência de dono acontece dentro do serviço. Consequência: o dono de um atlas que não seja admin da plataforma **não** limpa o próprio log, e um admin global limpa qualquer atlas sem ser membro dele. É um eixo de permissão à parte de [[permissoes-atlas]]; ver [[sintese-eixos-de-permissao]].
 
 **2. A ordem das rotas é load-bearing.** `/admin/stats` e `/admin/cleanup` precisam vir antes de `GET /:version`. Se `/:version` capturasse `admin`, o `parseInt` do controller daria `sinceVersion = 0` e um GET malformado devolveria o snapshot inteiro do atlas em vez de 404. Mover essas linhas para baixo abre um vazamento silencioso.
 
-**3. `keepFromVersion: 0` é silenciosamente ignorado.** Zero é falsy no ternário do controller, então o caminho por dias assume com o `keepDays` que o Joi preencheu por default. Inofensivo na prática, porque 0 seria no-op de qualquer forma, mas quem depurar "por que meu corte 0 virou 7 dias" perde tempo aqui.
-
-**4. `keepFromVersion` tem precedência e não tem clamp.** Enviar os dois campos faz `keepDays` ser ignorado no primeiro ramo de `cleanupOldOperations` (`backend/src/modules/sync/sync.service.js`), e nada impede um valor acima da `currentVersion`: o log é esvaziado e `min_version` fica **acima** da versão corrente, condenando todo cliente a snapshot em cada pull até que novas operações elevem `current_version`. Consulte `/admin/stats` antes e escolha entre `oldestOperationVersion` e `currentVersion`.
+**3. `keepFromVersion` tem precedência e não tem clamp.** Enviar os dois campos faz `keepDays` ser ignorado no primeiro ramo de `cleanupOldOperations` (`backend/src/modules/sync/sync.service.js`), e nada impede um valor acima da `currentVersion`: o log é esvaziado e `min_version` fica **acima** da versão corrente, condenando todo cliente a snapshot em cada pull até que novas operações elevem `current_version`. Consulte `/admin/stats` antes e escolha entre `oldestOperationVersion` e `currentVersion`.
 
 ## Contratos de fronteira
 
@@ -39,4 +37,8 @@ Operações locais ainda na [[fila-operacoes-outbound]] não se perdem: sobem de
 
 ## Superfície de UI: nenhuma
 
-Nada em `src/` do cliente web referencia `sync/admin/stats` ou `sync/admin/cleanup` (grep vazio, inclusive em `store/sync/api-client.js`). O "botão de cleanup com confirmação" do guia é item **a implementar**. Hoje isto é HTTP direto ou ferramenta externa; para o que de fato existe no painel, ver [[gestao-usuarios]] e [[auditoria]].
+Nada em `frontend/src/` referencia `sync/admin/stats` ou `sync/admin/cleanup`, inclusive em `frontend/src/js/store/sync/api-client.js`. Poda de log é HTTP direto ou ferramenta externa, e essa é a superfície que existe; para o que de fato mora no painel, ver [[gestao-usuarios]] e [[auditoria]].
+
+## Histórico
+
+- 2026-08-23: as *Armadilhas* traziam um item dizendo que `keepFromVersion: 0` era silenciosamente ignorado por ser falsy no ternário do controller. O ternário foi trocado por um teste explícito de `undefined`/`null` em `cleanupOperations` (`backend/src/modules/sync/sync.controller.js`), que hoje registra o defeito antigo no comentário: um corte 0 significava "não apague nada" e disparava um expurgo de sete dias, com 200 e sem sinal.

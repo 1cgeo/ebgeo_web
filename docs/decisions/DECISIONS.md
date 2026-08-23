@@ -94,5 +94,6 @@ não erra, ele só encolhe). Quem escrever a próxima entrada confere a contagem
 
 E a conferência de 2026-08-23 achou QUATRO, não uma: duas de 2026-08-21 (revogação em cascata e o
 eixo de OM na trilha) e as duas de 2026-08-22. O modo de falha se repete porque a linha do índice é
-o passo separado, e o trabalho termina no arquivo do ano. As contagens agora batem (34 de cada
-lado), e conferi-las é `grep -c "^| 2026-"` contra `grep -c "^### 2026-"`.
+o passo separado, e o trabalho termina no arquivo do ano. As duas contagens batem, e a propriedade é essa, não o número: conferi-las é
+`grep -c "^| 2026-"` contra `grep -c "^### 2026-"`. (Esta linha guardou um absoluto, "34 de cada lado",
+que envelheceu na decisão seguinte.)

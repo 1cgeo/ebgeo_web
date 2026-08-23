@@ -1,6 +1,6 @@
 # Síntese: contrato de cache HTTP para binários imutáveis
 
-Três rotas de binário grande compartilham o mesmo molde (ETag O(1), 304 antes de qualquer leitura pesada, Range 206/416, `immutable` por um ano), e o que importa aqui é o que o molde esconde: onde ele foi copiado, onde diverge, e o que quebra ao integrar.
+As rotas de binário grande compartilham o mesmo molde (ETag O(1), 304 antes de qualquer leitura pesada, Range 206/416, `immutable` por um ano), e o que importa aqui é o que o molde esconde: onde ele foi copiado, onde diverge, e o que quebra ao integrar.
 
 ## O invariante que autoriza `immutable`
 
@@ -13,13 +13,14 @@ O `parseRange` foi **copiado verbatim** entre os módulos (o cabeçalho de `back
 ## Armadilhas do ETag
 
 - **Migrar a mesma raiz de filesystem para o store SQLite troca a família do ETag** (`"{size}-{mtime}"` em `backend/src/modules/nomes/assets3d.service.js` vira `"{sha1}"` em `backend/src/modules/nomes/assets3d.store.js`). Não é bug, mas invalida o cache de todos os clientes no dia da migração.
-- **O SQLite sombreia o disco silenciosamente.** A ordem é store primeiro, filesystem só como fallback (`backend/src/modules/nomes/assets3d.controller.js`). Um caminho presente nos dois serve a versão do SQLite sem nenhum sinal.
+- **Existe uma TERCEIRA família, e ela não deriva do conteúdo.** No armazém de modelo o ETag é `computeTileETag(modelId, chave, token)` (`backend/src/modules/models3d/models3d.service.js`), derivado do `build_token` da geração. É o que torna o 304 gratuito ali, e é o que muda a regra de publicação: **republicar um `.3dtiles` sem trocar o `build_token` mantém o ETag com bytes novos**, e com um ano de `immutable` o cliente compõe tile velho dentro da árvore nova, sem erro. O token existe para impedir exatamente isso. Ver [[acervo-3d-convertido]].
+- **O armazém mais alto sombreia os de baixo silenciosamente.** A ordem é modelo (`m/<slug>/`), depois o SQLite plano, depois o filesystem (`serveAsset`, `backend/src/modules/nomes/assets3d.controller.js`). Um caminho presente em mais de um serve o mais alto sem nenhum sinal.
 - **Comparação de `If-None-Match` é `===` estrito** (`backend/src/modules/nomes/assets3d.controller.js`, `backend/src/modules/streetview360/sv360.controller.js`). Sem normalização de ETag fraco (`W/"..."`) e sem lista de ETags. Um CDN ou proxy que reescreva o ETag para a forma fraca **destrói todo 304**, e cada cache hit vira 200 completo. `If-Modified-Since` não é tratado nessas rotas.
-- **Republicar no mesmo caminho funciona em teoria** (o ETag muda), mas com `immutable` o navegador pode não revalidar dentro do ano. Para garantir troca imediata, publique em outro caminho.
+- **Republicar no mesmo caminho funciona em teoria** (o ETag muda, salvo no armazém de modelo, onde ele só muda com o token), mas com `immutable` o navegador pode não revalidar dentro do ano. Para garantir troca imediata, publique em outro caminho.
 
 ## O que não pode ser reordenado
 
-- **O 304 sai antes do `sem.acquire()`** nas duas rotas de BLOB. Inverter essas duas linhas transforma tempestade de revalidação (barata) em pressão de heap e esgotamento da cota de concorrência (`ASSETS_3D_MAX_INFLIGHT` / `SV360_MAX_INFLIGHT`, ambos default 8, `backend/src/config.js`). Esses dois são o número a baixar em container apertado, e são por processo, não por host.
+- **O 304 sai antes de tomar vaga no semáforo**, em toda rota de BLOB e em todo armazém, o `.3dtiles` por modelo inclusive. Inverter essas duas linhas transforma tempestade de revalidação (barata) em pressão de heap e esgotamento da cota de concorrência (`ASSETS_3D_MAX_INFLIGHT` / `SV360_MAX_INFLIGHT`, ambos default 8, `backend/src/config.js`). Esses dois são o número a baixar em container apertado, e são por processo, não por host.
 - **A liberação do semáforo é registrada em `finish` E em `close`, com guarda `released`** (`backend/src/modules/nomes/assets3d.controller.js`). O Cesium cancela tiles fora de tela o tempo todo: aborto dispara `close`, nunca `finish`. Sem o par, o pool vaza até travar a rota. Qualquer rota nova que sirva BLOB precisa copiar o bloco inteiro.
 - **Semáforo só onde o BLOB materializa no heap.** O caminho filesystem faz `createReadStream(...).pipe(res)` e deliberadamente não usa semáforo. Adicionar um ali só reduziria vazão sem proteger memória.
 
