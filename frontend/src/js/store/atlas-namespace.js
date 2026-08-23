@@ -10,13 +10,16 @@
  * those call sites turn into lazy accessors (`getStore(StoreName.MAPS)`) and a switch
  * of atlas re-points all of them at once.
  *
- * IT IS NOT YET THE ONLY CALLER OF `localforage.createInstance` IN `src/`, and writing
- * that it is would be a comfortable lie: 21 of the 33 call sites moved here, and the
- * other 12 stay in the four OLD migrations under `store/migration/`, which must keep
- * opening the pre-namespace database names or they would migrate the wrong database.
- * They are enumerated in the `PENDENTES` allowlist of the structural guard
- * (`frontend/tests/unit/repository-namespace.test.js`), which fails on any NEW caller.
- * The rule for new code is this module; the exception is listed, never implied.
+ * IT IS NOW THE ONLY CALLER OF `localforage.createInstance` IN `src/js/`. It was not for a
+ * while: 21 of the 33 call sites moved here first, and the other 12 stayed in the four OLD
+ * migrations under `store/migration/`, which had to keep opening the pre-namespace database
+ * names or they would migrate the wrong database. Those 12 are gone. The migrations take the
+ * SCOPE as an argument and resolve through `getStoreFor(StoreName.X, scope)`, which reaches
+ * the legacy names via `legacyScope()` and is what lets the same code migrate a namespaced
+ * slot. The `PENDENTES` allowlist that used to enumerate them is gone with them, so the
+ * structural guard (`frontend/tests/unit/repository-namespace.test.js`) is closed: it scans
+ * all of `src/js` and fails on ANY caller but this file. The rule for new code is this
+ * module; an exception would have to be written into that guard, never implied.
  *
  * THE NAMESPACE GOES IN THE DATABASE NAME, NOT IN THE OBJECT-STORE NAME.
  * This is a measured decision, not a preference. Creating a database with a new name

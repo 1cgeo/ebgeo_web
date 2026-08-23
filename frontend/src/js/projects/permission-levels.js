@@ -13,7 +13,9 @@
  * `projects/atlas-drive.js`, the body of `atlas.html`, a page that boots
  * WITHOUT the map, without `@store` and without `initServices()`. Importing
  * anything here that reaches the store (the `@utils` or `@modals` barrels do, via
- * transitive paths) would drag ~3 MB of map bundle into a ~140 kB page. Keep the
+ * transitive paths) would drag the whole map bundle, an order of magnitude heavier
+ * than this page, into it. The absolute figures are deliberately not written here:
+ * they moved twice already and nobody re-measures a number in a header. Keep the
  * import list of this file empty.
  *
  * Gate access by RANK, never by a closed list: `perm === 'write' || perm === 'owner'`

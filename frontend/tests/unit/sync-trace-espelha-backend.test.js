@@ -8,9 +8,11 @@
  * `backend/src/utils/sync-trace.js` é um ESPELHO; os dois `@fileoverview` dizem "MUST stay in
  * lockstep" e a constituição repete ("estágio novo entra nos dois no mesmo commit"). Isso era
  * prosa: nenhum teste importava os dois arquivos, e a promessa valia o quanto alguém lembrasse
- * dela. O modo de falha não é barulhento, é o pior tipo: o merger do ledger valida o `stage` de
- * cada span contra o enum do frontend e SINALIZA o desconhecido, então um estágio novo só no
- * backend vira ruído de diagnóstico exatamente quando alguém está diagnosticando.
+ * dela. E o modo de falha é mudo: o merger do ledger (`tests/e2e-ui/helpers/ledger.js`) NÃO
+ * valida `stage` contra enum nenhum, porque não importa nada e casa cada estágio como literal
+ * solto. Um estágio novo só no backend simplesmente não é reconhecido ali, sem aviso, e some
+ * do diagnóstico exatamente quando alguém está diagnosticando. Este arquivo é a única rede
+ * contra isso, e ela cobre o VOCABULÁRIO, nunca a semântica de quem lê o span.
  *
  * O precedente da casa é `calibracao-espelha-marcador-andar.test.js`, que importa as duas cópias
  * do projetor 360 e exige o mesmo número. A forma é copiada de lá, inclusive a parte que mais

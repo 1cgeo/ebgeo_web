@@ -26,9 +26,12 @@
 //
 //   - Checked: `.js` files whose real path contains `src/js/`. That is the only
 //     tree where the convention is unambiguous ("relativo ao `src/` do pacote",
-//     so the expected value always starts with `js/`). 601/601 files comply
-//     today, so the rule reports ZERO violations on the current tree and exists
-//     purely to keep the next `calibration/` from happening.
+//     so the expected value always starts with `js/`). EVERY file under that
+//     tree complies today, so the rule reports ZERO violations and exists purely
+//     to keep the next `calibration/` from happening. The count is deliberately
+//     not written here: an absolute nobody re-measures becomes a lie, and the
+//     property that survives is "zero violations", which `npm run lint` re-proves
+//     on every run.
 //   - NOT checked: `frontend/tests/**`, config files at the package root, and
 //     `frontend/eslint-rules/**`. They do carry path comments, but relative to
 //     the PACKAGE root, and inconsistently: 118 of the 263 files outside

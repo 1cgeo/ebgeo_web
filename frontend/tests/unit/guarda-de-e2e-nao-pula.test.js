@@ -102,10 +102,48 @@ describe('os guardas de "o e2e não pulou" continuam existindo e continuam sem g
         const contrato = irmaos('tests/e2e', '.e2e.test.js');
         const navegador = irmaos('tests/e2e-ui', '.spec.js');
         expect(contrato.length).toBeGreaterThan(30);
-        expect(navegador.length).toBeGreaterThan(0);
+        expect(navegador.length).toBeGreaterThan(60);
 
         const gateados = contrato.filter((n) => /\.skipIf\s*\(/.test(lerCodigo(join('tests/e2e', n))));
         expect(gateados.length).toBeGreaterThan(30);
         expect(gateados.length).toBe(contrato.length);
+
+        // O LADO PLAYWRIGHT MEDIA SÓ `navegador.length > 0`, e isso NÃO era discriminação: um
+        // piso de existência de arquivo é verdadeiro num mundo em que ninguém gateia, que é
+        // exatamente o mundo em que a ausência de gate no `_backend-required.spec.js` deixa de
+        // significar coisa alguma. Metade do guarda provava a sua metade e a outra não provava
+        // nada, com as duas dentro do mesmo `it` verde.
+        //
+        // SÃO DOIS IDIOMAS DE GATE NESSA CAMADA, e reconhecer só um seria reintroduzir a
+        // vacuidade pela porta estreita (a família de collab, a mais cara de mascarar, é toda do
+        // segundo). Nenhum dos dois é `describe.skipIf`, que não existe no Playwright: por isso a
+        // regex do lado de contrato não serve aqui, e por isso a `bandeira` da tabela de GUARDAS
+        // é `state.skip` e não `E2E_SKIP`.
+        const IDIOMAS_DE_GATE = [
+            // `const describeOrSkip = state.skip ? test.describe.skip : test.describe;`
+            /state\s*\.\s*skip/,
+            // `collabTest` (helpers/collab.fixtures.js) já traz o mesmo gate assado no fixture.
+            /helpers\/collab\.fixtures/,
+        ];
+        const gateadosNavegador = navegador.filter((n) => {
+            const codigo = lerCodigo(join('tests/e2e-ui', n));
+            return IDIOMAS_DE_GATE.some((re) => re.test(codigo));
+        });
+        expect(gateadosNavegador.length).toBeGreaterThan(60);
+        expect(
+            gateadosNavegador.length,
+            'spec de navegador sem gate de backend: '
+            + navegador.filter((n) => !gateadosNavegador.includes(n)).join(', ')
+            + '. Gateie por `state.skip` ou pelo fixture `collabTest`; não afrouxe este piso, '
+            + 'porque é ele que impede a ausência de gate no _backend-required.spec.js de virar vacuidade.',
+        ).toBe(navegador.length);
+
+        // CONTROLE DA DISCRIMINAÇÃO NOVA, sintético pelo mesmo motivo do caso do despimento: os
+        // dois idiomas precisam ser capazes de NÃO casar, senão o filtro acima é um `true`
+        // disfarçado e a asserção de igualdade passa sozinha.
+        const semGate = 'test.describe("x", () => { test("y", () => {}); });';
+        expect(IDIOMAS_DE_GATE.some((re) => re.test(semGate))).toBe(false);
+        expect(IDIOMAS_DE_GATE.some((re) => re.test('const d = state.skip ? a : b;'))).toBe(true);
+        expect(IDIOMAS_DE_GATE.some((re) => re.test("import { collabTest } from './helpers/collab.fixtures.js';"))).toBe(true);
     });
 });

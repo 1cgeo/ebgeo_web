@@ -20,7 +20,11 @@
 // the rule off. So the rule keys on the project's OWN naming convention for
 // user-authored data (CLAUDE.md: "propriedade de feição em português: `nome`,
 // `descricao`") plus the identity/name-bearing fields, and reports only those.
-// Current cost: 3 violations, all verified real.
+// Current cost on the tree: ZERO. The three real violations this rule found when
+// it was born have been fixed, so from here on its value is the false negative it
+// keeps out: a NEW `innerHTML` interpolating a lexicon field fails on the spot.
+// Green here never meant "this file follows the convention", only "no lexicon
+// field reached an `innerHTML`".
 //
 // Deliberately NOT reported (accepted misses, bought with zero false positives):
 //   - any interpolation whose name is outside the lexicon: `${label}`,

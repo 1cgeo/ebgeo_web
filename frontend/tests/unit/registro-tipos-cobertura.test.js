@@ -45,7 +45,13 @@
 // says so in those words, because an environment failure read as a regression costs more
 // than the guard saves. (b) A type spelled with a character outside `[a-z_]` disappears
 // from the vocabulary. (c) A file that builds its list by concatenation instead of literals
-// leaves the sweep, which is the direction a migration goes anyway.
+// leaves the sweep, which is the direction a migration goes anyway. (d) `git ls-files` reads
+// the INDEX, not the working tree, so a file that exists on disk but has not been `git add`ed
+// is invisible to the sweep and is never asked for a census entry. Since the run that counts
+// is the one BEFORE the commit, a NEW closed list is outside the census in exactly the
+// session that writes it: this guard behaves differently before and after `git add`, and it
+// has already happened once, to the registry file itself (see ARQUIVO_DO_REGISTRO below).
+// Any list born in a session deserves one run against the COMMITTED tree.
 
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
@@ -109,7 +115,7 @@ const CENSO = [
     },
     {
         arquivo: 'map_sig.js', completa: 'tipo', universo: 'selecionaveis',
-        motivo: 'The three registries a tool has to enter (selection, control registry, toolbar/keyboard controls). Registering the control alone does not make the button work.',
+        motivo: 'The FOUR edit sites a tool has to enter: SELECTION_CONTROLS, CONTROL_REGISTRY, and the TWO independent `controls:` literals (KeyboardShortcuts and ToolbarControl), which carry the same names in different order and are held together by nothing. Registering the control alone does not make the button work; entering one twin and not the other gives a button with no shortcut.',
     },
     {
         arquivo: 'sidebar/components/feature-identification.js', completa: 'tipo', universo: 'selecionaveis',

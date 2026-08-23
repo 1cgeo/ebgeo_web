@@ -13,6 +13,15 @@
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
 
+// NO RETRY FOR THE GUARD. `playwright.config.js` sets `retries: 1` for the whole suite, which
+// is right for the collab specs and WRONG here: this case exists to fail when the backend did
+// not come up, and a retried failure that passes on the second attempt is reported as `flaky`,
+// i.e. a green run. That is the "single measurement of something probabilistic" the
+// constitution forbids, applied to the one case that guards every other case. Opting out costs
+// zero run time (this case does no I/O) and is the same idiom `browser-multi-tab-namespace.spec.js`
+// uses for its own reason.
+test.describe.configure({ retries: 0 });
+
 test('the real backend came up — the browser-e2e suite did not silently skip', () => {
     if (process.env.EBGEO_E2E_ALLOW_SKIP === '1') return; // explicit, deliberate opt-out
     const state = readState();

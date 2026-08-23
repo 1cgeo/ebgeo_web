@@ -303,6 +303,61 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['updateData', 'método da GeoJSONSource do MapLibre 5.18 (aplica um diff em vez de reenviar a coleção). Externo, e o livro-razão o nomeia justamente para registrar que este projeto NÃO o usa: as 293 chamadas de setData reenviam o array inteiro'],
 ]);
 
+// ---------------------------------------------------------------------------
+// Em-dash na prosa (classe 5)
+// ---------------------------------------------------------------------------
+
+/** O caractere, escrito por escape para não se acusar sozinho na leitura. */
+const EM_DASH = '—';
+
+/**
+ * ALCANCE DO GUARDA DE EM-DASH, e ele é ESTREITO de propósito.
+ *
+ * A convenção "sem em-dash na prosa" mora na constituição desde sempre e era LETRA
+ * MORTA: nenhum teste procurava o caractere, e uma varredura em 2026-08-23 achou ~63
+ * ocorrências no corpus, INCLUSIVE nos arquivos que o agente carrega como instrução em
+ * toda sessão. Regra de estilo sem guarda não é regra, é preferência declarada, e esta
+ * tinha a agravante de ser citada como se fosse cumprida.
+ *
+ * O alcance são os documentos de INSTRUÇÃO: as duas constituições de método
+ * (`CLAUDE.md` e `backend/CLAUDE.md`), as regras de `.claude/rules/` e tudo sob `docs/`.
+ *
+ * O QUE FICA DE FORA, medido no dia em que este guarda nasceu, para ninguém concluir do
+ * verde mais do que ele diz: `.claude/skills/**` (25 ocorrências), `.claude/agents/**`
+ * (11), `frontend/tests/TESTING.md` (8), `frontend/tests/TESTING-BACKLOG.md` (28) e
+ * `PENDENCIA-TILE-PRIVADO.md` (3). Nenhum deles foi limpo, e alargar o alcance sem
+ * limpar antes deixaria o guarda vermelho no dia em que nasceu, que é como um guarda
+ * novo morre. `README.md` e `CONSTITUICAO.md` estão limpos hoje e mesmo assim ficaram de
+ * fora, porque o recorte foi decidido pelo dono; incluí-los é uma linha, quando quiser.
+ */
+const ALCANCE_EM_DASH = DOCS.filter(
+    (d) => d === 'CLAUDE.md'
+        || d === 'backend/CLAUDE.md'
+        || d.startsWith('docs/')
+        || d.startsWith('.claude/rules/')
+);
+
+/**
+ * O texto de um markdown sem o que NÃO é prosa.
+ *
+ * Três isenções, e cada uma existe porque o em-dash ali dentro é conteúdo alheio, não
+ * escolha tipográfica de quem escreve: bloco de código cercado (o texto é código, e
+ * mudá-lo mudaria o que o exemplo afirma), span entre crases (mesma razão, e é onde a
+ * casa cita verbatim uma mensagem de erro ou um trecho de arquivo) e URL, incluindo o
+ * alvo de link markdown, onde o caractere é endereço e trocá-lo quebra o link.
+ *
+ * O que isso deixa passar: citação verbatim escrita SEM crase, que nesta casa é rara
+ * porque a convenção de citação já pede crase. Prefira crase a uma isenção nova.
+ */
+function semCodigoNemUrl(texto) {
+    return texto
+        .replace(/^```[\s\S]*?^```/gm, ' ')
+        .replace(/``[^\n]*?``/g, ' ')
+        .replace(/`[^`\n]*`/g, ' ')
+        .replace(/\]\([^)\n]*\)/g, ' ')
+        .replace(/https?:\/\/\S+/g, ' ');
+}
+
 describe('integridade da documentação', () => {
     it('lista os documentos vigiados (guarda contra a lista esvaziar em silêncio)', () => {
         expect(DOCS.length).toBeGreaterThan(10);
@@ -468,6 +523,53 @@ describe('integridade da documentação', () => {
             }
         }
         expect(comAcento, `wikilink com caractere não-ASCII:\n${comAcento.join('\n')}`).toEqual([]);
+    });
+
+    it('nenhum em-dash na prosa dos documentos de instrução', () => {
+        const achados = [];
+        for (const doc of ALCANCE_EM_DASH) {
+            const linhas = semCodigoNemUrl(readFileSync(join(RAIZ, doc), 'utf8')).split('\n');
+            linhas.forEach((linha, i) => {
+                if (linha.includes(EM_DASH)) achados.push(`${doc}:${i + 1}`);
+            });
+        }
+        expect(
+            achados,
+            'em-dash na prosa (a constituição pede vírgula, parênteses, dois-pontos ou frase'
+                + ` separada). Se o caractere é código ou URL, ponha-o entre crases:\n${achados.join('\n')}`
+        ).toEqual([]);
+
+        // O PISO: com a lista limpa este caso é `[] === []`, exatamente a "cobertura vazia
+        // passa verde" da constituição. Dois pisos o discriminam. O primeiro é o alcance:
+        // se `DOCS` ou o filtro quebrarem, a varredura não lê arquivo nenhum e passa.
+        expect(
+            ALCANCE_EM_DASH.length,
+            'o alcance do guarda de em-dash esvaziou: o filtro ou a montagem de DOCS quebrou'
+        ).toBeGreaterThan(60);
+        expect(ALCANCE_EM_DASH, 'as duas constituições de método saíram do alcance').toEqual(
+            expect.arrayContaining(['CLAUDE.md', 'backend/CLAUDE.md'])
+        );
+
+        // O segundo é o CONTROLE POSITIVO, rodando a MESMA função de limpeza contra texto
+        // que contém as duas formas: a proibida (prosa) e as três isentas. Sem ele, uma
+        // limpeza que passasse a apagar o documento inteiro daria o mesmo verde.
+        const PROSA_SUJA = `Uma frase de prosa ${EM_DASH} com travessão no meio.`;
+        expect(
+            semCodigoNemUrl(PROSA_SUJA).includes(EM_DASH),
+            'a varredura parou de enxergar em-dash em prosa'
+        ).toBe(true);
+
+        const SO_ISENTOS = [
+            '```',
+            `const x = 1; // travessão ${EM_DASH} dentro de bloco cercado`,
+            '```',
+            `span de crase \`a ${EM_DASH} b\` e crase dupla \`\`c ${EM_DASH} d\`\``,
+            `link [texto](http://exemplo/a${EM_DASH}b) e URL nua https://exemplo/x${EM_DASH}y`,
+        ].join('\n');
+        expect(
+            semCodigoNemUrl(SO_ISENTOS).includes(EM_DASH),
+            'falso positivo: a limpeza deixou de isentar código, span de crase ou URL'
+        ).toBe(false);
     });
 
     it('MEMORY.md cabe no que o Claude Code realmente carrega', () => {

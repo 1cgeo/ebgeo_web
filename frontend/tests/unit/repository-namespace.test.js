@@ -334,19 +334,25 @@ describe('getScopedStore', () => {
 // ============================================================================
 
 describe('createInstance só na fábrica', () => {
-    const STORE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js/store');
+    const SRC_JS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/js');
+    const STORE_DIR = join(SRC_JS_DIR, 'store');
 
-    /**
-     * Arquivos que AINDA não passaram pela fábrica, com o dono da conversão. A lista é
-     * permissiva de propósito (um arquivo que já converteu não quebra este teste), então
-     * ela encolhe sozinha; o que ela NÃO permite é um arquivo novo aparecer aqui.
-     */
-    const PENDENTES = [
-        'migration/migration.service.js',
-        'migration/v1-to-v2.migration.js',
-        'migration/v2-to-v2.1.migration.js',
-        'migration/v2.1-to-v2.2.migration.js'
-    ];
+    /** O único arquivo autorizado a chamar `localforage.createInstance`, relativo a `src/js/`. */
+    const FABRICA = 'store/atlas-namespace.js';
+
+    // A allowlist SAIU, e a saída é o fato que interessa: ela nomeava
+    // `migration/migration.service.js` e as três migrações antigas, que precisavam abrir os
+    // bancos pré-namespace por nome fixo. As quatro passaram a receber o ESCOPO e resolvem por
+    // `getStoreFor(StoreName.X, scope)`, então nenhuma cria instância hoje e a lista virou uma
+    // permissão sem beneficiário, que é como um guarda volta a abrir sozinho. O guarda ficou
+    // fechado: exceção nova se escreve aqui, com o motivo, na hora em que ela nascer.
+    //
+    // A VARREDURA TAMBÉM ALARGOU, de `src/js/store` para `src/js` inteiro. O motivo é o mesmo
+    // que criou o guarda: a fábrica resolve contra o escopo ATIVO, e um handle aberto por fora
+    // dela fica preso ao atlas que estava montado no import. Essa armadilha não é do store; ela
+    // pega igual em `projects/`, `catalog/` e `calibration/`, que o recorte antigo deixava de
+    // fora. Não havia violação nenhuma lá fora quando a varredura alargou, então o alargamento
+    // não custou exceção.
 
     function listJsFiles(dir, prefix = '') {
         const out = [];
@@ -361,21 +367,27 @@ describe('createInstance só na fábrica', () => {
         return out;
     }
 
-    it('nenhum arquivo do store cria instância fora da fábrica (salvo os pendentes)', () => {
-        const files = listJsFiles(STORE_DIR);
-        expect(files.length).toBeGreaterThan(20);
+    it('nenhum arquivo de src/js cria instância fora da fábrica', () => {
+        const files = listJsFiles(SRC_JS_DIR);
+        expect(files.length).toBeGreaterThan(200);
 
-        // `createInstance` em comentário não conta como chamada, e a fábrica cita o nome na
-        // própria documentação: só a invocação interessa.
+        // Guarda de alcance: uma varredura ancorada no diretório antigo (ou num que não existe)
+        // devolveria uma lista sem violação nenhuma e passaria verde sem verificar as pastas que
+        // o alargamento veio cobrir. As três são nomeadas, não contadas.
+        for (const pasta of ['store/', 'projects/', 'catalog/', 'calibration/']) {
+            expect(files.some(({ rel }) => rel.startsWith(pasta)), `a varredura não alcançou ${pasta}`).toBe(true);
+        }
+
+        // `createInstance` em comentário não conta como chamada, e quatro arquivos citam o nome
+        // na própria documentação (a fábrica inclusive): só a invocação interessa.
         const callers = files
             .filter(({ full }) => /localforage\.createInstance\s*\(/.test(readFileSync(full, 'utf8')))
             .map(({ rel }) => rel);
 
         // Guarda de cobertura vazia: uma varredura que não acha nada passaria verde.
-        expect(callers).toContain('atlas-namespace.js');
+        expect(callers).toContain(FABRICA);
 
-        const forbidden = callers.filter(rel => rel !== 'atlas-namespace.js' && !PENDENTES.includes(rel));
-        expect(forbidden).toEqual([]);
+        expect(callers.filter(rel => rel !== FABRICA)).toEqual([]);
     });
 
     it('os dois arquivos do repositório já não criam instância nenhuma', () => {
