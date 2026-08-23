@@ -200,12 +200,15 @@ const CENSO = [
             + 'gerir, transferir posse), sobre o `user_permission` cru que a API devolve. São o '
             + 'exemplo canônico da forma certa neste repositório.',
     },
-    {
-        arquivo: 'src/js/projects/atlas-drive.js', trecho: "getPermissionLabel('owner')", n: 1,
-        classe: ESCADA,
-        motivo: 'RÓTULO, não gate: o texto pt-BR do degrau, resolvido pela mesma fonte que a escada, '
-            + 'para que a tela nunca chame um nível por um nome que outra tela não usa.',
-    },
+    // Aqui morava uma entrada de RÓTULO em `atlas-drive.js` (`getPermissionLabel('owner')`), dentro
+    // de `accessRowsFromSharing`, a função que alimentava o painel somente-leitura "Quem tem
+    // acesso". O painel foi podado quando o modal COMPLETO de compartilhamento passou a abrir
+    // daquela página, e a função morreu junto. A entrada saiu com ela.
+    //
+    // O CENSO PEGOU A PODA, e é o que ele existe para fazer nas duas direções: a contagem por
+    // entrada é exata, então remover um sítio classificado reprova igual a acrescentar um não
+    // classificado. Sem isso, uma poda distraída levaria junto um gate real e o censo continuaria
+    // verde com uma entrada apontando para código que não existe mais.
     {
         arquivo: 'src/js/modals/sharing.modal.core.js', trecho: 'isGrantablePermission(group?.permission)',
         n: 1, classe: ESCADA,

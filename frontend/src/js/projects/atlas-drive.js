@@ -125,21 +125,6 @@ export function accessPersonLabel(person) {
 }
 
 /**
- * Quantas pessoas um GRUPO carrega, por extenso.
- *
- * Ausente, string, `NaN` e negativo colapsam todos em zero de propósito: nenhum deles descreve
- * gente com acesso, e todos conjugariam no plural por acidente se fossem adiante como número.
- * @param {{memberCount?: *}} group
- * @returns {string}
- */
-function accessGroupSizeLabel(group) {
-    const n = Number(group?.memberCount);
-    const total = Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
-    if (total === 0) return 'sem membros';
-    return `${total} ${total === 1 ? 'pessoa' : 'pessoas'}`;
-}
-
-/**
  * OS PARTICIPANTES AGRUPADOS PELO NÍVEL DELES, do topo da escada para baixo.
  *
  * É ASSIM QUE O NÍVEL CABE NUM CARTÃO. Escrever o nível ao lado de cada nome ("Cap Silva
@@ -395,72 +380,6 @@ export function describeLeaveOutcome(result, atlasName = '') {
             : `Você não tinha convite direto ${aAlvo}: o acesso de ${nivel} vem de outro caminho, `
                 + 'e só quem administra o atlas pode retirá-lo.',
     };
-}
-
-/**
- * O PAYLOAD DE `GET /atlas/:atlasId/sharing` NA FORMA QUE O PAINEL DESENHA: uma linha por
- * participante, pessoa ou grupo, cada uma com o NÍVEL por extenso.
- *
- * O DONO VEM PRIMEIRO E FORA DE `shares`, porque ele não é um share: posse é a coluna
- * `atlas.owner_id`, e o servidor a devolve num campo próprio. Sem esta linha o painel diria que
- * um atlas recém-criado não tem ninguém.
- *
- * O EXCEDENTE DE GRUPO É DITO SEM NOMEAR O GRUPO. O acesso resolve pelo MAIOR nível entre o
- * compartilhamento nominal e o de grupo (`fn_user_atlas_shares`), então uma linha pode exibir
- * "Leitura" enquanto a pessoa edita por um coletivo. Dizer QUAL coletivo revelaria que aquela
- * pessoa é membro dele, que o gestor do atlas não tem direito de saber (cláusula 5.3); dizer que
- * há excedente basta para ninguém se enganar. A comparação usa `permissionRank`, a hierarquia
- * sancionada, e não um `findIndex` sobre lista própria.
- *
- * Pura — sem DOM, sem rede.
- * @param {Object|null} cfg - o corpo de `apiClient.getSharing`.
- * @returns {Array<{kind: string, id: string, name: string, meta: string, levelLabel: string,
- *   note: string}>}
- */
-export function accessRowsFromSharing(cfg) {
-    const rows = [];
-    const owner = cfg?.owner;
-    if (owner?.userId != null) {
-        const username = String(owner?.username ?? '').trim();
-        rows.push({
-            kind: 'user',
-            id: String(owner.userId),
-            name: accessPersonLabel(owner),
-            meta: username ? `@${username}` : '',
-            levelLabel: getPermissionLabel('owner'),
-            note: '',
-        });
-    }
-    for (const share of Array.isArray(cfg?.shares) ? cfg.shares : []) {
-        const username = String(share?.username ?? '').trim();
-        const level = share?.permission;
-        const efetiva = share?.effectivePermission;
-        rows.push({
-            kind: 'user',
-            id: String(share?.userId ?? ''),
-            name: accessPersonLabel(share),
-            meta: username ? `@${username}` : '',
-            levelLabel: getPermissionLabel(level),
-            note: permissionRank(efetiva) > permissionRank(level)
-                ? `Na prática, ${getPermissionLabel(efetiva)}, por um grupo deste atlas.`
-                : '',
-        });
-    }
-    for (const group of Array.isArray(cfg?.groups) ? cfg.groups : []) {
-        const dono = String(group?.ownerNome ?? '').trim();
-        rows.push({
-            kind: 'group',
-            id: String(group?.groupId ?? ''),
-            name: String(group?.name ?? 'Grupo'),
-            meta: accessGroupSizeLabel(group),
-            levelLabel: getPermissionLabel(group?.permission),
-            // De quem é o grupo: um share coletivo entrega ao dono dele o poder de pôr mais gente
-            // dentro do atlas sem passar por quem compartilhou, e esta é a única superfície desta
-            // página onde essa delegação aparece.
-            note: dono ? `Grupo de ${dono}.` : 'Grupo sem dono definido.',
-        });
-    }
-    return rows;
 }
 
 /**

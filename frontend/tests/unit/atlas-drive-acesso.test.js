@@ -20,7 +20,6 @@
 import { describe, it, expect } from 'vitest';
 import {
     accessPersonLabel,
-    accessRowsFromSharing,
     cardMenuActions,
     describeCardAccess,
 } from '@js/projects/atlas-drive.js';
@@ -219,92 +218,5 @@ describe('describeCardAccess — o rodapé de quem tem acesso', () => {
         const r = describeCardAccess({ members: [{ nome: 'A' }, { nome: 'B' }] }, {});
         expect(r.count).toBe(2);
         expect(r.summary).toBe('2 pessoas');
-    });
-});
-
-describe('accessRowsFromSharing — o payload de GET /sharing na forma do painel', () => {
-    const cfg = {
-        isPublic: false,
-        owner: { userId: 'u1', username: 'diniz', nome: 'Diniz' },
-        shares: [
-            { userId: 'u2', username: 'marcel', nome: 'Marcel', permission: 'read', effectivePermission: 'read' },
-            { userId: 'u3', username: 'ana', nome: 'Ana', permission: 'read', effectivePermission: 'write' },
-        ],
-        groups: [
-            { groupId: 'g1', name: 'Equipe Alfa', permission: 'write', memberCount: 4, ownerNome: 'Diniz' },
-        ],
-    };
-
-    it('põe o DONO primeiro, com o nível do topo da escada', () => {
-        // Posse é a coluna atlas.owner_id e chega fora de `shares`: sem esta linha, um atlas
-        // recém-criado seria descrito como "ninguém ainda".
-        const rows = accessRowsFromSharing(cfg);
-        expect(rows[0]).toMatchObject({ kind: 'user', id: 'u1', name: 'Diniz', levelLabel: 'Proprietário' });
-        expect(rows[0].meta).toBe('@diniz');
-    });
-
-    it('traz o NÍVEL por extenso de cada pessoa', () => {
-        const rows = accessRowsFromSharing(cfg);
-        expect(rows[1]).toMatchObject({ id: 'u2', levelLabel: 'Leitura', note: '' });
-    });
-
-    it('avisa o excedente de grupo SEM nomear o grupo (cláusula 5.3)', () => {
-        const rows = accessRowsFromSharing(cfg);
-        expect(rows[2].levelLabel).toBe('Leitura');
-        expect(rows[2].note).toBe('Na prática, Edição, por um grupo deste atlas.');
-        // O que ele NÃO pode dizer: nomear o coletivo revelaria que Ana é membro dele.
-        expect(rows[2].note).not.toContain('Equipe Alfa');
-    });
-
-    it('não inventa excedente quando a efetiva é igual ou MENOR que a linha', () => {
-        // Controle negativo do ramo acima: uma comparação por desigualdade simples (`!==`)
-        // marcaria excedente aqui, e uma por índice sobre lista própria erraria o sinal.
-        const rows = accessRowsFromSharing({
-            shares: [
-                { userId: 'a', permission: 'write', effectivePermission: 'write' },
-                { userId: 'b', permission: 'manage', effectivePermission: 'read' },
-                { userId: 'c', permission: 'write' },
-            ],
-        });
-        expect(rows.map((r) => r.note)).toEqual(['', '', '']);
-    });
-
-    it('desenha o grupo como COLETIVO: tamanho, dono e nível', () => {
-        const rows = accessRowsFromSharing(cfg);
-        expect(rows[3]).toMatchObject({
-            kind: 'group', id: 'g1', name: 'Equipe Alfa', levelLabel: 'Edição',
-        });
-        expect(rows[3].meta).toBe('4 pessoas');
-        expect(rows[3].note).toBe('Grupo de Diniz.');
-    });
-
-    it('conjuga o tamanho do grupo, e o grupo órfão diz que é órfão', () => {
-        const rows = accessRowsFromSharing({
-            groups: [
-                { groupId: 'a', name: 'Um', permission: 'read', memberCount: 1, ownerNome: 'X' },
-                { groupId: 'b', name: 'Zero', permission: 'read', memberCount: 0 },
-                { groupId: 'c', name: 'Lixo', permission: 'read', memberCount: 'muitos' },
-            ],
-        });
-        expect(rows.map((r) => r.meta)).toEqual(['1 pessoa', 'sem membros', 'sem membros']);
-        // Grupo sem dono é estado real (o backfill adota `created_by`, nulo em linha antiga)
-        // e não entrega acesso a ninguém, porque a resolução exige dono vivo.
-        expect(rows[1].note).toBe('Grupo sem dono definido.');
-    });
-
-    it('devolve lista vazia para payload ausente, vazio ou malformado', () => {
-        for (const entrada of [null, undefined, {}, { shares: 'não é array', groups: 7 }]) {
-            expect(accessRowsFromSharing(entrada)).toEqual([]);
-        }
-    });
-
-    it('não perde uma linha só porque o nível é desconhecido', () => {
-        // `getPermissionLabel` cai no valor cru: um selo escrito `superuser` é uma surpresa
-        // legível, e nenhum selo seria a falha silenciosa.
-        const rows = accessRowsFromSharing({
-            shares: [{ userId: 'x', nome: 'X', permission: 'superuser' }],
-        });
-        expect(rows).toHaveLength(1);
-        expect(rows[0].levelLabel).toBe('superuser');
     });
 });
