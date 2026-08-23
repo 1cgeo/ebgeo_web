@@ -92,6 +92,13 @@ const ABERTAS = [
         natureza: 'decisão',
         motivo: 'os bytes do tile privado, parados por decisão do dono; a apuração vive em arquivo próprio',
     },
+    {
+        numero: '10.7',
+        estado: 'pendente',
+        natureza: 'trabalho',
+        motivo: 'a chave de API é o usuário inteiro, sem escopo nem prazo; o rumo (validar no nginx, para o'
+            + ' servidor de tiles) foi decidido em 2026-08-23 e o trabalho começa pelas três amarras',
+    },
 ];
 
 describe('CONSTITUICAO.md: o estado das cláusulas não apodrece em silêncio', () => {

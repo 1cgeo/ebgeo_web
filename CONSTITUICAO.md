@@ -58,6 +58,14 @@ Preso em três pedaços, e o terceiro é o mais fraco: o confinamento do visitan
 `backend/tests/integration/papel-credenciado.test.js` cobra sobre os quatro valores. Ou seja: nada reprovaria
 se alguém representasse o deslogado por um pseudo-papel fora da coluna.
 
+**A chave de API NÃO é um principal restrito, e a vizinhança nesta lista sugere o contrário.** O visitante
+de link ao lado dela é confinado a um atlas; a chave é **o usuário inteiro**: ela resolve para a linha de
+`users` e carrega o **papel global**, administrador inclusive. Ela não tem escopo, não tem prazo, e o corte
+de sessão em massa não a alcança, porque aquele corte compara o `iat` de um JWT e a chave não é JWT. As três
+propriedades foram medidas em 2026-08-23 e estão registradas como limite conhecido em **10.7**, junto com o
+rumo decidido. Preso por `backend/tests/integration/flexible-auth-precedence.test.js`, que mede a precedência
+da chave sobre o cookie e o Bearer.
+
 **1.3** Somente o administrador promove alguém a produtor ou a credenciado. O papel é lido do banco a cada
 requisição, nunca do token, de modo que um administrador rebaixado não sobrevive à validade do token que já
 emitiu. O administrador não pode rebaixar a si mesmo. **[vigente]** São três afirmações e três guardas: o
@@ -104,9 +112,17 @@ modo que recurso de outra OM devolve não-encontrado em vez de proibido. Preso p
 dela, incluindo nome, metadados, miniatura e vídeo de prévia. Recurso institucional, sem organização dona,
 não é de produtor nenhum. **[vigente]**, e o vídeo de prévia vale para **quatro** dos cinco tipos: 3D,
 dados, análise e 360. O **mapa base fica de fora**, e não por esquecimento: ele é o único dos cinco que não
-vira cartão de catálogo, então não haveria onde ler o valor. A exceção está escrita na migração que criou o
-campo. Preso por `backend/tests/integration/catalogo-video-de-previa.test.js`, cujo próprio título diz
-"quatro tipos".
+vira cartão de catálogo, então não haveria onde ler o valor.
+
+A exclusão passou a ser IMPOSTA PELO SERVIDOR em 2026-08-23, e até então não era: esta linha dizia que "a
+exceção está escrita na migração que criou o campo", e não estava em migração nenhuma. O `config` é JSONB
+livre nas quatro tabelas de catálogo e o schema de escrita era um só para elas, então `POST
+/api/v1/basemaps` com `config.previewVideo` era aceito e gravado; o que segurava a norma era o formulário
+do painel, que não oferece o campo. Uma revisão da constituição contra as migrações achou a remissão falsa,
+e o conserto foi no código, como manda a regra deste documento. Preso por
+`backend/tests/integration/catalogo-basemap-sem-video.test.js`, que mede o par (as outras três aceitam, o
+mapa base recusa, com o mesmo corpo), e por `backend/tests/integration/catalogo-video-de-previa.test.js`,
+cujo próprio título diz "quatro tipos".
 
 **2.5** O produtor **lê** os recursos públicos e os que a própria organização produziu. Ele **não** lê o
 acervo privado alheio. **[vigente]** Preso por `backend/tests/integration/resource-access-funcoes.test.js`,
@@ -441,3 +457,19 @@ TOKEN de verificação caduca em 48 horas, e a conta que ele deveria ativar não
 2026-08-21 **deixar como está**, e o desbloqueio passa a ser ato de administrador. Não é buraco esquecido: é
 custo aceito, e a alternativa (expirar cadastro não confirmado) fica registrada como a saída, se um dia o
 volume justificar.
+
+**10.7** **A chave de API é o usuário inteiro, sem escopo e sem prazo.** Ela resolve para a linha de
+`users` e carrega o papel global; `FIND_USER_BY_API_KEY` filtra apenas `is_active`, e não há coluna de
+validade nem de escopo. Compare com o resto do sistema: toda concessão expira, com teto de um ano imposto por
+CHECK (3.4); o token de link público é confinado e revogável (5.4); a sessão cai no corte em massa. A chave
+não tem nenhuma das três amarras, e a única revogação é rotacioná-la.
+
+O rumo está decidido, e é o que torna isto urgente em vez de acadêmico: **a chave passa a ser a credencial
+que o nginx valida** para as rotas servidas pelo Martin, que hoje são públicas e ficam fora do alcance de
+qualquer predicado deste servidor (é o defeito da 10.1). Autorizar no nginx é a boa prática para aquele
+servidor de tiles, e a chave é o que o navegador consegue carregar num pedido de tile. Isso muda o peso do
+que falta: uma credencial permanente que hoje só um integrador usa passaria a viajar na URL de cada tile.
+
+**Antes de ligar isso, a chave precisa de prazo, de escopo e de revogação que não seja só a rotação.** A
+apuração, com a opção comparada às outras quatro, está em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md).
+**[pendente]** por trabalho, e o trabalho começa pelas três amarras, nunca pelo `location` do nginx.

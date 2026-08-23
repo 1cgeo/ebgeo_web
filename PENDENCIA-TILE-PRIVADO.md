@@ -92,7 +92,62 @@ Duas observações que decidem a comparação:
   **recusar com 422** marcar privada uma linha cujos endereços não estejam sob o prefixo
   assinável.
 
-## Recomendação: (b) + (d)
+## (e) A chave de API validada no nginx — DECIDIDO pelo dono em 2026-08-23
+
+A apuração acima comparou quatro opções e recomendou (b)+(d). O dono decidiu por um quinto
+caminho, e ele responde a pergunta em aberto nº 1 deste documento: **sim, podemos mexer no
+nginx**. A decisão está registrada como cláusula 10.7 da constituição.
+
+**O desenho.** O nginx passa a exigir a **chave de API do usuário** nas rotas servidas pelo
+Martin. A validação acontece antes do proxy, no próprio nginx (por `auth_request` contra um
+endpoint interno deste backend, ou por consulta direta ao par chave→usuário). A aplicação já
+controla o 360 e o 3D pelos seus próprios serviços; o que fica fora de qualquer predicado
+hoje é justamente o que o Martin serve.
+
+**O que ela compra, e é o que as opções (a) e (c) não tinham:** o transporte da credencial
+está resolvido. O MapLibre não põe cabeçalho num pedido de tile, mas põe query string, e o
+backend já lê `?api_key=` (`flexibleAuth`). Nenhuma cunhagem de URL, nenhum segredo
+compartilhado com o nginx, nenhum relógio a sincronizar.
+
+**O que ela custa, dito antes de alguém descobrir em produção:**
+
+- **A chave é portadora e PERMANENTE.** A URL assinada de (b) é portadora por uma janela; a
+  chave vale até alguém rotacioná-la. Ela vai aparecer no log de acesso do nginx, no
+  `Referer` de qualquer recurso que a página carregue depois, e em todo cache compartilhado
+  que guarde a URL com query.
+- **Hoje a chave é o usuário inteiro** (cláusula 10.7): resolve para a linha de `users` e
+  carrega o papel global, administrador inclusive. Uma chave que vaza de um log de tile é
+  uma sessão de administrador sem prazo.
+- **Ela não cai no corte de sessão em massa**, porque aquele corte compara o `iat` de um JWT.
+  Revogar hoje é só rotacionar, o que derruba junto toda integração daquela pessoa.
+
+**O que precisa existir ANTES do `location` do nginx**, e esta é a ordem, não uma lista de
+desejos:
+
+1. **Prazo.** A chave ganha validade, como tudo o mais no sistema (concessão tem teto de um
+   ano por CHECK; refresh tem `expires_at`). Sem isso, o vazamento é permanente por desenho.
+2. **Escopo.** Uma chave usada para buscar tile não precisa configurar o sistema. O mínimo é
+   recusá-la nas rotas de administração; o desejável é ela nomear o que alcança.
+3. **Revogação que não seja só a rotação**, para que perder uma chave não derrube as outras
+   integrações da mesma pessoa.
+4. **Só então** o `location` do Martin, com a validação.
+
+**O que (e) NÃO entrega, e (b) entregava:** o cache de borda continua possível, mas a chave
+na URL torna cada usuário uma chave de cache distinta — o compartilhamento de tile entre
+pessoas se perde, ao contrário da janela arredondada de (b), que é a mesma URL para todo
+mundo dentro do intervalo. Se o volume de tile privado crescer, isso reaparece como custo de
+banda, e a saída continua sendo (b) para o acervo mais quente.
+
+**Verificação, quando for feito.** As três amarras têm teste de servidor (prazo recusado,
+escopo recusado, revogação individual). A validação no nginx **não** tem teste neste
+repositório, pela mesma razão que a 10.1 já registra: ela vira sonda com data, rodada à mão
+no deploy e com o resultado anotado. Sem ela, "o tile privado está fechado" é afirmação sobre
+o repositório, não sobre o servidor.
+
+## Recomendação: (b) + (d) — SUPERADA pela decisão de 2026-08-23
+
+Fica registrada porque a comparação continua valendo, e porque (b) volta a ser a saída se o
+custo de cache de (e) apertar. O dono decidiu por (e); ver a seção acima.
 
 Assinar na cunhagem, verificar no nginx, acervo privado sob prefixo próprio.
 
@@ -177,10 +232,8 @@ Sem controle negativo, nada disto é verificação.
 
 ## Perguntas em aberto
 
-1. **Podemos mexer no nginx de produção?** A recomendação inteira depende disso. Se não, a
-   segunda melhor é (a), e ela vem com o trabalho de credencial mais o risco de throughput;
-   nesse cenário ainda vale fazer (d), porque manter o tile público fora do proxy é o que
-   torna (a) viável.
+1. ~~**Podemos mexer no nginx de produção?**~~ **RESPONDIDA em 2026-08-23: sim.** É o que
+   sustenta a decisão por (e), a chave de API validada no nginx.
 2. **Como o servidor de tiles está publicado?** Se o acervo privado e o público estão no
    mesmo banco, é só caminho novo, não republicação de dado.
 3. **Quantas linhas privadas existem hoje nas três tabelas, e que URLs carregam?** A guarda
