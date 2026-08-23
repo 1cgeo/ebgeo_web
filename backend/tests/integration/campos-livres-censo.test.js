@@ -55,7 +55,6 @@ const CENSO = {
   // ---- NOT_CLIENT ----------------------------------------------------------
   'audit_trail.details': ['NOT_CLIENT', 'escrito por createAudit, no servidor'],
   'config_settings.value': ['NOT_CLIENT', 'escrito por administrador, pela rota de configuração'],
-  'active_sessions.cursor_position': ['NOT_CLIENT', 'presença: normalizada por collab.schemas.js antes de guardar'],
   'basemaps.config': ['NOT_CLIENT', 'catálogo: escrito por admin/produtor, e É a definição'],
   'data_layers.config': ['NOT_CLIENT', 'idem basemaps.config'],
   'analysis_layers.config': ['NOT_CLIENT', 'idem basemaps.config'],

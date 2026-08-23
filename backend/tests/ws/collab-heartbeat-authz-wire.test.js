@@ -170,9 +170,9 @@ describe('heartbeatSweep → reconcileAuthorization sobre socket REAL', () => {
 
   it('conta desativada com socket ABERTO: close 4003 e o socket sai da lista do servidor', async () => {
     // Reescrito em 2026-07-25 (itens 79 + 100). A guarda de lista não-vazia deste caso
-    // era a linha em `active_sessions` antes da desativação; a tabela não tem mais
-    // escritor (a presença sempre viveu em memória), então a guarda passou a ser a
-    // presença do socket em `wss.clients`, que é o registro que de fato existe.
+    // era a linha em `active_sessions` antes da desativação; a tabela nunca teve leitor e
+    // saiu da baseline em 2026-08-23, então a guarda é a presença do socket em
+    // `wss.clients`, que é o registro que de fato existe.
     const { atlas, peer, peerToken } = await cenario('write');
     const clientId = `cid-${randomUUID().slice(0, 8)}`;
 

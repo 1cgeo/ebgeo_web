@@ -85,7 +85,7 @@ describe('WS handshake — gate de identidade viva (P1/O1 no upgrade)', () => {
     r.ws.close();
   });
 
-  it('conta DESATIVADA com o MESMO token não abre socket novo, nem cria active_sessions', async () => {
+  it('conta DESATIVADA com o MESMO token não abre socket novo', async () => {
     const u = await createUser(db, { username: U() });
     await db.query(
       `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'write', $3)`,
@@ -98,7 +98,6 @@ describe('WS handshake — gate de identidade viva (P1/O1 no upgrade)', () => {
     assert.equal(antes.connected, true);
     antes.ws.close();
     await new Promise((r) => setTimeout(r, 100));
-    await db.query('DELETE FROM active_sessions WHERE user_id = $1', [u.id]);
 
     await db.query('UPDATE users SET is_active = false WHERE id = $1', [u.id]);
 
@@ -111,12 +110,11 @@ describe('WS handshake — gate de identidade viva (P1/O1 no upgrade)', () => {
     );
     depois.ws.close();
 
-    // O gate tem de barrar ANTES de onConnection: nenhuma linha de sessão.
-    const { rows } = await db.query(
-      'SELECT id FROM active_sessions WHERE user_id = $1 AND atlas_id = $2',
-      [u.id, atlas.id]
-    );
-    assert.equal(rows.length, 0, 'nenhuma sessão criada para conta desativada');
+    // A metade "e nenhuma linha de sessão" saiu em 2026-08-23, com a tabela
+    // `active_sessions`. O que ela media era que o gate barra ANTES de `onConnection`, e
+    // isso continua asserido acima, pelo que o cliente OBSERVA: a conexão não abre e não
+    // chega frame `connected`. Que nenhum caminho de socket escreva no banco tem arquivo
+    // próprio, tests/ws/collab-presenca-sem-banco.test.js.
   });
 
   it('admin global rebaixado a user, MESMO token, perde o acesso ao atlas de terceiro', async () => {

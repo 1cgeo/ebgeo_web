@@ -81,7 +81,17 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-21 | O `details` da trilha carrega um de-para seletivo (valor, impressão HMAC, nome-só), e o vídeo de prévia vale para quatro tipos, sem o basemap | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-21 | As pendências da integração main/360 são pagas, e o inventário que as listava é apagado | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-21 | As pendências da constituição são pagas, o inventário é apagado, e o estado das cláusulas ganha guarda por citação de teste | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-21 | Revogar deixa de derrubar quem ainda tem outro caminho, e a autoridade passa a morrer com quem a exercia | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-21 | A trilha ganha o eixo de OM, gravado na escrita, e a leitura deixa de ser só-admin | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-22 | As três migrações posteriores ao esmagamento voltam para dentro das baselines, e o comentário encolhe um sexto | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-22 | O registro da fase multi-aba sai de `docs/decisions/`, porque o durável dele já vive na wiki | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-23 | `active_sessions` não é recriada: a presença fica em memória por decisão, e o guarda passa a medir escrita no pool | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice
 não erra, ele só encolhe). Quem escrever a próxima entrada confere a contagem dos dois lados.
+
+E a conferência de 2026-08-23 achou QUATRO, não uma: duas de 2026-08-21 (revogação em cascata e o
+eixo de OM na trilha) e as duas de 2026-08-22. O modo de falha se repete porque a linha do índice é
+o passo separado, e o trabalho termina no arquivo do ano. As contagens agora batem (34 de cada
+lado), e conferi-las é `grep -c "^| 2026-"` contra `grep -c "^### 2026-"`.

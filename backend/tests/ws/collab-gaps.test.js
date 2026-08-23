@@ -323,9 +323,11 @@ describe('WebSocket Collaboration — gaps', () => {
   });
 
   // ── ws-09 ────────────────────────────────────────────────────────────────
-  // B-be1: presence is in-memory by design — no per-cursor DB writes. The
-  // updateSessionPresence/updateSessionHeartbeat dead helpers were removed;
-  // active_sessions tracks only connect/disconnect (covered by ws-10).
+  // B-be1: presence is in-memory by design — no DB write at all, per cursor or per
+  // connection. The `updateSessionPresence`/`updateSessionHeartbeat` dead helpers were
+  // removed in 2026-07-25, and the table they wrote to left the baseline in 2026-08-23
+  // (it never had a reader). The property is asserted, without depending on any table,
+  // by tests/ws/collab-presenca-sem-banco.test.js.
 
   // ── caso E + B-be2 ───────────────────────────────────────────────────────
   // Isolated atlas + users so no presence from earlier tests (e.g. an `away`
@@ -402,41 +404,32 @@ describe('WebSocket Collaboration — gaps', () => {
   });
 
   // ── ws-10 ────────────────────────────────────────────────────────────────
-  // Reescrito em 2026-07-25 (itens 79 + 100). O caso original afirmava a assimetria
-  // "visitante público NÃO cria linha em active_sessions, dono CRIA", que existia por
-  // causa da FK para `users` (o `sub` do visitante é `public-<uuid>`, sem linha lá).
-  // Desde a decisão de 2026-07-25 a tabela não tem ESCRITOR NENHUM: as duas chamadas
-  // saíram de `collab.gateway.js`, porque nada em `backend/src` lia a tabela. A metade
-  // "dono CRIA" do caso, portanto, afirmava um comportamento que foi retirado de
-  // propósito, e o teste passa a afirmar a simetria nova.
+  // Reescrito DUAS vezes, e as duas por decisão registrada. O caso original afirmava a
+  // assimetria "visitante público NÃO cria linha em active_sessions, dono CRIA", que
+  // existia por causa da FK para `users` (o `sub` do visitante é `public-<uuid>`, sem
+  // linha lá). Em 2026-07-25 os dois escritores saíram e o caso passou a afirmar a
+  // simetria: nem um nem outro escrevia. Em 2026-08-23 a própria tabela saiu da baseline,
+  // porque nunca teve leitor, e o que sobra é a propriedade que importava desde sempre.
   //
-  // O ciclo de vida completo (com guarda de discriminação e guarda estrutural contra
-  // reintrodução) vive em tests/ws/collab-active-sessions-lifecycle.test.js; aqui fica
-  // só o que este arquivo cobre, que é o caminho do VISITANTE PÚBLICO.
-  describe('ws-10 nem visitante público nem usuário autenticado escrevem active_sessions', () => {
-    it('as duas conexões funcionam e a tabela permanece vazia para o atlas', async () => {
+  // O QUE ELE MEDE AGORA: as duas conexões funcionam, e o caminho do visitante público é
+  // igual ao do autenticado no que diz respeito ao banco. A afirmação forte ("um ciclo de
+  // socket não emite escrita nenhuma") tem arquivo próprio, com contador de pool e caso de
+  // discriminação: tests/ws/collab-presenca-sem-banco.test.js.
+  describe('ws-10 o visitante público conecta como leitor, e o dono como owner', () => {
+    it('as duas conexões abrem, e cada uma com a permissão que lhe cabe', async () => {
       const pubToken = await getPublicToken(app, p1Link);
       const pub = await createWsClient(server, p1.id, pubToken);
       const connectedPub = await pub.waitForType('connected');
-      assert.equal(connectedPub.permission, 'read', 'guarda: o visitante entra como leitor');
+      assert.equal(connectedPub.permission, 'read', 'o visitante entra como leitor');
 
       const own = await createWsClient(server, p1.id, ownerToken);
       const connectedOwn = await own.waitForType('connected');
-      assert.equal(connectedOwn.permission, 'owner', 'guarda: o dono entra como owner');
-
-      // A escrita era assíncrona (fire-and-forget) depois do connect: espera a janela em
-      // que ela teria commitado, em vez de medir imediatamente e passar por pressa.
-      await sleep(700);
-
-      const { rows } = await db.query(
-        `SELECT count(*)::int AS n FROM active_sessions WHERE atlas_id = $1`,
-        [p1.id]
-      );
-      assert.equal(rows[0].n, 0, 'nenhum socket escreve sessão — a presença vive só em memória');
+      assert.equal(connectedOwn.permission, 'owner', 'e o dono como owner');
 
       pub.close();
       own.close();
     });
+
   });
 
   // ws-11 (server-side heartbeat terminate) intentionally omitted — see skipped manifest.

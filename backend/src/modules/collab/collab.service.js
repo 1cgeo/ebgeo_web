@@ -11,15 +11,17 @@ import { broadcastToRoom, getRoomUsers } from './collab.rooms.js';
 //     object (collab.gateway.js / collab.handlers.js) and are broadcast to the room. Per-cursor DB
 //     writes would be waste, so `updateSessionPresence`/`updateSessionHeartbeat` were removed.
 //
-//  2. (2026-07-25) `createSession`/`deleteSession`, the last two writers of `active_sessions`,
-//     were removed as well — together with the INSERT/DELETE SQL and the `query` import. The
-//     table had NO reader anywhere in `backend/src`, so the writes bought nothing while looking
-//     like a durable session trail: fire-and-forget calls that could commit out of order and
-//     orphan a row, no reaper, and a restart orphaning every live row in silence. The functions
-//     are DELETED rather than kept exported-with-a-note, because an exported writer for a
-//     write-only table is an invitation to call it, and a call site is exactly what turns the
-//     illusion back on. The table itself is kept (forward-only migrations) and is RESERVED, with
-//     no writer, by decision — see the note at the createSession call site in collab.gateway.js.
+//  2. (2026-07-25) `createSession`/`deleteSession`, the last two writers of the `active_sessions`
+//     table, were removed as well — together with the INSERT/DELETE SQL and the `query` import.
+//     The table had NO reader anywhere in `backend/src`, so the writes bought nothing while
+//     looking like a durable session trail: fire-and-forget calls that could commit out of order
+//     and orphan a row, no reaper, and a restart orphaning every live row in silence. The
+//     functions are DELETED rather than kept exported-with-a-note, because an exported writer for
+//     a write-only table is an invitation to call it, and a call site is exactly what turns the
+//     illusion back on. In 2026-08-23 the TABLE itself left the baseline, by decision of the
+//     owner: what had kept it was the forward-only rule, and the squash into per-domain baselines
+//     turned "create it" into the deliberate act. If durable presence ever comes back, it starts
+//     with the READER, and brings a reaper and a heartbeat in the same commit.
 //
 // If durable sessions are ever needed, the design starts with the READER.
 

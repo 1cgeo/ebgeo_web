@@ -1,7 +1,7 @@
 -- Path: src/database/migrations/004_sync.sql
 -- SYNC: o LOG e o relógio, não as entidades. `operations` é o log CRDT
--- append-only, idempotente por op_id; `active_sessions` é o vocabulário de
--- presença. As entidades que o log escreve moram em 003_atlas.sql.
+-- append-only, idempotente por op_id. A PRESENÇA NÃO TEM TABELA, e o porquê está no
+-- bloco do fim deste arquivo. As entidades que o log escreve moram em 003_atlas.sql.
 
 -- ============================================================================
 -- OPERATIONS (CRDT sync log - append-only)
@@ -68,31 +68,27 @@ FOR EACH ROW
 EXECUTE FUNCTION update_atlas_current_version();
 
 -- ============================================================================
--- ACTIVE SESSIONS — o vocabulário de presença. RESERVADA E SEM ESCRITOR: a presença
--- viva é o `Map` em memória de `collab.rooms.js`, e nenhum SELECT desta tabela existe em
--- `backend/src`. As escritas antigas eram fire-and-forget, sem reaper, e todo restart com
--- usuário conectado orfanava as linhas em silêncio.
---
--- FICA POR ESCOLHA, e num schema reescrito do zero isso é decisão e não inércia: o
--- vocabulário de presença é o que uma implementação futura vai querer encontrar.
--- RESSUSCITAR ISTO COMEÇA PELO LEITOR, NUNCA PELO INSERT.
+-- PRESENÇA NÃO TEM TABELA, E A AUSÊNCIA É A DECISÃO
 -- ============================================================================
-CREATE TABLE active_sessions (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id             UUID NOT NULL REFERENCES users(id),
-    atlas_id            UUID NOT NULL REFERENCES atlas(id),
-    client_id           TEXT NOT NULL,
-
-    connected_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_heartbeat      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Presence data
-    cursor_position     JSONB,                        -- { lng, lat }
-    current_map_id      UUID,
-    selected_features   UUID[] DEFAULT '{}',
-
-    UNIQUE(user_id, atlas_id, client_id)
-);
-
-CREATE INDEX idx_sessions_atlas ON active_sessions(atlas_id);
-CREATE INDEX idx_sessions_heartbeat ON active_sessions(last_heartbeat);
+-- Havia aqui uma `active_sessions` com nove colunas, duas FKs, uma UNIQUE e dois índices.
+-- Ela foi criada como vocabulário de presença e NUNCA teve leitor: a varredura de
+-- `backend/src` não achava um `SELECT` sequer, e a estatística do banco confirmava pelo
+-- outro lado (`n_tup_ins = 0`, todos os índices com `idx_scan = 0`). Os dois escritores
+-- saíram em 2026-07-25, e a tabela ficou por um argumento que deixou de valer: "migração
+-- é forward-only, derrubá-la seria DDL destrutiva". Depois da consolidação em baselines,
+-- CRIAR a tabela é que passou a ser o ato deliberado -- e criar tabela morta é escolha.
+-- Removida em 2026-08-23, por decisão do dono.
+--
+-- POR QUE ELA NÃO CONSEGUIA SER O QUE PARECIA. As escritas eram fire-and-forget, então um
+-- connect seguido de close rápido podia commitar o DELETE antes do INSERT e orfanar a
+-- linha; nada expurgava a tabela, e todo restart com usuário conectado orfanava em
+-- silêncio TODA linha viva. Coluna viva pela metade engana mais que coluna ausente.
+--
+-- ONDE A PRESENÇA VIVE HOJE: no `Map` em memória de `collab.rooms.js`, por processo. Isso
+-- casa com o deploy, que é de UMA instância por decisão (sem backplane, 2+ réplicas
+-- quebrariam o broadcast antes de a persistência ajudar em algo).
+--
+-- SE A PRESENÇA DURÁVEL VOLTAR, ela começa pelo LEITOR, nunca pelo INSERT, e vem com
+-- reaper e heartbeat no mesmo commit -- foi a ausência dos dois que matou a primeira
+-- tentativa. Que nenhum caminho de socket escreve no banco é asserido, sem depender de
+-- tabela nenhuma, por `tests/ws/collab-presenca-sem-banco.test.js`.

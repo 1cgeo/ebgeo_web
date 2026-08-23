@@ -517,17 +517,22 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.selectionContext = null;
   ws.temporalState = null;
 
-  // NO SESSION ROW IS WRITTEN HERE, by decision of 2026-07-25.
+  // NOTHING IS WRITTEN TO THE DATABASE HERE, by decision of 2026-07-25, and since 2026-08-23
+  // there is not even a table to write to.
   //
   // A `collabService.createSession(user.id, atlasId, clientId)` used to run at this point (and a
   // matching `deleteSession` in `removeConnection`). Both are gone, and the reason is not that the
-  // write was expensive — it is that nothing ever read it. `active_sessions` had no SELECT
-  // anywhere in `backend/src`: live presence is the in-memory room map (`collab.rooms.js`), keyed
-  // by clientId. What the table actually did was LOOK like a session trail while being unable to
-  // be one: the two calls were fire-and-forget, so a fast connect→close could commit the DELETE
+  // write was expensive — it is that nothing ever read it. The `active_sessions` table had no
+  // SELECT anywhere in `backend/src`, and left the baseline for that reason: live presence is the
+  // in-memory room map (`collab.rooms.js`), keyed by clientId, which matches a deployment of ONE
+  // instance. What the table actually did was LOOK like a session trail while being unable to be
+  // one: the two calls were fire-and-forget, so a fast connect→close could commit the DELETE
   // before the INSERT and orphan a row; nothing purged it; and every process restart orphaned
   // every live row at once, silently. A half-alive column misleads MORE than an absent one — the
   // same lesson already recorded for `org_role` without a writer.
+  //
+  // That no socket path writes AT ALL is asserted by tests/ws/collab-presenca-sem-banco.test.js,
+  // with a pool query counter — an assertion that survives the table it replaced.
   //
   // The TABLE stays (migrations are forward-only and additive; dropping it would be destructive
   // DDL, which `tests/unit/migrations-higiene.test.js` refuses). It is RESERVED, with no writer.
@@ -660,8 +665,8 @@ async function handleMessage(ws, data) {
  */
 function removeConnection(ws) {
   leaveRoom(ws.atlasId, ws);
-  // No `active_sessions` DELETE here: nothing writes the table anymore (see the note in
-  // onConnection, decision of 2026-07-25). The room map is the whole of presence.
+  // No session DELETE here: there is no session table anymore (see the note in onConnection).
+  // The room map is the whole of presence.
 
   // P8 — a guarda compara `clientId`, não `userId`, e a diferença importa nos
   // dois sentidos porque o roster do par é chaveado POR CLIENTE (o `resolveKey`

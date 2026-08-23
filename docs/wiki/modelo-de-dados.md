@@ -85,15 +85,15 @@ escrito, e uma revisão que se auto-executa deixa de ser revisão.
 
 ---
 
-## 5. `active_sessions`: uma tabela inteira sem escritor, e a consolidação tira o argumento que a manteve
+## 5. `active_sessions`: RESOLVIDO em 2026-08-23 — a tabela saiu do schema
 
 **O que é.** Nove colunas, dois índices, uma UNIQUE, duas FKs, e nenhuma linha jamais escrita por código de produção.
 
-**Evidência.** A varredura de escritores não achou `INSERT` nem `UPDATE` em `active_sessions` em lugar nenhum de `backend/src`. A estatística do banco real confirma pelo outro lado: depois da suíte inteira, `n_tup_ins = 1` (um caso de teste), `active_sessions_pkey` e `idx_sessions_heartbeat` com `idx_scan = 0`. A presença viva é o `Map` em memória de `backend/src/modules/collab/collab.rooms.js`. A migração `backend/src/database/migrations/004_sync.sql` documenta a remoção das duas chamadas em 2026-07-25 e diz por que a tabela ficou: "migração é forward-only e aditiva".
+**Evidência (medida enquanto a tabela existia).** A varredura de escritores não achou `INSERT` nem `UPDATE` em `active_sessions` em lugar nenhum de `backend/src`. A estatística do banco real confirma pelo outro lado: depois da suíte inteira, `n_tup_ins = 1` (um caso de teste), `active_sessions_pkey` e `idx_sessions_heartbeat` com `idx_scan = 0`. A presença viva é o `Map` em memória de `backend/src/modules/collab/collab.rooms.js`. A migração `backend/src/database/migrations/004_sync.sql` documenta a remoção das duas chamadas em 2026-07-25 e diz por que a tabela ficou: "migração é forward-only e aditiva".
 
-**Custo de deixar como está.** O custo declarado na própria 003 é o certo ("coluna viva pela metade engana MAIS que coluna ausente"), e ele continua valendo. O custo novo é outro: **o argumento que a manteve era a regra forward-only, e a consolidação a suspende por autorização do dono.** Num schema esmagado, recriar `active_sessions` é uma escolha deliberada de criar uma tabela morta.
+**Custo que ela impunha.** O custo declarado na própria 003 é o certo ("coluna viva pela metade engana MAIS que coluna ausente"), e ele continua valendo. O custo novo é outro: **o argumento que a manteve era a regra forward-only, e a consolidação a suspende por autorização do dono.** Num schema esmagado, recriar `active_sessions` é uma escolha deliberada de criar uma tabela morta.
 
-**Recomendação.** **Decidir na F15.** A pergunta não é "podemos apagar", é "vamos ressuscitar". A 003 já diz o caminho de ressurreição na ordem certa ("começa pelo LEITOR, não pelo INSERT"), e enquanto não houver leitor a tabela é peso. Sugestão: **não recriar**, e registrar em [[presenca-colaborativa]] que a presença é em memória por decisão, com o link para esta seção. Se o dono quiser presença durável, ela volta com leitor no mesmo commit.
+**Resolução (2026-08-23).** O dono decidiu **não recriar**. A tabela e os dois índices saíram de `backend/src/database/migrations/004_sync.sql`, que agora explica a ausência no lugar em que ela morava. A afirmação que os testes protegiam mudou de forma junto: em vez de contar linhas de UMA tabela, `backend/tests/ws/collab-presenca-sem-banco.test.js` mede com contador de pool que um ciclo de socket não emite escrita NENHUMA — o que é mais forte, porque uma escrita de presença que fosse parar noutra tabela passava pelo teste antigo. Registrado em [[presenca-colaborativa]] e em [[canal-collab-websocket]]. Se a presença durável voltar, começa pelo LEITOR, com reaper e heartbeat no mesmo commit.
 
 ---
 
@@ -236,7 +236,6 @@ O método está na seção de medição, e o que segue é o resultado dele **dep
 
 | tabela | colunas | situação |
 |---|---|---|
-| `active_sessions` | as 9 (`id`, `user_id`, `atlas_id`, `client_id`, `connected_at`, `last_heartbeat`, `cursor_position`, `current_map_id`, `selected_features`) | morta. Achado 5. Escrita só por um caso de teste |
 | as duas tabelas de grupo do `ng` | as 5 de uma, as 2 da outra | vivas pela metade, escritas só por teste. Eram o elo que faltava ao ramo de grupo das zonas. Achado 3, e **saíram** com ele em 2026-08-19 |
 | as duas tabelas de permissão de modelo do `ng` | as 4 de cada uma | mortas, e **saíram** com o achado 1 em 2026-08-19 |
 | `ranks.code` | 1 | legítima e sem escritor **ainda**, ou morta. Achado 9. É a única desta lista que já é SERVIDA ao cliente |
@@ -287,13 +286,13 @@ Nesta família o que **de fato** protege o usuário é o `is_broken` de `slides`
 
 **Família 4: identificador de cliente, opaco por contrato.**
 
-`operations.client_id`, `operations.op_id`, `active_sessions.client_id`. São TEXT de formato livre por decisão, porque o cliente é a autoridade sobre esses ids. A unicidade que importa é garantida por índice (`operations_atlas_op_id_uniq`), não por FK.
+`operations.client_id` e `operations.op_id` (e, enquanto existiu, `active_sessions.client_id`). São TEXT de formato livre por decisão, porque o cliente é a autoridade sobre esses ids. A unicidade que importa é garantida por índice (`operations_atlas_op_id_uniq`), não por FK.
 
 **Família 5: ausência que parecia esquecimento, e era.** As cinco colunas desta família moravam nas tabelas de grupo e de permissão de zona do `ng`: nenhuma tinha FK para `users(id)`, e a consequência era uma concessão sem titular identificável no dia em que o usuário fosse apagado de verdade. Sobra dela uma linha, que é de outra natureza:
 
 | coluna | deveria apontar para | situação |
 |---|---|---|
-| `atlas.map_order`, `briefings.slide_order`, `active_sessions.selected_features` | arrays de UUID | FK impossível sobre array. `map_order` e `slide_order` carregam ordenação e são mantidos pela aplicação; nada impede um id fantasma na lista |
+| `atlas.map_order`, `briefings.slide_order` | arrays de UUID | FK impossível sobre array. `map_order` e `slide_order` carregam ordenação e são mantidos pela aplicação; nada impede um id fantasma na lista |
 
 **Desfecho da família 5 (2026-08-19).** A recomendação era simples e foi **cumprida onde o conceito sobreviveu**: quando conceder a um coletivo renasceu no schema da aplicação, as colunas de participação nasceram com FK para `users(id)` e `ON DELETE CASCADE`, e as de autoria (`created_by`, `added_by`) com FK e **sem** `ON DELETE`, que é a mesma regra de `resource_grants.granted_by` e `atlas_shares.added_by`: autoria não se apaga, se reatribui. A regra a transportar para a próxima tabela de permissão: participação cascateia, autoria fica.
 

@@ -154,11 +154,11 @@ describe('WebSocket Collaboration', () => {
         }
       );
 
-      const { rows } = await db.query(
-        'SELECT COUNT(*)::int AS n FROM active_sessions WHERE atlas_id = $1 AND user_id = $2',
-        [atlas.id, stranger.id]
-      );
-      assert.equal(rows[0].n, 0, 'a refused handshake must not register a session');
+      // A metade "e não deixa linha de sessão" saiu em 2026-08-23, junto com a tabela
+      // `active_sessions`: sem tabela não há rastro possível, e uma contagem sobre uma
+      // relação inexistente seria erro de SQL, não verificação. Que NENHUM caminho de
+      // socket escreva no banco (aceito ou recusado) é asserido em
+      // tests/ws/collab-presenca-sem-banco.test.js, com contador de pool.
     });
 
     it('an invalid token is refused with HTTP 401, not 403 (authentication, not authorization)', async () => {
