@@ -276,6 +276,33 @@ const PERMISSION_LEVELS = [
 ];
 
 /**
+ * O QUE O SERVIDOR DE FATO APLICA, quando isso é MAIOR que a linha desta pessoa.
+ *
+ * O acesso ao atlas resolve pelo MAIOR nível entre o compartilhamento nominal e o de grupo
+ * (`fn_user_atlas_shares`, no servidor), que é o princípio de caminhos independentes. A
+ * consequência mordia aqui: o gestor rebaixava alguém para leitura, o `<select>` passava a
+ * exibir "Leitura", e a pessoa continuava editando por um grupo. A tela afirmava um
+ * rebaixamento que não aconteceu, que é a forma mais cara de erro de permissão -- o
+ * operador tem prova de que fez o certo.
+ *
+ * O `<select>` continua sendo a LINHA (é ela que ele edita); o selo mostra o EFEITO.
+ *
+ * NÃO NOMEIA O GRUPO, de propósito: o gestor do atlas vê o dono de cada grupo, nunca a
+ * composição (cláusula 5.3 da constituição), e dizer "por causa do grupo X" revelaria que
+ * aquela pessoa é membro de X. Para não se enganar, basta ele saber que o rebaixamento não
+ * teve efeito.
+ *
+ * @param {{permission?: string, effectivePermission?: string}} share
+ * @returns {{label: string}|null} o rótulo do nível efetivo, ou null quando não há excedente
+ */
+export function excedenteDeGrupo(share) {
+    const linha = PERMISSION_LEVELS.findIndex((p) => p.value === share?.permission);
+    const efetiva = PERMISSION_LEVELS.findIndex((p) => p.value === share?.effectivePermission);
+    if (efetiva < 0 || linha < 0 || efetiva <= linha) return null;
+    return { label: PERMISSION_LEVELS[efetiva].label };
+}
+
+/**
  * Icons used by the modal (inline SVG, currentColor).
  */
 const ICONS = {
@@ -664,6 +691,7 @@ export class SharingModal extends ModalBase {
         const nome = share?.nome ?? share?.username ?? '';
         const username = share?.username ?? '';
         const current = PERMISSION_LEVELS.some((p) => p.value === share?.permission) ? share.permission : 'read';
+        const excedente = excedenteDeGrupo(share);
         const options = PERMISSION_LEVELS.map((p) =>
             `<option value="${p.value}"${current === p.value ? ' selected' : ''}>${p.label}</option>`
         ).join('');
@@ -679,6 +707,12 @@ export class SharingModal extends ModalBase {
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                    ${excedente
+        ? `<span class="sharing-member__efetiva" data-testid="sharing-member-efetiva"
+                             title="Um grupo deste atlas dá a esta pessoa ${escapeHtml(excedente.label)}. Mudar a permissão ao lado não retira o que vem pelo grupo.">
+                            ${escapeHtml(excedente.label)} por grupo
+                       </span>`
+        : ''}
                 </div>
                 ${transferBtn}
                 <select class="sharing-member__permission" data-action="permission"

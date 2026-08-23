@@ -32,45 +32,69 @@
  * banco não entrega.
  *   $1 = atlas
  */
+/**
+ * O QUE O MODAL DE COMPARTILHAMENTO MOSTRA, e desde 2026-08-23 ele mostra os DOIS números.
+ *
+ * A LINHA E O EFEITO SÃO COISAS DIFERENTES, e enquanto esta consulta devolvia só a linha, a
+ * tela mentia. `fn_user_atlas_shares` resolve o acesso pelo MAIOR nível entre o
+ * compartilhamento nominal e o de grupo (o direto só desempata), que é o princípio de
+ * caminhos independentes da constituição aplicado ao atlas. Consequência: rebaixar alguém
+ * de edição para leitura NÃO o rebaixa se um grupo daquele atlas o mantém em edição. O
+ * gestor via o `<select>` virar "leitura", e a pessoa continuava editando.
+ *
+ * `permission` continua sendo a da LINHA, porque é ela que o `<select>` edita; ao lado vai
+ * `effectivePermission`, o que o servidor de fato aplica.
+ *
+ * `effectiveVia` DIZ "group" E NÃO QUAL GRUPO, de propósito. A cláusula 5.3 dá ao gestor o
+ * NOME DO DONO do grupo, não a composição dele, e nomear o grupo aqui revelaria que aquela
+ * pessoa é membro daquele grupo — dedução sobre composição que o gestor não tem direito de
+ * fazer. O que ele precisa saber para não se enganar é que o rebaixamento não teve efeito, e
+ * isso "group" já diz.
+ */
 export const GET_SHARING_CONFIG = `
   SELECT a.is_public, a.public_link, a.owner_id,
          owner.username AS owner_username, owner.nome AS owner_nome,
-         COALESCE(
-           json_agg(
-             json_build_object(
-               'userId', s.user_id,
-               'username', u.username,
-               'nome', u.nome,
-               'permission', s.permission,
-               'addedAt', s.added_at
-             )
-           ) FILTER (WHERE s.user_id IS NOT NULL),
-           '[]'
-         ) as shares,
-         COALESCE(
-           json_agg(
-             json_build_object(
-               'groupId', s.group_id,
-               'name', ag.name,
-               'permission', s.permission,
-               'addedAt', s.added_at,
-               'memberCount', (SELECT COUNT(*)::int FROM access_group_members gm
-                                WHERE gm.group_id = s.group_id),
-               'ownerId', ag.owner_id,
-               'ownerUsername', gow.username,
-               'ownerNome', gow.nome
-             )
-           ) FILTER (WHERE s.group_id IS NOT NULL AND ag.deleted_at IS NULL),
-           '[]'
-         ) as groups
+         (
+           SELECT COALESCE(json_agg(
+                    json_build_object(
+                      'userId', s.user_id,
+                      'username', u.username,
+                      'nome', u.nome,
+                      'permission', s.permission,
+                      'effectivePermission', ef.permission,
+                      'effectiveVia', CASE WHEN fn_permission_rank(ef.permission)
+                                                > fn_permission_rank(s.permission::text)
+                                           THEN 'group' ELSE 'direct' END,
+                      'addedAt', s.added_at
+                    ) ORDER BY s.added_at
+                  ), '[]')
+             FROM atlas_shares s
+             JOIN users u ON u.id = s.user_id
+             LEFT JOIN LATERAL fn_user_atlas_shares(s.user_id, a.id) ef ON true
+            WHERE s.atlas_id = a.id AND s.user_id IS NOT NULL
+         ) AS shares,
+         (
+           SELECT COALESCE(json_agg(
+                    json_build_object(
+                      'groupId', s.group_id,
+                      'name', ag.name,
+                      'permission', s.permission,
+                      'addedAt', s.added_at,
+                      'memberCount', (SELECT COUNT(*)::int FROM access_group_members gm
+                                       WHERE gm.group_id = s.group_id),
+                      'ownerId', ag.owner_id,
+                      'ownerUsername', gow.username,
+                      'ownerNome', gow.nome
+                    ) ORDER BY s.added_at
+                  ), '[]')
+             FROM atlas_shares s
+             JOIN access_groups ag ON ag.id = s.group_id AND ag.deleted_at IS NULL
+             LEFT JOIN users gow ON gow.id = ag.owner_id
+            WHERE s.atlas_id = a.id AND s.group_id IS NOT NULL
+         ) AS groups
   FROM atlas a
   JOIN users owner ON owner.id = a.owner_id
-  LEFT JOIN atlas_shares s ON s.atlas_id = a.id
-  LEFT JOIN users u ON u.id = s.user_id
-  LEFT JOIN access_groups ag ON ag.id = s.group_id
-  LEFT JOIN users gow ON gow.id = ag.owner_id
   WHERE a.id = $1 AND a.deleted_at IS NULL
-  GROUP BY a.id, owner.username, owner.nome
 `;
 
 export const INSERT_USER_SHARE = `

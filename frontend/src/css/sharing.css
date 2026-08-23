@@ -256,6 +256,26 @@
     text-overflow: ellipsis;
 }
 
+/* O EFEITO, ao lado da linha. Ele aparece so quando um grupo deste atlas da aquela pessoa
+   mais do que o compartilhamento nominal: o `<select>` edita a LINHA, e sem este selo o
+   gestor lia um rebaixamento que nao aconteceu. */
+.sharing-member__efetiva {
+    display: inline-block;
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: var(--space-1);
+    padding: 0 var(--space-2);
+    background: var(--gray-100);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
+}
+
 .sharing-member__permission {
     flex-shrink: 0;
     padding: var(--space-1) var(--space-2);

@@ -191,9 +191,17 @@ describe('Sharing API — gap coverage', () => {
       assert.equal(data.shares.length, 1);
 
       const share = data.shares[0];
+      // O SHAPE GANHOU DUAS CHAVES em 2026-08-23, e a lista fechada continua fechada. O
+      // acesso ao atlas resolve pelo MAIOR nivel entre o compartilhamento nominal e o de
+      // grupo, entao a tela precisa dos dois numeros: `permission` e a LINHA (o que o
+      // `<select>` edita) e `effectivePermission` e o que o servidor aplica, com
+      // `effectiveVia` dizendo se o excedente veio de grupo. Antes disso o modal exibia so
+      // a linha e mentia: rebaixar alguem que um grupo mantem em edicao mostrava "Leitura"
+      // e nao rebaixava nada. Prende o comportamento
+      // `tests/integration/sharing-permissao-efetiva.test.js`.
       assert.deepEqual(
         Object.keys(share).sort(),
-        ['addedAt', 'nome', 'permission', 'userId', 'username'].sort()
+        ['addedAt', 'effectivePermission', 'effectiveVia', 'nome', 'permission', 'userId', 'username'].sort()
       );
       assert.equal(share.userId, target.id);
       assert.equal(share.username, target.username);

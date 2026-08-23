@@ -92,9 +92,22 @@ const CENSO = [
   ),
   naoResolve(
     'src/modules/sharing/sharing.queries.js',
-    'LEFT JOIN atlas_shares s ON s.atlas_id = a.id',
+    'FROM atlas_shares s',
     'GET_SHARING_CONFIG: monta a TELA de compartilhamento (quem esta na lista, com que '
-    + 'nivel de vinculo). Nao gateia nada: quem gateia a rota e requireAtlasPermission.'
+    + 'nivel de vinculo). Nao gateia nada: quem gateia a rota e requireAtlasPermission. '
+    + 'SAO DOIS desde 2026-08-23, um por subconsulta (pessoas e grupos): a consulta trocou '
+    + 'os dois LEFT JOIN por subconsultas escalares para poder trazer, por pessoa, a '
+    + 'permissao EFETIVA ao lado da linha.',
+    2
+  ),
+  naoResolve(
+    'src/modules/sharing/sharing.queries.js',
+    'LEFT JOIN LATERAL fn_user_atlas_shares(s.user_id, a.id) ef ON true',
+    'GET_SHARING_CONFIG, a metade nova: ela CHAMA o resolvedor de acesso para EXIBIR o '
+    + 'nivel efetivo ao lado da linha, e nao para decidir nada. A distincao e o que a '
+    + 'mantem nesta classe: o gate da rota continua sendo requireAtlasPermission, e este '
+    + 'resultado so alimenta o selo da tela. Ate 2026-08-23 o modal mostrava apenas a linha, '
+    + 'entao rebaixar quem um grupo mantinha em edicao exibia "Leitura" e nao rebaixava nada.'
   ),
   naoResolve(
     'src/modules/access-groups/access-groups.queries.js',
