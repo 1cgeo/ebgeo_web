@@ -14,7 +14,6 @@
     "sv360:import": "node --env-file-if-exists=.env scripts/sv360-import.js",
     "sv360:captured-at": "node --env-file-if-exists=.env scripts/sv360-import-captured-at.js",
     "sv360:derive-runs": "node --env-file-if-exists=.env scripts/sv360-derive-runs.js",
-    "fp:register": "node --env-file-if-exists=.env scripts/fp-scene-register.js",
     "models3d:adotar": "node --env-file-if-exists=.env scripts/models3d-adotar.js",
     "models3d:importar": "node --env-file-if-exists=.env scripts/models3d-importar.js",
     "models3d:verificar": "node --env-file-if-exists=.env scripts/models3d-verificar.js",

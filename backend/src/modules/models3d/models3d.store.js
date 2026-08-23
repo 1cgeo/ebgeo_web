@@ -111,7 +111,3 @@ export function resetOpenModels() {
   abertos.clear();
 }
 
-/** How many models the LRU believes are open. Used by tests and by /health. */
-export function openModelCount() {
-  return abertos.size;
-}

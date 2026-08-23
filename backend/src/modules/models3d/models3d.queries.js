@@ -12,7 +12,7 @@
 
 /** Every registered model, with the catalog flag that decides whether it answers. */
 export const LIST_MODELS_3D = `
-  SELECT m.model_id, m.db_filename, m.build_token, m.model_type, t.active
+  SELECT m.model_id, m.db_filename, m.build_token, t.active
     FROM a3d.models m
     JOIN public.tilesets t ON t.id = m.model_id
 `;

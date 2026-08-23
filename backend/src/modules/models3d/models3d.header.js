@@ -70,6 +70,33 @@ export function validarCabecalho({ meta, tilesNoArquivo }, idPeloNome) {
 }
 
 /**
+ * Separa o `asset.generator` do glTF de origem nas duas colunas de proveniência.
+ *
+ * POR QUE `source` GUARDA A STRING INTEIRA, e não só o nome do motor: a coluna É o
+ * generator, como `009_a3d.sql` declara, e um parser que tentasse partir nome e versão
+ * teria de adivinhar onde o nome termina. "Agisoft Metashape 2.0.2 build 16268" e
+ * "Blender 3.6.0 glTF exporter" quebram qualquer regra simples, e o que se perde no
+ * palpite errado é justamente o dado da origem, que não se recupera depois.
+ *
+ * `sourceVersion` é REFINAMENTO, não partição: o primeiro token que se parece com uma
+ * versão, para quem precise ordenar ou filtrar. Não achando, fica nulo, e `source`
+ * continua completo. Nada se perde e nada se inventa.
+ *
+ * A leitura é do JSON CRU do glTF (`leGerador`, em `scripts/lib3d/b3dm.js`): o
+ * glTF-Transform sobrescreve `asset.generator` ao carregar e devolveria
+ * "glTF-Transform v4.x" para todo modelo do acervo.
+ *
+ * @param {string|null|undefined} generator - `asset.generator` cru
+ * @returns {{source: string|null, sourceVersion: string|null}}
+ */
+export function separaGerador(generator) {
+  const texto = typeof generator === 'string' ? generator.trim() : '';
+  if (!texto) return { source: null, sourceVersion: null };
+  const token = texto.split(/\s+/).find((t) => /^v?\d+(?:\.\d+)*$/.test(t));
+  return { source: texto, sourceVersion: token ? token.replace(/^v/, '') : null };
+}
+
+/**
  * Converte o cabeçalho na linha de `a3d.models`.
  *
  * @param {Object} cabecalho - saída de lerCabecalho()

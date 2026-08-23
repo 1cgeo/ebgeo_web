@@ -52,6 +52,7 @@ import config from '../src/config.js';
 import { pgp } from '../src/database/index.js';
 import { blobPool } from '../src/utils/sqlite-blob-pool.js';
 import { createModelDb, finalizarModelDb } from '../src/modules/models3d/models3d.build.js';
+import { separaGerador } from '../src/modules/models3d/models3d.header.js';
 import {
   abrirImportacao, fecharImportacao, obterModelo3d,
 } from '../src/modules/models3d/models3d.import.service.js';
@@ -114,6 +115,11 @@ function args() {
     // publico um modelo que alguem fechou.
     accessLevel: v('--access-level'),
     orgId: v('--org'),
+    // A DATA DE CAPTURA NAO ESTA NO glTF, e nenhuma conta a deduz: quem sabe quando a
+    // campanha foi a campo e o operador. Ela e TEXT porque campanha nem sempre e um dia
+    // ("2024-03", "mar/2024 a mai/2024"), a mesma razao de `sv360.projects.capture_date`.
+    // Omitir preserva o que a linha ja tem, como os dois eixos de acesso acima.
+    capturadoEm: v('--capturado-em'),
   };
 }
 
@@ -544,6 +550,15 @@ async function main() {
     meta.run('buildToken', token);
     meta.run('builtAt', new Date().toISOString());
     meta.run('sourcePath', o.origem);
+    // PROVENIENCIA. `source` e o `asset.generator` do glTF de ORIGEM, lido do JSON cru
+    // durante a conversao (`conv.gerador`); `sourceVersion` e o refinamento que
+    // `separaGerador` extrai dele. O leitor destas tres e `linhaDeProducao`, e ate
+    // 2026-08-23 elas nasciam NULL sempre: a conversao CALCULAVA o motor, usava para
+    // escolher o teto de textura, imprimia no log e nao gravava.
+    const proveniencia = separaGerador(conv.gerador);
+    if (proveniencia.source) meta.run('source', proveniencia.source);
+    if (proveniencia.sourceVersion) meta.run('sourceVersion', proveniencia.sourceVersion);
+    if (o.capturadoEm) meta.run('capturedAt', o.capturadoEm);
     meta.run('ktx', ktxVersao);
     meta.run('tileCount', String(tiles.length));
     meta.run('jsonCount', String(inv.copias.length));

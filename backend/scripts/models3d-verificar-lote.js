@@ -32,6 +32,9 @@ import { join, extname } from 'node:path';
 import Database from 'better-sqlite3';
 import { envelopeGeodesico } from './lib3d/tileset.js';
 import config from '../src/config.js';
+import { query, pgp } from '../src/database/index.js';
+import { LIST_SCENES_3D } from '../src/modules/models3d/models3d.queries.js';
+import { medirCena, caminhoLocalDaCena } from '../src/modules/models3d/models3d.scene.js';
 
 function args() {
   const a = process.argv.slice(2);
@@ -312,6 +315,74 @@ for (const arquivo of arquivos) {
     for (const p of problemas) console.log(`      ${p}`);
   }
 }
+
+// AS CENAS NAO ESTAO NA VARREDURA ACIMA, e nao por esquecimento: a varredura le o
+// DIRETORIO de arquivos `.3dtiles`, e uma cena caminhavel e uma PASTA. Por isso ela nunca
+// aparecia aqui, e `LIST_SCENES_3D` existia desde a importacao de cena sem nunca ter sido
+// ligada a este roteiro, que e o consumidor que o comentario dela nomeia. Enquanto isso
+// durou, o lote dizia "todos aprovados" sobre um acervo do qual nao olhara uma parte.
+//
+// A PERGUNTA E A MESMA que se faz ao modelo: o que esta no disco ainda e o que foi
+// registrado? A assinatura de manifesto responde as tres de uma vez (arquivo somido,
+// arquivo a mais e byte trocado), porque e o hash da lista ORDENADA de caminho e sha256.
+let cenasOk = 0;
+let cenasRuins = 0;
+try {
+  const { rows: cenas } = await query(LIST_SCENES_3D);
+  for (const c of cenas) {
+    const caminho = caminhoLocalDaCena(c.base_path, {
+      baseUrl: config.assets3d.baseUrl,
+      dir: config.assets3d.dir,
+    });
+    const problemas = [];
+    let medida = null;
+    if (!caminho || !existsSync(caminho)) {
+      problemas.push(`pasta da cena nao existe: ${caminho || c.base_path}`);
+    } else {
+      medida = await medirCena(caminho);
+      if (medida.sha256 !== c.manifest_sha256) {
+        problemas.push(`assinatura mudou: registrada ${String(c.manifest_sha256).slice(0, 16)}...,`
+          + ` medida ${medida.sha256.slice(0, 16)}...`);
+      }
+      if (medida.arquivos.length !== c.file_count) {
+        problemas.push(`${c.file_count} arquivos registrados, ${medida.arquivos.length} no disco`);
+      }
+      if (Number(medida.totalBytes) !== Number(c.total_bytes)) {
+        problemas.push(`${c.total_bytes} bytes registrados, ${medida.totalBytes} no disco`);
+      }
+    }
+
+    relatorio.push({
+      id: c.scene_id, cena: true, bytes: medida ? medida.totalBytes : 0,
+      aprovado: problemas.length === 0, problemas, ativo: c.active,
+    });
+
+    if (problemas.length === 0) {
+      cenasOk++;
+      if (!o.quieto) {
+        console.log(`OK   ${String(c.scene_id).padEnd(30)}`
+          + ` ${(medida.totalBytes / 2 ** 20).toFixed(0).padStart(6)} MiB`
+          + ` ${String(medida.arquivos.length).padStart(7)} arqs  (cena)`);
+      }
+    } else {
+      cenasRuins++;
+      console.log(`FALHA ${String(c.scene_id).padEnd(29)} (cena)`);
+      for (const p of problemas) console.log(`      ${p}`);
+    }
+  }
+  if (!cenas.length && !o.quieto) console.log('(nenhuma cena registrada)');
+} catch (err) {
+  // SEM BANCO O ROTEIRO NAO PODE DIZER "aprovado": ele nao olhou as cenas. O aviso e alto
+  // e a saida e de falha, porque um lote que se cala sobre o que nao verificou e a
+  // cobertura vazia que passa verde.
+  cenasRuins++;
+  console.log(`FALHA (cenas): nao foi possivel consultar o registro: ${err.message}`);
+} finally {
+  await Promise.resolve(pgp.end()).catch(() => {});
+}
+
+aprovados += cenasOk;
+reprovados += cenasRuins;
 
 console.log(`\n${aprovados} aprovados, ${reprovados} reprovados`);
 const somaBytes = relatorio.reduce((s, r) => s + r.bytes, 0);

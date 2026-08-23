@@ -27,7 +27,7 @@ import { join, relative, dirname, extname } from 'node:path';
 import Database from 'better-sqlite3';
 import config from '../src/config.js';
 import { pgp, query } from '../src/database/index.js';
-import { obterModelo3d } from '../src/modules/models3d/models3d.import.service.js';
+import { obterModelo3d, ultimasImportacoes } from '../src/modules/models3d/models3d.import.service.js';
 import { GET_SCENE_3D } from '../src/modules/models3d/models3d.queries.js';
 import {
   medirCena, validarLayoutDeCena, caminhoLocalDaCena,
@@ -257,6 +257,31 @@ async function main() {
     console.log(`   origem ${naOrigem.length.toLocaleString('pt-BR')} tiles, faltam ${faltam.length}`);
     for (const f of faltam.slice(0, 5)) console.log(`   AUSENTE ${f}`);
     if (faltam.length) reprova(`${faltam.length} tiles da origem nao entraram`);
+  }
+
+  // O HISTORICO DE IMPORTACAO responde a pergunta que o arquivo sozinho nao responde:
+  // este modelo veio de uma rodada que TERMINOU? `a3d.imports` e escrita em duas etapas
+  // (abre ao comecar, fecha ao terminar), entao uma linha que ficou em `rodando` e uma
+  // importacao interrompida, e o arquivo publicado pode ser o da tentativa anterior. Ate
+  // 2026-08-23 a tabela era escrita a cada importacao e NENHUM codigo a lia, que e o
+  // mesmo defeito de `active_sessions`: dado gravado que ninguem consulta nao e registro,
+  // e peso morto que envelhece sem ninguem notar.
+  console.log('\n5. historico de importacao');
+  try {
+    const historico = await ultimasImportacoes(o.id, 3);
+    if (!historico.length) {
+      console.log('   (sem registro: modelo adotado de arquivo pronto, sem rodada aqui)');
+    }
+    for (const h of historico) {
+      const fim = h.finished_at ? new Date(h.finished_at).toISOString() : 'em aberto';
+      console.log(`   ${String(h.status).padEnd(10)} ${new Date(h.started_at).toISOString()} -> ${fim}`);
+      if (h.status === 'rodando') {
+        reprova('a ultima importacao nao fechou: o arquivo pode ser de uma rodada anterior');
+      }
+    }
+  } catch (err) {
+    // Sem registro legivel a conferencia nao pode dizer que passou neste ponto.
+    reprova(`historico de importacao ilegivel: ${err.message}`);
   }
 
   db.close();

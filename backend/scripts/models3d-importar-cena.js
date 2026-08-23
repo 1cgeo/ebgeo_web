@@ -62,6 +62,12 @@ function args() {
     pose: v('--pose'),
     velocidade: num('--velocidade', null),
     fov: num('--fov', null),
+    // OS BYTES JA INSTALADOS: com `--base-path` o roteiro NAO copia nada e registra a
+    // pasta onde ela ja esta, medindo `--origem` no lugar. Ele existe porque era a unica
+    // coisa que `fp:register` fazia e este nao fazia, e sem ela a aposentadoria daquele
+    // roteiro teria tirado uma capacidade em vez de unificar duas receitas: em dev a cena
+    // e servida pelo Vite de `frontend/public/3d/`, fora de ASSETS_3D_DIR.
+    basePath: v('--base-path'),
     forcar: a.includes('--forcar'),
     dryRun: a.includes('--dry-run'),
   };
@@ -132,6 +138,15 @@ async function main() {
     return;
   }
 
+  // Registrar em cima dos bytes que ja estao instalados: a medida da origem JA e a
+  // medida do que sera servido, entao a conferencia do passo 3 compararia a pasta
+  // consigo mesma e nao provaria nada. Ela e pulada, e o log diz isso em voz alta.
+  const emLoco = Boolean(o.basePath);
+  let copiado = inv;
+  if (emLoco) {
+    passo('2. copia (pulada: --base-path registra os bytes onde ja estao)');
+    log(`  registrando ${o.origem} sob ${o.basePath}`);
+  } else {
   passo('2. copia');
   // O ENDEREÇO É CONTRATO com o cliente: ele recebe UM basePath e deriva dele os sete
   // caminhos internos da cena.
@@ -145,10 +160,17 @@ async function main() {
     mkdirSync(dirname(alvo), { recursive: true });
     copyFileSync(join(o.origem, rel), alvo);
   }
-  const copiado = await medirCena(destino);
+  copiado = await medirCena(destino);
   log(`  ${copiado.arquivos.length.toLocaleString('pt-BR')} arquivos, ${(copiado.totalBytes / 2 ** 20).toFixed(1)} MiB`);
+  }
 
-  passo('3. conferencia');
+  // A CONFERENCIA COMPARA O QUE FOI COPIADO COM A ORIGEM. Sem copia nao ha duas coisas
+  // para comparar, e rodar assim mesmo produziria o pior tipo de verde: a pasta batendo
+  // consigo mesma, provando nada e parecendo prova.
+  if (emLoco) {
+    log('\n--- 3. conferencia (pulada: nada foi copiado, nao ha duas coisas a comparar) ---');
+  } else {
+  passo('3. conferencia')
   // A CONFERENCIA COBRE A MESMA EXTENSAO DA ESCRITA, e agora numa comparacao so: a
   // assinatura e o hash da lista ORDENADA de (caminho, sha256), entao ela pega arquivo
   // faltando, arquivo A MAIS, arquivo truncado e arquivo renomeado. Comparar so o tamanho
@@ -168,9 +190,10 @@ async function main() {
     process.exit(5);
   }
   log(`  ${inv.arquivos.length.toLocaleString('pt-BR')} arquivos conferidos por sha256, assinatura identica`);
+  }
 
   passo('4. catalogo');
-  const basePath = `${config.assets3d.baseUrl}/primeira-pessoa/${o.id}`;
+  const basePath = o.basePath || `${config.assets3d.baseUrl}/primeira-pessoa/${o.id}`;
   const cfg = {
     forma3d: 'indoor',
     // O DISCRIMINADOR LEGADO CONTINUA SAINDO, e não é redundância: o cliente ainda deriva

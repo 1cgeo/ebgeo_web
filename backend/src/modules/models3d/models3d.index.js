@@ -60,7 +60,6 @@ async function montarIndice() {
       id: l.model_id,
       dbFilename: l.db_filename,
       buildToken: l.build_token,
-      modelType: l.model_type,
       ativo: l.active === true,
     });
   }
@@ -85,7 +84,7 @@ function indice() {
 /**
  * Resolves a model id to the file that serves it.
  * @param {string} id - the slug, i.e. the `tilesets` primary key
- * @returns {Promise<{id:string, dbFilename:string, buildToken:string, modelType:string, ativo:boolean}|null>}
+ * @returns {Promise<{id:string, dbFilename:string, buildToken:string, ativo:boolean}|null>}
  */
 export async function resolverModelo3d(id) {
   if (!id) return null;
