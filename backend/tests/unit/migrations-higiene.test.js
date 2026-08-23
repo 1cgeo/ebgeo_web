@@ -76,8 +76,24 @@ const PADROES_DESTRUTIVOS = [
 // invariante do PostGIS é cobrado sobre o COMPLEMENTO: até a consolidação o teste
 // listava três arquivos de núcleo à mão, então um `GEOMETRY(` numa baseline nova
 // passava despercebido. Denylist ao invés de allowlist fecha esse buraco.
+/**
+ * As migrações que trazem PostGIS. O domínio do atlas fica FORA delas, e é isso que a
+ * proibição abaixo protege: geometria de atlas é JSONB, e filtro espacial ali seria bbox
+ * em JS, nunca `ST_Intersects`.
+ */
 const ESPACIAIS = { '006_ng.sql': 'ng', '007_sv360.sql': 'sv360' };
-const NUCLEO = FILES.filter((f) => !(f in ESPACIAIS));
+
+/**
+ * As migrações que criam SCHEMA PRÓPRIO, que é uma pergunta DIFERENTE de trazer PostGIS.
+ *
+ * As duas viviam numa lista só, e a fusão passou despercebida enquanto todo schema
+ * próprio era espacial. A `009_a3d.sql` separou os eixos: ela cria o schema `a3d` (o
+ * registro de produção do acervo 3D convertido) e não tem uma linha de PostGIS. Manter a
+ * lista fundida obrigaria a declará-la "espacial" para poder criar o schema, o que
+ * afrouxaria a proibição de PostGIS exatamente onde ela vale.
+ */
+const COM_SCHEMA_PROPRIO = { ...ESPACIAIS, '009_a3d.sql': 'a3d' };
+const NUCLEO = FILES.filter((f) => !(f in COM_SCHEMA_PROPRIO));
 
 describe('Higiene das migrações (item 103)', () => {
   it('guarda: há migrações suficientes e nenhuma vazia', () => {
@@ -173,13 +189,19 @@ describe('Higiene das migrações (item 103)', () => {
     assert.deepEqual(falsosPositivos, [], 'padrão destrutivo disparando em DDL aditiva');
   });
 
-  it('TODA baseline que não seja uma das duas espaciais fica sem PostGIS e sem schema', () => {
-    const ausentes = Object.keys(ESPACIAIS).filter((f) => !SRC.has(f));
-    assert.deepEqual(ausentes, [], 'migração espacial ausente do disco');
+  it('TODA baseline de núcleo fica sem PostGIS e sem schema próprio', () => {
+    const ausentes = Object.keys(COM_SCHEMA_PROPRIO).filter((f) => !SRC.has(f));
+    assert.deepEqual(ausentes, [], 'migração com schema próprio ausente do disco');
     assert.ok(NUCLEO.length >= 5, `esperava >= 5 baselines de núcleo, achei ${NUCLEO.length}`);
 
     const linhas = todasAsLinhas(NUCLEO);
     assert.ok(linhas.length >= 200, `esperava >= 200 linhas de núcleo, inspecionei ${linhas.length}`);
+
+    // A PROIBIÇÃO DE PostGIS É MAIS LARGA que a de schema, e alcança quem tem schema
+    // próprio sem ser espacial: a `009_a3d.sql` pode criar o dela e continua sem poder
+    // trazer geometria.
+    const naoEspaciais = FILES.filter((f) => !(f in ESPACIAIS));
+    const linhasSemPostgis = todasAsLinhas(naoEspaciais);
 
     const proibidos = [
       { nome: 'postgis', re: /postgis/i },
@@ -190,21 +212,27 @@ describe('Higiene das migrações (item 103)', () => {
       { nome: 'ST_*', re: /\bST_[A-Za-z]/ },
       { nome: 'CREATE SCHEMA', re: /CREATE\s+SCHEMA/i },
     ];
-    const violacoes = linhas
-      .filter(({ texto }) => proibidos.some((p) => p.re.test(texto)))
+    const semSchema = proibidos.filter((p) => p.nome !== 'CREATE SCHEMA');
+    const violacoesDeSchema = linhas
+      .filter(({ texto }) => /CREATE\\s+SCHEMA/i.test(texto))
+      .map(({ arquivo, n, texto }) => `${arquivo}:${n} ${texto.trim()}`);
+    assert.deepEqual(violacoesDeSchema, [], 'baseline de núcleo criando schema próprio');
+
+    const violacoes = linhasSemPostgis
+      .filter(({ texto }) => semSchema.some((p) => p.re.test(texto)))
       .map(({ arquivo, n, texto }) => `${arquivo}:${n} ${texto.trim()}`);
     assert.deepEqual(violacoes, [], 'o domínio do atlas precisa continuar JSONB puro, sem PostGIS');
   });
 
-  it('as duas espaciais declaram seu schema e criam TODA tabela qualificada nele', () => {
-    const nomes = Object.keys(ESPACIAIS);
+  it('quem tem schema próprio o declara e cria TODA tabela qualificada nele', () => {
+    const nomes = Object.keys(COM_SCHEMA_PROPRIO);
     const ausentes = nomes.filter((f) => !SRC.has(f));
-    assert.deepEqual(ausentes, [], 'migração espacial ausente');
+    assert.deepEqual(ausentes, [], 'migração com schema próprio ausente');
 
     const semSchema = nomes.filter(
-      (f) => !new RegExp(`CREATE\\s+SCHEMA\\s+IF\\s+NOT\\s+EXISTS\\s+${ESPACIAIS[f]}\\b`, 'i').test(SRC.get(f))
+      (f) => !new RegExp(`CREATE\\s+SCHEMA\\s+IF\\s+NOT\\s+EXISTS\\s+${COM_SCHEMA_PROPRIO[f]}\\b`, 'i').test(SRC.get(f))
     );
-    assert.deepEqual(semSchema, [], 'migração espacial sem CREATE SCHEMA IF NOT EXISTS');
+    assert.deepEqual(semSchema, [], 'migração com schema próprio sem CREATE SCHEMA IF NOT EXISTS');
 
     const tabelas = todasAsLinhas(nomes)
       .map((l) => ({ ...l, m: l.texto.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_.]+)/i) }))
@@ -212,8 +240,8 @@ describe('Higiene das migrações (item 103)', () => {
     assert.ok(tabelas.length >= 8, `esperava >= 8 CREATE TABLE espaciais, inspecionei ${tabelas.length}`);
 
     const foraDoSchema = tabelas
-      .filter((l) => !l.m[1].toLowerCase().startsWith(`${ESPACIAIS[l.arquivo]}.`))
+      .filter((l) => !l.m[1].toLowerCase().startsWith(`${COM_SCHEMA_PROPRIO[l.arquivo]}.`))
       .map((l) => `${l.arquivo}:${l.n} ${l.m[1]}`);
-    assert.deepEqual(foraDoSchema, [], 'tabela PostGIS caiu fora do seu schema');
+    assert.deepEqual(foraDoSchema, [], 'tabela caiu fora do schema que a própria migração declara');
   });
 });

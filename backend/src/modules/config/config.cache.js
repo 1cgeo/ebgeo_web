@@ -37,6 +37,7 @@
 import config from '../../config.js';
 import { invalidarRegimeDeAssets3d } from '../nomes/assets3d-regime.js';
 import { invalidarAcessoDeAssets3d } from '../nomes/assets3d-acesso.js';
+import { invalidarIndiceDeModelos3d } from '../models3d/models3d.index.js';
 
 /** @type {{ promise: Promise<Object>, expiresAt: number }|null} */
 let entry = null;
@@ -66,6 +67,10 @@ export function invalidateAppConfigCache() {
   entry = null;
   invalidarRegimeDeAssets3d();
   invalidarAcessoDeAssets3d();
+  // Third structure derived from the same catalog rows: which file serves which model.
+  // It hangs here for the reason the paragraph above gives — an invalidation reachable
+  // only by remembering it is the one that goes stale.
+  invalidarIndiceDeModelos3d();
 }
 
 /**

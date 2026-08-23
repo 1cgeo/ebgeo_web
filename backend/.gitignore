@@ -14,7 +14,13 @@ data/test-images/
 data/e2e-images/
 data/assets3d/
 data/sv360/
+data/sv360-tmp/
 data/*.sqlite*
+# Acervo 3D convertido: UM .3dtiles por modelo, e o acervo inteiro passa de 21 GB. O
+# diretório de trabalho do lote e o arquivo de estado dele saem junto.
+data/models3d/
+data/models3d-lote.json
+data/origem-lote/
 
 # Logs
 *.log

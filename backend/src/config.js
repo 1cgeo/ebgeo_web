@@ -141,6 +141,24 @@ const config = Object.freeze({
     maxInflight: parseInt(optional('ASSETS_3D_MAX_INFLIGHT', '8'), 10),
   }),
 
+  // ONE .3dtiles PER MODEL, served under the `m/` prefix of the assets3d route.
+  // The format is the Cesium 3d-tiles-tools one (`media(key, content)`), so a file
+  // written by the importer opens with `npx 3d-tiles-tools convert` and vice versa.
+  //
+  // WHY A SECOND STORE RATHER THAN MORE ROWS IN assets3d.sqlite: the converted acquis
+  // is 21,4 GB over 74 models. In one flat file, replacing a single model rewrites the
+  // one file every other model is served from, and there is no per-model eviction to
+  // bound open handles. Per model, a re-import swaps ONE file (the `deposito.js` dance)
+  // and the LRU below bounds how many stay open — which on Windows is what lets the
+  // swap happen at all, since an open handle blocks the rename.
+  models3d: Object.freeze({
+    dbDir: optional('MODELS_3D_DIR', './data/models3d'),
+    // Open connections kept across the worker pool. 12 is the ebgeo_3d number,
+    // measured against a 512 MB container; the product with the SQLite cache is what
+    // has to fit.
+    maxOpen: parseInt(optional('MODELS_3D_MAX_OPEN', '12'), 10),
+  }),
+
   sv360: Object.freeze({
     // Directory holding the per-project {slug}.db SQLite stores (WebP BLOBs).
     dbDir: optional('SV360_DB_DIR', './data/sv360'),
@@ -325,6 +343,10 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },
   MAX_BULK_UPLOAD_MB: { min: 1, max: 4096 },
   ASSETS_3D_MAX_INFLIGHT: { min: 1, max: 1024 },
+  // Teto de conexões abertas no pool de leitura, por modelo. O piso é 1 (com zero nenhum
+  // modelo abriria) e o teto é 256 porque o produto com o cache do SQLite é o que tem de
+  // caber no contêiner: 12 x 8 MB são os 96 MB medidos no serviço de origem.
+  MODELS_3D_MAX_OPEN: { min: 1, max: 256 },
   SV360_MAX_INFLIGHT: { min: 1, max: 1024 },
   SV360_MAX_UPLOAD_BYTES: { min: 1 },
   SQLITE_BLOB_WORKERS: { min: 1, max: 64 },

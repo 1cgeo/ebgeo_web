@@ -751,6 +751,41 @@ const CENSO_CONSULTA = [
       + 'acesso continua sendo `fn_can_see_resource`, em `assets3d-acesso.js`.',
   },
 
+  // ================= acervo 3D convertido: registro por linha de comando =====
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'UPSERT_TILESET_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A escrita da linha de catálogo de um modelo `.3dtiles`, e ela NÃO tem gate de produção '
+      + 'porque o único chamador é um roteiro de LINHA DE COMANDO (`scripts/models3d-adotar.js`), '
+      + 'que roda com acesso ao banco e sem ator autenticado. Medido, tentar passar pelo serviço de '
+      + 'catálogo era pior: `getCatalogItem` aplica o predicado de visibilidade, então readotar um '
+      + 'modelo PRIVADO lia 404, caía no create e devolvia "já existe" ao operador que republicava '
+      + 'o próprio modelo. O RISCO é montar rota HTTP sobre esta constante: ela escreve `tilesets` '
+      + 'sem olhar OM produtora nem papel, e uma rota que a chamasse deixaria qualquer autenticado '
+      + 'sobrescrever a linha de outra OM. Os dois eixos de acesso ficam FORA do SET, então nem o '
+      + 'CLI rebaixa a público um modelo que alguém fechou.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'REMEDIR_TILESET_3D', n: 1,
+    classe: PUBLICO,
+    motivo: 'A remedição escreve no `config` do catálogo as DUAS medidas do envelope geodésico e o '
+      + 'ponto de navegação, e ela existe porque reconverter um modelo para consertar um metadado '
+      + 'custa horas (o Silo Oreste Ceretta ficou 3.657 m ao sul do lugar dele enquanto o ponto ia '
+      + 'à mão). Sem gate pelo mesmo motivo do upsert acima: o único chamador é o roteiro de linha '
+      + 'de comando. O RISCO é o mesmo, e aqui é menor por construção: ela mescla (`||`) só medida, '
+      + 'nunca `access_level`, `owner_org_id` nem `active`.',
+  },
+  {
+    arquivo: 'src/modules/models3d/models3d.queries.js', unidade: 'CATALOG_ROW_EXISTS', n: 1,
+    classe: PUBLICO,
+    motivo: 'A sonda de existência que decide entre "criado" e "atualizado" na adoção, sem predicado '
+      + 'de visibilidade e de propósito: a pergunta é "este id está tomado", e o id de catálogo é um '
+      + 'slug GLOBAL. Com predicado, um modelo privado responderia "não existe" e a importação '
+      + 'seguinte o sobrescreveria em silêncio. O RISCO é o de qualquer sonda sem recorte: ela '
+      + 'confirma a existência de um id que o chamador não pode ver, e por isso o único chamador é '
+      + 'de linha de comando. Expor isto numa rota daria um oráculo de inventário.',
+  },
+
   // ================= o padrão largo que casou outra coisa ====================
   {
     arquivo: 'src/modules/maps/maps.service.js', unidade: 'mergeMaps', n: 1, classe: NAO_RECURSO,
@@ -1115,6 +1150,24 @@ const CENSO_CACHE = [
     motivo: 'A chamada no ramo do SQLite, que passa adiante o `privado` decidido por `gateDeAsset3d`. '
       + 'Sem esse argumento o ramo continuaria público, e o 304 deste caminho é justamente o que um '
       + 'cache compartilhado reporia para o chamador seguinte.',
+  },
+  {
+    arquivo: 'src/modules/nomes/assets3d.controller.js',
+    trecho: 'if (!documento) return setImmutableHeaders(', n: 1, classe: C_CONDICIONAL,
+    motivo: 'A delegação do TILE de um modelo ao mesmo decisor imutável dos outros dois ramos, com '
+      + 'o mesmo `privado`. Entra no censo porque é aqui que o tile poderia perder o eixo sem que a '
+      + 'função delegada mudasse: passar `false` (ou omitir o argumento, que tem default) devolveria '
+      + '`public, immutable` por um ano a um tile de modelo privado.',
+  },
+  {
+    arquivo: 'src/modules/nomes/assets3d.controller.js',
+    trecho: "privado ? 'private, no-cache' : 'public, no-cache'", n: 1, classe: C_CONDICIONAL,
+    motivo: 'O DOCUMENTO de um modelo servido a partir de um `.3dtiles` POR MODELO, a camada que '
+      + 'absorveu o serviço do repositório `ebgeo_3d`. É o único conteúdo desta rota que NÃO é '
+      + 'imutável: uma reimportação troca a árvore inteira, e `immutable` deixaria o cliente '
+      + 'pedindo por um ano tiles de uma geração que morreu. `no-cache` guarda e revalida, e o '
+      + 'ETag derivado do token de geração faz a revalidação custar um 304 sem abrir o arquivo. '
+      + 'O eixo público/privado continua sendo o do RECURSO, decidido por `gateDeAsset3d`.',
   },
   {
     arquivo: 'src/modules/nomes/assets3d.controller.js', trecho: 'setImmutableHeaders(res, fmeta.etag',
@@ -1914,7 +1967,11 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     const doAssets3d = CENSO_CACHE.filter(
       (e) => e.arquivo === 'src/modules/nomes/assets3d.controller.js'
     );
-    assert.equal(doAssets3d.length, 4, `esperava as 4 decisões de cache do /assets3d, achei ${doAssets3d.length}`);
+    // SEIS DESDE A ABSORÇÃO DO `ebgeo_3d`: as quatro do acervo servido por caminho (a função
+    // imutável, a linha que a condiciona e as duas chamadas, SQLite e sistema de arquivos) mais
+    // as duas da camada por MODELO — a delegação do tile ao mesmo decisor e a linha do
+    // `tileset.json`, que é o único conteúdo não imutável desta rota.
+    assert.equal(doAssets3d.length, 6, `esperava as 6 decisões de cache do /assets3d, achei ${doAssets3d.length}`);
     assert.deepEqual(
       doAssets3d.filter((e) => e.classe !== C_CONDICIONAL).map((e) => e.trecho), [],
       'nenhuma resposta do /assets3d pode ter escopo de cache FIXO: um modelo pode virar privado a '
