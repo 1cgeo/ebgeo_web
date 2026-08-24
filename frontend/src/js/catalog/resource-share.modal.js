@@ -95,6 +95,50 @@ function grantLevelLabel(value) {
 }
 
 /**
+ * Os prazos que a tela oferece, em dias.
+ *
+ * A CLÁUSULA 3.4 FALA EM TETO **E** PADRÃO, e a interface entregava só o teto: `_handleGrant` e
+ * `_handleGrantGroup` montavam o payload sem `expiresAt`, e a varredura por produtores do valor
+ * em `frontend/src/` devolvia ZERO — só a assinatura no JSDoc do cliente HTTP. O servidor sempre
+ * aceitou (`expiresAt: Joi.date().iso().greater('now')`) e sempre honrou
+ * (`LEAST(COALESCE($7, NOW() + 1 ano), NOW() + 1 ano, COALESCE($8, 'infinity'))`).
+ *
+ * O caso concreto que isto resolve: emprestar acervo para um exercício de duas semanas não tinha
+ * como ser dito, e toda concessão nascia com um ano, que é o MÁXIMO.
+ *
+ * Um ano continua sendo o padrão selecionado, para não mudar o comportamento de quem não escolhe.
+ */
+const PRAZOS = Object.freeze([
+    { dias: 7, label: '7 dias' },
+    { dias: 30, label: '30 dias' },
+    { dias: 90, label: '90 dias' },
+    { dias: 180, label: '180 dias' },
+    { dias: 365, label: '1 ano (padrão)' },
+]);
+
+/** O padrão do servidor, e por isso o pré-selecionado. */
+const PRAZO_PADRAO_DIAS = 365;
+
+/**
+ * A data ISO de vencimento para um prazo em dias, ou nulo para deixar o servidor decidir.
+ *
+ * NULO PARA O PADRÃO, e não a data calculada aqui: mandar `expiresAt` sempre faria o cliente
+ * disputar com o servidor a definição de "um ano", e o `LEAST` do servidor já apara. Quem manda
+ * data é quem escolheu um prazo MENOR, que é a única informação nova que a tela tem.
+ * @param {number} dias
+ * @returns {string|null}
+ */
+function vencimentoEmDias(dias) {
+    const n = Number(dias);
+    if (!Number.isFinite(n) || n <= 0 || n >= PRAZO_PADRAO_DIAS) return null;
+    // Meio-dia UTC, e não o instante do clique: uma concessão feita 23h59 venceria "um dia antes"
+    // na leitura de quem só olha a data.
+    const d = new Date(Date.now() + n * 24 * 60 * 60 * 1000);
+    d.setUTCHours(12, 0, 0, 0);
+    return d.toISOString();
+}
+
+/**
  * A data de vencimento de uma concessão, em pt-BR, ou string vazia quando não há.
  *
  * TODA CONCESSÃO VENCE (no máximo um ano, e nunca depois da de quem concedeu), e a morte
@@ -105,6 +149,19 @@ function grantLevelLabel(value) {
  * @returns {string}
  */
 function expiryLabel(valor) {
+    return dataCurta(valor);
+}
+
+/**
+ * Uma data ISO em pt-BR, ou string vazia quando não há data utilizável.
+ *
+ * UMA implementação para as DUAS datas da linha (quando foi concedido, quando vence). Duas
+ * formatações da mesma coisa divergem, e divergir aqui produziria uma linha em que "desde" e
+ * "expira em" aparecem em formatos diferentes.
+ * @param {*} valor - Data ISO do servidor.
+ * @returns {string}
+ */
+function dataCurta(valor) {
     if (!valor) return '';
     const data = new Date(valor);
     if (Number.isNaN(data.getTime())) return '';
@@ -178,6 +235,7 @@ export class ResourceShareModal extends ModalBase {
         this._searchSeq = 0;
         /** @type {string} O nível escolhido no seletor (aplicado ao próximo convite). */
         this._level = DEFAULT_GRANT_LEVEL;
+        this._dias = PRAZO_PADRAO_DIAS;
         /** @type {boolean} O servidor recusou a listagem (403): sem permissão de repassar. */
         this._denied = false;
     }
@@ -270,10 +328,23 @@ export class ResourceShareModal extends ModalBase {
         const body = this.getBody();
         if (!body) return;
         clearScopedListeners(this, 'body');
+        // NÃO AFIRMA A CAUSA, e antes afirmava uma que o status não carrega. O gatilho é
+        // qualquer 403, e o servidor o emite por TRÊS caminhos indistinguíveis daqui
+        // (`if (quem.global || quem.produz || quem.repassa) return next();`): não ter papel
+        // global de dado, não produzir aquele recurso, e não ter `view_share`.
+        //
+        // "Você recebeu este recurso apenas para ver" era falso em pelo menos dois deles. O pior
+        // é o produtor cujo escopo mudou entre o desenho do cartão e o clique, e o administrador
+        // ou credenciado REBAIXADO com token ainda vivo: `canShareResource` decide pelo
+        // `hasGlobalDataAccess()` lido do JWT, então ele vê o botão, leva 403 e lê que
+        // "recebeu apenas para ver" um recurso que ele mesmo mantinha. Nenhum dos dois recebeu
+        // coisa alguma.
         body.innerHTML = `
             <div class="sharing__state" data-testid="resource-share-denied">
-                <p>Você recebeu este recurso apenas para <strong>ver</strong>.</p>
-                <p>Só quem tem acesso com permissão de compartilhar pode conceder este recurso a outras pessoas.</p>
+                <p>O servidor não autorizou você a conceder este recurso.</p>
+                <p>Isso acontece quando o seu acesso a ele não inclui compartilhar, ou quando ele
+                deixou de ser mantido por você. Se você acabou de mudar de papel ou de OM, recarregue
+                a página: a tela pode estar com a informação anterior.</p>
             </div>
         `;
     }
@@ -422,6 +493,15 @@ export class ResourceShareModal extends ModalBase {
                      title="${escapeHtml(morto.title)}">${escapeHtml(morto.label)}</span>`
             : '';
         const origem = `<span class="sharing-member__username">${escapeHtml(grantOriginLabel(grant))}</span>`;
+        // A DATA DE CRIAÇÃO, que já chegava no payload (`LIST_GRANTS_FOR_RESOURCE` a seleciona e
+        // ORDENA por ela) e não era desenhada. Numa lista de dez concessões ordenada por um
+        // critério invisível, a ordem parece arbitrária; e "quando foi concedido" é a primeira
+        // pergunta de quem revisa acesso.
+        const desde = dataCurta(grant?.created_at);
+        const nascimento = desde
+            ? `<span class="resource-share__since" data-testid="resource-share-since"
+                     title="Quando este acesso foi concedido. A lista é ordenada por esta data.">desde ${escapeHtml(desde)}</span>`
+            : '';
         const vence = expiryLabel(grant?.expires_at);
         const prazo = vence
             ? `<span class="resource-share__expiry" data-testid="resource-share-expiry"
@@ -453,6 +533,7 @@ export class ResourceShareModal extends ModalBase {
                     ${origem}
                 </div>
                 ${semEfeito}
+                ${nascimento}
                 ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>
@@ -563,6 +644,9 @@ export class ResourceShareModal extends ModalBase {
                     Conceder ao grupo
                 </button>
             </div>
+            <p class="sharing-section__hint" data-testid="resource-share-groups-scope">
+                Só aparecem aqui os grupos que você administra.
+            </p>
             ${this._renderGroupCreate(porta)}
         `;
     }
@@ -630,6 +714,9 @@ export class ResourceShareModal extends ModalBase {
         const opcoes = GRANT_LEVELS.map((n) =>
             `<option value="${n.value}"${n.value === this._level ? ' selected' : ''}>${n.label}</option>`
         ).join('');
+        const prazos = PRAZOS.map((p) =>
+            `<option value="${p.dias}"${p.dias === this._dias ? ' selected' : ''}>${p.label}</option>`
+        ).join('');
         return `
             <section class="sharing-section">
                 <h3 class="sharing-section__title">Conceder acesso</h3>
@@ -639,6 +726,16 @@ export class ResourceShareModal extends ModalBase {
                             data-action="level" data-testid="resource-share-level-select">${opcoes}</select>
                     <span class="settings-field__description">
                         "Ver e compartilhar" deixa a pessoa conceder este recurso a outras.
+                    </span>
+                </div>
+                <div class="resource-share__level-row">
+                    <label class="resource-share__level-label" for="resource-share-expiry-select">Prazo</label>
+                    <select class="sharing-member__permission" id="resource-share-expiry-select"
+                            data-action="expiry" data-testid="resource-share-expiry-select">${prazos}</select>
+                    <span class="settings-field__description">
+                        Vale para a próxima concessão. Rebaixar o nível de uma concessão que já
+                        existe não é possível: seria preciso remover o acesso, o que derruba a
+                        subárvore, e conceder de novo.
                     </span>
                 </div>
                 <p class="sharing-section__hint">
@@ -709,6 +806,12 @@ export class ResourceShareModal extends ModalBase {
 
         const level = body.querySelector('[data-action="level"]');
         if (level) addScopedDomListener(this, 'body', level, 'change', () => { this._level = level.value; });
+        const prazo = body.querySelector('[data-action="expiry"]');
+        if (prazo) {
+            addScopedDomListener(this, 'body', prazo, 'change', () => {
+                this._dias = Number(prazo.value) || PRAZO_PADRAO_DIAS;
+            });
+        }
 
         const group = body.querySelector('[data-action="group"]');
         const grantGroup = body.querySelector('[data-action="grant-group"]');
@@ -842,6 +945,9 @@ export class ResourceShareModal extends ModalBase {
             await apiClient.grantResource(this._type, this._id, {
                 granteeId: userId,
                 grantLevel: this._level,
+                // Nulo no padrão: ver `vencimentoEmDias`. O servidor apara pelo teto da casa E
+                // pelo prazo de quem concedeu, então a data daqui é um pedido, não a palavra final.
+                expiresAt: vencimentoEmDias(this._dias),
             });
             showSuccess('Acesso concedido.');
             this._searchSeq++; // invalida qualquer busca em voo
@@ -871,6 +977,7 @@ export class ResourceShareModal extends ModalBase {
             await apiClient.grantResource(this._type, this._id, {
                 granteeGroupId: groupId,
                 grantLevel: this._level,
+                expiresAt: vencimentoEmDias(this._dias),
             });
             showSuccess('Acesso concedido ao grupo.');
             await this._load();

@@ -18,6 +18,9 @@ import { descreverAlvo } from './descricao.js';
 // Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
 // arrastaria a store inteira pelo caminho transitivo.
 import { escapeHtml } from '@utils/html-escape.js';
+// Pelo ARQUIVO, nunca pelo barrel `@modals`: esta pagina boota sem a store, e o barrel a
+// arrastaria de volta pelo caminho transitivo. `confirm.modal.js` importa so `@utils/event-cleanup.js`.
+import { showConfirm } from '@modals/confirm.modal.js';
 
 // ============================================================================
 // MODULE STATE
@@ -1420,10 +1423,11 @@ async function handleApplyToRun(values) {
     const campos = Object.entries(values)
         .map(([k, v]) => `${k.replace('mesh_', '')}=${v.toFixed(1)}`)
         .join(', ');
-    const confirmado = window.confirm(
-        `Aplicar ${campos}\n`
-        + `as ${faixa.total} fotos da faixa ${faixa.label}?\n\nEsta acao nao pode ser desfeita.`
-    );
+    const confirmado = await showConfirm(`Aplicar a faixa ${faixa.label}?`, {
+        message: `${campos} sera aplicado as ${faixa.total} fotos da faixa. Isso nao se desfaz.`,
+        destructive: true,
+        confirmText: 'Aplicar',
+    });
     if (!confirmado) return;
 
     try {
@@ -1461,10 +1465,11 @@ async function handleBatchUpdate(values) {
     if (values.mesh_rotation_z !== undefined) fields.push(`rotation_z=${values.mesh_rotation_z.toFixed(1)}`);
     const desc = fields.join(', ');
 
-    // Confirm with user
-    const confirmed = window.confirm(
-        `Aplicar ${desc} a TODAS as fotos do projeto "${slug}"?\n\nEsta acao nao pode ser desfeita.`
-    );
+    const confirmed = await showConfirm(`Aplicar a TODAS as fotos de "${slug}"?`, {
+        message: `${desc} sera aplicado ao projeto inteiro. Isso nao se desfaz.`,
+        destructive: true,
+        confirmText: 'Aplicar a todas',
+    });
     if (!confirmed) return;
 
     try {
@@ -1490,9 +1495,12 @@ async function handleResetReviewed() {
         return;
     }
 
-    const confirmed = window.confirm(
-        `Resetar TODAS as revisoes do projeto "${slug}"?\n\nTodas as fotos serao marcadas como nao revisadas.`
-    );
+    const confirmed = await showConfirm(`Resetar as revisoes de "${slug}"?`, {
+        message: 'Todas as fotos do projeto voltam a contar como nao revisadas. O alinhamento nao e '
+            + 'tocado; o que se perde e o registro de quem ja conferiu o que.',
+        destructive: true,
+        confirmText: 'Resetar revisoes',
+    });
     if (!confirmed) return;
 
     try {
@@ -1547,6 +1555,17 @@ export function clearNearbyPreview() {
  * @param {string} message - Message to show
  * @param {'success'|'error'|'info'} [type='info'] - Toast type
  */
+/**
+ * A duracao por TIPO, e nao uma so.
+ *
+ * Erro e sucesso duravam os mesmos 3 segundos, e nao carregam a mesma coisa: o sucesso confirma
+ * algo que a pessoa acabou de mandar fazer e ela ja sabe; o erro traz informacao NOVA, muitas
+ * vezes a unica explicacao que ela vai receber (o dialogo bloqueante de recusa tem trava de
+ * modulo e aparece uma vez por sessao). Ler uma frase de recusa em 3 segundos, no meio de um
+ * alinhamento, e o mesmo que nao a ler.
+ */
+const DURACAO_MS = Object.freeze({ error: 8000, warning: 6000, success: 3000, info: 3000 });
+
 export function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `cal-toast cal-toast--${type}`;
@@ -1558,9 +1577,10 @@ export function showToast(message, type = 'info') {
         toast.classList.add('cal-toast--visible');
     });
 
-    // Remove after 3 seconds
+    // Tipo desconhecido cai no tempo curto, e nao no longo: prender a tela por um toast que
+    // ninguem classificou e pior que apaga-lo cedo demais.
     setTimeout(() => {
         toast.classList.remove('cal-toast--visible');
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, DURACAO_MS[type] ?? DURACAO_MS.info);
 }

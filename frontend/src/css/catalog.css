@@ -940,3 +940,26 @@
         grid-template-columns: repeat(3, 1fr);
     }
 }
+
+/*
+ * O rodapé com a porta de manutenção do acervo. Só é montado para quem tem uma (produtor ou
+ * administrador), e existe porque o cartão não pode dizer qual recurso é da OM da pessoa: o
+ * documento de `/api/config` é público, e carregar a OM dona nele exporia a estrutura de
+ * manutenção do acervo a qualquer visitante. Conserta-se a navegação, não o payload.
+ */
+.catalog-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--border-color, rgb(0 0 0 / 10%));
+}
+
+.catalog-footer__link {
+    color: var(--primary-600, #2563eb);
+    font-size: var(--font-size-sm);
+    text-decoration: none;
+}
+
+.catalog-footer__link:hover {
+    text-decoration: underline;
+}

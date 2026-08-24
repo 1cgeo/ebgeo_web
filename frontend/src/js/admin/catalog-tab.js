@@ -31,6 +31,11 @@ import { FORMA_3D_LABELS } from '@catalog/catalog.constants.js';
 // Terceiro módulo FOLHA do catálogo, pela mesma razão dos dois de cima: as frases do eixo de
 // acesso são compartilhadas com o modal de configurações do atlas, e o barrel arrastaria a store.
 import { visibilityChangeWarning, visibilityChangeSummary } from '@catalog/visibility-phrases.js';
+import { setupCleanup, cleanup } from '@utils/event-cleanup.js';
+// Modulo folha, zero imports, como as demais familias de frase desta pagina.
+import {
+    catalogDeletionWarning, projectStatusChangeWarning, projectDeletionWarning,
+} from './catalog-delete-phrases.js';
 
 /** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
 const THUMB_KEY = {
@@ -181,8 +186,18 @@ class CatalogTab {
         this._container = container;
         this._alive = true;
         this._category = CATEGORIES[0].key;
+        // A CONVENCAO DA CASA, e esta era a UNICA das tres abas do produtor fora dela: `audit-tab`
+        // e `groups-tab` registram em `@utils/event-cleanup.js` e liberam na desmontagem, e aqui
+        // o "cleanup" era so baixar uma bandeira. Na pratica os ouvintes morriam por
+        // `replaceChildren()`, que funciona por acidente do desenho e nao por contrato: o dia em
+        // que um ouvinte for pendurado fora do container desmontado (em `document`, em `window`,
+        // num timer) ele sobrevive, e esta e a aba em que o produtor passa mais tempo.
+        setupCleanup(this);
         this._build();
-        return () => { this._alive = false; };
+        return () => {
+            this._alive = false;
+            cleanup(this);
+        };
     }
 
     /** @private Builds the persistent sub-nav + a content area, then renders the first category. */
@@ -200,8 +215,17 @@ class CatalogTab {
         legenda.textContent = sessionContext.isAdmin()
             ? 'Três eixos independentes: Acesso (Público/Privado) diz QUEM VÊ; Status (Ativo/Inativo) '
               + 'diz se o item aparece para alguém; OM dona diz QUEM MANTÉM. Um item pode ser Ativo e Privado.'
-            : 'Você mantém os recursos da sua OM: Acesso (Público/Privado), Status (Ativo/Inativo) e os '
-              + 'metadados são seus. A OM dona é definida na criação e só o administrador a muda.';
+            // NAO PROMETE MAIS O EIXO STATUS PARA AS QUATRO CATEGORIAS, porque ele nao existe
+            // ali: os schemas de escrita nao aceitam `active`, a listagem filtra `active = true`,
+            // e os UNICOS caminhos que escrevem a coluna sao `deleteCatalogItem` (para false) e o
+            // ramo de RESSURREICAO de `createCatalogItem` (para true). Ou seja, o eixo existe no
+            // banco e nao tem controle na tela: a legenda dizia que era dele algo que ele nao
+            // consegue mexer, e o operador ia procurar um botao que nunca existiu.
+            //
+            // Decisao do dono, 2026-08-24: a legenda muda, o eixo nao nasce. So o 360 o tem.
+            : 'Você mantém os recursos da sua OM: o Acesso (Público/Privado) e os metadados são '
+              + 'seus. A OM dona é definida na criação e só o administrador a muda. O eixo '
+              + 'Status (Ativo/Inativo) existe apenas nos projetos 360.';
         c.appendChild(legenda);
 
         const nav = document.createElement('nav');
@@ -249,6 +273,23 @@ class CatalogTab {
         toolbar.appendChild(button(`Novo — ${label}`, 'admin-btn admin-btn--primary', 'admin-catalog-new',
             () => this._renderResourceForm(category, null)));
         c.appendChild(toolbar);
+
+        // O REGIME DE ESCOPO MUDA ENTRE AS SUB-ABAS, e nada dizia isso. Estas quatro vêm de
+        // `listCatalog`, recortada por ACESSO: o acervo público inteiro mais o privado dele, com a
+        // maioria das linhas trazendo "Mantido por outra OM" no lugar dos botões. A sub-aba 360 vem
+        // de `LIST_PROJECTS_ADMIN`, recortada por PRODUÇÃO: só a OM dele.
+        //
+        // A consequência prática é que "Nenhum item nesta categoria" significa coisas diferentes
+        // nas duas, e sem a nota a pessoa lê a lista longa daqui como "tudo isto é meu".
+        if (!sessionContext.isAdmin()) {
+            const escopo = document.createElement('p');
+            escopo.className = 'admin-form__hint';
+            escopo.dataset.testid = 'admin-catalog-scope-note';
+            escopo.textContent = 'Esta lista traz o acervo público de todas as OM mais o que é seu. '
+                + 'Você só edita as linhas da sua OM; nas demais, o lugar dos botões diz quem '
+                + 'mantém. A sub-aba 360 é diferente: lá aparecem apenas os seus projetos.';
+            c.appendChild(escopo);
+        }
 
         const wrap = card({ testid: 'admin-catalog-list', padded: false });
         wrap.classList.add('admin-users__table-wrap');
@@ -320,6 +361,20 @@ class CatalogTab {
             if (sessionContext.canProduceFor(r.owner_org_id)) {
                 actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-catalog-edit',
                     () => this._renderResourceForm(category, r)));
+                // ACAO DE LINHA PARA A VISIBILIDADE, como o 360 ja tinha. Antes, mudar SO o acesso
+                // obrigava a abrir o formulario, cujo `onSave` reescreve nome, descricao, ordem,
+                // `config` inteiro, miniatura e video: um ato de um eixo custava a reescrita do
+                // item todo, e qualquer JSON avancado mal colado ia junto. Agora o eixo estreito
+                // tem porta estreita, e o formulario continua servindo a edicao de fato.
+                if (temAcesso) {
+                    const privado = r.access_level === 'private';
+                    actions.appendChild(button(
+                        privado ? 'Tornar público' : 'Tornar privado',
+                        'admin-btn admin-btn--ghost',
+                        'admin-catalog-access',
+                        () => this._toggleResourceAccess(category, r, privado ? 'public' : 'private'),
+                    ));
+                }
                 actions.appendChild(button('Excluir', 'admin-btn admin-btn--danger', 'admin-catalog-delete',
                     () => this._deleteResource(r)));
             } else {
@@ -568,6 +623,9 @@ class CatalogTab {
                 }
             }
 
+            // Bandeira do descarte da chave legada, lida no toast de sucesso mais abaixo.
+            let podouVideoLegado = false;
+
             // Merge the media fields onto the parsed config. A freshly-picked thumbnail wins; an
             // explicit "Remover" deletes it; an untouched field keeps the JSON value. The video URL is
             // set when provided and DELETED when the field is cleared (so removal isn't a no-op).
@@ -584,6 +642,21 @@ class CatalogTab {
                     const vid = videoInput.value.trim();
                     if (vid) config.previewVideo = vid;
                     else delete config.previewVideo;
+                } else if (config.previewVideo !== undefined) {
+                    // A CHAVE LEGADA E PODADA AQUI, e sem isto a linha ficava INEDITAVEL. O campo
+                    // de video so e montado para as categorias de `CATEGORIAS_COM_VIDEO`, e
+                    // `basemap` esta fora dela por decisao de produto (sem cartao de catalogo, nao
+                    // ha onde ler o video). So que o textarea avancado devolve o `config` INTEIRO
+                    // de volta, entao um basemap gravado com `previewVideo` antes de 2026-08-23
+                    // reenviava a chave, e `configSchemaSemPreviewVideo` responde 422 em QUALQUER
+                    // edicao, inclusive uma que so mude o nome. Nao ha poda no servidor nem
+                    // migracao: a linha so se conserta apagando a chave a mao do JSON, e nada na
+                    // tela dizia isso.
+                    //
+                    // Silenciosa de proposito? Nao: a linha abaixo avisa. Apagar dado de alguem
+                    // sem dizer e como o proximo defeito nasce.
+                    delete config.previewVideo;
+                    podouVideoLegado = true;
                 }
                 if (enabledInput) {
                     config.enabled = enabledInput.checked;
@@ -627,14 +700,29 @@ class CatalogTab {
                 sort_order: Number.isFinite(sort) ? sort : 0,
             };
             saveBtn.disabled = true;
+            let resposta = null;
             try {
                 if (isEdit) {
-                    await apiClient.updateResource(category, resource.id, payload);
+                    resposta = await apiClient.updateResource(category, resource.id, payload);
                 } else {
-                    await apiClient.createResource(category, { id, ...payload });
+                    resposta = await apiClient.createResource(category, { id, ...payload });
                 }
             } catch (err) {
-                showFormError(error, err?.message || 'Falha ao salvar o item.');
+                // A PRIVATIZACAO CONFIRMADA NAO ACONTECEU, e a tela precisa parar de exibi-la.
+                // A ordem aqui e confirmar, gravar o item, e so entao chamar a visibilidade; se a
+                // primeira escrita falha, a privatizacao recem-confirmada nunca roda. Falhar
+                // fechado e a direcao certa, e ficava um <select> mostrando "private" sobre um
+                // servidor que continua publico.
+                //
+                // A assimetria era gritante: o CANCELAMENTO ja revertia o <select> (logo acima),
+                // e o erro de gravacao nao revertia nada. Dois caminhos para o mesmo estado, um
+                // cuidado e um esquecido.
+                if (accessInput && accessAfter !== accessBefore) {
+                    accessInput.value = accessBefore;
+                    accessAfter = accessBefore;
+                }
+                showFormError(error, err?.message
+                    || 'Falha ao salvar o item. A mudança de visibilidade também não foi aplicada.');
                 saveBtn.disabled = false;
                 return;
             }
@@ -658,10 +746,26 @@ class CatalogTab {
             // O TOAST RELATA O EFEITO. "Item atualizado." é verdade e é pouco quando a
             // gravação acabou de tirar o item do catálogo de outras pessoas: o eixo que
             // mudou o que os OUTROS veem é o que precisa aparecer na frase.
-            const base = isEdit ? 'Item atualizado.' : 'Item criado.';
-            showSuccess(accessAfter !== accessBefore
-                ? `${base} ${visibilityChangeSummary({ nome: name, accessLevel: accessAfter })}`
-                : base);
+            // "ITEM CRIADO." ERA MENTIRA NUM CASO. Criar com um id que existe INATIVO cai no ramo
+            // de ressurreicao de `createCatalogItem`, que SOBRESCREVE a linha antiga por inteiro e
+            // devolve `resurrected: true`. O cliente descartava a resposta e dizia "Item criado.",
+            // entao quem reaproveitou um id sem saber acabava de reescrever o recurso de outra
+            // pessoa acreditando ter criado o seu.
+            const base = isEdit
+                ? 'Item atualizado.'
+                : (resposta?.resurrected === true
+                    ? 'Item recriado: já existia um com este id, desativado, e ele foi sobrescrito.'
+                    : 'Item criado.');
+            const partes = [base];
+            if (accessAfter !== accessBefore) {
+                partes.push(visibilityChangeSummary({ nome: name, accessLevel: accessAfter }));
+            }
+            // DIZ O QUE FOI DESCARTADO. O campo nao vale para mapa base e o servidor o recusa;
+            // apagar sem falar deixaria a pessoa procurando um video que ela mesma gravou.
+            if (podouVideoLegado) {
+                partes.push('O campo de vídeo de prévia foi descartado: ele não vale para mapa base.');
+            }
+            showSuccess(partes.join(' '));
             if (this._alive) this._selectCategory(category);
         };
         saveBtn.addEventListener('click', onSave);
@@ -669,10 +773,151 @@ class CatalogTab {
         c.appendChild(form);
     }
 
+    /**
+     * O formulario de envio de um bundle 360.
+     *
+     * QUATRO ARQUIVOS, e a obrigatoriedade nao e a que o nome sugere: `manifest` e `imagesDb` sao
+     * exigidos pelo controlador; `tilesDb` e OPCIONAL no contrato e obrigatorio na pratica para
+     * acervo so-tiles, porque sem ele `validateImagesDb` recusa o bundle (nao sobra fonte de
+     * pixel nenhuma). A tela diz isso em vez de deixar a pessoa descobrir por 400.
+     *
+     * A OM NAO E PERGUNTADA, de proposito: `resolveUploadOrgId` a IMPOE a partir do escopo de
+     * producao lido do banco, e recusa com 403 um manifesto apontando para outra. Oferecer um
+     * campo aqui seria desenhar uma escolha que o servidor ignora.
+     * @private
+     * @returns {void}
+     */
+    _render360Upload() {
+        const c = this._content;
+        c.replaceChildren();
+
+        const form = card({ testid: 'admin-360-upload-form' });
+        const titulo = document.createElement('h3');
+        titulo.className = 'admin-form__title';
+        titulo.textContent = 'Enviar bundle 360°';
+        form.appendChild(titulo);
+
+        const dica = document.createElement('p');
+        dica.className = 'admin-form__hint';
+        dica.textContent = 'O projeto é criado com a OM para a qual você produz, e o manifesto não '
+            + 'pode apontar para outra. Um bundle com o mesmo identificador SUBSTITUI o projeto '
+            + 'existente, junto com a calibração já feita nele.';
+        form.appendChild(dica);
+
+        const error = document.createElement('p');
+        error.className = 'admin-form__error';
+        error.hidden = true;
+
+        const campos = [
+            { id: 'manifest', rotulo: 'Manifesto (obrigatório)', accept: '.json,application/json' },
+            { id: 'imagesDb', rotulo: 'Banco de imagens (obrigatório)', accept: '.db,.sqlite' },
+            { id: 'tilesDb', rotulo: 'Banco de tiles', accept: '.db,.sqlite' },
+            { id: 'thumbnail', rotulo: 'Miniatura', accept: 'image/png,image/jpeg,image/webp' },
+        ];
+        const inputs = {};
+        for (const campo of campos) {
+            const linha = document.createElement('div');
+            linha.className = 'admin-form__field';
+            const label = document.createElement('label');
+            label.className = 'admin-form__label';
+            label.htmlFor = `admin-360-up-${campo.id}`;
+            label.textContent = campo.rotulo;
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.id = `admin-360-up-${campo.id}`;
+            input.accept = campo.accept;
+            input.dataset.testid = `admin-360-up-${campo.id}`;
+            inputs[campo.id] = input;
+            linha.append(label, input);
+            form.appendChild(linha);
+        }
+
+        const acoes = document.createElement('div');
+        acoes.className = 'admin-form__actions';
+        const enviar = button('Enviar', 'admin-btn admin-btn--primary', 'admin-360-up-submit', async () => {
+            const manifest = inputs.manifest.files?.[0];
+            const imagesDb = inputs.imagesDb.files?.[0];
+            // RECUSA NA ENTRADA os dois obrigatórios, em vez de deixar o 400 do servidor
+            // explicar: o envio é grande, e descobrir no fim que faltava um campo custa a espera
+            // inteira.
+            if (!manifest || !imagesDb) {
+                showFormError(error, 'Manifesto e banco de imagens são obrigatórios.');
+                return;
+            }
+            enviar.disabled = true;
+            enviar.textContent = 'Enviando…';
+            try {
+                const criado = await apiClient.uploadSv360Bundle({
+                    manifest,
+                    imagesDb,
+                    tilesDb: inputs.tilesDb.files?.[0] ?? null,
+                    thumbnail: inputs.thumbnail.files?.[0] ?? null,
+                });
+                showSuccess(`Projeto 360° "${criado?.name || criado?.slug || ''}" enviado.`);
+                if (this._alive) this._render360List();
+            } catch (err) {
+                showFormError(error, err?.message || 'Não foi possível enviar o bundle.');
+                enviar.disabled = false;
+                enviar.textContent = 'Enviar';
+            }
+        });
+        acoes.appendChild(enviar);
+        acoes.appendChild(button('Cancelar', 'admin-btn admin-btn--ghost', 'admin-360-up-cancel',
+            () => this._render360List()));
+        form.appendChild(acoes);
+        form.appendChild(error);
+        c.appendChild(form);
+    }
+
+    /**
+     * Muda SO a visibilidade de um item de catalogo, sem reescrever o resto.
+     *
+     * Espelha `_toggle360Access` de proposito, inclusive na assimetria da pergunta: so o sentido
+     * destrutivo confirma (`visibilityChangeWarning` devolve nulo no sentido aditivo), porque
+     * perguntar sempre treina o operador a confirmar sem ler.
+     * @private
+     * @param {string} category - A categoria da aba, que decide o tipo de recurso.
+     * @param {Object} resource - A linha listada.
+     * @param {string} accessLevel - `public` ou `private`.
+     * @returns {Promise<void>}
+     */
+    async _toggleResourceAccess(category, resource, accessLevel) {
+        const tipo = ACCESS_TYPE_BY_CATEGORY[category];
+        if (!tipo) return;
+        const nome = resource.name || resource.id;
+        const aviso = visibilityChangeWarning(accessLevel, {
+            nome,
+            tipoRotulo: CATEGORIES.find((x) => x.key === category)?.label ?? 'Recurso',
+        });
+        if (aviso) {
+            const ok = await showConfirm(`Tornar "${nome}" privado?`, {
+                message: aviso,
+                destructive: true,
+                confirmText: 'Tornar privado',
+                cancelText: 'Manter público',
+            });
+            if (!ok) return;
+        }
+        try {
+            await apiClient.setResourceVisibility(tipo, resource.id, accessLevel);
+            showSuccess(visibilityChangeSummary({ nome, accessLevel }));
+            if (this._alive) this._selectCategory(category);
+        } catch (err) {
+            console.warn('[catalog-tab] falha ao alterar a visibilidade do item:', err);
+            showError('Não foi possível alterar a visibilidade deste item.');
+        }
+    }
+
     /** @private */
     async _deleteResource(resource) {
-        const ok = await showConfirm(`Excluir "${resource.name || resource.id}" do catálogo?`,
-            { destructive: true, confirmText: 'Excluir' });
+        // SEM `message` ISTO NAO DESENHAVA CORPO NENHUM (`ConfirmModal` so o monta quando a
+        // mensagem existe), entao o ato mais destrutivo da aba perguntava menos que a
+        // privatizacao ao lado, que traz um paragrafo inteiro.
+        const ok = await showConfirm(`Excluir "${resource.name || resource.id}" do catálogo?`, {
+            message: catalogDeletionWarning({ nome: resource.name, id: resource.id }),
+            destructive: true,
+            confirmText: 'Excluir',
+        });
         if (!ok) return;
         try {
             await apiClient.deleteResource(this._category, resource.id);
@@ -690,9 +935,25 @@ class CatalogTab {
         const c = this._content;
         c.replaceChildren();
 
+        // A PORTA DO ENVIO, que nao existia. `POST /sv360/admin/projects/upload` e autenticada,
+        // aceita o produtor e IMPOE a OM dele, e mesmo assim tinha zero chamadores no cliente: o
+        // unico caminho de ingestao era shell no servidor, e esta propria aba anunciava isso como
+        // se fosse desenho. Decisao do dono, 2026-08-24: a tela do 360 nasce (a rota ja existia);
+        // a ingestao 3D continua sendo operacao de servidor, e a clausula 2.4 passa a dize-lo.
+        const toolbar = document.createElement('div');
+        toolbar.className = 'admin-users__toolbar';
+        toolbar.appendChild(button('Enviar bundle 360°', 'admin-btn admin-btn--primary',
+            'admin-360-upload', () => this._render360Upload()));
+        c.appendChild(toolbar);
+
         const note = document.createElement('p');
         note.className = 'admin-form__hint';
-        note.textContent = 'O envio do bundle 360° é feito fora do painel; aqui você gerencia os metadados (status/exclusão).';
+        // ANUNCIA AS QUATRO ACOES, e nao duas. A nota falava em "status/exclusao" enquanto a
+        // linha oferece ativar/desativar, publico/privado, video e excluir: as duas nao anunciadas
+        // sao justamente as que mudam quem VE o projeto.
+        note.textContent = 'Aqui você gerencia os metadados do projeto 360: status (Ativo/Inativo), '
+            + 'acesso (Público/Privado), vídeo de prévia e exclusão. O envio do bundle é feito '
+            + 'pelo botão acima.';
         c.appendChild(note);
 
         const wrap = card({ testid: 'admin-360-list', padded: false });
@@ -797,6 +1058,16 @@ class CatalogTab {
             } else {
                 const nota = document.createElement('span');
                 nota.className = 'admin-users__status';
+                // RAMO MORTO, mantido de proposito e agora dito em voz alta. `LIST_PROJECTS_ADMIN`
+                // ja filtra por `fn_can_produce_resource` no WHERE, e `canProduceFor` no cliente
+                // devolve verdadeiro para toda linha que o servidor deixou passar, entao este
+                // else nao e alcancavel HOJE. A copia gemea em `_renderResourceTable` E
+                // alcancavel, porque aquela listagem filtra por ACESSO e traz o publico de outras
+                // OMs: sao dois ramos identicos, um vivo e um morto.
+                //
+                // Fica porque, no dia em que esta rota passar a listar mais do que ele produz,
+                // este ramo e a diferenca entre um botao que 404 e um texto que explica. Apagar
+                // ramo morto que e a rede de outro e economia que se paga com bug.
                 nota.textContent = 'Mantido por outra OM';
                 actions.appendChild(nota);
             }
@@ -815,6 +1086,23 @@ class CatalogTab {
      */
     async _toggle360(project, status) {
         const slug = project.slug ?? project.name;
+        // PERGUNTA SO NO SENTIDO DESTRUTIVO, como `_toggle360Access` ao lado: `disabled` esconde o
+        // projeto de todo mundo fora da OM dona, o que e MAIS amplo que privatizar, e este botao
+        // era o unico dos quatro da linha que nao perguntava nada. Reativar nao tira de ninguem.
+        const aviso = projectStatusChangeWarning({ nome: project.name, para: status });
+        if (aviso) {
+            const ok = await showConfirm(`Desativar "${project.name || slug}"?`, {
+                message: aviso,
+                destructive: true,
+                confirmText: 'Desativar',
+            });
+            if (!ok) {
+                // Redesenha: o botao da linha reflete o estado, e sair sem redesenhar deixaria a
+                // tela coerente por acidente e nao por construcao.
+                if (this._alive) this._render360List();
+                return;
+            }
+        }
         try {
             await apiClient.setSv360ProjectStatus(slug, status, {
                 orgId: project.organization_id ?? project.organizationId,
@@ -899,8 +1187,14 @@ class CatalogTab {
     /** @private */
     async _delete360(project) {
         const slug = project.slug ?? project.name;
-        const ok = await showConfirm(`Excluir o projeto 360° "${project.name || slug}"?`,
-            { destructive: true, confirmText: 'Excluir' });
+        const ok = await showConfirm(`Excluir o projeto 360° "${project.name || slug}"?`, {
+            message: projectDeletionWarning({
+                nome: project.name,
+                fotos: Number(project.photo_count ?? project.photoCount ?? NaN),
+            }),
+            destructive: true,
+            confirmText: 'Excluir',
+        });
         if (!ok) return;
         try {
             await apiClient.deleteSv360Project(slug, {

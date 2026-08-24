@@ -170,10 +170,16 @@
     padding-right: var(--space-1);
 }
 
-/* Narrow viewports: shed the text, keep the affordances. */
+/*
+ * Narrow viewports: shed the text, keep the affordances.
+ *
+ * SÓ O NOME SOME, e o selo do papel FICA. Os dois sumiam juntos, então em tela pequena o
+ * produtor perdia de uma vez quem ele é e qual OM ele mantém, que é justamente a fronteira
+ * dentro da qual ele age. O nome é o que menos informa (a pessoa sabe em que conta entrou) e o
+ * que mais ocupa largura; o selo é o que ela não tem como deduzir.
+ */
 @media (width <= 900px) {
-    .app-bar__username,
-    .app-bar__role {
+    .app-bar__username {
         display: none;
     }
 }
@@ -190,4 +196,27 @@
     .app-bar__subtitle {
         display: none;
     }
+}
+
+/*
+ * A tarja de ESCOPO DE PRODUÇÃO SUSPENSO. Só aparece quando a OM produtora da sessão foi
+ * desativada, e é persistente por desenho: o estado dura enquanto a OM estiver assim, e um aviso
+ * que some deixaria a pessoa diante de um painel cujas gravações voltam 404 sem explicação.
+ * Fora da .app-bar (é irmã dela dentro do <header>), para não competir com identidade e ações.
+ */
+.app-bar__notice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+    padding: var(--space-2) var(--space-6);
+    background: var(--warning-100, #fef3c7);
+    color: var(--warning-900, #78350f);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+    border-bottom: 1px solid var(--warning-300, #fcd34d);
+}
+
+.app-bar__notice strong {
+    font-weight: 600;
 }

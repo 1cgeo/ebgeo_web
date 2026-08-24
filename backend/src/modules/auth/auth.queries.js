@@ -12,13 +12,37 @@ export const FIND_USER_BY_USERNAME = `
   WHERE LOWER(u.username) = LOWER($1)
 `;
 
+// A JUNCAO COM A OM PRODUTORA, e nao so com a de LOTACAO.
+//
+// Ate 2026-08-24 esta consulta juntava `organizations` uma vez so, por `u.organization_id`
+// (LOTACAO), e projetava `u.producer_org_id` CRU: sem nome e sem vivacidade. As duas ausencias
+// custavam caro e de formas diferentes.
+//
+// A vivacidade: `fn_can_produce_resource` recusa toda escrita quando a OM PRODUTORA esta
+// inativa, e o cliente nao tinha como saber disso. O resultado era o pior padrao de recusa que
+// existe: a porta "Catalogo" abria, a calibracao continuava visivel, Editar e Excluir continuavam
+// desenhados, e cada escrita voltava 404 (o WHERE nao casa, zero linhas viram "nao encontrado").
+// Repare que o gate de rota NAO barra: `CATALOG_PRODUCER_ACTOR` resolve o escopo juntando so a
+// OM de lotacao, entao `producer_org_id` continua nao-nulo e a requisicao passa; quem recusa e o
+// predicado dentro do WHERE da escrita.
+//
+// O nome: `producer_org_nome` era lido em DOIS pontos do cliente (`admin/users-tab.js`) e nunca
+// existiu no servidor — varredura em `backend/` devolvia zero. O ramo esquerdo daquele `||` era
+// morto, a tabela caia sempre em `orgLabel`, e como `config.organizacoesMilitares` so traz OM
+// ATIVA, uma OM produtora desativada imprimia o UUID cru na tela.
+//
+// `COALESCE(po.is_active, false)`: sem OM produtora, a resposta e "nao produz", que e o mesmo
+// que `producer_org_id IS NULL` ja dizia. Nao ha caso em que ausencia signifique ativa.
 export const FIND_USER_BY_ID = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
+         u.organization_id, o.nome AS organizacao_militar,
+         u.producer_org_id, po.nome AS producer_org_nome,
+         COALESCE(po.is_active, false) AS producer_org_ativa,
          u.role, u.created_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
+  LEFT JOIN organizations po ON po.id = u.producer_org_id
   WHERE u.id = $1 AND u.is_active = true
 `;
 

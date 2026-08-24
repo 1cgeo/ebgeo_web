@@ -21,6 +21,10 @@ import { createCatalogFilters, updateFilterCounts } from './components/catalog-f
 import { createCatalogGrid } from './components/catalog-grid.js';
 import { resourceAccessRefOf } from './components/catalog-card.js';
 import { showResourceShareModal } from './resource-share.modal.js';
+// Pelo ARQUIVO: a definicao unica da porta de administracao, para o rotulo nao divergir do que
+// a barra da conta usa. Ambos sao folhas de zero imports.
+import { adminAudience } from '@js/admin/admin-audience.js';
+import { sessionContext } from '@store/sync/session-context.js';
 
 /**
  * Catalog modal class.
@@ -110,6 +114,33 @@ export class CatalogModal extends ModalBase {
 
         layout.appendChild(mainArea);
         body.appendChild(layout);
+
+        // A PORTA PARA MANTER O ACERVO, para quem tem uma.
+        //
+        // O produtor encontra aqui o recurso que ele MANTÉM e não tem como ir editá-lo: a aba
+        // Catálogo vive na outra ponta do aplicativo, e ele reencontra o item pelo nome. O cartão
+        // não pode dizer QUAL é da OM dele (o documento de `/api/config` é público, e carregar a
+        // OM dona nele exporia a estrutura de manutenção do acervo a qualquer visitante), então o
+        // que se conserta é a NAVEGAÇÃO, não o payload.
+        //
+        // O rótulo vem de `adminAudience`, e não de uma string escrita aqui, para não divergir do
+        // que a barra da conta chama a mesma porta.
+        const porta = adminAudience({
+            isAuthenticated: sessionContext.isAuthenticated(),
+            isAdmin: sessionContext.isAdmin(),
+            isProducer: sessionContext.isProducer(),
+        }).label;
+        if (porta) {
+            const rodape = document.createElement('div');
+            rodape.className = 'catalog-footer';
+            const link = document.createElement('a');
+            link.className = 'catalog-footer__link';
+            link.href = './admin.html';
+            link.dataset.testid = 'catalog-manage-link';
+            link.textContent = `Manter o acervo em ${porta}`;
+            rodape.appendChild(link);
+            body.appendChild(rodape);
+        }
 
         return overlay;
     }

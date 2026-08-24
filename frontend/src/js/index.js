@@ -46,6 +46,9 @@ import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
+// Pelo ARQUIVO, de um módulo folha com zero imports: é a página de CALIBRAÇÃO que escreve este
+// parâmetro, e o mapa é quem tem de o explicar, porque `replace` mata todo toast levantado lá.
+import { calibrationExitNotice } from './calibration/exit-decision.js';
 import { emailVerificationNotice } from './session/email-verification-phrases.js';
 import { sessionRestoreNotice } from './session/session-restore-phrases.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
@@ -357,19 +360,28 @@ function explainEndedSessionFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get('sessao');
     const outcome = params.get('trabalho');
-    if (!reason && !outcome && !params.has('pendentes')) return;
+    // TERCEIRO FATO, e ele tem parâmetro próprio: `?calibracao=` fala do alinhamento que vivia só
+    // na memória da outra página (perdido, ou nunca começado porque a porta recusou). Misturá-lo
+    // com `?trabalho=`, que é o vocabulário da fila de sync, daria a frase errada para um dos dois.
+    const calibracao = params.get('calibracao');
+    if (!reason && !outcome && !calibracao && !params.has('pendentes')) return;
 
     const message = ENDED_SESSION_MESSAGES[reason];
     if (message) showToast(message, 'warning');
     // DEPOIS do motivo, porque este é o aviso sobre o qual há algo a fazer.
     const trabalho = exitOutcomeNotice(outcome, params.get('pendentes'));
     if (trabalho) showToast(trabalho.message, trabalho.tone);
+    // POR ÚLTIMO, portanto por cima: entre os três, é o único que fala de trabalho que NÃO tem
+    // como voltar, ou do próximo passo de quem foi recusado na porta.
+    const calib = calibrationExitNotice(calibracao);
+    if (calib) showToast(calib.message, calib.tone);
 
     params.delete('sessao');
     params.delete('trabalho');
     // Apagado mesmo quando `trabalho` não veio: parâmetro solto na barra de endereços sobrevive ao
     // F5, e a limpeza de uma vez só existe justamente para isso.
     params.delete('pendentes');
+    params.delete('calibracao');
     const qs = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
 }

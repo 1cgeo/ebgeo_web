@@ -9,13 +9,18 @@
    portado não tem. Ela é servida só por calibracao.html.
    ========================================================================= */
 
-/* As TRES superficies compartilhadas que a pagina herda do resto do EBGeo, porque o boot delas e
-   o mesmo do admin.html: os tokens, a tela de "EBGeo indisponivel" e o aviso de inatividade.
+/* As QUATRO superficies que a pagina herda do resto do EBGeo, porque o boot delas e
+   o mesmo do admin.html: os tokens, a tela de "EBGeo indisponivel", o aviso de inatividade e a
+   barra superior.
    Nao entra base.css (o reset proprio da calibracao ja esta abaixo) nem toast.css (o painel de
    calibracao traz o seu). */
 @import url('./design-tokens.css');
 @import url('./unavailable.css');
 @import url('./idle-timeout.css');
+
+/* A quarta, desde 2026-08-24: a barra superior de atlas.html e admin.html. Aqui ela SOBREPOE
+   em vez de ocupar altura, e o motivo esta na secao BARRA SUPERIOR, no fim deste arquivo. */
+@import url('./app-bar.css');
 
 /* ================================================================
    RESET & BASE
@@ -1606,4 +1611,34 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #585b70;
+}
+
+/* ================================================================
+   BARRA SUPERIOR — a mesma de atlas.html e admin.html, mas em SOBREPOSICAO.
+
+   POR QUE SOBREPOE EM VEZ DE OCUPAR ALTURA, que e como as outras duas paginas
+   a montam. O comentario de LAYOUT acima nao e estilistico: o canvas do WebGL
+   e o da sobreposicao de navegacao precisam ter a MESMA razao de aspecto do
+   EBGeo (viewport inteira), porque e isso que faz a projecao e a posicao dos
+   marcadores serem identicas as do visualizador 360 do mapa. Empurrar o viewer
+   para baixo por causa de um cabecalho mudaria essa razao, e o operador
+   passaria a calibrar num enquadramento que o visualizador nao reproduz: a
+   barra teria custado a fidelidade que a pagina inteira existe para garantir.
+
+   Sobrepor e o padrao ja estabelecido aqui (o painel, o minimapa e o seletor
+   de projetos tambem sobrepoem). O preco e a faixa do topo deixar de arrastar
+   a camera, e ele e menor que o outro.
+   ================================================================ */
+.app-layout .app-bar,
+body > .app-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+
+    /* Translucida, porque ela cobre imagem: o operador precisa continuar vendo
+       o que esta debaixo dela ao enquadrar o topo da esfera. */
+    background: linear-gradient(120deg, rgb(30 30 46 / 92%), rgb(30 30 46 / 78%));
+    backdrop-filter: blur(6px);
 }

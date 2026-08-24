@@ -29,15 +29,12 @@ import { podarConcessoesDeQuemFoiDesativado, podarPorRaizes } from '../resource-
 // desativacao usa. Reescrever o `WHERE granted_by = $1 AND revoked_at IS NULL` aqui
 // seria a segunda copia, e a segunda e a que envelhece quando a coluna mudar.
 import { LIVE_GRANT_IDS_BY_GRANTER } from '../resource-access/resource-access.queries.js';
+// O predicado do veredito, num modulo FOLHA e sem imports, para que o teste-espelho possa
+// carregar os dois lados no mesmo processo. Ver o `fileoverview` daquele arquivo.
+import { fundamentoDeRaizPerdido } from './producer-scope-verdict.js';
 
 const SALT_ROUNDS = 12;
 
-/**
- * Os DOIS papeis globais que dao autoridade sobre TODO recurso privado. Nao e uma
- * escada, e por isso e um conjunto e nao uma comparacao: `role !== 'user'` promoveria o
- * produtor a esta lista, e `role >= x` nao significa nada neste eixo.
- */
-const PAPEIS_DE_DADO_GLOBAL = new Set(['admin', 'credenciado']);
 
 /**
  * REBAIXAMENTO = PERDA DE UM FUNDAMENTO DE CONCESSAO DE RAIZ. Devolve o nome do
@@ -73,13 +70,14 @@ const PAPEIS_DE_DADO_GLOBAL = new Set(['admin', 'credenciado']);
  * (carimbar o fundamento na linha da concessao) custa coluna nova e uma segunda
  * definicao de autoridade, escrita no INSERT, para envelhecer separada desta.
  *
- * EXISTE UM ESPELHO NO CLIENTE, e quem mexer aqui precisa saber disso:
- * `frontend/src/js/admin/producer-scope-phrases.js` reimplementa esta decisao para saber
- * SE deve pedir confirmacao antes do PUT. Ele nao impoe nada (a imposicao e aqui, e o
- * toast pos-acao relata os numeros que ESTE servico devolve), mas um espelho que derive
- * volta a deixar o administrador sem aviso, que e o defeito de 2026-08-23. Nao ha teste
- * ligando os dois: o espelho e um modulo folha de zero imports e este arquivo puxa banco
- * e bcrypt, entao o par se mantem por leitura. Mude os dois no mesmo commit.
+ * O PREDICADO MUDOU DE ARQUIVO em 2026-08-24: ele vive em `producer-scope-verdict.js`, folha e
+ * sem imports, e este servico o importa. A razao e o ESPELHO no cliente
+ * (`frontend/src/js/admin/producer-scope-phrases.js`, `verdictOfChange`), que reimplementa a
+ * decisao para saber SE deve pedir confirmacao antes do PUT. Enquanto o predicado morava aqui,
+ * nao havia teste ligando os dois lados, e o motivo escrito era verdadeiro (este arquivo puxa
+ * banco e bcrypt, o espelho e folha) mas a conclusao era evitavel: o que precisava ficar leve era
+ * o PREDICADO, nao o servico. Hoje
+ * `frontend/tests/unit/escopo-de-producao-espelha-backend.test.js` importa os DOIS.
  *
  * `is_active` NAO ENTRA AQUI: desativar por este PUT e recusado com 409 mais acima, e
  * quem desativa (`deleteUser`) tem a poda dele, com origem propria.
@@ -89,16 +87,6 @@ const PAPEIS_DE_DADO_GLOBAL = new Set(['admin', 'credenciado']);
  * @param {{role: string, producer_org_id?: string|null}} depois - A linha GRAVADA.
  * @returns {'acesso_global_de_dado'|'escopo_de_producao'|null}
  */
-function fundamentoDeRaizPerdido(antes, depois) {
-  if (PAPEIS_DE_DADO_GLOBAL.has(depois.role)) return null;
-  if (PAPEIS_DE_DADO_GLOBAL.has(antes.role)) return 'acesso_global_de_dado';
-
-  const omAntes = antes.producer_org_id ?? null;
-  const omDepois = depois.producer_org_id ?? null;
-  if (omAntes && omAntes !== omDepois) return 'escopo_de_producao';
-
-  return null;
-}
 
 /**
  * Normaliza um campo opcional de uuid: `''` e `undefined` viram null.

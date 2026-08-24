@@ -2216,6 +2216,61 @@ export class ApiClient {
     }
 
     /**
+     * Envia um BUNDLE de projeto 360 (multipart), criando ou substituindo o projeto.
+     *
+     * A CAPACIDADE JA EXISTIA E NAO TINHA PORTA. `POST /sv360/admin/projects/upload` e
+     * autenticada, aceita o produtor por `requireUploadCapability` (`role === 'admin' ||
+     * producer_org_id`) e IMPOE a OM dele em `resolveUploadOrgId`, que recusa com 403 um
+     * manifesto apontando para outra OM. Mesmo assim a varredura por essa rota em
+     * `frontend/src/` devolvia ZERO ocorrencias: o unico caminho de ingestao era a linha de
+     * comando no servidor, e a aba de catalogo dizia por escrito que o envio era "feito fora do
+     * painel".
+     *
+     * Constroi o proprio pedido, como `uploadImage`, e por isso NAO tem retentativa de 401:
+     * renovar o token antes e a unica coisa entre uma sessao expirada e um envio perdido. Aqui
+     * isso pesa mais que na imagem, porque o bundle e grande.
+     *
+     * @param {Object} arquivos
+     * @param {File|Blob} arquivos.manifest - O manifesto do bundle (obrigatorio).
+     * @param {File|Blob} arquivos.imagesDb - O banco de imagens (obrigatorio).
+     * @param {File|Blob} [arquivos.tilesDb] - O banco de tiles. Obrigatorio na pratica para
+     *   acervo so-tiles: sem ele o servidor recusa, porque nao sobra fonte de pixel nenhuma.
+     * @param {File|Blob} [arquivos.thumbnail] - A miniatura do projeto.
+     * @returns {Promise<Object>} O registro do projeto criado.
+     */
+    async uploadSv360Bundle({ manifest, imagesDb, tilesDb = null, thumbnail = null } = {}) {
+        await this._ensureFreshAccessToken();
+
+        const form = new FormData();
+        // Os nomes dos campos sao contrato do controlador (`req.files.manifest` etc.), nao
+        // preferencia: errar um deles produz um 400 dizendo que o campo obrigatorio falta.
+        form.append('manifest', manifest, manifest?.name || 'manifest.json');
+        form.append('imagesDb', imagesDb, imagesDb?.name || 'images.db');
+        if (tilesDb) form.append('tilesDb', tilesDb, tilesDb?.name || 'tiles.db');
+        if (thumbnail) form.append('thumbnail', thumbnail, thumbnail?.name || 'thumb.jpg');
+
+        const headers = this._accessToken ? { Authorization: `Bearer ${this._accessToken}` } : {};
+        // O MESMO PREFIXO das demais rotas 360 do painel (`/sv360/admin/...` sob `baseUrl`),
+        // e nao uma raiz propria: `listSv360Projects` e as de status/acesso ja o usam.
+        const res = await this._fetch(`${this.baseUrl}/sv360/admin/projects/upload`, {
+            method: 'POST',
+            headers,
+            body: form,
+        });
+        const parsed = await this._parseBody(res);
+        if (!res.ok) {
+            const err = parsed && typeof parsed === 'object' ? parsed.error : null;
+            throw new ApiError(buildApiErrorMessage(err, res.status), {
+                status: res.status,
+                code: err?.code,
+                details: err?.details,
+            });
+        }
+        // O 360 tem ENVELOPE PLANO (contrato congelado): a resposta do upload nao vem dentro de
+        // `{ data }`, entao `_unwrap` nao se aplica aqui.
+        return parsed;
+    }
+    /**
      * Bulk-uploads images (base64) to an atlas in one request — used to migrate the local image
      * blobs of an atlas saved to the server. Each item: `{ localId, filename, mimeType, data }`
      * where `data` is base64. Returns `{ uploaded, failed, mapping }` where `mapping` is

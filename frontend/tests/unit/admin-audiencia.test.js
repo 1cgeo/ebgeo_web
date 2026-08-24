@@ -230,13 +230,48 @@ describe('adminAudience — as propriedades estruturais que a função pura não
         }
     });
 
+    /**
+     * Os sítios varridos onde `hasGlobalDataAccess` é LEGÍTIMO, com o motivo escrito.
+     *
+     * Sem esta lista, a alternativa seria estreitar a varredura, e é o negócio errado: uma regra
+     * que deixa de olhar um arquivo inteiro para acomodar um uso legítimo perde junto todos os
+     * usos ilegítimos daquele arquivo. Exceção nomeada, com razão, na hora em que nasce.
+     */
+    const HAS_GLOBAL_DATA_ACCESS_AUTORIZADO = Object.freeze({
+        'src/js/account/account.control.js':
+            'NÃO decide tela: decide se, ao ENTRAR, a pessoa lê que o acervo privado dela voltou '
+            + 'a aparecer no catálogo. Sair apaga a soma aditiva de `refreshVisibleResources` sem '
+            + 'perguntar (decisão do dono, 2026-08-24: a saída não pergunta, a volta avisa), e a '
+            + 'frase só faz sentido para quem TEM acervo privado — que é exatamente a pergunta '
+            + 'que este método responde, no eixo de RECURSO. Nenhuma porta, aba ou rótulo depende '
+            + 'dele aqui.',
+    });
+
     it('nenhum dos quatro decide tela por hasGlobalDataAccess: o eixo de grupo virou posse', () => {
         // O controle de vácuo desta asserção é o próprio consumidor vivo do método: ele continua
         // decidindo o eixo de RECURSO em `resource-access.service.js`, e ali TEM de aparecer.
+        // SOBRE CÓDIGO, NÃO SOBRE PROSA: `semComentarios` já existe neste arquivo e é usado nas
+        // demais varreduras pela mesma razão. Um comentário que NOMEIA o método para explicar por
+        // que ele seria errado ali (e há um, em `catalog/resource-share.modal.js`, descrevendo a
+        // janela do token) não é um sítio de decisão; acusá-lo ensina a apagar a explicação, que
+        // é o contrário do que este guarda quer.
         for (const rel of SITIOS) {
-            expect(fonte(rel), rel).not.toContain('hasGlobalDataAccess');
+            if (HAS_GLOBAL_DATA_ACCESS_AUTORIZADO[rel]) continue;
+            expect(semComentarios(fonte(rel)), rel).not.toContain('hasGlobalDataAccess');
         }
-        expect(fonte('src/js/store/sync/resource-access.service.js')).toContain('hasGlobalDataAccess');
+        expect(semComentarios(fonte('src/js/store/sync/resource-access.service.js')))
+            .toContain('hasGlobalDataAccess');
+    });
+
+    it('toda autorização da lista acima ainda é usada (allowlist sem beneficiário se remove)', () => {
+        // É assim que um guarda volta a abrir sozinho: a exceção sobrevive ao uso que a
+        // justificava, e o próximo arquivo que cair naquele caminho herda o perdão de graça.
+        for (const [rel, motivo] of Object.entries(HAS_GLOBAL_DATA_ACCESS_AUTORIZADO)) {
+            expect(SITIOS, `${rel} não é mais varrido: tire-o da lista`).toContain(rel);
+            expect(semComentarios(fonte(rel)), `${rel} não usa mais hasGlobalDataAccess: tire-o da lista`)
+                .toContain('hasGlobalDataAccess');
+            expect(motivo.length, `${rel} sem motivo escrito`).toBeGreaterThan(80);
+        }
     });
 
     it('todo id de aba oferecido tem fábrica, e toda fábrica é oferecida a alguém', () => {

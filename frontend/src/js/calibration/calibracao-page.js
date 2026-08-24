@@ -33,6 +33,11 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
+// A MESMA barra de atlas.html e admin.html, pelo arquivo. Ela traz 'Minha conta' e 'Sair' de
+// graca, que era metade do buraco desta pagina; a outra metade (saida para o mapa) entra como
+// acao propria abaixo.
+import { createAppBar } from '@ui/app-bar.js';
+import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
@@ -45,7 +50,9 @@ import {
 // A classificacao de falha de pedido, de um modulo folha e SEM imports: a MESMA definicao que
 // `index.js`, `projects/projects-page.js` e `admin/admin-page.js` consomem.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
-import { mountCalibrationWorkspace, setSessionHandlers } from './app.js';
+import { mountCalibrationWorkspace, setSessionHandlers, guardCalibrationExit } from './app.js';
+// Modulo folha, zero imports: o MAPA le a frase do outro lado do `replace`.
+import { CALIBRATION_LOST_PARAM, CalibrationExitParam } from './exit-decision.js';
 
 /** Para onde vai quem nao calibra (ou quem esta deslogado). Relativo: o app pode servir de subpath. */
 const MAP_URL = './';
@@ -117,7 +124,15 @@ function clearSplash() {
  * @param {string} [reason] - Levado ao mapa como `?sessao=<reason>` para ele se explicar.
  * @returns {Promise<void>}
  */
-async function endSession(reason) {
+async function endSession(reason, { voluntary = false } = {}) {
+    // A CALIBRACAO ABERTA E O PRIMEIRO A SER PERGUNTADO, antes do logout, porque depois do logout
+    // nao ha mais como gravar. `guardCalibrationExit` pergunta quando ha alguem no teclado
+    // ("Sair agora") e apenas RELATA quando nao ha (expiracao, sessao encerrada pelo servidor):
+    // o alinhamento vive so em `calibration/state.js`, entao nao e alcancado pelo resgate de fila
+    // abaixo, e o `beforeunload` nao intercepta `window.location.replace`.
+    const calib = await guardCalibrationExit({ voluntary });
+    if (!calib.proceed) return;
+
     // A QUARTA PAGINA, e ela ficou para tras. As outras tres passaram a resgatar o trabalho nao
     // enviado antes de encerrar a sessao em 2026-08-23; esta nao, porque e gateada por `isAdmin()`
     // ou `isProducer()` e por isso ficou fora do relatorio do usuario comum. O buraco e o mesmo e
@@ -143,6 +158,10 @@ async function endSession(reason) {
         params.set('trabalho', guarda.outcome);
         if (guarda.pendingOps) params.set('pendentes', String(guarda.pendingOps));
     }
+    // PARAMETRO PROPRIO, e nao mais um valor de `trabalho`: aquele carrega o vocabulario de
+    // `ExitOutcome`, que e sobre a fila de sync. Sao duas perdas de dois subsistemas diferentes, e
+    // colapsa-las num parametro so daria a frase errada para uma das duas.
+    if (calib.lost) params.set('calibracao', CALIBRATION_LOST_PARAM);
     const qs = params.toString();
     window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }
@@ -151,6 +170,59 @@ async function endSession(reason) {
  * Levanta a pagina de calibracao.
  * @returns {Promise<void>}
  */
+/**
+ * A chave de sessao onde a foto pedida fica guardada quando o gate recusa a entrada.
+ *
+ * Por ABA (`sessionStorage`, como o `LOCAL_INTENT_KEY` de `projects-page.js`) e nao por origem: e
+ * a intencao DESTA visita, e vazar para outra aba mandaria o operador para uma foto que ele nao
+ * pediu ali.
+ */
+const FOTO_PEDIDA_KEY = 'ebgeo.calibracao.foto-pedida';
+
+/**
+ * Recusa a entrada na calibracao, dizendo POR QUE e sem jogar fora a foto pedida.
+ *
+ * A recusa anterior era `window.location.replace(MAP_URL)` seco: o mesmo desfecho mudo para quem
+ * nao tem o papel e para quem nem entrou, e o `?photo=` que trouxe o operador ate aqui morria no
+ * caminho. Sao duas pessoas diferentes com dois proximos passos diferentes, e uma delas so
+ * precisa entrar na conta.
+ *
+ * A foto e guardada ANTES do `replace` e relida no boot seguinte desta mesma aba, o que torna o
+ * caminho 'entrei na conta e abri o endereco de novo' um caminho que funciona, em vez de uma
+ * frase simpatica. Sem consumidor, guardar seria lixo.
+ * @returns {void}
+ */
+function refuseCalibrationEntry() {
+    const foto = new URLSearchParams(window.location.search).get('photo');
+    try {
+        if (foto) sessionStorage.setItem(FOTO_PEDIDA_KEY, foto);
+    } catch {
+        // Aba privada ou armazenamento bloqueado: perder a foto e o pior caso aceitavel aqui, e
+        // nao pode custar a explicacao, que e a parte que importa.
+    }
+    const motivo = sessionContext.isAuthenticated()
+        ? CalibrationExitParam.SEM_PAPEL
+        : CalibrationExitParam.SEM_SESSAO;
+    window.location.replace(`${MAP_URL}?calibracao=${motivo}`);
+}
+
+/**
+ * Devolve a foto guardada por uma recusa anterior DESTA aba, consumindo-a.
+ *
+ * Consome na leitura de proposito: a intencao vale uma vez. Deixa-la de pe faria a proxima visita
+ * deliberada ao seletor de projetos saltar para uma foto que ninguem pediu desta vez.
+ * @returns {string|null}
+ */
+function takeRequestedPhoto() {
+    try {
+        const foto = sessionStorage.getItem(FOTO_PEDIDA_KEY);
+        if (foto) sessionStorage.removeItem(FOTO_PEDIDA_KEY);
+        return foto || null;
+    } catch {
+        return null;
+    }
+}
+
 async function initCalibracaoPage() {
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 
@@ -171,8 +243,20 @@ async function initCalibracaoPage() {
     // pagina. Por isso o gate aqui e o par de papeis, e nao a OM: um produtor que abra a area de
     // trabalho ve so os projetos que o servidor lhe entrega.
     if (!sessionContext.isAdmin() && !sessionContext.isProducer()) {
-        window.location.replace(MAP_URL);
+        refuseCalibrationEntry();
         return;
+    }
+
+    // ENTROU NA CONTA E VOLTOU: recupera a foto que a recusa anterior guardou, reescrevendo a URL
+    // ANTES de `mountCalibrationWorkspace()`, que e quem le `?photo=`. `replaceState` e nao
+    // `assign`: nao ha por que recarregar uma pagina que acabou de bootar.
+    if (!new URLSearchParams(window.location.search).get('photo')) {
+        const pedida = takeRequestedPhoto();
+        if (pedida) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('photo', pedida);
+            window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+        }
     }
 
     // Joins the multi-tab channel holding NOTHING (`tab-lock.js`, section 1: the arbitration is
@@ -184,6 +268,34 @@ async function initCalibracaoPage() {
     initTabLock({ key: noneKey(), overlayHost: null });
 
     clearSplash();
+
+    // A BARRA, e ela e a unica identidade desta pagina. Antes, `calibracao.html` nao tinha
+    // cabecalho nenhum: zero ocorrencias de barra, selo de papel, nome de OM ou 'Minha conta' em
+    // toda a pasta. O operador nao sabia em que conta estava, e o unico botao de sair era o
+    // '← Projetos', que volta ao seletor INTERNO e nao sai da calibracao.
+    //
+    // Ela SOBREPOE o viewer (ver calibracao.css, secao BARRA SUPERIOR): empurrar o viewer para
+    // baixo mudaria a razao de aspecto do canvas, que e o que garante que a projecao aqui seja
+    // identica a do visualizador 360 do mapa.
+    const barra = createAppBar({
+        logo: EBGEO_LOGO_BASE64,
+        title: 'Calibração 360',
+        subtitle: config?.app?.title || 'EBGeo',
+        user: { id: sessionContext.userId, name: sessionContext.username },
+        actions: [{
+            label: 'Ir para o mapa',
+            testid: 'calibracao-sair',
+            title: 'Sair da calibração e voltar ao EBGeo',
+            // PASSA PELO GUARDA, como o botao '← Projetos': sair da pagina com alinhamento nao
+            // gravado e a mesma perda, e `beforeunload` nao intercepta navegacao programatica.
+            onClick: async () => {
+                const { proceed } = await guardCalibrationExit({ voluntary: true });
+                if (proceed) window.location.assign(MAP_URL);
+            },
+        }],
+        onLogout: () => { endSession('saida', { voluntary: true }); },
+    });
+    document.body.prepend(barra.element);
 
     setSessionHandlers({
         // Um 401 numa escrita significa que a sessao morreu de vez (o refresh tambem falhou).
@@ -201,9 +313,9 @@ async function initCalibracaoPage() {
     // O timeout de inatividade acompanha o operador ate aqui. Sem isto, uma sessao de admin ficaria
     // aberta indefinidamente numa tela que escreve no acervo.
     startIdleWatch({
-        onExpire: () => { endSession('inatividade'); },
+        onExpire: () => { endSession('inatividade', { voluntary: false }); },
         // "Sair agora" nao e expiracao: motivo proprio, e o mapa nao pede login de volta.
-        onLeaveNow: () => { endSession('saida'); },
+        onLeaveNow: () => { endSession('saida', { voluntary: true }); },
     });
 }
 

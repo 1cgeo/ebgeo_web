@@ -109,8 +109,13 @@ function linhasQueCasam(regex, { ignorarComentarios = false } = {}) {
 const GATE = (() => {
     const fonte = MODULOS.find((m) => m.nome.endsWith('calibracao-page.js'));
     if (!fonte) return null;
+    // O CORPO DO GATE MUDOU EM 2026-08-24 e a âncora acompanhou. Ele era
+    // `window.location.replace(MAP_URL)` seco: o mesmo desfecho MUDO para quem não tem o papel e
+    // para quem nem entrou, jogando fora o `?photo=` que trouxe o operador até ali. Hoje chama
+    // `refuseCalibrationEntry()`, que guarda a foto pedida e leva o motivo ao mapa em
+    // `?calibracao=`. A CONDIÇÃO, que é o que este bloco avalia, é a mesma.
     const achado = semComentarios(fonte.texto)
-        .match(/\bif\s*\((.+)\)\s*\{\s*\r?\n\s*window\.location\.replace\(MAP_URL\);/);
+        .match(/\bif\s*\((.+)\)\s*\{\s*\r?\n\s*refuseCalibrationEntry\(\);/);
     return achado ? achado[1].trim() : null;
 })();
 
@@ -137,7 +142,13 @@ function sessaoCom(globalRole, producerOrgId = null) {
     const ctx = new SessionContext();
     // O papel POR ATLAS fica no minimo de proposito: se o gate passasse a olhar para ele, os
     // positivos abaixo ficariam vermelhos, que e o aviso que se quer.
-    ctx.setSession({ userId: 'operador', role: UserRole.VIEWER, globalRole, producerOrgId });
+    // `producerOrgActive` entrou em 2026-08-24: `isProducer()` passou a exigir a OM produtora
+    // VIVA, porque `fn_can_produce_resource` recusa toda escrita quando ela esta inativa e o
+    // cliente nao tinha como saber. Aqui o produtor de teste tem OM viva, que e o caso que estes
+    // positivos descrevem.
+    ctx.setSession({
+        userId: 'operador', role: UserRole.VIEWER, globalRole, producerOrgId, producerOrgActive: true,
+    });
     return ctx;
 }
 

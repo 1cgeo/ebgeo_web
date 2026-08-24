@@ -85,10 +85,23 @@ describe('calibracao 360: dado do servidor escapado antes do innerHTML', () => {
         expect(linhaUnica(PAINEL, 'cal-panel__faixa-nome', 'calibration-panel.js'))
             .toContain(interp('escapeHtml(nome)'));
 
-        // (f) Os dois cartoes do seletor de projeto.
+        // (f) O cartao do seletor de projeto.
+        //
+        // ERAM DOIS SITIOS E VIRARAM UM, e a saida do segundo foi de proposito:
+        // `project-selector__card-location` desenhava `p.location`, uma propriedade NULA POR
+        // CONTRATO (`publicProjectView` documenta que a coluna nao existe, e nem `LIST_PROJECTS`
+        // nem `GET_PROJECT_BY_SLUG` a selecionam). Era ramo morto, e este caso o mantinha vivo por
+        // escape: o teste exigia o escape de uma linha que nunca desenhava nada.
+        //
+        // O TERCEIRO SITIO E NOVO e cobre o buraco que este censo tinha: os ATRIBUTOS do cartao
+        // (`data-photo-id`, `data-slug`) eram interpolados crus na mesma linha em que o nome ja
+        // era escapado, e nao estavam listados aqui.
         expect(APP, 'app.js nao importa o escapador').toContain("import { escapeHtml } from '@utils/html-escape.js';");
         expect(linhaUnica(APP, 'project-selector__card-title', 'app.js')).toContain(interp('escapeHtml(p.name)'));
-        expect(linhaUnica(APP, 'project-selector__card-location', 'app.js')).toContain(interp('escapeHtml(p.location)'));
+        expect(APP, 'a linha morta de location voltou').not.toContain('project-selector__card-location');
+        const cartao = linhaUnica(APP, 'data-photo-id=', 'app.js');
+        expect(cartao, 'data-photo-id cru no atributo').toContain('escapeHtml(p.entryPhotoId');
+        expect(cartao, 'data-slug cru no atributo').toContain('escapeHtml(p.slug');
     });
 
     it('nao escapa o que NAO e dado de usuario nem o que nao vai para innerHTML', () => {

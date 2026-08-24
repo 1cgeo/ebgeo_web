@@ -266,6 +266,12 @@ describe('login', () => {
             role: 'viewer',
             globalRole: 'user',
             producerOrgId: null,
+            // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a
+            // OM PRODUTORA e não só a de lotação. Sem a vivacidade, o cliente desenhava um painel
+            // inteiro que o servidor recusava com 404; sem o nome, a tela caía no UUID cru quando a
+            // OM saía da lista de ativas. Ausente vale FALSO, que é a queda conservadora.
+            producerOrgName: null,
+            producerOrgActive: false,
             username: 'alice',
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
@@ -279,6 +285,12 @@ describe('login', () => {
             role: 'viewer',
             globalRole: 'user',
             producerOrgId: null,
+            // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a
+            // OM PRODUTORA e não só a de lotação. Sem a vivacidade, o cliente desenhava um painel
+            // inteiro que o servidor recusava com 404; sem o nome, a tela caía no UUID cru quando a
+            // OM saía da lista de ativas. Ausente vale FALSO, que é a queda conservadora.
+            producerOrgName: null,
+            producerOrgActive: false,
             username: 'bob',
         });
     });
@@ -294,6 +306,12 @@ describe('login', () => {
             role: 'viewer',
             globalRole: 'admin',
             producerOrgId: null,
+            // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a
+            // OM PRODUTORA e não só a de lotação. Sem a vivacidade, o cliente desenhava um painel
+            // inteiro que o servidor recusava com 404; sem o nome, a tela caía no UUID cru quando a
+            // OM saía da lista de ativas. Ausente vale FALSO, que é a queda conservadora.
+            producerOrgName: null,
+            producerOrgActive: false,
             username: 'root',
         });
     });

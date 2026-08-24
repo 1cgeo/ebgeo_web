@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // Mock operation-factory.js (dependency of session-context.js)
@@ -231,8 +232,18 @@ describe('globalRole / isAdmin', () => {
 // ============================================================================
 
 /** Põe uma sessão online com um papel GLOBAL, deixando o papel por atlas no mínimo. */
-function comPapelGlobal(globalRole, producerOrgId = null) {
-    ctx.setSession({ userId: 'u1', role: UserRole.VIEWER, globalRole, producerOrgId });
+/**
+ * Monta uma sessão com papel global.
+ *
+ * O TERCEIRO PARÂMETRO NASCEU EM 2026-08-24 e o default É a decisão: `producerOrgActive: true`
+ * mantém o significado de todos os casos escritos antes dele, que são sobre o bicondicional
+ * crachá/escopo e não sobre vivacidade. Deixar o default como `false` teria reescrito o assunto
+ * de doze casos de uma vez, em silêncio.
+ */
+function comPapelGlobal(globalRole, producerOrgId = null, producerOrgActive = true) {
+    ctx.setSession({
+        userId: 'u1', role: UserRole.VIEWER, globalRole, producerOrgId, producerOrgActive,
+    });
 }
 
 describe('GlobalRole: quatro papéis, nenhum contendo o outro', () => {
@@ -443,6 +454,8 @@ describe('sessionUserInfoFromMe', () => {
             org_role: 'admin',
             role: GlobalRole.PRODUCER,
             producer_org_id: 'om-a',
+            producer_org_ativa: true,
+            producer_org_nome: 'OM Alfa',
             username: 'ana'
         });
         // Igualdade ESTRITA: um campo a mais na hidratação é um campo que `setSession` não conhece
@@ -452,6 +465,8 @@ describe('sessionUserInfoFromMe', () => {
             role: UserRole.VIEWER,
             globalRole: GlobalRole.PRODUCER,
             producerOrgId: 'om-a',
+            producerOrgActive: true,
+            producerOrgName: 'OM Alfa',
             username: 'ana'
         });
     });
@@ -470,7 +485,7 @@ describe('sessionUserInfoFromMe', () => {
         expect(Object.keys(sessionUserInfoFromMe({ id: 'u9', role: 'user' }))).toContain('producerOrgId');
 
         ctx.setSession(sessionUserInfoFromMe({
-            id: 'u9', role: GlobalRole.PRODUCER, producer_org_id: 'om-a'
+            id: 'u9', role: GlobalRole.PRODUCER, producer_org_id: 'om-a', producer_org_ativa: true
         }));
         expect(ctx.isProducer()).toBe(true);
 
@@ -485,22 +500,39 @@ describe('sessionUserInfoFromMe', () => {
     });
 });
 
-describe('as CINCO hidratações passam por este helper', () => {
+describe('TODA hidratação de sessão passa por este helper', () => {
     /**
-     * Os cinco sítios que montam uma sessão a partir de um registro do backend. A cópia da forma
-     * já existiu cinco vezes e já tinha divergido; o campo cuja ausência falha CALADO é o escopo de
-     * produção (`isProducer()` vira falso e a tela some, sem erro nenhum).
+     * Os sítios que montam uma sessão a partir de um registro do backend, CENSADOS.
+     *
+     * ERA UMA LISTA LITERAL DE CINCO CAMINHOS, com asserção de tamanho cinco, e é a mesma
+     * fragilidade que a suíte irmã da credencial acabou de pagar: os três `it` iteravam sobre a
+     * lista, então um SEXTO sítio nascia sem reprovar nada — ele simplesmente nunca era lido. Uma
+     * guarda que só olha o que alguém lembrou de listar protege o passado, não o código.
+     *
+     * O inventário agora vem de `git ls-files` mais o PREDICADO de citar `sessionUserInfoFromMe`,
+     * que é a definição do que este teste cobre. Sítio novo entra sozinho e é cobrado sozinho.
+     *
+     * O campo cuja ausência falha CALADO continua sendo o escopo de produção: `isProducer()` vira
+     * falso, a tela some, e não há erro nenhum.
      */
-    const SITIOS = [
-        'index.js',
-        'projects/projects-page.js',
-        'admin/admin-page.js',
-        'calibration/calibracao-page.js',
-        'store/sync/sync-engine.js'
-    ].map((rel) => ({ nome: rel, codigo: semComentarios(readFileSync(arquivo(rel), 'utf8')) }));
+    const RAIZ = fileURLToPath(new URL('../../src/js/', import.meta.url));
+    const SITIOS = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src/js'], {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+    })
+        .split(/\r?\n/)
+        .filter((p) => p.endsWith('.js'))
+        .map((p) => p.replace(/^src\/js\//, ''))
+        // O próprio helper mora em `store/sync/session-context.js`: ele DEFINE a forma, não a
+        // consome, e censá-lo faria o guarda acusar a si mesmo.
+        .filter((rel) => rel !== 'store/sync/session-context.js')
+        .map((rel) => ({ nome: rel, codigo: semComentarios(readFileSync(`${RAIZ}${rel}`, 'utf8')) }))
+        .filter(({ codigo }) => codigo.includes('sessionUserInfoFromMe'));
 
-    it('coleta os cinco arquivos (guarda contra a lista esvaziar em silêncio)', () => {
-        expect(SITIOS).toHaveLength(5);
+    it('o censo acha os sítios de hidratação (guarda contra a varredura esvaziar em silêncio)', () => {
+        // PISO, e não igualdade: um sítio novo é legítimo e não deve reprovar aqui; o que não
+        // pode acontecer é a varredura devolver nada e os casos abaixo passarem sem ler nada.
+        expect(SITIOS.length).toBeGreaterThanOrEqual(5);
         for (const { nome, codigo } of SITIOS) {
             expect(codigo.length, `${nome} veio vazio`).toBeGreaterThan(1000);
         }

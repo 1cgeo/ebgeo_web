@@ -61,6 +61,7 @@ import {
     nomeDoAtor,
     rotuloDeAcao,
     rotuloDeAlvo,
+    escopoDaTrilhaNotice,
     rotuloDeFamilia,
     rotuloDoDia,
 } from './audit-phrases.js';
@@ -81,6 +82,25 @@ const TIPOS_DE_ALVO = [
     'USER', 'ORG', 'ATLAS', 'ACCESS_GROUP',
     'BASEMAP', 'DATA_LAYER', 'ANALYSIS_LAYER', 'TILESET', 'SV360_PROJECT', 'CONFIG',
 ];
+
+/**
+ * Os tipos de alvo que NUNCA devolvem linha para quem não administra o sistema.
+ *
+ * Não é opinião, é propriedade do servidor: o recorte por OM é `AND ($5::uuid IS NULL OR
+ * a.target_org_id = $5)`, e `target_org_id` só é carimbado por três módulos (catálogo, acesso a
+ * recurso e 360). Usuários, organizações, configuração, grupos de acesso e compartilhamento não
+ * passam OM em auditoria nenhuma, e atlas passa NULO de propósito, com o motivo escrito lá
+ * (atlas não tem OM dona). O predicado não alcança `target_org_id IS NULL`, também de propósito.
+ *
+ * O efeito na tela era um filtro que existia para provar lista vazia: metade das opções nunca
+ * devolvia nada, e a mais desconcertante é `ACCESS_GROUP`, porque o produtor administra grupos
+ * na aba ao lado e os atos dele sobre grupos não aparecem na trilha dele.
+ *
+ * DECISÃO DO DONO, 2026-08-24: a TELA diz o recorte, e grupos NÃO passam a carimbar OM. A
+ * cláusula 9.2 fala em recursos produzidos, então o comportamento é literal; carimbar OM num
+ * grupo obrigaria a escolher QUAL OM, e grupo é entidade de usuário, com dono, não de OM.
+ */
+const ALVOS_SEM_OM = Object.freeze(['USER', 'ORG', 'ATLAS', 'ACCESS_GROUP', 'CONFIG']);
 
 /**
  * Builds the "Auditoria" tab definition for the admin panel.
@@ -117,6 +137,7 @@ class AuditTab {
         // administra. Um `true` provisório desenharia a coluna de OM e o filtro dela para
         // um produtor, por uma fração de segundo, e depois os tiraria.
         this._administra = false;
+        this._escopoOrgId = null;
         setupCleanup(this);
         this._render();
         return () => {
@@ -189,6 +210,9 @@ class AuditTab {
 
         const administravaAntes = this._administra;
         this._administra = resposta?.administra === true;
+        // O RECORTE, guardado para a tela poder dize-lo (M9). Ate agora este campo chegava na
+        // resposta e era descartado no cliente inteiro.
+        this._escopoOrgId = resposta?.escopoOrgId ?? null;
         // O ESCOPO SÓ SE DESCOBRE NA PRIMEIRA RESPOSTA, então a barra de filtros precisa
         // ser redesenhada UMA vez quando ele muda. Redesenhar sempre piscaria a tela a
         // cada busca; nunca redesenhar deixaria o administrador sem os filtros dele.
@@ -249,7 +273,13 @@ class AuditTab {
             this._render();
         });
         tipo.control.appendChild(this._option('', 'Todos os tipos'));
-        for (const t of TIPOS_DE_ALVO) tipo.control.appendChild(this._option(t, rotuloDeAlvo(t)));
+        // NÃO OFERECE O QUE NUNCA DEVOLVE. Para quem não administra, os cinco de `ALVOS_SEM_OM`
+        // são filtros estruturalmente vazios, e um seletor que só produz lista vazia ensina a
+        // pessoa a desconfiar da trilha inteira.
+        const tiposVisiveis = this._administra
+            ? TIPOS_DE_ALVO
+            : TIPOS_DE_ALVO.filter((x) => !ALVOS_SEM_OM.includes(x));
+        for (const t of tiposVisiveis) tipo.control.appendChild(this._option(t, rotuloDeAlvo(t)));
         tipo.control.value = this._filtros.targetType;
         barra.appendChild(tipo.wrap);
 
@@ -290,11 +320,20 @@ class AuditTab {
         // O AVISO DO BACKFILL. Ele fica na barra e não num rodapé porque é uma
         // ressalva sobre o que a lista SIGNIFICA, e ressalva que aparece depois da
         // conclusão chega tarde.
+        //
+        // GATEADO PELO MESMO `_administra` que gateia o filtro de OM e a coluna de OM, e antes
+        // era incondicional: o produtor lia uma ressalva sobre "a OM de cada linha" numa tela
+        // que não desenha coluna de OM nenhuma.
         const nota = document.createElement('p');
         nota.className = 'admin-audit__nota';
-        nota.textContent = 'A OM de cada linha é a OM dona do recurso na época do ato. '
-            + 'Para atos anteriores à criação deste eixo, ela foi deduzida da OM atual do '
-            + 'recurso, e o que já havia sido destruído ficou sem OM.';
+        nota.textContent = this._administra
+            ? 'A OM de cada linha é a OM dona do recurso na época do ato. '
+                + 'Para atos anteriores à criação deste eixo, ela foi deduzida da OM atual do '
+                + 'recurso, e o que já havia sido destruído ficou sem OM.'
+            // M9: O RECORTE, DITO. `escopoOrgId` chega na resposta desde que o eixo nasceu e não
+            // tinha leitor nenhum no cliente, então o produtor nunca soube de qual OM era a
+            // lista que estava lendo, nem que ela era recortada.
+            : escopoDaTrilhaNotice(this._escopoOrgId);
         barra.appendChild(nota);
 
         return barra;

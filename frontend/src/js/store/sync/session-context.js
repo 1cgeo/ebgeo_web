@@ -171,6 +171,8 @@ class SessionContext {
          * degrading into "producer of everything".
          */
         this._producerOrgId = null;
+        this._producerOrgName = null;
+        this._producerOrgActive = false;
 
         /** @type {Object} */
         this._permissions = { ...FULL_PERMISSIONS };
@@ -250,7 +252,45 @@ class SessionContext {
      * @returns {boolean}
      */
     isProducer() {
+        return this._globalRole === GlobalRole.PRODUCER
+            && this._producerOrgId != null
+            && this._producerOrgActive === true;
+    }
+
+    /**
+     * Se a pessoa CARREGA o crachá de produtor, viva ou morta a OM dela.
+     *
+     * É a pergunta que distingue "não é produtor" de "é produtor e a OM produtora foi desativada",
+     * e ela existe porque `isProducer()` passou a responder falso nos dois casos. Sem esta, a
+     * tela não teria como explicar a diferença, e explicar É o conserto: antes, o painel abria, a
+     * calibração ficava visível, Editar e Excluir continuavam desenhados, e cada escrita voltava
+     * 404 sem uma linha dizendo por quê.
+     *
+     * Não autoriza nada. Só `isProducer()` e `canProduceFor()` gateiam.
+     * @returns {boolean}
+     */
+    hasProducerBadge() {
         return this._globalRole === GlobalRole.PRODUCER && this._producerOrgId != null;
+    }
+
+    /**
+     * Se a OM produtora desta sessão está DESATIVADA, o que revoga tudo o que ela mantém.
+     * @returns {boolean}
+     */
+    isProducerOrgInactive() {
+        return this.hasProducerBadge() && this._producerOrgActive !== true;
+    }
+
+    /**
+     * O nome da OM produtora, resolvido pelo SERVIDOR.
+     *
+     * Vem do payload de sessão, e não de `config.organizacoesMilitares`: aquela lista só traz OM
+     * ATIVA, então era exatamente no caso da OM desativada que o nome sumia e a tela imprimia o
+     * UUID cru.
+     * @returns {string|null}
+     */
+    get producerOrgName() {
+        return this._producerOrgName;
     }
 
     /**
@@ -404,6 +444,13 @@ class SessionContext {
         }
         if (userInfo.producerOrgId !== undefined) {
             this._producerOrgId = userInfo.producerOrgId ?? null;
+            this._producerOrgName = userInfo.producerOrgName ?? null;
+            // AUSENTE VALE FALSO, e a queda é conservadora de propósito: um payload que não traga
+            // o campo (servidor antigo, hidratação parcial) faz o produtor ser tratado como se a
+            // OM dele estivesse inativa, isto é, a tela ESCONDE o que ele não poderia usar. O
+            // erro inverso, assumir ativa, devolve o defeito que este campo existe para fechar:
+            // painel funcional negando tudo com 404.
+            this._producerOrgActive = userInfo.producerOrgActive === true;
         }
         this._username = userInfo.username || null;
         this._permissions = userInfo.permissions
@@ -425,6 +472,8 @@ class SessionContext {
         this._role = UserRole.VIEWER;
         this._globalRole = null;
         this._producerOrgId = null;
+        this._producerOrgName = null;
+        this._producerOrgActive = false;
         this._username = null;
         this._isVisitor = true;
         this._permissions = { ...ROLE_PERMISSIONS[UserRole.VIEWER] };
@@ -441,6 +490,8 @@ class SessionContext {
         this._role = null;
         this._globalRole = null;
         this._producerOrgId = null;
+        this._producerOrgName = null;
+        this._producerOrgActive = false;
         this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
@@ -486,6 +537,8 @@ class SessionContext {
             role: this._role,
             globalRole: this._globalRole,
             producerOrgId: this._producerOrgId,
+            producerOrgName: this._producerOrgName,
+            producerOrgActive: this._producerOrgActive,
             permissions: { ...this._permissions }
         };
     }
@@ -511,6 +564,8 @@ class SessionContext {
         this._role = null;
         this._globalRole = null;
         this._producerOrgId = null;
+        this._producerOrgName = null;
+        this._producerOrgActive = false;
         this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
@@ -555,6 +610,12 @@ export function sessionUserInfoFromMe(user, fallbackUsername) {
         role: UserRole.VIEWER,
         globalRole: user.role || GlobalRole.USER,
         producerOrgId: user.producer_org_id ?? null,
+        // OS DOIS CAMPOS NOVOS vêm do mesmo `FIND_USER_BY_ID`, que passou a juntar a OM
+        // PRODUTORA (e não só a de lotação). Ver o comentário daquela consulta: sem a vivacidade
+        // o cliente desenhava um painel inteiro que o servidor recusava, e sem o nome a tela caía
+        // no UUID cru justamente quando a OM saía da lista de ativas.
+        producerOrgName: user.producer_org_nome ?? null,
+        producerOrgActive: user.producer_org_ativa === true,
         username: user.username || user.nome || fallbackUsername
     };
 }

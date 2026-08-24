@@ -448,6 +448,18 @@ export const REVOKE_AVAILABILITY = Object.freeze({
  * NÃO É FRONTEIRA DE SEGURANÇA. O servidor redecide a cada requisição; isto é o que impede
  * a tela de PROMETER o que ele vai negar.
  *
+ * A JANELA EM QUE ELE ERRA É CONHECIDA E DELIBERADA, e vale escrevê-la: `isAdmin` vem do JWT,
+ * enquanto o servidor (`GRANT_REVOKER_ACTOR`) resolve o papel no BANCO e exige, além dele, conta
+ * e OM de lotação ativas. Um administrador rebaixado com token ainda válido continua vendo o
+ * botão e continua levando 403, pela duração do access token. Fechar isso exigiria consultar o
+ * servidor a cada linha desenhada, que é caro e não impede nada que o servidor já não impeça.
+ *
+ * O QUE MUDOU EM 2026-08-24 não foi a janela, foi o que a pessoa lê ao cair nela: a tela de
+ * recusa (`_renderDenied`, `catalog/resource-share.modal.js`) afirmava "você recebeu este recurso
+ * apenas para ver", o que era falso justamente para quem chega aqui por esta janela (e para o
+ * produtor cujo escopo mudou). Ela parou de afirmar a causa. Higiene que mente é pior que
+ * higiene que falta.
+ *
  * @param {{granted_by?: string|null}} grant - A concessão desenhada na linha.
  * @param {{userId?: string|null, isAdmin?: boolean}} actor - Quem está olhando.
  * @returns {string} Um valor de {@link REVOKE_AVAILABILITY}.

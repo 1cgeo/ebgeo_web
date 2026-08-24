@@ -628,3 +628,35 @@ export function agruparPorDia(linhas) {
     }
     return grupos;
 }
+
+/**
+ * A ressalva que diz de QUAL recorte é a trilha, para quem não administra o sistema.
+ *
+ * O SERVIDOR JÁ MANDAVA E NINGUÉM LIA. `listAudit` devolve `escopoOrgId` (nulo para quem
+ * administra, a OM do ator para os demais) desde que o eixo nasceu, e o comentário no próprio
+ * serviço já admitia que o campo não tinha leitor na tela. A varredura em `frontend/src/` achava
+ * uma única ocorrência do nome: a linha `@returns` do JSDoc do cliente HTTP.
+ *
+ * O efeito era duplo e os dois lados enganam: o produtor não sabia que a lista era recortada (então
+ * lia ausência como "não aconteceu"), e não sabia de qual OM era o recorte (então não sabia o que a
+ * ausência cobria). A frase fecha os dois numa linha.
+ *
+ * NÃO NOMEIA A OM, e a omissão é medida: o cliente não tem como resolver o id em nome sem a lista
+ * de OMs, que só traz as ATIVAS. Prometer o nome faria a frase cair no UUID cru exatamente no caso
+ * em que a OM foi desativada, que é justamente quando a pessoa mais precisa entender o que houve.
+ *
+ * O PARÂMETRO DECIDE, e não é enfeite: o `escopoOrgId` presente é o SERVIDOR afirmando que cortou
+ * a lista, e é só nesse caso que se pode dizer "apenas os atos da sua OM". Ausente, a única coisa
+ * honesta é dizer que a trilha cobre recursos e não contas, sem afirmar um corte que o servidor
+ * não declarou.
+ *
+ * @param {string|null} [escopoOrgId] - O `escopoOrgId` da resposta do servidor.
+ * @returns {string} A ressalva. Nunca vazia.
+ */
+export function escopoDaTrilhaNotice(escopoOrgId) {
+    const semOm = 'Atos sobre contas, organizações, grupos de acesso, atlas e configuração do '
+        + 'sistema não aparecem nesta trilha, mesmo os seus.';
+    if (!escopoOrgId) return semOm;
+    return 'Esta trilha mostra apenas os atos sobre recursos da OM para a qual você produz: '
+        + `catálogo, acesso a recurso e projetos 360. ${semOm}`;
+}

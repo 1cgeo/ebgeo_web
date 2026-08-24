@@ -114,7 +114,16 @@ export function setWriteAuthHandlers({ onUnauthorized = null, onForbidden = null
 }
 
 const MSG_401 = 'Sua sessao expirou. Entre de novo para continuar calibrando.';
-const MSG_403 = 'Voce nao tem o papel de admin: a calibracao nao aceita a sua escrita.';
+// A CAUSA REAL E A OM DONA DO PROJETO, NAO O PAPEL, e a frase anterior afirmava o contrario:
+// 'Voce nao tem o papel de admin'. Ela era falsa para o caso comum desde que o gate desta pagina
+// passou a aceitar `isProducer()`: o produtor TEM papel que calibra, e o 403 que ele leva diz
+// respeito a QUAL projeto, nao a QUEM ele e. Mandar pedir a um administrador um papel que ele ja
+// tem e o pior conselho possivel, porque leva a pessoa a insistir no caminho errado.
+//
+// A escada do servidor confirma a leitura: `enforceProjectWritable` responde 404 quando o projeto
+// nem e legivel e 403 quando e legivel e nao gravavel, ou seja, um 403 aqui significa exatamente
+// 'voce ve este projeto e nao o mantem'.
+const MSG_403 = 'Este projeto e mantido por outra OM: voce pode ve-lo e nao gravar nele.';
 
 /**
  * Executa uma escrita e traduz a recusa por credencial numa falha que se explica.
@@ -202,7 +211,10 @@ async function read(path, { signal, what = path } = {}) {
             signal: reqSignal,
         });
         if (!response.ok) {
-            throw new Error(`Failed to fetch ${what} (HTTP ${response.status})`);
+            // EM PORTUGUES E SEM O NUMERO CRU NA FRENTE: este texto cai direto no cartao de erro
+            // do seletor e nos toasts, entao ele e texto de INTERFACE, nao log. O status fica no
+            // fim, entre parenteses, porque ainda serve a quem for pedir suporte.
+            throw new Error(`Nao foi possivel carregar ${what} (HTTP ${response.status}).`);
         }
         return await response.json();
     } finally {
@@ -211,17 +223,39 @@ async function read(path, { signal, what = path } = {}) {
 }
 
 /**
- * Fetches all projects from the service.
+ * Lista os projetos 360 que o operador MANTEM.
  *
- * A resposta daqui e um ARRAY puro; a da origem era `{ projects: [...] }`. Aceita as duas formas
- * porque `normalizeProjects` do visualizador ja tinha de faze-lo, e uma so das duas quebraria em
- * silencio (lista vazia, sem erro).
- * @param {{ signal?: AbortSignal }} [options] - Opcoes de cancelamento
- * @returns {Promise<Array>} Array of project objects
+ * A FONTE E O EIXO DE PRODUCAO, NAO O DE LEITURA, e essa troca e o conserto inteiro. Enquanto
+ * isto lia `/projects`, a rota anonima recortada por `sv360AccessPredicate`, o estudio listava
+ * todo projeto publico e habilitado de QUALQUER OM: o produtor abria um projeto alheio, as
+ * leituras funcionavam, ele alinhava dezenas de fotos e descobria no primeiro salvamento que a
+ * escrita 403. Alinhar e trabalho de horas e nao havia onde grava-lo.
+ *
+ * `/admin/projects` e recortada por `fn_can_produce_resource` no proprio WHERE
+ * (`LIST_PROJECTS_ADMIN`), entrega `organization_id`, `status` e `access_level`, e o produtor ja a
+ * consumia na aba Catalogo. Ou seja: a superficie certa existia, e a tela lia a errada.
+ *
+ * A rota exige sessao e recusa quem nao e `admin` global nem tem `producer_org_id`, o que casa com
+ * o gate desta pagina. Um administrador global recebe tudo, como antes.
+ * @param {{ signal?: AbortSignal }} [options] - Opcoes de cancelamento.
+ * @returns {Promise<Array>} Projetos, na forma que o seletor desenha.
  */
 export async function fetchProjects({ signal } = {}) {
-    const data = await read('/projects', { signal, what: 'projects' });
-    return Array.isArray(data) ? data : (data?.projects ?? []);
+    const data = await read('/admin/projects', { signal, what: 'projects' });
+    const linhas = Array.isArray(data) ? data : (data?.projects ?? []);
+    // NORMALIZA PARA A FORMA QUE O SELETOR JA CONSOME. A rota de leitura devolvia camelCase por
+    // `publicProjectView`; esta devolve a linha do banco. Converter aqui, e nao no seletor, e o
+    // que mantem a troca de fonte invisivel para quem desenha.
+    return linhas.map((p) => ({
+        ...p,
+        slug: p.slug,
+        name: p.name,
+        photoCount: p.photo_count ?? p.photoCount ?? 0,
+        entryPhotoId: p.entry_photo_id ?? p.entryPhotoId ?? null,
+        organizationId: p.organization_id ?? p.organizationId ?? null,
+        status: p.status ?? null,
+        accessLevel: p.access_level ?? p.accessLevel ?? null,
+    }));
 }
 
 /**
@@ -240,7 +274,7 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
             signal: reqSignal,
         });
         if (!response.ok) {
-            throw new Error(`Photo not found: ${photoId} (HTTP ${response.status})`);
+            throw new Error(`Foto nao encontrada: ${photoId} (HTTP ${response.status}).`);
         }
         return await response.json();
     } finally {

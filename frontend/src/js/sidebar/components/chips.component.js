@@ -231,6 +231,68 @@ export class ChipsComponent {
         // UI_LAYOUT_CHANGED covers all sidebar/panel state changes
         subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED,
             () => this._updatePosition());
+
+        // O CHIP DO CATALOGO ERA DECIDIDO UMA VEZ, NO BOOT, e isso deixava sem porta nenhuma
+        // justamente quem mais precisa dela. `CatalogService.hasItems()` mede o que a sessao
+        // ATUAL enxerga, e o acervo privado so entra depois do login (a soma aditiva de
+        // `refreshVisibleResources`). Numa instalacao de catalogo publico vazio, o produtor que
+        // entra depois do boot ficava sem chip e sem caminho ate recarregar a pagina.
+        //
+        // SESSION_CHANGED cobre os dois sentidos: entrar faz o chip nascer, sair o faz sumir se o
+        // que restou for vazio. E o reexame e assincrono e idempotente, entao um evento repetido
+        // nao duplica chip.
+        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED,
+            () => { this._refreshCatalogChip(); });
+    }
+
+    /**
+     * Reexamina a disponibilidade do catalogo e cria ou remove o chip correspondente.
+     *
+     * Mantem a POSICAO do chip na ordem declarada em `CHIP_CONFIG`, em vez de anexar no fim: um
+     * chip que muda de lugar conforme a hora do login e pior que um chip ausente.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _refreshCatalogChip() {
+        if (!this._container) return;
+        let disponivel = false;
+        try {
+            disponivel = await CatalogService.hasItems();
+        } catch {
+            // Falha de rede nao pode APAGAR um chip que ja funciona: o pior caso e manter uma
+            // porta que abre uma lista vazia, e o melhor caso de remover e nao ter porta nenhuma.
+            return;
+        }
+        if (!this._container) return;
+
+        // Pelo id que `_createChip` ja escreve (`chip-<id>`), sem inventar atributo novo.
+        const existente = this._container.querySelector('#chip-catalog');
+        if (disponivel === !!existente) return;
+
+        if (!disponivel) {
+            existente?.remove();
+            return;
+        }
+
+        // O MODAL TAMBEM NASCE AQUI, e esquece-lo seria trocar um defeito por outro: o chip
+        // aparecia e o clique nao abria nada, porque `_initModals` so o constroi quando o
+        // catalogo ja existia NO BOOT. Idempotente pela guarda.
+        if (!this._catalogModal) {
+            this._catalogModal = new CatalogModal({
+                toolManager: this._toolManager,
+                map: this._map,
+                eventBus: this._eventBus,
+                stateManager: this._stateManager,
+            });
+            document.body.appendChild(this._catalogModal.render());
+        }
+
+        const chip = this._createChip(CHIP_CONFIG.catalog);
+        const ordem = Object.keys(CHIP_CONFIG);
+        const seguinte = ordem.slice(ordem.indexOf('catalog') + 1)
+            .map((k) => this._container.querySelector(`#chip-${k}`))
+            .find(Boolean);
+        this._container.insertBefore(chip, seguinte ?? null);
     }
 
     /**

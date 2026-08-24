@@ -84,7 +84,10 @@ const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
 const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="10" r="2.5"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>';
-const ICON_ACCOUNT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>';
+
+// O icone de quem NAO administra o sistema e chega ao painel por outra porta ("Catalogo" para o
+// produtor, "Grupos" para quem so tem conta). Ver `_updateAdminVisibility`.
+const ICON_CATALOG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>`;const ICON_ACCOUNT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>';
 const ICON_CALIBRATION = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>';
 const ICON_PROJECTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>';
 
@@ -596,7 +599,9 @@ export class AccountControl {
         const orgId = sessionContext.producerOrgId;
         // '' e não '—' quando a OM não resolve: o traço é o vazio da tabela do admin, e num selo
         // ele leria como se a OM se chamasse assim.
-        const orgName = orgId ? orgLabel(orgId, '') : '';
+        // Ver o gemeo em `ui/app-bar.js`: nome do servidor primeiro, `orgLabel` como recuo, senao
+        // uma OM produtora desativada imprime o UUID cru ao lado de "Produtor".
+        const orgName = sessionContext.producerOrgName || (orgId ? orgLabel(orgId, '') : '');
         const badge = sessionContext.isAuthenticated()
             ? globalRoleBadge(sessionContext.globalRole, { orgName })
             : null;
@@ -737,8 +742,20 @@ export class AccountControl {
             isProducer: sessionContext.isProducer(),
         });
         this._adminBtn.hidden = texto === null;
-        const label = this._adminBtn.querySelector('.account-control__btn-label');
-        if (label && texto) label.textContent = texto;
+        // O ICONE ACOMPANHA O ROTULO, e antes so o no de TEXTO era trocado: o botao nascia com o
+        // escudo de administracao e continuava com ele depois de virar "Catalogo" ou "Grupos".
+        // `adminAudience` foi escrita para nomear o que a pessoa RECEBE e nunca a pagina, e um
+        // escudo ao lado da palavra desfaz esse cuidado sem uma linha de codigo dizendo isso.
+        //
+        // `setMenuButtonContent` reescreve o conteudo inteiro, o que tambem elimina o instante em
+        // que o DOM carregava o rotulo errado antes desta funcao rodar.
+        if (texto) {
+            setMenuButtonContent(
+                this._adminBtn,
+                sessionContext.isAdmin() ? ICON_ADMIN : ICON_CATALOG,
+                texto,
+            );
+        }
     }
 
     /**
@@ -1034,6 +1051,20 @@ export class AccountControl {
                 // Login resolved: remember the display name and refresh the UI.
                 this._username = credentials.username;
                 this._render();
+
+                // O ACERVO PRIVADO VOLTOU, e é aqui que isso se diz.
+                //
+                // Sair apaga a soma aditiva de `refreshVisibleResources` sem perguntar e sem
+                // avisar, inclusive os recursos que o produtor enxerga por PRODUÇÃO. Decisão do
+                // dono, 2026-08-24: a saída continua sendo um clique, porque é reversível, e o
+                // aviso vai para o lado onde ele é útil — a volta. Perguntar na saída cobraria um
+                // passo por uma perda que se desfaz sozinha.
+                //
+                // Só para quem TEM acervo privado por papel: para uma conta comum a frase seria
+                // sobre nada.
+                if (sessionContext.hasGlobalDataAccess() || sessionContext.isProducer()) {
+                    showSuccess('Seu acervo privado voltou a aparecer no catálogo.');
+                }
                 // A `?atlas=` deep link hit while logged out resumes straight to that atlas; otherwise
                 // advance to project selection.
                 const pending = consumePendingAtlasLink();

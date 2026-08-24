@@ -18,8 +18,14 @@ import {
     setPhotoReviewed, fetchProjectPhotos, fetchAllReviewStats, fetchProjectRuns,
     fetchProjectFloors,
     saveTargetVisibility, fetchNearbyPhotos, createTarget, deleteTargetConnection,
-    deletePhoto, setWriteAuthHandlers,
+    deletePhoto, setWriteAuthHandlers, CalibrationAuthError,
 } from './api.js';
+// Pelo ARQUIVO, e o modulo tem zero imports de proposito: ele e lido tambem pelo MAPA, que
+// precisa da frase depois que esta pagina ja fez `replace`.
+import { CalibrationExit, calibrationExitDecision } from './exit-decision.js';
+// Pelo ARQUIVO, nunca pelo barrel `@modals`: esta pagina boota sem a store, e o barrel a
+// arrastaria de volta pelo caminho transitivo. `confirm.modal.js` importa so `@utils/event-cleanup.js`.
+import { showConfirm } from '@modals/confirm.modal.js';
 import {
     state, isDirty, loadPhoto, discardChanges, markSaved, onChange,
     selectTarget, deselectTarget,
@@ -140,11 +146,20 @@ export function setSessionHandlers({ onAuthLost = null, onLeave = null } = {}) {
 let roleLostShown = false;
 
 /**
- * Avisa, de forma bloqueante, que a escrita foi recusada por falta do papel `admin`.
+ * Avisa, de forma bloqueante, que o servidor recusou a gravacao neste projeto.
  *
- * A pagina so abre para admin, entao chegar aqui significa que o papel foi retirado com a sessao
- * ja aberta. Um toast deixaria o operador seguir calibrando contra um backend que descarta tudo,
- * que e o modo de falha silenciosa que este porte tinha de eliminar.
+ * O TEXTO AFIRMAVA TRES COISAS FALSAS, e as tres pela mesma premissa morta: que so `admin`
+ * calibra. Dizia que a conta nao tem MAIS o papel (ninguem perdeu papel nenhum no caso comum),
+ * que `admin` e o UNICO que calibra (o gate da pagina aceita `isProducer()` desde que o estudio
+ * foi portado) e mandava RECARREGAR (recarregar nao muda a OM dona do projeto). O produtor lia
+ * que devia pedir a um administrador um papel que ele ja tem.
+ *
+ * A pagina abre para `admin` global OU para produtor, entao um 403 aqui quase sempre significa
+ * que o PROJETO e de outra OM, e nao que a conta mudou. O texto passa a nomear a causa provavel
+ * sem afirmar a improvavel, e a acao que resolve e sair para o seletor, nao recarregar.
+ *
+ * Um toast deixaria o operador seguir calibrando contra um backend que descarta tudo, que e o
+ * modo de falha silenciosa que este porte tinha de eliminar.
  * @returns {void}
  */
 function showRoleLostDialog() {
@@ -155,15 +170,15 @@ function showRoleLostDialog() {
     overlay.className = 'cal-dialog-overlay';
     overlay.innerHTML = `
         <div class="cal-dialog">
-            <h3 class="cal-dialog__title">Sem permissao para calibrar</h3>
+            <h3 class="cal-dialog__title">O servidor recusou a gravacao</h3>
             <p class="cal-dialog__text">
-                O servidor recusou a gravacao: a sua conta nao tem mais o papel
-                <strong>admin</strong>, que e o unico que calibra.<br><br>
-                Nada do que voce editar daqui para a frente sera gravado. Peca o papel a um
-                administrador e recarregue a pagina.
+                Este projeto e mantido por outra OM: voce pode ve-lo e nao gravar nele.<br><br>
+                Nada do que voce editar aqui sera gravado. Volte ao seletor e escolha um projeto
+                da sua OM. Se voce administra o sistema e mesmo assim leu isto, a sua conta pode
+                ter mudado de papel com a sessao aberta.
             </p>
             <div class="cal-dialog__actions">
-                <button class="cal-panel__btn cal-panel__btn--ghost" data-action="leave">Sair da calibracao</button>
+                <button class="cal-panel__btn cal-panel__btn--ghost" data-action="leave">Voltar aos projetos</button>
                 <button class="cal-panel__btn cal-panel__btn--ghost" data-action="stay">Continuar vendo</button>
             </div>
         </div>
@@ -209,6 +224,23 @@ async function showProjectSelector() {
             }),
         ]);
 
+        // RAMO DE LISTA VAZIA, que nao existia: sem projeto, a tela rendia o subtitulo 'Selecione
+        // um projeto' sobre uma grade vazia, sem dizer que nao ha nenhum nem para onde ir. E agora
+        // a lista e a do que ele MANTEM, entao vazia tem significado preciso: ou a OM dele ainda
+        // nao tem acervo 360, ou ele nao produz para nenhuma.
+        if (projects.length === 0) {
+            projectSelector.replaceChildren();
+            const titulo = document.createElement('h1');
+            titulo.className = 'project-selector__title';
+            titulo.textContent = 'Street View 360 — Calibração';
+            const vazio = document.createElement('p');
+            vazio.className = 'project-selector__subtitle';
+            vazio.textContent = 'Nenhum projeto 360 sob sua manutenção. O envio do bundle 360 é '
+                + 'feito na aba Catálogo, e só depois dele o projeto aparece aqui para calibrar.';
+            projectSelector.append(titulo, vazio);
+            return;
+        }
+
         projectSelector.innerHTML = `
             <h1 class="project-selector__title">Street View 360 — Calibração</h1>
             <p class="project-selector__subtitle">Selecione um projeto para iniciar</p>
@@ -219,7 +251,7 @@ async function showProjectSelector() {
                     const total = stats?.total ?? p.photoCount;
                     const pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
                     return `
-                    <div class="project-selector__card" data-photo-id="${p.entryPhotoId}" data-slug="${p.slug}">
+                    <div class="project-selector__card" data-photo-id="${escapeHtml(p.entryPhotoId ?? '')}" data-slug="${escapeHtml(p.slug ?? '')}">
                         <h3 class="project-selector__card-title">${escapeHtml(p.name)}</h3>
                         <p class="project-selector__card-info">${p.photoCount} fotos</p>
                         <div class="project-selector__review-stats">
@@ -228,7 +260,7 @@ async function showProjectSelector() {
                             </div>
                             <span class="project-selector__review-text">${reviewed}/${total} revisadas (${pct}%)</span>
                         </div>
-                        ${p.location ? `<p class="project-selector__card-location">${escapeHtml(p.location)}</p>` : ''}
+                        ${p.status && p.status !== 'enabled' ? '<p class="project-selector__card-status">Desativado: não aparece para ninguém fora da OM dona.</p>' : ''}
                     </div>
                     `;
                 }).join('')}
@@ -250,10 +282,28 @@ async function showProjectSelector() {
             });
         });
     } catch (err) {
-        projectSelector.innerHTML = `
-            <h1 class="project-selector__title">Erro</h1>
-            <p class="project-selector__error">${err.message}</p>
-        `;
+        // POR NO E NAO POR `innerHTML`: a mensagem vem de um `Error`, que pode carregar corpo de
+        // resposta do servidor, e esta era a UNICA interpolacao crua deste template enquanto o
+        // nome do projeto, uma linha acima, ja era escapado. A regra de lint da casa nao a pega
+        // porque o lexico dela e `nome`/`descricao`.
+        //
+        // E COM SAIDA: antes isto era um beco. `fetchProjects` so e chamado daqui, o resto da
+        // pagina esta em `display: none`, entao um 502 momentaneo custava um F5 — e se houvesse
+        // calibracao suja, o `beforeunload` interpelava a pessoa por uma perda que ela nao causou.
+        console.error('Falha ao carregar a lista de projetos:', err);
+        projectSelector.replaceChildren();
+        const titulo = document.createElement('h1');
+        titulo.className = 'project-selector__title';
+        titulo.textContent = 'Não foi possível carregar seus projetos';
+        const texto = document.createElement('p');
+        texto.className = 'project-selector__error';
+        texto.textContent = err?.message || 'O servidor não respondeu.';
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'cal-panel__btn';
+        retry.textContent = 'Tentar de novo';
+        retry.addEventListener('click', () => { showProjectSelector(); });
+        projectSelector.append(titulo, texto, retry);
     }
 }
 
@@ -486,7 +536,7 @@ function initializeSubsystems() {
         onMarkReviewed: handleMarkReviewed,
         onNextPhoto: handleNextPhoto,
         onPrevPhoto: handlePrevPhoto,
-        onBackToProjects: () => showProjectSelector(),
+        onBackToProjects: () => leaveToProjectSelector(),
         onSphericalGridToggle: (visible) => setGridVisible(visible),
         onAddTarget: handleAddTarget,
         onDeleteTarget: handleDeleteTarget,
@@ -674,6 +724,70 @@ async function navigateToPhoto(photoIdOrTargetId) {
     startCalibration(photoIdOrTargetId);
 }
 
+/**
+ * Volta ao seletor de projetos, guardando o trabalho sujo.
+ *
+ * ESTE BOTAO DESCARTAVA SEM PERGUNTAR, e era o mais natural para quem acabou de terminar uma
+ * foto. Os outros tres caminhos ja guardavam (`navigateToPhoto` abre este mesmo dialogo, o
+ * `beforeunload` bloqueia o fechamento da aba, e `handleMarkReviewedAndNext` salva antes), o que
+ * tornava a lacuna acidental e nao decisao: alinhar dezenas de fotos e trabalho de horas, e
+ * `showProjectSelector` comeca por `teardownSubsystems()`.
+ *
+ * Reusa `showDirtyDialog` DE PROPOSITO, em vez de um dialogo proprio: a pergunta e a mesma, e
+ * duas redacoes da mesma pergunta divergem. O rotulo dos botoes fala em navegar, que continua
+ * verdadeiro aqui.
+ * @returns {Promise<void>}
+ */
+async function leaveToProjectSelector() {
+    const { proceed } = await guardCalibrationExit({ voluntary: true });
+    if (!proceed) return;
+    showProjectSelector();
+}
+
+/**
+ * O GUARDA UNICO de saida da calibracao. Toda saida passa por aqui.
+ *
+ * Antes, cada saida decidia sozinha: `navigateToPhoto` perguntava, o `beforeunload` bloqueava, e
+ * as outras duas (o botao '← Projetos' e o fim de sessao) descartavam calado. Tres
+ * implementacoes da mesma pergunta e como duas ficam erradas, e ficaram.
+ *
+ * O ESTADO DE CALIBRACAO NAO E STORE NEM FILA DE SYNC. Ele vive so em `state.js`, entao o resgate
+ * de trabalho nao enviado que `calibracao-page.js` ja faz (`preserveUnsyncedWorkOnLostSession`)
+ * nao o alcanca, e o `beforeunload` nao intercepta `window.location.replace`. Por isso a saida
+ * involuntaria nao pode salvar nem perguntar: ela so pode NAO MENTIR depois, e e o que `lost`
+ * carrega ate a tela seguinte.
+ *
+ * @param {Object} [opts]
+ * @param {boolean} [opts.voluntary] - Se a saida partiu de um gesto de quem esta na tela.
+ * @returns {Promise<{proceed: boolean, lost: boolean}>} `proceed` falso significa que a pessoa
+ *   cancelou ou que o salvamento falhou, e a tela deve FICAR. `lost` verdadeiro significa que
+ *   havia trabalho sujo e nao houve como perguntar.
+ */
+export async function guardCalibrationExit({ voluntary = true } = {}) {
+    const decisao = calibrationExitDecision({ dirty: isDirty(), voluntary });
+    if (decisao === CalibrationExit.SEGUIR) return { proceed: true, lost: false };
+    if (decisao === CalibrationExit.AVISAR) return { proceed: true, lost: true };
+
+    // PERGUNTAR. A trava e a mesma de `navigateToPhoto`, e por isso a consulta a ela: dois
+    // dialogos de sujo abertos ao mesmo tempo leriam estado vivo inconsistente durante o await.
+    if (isNavigating) return { proceed: false, lost: false };
+    isNavigating = true;
+    try {
+        const action = await showDirtyDialog();
+        if (action === 'cancel') return { proceed: false, lost: false };
+        if (action === 'save') {
+            // Save falhou (total ou parcial): NAO sai. Sair aqui destruiria justamente o que a
+            // pessoa acabou de pedir para gravar.
+            const saved = await handleSave();
+            if (!saved) return { proceed: false, lost: false };
+        }
+        if (action === 'discard') discardChanges();
+        return { proceed: true, lost: false };
+    } finally {
+        isNavigating = false;
+    }
+}
+
 function showDirtyDialog() {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
@@ -787,6 +901,23 @@ async function handleSave() {
         if (failures.length > 0) {
             const succeeded = results.length - failures.length;
             console.error('Save partially failed:', failures.map(f => f.reason));
+
+            // OS REJEITADOS SAO INSPECIONADOS, e antes nao eram: a `CalibrationAuthError` virava
+            // rejeicao anonima e o operador lia 'N de N falharam, tente de novo' — um conselho
+            // que nao funciona nunca, porque tentar de novo contra um 403 da 403. O motivo real
+            // ficava so no `console.error`, onde ninguem olha.
+            //
+            // O dialogo bloqueante tem trava de MODULO (`roleLostShown`), entao ele aparece uma
+            // vez por sessao; a partir da segunda, o toast e a unica voz que sobra, e por isso
+            // ele precisa carregar a frase certa em vez da generica.
+            const recusa = failures
+                .map(f => f.reason)
+                .find(e => e instanceof CalibrationAuthError);
+            if (recusa) {
+                showToast(recusa.message, 'error');
+                return false;
+            }
+
             showToast(
                 `Falha ao salvar ${failures.length} de ${results.length} alteracao(oes). ` +
                 `${succeeded} salva(s). Tente salvar novamente.`,
@@ -908,7 +1039,12 @@ async function handleAddTarget(targetPhotoId) {
 }
 
 async function handleDeleteTarget(targetId) {
-    const confirmed = window.confirm('Remover esta conexao manual? Esta acao nao pode ser desfeita.');
+    const confirmed = await showConfirm('Remover esta conexao manual?', {
+        message: 'A seta que voce criou entre estas duas fotos deixa de existir. Isso nao se desfaz, '
+            + 'mas a conexao pode ser criada de novo.',
+        destructive: true,
+        confirmText: 'Remover',
+    });
     if (!confirmed) return;
 
     try {

@@ -73,12 +73,20 @@ function ultimaEscrita() {
 
 describe('calibracao/api — prefixo do modulo 360', () => {
     // REPROVA `const BASE = '/api/v1'` da origem: la a leitura ia para /api/v1/projects.
-    it('a leitura de projetos vai para /api/v1/sv360/projects', async () => {
+    //
+    // E REPROVA O EIXO ERRADO, desde 2026-08-24: o alvo passou de `/projects` para
+    // `/admin/projects`, e a troca e o conserto de um critico. `/projects` e a rota de LEITURA,
+    // recortada por `sv360AccessPredicate`, que entrega todo projeto publico e habilitado de
+    // QUALQUER OM; o estudio listava esses, o produtor abria um projeto alheio, alinhava dezenas
+    // de fotos e descobria no primeiro salvamento que a escrita 403. `/admin/projects` e
+    // recortada por `fn_can_produce_resource`, isto e, entrega exatamente o que ele grava.
+    it('a leitura de projetos vai para o eixo de PRODUCAO, nao o de leitura', async () => {
         fetchGlobal.mockResolvedValueOnce(jsonResp(200, []));
 
         await api.fetchProjects();
 
-        expect(fetchGlobal.mock.calls[0][0]).toBe(`${BASE}/projects`);
+        expect(fetchGlobal.mock.calls[0][0]).toBe(`${BASE}/admin/projects`);
+        expect(fetchGlobal.mock.calls[0][0]).not.toBe(`${BASE}/projects`);
     });
 
     // REPROVA o prefixo fixo: aqui ele vem do config, entao acompanha o backend sem recompilar.
@@ -146,10 +154,36 @@ describe('calibracao/api — corpos que este backend exige', () => {
 
     // REPROVA a leitura `data.projects`: esta rota devolve ARRAY puro, e o acesso antigo
     // resultaria em `undefined` — lista vazia, sem erro nenhum.
-    it('fetchProjects aceita o array puro que esta rota devolve', async () => {
-        fetchGlobal.mockResolvedValueOnce(jsonResp(200, [{ slug: 'museu_cms' }]));
+    //
+    // A ASSERCAO DEIXOU DE SER `toEqual` DA LINHA CRUA, e a razao e a troca de eixo acima: a rota
+    // de producao devolve a LINHA DO BANCO (snake_case) e nao o `publicProjectView` (camelCase),
+    // entao `fetchProjects` normaliza. Asserir a linha inteira prenderia a forma do banco num
+    // teste de cliente; o que importa e que o array puro atravessa e que a normalizacao acontece.
+    it('fetchProjects aceita o array puro e normaliza a linha do banco', async () => {
+        fetchGlobal.mockResolvedValueOnce(jsonResp(200, [
+            { slug: 'museu_cms', name: 'Museu', photo_count: 12, entry_photo_id: 'p1', status: 'enabled' },
+        ]));
 
-        await expect(api.fetchProjects()).resolves.toEqual([{ slug: 'museu_cms' }]);
+        const projetos = await api.fetchProjects();
+
+        expect(projetos).toHaveLength(1);
+        expect(projetos[0]).toMatchObject({
+            slug: 'museu_cms',
+            name: 'Museu',
+            photoCount: 12,
+            entryPhotoId: 'p1',
+            status: 'enabled',
+        });
+    });
+
+    // O objeto embrulhado tambem atravessa, e o zero nao vira `undefined` no cartao.
+    it('aceita a forma embrulhada e nao perde a contagem zero', async () => {
+        fetchGlobal.mockResolvedValueOnce(jsonResp(200, { projects: [{ slug: 'vazio', photo_count: 0 }] }));
+
+        const projetos = await api.fetchProjects();
+
+        expect(projetos).toHaveLength(1);
+        expect(projetos[0].photoCount).toBe(0);
     });
 
     // `sv360.capture_runs` esta vazia no acervo inteiro: "sem faixa" e a resposta normal de HOJE
@@ -204,8 +238,19 @@ describe('calibracao/api — credencial (obra nova: a origem nao tem nenhuma)', 
 });
 
 describe('calibracao/api — 401 e 403, que a origem nunca precisou ter', () => {
-    // REPROVA a falha muda: um 403 tem de DIZER ao operador que falta o papel, e avisar a pagina.
-    it('403 vira CalibrationAuthError que nomeia o papel, e chama onForbidden', async () => {
+    // REPROVA a falha muda: um 403 tem de DIZER ao operador o que houve, e avisar a pagina.
+    //
+    // ESTE CASO EXIGIA A MENSAGEM ERRADA ate 2026-08-24, e a correcao dele e parte do conserto.
+    // Ele afirmava `expect(erro.message).toContain('admin')`, fixando a frase 'Voce nao tem o
+    // papel de admin', que era falsa para o caso comum: desde que o gate da pagina de calibracao
+    // passou a aceitar `isProducer()`, o produtor TEM papel que calibra, e o 403 dele significa
+    // 'este projeto e de outra OM'. O caso nasceu do comportamento OBSERVADO, sem conferir a
+    // afirmacao contra o servidor, e por isso protegia o defeito em vez do contrato.
+    //
+    // O que ele prende agora e a PROPRIEDADE que importa e que sobrevive a redacao: a mensagem
+    // nao pode nomear papel nenhum, porque o 403 nao fala de papel. Asserir o texto inteiro
+    // trocaria um teste fragil por outro.
+    it('403 vira CalibrationAuthError que nao culpa o papel, e chama onForbidden', async () => {
         const onForbidden = vi.fn();
         api.setWriteAuthHandlers({ onForbidden });
         fetchDoCliente.mockResolvedValue(resp(403, { error: 'Forbidden' }));
@@ -214,7 +259,8 @@ describe('calibracao/api — 401 e 403, que a origem nunca precisou ter', () => 
 
         expect(erro).toBeInstanceOf(CalibrationAuthError);
         expect(erro.status).toBe(403);
-        expect(erro.message).toContain('admin');
+        expect(erro.message).not.toMatch(/admin|produtor|papel/i);
+        expect(erro.message).toMatch(/OM/);
         expect(onForbidden).toHaveBeenCalledTimes(1);
     });
 

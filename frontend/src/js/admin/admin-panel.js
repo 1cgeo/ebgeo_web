@@ -15,7 +15,9 @@ import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/eve
 import { createAppBar } from '@ui/app-bar.js';
 
 const SHIELD_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
-const BACK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>`;
+
+// O icone do publico que NAO administra o sistema: uma pasta, nao um escudo. Ver `_buildHeader`.
+const CATALOG_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>`;const BACK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>`;
 
 /**
  * @typedef {Object} AdminTab
@@ -109,10 +111,19 @@ export class AdminPanel {
 
     /** @private The shared page top bar (brand, "Voltar", identity, "Sair"). */
     _buildHeader() {
+        // A MOLDURA SEGUE O ROTULO, e nao o contrario. `adminAudience` foi escrita com cuidado
+        // para nomear o que a pessoa RECEBE ("Catalogo", "Grupos") e nunca a pagina, e o
+        // `fileoverview` dela explica por que: chamar de "Administracao" o painel de uma aba so
+        // prometeria um poder que a pessoa nao tem. Todo esse cuidado era desfeito aqui, por um
+        // escudo fixo e um subtitulo "Sistema EBGeo" iguais para os tres publicos.
+        //
+        // O titulo ja vinha do rotulo (`admin/index.js` passa `label`); o que faltava era o resto
+        // da moldura acompanhar.
+        const eAdministracao = this._title === 'Administração';
         this._appBar = createAppBar({
-            icon: SHIELD_ICON,
+            icon: eAdministracao ? SHIELD_ICON : CATALOG_ICON,
             title: this._title,
-            subtitle: 'Sistema EBGeo',
+            subtitle: eAdministracao ? 'Sistema EBGeo' : 'EBGeo',
             user: this._user,
             actions: [{
                 label: 'Voltar',

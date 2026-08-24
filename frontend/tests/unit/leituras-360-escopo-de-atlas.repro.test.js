@@ -152,7 +152,11 @@ describe('com um atlas em foco, as leituras do ESTUDIO de calibracao carimbam ?a
         await calibracao.fetchNearbyPhotos(FOTO, 100, { floor: 'all' });
 
         expect(vistas).toEqual([
-            `${SERVICO}/projects?atlasId=${ATLAS}`,
+            // A LISTA DO ESTUDIO MUDOU DE EIXO em 2026-08-24: era `/projects` (LEITURA, que entrega
+            // todo projeto publico de qualquer OM) e passou a ser `/admin/projects` (PRODUCAO,
+            // recortada por `fn_can_produce_resource`). O que este arquivo prende continua sendo
+            // o CARIMBO de escopo, e ele acompanha a rota nova.
+            `${SERVICO}/admin/projects?atlasId=${ATLAS}`,
             `${SERVICO}/photos/${FOTO}?include_hidden=true&atlasId=${ATLAS}`,
             `${SERVICO}/projects/qg/photos?atlasId=${ATLAS}`,
             `${SERVICO}/projects/review-stats?atlasId=${ATLAS}`,
@@ -218,7 +222,8 @@ describe('O CONTROLE NEGATIVO: sem atlas em foco nenhuma leitura ganha parametro
         await calibracao.fetchProjectFloors('qg');
 
         expect(vistas).toEqual([
-            `${SERVICO}/projects`,
+            // Ver a nota do bloco escopado: o estudio le o eixo de PRODUCAO desde 2026-08-24.
+            `${SERVICO}/admin/projects`,
             `${SERVICO}/photos/${FOTO}?include_hidden=true`,
             `${SERVICO}/projects/qg/floors`,
         ]);

@@ -110,7 +110,19 @@ modo que recurso de outra OM devolve não-encontrado em vez de proibido. Preso p
 
 **2.4** O produtor **mantém** o acervo da própria organização: cria, edita e remove as linhas de catálogo
 dela, incluindo nome, metadados, miniatura e vídeo de prévia. Recurso institucional, sem organização dona,
-não é de produtor nenhum. **[vigente]**, e o vídeo de prévia vale para **quatro** dos cinco tipos: 3D,
+não é de produtor nenhum. **[vigente]**
+
+**MANTER A LINHA NÃO É INGERIR OS BYTES, e os dois acervos divergem nisso.** Decisão do dono, 2026-08-24: o
+360 ganha tela de envio de bundle (a rota `POST /sv360/admin/projects/upload` já existia, já era
+autenticada, já aceitava o produtor e já impunha a organização dele, e não tinha porta nenhuma no cliente);
+o acervo **3D continua sendo ingerido por operador com shell no servidor**, e esta cláusula passa a dizê-lo
+em vez de deixar o buraco não dito. As rotas de escrita 3D que existem são as do CRUD de catálogo: criam a
+LINHA que aponta para um modelo, e não fazem o modelo existir. **A consequência que fica registrada e não
+foi fechada:** os scripts de `backend/scripts/` que fazem essa ingestão não têm gate algum (nem sessão, nem
+papel, nem `fn_can_produce_resource`), e `models3d-adotar.js` escreve a própria linha de catálogo,
+contornando `requireCatalogProducer` por inteiro e podendo carimbar qualquer organização dona. Quem tem
+shell no servidor já tem o banco, então isto é assimetria de regime e não vazamento de autoridade, mas é
+assimetria, e agora está escrita., e o vídeo de prévia vale para **quatro** dos cinco tipos: 3D,
 dados, análise e 360. O **mapa base fica de fora**, e não por esquecimento: ele é o único dos cinco que não
 vira cartão de catálogo, então não haveria onde ler o valor.
 
@@ -488,6 +500,18 @@ cadastrar, e nada verifica isso. É por essa razão que a lotação não autoriz
 dentro da organização foi removido (cláusula 1.4). Um dia em que a lotação passe a ser verificada, a decisão
 de 1.4 pode ser revisitada; enquanto não for, qualquer autorização apoiada em organização declarada é
 autorização que o próprio interessado se concede.
+
+**A lotação NÃO AUTORIZA, mas REVOGA, e as duas coisas são verdadeiras ao mesmo tempo.** Decisão do dono,
+2026-08-24, tomada depois de a auditoria do perfil produtor apontar a contradição aparente:
+`fn_can_produce_resource` seleciona o usuário com `LEFT JOIN organizations o ON o.id = u.organization_id` e
+exige `COALESCE(o.is_active, true) = true`, isto é, desativar a OM onde alguém está apenas LOTADO devolve
+falso para todo recurso que essa pessoa MANTÉM por outra OM, e o termo roda antes do ramo do administrador,
+então morde o administrador também. Isso não contradiz 1.4 nem esta cláusula: o termo é de **vivacidade**,
+não de autoridade (conta de organização morta não age), e a direção de falha numa autorização é a fechada.
+O que faltava era estar escrito, porque quem lia 1.4 concluía, com razão, que a coluna não podia ter efeito
+nenhum. **O comportamento fica; o predicado continua escrito SETE vezes** (quatro em SQL, três em
+JavaScript: `CATALOG_PRODUCER_ACTOR`, `GRANT_REVOKER_ACTOR` e `AUDIT_READER_ACTOR`), e unificá-lo foi
+recusado na mesma decisão por ser refatoração de sete gates vivos sem defeito que a motive.
 
 **10.6** **Uma conta pendente cativa o nome de usuário e o endereço de e-mail para sempre.** Quem se cadastra
 e nunca confirma o e-mail deixa aquele par reservado indefinidamente, e a razão é uma só: as consultas de

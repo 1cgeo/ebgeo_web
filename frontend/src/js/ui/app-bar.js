@@ -35,6 +35,8 @@ import { sessionContext } from '@store/sync/session-context.js';
 // The single id → OM name resolution of the app, reading the `GET /api/config` payload the page
 // already hydrated. It imports `@js/config.js` and nothing else.
 import { orgLabel } from '@js/admin/org-options.js';
+// Modulo folha, zero imports: a mesma frase serve as tres paginas sem mapa e o mapa.
+import { producerOrgInactiveNotice } from './producer-org-notice.js';
 
 const LOGOUT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>`;
 const CALIBRATION_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`;
@@ -198,6 +200,29 @@ export function createAppBar({
 
     header.appendChild(bar);
 
+    // A TARJA DA OM PRODUTORA SUSPENSA, quando for o caso.
+    //
+    // Ela e persistente e nao um toast de proposito: o estado dura enquanto a OM estiver
+    // desativada, e um aviso que some deixa a pessoa diante de um painel funcional cujas
+    // gravacoes voltam 404, sem nada na tela ligando uma coisa a outra. Aparece DEPOIS da barra,
+    // e nao dentro dela, para nao competir com identidade e acoes.
+    const aviso = producerOrgInactiveNotice({
+        inativa: sessionContext.isProducerOrgInactive(),
+        nome: sessionContext.producerOrgName,
+    });
+    if (aviso) {
+        const tarja = document.createElement('div');
+        tarja.className = 'app-bar__notice';
+        tarja.dataset.testid = 'app-bar-producer-suspended';
+        tarja.setAttribute('role', 'status');
+        const forte = document.createElement('strong');
+        forte.textContent = aviso.title;
+        const texto = document.createElement('span');
+        texto.textContent = aviso.message;
+        tarja.append(forte, texto);
+        header.appendChild(tarja);
+    }
+
     return {
         element: header,
         destroy: () => cleanup(scope),
@@ -228,7 +253,11 @@ function buildRoleBadge() {
     const orgId = sessionContext.producerOrgId;
     // `orgLabel` falls back to the raw id for an OM missing from the active list, and to '' here
     // for no OM at all: the badge must never read "—" as if it were an organization.
-    const orgName = orgId ? orgLabel(orgId, '') : '';
+    // O NOME VEM DO SERVIDOR PRIMEIRO, e `orgLabel` e so o recuo. `config.organizacoesMilitares`
+    // so traz OM ATIVA, entao para uma OM produtora DESATIVADA a lista nao tem a linha e
+    // `orgLabel` cai no id bruto: a tela imprimia um UUID ao lado da palavra "Produtor". O
+    // payload de sessao passou a trazer `producer_org_nome` justamente para este caso.
+    const orgName = sessionContext.producerOrgName || (orgId ? orgLabel(orgId, '') : '');
     const badge = globalRoleBadge(role, { orgName });
     if (!badge) return null;
 
