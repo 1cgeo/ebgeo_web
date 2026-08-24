@@ -11,7 +11,7 @@
  * action of its own (`API_KEY_ROTATE`) and a wiki page, and no human being could obtain one
  * through any interface, their own or an administrator's.
  *
- * THE THREE FACTS THE SCREEN IS BUILT AROUND, all measured against the server, not assumed:
+ * THE FOUR FACTS THE SCREEN IS BUILT AROUND, all measured against the server, not assumed:
  *
  *   1. `PUT /users/me` ACCEPTS TWO FIELDS. `updateProfileSchema` is `{ nome, rank_id }` and
  *      nothing else. `organization_id` (the posting) and `producer_org_id` (the production
@@ -21,12 +21,20 @@
  *      screen fixes.
  *
  *   2. `GET /users/me` DOES NOT CARRY THE GLOBAL ROLE. Its query (`FIND_USER_BY_ID`,
- *      `backend/src/modules/users/users.queries.js`) selects id, username, nome, rank_id,
- *      posto_graduacao, organization_id, organizacao_militar, created_at and last_login_at.
- *      The role and `producer_org_id` come from `GET /auth/me`, whose same-named query lives in
+ *      `backend/src/modules/users/users.queries.js`) selects the profile columns plus `email`
+ *      and `email_verified`, and NOT `role` nor `producer_org_id`. Those two come from
+ *      `GET /auth/me`, whose same-named query lives in
  *      `backend/src/modules/auth/auth.queries.js` and does select them. Hence TWO reads on
  *      open. Do not "simplify" this into one call from the users route: the role would quietly
  *      disappear from the screen.
+ *
+ *   4. THE E-MAIL IS READ HERE AND CHANGED SOMEWHERE ELSE. `updateProfileSchema` does not
+ *      accept it; `PUT /users/me/email` does, and it asks for the current password and answers
+ *      with an invitation to the NEW mailbox rather than with a changed account. So the address
+ *      sits in the read-only block with its confirmation state spelled out, and the change has
+ *      a section of its own that says, before the click, that nothing moves until the link in
+ *      the other mailbox is followed. Both facts were measured against `requestEmailChange`
+ *      (`backend/src/modules/users/users.service.js`); see `account-settings.model.js`.
  *
  *   3. CHANGING THE PASSWORD ENDS THIS SESSION TOO. `updatePassword`
  *      (`backend/src/modules/users/users.service.js`) runs `REVOKE_ALL_USER_TOKENS`, which
@@ -76,13 +84,20 @@ import {
     API_KEY_ROTATE_CONFIRM_MESSAGE,
     API_KEY_ROTATE_CONFIRM_TITLE,
     API_KEY_UNKNOWN_STATE_TEXT,
+    EMAIL_CHANGE_PASSWORD_NOTE,
+    EMAIL_CHANGE_SENT_TEXT,
+    EMAIL_CHANGE_WARNING,
+    EMAIL_UNVERIFIED_HINT,
+    MAX_EMAIL_LENGTH,
     MAX_NAME_LENGTH,
     PASSWORD_RULE_TEXT,
     PASSWORD_SESSION_WARNING,
     accountErrorMessage,
     apiKeySectionState,
+    emailPresentation,
     hasUncopiedKey,
     profilePatch,
+    validateEmailChangeForm,
     validatePasswordForm,
     validateProfileDraft,
 } from './account-settings.model.js';
@@ -175,6 +190,13 @@ export class AccountSettingsModal extends ModalBase {
         this._saving = false;
         /** @private @type {string} */
         this._profileError = '';
+
+        /** @private Whether the e-mail-change request is in flight. */
+        this._changingEmail = false;
+        /** @private @type {string} */
+        this._emailError = '';
+        /** @private @type {string} */
+        this._emailDone = '';
 
         /** @private */
         this._changingPassword = false;
@@ -336,6 +358,53 @@ export class AccountSettingsModal extends ModalBase {
     }
 
     /**
+     * @private Asks the server to move the account's e-mail to another address.
+     *
+     * NOTHING IS RE-READ ON SUCCESS, and that is not an oversight: the account still carries the
+     * old address, because the route only mints an invitation. Refreshing the profile here would
+     * redraw exactly the same row and suggest that nothing happened.
+     */
+    async _changeEmail() {
+        const body = this.getBody();
+        if (!body || this._changingEmail) return;
+
+        const form = {
+            email: body.querySelector('[data-field="email-novo"]')?.value ?? '',
+            currentPassword: body.querySelector('[data-field="email-senha"]')?.value ?? '',
+            currentEmail: this._profile?.email ?? '',
+        };
+
+        const check = validateEmailChangeForm(form);
+        if (!check.valid) {
+            this._emailError = check.message;
+            this._emailDone = '';
+            this._renderBody();
+            return;
+        }
+
+        this._changingEmail = true;
+        this._emailError = '';
+        this._emailDone = '';
+        this._renderBody();
+        try {
+            await apiClient.requestEmailChange(form.email, form.currentPassword);
+            if (!this.getBody()) return;
+            this._changingEmail = false;
+            this._emailDone = EMAIL_CHANGE_SENT_TEXT;
+            this._renderBody();
+            showSuccess('Pedido registrado. Confirme pelo link enviado ao endereço novo.');
+        } catch (error) {
+            if (!this.getBody()) return;
+            this._changingEmail = false;
+            this._emailError = accountErrorMessage(
+                error,
+                'Não foi possível pedir a troca de e-mail.'
+            );
+            this._renderBody();
+        }
+    }
+
+    /**
      * @private Changes the password, after a confirmation that names the consequence.
      */
     async _changePassword() {
@@ -467,6 +536,10 @@ export class AccountSettingsModal extends ModalBase {
 
         const root = el('div', 'account-settings');
         root.appendChild(this._renderProfileSection());
+        // The e-mail section comes BEFORE the password one because it is the recovery channel of
+        // the password: someone who cannot get in reads this screen top-down, and the address is
+        // what they have to get right first.
+        root.appendChild(this._renderEmailSection());
         root.appendChild(this._renderPasswordSection());
         root.appendChild(this._renderKeySection());
         body.appendChild(root);
@@ -626,6 +699,18 @@ export class AccountSettingsModal extends ModalBase {
             ));
         }
 
+        // THE ADDRESS AND ITS STATE, in the read-only block and not in the form below, because
+        // it is not editable HERE: it moves through `PUT /users/me/email`, which asks for the
+        // password and re-verifies. The state is spelled out rather than implied by a colour,
+        // and "não confirmado" is exactly the fact that used to be invisible to the only person
+        // able to spot a typo.
+        const email = emailPresentation(profile);
+        readonly.appendChild(this._readonlyRow(
+            'E-mail',
+            email.state === 'absent' ? email.status : `${email.address} (${email.status})`,
+            email.state === 'unverified' ? EMAIL_UNVERIFIED_HINT : ''
+        ));
+
         readonly.appendChild(this._readonlyRow(
             'Lotação',
             profile.organizacao_militar || 'não informada'
@@ -736,6 +821,73 @@ export class AccountSettingsModal extends ModalBase {
 
         field.appendChild(select);
         return field;
+    }
+
+    /**
+     * @private "Trocar o e-mail": an invitation to another mailbox, not a write to the account.
+     *
+     * The section is drawn only once the profile is READ, because the form needs the current
+     * address to refuse a no-op change without a round trip, and because a person who cannot see
+     * their current e-mail has no business being offered a new one.
+     * @returns {HTMLElement}
+     */
+    _renderEmailSection() {
+        const section = el('section', 'account-settings__section');
+        section.dataset.section = 'email';
+        section.appendChild(this._sectionHeader(
+            'Trocar o e-mail',
+            'O endereço para onde vão a confirmação da conta e a recuperação de senha.'
+        ));
+
+        if (this._loading || this._loadError) {
+            // Nothing to say yet, and nothing to offer: the profile section above already reports
+            // the loading state and the failure, and repeating either here would just be noise.
+            return section;
+        }
+
+        const atual = emailPresentation(this._profile || {});
+        section.appendChild(this._readonlyRow(
+            'E-mail atual',
+            atual.state === 'absent' ? atual.status : `${atual.address} (${atual.status})`
+        ));
+        section.appendChild(this._warningBox(EMAIL_CHANGE_WARNING));
+
+        const form = el('div', 'account-settings__form');
+        form.appendChild(this._inputField({
+            field: 'email-novo',
+            label: 'Novo e-mail',
+            type: 'email',
+            autocomplete: 'email',
+            maxLength: MAX_EMAIL_LENGTH,
+        }));
+        form.appendChild(this._inputField({
+            field: 'email-senha',
+            label: 'Senha atual',
+            type: 'password',
+            autocomplete: 'current-password',
+        }));
+        section.appendChild(form);
+        section.appendChild(el('p', 'account-settings__section-hint', EMAIL_CHANGE_PASSWORD_NOTE));
+
+        if (this._emailError) {
+            section.appendChild(this._errorBox(this._emailError));
+        }
+        if (this._emailDone) {
+            const ok = el('div', 'account-settings__state account-settings__state--done', this._emailDone);
+            ok.setAttribute('role', 'status');
+            section.appendChild(ok);
+        }
+
+        const actions = el('div', 'account-settings__actions');
+        actions.appendChild(this._actionButton({
+            label: this._changingEmail ? 'Enviando...' : 'Enviar confirmação',
+            disabled: this._changingEmail,
+            testid: 'account-settings-change-email',
+            onClick: () => this._changeEmail(),
+        }));
+        section.appendChild(actions);
+
+        return section;
     }
 
     /**

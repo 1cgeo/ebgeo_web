@@ -64,6 +64,9 @@ import {
     groupOptionLabel,
     isGroupGrant,
     revocationWarning,
+    revokeAvailability,
+    revokeBlockedNotice,
+    REVOKE_AVAILABILITY,
 } from './grant-tree.js';
 
 /** Debounce (ms) da busca de usuário, o mesmo do compartilhamento de atlas. */
@@ -389,6 +392,12 @@ export class ResourceShareModal extends ModalBase {
      * a esconde tira da tela o único caminho para revogá-la. As decisões (o predicado, o
      * texto do chip e a frase de origem) moram em `grant-tree.js`, que é onde elas são
      * testáveis em node; aqui fica só o HTML.
+     *
+     * O BOTÃO DE REMOVER NÃO É DE TODA LINHA, e até 2026-08-23 era. O servidor só aceita
+     * duas situações (quem concedeu aquela linha, e o administrador global), então a tela
+     * oferecia um ato que terminava em 403 DEPOIS do diálogo destrutivo completo. Quem
+     * decide é `revokeAvailability`; a LINHA continua inteira nos dois ramos, porque ver
+     * quem tem acesso é o ponto desta lista, e o que muda é só a oferta do ato.
      * @param {Object} grant
      */
     _renderGrantItem(grant) {
@@ -419,6 +428,21 @@ export class ResourceShareModal extends ModalBase {
                      title="Depois desta data o acesso deixa de valer sozinho, sem aviso.">expira em ${escapeHtml(vence)}</span>`
             : '';
 
+        // O ator é lido a cada linha porque a decisão é POR LINHA: o mesmo visitante concede
+        // umas e não outras, e o `granted_by` é da concessão, não da sessão.
+        const podeRevogar = revokeAvailability(grant, {
+            userId: sessionContext.userId,
+            isAdmin: sessionContext.isAdmin(),
+        }) === REVOKE_AVAILABILITY.PODE;
+        const recusa = podeRevogar ? null : revokeBlockedNotice(grant);
+        const acao = podeRevogar
+            ? `<button type="button" class="sharing-member__remove" data-action="revoke"
+                        data-testid="resource-share-revoke" aria-label="Remover o acesso ${escapeHtml(granteeSubject(grant))}">
+                    ${CATALOG_UI_ICONS.REMOVE}
+                </button>`
+            : `<span class="resource-share__revoke-blocked" data-testid="resource-share-revoke-blocked"
+                     title="${escapeHtml(recusa.title)}">${escapeHtml(recusa.label)}</span>`;
+
         return `
             <div class="sharing-member" data-testid="resource-share-grant"
                  data-grantee-kind="${grupo ? 'grupo' : 'pessoa'}"
@@ -432,10 +456,7 @@ export class ResourceShareModal extends ModalBase {
                 ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>
-                <button type="button" class="sharing-member__remove" data-action="revoke"
-                        data-testid="resource-share-revoke" aria-label="Remover o acesso ${escapeHtml(granteeSubject(grant))}">
-                    ${CATALOG_UI_ICONS.REMOVE}
-                </button>
+                ${acao}
             </div>
         `;
     }

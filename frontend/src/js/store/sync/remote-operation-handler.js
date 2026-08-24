@@ -84,8 +84,13 @@ async function drainPendingFeatureOps(mapId) {
                 entityId: op.featureId, mapId, serverVersion: op.serverVersion,
                 outcome: TraceOutcome.OK,
             });
-            if (op.opType === OperationType.DELETE) lastAppliedVersion.delete(op.featureId);
-            else markAppliedVersion(op.featureId, op.serverVersion);
+            if (op.opType === OperationType.DELETE) {
+                lastAppliedVersion.delete(op.featureId);
+                lastRemoteAppliedVersion.delete(op.featureId);
+            } else {
+                markAppliedVersion(op.featureId, op.serverVersion);
+                markRemoteApplied(op.featureId, op.serverVersion);
+            }
         }
     }
 }
@@ -99,6 +104,70 @@ async function drainPendingFeatureOps(mapId) {
  * @type {Map<string, number>}
  */
 const lastAppliedVersion = new Map();
+
+/**
+ * Highest serverVersion of a REMOTE op actually applied to each entity, kept apart from
+ * {@link lastAppliedVersion} (which the author also seeds from its own acks). It is the only
+ * evidence the author has that a peer's write landed on top of its own optimistic value.
+ *
+ * WHY IT EXISTS (2026-08-23): the defer guard below reads `pendingLocalEditCount` and the mark
+ * that fills it is set in `logOperation` (`operation-dispatcher.js`), which runs from
+ * `tx.deferAsync` — and `StoreTransaction.commit()` starts those effects FIRE-AND-FORGET
+ * (`store-transaction.js`), after an `await operationQueue.enqueue`. So there is a real window
+ * between "the local edit is durable" and "the entity is marked pending", and a second one even
+ * with the mark moved earlier: `applyRemoteOperation` reads the count BEFORE
+ * `applyRemoteFeatureOp` takes the map document lock, so a peer op can pass the guard, block on
+ * the lock the local edit is holding, and write after it. A peer op landing in either window is
+ * applied, and the author then NEVER learns it won: it filters its own WS echo
+ * (`ws-client.js` `_isOwnClientId`), so nothing ever brings its value back. Measured symptom:
+ * the server holds C's colour, C displays A's, forever.
+ * @type {Map<string, number>}
+ */
+const lastRemoteAppliedVersion = new Map();
+
+/**
+ * Serialization chain for the CONVERGENCE-GUARDED apply path.
+ *
+ * The version guard only decides anything if the check, the write and the record are ONE step.
+ * They were not: `applyRemoteOperation` reads `shouldApplyVersion` and only THEN calls a handler
+ * that awaits the document lock, so two applies can both pass the check and land in lock order,
+ * which is the opposite order. `ws-client.js` hid this for inbound ops by chaining them
+ * (`_applyChain`), and exactly three call sites bypass that chain: the deferred-op replay and the
+ * local-winner repair (both in `resolveLocalEdit`) and the post-flush replay in
+ * `reconcilePendingLocalEdits`.
+ *
+ * Measured in the field on 2026-08-23, mirror signature `servidor=#0000ff
+ * clientes=#0000ff,#0000ff,#00ff00`: the author's repair passed the check, the peer's WINNING op
+ * passed it too, the peer wrote first and the repair wrote last, leaving the author on a value the
+ * server had already superseded. With the chain the repair is re-checked after the peer recorded
+ * its version, so it is simply dropped.
+ *
+ * NOT a substitute for the document lock: this orders the GUARD, that one orders the DOCUMENT
+ * (and is per map, so unrelated maps still write in parallel). It does not reach
+ * `drainPendingFeatureOps`, which applies its buffered ops through `applyRemoteFeatureOp`
+ * directly and carries its own version check.
+ * @type {Promise<void>}
+ */
+let guardedApplyChain = Promise.resolve();
+
+/**
+ * Queues `fn` after every guarded apply already in flight. A rejecting section never breaks the
+ * chain for the next one (the tail swallows), and the rejection still reaches this caller.
+ * @param {() => Promise<void>} fn
+ * @returns {Promise<void>}
+ */
+function serializeGuardedApply(fn) {
+    const run = guardedApplyChain.then(fn, fn);
+    guardedApplyChain = run.then(() => {}, () => {});
+    return run;
+}
+
+/** Records the highest REMOTE-applied serverVersion for `entityKey` (clobber evidence). */
+function markRemoteApplied(entityKey, serverVersion) {
+    if (serverVersion == null) return;
+    const prev = lastRemoteAppliedVersion.get(entityKey);
+    if (prev == null || serverVersion > prev) lastRemoteAppliedVersion.set(entityKey, serverVersion);
+}
 
 /**
  * Count of the local user's UN-ACKED edits per feature id. While > 0, a remote op for that
@@ -181,16 +250,38 @@ function deferRemoteOp(entityId, operation) {
 }
 
 /**
- * Resolves a local edit on its push ack: seeds the author's applied serverVersion, decrements
- * the pending count, and — once no local edit remains in flight — replays any deferred remote
- * ops. The replayed ops go through the version guard, so the feature converges to the highest
- * serverVersion regardless of delivery timing (this is what eliminates the ack-vs-peer race).
+ * Resolves a local edit on its push ack: seeds the author's applied serverVersion, REPAIRS the
+ * entity when a peer's OLDER op was applied over the local value, decrements the pending count,
+ * and — once no local edit remains in flight — replays any deferred remote ops. The replayed ops
+ * go through the version guard, so the entity converges to the highest serverVersion regardless
+ * of delivery timing.
+ *
+ * THE REPAIR IS THE HALF THE DEFER GUARD CANNOT COVER (see {@link lastRemoteAppliedVersion}).
+ * The ack is the ONLY moment the author learns its own arrival order, so it is also the only
+ * moment it can discover it WON a race it had already visually lost. `localOp` is the op the
+ * server just acked, and re-applying it is exactly what every peer did with it, so the author
+ * ends in the same state as everyone else.
+ *
+ * It runs only when a remote op with a STRICTLY LOWER version was applied to this entity, which
+ * is false for the overwhelming majority of acks (no peer touched the entity, or the peer op was
+ * dropped/deferred by the guard and never applied). It is NOT free of redundant work: a peer op
+ * applied cleanly BEFORE the local edit began also satisfies the condition, and the repair then
+ * rewrites the value the store already holds. That is an idempotent write, and distinguishing it
+ * would need a per-entity "remote applied since this op was created" stamp the queue does not
+ * carry across a reload. One extra map-document write on an entity a peer just edited was the
+ * price accepted for the guard failing CLOSED.
+ *
+ * It also only runs for the LAST un-acked local edit on that entity: an earlier op's data would
+ * overwrite a newer local edit that is still in flight.
+ *
  * Never throws (best-effort; called fire-and-forget from the flush path).
  * @param {string} entityId
  * @param {number} serverVersion
+ * @param {Object} [localOp] - The acked local operation (entityType/operationType/entityId/
+ *   mapId/data), used to restore the author's value when a peer's older op clobbered it.
  * @returns {Promise<void>}
  */
-export async function resolveLocalEdit(entityId, serverVersion) {
+export async function resolveLocalEdit(entityId, serverVersion, localOp = null) {
     markAppliedVersion(entityId, serverVersion);
     if (!entityId) return;
     const remaining = (pendingLocalEditCount.get(entityId) || 0) - 1;
@@ -199,6 +290,24 @@ export async function resolveLocalEdit(entityId, serverVersion) {
         return;
     }
     pendingLocalEditCount.delete(entityId);
+
+    const clobberedBy = lastRemoteAppliedVersion.get(entityId);
+    if (localOp && serverVersion != null && clobberedBy != null && clobberedBy < serverVersion) {
+        try {
+            // Straight back through the inbound path: same handlers, same locks, same lifecycle
+            // events, so the UI refreshes exactly as it does for a peer's op. The guard lets it
+            // through by construction — the pending count was just cleared and
+            // `shouldApplyVersion` compares `>=` against the version seeded three lines above.
+            // `localRepair` só é lido pelo tap do SyncLedger (`diag/bus-tap.js`), para que este
+            // reapply não seja contado como "um par aplicou a op": o detector de órfã do ledger
+            // não exclui o autor, e um span aqui a faria parecer aplicada em alguém.
+            await applyRemoteOperation({ ...localOp, serverVersion, localRepair: true });
+        } catch (err) {
+            console.warn('Local-winner repair failed:', err);
+        }
+    }
+    lastRemoteAppliedVersion.delete(entityId);
+
     const deferred = deferredRemoteOps.get(entityId);
     if (!deferred || deferred.length === 0) return;
     deferredRemoteOps.delete(entityId);
@@ -274,15 +383,29 @@ export function setRemoteHandlerEventBus(eventBus) {
  * @returns {Promise<void>}
  */
 export async function applyRemoteOperation(operation) {
+    const guarded = CONVERGENCE_GUARDED.has(operation?.entityType) && !!operation?.entityId;
+    if (!guarded) return applyRemoteOperationInner(operation, false);
+    return serializeGuardedApply(() => applyRemoteOperationInner(operation, true));
+}
+
+/**
+ * @private Body of {@link applyRemoteOperation}. Runs inside the guarded-apply chain when
+ * `guarded` is true, so its version check, its write and its record are one atomic step.
+ * @param {Object} operation
+ * @param {boolean} guarded
+ * @returns {Promise<void>}
+ */
+async function applyRemoteOperationInner(operation, guarded) {
     const { entityType, operationType, entityId, mapId, data, serverVersion } = operation;
 
     // Convergence guard (LWW by server arrival order) for the entity types that blind-replace:
     //  1. defer the op while the local user has an un-acked edit on the same entity (so a peer's
     //     op can't overwrite a newer local edit before the ack reveals the order), and
     //  2. drop an op older than what was already applied.
-    // The applied version is recorded AFTER the handler runs (below). Together these make
-    // concurrent edits to the same entity converge deterministically.
-    const guarded = CONVERGENCE_GUARDED.has(entityType) && !!entityId;
+    // The applied version is recorded AFTER the handler runs (below), and the whole span runs
+    // inside the guarded-apply chain (see `serializeGuardedApply`), which is what makes
+    // "check then write then record" atomic. Together these make concurrent edits to the same
+    // entity converge deterministically.
     if (guarded) {
         if ((pendingLocalEditCount.get(entityId) || 0) > 0) {
             deferRemoteOp(entityId, operation);
@@ -364,8 +487,16 @@ export async function applyRemoteOperation(operation) {
     // Record this entity's applied server order (DELETE clears it so a re-create starts fresh).
     // Skip when a feature op was only buffered (featureApplied === false) — it isn't applied yet.
     if (guarded && featureApplied) {
-        if (operationType === OperationType.DELETE) lastAppliedVersion.delete(entityId);
-        else markAppliedVersion(entityId, serverVersion);
+        if (operationType === OperationType.DELETE) {
+            lastAppliedVersion.delete(entityId);
+            lastRemoteAppliedVersion.delete(entityId);
+        } else {
+            markAppliedVersion(entityId, serverVersion);
+            // Clobber evidence for the author's ack-time repair. The local-winner repair below
+            // re-enters here and marks itself, which is why `resolveLocalEdit` clears the entry
+            // right AFTER awaiting it.
+            markRemoteApplied(entityId, serverVersion);
+        }
     }
 
     // Peer-side IndexedDB-write confirmation (full-chain "synced to peer IDB" link): the

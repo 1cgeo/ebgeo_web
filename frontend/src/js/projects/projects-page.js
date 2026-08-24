@@ -42,9 +42,19 @@ import { adminAudience } from '@js/admin/admin-audience.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
+// importavel de uma pagina que boota sem `initServices()`.
+import {
+    preserveUnsyncedWorkOnLostSession,
+    ExitOutcome,
+} from '../session/unsynced-work-exit.js';
 import { showError, showSuccess, showWarning } from '@utils/toast_service.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
+// A classificação de falha de pedido, de um módulo folha e SEM imports: é a MESMA definição que
+// `index.js` e `admin/admin-page.js` consomem, e a razão de ela ter saído de dentro do mapa.
+import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
+import { sessionRestoreNotice } from '../session/session-restore-phrases.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { PromptModal } from '@modals/prompt.modal.js';
 import { showLoginModal } from '@modals/login.modal.js';
@@ -116,9 +126,30 @@ async function bootConfig() {
 }
 
 /**
- * Restores the persisted login into the session context. Any failure clears the tokens, which is
- * what stops a stale token from ping-ponging between this page and the map's boot redirect.
- * @returns {Promise<boolean>}
+ * Restores the persisted login into the session context.
+ *
+ * ONLY A CREDENTIAL FAILURE (401/403) CLEARS THE TOKENS. Until 2026-08-23 this was a bare
+ * `catch { apiClient.clearTokens(); }`, byte for byte the same in `admin/admin-page.js`, so a 502
+ * from the proxy, a latency spike, a 429 or a dropped connection signed the user out FOR GOOD —
+ * and the outcome is terminal, because the product has no self-service password reset. Worse,
+ * this is the DEFAULT path: `shouldRouteToProjects` sends every signed-in visitor arriving at a
+ * bare URL here, and this is the first thing the page does.
+ *
+ * WHAT A NON-CREDENTIAL FAILURE GETS INSTEAD is this page rendered signed-out FOR THIS LOAD, with
+ * the tokens intact and a warning that says so. Not the unavailable screen: the local half of
+ * this page is the whole product for somebody working offline or without an account, and denying
+ * them their own atlases because the server could not confirm somebody's identity would be the
+ * larger loss. Not a retry loop either: `bootConfig()` just made up to three successful round
+ * trips to `/api/config`, so a `getMe` failing right after is not the millisecond blip a retry
+ * fixes, and `getMe` already carries its own boot deadline plus the refresh path. The visitor
+ * keeps the manual retry that always worked, and the sentence names it.
+ *
+ * The old comment claimed the unconditional clear was what stopped a stale token from
+ * ping-ponging between this page and the map's boot redirect. It never was: this page does not
+ * redirect anybody back to the map, it renders signed-out and stays. The map redirects HERE once
+ * and the loop ends here either way.
+ *
+ * @returns {Promise<boolean>} Whether a session was restored.
  */
 async function restoreSession() {
     try {
@@ -126,10 +157,30 @@ async function restoreSession() {
         const user = await apiClient.getMe();
         sessionContext.setSession(sessionUserInfoFromMe(user));
         return true;
-    } catch {
-        apiClient.clearTokens();
+    } catch (error) {
+        const kind = classifyRequestFailure(error);
+        if (kind === RequestFailure.CREDENTIAL) apiClient.clearTokens();
+        else console.warn('[projects] session restore deferred (server unreachable):', error);
+        // Held, not shown: the splash is still up, and a toast raised under it is a toast nobody
+        // reads. `initProjectsPage` says it right after `clearSplash()`.
+        pendingSessionNotice = sessionRestoreNotice(kind);
         return false;
     }
+}
+
+/**
+ * The sentence a failed session restore produced, waiting for the splash to come down.
+ * @type {{message: string, tone: string}|null}
+ */
+let pendingSessionNotice = null;
+
+/** Says the held session-restore sentence, if there is one. One-shot. */
+function tellPendingSessionNotice() {
+    const notice = pendingSessionNotice;
+    pendingSessionNotice = null;
+    if (!notice) return;
+    if (notice.tone === 'error') showError(notice.message);
+    else showWarning(notice.message);
 }
 
 /** Removes the boot splash once the page is ready to be seen. */
@@ -490,16 +541,54 @@ async function importProjectFromFile(file) {
 
 /**
  * Ends the session and returns to the map.
+ *
+ * UNSYNCED WORK IS GUARDED HERE, and which guard runs depends on whether a HUMAN clicked.
+ * Until 2026-08-23 this function was `logout` plus `clearSession` plus `replace`, and nothing
+ * else: the queue of operations that never reached the server was destroyed by the next boot's
+ * logged-out sweep, silently, in every path. The two paths need different guards and it is not a
+ * detail:
+ *
+ *   - VOLUNTARY (the "Sair" action): the person is at the keyboard, so they get the choice.
+ *     Cancelling has to abort the whole thing, which is why this returns early instead of
+ *     navigating.
+ *   - INVOLUNTARY (idle timeout, auth lost): nobody is there to answer, so a dialog would be a
+ *     wall nobody dismisses. The work is preserved without asking.
+ *
+ * THE OUTCOME MESSAGE CANNOT RIDE ALONG AS A STRING: `window.location.replace` kills any toast
+ * raised just before it. It travels as a CODE plus a COUNT on the query string, the channel this
+ * page already uses for `?sessao=`, and the map rebuilds the sentence from the same pure phrase
+ * module. Passing the built sentence would put user-facing prose in a URL, where a reload would
+ * repeat it and a hand-edited value would be echoed.
+ *
  * @param {string} [reason] - Carried as `?sessao=<reason>` so the map can explain itself.
+ * @returns {Promise<void>}
  */
 async function endSession(reason) {
+    // UM CAMINHO SÓ, e a razão é decisão do dono (2026-08-23): o sincronismo ocorre sempre,
+    // então a fila só tem conteúdo quando algo NÃO CONSEGUIU subir, nunca porque alguém
+    // escolheu não subir. Não há vontade a respeitar, e por isso o clique e o acidente recebem
+    // o mesmo tratamento: guardar e avisar. O parâmetro `voluntary` some junto com a pergunta.
+    const guarda = await preserveUnsyncedWorkOnLostSession();
+
     try {
         await apiClient.logout();
     } catch {
         // logout() already swallows network errors and clears locally.
     }
     sessionContext.clearSession();
-    window.location.replace(reason ? `${MAP_URL}?sessao=${encodeURIComponent(reason)}` : MAP_URL);
+
+    const params = new URLSearchParams();
+    if (reason) params.set('sessao', reason);
+    // O CÓDIGO, e não a frase. Três valores, e o terceiro é o que mais precisa chegar: a pessoa
+    // PEDIU para guardar e o resgate falhou, então ela precisa saber antes de fechar a aba. A
+    // contagem viaja à parte porque a frase a interpola, e o nome do atlas NÃO viaja: o resultado
+    // do guarda não o carrega, e inventá-lo aqui seria escrever na URL um dado que ninguém mediu.
+    if (guarda.outcome && guarda.outcome !== ExitOutcome.NADA) {
+        params.set('trabalho', guarda.outcome);
+        if (guarda.pendingOps) params.set('pendentes', String(guarda.pendingOps));
+    }
+    const qs = params.toString();
+    window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }
 
 /**
@@ -673,6 +762,10 @@ async function initProjectsPage() {
 
     clearSplash();
     explainArrivalFromUrl();
+    // AFTER the splash, and after the arrival notice: a session that could not be confirmed is the
+    // reason the server half of this page is missing, so it is the last thing said and therefore
+    // the one on top.
+    tellPendingSessionNotice();
 
     const appBar = createAppBar({
         logo: EBGEO_LOGO_BASE64,

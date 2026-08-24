@@ -10,13 +10,31 @@
 // usuarios so o pendura. Ver `LIVE_GRANTS_BY_GRANTER_AGG`, abaixo.
 import { LIVE_GRANT_COUNT_BY_GRANTER } from '../resource-access/resource-access.queries.js';
 
+// `email` / `email_verified` are HERE and not only on the admin twin, since 2026-08-23.
+//
+// Their absence was not a missing column, it was a hole in the product: `GET /users/me` is what
+// "Minha conta" reads, so a person could not see the address their account carries nor whether it
+// was confirmed — and a typo made at signup is invisible to the only person who can spot it. The
+// pair also drives the wording of the change form (an unconfirmed address is stated as such).
+// Neither is writable through this route; `updateProfileSchema` does not accept them and the
+// change goes through `PUT /users/me/email`, which re-verifies.
 export const FIND_USER_BY_ID = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.created_at, u.last_login_at
+         u.organization_id, o.nome AS organizacao_militar,
+         u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
   WHERE u.id = $1 AND u.is_active = true
+`;
+
+// The password hash PLUS the identity the e-mail-change flow needs (`username` names the account
+// in the confirmation message; `email` is compared against the requested one). One read instead
+// of two on a route that already pays a bcrypt comparison.
+export const FIND_USER_FOR_EMAIL_CHANGE = `
+  SELECT id, username, nome, email, email_verified, password_hash
+  FROM users
+  WHERE id = $1 AND is_active = true
 `;
 
 export const FIND_USER_WITH_PASSWORD = `
@@ -38,7 +56,8 @@ export const UPDATE_USER_PROFILE = `
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.created_at, u.last_login_at
+         u.organization_id, o.nome AS organizacao_militar,
+         u.email, u.email_verified, u.created_at, u.last_login_at
   FROM upd u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
@@ -169,6 +188,15 @@ export const INSERT_USER_ADMIN = `
 // ela nao ha como LIMPAR a coluna ao rebaixar um produtor, e o CHECK bicondicional
 // (`users_producer_scope_check`) recusaria o UPDATE inteiro com 23514 — que sai como
 // um 400 generico, sem dizer que o problema e um escopo orfao.
+// `email` USA A BANDEIRA, e nao um COALESCE, pela mesma razao dos FKs acima: sem ela nao ha
+// como LIMPAR o endereco de uma conta (voltar ao estado "conta administrativa sem e-mail", que
+// e legitimo e e como `POST /api/v1/users` cria). E a bandeira e o que separa "nao mandou o
+// campo" de "mandou vazio", que aqui significam coisas opostas.
+//
+// A REGRA QUE ACOMPANHA ESTE CAMPO NAO ESTA NO SQL: trocar o endereco DERRUBA
+// `email_verified` para falso, salvo se o mesmo pedido disser o contrario. Quem impoe e
+// `users.service.js`, sobre o estado efetivo, porque a decisao depende de comparar o valor
+// novo com o da LINHA, e um CASE aqui compararia com o que veio no corpo.
 export const UPDATE_USER_ADMIN = `
   WITH upd AS (
     UPDATE users
@@ -180,6 +208,7 @@ export const UPDATE_USER_ADMIN = `
         is_active = COALESCE($9, is_active),
         email_verified = COALESCE($10, email_verified),
         producer_org_id = CASE WHEN $12 THEN $11::uuid ELSE producer_org_id END,
+        email = CASE WHEN $14 THEN $13 ELSE email END,
         updated_at = NOW()
     WHERE id = $1
     RETURNING *

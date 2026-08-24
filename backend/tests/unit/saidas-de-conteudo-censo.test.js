@@ -141,6 +141,13 @@ const CENSO_ROTA = [
   json('src/modules/auth/auth.routes.js', 'POST /register'),
   json('src/modules/auth/auth.routes.js', 'POST /verify-email'),
   json('src/modules/auth/auth.routes.js', 'POST /resend-verification'),
+  // Recuperação de senha por e-mail. As duas só são MONTADAS onde a mensagem pode chegar
+  // (`canDeliverAccountMail`), mas o censo lê o arquivo e não o roteador montado, então elas
+  // aparecem aqui sempre — o que é o comportamento certo: uma rota condicional continua sendo
+  // uma saída, e classificá-la só quando o ambiente a liga seria classificar por acidente.
+  // As duas respondem `{ success: true }` por `res.json`, sem conteúdo de recurso nenhum.
+  json('src/modules/auth/auth.routes.js', 'POST /forgot-password'),
+  json('src/modules/auth/auth.routes.js', 'POST /reset-password'),
   json('src/modules/auth/auth.routes.js', 'POST /login'),
   json('src/modules/auth/auth.routes.js', 'POST /refresh'),
   json('src/modules/auth/auth.routes.js', 'POST /logout'),
@@ -267,6 +274,10 @@ const CENSO_ROTA = [
   json('src/modules/users/users.routes.js', 'GET /me'),
   json('src/modules/users/users.routes.js', 'PUT /me'),
   json('src/modules/users/users.routes.js', 'PUT /me/password'),
+  // Troca de e-mail do próprio titular: responde `{ success: true }` e NADA MAIS, idêntico nos
+  // dois desfechos (endereço livre, endereço de outra conta). O corpo uniforme é o que fecha o
+  // oráculo de existência de conta, então acrescentar campo aqui é mudança de segurança.
+  json('src/modules/users/users.routes.js', 'PUT /me/email'),
   json('src/modules/users/users.routes.js', 'POST /me/api-key/rotate'),
   json('src/modules/users/users.routes.js', 'GET /search'),
   json('src/modules/users/users.routes.js', 'GET /'),

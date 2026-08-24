@@ -42,6 +42,9 @@ import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js'
 import { mapLockController } from '@js/locking/index.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
 import { resolveRedirectTarget } from './remote-map-redirect.js';
+// A grade de ações mora FORA daqui de propósito: ela é uma decisão pura sobre três valores
+// (origem da store, sessão e posto na escada), e este arquivo não carrega em node.
+import { AtlasTabState, visibleAtlasActions } from './atlas-actions.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
 // A ÚNICA implementação da escada por atlas. `_canRenameAtlas` já gateia por capacidade
@@ -63,50 +66,6 @@ import { CommentsPanel } from '@js/comment_tool/comments-panel.js';
  * getAllMapBadgeColors() normally assigns every existing map a color, so this is rarely hit.
  */
 const MAP_BADGE_FALLBACK = '#2563eb';
-
-/**
- * The three states the actions grid distinguishes.
- * @readonly @enum {string}
- */
-const AtlasTabState = Object.freeze({
-    /** No session, so necessarily on a local atlas. */
-    LOCAL_ANON: 'local-anon',
-    /** Signed in, still working on a LOCAL atlas (not connected to a server project). */
-    LOCAL_SIGNED_IN: 'local-signed-in',
-    /** Connected to a server atlas (a public-link visitor counts, session or not). */
-    REMOTE: 'remote'
-});
-
-/**
- * THE approved visibility table, in one place, so the reader sees the three columns instead of
- * reconstructing them from scattered booleans. Reasons a row is missing an action:
- *
- * - `save-server` needs a session (there is nowhere to send to) AND a local atlas: it PROMOTES
- *   this workspace to a new server project, which is meaningless while already connected to one.
- * - `clear` is hidden on a server atlas because clearing would only empty THIS client's copy of
- *   a project that lives on the server; leaving a server atlas is the project screen or logout.
- *   It stays for a signed-in user working locally: it used to vanish the moment you signed in,
- *   which stranded that user with no way to wipe their own workspace.
- *
- * `open`, `import` and `save` are in every row: they belong to the atlas you have, whatever it is.
- * @type {Object<string, string[]>}
- */
-const ACTIONS_BY_STATE = Object.freeze({
-    [AtlasTabState.LOCAL_ANON]: ['open', 'import', 'save', 'clear'],
-    [AtlasTabState.LOCAL_SIGNED_IN]: ['open', 'save-server', 'import', 'save', 'clear'],
-    // "share" fica ao lado de "save" (Exportar) porque as duas respondem "como isto sai daqui".
-    // Só no estado REMOTE: compartilhar um atlas local não significa nada, e o backend exige
-    // `manage` na rota — a recusa fica com ele, e a tela não esconde o botão por papel, porque
-    // um Gestor rebaixado no meio da sessão veria o botão sumir sem explicação.
-    //
-    // "save-local" é o SIMÉTRICO de "save-server" e só existe no estado REMOTE pela mesma razão
-    // que aquele só existe nos locais: guardar uma cópia local de um atlas que já É local não
-    // significa nada (para isso existe duplicar, na tela de atlas). Ele fica aqui, e não no
-    // cartão do atlas em `atlas.html`, porque aquela página não monta store nenhum e não faz a
-    // soma de recursos privados: sem a soma, a poda falharia FECHADA e a cópia sairia sem o
-    // catálogo público inteiro.
-    [AtlasTabState.REMOTE]: ['open', 'import', 'save', 'save-local', 'share']
-});
 
 /**
  * Icons specific to maps tab.
@@ -156,7 +115,9 @@ const MAPS_ICONS = {
 
     cloudDownload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
 
-    users: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    // 18px, e não 16, porque este é ícone de BOTÃO DA GRADE: os sete vizinhos dela são 18 e um
+    // menor no meio da fileira desalinha a linha de base dos rótulos.
+    users: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
 };
 
 /**
@@ -292,6 +253,11 @@ export class MapsTab {
             { id: 'save', icon: MAPS_ICONS.save, label: 'Exportar', handler: () => this._handleSaveProject(), title: 'Exportar este atlas como arquivo .ebgeo' },
             { id: 'save-local', icon: MAPS_ICONS.cloudDownload, label: 'Salvar como local', handler: () => this._handleSaveAsLocal(), title: 'Guardar uma cópia deste atlas neste computador', testid: 'maps-save-local' },
             { id: 'share', icon: MAPS_ICONS.share, label: 'Compartilhar', handler: () => this._handleShare(), title: 'Escolher quem pode ver e editar este atlas', testid: 'maps-share' },
+            // O IRMÃO SOMENTE-LEITURA de "Compartilhar", e nunca os dois na mesma tela: quem
+            // gere vê o de cima, quem participa vê este. Ele responde a cláusula 5.7 (todo
+            // participante vê quem mais participa e com que nível) dentro do mapa, que era o
+            // único lugar do produto onde essa pergunta não tinha porta nenhuma.
+            { id: 'participants', icon: MAPS_ICONS.users, label: 'Participantes', handler: () => this._handleParticipants(), title: 'Ver quem participa deste atlas e com que nível', testid: 'maps-participants' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar tudo', handler: () => this._handleClearAll(), title: 'Apagar todo o conteúdo deste atlas' },
         ];
 
@@ -316,27 +282,43 @@ export class MapsTab {
     }
 
     /**
-     * WHICH of the three states the tab is in. There are three, not two: "logged out" and
-     * "signed in on the local store" differ by one action, and a signed-in user working locally
-     * used to be treated as if they were connected.
-     *
-     * A public-link visitor (anonymous ON a server atlas) lands in REMOTE, which is right: the
-     * question each row below asks is about the store, not about the person.
+     * The three live readings the pure decision needs, gathered in ONE place so no caller has to
+     * remember which singleton answers which half.
      * @private
-     * @returns {string} A key of {@link ACTIONS_BY_STATE}.
+     * @returns {{remote: boolean, authenticated: boolean, role: *}}
      */
-    _atlasState() {
-        if (isRemoteStoreSync()) return AtlasTabState.REMOTE;
-        return sessionContext.isAuthenticated() ? AtlasTabState.LOCAL_SIGNED_IN : AtlasTabState.LOCAL_ANON;
+    _atlasContext() {
+        return {
+            remote: isRemoteStoreSync(),
+            authenticated: sessionContext.isAuthenticated(),
+            role: sessionContext.role,
+        };
     }
 
     /**
-     * Applies {@link ACTIONS_BY_STATE}. Every button is set on every pass (never only the ones
-     * that disappear), so a state change can only ever produce the row the table declares.
+     * WHICH of the three states the tab is in. Kept as a method because the current-map card and
+     * the header still ask the question by name; the table itself lives in `atlas-actions.js`.
+     * @private
+     * @returns {string} A key of `ACTIONS_BY_STATE`.
+     */
+    _atlasState() {
+        const { remote, authenticated } = this._atlasContext();
+        if (remote) return AtlasTabState.REMOTE;
+        return authenticated ? AtlasTabState.LOCAL_SIGNED_IN : AtlasTabState.LOCAL_ANON;
+    }
+
+    /**
+     * Applies `visibleAtlasActions`. Every button is set on every pass (never only the ones that
+     * disappear), so a state change can only ever produce the row the decision declares.
+     *
+     * THIS IS THE REPAINT A LIVE DEMOTION RIDES ON. `SESSION_CHANGED` and
+     * `CONNECTION_STATE_CHANGED` both call it (see `_setupEventListeners`), so a Gestor demoted
+     * mid-session loses "Compartilhar" and gains "Participantes" on the same pass that relocks
+     * the padlock and re-reads the atlas header, instead of under a click.
      * @private
      */
     _updateActionsVisibility() {
-        const visible = ACTIONS_BY_STATE[this._atlasState()];
+        const visible = visibleAtlasActions(this._atlasContext());
         for (const [id, button] of this._actionButtons) {
             button.hidden = !visible.includes(id);
         }
@@ -731,9 +713,11 @@ export class MapsTab {
         // §1.8/§1.9: react to maps created/deleted by OTHER users (remote ops). A
         // remote map-delete of the map currently being viewed redirects elsewhere.
         subscribe(this, this._eventBus, EventTypes.REMOTE_OPERATION_APPLIED, (p) => this._onRemoteOperation(p));
-        // Re-evaluate the owner-only "Compartilhar" button AND the read-only padlock state when the
-        // session (login/role) or the connection (connect/disconnect an atlas) changes — becoming a
-        // viewer/commenter/visitor must immediately lock the padlock and forbid toggling it.
+        // Re-evaluate the gated pair "Compartilhar"/"Participantes" AND the read-only padlock state
+        // when the session (login/role) or the connection (connect/disconnect an atlas) changes —
+        // becoming a viewer/commenter/visitor must immediately lock the padlock, forbid toggling it,
+        // and swap the sharing command for its read-only twin. These two events ARE the live
+        // demotion path: without them the swap would happen under the user's next click.
         // The atlas header rides along with these three for the same reason the grid does: the
         // atlas you are IN, its origin and your permission on it all change here and nowhere else.
         subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => {
@@ -1733,6 +1717,30 @@ export class MapsTab {
         if (!atlasId) return;
         const { showSharingModal } = await import('@modals/sharing.modal.js');
         showSharingModal(atlasId, { atlasName: this._atlasName || '' });
+    }
+
+    /**
+     * Opens the SAME modal in read-only mode: who takes part in this atlas and at which level.
+     *
+     * WHY IT IS THE SAME MODAL. The screen is the answer to one question ("quem alcança este
+     * atlas"), asked by two audiences with different authority. A second component would be a
+     * second place to fix a row that renders a person's name.
+     *
+     * WHY IT IS A SEPARATE BUTTON, and not "Compartilhar" changing behaviour: a command whose
+     * name promises writing and then shows a wall of text explaining you cannot write is worse
+     * than a command named after what it actually does. `visibleAtlasActions` guarantees the two
+     * are never on screen together.
+     *
+     * The presence source rides along (the live "Vendo agora" block) because it is display, not
+     * authority: a Leitor already sees the online roster in the map.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _handleParticipants() {
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId) return;
+        const { showSharingModal } = await import('@modals/sharing.modal.js');
+        showSharingModal(atlasId, { atlasName: this._atlasName || '', readOnly: true });
     }
 
     /**

@@ -18,6 +18,23 @@ export const updatePassword = asyncHandler(async (req, res) => {
   res.json({ data: { success: true } });
 });
 
+/**
+ * Pede a troca do e-mail da própria conta.
+ *
+ * A RESPOSTA É A MESMA nos dois desfechos (endereço livre, endereço de outra conta), e o corpo é
+ * só `{ success: true }`: qualquer diferença aqui, inclusive um campo a mais, seria o oráculo de
+ * existência de conta que o serviço passa trinta linhas fechando. O que muda de fato viaja por
+ * e-mail, e a tela diz isso em palavras.
+ *
+ * `requestOrigin` monta a base do link de confirmação; o mailer só a honra se ela for a origem
+ * que o deployment já confia (`resolveVerificationBase`).
+ */
+export const changeMyEmail = asyncHandler(async (req, res) => {
+  const origin = req.headers.origin || `${req.protocol}://${req.get('host') || ''}`;
+  const result = await usersService.requestEmailChange(req.user.id, req.body, req, origin);
+  res.json({ data: result });
+});
+
 export const searchUsers = asyncHandler(async (req, res) => {
   const users = await usersService.searchUsers(req.query.q);
   res.json({ data: users });

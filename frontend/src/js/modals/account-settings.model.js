@@ -23,6 +23,15 @@
  * is no route, and no column selected anywhere in the `users` module, that says whether an
  * account already HAS an API key. So the screen may not claim there is one, may not claim there
  * is none, and says so out loud instead of guessing.
+ *
+ * THE E-MAIL SENTENCES ARE THE OTHER HALF OF THE SAME DISCIPLINE, added in 2026-08-23 together
+ * with the address becoming readable at all (`FIND_USER_BY_ID` did not select `email` nor
+ * `email_verified` until then, so "Minha conta" could not show them). Two facts drive every one
+ * of them, and both were measured against `requestEmailChange`
+ * (`backend/src/modules/users/users.service.js`): asking for a change writes NOTHING on the
+ * account until the new mailbox is proven, and the route answers the SAME 200 whether the address
+ * was free or already belongs to somebody else. So no sentence here may promise that the change
+ * happened, and none may promise that a confirmation is on its way.
  */
 
 /** Minimum length of a new password. Mirrors `updatePasswordSchema.newPassword.min`. */
@@ -33,6 +42,9 @@ export const MAX_PASSWORD_LENGTH = 100;
 
 /** Maximum length of `nome`. Mirrors `updateProfileSchema.nome.max`. */
 export const MAX_NAME_LENGTH = 255;
+
+/** Maximum length of an e-mail address. Mirrors `changeEmailSchema.email.max`. */
+export const MAX_EMAIL_LENGTH = 255;
 
 /**
  * The only two fields `PUT /users/me` accepts, in the wire spelling.
@@ -63,6 +75,44 @@ export const PASSWORD_SESSION_WARNING =
 /** Read-only fields exist because the person cannot change them alone; say who can. */
 export const ADMIN_ONLY_FIELDS_NOTE =
     'Papel no sistema, lotação e OM de produção só mudam por ato de um administrador.';
+
+/**
+ * What changing the e-mail costs, and what it does NOT cost, said before the button.
+ *
+ * Measured against `requestEmailChange` (`backend/src/modules/users/users.service.js`): the
+ * account row is not touched at all until the link in the new mailbox is followed, the current
+ * address keeps working meanwhile, and no session is ended (the login credential is username plus
+ * password, and neither moves). Saying "trocamos o seu e-mail" would be the comfortable lie: what
+ * this button does is send an invitation.
+ */
+export const EMAIL_CHANGE_WARNING =
+    'O endereço novo só passa a valer depois que você abrir o link de confirmação que vamos '
+    + 'enviar para ele. Até lá, nada muda: a conta continua com o e-mail atual e a sua sessão '
+    + 'segue aberta.';
+
+/**
+ * What the person sees after asking, and it is written to survive BOTH outcomes.
+ *
+ * The route answers the same 200 whether the address was free or already belongs to another
+ * account (the anti-enumeration decision of cláusula 5.6, applied to accounts), so this sentence
+ * may not promise that a confirmation is on its way. It says what was done and what to check.
+ */
+export const EMAIL_CHANGE_SENT_TEXT =
+    'Pedido registrado. Se o endereço puder ser usado, o link de confirmação chega nele em '
+    + 'alguns minutos; confira também a caixa de spam. Se nada chegar, o endereço pode já '
+    + 'pertencer a outra conta: nesse caso quem recebe o aviso é a caixa dele.';
+
+/** Why the current password is asked for a change that is not a password change. */
+export const EMAIL_CHANGE_PASSWORD_NOTE =
+    'Pedimos a senha atual porque o e-mail é o caminho de recuperação da conta.';
+
+/** Said to someone whose address is not confirmed, on the screen where they can act on it. */
+export const EMAIL_UNVERIFIED_HINT =
+    'Enquanto o e-mail não for confirmado, esta conta não entra pelo login. Se o endereço estiver '
+    + 'errado, troque-o aqui; se estiver certo, peça um novo link de confirmação ao administrador.';
+
+/** Said when the server reports no address at all (an account created by an administrator). */
+export const EMAIL_ABSENT_TEXT = 'nenhum e-mail cadastrado';
 
 /** Shown before any rotation: the key is readable exactly once. */
 export const API_KEY_ONE_TIME_WARNING =
@@ -202,6 +252,80 @@ export function validatePasswordForm(form) {
     }
     if (next === current) {
         return { valid: false, message: 'A nova senha precisa ser diferente da atual.' };
+    }
+    return { valid: true, message: '' };
+}
+
+/**
+ * How the account's e-mail should be presented, as data rather than as markup.
+ *
+ * THREE STATES AND NOT TWO, and the third is the one a boolean would hide: an account can carry
+ * NO address at all (`POST /api/v1/users`, the administrative path, has no e-mail field), and
+ * that is not the same as an unconfirmed one. Reading `email_verified` alone would draw "não
+ * confirmado" over an account that has nothing to confirm.
+ *
+ * @param {{ email?: *, email_verified?: * }} profile - As `GET /users/me` returned it.
+ * @returns {{ state: 'absent'|'unverified'|'verified', address: string, status: string }}
+ */
+export function emailPresentation(profile) {
+    const address = typeof profile?.email === 'string' ? profile.email.trim() : '';
+    if (!address) {
+        return { state: 'absent', address: '', status: EMAIL_ABSENT_TEXT };
+    }
+    if (profile?.email_verified === true) {
+        return { state: 'verified', address, status: 'confirmado' };
+    }
+    return { state: 'unverified', address, status: 'não confirmado' };
+}
+
+/**
+ * Normalizes an address the way the comparison wants it.
+ *
+ * Lower-cased ONLY for comparison, never for sending: the server's uniqueness index is over
+ * `LOWER(email)`, so case never decides acceptance, and lower-casing what is sent would mangle
+ * addresses whose provider treats the local part as case-sensitive.
+ * @param {*} value
+ * @returns {string}
+ */
+function emailKey(value) {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+/**
+ * Client-side check of the e-mail-change form, so an obvious refusal never costs a round trip.
+ *
+ * THE SHAPE CHECK IS DELIBERATELY LOOSE (a non-empty local part, an `@`, a dot in the domain).
+ * The authority is `Joi.string().email()` on the server and this may not pretend to reproduce it:
+ * a stricter client rule would refuse addresses the server accepts, and the person would have no
+ * way to tell that the refusal came from their own browser.
+ *
+ * The order of the checks is the order the form is filled, so the first complaint is about the
+ * first thing that is wrong.
+ *
+ * @param {{ email?: *, currentPassword?: *, currentEmail?: * }} form
+ * @returns {{ valid: boolean, message: string }}
+ */
+export function validateEmailChangeForm(form) {
+    const email = typeof form?.email === 'string' ? form.email.trim() : '';
+    const senha = typeof form?.currentPassword === 'string' ? form.currentPassword : '';
+
+    if (!email) {
+        return { valid: false, message: 'Informe o novo endereço de e-mail.' };
+    }
+    if (email.length > MAX_EMAIL_LENGTH) {
+        return {
+            valid: false,
+            message: `O e-mail pode ter no máximo ${MAX_EMAIL_LENGTH} caracteres.`,
+        };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return { valid: false, message: 'Esse endereço de e-mail não parece válido.' };
+    }
+    if (emailKey(email) === emailKey(form?.currentEmail)) {
+        return { valid: false, message: 'Este já é o e-mail da sua conta.' };
+    }
+    if (!senha) {
+        return { valid: false, message: 'Informe a senha atual para confirmar a troca.' };
     }
     return { valid: true, message: '' };
 }

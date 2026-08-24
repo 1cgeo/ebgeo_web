@@ -160,9 +160,12 @@ export const INSERT_USER = `
 // Email verification tokens
 // ============================================
 
+// `purpose` and `new_email` are named EXPLICITLY (they are not defaulted here) so
+// that every mint declares what the token may be redeemed for. The bicondicional
+// CHECK of 001_identidade.sql refuses the two impossible pairings.
 export const INSERT_VERIFICATION_TOKEN = `
-  INSERT INTO email_verification_tokens (user_id, expires_at)
-  VALUES ($1, $2)
+  INSERT INTO email_verification_tokens (user_id, expires_at, purpose, new_email)
+  VALUES ($1, $2, $3, $4)
   RETURNING token
 `;
 
@@ -171,13 +174,70 @@ export const INSERT_VERIFICATION_TOKEN = `
 // and RETURNING tells that winner what it claimed. A read-then-write pair could
 // let two requests both pass the check and both consume the same token.
 // `expires_at` comes back so expiry is judged on the row we actually claimed.
+//
+// `purpose = ANY($2::text[])` IS THE SAFETY PROPERTY OF THE SHARED TABLE, and it is
+// why one table can serve three flows without being three mechanisms. The caller
+// passes the list its own route is entitled to redeem — the confirmation route takes
+// `['verify','change_email']` (both arrive by the same `?verify=` link) and the
+// password route takes `['reset_password']` and nothing else. Matching on the token
+// alone would let a confirmation link, which is mailed on every signup and every
+// resend, be spent as a password reset. The negative control runs in BOTH directions
+// in tests/integration/senha-redefinicao-por-email.test.js, and it also asserts that
+// the refused token is NOT burned by the attempt — otherwise anyone could disable a
+// stranger's signup link by presenting it at the wrong route.
 export const CLAIM_VERIFICATION_TOKEN = `
   UPDATE email_verification_tokens
   SET consumed_at = NOW()
-  WHERE token = $1 AND consumed_at IS NULL
-  RETURNING user_id, expires_at
+  WHERE token = $1 AND purpose = ANY($2::text[]) AND consumed_at IS NULL
+  RETURNING user_id, expires_at, purpose, new_email
+`;
+
+// Burns every still-live token of ONE purpose for ONE user. Called before minting a
+// new one (asking again must not leave the previous link usable) and after a reset
+// succeeds. Scoped by purpose so re-asking for a password reset never silently
+// cancels a pending e-mail confirmation.
+export const CONSUME_PENDING_TOKENS = `
+  UPDATE email_verification_tokens
+  SET consumed_at = NOW()
+  WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL
 `;
 
 export const MARK_EMAIL_VERIFIED = `
   UPDATE users SET email_verified = TRUE, updated_at = NOW() WHERE id = $1
+`;
+
+// The confirmed half of an e-mail change: the pending address becomes the real one
+// AND is verified in the same statement, because the click on the link IS the proof
+// of ownership. Splitting the two writes would allow the state "new address, not
+// verified", which is precisely the lock-out this whole flow exists to avoid.
+export const APPLY_EMAIL_CHANGE = `
+  UPDATE users SET email = $2, email_verified = TRUE, updated_at = NOW()
+  WHERE id = $1 AND is_active = TRUE
+  RETURNING id
+`;
+
+// Uniqueness of an address AGAINST EVERY OTHER ACCOUNT. `id <> $2` is what lets the
+// owner re-send a confirmation for the address they already hold without colliding
+// with themselves.
+export const CHECK_EMAIL_EXISTS_EXCLUDING = `
+  SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND id <> $2
+`;
+
+// The only account a password-reset link may be minted for: active, with an address,
+// and with that address ALREADY CONFIRMED. An unconfirmed address is not proven to
+// belong to anyone, and mailing a password credential to it would hand the account to
+// whoever typed it at signup.
+export const FIND_RESETTABLE_USER_BY_EMAIL = `
+  SELECT id, username, nome, email
+  FROM users
+  WHERE LOWER(email) = LOWER($1) AND is_active = TRUE AND email_verified = TRUE
+`;
+
+// `is_active` in the WHERE, not read-then-check: an account deactivated between the
+// mint and the click must not be resettable, and RETURNING zero rows is how the
+// service learns that without a second round trip.
+export const SET_USER_PASSWORD = `
+  UPDATE users SET password_hash = $2, updated_at = NOW()
+  WHERE id = $1 AND is_active = TRUE
+  RETURNING id
 `;

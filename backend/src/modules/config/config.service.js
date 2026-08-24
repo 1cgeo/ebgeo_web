@@ -6,6 +6,7 @@
 import config from '../../config.js';
 import { ValidationError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
+import { canDeliverAccountMail } from '../../utils/mailer.js';
 import { query, tx } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
 import { readThroughAppConfigCache, invalidateAppConfigCache } from './config.cache.js';
@@ -248,7 +249,17 @@ async function buildAppConfig() {
     app: S.APP,
     // self_registration tells the client whether to show the "Criar conta" affordance — the
     // /auth/register route is only mounted when allowSelfRegistration is on (off in prod).
-    features: { ...S.FEATURES, self_registration: config.security.allowSelfRegistration },
+    //
+    // password_reset_email answers the same kind of question for the recovery panel of the login
+    // screen, and it is READ FROM THE SAME PREDICATE that mounts the routes
+    // (`canDeliverAccountMail`, src/utils/mailer.js), never from a second copy of the condition:
+    // a screen that offers "enviamos um código" against a 404, or hides a working recovery, is
+    // exactly what two copies of one fact produce once they drift.
+    features: {
+      ...S.FEATURES,
+      self_registration: config.security.allowSelfRegistration,
+      password_reset_email: canDeliverAccountMail(),
+    },
     services: { tileServerUrl: C.tileServerUrl },
     // A chave `search` faz parte do SHAPE CONGELADO e permanece — mas VAZIA: não
     // carrega mais `apiUrl`. O gazetteer É este backend (GET /nomes/busca) e o

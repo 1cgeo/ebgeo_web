@@ -1,24 +1,37 @@
 // Path: tests/unit/aba-mapas-acoes-por-estado.test.js
 //
-// A FIAÇÃO DA GRADE DE AÇÕES DA ABA "Mapas": qual botão existe e em qual estado ele aparece.
+// A GRADE DE AÇÕES DA ABA "Mapas": qual botão existe, em qual estado ele aparece, e — desde
+// 2026-08-23 — para QUEM.
 //
-// O BURACO QUE ESTE ARQUIVO FECHA foi medido, não suposto. `grep maps-save-local
+// O BURACO QUE ESTE ARQUIVO FECHOU PRIMEIRO foi medido, não suposto. `grep maps-save-local
 // frontend/tests/` devolvia ZERO: tirar `'save-local'` da linha REMOTE de `ACTIONS_BY_STATE`
 // — ou apagar a entrada inteira da grade — deixava a suíte verde e o comando sumia da tela.
 // A LÓGICA por trás do botão está medida (`tests/integration/salvar-remoto-como-local.test.js`
 // exercita `saveActiveRemoteAtlasAsLocal`); o que não estava medido é o caminho até ela.
 //
-// POR QUE ESTRUTURAL, E NÃO DE COMPORTAMENTO. O ambiente de teste do frontend é node puro,
-// sem jsdom, e a tabela é `const` de módulo em um arquivo que monta DOM no import. A grade
-// e a tabela são as duas DECLARAÇÕES: lê-las é medir exatamente o que a tela mostra.
+// O QUE MUDOU EM 2026-08-23, e é a razão de metade deste arquivo ter deixado de ser um parser:
+// a tabela e o gate saíram de `maps.tab.js` para `src/js/sidebar/tabs/atlas-actions.js`, um
+// módulo puro. A tabela agora se AFIRMA (importada e comparada), em vez de se reconhecer por
+// regex, e o gate por posto se EXERCITA. `maps.tab.js` continua sendo lido como texto, porque
+// ele importa Sortable e a store e não carrega em node: o que se lê ali é a fiação (a grade de
+// botões e quem decide a visibilidade), nunca mais a decisão.
 //
-// A VARREDURA RODA SOBRE CÓDIGO, NUNCA SOBRE PROSA — o bloco de comentário logo acima de
-// `ACTIONS_BY_STATE` cita "save-local" por extenso, e uma varredura ingênua ficaria verde
-// para sempre por causa dele. O caso `CONTROLE` prova o par: a remoção de comentários
-// continua vendo o código e deixou de ver a prosa.
+// POR QUE ESTRUTURAL NA METADE QUE SOBROU. O ambiente de teste do frontend é node puro, sem
+// jsdom, e a grade é montada com `document.createElement` no import. A lista de ações é uma
+// DECLARAÇÃO: lê-la é medir exatamente o que a tela mostra.
+//
+// A VARREDURA RODA SOBRE CÓDIGO, NUNCA SOBRE PROSA — os comentários de `maps.tab.js` citam por
+// extenso os ids que este arquivo procura, e uma varredura ingênua ficaria verde para sempre
+// por causa deles. O caso `CONTROLE` prova o par.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import {
+    ACTIONS_BY_STATE,
+    AtlasTabState,
+    atlasTabState,
+    visibleAtlasActions,
+} from '../../src/js/sidebar/tabs/atlas-actions.js';
 
 const URL_MAPS = new URL('../../src/js/sidebar/tabs/maps.tab.js', import.meta.url);
 const BRUTO = readFileSync(URL_MAPS, 'utf8');
@@ -114,19 +127,6 @@ function corpoDeMetodo(nome) {
 }
 
 /**
- * The visibility table, as `{ [AtlasTabState key]: string[] }`.
- * @returns {Object<string, string[]>}
- */
-function tabelaDeEstados() {
-    const bloco = recorte(FONTE, 'const ACTIONS_BY_STATE', '{');
-    const tabela = {};
-    for (const [, estado, lista] of bloco.matchAll(/\[AtlasTabState\.(\w+)\]:\s*\[([^\]]*)\]/g)) {
-        tabela[estado] = [...lista.matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    }
-    return tabela;
-}
-
-/**
  * The action entries declared in `_createActionsGrid`, in declaration order.
  * @returns {Array<{id: string, label: string|null, testid: string|null, handler: string|null}>}
  */
@@ -142,17 +142,20 @@ function acoesDaGrade() {
     }));
 }
 
+/** Um atlas de servidor, com a pessoa naquele posto. */
+const noServidor = (role) => visibleAtlasActions({ remote: true, authenticated: true, role });
+
 describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
     it('CONTROLE: a varredura enxerga o CÓDIGO e deixou de enxergar a PROSA', () => {
-        // O par que o CLAUDE.md exige de qualquer guarda que varra texto. A prosa escolhida
-        // é exatamente a que envenenaria este arquivo: o comentário acima de
-        // `ACTIONS_BY_STATE` explica por que "save-local" só existe no estado REMOTE.
-        const PROSA = '"save-local" é o SIMÉTRICO de "save-server"';
+        // O par que o CLAUDE.md exige de qualquer guarda que varra texto. A prosa escolhida é
+        // exatamente a que envenenaria este arquivo: o comentário acima da entrada
+        // `participants` explica a relação dela com "Compartilhar".
+        const PROSA = 'O IRMÃO SOMENTE-LEITURA de "Compartilhar"';
         expect(BRUTO, 'a prosa de controle sumiu do arquivo').toContain(PROSA);
         expect(FONTE, 'a PROSA sobreviveu à remoção de comentários').not.toContain(PROSA);
 
         // E o outro lado do par: o código continua lá.
-        expect(FONTE, 'a remoção de comentários comeu CÓDIGO').toContain('const ACTIONS_BY_STATE');
+        expect(FONTE, 'a remoção de comentários comeu CÓDIGO').toContain('const actions =');
         expect(FONTE).toContain('_handleSaveAsLocal()');
 
         // O removedor não pode mexer no conteúdo de um literal de string.
@@ -165,7 +168,7 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
 
         // PISO: o parser achou a grade inteira, e não uma entrada solta.
         expect(acoes.map((a) => a.id)).toEqual([
-            'open', 'save-server', 'import', 'save', 'save-local', 'share', 'clear',
+            'open', 'save-server', 'import', 'save', 'save-local', 'share', 'participants', 'clear',
         ]);
 
         const alvo = acoes.find((a) => a.id === 'save-local');
@@ -182,22 +185,48 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
         expect(irmao.handler).toBe('_handleSaveToServer');
     });
 
-    it('"save-local" aparece SÓ no estado REMOTE', () => {
-        const tabela = tabelaDeEstados();
+    it('o par "Compartilhar"/"Participantes" existe na grade, com testid LITERAL e handler', () => {
+        const acoes = acoesDaGrade();
 
+        const share = acoes.find((a) => a.id === 'share');
+        expect(share.label).toBe('Compartilhar');
+        expect(share.testid).toBe('maps-share');
+        expect(share.handler).toBe('_handleShare');
+
+        const participantes = acoes.find((a) => a.id === 'participants');
+        expect(participantes.label).toBe('Participantes');
+        expect(participantes.testid).toBe('maps-participants');
+        expect(participantes.handler).toBe('_handleParticipants');
+
+        // DISCRIMINAÇÃO: são DOIS handlers distintos, e o de leitura pede o modo pelo nome.
+        // Se os dois apontassem para o mesmo método, o Leitor tomaria 403 em `getSharing`,
+        // que é o beco sem saída que esta mudança existe para fechar.
+        expect(share.handler).not.toBe(participantes.handler);
+        const corpo = corpoDeMetodo('_handleParticipants');
+        expect(corpo).toContain("await import('@modals/sharing.modal.js')");
+        expect(corpo).toContain('readOnly: true');
+        expect(corpoDeMetodo('_handleShare')).not.toContain('readOnly');
+    });
+
+    it('"save-local" aparece SÓ no estado REMOTE', () => {
         // PISO: as três linhas da tabela, e nenhuma vazia.
-        expect(Object.keys(tabela).sort()).toEqual(['LOCAL_ANON', 'LOCAL_SIGNED_IN', 'REMOTE']);
-        for (const [estado, ids] of Object.entries(tabela)) {
-            expect(ids.length, `a linha ${estado} veio vazia do parser`).toBeGreaterThan(3);
+        expect(Object.keys(ACTIONS_BY_STATE).sort())
+            .toEqual(['local-anon', 'local-signed-in', 'remote']);
+        for (const [estado, ids] of Object.entries(ACTIONS_BY_STATE)) {
+            expect(ids.length, `a linha ${estado} veio vazia`).toBeGreaterThan(3);
         }
 
-        expect(tabela.REMOTE).toContain('save-local');
+        const REMOTO = ACTIONS_BY_STATE[AtlasTabState.REMOTE];
+        const ANON = ACTIONS_BY_STATE[AtlasTabState.LOCAL_ANON];
+        const LOGADO = ACTIONS_BY_STATE[AtlasTabState.LOCAL_SIGNED_IN];
+
+        expect(REMOTO).toContain('save-local');
 
         // DISCRIMINAÇÃO, e é a metade que dá sentido à de cima: guardar cópia local de um
         // atlas que já É local não significa nada. Uma tabela que mostrasse tudo em toda
         // linha passaria no `toContain` acima.
-        expect(tabela.LOCAL_ANON).not.toContain('save-local');
-        expect(tabela.LOCAL_SIGNED_IN).not.toContain('save-local');
+        expect(ANON).not.toContain('save-local');
+        expect(LOGADO).not.toContain('save-local');
 
         // AS TRÊS LINHAS INTEIRAS, e não só a REMOTE: acrescentar ou tirar QUALQUER comando
         // em QUALQUER estado passa a ser uma decisão, não um efeito colateral.
@@ -210,24 +239,26 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
         // exatamente a violação da palavra "somente". Uma auditoria de 2026-08-21 achou essa
         // fresta ao procurar o teste que prendia a cláusula, e a citação da constituição aponta
         // para cá: por isso as três são asserções ABSOLUTAS.
-        expect(tabela.LOCAL_ANON).toEqual(['open', 'import', 'save', 'clear']);
-        expect(tabela.LOCAL_SIGNED_IN).toEqual(['open', 'save-server', 'import', 'save', 'clear']);
-        expect(tabela.REMOTE).toEqual(['open', 'import', 'save', 'save-local', 'share']);
+        expect(ANON).toEqual(['open', 'import', 'save', 'clear']);
+        expect(LOGADO).toEqual(['open', 'save-server', 'import', 'save', 'clear']);
+        expect(REMOTO).toEqual(['open', 'import', 'save', 'save-local', 'share', 'participants']);
 
-        // E o `share` dito pelo nome, porque é ELE que a cláusula 7.5 governa, e um leitor que
-        // mude a lista acima não deve precisar reconstruir esse raciocínio a partir do diff.
-        expect(tabela.REMOTE).toContain('share');
-        expect(tabela.LOCAL_ANON).not.toContain('share');
-        expect(tabela.LOCAL_SIGNED_IN).not.toContain('share');
+        // E as duas ações de ACESSO ditas pelo nome, porque é a cláusula 7.5 que as governa, e
+        // um leitor que mude a lista acima não deve precisar reconstruir isso a partir do diff.
+        expect(REMOTO).toContain('share');
+        expect(REMOTO).toContain('participants');
+        for (const local of [ANON, LOGADO]) {
+            expect(local).not.toContain('share');
+            expect(local).not.toContain('participants');
+        }
     });
 
     it('a tabela e a grade falam do MESMO conjunto de ids: nada órfão, nada fantasma', () => {
         const daGrade = new Set(acoesDaGrade().map((a) => a.id));
-        const tabela = tabelaDeEstados();
-        const daTabela = new Set(Object.values(tabela).flat());
+        const daTabela = new Set(Object.values(ACTIONS_BY_STATE).flat());
 
-        expect(daGrade.size).toBe(7);
-        expect(daTabela.size).toBe(7);
+        expect(daGrade.size).toBe(8);
+        expect(daTabela.size).toBe(8);
 
         // Id na tabela e ausente da grade = linha morta; id na grade e ausente da tabela =
         // botão que nenhum estado mostra. As duas falham calado no produto.
@@ -236,19 +267,24 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
 
         // E o `AtlasTabState` não pode ganhar um estado sem linha na tabela: o estado sem
         // linha faz `_updateActionsVisibility` ler `undefined` e lançar em `includes`.
-        const enumBloco = recorte(FONTE, 'const AtlasTabState', '{');
-        const estados = [...enumBloco.matchAll(/(\w+):\s*'[^']+'/g)].map((m) => m[1]);
-        expect(estados).toEqual(['LOCAL_ANON', 'LOCAL_SIGNED_IN', 'REMOTE']);
-        expect(estados.every((e) => e in tabela)).toBe(true);
+        expect(Object.keys(AtlasTabState)).toEqual(['LOCAL_ANON', 'LOCAL_SIGNED_IN', 'REMOTE']);
+        expect(Object.values(AtlasTabState).every((e) => e in ACTIONS_BY_STATE)).toBe(true);
     });
 
-    it('a tabela é o que DECIDE a visibilidade, e a chave é o `id` da ação', () => {
-        // Sem esta ligação, as três asserções acima medem uma constante decorativa.
+    it('a decisão pura é o que DECIDE a visibilidade, e a chave é o `id` da ação', () => {
+        // Sem esta ligação, as asserções acima medem um módulo decorativo.
         const visibilidade = corpoDeMetodo('_updateActionsVisibility');
-        expect(visibilidade).toContain('ACTIONS_BY_STATE[this._atlasState()]');
+        expect(visibilidade).toContain('visibleAtlasActions(this._atlasContext())');
         expect(visibilidade).toMatch(/button\.hidden\s*=\s*!visible\.includes\(id\)/);
 
-        // E a chave do mapa de botões é o `action.id`, que é o que a tabela lista.
+        // E o contexto é lido dos TRÊS sinais vivos: origem da store, sessão e posto. Faltar o
+        // terceiro faria o gate por posto rodar sempre com `role` indefinido, que fecha tudo.
+        const contexto = corpoDeMetodo('_atlasContext');
+        expect(contexto).toContain('isRemoteStoreSync()');
+        expect(contexto).toContain('sessionContext.isAuthenticated()');
+        expect(contexto).toContain('sessionContext.role');
+
+        // A chave do mapa de botões é o `action.id`, que é o que a tabela lista.
         const grade = corpoDeMetodo('_createActionsGrid');
         expect(grade).toContain('this._actionButtons.set(action.id, button)');
         expect(grade).toMatch(/setAttribute\('data-testid',\s*action\.testid\)/);
@@ -273,5 +309,127 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
         // DISCRIMINAÇÃO: a recusa nomeada da poda vira mensagem ao usuário, e não "erro ao
         // salvar" — é a razão de `ResourceSumMissingError` ser uma subclasse com nome.
         expect(corpo).toContain("error?.name === 'ResourceSumMissingError'");
+    });
+});
+
+// ============================================================================
+// O GATE POR POSTO: quem vê "Compartilhar" e quem vê "Participantes"
+// ============================================================================
+
+describe('aba "Mapas": as duas portas de acesso, por posto', () => {
+    it('o estado ainda é decidido pela STORE, não pela pessoa', () => {
+        expect(atlasTabState({ remote: true, authenticated: true })).toBe(AtlasTabState.REMOTE);
+        // O visitante de link público é anônimo SOBRE um atlas de servidor, e cai em REMOTE:
+        // a pergunta que a linha responde é sobre a store.
+        expect(atlasTabState({ remote: true, authenticated: false })).toBe(AtlasTabState.REMOTE);
+        expect(atlasTabState({ remote: false, authenticated: true }))
+            .toBe(AtlasTabState.LOCAL_SIGNED_IN);
+        expect(atlasTabState({ remote: false, authenticated: false }))
+            .toBe(AtlasTabState.LOCAL_ANON);
+        // Sem argumento nenhum: o mais fechado dos quatro.
+        expect(atlasTabState()).toBe(AtlasTabState.LOCAL_ANON);
+    });
+
+    it('só de `manage` para cima vê "Compartilhar", nos DOIS vocabulários', () => {
+        // A escada do servidor. `manage` e `owner` são os dois postos que as quatro rotas de
+        // `/atlas/:atlasId/sharing` aceitam.
+        for (const posto of ['manage', 'owner']) {
+            expect(noServidor(posto), `${posto} deveria ver "Compartilhar"`).toContain('share');
+            expect(noServidor(posto), `${posto} não deveria ver "Participantes"`)
+                .not.toContain('participants');
+        }
+
+        // DISCRIMINAÇÃO, e é o defeito que a decisão fechou: os três degraus de baixo tinham o
+        // botão e o clique morria em 403.
+        for (const posto of ['read', 'comment', 'write']) {
+            expect(noServidor(posto), `${posto} não pode ver "Compartilhar"`)
+                .not.toContain('share');
+            expect(noServidor(posto), `${posto} precisa da porta de leitura`)
+                .toContain('participants');
+        }
+
+        // O vocabulário do CLIENTE (`UserRole`, seis valores, com o `admin` global dobrado para
+        // dentro da escada) responde igual, porque `atlasRoleHasAtLeast` traduz antes de comparar.
+        for (const papel of ['manager', 'owner', 'admin']) {
+            expect(noServidor(papel), `${papel} deveria ver "Compartilhar"`).toContain('share');
+        }
+        for (const papel of ['viewer', 'commenter', 'editor']) {
+            expect(noServidor(papel), `${papel} não pode ver "Compartilhar"`)
+                .not.toContain('share');
+        }
+    });
+
+    it('o VISITANTE DE LINK PÚBLICO não vê nenhuma das duas portas', () => {
+        // Ele é anônimo sobre um atlas de servidor. "Compartilhar" morreria em 403 na rota de
+        // sharing; "Participantes" morreria em 403 uma camada antes, em
+        // `confineVisitorPrincipal`, porque `GET /atlas/overview` não nomeia atlas nenhum e o
+        // token dele está confinado ao atlas que o emitiu.
+        const visitante = visibleAtlasActions({ remote: true, authenticated: false, role: null });
+        expect(visitante).not.toContain('share');
+        expect(visitante).not.toContain('participants');
+
+        // DISCRIMINAÇÃO: ele continua com tudo o que não depende de conta.
+        expect(visitante).toEqual(['open', 'import', 'save', 'save-local']);
+
+        // E o par que prova que é a SESSÃO, e não o posto, que fecha a porta de leitura: a
+        // mesma ausência de posto COM conta abre "Participantes".
+        expect(visibleAtlasActions({ remote: true, authenticated: true, role: null }))
+            .toContain('participants');
+    });
+
+    it('posto DESCONHECIDO fecha "Compartilhar" (falha fechada, não aberta)', () => {
+        const desconhecido = noServidor('superuser');
+        expect(desconhecido).not.toContain('share');
+        // Ele continua sendo uma conta que participa, então a porta de leitura fica: o servidor
+        // decide o que ela mostra, e mostrar é o que ela faz.
+        expect(desconhecido).toContain('participants');
+
+        // DISCRIMINAÇÃO em quatro valores que um gate ingênuo trataria como "algum papel":
+        // nenhum deles alcança `manage`.
+        for (const lixo of [null, undefined, '', 42, {}, 'ADMIN', 'Manage']) {
+            expect(
+                visibleAtlasActions({ remote: true, authenticated: true, role: lixo }),
+                `\`${String(lixo)}\` não pode abrir "Compartilhar"`,
+            ).not.toContain('share');
+        }
+    });
+
+    it('as duas portas NUNCA aparecem juntas, e nunca fora do atlas de servidor', () => {
+        const postos = [
+            'read', 'comment', 'write', 'manage', 'owner',
+            'viewer', 'commenter', 'editor', 'manager', 'admin',
+            'superuser', null,
+        ];
+        for (const role of postos) {
+            for (const authenticated of [true, false]) {
+                const remoto = visibleAtlasActions({ remote: true, authenticated, role });
+                const juntas = remoto.includes('share') && remoto.includes('participants');
+                expect(juntas, `\`${String(role)}\` viu as duas portas ao mesmo tempo`).toBe(false);
+
+                // Cláusula 7.5: atlas local não se compartilha pelo sistema, e não tem
+                // participante para listar. Nenhum posto muda isso.
+                const local = visibleAtlasActions({ remote: false, authenticated, role });
+                expect(local).not.toContain('share');
+                expect(local).not.toContain('participants');
+            }
+        }
+
+        // PISO da varredura acima: ela de fato viu as duas portas aparecerem, cada uma na vez
+        // dela. Sem isto, um `visibleAtlasActions` que devolvesse [] passaria verde.
+        expect(noServidor('owner')).toContain('share');
+        expect(noServidor('read')).toContain('participants');
+    });
+
+    it('o array devolvido é NOVO a cada chamada e mantém a ordem da tabela', () => {
+        const a = noServidor('owner');
+        const b = noServidor('owner');
+        expect(a).toEqual(b);
+        expect(a).not.toBe(b);
+        a.push('contaminado');
+        expect(noServidor('owner')).not.toContain('contaminado');
+
+        // A ordem é a da tabela, não a de um filtro que reordena.
+        expect(noServidor('owner')).toEqual(['open', 'import', 'save', 'save-local', 'share']);
+        expect(noServidor('read')).toEqual(['open', 'import', 'save', 'save-local', 'participants']);
     });
 });

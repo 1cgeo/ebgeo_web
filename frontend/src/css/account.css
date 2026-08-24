@@ -10,7 +10,7 @@
  *   - .account-control     (login/logout button + username)
  *   - .login-modal         (moved to login-modal.css, imported below)
  *   - .project-picker      (selectable project rows + empty state)
- *   - .sync-status-badge   (connection-state badge, [data-state] driven)
+ *   - .sync-status-badge   (estado do TRABALHO: ponto + rótulo, [data-tone] driven)
  */
 
 /* The login dialog's own rules live in a file of their own: `atlas.html` shows the same
@@ -569,9 +569,16 @@
 
 /* =========================================================================
    SYNC STATUS LIGHT (MapLibre IControl, corner bar)
-   A single colored dot — NO visible text. The state label (Conectado /
-   Sincronizando… / Desconectado) is the hover tooltip via the `title` attr.
-   Green = online, yellow = connecting, red = offline. Hidden when anonymous.
+   Um ponto colorido MAIS um rótulo curto visível (Tudo enviado / 3 pendentes
+   / Local / Sem conexão). A frase inteira fica no `title`, como REFORÇO: o
+   rótulo morava só lá, e `title` não existe no toque nem se lê sem parar o
+   ponteiro em cima.
+   A COR VEM DE `data-tone`, não de `data-state`. O `data-state` continua no
+   DOM carregando o vocabulário de CONEXÃO, porque as specs de Playwright
+   esperam por `data-state="online"`; quem pinta é o estado do TRABALHO, que
+   é o que a pessoa precisa distinguir (verde com fila cheia mentia).
+   Escondido para o visitante anônimo. Em atlas local aparece neutro, com
+   "Local": ali não há nada a enviar, e isso não é avaria.
    ========================================================================= */
 
 .sync-status-badge[hidden] {
@@ -580,9 +587,13 @@
 
 .sync-status-badge {
     display: inline-flex;
+
+    /* A barra é uma tira estreita: o rótulo tem teto e corta com reticências
+       em vez de empurrar o avatar e o crachá de atlas para fora. */
+    max-width: 168px;
     align-items: center;
-    justify-content: center;
-    padding: var(--space-1);
+    padding: 0 var(--space-1);
+    gap: var(--space-1);
 }
 
 .sync-status-badge__dot {
@@ -591,16 +602,53 @@
     height: 10px;
     border-radius: var(--radius-full);
     background: var(--gray-400);
+    transition: background-color var(--transition-fast);
 }
 
-.sync-status-badge[data-state="online"] .sync-status-badge__dot {
+.sync-status-badge__label {
+    overflow: hidden;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sync-status-badge[data-tone="ok"] .sync-status-badge__dot {
     background: var(--color-success);
 }
 
-.sync-status-badge[data-state="connecting"] .sync-status-badge__dot {
+/* Trabalho em movimento pulsa por `transform` (nunca por `left`/`width`, que
+   fariam layout a cada quadro numa barra que divide linha com outros
+   controles). */
+.sync-status-badge[data-tone="busy"] .sync-status-badge__dot {
     background: var(--color-warning);
+    animation: sync-status-pulse 1.4s ease-in-out infinite;
 }
 
-.sync-status-badge[data-state="offline"] .sync-status-badge__dot {
+.sync-status-badge[data-tone="warn"] .sync-status-badge__dot {
     background: var(--color-error);
+}
+
+.sync-status-badge[data-tone="idle"] .sync-status-badge__dot,
+.sync-status-badge[data-tone="unknown"] .sync-status-badge__dot {
+    background: var(--gray-400);
+}
+
+/* Trabalho parado sem conexão é o único estado que pede o olho: o rótulo
+   acompanha o ponto em vez de deixar a gravidade só na cor. */
+.sync-status-badge[data-tone="warn"] .sync-status-badge__label {
+    color: var(--color-error);
+}
+
+@keyframes sync-status-pulse {
+    0%,
+    100% { transform: scale(1); }
+    50% { transform: scale(1.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sync-status-badge[data-tone="busy"] .sync-status-badge__dot {
+        animation: none;
+    }
 }

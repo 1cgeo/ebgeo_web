@@ -34,6 +34,12 @@
  * mentir em dois lugares ao mesmo tempo: chamava um grupo de doze de "Usuário" e
  * dizia "N pessoas perdem o acesso" quando um dos N era um grupo. As funções deste
  * arquivo discriminam pelo campo (`isGroupGrant`), nunca pela ausência de nome.
+ *
+ * DESDE 2026-08-23 ELE CARREGA TAMBÉM QUEM PODE REVOGAR (`revokeAvailability`), e não é
+ * assunto novo: é a mesma pergunta ("o que este clique faz de verdade") um passo antes. A
+ * tela desenhava o botão em toda linha, então a pessoa que não concedeu atravessava o aviso
+ * destrutivo inteiro para receber 403 no fim. A regra é do SERVIDOR e mora aqui só porque é
+ * aritmética sobre o payload, testável em node, como o resto do arquivo.
  */
 
 /** O mesmo teto de `REVOKE_SUBTREE_PRESERVING_REACH`. Manter os dois iguais é o ponto. */
@@ -391,6 +397,108 @@ export function grantOriginLabel(grant) {
     const concedente = grant?.granted_by_nome || grant?.granted_by_username || '';
     if (!concedente) return 'concedido pela administração';
     return isGrantorDead(grant) ? `veio de ${concedente}` : `recebido de ${concedente}`;
+}
+
+/**
+ * Os dois desfechos de "esta pessoa pode remover ESTA concessão?".
+ *
+ * Enum, e não booleano, pela mesma razão de `LEAVE_AVAILABILITY` (`js/admin/group-phrases.js`):
+ * a tela desenha COISAS DIFERENTES nos dois ramos (botão num, nota no outro), e um booleano
+ * empurra o segundo ramo para o vazio, que é o que se lê como tela quebrada.
+ */
+export const REVOKE_AVAILABILITY = Object.freeze({
+    /** O servidor aceitaria a revogação. */
+    PODE: 'pode',
+    /** O servidor recusaria: quem olha não concedeu esta linha e não administra o sistema. */
+    NAO_CONCEDEU: 'nao-concedeu',
+});
+
+/**
+ * QUEM O SERVIDOR ACEITA COMO REVOGADOR DESTA LINHA, espelhado de `GRANT_REVOKER_ACTOR`
+ * (`backend/src/middleware/resource-access.js`).
+ *
+ * EXISTE PORQUE A TELA OFERECIA O ATO A TODO MUNDO. `_renderGrantItem` emitia o botão
+ * "Remover acesso" em toda linha da árvore, e o caminho que isso produz é o pior possível
+ * para um ato irreversível: a pessoa clica, recebe o diálogo destrutivo COMPLETO (que nomeia
+ * quem perde acesso e conta a queda da subárvore), confirma, e só então toma 403. Ela
+ * atravessa inteiro um aviso sobre uma consequência que nunca teve como causar.
+ *
+ * SÃO DUAS SITUAÇÕES DO LADO DE LÁ, E SÓ DUAS: quem CONCEDEU aquela linha
+ * (`g.granted_by = $2`) e o administrador GLOBAL (`u.role = 'admin'`). O credenciado saiu do
+ * ramo curinga na fase F9 e não volta aqui: ler todo recurso privado e desfazer a concessão
+ * de outra pessoa são poderes diferentes.
+ *
+ * REPARE QUE ISTO NÃO É LISTA FECHADA DE PAPEL, e o desenho do servidor é o que garante
+ * isso: o ramo largo pergunta por UM papel (quem administra o sistema) e o ramo estreito não
+ * pergunta por papel nenhum, pergunta por AUTORIA. Papel novo entra por `granted_by` sem que
+ * ninguém edite esta função.
+ *
+ * `granted_by` AUSENTE OU NULO FECHA, e a direção não é escolha de estilo: no servidor
+ * `g.granted_by = $2::uuid` com `granted_by` nulo devolve NULL, que não é `true`, então
+ * `requireGrantRevoker` recusa. A concessão da ADMINISTRAÇÃO (raiz sem concedente) é
+ * exatamente essa linha, e só o administrador global a remove. Fechar aqui é reproduzir o
+ * servidor, não ser conservador com ele; e mesmo que não fosse, a direção fechada é a certa
+ * para um ato irreversível, porque o custo de esconder um botão que funcionaria é um pedido
+ * a quem concedeu, e o de mostrar um que não funciona é o diálogo destrutivo acima.
+ *
+ * `isAdmin` é comparado com `true` ESTRITO: o chamador passa `sessionContext.isAdmin()`, e
+ * um dia em que essa chamada devolver `undefined` (sessão ainda não lida) a comparação
+ * frouxa abriria o ramo largo por acidente.
+ *
+ * NÃO É FRONTEIRA DE SEGURANÇA. O servidor redecide a cada requisição; isto é o que impede
+ * a tela de PROMETER o que ele vai negar.
+ *
+ * @param {{granted_by?: string|null}} grant - A concessão desenhada na linha.
+ * @param {{userId?: string|null, isAdmin?: boolean}} actor - Quem está olhando.
+ * @returns {string} Um valor de {@link REVOKE_AVAILABILITY}.
+ */
+export function revokeAvailability(grant, actor) {
+    if (actor?.isAdmin === true) return REVOKE_AVAILABILITY.PODE;
+    const concedente = grant?.granted_by;
+    const quem = actor?.userId;
+    if (concedente == null || quem == null) return REVOKE_AVAILABILITY.NAO_CONCEDEU;
+    // `String(...)` dos dois lados: o id da concessão vem do JSON da rede e o do visitante
+    // vem da sessão, como em `groupOptionLabel`.
+    return String(concedente) === String(quem)
+        ? REVOKE_AVAILABILITY.PODE
+        : REVOKE_AVAILABILITY.NAO_CONCEDEU;
+}
+
+/**
+ * A NOTA QUE OCUPA O LUGAR DO BOTÃO quando o servidor recusaria a revogação.
+ *
+ * ESPAÇO VAZIO SE LÊ COMO TELA QUEBRADA, e o padrão da casa é dizer por que não há botão
+ * (precedente: a nota do dono que não pode sair do grupo, `js/admin/groups-tab.js`). Aqui a
+ * causa é acionável, e é isso que a torna vale a pena escrever: quem concedeu tem NOME no
+ * payload da listagem (`granted_by_nome`/`granted_by_username`), então a nota diz a quem
+ * pedir em vez de deixar a pessoa concluir que o acesso é irremovível.
+ *
+ * O RÓTULO É CURTO E A CAUSA VAI NO `title`, pela mesma divisão de `deadGrantorChip`: a
+ * linha já carrega chip de prazo, chip de cascata e o nível, e um parágrafo no meio dela
+ * empurraria tudo para fora da tela.
+ *
+ * SEM CONCEDENTE É OUTRA FRASE, não a mesma com um buraco: a concessão da administração não
+ * tem a quem pedir, e mandar procurar "quem concedeu" seria mandar procurar ninguém.
+ *
+ * @param {{granted_by_nome?: string, granted_by_username?: string}} grant
+ * @returns {{label: string, title: string}}
+ */
+export function revokeBlockedNotice(grant) {
+    // `||` e não `??`, como em `grantOriginLabel`: string vazia é ausência de nome.
+    const concedente = grant?.granted_by_nome || grant?.granted_by_username || '';
+    const label = 'só quem concedeu remove';
+    if (!concedente) {
+        return {
+            label,
+            title: 'Esta concessão foi feita pela administração, e não por uma pessoa a quem '
+                + 'pedir. Só um administrador do sistema pode removê-la.',
+        };
+    }
+    return {
+        label,
+        title: `Quem concedeu este acesso foi ${concedente}, e só quem concedeu (ou um `
+            + 'administrador do sistema) pode removê-lo. Peça a remoção a essa pessoa.',
+    };
 }
 
 /**

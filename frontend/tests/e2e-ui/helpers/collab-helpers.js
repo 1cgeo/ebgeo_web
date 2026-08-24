@@ -19,6 +19,7 @@ import { waitForRemoteEntity } from './trace-helpers.js';
 import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
 import { createVerifiedUser } from './accounts.js';
+import { installBootProbe, expectAppBooted } from './boot-probe.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -106,7 +107,10 @@ export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permis
  * The `project-picker-*` testids are unchanged (kept verbatim through the move).
  */
 export async function loginUI(page, username, password) {
-    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
+    // A ESPERA QUE MAIS FALHA DESTA CAMADA, e a que menos dizia por quê. Ver
+    // `helpers/boot-probe.js`: ao estourar, a mensagem passa a nomear qual das quatro causas
+    // (config fail-fast, erro de pagina, boot ainda em curso, pagina errada) foi a do dia.
+    await expectAppBooted(page, { rotulo: `login:${username}` });
     await page.locator('[data-testid="account-login-btn"]').click();
     await expect(page.locator('[data-testid="login-modal"]')).toBeVisible({ timeout: 5000 });
     await page.locator('[data-testid="login-username"]').fill(username);
@@ -123,7 +127,7 @@ export async function loginUI(page, username, password) {
  */
 export async function goToLocalMapUI(page) {
     await page.locator('[data-testid="projects-local-map"]').click();
-    await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });
+    await expectAppBooted(page, { rotulo: 'mapa-local' });
 }
 
 /** Picks the atlas by id and waits for online + the live map. */
@@ -169,6 +173,9 @@ export async function openAtlasUI(page, atlasId) {
 export async function openClient(browser, baseUrl, atlasId, creds, { expectMapName } = {}) {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
+    // ANTES de qualquer navegacao: a sonda escuta `pageerror` e a resposta de `/api/config`, e o
+    // erro de boot que mais interessa e o precoce, que uma sonda instalada depois nao ve.
+    installBootProbe(page);
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${baseUrl}/api/v1`);
     // Enable the SyncLedger tracer before app boot so every collab spec gets the in-page
     // ring (window.__ebgeoSyncTrace) the deterministic waits + ledger collection read.
@@ -680,21 +687,183 @@ export async function savePanelUI(page) {
     await saveBtn.click();
 }
 
-/** Recolors the currently-selected feature via the panel color picker's native input, then saves. */
-export async function recolorViaPanelUI(page, hex) {
+/**
+ * O QUE O DRIVER VIU NO INSTANTE DO COMMIT, por pagina. Consumido por
+ * {@link vereditoDoCommitDeCor}, que e o experimento descrito la.
+ */
+const commitsDeCor = new WeakMap();
+
+/**
+ * TODO commit registrado, sem chave de pagina. Existe por causa de uma ambiguidade medida: o
+ * veredito voltou "INDISPONIVEL" numa falha em que o driver TINHA sido armado, e "indisponivel"
+ * cobria duas causas opostas (o driver nunca registrou nada, ou registrou para outro objeto de
+ * pagina). Um instrumento que confunde duas causas e o instrumento que esta sendo diagnosticado.
+ * @private
+ */
+const historicoDeCommits = [];
+
+/**
+ * A selecao VIVA do app e o estado do painel, lidos no instante em que se pergunta.
+ *
+ * Leitura de ASSERCAO, que e o unico uso de `page.evaluate` que a filosofia desta pasta autoriza
+ * fora de setup: nao existe UI para "me diga sobre qual feicao o painel esta". E ela e necessaria
+ * porque o painel NAO PUBLICA ISSO NO DOM: `sidebar/components/feature-panel.js` carimba
+ * `data-expanded` e nada mais, entao um driver que so olhe o DOM e cego quanto ao alvo, que e
+ * exatamente a cegueira que este experimento existe para medir.
+ * @private
+ */
+async function selecaoViva(page) {
+    return page.evaluate(async () => {
+        try {
+            const s = await import('/src/js/store/index.js');
+            const sm = s.getStateManager?.();
+            const sel = sm?.getSelectedFeatures?.() ?? [];
+            return {
+                ids: sel.map((f) => String(f?.id ?? '')),
+                painelAberto: document.querySelector('.feature-panel[data-expanded="true"]') !== null,
+            };
+        } catch (erro) {
+            return { erro: String(erro?.message ?? erro) };
+        }
+    });
+}
+
+/** Quantos spans o anel do SyncLedger tem AGORA. Marca de janela, sem depender de relogio. @private */
+async function marcaDoLedger(page) {
+    return page.evaluate(() => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t || !t.enabled) return null;
+        try {
+            return t.get(() => true).length;
+        } catch {
+            return null;
+        }
+    });
+}
+
+/** Os estagios que entraram no anel DEPOIS da marca, resumidos por nome. @private */
+async function estagiosDesde(page, marca) {
+    if (marca == null) return '(tracer desligado nesta pagina)';
+    return page.evaluate((desde) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t || !t.enabled) return '(tracer desligado)';
+        try {
+            const novos = t.get(() => true).slice(desde);
+            const contagem = {};
+            for (const span of novos) {
+                const chave = String(span?.stage ?? '?');
+                contagem[chave] = (contagem[chave] || 0) + 1;
+            }
+            return contagem;
+        } catch (erro) {
+            return `(anel ilegivel: ${String(erro?.message ?? erro)})`;
+        }
+    }, marca);
+}
+
+/**
+ * Recolors the currently-selected feature via the panel color picker's native input, then saves.
+ *
+ * O `featureId` E OPCIONAL E LIGA UM EXPERIMENTO, nao uma higiene. Ver
+ * {@link vereditoDoCommitDeCor}: quando ele e passado, o driver registra sobre QUAL feicao o app
+ * estava com a selecao no instante em que a cor foi escrita e no instante do "Salvar", mais os
+ * estagios de sync que entraram no anel durante a janela. Sem isso, uma edicao que evapora e
+ * indistinguivel de um driver que digitou no lugar errado, e as duas causas tem donos diferentes.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} hex
+ * @param {{featureId?: string}} [opcoes] - A feicao que o chamador ACREDITA estar editando.
+ */
+export async function recolorViaPanelUI(page, hex, { featureId } = {}) {
+    const marca = featureId ? await marcaDoLedger(page) : null;
+    const antes = featureId ? await selecaoViva(page) : null;
+
     const native = page.locator('.feature-panel[data-expanded="true"] .color-picker-native-hidden').first();
     await expect(native).toBeAttached({ timeout: 5000 });
     await native.evaluate((el, value) => {
         el.value = value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }, hex);
+
+    const depois = featureId ? await selecaoViva(page) : null;
     await savePanelUI(page);
+
+    if (featureId) {
+        const registro = {
+            featureId, hex, antes, depois, estagios: await estagiosDesde(page, marca),
+        };
+        commitsDeCor.set(page, registro);
+        historicoDeCommits.push({ featureId, hex, quando: Date.now() });
+    }
+}
+
+/**
+ * O VEREDITO DO EXPERIMENTO: quando a edicao nao virou operacao, de quem e o defeito.
+ *
+ * ESTE E O PONTO DO INSTRUMENTO, e ele existe para responder UMA pergunta que a observacao
+ * sozinha nao respondia: `browser-collab-three-client-flow` falha entre 1 e 2 vezes em 10 com
+ * "a edicao de C virou operacao na fila -> null", e a edicao some SEM ERRO. Duas causas explicam
+ * isso igualmente bem, e elas tem DONOS DIFERENTES:
+ *
+ *   HARNESS. O painel ja nao estava sobre a feicao pedida quando o driver escreveu a cor. Ai o
+ *   teste reprovava por acidente, estava cego (o painel nao publica o alvo no DOM), e o conserto
+ *   e do driver, isto e, desta pasta.
+ *
+ *   PRODUTO. O painel ESTAVA sobre a feicao certa, a cor foi escrita, o "Salvar" foi clicado e
+ *   mesmo assim nenhuma operacao nasceu. Ai o defeito e do cliente: uma edicao de usuario
+ *   desaparece porque chegou trafego remoto no meio do gesto, e nada avisa. O conserto e em
+ *   `frontend/src/js/`, e nao e desta pasta.
+ *
+ * A MENSAGEM DISTINGUE OS DOIS DESFECHOS DE PROPOSITO. Quem ler este vermelho daqui a tres meses
+ * nao tera a conversa que o originou, e "expect(received).toBeTruthy() -> null" nao diz de quem e
+ * o problema. Dai tambem o resumo de estagios: ele nomeia a NATUREZA do trafego da janela, o que
+ * separa um problema estreito (so a selecao sincronizada derruba o painel, e ela NAO passa pelo
+ * anel do sync) de um largo (qualquer operacao remota derruba).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {string} O veredito pronto para entrar numa mensagem de falha.
+ */
+export function vereditoDoCommitDeCor(page) {
+    const c = commitsDeCor.get(page);
+    if (!c) {
+        // AS DUAS CAUSAS SE SEPARAM AQUI, e a separacao custou uma rodada de captura perdida.
+        if (historicoDeCommits.length === 0) {
+            return 'VEREDITO INDISPONIVEL: NENHUM commit foi registrado nesta rodada, entao '
+                + '`recolorViaPanelUI` rodou sem `featureId` em todos os sitios.';
+        }
+        return 'VEREDITO INDISPONIVEL: houve '
+            + `${historicoDeCommits.length} commit(s) registrado(s) nesta rodada `
+            + `(${historicoDeCommits.map((h) => h.hex).join(', ')}), mas NENHUM para esta pagina. `
+            + 'Ou o driver falhou antes de registrar, ou este objeto de pagina nao e o mesmo que '
+            + 'recebeu o gesto (o cliente reaberto por `reopenPeer` e um objeto novo).';
+    }
+    const alvo = String(c.featureId);
+    const naSelecao = (obs) => Array.isArray(obs?.ids) && obs.ids.includes(alvo);
+    const resumo = (rot, obs) => `${rot}: painelAberto=${obs?.painelAberto} `
+        + `selecao=[${(obs?.ids ?? []).join(', ') || 'vazia'}]${obs?.erro ? ` erro=${obs.erro}` : ''}`;
+
+    const certoAntes = naSelecao(c.antes);
+    const certoDepois = naSelecao(c.depois);
+    const cabeca = (certoAntes && certoDepois)
+        ? 'VEREDITO: PRODUTO. O painel estava sobre a feicao certa nos DOIS instantes (ao escrever '
+          + 'a cor e ao salvar), e mesmo assim a operacao nao nasceu: a edicao do usuario evaporou '
+          + 'sem erro. O conserto e em frontend/src/js/, nao neste harness.'
+        : 'VEREDITO: HARNESS. O painel NAO estava sobre a feicao pedida no instante marcado abaixo, '
+          + 'entao o driver digitou no vazio e o teste reprovou por cegueira propria. O conserto e '
+          + 'desta pasta.';
+    return [
+        cabeca,
+        `feicao pedida: ${alvo}`,
+        resumo('ao escrever a cor', c.antes),
+        resumo('ao salvar', c.depois),
+        `estagios de sync na janela do gesto: ${JSON.stringify(c.estagios)}`,
+    ].join('\n  ');
 }
 
 /** Selects a feature in the layers tree, then recolors it through the panel (one gesture). */
 export async function selectAndRecolorUI(page, featureId, hex) {
     await selectFeatureUI(page, featureId);
-    await recolorViaPanelUI(page, hex);
+    await recolorViaPanelUI(page, hex, { featureId });
 }
 
 /** Deletes a feature through the REAL UI: select in the layers tree, press Delete, confirm. */

@@ -5,12 +5,20 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query, tx } from '../../database/index.js';
-import { AppError, UnauthorizedError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
+import {
+  AppError,
+  UnauthorizedError,
+  ForbiddenError,
+  BadRequestError,
+  ConflictError,
+} from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
-import { createAuditBestEffort } from '../../utils/audit.js';
+import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
 import {
   sendVerificationEmail,
   sendAccountExistsEmail,
+  sendEmailChangeVerification,
+  sendPasswordResetEmail,
   buildVerificationLink,
   buildAppLink,
 } from '../../utils/mailer.js';
@@ -448,6 +456,62 @@ export async function register(data, origin = '', req = null) {
 }
 
 /**
+ * The three things a token of `email_verification_tokens` may be redeemed for.
+ *
+ * MIRRORS THE CHECK of that table in `src/database/migrations/001_identidade.sql`, and it is a
+ * mirror on purpose: the database is the authority (a value it refuses never reaches a row), and
+ * this object exists so no call site spells a purpose as a bare string. Adding a fourth means
+ * editing both, in the same commit.
+ */
+export const TokenPurpose = Object.freeze({
+  VERIFY: 'verify',
+  CHANGE_EMAIL: 'change_email',
+  RESET_PASSWORD: 'reset_password',
+});
+
+/**
+ * The purposes the `?verify=` link may redeem, and the ONE it may not.
+ *
+ * Both entries arrive through the same link and the same route because the client sends only a
+ * token and cannot know which flow minted it. `RESET_PASSWORD` is absent, and its absence is the
+ * whole safety argument for one shared table: see `CLAIM_VERIFICATION_TOKEN`.
+ * @type {readonly string[]}
+ */
+const CONFIRMABLE_PURPOSES = Object.freeze([TokenPurpose.VERIFY, TokenPurpose.CHANGE_EMAIL]);
+
+/**
+ * Mints one account-mail token.
+ *
+ * @param {string} userId
+ * @param {string} purpose - One of {@link TokenPurpose}.
+ * @param {number} ttlMs
+ * @param {string|null} [newEmail] - Required for (and only for) `change_email`.
+ * @returns {Promise<string>} The token.
+ */
+async function mintToken(userId, purpose, ttlMs, newEmail = null) {
+  const expiresAt = new Date(Date.now() + ttlMs);
+  const { rows } = await query(Q.INSERT_VERIFICATION_TOKEN, [
+    userId,
+    expiresAt,
+    purpose,
+    newEmail,
+  ]);
+  return rows[0].token;
+}
+
+/** @returns {number} The confirmation TTL in milliseconds, guarding a non-numeric env. */
+function verificationTtlMs() {
+  const hours = Number(config.security.verificationTtlHours);
+  return (Number.isFinite(hours) ? hours : 48) * 60 * 60 * 1000;
+}
+
+/** @returns {number} The password-reset TTL in minutes, guarding a non-numeric env. */
+export function passwordResetTtlMinutes() {
+  const minutes = Number(config.security.passwordResetTtlMinutes);
+  return Number.isFinite(minutes) ? minutes : 60;
+}
+
+/**
  * Issues a fresh verification token for a user and e-mails (or logs) the link.
  * @param {{ id: string, nome: string }} user
  * @param {string} email
@@ -455,20 +519,52 @@ export async function register(data, origin = '', req = null) {
  * @returns {Promise<string>} The token.
  */
 async function issueAndSendVerification(user, email, origin) {
-  const hours = Number(config.security.verificationTtlHours);
-  const ttlMs = (Number.isFinite(hours) ? hours : 48) * 60 * 60 * 1000;
-  const expiresAt = new Date(Date.now() + ttlMs);
-  const { rows } = await query(Q.INSERT_VERIFICATION_TOKEN, [user.id, expiresAt]);
-  const token = rows[0].token;
+  const token = await mintToken(user.id, TokenPurpose.VERIFY, verificationTtlMs());
   const link = buildVerificationLink(token, origin);
   await sendVerificationEmail({ to: email, link, nome: user.nome });
   return token;
 }
 
 /**
- * Confirms a verification token: marks the user's e-mail verified and consumes the token.
+ * Issues a token for an e-mail CHANGE and mails the confirmation to the address being adopted.
+ *
+ * THE MECHANISM IS THE SAME ONE THE SIGNUP USES, deliberately: same table, same single-use
+ * atomic claim, same `?verify=` link, same TTL. Only `purpose` and the destination differ. A
+ * second token mechanism for the same fact ("prove you hold this mailbox") is how the two drift.
+ *
+ * Every still-live change token of this user is burned first, so asking twice never leaves two
+ * addresses confirmable: the last request is the one that counts.
+ *
+ * @param {{ id: string, username: string }} user - The account asking for the change.
+ * @param {string} newEmail - The address to adopt, already trimmed.
+ * @param {string} [origin] - Request origin, honoured only when trusted.
+ * @returns {Promise<string>} The token.
+ */
+export async function issueAndSendEmailChange(user, newEmail, origin = '') {
+  await query(Q.CONSUME_PENDING_TOKENS, [user.id, TokenPurpose.CHANGE_EMAIL]);
+  const token = await mintToken(
+    user.id,
+    TokenPurpose.CHANGE_EMAIL,
+    verificationTtlMs(),
+    newEmail
+  );
+  const link = buildVerificationLink(token, origin);
+  await sendEmailChangeVerification({ to: newEmail, link, username: user.username });
+  return token;
+}
+
+/**
+ * Confirms an account-mail token that arrived by the `?verify=` link.
+ *
+ * TWO OUTCOMES, ONE ROUTE, because the client holds only a token and the flow that minted it is
+ * a server-side fact:
+ *   - `verify`       — the address the account was born with becomes confirmed;
+ *   - `change_email` — the pending address REPLACES the current one and is born confirmed, since
+ *     the click is the proof of ownership.
+ * A `reset_password` token is not redeemable here at all (`CONFIRMABLE_PURPOSES`).
+ *
  * @param {string} token
- * @returns {Promise<{ success: true }>}
+ * @returns {Promise<{ success: true, purpose: string }>}
  */
 export async function verifyEmail(token) {
   // L4 — claim and verify in ONE transaction, with the claim itself doing the
@@ -476,9 +572,9 @@ export async function verifyEmail(token) {
   // read-check-then-write sequence let two concurrent requests both observe an
   // unconsumed token and both succeed, so the token was not truly single-use.
   return tx(async (t) => {
-    const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [token]);
+    const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [token, CONFIRMABLE_PURPOSES]);
     if (!claimed) {
-      // Unknown token, or another request already claimed it.
+      // Unknown token, already claimed, or minted for a purpose this route may not redeem.
       throw new BadRequestError('Token de verificação inválido.');
     }
     if (new Date(claimed.expires_at) < new Date()) {
@@ -486,7 +582,140 @@ export async function verifyEmail(token) {
       // user can still ask for a new one and this row stays diagnosable.
       throw new BadRequestError('Token de verificação expirado.');
     }
+
+    if (claimed.purpose === TokenPurpose.CHANGE_EMAIL) {
+      // THE SECOND UNIQUENESS CHECK, and it is not redundant with the one made when the change
+      // was requested: between the two, somebody else may have taken the address (a signup, or
+      // another account's change confirmed first). Without it the UPDATE raises 23505, which the
+      // error handler turns into a 400 that says nothing about e-mail. Throwing rolls the claim
+      // back, so the link is not burned by a refusal the holder cannot act on immediately.
+      const taken = await t.oneOrNone(Q.CHECK_EMAIL_EXISTS_EXCLUDING, [
+        claimed.new_email,
+        claimed.user_id,
+      ]);
+      if (taken) {
+        throw new ConflictError('Este e-mail já está em uso por outra conta.');
+      }
+      const applied = await t.oneOrNone(Q.APPLY_EMAIL_CHANGE, [claimed.user_id, claimed.new_email]);
+      if (!applied) {
+        // The account was deactivated between the request and the click.
+        throw new BadRequestError('Esta conta não está mais ativa.');
+      }
+      return { success: true, purpose: claimed.purpose };
+    }
+
     await t.none(Q.MARK_EMAIL_VERIFIED, [claimed.user_id]);
+    return { success: true, purpose: claimed.purpose };
+  });
+}
+
+/**
+ * Starts a password recovery: mints a short-lived token and mails it, WITHOUT ever saying whether
+ * the address belongs to an account.
+ *
+ * THE ANSWER IS ALWAYS THE SAME `{ success: true }`, which is the same anti-enumeration decision
+ * `resendVerification` makes, applied to the route that is far more worth attacking. The residual
+ * that this design does NOT close is stated plainly rather than hidden: the branch that finds an
+ * account pays two extra queries and one SMTP delivery, so the two branches differ in TIME. That
+ * is the same accepted cost `resendVerification` already carries and, unlike `register`, there is
+ * no bcrypt here to dominate the request and mask it. What bounds it is the per-address limiter
+ * on the route, not the shape of this function.
+ *
+ * ONLY A CONFIRMED ADDRESS gets a link. An unverified address is not proven to belong to the
+ * person who typed it at signup, so mailing a password credential there would hand over the
+ * account. Someone stuck in that state is the case for the administrator, and for the e-mail
+ * correction on "Minha conta".
+ *
+ * @param {string} email
+ * @param {string} [origin] - Request origin, honoured only when trusted.
+ * @returns {Promise<{ success: true }>} Identical on every branch.
+ */
+export async function requestPasswordReset(email, origin = '') {
+  const { rows } = await query(Q.FIND_RESETTABLE_USER_BY_EMAIL, [email]);
+  const user = rows[0];
+
+  if (user) {
+    // Asking again invalidates the previous code: two live codes for one account doubles the
+    // window without buying the person anything.
+    await query(Q.CONSUME_PENDING_TOKENS, [user.id, TokenPurpose.RESET_PASSWORD]);
+    const minutes = passwordResetTtlMinutes();
+    const token = await mintToken(
+      user.id,
+      TokenPurpose.RESET_PASSWORD,
+      minutes * 60 * 1000
+    );
+    await sendPasswordResetEmail({
+      to: user.email,
+      token,
+      nome: user.nome,
+      minutes,
+      appLink: buildAppLink(origin),
+    });
+  } else {
+    logger.info('Password reset requested for an address with no resettable account');
+  }
+
+  return { success: true };
+}
+
+/**
+ * Finishes a password recovery: consumes the token, writes the new password and ends every
+ * session of the account.
+ *
+ * EVERY SESSION DIES, including any the attacker may hold. `REVOKE_ALL_USER_TOKENS` revokes the
+ * refresh family AND stamps `users.sessions_valid_from`, which is the marker the live request
+ * path reads; without the second write, revoking would end the ability to rotate and nothing
+ * else. This is the same effect the administrator reset already has (`users.service.js`), and
+ * the reason a recovery must have it is sharper: the reason to recover is often that somebody
+ * else is inside.
+ *
+ * @param {string} token
+ * @param {string} newPassword
+ * @param {object} [req] - Express req, for the ip/user-agent of the audit line.
+ * @returns {Promise<{ success: true }>}
+ */
+export async function resetPasswordWithToken(token, newPassword, req = null) {
+  // Hashed BEFORE the transaction: bcrypt at cost 12 dominates the request, and holding a
+  // database transaction open across it would pin a connection for hundreds of milliseconds on
+  // an anonymous route.
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  return tx(async (t) => {
+    const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [
+      token,
+      [TokenPurpose.RESET_PASSWORD],
+    ]);
+    if (!claimed) {
+      // Unknown, already spent, or a confirmation token being presented here.
+      throw new BadRequestError('Código de redefinição inválido ou já utilizado.');
+    }
+    if (new Date(claimed.expires_at) < new Date()) {
+      throw new BadRequestError('Código de redefinição expirado. Peça outro.');
+    }
+
+    const updated = await t.oneOrNone(Q.SET_USER_PASSWORD, [claimed.user_id, passwordHash]);
+    if (!updated) {
+      throw new BadRequestError('Esta conta não está mais ativa.');
+    }
+
+    // Any OTHER live code of this account dies with the one just spent: a second code in a
+    // second mailbox copy would still open the account after the owner recovered it.
+    await t.none(Q.CONSUME_PENDING_TOKENS, [claimed.user_id, TokenPurpose.RESET_PASSWORD]);
+    await t.none(Q.REVOKE_ALL_USER_TOKENS, [claimed.user_id]);
+
+    // BLOCKING, like every other write to this trail, and unlike LOGIN/LOGOUT: there is no
+    // oracle to protect here (the outcome of THIS route is already told to the caller) and a
+    // password changed without a trail line is exactly what an investigation cannot afford.
+    // `actorId` is the account itself: whoever held the mailbox acted as the owner, and there
+    // is no other identity to name.
+    await createAudit(req, {
+      action: 'PASSWORD_RESET',
+      actorId: claimed.user_id,
+      targetType: 'USER',
+      targetId: claimed.user_id,
+      details: { self: true, via: 'email', sessionsRevoked: true },
+    }, t);
+
     return { success: true };
   });
 }

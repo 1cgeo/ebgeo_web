@@ -90,7 +90,14 @@ function onAnyEvent(event, payload) {
         switch (event) {
             case EventTypes.REMOTE_OPERATION_APPLIED: {
                 const op = payload && payload.operation;
-                if (op) {
+                // O REPARO DO PRÓPRIO AUTOR NÃO É UM PAR APLICANDO, e carimbá-lo aqui
+                // silenciaria o detector de órfã: `reduceLedger` monta `appliedOn` a partir
+                // deste estágio SEM excluir o autor (`tests/e2e-ui/helpers/ledger.js`), então
+                // um span emitido pelo autor faria a op parecer aplicada em alguém. O silêncio
+                // chegaria justamente nas ops em disputa, que é onde a órfã importa. O reparo
+                // reentra por `applyRemoteOperation` de propósito (mesmos handlers, mesmos
+                // locks, mesmos eventos de ciclo de vida para a tela); só o span é que mentiria.
+                if (op && !op.localRepair) {
                     record(TraceStage.REMOTE_APPLIED, {
                         opId: op.id, traceId: op.traceId, clientId: op.clientId,
                         entityType: op.entityType, operationType: op.operationType,

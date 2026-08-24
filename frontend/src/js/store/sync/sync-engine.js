@@ -168,8 +168,14 @@ function recordPushAcks(resp, ops) {
         // own WS echo, so without this it would never learn its op's server arrival order, and a
         // peer's concurrent OLDER op could overwrite the author's (correct) value. Applies to all
         // guarded entity types (feature/layer/group/3D/360).
+        //
+        // The OP ITSELF goes too, and it is not decoration: seeding a number repairs nothing when
+        // the peer's older op has ALREADY been written over the local value (the defer guard has
+        // two windows it cannot close — see `lastRemoteAppliedVersion` in
+        // remote-operation-handler.js). The ack is where the author learns it won, so it is where
+        // it must be able to put its value back, and only the op carries that value.
         if (sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
-            recordLocalAppliedVersion(op.entityId, sv);
+            recordLocalAppliedVersion(op.entityId, sv, op);
         }
     });
 

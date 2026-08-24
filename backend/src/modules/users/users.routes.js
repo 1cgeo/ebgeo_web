@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
+import { emailChangeLimiter } from '../../middleware/rate-limit.js';
 import * as ctrl from './users.controller.js';
 import * as schemas from './users.schemas.js';
 
@@ -12,6 +13,11 @@ const router = Router();
 router.get('/me', auth, ctrl.getProfile);
 router.put('/me', auth, validate({ body: schemas.updateProfileSchema }), ctrl.updateProfile);
 router.put('/me/password', auth, validate({ body: schemas.updatePasswordSchema }), ctrl.updatePassword);
+// ROTA PRÓPRIA, e não um campo a mais em `PUT /me`: o endereço é o canal de recuperação da conta,
+// exige a senha atual e dispara re-verificação, e nenhuma das três coisas cabe na edição de nome
+// e posto. O limitador é por ENDEREÇO mesmo com o chamador autenticado, porque a rota manda
+// e-mail para um destino que o chamador digita (ver `emailChangeLimiter`).
+router.put('/me/email', auth, emailChangeLimiter, validate({ body: schemas.changeEmailSchema }), ctrl.changeMyEmail);
 router.post('/me/api-key/rotate', auth, ctrl.rotateMyApiKey);
 router.get('/search', auth, validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
 

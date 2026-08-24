@@ -1044,6 +1044,23 @@
     white-space: nowrap;
 }
 
+/* A NOTA NO LUGAR DO BOTÃO DE REMOVER, quando o servidor recusaria a revogação (só quem
+   concedeu, e o administrador global). Espaço vazio se lê como tela quebrada, então a
+   nota diz por que não há botão e o `title` diz a quem pedir.
+   NEUTRA, não âmbar: âmbar nesta lista é o que surpreende (a cascata, a linha sem
+   efeito), e não poder revogar a concessão de outra pessoa é o estado NORMAL de quase
+   toda linha. `cursor: help` é o mesmo da nota do dono que não pode sair do grupo
+   (`admin-groups__leave-blocked`), porque a informação inteira está na dica. */
+.resource-share__revoke-blocked {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+    font-style: italic;
+    white-space: nowrap;
+    cursor: help;
+}
+
 /* O nome fica legível e o RESTO recua: o texto de origem ("veio de Fulano") não pode
    continuar com o peso de uma afirmação vigente ao lado do chip que a desmente. */
 .sharing-member[data-grant-effective='false'] .sharing-member__username {
@@ -1217,4 +1234,46 @@
     .sharing-group__select {
         min-height: var(--touch-target-min);
     }
+}
+
+/* =========================================================================
+   READ-ONLY MODE — "Participantes"
+
+   The same modal opened by whoever takes part without managing (clause 5.7).
+   It renders no control at all, so the only new pieces are a note explaining
+   why, a text badge for the level, and the overflow line.
+   ========================================================================= */
+
+.sharing-readonly__note {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-left: 3px solid var(--gray-400);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+    color: var(--gray-700);
+}
+
+/*
+ * The level, as TEXT and never as a disabled `<select>`: a greyed-out control
+ * still reads as a control and invites the click that does nothing. Same metrics
+ * as the owner badge next door, so the two columns line up when both are drawn.
+ */
+.sharing-member__level {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-2);
+    background: var(--gray-100);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    white-space: nowrap;
+}
+
+.sharing-readonly__overflow {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
 }

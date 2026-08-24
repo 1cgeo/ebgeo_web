@@ -32,7 +32,16 @@ import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-conte
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
+// A classificação de falha de pedido, de um módulo folha e SEM imports: a MESMA definição que
+// `index.js` e `projects/projects-page.js` consomem.
+import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
+// importavel de uma pagina que boota sem `initServices()`.
+import {
+    preserveUnsyncedWorkOnLostSession,
+    ExitOutcome,
+} from '../session/unsynced-work-exit.js';
 import { adminAudience } from './admin-audience.js';
 import { mountAdminPage } from './index.js';
 
@@ -63,19 +72,32 @@ async function bootConfig() {
 }
 
 /**
- * Restores the persisted login and mirrors it into the session context. Any failure (no token,
- * expired refresh, backend down) clears the tokens and leaves the session anonymous.
- * @returns {Promise<boolean>} Whether a session was restored.
+ * Restores the persisted login and mirrors it into the session context.
+ *
+ * ONLY A CREDENTIAL FAILURE (401/403) CLEARS THE TOKENS. Until 2026-08-23 this was a bare
+ * `catch { apiClient.clearTokens(); }`, byte for byte the same as `projects/projects-page.js`, so
+ * a 502 from the proxy, a latency spike or a 429 signed the user out FOR GOOD — and the outcome
+ * is terminal, because the product has no self-service password reset (`POST
+ * /users/:userId/reset-password` is `requireAdmin`). The shared predicate now lives in
+ * `@utils/request-failure.js`.
+ *
+ * IT REPORTS THE CLASS INSTEAD OF A BOOLEAN, because the caller has to tell two failures apart
+ * that a boolean makes identical: "you are not signed in" and "I could not ask who you are".
+ *
+ * @returns {Promise<{ok: boolean, failure: string|null}>} `failure` is a {@link RequestFailure}
+ *   value, or null when there was nothing stored to restore.
  */
 async function restoreSession() {
     try {
-        if (!apiClient.loadStoredTokens()) return false;
+        if (!apiClient.loadStoredTokens()) return { ok: false, failure: null };
         const user = await apiClient.getMe();
         sessionContext.setSession(sessionUserInfoFromMe(user));
-        return true;
-    } catch {
-        apiClient.clearTokens();
-        return false;
+        return { ok: true, failure: null };
+    } catch (error) {
+        const kind = classifyRequestFailure(error);
+        if (kind === RequestFailure.CREDENTIAL) apiClient.clearTokens();
+        else console.warn('[admin] session restore deferred (server unreachable):', error);
+        return { ok: false, failure: kind };
     }
 }
 
@@ -91,13 +113,36 @@ function clearSplash() {
  * @param {string} [reason] - Carried to the map page as `?sessao=<reason>` so it can explain itself.
  */
 async function endSession(reason) {
+    // O TRABALHO NÃO ENVIADO É RESGATADO ANTES, e este era o buraco: até 2026-08-23 a função era
+    // logout mais navegação, e a destruição ficava para a varredura de deslogado do boot seguinte,
+    // que é exatamente quem apaga o namespace com a fila dentro. O JSDoc acima ainda diz que esta
+    // página "must NOT reach into the store", e essa linha vale para os DADOS do atlas; o resgate
+    // alcança o store por módulos FOLHA (`unsynced-work-exit.js` importa por arquivo, nunca por
+    // barrel), que é o que o mantém carregável numa página sem `initServices()`.
+    //
+    // UM CAMINHO SÓ: aqui não há gesto a distinguir. Esta página só encerra sessão por acidente
+    // (inatividade, token perdido) ou por clique na barra, e a decisão do dono é a mesma para os
+    // dois, porque o sincronismo ocorre sempre e a fila pendente nunca é uma escolha.
+    const guarda = await preserveUnsyncedWorkOnLostSession();
+
     try {
         await apiClient.logout();
     } catch {
         // logout() already swallows network errors and clears locally; nothing left to do.
     }
     sessionContext.clearSession();
-    window.location.replace(reason ? `${MAP_URL}?sessao=${encodeURIComponent(reason)}` : MAP_URL);
+
+    // O CÓDIGO, E NÃO A FRASE. `window.location.replace` mata qualquer toast levantado logo antes,
+    // então o desfecho viaja como valor na URL e o mapa remonta a sentença a partir do mesmo
+    // módulo de frases puras. Pôr a prosa aqui a deixaria repetível por F5 e ecoável à mão.
+    const params = new URLSearchParams();
+    if (reason) params.set('sessao', reason);
+    if (guarda.outcome && guarda.outcome !== ExitOutcome.NADA) {
+        params.set('trabalho', guarda.outcome);
+        if (guarda.pendingOps) params.set('pendentes', String(guarda.pendingOps));
+    }
+    const qs = params.toString();
+    window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }
 
 /**
@@ -122,7 +167,20 @@ async function initAdminPage() {
     // (Administração, Catálogo, Grupos) are all panels, and none of them is a claim of authority.
     document.title = `Painel — ${config?.app?.title || 'EBGeo'}`;
 
-    await restoreSession();
+    const restored = await restoreSession();
+    // A SESSÃO QUE NÃO PÔDE SER CONFIRMADA NÃO CAI NO GATE ABAIXO, e este é o desfecho escolhido
+    // para a falha que NÃO é de credencial nesta página. Mandar para o mapa aqui diria à pessoa,
+    // pela única linguagem que a página tem (a porta fechada), que ela não é administradora, o que
+    // é uma afirmação sobre a AUTORIDADE dela que a página não mediu: o servidor não respondeu.
+    //
+    // Diferente de `atlas.html` de propósito: lá existe uma metade local que vale por si, e negá-la
+    // seria a perda maior. Aqui não existe metade nenhuma sem servidor, então a tela de
+    // indisponível é a resposta inteira, e ela já traz o "Tentar novamente" que recarrega, que é
+    // exatamente o que resolve quando o servidor voltar. Os tokens continuam no disco.
+    if (restored.failure && restored.failure !== RequestFailure.CREDENTIAL) {
+        showUnavailableScreen();   // remove o splash sozinho
+        return;
+    }
     // Gate: a audiência decide, e ela é UMA função (`admin-audience.js`), a mesma que a barra do
     // mapa e o seletor de atlas consultam para desenhar a entrada. Quem não recebe rótulo não
     // recebe aba nenhuma e vai para o mapa, em vez de encarar uma casca cujo primeiro pedido

@@ -36,6 +36,9 @@ import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// A classificacao de falha de pedido, de um modulo folha e SEM imports: a MESMA definicao que
+// `index.js`, `projects/projects-page.js` e `admin/admin-page.js` consomem.
+import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { mountCalibrationWorkspace, setSessionHandlers } from './app.js';
 
 /** Para onde vai quem nao calibra (ou quem esta deslogado). Relativo: o app pode servir de subpath. */
@@ -64,8 +67,18 @@ async function bootConfig() {
 }
 
 /**
- * Recupera o login persistido e espelha no contexto de sessao. Qualquer falha (sem token, refresh
- * vencido, backend fora) limpa os tokens e deixa a sessao anonima.
+ * Recupera o login persistido e espelha no contexto de sessao.
+ *
+ * SO UMA FALHA DE CREDENCIAL (401/403) APAGA O TOKEN. Ate 2026-08-23 este `catch` era nu, byte a
+ * byte igual aos de `projects/projects-page.js` e `admin/admin-page.js`, e as tres paginas foram
+ * escritas assim pelo mesmo motivo: cada uma copiou a anterior. Um 502 do proxy, um pico de
+ * latencia ou um 429 deslogava em definitivo, e o desfecho e terminal para quem nao sabe a senha
+ * de cor.
+ *
+ * ESTA FOI A QUARTA PAGINA, e ela escapou da correcao das outras tres porque o censo que protege
+ * a credencial era uma lista de alvos escrita a mao. Conferir um subconjunto e trata-lo como o
+ * conjunto e a classe mais repetida do livro-razao, e ela cobrou de novo aqui.
+ *
  * @returns {Promise<boolean>} Se havia sessao a recuperar.
  */
 async function restoreSession() {
@@ -74,8 +87,16 @@ async function restoreSession() {
         const user = await apiClient.getMe();
         sessionContext.setSession(sessionUserInfoFromMe(user));
         return true;
-    } catch {
-        apiClient.clearTokens();
+    } catch (error) {
+        if (classifyRequestFailure(error) === RequestFailure.CREDENTIAL) {
+            apiClient.clearTokens();
+        } else {
+            // Servidor fora do ar nao e "voce nao esta logado". A pagina cai no gate abaixo e manda
+            // para o mapa, que e o desfecho que ela ja tinha para quem nao calibra; o que muda e
+            // que a credencial fica no disco, entao um F5 depois que o servidor voltar reencontra
+            // a sessao em vez de exigir login novo.
+            console.warn('[calibracao] restauracao de sessao adiada (servidor inalcancavel):', error);
+        }
         return false;
     }
 }

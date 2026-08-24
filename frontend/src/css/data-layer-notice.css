@@ -1,0 +1,124 @@
+/* Path: css/data-layer-notice.css */
+
+/**
+ * @fileoverview Aviso de camada de dados que não carregou, ancorado no contêiner do mapa.
+ *
+ * NÃO É UM TOAST, e a diferença é funcional, não estética: o toast desta casa não carrega botão
+ * (`utilities/toast_service.js` só desenha o "×"), e o produto pede que o aviso OFEREÇA tentar de
+ * novo. Um aviso que some sozinho em três segundos também não serve para uma falha que persiste
+ * enquanto a pessoa navega pelo mapa.
+ *
+ * A COR É A DE AVISO, NÃO A DE ERRO. O que aconteceu é conhecido (a camada não veio); o motivo
+ * não é (rede, servidor de tiles, ou restrição de acesso). Pintar de vermelho afirma gravidade
+ * que a tela não pode sustentar, e no caso da cláusula 10.1 a pessoa tem direito à camada e o
+ * defeito é do transporte.
+ *
+ * BEM: bloco .data-layer-notice, elementos __body / __text / __detail / __actions / __btn,
+ * modificadores --retry e --dismiss.
+ */
+
+.data-layer-notice {
+    position: absolute;
+    top: var(--space-4);
+    left: 50%;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+    max-width: min(560px, calc(100% - var(--space-8)));
+    padding: var(--space-3) var(--space-4);
+    background: #fff;
+    border: var(--border-width) solid var(--color-warning);
+    border-left-width: 4px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    font-family: var(--font-family-base);
+
+    /* translateX e não `margin-left` negativo: a casa anima e posiciona por transform. */
+    transform: translateX(-50%);
+    z-index: var(--z-toast);
+}
+
+.data-layer-notice[hidden] {
+    display: none;
+}
+
+.data-layer-notice__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.data-layer-notice__text {
+    margin: 0;
+    color: var(--gray-800);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.4;
+}
+
+/* A declaração de ignorância. Menor e mais clara que o fato, porque é ressalva, e nunca some:
+   sem ela o silêncio sobre o motivo se lê como acusação de falta de acesso. */
+.data-layer-notice__detail {
+    margin: 0;
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    line-height: 1.5;
+}
+
+.data-layer-notice__actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.data-layer-notice__btn {
+    padding: var(--space-2) var(--space-3);
+    background: none;
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.data-layer-notice__btn--retry {
+    background: var(--primary);
+    color: #fff;
+}
+
+.data-layer-notice__btn--retry:hover {
+    background: var(--primary-hover);
+}
+
+.data-layer-notice__btn--dismiss {
+    border-color: var(--border-color-dark);
+    color: var(--gray-600);
+}
+
+.data-layer-notice__btn--dismiss:hover {
+    background: var(--gray-100);
+    color: var(--gray-800);
+}
+
+.data-layer-notice__btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Numa janela estreita o par de botões não cabe ao lado do texto, e encolher a frase para
+   preservar a linha única é trocar a informação pelo enfeite. */
+@media (width <= 600px) {
+    .data-layer-notice {
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .data-layer-notice__actions {
+        align-self: flex-end;
+    }
+}

@@ -257,6 +257,13 @@ const config = Object.freeze({
     // because it invites the next reader to set it and expect an approval flow that
     // does not exist. Self-registration confirms by e-mail link, period.
     verificationTtlHours: parseInt(optional('AUTH_VERIFICATION_TTL_HOURS', '48'), 10),
+    // O PRAZO DO LINK DE REDEFINIÇÃO DE SENHA, e ele é MUITO mais curto que o de
+    // confirmação de conta de propósito: o token de confirmação só ativa um endereço
+    // que a pessoa já declarou, enquanto o de redefinição TROCA o único fator de
+    // autenticação da casa. Minutos, não horas, e a unidade é minuto para que
+    // encurtá-lo não exija fração. Vale só onde as rotas existem, que é onde há relay
+    // (ver a montagem condicional em `src/modules/auth/auth.routes.js`).
+    passwordResetTtlMinutes: parseInt(optional('AUTH_PASSWORD_RESET_TTL_MINUTES', '60'), 10),
     // A chave de IMPRESSÃO do de-para da trilha (`utils/audit-diff.js`). Derivada, não
     // configurada: ver `derivarChaveDeImpressao` acima. Ela NUNCA sai em resposta
     // nenhuma — se sair, a impressão vira oráculo de adivinhação para quem lê a trilha.
@@ -375,6 +382,10 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   // ceiling is a sanity bound: more than ten reverse proxies is a typo.
   TRUST_PROXY_HOPS: { min: 0, max: 10 },
   AUTH_VERIFICATION_TTL_HOURS: { min: 1, max: 8760 },
+  // Teto de um dia: um link de redefinição que vale mais que isso é uma senha
+  // paralela. Piso de cinco minutos porque abaixo disso o próprio atraso de entrega
+  // do relay come o prazo inteiro.
+  AUTH_PASSWORD_RESET_TTL_MINUTES: { min: 5, max: 1440 },
   HEALTH_DB_TIMEOUT_MS: { min: 100, max: 60000 },
   SMTP_PORT: { min: 1, max: 65535 },
 });

@@ -127,6 +127,18 @@ const CENSO = [
     motivo: 'Reenvio do e-mail de confirmação: não muda estado de autorização nenhum, e é rota '
       + 'com limitador próprio justamente por poder ser repetida à vontade.',
   },
+  {
+    arquivo: 'src/modules/auth/auth.routes.js', rota: 'POST /forgot-password', classe: ISENTA,
+    motivo: 'PEDIR um código de redefinição não muda nada: nenhuma coluna de conta é escrita, só '
+      + 'um token de uso único é cunhado, e a rota responde igual exista ou não a conta. Auditar '
+      + 'aqui seria pior que inútil, seria PERIGOSO: a trilha guarda o e-mail digitado por um '
+      + 'chamador anônimo, e viraria uma lista de endereços tentados que ninguém pediu para '
+      + 'guardar. O ato que importa é a redefinição, e ela está auditada logo abaixo.',
+  },
+  {
+    arquivo: 'src/modules/auth/auth.routes.js', rota: 'POST /reset-password', classe: AUDITADA,
+    acao: 'PASSWORD_RESET', emissor: 'src/modules/auth/auth.service.js',
+  },
 
   // ---------------- catálogo (a fábrica serve as QUATRO tabelas) --------------
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'CATALOG_CREATE', emissor: 'src/modules/catalog/catalog.controller.js' },
@@ -247,6 +259,12 @@ const CENSO = [
   // que discrimina os dois emissores, e é ele que o caso de integração afirma.
   { arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me', classe: AUDITADA, acao: 'USER_UPDATE', emissor: USERS_SVC },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me/password', classe: AUDITADA, acao: 'PASSWORD_RESET', emissor: USERS_SVC },
+  // O PEDIDO de troca de e-mail é auditado, e não a troca: a troca acontece depois, quando o link
+  // do endereço novo é aberto. A ação reusada é `USER_UPDATE`, com `self: true` e
+  // `emailChangeRequested: true`, e a linha é a MESMA nos dois desfechos (endereço livre, endereço
+  // de outra conta) de propósito, porque a trilha não pode ser o canal por onde a colisão vaza.
+  // O endereço pretendido NÃO entra na linha, nem por impressão: ele ainda não é fato da conta.
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'PUT /me/email', classe: AUDITADA, acao: 'USER_UPDATE', emissor: USERS_SVC },
 
   // ---------------- zonas geográficas (schema ng) -----------------------------
 ];

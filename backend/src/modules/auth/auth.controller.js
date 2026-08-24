@@ -116,3 +116,31 @@ export const resendVerification = asyncHandler(async (req, res) => {
   const result = await authService.resendVerification(req.body.email, requestOrigin(req));
   res.json({ data: result });
 });
+
+/**
+ * Step one of the password recovery.
+ *
+ * ANSWERS THE SAME 200 AND THE SAME BODY whether or not the address has a resettable account —
+ * the same anti-enumeration decision `register` makes, applied to the route that would otherwise
+ * be the cheapest account oracle in the product: no credential, no limit on who may ask, and an
+ * answer for every address on the internet. Nothing about the outcome may reach the response; it
+ * reaches the mailbox or nowhere.
+ */
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const result = await authService.requestPasswordReset(req.body.email, requestOrigin(req));
+  res.json({ data: result });
+});
+
+/**
+ * Step two of the password recovery.
+ *
+ * This one DOES distinguish its outcomes (invalid code, expired code, success), and that is not
+ * a contradiction of the route above: the caller here is holding a code that was mailed to the
+ * account's own address, so telling them it expired reveals nothing they could not learn by
+ * trying, and hiding it would leave the only recovery path unusable in silence.
+ */
+export const resetPasswordByToken = asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body;
+  const result = await authService.resetPasswordWithToken(token, newPassword, req);
+  res.json({ data: result });
+});

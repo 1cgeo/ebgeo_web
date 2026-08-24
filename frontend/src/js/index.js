@@ -36,11 +36,16 @@ import {
     switchToNewLocalAtlas,
 } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
+import { publicLinkFailureNotice, shouldForgetPublicLink } from './deep-link/public-link-phrases.js';
+// From the FILE, never from the `@utils` barrel: `atlas.html` and `admin.html` consume the same
+// definition and boot without the store.
+import { classifyRequestFailure, isCredentialFailure } from '@utils/request-failure.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
 import { shouldRouteToProjects } from './deep-link/route-decision.js';
 import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
+import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -325,18 +330,38 @@ const ENDED_SESSION_MESSAGES = Object.freeze({
 });
 
 /**
- * Explains a session that ended on the Administração page. That page has no login UI of its own, so
- * it revokes the token and sends the user here with `?sessao=<motivo>`; without this the user would
- * simply find themselves on an anonymous map with no idea why. One-shot: the param is stripped so a
- * reload does not repeat the message. Unknown values are ignored rather than echoed.
+ * Explains a session that ended on `atlas.html` or on `admin.html`. Neither page has a login UI of
+ * its own, so it revokes the token and sends the user here; without this the user would simply find
+ * themselves on an anonymous map with no idea why.
+ *
+ * TWO DIFFERENT FACTS TRAVEL, and they need two toasts. `?sessao=<motivo>` says WHY the session
+ * ended; `?trabalho=<desfecho>` (plus `?pendentes=<n>`) says what became of work the server never
+ * received, which is the one the person has to act on. The channel is the query string and not a
+ * toast raised before leaving, because `window.location.replace` kills any toast raised just before
+ * it.
+ *
+ * ONLY A CODE TRAVELS, NEVER A SENTENCE. The prose is rebuilt here from the same pure module the
+ * other page would have used (`exitOutcomeNotice`), so a hand-edited URL cannot put words in the
+ * app's mouth, and the wording lives in one place. One-shot: every parameter is stripped so a
+ * reload does not repeat the message, and unknown values are ignored rather than echoed.
  */
 function explainEndedSessionFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get('sessao');
-    if (!reason) return;
+    const outcome = params.get('trabalho');
+    if (!reason && !outcome && !params.has('pendentes')) return;
+
     const message = ENDED_SESSION_MESSAGES[reason];
     if (message) showToast(message, 'warning');
+    // DEPOIS do motivo, porque este é o aviso sobre o qual há algo a fazer.
+    const trabalho = exitOutcomeNotice(outcome, params.get('pendentes'));
+    if (trabalho) showToast(trabalho.message, trabalho.tone);
+
     params.delete('sessao');
+    params.delete('trabalho');
+    // Apagado mesmo quando `trabalho` não veio: parâmetro solto na barra de endereços sobrevive ao
+    // F5, e a limpeza de uma vez só existe justamente para isso.
+    params.delete('pendentes');
     const qs = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
 }
@@ -365,21 +390,63 @@ async function handleEmailVerificationFromUrl() {
 }
 
 /**
+ * Removes `?atlasPublico=` from the address bar, preserving every other param and the hash.
+ *
+ * INLINE, and not through `deep-link/atlas-link.js`, for the same reason `?verify` and `?sessao`
+ * are handled inline here: those are one-shot boot params, and `buildAtlasSearch` PRESERVES
+ * `atlasPublico` by contract (an anonymous viewer fires disconnect events and must not lose the
+ * link they are viewing under). Teaching that function to drop it would put the exception in the
+ * function every disconnect goes through, to serve the one branch that has proof.
+ */
+function forgetPublicAtlasUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('atlasPublico')) return;
+    params.delete('atlasPublico');
+    const qs = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+}
+
+/**
  * If the URL carries a public viewer link (`?atlasPublico=<link>`) and nobody is logged in, opens
  * that atlas as an anonymous read-only visitor. Returns true if it took over the boot (so the
- * normal last-atlas reconnect is skipped). Best-effort: any failure falls back to the normal path.
+ * normal last-atlas reconnect is skipped). A failure falls back to the normal path AND SAYS SO.
+ *
+ * THE TRY IS SPLIT IN TWO, and the split is the whole fix. One `catch` around everything could
+ * only report the bare fact of failing, so four different situations (link revogado, link
+ * expirado, link digitado errado, atlas excluído) plus every LOCAL failure below (the namespace,
+ * the wipe, the socket) collapsed into a single `console.warn` and a generic local map. The first
+ * half is the only one that speaks about the LINK, because it is the only one holding the
+ * server's answer about it; the second half already has the atlas resolved, so anything it
+ * throws is about this browser, and saying "your link is dead" there would be a lie.
  * @returns {Promise<boolean>}
  */
 async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location.search).get('atlasPublico')) {
+    if (!link || sessionContext.isAuthenticated()) return false;
+
+    let atlas;
     try {
-        if (!link || sessionContext.isAuthenticated()) return false;
         // RESOLVE FIRST, CLAIM SECOND. `?atlasPublico=` carries a link TOKEN, and the atlas UUID
         // only exists once the server answers — but under the uniform rule the key IS the UUID, so
         // there is nothing honest to claim before this call. Resolving is a read: it opens nothing
         // and destroys nothing, so deferring the claim costs one round trip and no data. (The
         // alternative, claiming under a placeholder id and re-stamping later, collides with the
         // wrong tabs and hands away a claim this tab already holds — see tab-lock.js, section 1.)
-        const atlas = await apiClient.getPublicAtlas(link);
+        atlas = await apiClient.getPublicAtlas(link);
+    } catch (error) {
+        console.warn('[boot] public atlas link refused:', error);
+        // Nothing was claimed yet (the claim is below, after the resolve), but the retract is kept
+        // here anyway: it is what the single catch did for this exact failure before the split, and
+        // it is a no-op for a tab that holds nothing remote. Behaviour of the lock is unchanged.
+        retractAtlasClaim();
+        const kind = classifyRequestFailure(error);
+        const notice = publicLinkFailureNotice(kind);
+        showToast(notice.message, notice.tone);
+        // Only a link the SERVER refused leaves the address bar; see `shouldForgetPublicLink`.
+        if (shouldForgetPublicLink(kind)) forgetPublicAtlasUrl();
+        return false;
+    }
+
+    try {
         apiClient.setEphemeralToken(atlas.publicToken);
         // Now the claim, and it still precedes every destructive step below.
         // A TESTEMUNHA, pelo mesmo motivo dos outros dois sítios destrutivos: `granted` sozinho é
@@ -417,31 +484,17 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         return true;
     } catch (error) {
         console.warn('[boot] public atlas open failed:', error);
-        // A dead link must not leave this tab holding the server claim: retract, or nobody else
+        // A failed open must not leave this tab holding the server claim: retract, or nobody else
         // gets to open a server atlas until this tab is closed.
         retractAtlasClaim();
+        // The link RESOLVED, so this is a local failure (namespace, wipe, socket, initial map) and
+        // the URL keeps the link: it is good, and a reload is the honest retry. The sentence says
+        // "neste computador" for the same reason — blaming the link here would send the visitor to
+        // ask for a replacement that would fail exactly the same way.
+        showToast('Não foi possível abrir este atlas de visualização neste computador. '
+            + 'Recarregue a página para tentar de novo.', 'error');
         return false;
     }
-}
-
-/**
- * Whether a failed session restore means the CREDENTIAL is dead (so the stored tokens must go)
- * or merely that the server could not answer right now (so they must stay).
- *
- * Only 401/403 are the credential answering for itself. A timeout (`getMe` runs with an 8 s boot
- * deadline), a network error or a 5xx say nothing about the token — and clearing it on those
- * logged the user out PERMANENTLY over a slow backend: the session did not come back when the
- * server recovered, the password had to be typed again.
- *
- * The same "status decides, never the mere fact of failing" rule is applied to the flush loop by
- * `classifyFlushFailure` (`store/sync/sync-flush.js`); the predicate is three lines, so it is
- * stated here rather than shared, and its contract is this comment.
- * @param {*} error
- * @returns {boolean}
- */
-function isCredentialFailure(error) {
-    const status = error?.status ?? error?.statusCode;
-    return status === 401 || status === 403;
 }
 
 /**

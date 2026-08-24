@@ -25,6 +25,26 @@ export const updatePasswordSchema = Joi.object({
   newPassword: Joi.string().required().min(6).max(100),
 });
 
+/**
+ * Auto-serviço de TROCA DE E-MAIL. Duas decisões estão neste schema, e nenhuma é decoração.
+ *
+ * `email` NÃO ESTÁ EM `updateProfileSchema`, e a separação é o ponto: uma rota própria é o que
+ * permite exigir a senha atual e disparar a re-verificação sem pendurar nenhuma das duas na
+ * edição de nome e posto. Aceitar o endereço lá seria escrever o canal de recuperação da conta
+ * com o mesmo peso de um campo de exibição.
+ *
+ * `currentPassword` É OBRIGATÓRIA porque o e-mail É o canal de recuperação: quem apanha uma
+ * sessão aberta e consegue trocar o endereço sem provar mais nada leva a conta inteira, e a
+ * troca de senha (`updatePasswordSchema`, logo acima) já cobra a mesma prova pela mesma razão.
+ * Sem regra de comprimento aqui, pelo motivo do `loginSchema` (`auth.schemas.js`): política de
+ * comprimento é sobre CRIAR senha, e cobrá-la ao DIGITAR uma existente tranca fora quem tem
+ * senha anterior à regra e vaza a política num 422.
+ */
+export const changeEmailSchema = Joi.object({
+  email: Joi.string().email().max(255).required(),
+  currentPassword: Joi.string().required().max(100),
+});
+
 export const searchQuerySchema = Joi.object({
   q: Joi.string().required().min(2).max(100),
 });
@@ -114,6 +134,22 @@ export const updateUserAdminSchema = Joi.object({
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.
   email_verified: Joi.boolean(),
+  // O ENDEREÇO, ACEITO AQUI DESDE 2026-08-23, e ele fecha a metade administrativa de um
+  // buraco que o auto-serviço sozinho não alcança. Quem erra o e-mail no cadastro fica com a
+  // conta PENDENTE e não consegue entrar, então não chega a "Minha conta" para se corrigir;
+  // o administrador, por sua vez, só sabia marcar `email_verified`, isto é, APROVAR o
+  // endereço errado. Poder CORRIGI-LO é o que torna o desbloqueio um ato de administração de
+  // verdade (cláusula 10.6 de CONSTITUICAO.md).
+  //
+  // `allow(null, '')` LIMPA o endereço, e o estado vazio é legítimo: é como
+  // `POST /api/v1/users` cria toda conta administrativa, e é o que devolve a conta ao regime
+  // em que o gate de login não se aplica.
+  //
+  // A REGRA QUE O SCHEMA NÃO CONSEGUE EXPRIMIR, e que `users.service.js` impõe: trocar o
+  // endereço zera `email_verified`, salvo se o MESMO pedido mandar o contrário. Ela depende
+  // de comparar o valor novo com o da linha, e o Joi só enxerga o corpo — a mesma razão pela
+  // qual o bicondicional de `producer_org_id` também mora no service.
+  email: Joi.string().email().max(255).allow(null, ''),
   // O eixo `org_role` saiu daqui em 2026-08-20 (D7). Historia curta, porque explica por
   // que ele nunca deveria ter existido: ate 2026-07-19 nenhum caminho de codigo dos dois
   // pacotes ESCREVIA a coluna, entao todo usuario ficava no default e o gate de escrita

@@ -4,7 +4,17 @@ import { query, tx } from '../../database/index.js';
 import {
   NotFoundError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError,
 } from '../../utils/errors.js';
-import { createAudit } from '../../utils/audit.js';
+import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
+// O MECANISMO DE TOKEN DE CONTA TEM UMA IMPLEMENTACAO SO, e ela e a do modulo de auth: mesma
+// tabela, mesmo resgate atomico de uso unico, mesmo link `?verify=`. A troca de e-mail e uma
+// rota de `/users/me`, mas o portao pelo qual o endereco novo passa e literalmente o do
+// cadastro. Escrever um segundo emissor de token aqui seria a segunda copia da regra mais
+// sensivel da casa.
+import { issueAndSendEmailChange } from '../auth/auth.service.js';
+// A UNICIDADE DE E-MAIL tambem tem uma definicao so, ao lado do fluxo que confirma o endereco.
+import { CHECK_EMAIL_EXISTS_EXCLUDING } from '../auth/auth.queries.js';
+import { sendEmailInUseNotice, buildAppLink } from '../../utils/mailer.js';
+import logger from '../../utils/logger.js';
 // O DE-PARA DA TRILHA (clausula 9.3) tem UMA implementacao, e ela e a mesma do catalogo
 // e do 360: tres regimes por lista fechada, com o nome-so como piso do desconhecido. A
 // familia de usuarios entrou nela em 2026-08-23 acrescentando os campos de conta as
@@ -142,6 +152,65 @@ function resolveProducerScope(data, existing) {
 }
 
 /**
+ * Normaliza um endereco de e-mail para comparacao e armazenamento.
+ *
+ * Guarda o que a pessoa escreveu, so sem espaco em volta: o indice unico e sobre `LOWER(email)`
+ * (`001_identidade.sql`), entao a unicidade nao depende de o valor ser gravado em minusculas, e
+ * gravar minusculado descaracterizaria enderecos cujo provedor distingue caixa na parte local.
+ * @param {*} valor
+ * @returns {string|null}
+ */
+function normalizaEmail(valor) {
+  if (typeof valor !== 'string') return null;
+  const limpo = valor.trim();
+  return limpo === '' ? null : limpo;
+}
+
+/** @returns {boolean} Se os dois enderecos sao o MESMO pelo criterio do indice unico. */
+function mesmoEmail(a, b) {
+  if (!a || !b) return a === b || (!a && !b);
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
+ * Resolve o trio (endereco, bandeira, confirmado) que o UPDATE administrativo deve gravar.
+ *
+ * A REGRA QUE ESTA FUNCAO EXISTE PARA IMPOR: **trocar o endereco derruba a confirmacao**, salvo
+ * se o MESMO pedido disser o contrario. Sem ela, um administrador que corrigisse um e-mail
+ * digitado errado deixaria a conta marcada como CONFIRMADA num endereco que ninguem provou
+ * possuir, e o gate de login (`user.email && !user.email_verified`) passaria a nao valer para
+ * ela — a confirmacao viraria decoracao.
+ *
+ * O SALVO-SE E DELIBERADO e nao um furo: e ele que preserva o caminho SEM RELAY, em que o
+ * administrador e a unica autoridade de confirmacao possivel. Mandar `email` e
+ * `email_verified: true` no mesmo pedido e um ato explicito de quem administra, e fica na
+ * trilha como tal; o que se recusa e a confirmacao por INERCIA.
+ *
+ * LIMPAR o endereco (`null`) tambem zera a confirmacao, e ai o efeito e o oposto e igualmente
+ * certo: sem endereco o gate de login nao se aplica, e uma linha marcada como confirmada sobre
+ * um `NULL` e um estado que so confunde a proxima leitura.
+ *
+ * @param {{email?: *, email_verified?: boolean}} data - O corpo (parcial).
+ * @param {{email?: string|null}} existing - A linha atual.
+ * @returns {{email: string|null, provided: boolean, verified: boolean|null}} `verified` null
+ *   significa "nao mexa", que e o que o COALESCE do SQL le.
+ */
+function resolveAdminEmail(data, existing) {
+  const provided = data.email !== undefined;
+  const email = provided ? normalizaEmail(data.email) : null;
+  const pedidoExplicito = data.email_verified !== undefined ? data.email_verified : null;
+
+  if (!provided) {
+    return { email: null, provided: false, verified: pedidoExplicito };
+  }
+  const trocou = !mesmoEmail(email, existing.email ?? null);
+  if (trocou && pedidoExplicito === null) {
+    return { email, provided: true, verified: false };
+  }
+  return { email, provided: true, verified: pedidoExplicito };
+}
+
+/**
  * Gets user profile by ID.
  */
 export async function getProfile(userId) {
@@ -271,6 +340,109 @@ export async function updatePassword(userId, currentPassword, newPassword, req =
     targetType: 'USER',
     targetId: userId,
     details: { self: true },
+  });
+
+  return { success: true };
+}
+
+/**
+ * Pede a troca do e-mail da PROPRIA conta. Nada muda na linha da conta aqui: o que sai daqui e um
+ * convite ao endereco NOVO, e so o clique nele troca o endereco (`verifyEmail`, no modulo de auth).
+ *
+ * AS QUATRO DECISOES DESTE FLUXO, todas medidas contra o que o servidor ja faz:
+ *
+ *  1. RE-VERIFICACAO, SEM PASSAR PELA CONTA. O endereco pretendido fica no TOKEN
+ *     (`email_verification_tokens.new_email`), nunca em `users.email`. Escrever o endereco novo
+ *     na conta e zerar `email_verified` seria o caminho curto e teria um custo real: um erro de
+ *     digitacao trancaria a pessoa FORA da propria conta na hora (o gate de `login()` recusa
+ *     `email && !email_verified`) e so um administrador a tiraria de la. Do jeito que esta, uma
+ *     troca mal digitada nao custa nada: a conta segue com o endereco antigo, confirmado.
+ *
+ *  2. A SESSAO NAO E TOCADA, nem no pedido nem na confirmacao, e a assimetria com a troca de
+ *     SENHA e deliberada. A credencial de entrada e (username, senha), e nenhum dos dois muda
+ *     aqui; `sessions_valid_from` existe para cortar sessao quando a credencial cai, e derrubar
+ *     as sessoes por uma troca de endereco puniria a operacao correta sem fechar ataque nenhum
+ *     (quem esta dentro ja esta dentro). O que protege este fluxo de uma sessao sequestrada e a
+ *     senha atual, cobrada abaixo, e o aviso que sai para o endereco ANTIGO nao existe hoje: fica
+ *     dito como o proximo passo, e nao como algo que ja acontece.
+ *
+ *  3. E-MAIL JA EM USO NAO VOLTA NA RESPOSTA. O desfecho e o MESMO 200 dos dois lados, e a
+ *     colisao viaja so para a caixa que a possui (`sendEmailInUseNotice`). E a mesma decisao
+ *     anti-enumeracao de `register` (clausula 5.6), e ela continua valendo com o chamador
+ *     autenticado: hoje nenhuma rota deste servidor responde "existe conta com este e-mail?" para
+ *     uma conta comum, e um 409 aqui seria a primeira.
+ *
+ *  4. NADA E RESERVADO. O endereco pretendido nao vira posse de ninguem enquanto o token estiver
+ *     de pe: a unicidade e conferida aqui e DE NOVO no resgate. E por isso que esta rota nao
+ *     acrescenta um cativeiro novo ao que a clausula 10.6 ja aceita.
+ *
+ * @param {string} userId - O titular (sempre o proprio chamador).
+ * @param {{ email: string, currentPassword: string }} data
+ * @param {object} [req] - Express req (ip/user-agent da trilha e origem do link).
+ * @param {string} [origin] - Origem da requisicao, honrada so quando confiavel.
+ * @returns {Promise<{ success: true }>} Identico nos dois desfechos.
+ */
+export async function requestEmailChange(userId, data, req = null, origin = '') {
+  const { rows } = await query(Q.FIND_USER_FOR_EMAIL_CHANGE, [userId]);
+  const user = rows[0];
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  // A SENHA ATUAL E A PROVA, e ela e cobrada ANTES de qualquer ramo: o e-mail e o canal de
+  // recuperacao da conta, entao trocar o endereco a partir de uma sessao aberta e sem mais nada
+  // entrega a conta inteira a quem apanhar um navegador destrancado. Mesma exigencia, e mesma
+  // razao, de `updatePassword`.
+  const senhaConfere = await bcrypt.compare(data.currentPassword, user.password_hash);
+  if (!senhaConfere) {
+    throw new UnauthorizedError('A senha atual está incorreta.');
+  }
+
+  const novoEmail = normalizaEmail(data.email);
+  if (!novoEmail) {
+    throw new BadRequestError('Informe um e-mail válido.');
+  }
+
+  // O PROPRIO ENDERECO NAO E COLISAO, e recusar aqui e certo: dizer "ja esta em uso" sobre o
+  // e-mail que a pessoa JA tem nao revela nada a ninguem e evita um convite inutil. O caso
+  // legitimo vizinho (endereco igual, ainda nao confirmado) tem rota propria e anonima,
+  // `POST /auth/resend-verification`.
+  if (mesmoEmail(novoEmail, user.email ?? null)) {
+    throw new BadRequestError('Este já é o e-mail da sua conta.');
+  }
+
+  const { rows: emUso } = await query(CHECK_EMAIL_EXISTS_EXCLUDING, [novoEmail, userId]);
+
+  if (emUso.length > 0) {
+    // BEST-EFFORT, e pelo motivo mais afiado do arquivo: este envio existe SO neste ramo, entao
+    // uma excecao escapando daqui responderia 500 para um endereco tomado e 200 para um livre,
+    // reabrindo por excecao o oraculo que a resposta uniforme fecha. Mesma contencao de
+    // `register`.
+    try {
+      await sendEmailInUseNotice({ to: novoEmail, appLink: buildAppLink(origin) });
+    } catch (err) {
+      logger.error({ err }, 'E-mail-in-use notice failed (nothing was changed)');
+    }
+  } else {
+    await issueAndSendEmailChange(user, novoEmail, origin);
+  }
+
+  // A TRILHA REGISTRA O PEDIDO, e ela e a MESMA nos dois ramos, de proposito: os dois ramos
+  // precisam ser indistinguiveis para o chamador, e a trilha so e lida por quem administra. O
+  // endereco pretendido NAO entra na linha, nem por impressao: ele ainda nao e um fato da conta,
+  // e a confirmacao vai gravar a troca de verdade (`email` e regime de IMPRESSAO no de-para,
+  // `utils/audit-diff.js`).
+  //
+  // BEST-EFFORT pelo mesmo motivo do envio acima: uma falha de trilha que virasse 500 sairia de
+  // um ramo so se fosse bloqueante em qualquer ponto assimetrico. Aqui ela e simetrica, e o
+  // best-effort e o que garante que continue sendo, aconteca o que acontecer com a tabela.
+  await createAuditBestEffort(req, {
+    action: 'USER_UPDATE',
+    actorId: userId,
+    targetType: 'USER',
+    targetId: userId,
+    targetName: user.nome,
+    details: { self: true, fields: ['email'], emailChangeRequested: true },
   });
 
   return { success: true };
@@ -425,6 +597,20 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
   // terminar com cracha sem escopo ou escopo sem cracha.
   const escopo = resolveProducerScope(data, existing);
 
+  // O E-MAIL, pelo mesmo metodo e pela mesma razao: a decisao depende de comparar o valor
+  // NOVO com o da LINHA, e o Joi so enxerga o corpo.
+  const emailAlvo = resolveAdminEmail(data, existing);
+  if (emailAlvo.provided && emailAlvo.email) {
+    const { rows: emailCheck } = await query(CHECK_EMAIL_EXISTS_EXCLUDING, [emailAlvo.email, userId]);
+    // 409 COM O MOTIVO, e nao a resposta uniforme do auto-servico: quem chama aqui e
+    // administrador, ja le a lista inteira de contas com e-mail em `GET /users`, e esconder
+    // dele a colisao so produziria um salvamento que nao salva. O anti-enumeracao da clausula
+    // 5.6 protege quem NAO tem essa leitura.
+    if (emailCheck.length > 0) {
+      throw new ConflictError('Este e-mail já está em uso por outra conta.');
+    }
+  }
+
   return tx(async (t) => {
     const rows = await t.any(Q.UPDATE_USER_ADMIN, [
       userId,
@@ -436,9 +622,11 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       data.organization_id !== undefined,
       escopo.role,
       data.is_active !== undefined ? data.is_active : null,
-      data.email_verified !== undefined ? data.email_verified : null,
+      emailAlvo.verified,
       escopo.producerOrgId,
       escopo.producerProvided,
+      emailAlvo.email,
+      emailAlvo.provided,
     ]);
 
     if (rows.length === 0) {

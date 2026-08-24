@@ -17,7 +17,9 @@
  * Run headed:  npx playwright test browser-collab-three-client-flow --headed
  */
 
-import { collabTest, expect, readFeatures, drawLineUI } from './helpers/collab.fixtures.js';
+import {
+    collabTest, expect, readFeatures, drawLineUI, vereditoDoCommitDeCor,
+} from './helpers/collab.fixtures.js';
 import { waitForEntitySpan, waitForAcked } from './helpers/trace-helpers.js';
 
 const lineColor = async (page, id) => (await readFeatures(page, 'lines')).find((x) => x.id === id)?.props?.lineColor;
@@ -66,7 +68,15 @@ async function convergedColor(db, pages, id, timeout = 30000) {
  */
 async function expectReachedServer(page, quem, entityId, operationType = 'update') {
     const enq = await waitForEntitySpan(page, { entityId, operationType, stage: 'enqueue' }, 25000);
-    expect(enq, `a edição de ${quem} virou operação na fila`).toBeTruthy();
+    // A MENSAGEM DISTINGUE DE QUEM E O DEFEITO, e essa distincao e o experimento, nao decoracao.
+    // `vereditoDoCommitDeCor` (`helpers/collab-helpers.js`) le o que o driver observou no instante
+    // do commit: se o painel estava sobre a feicao pedida nos dois instantes e a operacao mesmo
+    // assim nao nasceu, o defeito e do PRODUTO (uma edicao de usuario evapora quando chega trafego
+    // remoto no meio do gesto); se nao estava, o defeito e do HARNESS, que digitou no vazio porque
+    // o painel nao publica o alvo no DOM. Sem isto, o vermelho e um `toBeTruthy() -> null` que nao
+    // diz nada a quem o ler daqui a tres meses.
+    expect(enq, `a edição de ${quem} virou operação na fila\n  ${vereditoDoCommitDeCor(page)}`)
+        .toBeTruthy();
     await waitForAcked(page, enq.opId, 25000);
     return enq;
 }
@@ -210,10 +220,14 @@ collabTest.describe('Three-client flow — multi-phase session with three collab
         await selectFeatureUI(A, fb);
         await selectFeatureUI(B, fb);
         await selectFeatureUI(C, fb);
+        // O `featureId` ARMA O EXPERIMENTO em cada um dos tres, e nao e opcional aqui: e nesta
+        // fase que as tres updates concorrentes chegam durante o gesto dos vizinhos, entao e
+        // aqui que a pergunta "harness ou produto" tem mais chance de ser respondida. Sem ele,
+        // o veredito sai INDISPONIVEL e a falha volta a nao dizer de quem e o defeito.
         await Promise.all([
-            recolorViaPanelUI(A, '#ff0000'),
-            recolorViaPanelUI(B, '#0000ff'),
-            recolorViaPanelUI(C, '#00ff00'),
+            recolorViaPanelUI(A, '#ff0000', { featureId: fb }),
+            recolorViaPanelUI(B, '#0000ff', { featureId: fb }),
+            recolorViaPanelUI(C, '#00ff00', { featureId: fb }),
         ]);
         for (const [page, quem] of [[A, 'A'], [B, 'B'], [C, 'C']]) {
             await expectReachedServer(page, quem, fb, 'update');

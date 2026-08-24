@@ -27,11 +27,24 @@ const SEARCH_KEYS = [
   'id', 'nome', 'organizacao_militar', 'organization_id',
   'posto_graduacao', 'rank_id', 'username',
 ];
+// `/users/me` ganhou `email` e `email_verified` em 2026-08-23, e a diferença com a lista de
+// BUSCA acima é o assunto inteiro: em `/users/me` o chamador É o titular, e ler o próprio
+// endereço (e saber se ele foi confirmado) é a metade de leitura da decisão que também lhe deu a
+// troca por `PUT /users/me/email`. Em `/users/search` o mesmo campo continua PROIBIDO, porque ali
+// o chamador é um terceiro e um e-mail na resposta é enumeração de conta.
+//
+// O QUE ESTE TESTE CONTINUA PRENDENDO É O QUE IMPORTA: a projeção é EXATA, então trocar o SELECT
+// explícito por `SELECT u.*` (o refactor plausível, com os LEFT JOINs já ali) continua vermelho,
+// e continua vermelho por `password_hash`, `api_key`, `is_active` e `role`.
 const ME_KEYS = [
-  'created_at', 'id', 'last_login_at', 'nome', 'organizacao_militar',
-  'organization_id', 'posto_graduacao', 'rank_id', 'username',
+  'created_at', 'email', 'email_verified', 'id', 'last_login_at', 'nome',
+  'organizacao_militar', 'organization_id', 'posto_graduacao', 'rank_id', 'username',
 ];
 const NEVER_EXPOSED = ['password_hash', 'password', 'api_key', 'email', 'is_active', 'role'];
+// O que a rota do PRÓPRIO titular nunca pode devolver. É a lista de cima MENOS o e-mail, e a
+// separação é deliberada: as duas rotas têm chamadores diferentes, então uma lista só para as
+// duas obrigaria a afrouxar a da busca para atender a de `/me`.
+const NEVER_EXPOSED_TO_SELF = ['password_hash', 'password', 'api_key', 'is_active', 'role'];
 
 describe('users: field projection and what the search can reach', () => {
   let app, db, caller, callerToken, adminToken;
@@ -104,15 +117,24 @@ describe('users: field projection and what the search can reach', () => {
     }
   });
 
-  it('/users/me exposes exactly nine fields — no role, no is_active', async () => {
+  it('/users/me expõe uma projeção EXATA: com o próprio e-mail, sem papel e sem is_active', async () => {
     const res = await supertest(app)
       .get('/api/v1/users/me')
       .set('Authorization', `Bearer ${callerToken}`)
       .expect(200);
 
     assert.deepEqual(Object.keys(res.body.data).sort(), ME_KEYS);
-    assert.equal(res.body.data.role, undefined);
-    assert.equal(res.body.data.is_active, undefined);
+    // A lista de proibidos, item a item, e não só a igualdade de chaves acima: o `deepEqual`
+    // reprova qualquer desvio, mas quando ele reprova a mensagem é um diff de onze nomes. Estas
+    // linhas dizem QUAL invariante caiu, que é o que se lê primeiro num vermelho.
+    for (const secreto of NEVER_EXPOSED_TO_SELF) {
+      assert.equal(res.body.data[secreto], undefined, `${secreto} não pode sair nem para o titular`);
+    }
+    // E o positivo do par: o e-mail está aqui de propósito, com o estado de confirmação junto.
+    // Sem esta metade, remover as duas colunas da consulta deixaria o teste verde apenas
+    // acertando a lista, que é a cobertura vazia da constituição.
+    assert.ok('email' in res.body.data, 'o titular precisa ver o próprio endereço');
+    assert.equal(typeof res.body.data.email_verified, 'boolean', 'e se ele foi confirmado');
   });
 
   it('CONTRAST: the ADMIN view of the same user deliberately shows more', async () => {

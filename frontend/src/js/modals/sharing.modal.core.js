@@ -36,6 +36,14 @@
  * "tente" o barramento e engula o erro, porque um modal que silenciosamente parasse de reagir
  * a evento nenhum no mapa seria pior que o estado anterior.
  *
+ * DOIS MODOS, e o segundo não é o primeiro com os botões apagados. `readOnly: true` abre a tela
+ * PARTICIPANTES: outra rota (`GET /atlas/overview`, que pede só uma conta, contra o
+ * `GET /atlas/:atlasId/sharing`, que exige `manage`), outro título, e nenhum controle. Ela
+ * existe porque a cláusula 5.7 do estatuto do produto diz que todo participante vê quem mais
+ * participa e com que nível, e dentro do mapa não havia porta nenhuma para isso. O raciocínio
+ * completo, com as três fontes de participantes que foram medidas, está em
+ * {@link participantsFromOverview}.
+ *
  * Exports {@link SharingModal} e {@link openSharingModal}. O símbolo do MAPA continua sendo
  * `showSharingModal`, em `modals/sharing.modal.js`.
  */
@@ -88,9 +96,55 @@ import {
     getPermissionLabel,
     grantablePermissionOptions,
     isGrantablePermission,
+    isKnownPermission,
     permissionRank,
     serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
+
+/**
+ * A frase de confirmação de "Tornar dono", que descreve o que acontece com QUEM CLICA.
+ *
+ * NASCEU DE UMA REGRESSÃO DE UM DIA. O botão passou a ser oferecido por
+ * {@link serverTreatsAsAtlasOwner}, que responde por DOIS principais (o dono e o
+ * administrador GLOBAL, que `requireAtlasPermission` resolve como dono de qualquer atlas),
+ * e a frase ao lado continuou a de antes: "Você deixará de ser o dono e passará a Gestor".
+ * Para o administrador global ela é falsa palavra por palavra — ele nunca foi dono daquele
+ * atlas, não deixa de ser nada e não vira Gestor. Uma tela que descreve um efeito sobre quem
+ * clica quando o efeito é sobre um terceiro, num ato que a mesma tela não desfaz, é a forma
+ * cara do defeito.
+ *
+ * BIFURCA PELO MESMO INSUMO DO BOTÃO, `sessionContext.role`, e pelos predicados NOMEADOS da
+ * escada, nunca por uma comparação própria: se a frase e o gate lessem coisas diferentes,
+ * eles voltariam a divergir na próxima vez que um deles mudasse, que é exatamente o que
+ * acabou de acontecer. O discriminador entre os dois é `isKnownPermission`: quem chega como
+ * um degrau do SERVIDOR é o dono de fato, e quem chega com o valor que só existe no cliente
+ * é o administrador global dobrado para dentro da escada por `toFrontendRole`.
+ *
+ * O RAMO DO ADMINISTRADOR NÃO AFIRMA QUE ELE NÃO É O DONO, e a omissão é medida:
+ * `toFrontendRole` devolve o papel global ANTES de olhar a posse, então um administrador que
+ * por acaso seja o dono daquele atlas chega aqui indistinguível de um que não é. As duas
+ * coisas que a frase afirma são verdadeiras nos dois casos: a posse passa para o alvo, e o
+ * acesso de quem clica não muda, porque vem do papel e não da posse.
+ *
+ * O RAMO FECHADO (nem dono nem administrador) não é alcançável pela tela, já que o botão nem
+ * é desenhado. Ele existe para que a função não INVENTE um efeito quando alguém a chamar de
+ * outro lugar: pergunta e cala.
+ *
+ * Pura, sem I/O e sem DOM.
+ * @param {*} role - `sessionContext.role` (um `UserRole`), ou uma `permission` crua.
+ * @param {string} nome - O nome de quem recebe a posse, já como a tela o exibe.
+ * @returns {string}
+ */
+export function ownershipTransferWarning(role, nome) {
+    const alvo = String(nome ?? '').trim() || 'este membro';
+    const pergunta = `Tornar ${alvo} o novo dono do atlas?`;
+    if (!serverTreatsAsAtlasOwner(role)) return pergunta;
+    if (isKnownPermission(role)) {
+        return `${pergunta} Você deixará de ser o dono e passará a Gestor.`;
+    }
+    return `${pergunta} A posse sai de quem é dono hoje e passa para ${alvo}. `
+        + 'Seu acesso a este atlas não muda: ele vem do seu papel de administrador, não da posse.';
+}
 
 /**
  * The message to show for a failed sharing mutation: the SERVER's explanation when it sent one,
@@ -406,6 +460,142 @@ export function excedenteDeGrupo(share) {
     return { label: getPermissionLabel(efetiva) };
 }
 
+// ============================================================================
+// MODO SOMENTE LEITURA: quem participa e com que nível (cláusula 5.7)
+// ============================================================================
+
+/**
+ * WHY THIS MODE EXISTS AND WHY IT READS ANOTHER ROUTE.
+ *
+ * Clause 5.7 of the product statute says every participant sees who else takes part and at
+ * which level. The atlas card in `atlas.html` already obeys it; inside the MAP there was no
+ * equivalent, and once "Compartilhar" started disappearing for whoever does not manage
+ * (2026-08-23), there was no door at all.
+ *
+ * THE OBVIOUS SOURCE DOES NOT WORK, and it was measured before this was written:
+ * `GET /atlas/:atlasId/sharing` is gated on `requireAtlasPermission('manage')` for all four
+ * verbs, so a read-only screen calling it answers 403 to exactly the audience it is for. Three
+ * candidates were weighed:
+ *
+ *   - the SYNC SNAPSHOT: it carries `owner_id` and nothing else about people (see
+ *     `GET_ATLAS_METADATA` in `backend/src/modules/sync/sync.queries.js`). An id, no name, no
+ *     level, no list. Rejected: it cannot answer the question at all.
+ *   - PRESENCE (`presence/presence-store.js`): live names, but only of whoever is CONNECTED
+ *     right now, and it carries no permission. It answers "quem está aqui", not "quem
+ *     participa e com que nível". Rejected as the source; kept as the "Vendo agora" garnish.
+ *   - `GET /atlas/overview`: `auth` and nothing more, and since 2026-08-23 it carries
+ *     `permission` per member (`LIST_USER_ATLAS_MEMBERS`), which is what feeds the Drive card.
+ *     CHOSEN. No server change was needed.
+ *
+ * THE ONE PRINCIPAL IT CANNOT SERVE is the public-link visitor: their token is confined to
+ * their atlas by `confineVisitorPrincipal` (`backend/src/middleware/auth.js`) and this route
+ * names no atlas, so it answers 403. That is why the caller
+ * (`sidebar/tabs/atlas-actions.js`) never offers this door to an anonymous visitor.
+ *
+ * TWO PROPERTIES OF THE PAYLOAD THAT THE SCREEN MUST NOT LIE ABOUT:
+ *   - the member list is CUT AT TEN by the server's `json_agg` (plus the owner), while
+ *     `member_count` is the true total. The difference is stated out loud
+ *     ({@link hiddenParticipantsLabel}) instead of being silently dropped, because a list
+ *     shorter than the count next to it is a screen contradicting itself.
+ *   - it deliberately does NOT say by WHICH DOOR each person came in, and no group appears as
+ *     a participant. Naming the door would hand out somebody's membership of a collective that
+ *     is not yours. Do not infer origin of access from this object.
+ *
+ * Pure, and exported so the parsing has a test that does not need a browser.
+ * @param {{atlases?: Array}|null|undefined} overview - the `getAtlasOverview()` payload.
+ * @param {string} atlasId
+ * @returns {{participants: Array<{userId: string, label: string, permission: string,
+ *   levelLabel: string}>, total: number, hidden: number}|null} `null` when this atlas has no
+ *   row at all, which is a different fact from "nobody else participates".
+ */
+export function participantsFromOverview(overview, atlasId) {
+    const atlases = Array.isArray(overview?.atlases) ? overview.atlases : [];
+    const alvo = String(atlasId ?? '');
+    if (!alvo) return null;
+    const row = atlases.find((a) => a && String(a.id) === alvo) ?? null;
+    if (!row) return null;
+
+    const members = Array.isArray(row.members) ? row.members : [];
+    const participants = members.map((m) => {
+        const permission = typeof m?.permission === 'string' ? m.permission.trim() : '';
+        return {
+            userId: String(m?.id ?? ''),
+            label: participantLabel(m),
+            permission,
+            levelLabel: getPermissionLabel(permission),
+        };
+    });
+    // A ORDEM É A DA ESCADA, do topo para baixo, com o desconhecido no fim: `permissionRank`
+    // devolve -1 para o que não é degrau, então ele cai sozinho para o final. Empate desempata
+    // pelo rótulo, para que duas aberturas seguidas desenhem a mesma lista.
+    participants.sort((a, b) => {
+        const rank = permissionRank(b.permission) - permissionRank(a.permission);
+        return rank !== 0 ? rank : a.label.localeCompare(b.label, 'pt-BR');
+    });
+
+    const declared = Number(row.member_count);
+    const total = Number.isFinite(declared) && declared > 0
+        ? Math.trunc(declared)
+        : participants.length;
+    return { participants, total, hidden: Math.max(0, total - participants.length) };
+}
+
+/**
+ * How ONE participant is named: rank plus name, because in an Army app "Cap Silva" and
+ * "Sd Silva" are two people and a list showing the surname alone does not tell them apart.
+ *
+ * A DELIBERATE TWIN of `accessPersonLabel` (`projects/atlas-drive.js`), not an import: that
+ * file is the body of `atlas.html` and pulls the whole Drive with it, while this module is
+ * held to a closed import list by `frontend/tests/unit/compartilhar-sem-a-store.test.js`. The
+ * duplication is one short function; the import would be a page.
+ *
+ * NEVER EMPTY. An entry with no name is still a person with access, and dropping it from the
+ * list would shorten the list without lowering the count beside it.
+ * @param {{nome?: string, posto_graduacao?: string}} person
+ * @returns {string}
+ */
+function participantLabel(person) {
+    const nome = String(person?.nome ?? '').trim();
+    const posto = String(person?.posto_graduacao ?? '').trim();
+    if (nome && posto) return `${posto} ${nome}`;
+    if (nome) return nome;
+    return 'Alguém';
+}
+
+/**
+ * WHY NOTHING HERE CAN BE CHANGED, said out loud.
+ *
+ * A screen full of names and levels with no control anywhere reads as broken, and the reader's
+ * first theory is that the app failed to load the buttons. The sentence names the level that
+ * would be needed, so the reader knows what to ask for and whom to ask (the list right below
+ * says who holds it).
+ *
+ * It does NOT say "você não tem permissão" and stop there: a refusal without a remedy is the
+ * shape of message this repository has paid for before.
+ * @returns {string}
+ */
+export function readOnlySharingNotice() {
+    return 'Você está vendo quem participa deste atlas. Para convidar, remover ou mudar o '
+        + 'nível de alguém é preciso ter Gestão neste atlas: peça a quem já a tem na lista abaixo.';
+}
+
+/**
+ * The sentence for the participants the server did not list.
+ *
+ * The `json_agg` of `LIST_USER_ATLAS_MEMBERS` cuts at ten, so a busy atlas arrives with a count
+ * larger than its list. Saying the remainder is honest; inventing names would not be, and
+ * hanging the remainder on the last level would assert a rung nobody measured.
+ * @param {number} hidden
+ * @returns {string} '' when nothing was cut.
+ */
+export function hiddenParticipantsLabel(hidden) {
+    const n = Number(hidden);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n === 1
+        ? 'E mais 1 participante que esta lista não detalha.'
+        : `E mais ${Math.trunc(n)} participantes que esta lista não detalha.`;
+}
+
 /**
  * Icons used by the modal (inline SVG, currentColor).
  */
@@ -459,17 +649,32 @@ export class SharingModal extends ModalBase {
      *   Omiti-la (o default) é um MODO, não uma degradação: sem ela o modal não desenha "Vendo
      *   agora", não desenha ponto de online e não assina evento nenhum. É o modo do seletor de
      *   atlas, onde não há atlas conectado e portanto não há o que mostrar.
+     * @param {boolean} [options.readOnly] - Abre no modo PARTICIPANTES: a lista de quem alcança
+     *   o atlas e com que nível, sem controle nenhum. Ele não é uma degradação do modo de
+     *   gestão, é outra tela: outra rota (`/atlas/overview`, que não exige `manage`), outro
+     *   título e nenhum `<select>`, botão de remover, "Tornar dono", seletor de grupo ou toggle
+     *   de link público. Ver {@link participantsFromOverview}.
      */
-    constructor(atlasId, { atlasName, presence = null } = {}) {
+    constructor(atlasId, { atlasName, presence = null, readOnly = false } = {}) {
         const name = atlasName ? String(atlasName) : '';
+        const somenteLeitura = readOnly === true;
         super({
             id: 'sharing-modal',
-            title: name ? `Compartilhar ${name}` : 'Compartilhar',
+            // O TÍTULO DIZ O MODO. Chamar a tela de "Compartilhar" e não oferecer nada para
+            // compartilhar é a leitura de "quebrado" que a nota do corpo existe para desfazer;
+            // começar pelo nome certo resolve metade dela antes de qualquer frase.
+            title: somenteLeitura
+                ? (name ? `Participantes de ${name}` : 'Participantes')
+                : (name ? `Compartilhar ${name}` : 'Compartilhar'),
             icon: ICONS.share,
             destroyOnHide: true,
         });
 
         this._atlasId = atlasId;
+        /** @type {boolean} Modo PARTICIPANTES (ver o construtor). */
+        this._readOnly = somenteLeitura;
+        /** @type {{participants: Array, total: number, hidden: number}|null} */
+        this._participants = null;
         /** @type {boolean} */
         this._isPublic = false;
         /** @type {string|null} */
@@ -585,6 +790,7 @@ export class SharingModal extends ModalBase {
      * `render()`, BEFORE `show()`, so `_isOpen` is legitimately false at that moment.
      */
     async _load() {
+        if (this._readOnly) return this._loadParticipants();
         try {
             const cfg = await apiClient.getSharing(this._atlasId);
             if (!this.getBody()) return; // modal closed while the request was in flight
@@ -601,6 +807,31 @@ export class SharingModal extends ModalBase {
             // que ela usa depois. Falhar aqui deixa a seção sem seletor, com a dica dizendo
             // por quê, em vez de derrubar a tela inteira.
             this._loadMyGroups();
+        } catch {
+            if (!this.getBody()) return;
+            this._renderError();
+        }
+    }
+
+    /**
+     * @private O `_load()` do modo PARTICIPANTES.
+     *
+     * NÃO CHAMA `getSharing`, e essa é a decisão inteira: aquela rota exige `manage` nos quatro
+     * verbos, então este modo tomaria 403 de exatamente quem ele serve. A fonte é
+     * `GET /atlas/overview`, que pede só uma conta e traz o nível por membro. Ver o cabeçalho de
+     * {@link participantsFromOverview} para as três fontes medidas e por que as outras duas não
+     * servem.
+     *
+     * A carga é UMA e não repete: aqui não há mutação para re-ler depois.
+     * @returns {Promise<void>}
+     */
+    async _loadParticipants() {
+        try {
+            const overview = await apiClient.getAtlasOverview();
+            if (!this.getBody()) return; // modal closed while the request was in flight
+            this._participants = participantsFromOverview(overview, this._atlasId);
+            this._loaded = true;
+            this._renderBody();
         } catch {
             if (!this.getBody()) return;
             this._renderError();
@@ -658,9 +889,13 @@ export class SharingModal extends ModalBase {
         const body = this.getBody();
         if (!body) return; // modal already destroyed — nothing to render into, no state to clear
         clearScopedListeners(this, 'body');
+        // A frase nomeia O QUE falhou, e o modo decide qual é: quem abriu "Participantes" e lê
+        // "não foi possível carregar o compartilhamento" procura um botão de compartilhar que
+        // esta tela nunca teve.
+        const oQueFalhou = this._readOnly ? 'os participantes' : 'o compartilhamento';
         body.innerHTML = `
             <div class="sharing__state sharing__state--error" data-testid="sharing-error">
-                <p>Não foi possível carregar o compartilhamento.</p>
+                <p>Não foi possível carregar ${oQueFalhou}.</p>
                 <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm" data-action="retry">
                     Tentar novamente
                 </button>
@@ -682,6 +917,13 @@ export class SharingModal extends ModalBase {
         if (!body) return; // modal already destroyed — nothing to render into, no state to clear
         clearScopedListeners(this, 'body');
         this._onlineIds = this._computeOnlineIds();
+        if (this._readOnly) {
+            // SEM `_setupBodyListeners()`: o modo participantes não desenha controle nenhum, e
+            // chamá-lo aqui deixaria uma fiação procurando seletores que não existem, pronta
+            // para ligar-se ao primeiro controle que alguém acrescentasse por engano.
+            body.innerHTML = this._renderReadOnlyBody();
+            return;
+        }
         body.innerHTML = `
             <div class="sharing">
                 ${this._renderPublicSection()}
@@ -692,6 +934,75 @@ export class SharingModal extends ModalBase {
             </div>
         `;
         this._setupBodyListeners();
+    }
+
+    /**
+     * @private O corpo do modo PARTICIPANTES.
+     *
+     * O QUE ELE NÃO TEM, e a lista é o contrato desta tela: nenhum `<select>` de nível, nenhum
+     * botão de remover, nenhum "Tornar dono", nenhum seletor de grupo e nenhum toggle de link
+     * público. Ele mostra, e a nota do topo DIZ que só mostra.
+     *
+     * "Vendo agora" fica, porque presença é desenho e não autoridade: o Leitor já vê o mesmo
+     * grupo de avatares no mapa. Ela vem antes da lista de propósito (quem está aqui agora é o
+     * dado perecível).
+     *
+     * NENHUM GRUPO APARECE COMO PARTICIPANTE, e isso não é omissão: a cláusula 5.7 reserva o
+     * CAMINHO de acesso, e nomear o coletivo entregaria adesão de terceiro.
+     * @returns {string}
+     */
+    _renderReadOnlyBody() {
+        const dados = this._participants;
+        const linhas = dados?.participants?.length
+            ? dados.participants.map((p) => this._renderParticipantItem(p)).join('')
+            : `<div class="sharing__empty" data-testid="sharing-participants-empty">
+                   Não foi possível listar os participantes deste atlas.
+               </div>`;
+        const excedente = hiddenParticipantsLabel(dados?.hidden ?? 0);
+        const rodape = excedente
+            ? `<p class="sharing-readonly__overflow" data-testid="sharing-participants-overflow">${escapeHtml(excedente)}</p>`
+            : '';
+
+        return `
+            <div class="sharing sharing--readonly">
+                <p class="sharing-readonly__note" data-testid="sharing-readonly-note">
+                    ${escapeHtml(readOnlySharingNotice())}
+                </p>
+                ${this._renderPresenceSection()}
+                <section class="sharing-section" data-testid="sharing-participants">
+                    <h3 class="sharing-section__title">Participantes</h3>
+                    <div class="sharing-members">${linhas}</div>
+                    ${rodape}
+                </section>
+            </div>
+        `;
+    }
+
+    /**
+     * @private Uma linha de participante: avatar, nome com posto, e o nível como TEXTO.
+     *
+     * O nível é um selo e nunca um `<select>` desabilitado: um controle apagado ainda parece um
+     * controle, e convida ao clique que não faz nada.
+     * @param {{userId: string, label: string, levelLabel: string}} participant
+     * @returns {string}
+     */
+    _renderParticipantItem(participant) {
+        const userId = String(participant?.userId ?? '');
+        const nome = participant?.label ?? '';
+        const nivel = participant?.levelLabel ?? '';
+        const selo = nivel
+            ? `<span class="sharing-member__level" data-testid="sharing-participant-level"
+                     title="Nível de ${escapeHtml(nome)} neste atlas">${escapeHtml(nivel)}</span>`
+            : '';
+        return `
+            <div class="sharing-member" data-testid="sharing-participant-item" data-user-id="${escapeHtml(userId)}">
+                ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
+                <div class="sharing-member__info">
+                    <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                </div>
+                ${selo}
+            </div>
+        `;
     }
 
     /**
@@ -1281,15 +1592,19 @@ export class SharingModal extends ModalBase {
      * @private Transfers ownership to a member. Offered to whoever the server resolves as owner
      * of this atlas (the owner, and the global administrator by short-circuit — see
      * `serverTreatsAsAtlasOwner`). After a confirmation, calls the API
-     * and re-reads the config. The current user stops being the owner (becomes a Gestor); the WS
-     * `atlas_owner_changed` broadcast re-gates the rest of the UI.
+     * and re-reads the config; the WS `atlas_owner_changed` broadcast re-gates the rest of the UI.
+     *
+     * THE CONFIRMATION COPY DESCRIBES TWO DIFFERENT EFFECTS, one per principal, and it is
+     * {@link ownershipTransferWarning} that decides which. A single literal sentence here is
+     * what made the screen tell the global administrator he was about to lose an ownership he
+     * never had.
      * @param {string} userId
      * @param {string} nome - Display name for the confirmation copy.
      */
     async _handleTransfer(userId, nome) {
         if (this._busy || !userId) return;
         const ok = await showConfirm(
-            `Tornar ${nome || 'este membro'} o novo dono do atlas? Você deixará de ser o dono e passará a Gestor.`,
+            ownershipTransferWarning(sessionContext.role, nome),
             { destructive: true, confirmText: 'Transferir' }
         );
         if (!ok) return;
@@ -1439,6 +1754,7 @@ export class SharingModal extends ModalBase {
  * @param {Object} [options]
  * @param {string} [options.atlasName] - Display name shown in the header title.
  * @param {SharingPresenceSource|null} [options.presence] - Ver o construtor. Ausente = sem presença.
+ * @param {boolean} [options.readOnly] - Abre o modo PARTICIPANTES. Ver o construtor.
  * @returns {SharingModal} The modal instance.
  */
 export function openSharingModal(atlasId, options = {}) {

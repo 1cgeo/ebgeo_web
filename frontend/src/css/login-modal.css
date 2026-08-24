@@ -177,3 +177,62 @@
 .login-modal__link:hover {
     text-decoration: underline;
 }
+
+/* =========================================================================
+   RECOVERY PANEL ("Esqueci minha senha")
+   Hidden until the link is pressed; built once so a half-typed code survives
+   an accidental collapse.
+   ========================================================================= */
+
+.login-modal__recovery {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.login-modal__recovery[hidden] {
+    display: none;
+}
+
+.login-modal__hint {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    line-height: var(--line-height-normal);
+}
+
+.login-modal__recovery-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.login-modal__recovery-actions .prompt-modal-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* One message area, two looks. The failure is NOT the same surface as the outcome:
+   an error that looks like a confirmation is an error nobody reads. */
+.login-modal__recovery-message {
+    padding: var(--space-2) var(--space-3);
+    background: var(--primary-50);
+    border: var(--border-width) solid var(--primary);
+    border-radius: var(--radius-md);
+    color: var(--primary-800);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+}
+
+.login-modal__recovery-message.is-error {
+    background: rgb(239 68 68 / 10%);
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.login-modal__recovery-message[hidden] {
+    display: none;
+}

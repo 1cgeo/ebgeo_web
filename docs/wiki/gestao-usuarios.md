@@ -50,6 +50,17 @@ Duas propriedades de `backend/src/utils/mailer.js` que o chamador não revela. *
 
 Ainda: o auto-cadastro força `role: 'user'` e cai na organização default via `COALESCE` no SQL; o caminho admin **não** tem default de organização, então admin que omite o campo cria usuário sem OM.
 
+## O endereço errado: quem vê, e quem corrige
+
+Até 2026-08-23 ninguém dos dois lados corrigia um e-mail digitado errado no cadastro. O titular não via o próprio endereço (`FIND_USER_BY_ID`, `backend/src/modules/users/users.queries.js`, não selecionava `email` nem `email_verified`) e não podia editá-lo (`updateProfileSchema` aceitava `nome` e `rank_id`); o administrador só marcava `email_verified`, ou seja, APROVAVA o endereço errado, ativando uma conta cujo dono nunca receberia nada. O resultado era o pior desfecho possível de uma conta pendente: invisível para quem podia notar o erro, e sem conserto de quem podia agir.
+
+Hoje são dois caminhos, e eles cobrem casos diferentes de propósito:
+
+- **O titular**, em "Minha conta", lê o endereço e o estado de confirmação e pede a troca por `PUT /users/me/email`, com a senha atual. Ele resolve a mudança de endereço de quem CONSEGUE entrar. Não resolve o caso que originou tudo, porque quem está pendente não entra e portanto não chega a essa tela. Mecanismo e as decisões de sessão e de colisão em [[autenticacao-jwt]].
+- **O administrador** agora envia `email` no `PUT /users/:userId`. Trocar o endereço derruba `email_verified` sozinho (`resolveAdminEmail`, `backend/src/modules/users/users.service.js`), salvo se o mesmo pedido mandar `email_verified: true`. Esse "salvo se" é o que preserva o caminho SEM relay, em que o administrador é a única autoridade de confirmação que existe; o que se recusa é a confirmação por inércia, que transformaria a corrigenda numa aprovação silenciosa.
+
+A colisão de endereço é tratada de forma OPOSTA nos dois: o auto-serviço responde o mesmo 200 e conta a colisão só à caixa que a possui, e o caminho de admin devolve 409 com o motivo. Não é inconsistência: quem administra já lê a lista inteira de contas com e-mail em `GET /users`, então esconder dele produziria apenas um salvamento que não salva; o anti-enumeração protege quem NÃO tem essa leitura.
+
 ## Desativação: o que ela não faz
 
 É soft-delete com transferência obrigatória de atlas, tudo em uma transação (`deleteUser`, `backend/src/modules/users/users.service.js`). Os limites que surpreendem:

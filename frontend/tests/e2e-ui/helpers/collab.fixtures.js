@@ -28,6 +28,7 @@ import {
     assertLedgerClean,
     drawLineUI, drawPolygonUI, drawPointUI, readFeatures, currentMapName,
     openLayersTab, selectFeatureUI, savePanelUI, recolorViaPanelUI, selectAndRecolorUI, deleteFeatureUI,
+    vereditoDoCommitDeCor,
     renameViaPanelUI, selectAndRenameUI, drawMilitarySymbolUI,
 } from './collab-helpers.js';
 import { collectLedger, reduceLedger, renderReport, findChainViolations } from './ledger.js';
@@ -44,6 +45,7 @@ const state = readState();
 export {
     drawLineUI, drawPolygonUI, drawPointUI, readFeatures, currentMapName,
     openLayersTab, selectFeatureUI, savePanelUI, recolorViaPanelUI, selectAndRecolorUI, deleteFeatureUI,
+    vereditoDoCommitDeCor,
     renameViaPanelUI, selectAndRenameUI, drawMilitarySymbolUI,
 };
 

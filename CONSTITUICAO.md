@@ -282,8 +282,13 @@ administra. **[vigente]** desde 2026-08-23. A regra anterior era o silêncio, e 
 Leitor já via os NOMES no cartão do atlas, e o que lhe faltava era justamente o dado que evita o pedido
 errado à pessoa errada. O que continua reservado é o CAMINHO: o payload não diz por qual porta cada um
 entrou, porque dizer "por grupo" entregaria adesão a coletivo alheio, e é pela mesma razão que o grupo
-não é nomeado como participante. Preso por
-`backend/tests/integration/overview-nivel-do-participante.test.js`.
+não é nomeado como participante. Dentro do MAPA a leitura tem porta própria desde
+2026-08-23, e ela NÃO é o botão de compartilhar: quem alcança `manage` vê "Compartilhar", quem não
+alcança vê "Participantes", e as duas nunca aparecem juntas. A fonte também é outra, por
+necessidade: `GET /atlas/:atlasId/sharing` exige `manage` nos quatro verbos, então um modo de
+leitura que o chamasse tomaria 403 de exatamente quem ele serve. Preso por
+`backend/tests/integration/overview-nivel-do-participante.test.js` no servidor e por
+`frontend/tests/unit/sharing-modal-somente-leitura.test.js` no cliente.
 
 **5.8** Sair de um atlas compartilhado é **direito de quem foi convidado**, e não pedido a quem
 administra. **[vigente]** desde 2026-08-23, pela mesma razão da 4.7 e com a mesma exceção: o dono não
@@ -482,12 +487,29 @@ de 1.4 pode ser revisitada; enquanto não for, qualquer autorização apoiada em
 autorização que o próprio interessado se concede.
 
 **10.6** **Uma conta pendente cativa o nome de usuário e o endereço de e-mail para sempre.** Quem se cadastra
-e nunca confirma o e-mail deixa aquele par reservado indefinidamente: as consultas de unicidade não perguntam
-pela vivacidade, e os dois índices únicos são totais, não parciais. A assimetria é a parte que surpreende: o
-TOKEN de verificação caduca em 48 horas, e a conta que ele deveria ativar não caduca nunca. Decidido em
+e nunca confirma o e-mail deixa aquele par reservado indefinidamente, e a razão é uma só: as consultas de
+unicidade não perguntam pela vivacidade. (Esta cláusula dizia também que os dois índices únicos são totais,
+e isso é FALSO para o e-mail desde a baseline de identidade: `idx_users_email_lower` é parcial, com
+`WHERE email IS NOT NULL`. A parcialidade não muda nada aqui, porque ela só dispensa a conta SEM endereço,
+que é a administrativa; o cativeiro vem do predicado, não do índice.) A assimetria é a parte que surpreende:
+o TOKEN de verificação caduca em 48 horas, e a conta que ele deveria ativar não caduca nunca. Decidido em
 2026-08-21 **deixar como está**, e o desbloqueio passa a ser ato de administrador. Não é buraco esquecido: é
 custo aceito, e a alternativa (expirar cadastro não confirmado) fica registrada como a saída, se um dia o
 volume justificar.
+
+**O custo aceito continua o mesmo depois de 2026-08-23, e o que mudou foi o ATO DE ADMINISTRADOR, que
+até então não existia de verdade.** O administrador só sabia marcar `email_verified`, isto é, APROVAR o
+endereço digitado errado; `updateUserAdminSchema` não aceitava `email`. Agora aceita, e trocar o endereço
+derruba a confirmação salvo se o mesmo pedido disser o contrário (`resolveAdminEmail`), de modo que corrigir
+um cadastro não é o mesmo que declará-lo provado. O titular também passou a ver e a trocar o próprio
+endereço (`requestEmailChange`), o que remove a maior parte dos casos antes que virem trabalho de
+administração, mas **não** alcança o cativeiro: quem está pendente não entra, logo não chega a essa tela.
+
+**A troca de e-mail NÃO acrescenta um cativeiro novo, e essa é a propriedade que a mantém compatível com
+esta cláusula.** O endereço pretendido mora no token (`email_verification_tokens`, coluna `new_email`) e
+nunca na conta, então enquanto o convite está de pé o endereço segue livre para qualquer outra pessoa: a
+unicidade é conferida no pedido e DE NOVO no resgate, nunca segurada no meio. Um token que caduca sem ser
+aberto não deixa nada reservado.
 
 **10.7** **A chave de API é o usuário inteiro, sem escopo e sem prazo.** Ela resolve para a linha de
 `users` e carrega o papel global; `FIND_USER_BY_API_KEY` filtra apenas `is_active`, e não há coluna de

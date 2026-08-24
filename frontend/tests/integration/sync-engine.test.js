@@ -860,10 +860,11 @@ describe('lote envenenado: isolamento e descarte da op ofensora', () => {
 describe('post-flush convergence-guard reconciliation', () => {
     it('reconciles with an EMPTY set after the queue drains completely', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
-        queueState.ops = [
+        const ops = [
             { id: 'op-1', entityType: 'feature', entityId: 'f1' },
             { id: 'op-2', entityType: 'feature', entityId: 'f2' },
         ];
+        queueState.ops = [...ops];
 
         const result = await syncEngine.flush();
 
@@ -942,27 +943,35 @@ describe('post-flush convergence-guard reconciliation', () => {
         // value (LWW by server arrival). Seeding an UNGUARDED type would be worse than
         // useless: nothing reads it, and the map grows per op forever.
         await syncEngine.connect('atlas-1', { initialPull: false });
-        queueState.ops = [
+        const ops = [
             { id: 'op-1', entityType: 'feature', entityId: 'f1' },
             { id: 'op-2', entityType: 'map', entityId: 'm1' },        // not guarded
             { id: 'op-3', entityType: 'briefing', entityId: 'b1' },   // guarded since 2026-07-25
             { id: 'op-4', entityType: 'feature' },                    // no entityId → nothing to key on
         ];
+        queueState.ops = [...ops];
         apiClientMock.pushOperations.mockResolvedValueOnce({ results: [], serverVersion: 11 });
 
         await syncEngine.flush();
 
-        expect(recordLocalAppliedVersion.mock.calls).toEqual([['f1', 11], ['b1', 11]]);
+        // A OP VAI JUNTO, e nao e detalhe: o ack e o unico instante em que o autor descobre que
+        // VENCEU, e sem o payload ele nao consegue desfazer a escrita que a op mais velha de um
+        // par ja fez sobre o valor dele (`resolveLocalEdit`, remote-operation-handler.js).
+        expect(recordLocalAppliedVersion.mock.calls).toEqual([
+            ['f1', 11, ops[0]],
+            ['b1', 11, ops[2]],
+        ]);
     });
 
     it('prefers the per-op version from the ack over the batch serverVersion', async () => {
         // Two ops in one batch land at DIFFERENT server versions; collapsing both onto the
         // batch-level number would record an arrival order the server never assigned.
         await syncEngine.connect('atlas-1', { initialPull: false });
-        queueState.ops = [
+        const ops = [
             { id: 'op-1', entityType: 'feature', entityId: 'f1' },
             { id: 'op-2', entityType: 'feature', entityId: 'f2' },
         ];
+        queueState.ops = [...ops];
         apiClientMock.pushOperations.mockResolvedValueOnce({
             results: [
                 { operationId: 'op-1', success: true, currentVersion: 20 },
@@ -973,7 +982,7 @@ describe('post-flush convergence-guard reconciliation', () => {
 
         await syncEngine.flush();
 
-        expect(recordLocalAppliedVersion.mock.calls).toEqual([['f1', 20], ['f2', 21]]);
+        expect(recordLocalAppliedVersion.mock.calls).toEqual([['f1', 20, ops[0]], ['f2', 21, ops[1]]]);
     });
 });
 

@@ -343,7 +343,11 @@ describe('a separação está escrita no código, e não só no grafo', () => {
         }
         // E a dependência é opcional de forma EXPLÍCITA, não por `try/catch` que engole: um modal
         // que silenciosamente parasse de reagir a evento no mapa seria pior que o estado anterior.
-        expect(fonte).toMatch(/constructor\(atlasId,\s*\{\s*atlasName,\s*presence = null\s*\}/);
+        // `readOnly` entrou em 2026-08-23 (o modo PARTICIPANTES) e vem DEPOIS de `presence`, no
+        // mesmo objeto de opções: o que esta linha prende é o `presence = null`, ou seja, que a
+        // presença continua OPCIONAL e por default ausente. Um terceiro campo entre os dois
+        // reprovaria aqui de propósito, porque a ordem declara qual é o default do modo do mapa.
+        expect(fonte).toMatch(/constructor\(atlasId,\s*\{\s*atlasName,\s*presence = null,\s*readOnly = false\s*\}/);
         expect(fonte).toMatch(/export function openSharingModal\(/);
     });
 

@@ -185,6 +185,19 @@ const CENSO = [
             + 'linhas explica por que não se escreve uma. Corrigido em 2026-08-23.',
     },
     {
+        arquivo: 'src/js/sidebar/tabs/atlas-actions.js',
+        trecho: "const SHARING_RUNG = 'manage'", n: 1, classe: ESCADA,
+        motivo: `${ARG_DA_ESCADA} O posto mínimo das QUATRO rotas de `
+            + '`/atlas/:atlasId/sharing`, nomeado uma vez só e passado a '
+            + '`atlasRoleHasAtLeast(role, SHARING_RUNG)` logo abaixo. É ele que decide qual das '
+            + 'duas portas de acesso a aba "Mapas" desenha: "Compartilhar" de `manage` para cima, '
+            + 'e o irmão somente-leitura "Participantes" abaixo disso. Entra como CONSTANTE, e '
+            + 'não inline na chamada, porque o mesmo piso governa as duas metades da decisão e '
+            + 'duas cópias do literal é como elas divergem. Nasceu em 2026-08-23, quando o botão '
+            + 'deixou de ser oferecido sem gate nenhum ao Leitor, ao Comentarista, ao Editor e ao '
+            + 'visitante de link público, cujo clique morria em 403.',
+    },
+    {
         arquivo: 'src/js/locking/map-lock.controller.js',
         trecho: "atlasRoleHasAtLeast(sessionContext.role, 'write')", n: 1, classe: ESCADA,
         motivo: '`isReadOnly()`, escrito como a AUSÊNCIA de `write`. Era `role === UserRole.VIEWER '
@@ -269,6 +282,19 @@ const CENSO = [
         motivo: 'O complemento exato da linha acima, a aba "Compartilhados". Entra separada porque a '
             + 'negação é o lado que se esquece de acompanhar quando a partição muda, e as duas '
             + 'juntas precisam cobrir a lista inteira.',
+    },
+    {
+        arquivo: 'src/js/projects/shared-atlas-badge.js', trecho: "user_permission !== 'owner'", n: 1,
+        classe: POSSE,
+        motivo: 'A MESMA partição da aba "Compartilhados", extraída para o módulo puro que conta as '
+            + 'novidades do selo (`sharedAtlasIds`). É posse, não posto: a pergunta continua sendo '
+            + '"este atlas chegou até mim por outra pessoa?". Repare que o predicado é ABERTO de '
+            + 'propósito, e é o oposto da lista fechada que a constituição proíbe: um nível que o '
+            + 'módulo nunca viu ainda significa que alguém compartilhou alguma coisa, e trocar isto '
+            + 'por `perm === "read" || perm === "write"` faria o Gestor sumir do contador em '
+            + 'silêncio. A duplicação com `atlas-drive.js` é deliberada e está presa por teste '
+            + '(`tests/unit/shared-atlas-badge.test.js`): a aba desenha e o módulo conta, e as duas '
+            + 'precisam concordar sobre quem está na lista.',
     },
     {
         arquivo: 'src/js/store/sync/sync-engine.js', trecho: "role: 'owner'", n: 1, classe: POSSE,

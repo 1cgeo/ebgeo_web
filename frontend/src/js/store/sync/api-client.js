@@ -908,6 +908,42 @@ export class ApiClient {
     }
 
     /**
+     * Step one of the password recovery: asks the server to mail a reset code. Anonymous.
+     *
+     * THE ROUTE MAY NOT EXIST. It is mounted only where the server can actually deliver account
+     * mail (`canDeliverAccountMail`, `backend/src/utils/mailer.js`), and `GET /api/config` reports
+     * that as `features.password_reset_email`. Gate the affordance on the flag rather than
+     * catching a 404: an unmounted route is a deployment where recovery is the administrator's
+     * job, and the screen has to say so instead of offering something that answers 404.
+     *
+     * ALWAYS RESOLVES SUCCESS, for a known and an unknown address alike: the response never says
+     * whether an account exists. Do not report "e-mail enviado" on resolve.
+     * @param {string} email
+     * @returns {Promise<{ success: true }>}
+     */
+    async forgotPassword(email) {
+        return this._request('POST', '/auth/forgot-password', { body: { email }, auth: false });
+    }
+
+    /**
+     * Step two: redeems the code from the e-mail and writes the new password. Anonymous.
+     *
+     * EVERY SESSION OF THAT ACCOUNT DIES, including any the person still has open elsewhere: the
+     * service revokes the refresh family AND stamps `users.sessions_valid_from`. The code is
+     * single-use and short-lived, so a rejection here is final for that code and the person has
+     * to ask for another one.
+     * @param {string} token - The code from the message.
+     * @param {string} newPassword - Between 6 and 100 characters.
+     * @returns {Promise<{ success: true }>}
+     */
+    async resetPasswordWithToken(token, newPassword) {
+        return this._request('POST', '/auth/reset-password', {
+            body: { token, newPassword },
+            auth: false,
+        });
+    }
+
+    /**
      * Logs out (revokes the refresh token) and clears local tokens. The backend's
      * `/auth/logout` route is auth-strict: it needs the Bearer access token AND the
      * refreshToken in the body. Network errors are swallowed so the local tokens are
@@ -1922,6 +1958,28 @@ export class ApiClient {
         return this._request('PUT', '/users/me/password', {
             body: { currentPassword, newPassword },
         });
+    }
+
+    /**
+     * Asks to move the signed-in user's account e-mail to another address.
+     *
+     * RESOLVING DOES NOT MEAN THE E-MAIL CHANGED, and a caller written from the method name will
+     * get that wrong. The route mints a confirmation token for the NEW address and mails it; the
+     * account keeps its current address, verified and working, until that link is followed
+     * (`requestEmailChange`, `backend/src/modules/users/users.service.js`). Nothing on this
+     * session is invalidated either way.
+     *
+     * IT ALSO RESOLVES WHEN THE ADDRESS BELONGS TO SOMEBODY ELSE. The endpoint answers the same
+     * 200 and the same `{ success: true }` on both branches so it cannot be used to ask "is there
+     * an account with this e-mail?", exactly as `register` does; the collision is told only to
+     * the mailbox that owns the address. Do not write a caller that reports "e-mail trocado".
+     *
+     * @param {string} email - The address to adopt.
+     * @param {string} currentPassword - Required: the e-mail is the account recovery channel.
+     * @returns {Promise<{ success: true }>} Identical on every branch.
+     */
+    async requestEmailChange(email, currentPassword) {
+        return this._request('PUT', '/users/me/email', { body: { email, currentPassword } });
     }
 
     /**

@@ -57,6 +57,13 @@ import {
     getPermissionLabel, isKnownPermission, hasAtLeast, permissionRank, serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
 import { showToast, showSuccess, showWarning, showError } from '@utils/toast_service.js';
+// Import DIRETO, pela mesma razão dos de cima: `session-context.js` é folha desta página, e o
+// barrel `@store` arrastaria a store inteira para uma página que boota sem ela.
+import { sessionContext } from '@store/sync/session-context.js';
+import {
+    seenMarkStorageKey, parseSeenMark, serializeSeenMark, resolveSharedBadge,
+    badgeText, badgeAccessibleLabel, badgeScopeNotice,
+} from './shared-atlas-badge.js';
 
 const ICONS = {
     plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
@@ -419,6 +426,13 @@ export class AtlasDrive {
         this._presenceNodes = new Map();
         this._coverInput = null;
         this._coverTarget = null;
+        /** The "novos" counter on the Compartilhados tab, and the mark it is measured against. */
+        this._sharedBadgeEl = null;
+        this._sharedBadgeCountEl = null;
+        this._sharedBadgeLabelEl = null;
+        // `undefined` means NOT READ YET, and it is a third state on purpose: `null` is the
+        // measured absence of a mark (first visit), which triggers adoption exactly once.
+        this._seenMark = undefined;
         this.setOverview(options.overview);
         setupCleanup(this);
     }
@@ -475,6 +489,9 @@ export class AtlasDrive {
         this._gridEl = null;
         this._coverInput = null;
         this._coverTarget = null;
+        this._sharedBadgeEl = null;
+        this._sharedBadgeCountEl = null;
+        this._sharedBadgeLabelEl = null;
         this._presenceNodes.clear();
         this._tabButtons.clear();
     }
@@ -619,12 +636,113 @@ export class AtlasDrive {
             btn.dataset.testid = `project-picker-tab-${f.key}`;
             btn.setAttribute('role', 'tab');
             btn.textContent = f.label;
+            if (f.key === 'compartilhados') btn.appendChild(this._buildSharedBadge());
             if (f.key === this._filter) btn.classList.add('atlas-drive__tab--active');
             addDomListener(this, btn, 'click', () => this._switchFilter(f.key));
             this._tabButtons.set(f.key, btn);
             tabs.appendChild(btn);
         }
         return tabs;
+    }
+
+    /**
+     * @private The "novos" counter, built once and then only repainted.
+     *
+     * TWO NODES INSIDE, and it is not decoration. The digit alone is meaningless to a screen
+     * reader ("3" beside a tab name), and per the house contract important information never
+     * lives in `title`. So the digit is hidden from assistive tech and a full sentence sits
+     * beside it, visually hidden. `role="status"` is deliberately ABSENT: the badge is silent by
+     * decision, and a live region would announce itself over whatever the person was doing.
+     */
+    _buildSharedBadge() {
+        const badge = document.createElement('span');
+        badge.className = 'atlas-drive__tab-badge';
+        badge.dataset.testid = 'project-picker-tab-compartilhados-badge';
+        badge.hidden = true;
+
+        const count = document.createElement('span');
+        count.className = 'atlas-drive__tab-badge-count';
+        count.setAttribute('aria-hidden', 'true');
+
+        const label = document.createElement('span');
+        label.className = 'atlas-drive__tab-badge-label';
+
+        badge.append(count, label);
+        this._sharedBadgeEl = badge;
+        this._sharedBadgeCountEl = count;
+        this._sharedBadgeLabelEl = label;
+        return badge;
+    }
+
+    /**
+     * @private Reads the seen-mark out of `localStorage`, once per mount.
+     *
+     * EVERY failure is the SAME answer, `null`, and that is the safe direction: a private window,
+     * a browser with site data blocked and a hand-mangled value all carry zero evidence about what
+     * this person has already looked at, so all three adopt the current list instead of announcing
+     * it as new. See the header of `shared-atlas-badge.js`.
+     * @param {string} key
+     * @returns {{ids: string[]}|null}
+     */
+    _readSeenMark(key) {
+        try {
+            return parseSeenMark(window.localStorage.getItem(key));
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * @private Writes the seen-mark. Silent on failure, on purpose: a person whose browser refuses
+     * storage still gets a working page, and the only thing they lose is a counter.
+     * @param {string} key
+     * @param {string[]} ids
+     */
+    _writeSeenMark(key, ids) {
+        try {
+            window.localStorage.setItem(key, serializeSeenMark(ids));
+        } catch { /* no storage: the badge degrades to always-zero, and nothing else breaks */ }
+    }
+
+    /**
+     * @private Recomputes the badge from the current list and the stored mark.
+     *
+     * Called from `_renderGrid`, so it rides every path that can change the list (build, refresh,
+     * restore, tab switch, and every keystroke in the search box). It costs a filter plus a Set,
+     * and it does NOT touch storage on each call: the mark is read once and kept in memory.
+     */
+    _updateSharedBadge() {
+        if (!this._sharedBadgeEl) return;
+        // An anonymous visitor has no account, so no share can point at them: no key, no badge.
+        const key = seenMarkStorageKey(sessionContext.userId);
+        if (!key) {
+            this._paintSharedBadge(0);
+            return;
+        }
+        if (this._seenMark === undefined) this._seenMark = this._readSeenMark(key);
+        const state = resolveSharedBadge({ projects: this._projects, storedMark: this._seenMark });
+        // Two ways the number is zero AND the mark advances: the first visit (adoption), and the
+        // person having the tab open right now. Looking at the list IS the act the badge tracks,
+        // which is why it clears here and not when an atlas is opened.
+        if (state.adopt || this._filter === 'compartilhados') {
+            this._seenMark = { ids: state.seenIds };
+            this._writeSeenMark(key, state.seenIds);
+            this._paintSharedBadge(0);
+            return;
+        }
+        this._paintSharedBadge(state.count);
+    }
+
+    /**
+     * @private Paints the counter. Zero hides the whole badge rather than drawing "0", because a
+     * zero beside a tab reads as a broken counter, not as good news.
+     * @param {number} count
+     */
+    _paintSharedBadge(count) {
+        const text = badgeText(count);
+        this._sharedBadgeCountEl.textContent = text;
+        this._sharedBadgeLabelEl.textContent = badgeAccessibleLabel(count);
+        this._sharedBadgeEl.hidden = text === '';
     }
 
     /** @private The atlases matching the active tab + search. */
@@ -674,6 +792,10 @@ export class AtlasDrive {
         // the next poll write into detached DOM and leak a node per atlas per redraw.
         this._presenceNodes.clear();
         this._gridEl.replaceChildren();
+        // Rides here rather than on its own call sites: every path that can change the list ends
+        // in a redraw, and a badge updated only where somebody remembered to update it goes stale
+        // on the path nobody thought of.
+        this._updateSharedBadge();
         const isTrash = this._filter === 'lixeira';
         const q = this._query.trim().toLowerCase();
         const matches = (p) => !q || (p?.name ?? '').toLowerCase().includes(q);
@@ -686,6 +808,16 @@ export class AtlasDrive {
             empty.textContent = isTrash
                 ? (this._query ? 'Nenhum atlas na lixeira corresponde à busca.' : 'A lixeira está vazia.')
                 : (this._query ? 'Nenhum atlas corresponde à busca.' : 'Nenhum atlas nesta categoria.');
+            // O alcance da marca só se diz onde a marca age, e só quando não há busca por trás do
+            // vazio: sem esta linha, a ausência de número se lê como "ninguém nunca compartilhou
+            // nada comigo", que é uma conclusão que a tela não afirmou.
+            if (!isTrash && !this._query && this._filter === 'compartilhados') {
+                const scope = document.createElement('p');
+                scope.className = 'atlas-drive__empty-note';
+                scope.dataset.testid = 'project-picker-shared-scope-note';
+                scope.textContent = badgeScopeNotice();
+                empty.appendChild(scope);
+            }
             this._gridEl.appendChild(empty);
             return;
         }

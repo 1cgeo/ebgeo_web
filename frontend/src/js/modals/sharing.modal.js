@@ -46,6 +46,8 @@ export * from './sharing.modal.core.js';
  * @param {Object} [options]
  * @param {string} [options.atlasName] - Display name shown in the header title.
  * @param {Object|null} [options.presence] - Fonte de presença; ausente = a fonte viva do mapa.
+ * @param {boolean} [options.readOnly] - Abre o modo PARTICIPANTES (somente leitura), que a aba
+ *   "Mapas" oferece a quem participa sem gerir. Ver o construtor de `SharingModal`.
  * @returns {SharingModal} The modal instance.
  */
 export function showSharingModal(atlasId, options = {}) {

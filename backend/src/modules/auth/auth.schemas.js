@@ -65,3 +65,26 @@ export const verifyEmailSchema = Joi.object({
 export const resendVerificationSchema = Joi.object({
   email: Joi.string().email().max(255).required(),
 });
+
+/** Step one of the recovery: the address to mail a code to. Answers the same 200 either way. */
+export const forgotPasswordSchema = Joi.object({
+  email: Joi.string().email().max(255).required(),
+});
+
+/**
+ * Step two: the code from the e-mail plus the new password.
+ *
+ * THE LENGTH RULE BELONGS HERE, unlike on `loginSchema`, and the distinction is the one that
+ * file's fileoverview draws: this route CREATES a password, so the registration policy applies.
+ * The bounds mirror `updatePasswordSchema` and `resetPasswordSchema`
+ * (`src/modules/users/users.schemas.js`); the three are the same policy stated at the three
+ * places a password can be written.
+ *
+ * `token` is `uuid()` because the token IS the primary key of `email_verification_tokens`, which
+ * is a `UUID DEFAULT gen_random_uuid()`. Refusing a malformed code at the border keeps a typed
+ * code from reaching the database as `22P02`, which surfaces as a 400 that says nothing.
+ */
+export const resetPasswordWithTokenSchema = Joi.object({
+  token: Joi.string().uuid().required(),
+  newPassword: Joi.string().required().min(6).max(100),
+});

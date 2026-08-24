@@ -123,6 +123,42 @@ export const verifyEmailLimiter = credentialIpLimiter();
 export const resendVerificationLimiter = credentialIpLimiter();
 
 /**
+ * `POST /auth/forgot-password`. Own bucket, keyed by ADDRESS.
+ *
+ * It is the sibling of `resendVerificationLimiter` and needs the limit for the same two reasons
+ * at once, both sharper here: it is an e-mail AMPLIFIER (the address is chosen by an anonymous
+ * caller and the server mails it) and it is the residual account ORACLE (the response is uniform,
+ * so what remains readable is the TIME difference between the branch that mails and the branch
+ * that does not, and only a ceiling on attempts bounds how well that can be measured).
+ *
+ * Own store, not shared with the resend limiter: a flood of one must not spend the budget of the
+ * other, and these are the two routes a locked-out person needs most.
+ */
+export const forgotPasswordLimiter = credentialIpLimiter();
+
+/**
+ * `POST /auth/reset-password`. Own bucket, keyed by ADDRESS.
+ *
+ * What it bounds is GUESSING THE CODE. The code is a v4 uuid (122 bits), so guessing is not the
+ * realistic attack, but the route is anonymous, it answers differently for a live code, and it
+ * writes a password: it is the last place in the product that should be unlimited. Failed and
+ * successful attempts both count, unlike `/auth/refresh`, because a successful reset is a
+ * once-in-a-while event and nobody legitimately does it in bursts.
+ */
+export const resetPasswordLimiter = credentialIpLimiter();
+
+/**
+ * `PUT /users/me/email`. Own bucket, keyed by ADDRESS.
+ *
+ * The caller is AUTHENTICATED here, which changes what the limiter is for but does not remove the
+ * need: the route mails an address the caller types, so it remains an amplifier, and the branch
+ * where the address belongs to someone else notifies a stranger's mailbox. Bounding it by address
+ * rather than by account is deliberate — one compromised session behind one address is the shape
+ * of the abuse.
+ */
+export const emailChangeLimiter = credentialIpLimiter();
+
+/**
  * `POST /auth/register`, keyed by ADDRESS. Runs BEFORE `authLimiter` on that route;
  * the two measure different things and both are wanted.
  *

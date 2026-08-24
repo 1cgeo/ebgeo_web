@@ -205,14 +205,57 @@ CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked
 -- ============================================================================
 -- O UUID do token é o segredo que viaja no link: uso único (consumed_at) e com
 -- prazo (expires_at).
+--
+-- O NOME DA TABELA É HISTÓRICO E ESTREITO DEMAIS para o que ela guarda hoje: são
+-- TRÊS propósitos de token de conta, e não um. A tabela não foi renomeada de
+-- propósito (renomear ripplearia em consulta, teste e comentário sem ganhar uma
+-- propriedade), então o `COMMENT ON TABLE` abaixo é onde o alcance real está
+-- escrito. `purpose` é o que TORNA o reúso seguro: sem ele, um token cunhado para
+-- confirmar endereço seria resgatável na rota que troca a SENHA, que é confusão de
+-- propósito e a razão clássica de não se compartilhar tabela de token. A consulta
+-- de resgate (`CLAIM_VERIFICATION_TOKEN`, `src/modules/auth/auth.queries.js`) casa
+-- `purpose = ANY($2)` e cada rota passa a lista que lhe cabe.
+--
+-- BICONDICIONAL, como o `users_producer_scope_check`: endereço novo sem troca de
+-- e-mail e troca de e-mail sem endereço novo são os DOIS estados impossíveis, e um
+-- CHECK unidirecional só pegaria um deles.
 CREATE TABLE email_verification_tokens (
     token       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- 'verify'         — confirmar o endereço com que a conta nasceu (auto-cadastro).
+    -- 'change_email'   — confirmar o endereço NOVO de uma troca pedida pelo titular.
+    -- 'reset_password' — redefinir a senha a partir do e-mail.
+    -- DEFAULT 'verify' porque era o único propósito que existia: toda linha antiga,
+    -- e todo INSERT que não nomeie a coluna, continua significando o que significava.
+    purpose     VARCHAR(20) NOT NULL DEFAULT 'verify'
+                CHECK (purpose IN ('verify', 'change_email', 'reset_password')),
+
+    -- O endereço PRETENDIDO, guardado aqui e NÃO em `users`: enquanto a troca não é
+    -- confirmada, a conta continua com o e-mail antigo, verificado e funcionando. É
+    -- o que impede que um erro de digitação na troca tranque a pessoa fora da conta.
+    -- Ele também NÃO reserva o endereço: a unicidade é conferida no pedido e de novo
+    -- no resgate, nunca segurada no meio (ver cláusula 10.6 de CONSTITUICAO.md).
+    new_email   VARCHAR(255),
+
     expires_at  TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT email_token_new_email_check
+      CHECK ((purpose = 'change_email') = (new_email IS NOT NULL))
 );
 CREATE INDEX idx_email_verification_user ON email_verification_tokens(user_id);
+-- O lado pequeno: "que tokens deste propósito ainda estão de pé para esta conta?",
+-- que é a pergunta de quem invalida os anteriores antes de cunhar o próximo.
+CREATE INDEX idx_email_verification_pendentes
+  ON email_verification_tokens(user_id, purpose)
+  WHERE consumed_at IS NULL;
+
+COMMENT ON TABLE email_verification_tokens IS
+  'Account-mail tokens of THREE purposes (see the purpose column), not only signup '
+  'verification. The table name is historical; purpose is what keeps a token minted '
+  'for one flow from being redeemed by another.';
 
 -- ============================================================================
 -- API KEY HISTORY (rotação/revogação das chaves M2M)
