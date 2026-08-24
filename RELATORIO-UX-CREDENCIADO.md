@@ -10,6 +10,17 @@ código, um inventário de 39 ações e 7 perguntas ao dono.
 **Revisão: 2026-08-24.** Um lote grande entrou desde então (commit 76dbe93d, árvore de trabalho
 limpa), e este documento foi reescrito para separar o que saiu do que fica.
 
+**Baixa contra `b0e66b77` (o lote do produtor), 2026-08-24: nenhum achado SAIU, mas DOIS encolheram.**
+Dez achados deste relatório citam arquivos que aquele commit tocou, e os dez foram reabertos contra o
+código. O A4 perdeu a ponta do campo de prazo e o B1 perdeu a metade da moldura do painel, os dois
+por efeito colateral de trabalho feito para outro perfil. Os oito restantes estão intactos, o
+crítico C1 inclusive: `refreshVisibleResources` continua best-effort, com o retorno descartado
+pelos três chamadores e sem tela que ofereça `retryVisibleResources`.
+
+**A observação da baixa anterior fica REFORÇADA, e ela é o que decide prioridade:** este perfil não
+recebe conserto de graça. Em dois lotes seguidos, feitos sobre os perfis vizinhos, ele ganhou duas
+metades de achado BAIXO e nada mais.
+
 **Baixa contra `59e9600c`, 2026-08-24: NENHUM achado saiu, e esse é o resultado que importa.** A
 revisão acima foi escrita em `11150029`; o commit seguinte fechou 23 achados do perfil de usuário
 comum e passou por 85 arquivos. Cinco achados deste relatório citam arquivos que ele tocou, e os
@@ -275,9 +286,20 @@ revisão periódica, que é a higiene natural de quem distribui acesso com prazo
 vencimento. Como efeito colateral, a tela onde ele revoga passa a ser, por construção, a das
 concessões que ele pode revogar, o que é a mesma propriedade que o gate de botão hoje só simula.
 
-#### A4 (ALTO 6) Não dá para escolher o prazo, e o próprio texto manda renovar de um jeito impossível
+#### A4 (ALTO 6, PARCIAL desde `b0e66b77`) Não dá para escolher o prazo, e o próprio texto manda renovar de um jeito impossível
 
-Intacto nas três pontas. O parágrafo fixo de `_renderAddSection`
+**A PRIMEIRA PONTA SAIU, e as outras duas ficam.** O campo de prazo existe: `_renderAddSection`
+ganhou um seletor (7, 30, 90, 180 dias e um ano, que continua o padrão), e os dois caminhos de
+concessão passaram a mandar `expiresAt`. Isso veio pelo lote do PRODUTOR, não por este relatório,
+e cumpre a metade da cláusula 3.4 que falava em teto E padrão.
+
+**A ponta que importa para este perfil continua exatamente como estava, e a chegada do seletor a
+deixou mais visível:** o parágrafo ao lado segue mandando conceder de novo antes da data, e conceder
+de novo é impossível pelos dois lados. Agora há uma tela que oferece escolher um prazo curto e, no
+parágrafo seguinte, instrui a fazer algo que o servidor recusa com 409. **Correção:** o botão de
+estender na linha da concessão viva, abaixo.
+
+Texto original das três pontas. O parágrafo fixo de `_renderAddSection`
 (`frontend/src/js/catalog/resource-share.modal.js`) manda conceder de novo antes da data. Só que não
 há campo de prazo (varredura por `expiresAt` no arquivo inteiro: zero, embora `apiClient.grantResource`
 aceite o corpo que quiserem lhe dar), e conceder de novo é impossível pelos dois lados: `alreadyGranted`
@@ -438,9 +460,15 @@ basta não afirmar uma instantaneidade que o sistema não entrega.
 
 ### BAIXO
 
-#### B1 (BAIXO 1) O escudo diz "administração" onde o rótulo foi escrito para não dizer
+#### B1 (BAIXO 1, PARCIAL desde `b0e66b77`) O escudo diz "administração" onde o rótulo foi escrito para não dizer
 
-Intacto. `SHIELD_ICON` (`frontend/src/js/admin/admin-panel.js`, usado incondicionalmente em
+**A METADE DA MOLDURA SAIU:** `AdminPanel._buildHeader` deixou de usar escudo e subtítulo fixos, e
+os dois passaram a seguir o rótulo de `adminAudience`; e `_updateAdminVisibility` passou a trocar o
+ÍCONE junto com o texto, em vez de só o nó de texto. **Ficam as outras duas:** o botão ainda nasce
+com `ICON_ADMIN` e a palavra "Administração" antes de a função rodar, e a página continua montando
+uma barra de navegação vertical com um item só.
+
+Texto original. `SHIELD_ICON` (`frontend/src/js/admin/admin-panel.js`, usado incondicionalmente em
 `_buildHeader`) aparece ao lado do título "Grupos". `mountAdminPage`
 (`frontend/src/js/admin/index.js`) usa "Administração" como fallback do rótulo, e
 `frontend/src/js/account/account.control.js` cria o botão com o texto "Administração" antes de

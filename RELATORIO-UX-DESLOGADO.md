@@ -10,6 +10,13 @@ cláusulas, uma lista do que não deve ser mexido e sete perguntas ao dono.
 **Revisão: 2026-08-24.** Um lote grande entrou depois da auditoria (o commit de topo é 76dbe93d) e
 tocou este perfil em quatro pontos. Este documento foi reescrito para separar o que saiu do que fica.
 
+**Baixa contra `b0e66b77` (o lote do produtor), 2026-08-24: NADA mudou aqui**, e era o esperado.
+Só quatro achados citam arquivos daquele commit, e as citações são incidentais: ele tocou
+`index.js` para ler o parâmetro da calibração, `session-context.js` para a vivacidade da OM
+produtora e `account.control.js` para o aviso de volta do acervo privado. `isVisitor()` continua
+sem um único consumidor de interface, a tela de bloqueio continua sem dizer que os atlas deste
+navegador estão a salvo, e o marcador de camada indisponível continua numa superfície só.
+
 **Baixa contra `59e9600c`, 2026-08-24.** A revisão acima foi escrita em `11150029`; o commit
 seguinte fechou 23 achados do perfil de usuário comum e passou por esta superfície. Cada achado foi
 reaberto contra o código de `59e9600c`. **SETE saíram**, e quatro deles são achados NOVOS desta

@@ -10,6 +10,16 @@ uma lista do que não deve ser mexido e oito perguntas ao dono.
 separar o que saiu do que fica, corrigir o que a auditoria superdeclarou e registrar o que a
 conferência achou de novo.
 
+**Baixa contra `b0e66b77` (o lote do produtor), 2026-08-24: NADA mudou aqui.** Onze achados citam
+arquivos que aquele commit tocou, e os onze continuam de pé, os dois críticos inclusive. O commit
+passou por `admin/audit-tab.js`, `admin/admin-panel.js`, `admin/catalog-tab.js` e
+`users.service.js` e mesmo assim não fechou nada daqui, porque o que ele mudou nesses arquivos é do
+eixo do produtor (recorte da trilha, moldura do painel por audiência, visibilidade por linha,
+extração do predicado de poda). **A constatação da baixa anterior segue valendo em cheio: o lote não
+passa pelo painel de ADMINISTRAÇÃO.** `admin/personnel-tab.js` continua sem citar `is_active` uma
+única vez, que é o C1 inteiro, e `admin/users-tab.js` continua descartando o valor devolvido pela
+desativação, que é o C2.
+
 **Baixa contra `59e9600c`, 2026-08-24: saiu UM, o N3, e o A8 encolheu.** A revisão acima foi escrita
 em `11150029`. Doze achados deste relatório citam arquivos que o commit seguinte tocou; os doze foram
 reabertos contra o código, e onze continuam de pé, **os dois críticos inclusive**. A observação da
