@@ -25,6 +25,11 @@ import * as Q from './users.queries.js';
 // definicao, e ela mora no modulo de acesso a recurso: importar a funcao e o que impede
 // a segunda copia da regra de nascer aqui.
 import { podarConcessoesDeQuemFoiDesativado, podarPorRaizes } from '../resource-access/resource-access.service.js';
+// O AVISO AO VIVO da poda, com a MESMA definicao que a revogacao deliberada usa. Ele saiu do
+// controller de resource-access em 2026-08-24 justamente porque quatro dos cinco podadores
+// sao servicos, e este arquivo tem DOIS deles (`USER_DEMOTION` e `USER_DELETE`). Ver o
+// cabecalho de `resource-access.notify.js`.
+import { avisarAtlasQueEmprestam } from '../resource-access/resource-access.notify.js';
 // O CONJUNTO DE RAIZES DE UMA PESSOA tem UMA definicao, e ela e a mesma que a
 // desativacao usa. Reescrever o `WHERE granted_by = $1 AND revoked_at IS NULL` aqui
 // seria a segunda copia, e a segunda e a que envelhece quando a coluna mudar.
@@ -599,7 +604,12 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
     }
   }
 
-  return tx(async (t) => {
+  // AS LINHAS REVOGADAS SAEM DA TRANSACAO junto com a resposta, e so por causa do aviso ao
+  // vivo: a tela precisa das CONTAGENS, o frame precisa dos PARES (tipo, recurso) para achar
+  // as salas que emprestam. Sao dois consumidores da mesma poda, e o segundo so pode agir
+  // depois do COMMIT (avisar antes manda o receptor re-ler o estado velho, e nao ha segundo
+  // aviso). Dai o par `{ resultado, revogadas }` no lugar de um `return` direto.
+  const { resultado, revogadas } = await tx(async (t) => {
     const rows = await t.any(Q.UPDATE_USER_ADMIN, [
       userId,
       data.username || null,
@@ -733,6 +743,7 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
     // as duas coisas terem a mesma cara do lado do cliente.
     const fundamentoPerdido = fundamentoDeRaizPerdido(existing, atualizado);
     const efeitoDaPoda = { grantsAffected: 0, grantsReparented: 0, fundamentoPerdido };
+    let revogadasDaPoda = [];
     if (fundamentoPerdido) {
       const raizes = await t.any(LIVE_GRANT_IDS_BY_GRANTER, [userId]);
       // `origem` E O QUE SEPARA ISTO DE UMA REVOGACAO DELIBERADA na trilha, no espirito
@@ -748,10 +759,18 @@ export async function updateUser(userId, data, actingUserId = null, req = null) 
       });
       efeitoDaPoda.grantsAffected = revoked.length;
       efeitoDaPoda.grantsReparented = reparented.length + trimmed.length;
+      revogadasDaPoda = revoked;
     }
 
-    return { ...atualizado, ...efeitoDaPoda };
+    return { revogadas: revogadasDaPoda, resultado: { ...atualizado, ...efeitoDaPoda } };
   });
+
+  // O REBAIXAMENTO E O PODADOR MAIS CARO DE NAO AVISAR, e por isso ele era o pior dos quatro
+  // silenciosos: derruba de uma vez tudo o que o produtor (ou o administrador) rebaixado
+  // distribuiu, e quem perdeu o acesso nao fez gesto nenhum e nao tem por que recarregar. Sem
+  // este aviso, a sala segue desenhando camadas que o servidor ja recusa.
+  await avisarAtlasQueEmprestam(revogadas);
+  return resultado;
 }
 
 /**
@@ -792,6 +811,21 @@ export async function resetPassword(userId, newPassword, req = null, actorId = n
 
 /**
  * Deactivates a user (soft delete). Optionally transfers atlas ownership.
+ *
+ * A TRANSFERENCIA ALCANCA A LIXEIRA desde 2026-08-24 (achado A5, decisao do dono), e antes
+ * disso `COUNT_USER_ATLAS` e `TRANSFER_ATLAS_OWNERSHIP` carregavam `deleted_at IS NULL`. O
+ * defeito era DUPLO, e a segunda metade e a que nao se enxerga lendo uma consulta so: quem
+ * so tinha atlas na lixeira contava ZERO, entao a pergunta de transferencia nem aparecia e a
+ * conta era desativada direto; e mesmo na transferencia bem-sucedida os atlas na lixeira
+ * ficavam com DONO MORTO, porque conta inativa e recusada com 401 em toda rota. O resultado
+ * era um atlas que so um administrador global alcancava, pela porta de tras que
+ * `tests/integration/atlas-trash-admin-restore.test.js` documenta.
+ *
+ * O NUMERO DA LIXEIRA VIAJA SEPARADO, na recusa e na resposta, porque a transferencia MUDOU
+ * DE SIGNIFICADO: "transferi os atlas dele" passou a incluir uma lixeira que nao e do novo
+ * dono, e quem confirma precisa poder ser avisado disso antes de clicar. Um total que
+ * silenciosamente engorda seria a mesma mudanca sem o aviso.
+ *
  * @param {string} userId - User to deactivate
  * @param {string} adminId - Admin performing the action
  * @param {string} transferToUserId - User to transfer atlas to (optional)
@@ -807,14 +841,23 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
 
   // Atomic: count atlas -> (transfer) -> soft-delete -> revoke tokens.
   // If any step fails, the whole thing rolls back (no orphaned transfer).
-  return tx(async (t) => {
+  const { resultado, revogadas } = await tx(async (t) => {
     const atlasCount = await t.one(Q.COUNT_USER_ATLAS, [userId]);
     const count = parseInt(atlasCount.count, 10);
+    const naLixeira = parseInt(atlasCount.trashed, 10);
+    let transferidosDaLixeira = 0;
 
     if (count > 0) {
       if (!transferToUserId) {
+        // A RECUSA NOMEIA A LIXEIRA quando ela existe, e essa frase e o unico lugar em que o
+        // administrador descobre que o total nao e so o que ele ve listado. Sem ela, um
+        // usuario com um atlas vivo e cinco na lixeira produz um "possui 6 atlas" que nao
+        // bate com nenhuma tela, e a explicacao mais provavel que o leitor constroi
+        // ("o servidor esta contando errado") e a errada.
         throw new ConflictError(
-          `O usuário possui ${count} atlas. Informe um destinatário para transferir a propriedade, senão os atlas ficariam órfãos.`
+          `O usuário possui ${count} atlas`
+          + (naLixeira > 0 ? `, sendo ${naLixeira} na lixeira` : '')
+          + '. Informe um destinatário para transferir a propriedade, senão os atlas ficariam órfãos.'
         );
       }
       // Transferring to the user being deactivated is a no-op that LOOKS like a
@@ -838,6 +881,12 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
       if (!target.is_active) throw new ForbiddenError('Não é possível transferir o atlas para um usuário inativo.');
       // RETURNING rows -> use t.any (t.none would reject on returned rows).
       const transferred = await t.any(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
+      // QUANTOS VIERAM DA LIXEIRA SAI DO PROPRIO `RETURNING` DA ESCRITA, e nao do COUNT
+      // acima: e a mesma linha que acabou de mudar de dono, no mesmo instante. O COUNT
+      // serve a RECUSA (que acontece quando nada foi escrito); este numero serve a
+      // CONFIRMACAO, e um numero de confirmacao que nao venha da escrita e um numero que
+      // pode descrever outra coisa.
+      transferidosDaLixeira = transferred.filter((a) => a.from_trash === true).length;
 
       // Drop any share the recipient already held on the atlases they just
       // inherited. Ownership comes from `owner_id` alone, but `LIST_USER_ATLAS`
@@ -886,6 +935,11 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
       targetName: user.nome,
       details: {
         atlasTransferred: count,
+        // A LIXEIRA ENTRA NA TRILHA COMO PARCELA, nunca dissolvida no total: a pergunta
+        // que esta linha responde depois e "o que o novo dono herdou que ele nunca viu?",
+        // e ela nao tem resposta a partir de um numero so. E o mesmo motivo de
+        // `grantsReparented` existir ao lado de `grantsRevoked`.
+        atlasTransferredFromTrash: transferidosDaLixeira,
         // As DUAS contagens da poda, e nao so a primeira: `grantsRevoked` responde "o que
         // caiu junto com esta conta" e `grantsReparented` responde "o que sobreviveu, e
         // por isso a conta nao derrubou tudo". Sem a segunda, um numero menor que o
@@ -896,12 +950,25 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
     }, t);
 
     return {
-      success: true,
-      atlasTransferred: count > 0 ? count : 0,
-      grantsRevoked: podada.revoked.length,
-      grantsReparented: podada.reparented.length + podada.trimmed.length,
+      revogadas: podada.revoked,
+      resultado: {
+        success: true,
+        atlasTransferred: count > 0 ? count : 0,
+        // VIAJA SEMPRE, com zero quando nao houve lixeira nenhuma, pela mesma razao que os
+        // numeros da poda: a tela precisa distinguir "nada veio da lixeira" de "este
+        // servidor nao me diz", e um campo que so aparece as vezes faz as duas coisas
+        // terem a mesma cara do lado do cliente.
+        atlasTransferredFromTrash: transferidosDaLixeira,
+        grantsRevoked: podada.revoked.length,
+        grantsReparented: podada.reparented.length + podada.trimmed.length,
+      },
     };
   });
+
+  // O aviso ao vivo, DEPOIS do commit: desativar quem concedeu derruba o empréstimo dos
+  // atlas que dependiam daquela concessão, e ninguém naquelas salas fez gesto nenhum.
+  await avisarAtlasQueEmprestam(revogadas);
+  return resultado;
 }
 
 /**

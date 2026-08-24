@@ -98,6 +98,52 @@ export const LIST_ALL_DELETED_ATLAS = `
   ORDER BY a.deleted_at DESC
 `;
 
+// A BUSCA DE ATLAS DO ADMINISTRADOR, e o que ela deliberadamente NÃO é: uma listagem.
+//
+// O buraco que ela fecha: `requireAtlasPermission` faz curto-circuito por `role === 'admin'`, de
+// modo que o administrador tem posse em TODO atlas e ainda assim não conseguia ALCANÇAR nenhum
+// alheio — `LIST_USER_ATLAS` filtra por `owner_id = $1 OR share`, e um atlas cujo dono foi
+// desativado não aparecia para ninguém. É o mesmo defeito que a metade da LIXEIRA já resolveu
+// (`LIST_ALL_DELETED_ATLAS`), na metade VIVA.
+//
+// POR QUE BUSCA E NÃO LISTA (decisão do dono, 2026-08-24). Enumerar o acervo inteiro é um poder
+// diferente de alcançar um atlas nomeado: a lista aberta entrega, num pedido, o nome de todo
+// projeto de toda OM a quem só precisava desatolar um. A enumeração nasce SOB CONTROLE
+// EXPLÍCITO, então esta consulta EXIGE termo (o Joi da rota o torna obrigatório e com piso de
+// tamanho) e leva LIMIT. Não existe caminho por aqui que devolva tudo.
+//
+// `user_permission` É `owner` PELA MESMA RAZÃO DE `LIST_ALL_DELETED_ATLAS`: é o que
+// `requireAtlasPermission` já concede ao administrador em qualquer atlas, e uma listagem que
+// declare MENOS acesso do que o gate entrega é o erro que `LIST_USER_ATLAS` documenta acima.
+//
+// `owner_nome`/`owner_username` NÃO SÃO ENFEITE: sem eles a resposta é uma lista de UUIDs e
+// nomes de projeto que não identifica ninguém, e o caso de uso inteiro (achar o atlas de fulano,
+// que foi desativado) não se resolve. É por isso que o termo casa também contra o DONO.
+//
+// O ID CASA POR IGUALDADE, nunca por `ILIKE`: o administrador cola um UUID vindo de um relatório
+// e espera aquele atlas, não os que por acaso contenham aqueles dígitos. A comparação é sobre
+// `a.id::text`, e não um cast do termo para `uuid`, porque termo que não é UUID levantaria
+// 22P02 — um 500 sobre uma busca legítima por nome.
+//
+// SÓ ATLAS VIVOS. A metade morta tem rota própria (`GET /atlas/trash`, já com o ramo de
+// administrador), e misturar as duas faria a busca devolver o que a lixeira já devolve, com o
+// mesmo `user_permission` e sem dizer qual é qual.
+//   $1 = padrão ILIKE (%termo%), $2 = termo cru (igualdade de id), $3 = limite
+export const SEARCH_ALL_ATLAS = `
+  SELECT a.*, u.nome as owner_nome, u.username as owner_username, 'owner' as user_permission
+  FROM atlas a
+  JOIN users u ON u.id = a.owner_id
+  WHERE a.deleted_at IS NULL
+    AND (
+      a.name ILIKE $1
+      OR u.nome ILIKE $1
+      OR u.username ILIKE $1
+      OR a.id::text = $2
+    )
+  ORDER BY a.updated_at DESC
+  LIMIT $3
+`;
+
 // Restore is scoped to (id, owner, soft-deleted) so the ownership check is atomic: a non-owner or a
 // non-deleted/absent atlas matches zero rows → the service raises 404.
 //
@@ -391,5 +437,158 @@ export const COLLECT_ATLAS_RESOURCE_REFS = `
     SELECT 'settings.default_basemap', a.settings->>'default_basemap', NULL, NULL
       FROM atlas a
      WHERE a.id = $1 AND jsonb_typeof(a.settings->'default_basemap') = 'string'
+  ) todas
+`;
+
+/**
+ * As superfícies que `COUNT_ATLAS_REFS_TO_RESOURCE` de fato materializa, declaradas.
+ *
+ * ELA EXISTE PARA SER COMPARADA COM O REGISTRO. `resource-reference.registry.js` é o inventário
+ * de onde um id de recurso mora dentro de um atlas, e esta consulta é a materialização dele em
+ * SQL — mas materialização escrita à mão envelhece calada: uma linha nova no registro sem perna
+ * nova aqui produz uma contagem que ignora aquela superfície, e a resposta continua bem-formada.
+ * Declarar a cobertura permite que um teste compare os dois conjuntos, e é isso que transforma o
+ * esquecimento em vermelho.
+ *
+ * `registro` É PLURAL porque a correspondência NÃO é um-para-um: as quatro entradas de
+ * `cesium3d.*` do registro são a MESMA coluna (`cesium3d_data.tileset_id`) e uma perna só as
+ * cobre. Comparar por (tabela, coluna) resolveria esse caso e quebraria o oposto — as SEIS
+ * entradas de `atlas.settings` compartilham tabela e coluna e são seis pernas diferentes.
+ *
+ * O QUE FALTA AQUI, E POR QUÊ: as três superfícies de `sv360_project`
+ * (`streetview360_data.photo_name`, `briefing.slide.photoId`, `settings.available_360_views`).
+ * Projeto 360 não é tabela de CATÁLOGO (`CATALOG_TABLES` são quatro; `RESOURCE_TYPES` são cinco),
+ * e a rota que consome esta consulta é fabricada por tabela de catálogo. Se o 360 ganhar uma rota
+ * de contagem, são estas três pernas que ela precisa.
+ *
+ * `mapa.catalogLayers` ACEITA `tileset` porque o registro o declara — mas
+ * `CATALOG_LAYER_ID_PREFIX` (`../catalog/catalog-layer.ref.js`) só cunha prefixo para
+ * `data_layer` e `analysis_layer`, então hoje um tileset nunca resolve por ali e a contagem sai
+ * zero por construção. Zero legítimo, não perna morta: no dia em que o prefixo cobrir o terceiro
+ * tipo, esta perna já responde.
+ */
+export const REF_COUNT_SURFACES = Object.freeze([
+  Object.freeze({ origem: 'mapa.baseLayer', registro: ['mapa.baseLayer'] }),
+  Object.freeze({ origem: 'mapa.catalogLayers', registro: ['mapa.catalogLayers'] }),
+  Object.freeze({
+    origem: 'cesium3d',
+    registro: ['cesium3d.cameraPositions', 'cesium3d.markers', 'cesium3d.measurements',
+      'cesium3d.viewsheds'],
+  }),
+  Object.freeze({ origem: 'briefing.slide.modelId', registro: ['briefing.slide.modelId'] }),
+  Object.freeze({ origem: 'settings.basemaps', registro: ['settings.basemaps'] }),
+  Object.freeze({ origem: 'settings.default_basemap', registro: ['settings.default_basemap'] }),
+  Object.freeze({
+    origem: 'settings.available_data_layers', registro: ['settings.available_data_layers'],
+  }),
+  Object.freeze({
+    origem: 'settings.available_analysis_layers', registro: ['settings.available_analysis_layers'],
+  }),
+  Object.freeze({
+    origem: 'settings.available_3d_models', registro: ['settings.available_3d_models'],
+  }),
+]);
+
+/**
+ * Quais atlas VIVOS citam um id de recurso de catálogo, por superfície.
+ *
+ * IRMÃ DE `COLLECT_ATLAS_RESOURCE_REFS`, e o eixo é o oposto: aquela pergunta "que recursos este
+ * atlas cita" (um atlas, todos os recursos) e esta pergunta "que atlas citam este recurso" (um
+ * recurso, todos os atlas). As DUAS são materializações do MESMO registro, então uma superfície
+ * nova entra nas duas no mesmo commit — e é `REF_COUNT_SURFACES` acima que permite cobrar isso.
+ *
+ * ELA DEVOLVE LINHAS, NÃO UM NÚMERO, e a razão é uma só: a referência de CAMADA DE CATÁLOGO não é
+ * resolvível em SQL. O prefixo (`analysis-`, `data-`) e as duas formas legadas (`originalId`,
+ * `config.id`) têm UMA definição, em `catalog-layer.ref.js`, e reescrevê-la aqui seria a segunda
+ * cópia da regra — exatamente o que o comentário de `COLLECT_ATLAS_RESOURCE_REFS` recusa. Então o
+ * SQL faz o que sabe fazer (ESTREITAR: o id termina com o alvo, ou uma das duas colunas legadas
+ * casa exatamente) e devolve o payload; quem DECIDE é o JS. Contar aqui daria um número MAIOR que
+ * o verdadeiro, e número inflado numa confirmação de exclusão é pior que número nenhum.
+ *
+ * `right(cl.id, length($1)) = $1` NO LUGAR DE `LIKE '%' || $1`: um id de catálogo é dado, e dado
+ * com `%` ou `_` dentro vira curinga num LIKE. O sufixo por igualdade não tem metacaractere.
+ *
+ * SÓ ATLAS VIVO. O da lixeira volta com a referência pendurada, mas ele não está aberto para
+ * ninguém no instante da exclusão, e somá-lo faria o número da confirmação falar de projetos que
+ * a pessoa não encontra em lugar nenhum.
+ *
+ * A ARMADILHA DA ALLOWLIST, que é a razão de este parágrafo existir: as cinco superfícies
+ * `settings.*` de lista são ALLOWLIST, e nelas a lista VAZIA significa SEM RESTRIÇÃO. Logo um
+ * atlas que NÃO cita o recurso pode perfeitamente estar exibindo-o — e esta consulta, de
+ * propósito, conta apenas quem CITA. O número que ela produz responde "quantos atlas guardam o id
+ * que vai ficar pendurado", nunca "quantos atlas vão notar a falta"; o segundo, para uma
+ * allowlist vazia, é "todos", que é ruído com cara de medição. Quem escrever a frase da
+ * confirmação precisa dizer a primeira coisa.
+ *
+ * `jsonb_typeof` guarda cada perna de lista pela mesma razão da irmã: `jsonb_array_elements_text`
+ * levanta sobre o que não é array, e o documento pode ter chegado por import.
+ *   $1 = id do recurso (texto), $2 = tipo (`RESOURCE_TYPES`)
+ */
+export const COUNT_ATLAS_REFS_TO_RESOURCE = `
+  SELECT DISTINCT origem, atlas_id, layer_id, layer_data FROM (
+    SELECT 'mapa.baseLayer'::text AS origem, m.atlas_id, NULL::text AS layer_id,
+           NULL::jsonb AS layer_data
+      FROM maps m JOIN atlas a ON a.id = m.atlas_id
+     WHERE $2 = 'basemap' AND m.base_layer = $1
+       AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+    UNION ALL
+    SELECT 'mapa.catalogLayers', m.atlas_id, cl.id, cl.data
+      FROM catalog_layers cl
+      JOIN maps m ON m.id = cl.map_id
+      JOIN atlas a ON a.id = m.atlas_id
+     WHERE $2 IN ('data_layer', 'analysis_layer', 'tileset')
+       AND cl.deleted_at IS NULL AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+       AND ( right(cl.id, length($1)) = $1
+             OR cl.data->>'originalId' = $1
+             OR cl.data->'config'->>'id' = $1 )
+    UNION ALL
+    SELECT 'cesium3d', m.atlas_id, NULL, NULL
+      FROM cesium3d_data c
+      JOIN maps m ON m.id = c.map_id
+      JOIN atlas a ON a.id = m.atlas_id
+     WHERE $2 = 'tileset' AND COALESCE(c.tileset_id, c.data->>'tilesetId') = $1
+       AND c.deleted_at IS NULL AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+    UNION ALL
+    SELECT 'briefing.slide.modelId', b.atlas_id, NULL, NULL
+      FROM slides sl
+      JOIN briefings b ON b.id = sl.briefing_id
+      JOIN atlas a ON a.id = b.atlas_id
+     WHERE $2 = 'tileset' AND sl.model_id = $1
+       AND sl.deleted_at IS NULL AND b.deleted_at IS NULL AND a.deleted_at IS NULL
+    UNION ALL
+    SELECT 'settings.basemaps', a.id, NULL, NULL
+      FROM atlas a
+     WHERE $2 = 'basemap' AND a.deleted_at IS NULL
+       AND jsonb_typeof(a.settings->'basemaps') = 'array'
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.settings->'basemaps') v
+                    WHERE v = $1)
+    UNION ALL
+    SELECT 'settings.default_basemap', a.id, NULL, NULL
+      FROM atlas a
+     WHERE $2 = 'basemap' AND a.deleted_at IS NULL
+       AND jsonb_typeof(a.settings->'default_basemap') = 'string'
+       AND a.settings->>'default_basemap' = $1
+    UNION ALL
+    SELECT 'settings.available_data_layers', a.id, NULL, NULL
+      FROM atlas a
+     WHERE $2 = 'data_layer' AND a.deleted_at IS NULL
+       AND jsonb_typeof(a.settings->'available_data_layers') = 'array'
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.settings->'available_data_layers') v
+                    WHERE v = $1)
+    UNION ALL
+    SELECT 'settings.available_analysis_layers', a.id, NULL, NULL
+      FROM atlas a
+     WHERE $2 = 'analysis_layer' AND a.deleted_at IS NULL
+       AND jsonb_typeof(a.settings->'available_analysis_layers') = 'array'
+       AND EXISTS (SELECT 1
+                     FROM jsonb_array_elements_text(a.settings->'available_analysis_layers') v
+                    WHERE v = $1)
+    UNION ALL
+    SELECT 'settings.available_3d_models', a.id, NULL, NULL
+      FROM atlas a
+     WHERE $2 = 'tileset' AND a.deleted_at IS NULL
+       AND jsonb_typeof(a.settings->'available_3d_models') = 'array'
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.settings->'available_3d_models') v
+                    WHERE v = $1)
   ) todas
 `;

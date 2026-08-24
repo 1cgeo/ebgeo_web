@@ -47,6 +47,15 @@ export function makeCatalogRouter(table) {
   // prévia (cláusula 2.4). Até 2026-08-23 o schema era único para as quatro, então a norma
   // vivia apenas no formulário do painel e a API gravava o campo em `basemaps` sem reclamar.
   const escrita = schemas.schemasDeEscrita(table);
+  // QUANTOS ATLAS REFERENCIAM ESTE ITEM. Registrada JUNTO das escritas e com o gate delas
+  // (`produtor`), não junto das leituras: o número serve à confirmação do `DELETE` logo abaixo, e
+  // quem pode contar é quem pode excluir. Com o gate de leitura ela viraria um censo de uso do
+  // acervo aberto a todo chamador autenticado.
+  //
+  // Ela vem ANTES do `PUT`/`DELETE` só por leitura humana; `/:id/references` tem dois segmentos e
+  // não disputa rota com `/:id`.
+  router.get('/:id/references', auth, produtor,
+    validate({ params: schemas.idParamsSchema }), ctrl.references(table));
   router.post('/', auth, produtor, validate({ body: escrita.create }), ctrl.create(table));
   router.put('/:id', auth, produtor,
     validate({ params: schemas.idParamsSchema, body: escrita.update }), ctrl.update(table));

@@ -22,7 +22,7 @@ import { showPrompt } from '@modals/prompt.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
 import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
-import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
+import { sectionHeader, card, emptyState, ICON_CATALOG, failureState } from './admin-dom.js';
 import { orgLabel } from './org-options.js';
 // Two LEAF modules, imported one by one and never through the `@catalog` barrel: this page boots
 // without the store, and the barrel re-exports `catalog.service.js`, which reaches it.
@@ -281,15 +281,19 @@ class CatalogTab {
         //
         // A consequência prática é que "Nenhum item nesta categoria" significa coisas diferentes
         // nas duas, e sem a nota a pessoa lê a lista longa daqui como "tudo isto é meu".
-        if (!sessionContext.isAdmin()) {
-            const escopo = document.createElement('p');
-            escopo.className = 'admin-form__hint';
-            escopo.dataset.testid = 'admin-catalog-scope-note';
-            escopo.textContent = 'Esta lista traz o acervo público de todas as OM mais o que é seu. '
-                + 'Você só edita as linhas da sua OM; nas demais, o lugar dos botões diz quem '
-                + 'mantém. A sub-aba 360 é diferente: lá aparecem apenas os seus projetos.';
-            c.appendChild(escopo);
-        }
+        // A NOTA SAI PARA OS DOIS PÚBLICOS, com o texto de cada um. A primeira versão desta nota
+        // era gateada por `!isAdmin()`, e o efeito é o que o achado M3 descreve: o administrador,
+        // que tem a lista mais larga possível, era o único sem legenda dizendo qual é o recorte.
+        const escopo = document.createElement('p');
+        escopo.className = 'admin-form__hint';
+        escopo.dataset.testid = 'admin-catalog-scope-note';
+        escopo.textContent = sessionContext.isAdmin()
+            ? 'Você vê e edita o acervo de todas as OM, e também o institucional (sem OM dona), '
+              + 'porque administra o sistema. A coluna "OM dona" diz quem mantém cada linha.'
+            : 'Esta lista traz o acervo público de todas as OM mais o que é seu. '
+              + 'Você só edita as linhas da sua OM; nas demais, o lugar dos botões diz quem '
+              + 'mantém. A sub-aba 360 é diferente: lá aparecem apenas os seus projetos.';
+        c.appendChild(escopo);
 
         const wrap = card({ testid: 'admin-catalog-list', padded: false });
         wrap.classList.add('admin-users__table-wrap');
@@ -304,7 +308,11 @@ class CatalogTab {
             items = await apiClient.listResources(category);
         } catch (error) {
             if (!this._alive) return;
-            loading.textContent = 'Falha ao carregar o catálogo.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar o catálogo.', {
+                onRetry: () => { if (this._alive) this._selectCategory(category); },
+            }));
             showError(error?.message || 'Falha ao carregar o catálogo.');
             return;
         }
@@ -316,10 +324,11 @@ class CatalogTab {
     _renderResourceTable(wrap, category, items) {
         wrap.replaceChildren();
         if (items.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'admin-users__status';
-            empty.textContent = 'Nenhum item nesta categoria.';
-            wrap.appendChild(empty);
+            // `emptyState` E NAO paragrafo cru, como as outras quatro abas ja faziam: o
+            // helper traz a DICA do proximo passo, e vazio sem proximo passo e beco.
+            wrap.appendChild(emptyState('Nenhum item nesta categoria.', {
+                hint: 'Use o botao "Novo" acima para criar o primeiro.',
+            }));
             return;
         }
         const temAcesso = !!ACCESS_TYPE_BY_CATEGORY[category];
@@ -433,8 +442,14 @@ class CatalogTab {
             ownerOrgId ? orgLabel(ownerOrgId) : 'Institucional (nenhuma OM)');
         ownerField.title = 'A OM que mantém este recurso.';
         form.appendChild(hintParagraph(isEdit
-            ? 'A OM dona é definida na criação e não muda por esta tela. Transferir um recurso '
-              + 'entre OMs é ato de administrador, fora do painel.'
+            // NÃO PROMETE MAIS A TRANSFERÊNCIA, porque ela não existe em rota nenhuma. O texto
+            // anterior mandava procurar uma capacidade não implementada: `CAMPOS_EDITAVEIS` do
+            // serviço de catálogo tem quatro chaves e `owner_org_id` não é uma delas, o UPDATE
+            // não a toca, e o ramo de ressurreição a deixa de fora DE PROPÓSITO, com o motivo
+            // escrito lá. O 360 tampouco transfere. Decisão do dono, 2026-08-24: a promessa sai
+            // do texto em vez de a rota nascer.
+            ? 'A OM dona é definida na criação e não muda depois, nem por esta tela nem por outra. '
+              + 'Para mover um recurso de OM, crie-o de novo na OM certa e exclua este.'
             : (sessionContext.isAdmin()
                 ? 'Criado por um administrador, o item nasce institucional (sem OM dona) e só o '
                   + 'administrador o mantém. Para que uma OM o mantenha, quem cria é o produtor dela.'
@@ -462,6 +477,17 @@ class CatalogTab {
             form.appendChild(hintParagraph('Privado tira o item do catálogo público. Ele continua visível '
                 + 'para administradores, credenciados, produtores da OM dona, quem recebeu concessão e quem '
                 + 'abrir um atlas que o empreste. Isto NÃO é o Status: um item pode ser Ativo e Privado.'));
+            // ONDE SE CONCEDE, dito aqui porque é aqui que a pergunta nasce. Privatizar e conceder
+            // são os dois lados do mesmo ato e vivem em telas opostas do aplicativo: este
+            // formulário privatiza, e `showResourceShareModal` (o único caminho de concessão) tem
+            // dois chamadores, os dois DENTRO do mapa. Quem acabou de tornar um item privado ficava
+            // sem saber a quem dar acesso, e a tela não dizia que existia outro lugar.
+            //
+            // Decisão do dono, 2026-08-24: a aba NOMEIA onde se concede, e o botão não nasce aqui.
+            // Um segundo modal de concessão nesta página seria uma segunda implementação da mesma
+            // regra, e o motor de sync que o primeiro carrega não cabe numa página sem store.
+            form.appendChild(hintParagraph('Tornar privado não dá acesso a ninguém. Para conceder, '
+                + 'abra o catálogo no mapa e use "Compartilhar" no cartão do recurso.'));
         }
 
         // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
@@ -683,7 +709,13 @@ class CatalogTab {
                         message: aviso,
                         destructive: true,
                         confirmText: 'Tornar privado',
-                        cancelText: 'Manter como está',
+                        // "MANTER PÚBLICO" E NÃO "MANTER COMO ESTÁ". O botão cancela SÓ a mudança de
+                    // visibilidade: o salvamento do item continua, de propósito (o comentário
+                    // acima explica por quê), e o `<select>` volta ao valor de partida. O rótulo
+                    // vago prometia cancelar o gesto inteiro, então quem clicava nele esperando
+                    // abortar a edição salvava assim mesmo. É o mesmo rótulo que
+                    // `_toggleResourceAccess` e `_toggle360Access` já usam, pela mesma razão.
+                    cancelText: 'Manter público',
                     });
                     if (!ok) {
                         accessInput.value = accessBefore;
@@ -913,8 +945,20 @@ class CatalogTab {
         // SEM `message` ISTO NAO DESENHAVA CORPO NENHUM (`ConfirmModal` so o monta quando a
         // mensagem existe), entao o ato mais destrutivo da aba perguntava menos que a
         // privatizacao ao lado, que traz um paragrafo inteiro.
+        // O NÚMERO É BUSCADO ANTES DE PERGUNTAR, e a falha da leitura não impede a pergunta: a
+        // frase degrada para a versão sem quantidade, que continua verdadeira. Ver o cabeçalho de
+        // `catalog-delete-phrases.js`.
+        let referencias = null;
+        try {
+            const r = await apiClient.countResourceReferences(this._category, resource.id);
+            referencias = Number(r?.atlasCount);
+        } catch (err) {
+            console.warn('[catalog-tab] contagem de referências indisponível:', err);
+        }
         const ok = await showConfirm(`Excluir "${resource.name || resource.id}" do catálogo?`, {
-            message: catalogDeletionWarning({ nome: resource.name, id: resource.id }),
+            message: catalogDeletionWarning({
+                nome: resource.name, id: resource.id, atlasCount: referencias,
+            }),
             destructive: true,
             confirmText: 'Excluir',
         });
@@ -969,7 +1013,11 @@ class CatalogTab {
             projects = await apiClient.listSv360Projects();
         } catch (error) {
             if (!this._alive) return;
-            loading.textContent = 'Falha ao carregar os projetos 360°.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar os projetos 360°.', {
+                onRetry: () => { if (this._alive) this._render360List(); },
+            }));
             showError(error?.message || 'Falha ao carregar os projetos 360°.');
             return;
         }
@@ -982,10 +1030,9 @@ class CatalogTab {
     _render360Table(wrap, projects) {
         wrap.replaceChildren();
         if (projects.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'admin-users__status';
-            empty.textContent = 'Nenhum projeto 360°.';
-            wrap.appendChild(empty);
+            wrap.appendChild(emptyState('Nenhum projeto 360.', {
+                hint: 'Use "Enviar bundle 360" acima para ingerir o primeiro.',
+            }));
             return;
         }
         const table = document.createElement('table');

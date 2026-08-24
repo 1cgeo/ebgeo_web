@@ -326,15 +326,22 @@ export function groupDeletionWarning(group, { countsStale = false } = {}) {
  * O eixo ausente não vira "0": um zero anunciado transforma o caso normal num susto, e é
  * a mesma regra do irmão `memberRemovalSummary`.
  *
- * @param {{name?: string, grantsAffected?: *, atlasShares?: *}} result
+ * O TERCEIRO EIXO ENTROU EM 2026-08-24, e ele já viajava: `grantsReparented` responde "quem
+ * MANTEVE o acesso por outro caminho". Sem ele, um `grantsAffected` menor que o esperado se lê
+ * como poda incompleta, e é o mesmo defeito que `producerScopeChangeSummary` já tinha resolvido
+ * no irmão. O servidor calculava o número, punha na trilha e devolvia; a frase lia dois dos três.
+ *
+ * @param {{name?: string, grantsAffected?: *, atlasShares?: *, grantsReparented?: *}} result
  * @returns {string}
  */
 export function groupDeletionSummary(result) {
     const nome = result?.name ?? '';
     const recursos = toCount(result?.grantsAffected);
     const atlas = toCount(result?.atlasShares);
+    const mantidas = toCount(result?.grantsReparented);
     let frase = `Grupo "${nome}" apagado.`;
     if (recursos > 0) frase += ` Concessões revogadas: ${recursos}.`;
+    if (mantidas > 0) frase += ` Mantidas por outro caminho: ${mantidas}.`;
     if (atlas > 0) frase += ` Atlas fora do alcance: ${atlas}.`;
     return frase;
 }

@@ -143,3 +143,24 @@ export const remove = (table) => asyncHandler(async (req, res) => {
   });
   res.status(204).send();
 });
+
+/**
+ * QUANTOS ATLAS REFERENCIAM ESTE ITEM (`GET /:id/references`).
+ *
+ * É LEITURA COM GATE DE ESCRITA, e a assimetria é o desenho: o número existe para a confirmação
+ * de `DELETE /:id`, então quem conta é exatamente quem exclui (`requireCatalogProducer` na rota,
+ * `fn_can_produce_resource` no `WHERE` do serviço). Servi-lo com o gate de LEITURA do catálogo
+ * transformaria a rota num censo de quantos projetos usam cada recurso, respondível a todo
+ * chamador autenticado, que é outro poder.
+ *
+ * NÃO MARCA ESCOPO DE CACHE como as duas leituras acima, e a razão é a inversa da delas: o corpo
+ * NÃO varia por chamador (o número é o mesmo para qualquer um que passe no gate), e ele varia por
+ * ATO DE TERCEIRO, a cada op de sync que cria ou apaga uma referência. Nenhum cabeçalho de cache
+ * ajuda aqui; o que evita a resposta velha é a tela pedir no momento do clique.
+ *
+ * SEM TRILHA: é leitura, e o ato que ela precede (`CATALOG_DELETE`) já deixa linha.
+ */
+export const references = (table) => asyncHandler(async (req, res) => {
+  const data = await svc.countAtlasReferences(table, req.params.id, producerActor(req));
+  res.json({ data });
+});

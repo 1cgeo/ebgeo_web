@@ -66,6 +66,14 @@ export async function flexibleAuth(req, res, next) {
     // route a cookie session became 401 — both triggerable by anyone who can get the victim to open
     // `...?api_key=anything`, since the trigger lives in the query string. Only a key that RESOLVES
     // wins the precedence; anything else falls through.
+    //
+    // A LIVENESS DA OM DE LOTACAO VIAJA DENTRO DE `FIND_USER_BY_API_KEY`, e nao ha checagem
+    // dela aqui de proposito: o JOIN com `organizations` ja existia na consulta, entao o
+    // termo e de graca, e um chamador novo daquela consulta herda a regra sem ter de
+    // lembrar dela. NAO "otimize" o JOIN para fora: a chave voltaria a valer para quem a
+    // desativacao da OM ja expulsou de toda rota estrita, e essa e a diferenca que
+    // importa aqui, porque a familia de rotas SO-FLEXIVEIS e justamente a das leituras de
+    // recurso privado (sv360, nomes, assets3d). Chave que resolve = principal vivo.
     const apiKey = req.get('x-api-key') || req.query?.api_key;
     if (apiKey && UUID_RE.test(apiKey)) {
       const { rows } = await query(FIND_USER_BY_API_KEY, [apiKey]);

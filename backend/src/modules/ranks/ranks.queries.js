@@ -36,7 +36,13 @@ export const UPDATE_RANK = `
 
 // Soft delete: a rank may be referenced by users.rank_id, so we deactivate (hide from the
 // signup dropdown) instead of hard-deleting.
+//
+// `RETURNING` BRINGS THE NAME BACK, and that is not decoration: the audit trail records
+// `target_name` as the name AT THE TIME OF THE ACT, so a rank renamed afterwards still
+// reads correctly in the trail. The sibling module shows the cost of the cheap version —
+// its DEACTIVATE only does `RETURNING id`, so every `ORG_DELETE` line carries a naked
+// UUID and whoever reads the trail has to go look the name up somewhere else.
 export const DEACTIVATE_RANK = `
   UPDATE ranks SET is_active = false, updated_at = NOW()
-  WHERE id = $1 RETURNING id
+  WHERE id = $1 RETURNING id, nome
 `;

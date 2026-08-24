@@ -91,6 +91,16 @@ const ACOES = Object.freeze({
     ORG_CREATE: { rotulo: 'Organização criada', familia: 'identidade' },
     ORG_UPDATE: { rotulo: 'Organização alterada', familia: 'identidade' },
     ORG_DELETE: { rotulo: 'Organização desativada', familia: 'identidade' },
+    // OS TRÊS DE POSTO nasceram em 2026-08-24, quando o CRUD de postos deixou de ser o único
+    // do painel sem trilha nenhuma. Ficam na família 'identidade' com os de organização porque é
+    // isso que eles são: a lista controlada que alimenta o cadastro de toda a base, e uma
+    // renumeração de hierarquia militar não deixava rastro.
+    //
+    // "Posto desativado", e não "excluído": `DEACTIVATE_RANK` é `is_active = false`, e o rótulo
+    // que dissesse exclusão repetiria na trilha a mentira que a tela acabou de parar de contar.
+    RANK_CREATE: { rotulo: 'Posto criado', familia: 'identidade' },
+    RANK_UPDATE: { rotulo: 'Posto alterado', familia: 'identidade' },
+    RANK_DELETE: { rotulo: 'Posto desativado', familia: 'identidade' },
 
     // --- acervo: catálogo e 360 ---------------------------------------------
     CATALOG_CREATE: { rotulo: 'Item de catálogo criado', familia: 'acervo' },
@@ -133,6 +143,7 @@ const ALVOS = Object.freeze({
     SV360_PROJECT: 'Projeto 360',
     CONFIG: 'Configuração',
     ACCESS_GROUP: 'Grupo de acesso',
+    RANK: 'Posto',
 });
 
 /**

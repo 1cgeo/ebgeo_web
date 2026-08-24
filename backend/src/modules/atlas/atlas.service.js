@@ -17,6 +17,7 @@ import { MAP_COLUMNS } from '../maps/maps.queries.js';
 // `classifyResourceRefs`, que chama `fn_can_see_resource` uma vez para o atlas inteiro.
 import { ResourcePruner, refsFromCollectedRows, refsFromImportPayload } from './atlas-resource-prune.js';
 import { classifyResourceRefs } from '../resource-access/resource-access.service.js';
+import { ATLAS_SEARCH_MIN_TERM, ATLAS_SEARCH_MAX_LIMIT } from './atlas.schemas.js';
 
 // ---------------------------------------------------------------------------
 // Batch INSERT plumbing (L67).
@@ -291,6 +292,48 @@ export async function createAtlas(userId, data) {
 export async function listUserAtlas(userId) {
   const { rows } = await query(Q.LIST_USER_ATLAS, [userId]);
   return rows;
+}
+
+/**
+ * A BUSCA DE ATLAS DO ADMINISTRADOR: os atlas VIVOS de qualquer dono que casem com um termo.
+ *
+ * O CONTRATO É "NÃO EXISTE CHAMADA QUE DEVOLVA TUDO", e ele é reafirmado AQUI, não só no Joi da
+ * rota: borda protege a ROTA, e esta função pode ganhar um segundo chamador amanhã. Termo curto
+ * demais é `BadRequestError`, nunca "sem filtro" — argumento que falta tem de degradar para
+ * MENOS dado, jamais para o acervo inteiro.
+ *
+ * O ESCAPE DE `%` E `_` NÃO É HIGIENE, É O MESMO CONTRATO. Um termo de dois caracteres (`%%`)
+ * passa no piso e, sem escape, vira o padrão que casa com todo nome do banco: o despejo que a
+ * decisão recusa, entrando pela porta da busca. O caractere de escape é a contrabarra, default de
+ * `LIKE`/`ILIKE` no Postgres, e o valor viaja como PARÂMETRO — a contrabarra chega como dado e é
+ * lida pelo operador, nunca pelo parser de literais.
+ *
+ * QUEM GATEIA O PODER É A ROTA (`requireAdmin`), e não esta função. O papel global é lido do
+ * banco pelo middleware `auth` a cada requisição, e reperguntá-lo aqui seria a segunda resposta
+ * para a mesma pergunta dentro de uma requisição só. A contrapartida honesta: a consulta não tem
+ * eixo de acesso NENHUM, então um chamador novo que a alcance sem aquele gate entrega o acervo
+ * vivo inteiro (em fatias de `limit`) a quem não é administrador.
+ *
+ * `truncated` VEM DE UMA LINHA A MAIS, nunca de `length === limit`: com o teto exato, "bateu o
+ * teto" e "bateu o teto e há mais" são indistinguíveis, e a tela pediria para refinar uma busca
+ * que já estava completa.
+ *
+ * @param {string} term - Casa contra nome do atlas, nome e login do dono, e id EXATO.
+ * @param {number} limit - Teto de linhas devolvidas.
+ * @returns {Promise<{results: Object[], truncated: boolean}>}
+ */
+export async function searchAllAtlas(term, limit) {
+  const alvo = String(term ?? '').trim();
+  if (alvo.length < ATLAS_SEARCH_MIN_TERM) {
+    throw new BadRequestError(
+      `A busca de atlas exige um termo de ao menos ${ATLAS_SEARCH_MIN_TERM} caracteres.`,
+    );
+  }
+  const teto = Math.min(Math.max(Number.parseInt(limit, 10) || 1, 1), ATLAS_SEARCH_MAX_LIMIT);
+  const padrao = `%${alvo.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+  const { rows } = await query(Q.SEARCH_ALL_ATLAS, [padrao, alvo, teto + 1]);
+  return { results: rows.slice(0, teto), truncated: rows.length > teto };
 }
 
 /**

@@ -12,11 +12,17 @@
 // ANY authenticated user restore ANY atlas by UUID. So every admin case below is paired
 // with a non-admin, non-owner case that must still be refused.
 //
-// The hole being closed: the deactivation path (`users.service.deleteUser`) counts and
-// transfers atlases with `deleted_at IS NULL`, so an atlas already in the bin is neither
-// counted nor handed to the recipient. It stays owned by an account that `auth` then
-// refuses, it appears in nobody's trash listing (which was owner-scoped), and the owner
-// scope on restore meant no one could bring it back. Characterized below, then unstuck.
+// The hole this file was written for: the deactivation path (`users.service.deleteUser`) counted
+// and transferred atlases with `deleted_at IS NULL`, so an atlas already in the bin was neither
+// counted nor handed to the recipient. It stayed owned by an account that `auth` then refuses, it
+// appeared in nobody's trash listing (which was owner-scoped), and the owner scope on restore
+// meant no one could bring it back.
+//
+// THAT HALF WAS CLOSED ON 2026-08-24 (owner's decision, finding A5 of the admin UX report): the
+// two queries lost the filter, so the bin travels with the rest. The admin branch below is NOT
+// obsolete because of it — it is what recovers atlases stranded BEFORE the fix, and what covers
+// the account deactivated with no recipient at all. What changed is that it stopped being the
+// ONLY way out of a state the product kept producing.
 //
 // NEGATIVE CONTROL (re-run whenever the restore queries change): copy the files aside,
 // point `restoreAtlas`/`listDeletedUserAtlas` back at the owner-scoped queries
@@ -152,11 +158,16 @@ describe('trashed atlas: the admin path back, and the owner scope that stays', (
   });
 
   // ── the case the whole finding is about ────────────────────────────────────
-  // Deactivating a user counts and transfers only LIVE atlases (users.queries.js filters
-  // `deleted_at IS NULL` in both COUNT_USER_ATLAS and TRANSFER_ATLAS_OWNERSHIP), so an atlas
-  // that was already in the bin stays with the account being switched off. That part is
-  // characterized here, not fixed: it is the reason the admin path has to exist.
-  it('an atlas trashed before its owner is deactivated is reachable ONLY through the admin', async () => {
+  // THIS CASE USED TO CHARACTERIZE THE DEFECT, and asserted that the trashed atlas STAYED with
+  // the deactivated account ("CHARACTERIZATION: ..."). That is the shape a caracterização takes,
+  // and it is also the shape that turns a guard into a defender of the bug: the day someone fixed
+  // the filter, this file went red and the fix looked like the regression.
+  //
+  // Since 2026-08-24 the bin travels with the rest, so the case measures the OPPOSITE: the heir
+  // receives the trashed atlas too, and it arrives STILL TRASHED (transferring is not restoring).
+  // The admin branch below is exercised right after, because it is still the way back for an
+  // atlas stranded before the fix.
+  it('an atlas trashed before its owner is deactivated goes to the heir, still trashed', async () => {
     const tag = randomUUID().slice(0, 6);
     const doomed = await createUser(db, { username: `p95_doomed_${tag}` });
     const doomedToken = await loginUser(app, doomed.username, doomed.password);
@@ -171,7 +182,11 @@ describe('trashed atlas: the admin path back, and the owner scope that stays', (
       .delete(`/api/v1/users/${doomed.id}?transferTo=${heir.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
-    assert.equal(res.body.data.atlasTransferred, 1, 'only the LIVE atlas is counted and handed over');
+    assert.equal(res.body.data.atlasTransferred, 2, 'both the live and the trashed atlas travel');
+    assert.equal(
+      res.body.data.atlasTransferredFromTrash, 1,
+      'the parcel is reported apart, so the screen can say what the heir is inheriting'
+    );
 
     const { rows } = await db.query(
       'SELECT id, owner_id FROM atlas WHERE id = ANY($1::uuid[])', [[live.id, binned.id]]
@@ -179,14 +194,25 @@ describe('trashed atlas: the admin path back, and the owner scope that stays', (
     const ownerById = Object.fromEntries(rows.map((r) => [r.id, r.owner_id]));
     assert.equal(ownerById[live.id], heir.id);
     assert.equal(
-      ownerById[binned.id], doomed.id,
-      'CHARACTERIZATION: the trashed atlas stays with the deactivated account'
+      ownerById[binned.id], heir.id,
+      'the trashed atlas travels with the rest, instead of being stranded on a dead account'
+    );
+    assert.notEqual(
+      await deletedAt(binned.id), null,
+      'and it arrives STILL TRASHED: transferring ownership is not restoring'
     );
 
-    // Nobody who can log in owns it, so it is in nobody's bin...
+    // E O HERDEIRO O VÊ NA LIXEIRA DELE, que é a diferença inteira. Antes estas duas linhas
+    // asseriam o contrário (ninguém o via, ninguém o restaurava), e eram verdadeiras: o atlas
+    // ficava com uma conta que não autentica mais.
     const heirTrash = await trash(heirToken).expect(200);
-    assert.ok(!heirTrash.body.data.some((a) => a.id === binned.id));
-    await restore(binned.id, heirToken).expect(404);
+    assert.ok(
+      heirTrash.body.data.some((a) => a.id === binned.id),
+      'the heir sees the inherited atlas in their own bin'
+    );
+    await restore(binned.id, heirToken).expect(200);
+    assert.equal(await deletedAt(binned.id), null, 'and the heir can bring it back without an admin');
+    await softDelete(binned.id, heirToken).expect(204);
 
     // ...except the admin's, which is the whole point of the branch.
     const adminTrash = await trash(adminToken).expect(200);
@@ -197,22 +223,69 @@ describe('trashed atlas: the admin path back, and the owner scope that stays', (
     await restore(binned.id, adminToken).expect(200);
     assert.equal(await deletedAt(binned.id), null);
 
-    // And once it is live again the admin can hand it to a real owner, which is what makes
-    // this a way OUT of the stuck state and not just a way to look at it.
+    // The tail of this case used to transfer the atlas from the deactivated account to the heir
+    // through the admin, because that was the ONLY way it could get a live owner. It now has one
+    // from the start, so that hand-over is a 400 (`newOwnerId` is already the owner) and the
+    // assertion would be measuring nothing. What it measured moved to the case below, where the
+    // stranded state is staged on purpose instead of being produced by the product.
+  });
+
+  // ── the admin path back, for what got stranded BEFORE the fix ──────────────
+  // The deactivation no longer strands anything, so this state has to be STAGED: the row is
+  // pushed back to a deactivated owner with SQL, which is exactly the shape every atlas trashed
+  // before 2026-08-24 is in. Staging it is honest here and would not be honest above: above we
+  // measure what the product DOES, and here we measure the recovery of what it DID.
+  //
+  // This is why the admin branch is not obsolete. Without it those rows have no way back at all:
+  // the owner cannot authenticate, and the owner-scoped restore refuses everyone else.
+  it('an atlas stranded on a deactivated account is recoverable ONLY through the admin', async () => {
+    const tag = randomUUID().slice(0, 6);
+    const doomed = await createUser(db, { username: `p95_strand_${tag}` });
+    const doomedToken = await loginUser(app, doomed.username, doomed.password);
+    const heir = await createUser(db, { username: `p95_strandheir_${tag}` });
+    const heirToken = await loginUser(app, heir.username, heir.password);
+
+    const stranded = await createAtlas(db, doomed.id, { name: `P95 stranded ${tag}` });
+    await softDelete(stranded.id, doomedToken).expect(204);
     await supertest(app)
-      .post(`/api/v1/atlas/${binned.id}/transfer`)
+      .delete(`/api/v1/users/${doomed.id}?transferTo=${heir.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    // Back to the pre-fix shape: owner is the account that can no longer log in.
+    await db.query('UPDATE atlas SET owner_id = $2 WHERE id = $1', [stranded.id, doomed.id]);
+
+    const heirTrash = await trash(heirToken).expect(200);
+    assert.ok(
+      !heirTrash.body.data.some((a) => a.id === stranded.id),
+      'nobody who can log in owns it, so it is in nobody ordinary bin'
+    );
+    await restore(stranded.id, heirToken).expect(404);
+
+    const adminTrash = await trash(adminToken).expect(200);
+    assert.ok(
+      adminTrash.body.data.some((a) => a.id === stranded.id),
+      'the admin bin surfaces an atlas whose owner can no longer authenticate'
+    );
+    await restore(stranded.id, adminToken).expect(200);
+    assert.equal(await deletedAt(stranded.id), null);
+
+    // And once it is live again the admin can hand it to a real owner, which is what makes this
+    // a way OUT of the stuck state and not just a way to look at it.
+    await supertest(app)
+      .post(`/api/v1/atlas/${stranded.id}/transfer`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ newOwnerId: heir.id })
-      .expect(400); // heir is not a member yet — the transfer contract still applies
+      .expect(400); // heir is not a member yet: the transfer contract still applies
 
-    await createShare(db, binned.id, heir.id, 'write', admin.id);
+    await createShare(db, stranded.id, heir.id, 'write', admin.id);
     await supertest(app)
-      .post(`/api/v1/atlas/${binned.id}/transfer`)
+      .post(`/api/v1/atlas/${stranded.id}/transfer`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ newOwnerId: heir.id })
       .expect(200);
 
-    const { rows: final } = await db.query('SELECT owner_id FROM atlas WHERE id = $1', [binned.id]);
+    const { rows: final } = await db.query('SELECT owner_id FROM atlas WHERE id = $1', [stranded.id]);
     assert.equal(final[0].owner_id, heir.id, 'the atlas has a live owner again');
   });
 });

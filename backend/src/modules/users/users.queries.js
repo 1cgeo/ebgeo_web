@@ -247,11 +247,23 @@ export const REACTIVATE_USER = `
   LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
+// A TRANSFERÊNCIA ALCANÇA A LIXEIRA (achado A5, decisão do dono em 2026-08-24), e o
+// `deleted_at IS NULL` que morava aqui era o que a impedia. Deixar o atlas descartado com o
+// dono que está sendo desativado não é "não mexer no que já foi apagado": conta inativa é
+// recusada com 401 em toda rota, então aquele atlas passava a não ter NENHUM titular capaz
+// de restaurá-lo, listá-lo ou apagá-lo de vez, e a única porta que sobrava era a do
+// administrador global. Lixeira é um estado do atlas, não o fim dele.
+//
+// `from_trash` viaja no RETURNING porque a CONFIRMAÇÃO precisa dele: o novo dono herda uma
+// lixeira que não é dele, e quem clica em "transferir" tem de poder ser avisado disso. Sai
+// como booleano já resolvido, e não como a data: o chamador não tem o que fazer com o
+// instante do descarte, e devolver a coluna crua convidaria a próxima leitura a repetir aqui
+// a decisão de o que conta como lixeira.
 export const TRANSFER_ATLAS_OWNERSHIP = `
   UPDATE atlas
   SET owner_id = $2, updated_at = NOW()
-  WHERE owner_id = $1 AND deleted_at IS NULL
-  RETURNING id
+  WHERE owner_id = $1
+  RETURNING id, (deleted_at IS NOT NULL) AS from_trash
 `;
 
 // After a transfer, the new owner must not also hold a share row on the same atlas:
@@ -262,8 +274,19 @@ export const DELETE_SHARES_FOR_NEW_OWNER = `
   DELETE FROM atlas_shares WHERE atlas_id = ANY($1::uuid[]) AND user_id = $2
 `;
 
+// O PAR (total, lixeira), e o `deleted_at IS NULL` saiu daqui pelo mesmo motivo que saiu da
+// transferência acima. A metade que só esta consulta causava: contando zero, `deleteUser` não
+// PERGUNTAVA nada, então quem só tinha atlas descartados era desativado sem que a
+// transferência fosse sequer oferecida — o caminho mais silencioso possível para o mesmo
+// atlas órfão.
+//
+// `trashed` é PARCELA de `count`, não um segundo total, e é assim que os dois consumidores o
+// leem (a recusa diz "N atlas, sendo M na lixeira"). Somá-los em algum lugar contaria os
+// descartados duas vezes.
 export const COUNT_USER_ATLAS = `
-  SELECT COUNT(*) as count FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL
+  SELECT COUNT(*) AS count,
+         COUNT(*) FILTER (WHERE deleted_at IS NOT NULL) AS trashed
+  FROM atlas WHERE owner_id = $1
 `;
 
 // Revoke all active refresh tokens for a user (on password change/reset/deactivate)
@@ -308,11 +331,35 @@ export const ROTATE_API_KEY = `
   RETURNING api_key
 `;
 
+// A CHAVE DE API EXIGE A OM DE LOTACAO ATIVA, como o caminho de sessao.
+//
+// O buraco que isto fecha: esta consulta filtrava so `u.is_active`, e o ramo de chave de
+// `middleware/flexible-auth.js` devolve `next()` sem consultar organizacao nenhuma. Numa
+// rota de `auth` ESTRITO isso nao aparece, porque o estrito reconcilia contra
+// `LIVE_AUTH_STATE` e responde 403 'Organization is inactive' — e e por isso que a
+// assimetria sobreviveu: o caminho onde ela e visivel nao e o caminho onde a suite
+// olhava. Numa rota SO-FLEXIVEL, que e exatamente a familia das leituras de recurso
+// privado (sv360, nomes, assets3d), a chave continuava valendo com a OM desativada, e o
+// principal seguia sendo o dono de uma conta que login, refresh e toda rota estrita ja
+// recusavam.
+//
+// O TERMO MORA AQUI, E NAO NO MIDDLEWARE, por duas razoes. A primeira e custo: o JOIN com
+// `organizations` ja existia nesta consulta (para `organizacao_militar`), entao o termo e
+// de graca, enquanto conferir no JS custaria uma segunda ida ao banco em cada requisicao
+// de chave. A segunda e que ele falha FECHADO: um chamador novo de
+// `FIND_USER_BY_API_KEY` herda a regra sem ter de lembrar dela, que e a mesma razao pela
+// qual o predicado de recurso privado vive em funcao SQL.
+//
+// `COALESCE(o.is_active, true)` repete a regra de `utils/org-status.js`: conta SEM OM e
+// OM com linha AUSENTE passam. Linha ausente e anomalia de dado, nao desativacao
+// deliberada, e tranca-la aqui seria inventar uma revogacao que ninguem pediu.
 export const FIND_USER_BY_API_KEY = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar, u.producer_org_id, u.role
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
-  WHERE u.api_key = $1 AND u.is_active = true
+  WHERE u.api_key = $1
+    AND u.is_active = true
+    AND COALESCE(o.is_active, true) = true
 `;

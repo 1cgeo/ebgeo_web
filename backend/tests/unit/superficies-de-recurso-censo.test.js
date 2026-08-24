@@ -842,6 +842,27 @@ const CENSO_CONSULTA = [
       + 'de linha de comando. Expor isto numa rota daria um oráculo de inventário.',
   },
 
+  // ================= as contagens que nascem em 2026-08-24 ==================
+  {
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'countAtlasReferences', n: 2,
+    classe: SQL, predicado: 'fn_can_produce_resource',
+    motivo: 'Conta quantos ATLAS guardam uma referência a um item de catálogo, para a confirmação '
+      + 'de exclusão dizer o número. A EXISTÊNCIA do item é recortada pelo mesmo predicado do '
+      + 'DELETE que esta leitura precede, então linha de outra OM devolve 404 e não uma contagem: '
+      + 'sem isso a rota viraria um oráculo de existência sobre o acervo alheio. O corpo é só '
+      + 'quantidade por superfície, e nenhum id ou nome de atlas atravessa, o que importa porque a '
+      + 'LISTA de atlas que citam um recurso é metadado de quem o usa.',
+  },
+  {
+    arquivo: 'src/modules/organizations/organizations.queries.js',
+    unidade: 'ORGANIZATION_DEACTIVATION_IMPACT', n: 5, classe: NAO_RECURSO,
+    motivo: 'Toca as tabelas de recurso apenas para CONTAR linhas por owner_org_id (e por '
+      + 'organization_id no 360, que lá é a própria OM produtora). Nenhum id, nome ou config sai '
+      + 'no corpo: a resposta são três inteiros, para a confirmação de desativação de OM dizer o '
+      + 'que o ato derruba. Não há superfície de conteúdo a recortar, e quem a fecha é '
+      + '`requireAdmin` na rota, porque a contagem revela o efetivo e o acervo de uma OM.',
+  },
+
   // ================= o padrão largo que casou outra coisa ====================
   {
     arquivo: 'src/modules/maps/maps.service.js', unidade: 'mergeMaps', n: 1, classe: NAO_RECURSO,
@@ -878,6 +899,11 @@ const CENSO_ROTA = [
   // ---------------- atlas ---------------------------------------------------
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'auth', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /trash', classe: R_OUTRA, gate: 'auth', motivo: CONTEUDO_DE_ATLAS },
+  // A busca do administrador no acervo inteiro devolve LINHAS DE ATLAS, não recurso de catálogo:
+  // mesmo conteúdo das demais listagens deste módulo, com o recorte trocado (o sistema todo, em
+  // vez de posse ou share). Quem a fecha é `requireAdmin` mais o piso de dois caracteres do
+  // schema, que é o que impede a rota de virar despejo do acervo.
+  { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /admin/search', classe: R_OUTRA, gate: 'requireAdmin', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /overview', classe: R_OUTRA, gate: 'auth', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /presence', classe: R_OUTRA, gate: 'auth', motivo: CONTEUDO_DE_ATLAS },
   { arquivo: 'src/modules/atlas/atlas.routes.js', rota: 'GET /:atlasId', classe: R_OUTRA, gate: 'requireAtlasPermission', motivo: CONTEUDO_DE_ATLAS },
@@ -910,6 +936,15 @@ const CENSO_ROTA = [
     arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'GET /:id', classe: R_FILTRADA, gate: 'requireAtlasScopeWhenPresent',
     motivo: 'O item por id, com o MESMO gate da listagem e 404 (nunca 403) para o que o chamador não '
       + 'enxerga. Foi a rota que vazava recurso privado pelo id depois de ele sumir da lista.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'GET /:id/references', classe: R_FILTRADA,
+    gate: 'produtor',
+    motivo: 'Quantos atlas guardam uma referência a este recurso, para a confirmação de exclusão '
+      + 'dizer o número. A EXISTÊNCIA é gateada por fn_can_produce_resource dentro do WHERE, igual '
+      + 'ao DELETE que ela precede, então linha de outra OM devolve 404 e não uma contagem. O corpo '
+      + 'é só quantidade por superfície: nenhum nome ou id de atlas atravessa, o que importa porque '
+      + 'a lista de atlas que citam um recurso seria metadado de quem o usa.',
   },
 
   // ---------------- config: o documento de boot ------------------------------
@@ -1148,6 +1183,15 @@ const CENSO_ROTA = [
   },
   { arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   { arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'GET /:id', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
+  {
+    arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'GET /:id/deactivation-impact',
+    classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: 'Três contagens sobre a OM (contas lotadas, contas que produzem por ela, itens de '
+      + 'catálogo que ela mantém), para a confirmação de desativação dizer o que o ato derruba. '
+      + 'Toca as tabelas de recurso apenas para CONTAR linhas de owner_org_id/organization_id: '
+      + 'nenhum id, nome ou config de recurso sai no corpo, então não há superfície de conteúdo a '
+      + 'recortar. O que a fecha é requireAdmin.',
+  },
   { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'GET /:id', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
 ];
@@ -1408,6 +1452,18 @@ const CENSO_REGIME = [
       + 'corpo depende da OM do produtor e sai sem `Cache-Control`. O RISCO é o mesmo das três acima, '
       + 'com alcance menor (é `auth` estrito, então nenhum anônimo chega), e é o que a mantém como '
       + 'buraco declarado e não como isenção.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'GET /:id/references',
+    handler: 'references', controller: 'src/modules/catalog/catalog.controller.js',
+    classe: C_AUSENTE,
+    motivo: 'A contagem de atlas que referenciam um item de catálogo varia por chamador, porque a '
+      + 'EXISTÊNCIA do item é recortada por `fn_can_produce_resource` (a mesma linha responde 404 '
+      + 'para uma OM e uma contagem para outra), e sai sem `Cache-Control`. O RISCO é o da '
+      + 'listagem administrativa do 360, logo acima, e menor em conteúdo: o corpo são inteiros por '
+      + 'superfície, sem id nem nome de atlas, então um cache heurístico compartilhado vazaria '
+      + 'QUANTIDADE e não identidade. É `auth` mais `produtor`, então nenhum anônimo chega. Fica '
+      + 'como buraco declarado, e não como isenção, pela mesma razão das acima.',
   },
 ];
 

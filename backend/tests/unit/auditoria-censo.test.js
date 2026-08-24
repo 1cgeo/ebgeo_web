@@ -67,6 +67,7 @@ const SHARING_SVC = 'src/modules/sharing/sharing.service.js';
 const USERS_SVC = 'src/modules/users/users.service.js';
 const SV360_ADMIN_SVC = 'src/modules/streetview360/sv360.admin.service.js';
 const AG_SVC = 'src/modules/access-groups/access-groups.service.js';
+const RANKS_CTRL = 'src/modules/ranks/ranks.controller.js';
 
 /** Motivos de isenção que se repetem, escritos uma vez. */
 const CONTEUDO_DE_ATLAS = 'Conteúdo colaborativo de atlas: o LOG DE OPERAÇÕES é a trilha, e ele guarda '
@@ -175,14 +176,16 @@ const CENSO = [
   { arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'ORG_CREATE', emissor: 'src/modules/organizations/organizations.controller.js' },
   { arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'PUT /:id', classe: AUDITADA, acao: 'ORG_UPDATE', emissor: 'src/modules/organizations/organizations.controller.js' },
   { arquivo: 'src/modules/organizations/organizations.routes.js', rota: 'DELETE /:id', classe: AUDITADA, acao: 'ORG_DELETE', emissor: 'src/modules/organizations/organizations.controller.js' },
-  {
-    arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'POST /', classe: BURACO,
-    motivo: 'CRUD de postos e graduações, sem trilha nenhuma, em assimetria declarada com o de '
-      + 'organizações, que audita as três. Não move eixo de acesso, mas é tabela de domínio '
-      + 'administrada por admin, e a assimetria é acidente histórico, não decisão.',
-  },
-  { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'PUT /:id', classe: BURACO, motivo: 'Idem POST /: CRUD de postos sem trilha, assimétrico com organizações, por acidente histórico.' },
-  { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'DELETE /:id', classe: BURACO, motivo: 'Idem POST /: CRUD de postos sem trilha, assimétrico com organizações, por acidente histórico.' },
+  // FECHADAS EM 2026-08-24 (decisão do dono, "postos ganham trilha", achado M1 do
+  // relatório do administrador). Eram os TRÊS buracos que sobravam além do cleanup de
+  // sync. O vocabulário novo (`RANK_*` mais o alvo `RANK`) nasceu LARGO na baseline
+  // de auditoria, e não num arquivo com par DROP/ADD CONSTRAINT: enquanto nenhum banco
+  // fora deste branch aplicou a baseline, alargá-la é o caminho que o pacote manda
+  // seguir. Sem o alvo próprio as três linhas nasceriam com `target_type` nulo, e
+  // `idx_audit_target` deixaria de responder "tudo que já foi feito com este posto".
+  { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'RANK_CREATE', emissor: RANKS_CTRL },
+  { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'PUT /:id', classe: AUDITADA, acao: 'RANK_UPDATE', emissor: RANKS_CTRL },
+  { arquivo: 'src/modules/ranks/ranks.routes.js', rota: 'DELETE /:id', classe: AUDITADA, acao: 'RANK_DELETE', emissor: RANKS_CTRL },
 
   // ---------------- acesso a recurso privado ----------------------------------
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'PATCH /:type/:id/visibility', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: RA_SVC },
@@ -571,12 +574,28 @@ describe('Censo da auditoria (fase F7): rota de escrita tem trilha, ou isenção
     //
     // Eram SETE até 2026-08-21; a onda de auditoria por OM fechou três (auto-edição de
     // perfil, troca de senha pelo titular e o overlay de disponibilidade do atlas), e o
-    // teto desceu junto. Os QUATRO que ficam (o cleanup administrativo de sync e o CRUD
-    // de postos) exigem vocabulário NOVO no CHECK de `action`, isto é, migração com par
-    // DROP/ADD CONSTRAINT: ficam declarados por decisão, não por esquecimento.
+    // teto desceu para quatro. Em 2026-08-24 caíram mais TRÊS de uma vez, o CRUD de
+    // postos inteiro, e o teto desceu para UM.
+    //
+    // A JUSTIFICATIVA QUE MANTINHA OS QUATRO DEIXOU DE VALER PARA TRÊS DELES, e o que a
+    // derrubou não foi o dono ter mudado de ideia sobre o preço: foi o preço ter caído.
+    // Ela dizia que vocabulário novo no CHECK de `action` custa migração com par
+    // DROP/ADD CONSTRAINT, e mais uma linha à mão em `EXCECOES_DESTRUTIVAS`
+    // (`tests/unit/migrations-higiene.test.js`). Isso passou a valer só a partir do dia
+    // em que existir banco de produção: com a base consolidada em baselines escritas no
+    // estado final, e nenhuma delas aplicada fora deste branch, o CHECK simplesmente
+    // NASCE largo em `002_auditoria.sql` e nenhum DDL destrutivo é escrito.
+    //
+    // O QUE SOBRA É UM SÓ, e ele não é caro pelo mesmo motivo: `POST /admin/cleanup` do
+    // sync apaga o log de operações, que é justamente a trilha alternativa que isenta
+    // cinco outras rotas desta lista. Fechá-lo é decisão de produto sobre o que a linha
+    // deve dizer (quantas ops, de qual atlas, até que data), não uma migração.
+    //
+    // Com o teto em 1 e a classe exigida em uso, este par de asserções fixa o buraco
+    // restante: fechá-lo obriga a mexer aqui, e abrir um novo também.
     assert.ok(
-      buracos.length <= 4,
-      `os buracos conhecidos são 4 e não podem crescer sem decisão; achei ${buracos.length}`
+      buracos.length <= 1,
+      `o buraco conhecido é 1 e não pode crescer sem decisão; achei ${buracos.length}`
     );
 
     // Nenhuma entrada pode ter classe fora das três, nem ação declarada sem auditar.

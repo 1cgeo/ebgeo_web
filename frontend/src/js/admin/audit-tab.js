@@ -45,7 +45,7 @@ import {
     cleanup,
 } from '@utils/event-cleanup.js';
 import config from '@js/config.js';
-import { sectionHeader, card, avatar, emptyState, ICON_AUDIT } from './admin-dom.js';
+import { sectionHeader, card, avatar, emptyState, ICON_AUDIT, failureState } from './admin-dom.js';
 import { buildDomainOptions } from './org-options.js';
 import {
     acoesPorFamilia,
@@ -130,7 +130,7 @@ class AuditTab {
         // tela é do produtor também. Um campo que pedisse UUID cru seria um controle que
         // ninguém usa. O caminho até "o que fulano fez" continua sendo filtrar por ação e
         // ler a coluna do ator.
-        this._filtros = { action: '', targetType: '', targetId: '', targetOrgId: '' };
+        this._filtros = { action: '', targetType: '', targetId: '', targetOrgId: '', actorId: '' };
         this._dias = 7;
         this._page = 1;
         // NASCE FECHADO: enquanto a primeira resposta não chega, a tela assume que NÃO
@@ -202,7 +202,11 @@ class AuditTab {
             resposta = await apiClient.listAudit(this._params());
         } catch (err) {
             if (!this._alive) return;
-            carregando.textContent = 'Falha ao carregar a trilha de auditoria.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            carregando.replaceChildren(failureState('Falha ao carregar a trilha de auditoria.', {
+                onRetry: () => { if (this._alive) this._render(); },
+            }));
             showError(err?.message || 'Falha ao carregar a trilha de auditoria.');
             return;
         }
@@ -213,6 +217,9 @@ class AuditTab {
         // O RECORTE, guardado para a tela poder dize-lo (M9). Ate agora este campo chegava na
         // resposta e era descartado no cliente inteiro.
         this._escopoOrgId = resposta?.escopoOrgId ?? null;
+        // AS LINHAS FICAM GUARDADAS para o rótulo do filtro de OM poder achar o nome de uma OM
+        // que já saiu da lista de ativas. Ver `_nomeDeOmVisivel`.
+        this._ultimasLinhas = Array.isArray(resposta?.items) ? resposta.items : [];
         // O ESCOPO SÓ SE DESCOBRE NA PRIMEIRA RESPOSTA, então a barra de filtros precisa
         // ser redesenhada UMA vez quando ele muda. Redesenhar sempre piscaria a tela a
         // cada busca; nunca redesenhar deixaria o administrador sem os filtros dele.
@@ -223,6 +230,28 @@ class AuditTab {
         // mais e um segundo "Carregando…" em TODA montagem de administrador.
         this._renderLista(administravaAntes === this._administra ? wrap : this._esqueleto(),
             resposta);
+    }
+
+    /**
+     * O nome de uma OM a partir das linhas que já estão na tela.
+     *
+     * POR QUE NÃO SAI DE `config.organizacoesMilitares`: aquela lista só traz OM ATIVA, e o caso
+     * que este rótulo precisa cobrir é exatamente o oposto — a OM DESATIVADA, que
+     * `buildDomainOptions` preserva no seletor de propósito, porque é o estado que dispara
+     * investigação. Sem nome, a opção saía como UUID cru seguido de "(atual)".
+     *
+     * Devolve `undefined` quando não acha, e é o certo: `buildDomainOptions` já cai no id nesse
+     * caso, e inventar um nome seria pior que mostrar o id.
+     * @private
+     * @param {string} orgId
+     * @returns {string|undefined}
+     */
+    _nomeDeOmVisivel(orgId) {
+        if (!orgId) return undefined;
+        const linha = (this._ultimasLinhas ?? [])
+            .find((l) => String(l?.target_org_id ?? '') === String(orgId));
+        const nome = linha ? nomeDaOm(linha) : '';
+        return nome || undefined;
     }
 
     /** @private A barra de filtros. */
@@ -292,6 +321,27 @@ class AuditTab {
             });
         barra.appendChild(alvo);
 
+        // --- ATOR: SÓ o administrador ----------------------------------------
+        //
+        // A ROTA SEMPRE ACEITOU `actorId` (`listAuditSchema`) e o serviço sempre o repassou; o
+        // que faltava era o estado de filtros da tela ter o campo. O comentário que morava aqui
+        // justificava a ausência por duas razões, e só uma sobrevive: resolver nome em UUID de
+        // fato exige uma busca, e é o que este bloco faz; mas "a tela é do produtor também" deixou
+        // de ser argumento no dia em que `_administra` passou a separar os dois — o filtro de OM
+        // logo abaixo já usa exatamente esse gate.
+        //
+        // A trilha responde "o que foi feito sobre X" desde sempre e não respondia "o que fulano
+        // fez", que é a pergunta de toda apuração.
+        if (this._administra) {
+            const ator = this._campo('admin-audit-ator', 'Ator (id exato)', this._filtros.actorId,
+                (v) => {
+                    this._filtros.actorId = v;
+                    this._page = 1;
+                    this._render();
+                });
+            barra.appendChild(ator);
+        }
+
         // --- OM alvo: SÓ o administrador -------------------------------------
         if (this._administra) {
             const om = this._select('admin-audit-om', 'OM do acervo', (v) => {
@@ -305,10 +355,19 @@ class AuditTab {
             // ele trata e esta tela precisa: a OM DESATIVADA some de
             // `config.organizacoesMilitares`, e é justamente o estado que dispara
             // investigação — `buildDomainOptions` a mantém endereçável, rotulada "(atual)".
+            // O TERCEIRO ARGUMENTO ERA `undefined`, e por isso a OM DESATIVADA (a que
+            // `buildDomainOptions` preserva de propósito, porque é justamente o estado que
+            // dispara investigação) saía como o UUID cru seguido de "(atual)". O filtro continuava
+            // endereçável e tinha deixado de ser legível, que era metade do ponto de preservá-la.
+            //
+            // O nome vem das linhas JÁ CARREGADAS: a resposta da trilha traz a OM de cada evento,
+            // então quando o filtro aponta para uma OM que sumiu da lista de ativas, o nome dela
+            // costuma estar ali na página que está na tela.
+            const nomeDaOmFiltrada = this._nomeDeOmVisivel(this._filtros.targetOrgId);
             for (const opt of buildDomainOptions(
                 config.organizacoesMilitares,
                 this._filtros.targetOrgId,
-                undefined,
+                nomeDaOmFiltrada,
                 'Todas as OM',
             )) {
                 om.control.appendChild(this._option(opt.value, opt.label));
@@ -327,7 +386,13 @@ class AuditTab {
         const nota = document.createElement('p');
         nota.className = 'admin-audit__nota';
         nota.textContent = this._administra
-            ? 'A OM de cada linha é a OM dona do recurso na época do ato. '
+            // O ADMINISTRADOR TAMBÉM RECEBE FRASE, e até agora era o único que não recebia
+            // nenhuma. A nota do backfill saía só para ele e a nota do recorte saía só para quem
+            // NÃO administra, então a lista mais larga do produto era a única sem legenda dizendo
+            // qual era o recorte. Dizer "você vê tudo" é informação: sem ela, a ausência de uma
+            // linha esperada se lê como recorte, e não como ausência.
+            ? 'Você vê a trilha inteira do sistema, sem recorte por OM, porque administra o '
+              + 'sistema. A OM de cada linha é a OM dona do recurso na época do ato. '
                 + 'Para atos anteriores à criação deste eixo, ela foi deduzida da OM atual do '
                 + 'recurso, e o que já havia sido destruído ficou sem OM.'
             // M9: O RECORTE, DITO. `escopoOrgId` chega na resposta desde que o eixo nasceu e não
@@ -453,6 +518,19 @@ class AuditTab {
         frase.textContent = alvoDoEvento(linha);
         // O id do alvo NÃO entra no texto (slug e UUID o tornam ilegível) e não pode
         // sumir: ele é a chave de "tudo que já foi feito com esta coisa".
+        // CLICÁVEL, e o que ele faz é preencher o filtro de alvo exato que já existe na barra.
+        // Antes o id do alvo estava no `title` e o campo estava logo acima: a tela pedia que a
+        // pessoa lesse um UUID de um tooltip e o digitasse dois campos adiante.
+        if (linha?.target_id) {
+            frase.className += ' admin-audit__alvo--clicavel';
+            frase.setAttribute('role', 'button');
+            frase.tabIndex = 0;
+            addScopedDomListener(this, 'view', frase, 'click', () => {
+                this._filtros.targetId = String(linha.target_id);
+                this._page = 1;
+                this._render();
+            });
+        }
         frase.title = `${fraseDoEvento(linha)} · ${nomeDoAlvo(linha)} · ${linha.target_id ?? ''}`;
         corpo.appendChild(frase);
 

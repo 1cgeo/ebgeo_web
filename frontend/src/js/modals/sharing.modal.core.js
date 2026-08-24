@@ -1122,6 +1122,28 @@ export class SharingModal extends ModalBase {
      * @private Renders the atlas owner row (read-only — a "(dono)" badge, no controls).
      * @param {{userId:string, username:string, nome:string}} owner
      */
+    /**
+     * O sufixo "(você)" da linha de uma pessoa, quando ela é quem está olhando.
+     *
+     * POR QUE ELE FALTAVA E POR QUE IMPORTA. Nenhum dos três renderizadores desta lista comparava
+     * a linha com `sessionContext.userId`, então numa lista de participantes com nomes parecidos
+     * (e numa base militar eles são parecidos: mesmo posto, sobrenomes repetidos) a pessoa não
+     * distinguia a própria linha. O caso que dói é o do ADMINISTRADOR, que enxerga atlas alheio e
+     * pode aparecer ali como membro comum: ele estava prestes a rebaixar o próprio acesso sem
+     * saber que era o dele.
+     *
+     * UM helper para os três, e não a comparação repetida em cada um: três cópias da mesma
+     * pergunta divergem, e é assim que um deles fica sem a marca.
+     * @private
+     * @param {string} userId
+     * @returns {string} O sufixo já escapado, ou string vazia.
+     */
+    _marcaDeSiMesmo(userId) {
+        const eu = sessionContext.userId;
+        if (!eu || !userId || String(eu) !== String(userId)) return '';
+        return ' <span class="sharing-member__self" data-testid="sharing-member-self">(você)</span>';
+    }
+
     _renderOwnerItem(owner) {
         const userId = String(owner?.userId ?? '');
         const nome = owner?.nome ?? owner?.username ?? '';
@@ -1130,7 +1152,7 @@ export class SharingModal extends ModalBase {
             <div class="sharing-member" data-testid="sharing-owner-item">
                 ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
-                    <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                    <span class="sharing-member__name">${escapeHtml(nome)}${this._marcaDeSiMesmo(userId)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
                 </div>
                 <span class="sharing-member__owner-badge">Gestor (dono)</span>
@@ -1177,7 +1199,7 @@ export class SharingModal extends ModalBase {
             <div class="sharing-member" data-testid="sharing-member-item" data-user-id="${escapeHtml(userId)}">
                 ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
-                    <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                    <span class="sharing-member__name">${escapeHtml(nome)}${this._marcaDeSiMesmo(userId)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
                     ${excedente
         ? `<span class="sharing-member__efetiva" data-testid="sharing-member-efetiva"

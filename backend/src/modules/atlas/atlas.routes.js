@@ -1,6 +1,7 @@
 // Path: src/modules/atlas/atlas.routes.js
 import { Router } from 'express';
 import { auth, requireAccountPrincipal } from '../../middleware/auth.js';
+import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
 import { assertCanSeeResource, requireResourceRelay } from '../../middleware/resource-access.js';
@@ -29,6 +30,19 @@ router.get('/trash', auth, ctrl.listTrash);
 // atlas que o chamador alcança) está dentro da própria consulta, que é onde ele não escapa.
 router.get('/overview', auth, ctrl.listAtlasOverview);
 router.get('/presence', auth, ctrl.listAtlasPresence);
+// Busca de atlas do ADMINISTRADOR. Literal antes do parâmetro, como as três acima (aqui o
+// caminho tem dois segmentos e não colidiria, mas manter todas as literais juntas é o que impede
+// que a próxima nasça depois de '/:atlasId').
+//
+// `requireAdmin` E NÃO `requireAtlasPermission`: esta rota não fala de UM atlas, então não há
+// atlas para o middleware de permissão resolver — e o poder aqui é o GLOBAL, o único dos quatro
+// papéis que administra o sistema. O papel é relido do banco pelo `auth` a cada requisição, de
+// modo que um administrador rebaixado não busca com o crachá velho.
+//
+// O `validate` É PARTE DO GATE, não formalidade: é ele que torna `q` obrigatório, e "sem termo"
+// é o único jeito de esta rota virar o despejo do acervo que a decisão do dono recusa.
+router.get('/admin/search', auth, requireAdmin,
+  validate({ query: schemas.adminAtlasSearchSchema }), ctrl.searchAtlasAsAdmin);
 router.get('/:atlasId', auth, requireAtlasPermission('read'), ctrl.getAtlas);
 router.put('/:atlasId', auth, requireAtlasPermission('write'), validate({ body: schemas.updateAtlasSchema }), ctrl.updateAtlas);
 router.delete('/:atlasId', auth, requireAtlasPermission('owner'), ctrl.deleteAtlas);

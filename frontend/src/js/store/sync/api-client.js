@@ -1088,6 +1088,26 @@ export class ApiClient {
         return this._request('DELETE', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}`);
     }
 
+    /**
+     * Quantos atlas referenciam um item de catálogo, para a confirmação de exclusão poder dizê-lo.
+     *
+     * O QUE O NÚMERO É, e a distinção não é preciosismo: ele conta quantos atlas GUARDAM o id que
+     * vai ficar pendurado, e não quantos vão NOTAR a falta. Os dois divergem nas superfícies de
+     * `atlas.settings` que são allowlist, onde a lista vazia significa SEM RESTRIÇÃO: ali, o
+     * segundo número seria "todos", que é ruído com cara de medição. A frase da confirmação diz o
+     * primeiro.
+     *
+     * `bySurface` traz sempre TODAS as superfícies do tipo, zeradas inclusive, derivadas do
+     * registro de referências. O backend RECUSA CARREGAR se uma superfície nova do registro não
+     * tiver perna nesta contagem, então a lista não envelhece em silêncio.
+     * @param {string} category - A categoria da aba (`basemap`, `data_layer`, …).
+     * @param {string} id
+     * @returns {Promise<{resourceId: string, resourceType: string, atlasCount: number, bySurface: Object}>}
+     */
+    async countResourceReferences(category, id) {
+        return this._request('GET', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}/references`);
+    }
+
     // ===== PERSONNEL DOMAINS — ranks (postos) + organizations (OMs) =====
     // Controlled lists consumed by the signup/account forms (FK ids). Admin-managed.
 
@@ -1126,9 +1146,47 @@ export class ApiClient {
         return this._request('PUT', `/organizations/${encodeURIComponent(id)}`, { body: payload });
     }
 
+    /**
+     * Busca atlas no acervo INTEIRO. Só administrador.
+     *
+     * BUSCA, E NÃO LISTA, e a diferença é a decisão: o administrador tem posse em todo atlas e não
+     * conseguia enumerar nenhum alheio, então a posse universal só se exercia por URL conhecida.
+     * A enumeração nasceu sob controle explícito (decisão do dono, 2026-08-24), então o servidor
+     * RECUSA um termo com menos de dois caracteres e escapa `%`/`_` antes do ILIKE — sem isso um
+     * curinga passaria no piso e devolveria o acervo inteiro, que é justamente o que não se quis.
+     *
+     * Casa contra nome do atlas, nome e login do DONO, e id exato. Só atlas vivos: a lixeira do
+     * sistema tem rota própria.
+     * @param {string} term
+     * @param {{limit?: number}} [opts] - 1..50, padrão 20 no servidor.
+     * @returns {Promise<{term: string, truncated: boolean, results: Array<Object>}>}
+     */
+    async searchAllAtlas(term, { limit } = {}) {
+        const p = new URLSearchParams({ q: String(term ?? '') });
+        if (limit) p.set('limit', String(limit));
+        return this._request('GET', `/atlas/admin/search?${p.toString()}`);
+    }
+
     /** @param {string} id Soft-deactivates the organization. */
     async deleteOrganization(id) {
         return this._request('DELETE', `/organizations/${encodeURIComponent(id)}`);
+    }
+
+    /**
+     * O que uma desativação de OM vai derrubar, para a confirmação poder dizê-lo.
+     *
+     * LEITURA À PARTE, e não um campo da listagem, porque são três agregações sobre tabelas
+     * diferentes (contas lotadas, contas que produzem por ela, itens de catálogo que ela mantém) e
+     * pagá-las por linha em toda montagem da aba custaria caro para um número que só interessa no
+     * instante do clique.
+     *
+     * `requesterIsMember` responde se a OM é a lotação de quem pergunta, que é o caso em que o
+     * servidor recusa com 409: a tela usa isso para avisar ANTES, em vez de deixar o erro explicar.
+     * @param {string} id
+     * @returns {Promise<{activeMembers: number, activeProducers: number, catalogItems: number, requesterIsMember: boolean}>}
+     */
+    async getOrganizationImpact(id) {
+        return this._request('GET', `/organizations/${encodeURIComponent(id)}/deactivation-impact`);
     }
 
     // ===== ACCESS GROUPS =====

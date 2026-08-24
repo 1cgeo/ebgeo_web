@@ -165,6 +165,22 @@
     color: var(--gray-400);
 }
 
+/*
+ * O estado de FALHA de carregamento, irmão do vazio acima e com uma diferença que é o ponto:
+ * ele tem BOTÃO. Falha de rede era beco sem saída nas seis abas, e a única saída era recarregar
+ * a página inteira, o que numa aba de formulário custa o que estava digitado.
+ *
+ * A cor é a de aviso e não a de erro: a leitura falhou e pode voltar no clique seguinte, então
+ * pintá-la de vermelho de erro fatal exagera o que aconteceu.
+ */
+.admin-empty--failure .admin-empty__message {
+    color: var(--warning-700, #b45309);
+}
+
+.admin-empty--failure .admin-btn {
+    margin-top: var(--space-4);
+}
+
 /* ===== Avatar + chip ===== */
 
 .admin-avatar {
@@ -1017,3 +1033,27 @@
     font-size: var(--font-size-sm);
     color: var(--gray-600);
 }
+
+/* ==========================================================================
+   O PAINEL É DESKTOP-ONLY, e isto é decisão, não omissão.
+
+   Decisão do dono, 2026-08-24. Este arquivo não tem uma única media query, e
+   até agora essa ausência era indistinguível de esquecimento: o achado M12 do
+   relatório de UX do administrador a listava como falta. Ela passa a ser
+   declarada.
+
+   O PORQUÊ: as seis abas são tabelas de administração com cinco a sete colunas
+   (usuário, papel, lotação, OM produtora, status, ações), mais formulários de
+   JSON avançado e uma trilha paginada com filtros. Espremer isso num telefone
+   não produz uma tela pior, produz uma tela que mente: coluna escondida em
+   painel de administração é dado que a pessoa acha que não existe. O trabalho
+   de administrar contas, catálogo e organizações é de mesa.
+
+   O QUE ISTO NÃO AUTORIZA: o resto do produto continua responsivo. O mapa tem
+   a interface de telefone própria (`phone-ui`), e `app-bar.css` mantém as duas
+   media queries dele, porque a barra é compartilhada com `atlas.html`, que é
+   página de usuário comum.
+
+   Se um dia o painel precisar caber em tela pequena, o caminho não é acrescentar
+   media query aqui: é decidir QUAIS colunas somem e dizer na tela que sumiram.
+   ========================================================================== */

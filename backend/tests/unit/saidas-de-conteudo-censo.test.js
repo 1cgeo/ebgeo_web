@@ -119,6 +119,9 @@ const CENSO_ROTA = [
   json('src/modules/atlas/atlas.routes.js', 'POST /import'),
   json('src/modules/atlas/atlas.routes.js', 'GET /public/:link'),
   json('src/modules/atlas/atlas.routes.js', 'GET /trash'),
+  // A busca do administrador no acervo inteiro. Devolve linhas de atlas, como as demais listagens
+  // deste módulo, e passa pela mesma poda de conteúdo que elas.
+  json('src/modules/atlas/atlas.routes.js', 'GET /admin/search'),
   json('src/modules/atlas/atlas.routes.js', 'GET /overview'),
   json('src/modules/atlas/atlas.routes.js', 'GET /presence'),
   json('src/modules/atlas/atlas.routes.js', 'GET /:atlasId'),
@@ -161,6 +164,9 @@ const CENSO_ROTA = [
   json('src/modules/catalog/catalog.routes.js', 'POST /'),
   json('src/modules/catalog/catalog.routes.js', 'PUT /:id'),
   json('src/modules/catalog/catalog.routes.js', 'DELETE /:id'),
+  // Quantos atlas guardam uma referencia a este recurso, para a confirmacao de exclusao poder
+  // dizer o numero. Corpo e contagem por superficie, sem nome de atlas e sem bytes.
+  json('src/modules/catalog/catalog.routes.js', 'GET /:id/references'),
 
   json('src/modules/config/config.routes.js', 'GET /'),
   json('src/modules/config/config.routes.js', 'GET /admin'),
@@ -189,6 +195,9 @@ const CENSO_ROTA = [
   json('src/modules/organizations/organizations.routes.js', 'POST /'),
   json('src/modules/organizations/organizations.routes.js', 'PUT /:id'),
   json('src/modules/organizations/organizations.routes.js', 'DELETE /:id'),
+  // Três agregações sobre tabelas diferentes, para a confirmação de desativação de OM poder dizer
+  // o que o ato vai derrubar. Corpo é JSON de contagem, sem nome de recurso e sem bytes.
+  json('src/modules/organizations/organizations.routes.js', 'GET /:id/deactivation-impact'),
 
   json('src/modules/ranks/ranks.routes.js', 'GET /'),
   json('src/modules/ranks/ranks.routes.js', 'GET /:id'),

@@ -41,9 +41,17 @@ export async function updateRank(id, data) {
   return rows[0];
 }
 
+/**
+ * Soft-deletes a rank and returns the deactivated ROW, not a success flag.
+ *
+ * The row is what the caller needs: the controller writes `RANK_DELETE` into the audit
+ * trail and the trail has to NAME the rank. A `{ success: true }` forces the emitter to
+ * either re-read the row (a second query for something the UPDATE already had in hand)
+ * or to log a naked UUID, which is exactly the gap the sibling ORG module has.
+ */
 export async function deactivateRank(id) {
   const { rows } = await query(Q.DEACTIVATE_RANK, [id]);
   if (rows.length === 0) throw new NotFoundError('Rank');
   invalidateAppConfigCache();
-  return { success: true };
+  return rows[0];
 }

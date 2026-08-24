@@ -10,8 +10,16 @@ import { query, oneOrNone, one } from '../../database/index.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
-import { assertTable, assertProductionTypeOf } from './catalog.tables.js';
+import { assertTable, assertProductionTypeOf, CATALOG_TABLES } from './catalog.tables.js';
 import { catalogAuthorizationPredicate } from './catalog.queries.js';
+// A CONTAGEM DE REFERÊNCIAS ATRAVESSA O MÓDULO, e o import diz de onde vem a autoridade: a
+// consulta e a declaração de cobertura moram ao lado da IRMÃ dela (`COLLECT_ATLAS_RESOURCE_REFS`),
+// no módulo `atlas`, porque as duas materializam o MESMO registro de superfícies e uma superfície
+// nova precisa entrar nas duas no mesmo commit. Uma terceira cópia aqui seria a que fica para trás.
+import { COUNT_ATLAS_REFS_TO_RESOURCE, REF_COUNT_SURFACES } from '../atlas/atlas.queries.js';
+import { RESOURCE_REF_SURFACES, REF_ACTION } from '../atlas/resource-reference.registry.js';
+import { TYPE_BY_TABLE } from '../resource-access/resource-access.types.js';
+import { catalogLayerReference } from './catalog-layer.ref.js';
 
 const COLS = 'id, name, description, config, active, sort_order, created_at, updated_at';
 
@@ -368,4 +376,127 @@ export async function deleteCatalogItem(table, id, actor) {
   if (!row) throw new NotFoundError('Catalog item');
   invalidateAppConfigCache();
   return row;
+}
+
+// ============================================================================
+// QUANTOS ATLAS REFERENCIAM UM RECURSO
+//
+// A rota nasce por decisão do dono (2026-08-24) para fechar o achado A6: excluir um item de
+// catálogo é `active = false` e NÃO consulta referência nenhuma, e a confirmação da tela
+// (`frontend/src/js/admin/catalog-delete-phrases.js`) declara por extenso que não traz o número
+// porque ele "exigiria uma rota nova". A rota é esta.
+//
+// O CABEÇALHO DAQUELA TELA CONTINUA CERTO NUMA COISA, e ela não deve ser apagada quando o número
+// aparecer: o número é contado ANTES do clique, e entre a leitura e a confirmação ele pode mudar.
+// Ele descreve o estado do acervo no instante da pergunta, nunca uma garantia sobre o efeito.
+// ============================================================================
+
+/**
+ * `origem` da consulta -> as entradas do registro que aquela perna cobre, invertido.
+ *
+ * Montado UMA vez, no load, e é aqui que a materialização é confrontada com o inventário: para
+ * cada uma das quatro tabelas de catálogo, TODA superfície que o registro declara precisa ter
+ * perna. Sem perna, a contagem simplesmente ignora aquela superfície e devolve um número menor
+ * que o verdadeiro, com a resposta bem-formada — o defeito mais caro que uma confirmação de
+ * exclusão pode ter, porque ele empurra para o lado do "pode apagar".
+ *
+ * O CONFRONTO LEVANTA NO LOAD DO MÓDULO, e não no pedido, de propósito: a condição é estática
+ * (duas listas congeladas), então ela é sempre verdadeira ou sempre falsa. Levantar aqui faz o
+ * backend recusar subir na primeira execução depois do descuido, em dev e em teste, muito antes
+ * de existir chance de servir um número errado.
+ */
+const ORIGEM_POR_REGISTRO = new Map(
+  REF_COUNT_SURFACES.flatMap((s) => s.registro.map((r) => [r, s.origem])),
+);
+
+/**
+ * As `origem` que se aplicam a um tipo, DERIVADAS DO REGISTRO.
+ *
+ * A lista por tipo não é escrita à mão em lugar nenhum: quem sabe que
+ * `settings.available_3d_models` é de `tileset` é `RESOURCE_REF_SURFACES`. Uma segunda cópia
+ * dessa correspondência é o que faz a resposta oferecer, para um mapa base, chaves de superfície
+ * de modelo 3D eternamente zeradas.
+ *
+ * @param {string} type - Um de `RESOURCE_TYPES`.
+ * @returns {string[]}
+ */
+function origensDoTipo(type) {
+  const out = [];
+  for (const sup of RESOURCE_REF_SURFACES) {
+    if (sup.acao === REF_ACTION.NAO_REFERENCIA) continue;
+    if (!sup.tipos.includes(type)) continue;
+    const origem = ORIGEM_POR_REGISTRO.get(sup.id);
+    if (origem === undefined) {
+      throw new Error(
+        `Superfície de referência sem perna em COUNT_ATLAS_REFS_TO_RESOURCE: ${sup.id}`,
+      );
+    }
+    if (!out.includes(origem)) out.push(origem);
+  }
+  return out;
+}
+
+// O confronto acima roda AGORA, no load, para as quatro tabelas de catálogo.
+for (const tabela of CATALOG_TABLES) origensDoTipo(TYPE_BY_TABLE[tabela]);
+
+/**
+ * Quantos atlas VIVOS citam este item de catálogo, no total e por superfície.
+ *
+ * O GATE É O MESMO DE `deleteCatalogItem`, e a simetria é o desenho: o número existe para a
+ * confirmação da exclusão, então quem pode contar é exatamente quem pode excluir. A linha de
+ * outra OM devolve 404 pelo mesmo motivo da leitura — precisa ser indistinguível de uma que não
+ * existe, senão a rota vira oráculo de existência sobre o acervo alheio.
+ *
+ * A RESOLUÇÃO DA CAMADA DE CATÁLOGO É EM JS, e não é preferência: o prefixo e as duas formas
+ * legadas têm UMA definição (`catalogLayerReference`), e o SQL desta consulta só ESTREITA. Contar
+ * no banco daria um número maior que o verdadeiro — um `analysis-mapa` casaria o sufixo de um
+ * recurso chamado `mapa` sem ser referência a ele.
+ *
+ * O QUE O NÚMERO NÃO É, e a frase da tela precisa respeitar: ele conta quem CITA o id, não quem
+ * EXIBE o recurso. As cinco allowlists de `atlas.settings` tratam lista vazia como "sem
+ * restrição", então um atlas que não cita pode estar exibindo. Ver o cabeçalho de
+ * `COUNT_ATLAS_REFS_TO_RESOURCE`.
+ *
+ * @param {string} table - Uma de CATALOG_TABLES.
+ * @param {string} id
+ * @param {AtorDeProducao} actor
+ * @returns {Promise<{resourceId: string, resourceType: string, atlasCount: number,
+ *   bySurface: Object<string, number>}>}
+ */
+export async function countAtlasReferences(table, id, actor) {
+  const t = assertTable(table);
+  const tipoProducao = assertProductionTypeOf(t);
+  const tipoRecurso = TYPE_BY_TABLE[t];
+
+  const alvo = await oneOrNone(
+    `SELECT id FROM ${t}
+      WHERE id = $1 AND active = true AND fn_can_produce_resource($2::uuid, $3::text, $1)`,
+    [id, actor?.id ?? null, tipoProducao],
+  );
+  if (!alvo) throw new NotFoundError('Catalog item');
+
+  const { rows } = await query(COUNT_ATLAS_REFS_TO_RESOURCE, [id, tipoRecurso]);
+
+  // Um Set POR SUPERFÍCIE, e não um contador: a consulta devolve uma linha por (superfície,
+  // atlas, camada), então dois mapas do mesmo atlas com o mesmo mapa base contariam duas vezes.
+  // As chaves nascem TODAS presentes, com zero, porque chave ausente e chave zerada são
+  // indistinguíveis para quem consome e só uma delas é verdade.
+  const porSuperficie = new Map(origensDoTipo(tipoRecurso).map((o) => [o, new Set()]));
+  const todos = new Set();
+
+  for (const linha of rows) {
+    if (linha.origem === 'mapa.catalogLayers') {
+      const ref = catalogLayerReference(linha.layer_data ?? {}, linha.layer_id);
+      if (!ref || ref.resourceType !== tipoRecurso || ref.resourceId !== id) continue;
+    }
+    porSuperficie.get(linha.origem)?.add(linha.atlas_id);
+    todos.add(linha.atlas_id);
+  }
+
+  return {
+    resourceId: alvo.id,
+    resourceType: tipoRecurso,
+    atlasCount: todos.size,
+    bySurface: Object.fromEntries([...porSuperficie].map(([o, s]) => [o, s.size])),
+  };
 }

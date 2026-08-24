@@ -28,6 +28,11 @@ import { query, oneOrNone, one, tx } from '../../database/index.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
 import { podarPorRaizes } from '../resource-access/resource-access.service.js';
+// O AVISO AO VIVO DA PODA tem UMA definição, e ela é a mesma da revogação deliberada. Ele
+// mora ao lado da poda (`resource-access.notify.js`) porque quatro dos cinco podadores são
+// SERVIÇOS, e ele morava num controller: ver o cabeçalho daquele arquivo. Aqui ele é
+// chamado DEPOIS do commit, nunca de dentro do `tx`.
+import { avisarAtlasQueEmprestam } from '../resource-access/resource-access.notify.js';
 import * as RA from '../resource-access/resource-access.queries.js';
 import * as Q from './access-groups.queries.js';
 
@@ -192,12 +197,18 @@ export async function updateGroup({
  * (`atlas_shares.group_id`) cai por PREDICADO, no mesmo instante e sem linha alterada.
  * Contá-lo é a única forma de o ato aparecer inteiro na trilha e no aviso.
  *
+ * O AVISO AO VIVO ACONTECE FORA DO `tx`, e é por isso que a transação devolve as linhas
+ * REVOGADAS além do que a resposta HTTP precisa: só quem é dono da transação sabe quando
+ * ela commitou, e avisar antes disso manda o receptor re-ler o estado velho (ver
+ * `avisarAtlasQueEmprestam`). Só o eixo de RECURSO acorda sala: o eixo de ATLAS cai por
+ * predicado e não produz linha podada nenhuma de onde derivar endereço.
+ *
  * @param {{groupId: string, actor: object, req: object}} params
  * @returns {Promise<{id: string, name: string, grantsAffected: number,
  *                    directGrants: number, atlasShares: number, memberCount: number}>}
  */
 export async function deleteGroup({ groupId, actor, req }) {
-  return tx(async (trx) => {
+  const { resultado, revogadas } = await tx(async (trx) => {
     const alcance = await trx.oneOrNone(Q.GET_GROUP_REACH, [groupId]);
     if (!alcance) throw new NotFoundError('Access group');
     const raizes = await trx.any(RA.LIVE_GRANT_IDS_TO_GROUP, [groupId]);
@@ -243,14 +254,20 @@ export async function deleteGroup({ groupId, actor, req }) {
     }, trx);
 
     return {
-      id: row.id,
-      name: row.name,
-      grantsAffected: revoked.length,
-      directGrants: alcance.grant_count,
-      atlasShares: alcance.atlas_share_count,
-      memberCount: alcance.member_count,
+      revogadas: revoked,
+      resultado: {
+        id: row.id,
+        name: row.name,
+        grantsAffected: revoked.length,
+        directGrants: alcance.grant_count,
+        atlasShares: alcance.atlas_share_count,
+        memberCount: alcance.member_count,
+      },
     };
   });
+
+  await avisarAtlasQueEmprestam(revogadas);
+  return resultado;
 }
 
 /**
@@ -378,12 +395,15 @@ export async function removeMember({ groupId, userId, actor, req }) {
  */
 async function retirarMembro({ grupo, userId, actor, req, self }) {
   const groupId = grupo.id;
+  // O aviso ao vivo sai DEPOIS do commit, como nos outros quatro podadores. Aqui ele vale
+  // duas vezes: a saída de um membro derruba repasses a TERCEIROS, que nunca estiveram no
+  // grupo e não têm por que estar olhando a tela de composição.
   // O usuário pode ter sido DESATIVADO depois de entrar no grupo, e nesse caso
   // `GET_ACTIVE_USER` não o acha. Tirá-lo do grupo continua sendo legítimo (a
   // linha de composição existe), então o nome para a trilha é opcional aqui.
   const usuario = await oneOrNone(Q.GET_ACTIVE_USER, [userId]);
 
-  return tx(async (trx) => {
+  const { resultado, revogadas } = await tx(async (trx) => {
     const raizes = await trx.any(RA.GRANT_IDS_FED_BY_MEMBER_VIA_GROUP, [userId, groupId]);
 
     const row = await trx.oneOrNone(Q.DELETE_MEMBER, [groupId, userId]);
@@ -413,8 +433,14 @@ async function retirarMembro({ grupo, userId, actor, req, self }) {
         ...(self ? { self: true } : {}),
       },
     }, trx);
-    return { groupId, userId, removed: true, grantsAffected: revoked.length };
+    return {
+      revogadas: revoked,
+      resultado: { groupId, userId, removed: true, grantsAffected: revoked.length },
+    };
   });
+
+  await avisarAtlasQueEmprestam(revogadas);
+  return resultado;
 }
 
 /**

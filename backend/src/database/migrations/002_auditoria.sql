@@ -24,6 +24,12 @@ CREATE TABLE audit_trail (
     --   As cinco de grupo separam ciclo de vida (criar/renomear/apagar) de
     --     composição (entrar/sair): "quem criou este grupo" e "desde quando o Fulano
     --     estava nele" são perguntas diferentes na investigação.
+    --   A família `RANK_*` espelha `ORG_*` em vez de inventar vocabulário próprio:
+    --     postos e organizações são as duas tabelas de domínio que só administrador
+    --     escreve, e quem investiga procura pelo par (verbo, entidade). Ela nasceu em
+    --     2026-08-24 ("postos ganham trilha"), fechando TRÊS dos quatro buracos que o
+    --     censo declarava; o CHECK nasce largo em vez de ser alargado num arquivo
+    --     seguinte porque nenhum banco fora deste branch aplicou esta baseline.
     --
     -- FORA por decisão: calibração de foto 360 (altíssima frequência, e a foto já
     -- tem `updated_at`; a auditoria de 360 é no nível do PROJETO). Fora por
@@ -50,7 +56,8 @@ CREATE TABLE audit_trail (
                   'USER_REACTIVATE',
                   'ACCESS_GROUP_CREATE','ACCESS_GROUP_UPDATE','ACCESS_GROUP_DELETE',
                   'ACCESS_GROUP_MEMBER_ADD','ACCESS_GROUP_MEMBER_REMOVE',
-                  'PERMISSION_REPARENT'
+                  'PERMISSION_REPARENT',
+                  'RANK_CREATE','RANK_UPDATE','RANK_DELETE'
                 )),
 
     -- Sem FK, e é deliberado: o log precisa sobreviver ao delete do usuário que
@@ -69,12 +76,18 @@ CREATE TABLE audit_trail (
     -- O alvo de uma ação de MEMBRO é o GRUPO, nunca o usuário: investiga-se pela
     -- coisa cujo acesso mudou, e o usuário movido desce para `details`.
     --
+    -- `RANK` existe para que a família `RANK_*` tenha alvo PRÓPRIO. A coluna é
+    -- nullable, então as três ações compilariam com alvo nulo, e aí `idx_audit_target`
+    -- deixaria de responder "tudo que já foi feito com este posto", que é a pergunta
+    -- que a trilha existe para responder. Reusar 'SYSTEM' seria pior: ele significa
+    -- sistema, e já foi depósito do que não coube uma vez.
+    --
     -- O valor mais longo é `STREETVIEW_MARKER` (17); a coluna é VARCHAR(20).
     target_type VARCHAR(20) CHECK (target_type IN (
                   'USER','GROUP','MODEL','SYSTEM','ATLAS','ORG',
                   'BASEMAP','DATA_LAYER','ANALYSIS_LAYER','TILESET','STREETVIEW_MARKER',
                   'SV360_PROJECT','CONFIG',
-                  'ACCESS_GROUP'
+                  'ACCESS_GROUP','RANK'
                 )),
 
     -- TEXT porque o id de recurso é heterogêneo por construção: slug nas quatro

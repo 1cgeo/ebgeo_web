@@ -2562,3 +2562,17 @@
 .batch-points-panel__create-btn:active {
     transform: translateY(0);
 }
+
+/*
+ * A marca "(você)" na linha de uma pessoa da lista de participantes.
+ *
+ * Discreta de propósito: ela não é informação nova sobre a pessoa, é uma âncora para a leitura
+ * achar a própria linha numa lista de nomes parecidos. Numa base militar eles são parecidos por
+ * construção (mesmo posto, sobrenomes repetidos), e quem mais sofria era o administrador, que
+ * enxerga atlas alheio e pode aparecer ali como membro comum.
+ */
+.sharing-member__self {
+    margin-left: var(--space-1);
+    color: var(--gray-400);
+    font-weight: var(--font-weight-normal);
+}

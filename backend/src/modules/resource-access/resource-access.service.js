@@ -18,6 +18,11 @@ import {
 // implementações do separador seriam duas tabelas que nunca casam, e o sintoma seria a
 // poda apagar TUDO — o `Map` respondendo `undefined` para toda consulta.
 import { resourceRefKey } from '../atlas/resource-reference.registry.js';
+// O AVISO AO VIVO É IRMÃO DESTE ARQUIVO, e não parte dele: ver o cabeçalho de
+// `resource-access.notify.js`. O import é só de ida (notify importa este módulo, este
+// módulo importa só a função de aviso), e é assim que os cinco podadores compartilham
+// UMA definição de aviso sem ciclo e sem serviço puxando controller.
+import { avisarAtlasQueEmprestam } from './resource-access.notify.js';
 
 /**
  * Marca um recurso como público ou privado.
@@ -631,6 +636,11 @@ export async function podarPorRaizes({
  * sobre o USUÁRIO, tomado também no caminho de `grantResource`, e isso põe um lock num
  * caminho quente para cobrir uma janela de milissegundos: não foi feito.
  *
+ * O AVISO AO VIVO NÃO SAI DAQUI, e não é esquecimento: esta função roda DENTRO da transação
+ * de quem desativa, e um frame emitido antes do commit manda o receptor re-pedir o payload
+ * de um estado que ainda não existe — ele leria o velho e não receberia um segundo aviso.
+ * Quem chama (`deleteUser`) avisa com o `revoked` devolvido aqui, depois do commit.
+ *
  * @param {{userId: string, actor: object, req: object, trx: object}} params
  * @returns {Promise<{revoked: Array, reparented: Array, trimmed: Array}>}
  */
@@ -650,14 +660,21 @@ export async function podarConcessoesDeQuemFoiDesativado({ userId, actor, req, t
  * (tipo, recurso) e precisa do par que só esta leitura conhece, e tomar o lock numa
  * transação diferente da que escreve não serializa coisa nenhuma.
  *
+ * O AVISO AO VIVO SUBIU DO CONTROLLER PARA CÁ (2026-08-24), e a mudança é o que torna a
+ * regra dizível numa frase só: quem ABRE a transação avisa DEPOIS do commit dela. Enquanto
+ * o aviso morava no controller, essa frase não podia valer para os outros quatro podadores,
+ * porque nenhum deles passa por um controller de resource-access.
+ *
  * @returns {Promise<{revoked: Array, reparented: Array, trimmed: Array}>}
  */
 export async function revokeGrant({ grantId, actor, req }) {
-  return tx(async (trx) => {
+  const podada = await tx(async (trx) => {
     const alvo = await trx.oneOrNone(Q.GET_GRANT, [grantId]);
     if (!alvo) throw new NotFoundError('Grant');
     return podarPorRaizes({ raizes: [alvo], actor, req, trx });
   });
+  await avisarAtlasQueEmprestam(podada);
+  return podada;
 }
 
 // --- empréstimo por atlas --------------------------------------------------
@@ -671,19 +688,13 @@ export async function listAtlasResources(atlasId) {
 /**
  * A pergunta inversa de {@link listAtlasResources}: que atlas emprestam este recurso.
  *
- * Sem transação, sem auditoria e sem gate, de propósito: o único consumidor é o aviso
- * ao vivo da revogação, que precisa de ENDEREÇO DE SALA e não de autorização. Quem
- * decide o que cada receptor pode ver é o payload aditivo que ele mesmo re-pede
- * depois do frame.
- *
- * @param {string} type - Tipo de recurso já validado pelo chamador.
- * @param {string} resourceId
- * @returns {Promise<string[]>} Ids de atlas, sem repetição.
+ * MORA EM `resource-access.notify.js` e é reexportada daqui. Ela existe para ENDEREÇAR
+ * SALA, que é o assunto daquele módulo, e ele precisa ser a FOLHA (este arquivo o importa
+ * para avisar depois de podar). Definí-la aqui e importá-la lá fecharia um ciclo entre os
+ * dois; copiá-la seria a segunda definição da mesma consulta. A reexportação é o que
+ * mantém o caminho de import de quem já a usa.
  */
-export async function atlasesLendingResource(type, resourceId) {
-  const { rows } = await query(Q.ATLASES_LENDING_RESOURCE, [type, resourceId]);
-  return rows.map((r) => r.atlas_id);
-}
+export { atlasesLendingResource } from './resource-access.notify.js';
 
 /**
  * Anexa um recurso ao atlas: ele passa a EMPRESTAR acesso, no escopo dele.

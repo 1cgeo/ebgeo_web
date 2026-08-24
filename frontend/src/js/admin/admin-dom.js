@@ -95,3 +95,45 @@ export function emptyState(message, { hint } = {}) {
     }
     return el;
 }
+
+/**
+ * Um estado de FALHA de carregamento, com a saída que ele precisa ter.
+ *
+ * POR QUE ELE EXISTE. Falha de rede era beco sem saída nas SEIS abas do painel, em nove sítios: o
+ * padrão era sempre `p.textContent = 'Falha ao carregar…'` mais um toast que some, e nenhum botão.
+ * Em Auditoria e Catálogo a barra de filtros sobrevive e dá um caminho oblíquo (mexer num filtro
+ * redesenha); em Sistema e Pessoal não sobra nada acionável, e a única saída é recarregar a página
+ * inteira, o que numa aba de formulário custa o que estava digitado.
+ *
+ * O padrão a copiar já existia em CINCO lugares fora de `admin/` (o modal de compartilhamento, o
+ * de conta, a tela de indisponível, o marcador de camada de dado e o modal de recurso). Ele só
+ * nunca tinha chegado a nenhuma aba.
+ *
+ * A MENSAGEM NÃO AFIRMA CAUSA. Quem chega aqui sabe que a leitura falhou e não sabe por quê: pode
+ * ser rede, sessão ou o servidor. Dizer "verifique sua conexão" manda a pessoa depurar a internet
+ * dela por um erro que pode ser do programa, que é o defeito que a tela de indisponível já pagou.
+ *
+ * @param {string} message - O que falhou, em pt-BR.
+ * @param {{ onRetry?: Function }} [opts] - Sem `onRetry` o bloco vira só a mensagem, e é o
+ *   chamador que decide: é melhor não desenhar botão nenhum que desenhar um que não recarrega.
+ * @returns {HTMLElement}
+ */
+export function failureState(message, { onRetry } = {}) {
+    const el = document.createElement('div');
+    el.className = 'admin-empty admin-empty--failure';
+    el.dataset.testid = 'admin-failure-state';
+    const msg = document.createElement('p');
+    msg.className = 'admin-empty__message';
+    msg.textContent = message;
+    el.appendChild(msg);
+    if (typeof onRetry === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'admin-btn admin-btn--ghost';
+        btn.dataset.testid = 'admin-failure-retry';
+        btn.textContent = 'Tentar de novo';
+        btn.addEventListener('click', () => onRetry());
+        el.appendChild(btn);
+    }
+    return el;
+}

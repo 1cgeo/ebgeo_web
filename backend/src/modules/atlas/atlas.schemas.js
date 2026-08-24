@@ -59,6 +59,38 @@ export const atlasSettingsSchema = Joi.object({
   return value;
 }, 'settings validation');
 
+/**
+ * O PISO DE TAMANHO DO TERMO DE BUSCA, e o TETO de linhas devolvidas.
+ *
+ * Os dois números SÃO a decisão de 2026-08-24, não afinação: a enumeração do acervo nasce sob
+ * controle explícito, e um termo de UM caractere devolveria a fatia mais recente do acervo
+ * inteiro ordenada por `updated_at` — uma lista aberta com cara de busca. Dois caracteres já
+ * exigem que quem pergunta saiba alguma coisa sobre o que procura.
+ *
+ * Eles são EXPORTADOS porque o serviço os reafirma: o Joi é a borda, e borda protege a ROTA, não
+ * a função. Um segundo chamador do serviço (um script, outra rota) passaria por baixo dela, e a
+ * propriedade "não existe caminho que devolva tudo" tem de valer para a função, não para o
+ * middleware que hoje a precede.
+ */
+export const ATLAS_SEARCH_MIN_TERM = 2;
+export const ATLAS_SEARCH_MAX_LIMIT = 50;
+export const ATLAS_SEARCH_DEFAULT_LIMIT = 20;
+
+/**
+ * `GET /atlas/admin/search?q=&limit=`.
+ *
+ * `q` É `required()`, e essa palavra é o gate: sem ela a rota responderia 200 com o acervo
+ * inteiro na primeira vez que alguém abrisse a tela sem digitar nada, que é exatamente o
+ * despejo que a decisão recusa. 422 sem termo é a resposta certa, e a tela não chama a rota
+ * antes de haver o que buscar.
+ */
+export const adminAtlasSearchSchema = Joi.object({
+  q: Joi.string().trim().min(ATLAS_SEARCH_MIN_TERM).max(255)
+    .required(),
+  limit: Joi.number().integer().min(1).max(ATLAS_SEARCH_MAX_LIMIT)
+    .default(ATLAS_SEARCH_DEFAULT_LIMIT),
+});
+
 export const cloneAtlasSchema = Joi.object({
   name: Joi.string().max(255),
 });

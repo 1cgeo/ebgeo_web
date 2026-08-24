@@ -43,7 +43,7 @@ import {
     trackTimer,
     cleanup,
 } from '@utils/event-cleanup.js';
-import { sectionHeader, card, avatar, emptyState, ICON_GROUPS } from './admin-dom.js';
+import { sectionHeader, card, avatar, emptyState, ICON_GROUPS, failureState } from './admin-dom.js';
 import {
     toCount,
     groupReach,
@@ -144,7 +144,11 @@ class GroupsTab {
 
         const newBtn = this._button('+ Novo grupo', 'admin-btn admin-btn--primary', 'admin-groups-new',
             () => this._renderForm(null));
-        c.appendChild(sectionHeader('Meus grupos', {
+        // O TÍTULO SEGUE QUEM OLHA. `fn_can_administer_group` tem um ramo curinga para o
+        // administrador global, então a consulta devolve TODO grupo do sistema para ele: chamar
+        // aquilo de "Meus grupos" faz o administrador acreditar que criou grupos que não criou, e
+        // a coluna "Dono" ao lado (que existe só para ele) contradiz o título logo acima.
+        c.appendChild(sectionHeader(sessionContext.isAdmin() ? 'Grupos de acesso' : 'Meus grupos', {
             subtitle: 'Conjuntos de pessoas que recebem acesso a recursos privados do catálogo',
             actions: [newBtn],
         }));
@@ -170,7 +174,11 @@ class GroupsTab {
         if (!this._alive) return;
 
         if (meus.status === 'rejected') {
-            loading.textContent = 'Falha ao carregar os grupos.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar os grupos.', {
+                onRetry: () => { if (this._alive) this._renderList(); },
+            }));
             showError(meus.reason?.message || 'Falha ao carregar os grupos.');
         } else {
             this._groups = Array.isArray(meus.value) ? meus.value : [];
@@ -579,7 +587,11 @@ class GroupsTab {
             members = await apiClient.listAccessGroupMembers(group.id);
         } catch (error) {
             if (!this._alive) return;
-            loading.textContent = 'Falha ao carregar os membros.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar os membros.', {
+                onRetry: () => { if (this._alive) this._renderList(); },
+            }));
             showError(error?.message || 'Falha ao carregar os membros.');
             return;
         }

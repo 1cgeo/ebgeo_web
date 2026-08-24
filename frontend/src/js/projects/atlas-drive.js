@@ -51,6 +51,7 @@ import { apiClient } from '@store/sync/api-client.js';
 import { fileToCoverPayload } from './cover-image.js';
 import {
     setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
+    trackTimer,
 } from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import {
@@ -91,6 +92,19 @@ const FILTERS = [
     { key: 'compartilhados', label: 'Compartilhados comigo' },
     { key: 'publicos', label: 'Públicos' },
     { key: 'lixeira', label: 'Lixeira' },
+    // SÓ PARA QUEM ADMINISTRA O SISTEMA, e o gate está em `_buildTabs`.
+    //
+    // POR QUE ESTA ABA EXISTE. O administrador tem posse em TODO atlas
+    // (`requireAtlasPermission` faz curto-circuito por papel global) e não conseguia LISTAR nenhum
+    // atlas alheio: `LIST_USER_ATLAS` filtra por posse ou share, sem ramo de administrador. A
+    // posse universal só se exercia por URL conhecida, o que na prática significa que ele não a
+    // exercia. A metade da LIXEIRA já resolvia isso corretamente desde antes, e é o vizinho.
+    //
+    // POR QUE É BUSCA E NÃO LISTA. Decisão do dono, 2026-08-24: a enumeração nasce sob controle
+    // explícito. O servidor RECUSA (422) um termo com menos de dois caracteres, então não existe
+    // "abrir a aba e ver tudo" nem por acidente nem por curinga (`%` e `_` são escapados antes do
+    // ILIKE, senão `%%` passaria no piso e devolveria o acervo).
+    { key: 'sistema', label: 'Busca do sistema', somenteAdmin: true },
 ];
 
 const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
@@ -559,7 +573,19 @@ export class AtlasDrive {
         search.className = 'atlas-drive__search-input';
         search.placeholder = 'Buscar atlas…';
         search.dataset.testid = 'project-picker-search';
-        addDomListener(this, search, 'input', () => { this._query = search.value; this._renderGrid(); });
+        addDomListener(this, search, 'input', () => {
+            this._query = search.value;
+            // NA ABA DE BUSCA DO SISTEMA o termo vai ao SERVIDOR, com espera, porque a lista não
+            // está no cliente. Nas outras cinco ele filtra o que já está carregado, como sempre.
+            if (this._filter === 'sistema') {
+                clearTimeout(this._sistemaTimer);
+                this._sistemaTimer = setTimeout(() => this._buscarNoSistema(), 350);
+                trackTimer(this, this._sistemaTimer, 'timeout');
+                this._renderGrid();
+                return;
+            }
+            this._renderGrid();
+        });
         searchWrap.append(sIcon, search);
         tools.appendChild(searchWrap);
 
@@ -641,6 +667,7 @@ export class AtlasDrive {
         tabs.className = 'atlas-drive__tabs';
         tabs.setAttribute('role', 'tablist');
         for (const f of FILTERS) {
+            if (f.somenteAdmin && !sessionContext.isAdmin()) continue;
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'atlas-drive__tab';
@@ -781,6 +808,13 @@ export class AtlasDrive {
     async _switchFilter(key) {
         this._filter = key;
         for (const [k, b] of this._tabButtons) b.classList.toggle('atlas-drive__tab--active', k === key);
+        // A BUSCA DO SISTEMA NÃO CARREGA NADA AO ENTRAR, ao contrário da lixeira: ela existe para
+        // não despejar o acervo, então a aba abre vazia e só o termo digitado produz resultado.
+        if (key === 'sistema') {
+            this._sistema = [];
+            this._sistemaTermo = '';
+            this._sistemaTruncado = false;
+        }
         if (key === 'lixeira' && !this._trashedLoaded) {
             try {
                 const list = await apiClient.listTrashedAtlas();
@@ -789,6 +823,35 @@ export class AtlasDrive {
             } catch (error) {
                 showError(error?.message || 'Não foi possível carregar a lixeira.');
             }
+        }
+        this._renderGrid();
+    }
+
+    /**
+     * Busca atlas no sistema inteiro, para o administrador.
+     *
+     * O PISO DE DOIS CARACTERES É DO SERVIDOR e está repetido aqui de propósito: repetir evita uma
+     * requisição que já se sabe recusada a cada tecla, e não substitui a do servidor, que é a que
+     * impede o despejo do acervo por um chamador que não seja esta tela.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _buscarNoSistema() {
+        const termo = this._query.trim();
+        if (termo.length < 2) {
+            this._sistema = [];
+            this._sistemaTermo = '';
+            this._renderGrid();
+            return;
+        }
+        try {
+            const r = await apiClient.searchAllAtlas(termo);
+            this._sistema = Array.isArray(r?.results) ? r.results : [];
+            this._sistemaTermo = termo;
+            this._sistemaTruncado = r?.truncated === true;
+        } catch (error) {
+            this._sistema = [];
+            showError(error?.message || 'Não foi possível buscar no acervo do sistema.');
         }
         this._renderGrid();
     }
@@ -832,17 +895,39 @@ export class AtlasDrive {
         }
 
         const isTrash = this._filter === 'lixeira';
+        const isSistema = this._filter === 'sistema';
         const q = this._query.trim().toLowerCase();
         const matches = (p) => !q || (p?.name ?? '').toLowerCase().includes(q);
         // The search box applies on every tab, including Lixeira.
-        const list = (isTrash ? this._trashed.filter(matches) : this._visible());
+        //
+        // A ABA DO SISTEMA NÃO FILTRA no cliente: a lista dela JÁ é o resultado do termo, e
+        // filtrá-la de novo aqui esconderia linhas que casaram por NOME DO DONO ou por id exato,
+        // que são dois dos quatro campos que o servidor procura e que o nome do atlas não contém.
+        const list = isSistema ? this._sistema : (isTrash ? this._trashed.filter(matches) : this._visible());
         if (list.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'atlas-drive__empty';
             empty.dataset.testid = 'project-picker-empty';
-            empty.textContent = isTrash
-                ? (this._query ? 'Nenhum atlas na lixeira corresponde à busca.' : 'A lixeira está vazia.')
-                : (this._query ? 'Nenhum atlas corresponde à busca.' : 'Nenhum atlas nesta categoria.');
+            // A ABA DO SISTEMA TEM TRÊS VAZIOS, e colapsá-los mentiria em dois deles: sem termo
+            // ela está vazia POR DESENHO (a busca não despeja o acervo), com termo curto o
+            // servidor recusaria, e só com termo válido "nada encontrado" é um fato sobre o
+            // acervo. Um "Nenhum atlas" nos três casos faria o administrador concluir que o
+            // sistema não tem atlas nenhum.
+            if (isSistema) {
+                const termo = this._query.trim();
+                empty.textContent = termo.length === 0
+                    ? 'Digite para buscar no acervo do sistema inteiro: nome do atlas, nome ou '
+                    : (termo.length < 2
+                        ? 'Digite pelo menos dois caracteres.'
+                        : `Nenhum atlas do sistema corresponde a "${termo}".`);
+                if (termo.length === 0) {
+                    empty.textContent += 'login do dono, ou o id exato. Esta aba não lista tudo de propósito.';
+                }
+            } else {
+                empty.textContent = isTrash
+                    ? (this._query ? 'Nenhum atlas na lixeira corresponde à busca.' : 'A lixeira está vazia.')
+                    : (this._query ? 'Nenhum atlas corresponde à busca.' : 'Nenhum atlas nesta categoria.');
+            }
             // O alcance da marca só se diz onde a marca age, e só quando não há busca por trás do
             // vazio: sem esta linha, a ausência de número se lê como "ninguém nunca compartilhou
             // nada comigo", que é uma conclusão que a tela não afirmou.
@@ -1505,7 +1590,18 @@ export class AtlasDrive {
         const meta = document.createElement('div');
         meta.className = 'atlas-drive__card-meta';
         const when = formatRelativeTime(project?.deleted_at);
-        meta.textContent = when ? `excluído ${when}` : 'na lixeira';
+        // DE QUEM É, e não só quando foi excluído. O dado SEMPRE chegou:
+        // `LIST_ALL_DELETED_ATLAS` projeta `owner_nome` e `owner_username`, e o comentário acima
+        // daquela consulta diz por extenso que são eles que tornam o atlas de outra pessoa
+        // identificável na lista. O cartão os descartava, então a lixeira do SISTEMA (que o
+        // administrador vê inteira) era uma parede de nomes de atlas sem dono, na qual restaurar o
+        // alheio era indistinguível de restaurar o próprio.
+        //
+        // Não dá para reusar `_subtitle` aqui: as DUAS consultas de lixeira projetam o literal
+        // `'owner' as user_permission`, então ele diria "por Você" em todo cartão.
+        const dono = (project?.owner_nome ?? project?.owner_username ?? '').trim();
+        const quando = when ? `excluído ${when}` : 'na lixeira';
+        meta.textContent = dono ? `${quando} · de ${dono}` : quando;
         const restoreBtn = document.createElement('button');
         restoreBtn.type = 'button';
         restoreBtn.className = 'atlas-drive__btn atlas-drive__btn--ghost atlas-drive__restore';
@@ -1520,6 +1616,19 @@ export class AtlasDrive {
 
     /** @private Restore a trashed atlas → POST /atlas/:id/restore. */
     async _restore(project) {
+        // PERGUNTA QUANDO O ATLAS É DE OUTRA PESSOA, e só nesse caso. Restaurar o próprio é
+        // desfazer o próprio gesto e não merece um passo a mais; restaurar o alheio devolve à
+        // vista um atlas que outra pessoa jogou fora, e ela não é avisada. A distinção existe
+        // porque a lixeira do SISTEMA só é visível para o administrador.
+        const dono = (project?.owner_nome ?? project?.owner_username ?? '').trim();
+        if (dono) {
+            const ok = await showConfirm(`Restaurar "${project?.name ?? ''}"?`, {
+                message: `Este atlas é de ${dono}, e foi essa pessoa que o mandou para a lixeira. `
+                    + 'Restaurá-lo o devolve à lista dela, e ela não recebe aviso nenhum disso.',
+                confirmText: 'Restaurar',
+            });
+            if (!ok) return;
+        }
         try {
             await apiClient.restoreAtlas(project.id);
             showSuccess('Atlas restaurado.');

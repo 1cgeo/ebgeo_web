@@ -13,7 +13,7 @@
 import { apiClient } from '@store/sync/api-client.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
-import { sectionHeader, ICON_CONFIG } from './admin-dom.js';
+import { sectionHeader, ICON_CONFIG, failureState } from './admin-dom.js';
 
 /**
  * Builds the "Sistema" tab definition for the admin panel.
@@ -56,7 +56,11 @@ class ConfigTab {
             data = await apiClient.getConfigAdmin();
         } catch (error) {
             if (!this._alive) return;
-            loading.textContent = 'Falha ao carregar as configurações.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar as configurações.', {
+                onRetry: () => { if (this._alive) this._render(); },
+            }));
             showError(error?.message || 'Falha ao carregar as configurações.');
             return;
         }
@@ -122,8 +126,20 @@ class ConfigTab {
 
         const clearBtn = button('Limpar todos os overrides', 'admin-btn admin-btn--danger', 'admin-config-clear');
         clearBtn.addEventListener('click', async () => {
-            const ok = await showConfirm('Limpar TODOS os overrides do sistema? A configuração volta ao padrão do deploy.',
-                { destructive: true, confirmText: 'Limpar tudo' });
+            // A CONTAGEM VEM DO QUE JÁ ESTÁ NA TELA. O textarea ao lado carrega o documento inteiro
+        // de overrides, então o número de seções que este botão apaga é conhecido no instante do
+        // clique. "Limpar TODOS" sem dizer quantos são é o pedido de confirmação mais vago do
+        // painel, e ele é irreversível.
+        const secoes = Object.keys(overrides ?? {});
+        const quantas = secoes.length === 0
+            ? 'Não há nenhum override gravado: nada muda.'
+            : `Isto apaga ${secoes.length} ${secoes.length === 1 ? 'seção' : 'seções'} de `
+              + `override (${secoes.join(', ')}) e devolve a configuração ao padrão do deploy.`;
+        const ok = await showConfirm('Limpar TODOS os overrides do sistema?', {
+                message: quantas,
+                destructive: true,
+                confirmText: 'Limpar tudo',
+            });
             if (!ok) return;
             try {
                 await apiClient.clearConfigOverrides();
@@ -220,6 +236,12 @@ class ConfigTab {
                 await apiClient.updateConfigOverrides(merged);
                 showSuccess('Configurações salvas.');
                 notice.hidden = false;
+                // RELÊ DEPOIS DE SALVAR, como o botão de limpar ao lado já fazia. O formulário fechava sobre
+                // o `eff` da montagem e comparava TODO diff contra ele, então um segundo salvamento na mesma
+                // sessão media a diferença contra o estado ANTERIOR ao primeiro: o que já tinha sido gravado
+                // era reenviado, e o que tinha sido revertido no servidor não aparecia. A tela também não
+                // mostrava o que o servidor de fato aceitou.
+                if (this._alive) this._render();
             } catch (err) {
                 error.textContent = err?.message || 'Falha ao salvar as configurações.';
                 error.hidden = false;

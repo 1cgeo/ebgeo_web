@@ -20,7 +20,7 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import config from '@js/config.js';
-import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
+import { sectionHeader, card, avatar, emptyState, ICON_USERS, failureState } from './admin-dom.js';
 import { orgLabel, buildDomainOptions } from './org-options.js';
 import {
     verdictOfChange,
@@ -29,6 +29,11 @@ import {
     producerScopeChangeConfirmLabel,
     producerScopeChangeSummary,
 } from './producer-scope-phrases.js';
+// Módulo folha, zero imports, como o irmão acima. Ver o `fileoverview` dele: a desativação
+// poda um SUPERCONJUNTO do que a troca de papel poda, e era a que menos falava.
+import {
+    deactivationWarning, deactivationConfirmLabel, deactivationSummary, reactivationNotice,
+} from './user-deactivation-phrases.js';
 import { GLOBAL_ROLE_LABELS } from '@ui/role-labels.js';
 
 /**
@@ -163,7 +168,11 @@ class UsersTab {
             users = await apiClient.listUsers({ includeInactive: this._includeInactive });
         } catch (error) {
             if (!this._alive) return;
-            loading.textContent = 'Falha ao carregar usuários.';
+            // A SAÍDA que faltava. Ver `failureState` em `admin-dom.js`: falha de carregamento era
+            // beco sem saída nas seis abas, e o único caminho era recarregar a página.
+            loading.replaceChildren(failureState('Falha ao carregar usuários.', {
+                onRetry: () => { if (this._alive) this._renderList(); },
+            }));
             showError(error?.message || 'Falha ao carregar usuários.');
             return;
         }
@@ -265,6 +274,11 @@ class UsersTab {
                 const pending = document.createElement('span');
                 pending.className = 'admin-users__badge admin-users__badge--pending';
                 pending.textContent = 'Pendente';
+                // O ENDEREÇO, que até agora era lido só como PREDICADO. O administrador aprovava
+                // um e-mail que a tabela não lhe mostrava em lugar nenhum: `u.email` chegava na
+                // listagem e a única coisa que se fazia com ele era decidir se o selo aparece.
+                // Aprovar às cegas é o que a cláusula 10.6 depende para não ser aprovada errada.
+                pending.title = `E-mail aguardando confirmação: ${u.email}`;
                 statusCell.appendChild(pending);
             }
             tr.appendChild(statusCell);
@@ -275,6 +289,22 @@ class UsersTab {
                 () => this._renderForm(u)));
             actions.appendChild(button('Senha', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-password',
                 () => this._renderPasswordForm(u)));
+            // APROVAR NA LINHA, e não escondido no fim do formulário de edição. A conta pendente é
+            // a única que o desbloqueio da cláusula 10.6 alcança, e até agora aprová-la exigia
+            // abrir Editar, rolar até o fim e marcar uma caixa que só é montada quando a conta já
+            // tem endereço. A ação aparece SÓ na linha pendente, que é o que a torna uma ação e
+            // não mais um campo.
+            if (u.email && u.email_verified === false) {
+                actions.appendChild(button('Aprovar', 'admin-btn admin-btn--ghost admin-btn--sm',
+                    'admin-user-approve', () => this._approve(u)));
+            }
+            // REVOGAR A CHAVE DE OUTRA PESSOA. A rota existe desde sempre
+            // (`POST /users/:userId/api-key/rotate`, com `requireAdmin`) e o método do cliente
+            // também (`apiClient.rotateUserApiKey`), com ZERO chamadores: a única forma de cortar
+            // uma chave comprometida alheia era SQL no banco. Rotacionar É revogar: a chave antiga
+            // deixa de autenticar no instante em que a nova é gravada.
+            actions.appendChild(button('Revogar chave', 'admin-btn admin-btn--ghost admin-btn--sm',
+                'admin-user-revoke-key', () => this._revokeApiKey(u)));
             if (u.is_active) {
                 const deBtn = button('Desativar', 'admin-btn admin-btn--danger admin-btn--sm', 'admin-user-deactivate',
                     () => this._deactivate(u));
@@ -590,14 +620,27 @@ class UsersTab {
      * @param {Object} user
      */
     async _deactivate(user) {
-        const ok = await showConfirm(
-            `Desativar o usuário "${user.username}"? Ele não poderá mais entrar.`,
-            { destructive: true, confirmText: 'Desativar' }
-        );
+        // O AVISO USA O NÚMERO QUE A LISTAGEM JÁ TROUXE. `live_grant_count` vem por linha nas duas
+        // consultas de usuário, e este arquivo já o lia — mas SÓ no ramo da troca de papel, que
+        // poda um subconjunto do que este ato poda. O campo estava aqui o tempo todo.
+        const ok = await showConfirm(`Desativar "${user.username}"?`, {
+            message: deactivationWarning({
+                username: user.username,
+                liveGrants: user.live_grant_count,
+                // A tela ainda não sabe se ele tem atlas: o servidor responde 409 e o fluxo cai em
+                // `_renderTransfer`. Aqui a frase fala só do que é certo.
+                hasAtlas: false,
+            }),
+            destructive: true,
+            confirmText: deactivationConfirmLabel(user.live_grant_count),
+        });
         if (!ok) return;
         try {
-            await apiClient.deactivateUser(user.id);
-            showSuccess('Usuário desativado.');
+            // O RETORNO DEIXOU DE SER DESCARTADO. Ele carrega `atlasTransferred`,
+            // `grantsRevoked` e `grantsReparented`, e até agora os três só eram legíveis DEPOIS,
+            // na aba de Auditoria, que é onde ninguém está no momento do ato.
+            const resultado = await apiClient.deactivateUser(user.id);
+            showSuccess(deactivationSummary(resultado));
             if (this._alive) this._renderList();
         } catch (err) {
             // Owns atlases → backend conflict (409). Collect a new owner and retry.
@@ -610,13 +653,79 @@ class UsersTab {
     }
 
     /**
+     * Aprova o e-mail de uma conta pendente, direto da linha.
+     *
+     * O ENDEREÇO VAI NA CONFIRMAÇÃO, e é o ponto inteiro desta ação: aprovar é declarar VERDADEIRO
+     * um endereço que ninguém confirmou, então a única coisa que separa a aprovação certa da
+     * errada é o administrador LER o endereço antes. A tela oferecia aprovar e não oferecia ler.
+     * @private
+     * @param {Object} user
+     * @returns {Promise<void>}
+     */
+    async _approve(user) {
+        const ok = await showConfirm(`Aprovar o acesso de "${user.username}"?`, {
+            message: `Isto declara confirmado o endereço ${user.email} sem que a pessoa tenha `
+                + 'clicado no link de confirmação, e libera a entrada dela. Se o endereço estiver '
+                + 'errado, corrija-o em Editar antes de aprovar: aprovar o endereço errado entrega '
+                + 'a conta a quem controla aquela caixa.',
+            confirmText: 'Aprovar',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.updateUser(user.id, { email_verified: true });
+            showSuccess('Acesso aprovado.');
+            if (this._alive) this._renderList();
+        } catch (err) {
+            showError(err?.message || 'Falha ao aprovar o acesso.');
+        }
+    }
+
+    /**
+     * Rotaciona (e portanto revoga) a chave de API de outra pessoa.
+     *
+     * NÃO MOSTRA A CHAVE NOVA, e a omissão é a decisão: quem revoga uma chave comprometida está
+     * cortando acesso, não emitindo credencial para si. A chave nova pertence ao dono da conta, e
+     * ele a lê em "Minha conta", onde a revelação já tem o cuidado todo (uma vez só, com guarda ao
+     * fechar sem copiar). Mostrá-la aqui entregaria ao administrador uma credencial alheia viva.
+     * @private
+     * @param {Object} user
+     * @returns {Promise<void>}
+     */
+    async _revokeApiKey(user) {
+        const ok = await showConfirm(`Revogar a chave de API de "${user.username}"?`, {
+            message: 'A chave atual deixa de autenticar imediatamente, e toda integração que a '
+                + 'use para de funcionar. Uma chave nova é gerada no lugar, e só a própria pessoa '
+                + 'consegue lê-la, em "Minha conta". Isto não se desfaz: a chave antiga não volta.',
+            destructive: true,
+            confirmText: 'Revogar',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.rotateUserApiKey(user.id);
+            showSuccess('Chave de API revogada. A pessoa precisa pegar a nova em "Minha conta".');
+        } catch (err) {
+            showError(err?.message || 'Falha ao revogar a chave de API.');
+        }
+    }
+
+    /**
      * @private
      * @param {Object} user
      */
     async _reactivate(user) {
+        // PERGUNTA, e a pergunta é sobre o que a reativação NÃO faz. O botão nasce no mesmo lugar
+        // em que estava "Desativar", e essa simetria visual afirma uma simetria de efeito que não
+        // existe: `reactivateUser` é uma consulta mais uma linha de trilha, então as concessões
+        // podadas continuam revogadas e as sessões continuam mortas. Sem esta tela, quem reativa
+        // conclui que desfez o ato e descobre o contrário pela reclamação de terceiros.
+        const ok = await showConfirm(`Reativar "${user.username}"?`, {
+            message: reactivationNotice(),
+            confirmText: 'Reativar',
+        });
+        if (!ok) return;
         try {
             await apiClient.reactivateUser(user.id);
-            showSuccess('Usuário reativado.');
+            showSuccess('Usuário reativado. As concessões derrubadas não voltaram.');
             if (this._alive) this._renderList();
         } catch (err) {
             showError(err?.message || 'Falha ao reativar o usuário.');
@@ -670,8 +779,9 @@ class UsersTab {
                 }
                 confirmBtn.disabled = true;
                 try {
-                    await apiClient.deactivateUser(user.id, { transferTo: selectedId });
-                    showSuccess('Atlas transferido e usuário desativado.');
+                    // A SEGUNDA SAÍDA, que descartava o retorno pela mesma razão que a primeira.
+                    const resultado = await apiClient.deactivateUser(user.id, { transferTo: selectedId });
+                    showSuccess(deactivationSummary(resultado));
                     if (this._alive) this._renderList();
                 } catch (err) {
                     showFormError(error, err?.message || 'Falha ao transferir/desativar.');

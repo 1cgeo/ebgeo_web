@@ -111,6 +111,27 @@ export const listTrash = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// A BUSCA DE ATLAS DO ADMINISTRADOR.
+//
+// O achado que ela fecha: `requireAtlasPermission` faz curto-circuito por `role === 'admin'`, de
+// modo que o administrador tem POSSE em todo atlas — e não conseguia ALCANÇAR nenhum alheio, por
+// falta de rota. A metade morta já tinha caminho (`listTrash` acima); a viva não tinha nenhum.
+//
+// ELA É BUSCA E NÃO LISTA, por decisão do dono (2026-08-24): a enumeração do acervo nasce sob
+// controle explícito. Quem impõe isso são DOIS pontos, e nenhum é este controller: o Joi
+// (`q` obrigatório, com piso de tamanho) e o próprio serviço, que relança se o termo não chegar.
+// Aqui não há ramo de "sem termo" para escrever — é o que impede que ele apareça por descuido.
+//
+// SEM TRILHA DE AUDITORIA, e a omissão é deliberada e tem custo declarado: `audit_trail.action` é
+// um CHECK fechado, e uma ação nova arrasta um par DROP/ADD CONSTRAINT mais uma linha em
+// `EXCECOES_DESTRUTIVAS`. O ato aqui é de LEITURA, e a leitura que de fato move alguma coisa
+// (restaurar, transferir posse) já deixa linha. Se a busca passar a ser o degrau de um fluxo
+// destrutivo, é ali que a trilha entra, não aqui.
+export const searchAtlasAsAdmin = asyncHandler(async (req, res) => {
+  const { results, truncated } = await atlasService.searchAllAtlas(req.query.q, req.query.limit);
+  res.json({ data: { term: req.query.q, results, truncated } });
+});
+
 export const restoreAtlas = asyncHandler(async (req, res) => {
   const byAdmin = req.user.role === 'admin';
   const atlas = await atlasService.restoreAtlas(req.params.atlasId, req.user.id, byAdmin);
