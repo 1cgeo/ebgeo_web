@@ -319,6 +319,13 @@ export const REVOKE_ALL_USER_TOKENS = `
 `;
 
 // Atomic API key rotation: archive the old key + issue a new one in one statement.
+//
+// A ROTACAO RENOVA O PRAZO, e essa linha e o que impede a amarra de prazo de virar uma
+// parede: sem ela, o slot legado venceria noventa dias depois da migracao que criou a
+// coluna e a unica saida do integrador seria rotacionar para outra chave ja vencida.
+// `api_key_created_at` volta para NOW() pelo mesmo ato, porque a chave e OUTRA: e ela
+// que o corte de sessao passa a comparar, e herdar o nascimento da anterior faria uma
+// chave recem-emitida nascer do lado errado de um corte antigo.
 export const ROTATE_API_KEY = `
   WITH old AS (
     INSERT INTO api_key_history (user_id, api_key, created_at, revoked_at, revoked_by)
@@ -326,9 +333,55 @@ export const ROTATE_API_KEY = `
     FROM users WHERE id = $1 AND api_key IS NOT NULL
     RETURNING 1
   )
-  UPDATE users SET api_key = gen_random_uuid(), updated_at = NOW()
+  UPDATE users SET api_key = gen_random_uuid(),
+                   api_key_created_at = NOW(),
+                   api_key_expires_at = NOW() + make_interval(days => $3::int),
+                   updated_at = NOW()
   WHERE id = $1
-  RETURNING api_key
+  RETURNING api_key, api_key_expires_at
+`;
+
+// ============================================================================
+// CHAVES NOMEADAS (tabela `api_keys`): prazo, escopo, revogacao individual
+// ============================================================================
+
+// O TETO DE UM ANO NAO E CONFERIDO AQUI, e a ausencia e proposital: quem o impoe e
+// `api_keys_expires_at_check`, no banco. Aparar em JS e conveniencia de UI (a pessoa
+// pede 500 dias e recebe 365); recusar de verdade e do CHECK, que nenhum caminho de
+// escrita pode contornar — inclusive um INSERT feito a mao numa sessao de psql.
+export const CREATE_API_KEY = `
+  INSERT INTO api_keys (user_id, api_key, label, scope, expires_at, created_by)
+  VALUES ($1, gen_random_uuid(), $2, $3, NOW() + make_interval(days => $4::int), $5)
+  RETURNING id, api_key, label, scope, created_at, expires_at
+`;
+
+// A LISTAGEM NAO DEVOLVE `api_key`, e essa omissao e o contrato da tela: o segredo
+// aparece UMA vez, na resposta da criacao, e depois nao ha de onde relê-lo. Uma lista
+// que devolvesse a chave transformaria qualquer leitura de perfil (um administrador
+// abrindo a conta alheia, um log de resposta, um cache) num vazamento de credencial.
+export const LIST_API_KEYS = `
+  SELECT id, label, scope, created_at, expires_at, revoked_at, revoked_by,
+         (revoked_at IS NULL AND expires_at > NOW()) AS viva
+  FROM api_keys
+  WHERE user_id = $1
+  ORDER BY created_at DESC
+`;
+
+// AMARRA 3, e o `AND user_id = $1` e a metade que importa: sem ele, quem conhecesse o
+// id de uma linha revogaria a chave de outra pessoa por uma rota de auto-servico. Zero
+// linhas afetadas e 404 no servico, sem distinguir "nao existe" de "nao e sua".
+export const REVOKE_API_KEY = `
+  UPDATE api_keys SET revoked_at = NOW(), revoked_by = $3
+  WHERE id = $2 AND user_id = $1 AND revoked_at IS NULL
+  RETURNING id, label, scope, expires_at
+`;
+
+// O TETO DE CHAVES VIVAS. Contado no mesmo predicado da autenticacao (nao revogada E
+// nao vencida), senao uma conta com dez chaves vencidas ficaria trancada fora de emitir
+// a decima primeira sem entender por que.
+export const COUNT_LIVE_API_KEYS = `
+  SELECT COUNT(*)::int AS n FROM api_keys
+  WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
 `;
 
 // A CHAVE DE API EXIGE A OM DE LOTACAO ATIVA, como o caminho de sessao.
@@ -353,13 +406,62 @@ export const ROTATE_API_KEY = `
 // `COALESCE(o.is_active, true)` repete a regra de `utils/org-status.js`: conta SEM OM e
 // OM com linha AUSENTE passam. Linha ausente e anomalia de dado, nao desativacao
 // deliberada, e tranca-la aqui seria inventar uma revogacao que ninguem pediu.
+//
+// AS TRES AMARRAS MORAM AQUI DENTRO, pela mesma razao que o termo de organizacao: quem
+// escrever um chamador novo desta consulta herda prazo, escopo e revogacao sem ter de
+// lembrar de nenhum dos tres. A cláusula 10.7 da constituicao decidiu que esta chave
+// passa a ser a credencial que o nginx valida nas rotas de tile, e ali nao existe
+// middleware nosso para conferir nada: o que a consulta nao cobrar, ninguem cobra.
+//
+// DUAS MORADAS, UMA PORTA. A `UNION ALL` e o unico ponto do sistema em que as chaves
+// NOMEADAS (tabela `api_keys`, com escopo e revogacao individual) e o SLOT LEGADO
+// (`users.api_key`, uma chave por conta) se encontram. O slot legado continua porque
+// migracao e forward-only e integradores o carregam hoje; ele resolve como escopo
+// `full`, que e o alcance que sempre teve. Nao ha risco de linha em dobro: nenhuma
+// migracao copia o valor do slot para a tabela, e `api_keys.api_key` e UNIQUE.
+//
+// PRAZO (amarra 1). Ele morre no PREDICADO, nunca por varredura, exatamente como o da
+// concessao de recurso: um varredor de expiracao seria mais um verificador, e
+// verificador quebra calado. Do lado do slot legado, `api_key_expires_at IS NULL` NAO
+// passa — nulo le-se como vencida, e a direcao de falha e a fechada.
+//
+// CORTE DE SESSAO (parte da amarra 3). A revogacao em massa carimba
+// `users.sessions_valid_from`, e o caminho de requisicao a aplicava comparando o `iat`
+// de um JWT — que uma chave nao tem, e era por isso que ela nao caia no corte. Aqui a
+// comparacao e com o NASCIMENTO da chave, que existe nas duas moradas. NULL em
+// `sessions_valid_from` significa "nunca houve corte" e passa; nulo do lado da chave
+// nao passa, pela mesma razao do prazo.
+//
+// ESCOPO (amarra 2) e devolvido, nao imposto: quem impoe sao os gates
+// (`middleware/auth.js` e `middleware/require-admin.js`), porque a superficie que a
+// requisicao alcanca e coisa que so a rota sabe. A consulta autentica; ela nao autoriza.
 export const FIND_USER_BY_API_KEY = `
+  WITH candidata AS (
+    SELECT k.user_id, k.id AS api_key_id, k.scope::text AS api_key_scope,
+           k.created_at AS api_key_created_at
+    FROM api_keys k
+    WHERE k.api_key = $1
+      AND k.revoked_at IS NULL
+      AND k.expires_at > NOW()
+    UNION ALL
+    SELECT u.id, NULL::uuid, 'full'::text, u.api_key_created_at
+    FROM users u
+    WHERE u.api_key = $1
+      AND u.api_key_expires_at IS NOT NULL
+      AND u.api_key_expires_at > NOW()
+  )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id, u.role
-  FROM users u
+         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id, u.role,
+         c.api_key_id, c.api_key_scope
+  FROM candidata c
+  JOIN users u ON u.id = c.user_id
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
-  WHERE u.api_key = $1
-    AND u.is_active = true
+  WHERE u.is_active = true
     AND COALESCE(o.is_active, true) = true
+    AND (
+      u.sessions_valid_from IS NULL
+      OR (c.api_key_created_at IS NOT NULL AND c.api_key_created_at > u.sessions_valid_from)
+    )
+  LIMIT 1
 `;

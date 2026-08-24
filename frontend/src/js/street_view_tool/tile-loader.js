@@ -313,6 +313,15 @@ function raizApiPadrao() {
  *   quando o canvas e recriado e a textura anterior deixa de valer
  * @param {(estat: Object) => void} [opcoes.onEstatisticas] - instrumentacao viva
  * @param {(msg: string) => void} [opcoes.onLog] - log opcional do demo
+ * @param {(falha: {chave: string, status: number|null}) => void} [opcoes.onTileErro]
+ *   ADAPTACAO DO MONOREPO (sexto trecho do delta declarado em
+ *   `.claude/rules/common-tasks.md`). Avisa que UM tile nao chegou: `chave` e a do
+ *   tile e `status` e o codigo HTTP, ou null quando a resposta nem existiu. E so o
+ *   FATO; a politica inteira (quantos buracos valem uma acusacao, quem a recebe e
+ *   com que palavra) mora fora, em `photo360-failure.js`, para que este arquivo
+ *   continue sendo copia do ebgeo_360 com um trecho a mais e nenhuma regra a mais.
+ *   Ausente, o tile perdido segue so no `log`, que e o comportamento da origem e o
+ *   da pagina de calibracao, onde nao ha painel para acusar
  * @param {string} [opcoes.estrategiaFundo] - um de ESTRATEGIAS_FUNDO. Vale para
  *   toda foto desta instancia, e cada `carregarFoto` pode sobrescrever
  * @returns {Object} API do carregador
@@ -324,6 +333,7 @@ export function createTileLoader({
     onTextura,
     onEstatisticas,
     onLog,
+    onTileErro,
     estrategiaFundo = ESTRATEGIA_FUNDO_PADRAO,
 } = {}) {
     // MAX_TEXTURE_SIZE e a promessa do driver. Acima dela o upload da textura
@@ -1035,6 +1045,7 @@ export function createTileLoader({
             });
             if (!resposta.ok) {
                 log(`tile ${item.chave}: HTTP ${resposta.status}`);
+                if (onTileErro) onTileErro({ chave: item.chave, status: resposta.status });
                 return;
             }
             const buffer = await resposta.arrayBuffer();
@@ -1052,7 +1063,10 @@ export function createTileLoader({
             guardarNoCache(item.chave, bitmap);
             desenharTile(item.nivel, item.x, item.y, bitmap);
         } catch (erro) {
-            if (erro.name !== 'AbortError') log(`tile ${item.chave}: ${erro.message}`);
+            if (erro.name !== 'AbortError') {
+                log(`tile ${item.chave}: ${erro.message}`);
+                if (onTileErro) onTileErro({ chave: item.chave, status: null });
+            }
         }
     }
 

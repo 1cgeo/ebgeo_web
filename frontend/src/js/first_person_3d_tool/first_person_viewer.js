@@ -45,10 +45,12 @@ import { getControl } from '@store/control.registry.js';
 import { EventTypes } from '@events/event_types.js';
 import { showError, showWarning } from '@utils/toast_service.js';
 import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
+import { requestStatus } from '@utils/request-failure.js';
 // The measuring card is the 2D tool's card. Same component, same panel, same
 // unit selector — see showMeasurementResults().
 import { createDistanceResultsPanel } from '@js/measurement_tool/measurement-results-panel.js';
 
+import { scene3dFailures, scene3dLoadFailureMessage } from './scene3d-failure.js';
 import { FP_DEFAULTS } from './walk/constants.js';
 import { WalkMode } from './walk/walk-mode.js';
 import { PointerLock } from './walk/pointer-lock.js';
@@ -406,7 +408,14 @@ async function loadSplat(viewer, splatUrl) {
 
     const response = await fetch(splatUrl);
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} em ${splatUrl}`);
+        const erro = new Error(`HTTP ${response.status} em ${splatUrl}`);
+        // THE STATUS TRAVELS AS A FIELD, not only inside the message. `requestStatus`
+        // (`@utils/request-failure.js`) reads `status ?? statusCode`, so the failure panel prints
+        // a code it MEASURED instead of one somebody parsed back out of prose, which is what the
+        // Cesium path is forced to do (`statusOfCesiumTileFailure`). Here the response object is
+        // right there, so there is no excuse for the lossy channel.
+        erro.status = response.status;
+        throw erro;
     }
 
     const data = await SplatLoader.parseSplatData(
@@ -1272,6 +1281,11 @@ async function doOpenFirstPersonViewer(sceneId, options) {
     fpState.scene = scene;
     fpState.sceneId = sceneId;
 
+    // THE ACCUSATION IS RETRACTED WHERE THE SCENE IS ASKED FOR AGAIN, and never on success: a
+    // scene that opens is not evidence that the previous attempt's diagnosis expired, an attempt
+    // is. A no-op when this scene was never accused, which is what lets it run unconditionally.
+    scene3dFailures.clear(sceneId);
+
     // UI first, so the container has a size before the engine reads one.
     setFirstPersonUiVisible(true);
     showLoadingFp('Preparando a cena...');
@@ -1306,7 +1320,14 @@ async function doOpenFirstPersonViewer(sceneId, options) {
         resumeRendering();
     } catch (error) {
         console.error('[first-person] failed to open the scene:', error);
-        showError('Erro ao carregar a cena 3D');
+        // THE MAP SAYS IT TOO, and it is the half that survives the toast. This `catch` is the one
+        // place that knows a scene was asked for and did not come: the four doors (this control,
+        // the catalog, the search and the deep link) all funnel through here, and each of their
+        // own `catch` blocks only ever sees the dynamic import failing.
+        scene3dFailures.report(sceneId, { name: scene.name, status: requestStatus(error) });
+        // The toast covers the seconds before the map comes back, and it is built from the panel's
+        // own builder so the two cannot say different things about one event.
+        showError(scene3dLoadFailureMessage(scene.name));
         // A half-built scene is worse than none: the next attempt would take
         // the "resume" branch and find an engine with no splat and no walker,
         // which is a black screen with no error to show for it.

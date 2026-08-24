@@ -8,6 +8,7 @@ import config from '../config.js';
 import { extractBearerToken } from './auth.js';
 import { query } from '../database/index.js';
 import { FIND_USER_BY_API_KEY } from '../modules/users/users.queries.js';
+import { API_KEY_SCOPE_LEGACY } from '../modules/users/api-key-terms.js';
 import { issueAccessToken, msUntilExpiry } from '../modules/auth/auth.service.js';
 import { getLiveAuthState, tokenPredatesSessionCut } from '../utils/org-status.js';
 import { env } from '../utils/environment.js';
@@ -24,6 +25,15 @@ function mapDbUser(row) {
     role: row.role || 'user',
     organization_id: row.organization_id ?? null,
     producer_org_id: row.producer_org_id ?? null,
+    // O ESCOPO DA CHAVE (amarra 2 da clausula 10.7). Ele viaja em `req.user` e nao em
+    // `req.authVia` porque o gate precisa das DUAS coisas: que a credencial e chave, e
+    // qual o alcance dela. O default `full` cobre o slot legado (`users.api_key`), que
+    // e anterior ao vocabulario de escopo; a consulta ja o resolve assim, e a
+    // duplicacao aqui e um cinto para o caso de um chamador novo dela nao selecionar a
+    // coluna. Nenhum dos dois alcanca administracao, que e negada por CREDENCIAL e nao
+    // por escopo (`middleware/require-admin.js`).
+    apiKeyScope: row.api_key_scope || API_KEY_SCOPE_LEGACY,
+    apiKeyId: row.api_key_id ?? null,
   };
 }
 

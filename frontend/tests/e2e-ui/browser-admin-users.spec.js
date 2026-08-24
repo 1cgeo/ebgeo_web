@@ -135,7 +135,9 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await page.goto('/admin.html');
         await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 20000 });
         // A DISCRIMINAÇÃO É A LISTA DE ABAS, não a presença do painel: sem ela, um painel que
-        // abrisse com as SEIS abas do administrador passaria verde neste caso.
+        // abrisse com TODAS as abas do administrador passaria verde neste caso. (A contagem
+        // saiu daqui em 2026-08-24, quando ela virou sete: este comentario nao mede nada, e
+        // um numero em comentario que ninguem confere e a forma mais barata de mentir.)
         await expect(page.locator('.admin-panel__tab')).toHaveCount(2);
         await expect(page.locator('[data-testid="admin-tab-groups"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-grants"]')).toBeVisible();

@@ -200,11 +200,22 @@ const ORIGENS_CONHECIDAS = new Set(Object.values(RESOURCE_ORIGIN));
  */
 let _origens = Object.fromEntries(GRUPOS.map((g) => [g, new Map()]));
 
-/** @private Reconstrói os três índices a partir do payload que acabou de chegar. */
+/**
+ * O PRAZO de cada id privado, por grupo, quando o servidor sabe dizer um.
+ *
+ * IRMÃO DE `_origens`, e ESPARSO por construção: o servidor só manda entrada para o id
+ * cujo acesso repousa numa concessão (ver `resourceAccessExpiry`). Ausência aqui é o caso
+ * NORMAL, não uma falha — a maioria dos ids não tem prazo nenhum a afirmar.
+ * @type {Object<string, Map<string, string>>}
+ */
+let _prazos = Object.fromEntries(GRUPOS.map((g) => [g, new Map()]));
+
+/** @private Reconstrói os quatro índices a partir do payload que acabou de chegar. */
 function indexarPayload(payload) {
     _privados = conjuntosVazios();
     _repassaveis = conjuntosVazios();
     _origens = Object.fromEntries(GRUPOS.map((g) => [g, new Map()]));
+    _prazos = Object.fromEntries(GRUPOS.map((g) => [g, new Map()]));
     for (const grupo of GRUPOS) {
         for (const item of (Array.isArray(payload?.[grupo]) ? payload[grupo] : [])) {
             if (item?.id != null) _privados[grupo].add(String(item.id));
@@ -216,13 +227,36 @@ function indexarPayload(payload) {
         // uma linha de tratamento no chamador: sem a chave, o mapa fica vazio e todo
         // `resourceAccessOrigin` responde `null`, que é o valor que os consumidores já
         // tratam como "não sei" e para o qual eles degradam à frase genérica.
+        // OS DOIS MAPAS IRMÃOS SÃO INDEPENDENTES, e ESTA é a razão de nenhum dos dois usar
+        // `continue` para pular o ausente: enquanto a guarda de `origins` fazia isso, um
+        // servidor que mandasse `expirations` e não `origins` (ou o contrário) perdia o
+        // segundo mapa inteiro, calado. O sintoma seria o chip de prazo nunca aparecer,
+        // indistinguível de "ninguém tem prazo".
         const origens = payload?.origins?.[grupo];
-        if (!origens || typeof origens !== 'object') continue;
-        for (const [id, origem] of Object.entries(origens)) {
-            // VALOR DESCONHECIDO FICA DE FORA, e não entra cru. Uma palavra que este build
-            // não conhece chegaria à tela como rótulo sem tradução; virar `null` a manda
-            // para a frase genérica, que é o degrau que já existe e já está escrito.
-            if (ORIGENS_CONHECIDAS.has(origem)) _origens[grupo].set(String(id), origem);
+        if (origens && typeof origens === 'object') {
+            for (const [id, origem] of Object.entries(origens)) {
+                // VALOR DESCONHECIDO FICA DE FORA, e não entra cru. Uma palavra que este
+                // build não conhece chegaria à tela como rótulo sem tradução; virar `null` a
+                // manda para a frase genérica, que é o degrau que já existe e já está escrito.
+                if (ORIGENS_CONHECIDAS.has(origem)) _origens[grupo].set(String(id), origem);
+            }
+        }
+
+        // O MESMO TRATAMENTO PARA O PRAZO, e pelo mesmo motivo: `expirations` não existe em
+        // servidor mais velho que este build, e a ausência não pode exigir uma linha de
+        // tratamento no chamador. Sem a chave, o mapa fica vazio e `resourceAccessExpiry`
+        // responde `null`, que é exatamente o que o consumidor já desenha (nada).
+        const prazos = payload?.expirations?.[grupo];
+        if (prazos && typeof prazos === 'object') {
+            for (const [id, quando] of Object.entries(prazos)) {
+                // SÓ STRING NÃO VAZIA ENTRA. O valor viaja como ISO; um `null` explícito, um
+                // número ou um objeto seriam um servidor dizendo outra coisa, e guardá-los
+                // cru empurraria a decisão para a função de frase, que já trata `null` como
+                // "não sei" e não deveria precisar aprender um segundo vocabulário de lixo.
+                if (typeof quando === 'string' && quando !== '') {
+                    _prazos[grupo].set(String(id), quando);
+                }
+            }
         }
     }
 }
@@ -476,6 +510,31 @@ export function canShareResource(grupo, id) {
 export function resourceAccessOrigin(grupo, id) {
     if (!grupo || id == null) return null;
     return _origens[grupo]?.get(String(id)) ?? null;
+}
+
+/**
+ * ATÉ QUANDO este acesso vale, quando o servidor sabe dizer. Irmão de
+ * {@link resourceAccessOrigin}.
+ *
+ * `null` É O CASO COMUM, e a lista de razões é a mesma de lá mais uma: o item não é
+ * privado, o servidor é mais velho que este build, a soma falhou, o valor veio malformado,
+ * ou — a razão nova e a mais frequente — NÃO HÁ PRAZO A DIZER. O servidor só carimba o
+ * prazo de quem enxerga o recurso por CONCESSÃO; quem enxerga por papel global ou por
+ * produção não perde nada quando uma concessão vence, e o empréstimo por atlas não tem
+ * relógio próprio. Um consumidor que trate `null` como "acesso eterno" está afirmando algo
+ * que o cliente não sabe: o certo é não desenhar prazo nenhum.
+ *
+ * ELE NÃO PROMETE O ACESSO ATÉ LÁ, e a distinção importa na tela: revogação continua
+ * podendo acontecer a qualquer momento, e nenhuma data prediz isso. O que a data afirma é
+ * só o vencimento por RELÓGIO, que é o único desfecho que chega sem ninguém agir.
+ *
+ * @param {string} grupo - Um de `basemaps`, `tilesets`, `dataLayers`, `analysisLayers`, `views360`.
+ * @param {string} id - O id CRU do recurso (o do catálogo, não o prefixado do cartão).
+ * @returns {string|null} ISO 8601, ou `null` quando não há prazo a afirmar.
+ */
+export function resourceAccessExpiry(grupo, id) {
+    if (!grupo || id == null) return null;
+    return _prazos[grupo]?.get(String(id)) ?? null;
 }
 
 /** O escopo da última soma bem-sucedida. Só para teste e diagnóstico. @returns {string|null|undefined} */

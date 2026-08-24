@@ -1,8 +1,18 @@
 # Pendência: os bytes do tile privado não passam por gate
 
-Apurado em 2026-08-20, durante a auditoria da constituição do produto. **Nada foi
-implementado**: o dono decidiu parar aqui e resolver depois. Este arquivo existe para que
-a próxima pessoa (ou o próximo agente) não precise refazer a investigação.
+Apurado em 2026-08-20, durante a auditoria da constituição do produto. Este arquivo existe para
+que a próxima pessoa (ou o próximo agente) não precise refazer a investigação.
+
+**ESTADO EM 2026-08-24: as TRÊS AMARRAS estão de pé; o `location` do nginx continua por fazer,
+por decisão do dono.** Este cabeçalho dizia "Nada foi implementado" e passou a ser falso no
+instante em que a migração `010_chaves_de_api.sql` entrou, o que é a pior forma de documentação
+envelhecida: ela manda reimplementar o que já existe. O que ficou pronto é o prazo na chave
+(com teto de um ano por CHECK, ancorado em `created_at` como o de concessão), o escopo por
+SUPERFÍCIE (lido de uma tabela de alcance, para que escopo desconhecido falhe FECHADO, e com
+`administracao: false` em todos), e a revogação individual por chave nomeada, sem derrubar as
+outras integrações da mesma pessoa. A cláusula 10.7 está **[em obra]**, e não vigente, pelo que
+segue aberto. **A lista ordenada do que falta para o `location` poder ser ligado está no fim
+da seção (e).** Nada em `deploy/` foi tocado.
 
 ## O defeito, e o defeito gêmeo
 
@@ -122,7 +132,8 @@ compartilhado com o nginx, nenhum relógio a sincronizar.
   Revogar hoje é só rotacionar, o que derruba junto toda integração daquela pessoa.
 
 **O que precisa existir ANTES do `location` do nginx**, e esta é a ordem, não uma lista de
-desejos:
+desejos. **As três primeiras foram feitas em 2026-08-24** (migração `010_chaves_de_api.sql`,
+`backend/src/modules/users/api-key-terms.js`); o que sobra está na lista logo abaixo delas:
 
 1. **Prazo.** A chave ganha validade, como tudo o mais no sistema (concessão tem teto de um
    ano por CHECK; refresh tem `expires_at`). Sem isso, o vazamento é permanente por desenho.
@@ -131,6 +142,29 @@ desejos:
 3. **Revogação que não seja só a rotação**, para que perder uma chave não derrube as outras
    integrações da mesma pessoa.
 4. **Só então** o `location` do Martin, com a validação.
+
+**O QUE FALTA PARA LIGAR O `location`, em ordem, apurado em 2026-08-24 ao fazer as amarras:**
+
+1. **Endpoint de `auth_request`.** Precisa ser rota SÓ-flexível, porque o `auth` estrito recusa
+   a chave de escopo `tiles`, que é justamente a que o tile carrega. Responde 200/401 sem corpo
+   e lê `?api_key=` da query repassada pelo nginx. Decidir se ele também diz QUAL camada o
+   portador alcança, ou se o nginx só quer sim/não.
+2. **O recorte por RECURSO, que é a decisão que ainda não foi tomada.** O escopo hoje diz
+   "tiles, sim ou não", nunca QUAIS tiles. Enquanto for assim, uma chave de tile de qualquer
+   conta abre TODO `location` protegido, e `fn_can_see_resource` não entra na história. Se o
+   requisito for "a chave alcança o que a pessoa pode ver", o endpoint precisa receber o
+   caminho e consultar aquele predicado.
+3. **Republicar o acervo privado sob prefixo próprio.** O `location` vale sobre um prefixo: se
+   privado e público dividirem o mesmo, ou tudo passa a exigir chave (e o anônimo, que é o
+   produto, quebra) ou nada passa. É a pergunta em aberto nº 2 deste documento.
+4. **Distribuir a chave ao cliente.** Não existe um `transformRequest` no frontend (são nove
+   construções de `maplibregl.Map`), e o visitante anônimo e o de link público NÃO TÊM chave
+   nenhuma. Sem isto, ligar o `location` fecha o vazamento e apaga a camada da tela de quem tem
+   direito, que é o defeito gêmeo descrito no topo deste arquivo.
+5. **O `location`**, com `nginx -V` conferido, e a SONDA COM DATA rodada à mão no deploy: nada
+   neste repositório prova o que o servidor faz.
+6. **Cache.** A chave na URL torna cada pessoa uma chave de cache distinta. Se o volume apertar,
+   a saída registrada continua sendo (b).
 
 **O que (e) NÃO entrega, e (b) entregava:** o cache de borda continua possível, mas a chave
 na URL torna cada usuário uma chave de cache distinta — o compartilhamento de tile entre

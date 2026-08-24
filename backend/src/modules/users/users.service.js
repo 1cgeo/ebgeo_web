@@ -37,6 +37,13 @@ import { LIVE_GRANT_IDS_BY_GRANTER } from '../resource-access/resource-access.qu
 // O predicado do veredito, num modulo FOLHA e sem imports, para que o teste-espelho possa
 // carregar os dois lados no mesmo processo. Ver o `fileoverview` daquele arquivo.
 import { fundamentoDeRaizPerdido } from './producer-scope-verdict.js';
+// O VOCABULARIO DA CHAVE DE API (prazo e alcance), tambem num modulo FOLHA e pelo mesmo
+// motivo: os gates de `middleware/` o leem, e um import daqui para o banco faria o gate
+// arrastar o servico inteiro. Ver o `fileoverview` de `api-key-terms.js`.
+import {
+  API_KEY_LIVE_LIMIT, API_KEY_SCOPE_DEFAULT, API_KEY_SCOPE_LEGACY,
+  API_KEY_TERM_DEFAULT_DAYS, clampApiKeyTermDays,
+} from './api-key-terms.js';
 
 const SALT_ROUNDS = 12;
 
@@ -974,20 +981,144 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
 /**
  * Atomically rotates a user's API key (old key archived to api_key_history),
  * auditing within the same transaction.
+ *
+ * ESTA E A ROTACAO DO SLOT LEGADO, e ela continua sendo o que sempre foi: uma chave
+ * por conta, e emitir a nova invalida a anterior. O que mudou em 2026-08-24 e que ela
+ * passou a RENOVAR O PRAZO junto (`API_KEY_TERM_DEFAULT_DAYS`), senao a amarra de
+ * prazo viraria uma parede: o slot venceria noventa dias depois da migracao que criou
+ * a coluna e rotacionar entregaria outra chave ja do lado errado do relogio.
+ *
+ * PARA REVOGAR UMA CHAVE SEM DERRUBAR AS OUTRAS, o caminho e `revokeApiKey`, sobre as
+ * chaves NOMEADAS. Rotacionar continua sendo o martelo, e e por isso que ele nao
+ * bastava: derruba toda integracao da pessoa de uma vez.
  */
 export async function rotateApiKey(userId, actorId, req = null) {
   return tx(async (t) => {
     // oneOrNone (not one): a nonexistent user matches 0 rows; map that to a
     // clean 404 instead of letting pg-promise's QueryResultError surface as 500.
-    const row = await t.oneOrNone(Q.ROTATE_API_KEY, [userId, actorId]);
+    const row = await t.oneOrNone(Q.ROTATE_API_KEY, [userId, actorId, API_KEY_TERM_DEFAULT_DAYS]);
     if (!row) throw new NotFoundError('User');
     await createAudit(req, {
       action: 'API_KEY_ROTATE',
       actorId,
       targetType: 'USER',
       targetId: userId,
+      details: { escopo: API_KEY_SCOPE_LEGACY, expiresAt: row.api_key_expires_at },
     }, t);
-    return { apiKey: row.api_key };
+    return { apiKey: row.api_key, expiresAt: row.api_key_expires_at };
+  });
+}
+
+/**
+ * Emite uma chave de API NOMEADA, com prazo e escopo.
+ *
+ * AS TRES AMARRAS DA CLAUSULA 10.7 SE ENCONTRAM AQUI, e vale saber onde cada uma e de
+ * fato imposta, porque nenhuma delas e imposta por esta funcao:
+ *
+ *   - PRAZO: o pedido e aparado em JS (`clampApiKeyTermDays`, conveniencia de tela) e
+ *     RECUSADO no banco (`api_keys_expires_at_check`, teto de um ano). O aparo em JS
+ *     nao e a garantia; um INSERT feito a mao tambem esbarra no CHECK.
+ *   - ESCOPO: gravado aqui, imposto pelos gates (`middleware/auth.js`,
+ *     `middleware/require-admin.js`), que leem a tabela de alcance de
+ *     `api-key-terms.js`.
+ *   - REVOGACAO INDIVIDUAL: e uma propriedade do MODELO (uma linha por chave), nao um
+ *     ato desta funcao.
+ *
+ * O TETO DE CHAVES VIVAS conta pelo MESMO predicado da autenticacao (nao revogada E
+ * nao vencida). Contar por `revoked_at IS NULL` sozinho trancaria fora de emitir quem
+ * acumulou dez chaves vencidas, o que e recusar por um motivo que a pessoa nao tem
+ * como ler na tela.
+ *
+ * @param {string} userId - Dono da chave.
+ * @param {{label: string, scope?: string, expiresInDays?: number}} dados
+ * @param {string} actorId - Quem emitiu (a propria pessoa, ou um administrador).
+ * @param {object} [req]
+ * @returns {Promise<{id, apiKey, label, scope, createdAt, expiresAt}>} O SEGREDO VAI
+ *   AQUI e em nenhum outro lugar: `LIST_API_KEYS` nao o devolve, de proposito.
+ */
+export async function createApiKey(userId, dados, actorId, req = null) {
+  const escopo = dados.scope || API_KEY_SCOPE_DEFAULT;
+  const dias = clampApiKeyTermDays(dados.expiresInDays);
+
+  return tx(async (t) => {
+    const alvo = await t.oneOrNone('SELECT id FROM users WHERE id = $1 AND is_active = true', [userId]);
+    if (!alvo) throw new NotFoundError('User');
+
+    const { n } = await t.one(Q.COUNT_LIVE_API_KEYS, [userId]);
+    if (n >= API_KEY_LIVE_LIMIT) {
+      throw new ConflictError(
+        `Esta conta já tem ${n} chaves de API vivas (o limite é ${API_KEY_LIVE_LIMIT}). `
+        + 'Revogue uma antes de emitir outra.'
+      );
+    }
+
+    const row = await t.one(Q.CREATE_API_KEY, [userId, dados.label, escopo, dias, actorId]);
+    await createAudit(req, {
+      action: 'API_KEY_CREATE',
+      actorId,
+      targetType: 'USER',
+      targetId: userId,
+      // O SEGREDO NAO ENTRA NA TRILHA. `details` e JSONB lido por administrador e pelo
+      // produtor da OM: gravar a chave ali seria distribui-la para quem investiga.
+      details: { keyId: row.id, label: row.label, escopo: row.scope, expiresAt: row.expires_at },
+    }, t);
+
+    return {
+      id: row.id,
+      apiKey: row.api_key,
+      label: row.label,
+      scope: row.scope,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+    };
+  });
+}
+
+/**
+ * As chaves NOMEADAS de uma conta, sem os segredos.
+ *
+ * A LISTA INCLUI AS MORTAS (revogadas e vencidas), com o campo `viva` resolvido pelo
+ * banco: quem investiga um vazamento precisa ver que a chave existiu e quando caiu, e
+ * uma lista que so mostra as vivas responde "essa chave nunca existiu" a quem procura
+ * a que vazou. O SLOT LEGADO nao aparece aqui: ele nao tem linha, e inventar uma
+ * sintetica faria a rota de revogacao individual receber um id que ela nao sabe apagar.
+ *
+ * @param {string} userId
+ */
+export async function listApiKeys(userId) {
+  const { rows } = await query(Q.LIST_API_KEYS, [userId]);
+  return rows;
+}
+
+/**
+ * AMARRA 3: revoga UMA chave, e as irmas continuam de pe.
+ *
+ * O `user_id` VIAJA NO WHERE, e nao so nos gates da rota: sem ele, quem conhecesse o id
+ * de uma linha revogaria a chave alheia pela rota de auto-servico, que e o gate de
+ * posse mais barato de esquecer. Zero linhas viram 404 sem distinguir "nao existe" de
+ * "nao e sua", pela mesma razao de sempre: a distincao seria um oraculo.
+ *
+ * REVOGAR E IDEMPOTENTE NA DIRECAO SEGURA: o `revoked_at IS NULL` do UPDATE faz a
+ * segunda chamada devolver 404 em vez de reescrever a hora da revogacao, o que
+ * apagaria QUANDO a chave caiu — o dado de que a investigacao precisa.
+ *
+ * @param {string} userId - Dono da chave.
+ * @param {string} keyId
+ * @param {string} actorId
+ * @param {object} [req]
+ */
+export async function revokeApiKey(userId, keyId, actorId, req = null) {
+  return tx(async (t) => {
+    const row = await t.oneOrNone(Q.REVOKE_API_KEY, [userId, keyId, actorId]);
+    if (!row) throw new NotFoundError('API key');
+    await createAudit(req, {
+      action: 'API_KEY_REVOKE',
+      actorId,
+      targetType: 'USER',
+      targetId: userId,
+      details: { keyId: row.id, label: row.label, escopo: row.scope },
+    }, t);
+    return { id: row.id, label: row.label, scope: row.scope };
   });
 }
 

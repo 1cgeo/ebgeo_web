@@ -176,18 +176,39 @@
  * ===========================================================================
  * 5. WHERE THE CALLER MUST ASK (this is the one that destroys data if ignored)
  * ===========================================================================
- * EVERY `clearAllDataStore()` IS A WIPE OF SOMEBODY'S LIVE DATABASES, so every one of them
- * is preceded by an awaited `acquire()`. That is why `acquire()` exists as an awaitable
- * pre-flight returning `{granted}` rather than as a boolean read of a flag.
+ * EVERY `clearAllDataStore()` IS A WIPE OF SOMEBODY'S LIVE DATABASES. What this section used to
+ * say next was that every one of them is therefore preceded by an awaited `acquire()`, followed by
+ * a COUNT of them and a list, and BOTH halves were wrong in the way that costs most: the universal
+ * was false (several wipes are arbitrated by something else entirely, and some take no pre-flight
+ * at all), and the count named fewer than half of the call sites that exist, because a number
+ * written in prose is a number nothing updates. The property, which is the part a reader can act
+ * on, and which does not age:
  *
- * There are four such wipes, and the three that are not the obvious one were the expensive
- * part. `openRemoteAtlas` and `AccountControl.saveLocalToServer` wipe on the way INTO a
- * server atlas. The other two are at BOOT (`index.js`, `enterLocalMapOnBoot` and
- * `openAtlasChooserOnBoot`), and they are the worst case: `ebgeo_local_intent` lives in
- * sessionStorage, which is INHERITED when a tab is duplicated, so the duplicate boots with
- * the intent, reads a remote origin, and wipes the namespace the original tab is using. A
- * boot is also where a flag read cannot work, because at that instant the lock has not yet
- * heard from anybody: only an AWAITED acquire (settle included) can answer. Both go through
+ *     A WIPE THAT RUNS WITHOUT A HUMAN GESTURE, ON A NAMESPACE ANOTHER TAB MAY HAVE MOUNTED,
+ *     IS PRECEDED BY AN AWAITED `acquire()` CARRYING A WITNESS.
+ *
+ * That is why `acquire()` exists as an awaitable pre-flight returning `{granted}` rather than as a
+ * boolean read of a flag. The wipes OUTSIDE that clause are not omissions, and naming what each
+ * KIND of them leans on instead is the point, because a kind is a thing prose can hold and a roll
+ * is not. There are four kinds: a wipe whose target was MINTED moments earlier, which no peer can
+ * be holding; the logout, arbitrated by the unmount notice of section 8 and not by a claim, since
+ * the pair it must reach does not collide by key; a wipe of an atlas the SERVER already deleted,
+ * where every connected tab runs the same teardown off the same broadcast; and the ones a person
+ * reaches through a menu, covered by the blocking OVERLAY that a losing tab is already sitting
+ * behind.
+ *
+ * THE ROLL OF WIPES IS NOT WRITTEN HERE, on purpose, and this is the correction that outlives the
+ * prose. Every call site of `clearAllDataStore()` under `src/js` is enumerated from `git ls-files`
+ * and classified, one written reason each, by `tests/unit/tab-lock-doc-testemunha.test.js`. A site
+ * that appears without being classified fails there, and a site that loses its pre-flight fails
+ * there too, which is the guard a sentence in this file cannot be.
+ *
+ * THE BOOT PAIR IS THE WORST CASE, and it is worth keeping by name because the route to it is
+ * ordinary. `enterLocalMapOnBoot` and `openAtlasChooserOnBoot` (`index.js`) wipe on a path where
+ * `ebgeo_local_intent` lives in sessionStorage, which is INHERITED when a tab is duplicated, so the
+ * duplicate boots with the intent, reads a remote origin, and wipes the namespace the original tab
+ * is using. A boot is also where a flag read cannot work, because at that instant the lock has not
+ * yet heard from anybody: only an AWAITED acquire (settle included) can answer. Both go through
  * `clearMountedAtlasIfGranted` (`account/open-atlas.service.js`).
  *
  * A read of `blocked` right after `initTabLock()` is always `false` and means nothing.
@@ -479,18 +500,19 @@
  * should read the sections above:
  *
  *   - THE WITNESS IS ONLY AS GOOD AS THE CALLER THAT PASSES ONE. `acquire()` no longer grants on
- *     silence alone (section 5), but a caller that omits the `witness` gets the old answer, and
- *     a runtime with no `navigator.locks` (plain HTTP) has no fact to read. Adding a wipe without
- *     a witness reopens the hole in that one path, silently, and ONE live caller is already in
- *     that state: `AccountControl.saveLocalToServer` (`account/account.control.js`) claims with a
- *     bare `acquireTabLock(remoteAtlasKey(...))` and wipes a few lines below. It is the narrowest
- *     of the five (the atlas it claims was created one line earlier, so no other tab can hold it),
- *     which is why it is a hole and not an outage, and why it is written here instead of being
- *     left to be rediscovered. THIS BULLET USED TO NAME THE PUBLIC-LINK OPEN IN `index.js`, and
- *     that was FALSE: `openPublicAtlasFromUrl` passes `witness: remoteMountWitness(atlas.id)`, and
- *     the comment at that call says by extenso that it was the fourth destructive site and was
- *     wired. A doc that reports a closed hole as open is worse than one that omits it, because the
- *     next reader "fixes" it by deleting the witness to match the prose.
+ *     silence alone (section 5), but a caller that omits the `witness` gets the old answer, and a
+ *     runtime with no `navigator.locks` (plain HTTP) has no fact to read. Adding a wipe without a
+ *     witness reopens the hole in that one path, silently. NO LIVE CALLER IS IN THAT STATE TODAY:
+ *     the last one, `AccountControl.saveLocalToServer` (`account/account.control.js`), was closed
+ *     on 2026-08-24 and now passes `witness: remoteMountWitness(result.atlasId)` like the rest.
+ *     What keeps this true is not this sentence, which is exactly the failure this bullet has
+ *     already suffered twice: `tests/unit/tab-lock-doc-testemunha.test.js` enumerates every call
+ *     site of `acquireTabLock` from `git ls-files` and fails when one of them stops passing a
+ *     witness, and it also reads THIS paragraph and refuses to let it accuse a site that does pass
+ *     one. The two earlier revisions of it named the wrong file (it accused the public-link open in
+ *     `index.js`, which had been wired all along), and a doc that reports a closed hole as open is
+ *     worse than one that omits it, because the next reader "fixes" it by deleting the witness to
+ *     match the prose.
  *   - THE FENCE HAS NO EPOCH, so it reaches exactly as far as the peers do. Section 6 describes
  *     the two halves that close the ordinary case (the evictor denies the stale claim once, the
  *     woken tab re-enters as a newcomer). Both need somebody to still be there: a tab that was
@@ -2110,10 +2132,12 @@ export function getTabLock() {
  * Claims a key on the page's lock and reports whether this tab may proceed.
  *
  * A caller that is about to DESTROY databases must pass `witness` (section 5), or its grant is
- * decided by the settle alone. `account/open-atlas.service.js` builds one for every such caller it
- * owns, and so does the public-link open in `index.js` (`openPublicAtlasFromUrl`, which passes
- * `witness: remoteMountWitness(atlas.id)`). The one that still asks WITHOUT it is
- * `AccountControl.saveLocalToServer`; see section 11.
+ * decided by the settle alone. `remoteMountWitness` / `mountWitness`
+ * (`account/open-atlas.service.js`) build every witness in the app, and the three pages that reach
+ * for one import it from there: the two claims that file owns, the public-link open in `index.js`
+ * (`openPublicAtlasFromUrl`) and `AccountControl.saveLocalToServer`, which was the last to be
+ * wired. Which call sites pass one is not a fact this comment can keep true, so it does not try:
+ * `tests/unit/tab-lock-doc-testemunha.test.js` measures it from `git ls-files`.
  * @param {TabLockKey} key
  * @param {{settleMs?: number, witness?: (() => Promise<boolean|null>)|null}} [options]
  * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean,

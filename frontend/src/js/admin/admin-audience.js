@@ -11,14 +11,15 @@
  * barra do mapa e não em `atlas.html`, ou aparece com um rótulo em cada tela. Desde 2026-08-20
  * a regra mora aqui e os quatro sítios a consomem.
  *
- * AS QUATRO AUDIÊNCIAS, e a novidade é a última:
+ * AS QUATRO AUDIÊNCIAS, e "Concessões" é hoje a única aba que TODAS as três que abrem a porta
+ * recebem:
  *
- *   | principal                      | rótulo         | abas                                             |
- *   |--------------------------------|----------------|--------------------------------------------------|
- *   | anônimo                        | (nenhum)       | (nenhuma)                                        |
- *   | administrador global           | Administração  | users, groups, config, catalog, personnel, audit |
- *   | produtor                       | Catálogo       | catalog, groups, audit                           |
- *   | qualquer outro autenticado     | Acessos        | groups, grants                                   |
+ *   | principal                      | rótulo         | abas                                                     |
+ *   |--------------------------------|----------------|----------------------------------------------------------|
+ *   | anônimo                        | (nenhum)       | (nenhuma)                                                |
+ *   | administrador global           | Administração  | users, groups, config, catalog, personnel, grants, audit |
+ *   | produtor                       | Catálogo       | catalog, groups, grants, audit                           |
+ *   | qualquer outro autenticado     | Acessos        | groups, grants                                           |
  *
  * A ÚLTIMA LINHA MUDOU EM 2026-08-24, e o rótulo mudou COM ela, que é a regra abaixo em ação: ela
  * ganhou a aba "Concessões" (o inventário do que a pessoa concedeu e do que concederam a ela), e
@@ -28,11 +29,29 @@
  * registrada) e, até aqui, a única superfície de concessão era o modal de UM recurso, alcançável
  * só por quem lembrasse qual recurso havia concedido.
  *
- * E ELA NÃO FOI PARA AS OUTRAS DUAS LINHAS, de propósito: administrador e produtor já têm a aba
- * `audit`, que é o inventário de atos de concessão deles (recortado no servidor, no caso do
- * produtor). Dar-lhes uma segunda tela do mesmo assunto duplicaria a pergunta sem responder nada
- * novo. O que ISSO deixa em aberto está escrito onde dói: o produtor e o administrador continuam
- * sem uma lista do que RECEBERAM, e a trilha não responde essa pergunta.
+ * AS OUTRAS DUAS LINHAS A GANHARAM NO MESMO DIA, e a versão anterior desta prosa dizia o
+ * contrário ("administrador e produtor já têm `audit`, que é o inventário de atos de concessão
+ * deles"). Essa frase escondia a meia-cobertura que ela mesma admitia logo abaixo, e a
+ * meia-cobertura era o defeito. A TRILHA E O INVENTÁRIO RESPONDEM PERGUNTAS DIFERENTES:
+ *
+ *   - A trilha registra ATO ("em tal dia eu concedi"), o inventário registra ESTADO ("isto ainda
+ *     está de pé, e vence em tal dia"). Uma concessão revogada, vencida ou derrubada por poda de
+ *     ancestral continua na trilha com a mesma cara da que está viva, e é justamente o prazo (a
+ *     coluna que a trilha não tem) que morre em silêncio no predicado do servidor.
+ *   - A trilha não tem botão. Revogar e renovar são os dois atos que esta aba oferece, e nenhum
+ *     deles é alcançável de uma lista de linhas de log.
+ *   - DO LADO RECEBIDO A TRILHA É MUDA PARA OS DOIS, e para o produtor ela é muda por
+ *     construção: o recorte do servidor é por OM DONA DO RECURSO ALVO, então a concessão que
+ *     alguém de OUTRA OM lhe deu tem `target_org_id` daquela outra OM e nunca aparece na trilha
+ *     dele. O administrador vê a linha, e vê um log de ato, não um prazo.
+ *
+ * OS DOIS RÓTULOS NÃO MUDARAM, e a decisão é conservadora de propósito. A regra abaixo existe
+ * contra a PROMESSA EXCESSIVA (chamar de "Administração" um painel de uma aba prometeria um poder
+ * que o primeiro clique nega); "Catálogo" com quatro abas erra para o outro lado, e o centro de
+ * gravidade do produtor continua sendo o acervo que ele mantém, que é a primeira aba e a única
+ * onde ele cria coisa. Foi o oposto no caso do credenciado, e é o que separa os dois casos:
+ * "Grupos" nomeava a metade que NÃO é a razão de ele abrir a página. "Administração" já cobre
+ * sete abas e não precisa de retoque.
  *
  * O CREDENCIADO NÃO TEM LINHA PRÓPRIA, e a ausência é a decisão: desde 2026-08-20 o grupo de
  * acesso é entidade de USUÁRIO, com dono, e a autoridade sobre ele deixou de ser papel global
@@ -63,22 +82,37 @@
  * As abas do administrador global, na ordem em que o painel as monta.
  *
  * `audit` entrou POR ÚLTIMO em 2026-08-21, e a posição é a decisão: a trilha é consulta,
- * não gestão, e quem abre o painel vem quase sempre para agir.
+ * não gestão, e quem abre o painel vem quase sempre para agir. `grants` entrou em
+ * 2026-08-24 no degrau imediatamente anterior, pela MESMA régua: as duas são consulta, e
+ * entre elas a pessoal vem antes da do sistema.
+ *
+ * O QUE `grants` LISTA PARA ELE É O DELE, e só. A rota `grants/issued` filtra por
+ * `granted_by = <quem pergunta>`, sem ramo de papel, então o administrador vê o que ELE
+ * concedeu, e não o que o sistema inteiro concedeu. Ele PODE revogar mais do que isso (o
+ * ramo largo de `requireGrantRevoker` é administração do sistema, não autoria), e é essa
+ * assimetria que `issuedReachNotice` (`grant-phrases.js`) diz na tela dele.
  * @type {ReadonlyArray<string>}
  */
 const ABAS_DO_ADMINISTRADOR = Object.freeze([
-    'users', 'groups', 'config', 'catalog', 'personnel', 'audit',
+    'users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
 ]);
 
 /**
- * As do produtor: o catálogo que ele mantém, os grupos dele, e a trilha DA OM DELE.
+ * As do produtor: o catálogo que ele mantém, os grupos dele, as concessões dele e a trilha
+ * DA OM DELE.
  *
  * A aba de auditoria é a mesma, e quem a recorta é o SERVIDOR (`requireAuditReader` mais
  * o recorte imposto em `listAudit`): o produtor recebe os atos sobre o acervo da OM dele e
  * nada além disso. Dar-lhe a aba não é dar-lhe a trilha do sistema.
+ *
+ * É ESSE MESMO RECORTE que torna `grants` indispensável para ele, e não redundante: o
+ * recorte é pela OM DONA DO RECURSO, então o acesso que outra OM lhe concedeu não tem
+ * linha visível na trilha dele. Desde 2026-08-20 ele concede de RAIZ o que produz, e a
+ * lista de `issued` é, para ele, exatamente a das concessões que o servidor aceita revogar
+ * desta conta, porque o gate de revogação é por AUTORIA.
  * @type {ReadonlyArray<string>}
  */
-const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'audit']);
+const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'grants', 'audit']);
 
 /**
  * A de todo o resto de quem entrou: os grupos dele e as concessões dele, nessa ordem.

@@ -1,5 +1,6 @@
 // Path: src/modules/users/users.schemas.js
 import Joi from 'joi';
+import { API_KEY_SCOPES, API_KEY_SCOPE_DEFAULT } from './api-key-terms.js';
 
 // Self-service profile edit. Deliberately accepts NEITHER `organization_id` NOR
 // `producer_org_id`, e os dois pelo mesmo motivo com pesos diferentes.
@@ -168,4 +169,41 @@ export const userIdParamsSchema = Joi.object({
 
 export const deleteUserQuerySchema = Joi.object({
   transferTo: Joi.string().uuid(),
+});
+
+// ============================================
+// Chaves de API nomeadas (cláusula 10.7)
+// ============================================
+
+/**
+ * A EMISSÃO DE UMA CHAVE NOMEADA.
+ *
+ * O VOCABULÁRIO DE ESCOPO VEM DA TABELA DE ALCANCE, e não de uma lista escrita aqui:
+ * `API_KEY_SCOPES` é derivado de `API_KEY_SCOPE_REACH`, então acrescentar um escopo
+ * sem responder "ele alcança administração?" é impossível por construção. Uma segunda
+ * lista aqui seria a que envelhece — é a mesma armadilha da lista fechada de papel.
+ *
+ * `expiresInDays` É OPCIONAL E APARADO, NUNCA RECUSADO NA BORDA, e a assimetria com a
+ * concessão de recurso (que devolve 422 acima do teto) é deliberada: aqui o pedido vem
+ * de uma escada de opções na tela, não de um campo livre, e a resposta devolve o prazo
+ * EFETIVO. O teto de verdade é `api_keys_expires_at_check`, no banco; o `max` do Joi
+ * existe só para recusar um número absurdo antes de gastar uma transação.
+ *
+ * `label` É OBRIGATÓRIO porque revogação individual sem nome não é utilizável: quem
+ * olha cinco chaves anônimas acaba rotacionando tudo, que é exatamente o martelo que
+ * esta rota existe para substituir.
+ */
+export const createApiKeySchema = Joi.object({
+  label: Joi.string().trim().min(1).max(100).required(),
+  scope: Joi.string().valid(...API_KEY_SCOPES).default(API_KEY_SCOPE_DEFAULT),
+  expiresInDays: Joi.number().integer().min(1).max(3650),
+});
+
+export const apiKeyIdParamsSchema = Joi.object({
+  keyId: Joi.string().uuid().required(),
+});
+
+export const userApiKeyIdParamsSchema = Joi.object({
+  userId: Joi.string().uuid().required(),
+  keyId: Joi.string().uuid().required(),
 });

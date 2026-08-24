@@ -551,11 +551,23 @@ nunca na conta, então enquanto o convite está de pé o endereço segue livre p
 unicidade é conferida no pedido e DE NOVO no resgate, nunca segurada no meio. Um token que caduca sem ser
 aberto não deixa nada reservado.
 
-**10.7** **A chave de API é o usuário inteiro, sem escopo e sem prazo.** Ela resolve para a linha de
-`users` e carrega o papel global; `FIND_USER_BY_API_KEY` filtra apenas `is_active`, e não há coluna de
-validade nem de escopo. Compare com o resto do sistema: toda concessão expira, com teto de um ano imposto por
-CHECK (3.4); o token de link público é confinado e revogável (5.4); a sessão cai no corte em massa. A chave
-não tem nenhuma das três amarras, e a única revogação é rotacioná-la.
+**10.7** **A chave de API ganhou as três amarras em 2026-08-24; o `location` do nginx continua por fazer.**
+Até aquela data ela era o usuário inteiro: resolvia para a linha de `users`, carregava o papel global,
+`FIND_USER_BY_API_KEY` filtrava apenas `is_active`, e não havia coluna de validade nem de escopo. Hoje as
+três existem, e cada uma no lugar em que este sistema já põe as suas. **Prazo:** morre no PREDICADO daquela
+mesma consulta, nunca por varredura, com teto de um ano imposto por `api_keys_expires_at_check` (o mesmo da
+concessão, 3.4). **Escopo:** `API_KEY_SCOPE_REACH` é uma tabela de alcance por superfície, e nenhuma linha
+dela alcança administração, de modo que `requireAdmin` recusa TODA chave, inclusive a de um administrador, e
+o `auth` estrito recusa a chave de escopo `tiles`. **Revogação:** `api_keys` guarda uma linha por chave viva,
+e revogar uma não derruba as irmãs; a chave também passou a cair no corte de sessão em massa, comparado com
+o NASCIMENTO da chave, já que ela não tem `iat`. Provas em `backend/tests/integration/chave-de-api-tres-amarras.test.js`
+e `backend/tests/unit/chave-de-api-alcance-e-prazo.test.js`.
+
+**O que continua aberto, e é por isso que a cláusula não está vigente.** O slot antigo (`users.api_key`, uma
+chave por conta) não foi apagado, porque migração é forward-only e integradores o carregam: ele ganhou prazo
+e corte de sessão, resolve com o escopo mais largo e continua sem revogação individual, que é a amarra que
+só o modelo novo entrega. A chave segue guardada em claro, como sempre esteve. E o `location` do nginx, que
+é o ponto da decisão, não existe.
 
 O rumo está decidido, e é o que torna isto urgente em vez de acadêmico: **a chave passa a ser a credencial
 que o nginx valida** para as rotas servidas pelo Martin, que hoje são públicas e ficam fora do alcance de
@@ -563,6 +575,8 @@ qualquer predicado deste servidor (é o defeito da 10.1). Autorizar no nginx é 
 servidor de tiles, e a chave é o que o navegador consegue carregar num pedido de tile. Isso muda o peso do
 que falta: uma credencial permanente que hoje só um integrador usa passaria a viajar na URL de cada tile.
 
-**Antes de ligar isso, a chave precisa de prazo, de escopo e de revogação que não seja só a rotação.** A
-apuração, com a opção comparada às outras quatro, está em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md).
-**[pendente]** por trabalho, e o trabalho começa pelas três amarras, nunca pelo `location` do nginx.
+**As três amarras vieram primeiro, e essa ordem não era preferência:** ligar o `location` antes delas
+trocaria um vazamento de bytes por uma sessão de administrador sem prazo. A apuração, com a opção comparada
+às outras quatro, está em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md).
+**[em obra]**: as amarras estão de pé, falta o `location` do nginx (que não tem teste neste repositório e
+vira sonda com data, rodada à mão no deploy) e a aposentadoria do slot antigo.

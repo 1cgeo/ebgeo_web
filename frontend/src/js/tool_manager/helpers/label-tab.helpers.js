@@ -64,12 +64,19 @@ export const AREA_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" hei
  * @param {number} currentZoom - Current map zoom level
  */
 export function recalcLabelSize(sourceFeature, selectedFeature, currentZoom) {
-    if (!sourceFeature.properties.labelCreatedAtZoom) {
+    // Zoom 0 is the DEFAULT anchor (LABEL_DEFAULT_PROPERTIES.labelCreatedAtZoom),
+    // so a falsy test read every never-reanchored label as "missing" and rewrote
+    // its anchor to wherever the user happened to be standing. Only a non-finite
+    // anchor is really missing.
+    if (!Number.isFinite(sourceFeature.properties.labelCreatedAtZoom)) {
         sourceFeature.properties.labelCreatedAtZoom = currentZoom;
         selectedFeature.properties.labelCreatedAtZoom = currentZoom;
     }
 
-    const labelSize = sourceFeature.properties.labelSize || 14;
+    // Same falsy-zero class: a label deliberately sized 0 was redrawn at 14.
+    const labelSize = Number.isFinite(sourceFeature.properties.labelSize)
+        ? sourceFeature.properties.labelSize
+        : 14;
     let newCalculatedSize;
 
     if (sourceFeature.properties.labelZoomCorrectionEnabled === false) {
@@ -98,12 +105,25 @@ export function computeShapeCentroid(coordinates) {
         ? ring.length - 1
         : ring.length;
 
-    let sumLng = 0, sumLat = 0;
+    // Longitudes are averaged UNWRAPPED, relative to the first vertex: a raw
+    // average of 179 and -179 is 0, which put the label of a shape straddling the
+    // antimeridian on the opposite side of the globe. Each delta is folded into
+    // (-180, 180] first, so neighbouring vertices stay neighbours.
+    const refLng = ring[0][0];
+    let sumDelta = 0, sumLat = 0;
     for (let i = 0; i < len; i++) {
-        sumLng += ring[i][0];
+        let delta = ring[i][0] - refLng;
+        if (delta > 180) delta -= 360;
+        else if (delta < -180) delta += 360;
+        sumDelta += delta;
         sumLat += ring[i][1];
     }
-    return [sumLng / len, sumLat / len];
+
+    let lng = refLng + sumDelta / len;
+    if (lng > 180) lng -= 360;
+    else if (lng < -180) lng += 360;
+
+    return [lng, sumLat / len];
 }
 
 /**
@@ -168,23 +188,16 @@ export function createLabelZoomHandler(getMap, sourceName, labelSourceName) {
         for (const feature of data.features) {
             if (!feature.properties.showLabel) continue;
 
-            if (!feature.properties.labelCreatedAtZoom) {
-                feature.properties.labelCreatedAtZoom = currentZoom;
-                hasChanges = true;
-            }
+            // Delegate, never re-implement: this loop carried an inline copy of the
+            // recalcLabelSize arithmetic, so a fix to one of them left the other
+            // wrong with every suite still green.
+            const previousAnchor = feature.properties.labelCreatedAtZoom;
+            const previousSize = feature.properties.labelCalculatedSize;
 
-            const labelSize = feature.properties.labelSize || 14;
-            let newCalc;
+            recalcLabelSize(feature, feature, currentZoom);
 
-            if (feature.properties.labelZoomCorrectionEnabled === false) {
-                newCalc = labelSize;
-            } else {
-                const diff = currentZoom - feature.properties.labelCreatedAtZoom;
-                newCalc = Math.min(labelSize * Math.pow(2, diff), 255);
-            }
-
-            if (feature.properties.labelCalculatedSize !== newCalc) {
-                feature.properties.labelCalculatedSize = newCalc;
+            if (feature.properties.labelCreatedAtZoom !== previousAnchor ||
+                feature.properties.labelCalculatedSize !== previousSize) {
                 hasChanges = true;
             }
         }

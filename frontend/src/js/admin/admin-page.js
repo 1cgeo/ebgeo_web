@@ -15,9 +15,9 @@
  *   1. Config — `GET /api/config`, fail-fast with retries (same contract as the map boot).
  *   2. Session — restore the persisted tokens and validate them against the backend.
  *   3. Gate — QUATRO audiências, e a tabela delas é `admin-audience.js`, não este arquivo: o
- *      administrador global (todas as abas), o produtor (Catálogo mais os grupos dele) e
- *      qualquer outra sessão AUTENTICADA (os grupos dela e as concessões dela, sob o rótulo
- *      "Acessos"). Desde 2026-08-20 o grupo de acesso
+ *      administrador global (todas as abas), o produtor (Catálogo mais os grupos, as concessões
+ *      e a trilha da OM dele) e qualquer outra sessão AUTENTICADA (os grupos dela e as
+ *      concessões dela, sob o rótulo "Acessos"). Desde 2026-08-20 o grupo de acesso
  *      é entidade de usuário, então a página deixou de ser privilégio: quem entra na conta tem
  *      o que fazer aqui. Cada audiência estreita recebe o título do que ela de fato recebe,
  *      porque toda outra aba é `requireAdmin` na primeira requisição e uma aba que 403 na
@@ -165,7 +165,7 @@ async function initAdminPage() {
     // this line, so a producer read the administrator's word on the tab for the whole boot and
     // again on any path that returns before the refinement below. The provisional word has to be
     // one that is true for EVERY audience this page admits, and "Painel" is: the three audiences
-    // (Administração, Catálogo, Grupos) are all panels, and none of them is a claim of authority.
+    // (Administração, Catálogo, Acessos) are all panels, and none of them is a claim of authority.
     document.title = `Painel — ${config?.app?.title || 'EBGeo'}`;
 
     const restored = await restoreSession();

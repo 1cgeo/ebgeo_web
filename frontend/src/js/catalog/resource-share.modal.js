@@ -227,6 +227,10 @@ export class ResourceShareModal extends ModalBase {
          *  afirma que a pessoa não tem grupo, e afirmar isso depois de um erro de rede é dizer
          *  uma coisa falsa com cara de estado. */
         this._groupsFailed = false;
+        /** @type {number|null} Quantos atlas emprestam este recurso, ou `null` enquanto não se
+         *  sabe (antes da primeira leitura, servidor antigo, ou leitura que falhou). O `null` é
+         *  estado legítimo da frase de alcance, não erro: ver `grantsListScopeNote`. */
+        this._lendingAtlases = null;
         /** @type {string} O grupo escolhido no seletor, zerado a cada redesenho. */
         this._groupId = '';
         /** @type {string} O grupo que o PRÓXIMO desenho já nasce com escolhido (o recém-criado),
@@ -274,6 +278,8 @@ export class ResourceShareModal extends ModalBase {
             // criar grupo), e é aí que a lista de grupos pode ter mudado.
             await this._loadGroups({ force: true });
             if (!this.getBody()) return;
+            await this._loadLendingCount();
+            if (!this.getBody()) return;
             this._renderBody();
         } catch (error) {
             if (!this.getBody()) return;
@@ -282,6 +288,31 @@ export class ResourceShareModal extends ModalBase {
             // menos ainda). Quem decide o texto e a oferta é `loadFailureState`, em função pura.
             const estado = loadFailureState(error?.status);
             this._renderLoadFailure(estado);
+        }
+    }
+
+    /**
+     * @private Lê QUANTOS atlas emprestam este recurso, e nunca derruba o modal.
+     *
+     * A FALHA CAI EM `null`, QUE É UM ESTADO DA FRASE E NÃO UM ERRO. `grantsListScopeNote`
+     * nasceu qualitativa e continua verdadeira sem o número; trocar a nota de alcance por uma
+     * tela de erro (ou deixar a lista esperando por ela) seria derrubar o conteúdo por causa
+     * de um enfeite. É a mesma escada de `_loadGroups`, com uma diferença deliberada: lá a
+     * falha DESENHA aviso, porque um seletor que some é indistinguível de um seletor vazio;
+     * aqui não há o que avisar, porque a frase sem número não tem buraco visível.
+     *
+     * ELA NÃO É `Promise.all` COM A LISTAGEM, de propósito: as duas têm o mesmo gate, e se o
+     * gate recusar é a LISTAGEM que precisa desenhar a recusa (`loadFailureState`). Correndo
+     * juntas, um 403 desta chegaria ao `catch` de `_load` primeiro em algumas execuções e não
+     * em outras, e a tela de erro passaria a depender de qual resposta voltou antes.
+     * @returns {Promise<void>}
+     */
+    async _loadLendingCount() {
+        try {
+            const { count } = await apiClient.countAtlasesLendingResource(this._type, this._id);
+            this._lendingAtlases = Number.isInteger(count) ? count : null;
+        } catch {
+            this._lendingAtlases = null;
         }
     }
 
@@ -397,7 +428,7 @@ export class ResourceShareModal extends ModalBase {
             <section class="sharing-section">
                 <h3 class="sharing-section__title">Quem tem acesso</h3>
                 <p class="sharing-section__hint" data-testid="resource-share-scope">
-                    ${escapeHtml(grantsListScopeNote())}
+                    ${escapeHtml(grantsListScopeNote(this._lendingAtlases))}
                 </p>
                 <div class="sharing-members" data-testid="resource-share-grants">${linhas}</div>
             </section>
@@ -595,8 +626,11 @@ export class ResourceShareModal extends ModalBase {
      * seletor nem relia). O servidor sempre permitiu: `POST /access-groups` é gateado só por
      * sessão. A remissão continua, como alternativa, e o rótulo da porta vem de
      * `adminAudience`: ela se chama "Administração" para o administrador, "Catálogo" para o
-     * produtor e "Grupos" para o resto, e o texto fixo "página Grupos" mandava dois dos quatro
-     * papéis procurar uma página com outro nome.
+     * produtor e "Acessos" para o resto, e o texto fixo "página Grupos" mandava dois dos quatro
+     * papéis procurar uma página com outro nome. (Este comentário dizia "Grupos" no terceiro
+     * rótulo até 2026-08-24, o que é a MESMA classe de erro que ele existe para descrever, na
+     * terceira ocorrência dela: o rótulo mudou quando o credenciado ganhou uma segunda aba, e
+     * a prosa que explicava a regra não acompanhou. Leia sempre `adminAudience`, nunca aqui.)
      */
     _renderGroupRow() {
         if (this._groupsFailed) {

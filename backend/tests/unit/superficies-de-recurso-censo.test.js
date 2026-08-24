@@ -1014,6 +1014,16 @@ const CENSO_ROTA = [
     motivo: 'Metadado de COMPARTILHAMENTO (quem concedeu a quem, e até quando), não o recurso. Sai '
       + 'só para quem pode compartilhar aquele recurso, que é uma autoridade mais estreita que vê-lo.',
   },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js',
+    rota: 'GET /:type/:id/lending-atlases', classe: R_OUTRA, gate: 'requireResourceShare',
+    motivo: 'QUANTOS atlas emprestam este recurso, e nada mais: um inteiro. Não serve o recurso e '
+      + 'não serve nem a identidade dos atlas — o serviço conta a lista e descarta os ids, porque '
+      + 'quem pode compartilhar um recurso não herda por isso o direito de enumerar os projetos '
+      + 'alheios que o usam. O gate é o MESMO da listagem de concessões logo acima, e a razão é a '
+      + 'comparação: aquela nomeia pessoas e grupos, esta devolve um número, então barrar aqui quem '
+      + 'passa lá seria recortar o que entrega estritamente menos.',
+  },
 
   // ---------------- grupo de acesso -------------------------------------------
   // Nenhuma das TRÊS serve recurso: elas servem o VOCABULÁRIO de quem recebe. O eixo
@@ -1219,6 +1229,17 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
+  {
+    arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me/api-keys', classe: R_OUTRA, gate: 'auth',
+    motivo: `${IDENTIDADE} É a lista das chaves de API da própria conta, e ela NÃO devolve o segredo `
+      + '(`LIST_API_KEYS` não seleciona a coluna): o valor sai uma vez, na resposta da emissão. Uma '
+      + 'listagem que o devolvesse faria de toda leitura de perfil um vazamento de credencial.',
+  },
+  {
+    arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId/api-keys', classe: R_OUTRA, gate: 'requireAdmin',
+    motivo: `${SO_ADMIN} Mesma listagem sem segredo da rota de auto-serviço, para a contenção de `
+      + 'incidente: o administrador vê e revoga a chave alheia, e não emite nenhuma.',
+  },
   {
     arquivo: 'src/modules/users/users.routes.js', rota: 'GET /search', classe: R_OUTRA, gate: 'auth',
     motivo: `${IDENTIDADE} É a busca que alimenta o seletor de beneficiário ao conceder acesso, e o `

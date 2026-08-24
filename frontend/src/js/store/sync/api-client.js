@@ -1862,7 +1862,14 @@ export class ApiClient {
      * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array,
      *   analysisLayers: Array, views360: Array,
      *   shareable: Object<string, Array<string>>,
-     *   origins?: Object<string, Object<string, 'papel'|'concessao'|'emprestimo'>>}>}
+     *   origins?: Object<string, Object<string, 'papel'|'concessao'|'emprestimo'>>,
+     *   expirations?: Object<string, Object<string, string>>}>}
+     *
+     * `expirations` É IRMÃO DE `origins` e ESPARSO onde aquele é completo: só o id cujo
+     * acesso repousa numa CONCESSÃO tem entrada (ISO 8601), e ela é o MAIOR prazo entre as
+     * concessões vivas, porque a pergunta da tela é quando a pessoa perde o recurso. Quem
+     * enxerga por papel global, por produção ou por empréstimo não tem entrada nenhuma:
+     * ausência ali significa "não há prazo a afirmar", nunca "vale para sempre".
      */
     async getVisibleResources(atlasId = null) {
         const qs = atlasId ? `?atlasId=${encodeURIComponent(atlasId)}` : '';
@@ -1884,6 +1891,28 @@ export class ApiClient {
      */
     async listResourceGrants(type, id) {
         return this._request('GET', `/resource-access/${type}/${encodeURIComponent(id)}/grants`);
+    }
+
+    /**
+     * QUANTOS atlas emprestam este recurso agora (exige `view_share` ou papel global).
+     *
+     * ELA COMPLETA `listResourceGrants`, e não a duplica: aquela lista `resource_grants` e
+     * só, enquanto o predicado do servidor entrega o recurso TAMBÉM a quem abre um atlas que
+     * o empresta — inclusive ao visitante de link público, que não tem conta para aparecer
+     * em lista nenhuma. Sem este número, a tela avisava do outro caminho em prosa, porque um
+     * número que nenhuma rota entrega é um número inventado.
+     *
+     * O SERVIDOR DEVOLVE SÓ A CONTAGEM, e não os ids: quais atlas usam o recurso é fato
+     * sobre projetos de terceiros. Não tente reconstruí-los por outro caminho.
+     *
+     * @param {string} type - basemap | tileset | data_layer | analysis_layer | sv360_project
+     * @param {string} id
+     * @returns {Promise<{count: number}>}
+     */
+    async countAtlasesLendingResource(type, id) {
+        return this._request(
+            'GET', `/resource-access/${type}/${encodeURIComponent(id)}/lending-atlases`
+        );
     }
 
     /**

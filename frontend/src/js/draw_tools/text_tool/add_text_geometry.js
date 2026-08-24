@@ -30,13 +30,14 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     validate(coordinates) {
+        // Number.isFinite rejects NaN AND +/-Infinity, and it already implies the
+        // number type, so a string coordinate is refused too. Matches the guard the
+        // circle/line/polygon/ellipse tools use.
         return coordinates &&
                Array.isArray(coordinates) &&
                coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' &&
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) &&
-               !isNaN(coordinates[1]);
+               Number.isFinite(coordinates[0]) &&
+               Number.isFinite(coordinates[1]);
     }
 
     /**
@@ -128,8 +129,11 @@ class AddTextGeometry extends BaseGeometry {
         const offsetPixels = (width / 2) + HANDLE_PADDING_PX;
 
         // Always use current map zoom — the handle is a screen-space UI element
-        // that must stay at a fixed pixel distance from the text center
-        const zoom = mapZoom || feature.properties.createdAtZoom;
+        // that must stay at a fixed pixel distance from the text center.
+        // Zoom 0 is a legitimate map zoom (the whole world in one tile), so the
+        // fallback tests for a finite number and never for truthiness: `|| ` here
+        // used to send zoom 0 to createdAtZoom, misplacing the handle by ~4096x.
+        const zoom = Number.isFinite(mapZoom) ? mapZoom : feature.properties.createdAtZoom;
 
         const latitude = coordinates[1];
         const offsetDegrees = pixelsToDegrees(offsetPixels, latitude, zoom);
@@ -155,12 +159,15 @@ class AddTextGeometry extends BaseGeometry {
         // Handle bearing from center: turf.bearing returns -180 to 180
         const bearing = turf.bearing(center, handlePosition);
 
-        // Handle is at bearing = 270 + rotation, so rotation = bearing - 270
-        let rotation = bearing - 270;
-        if (rotation < 0) rotation += 360;
-        if (rotation >= 360) rotation -= 360;
+        // Handle is at bearing = 270 + rotation, so rotation = bearing - 270,
+        // which lands in [-450, -90] for the whole turf range. A single `+= 360`
+        // only lifted it to [-90, 270]: the last quadrant was unreachable and the
+        // handle wrote NEGATIVE rotations into the feature. Modulo wraps any
+        // number of turns, and the final `% 360` catches the case where rounding
+        // 359.5 or more would reintroduce 360.
+        const rotation = (((bearing - 270) % 360) + 360) % 360;
 
-        return Math.round(rotation);
+        return Math.round(rotation) % 360;
     }
 
     /**
@@ -295,13 +302,7 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {boolean} True if valid position
      */
     isValidPosition(coordinates) {
-        return coordinates &&
-               Array.isArray(coordinates) &&
-               coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' &&
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) &&
-               !isNaN(coordinates[1]);
+        return this.validate(coordinates);
     }
 
     /**

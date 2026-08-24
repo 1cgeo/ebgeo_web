@@ -115,6 +115,55 @@ const originColumns = ({ userParam, typeExpr, idExpr }) => `fn_has_global_data_a
                           FROM fn_granted_resource_ids(${userParam}, NULL::uuid, ${typeExpr}))) AS por_concessao`;
 
 /**
+ * O PRAZO da concessão VIVA de MAIOR vencimento que este chamador tem sobre a linha.
+ *
+ * `MAX`, E NÃO `MIN`, E A ESCOLHA É A PERGUNTA DA TELA. O chip do cartão do catálogo diz
+ * "depois desta data o item some do seu catálogo", ou seja, a pergunta é QUANDO EU PERCO
+ * ISTO. Concessão é DISJUNTIVA (D3: a estrutura é um DAG, e a mesma pessoa pode ter
+ * concessão direta e por grupo, de concedentes diferentes), então o acesso sobrevive
+ * enquanto QUALQUER uma estiver viva — o instante da perda é o MAIOR `expires_at`, nunca o
+ * menor. Com `MIN`, a tela anunciaria o sumiço numa data em que o item demonstravelmente
+ * continua lá, e o preço não é o susto: é a pessoa aprender que o chip mente, e ignorar o
+ * aviso no dia em que ele estiver certo.
+ *
+ * O DE FORA É QUEM MANDA NO NULO, e não esta consulta: o serviço só publica este valor
+ * quando a procedência é `concessao` (ver `prazoDeAcesso`). Quem enxerga por PAPEL (papel
+ * global ou produção) não perde nada quando uma concessão vence, então mostrar o prazo dela
+ * seria prometer um vencimento que não existe.
+ *
+ * OS TERMOS DE VIDA SÃO OS DOIS BRAÇOS DE CONCESSÃO DE `fn_granted_resource_ids`, termo a
+ * termo, exatamente como em `LIST_GRANTS_RECEIVED_BY_ACTOR`: `revoked_at`, `expires_at`, a
+ * vida do CONCEDENTE (D8(b)) e `fn_user_group_ids` para o coletivo. Esta É uma segunda
+ * escrita daqueles termos, e vale dizer o que ela custa se divergir: ela não decide acesso
+ * nenhum (quem decide é o `WHERE` da consulta que a hospeda), então uma divergência custa
+ * uma DATA errada num rótulo, nunca uma linha a mais no resultado. Reusar a função não era
+ * possível sem mexer nela: `fn_granted_resource_ids` devolve só `resource_id`, e alargar a
+ * assinatura dela é mudança de baseline.
+ *
+ * O ID PRECISA CHEGAR QUALIFICADO, e este é o único jeito de a correlação estar certa:
+ * `resource_grants` TEM uma coluna `id`, então um `id::text` nu dentro deste subselect
+ * resolveria para `g.id` (o escopo interno vence), a comparação viraria `g.resource_id =
+ * g.id`, e o resultado seria NULL para todas as linhas — sem erro, sem vermelho, com o chip
+ * simplesmente nunca aparecendo. `originColumns` escapa disso por acidente (o subselect dela
+ * é sobre uma função que só expõe `resource_id`), e é por isso que o aviso mora aqui.
+ *
+ * @param {{userParam: string, typeExpr: string, idExpr: string}} params - `idExpr` PRECISA
+ *   ser qualificado pela tabela externa (`t.id`, `projects.id::text`).
+ * @returns {string} Uma coluna `timestamptz|null`, para a lista de SELECT.
+ */
+const expiryColumn = ({ userParam, typeExpr, idExpr }) => `(SELECT MAX(g.expires_at)
+            FROM resource_grants g
+           WHERE g.revoked_at IS NULL
+             AND g.expires_at > NOW()
+             AND g.resource_type = ${typeExpr}
+             AND g.resource_id = ${idExpr}
+             AND fn_principal_vivo(${userParam})
+             AND (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by))
+             AND ( g.grantee_id = ${userParam}
+                OR g.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids(${userParam})) )
+         ) AS concessao_expira_em`;
+
+/**
  * The PRIVATE resources of one catalog type that this principal can see.
  *
  * Semi-join against `fn_granted_resource_ids`, never `fn_can_see_resource` per row: one
@@ -147,14 +196,16 @@ const originColumns = ({ userParam, typeExpr, idExpr }) => `fn_has_global_data_a
  * what compares them.
  * AS TRÊS COLUNAS DE PROCEDÊNCIA (`originColumns`, logo acima) viajam com a linha e são
  * DERIVADAS destes mesmos braços; elas não decidem nada aqui e não entram no item que o
- * cliente recebe (o serviço projeta explicitamente).
+ * cliente recebe (o serviço projeta explicitamente). A QUARTA coluna (`expiryColumn`) viaja
+ * pelo mesmo motivo e sai pelo mesmo caminho, no mapa irmão `expirations`.
  *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type (text)
  * @param {string} table - Already validated by assertCatalogTableOf.
  * @returns {string}
  */
 export const listVisiblePrivate = (table) => `
   SELECT t.id, t.name, t.description, t.config, t.sort_order,
-         ${originColumns({ userParam: '$1::uuid', typeExpr: '$3::text', idExpr: 't.id' })}
+         ${originColumns({ userParam: '$1::uuid', typeExpr: '$3::text', idExpr: 't.id' })},
+         ${expiryColumn({ userParam: '$1::uuid', typeExpr: '$3::text', idExpr: 't.id' })}
     FROM ${table} t
    WHERE t.active = true
      AND t.access_level = 'private'
@@ -183,12 +234,19 @@ export const listVisiblePrivate = (table) => `
  * AS TRÊS COLUNAS DE PROCEDÊNCIA são as mesmas do catálogo, com o tipo em LITERAL de
  * whitelist (o predicado do 360 já o escreve assim) e o id em `::text`, porque aqui a
  * chave é UUID e `resource_grants.resource_id` é TEXT.
+ *
+ * A QUARTA COLUNA RECEBE O ID QUALIFICADO (`projects.id`), e a diferença para a linha de
+ * cima não é estilo: `expiryColumn` correlaciona contra um subselect sobre
+ * `resource_grants`, que TEM coluna `id` própria, então um `id::text` nu ali dentro
+ * resolveria para a linha da concessão e a coluna devolveria NULL para sempre, calada. O
+ * qualificador é o nome implícito da tabela do FROM, sem alias novo.
  *   $1 = userId, $2 = atlasId
  */
 export const LIST_VISIBLE_PRIVATE_360 = `
   SELECT id::text AS id, slug, name, center_lat, center_long, entry_photo_id,
          photo_count, status, capture_date,
-         ${originColumns({ userParam: '$1::uuid', typeExpr: `'sv360_project'`, idExpr: 'id::text' })}
+         ${originColumns({ userParam: '$1::uuid', typeExpr: `'sv360_project'`, idExpr: 'id::text' })},
+         ${expiryColumn({ userParam: '$1::uuid', typeExpr: `'sv360_project'`, idExpr: 'projects.id::text' })}
     FROM sv360.projects
    WHERE access_level = 'private'
      AND ${sv360AccessPredicate(1, 2)}

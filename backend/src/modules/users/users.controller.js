@@ -46,6 +46,44 @@ export const rotateMyApiKey = asyncHandler(async (req, res) => {
 });
 
 // ============================================
+// Chaves de API nomeadas (cláusula 10.7)
+// ============================================
+//
+// O SEGREDO SAI UMA VEZ, na resposta 201 da criação, e nunca mais: `listApiKeys` não o
+// devolve. Quem perder a chave emite outra e revoga a que perdeu — que é justamente o
+// que a revogação individual passou a permitir sem derrubar as irmãs.
+
+export const listMyApiKeys = asyncHandler(async (req, res) => {
+  const keys = await usersService.listApiKeys(req.user.id);
+  res.json({ data: keys });
+});
+
+export const createMyApiKey = asyncHandler(async (req, res) => {
+  const result = await usersService.createApiKey(req.user.id, req.body, req.user.id, req);
+  res.status(201).json({ data: result });
+});
+
+export const revokeMyApiKey = asyncHandler(async (req, res) => {
+  const result = await usersService.revokeApiKey(req.user.id, req.params.keyId, req.user.id, req);
+  res.json({ data: result });
+});
+
+export const listUserApiKeys = asyncHandler(async (req, res) => {
+  const keys = await usersService.listApiKeys(req.params.userId);
+  res.json({ data: keys });
+});
+
+// O ADMINISTRADOR REVOGA, E NÃO EMITE, e a assimetria é decisão: uma chave emitida por
+// terceiro é uma credencial que o titular nunca viu e não sabe que carrega o nome dele.
+// Desligar a chave alheia é contenção de incidente; ligar uma é personificação.
+export const revokeUserApiKey = asyncHandler(async (req, res) => {
+  const result = await usersService.revokeApiKey(
+    req.params.userId, req.params.keyId, req.user.id, req
+  );
+  res.json({ data: result });
+});
+
+// ============================================
 // Admin controllers
 // ============================================
 

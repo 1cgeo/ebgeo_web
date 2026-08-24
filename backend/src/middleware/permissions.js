@@ -91,10 +91,38 @@ export function requireAtlasPermission(requiredLevel) {
         return next(new NotFoundError('Atlas'));
       }
 
-      // Fetch atlas and check if it exists
+      // O UUID DE UMA CONTA DE VERDADE, ou NULL. Anônimo não tem nenhum, e o visitante
+      // de link público carrega um `sub` sintético (`public-<uuid>`) que não é UUID nu:
+      // os dois viram NULL aqui de propósito, porque `fn_principal_vivo(NULL)` é FALSE
+      // (é o primeiro termo dela) e um `::uuid` sobre `public-<uuid>` levantaria 22P02.
+      const principalUuid = req.user?.id && UUID_RE.test(req.user.id) ? req.user.id : null;
+
+      // Fetch atlas and check if it exists.
+      //
+      // A VIVACIDADE DO PRINCIPAL VIAJA NESTA CONSULTA, e não numa segunda. O eixo POR
+      // ATLAS era o último que resolvia permissão sem perguntar se quem pede ainda
+      // existe: `fn_principal_vivo` (conta ativa E OM de lotação ativa) já gateava o
+      // eixo de RECURSO em `fn_granted_resource_ids`, o grupo de acesso em
+      // `fn_user_group_ids` e o atalho global em `fn_is_global_admin`, e `atlas_shares`
+      // não a consultava em lugar nenhum. Um usuário DESATIVADO, ou cuja OM foi
+      // desativada, mantinha o nível que um share lhe deu.
+      //
+      // O `auth` ESTRITO já barrava esse principal (401 conta inativa, 403 OM inativa)
+      // ANTES deste middleware, e é por isso que o buraco não aparecia nas rotas de
+      // atlas: TODAS elas montam `auth`. O que não monta é a família servida só por
+      // `flexibleAuth` — as leituras do 360, que chamam este mesmo gate por
+      // `requireAtlasScopeWhenPresent` (middleware/resource-access.js) quando vem
+      // `?atlasId=`. Lá `req.user` sai do TOKEN sem reconciliação nenhuma (a renovação
+      // deslizante só consulta o banco a menos de 5 min do vencimento), então o share
+      // de uma conta morta continuava abrindo o atlas e, com ele, o empréstimo.
+      //
+      // Ela ri de carona no SELECT que já roda em toda requisição, em vez de virar uma
+      // segunda ida ao banco: este gate está no caminho quente (toda op de sync, toda
+      // imagem, todo tile do 360).
       const atlasResult = await query(
-        `SELECT owner_id, is_public FROM atlas WHERE id = $1 AND deleted_at IS NULL`,
-        [atlasId]
+        `SELECT owner_id, is_public, fn_principal_vivo($2::uuid) AS principal_vivo
+           FROM atlas WHERE id = $1 AND deleted_at IS NULL`,
+        [atlasId, principalUuid]
       );
 
       if (atlasResult.rows.length === 0) {
@@ -102,7 +130,15 @@ export function requireAtlasPermission(requiredLevel) {
       }
 
       const atlas = atlasResult.rows[0];
-      const userId = req.user?.id || null;
+
+      // CONTA MORTA NÃO TEM IDENTIDADE NESTE EIXO, e a poda é na RAIZ: sem `userId` o
+      // ramo de posse de `resolvePermission` também morre, não só o de share. É o
+      // mesmo desfecho que o `auth` estrito produz nas outras rotas, e degrada para o
+      // que sobra de público: quem já era anônimo não perde nada, e um atlas
+      // `is_public` continua respondendo `read` para todo mundo (inclusive para a
+      // conta morta), porque público é público.
+      const contaViva = atlas.principal_vivo === true;
+      const userId = contaViva ? (req.user?.id || null) : null;
 
       // A public-link visitor token is scoped to the atlas it was minted for
       // (atlas.service.js signs an `atlasId` claim). Enforce that scope here, which
@@ -122,13 +158,29 @@ export function requireAtlasPermission(requiredLevel) {
         }
       }
 
-      // Global admins have full (owner-level) access to every atlas so they can
-      // support/debug and manage any user's project.
-      if (req.user?.role === 'admin') {
-        req.atlasPermission = 'owner';
-        req.atlasId = atlasId;
-        req.atlasOwnerId = atlas.owner_id;
-        return next();
+      // O ATALHO DO ADMIN GLOBAL MORA DENTRO DA VIVACIDADE, e o aninhamento é
+      // deliberado nas duas pontas. A de conteúdo: o `admin` global resolve como topo
+      // da escada por atlas (`toFrontendRole`, utils/roles.js), então deixá-lo fora
+      // faria o desativado ser o ÚNICO principal que a desativação não alcança — logo
+      // ele, que é quem mais tem a perder, e a assimetria seria a mesma que
+      // `fn_principal_vivo` nasceu para fechar (o atalho global conferia vida e o ramo
+      // de concessão não). Aqui o papel ainda vem do token nas rotas só-`flexibleAuth`,
+      // que não reconciliam nada. A de forma: escrever a conjunção numa linha só
+      // (`contaViva && req.user?.role === 'admin'`) quebraria o trecho que o censo de
+      // papel global fixa por texto (tests/unit/papel-global-censo.test.js), e um censo
+      // que deixa de casar não fica vermelho, fica MUDO.
+      //
+      // Admin morto cai na escada comum logo abaixo e termina em 404, como qualquer
+      // conta sem relação com o atlas.
+      if (contaViva) {
+        // Global admins have full (owner-level) access to every atlas so they can
+        // support/debug and manage any user's project.
+        if (req.user?.role === 'admin') {
+          req.atlasPermission = 'owner';
+          req.atlasId = atlasId;
+          req.atlasOwnerId = atlas.owner_id;
+          return next();
+        }
       }
 
       // O share MAIS FORTE que alcança esta pessoa: o direto e o dos grupos VIVOS de
@@ -138,11 +190,13 @@ export function requireAtlasPermission(requiredLevel) {
       // responder o mesmo — duas cópias de uma escada é o defeito que esta casa já
       // pagou duas vezes.
       //
-      // A guarda `UUID_RE` FICA: um visitante de link público carrega um id sintético,
-      // não tem linha em `users` e não pode estar em grupo nenhum, então a consulta só
-      // gastaria uma ida ao banco para devolver vazio — e o `::uuid` levantaria 22P02.
+      // A guarda mudou de `UUID_RE` para `contaViva`, e ela é ESTRITAMENTE mais forte:
+      // `contaViva` só é verdadeiro quando `principalUuid` era um UUID nu (é o
+      // argumento que `fn_principal_vivo` recebeu), então o visitante de link público e
+      // o anônimo continuam sem gastar a ida ao banco e sem chegar perto do `::uuid` —
+      // e a conta desativada passa a acompanhá-los.
       let share = null;
-      if (userId && UUID_RE.test(userId)) {
+      if (contaViva) {
         const shareResult = await query(
           `SELECT permission FROM fn_user_atlas_shares($2::uuid, $1::uuid)`,
           [atlasId, userId]

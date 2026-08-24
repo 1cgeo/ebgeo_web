@@ -4,6 +4,7 @@ import config from '../config.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 import { getLiveAuthState, orgIsActive, tokenPredatesSessionCut } from '../utils/org-status.js';
 import { principalUserId } from '../utils/principal.js';
+import { apiKeyReaches } from '../modules/users/api-key-terms.js';
 
 // A principal backed by a real `users` row always has a UUID sub. Public-share
 // tokens deliberately use `public-<uuid>`, which is NOT a bare UUID.
@@ -190,6 +191,30 @@ export async function auth(req, res, next) {
     } else if (req.user.organization_id && !(await orgIsActive(req.user.organization_id))) {
       // No user row to reconcile — fall back to the original org-only gate.
       return next(new ForbiddenError('Organization is inactive'));
+    }
+
+    // AMARRA 2 (ESCOPO) DA CLÁUSULA 10.7, e ela vem POR ÚLTIMO de propósito.
+    //
+    // A ordem dos gates acima é contrato e já foi cara: conta inativa (401), OM inativa
+    // (403), corte de sessão (401), e só então a ADOÇÃO do papel vivo — é o que faz
+    // quem desativou a própria lotação não alcançar a tela que desfaria o ato. Nada
+    // disso muda. O escopo é a última pergunta porque ele é AUTORIZAÇÃO, e autorizar
+    // antes de saber se o principal está vivo trocaria um 401 informativo por um 403
+    // que manda a pessoa procurar permissão quando o problema é a conta.
+    //
+    // O QUE ELE FECHA. Uma chave de escopo `tiles` existe para buscar bytes por rota
+    // NÃO BLOQUEANTE (`flexibleAuth`), que é a família das leituras de recurso privado
+    // e é onde o nginx vai validá-la. Toda rota que monta o `auth` estrito é escrita ou
+    // leitura de CONTA, e nenhuma delas é trabalho de uma chave de tile. Sem este gate,
+    // a chave que vai viajar na URL de cada tile continuaria abrindo o perfil, o
+    // catálogo administrativo pela porta do atlas, e toda escrita da conta.
+    //
+    // 403 E NÃO 401: a credencial é válida e o principal está vivo. Um 401 mandaria o
+    // cliente derrubar a sessão e tentar de novo, que é o laço errado.
+    if (req.authVia === 'api_key' && !apiKeyReaches(req.user.apiKeyScope, 'estrito')) {
+      return next(new ForbiddenError(
+        'Esta chave de API só alcança leitura de recurso; esta rota exige uma sessão'
+      ));
     }
 
     next();

@@ -26,13 +26,14 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     validate(coordinates) {
+        // Number.isFinite rejects NaN AND +/-Infinity, and it already implies the
+        // number type, so a string coordinate is refused too. Matches the guard the
+        // circle/line/polygon/ellipse tools use.
         return coordinates &&
                Array.isArray(coordinates) &&
                coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' &&
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) &&
-               !isNaN(coordinates[1]);
+               Number.isFinite(coordinates[0]) &&
+               Number.isFinite(coordinates[1]);
     }
 
     /**
@@ -203,13 +204,7 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {boolean} True if valid position
      */
     isValidPosition(coordinates) {
-        return coordinates &&
-               Array.isArray(coordinates) &&
-               coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' &&
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) &&
-               !isNaN(coordinates[1]);
+        return this.validate(coordinates);
     }
 
     /**

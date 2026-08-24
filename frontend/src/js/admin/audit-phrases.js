@@ -101,6 +101,13 @@ const ACOES = Object.freeze({
     RANK_CREATE: { rotulo: 'Posto criado', familia: 'identidade' },
     RANK_UPDATE: { rotulo: 'Posto alterado', familia: 'identidade' },
     RANK_DELETE: { rotulo: 'Posto desativado', familia: 'identidade' },
+    // A chave de API é CREDENCIAL, não recurso: ela cai em `identidade` ao lado de sessão e
+    // papel, e não em `acesso`, que é sobre quem alcança QUAL recurso. As duas entraram em
+    // 2026-08-24, com as três amarras da cláusula 10.7 (prazo, escopo, revogação individual).
+    // Repare que não há ação de USO: nenhuma rota de leitura deste servidor emite trilha, e
+    // inventar uma para dizer que alguém leu um tile gravaria afirmação que ninguém apurou.
+    API_KEY_CREATE: { rotulo: 'Chave de API emitida', familia: 'identidade' },
+    API_KEY_REVOKE: { rotulo: 'Chave de API revogada', familia: 'identidade' },
 
     // --- acervo: catálogo e 360 ---------------------------------------------
     CATALOG_CREATE: { rotulo: 'Item de catálogo criado', familia: 'acervo' },

@@ -22,7 +22,10 @@ import { resourceRefKey } from '../atlas/resource-reference.registry.js';
 // `resource-access.notify.js`. O import é só de ida (notify importa este módulo, este
 // módulo importa só a função de aviso), e é assim que os cinco podadores compartilham
 // UMA definição de aviso sem ciclo e sem serviço puxando controller.
-import { avisarAtlasQueEmprestam } from './resource-access.notify.js';
+// `atlasesLendingResource` vem junto porque este arquivo passou a CONTÁ-la (ver
+// `countAtlasesLendingResource`), e não só a reexportá-la: um `export { x } from` reexporta
+// sem criar ligação local, então usá-la aqui exige o import de verdade.
+import { atlasesLendingResource, avisarAtlasQueEmprestam } from './resource-access.notify.js';
 
 /**
  * Marca um recurso como público ou privado.
@@ -118,9 +121,18 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
  * delas SOME quando a pessoa troca de atlas, e só o empréstimo some. Ver
  * {@link origemDeAcesso} para a precedência e o porquê dela.
  *
+ * `expirations` É O IRMÃO DE `origins`, e nasceu pelo mesmo defeito visto do outro lado:
+ * a procedência diz POR QUE a pessoa enxerga, e o prazo diz ATÉ QUANDO. Ele é um mapa
+ * separado, com as mesmas cinco chaves, pela mesma razão estrutural que manteve as colunas
+ * de procedência fora do item — o cliente despeja os itens deste payload dentro dos arrays
+ * de `config`, e um campo a mais dentro do item muda o shape que os consumidores daquele
+ * documento leem. Ele é ESPARSO onde `origins` é completo: só o id que tem prazo aparece,
+ * porque a maioria dos ids não tem nenhum e um mapa cheio de `null` só diria isso de novo,
+ * com bytes. Ver {@link prazoDeAcesso} para quando a entrada existe.
+ *
  * @param {string|null} params.userId - null para o visitante de link público (R4).
  * @param {string|null} params.atlasId - O atlas em foco (empresta), ou null.
- * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object, origins: Object}>}
+ * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object, origins: Object, expirations: Object}>}
  */
 export async function listVisiblePrivateResources({ userId, atlasId }) {
   const catalogTypes = RESOURCE_TYPES.filter((t) => tableOf(t) !== null);
@@ -129,12 +141,18 @@ export async function listVisiblePrivateResources({ userId, atlasId }) {
   // "o servidor não respondeu essa parte", e uma chave ausente é exatamente essa
   // ambiguidade — é a mesma razão pela qual `shareable` nasce completo.
   const origins = Object.fromEntries(RESOURCE_TYPES.map((t) => [PAYLOAD_KEY_BY_TYPE[t], {}]));
+  const expirations = Object.fromEntries(RESOURCE_TYPES.map((t) => [PAYLOAD_KEY_BY_TYPE[t], {}]));
 
   const catalogRows = await Promise.all(catalogTypes.map(async (type) => {
     const table = assertCatalogTableOf(type);
     const chave = PAYLOAD_KEY_BY_TYPE[type];
     const { rows } = await query(Q.listVisiblePrivate(table), [userId, atlasId, type]);
-    for (const r of rows) origins[chave][r.id] = origemDeAcesso(r);
+    for (const r of rows) {
+      const origem = origemDeAcesso(r);
+      origins[chave][r.id] = origem;
+      const prazo = prazoDeAcesso(r, origem);
+      if (prazo !== null) expirations[chave][r.id] = prazo;
+    }
     // A MESMA REPROJEÇÃO DE `config.service.js` (`{ id, name, ...config }`), e não
     // a linha crua: o cliente soma isto dentro dos mesmos arrays de `config`, e um
     // item com shape diferente dos vizinhos quebra o consumidor no ponto de USO,
@@ -145,7 +163,12 @@ export async function listVisiblePrivateResources({ userId, atlasId }) {
 
   const { rows: rows360 } = await query(Q.LIST_VISIBLE_PRIVATE_360, [userId, atlasId]);
   const chave360 = PAYLOAD_KEY_BY_TYPE.sv360_project;
-  for (const r of rows360) origins[chave360][r.id] = origemDeAcesso(r);
+  for (const r of rows360) {
+    const origem = origemDeAcesso(r);
+    origins[chave360][r.id] = origem;
+    const prazo = prazoDeAcesso(r, origem);
+    if (prazo !== null) expirations[chave360][r.id] = prazo;
+  }
 
   return {
     ...Object.fromEntries(catalogRows),
@@ -167,7 +190,48 @@ export async function listVisiblePrivateResources({ userId, atlasId }) {
     })),
     shareable: await listShareableOfActor(userId),
     origins,
+    expirations,
   };
+}
+
+/**
+ * O PRAZO que a tela pode afirmar para uma linha do payload aditivo, ou `null`.
+ *
+ * SÓ A PROCEDÊNCIA `concessao` TEM PRAZO A DIZER, e a regra é a mesma precedência de
+ * {@link origemDeAcesso} reusada, não uma segunda:
+ *
+ *   - `papel` (papel global ou PRODUÇÃO) não vence nunca. É fato de quem a pessoa é, e a
+ *     coluna de prazo pode até vir preenchida (o administrador que também recebeu uma
+ *     concessão), mas o vencimento dela não lhe tira nada — anunciá-lo seria prometer um
+ *     sumiço que não vai acontecer, na tela em que a pessoa mais confia no prazo;
+ *   - `concessao` é o caso em que o acesso REPOUSA nas concessões, e é o único em que o
+ *     `MAX(expires_at)` que a consulta trouxe é, de fato, o instante da perda;
+ *   - `emprestimo` chega aqui por eliminação e com a coluna NULA por construção (se
+ *     houvesse concessão viva, a procedência não seria empréstimo). O `null` explícito é
+ *     o que mantém a função verdadeira mesmo que um braço novo mude isso: empréstimo não
+ *     tem relógio próprio (`atlas_resources` não tem coluna de prazo, de propósito).
+ *
+ * O CANTO QUE ESTA FUNÇÃO ACEITA ERRAR, e ele é herdado de `origins`: quem tem concessão
+ * viva E está num atlas que empresta o mesmo recurso é rotulado `concessao`, então o chip
+ * vai anunciar um sumiço que, enquanto ela ficar NESTE atlas, não acontece. O erro é na
+ * direção do ALARME FALSO (a concessão realmente está vencendo, e renová-la é a ação
+ * certa), não na da promessa falsa, e fabricar um quarto estado para cobri-lo custaria um
+ * braço a mais no predicado para uma frase que ninguém pediu.
+ *
+ * ISO E NÃO `Date`: o valor atravessa `res.json` e vira string de qualquer jeito, mas
+ * convertê-lo AQUI é o que torna o shape do payload uma decisão deste módulo em vez de um
+ * detalhe do driver — e é o que permite testar esta função sem um banco no ar.
+ *
+ * @param {{concessao_expira_em: (Date|string|null)}} row - A linha da consulta.
+ * @param {string} origem - Saída de {@link origemDeAcesso}.
+ * @returns {string|null} ISO 8601, ou `null` quando não há prazo a afirmar.
+ */
+export function prazoDeAcesso(row, origem) {
+  if (origem !== RESOURCE_ORIGIN.CONCESSAO) return null;
+  const bruto = row?.concessao_expira_em ?? null;
+  if (bruto === null) return null;
+  const data = bruto instanceof Date ? bruto : new Date(bruto);
+  return Number.isNaN(data.getTime()) ? null : data.toISOString();
 }
 
 /**
@@ -902,7 +966,36 @@ export async function listAtlasResources(atlasId) {
  * dois; copiá-la seria a segunda definição da mesma consulta. A reexportação é o que
  * mantém o caminho de import de quem já a usa.
  */
-export { atlasesLendingResource } from './resource-access.notify.js';
+export { atlasesLendingResource };
+
+/**
+ * QUANTOS atlas emprestam este recurso agora. A mesma pergunta acima, CONTADA.
+ *
+ * POR QUE ELA EXISTE, e o defeito que fecha é de TELA. A lista "quem tem acesso"
+ * (`GET /:type/:id/grants`) lê `resource_grants` e só, enquanto o predicado entrega o
+ * recurso também a quem abre um atlas que o empresta — inclusive ao visitante de link
+ * público, que não tem conta para aparecer em lista nenhuma. A tela avisava disso, e
+ * avisava QUALITATIVAMENTE, porque a informação existia só como endereço de sala de WS,
+ * sem gate: um número inventado ali seria pior que a frase sem número. Com a rota, quem
+ * decide revogar sabe se o outro caminho está aberto em UM atlas ou em quinze.
+ *
+ * CONTA A LISTA, E NÃO UM `COUNT(*)` PRÓPRIO. Um segundo SQL sobre `atlas_resources`
+ * teria de repetir os dois filtros de vivacidade (`removed_at`, `deleted_at` do atlas) e
+ * poderia divergir daquele — e a divergência seria a pior possível para esta tela: um
+ * número que discorda de quem o aviso ao vivo acorda. O conjunto é pequeno por construção
+ * (atlas que emprestam UM recurso), então materializá-lo custa o mesmo que contá-lo.
+ *
+ * A ROTA DEVOLVE SÓ O NÚMERO, e os ids morrem aqui dentro: quais atlas emprestam é fato
+ * sobre projetos de terceiros, e quem pode compartilhar um recurso não herda por isso o
+ * direito de enumerar os atlas alheios que o usam.
+ *
+ * @param {string} type - Tipo de recurso já validado pela borda.
+ * @param {string} resourceId
+ * @returns {Promise<number>}
+ */
+export async function countAtlasesLendingResource(type, resourceId) {
+  return (await atlasesLendingResource(assertResourceType(type), resourceId)).length;
+}
 
 /**
  * Anexa um recurso ao atlas: ele passa a EMPRESTAR acesso, no escopo dele.

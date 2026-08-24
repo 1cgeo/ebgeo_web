@@ -95,10 +95,11 @@ const ABERTAS = [
     },
     {
         numero: '10.7',
-        estado: 'pendente',
+        estado: 'em obra',
         natureza: 'trabalho',
-        motivo: 'a chave de API é o usuário inteiro, sem escopo nem prazo; o rumo (validar no nginx, para o'
-            + ' servidor de tiles) foi decidido em 2026-08-23 e o trabalho começa pelas três amarras',
+        motivo: 'as três amarras da chave de API (prazo, escopo e revogação individual) entraram em'
+            + ' 2026-08-24; falta o `location` do nginx, que não tem teste aqui e vira sonda com data no'
+            + ' deploy, e falta aposentar o slot antigo de `users.api_key`',
     },
 ];
 

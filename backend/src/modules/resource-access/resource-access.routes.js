@@ -122,6 +122,45 @@ router.get(
   ctrl.listGrants,
 );
 
+/**
+ * GET /api/v1/resource-access/:type/:id/lending-atlases — QUANTOS atlas o emprestam.
+ *
+ * POR QUE ELA EXISTE. `atlasesLendingResource` respondia isto desde sempre, e era INTERNA:
+ * nasceu para endereçar sala de WS, sem gate nenhum, e por isso a tela "quem tem acesso"
+ * avisava do empréstimo em prosa, SEM número — um número que nenhuma rota entrega é um
+ * número inventado, e a frase preferiu ser qualitativa a fabricar aritmética. Com a rota, o
+ * aviso passa a dizer em quantos atlas o outro caminho está aberto, que é o que decide se
+ * revogar uma linha fecha alguma coisa.
+ *
+ * O GATE É `requireResourceShare`, O MESMO DA LISTAGEM DE CONCESSÕES LOGO ABAIXO, e a
+ * escolha se justifica pela comparação: aquela rota nomeia PESSOAS e GRUPOS que alcançam o
+ * recurso, e esta devolve um inteiro. Quem passa por um gate que entrega a lista não pode
+ * ser barrado no que entrega estritamente menos, e um gate PRÓPRIO seria uma segunda
+ * definição de "quem cuida do acesso deste recurso" para render uma tela só.
+ *
+ * `requireGrantRevoker` NÃO SERVE AQUI, e não por ser estreito demais: o sujeito dele é uma
+ * CONCESSÃO (`req.params.grantId`, autoria por `granted_by`), e esta rota não aponta para
+ * concessão nenhuma — ela aponta para o RECURSO. Usá-lo obrigaria a URL a nomear uma linha
+ * de `resource_grants` que a tela nem sempre tem em mãos (o produtor e o credenciado
+ * alcançam o recurso sem ter concedido nada), e o número passaria a depender de QUAL
+ * concessão foi citada, que não é o assunto.
+ *
+ * SEM TRILHA DE AUDITORIA, e a ausência é declarada em vez de esquecida: `audit_trail` não
+ * tem vocabulário de LEITURA (toda ação do CHECK de `audit_trail.action` é ato de escrita) e
+ * nenhuma das rotas GET deste servidor emite linha — `tests/unit/auditoria-censo.test.js` só varre
+ * `router.post/put/patch/delete`, e uma entrada de GET no censo dele reprova como órfã.
+ * Reusar `SHARING_CHANGE` para dizer que alguém LEU um número seria gravar uma afirmação
+ * falsa na trilha, e inventar uma ação nova para isso alargaria o CHECK por uma leitura de
+ * inteiro. O que a rota tem no lugar é o gate, que é o que decide quem alcança o dado.
+ */
+router.get(
+  '/:type/:id/lending-atlases',
+  auth,
+  validate({ params: schemas.resourceParamsSchema }),
+  requireResourceShare,
+  ctrl.lendingAtlases,
+);
+
 /** POST /api/v1/resource-access/:type/:id/grants — concede `view` ou `view_share`. */
 router.post(
   '/:type/:id/grants',

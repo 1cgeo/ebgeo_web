@@ -32,6 +32,20 @@ if (canDeliverAccountMail()) {
   router.put('/me/email', auth, emailChangeLimiter, validate({ body: schemas.changeEmailSchema }), ctrl.changeMyEmail);
 }
 router.post('/me/api-key/rotate', auth, ctrl.rotateMyApiKey);
+
+// AS CHAVES NOMEADAS (cláusula 10.7). A rota de ROTAÇÃO acima continua governando o
+// slot legado (`users.api_key`, uma chave por conta, emitir a nova mata a anterior); as
+// três abaixo são o modelo novo, em que revogar UMA não derruba as outras.
+//
+// AS TRÊS SÃO GATEADAS POR `auth` ESTRITO, e isso não é redundância com o gate de
+// escopo: uma chave de escopo `tiles` não passa no `auth` estrito, então nenhuma chave
+// de tile emite nem revoga chave nenhuma. Uma chave de escopo `full` passa — ela é uma
+// sessão da conta para todo efeito que não seja administração — e isso é aceito: quem
+// tem a credencial da conta já pode rotacionar o slot legado pela rota acima.
+router.get('/me/api-keys', auth, ctrl.listMyApiKeys);
+router.post('/me/api-keys', auth, validate({ body: schemas.createApiKeySchema }), ctrl.createMyApiKey);
+router.delete('/me/api-keys/:keyId', auth, validate({ params: schemas.apiKeyIdParamsSchema }), ctrl.revokeMyApiKey);
+
 router.get('/search', auth, validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
 
 // Admin routes (manage all users)
@@ -43,5 +57,10 @@ router.post('/:userId/reset-password', auth, requireAdmin, validate({ params: sc
 router.delete('/:userId', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema, query: schemas.deleteUserQuerySchema }), ctrl.deleteUser);
 router.post('/:userId/reactivate', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema }), ctrl.reactivateUser);
 router.post('/:userId/api-key/rotate', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema }), ctrl.rotateUserApiKey);
+// O administrador VÊ e REVOGA a chave alheia, e não EMITE: ver o comentário de
+// `revokeUserApiKey`. As duas passam por `requireAdmin`, que desde 2026-08-24 recusa
+// TODA chave de API, qualquer que seja o escopo — inclusive a de um administrador.
+router.get('/:userId/api-keys', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema }), ctrl.listUserApiKeys);
+router.delete('/:userId/api-keys/:keyId', auth, requireAdmin, validate({ params: schemas.userApiKeyIdParamsSchema }), ctrl.revokeUserApiKey);
 
 export { router as usersRoutes };

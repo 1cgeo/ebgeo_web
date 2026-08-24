@@ -705,27 +705,61 @@ export function revocationWarning(grants, rootId, maxNomes = 3) {
  * enquanto um atlas público emprestava o recurso para qualquer um com o link, e quem revogasse
  * a única linha da lista concluiria que fechou o acesso.
  *
- * SEM NÚMERO, E A AUSÊNCIA É MEDIDA, não preguiça: o servidor sabe responder
- * (`atlasesLendingResource`, `backend/src/modules/resource-access/resource-access.notify.js`),
- * mas nenhuma rota expõe essa contagem ao cliente hoje, e as quatro rotas do módulo de acesso
- * são visibilidade, listagem de concessões, concessão e revogação. Um número inventado aqui
- * seria pior que a frase qualitativa, pela mesma razão escrita no `@fileoverview` de
- * `catalog/visibility-phrases.js`.
+ * O NÚMERO CHEGOU EM 2026-08-24, E ANTES DELE A AUSÊNCIA ERA MEDIDA, não preguiça: o servidor
+ * sabia responder (`atlasesLendingResource`,
+ * `backend/src/modules/resource-access/resource-access.notify.js`), mas aquela função era
+ * INTERNA, sem gate, criada para endereçar sala de WS — e um número que nenhuma rota entrega é
+ * um número inventado. Com `GET /resource-access/:type/:id/lending-atlases` a contagem passou a
+ * ter gate (`requireResourceShare`, o mesmo desta tela), e a frase pôde deixar de ser vaga
+ * justamente na parte que muda a decisão: revogar a única linha da lista fecha o acesso, ou
+ * sobra empréstimo aberto em quinze atlas?
  *
- * O VOCABULÁRIO É O DE LÁ, DE PROPÓSITO ("empresta", "quem entra pelo link público"), e este
- * módulo não importa aquele: as duas frases respondem perguntas OPOSTAS (lá, o que acontece
- * ao RETIRAR um empréstimo deste atlas; aqui, quem enxerga este recurso sem estar na lista), e
- * nenhuma das funções de lá cabe nesta tela sem mentir sobre o sujeito. É o mesmo arranjo de
- * {@link granteeGroupOwnerLabel} com `groupOwnerLabel`.
+ * O PARÂMETRO É OPCIONAL, E `null` NÃO É UM ERRO A CORRIGIR. Ele é o estado de toda tela antes
+ * de a contagem pousar, o de um servidor mais velho que este build e o de uma leitura que
+ * falhou — e nos três a frase QUALITATIVA continua verdadeira e continua sendo a certa. Fazer a
+ * tela esperar pelo número, ou mostrar "0 atlas" quando ela não sabe, seria trocar uma verdade
+ * vaga por uma precisão falsa, que é exatamente o que a versão sem número recusava.
  *
+ * ZERO É INFORMAÇÃO, E É A MAIS ÚTIL DAS TRÊS: ele é a única resposta que diz que remover as
+ * linhas da lista FECHA o acesso por empréstimo. Por isso ele tem oração própria, e não é
+ * tratado como "nada a dizer" — confundir `0` com `null` num contador é o defeito que apaga
+ * justamente o caso em que a pessoa pode agir com confiança.
+ *
+ * O VOCABULÁRIO É O DE `catalog/visibility-phrases.js`, DE PROPÓSITO ("empresta", "quem entra
+ * pelo link público"), e este módulo não importa aquele: as duas frases respondem perguntas
+ * OPOSTAS (lá, o que acontece ao RETIRAR um empréstimo deste atlas; aqui, quem enxerga este
+ * recurso sem estar na lista), e nenhuma das funções de lá cabe nesta tela sem mentir sobre o
+ * sujeito. É o mesmo arranjo de {@link granteeGroupOwnerLabel} com `groupOwnerLabel`.
+ *
+ * @param {*} [atlasQueEmprestam] - A contagem do servidor, ou `null`/ausente quando não se
+ *   sabe. Qualquer coisa que não seja inteiro não negativo é lida como "não se sabe".
  * @returns {string}
  */
-export function grantsListScopeNote() {
-    return 'Esta lista mostra só as concessões diretas, a pessoas e a grupos. Enxergam este '
+export function grantsListScopeNote(atlasQueEmprestam = null) {
+    const base = 'Esta lista mostra só as concessões diretas, a pessoas e a grupos. Enxergam este '
         + 'recurso SEM aparecer aqui: administradores, credenciados e produtores da OM dona, '
         + 'que o veem por papel; e todo mundo que abrir um atlas cujo dono o enxerga, inclusive '
-        + 'quem entra pelo link público. Remover uma linha daqui não fecha esses dois caminhos: '
-        + 'o empréstimo se desfaz na configuração do atlas que empresta.';
+        + 'quem entra pelo link público. ';
+
+    // SEM COERÇÃO, e a armadilha é `Number(null) === 0`: com `Number(...)` no meio, o estado
+    // "não sei" (o default, e o de um servidor mais velho) viraria a frase de ZERO, que é a
+    // afirmação mais forte das três — "o caminho do empréstimo está fechado" dita a quem não
+    // perguntou nada. `Number.isInteger` não coage, então `null`, `undefined`, `'3'`, `NaN` e
+    // `1.5` caem todos no ramo verdadeiro.
+    const n = atlasQueEmprestam;
+    const sabido = Number.isInteger(n) && n >= 0;
+
+    if (!sabido) {
+        return `${base}Remover uma linha daqui não fecha esses dois caminhos: o empréstimo se `
+            + 'desfaz na configuração do atlas que empresta.';
+    }
+    if (n === 0) {
+        return `${base}Nenhum atlas empresta este recurso agora, então o caminho do empréstimo `
+            + 'está fechado e só o do papel continua aberto.';
+    }
+    const quantos = n === 1 ? '1 atlas empresta' : `${n} atlas emprestam`;
+    return `${base}Hoje ${quantos} este recurso. Remover uma linha daqui não fecha esses dois `
+        + 'caminhos: o empréstimo se desfaz na configuração do atlas que empresta.';
 }
 
 /**

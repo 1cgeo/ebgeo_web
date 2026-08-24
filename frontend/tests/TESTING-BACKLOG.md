@@ -42,6 +42,18 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 futura, ex.: `state_manager` escopo `mouse.*` largo, formatadores emitindo `NaN`). Eles estão
 marcados nos próprios testes; o relatório separado que esta linha citava não existe mais.
 
+**Correções de 2026-08-24** (brush/text/image/point + label tab), cada uma com a linha da tabela
+marcada FEITO: `calculateRotationFromHandle` (rotação negativa, ver a linha em draw-text, que
+apontava a metade errada do `if`), `simplifyLine` (âncora no último ponto MANTIDO),
+`getBoundingBox` do pincel (quatro spreads → uma varredura), `validate` de brush/text/image/point
+(`Number.isFinite`, fechando a mesma classe do Lote 1), `recalcLabelSize` e a cópia inline dentro
+de `createLabelZoomHandler` (falsy-zero em `labelCreatedAtZoom` e `labelSize`),
+`recalculateSelectionBox` do ponto (`size || 10`), `calculateRotationHandlePosition`
+(`mapZoom || createdAtZoom`) e `computeShapeCentroid` (antimeridiano). Repros de comportamento
+de produto em `tests/integration/rotacao-de-texto-negativa.repro.test.js`,
+`tests/integration/pincel-curva-suave-colapsa.repro.test.js` e
+`tests/integration/etiqueta-ancora-zero-sobrescrita.repro.test.js`.
+
 ## Sumário Executivo
 
 - **Candidatos brutos coletados:** 375 símbolos em 40 domínios (41 agentes).
@@ -138,16 +150,16 @@ declividade).
 ### Domínio: draw-brush
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `draw_tools/brush_tool/add_brush_geometry.js` | `simplifyLine` | alto | <=2 pts identidade; **Reumann-Witkam** (âncora em vizinhos originais, não último mantido)→curva suave colapsa; NaN dropa silenciosamente | linha reta→[first,last]; subsequência; monotônico em tolerância | sim | M |
+| `draw_tools/brush_tool/add_brush_geometry.js` | `simplifyLine` | FEITO 2026-08-24 | <=2 pts identidade; **Reumann-Witkam** (âncora em vizinhos originais, não último mantido)→curva suave colapsa; NaN dropa silenciosamente | linha reta→[first,last]; subsequência; monotônico em tolerância | sim | M |
 | idem | `calculatePointLineDistance` | alto | Segmento degenerado lenSq=0; clamp t∈[0,1]; sem wrap antimeridiano | foot perpendicular; param<0→start; >=0 e finito | sim | M |
-| idem | `validate` | médio | **Infinity aceito**; <2→false; string coords→false | [[0,0],[Inf,1]]→true (flag) | sim | S |
-| idem | `getBoundingBox` | médio | Spread `Math.min(...lngs)` estoura pilha em arrays grandes; sem wrap | stress 200k pts; todo pt dentro do bbox | sim | S |
+| idem | `validate` | FEITO 2026-08-24 | ~~Infinity aceito~~ (agora `Number.isFinite`); <2→false; string coords→false | [[0,0],[Inf,1]]→true (flag) | sim | S |
+| idem | `getBoundingBox` | FEITO 2026-08-24 | ~~Spread `Math.min(...lngs)` estoura pilha em arrays grandes~~ (varredura única, os QUATRO spreads); sem wrap | stress 200k pts; todo pt dentro do bbox | sim | S |
 | idem | `applyOffset` | médio | Inválido→input inalterado; dropa componente z; round-trip | round-trip +d/-d; z perdido | sim | S |
 
 ### Domínio: draw-text
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
-| `draw_tools/text_tool/add_text_geometry.js` | `calculateRotationFromHandle` | alto | **Wrap `>=360` roda ANTES de Math.round→Math.round pode reintroduzir 360**; bearing -90→0 | stub turf.bearing; intervalo [0,360]; round-trip | sim | M |
+| `draw_tools/text_tool/add_text_geometry.js` | `calculateRotationFromHandle` | ~~alto~~ FEITO 2026-08-24 | ~~Wrap `>=360` roda ANTES de Math.round~~: essa metade do `if` não reproduzia dentro do contrato de `turf.bearing`. O defeito real era o outro ramo: **`bearing - 270` cai em [-450, -90] e UM `+= 360` deixava a saída em [-90, 270]**, ou seja, rotação NEGATIVA no último quadrante e [271, 359] inalcançável | tests/unit/text-geometry.test.js + tests/integration/rotacao-de-texto-negativa.repro.test.js | sim | M |
 | idem | `calculateZoomAdjustedSize` | médio | diff=0→base; clamp 255; NaN não protegido; baseSize 0→0 | (16,10,11)→32; clamp 255; NaN→NaN | sim | S |
 | `tool_manager/managers/selection-highlight.manager.js` | `calculateExpandedDimensions` | alto | rot=0 early-return exato; 90→swap; 45→(w+h)/√2; ±r simétrico; 360 não early | (10,20,90)≈{20,10}; bbox nunca encolhe | sim | M |
 
@@ -160,7 +172,7 @@ declividade).
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `draw_tools/point_tool/add_point_geometry.js` | `calculateSelectionBoxGeometry` | alto | **BUG: callsite `createPointAtCoordinates` passa 4 args (5 esperados)→effectiveZoom=null**; cosLat polos; anel fechado 5 pts | fixar geometria com assinatura 5-arg; anel[0]===anel[4] | sim | M |
-| `tool_manager/helpers/label-tab.helpers.js` | `computeShapeCentroid` | médio | Anel fechado exclui vértice de fechamento; <3→null; antimeridiano errado; holes ignorados | quadrado fechado→[1,1]; centroid dentro do anel | sim | S |
+| `tool_manager/helpers/label-tab.helpers.js` | `computeShapeCentroid` | FEITO 2026-08-24 | Anel fechado exclui vértice de fechamento; <3→null; ~~antimeridiano errado~~ (longitudes somadas desenroladas); holes ignorados | quadrado fechado→[1,1]; centroid dentro do anel | sim | S |
 
 ### Domínio: mil-symbol (parcialmente concluído)
 `buildSIDC`, `parseSIDC` (com round-trip), `validateSIDC`, `canParseSIDC` e
@@ -285,7 +297,7 @@ junto.
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `add_point_geometry.js` | `applyOffset`/`getBoundingBox`/`normalizeCoordinates` | médio/baixo | Inválido→input inalterado (no-op); JSON `'5'`→null; bbox degenerado | round-trip; `'5'`→null | sim | S |
-| `label-tab.helpers.js` | `recalcLabelSize`/`hasLabelChanged` | médio | Backfill createdAtZoom em ambos features; `===0` falsy backfill; clamp 255 | disabled→base; 0 clobber (flag) | sim/não | S |
+| `label-tab.helpers.js` | `recalcLabelSize`/`hasLabelChanged` | FEITO 2026-08-24 | Backfill createdAtZoom em ambos features; ~~`===0` falsy backfill~~ (e a cópia inline em `createLabelZoomHandler` passou a delegar); clamp 255 | disabled→base; 0 clobber (flag) | sim/não | S |
 | `add_circle_geometry.js` | `createHandles` | baixo | Só o que `tests/unit/circle-geometry.test.js` não pegou | posições dos handles | não | S |
 | `add_rectangle_geometry.js` | `calculateDimensionsFromCorners`/`extractCornersFromGeometry` | alto | Antimeridiano center=0 errado; **AABB normaliza retângulo rotacionado** (perde rotação); width na lat central | width<height por cos; rotacionado→AABB | sim | S |
 | `add_rectangle_geometry.js` | `rotateAndTranslate`/`calculateDimensionsFromRotatedCorners` (turf) | alto | **Mistura atan2 (leste=0) com turf bearing (norte=0)**; Pitágoras w²+h²=diag² | spy turf.destination; w²+h²≈diag² (property) | sim/não | M |

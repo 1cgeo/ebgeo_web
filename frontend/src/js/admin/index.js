@@ -53,12 +53,18 @@ const TAB_FACTORIES = Object.freeze({
  * @returns {AdminPanel}
  */
 export function mountAdminPage({ user, onBack, onLogout } = {}, host = document.body) {
-    const { label, tabIds } = adminAudience({
+    const principal = {
         isAuthenticated: sessionContext.isAuthenticated(),
         isAdmin: sessionContext.isAdmin(),
         isProducer: sessionContext.isProducer(),
-    });
-    const tabs = tabIds.map((id) => TAB_FACTORIES[id]).filter(Boolean).map((factory) => factory());
+    };
+    const { label, tabIds } = adminAudience(principal);
+    // O PERFIL VAI PARA TODA FÁBRICA, e não só para a que hoje o usa: quem lê a sessão já é este
+    // arquivo, e uma aba que a lesse por conta própria seria a segunda leitura do mesmo fato,
+    // com a chance de discordar da audiência que acabou de decidir quais abas existem. As
+    // fábricas que não precisam dele simplesmente ignoram o argumento.
+    const tabs = tabIds.map((id) => TAB_FACTORIES[id]).filter(Boolean)
+        .map((factory) => factory(principal));
     // O FALLBACK NÃO PODE SER "Administração", e essa era a moldura desfazendo o cuidado da
     // audiência: `adminAudience` nomeia o que a pessoa RECEBE justamente para não prometer um poder
     // que o primeiro clique nega, e um `?? 'Administração'` devolve a promessa pela porta dos

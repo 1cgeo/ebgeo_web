@@ -43,6 +43,10 @@ import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.servi
 import {
     openRemoteAtlas,
     retractAtlasClaim,
+    // A TESTEMUNHA do pre-flight destrutivo (`tab-lock.js`, secao 5). Ela vem daqui, e nao de
+    // `@utils/tab-lock.js`, porque o fato que se le e "outro cliente vivo tem ESTES bancos
+    // montados", e o lock nao pode alcancar a store.
+    remoteMountWitness,
 } from '@js/account/open-atlas.service.js';
 import { acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
@@ -894,7 +898,28 @@ export class AccountControl {
                     // the local atlas they shared. A refusal is nearly impossible now (the atlas
                     // was created one line ago, so nobody else can hold it), but if it happens the
                     // upload still stands and NOTHING local is touched: say so and stop.
-                    const claim = await acquireTabLock(remoteAtlasKey(result.atlasId));
+                    //
+                    // A TESTEMUNHA, e ela fechou o QUINTO sítio destrutivo (`tab-lock.js`, seções 5
+                    // e 11). `granted` sozinho é concedido por AUSÊNCIA DE PROVA: o settle ouve
+                    // silêncio e conclui que está só, e três dos modos de silêncio (dois settles
+                    // sobrepostos, uma aba de thread ocupada e uma mensagem perdida) deixam um par
+                    // vivo do outro lado. O lock de montagem é fato do navegador, solto pela MORTE
+                    // do cliente e nunca pelo silêncio dele, então ele responde onde o canal se
+                    // cala. Aqui a defesa é ESTREITA de propósito, e vale dizer o que ela alcança:
+                    // o atlas nasceu uma linha acima, então nenhuma outra aba pode tê-lo montado, e
+                    // a testemunha responde `false` no caminho legítimo. Ela não é redundância
+                    // barata: `witness` ausente é o único jeito de o pre-flight voltar a ser
+                    // decidido só pelo settle, e um sítio destrutivo nesse estado é o furo inteiro
+                    // de volta num caminho só.
+                    //
+                    // `selfHolds` é 0, e `remoteMountWitness` o calcula sozinho comparando o escopo
+                    // ATIVO com o do atlas pedido: aqui o escopo ativo ainda é o LOCAL (o
+                    // `activateRemoteAtlas` do passo 2.7 vem depois), então nenhuma das posses no
+                    // nome é desta aba. Se fosse 1 por engano, esta aba leria a própria montagem
+                    // como par e recusaria uma gravação a que tem direito.
+                    const claim = await acquireTabLock(remoteAtlasKey(result.atlasId), {
+                        witness: remoteMountWitness(result.atlasId),
+                    });
                     if (!claim.granted) {
                         retractAtlasClaim();
                         showWarning(

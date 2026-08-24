@@ -210,6 +210,9 @@ const CENSO_ROTA = [
   json('src/modules/resource-access/resource-access.routes.js', 'GET /grants/received'),
   json('src/modules/resource-access/resource-access.routes.js', 'PATCH /:type/:id/visibility'),
   json('src/modules/resource-access/resource-access.routes.js', 'GET /:type/:id/grants'),
+  // O corpo é `{ count }` e nada mais: quais atlas emprestam o recurso é fato sobre projetos
+  // de terceiros, e o serviço descarta os ids antes de o controller responder.
+  json('src/modules/resource-access/resource-access.routes.js', 'GET /:type/:id/lending-atlases'),
   json('src/modules/resource-access/resource-access.routes.js', 'POST /:type/:id/grants'),
   json('src/modules/resource-access/resource-access.routes.js', 'DELETE /grants/:grantId'),
   json('src/modules/resource-access/resource-access.routes.js', 'PATCH /grants/:grantId'),
@@ -291,6 +294,9 @@ const CENSO_ROTA = [
   // oráculo de existência de conta, então acrescentar campo aqui é mudança de segurança.
   json('src/modules/users/users.routes.js', 'PUT /me/email'),
   json('src/modules/users/users.routes.js', 'POST /me/api-key/rotate'),
+  json('src/modules/users/users.routes.js', 'GET /me/api-keys'),
+  json('src/modules/users/users.routes.js', 'POST /me/api-keys'),
+  json('src/modules/users/users.routes.js', 'DELETE /me/api-keys/:keyId'),
   json('src/modules/users/users.routes.js', 'GET /search'),
   json('src/modules/users/users.routes.js', 'GET /'),
   json('src/modules/users/users.routes.js', 'POST /'),
@@ -300,6 +306,8 @@ const CENSO_ROTA = [
   json('src/modules/users/users.routes.js', 'DELETE /:userId'),
   json('src/modules/users/users.routes.js', 'POST /:userId/reactivate'),
   json('src/modules/users/users.routes.js', 'POST /:userId/api-key/rotate'),
+  json('src/modules/users/users.routes.js', 'GET /:userId/api-keys'),
+  json('src/modules/users/users.routes.js', 'DELETE /:userId/api-keys/:keyId'),
 
 ];
 

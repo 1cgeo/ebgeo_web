@@ -14,6 +14,9 @@ import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@u
 import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 import { MARKER_KIND, buildMarkerFeatures, resolveMarkerDescriptor } from './marker-features.js';
 import { model3dFailures } from './model3d-failure.js';
+// A leaf of the first-person tool: it imports the shared notice and the phrases, and NOT the
+// splatting engine, so this eager control does not grow by a lazy chunk. See its fileoverview.
+import { scene3dFailures } from '@js/first_person_3d_tool/scene3d-failure.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -185,6 +188,10 @@ class Add3DModelsViewerControl {
         // viewer, never a MapLibre map, so the seam has to be attached from here: see
         // `model3d-failure.js`.
         model3dFailures.attach(map);
+        // The first-person scenes are the OTHER half of `config.tilesets` and open through this
+        // same control, so their seam is attached here too: `first_person_viewer.js` is lazier
+        // still and holds an aholo viewer, never a map.
+        scene3dFailures.attach(map);
 
         // Listen for base layer changes to reload layers if active
         subscribe(this, getEventBus(), EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
@@ -284,6 +291,7 @@ class Add3DModelsViewerControl {
         // Paired with the attach in onAdd: a surface left registered keeps the shared notice
         // calling into a control that is gone.
         model3dFailures.detach();
+        scene3dFailures.detach();
 
         // The cluster/marker handlers are raw map.on() registrations, outside the
         // event-cleanup bookkeeping: pair them here or they outlive the control.
@@ -941,6 +949,11 @@ class Add3DModelsViewerControl {
      * Open the first-person (Gaussian splatting) viewer for a scene.
      * The viewer module is loaded lazily on purpose: a static import would pull
      * the whole splatting runtime into the main bundle.
+     *
+     * WHAT THIS `catch` ACTUALLY CATCHES is the lazy IMPORT failing, and nothing else:
+     * `openFirstPersonViewer` resolves even when the scene does not open (it reports, toasts and
+     * emits `FIRST_PERSON_CLOSED` from inside). So the two failures are announced in two places,
+     * and neither is silent any more: the load from the viewer, the missing chunk from here.
      * @param {string} sceneId - ID of the first-person scene to enter
      */
     async openFirstPersonScene(sceneId) {
@@ -952,7 +965,27 @@ class Add3DModelsViewerControl {
 
         } catch (error) {
             console.error('Error opening first-person viewer:', error);
+            // THE CHUNK ITSELF DID NOT ARRIVE (a deploy swap under an open tab, the network gone),
+            // so the person clicked "Entrar na cena" and, until this line, absolutely nothing
+            // happened. No status: a failed module import carries none, and inventing one would
+            // print a measured-looking number nobody measured.
+            scene3dFailures.report(sceneId, { name: this._sceneName(sceneId) });
         }
+    }
+
+    /**
+     * The catalog name of a scene, for a sentence about it.
+     *
+     * Read from `config.tilesets` rather than from the marker feature, because this runs on the
+     * path where the first-person module never loaded: the name has to come from something already
+     * in memory. A sentence naming `bd2f1c…` is a sentence nobody can act on, so a missing entry
+     * gives back nothing at all and the panel says "Cena 3D sem nome".
+     * @param {string} sceneId
+     * @returns {string|undefined}
+     * @private
+     */
+    _sceneName(sceneId) {
+        return config.tilesets?.find(entry => entry.id === sceneId)?.name;
     }
 
     /**

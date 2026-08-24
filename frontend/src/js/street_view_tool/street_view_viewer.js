@@ -42,7 +42,7 @@ import { showSuccess, showError } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
 import { requestStatus } from '@utils/request-failure.js';
 import { layerLoadFailureNotice, SURFACE_NOUN } from '@js/terrain/data-layer-phrases.js';
-import { photo360Failures } from './photo360-failure.js';
+import { photo360Failures, createTileHoleWatch } from './photo360-failure.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -359,6 +359,29 @@ function anunciarFalhaDaFoto(photoName, data, error) {
 }
 
 /**
+ * THE THIRD DOOR: the panorama that answers and draws with HOLES.
+ *
+ * `loadPhoto` above covers the two halves that fail LOUDLY (no metadata, no panorama). A tile of
+ * the pyramid fails quietly instead: the loader logs it and carries on, so a photo whose tiles are
+ * refused one by one paints a blurred picture and nothing anywhere says why. This is the bridge
+ * between the loader's bare fact and the panel's sentence; the threshold and the reasoning behind
+ * it live with the surface, in `photo360-failure.js`.
+ *
+ * MODULE-LEVEL, not built inside `garantirCarregadorTiles`, for two reasons: it holds no GL and
+ * needs no renderer, and `loadPhoto` has to be able to retract it (see below) on a load that
+ * happens before any pyramid exists.
+ */
+const buracosDeTile = createTileHoleWatch({
+    // Read at failure time, never captured: the loader keeps filling while the person navigates,
+    // and a late tile of the PREVIOUS photo must not be counted against the current one.
+    foto: () => streetViewState.currentPhotoName,
+    acusar: (id, status) => photo360Failures.report(id, {
+        name: nomeDaFoto(id, streetViewState.currentInfo),
+        status,
+    }),
+});
+
+/**
  * Loads a photo and its metadata
  * @param {string} photoName - Photo identifier
  * @param {number|null} [prevWorldHeading=null] - Previous world heading in degrees to preserve viewing direction
@@ -370,7 +393,12 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 
     // THE ACCUSATION IS RETRACTED WHERE THE REQUEST IS MADE AGAIN. A no-op when this photo was
     // never accused, which is what lets it run unconditionally on every load.
+    //
+    // THE TILE COUNTER IS RETRACTED IN THE SAME BREATH, and the pairing is not decoration: the
+    // panel forgetting while the counter remembers would leave a photo that reloads clean one
+    // hiccup away from an accusation it already earned and already had withdrawn.
     photo360Failures.clear(photoName);
+    buracosDeTile.esquecer(photoName);
 
     let data;
     try {
@@ -632,7 +660,13 @@ function garantirCarregadorTiles() {
             if (tiles.texturaPendente && estat.msPrimeiraPintura !== null) {
                 aplicarTexturaDeTiles();
             }
-        }
+        },
+        // O SEXTO TRECHO DO DELTA COM O ebgeo_360 chega aqui, e ele entrega o
+        // FATO cru: um tile nao veio, com a chave e o codigo. A politica (quantos
+        // buracos valem um aviso) e a frase ficam do lado de ca. A pagina de
+        // calibracao monta o mesmo carregador SEM esta opcao, e ali o tile
+        // perdido continua so no log: la nao ha mapa, logo nao ha painel.
+        onTileErro: (falha) => buracosDeTile.tileFalhou(falha)
     });
 
     // Cache HTTP normal, e nao o `no-store` com que o carregador nasce. Aquele

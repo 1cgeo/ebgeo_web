@@ -31,13 +31,14 @@ class AddBrushGeometry extends BaseGeometry {
             return false;
         }
 
+        // Number.isFinite rejects NaN AND +/-Infinity, and it already implies the
+        // number type, so a string coordinate is refused too. Matches the guard the
+        // circle/line/polygon/ellipse tools use.
         return points.every(point =>
             Array.isArray(point) &&
             point.length >= 2 &&
-            typeof point[0] === 'number' &&
-            typeof point[1] === 'number' &&
-            !isNaN(point[0]) &&
-            !isNaN(point[1])
+            Number.isFinite(point[0]) &&
+            Number.isFinite(point[1])
         );
     }
 
@@ -128,16 +129,22 @@ class AddBrushGeometry extends BaseGeometry {
 
         const simplified = [points[0]]; // Always keep first point
 
+        // The anchor is the last point actually KEPT, not the original neighbour.
+        // Anchoring on points[i - 1] measured every candidate against a chord that
+        // moves with it, so a smooth curve read as locally straight everywhere and
+        // collapsed to [first, last] however far it bowed away from that chord.
+        let anchor = points[0];
+
         for (let i = 1; i < points.length - 1; i++) {
-            const prev = points[i - 1];
             const curr = points[i];
             const next = points[i + 1];
 
             // Check if current point deviates significantly from straight line
-            const deviation = this.calculatePointLineDistance(curr, prev, next);
+            const deviation = this.calculatePointLineDistance(curr, anchor, next);
 
             if (deviation > tolerance) {
                 simplified.push(curr);
+                anchor = curr;
             }
         }
 
@@ -196,15 +203,23 @@ class AddBrushGeometry extends BaseGeometry {
             return null;
         }
 
-        const lngs = points.map(p => p[0]);
-        const lats = points.map(p => p[1]);
+        // Single pass, no spread: `Math.min(...lngs)` pushes one argument per point
+        // onto the stack and throws RangeError past ~100k of them (measured), and a
+        // stroke appends a point every 3 px of drag, so a long one gets there. There
+        // were FOUR spreads here, and fixing one of them would have gone green by
+        // accident, because the first spread to throw is the one the test observes.
+        let minLng = Infinity, minLat = Infinity;
+        let maxLng = -Infinity, maxLat = -Infinity;
 
-        return [
-            Math.min(...lngs), // minLng
-            Math.min(...lats), // minLat
-            Math.max(...lngs), // maxLng
-            Math.max(...lats)  // maxLat
-        ];
+        for (const point of points) {
+            const [lng, lat] = point;
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+        }
+
+        return [minLng, minLat, maxLng, maxLat];
     }
 
     /**

@@ -30,6 +30,13 @@ CREATE TABLE audit_trail (
     --     2026-08-24 ("postos ganham trilha"), fechando TRÊS dos quatro buracos que o
     --     censo declarava; o CHECK nasce largo em vez de ser alargado num arquivo
     --     seguinte porque nenhum banco fora deste branch aplicou esta baseline.
+    --   `API_KEY_CREATE` e `API_KEY_REVOKE` acompanham `API_KEY_ROTATE` em vez de
+    --     caberem dentro dela, e a razão é a que a revogação individual introduziu:
+    --     rotacionar é UM ato sobre a conta inteira (a chave anterior morre), enquanto
+    --     emitir e revogar são atos sobre UMA chave entre várias. Quem investiga um
+    --     vazamento pergunta "quando esta chave nasceu e quando caiu", e as três ações
+    --     enfiadas num verbo só devolveriam uma lista em que essa pergunta não tem
+    --     resposta. Nascem no CHECK largo pelo mesmo motivo da família `RANK_*`.
     --
     -- FORA por decisão: calibração de foto 360 (altíssima frequência, e a foto já
     -- tem `updated_at`; a auditoria de 360 é no nível do PROJETO). Fora por
@@ -57,7 +64,8 @@ CREATE TABLE audit_trail (
                   'ACCESS_GROUP_CREATE','ACCESS_GROUP_UPDATE','ACCESS_GROUP_DELETE',
                   'ACCESS_GROUP_MEMBER_ADD','ACCESS_GROUP_MEMBER_REMOVE',
                   'PERMISSION_REPARENT',
-                  'RANK_CREATE','RANK_UPDATE','RANK_DELETE'
+                  'RANK_CREATE','RANK_UPDATE','RANK_DELETE',
+                  'API_KEY_CREATE','API_KEY_REVOKE'
                 )),
 
     -- Sem FK, e é deliberado: o log precisa sobreviver ao delete do usuário que

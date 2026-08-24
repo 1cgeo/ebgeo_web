@@ -72,6 +72,10 @@ const DIA_MS = 24 * 60 * 60 * 1000;
 const AGORA = Date.UTC(2026, 7, 24, 15, 0, 0);
 
 describe('1. o alcance que a lista NAO cobre, dito na propria lista', () => {
+    // SEM ARGUMENTO = "nao sei quantos atlas emprestam", que e o estado de toda tela antes de
+    // a contagem pousar e o de um servidor mais velho que este build. E o ramo em que os casos
+    // abaixo (as origens por papel, as duas que faltavam, a saida) continuam valendo palavra
+    // por palavra.
     const nota = grantsListScopeNote();
 
     it('nomeia as tres origens por PAPEL', () => {
@@ -94,14 +98,61 @@ describe('1. o alcance que a lista NAO cobre, dito na propria lista', () => {
         expect(nota).toContain('configuração do atlas que empresta');
     });
 
-    it('NAO inventa numero, porque nenhuma rota entrega a contagem ao cliente', () => {
-        // `atlasesLendingResource` existe no servidor e nao e exposta. Numero inventado num
-        // aviso e a forma de gastar a credibilidade dele no dia em que ele for alto.
+    // ESTE CASO MUDOU EM 2026-08-24, E A MUDANCA E DELIBERADA. Ele dizia:
+    //
+    //     it('NAO inventa numero, porque nenhuma rota entrega a contagem ao cliente', () => {
+    //         expect(nota).not.toMatch(/\d/);
+    //     });
+    //
+    // A negacao estava CERTA enquanto valia a premissa dela, escrita ali ao lado:
+    // `atlasesLendingResource` existia no servidor e nao era exposta, entao qualquer digito na
+    // frase seria aritmetica fabricada. A premissa caiu: a contagem ganhou rota
+    // (`GET /resource-access/:type/:id/lending-atlases`), com gate — o MESMO desta tela,
+    // `requireResourceShare` —, e o numero passou a ser do SERVIDOR.
+    //
+    // O QUE SUBSTITUI A NEGACAO nao e o oposto dela ("agora tem digito"), porque isso perderia
+    // a propriedade que ela protegia. O que continua proibido e AFIRMAR NUMERO SEM SABER: o
+    // ramo SEM contagem tem de seguir sem digito nenhum, palavra por palavra como antes. Os
+    // tres casos abaixo sao um por estado (nao sei / zero / N), e o primeiro e o herdeiro
+    // direto do caso antigo.
+    it('SEM contagem, a frase continua sem UM digito: nao se afirma o que nao se sabe', () => {
         expect(nota).not.toMatch(/\d/);
+        // Os quatro jeitos de "nao sei" chegarem: ausente, nulo, indefinido e lixo. Todos
+        // precisam cair no MESMO texto, senao a tela ganha um quarto estado sem frase.
+        for (const naoSei of [null, undefined, 'muitos', NaN, -1, 1.5]) {
+            expect(grantsListScopeNote(naoSei), String(naoSei)).toBe(nota);
+        }
+    });
+
+    it('COM contagem, o numero vem do servidor e a saida continua nomeada', () => {
+        const tres = grantsListScopeNote(3);
+        expect(tres).toContain('3 atlas emprestam');
+        expect(tres).toContain('configuração do atlas que empresta');
+        // O singular nao e enfeite: "1 atlas emprestam" e o tipo de erro que faz a pessoa
+        // desconfiar do numero inteiro.
+        expect(grantsListScopeNote(1)).toContain('1 atlas empresta este recurso');
+        expect(grantsListScopeNote(1)).not.toContain('emprestam');
+    });
+
+    it('ZERO tem oracao PROPRIA: e a unica resposta que diz que remover FECHA o acesso', () => {
+        // Zero e a informacao mais util das tres, e cai justo no ramo que um `if (n)` engoliria
+        // — confundir 0 com "nao sei" apaga o unico caso em que a pessoa pode agir com
+        // confianca.
+        const zero = grantsListScopeNote(0);
+        expect(zero).toContain('Nenhum atlas empresta este recurso agora');
+        expect(zero).not.toBe(nota);
+        expect(zero).toContain('caminho do empréstimo está fechado');
+    });
+
+    it('a tela LE a contagem do modal, e o texto continua escapado', () => {
+        // O sitio: sem este caso, `grantsListScopeNote()` sem argumento no modal deixaria a
+        // frase eternamente qualitativa e nada ficaria vermelho.
+        expect(linhaUnica(MODAL, 'grantsListScopeNote(')).toContain('this._lendingAtlases');
+        expect(MODAL).toContain('countAtlasesLendingResource(');
     });
 
     it('a tela consome a funcao, e a frase de tres origens saiu', () => {
-        expect(linhaUnica(MODAL, 'grantsListScopeNote())')).toContain('escapeHtml');
+        expect(linhaUnica(MODAL, 'grantsListScopeNote(')).toContain('escapeHtml');
         expect(PROSA).not.toContain('enxergam este recurso por papel, sem concessão');
     });
 

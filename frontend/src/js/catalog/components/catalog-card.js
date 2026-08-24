@@ -16,6 +16,12 @@
  * privado inteiro por PAPEL, sem ter recebido nada. Quem dá o texto é
  * `js/catalog/access-origin-phrases.js`; quem dá o dado é `resourceAccessOrigin`, e `null`
  * (servidor antigo, soma que falhou) degrada para o selo genérico e verdadeiro.
+ *
+ * O PRAZO É O IRMÃO DO SELO, e chegou pelo mesmo caminho em 2026-08-24: o mapa `expirations`
+ * do payload aditivo, lido por `resourceAccessExpiry`. Ele responde ATÉ QUANDO onde o selo
+ * responde POR QUE, e o servidor só o carimba para quem enxerga por CONCESSÃO — papel global,
+ * produção e empréstimo não têm vencimento a afirmar. Ausência é o caso normal e não desenha
+ * nada; ver `prazoDoAcesso`.
  */
 
 import { escapeHtml } from '@utils/html-escape.js';
@@ -32,6 +38,7 @@ import { formatCatalogDate } from '../catalog.service.js';
 import {
     canShareResource,
     isPrivateResource,
+    resourceAccessExpiry,
     resourceAccessOrigin
 } from '@store/sync/resource-access.service.js';
 import { accessExpiryPhrase, classifyAccess, privateBadgePhrase } from '../access-origin-phrases.js';
@@ -95,19 +102,23 @@ export function accessClassOfItem(item) {
  * uma etiqueta. Enquanto o dado não chegar, isto é `null` em todo item e o chip simplesmente
  * não existe, que é o estado de hoje.
  *
- * O DADO AINDA NÃO EXISTE NO PAYLOAD, e a leitura abaixo é o ponto de pouso, não uma promessa
- * de que ele já pousou. Medido em 2026-08-24 contra o servidor deste repositório: o payload
- * aditivo mantém as colunas de procedência FORA do item, num mapa irmão (`origins`), e a
- * projeção do 360 virou lista explícita de campos — ou seja, uma coluna nova NÃO atravessa
- * sozinha até `originalData` em nenhum dos cinco grupos. O prazo tem de viajar como `origins`
- * viaja (um mapa `{grupo: {id: ISO}}`), com um leitor irmão de `resourceAccessOrigin` no
- * serviço de acesso; quando ele existir, esta função é a ÚNICA linha a trocar, e o resto do
- * caminho (frase, chip, estilo, teste) já está de pé.
+ * O DADO CHEGOU EM 2026-08-24, e pelo caminho que este comentário previa: um mapa irmão de
+ * `origins` (`expirations`, `{grupo: {id: ISO}}`), lido por `resourceAccessExpiry`. A previsão
+ * era a única forma possível, e vale registrar por quê — a leitura ANTERIOR era
+ * `item.originalData.access_expires_at`, e ela nunca teria dado certo: o payload aditivo
+ * mantém as colunas de procedência FORA do item e a projeção do 360 é lista explícita de
+ * campos, então coluna nova não atravessa sozinha até `originalData` em nenhum dos cinco
+ * grupos. Como previsto, esta função foi a ÚNICA linha a trocar: frase, chip, estilo e teste
+ * já estavam de pé.
+ *
+ * `null` NA MAIOR PARTE DOS ITENS É O ESTADO NORMAL: o servidor só carimba prazo para quem
+ * enxerga por CONCESSÃO. Ver `resourceAccessExpiry`.
  * @param {CatalogItem} item
- * @returns {*}
+ * @returns {string|null}
  */
 function prazoDoAcesso(item) {
-    return item?.originalData?.access_expires_at ?? item?.originalData?.accessExpiresAt ?? null;
+    const acesso = resourceAccessRefOf(item);
+    return acesso ? resourceAccessExpiry(acesso.grupo, acesso.id) : null;
 }
 
 /**

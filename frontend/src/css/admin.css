@@ -4,8 +4,9 @@
  * Admin PAGE — the whole of `admin.html`, not an overlay over the map. TRÊS audiências a
  * dividem (a tabela é `js/admin/admin-audience.js`, e a quarta linha dela é a do anônimo, que
  * por definição não abre a página): o administrador global (todas as abas), o produtor
- * (Catálogo mais Grupos e Auditoria) e qualquer outra sessão autenticada (Grupos e
- * Concessões, sob o rótulo "Acessos").
+ * (Catálogo mais Grupos, Concessões e Auditoria) e qualquer outra sessão autenticada (Grupos e
+ * Concessões, sob o rótulo "Acessos"). Concessões é a única aba que as TRÊS recebem, desde
+ * 2026-08-24.
  * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
  * section header + cards (table / forms / grid).
  * BEM blocks:
@@ -1071,6 +1072,7 @@
    legenda, acima do cartão, para não competir com os nomes dos recursos. Mesma forma de
    `.admin-groups__participating-scope`, e é de propósito que se pareçam. */
 .admin-grants__scope,
+.admin-grants__reach,
 .admin-grants__expiry-notice {
     margin: 0 0 var(--space-3);
     color: var(--gray-600);
@@ -1079,6 +1081,15 @@
 
 .admin-grants__scope {
     margin-top: calc(-1 * var(--space-2));
+}
+
+/* A nota de ALCANCE só existe para quem administra o sistema, e ela diz o que a lista NÃO traz.
+   Ela é a SEGUNDA prosa seguida no topo da aba, e duas legendas idênticas empilhadas se leem como
+   um parágrafo só: o filete a separa sem lhe dar peso de item. Cinza e não âmbar de propósito,
+   porque ela amplia o que a pessoa pode, e não avisa de risco. */
+.admin-grants__reach {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--gray-300);
 }
 
 /* O selo de "é um grupo" fica na LINHA de baixo do nome, como o `@usuário` da tabela de

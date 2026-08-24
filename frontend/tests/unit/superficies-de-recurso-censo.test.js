@@ -127,7 +127,18 @@ const CENSO = [
             + 'deixar de ser silenciosa. Nomear é possível AQUI e só aqui, porque quem pediu '
             + 'ainda está na variável, antes da reatribuição.',
     },
-    { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 2, classe: BASELINE, motivo: LE_TILESETS },
+    {
+        arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 3,
+        classe: BASELINE,
+        motivo: LE_TILESETS
+            + ' A TERCEIRA leitura entrou em 2026-08-24 e é a mesma forma já declarada para '
+            + '`map_3d.js` e `base-layer.control.js`: leitura de NOME, para que a cena 3D que não '
+            + 'abre possa ser acusada nomeando-a. O caminho que ela cobre é estreito e vale '
+            + 'registrar, porque não é o que se supõe: `openFirstPersonViewer` engole toda falha '
+            + 'de carga e já fala por conta própria, então o `catch` do controle só enxerga o '
+            + '`import()` do chunk falhando (troca de deploy sob aba aberta, rede fora). Era essa '
+            + 'a porta 100% muda, nas quatro entradas da cena.',
+    },
     {
         arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 4,
         classe: BASELINE,

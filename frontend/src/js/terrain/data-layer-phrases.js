@@ -39,18 +39,23 @@
  * the request count would say "42 falhas" about one layer, which is both useless and alarming.
  * Every function here takes LAYER NAMES.
  *
- * FIVE SURFACES SHARE THESE WORDS, and only three of them are layers. Since 2026-08-24 the same
+ * SIX SURFACES SHARE THESE WORDS, and only three of them are layers. Since 2026-08-24 the same
  * notice covers the data layers of `config.dataLayers`, the raster layers of
  * `config.analysisLayers`, the BASEMAP (`config.basemaps` → the whole `config.style`), the 3D
- * models of `config.tilesets` and the 360 photos. The first two are sources ADDED to the style
+ * models of `config.tilesets`, the 360 photos and the first-person SCENES (the rows of
+ * `config.tilesets` carrying `viewer: 'firstPerson'`). The first two are sources ADDED to the style
  * and are named in the same list; the basemap is the style ITSELF, so it gets its own sentence
  * rather than a slot in that list. Folding it into the list would produce "2 camadas não puderam
  * ser carregadas: "Mapa base" e "Molduras"", which counts a thing that is not a layer and hides
  * that the ground itself is missing.
  *
- * THE 3D MODEL AND THE 360 PHOTO ARE NOT LAYERS EITHER, and calling them one is the same class of
- * error, only quieter. The product's own vocabulary separates them: the catalog files them under
- * "Modelos 3D" and "Imagens 360°", never under "Dados" or "Análise" (`CATALOG_TYPE_CONFIG`). So
+ * THE 3D MODEL, THE 360 PHOTO AND THE 3D SCENE ARE NOT LAYERS EITHER, and calling them one is the
+ * same class of error, only quieter. The product's own vocabulary separates them: the catalog
+ * files them under "Modelos 3D", "Imagens 360°" and "Cenas 3D", never under "Dados" or "Análise"
+ * (`CATALOG_TYPE_CONFIG`). THE SCENE IS NOT THE MODEL, however close the two sit: they share the
+ * `config.tilesets` list and NOTHING else, since a scene is Gaussian splatting drawn by a third
+ * engine and is opened by a different viewer. Filing it under "modelo 3D" would name, on screen,
+ * a thing the person cannot find in the catalog. So
  * they get their own NOUN instead of their own sentence, because unlike the basemap there can be
  * several of them at once and the count-plus-list shape is exactly right for them. That is what
  * {@link SURFACE_NOUN} is: the agreement pt-BR needs (article, plural, participle) so one set of
@@ -76,6 +81,13 @@ export const SURFACE_NOUN = Object.freeze({
     CAMADA: 'camada',
     /** `config.tilesets`: a Cesium tileset or GLB model, drawn by another viewer entirely. */
     MODELO_3D: 'modelo3d',
+    /**
+     * A first-person Gaussian splatting scene (`config.tilesets` with `viewer: 'firstPerson'`),
+     * drawn by the aholo engine. "Cena 3D" is the catalog's own label for it, singular of the
+     * "Cenas 3D" section, and the word is taken from there rather than invented so the sentence
+     * names something the person can go and look for.
+     */
+    CENA_3D: 'cena3d',
     /** A 360 panorama, drawn by the Three.js viewer. */
     FOTO_360: 'foto360',
 });
@@ -97,6 +109,10 @@ const NOUN_TABLE = Object.freeze({
     [SURFACE_NOUN.MODELO_3D]: {
         article: 'O', singular: 'modelo 3D', plural: 'modelos 3D',
         loadedSingular: 'carregado', loadedPlural: 'carregados', nameless: 'Modelo 3D sem nome',
+    },
+    [SURFACE_NOUN.CENA_3D]: {
+        article: 'A', singular: 'cena 3D', plural: 'cenas 3D',
+        loadedSingular: 'carregada', loadedPlural: 'carregadas', nameless: 'Cena 3D sem nome',
     },
     [SURFACE_NOUN.FOTO_360]: {
         article: 'A', singular: 'foto 360°', plural: 'fotos 360°',

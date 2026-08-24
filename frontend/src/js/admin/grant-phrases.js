@@ -534,6 +534,32 @@ export function grantsScopeNotice() {
 }
 
 /**
+ * O QUE A ABA NÃO LISTA PARA QUEM ADMINISTRA O SISTEMA, e é a única frase daqui que depende de
+ * papel global.
+ *
+ * A ABA INTEIRA REPOUSA NUMA PROPRIEDADE DA CONSULTA: `grants/issued` filtra por `granted_by =
+ * <quem pergunta>`, sem ramo de papel, e o gate de revogação (`requireGrantRevoker`, no servidor)
+ * tem um ramo estreito que pergunta por AUTORIA. Para o credenciado e para o produtor os dois
+ * conjuntos coincidem, e por isso "o que eu concedi" é também "o que o servidor me deixa revogar".
+ *
+ * PARA O ADMINISTRADOR ELES NÃO COINCIDEM, e a diferença é só em UMA direção: o ramo LARGO daquele
+ * gate é administração do sistema, então ele revoga também o que não originou. Nenhuma linha da
+ * lista fica desonesta por isso (toda linha de `issued` é dele, e ele pode revogá-la pelos dois
+ * ramos), mas a lista SUBDECLARA o alcance dele, e uma tela que subdeclara autoridade ensina a
+ * pessoa a concluir que a autoridade não existe. Daí a frase, e daí ela nomear a saída real: o
+ * cartão do recurso, no catálogo, que é a outra superfície de concessão do produto.
+ *
+ * @param {{isAdmin?: boolean}} [principal]
+ * @returns {string} String vazia para quem não administra o sistema.
+ */
+export function issuedReachNotice({ isAdmin = false } = {}) {
+    if (!isAdmin) return '';
+    return 'Você administra o sistema, e por isso pode revogar também concessões que outras '
+        + 'pessoas fizeram. Esta aba lista SÓ as suas: as demais se alcançam pelo cartão do '
+        + 'recurso, no catálogo, inclusive as que aparecem em Recebidos por mim.';
+}
+
+/**
  * A dica do botão de renovar, NESTA aba.
  *
  * IRMÃ, E NÃO A MESMA, de `extendGrantHint` (`catalog/grant-tree.js`): aquela manda ler o prazo

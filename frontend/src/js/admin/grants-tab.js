@@ -24,6 +24,14 @@
  * propriedade que `revokeAvailability` (`catalog/grant-tree.js`) precisa simular linha a linha
  * dentro do modal, onde a lista é do RECURSO e mistura concedentes.
  *
+ * A PROPRIEDADE VALE NUMA DIREÇÃO SÓ PARA O ADMINISTRADOR, e a aba passou a ser dele em
+ * 2026-08-24. `grants/issued` filtra por `granted_by`, sem ramo de papel: toda linha que ele vê é
+ * dele e o botão continua honesto, mas o alcance DELE é maior que a lista, porque o ramo largo de
+ * `requireGrantRevoker` é administração do sistema. Subdeclarar autoridade também engana, então a
+ * assimetria é dita na tela por `issuedReachNotice`, que é a única coisa aqui a variar por papel
+ * global. O perfil chega por PARÂMETRO, de `mountAdminPage`: esta aba não lê `sessionContext`, e
+ * é o que a mantém montável num teste sem sessão.
+ *
  * `viaGroup` É VISÍVEL DE PROPÓSITO. É a única transferência de autoridade do sistema que não gera
  * linha própria em `resource_grants`: o acesso vem da membresia, e sai junto com ela. Sem o rótulo,
  * a pessoa procuraria uma concessão que não existe para entender por que perdeu o recurso.
@@ -68,6 +76,7 @@ import {
     issuedExtensionHint,
     issuedExtensionTermLabel,
     issuedFailureNotice,
+    issuedReachNotice,
     issuedRevocationSummary,
     issuedRevocationWarning,
     receivedEmptyHint,
@@ -85,10 +94,13 @@ import {
 
 /**
  * Builds the "Concessões" tab definition for the admin panel.
+ * @param {{isAdmin?: boolean}} [principal] - O papel GLOBAL de quem abriu o painel, já lido por
+ *   `mountAdminPage`. Só o administrador do sistema muda alguma coisa aqui, e o que ele muda é
+ *   UMA frase (ver `issuedReachNotice`); nada de gate, que é do servidor.
  * @returns {import('./admin-panel.js').AdminTab}
  */
-export function createGrantsTab() {
-    const tab = new GrantsTab();
+export function createGrantsTab({ isAdmin = false } = {}) {
+    const tab = new GrantsTab({ isAdmin });
     return {
         id: 'grants',
         label: 'Concessões',
@@ -99,6 +111,13 @@ export function createGrantsTab() {
 }
 
 class GrantsTab {
+    /**
+     * @param {{isAdmin?: boolean}} [principal]
+     */
+    constructor({ isAdmin = false } = {}) {
+        this._isAdmin = isAdmin === true;
+    }
+
     /**
      * @param {HTMLElement} container
      * @returns {Function} cleanup
@@ -138,6 +157,19 @@ class GrantsTab {
         escopo.dataset.testid = 'admin-grants-scope';
         escopo.textContent = grantsScopeNotice();
         c.appendChild(escopo);
+
+        // ACIMA DAS DUAS SEÇÕES, e não dentro de "Concedidos por mim": a assimetria que ela
+        // descreve vale para os dois lados (o administrador também revoga o que aparece em
+        // "Recebidos por mim", pelo cartão do recurso). String vazia para todo mundo que não
+        // administra o sistema, e aí não nasce parágrafo nenhum.
+        const alcance = issuedReachNotice({ isAdmin: this._isAdmin });
+        if (alcance) {
+            const p = document.createElement('p');
+            p.className = 'admin-grants__reach';
+            p.dataset.testid = 'admin-grants-reach';
+            p.textContent = alcance;
+            c.appendChild(p);
+        }
 
         const concedidos = document.createElement('section');
         concedidos.className = 'admin-grants__section';

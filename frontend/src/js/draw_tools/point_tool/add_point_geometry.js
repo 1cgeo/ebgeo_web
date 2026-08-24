@@ -37,11 +37,11 @@ class AddPointGeometry extends BaseGeometry {
             return false;
         }
 
-        if (typeof coordinates[0] !== 'number' || typeof coordinates[1] !== 'number') {
-            return false;
-        }
-
-        if (isNaN(coordinates[0]) || isNaN(coordinates[1])) {
+        // Number.isFinite rejects NaN AND +/-Infinity, and it already implies the
+        // number type, so a string coordinate is refused too. Matches the guard the
+        // circle/line/polygon/ellipse tools use. An infinite coordinate used to
+        // reach calculateSelectionBoxGeometry and produce a ring full of NaN.
+        if (!Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) {
             return false;
         }
 
@@ -207,9 +207,13 @@ class AddPointGeometry extends BaseGeometry {
      */
     recalculateSelectionBox(feature, currentZoom = null) {
         const effectiveZoom = feature.properties.sizeZoomCorrectionEnabled === false ? currentZoom : null;
+        // `size || 10` measured a deliberately invisible point (size 0) as if it
+        // were the default 10, drawing a selection box far larger than the marker.
+        const size = Number.isFinite(feature.properties.size) ? feature.properties.size : 10;
+
         return this.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
-            feature.properties.size || 10,
+            size,
             feature.properties.lineWidth || 0,
             feature.properties.sizeCreatedAtZoom || 0,
             effectiveZoom

@@ -264,6 +264,11 @@ const CENSO = [
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /:userId/reactivate', classe: AUDITADA, acao: 'USER_REACTIVATE', emissor: USERS_SVC },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /:userId/api-key/rotate', classe: AUDITADA, acao: 'API_KEY_ROTATE', emissor: USERS_SVC },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /me/api-key/rotate', classe: AUDITADA, acao: 'API_KEY_ROTATE', emissor: USERS_SVC },
+  // As chaves NOMEADAS (cláusula 10.7). Ações próprias, e não `API_KEY_ROTATE`: rotacionar
+  // é um ato sobre a conta inteira, emitir e revogar são atos sobre UMA chave entre várias.
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'POST /me/api-keys', classe: AUDITADA, acao: 'API_KEY_CREATE', emissor: USERS_SVC },
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'DELETE /me/api-keys/:keyId', classe: AUDITADA, acao: 'API_KEY_REVOKE', emissor: USERS_SVC },
+  { arquivo: 'src/modules/users/users.routes.js', rota: 'DELETE /:userId/api-keys/:keyId', classe: AUDITADA, acao: 'API_KEY_REVOKE', emissor: USERS_SVC },
   // AS DUAS AUTO-EDIÇÕES FECHARAM EM 2026-08-21, e as duas reusam a ação que o caminho
   // ADMINISTRATIVO já emitia: criar uma segunda ação para o mesmo fato partiria a
   // história de uma conta em duas listas que não se cruzam. `details.self === true` é o

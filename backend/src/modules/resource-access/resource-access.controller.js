@@ -48,6 +48,26 @@ export const listGrants = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/v1/resource-access/:type/:id/lending-atlases — QUANTOS atlas o emprestam.
+ *
+ * SÓ O NÚMERO SAI, e o recorte é o produto desta rota, não uma economia de bytes: a
+ * pergunta que a tela faz é "revogar esta linha fecha o acesso?", e para respondê-la basta
+ * saber se existe outro caminho aberto e em que ordem de grandeza. QUAIS atlas emprestam é
+ * fato sobre projetos de terceiros — quem pode compartilhar um recurso não herda por isso o
+ * direito de enumerar quem o usa. O serviço já devolve o número; os ids morrem lá dentro.
+ *
+ * `marcarEscopoJson` como as irmãs: o corpo é uma resposta a quem PODE compartilhar aquele
+ * recurso, e um cache compartilhado que a guardasse por heurística a reporia para quem o
+ * gate recusou. Aqui o valor não varia por chamador, mas o DIREITO de vê-lo varia, e é
+ * disso que um cache intermediário não sabe nada.
+ */
+export const lendingAtlases = asyncHandler(async (req, res) => {
+  const count = await svc.countAtlasesLendingResource(req.params.type, req.params.id);
+  marcarEscopoJson(req, res);
+  res.json({ data: { count } });
+});
+
+/**
  * GET /api/v1/resource-access/grants/issued — o que EU concedi.
  * GET /api/v1/resource-access/grants/received — o que EU recebi.
  *

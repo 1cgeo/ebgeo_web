@@ -122,7 +122,7 @@ aposentado: ele é o microsserviço 360 que este backend consome, e continua com
 
 **O delta esperado é declarado, e é isso que torna o porte barato.** O commit `741a9a4` do
 `ebgeo_360` (2026-08-19) diz por extenso que os dois arquivos são cópia com trechos de adaptação
-conhecidos. Hoje são CINCO, os três de lá mais dois nossos:
+conhecidos. Hoje são SEIS, os três de lá mais três nossos:
 
 1. o comentário de caminho na linha 1;
 2. `import * as THREE from '../../vendor/three/three.module.js'` e o `config.js` do monorepo, no
@@ -133,9 +133,21 @@ conhecidos. Hoje são CINCO, os três de lá mais dois nossos:
 4. `frontend/src/js/street_view_tool/tile-upload-rects.js`, que é a contabilidade de retângulos da
    subida parcial, lá uma closure dentro do arquivo;
 5. `frontend/src/js/street_view_tool/reeval-throttle.js`, que é o estrangulamento da reavaliação,
-   lá `agendarReavaliacao` mais duas variáveis do mesmo escopo.
+   lá `agendarReavaliacao` mais duas variáveis do mesmo escopo;
+6. a opção `onTileErro` mais as DUAS chamadas dela, uma no ramo `!resposta.ok` e outra no `catch`
+   de `baixarTile`, coladas nas duas linhas de `log` que já existiam lá. Autorizada pelo dono em
+   2026-08-24, para fechar a última superfície muda: uma foto 360 que desenha COM BURACOS. O
+   trecho carrega o FATO cru (`{ chave, status }`, com `status: null` quando resposta não houve) e
+   **nenhuma regra de negócio**: quantos buracos valem uma acusação, quem a recebe e com que
+   palavra é tudo `createTileHoleWatch` (`frontend/src/js/street_view_tool/photo360-failure.js`),
+   ligado em `street_view_viewer.js`. As duas chamadas são guardadas por `if (onTileErro)`, e essa
+   guarda é o que mantém a página de calibração viva: ela monta DOIS carregadores sem a opção, e
+   lá não há mapa, logo não há painel para acusar. Preso por
+   `frontend/tests/unit/foto360-com-buracos-acusa.test.js`, que também exige que esta declaração
+   continue aqui, porque um trecho não declarado é lido como conserto perdido na conferência
+   seguinte.
 
-**Os dois últimos NÃO existem porque `tile-loader.js` seja intestável em node.** Ele é testável, e
+**O quarto e o quinto NÃO existem porque `tile-loader.js` seja intestável em node.** Ele é testável, e
 cinco suítes o dirigem lá, com `vi.mock` sobre `frontend/src/vendor/three/three.module.js`; a
 primeira versão desta seção afirmou o contrário, e estava errada. A razão é mais estreita e foi
 medida revertendo: a guarda da envolvente (`loteParaSubir`) é **invisível** do carregador, porque
@@ -155,14 +167,19 @@ literais de objeto, não `importOriginal`, então uma propriedade nova do three 
 sem escrever nada lá (ele é só leitura):
 
 ```bash
-cd /c/Users/diniz/OneDrive/Desktop/Desenvolvimento/ebgeo_360
+cd /d/desenvolvimento/ebgeo_360
 git show HEAD:public/calibration/js/tile-loader.js > /tmp/tl-360.js
 diff --strip-trailing-cr /tmp/tl-360.js \
-  ../ebgeo_web/frontend/src/js/street_view_tool/tile-loader.js
+  /d/desenvolvimento/ebgeo_web_integracao_backend/frontend/src/js/street_view_tool/tile-loader.js
 ```
 
+O caminho do vizinho mudou: até 2026-08-24 esta seção mandava entrar em
+`/c/Users/diniz/OneDrive/Desktop/Desenvolvimento/ebgeo_360`, que não existe nesta máquina, e o
+alvo do diff era `../ebgeo_web/`, que também não. Um comando de conferência que não roda é uma
+conferência que não acontece.
+
 O `--strip-trailing-cr` não é opcional: o nosso arquivo é CRLF e o de lá é LF, e sem ele o diff
-acusa as 1600 linhas. **Diferença maior que os cinco trechos acima é conserto não portado.** Foi
+acusa as 1600 linhas. **Diferença maior que os seis trechos acima é conserto não portado.** Foi
 assim que os quatro consertos de cliente do commit `ff01e06` (2026-08-23) chegaram aqui, e é assim
 que o próximo lote chega. Os sete consertos restantes daquele commit são de servidor (Fastify,
 SQLite, ETag) e **não** transferem: o nosso 360 é servido pelo backend em Express, com ETag
@@ -175,8 +192,10 @@ graça às duas montagens do estúdio, ao contrário dos cinco arquivos de naveg
 que são cópia de verdade. Repare no efeito colateral, que é o que dá peso ao `dispose()`: a página
 de calibração monta DOIS carregadores, então toda textura de GPU não descartada vaza em dobro.
 
-Última conferência: 2026-08-23, com o `ebgeo_360` em `ff01e06`. Anote a data ao re-conferir, senão
-esta seção vira um "confira" sem prazo de validade.
+Última conferência: 2026-08-24, com o `ebgeo_360` em `9d0f528` (o `ff01e06` da conferência
+anterior já não era o HEAD de lá; o commit novo é de bancada e não toca neste arquivo). O delta
+medido é exatamente os seis trechos acima. Anote a data ao re-conferir, senão esta seção vira um
+"confira" sem prazo de validade.
 
 ## Os cinco arquivos de navegação, que hoje estão CONVERGIDOS
 
