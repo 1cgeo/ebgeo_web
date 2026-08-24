@@ -1091,7 +1091,17 @@ export class AccountControl {
                     }
                 }
                 // The modal closes on resolve; advance to project selection.
-                await this.openProjectPicker();
+                //
+                // A GARANTIA SOBRE O TRABALHO LOCAL VIAJA COMO PARÂMETRO, e não como toast, porque
+                // `openProjectPicker` navega: um toast levantado aqui morre com a página, já que o
+                // serviço de toast não persiste. Ela só é dita a quem estava mesmo trabalhando
+                // LOCAL no instante do login; para quem já estava num atlas de servidor a frase é
+                // ruído sobre algo que a pessoa não estava fazendo. O desfecho de dados sempre foi
+                // o certo (nada é apagado); o que faltava era dizê-lo.
+                const trabalhavaLocal = !isRemoteStoreSync();
+                await this.openProjectPicker(
+                    trabalhavaLocal ? { notice: 'trabalho-local-intacto' } : undefined
+                );
             },
             onRegister: signupEnabled ? () => this._handleRegister() : undefined
         });

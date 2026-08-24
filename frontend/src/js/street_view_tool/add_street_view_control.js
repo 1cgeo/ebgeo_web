@@ -18,6 +18,7 @@ import SavedPhotosMarkers from './saved_photos_markers.js';
 import { fetchNearestPhoto, sv360AtlasScope, sv360TileSource, sv360TransformRequest } from './streetview-api.service.js';
 import { rebuildScopedSource } from './tile-scope.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
+import { photo360Failures } from './photo360-failure.js';
 
 // Property carrying the photo id on the 360 photo features.
 //
@@ -123,6 +124,11 @@ class AddStreetViewControl {
 
     onAdd(map) {
         this.map = map;
+
+        // THE 360 VIEWER SPEAKS THROUGH THE MAP'S PANEL, and this is where it learns which map.
+        // What discovers that a photo did not load is `street_view_viewer.js`, lazily imported
+        // and holding no map at all: see `photo360-failure.js`.
+        photo360Failures.attach(map);
 
         // Initialize streetview markers manager
         this.streetviewMarkers = new StreetviewMarkers(map, this);
@@ -498,6 +504,10 @@ class AddStreetViewControl {
     }
 
     onRemove() {
+        // Paired with the attach in onAdd: a surface left registered keeps the shared notice
+        // calling into a control that is gone.
+        photo360Failures.detach();
+
         if (this._unsubBaseLayerChanged) {
             this._unsubBaseLayerChanged();
             this._unsubBaseLayerChanged = null;

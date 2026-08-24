@@ -45,6 +45,9 @@ import { resolveRedirectTarget } from './remote-map-redirect.js';
 // A grade de ações mora FORA daqui de propósito: ela é uma decisão pura sobre três valores
 // (origem da store, sessão e posto na escada), e este arquivo não carrega em node.
 import { AtlasTabState, visibleAtlasActions } from './atlas-actions.js';
+// A FRASE que diz onde o trabalho mora, também fora daqui e pela mesma razão: é decisão pura
+// sobre UM valor, e este arquivo não carrega em node.
+import { atlasLocalNotice } from './atlas-local-notice.js';
 import { MapMenuAction, mapMenuActions } from './map-menu-actions.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
@@ -154,6 +157,8 @@ export class MapsTab {
         this._atlasNameInput = null;
         this._atlasOriginChip = null;
         this._atlasLevelChip = null;
+        /** @type {HTMLElement|null} The visible "where this work lives" sentence, local atlas only. */
+        this._atlasNote = null;
         /** @type {string|null} Name of the mounted atlas, as last resolved. */
         this._atlasName = null;
         this._actionButtons = new Map();
@@ -250,7 +255,12 @@ export class MapsTab {
         grid.className = 'sidebar-actions-grid';
 
         const actions = [
-            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Escolher outro atlas' },
+            // "Seus atlas", e não "Abrir": este é o ÚNICO caminho do mapa até a tela de atlas, e o
+            // rótulo anterior não dizia isso. Ele ficava ao lado de "Importar", que É um seletor
+            // de arquivo, e o próprio `_handleOpenProject` registra que este botão JÁ FOI um
+            // seletor de `.ebgeo`; as palavras "Seus atlas" não apareciam em lugar nenhum do mapa
+            // para quem não tem sessão. O `title` continua sendo a explicação.
+            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Seus atlas', handler: () => this._handleOpenProject(), title: 'Escolher outro atlas' },
             // Label is "Enviar", not "Salvar": this PROMOTES the local atlas to a server project
             // and leaves you connected to it. It is not a "save as", and while it sat next to
             // another button starting with "Salvar" the two were indistinguishable by name.
@@ -379,9 +389,22 @@ export class MapsTab {
         levelChip.setAttribute('data-testid', 'atlas-level-chip');
         header.appendChild(levelChip);
 
+        // ONDE O TRABALHO MORA, em TEXTO VISÍVEL. O `title` do crachá de origem já dizia "Atlas
+        // local, só neste navegador", e um `title` não existe em toque, não existe para leitor de
+        // tela em vários contextos e não existe para quem não passa o mouse exatamente ali.
+        //
+        // Ele é irmão dos dois crachás dentro do MESMO bloco (`.atlas-header` embrulha), e não um
+        // elemento solto depois dele, porque a divisória do cabeçalho tem de ficar ABAIXO da
+        // frase: um aviso do outro lado do risco se lê como sendo sobre a seção seguinte.
+        const note = document.createElement('p');
+        note.className = 'atlas-header__note';
+        note.setAttribute('data-testid', 'atlas-local-note');
+        header.appendChild(note);
+
         this._atlasNameInput = input;
         this._atlasOriginChip = chip;
         this._atlasLevelChip = levelChip;
+        this._atlasNote = note;
 
         addDomListener(this, input, 'blur', () => this._handleRenameAtlas(input.value));
         addDomListener(this, input, 'keydown', (e) => {
@@ -437,6 +460,18 @@ export class MapsTab {
         this._atlasOriginChip.title = onRemote
             ? 'Atlas do servidor, compartilhado e sincronizado'
             : 'Atlas local, só neste navegador';
+
+        // A FRASE, ANTES DO `await` abaixo: a resolução do nome remoto vai à rede, e um cabeçalho
+        // que só dissesse onde o trabalho mora depois que a rede respondesse deixaria a janela
+        // sem aviso justamente enquanto ela é lenta. Ela é reescrita a cada passada porque as três
+        // assinaturas que chamam este método (`SESSION_CHANGED`, `CONNECTION_STATE_CHANGED`,
+        // `ALL_DATA_CLEARED`) são exatamente as que trocam o estado, entrar e sair da conta
+        // inclusive.
+        if (this._atlasNote) {
+            const aviso = atlasLocalNotice(this._atlasState());
+            this._atlasNote.textContent = aviso ?? '';
+            this._atlasNote.hidden = !aviso;
+        }
 
         const name = onRemote ? await this._resolveRemoteAtlasName() : this._resolveLocalAtlasName();
         this._atlasName = name;
@@ -1470,8 +1505,14 @@ export class MapsTab {
 
             const seguir = await showConfirm('Guardar uma cópia deste atlas neste computador?', {
                 message: perdas
-                    ? 'A cópia sai do servidor, então ela nunca leva recurso de catálogo '
-                        + 'restrito. Sai desta cópia:\n\n' + perdas
+                    // A MESMA AFIRMACAO FALSA DO M8, na outra porta, e ela sobreviveu porque o
+                    // achado citava so o `.ebgeo`. Fora do servidor nao ha ponto de imposicao,
+                    // entao a poda e KEEP-LIST: leva junto tudo o que nao se COMPROVA publico,
+                    // haja restricao ou nao. `descreverPerdas` ja separa as duas naturezas desde
+                    // 2026-08-24; era a moldura que anunciava uma so.
+                    ? 'A cópia sai do servidor, e fora dele não há como conferir quem pode ver o '
+                        + 'quê: só o recurso de catálogo comprovadamente público viaja nela. '
+                        + 'Sai desta cópia:\n\n' + perdas
                         + '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.'
                     : 'A cópia fica só neste computador e deixa de receber as alterações dos '
                         + 'outros participantes.',

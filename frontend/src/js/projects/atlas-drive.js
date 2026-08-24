@@ -68,6 +68,9 @@ import {
     seenMarkStorageKey, parseSeenMark, serializeSeenMark, resolveSharedBadge,
     badgeText, badgeAccessibleLabel, badgeScopeNotice,
 } from './shared-atlas-badge.js';
+// Módulo FOLHA, sem imports: as palavras das operações de atlas local moram todas nele, e é dele
+// que vem a recusa que este componente diz ANTES de chamar de volta a página.
+import { deleteAttempt, NoticeKind } from './local-atlas-notices.js';
 
 const ICONS = {
     plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
@@ -1685,7 +1688,9 @@ export class AtlasDrive {
 export class LocalAtlasSection {
     /**
      * @param {Object} options
-     * @param {Array<{id: string, name: string, updatedAt: number, createdAt: number}>} [options.atlases]
+     * @param {Array<{id: string, name: string, updatedAt: number, createdAt: number}>|null}
+     *   [options.atlases] - `null` significa A LISTA NÃO CHEGOU, e é um terceiro estado, não uma
+     *   lista vazia: ver {@link LocalAtlasSection#_render}.
      * @param {string|null} [options.currentId] - The slot the map will open by default.
      * @param {number} [options.max] - Ceiling of local atlases (`MAX_LOCAL_ATLASES`).
      * @param {Function} options.onOpen - Called with the id to open.
@@ -1695,9 +1700,17 @@ export class LocalAtlasSection {
      * @param {Function} options.onDelete - Called with the entry to delete.
      * @param {Function} [options.onOpenFile] - Called with the chosen `.ebgeo` `File`. Omitted
      *   leaves the button out entirely, rather than showing one that does nothing.
+     * @param {Function} [options.onRetry] - Called when the visitor asks to read the registry again
+     *   after a failure.
      */
     constructor(options = {}) {
         this._atlases = Array.isArray(options.atlases) ? options.atlases : [];
+        // O MESMO TERCEIRO ESTADO DO IRMÃO DE SERVIDOR (`AtlasDrive._loadFailed`), e pelo mesmo
+        // motivo: sem ele, um registro que a página não conseguiu ler entregava `[]` e a seção
+        // afirmava, sem ressalva e para sempre, que a pessoa não tem atlas nenhum. O estado
+        // honesto de um visitante novo NUNCA é a grade vazia (`bootstrapEntry` garante um cartão),
+        // então a grade vazia era literalmente o desenho da falha.
+        this._loadFailed = options.atlases === null;
         this._currentId = options.currentId ?? null;
         this._max = Number.isFinite(options.max) ? options.max : null;
         this._onOpen = options.onOpen || (() => {});
@@ -1706,6 +1719,7 @@ export class LocalAtlasSection {
         this._onDuplicate = options.onDuplicate || (() => {});
         this._onDelete = options.onDelete || (() => {});
         this._onOpenFile = options.onOpenFile || null;
+        this._onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
         this._root = null;
         this._gridEl = null;
         this._countEl = null;
@@ -1748,6 +1762,9 @@ export class LocalAtlasSection {
      */
     setAtlases(atlases, currentId) {
         this._atlases = Array.isArray(atlases) ? atlases : [];
+        // `null` chega aqui pelo botão de tentar de novo que falhou de novo: a seção tem de voltar
+        // ao estado de falha, e não ao de lista vazia.
+        this._loadFailed = atlases === null;
         this._currentId = currentId ?? null;
         this._busy = false;
         this._render();
@@ -1836,7 +1853,14 @@ export class LocalAtlasSection {
         return wrap;
     }
 
-    /** @private Rebuilds the cards + the create tile. */
+    /**
+     * @private Rebuilds the cards + the create tile.
+     *
+     * TRÊS ESTADOS, e o do meio é o que faltava: lista lida, lista NÃO LIDA e lista vazia. A falha
+     * de leitura do registro caía na terceira, com um toast que se dissipava em segundos, e o que
+     * ficava na tela era a afirmação de que a pessoa não tem nada mais um convite a criar um atlas
+     * por cima de um registro que a página acabou de não conseguir ler.
+     */
     _render() {
         if (!this._gridEl) return;
         // Same reason as the server grid: this runs again on every create/rename/delete, so the
@@ -1845,16 +1869,74 @@ export class LocalAtlasSection {
         this._closeMenu();
         this._gridEl.replaceChildren();
 
+        if (this._loadFailed) {
+            this._gridEl.appendChild(this._failureTile());
+            // Contagem NENHUMA, e não "0 de 10": o contador é uma medida do registro, e o registro
+            // é justamente o que não foi lido. Um zero aqui repetiria em números a mesma mentira
+            // que a grade vazia dizia em desenho.
+            if (this._countEl) {
+                this._countEl.textContent = '';
+                this._countEl.hidden = true;
+                this._countEl.removeAttribute('title');
+            }
+            return;
+        }
+
         for (const atlas of this._atlases) {
             this._gridEl.appendChild(this._card(atlas));
         }
         this._gridEl.appendChild(this._createTile());
+        this._paintCount();
+    }
 
-        if (this._countEl) {
-            this._countEl.textContent = this._max
-                ? `${this._atlases.length} de ${this._max}`
-                : String(this._atlases.length);
-        }
+    /**
+     * @private O contador do cabeçalho, com a VOZ que ele não tinha perto do teto.
+     *
+     * As palavras são {@link localCountLabel}, que é onde elas se verificam; isto é o DOM em volta.
+     */
+    _paintCount() {
+        if (!this._countEl) return;
+        const label = localCountLabel({ count: this._atlases.length, max: this._max });
+        this._countEl.hidden = false;
+        this._countEl.textContent = label.text;
+        // Reforço, nunca portador único: o texto acima já diz quantos restam.
+        if (label.title) this._countEl.title = label.title;
+        else this._countEl.removeAttribute('title');
+        this._countEl.className = 'local-atlas__count'
+            + (label.atCeiling ? ' local-atlas__count--full'
+                : (label.nearCeiling ? ' local-atlas__count--near' : ''));
+    }
+
+    /**
+     * @private O que a grade desenha quando o registro local não pôde ser lido.
+     *
+     * Copiado em FORMA do terceiro estado da grade de servidor (`project-picker-load-error`), com
+     * texto próprio: lá o que falhou foi uma consulta de rede, aqui foi uma leitura de IndexedDB, e
+     * a frase precisa dizer que os atlas continuam guardados neste navegador, senão ela troca o
+     * "você não tem nada" por um "você perdeu tudo".
+     */
+    _failureTile() {
+        const falha = document.createElement('div');
+        falha.className = 'local-atlas__failure';
+        falha.dataset.testid = 'local-atlas-load-error';
+        falha.setAttribute('role', 'alert');
+
+        const text = document.createElement('p');
+        text.className = 'local-atlas__failure-text';
+        text.textContent = 'Não foi possível ler os atlas guardados neste navegador. Eles continuam '
+            + 'aqui; o que falhou foi esta leitura. Não crie um atlas novo antes de tentar de novo, '
+            + 'para não trabalhar por cima de uma lista que a página não conseguiu ver.';
+        falha.appendChild(text);
+
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'local-atlas__failure-retry';
+        retry.dataset.testid = 'local-atlas-retry';
+        retry.textContent = 'Tentar de novo';
+        addScopedDomListener(this, 'local-cards', retry, 'click', () => this._onRetry?.());
+        falha.appendChild(retry);
+
+        return falha;
     }
 
     /** @private One local atlas. */
@@ -1949,6 +2031,26 @@ export class LocalAtlasSection {
         this._onOpen(atlas);
     }
 
+    /**
+     * @private O clique em "Excluir": ou a recusa, ou a página.
+     *
+     * A RECUSA CHEGA AQUI, ANTES DO DIÁLOGO VERMELHO. Antes, o caminho era menu → confirmação
+     * destrutiva ("Não há como desfazer") → API → recusa, e quem chega de primeira viagem tem
+     * exatamente um atlas, ou seja, esse era o caminho COMUM. A decisão é `deleteAttempt`, pura; a
+     * API refaz a mesma checagem e continua sendo a autoridade.
+     * @param {{id: string, name: string}} atlas
+     */
+    _attemptDelete(atlas) {
+        const attempt = deleteAttempt(this._atlases.length);
+        if (!attempt.allowed) {
+            const { kind, message } = attempt.notice;
+            if (kind === NoticeKind.ERROR) showError(message);
+            else showWarning(message);
+            return;
+        }
+        this._onDelete(atlas);
+    }
+
     /** @private Card actions, anchored to the ⋯ button. */
     _openMenu(atlas, anchorBtn) {
         if (this._menu && this._menuAnchor === anchorBtn) {
@@ -1972,6 +2074,7 @@ export class LocalAtlasSection {
             item.textContent = label;
             item.addEventListener('click', () => { this._closeMenu(); fn(); });
             menu.appendChild(item);
+            return item;
         };
 
         addItem('Abrir', 'local-atlas-open', false, () => this._open(atlas));
@@ -1981,7 +2084,16 @@ export class LocalAtlasSection {
         // IndexedDB (`copyAtlasDatabases`).
         // Ver a nota do irmão de servidor em `cardMenuActions`: o rótulo diz ONDE a cópia nasce.
         addItem('Copiar neste computador', 'local-atlas-duplicate', false, () => this._onDuplicate(atlas));
-        addItem('Excluir', 'local-atlas-delete', true, () => this._onDelete(atlas));
+
+        // "EXCLUIR" É DESENHADO SEMPRE, e recusa quando este é o único atlas. Ver `deleteAttempt`:
+        // ser o único é ESTADO reversível, então o comando fica na tela e o CLIQUE traz o motivo.
+        // NUNCA `disabled`: botão desabilitado não dispara clique, e o clique é o portador.
+        const attempt = deleteAttempt(this._atlases.length);
+        const del = addItem('Excluir', 'local-atlas-delete', true, () => this._attemptDelete(atlas));
+        if (!attempt.allowed) {
+            del.setAttribute('aria-disabled', 'true');
+            del.classList.add('local-atlas__menu-item--blocked');
+        }
 
         this._root.appendChild(menu);
         this._menu = menu;
@@ -2006,6 +2118,157 @@ export class LocalAtlasSection {
             this._menuOutside = null;
         }
     }
+}
+
+/**
+ * O QUE O CONTADOR "N de 10" DIZ, incluindo o que ele diz PERTO DO TETO.
+ *
+ * O teto de atlas locais só se anunciava DEPOIS de a pessoa abrir o diálogo, digitar um nome e
+ * confirmar: aí a API recusava com a frase certa. O contador já estava na tela o tempo todo e era
+ * mudo, um par de números sem `title` e sem mudança de rótulo, então nada na tela distinguia "8 de
+ * 10" de "10 de 10" a não ser o dígito.
+ *
+ * A PEÇA DE CRIAÇÃO CONTINUA VIVA NO TETO, e isso não muda aqui: a recusa da API carrega uma frase
+ * que diz o que fazer, e um botão morto não diz nada (é o contrato de afordância da casa, e o
+ * comentário de `_createTile` já o escrevia). O que este contador acrescenta é a informação ANTES
+ * do gesto, não um bloqueio.
+ *
+ * SEM TETO CONHECIDO ELE VOLTA A SER SÓ A CONTAGEM, sem voz: inventar um limite que ninguém passou
+ * seria afirmar um número que este build não mediu.
+ *
+ * Pura.
+ * @param {{count?: *, max?: *}} [options]
+ * @returns {{text: string, title: string, nearCeiling: boolean, atCeiling: boolean}}
+ */
+export function localCountLabel({ count, max } = {}) {
+    const n = Number.isFinite(count) && count >= 0 ? Math.trunc(count) : 0;
+    if (!Number.isFinite(max) || max <= 0) {
+        return { text: String(n), title: '', nearCeiling: false, atCeiling: false };
+    }
+    const teto = Math.trunc(max);
+    const restam = teto - n;
+    if (restam <= 0) {
+        return {
+            text: `${n} de ${teto} · limite atingido`,
+            title: `Você já tem ${teto} atlas neste navegador, que é o limite. Exclua um atlas `
+                + 'para criar outro.',
+            nearCeiling: true,
+            atCeiling: true,
+        };
+    }
+    if (restam <= 2) {
+        return {
+            text: restam === 1 ? `${n} de ${teto} · resta 1` : `${n} de ${teto} · restam ${restam}`,
+            title: restam === 1
+                ? `Resta espaço para 1 atlas neste navegador. O limite é ${teto}.`
+                : `Resta espaço para ${restam} atlas neste navegador. O limite é ${teto}.`,
+            nearCeiling: true,
+            atCeiling: false,
+        };
+    }
+    return {
+        text: `${n} de ${teto}`,
+        title: `Você pode guardar até ${teto} atlas neste navegador.`,
+        nearCeiling: false,
+        atCeiling: false,
+    };
+}
+
+/**
+ * O que o mapa manda dizer quando se desmonta sozinho, por código de `?aviso=`.
+ *
+ * SÃO DUAS FAMÍLIAS, e a segunda nasceu em 2026-08-24: as duas primeiras são PERDAS (um atlas de
+ * servidor que deixou de existir), e `trabalho-local-intacto` é uma GARANTIA. Ela existe porque
+ * entrar numa conta leva embora a página do mapa, e o visitante que desenhou a tarde inteira num
+ * atlas local chegava aqui sem uma linha dizendo que aquilo continua ali. O desfecho de dados
+ * sempre foi o certo (`syncEngine.login` não toca no store, `openProjectPicker` só navega), então
+ * o que faltava era dizê-lo, e o único canal que sobrevive à navegação é este parâmetro: um
+ * `showToast` levantado antes do `location.assign` morre com a página, porque o serviço de toast
+ * não persiste em `sessionStorage` nem em `localStorage`.
+ */
+const ARRIVAL_NOTICES = Object.freeze({
+    excluido: 'Atlas excluído.',
+    'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
+    'trabalho-local-intacto': 'Seu trabalho neste computador continua aqui, em "Neste computador". '
+        + 'Entrar numa conta não move nem apaga nada do que já estava neste navegador.',
+});
+
+/**
+ * A frase de chegada, ou `null` quando não há nada honesto a dizer.
+ *
+ * TODO CÓDIGO DAQUI PRESSUPÕE SESSÃO, e por dois motivos distintos que dão no mesmo portão. Os
+ * dois primeiros são fatos sobre um atlas de SERVIDOR, e só o mapa de uma sessão viva os produz
+ * (`AccountControl._handleRemoteAtlasDeleted`): ecoá-los para quem não tem sessão descrevia a um
+ * anônimo a propriedade de um atlas que ele nunca teve, por um parâmetro que qualquer um monta na
+ * barra de endereços. O terceiro é a garantia sobre o trabalho local, dita no instante em que
+ * alguém ENTRA numa conta: fora desse instante ela é ruído, e para quem nunca entrou é a resposta
+ * a uma pergunta que ninguém fez. O portão único (`signedIn`) serve aos dois casos.
+ *
+ * QUEM PERDE ALGO COM ISSO é o caso raro em que a sessão existe e não pôde ser confirmada neste
+ * carregamento: ali a página já diz, por outra frase, que não conseguiu confirmar a sessão, que é
+ * a explicação maior e a que a pessoa precisa primeiro. O parâmetro continua sendo consumido da
+ * URL pelo chamador nos dois casos, para que um F5 não repita nada.
+ *
+ * Pura.
+ * @param {*} code - O valor cru de `?aviso=`.
+ * @param {{signedIn?: boolean}} [options]
+ * @returns {string|null}
+ */
+export function arrivalNotice(code, { signedIn = false } = {}) {
+    if (!signedIn) return null;
+    // `Object.hasOwn`, NUNCA o acesso direto com `??`: o operador não distingue "esta chave não
+    // existe" de "esta chave veio do protótipo", então `?aviso=toString` devolvia a FUNÇÃO
+    // `Object.prototype.toString` para um parâmetro que qualquer um monta na barra de endereços.
+    // O congelamento do literal não protege disso, porque a cadeia de protótipo continua viva.
+    return Object.hasOwn(ARRIVAL_NOTICES, code) ? ARRIVAL_NOTICES[code] : null;
+}
+
+/**
+ * O que fica no lugar da metade de servidor quando o `GET /api/config` não respondeu.
+ *
+ * ATÉ 2026-08-24 ESTA PÁGINA INTEIRA VIRAVA A TELA DE BLOQUEIO, e essa era a perda: "Neste
+ * computador" não fala com o servidor em ponto nenhum (`loadLocalAtlases` lê o registro local e
+ * devolve o lock), então o produto que continuava funcionando ficava inalcançável por causa da
+ * metade que não. Decisão do dono, 2026-08-24: a metade local DESENHA, e só a de servidor é
+ * substituída por este bloco.
+ *
+ * ELE NÃO É O CONVITE (`createServerInvite`) COM OUTRO TEXTO. O convite oferece "Entrar", que aqui
+ * é justamente o que não funciona; oferecer o botão seria prometer o que a página não pode
+ * cumprir. E ele NOMEIA o que continua possível, incluindo o que não continua: abrir um atlas
+ * local leva ao mapa, e o mapa é fail-fast no mesmo `/api/config`.
+ *
+ * @param {Object} options
+ * @param {Function} options.onRetry - Chamado quando a pessoa pede nova tentativa.
+ * @returns {HTMLElement}
+ */
+export function createServerOutage({ onRetry }) {
+    const section = document.createElement('section');
+    section.className = 'server-outage';
+    section.dataset.testid = 'server-outage';
+    section.setAttribute('role', 'status');
+
+    const h = document.createElement('h2');
+    h.className = 'server-outage__title';
+    h.textContent = 'Servidor indisponível';
+    section.appendChild(h);
+
+    const text = document.createElement('p');
+    text.className = 'server-outage__text';
+    text.textContent = 'O servidor não respondeu, então entrar e abrir atlas do servidor estão '
+        + 'fora no momento. Os atlas guardados neste navegador continuam aqui, e você pode criar, '
+        + 'renomear, copiar e excluir normalmente. Abrir um deles no mapa só volta a funcionar '
+        + 'quando o servidor responder.';
+    section.appendChild(text);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'atlas-drive__btn atlas-drive__btn--primary';
+    btn.dataset.testid = 'server-outage-retry';
+    btn.textContent = 'Tentar novamente';
+    btn.addEventListener('click', () => onRetry?.());
+    section.appendChild(btn);
+
+    return section;
 }
 
 /**

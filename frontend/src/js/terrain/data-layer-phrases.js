@@ -39,13 +39,23 @@
  * the request count would say "42 falhas" about one layer, which is both useless and alarming.
  * Every function here takes LAYER NAMES.
  *
- * THREE SURFACES SHARE THESE WORDS, and one of them is not a layer. Since 2026-08-24 the same
+ * FIVE SURFACES SHARE THESE WORDS, and only three of them are layers. Since 2026-08-24 the same
  * notice covers the data layers of `config.dataLayers`, the raster layers of
- * `config.analysisLayers` and the BASEMAP (`config.basemaps` → the whole `config.style`). The
- * first two are sources ADDED to the style and are named in the same list; the basemap is the
- * style ITSELF, so it gets its own sentence rather than a slot in that list. Folding it into the
- * list would produce "2 camadas não puderam ser carregadas: "Mapa base" e "Molduras"", which
- * counts a thing that is not a layer and hides that the ground itself is missing.
+ * `config.analysisLayers`, the BASEMAP (`config.basemaps` → the whole `config.style`), the 3D
+ * models of `config.tilesets` and the 360 photos. The first two are sources ADDED to the style
+ * and are named in the same list; the basemap is the style ITSELF, so it gets its own sentence
+ * rather than a slot in that list. Folding it into the list would produce "2 camadas não puderam
+ * ser carregadas: "Mapa base" e "Molduras"", which counts a thing that is not a layer and hides
+ * that the ground itself is missing.
+ *
+ * THE 3D MODEL AND THE 360 PHOTO ARE NOT LAYERS EITHER, and calling them one is the same class of
+ * error, only quieter. The product's own vocabulary separates them: the catalog files them under
+ * "Modelos 3D" and "Imagens 360°", never under "Dados" or "Análise" (`CATALOG_TYPE_CONFIG`). So
+ * they get their own NOUN instead of their own sentence, because unlike the basemap there can be
+ * several of them at once and the count-plus-list shape is exactly right for them. That is what
+ * {@link SURFACE_NOUN} is: the agreement pt-BR needs (article, plural, participle) so one set of
+ * builders can say "A camada X não pôde ser carregada" and "O modelo 3D X não pôde ser
+ * carregado" without a second copy of the sentence per surface.
  */
 
 /** Label of the affordance that re-asks for the layer. */
@@ -55,16 +65,69 @@ export const RETRY_ACTION_LABEL = 'Tentar de novo';
 export const DISMISS_ACTION_LABEL = 'Dispensar';
 
 /**
- * A layer name fit to print, quoted. The fallback is NOT the empty string: a layer with no
+ * The nouns the notice can speak about, other than the basemap.
+ *
+ * They are KEYS, not sentences: the sentence is assembled from {@link NOUN_TABLE}, so a surface
+ * declares what it IS and never how it reads.
+ * @enum {string}
+ */
+export const SURFACE_NOUN = Object.freeze({
+    /** `config.dataLayers` and `config.analysisLayers`: sources added on top of the style. */
+    CAMADA: 'camada',
+    /** `config.tilesets`: a Cesium tileset or GLB model, drawn by another viewer entirely. */
+    MODELO_3D: 'modelo3d',
+    /** A 360 panorama, drawn by the Three.js viewer. */
+    FOTO_360: 'foto360',
+});
+
+/**
+ * The pt-BR agreement of each noun. Gender is the whole reason this table exists: "carregada"
+ * for a camada and "carregado" for a modelo is not a detail a Portuguese reader can skip, and
+ * hard-coding the feminine (which is what a single set of sentences would do) makes the notice
+ * read as machine output exactly when it is asking to be trusted.
+ *
+ * The ORDER of the keys is the order the sentences come out in, so it is stable across renders
+ * instead of following whatever happened to fail first.
+ */
+const NOUN_TABLE = Object.freeze({
+    [SURFACE_NOUN.CAMADA]: {
+        article: 'A', singular: 'camada', plural: 'camadas',
+        loadedSingular: 'carregada', loadedPlural: 'carregadas', nameless: 'Camada sem nome',
+    },
+    [SURFACE_NOUN.MODELO_3D]: {
+        article: 'O', singular: 'modelo 3D', plural: 'modelos 3D',
+        loadedSingular: 'carregado', loadedPlural: 'carregados', nameless: 'Modelo 3D sem nome',
+    },
+    [SURFACE_NOUN.FOTO_360]: {
+        article: 'A', singular: 'foto 360°', plural: 'fotos 360°',
+        loadedSingular: 'carregada', loadedPlural: 'carregadas', nameless: 'Foto 360° sem nome',
+    },
+});
+
+/**
+ * The agreement of a noun, falling back to the layer's. An unknown noun is a caller bug, and the
+ * fallback is deliberately the one that produces a true sentence about SOMETHING rather than
+ * `undefined` on screen.
+ * @param {*} noun
+ * @returns {Object}
+ */
+function nounOf(noun) {
+    return NOUN_TABLE[noun] || NOUN_TABLE[SURFACE_NOUN.CAMADA];
+}
+
+/**
+ * A name fit to print, quoted. The fallback is NOT the empty string: a layer with no
  * name is still a layer that failed, and dropping it from the sentence would shorten the list
  * without lowering the count beside it, which is the shape of error where the screen
  * contradicts itself.
  * @param {*} value
+ * @param {string} [noun] - A {@link SURFACE_NOUN}. Defaults to the layer, so every existing
+ *   caller keeps the sentence it had.
  * @returns {string}
  */
-export function layerDisplayName(value) {
+export function layerDisplayName(value, noun = SURFACE_NOUN.CAMADA) {
     const name = String(value ?? '').trim();
-    return name || 'Camada sem nome';
+    return name || nounOf(noun).nameless;
 }
 
 /**
@@ -73,12 +136,12 @@ export function layerDisplayName(value) {
  * @param {Array<*>} names
  * @returns {string[]}
  */
-function distinctNames(names) {
+function distinctNames(names, noun = SURFACE_NOUN.CAMADA) {
     const list = Array.isArray(names) ? names : [];
     const seen = new Set();
     const out = [];
     for (const raw of list) {
-        const name = layerDisplayName(raw);
+        const name = layerDisplayName(raw, noun);
         if (seen.has(name)) continue;
         seen.add(name);
         out.push(name);
@@ -89,10 +152,11 @@ function distinctNames(names) {
 /**
  * Quoted names joined the way pt-BR joins them: "A", "A" e "B", "A", "B" e "C".
  * @param {Array<*>} names
+ * @param {string} [noun] - A {@link SURFACE_NOUN}, which only decides the nameless fallback.
  * @returns {string} Empty string for an empty list.
  */
-export function formatLayerNameList(names) {
-    const quoted = distinctNames(names).map((name) => `"${name}"`);
+export function formatLayerNameList(names, noun = SURFACE_NOUN.CAMADA) {
+    const quoted = distinctNames(names, noun).map((name) => `"${name}"`);
     if (quoted.length === 0) return '';
     if (quoted.length === 1) return quoted[0];
     return `${quoted.slice(0, -1).join(', ')} e ${quoted[quoted.length - 1]}`;
@@ -104,17 +168,20 @@ export function formatLayerNameList(names) {
  * "não pôde ser carregada" is deliberate and is not a synonym of "não existe" or of "está
  * vazia". An empty layer is a layer that answered with zero features; this one did not answer.
  * @param {Array<*>} names - Layer names, one per LAYER (never per failed tile).
+ * @param {string} [noun] - A {@link SURFACE_NOUN}. The default keeps every existing caller's
+ *   sentence byte for byte.
  * @returns {string} Empty string for an empty list, so the caller cannot render a notice about nothing.
  */
-export function layerLoadFailureNotice(names) {
+export function layerLoadFailureNotice(names, noun = SURFACE_NOUN.CAMADA) {
     // The count comes from the SAME de-duplicated list the sentence prints. Deriving it from the
     // raw array instead would say "2 camadas" and then name one, which is the shape of error where
     // the notice contradicts itself in a single line.
-    const count = distinctNames(names).length;
+    const count = distinctNames(names, noun).length;
     if (count === 0) return '';
-    const rendered = formatLayerNameList(names);
-    if (count === 1) return `A camada ${rendered} não pôde ser carregada.`;
-    return `${count} camadas não puderam ser carregadas: ${rendered}.`;
+    const rendered = formatLayerNameList(names, noun);
+    const w = nounOf(noun);
+    if (count === 1) return `${w.article} ${w.singular} ${rendered} não pôde ser ${w.loadedSingular}.`;
+    return `${count} ${w.plural} não puderam ser ${w.loadedPlural}: ${rendered}.`;
 }
 
 /**
@@ -161,14 +228,16 @@ export function layerLoadFailureStatusDetail(statuses) {
  * the same words came back, and nothing tells them whether anything happened. Naming the retry
  * is what separates "it failed again" from "the screen did not react".
  * @param {Array<*>} names
+ * @param {string} [noun] - A {@link SURFACE_NOUN}.
  * @returns {string} Empty string for an empty list.
  */
-export function layerRetryStillFailingNotice(names) {
-    const count = distinctNames(names).length;
+export function layerRetryStillFailingNotice(names, noun = SURFACE_NOUN.CAMADA) {
+    const count = distinctNames(names, noun).length;
     if (count === 0) return '';
-    const rendered = formatLayerNameList(names);
-    if (count === 1) return `A camada ${rendered} continua sem carregar após a nova tentativa.`;
-    return `${count} camadas continuam sem carregar após a nova tentativa: ${rendered}.`;
+    const rendered = formatLayerNameList(names, noun);
+    const w = nounOf(noun);
+    if (count === 1) return `${w.article} ${w.singular} ${rendered} continua sem carregar após a nova tentativa.`;
+    return `${count} ${w.plural} continuam sem carregar após a nova tentativa: ${rendered}.`;
 }
 
 /**
@@ -199,18 +268,46 @@ export function basemapLoadFailureNotice(name) {
  * person is looking at than a layer's does. Reading "a camada X falhou" first, with a blank map
  * behind it, sends the diagnosis to the wrong place.
  *
- * `retried` applies ONLY to the layer half. The basemap is not re-requested by this notice (there
+ * `retried` is PER GROUP, and it has to be. The basemap is not re-requested by this notice (there
  * is no affordance for it: see `layer-failure-notice.js`), so claiming "após a nova tentativa"
- * about it would describe an attempt that never happened.
- * @param {{layerNames?: Array<*>, basemapFailed?: boolean, basemapName?: *, retried?: boolean}} [state]
+ * about it would describe an attempt that never happened; and the same is true of the 3D model
+ * and the 360 photo, whose loaders this notice cannot drive either. A single flag applied to
+ * everything on screen would put those words on a surface nobody asked for again the moment a
+ * data layer was retried beside it.
+ *
+ * THE ORDER IS FIXED BY {@link NOUN_TABLE}, not by who failed first, so the same set of failures
+ * always reads the same way.
+ * @param {{layerNames?: Array<*>, basemapFailed?: boolean, basemapName?: *, retried?: boolean,
+ *   groups?: Array<{noun?: string, names?: Array<*>, retried?: boolean}>}} [state] - `layerNames`
+ *   and `retried` are the layer group, kept as their own arguments because every caller that
+ *   predates the other nouns passes them; `groups` carries the rest and merges into it.
  * @returns {string} Empty string when nothing failed, so the caller cannot render a notice about nothing.
  */
 export function loadFailureHeadline({
-    layerNames = [], basemapFailed = false, basemapName = null, retried = false,
+    layerNames = [], basemapFailed = false, basemapName = null, retried = false, groups = [],
 } = {}) {
-    const layers = retried ? layerRetryStillFailingNotice(layerNames) : layerLoadFailureNotice(layerNames);
-    const basemap = basemapFailed ? basemapLoadFailureNotice(basemapName) : '';
-    return [basemap, layers].filter(Boolean).join(' ');
+    const merged = new Map();
+    const add = (noun, names, wasRetried) => {
+        const key = NOUN_TABLE[noun] ? noun : SURFACE_NOUN.CAMADA;
+        const slot = merged.get(key) || { names: [], retried: false };
+        slot.names.push(...(Array.isArray(names) ? names : []));
+        slot.retried = slot.retried || wasRetried === true;
+        merged.set(key, slot);
+    };
+    add(SURFACE_NOUN.CAMADA, layerNames, retried);
+    for (const group of Array.isArray(groups) ? groups : []) {
+        add(group?.noun, group?.names, group?.retried);
+    }
+
+    const sentences = [basemapFailed ? basemapLoadFailureNotice(basemapName) : ''];
+    for (const noun of Object.keys(NOUN_TABLE)) {
+        const slot = merged.get(noun);
+        if (!slot) continue;
+        sentences.push(slot.retried
+            ? layerRetryStillFailingNotice(slot.names, noun)
+            : layerLoadFailureNotice(slot.names, noun));
+    }
+    return sentences.filter(Boolean).join(' ');
 }
 
 /**

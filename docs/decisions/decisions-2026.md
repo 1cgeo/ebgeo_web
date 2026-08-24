@@ -874,3 +874,88 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - **Produtor e administrador não ganharam a aba Concessões.** Os dois têm a trilha de auditoria, que cobre os atos de concessão DELES; ela não responde o que eles RECEBERAM. A meia-cobertura está escrita no `fileoverview` da aba, em voz alta.
   - **Nada foi verificado em CAPTURA.** Seis agentes escreveram em paralelo, e a camada que exercita UI é o Playwright, que ficou fora deste lote. Tudo aqui é leitura de código, teste em node e as três pernas do `npm test`.
 - **Status:** aceita e implementada. O relatório foi dissolvido.
+
+### 2026-08-24: as quatro decisões do perfil DESLOGADO, e o último relatório de UX é dissolvido
+
+- **Contexto:** o quinto e último dos relatórios de UX por perfil, o do visitante anônimo (incluindo
+  quem chega por link público de atlas). É o perfil do primeiro acesso e o único que chega por um
+  link em vez de por uma escolha. Vinte e um achados em vigor: quatro altos, sete médios, dez
+  baixos, nenhum crítico. A baixa mecânica contra `34828b9b` e `71390ffd` (interseção de 107
+  arquivos tocados com 41 citados, seis arquivos) não fechou nenhum achado inteiro e encolheu dois:
+  A4 passou de uma superfície acusada para três, e B9 perdeu a premissa, porque a frase do catálogo
+  vazio já distinguia "filtrado até o vazio" de "vazio de verdade".
+- **Decisão, em quatro perguntas ao dono:**
+  1. **A tela sem servidor ganha a frase que tranquiliza E a metade local passa a ser alcançável.**
+     Em `atlas.html`, o `GET /api/config` falhado deixa de virar a tela de bloqueio: a seção "Neste
+     computador" desenha, porque `loadLocalAtlases` nunca tocou a rede. O mapa continua fail-fast.
+  2. **A dose de sinal no mapa é faixa no visitante público mais frase no atlas local**, e nada de
+     convite ao servidor. Isso responde P5 e RECUSA o achado M1 por decisão de produto: o mapa é o
+     produto de quem não entrou, e encher a tela de convite contradiz isso.
+  3. **3D e 360 passam a acusar no mesmo painel de camada que não desenha**, apesar de não passarem
+     pelo evento de erro do MapLibre. Eram as duas últimas superfícies mudas para quem não tem via
+     de diagnóstico nenhuma.
+  4. **Este lote é verificado por captura do Playwright**, fechando a lacuna que os quatro lotes
+     anteriores declararam.
+- **Alternativas recusadas, com o porquê:**
+  - *Fazer o mapa abrir atlas local sem servidor.* É a terceira opção da pergunta 1 e desfaria o
+    fail-fast, que é decisão declarada. O preço fica NOMEADO na tela ("abrir um deles no mapa só
+    volta a funcionar quando o servidor responder") em vez de a pessoa descobrir batendo no bloqueio.
+  - *Trocar o gate de `AtlasNameControl` de `isAuthenticated()` para atlas conectado.* Era a
+    alternativa barata para A2 e não carrega a SAÍDA, que é a metade que o visitante precisa.
+  - *Distinguir 403 de 404 no link público morto.* Já recusada e reafirmada: reconstruiria no
+    cliente o oráculo de existência que a cláusula 5.6 fecha no servidor.
+  - *Omitir ou desabilitar "Excluir" no último atlas local*, que era a correção que o próprio
+    relatório propunha para M10. Ser o único atlas é ESTADO reversível, então o comando continua
+    desenhado e o clique recusa nomeando o estado, com `aria-disabled` e nunca `disabled`. O
+    relatório propôs contra a constituição, e a constituição venceu. O mesmo vale para o teto de
+    dez (B2), cujo comentário de recusa a desabilitar foi preservado intacto.
+  - *Fundir num módulo só as duas frases sobre onde o trabalho local mora* (a da aba Mapas e a de
+    `atlas.html`). Têm sujeito e ação de fecho diferentes; uma frase única pioraria as duas telas.
+- **Consequências medidas, e as que contrariam a intuição:**
+  - **O modelo 3D tem DOIS caminhos de falha, e o segundo é o silencioso.** A raiz que rejeita
+    propaga até um `catch` e carrega o código HTTP no `RequestErrorEvent` do Cesium; mas a raiz que
+    responde 200 com TODOS os filhos `.b3dm` recusados não rejeita nada, não lança nada, e a cena
+    fica simplesmente vazia. O único canal é o evento `tileFailed`, cuja mensagem é uma STRING
+    (`Request has failed. Status Code: 403`), medida no bundle vendorizado. É exatamente a forma que
+    um modelo privado emprestado toma para um visitante de link público.
+  - **A acusação de 3D e 360 é retirada quando o recurso é PEDIDO DE NOVO, não quando ele carrega.**
+    Uma raiz que carrega não diz nada sobre os filhos, então "abriu" não é prova de que desenhou.
+  - **`style.load` deixou de retirar as acusações dessas duas superfícies** (`rebuiltByStyle:
+    false`): trocar de basemap não re-pede nenhum dos dois motores, e a fiação ingênua teria feito
+    uma troca de basemap apagar um aviso ainda verdadeiro.
+  - **O painel é invisível enquanto qualquer dos dois visualizadores está aberto**, porque ele mora
+    no container do mapa e os dois escondem esse container. Ele é o que a pessoa lê AO VOLTAR, e é
+    por isso que o 360 ganhou também um toast, redigido a partir da mesma função de frase para que
+    painel e toast não divirjam.
+  - **O rótulo do chunk continua não predizendo o conteúdo.** `model3d-failure.js` caiu num arquivo
+    chamado `cesium-integration`, o que parecia arrastar o motor para o payload eager; medido, os
+    chunks com esse nome pré-carregados pelo `index.html` somam 75 kB, porque `entriesAware`
+    subdivide o grupo e os 4,5 MB do Cesium são VENDORIZADOS, fora do bundle.
+  - **Criar, renomear, copiar e excluir atlas local funcionam inteiramente sem backend** (é
+    IndexedDB puro), o que é o que torna a decisão 1 barata. Só ABRIR precisa do servidor.
+- **O que fica declarado e NÃO foi fechado:**
+  - **Existe um sítio destrutivo que reivindica o tab-lock SEM testemunha, e não é o que a
+    documentação acusava.** O JSDoc de `acquireTabLock` culpava a abertura de link público, que na
+    verdade passa testemunha desde que o quarto sítio foi ligado; quem pede sem ela é
+    `AccountControl.saveLocalToServer`, uma linha antes de um wipe. A prosa foi corrigida e o sítio
+    vivo, NOMEADO e censado por teste; o furo continua aberto, porque fechá-lo é mudança de
+    comportamento num caminho de concorrência e merece repro próprio.
+  - **Duas contagens vizinhas do mesmo cabeçalho continuam erradas** (a seção 5 de
+    `frontend/src/js/utilities/tab-lock.js` diz "quatro" e enumera outro conjunto, e afirma como
+    universal um "todo `clearAllDataStore` é precedido de `acquire`" que tem cinco contraexemplos).
+    Mesma classe do B10, lote próprio.
+  - **Há um TERCEIRO visualizador com caminho de carga silencioso**, o de primeira pessoa
+    (Gaussian splatting), cujo `catch` é um `console.error`. O dono nomeou dois motores; este fica
+    declarado, não consertado.
+  - **Uma foto 360 que desenha COM BURACOS continua muda.** A falha de um tile isolado é engolida
+    dentro de `frontend/src/js/street_view_tool/tile-loader.js`, que é cópia declarada de outro
+    repositório com cinco trechos de adaptação; acusar dali criaria um sexto.
+  - **A cláusula 10.1 segue pendente.** A mitigação conserta a mentira, nunca o acesso.
+- **O que a CAPTURA achou, e teste nenhum acharia:** a faixa nova cobria a linha de chips do
+  mapa, e o painel de camada que não desenha disputava a mesma faixa de topo. Cada peça estava
+  certa sozinha e as asserções estruturais passavam verdes; o conflito só existe com as três
+  montadas na mesma tela. A altura de partida virou `--visitor-banner-top`, variável única de
+  onde saem as três regras dependentes, com o motivo da escolha escrito ao lado. A recusa de
+  M10 foi confirmada de ponta a ponta: o item é desenhado, fica `aria-disabled`, e o clique
+  entrega a frase que nomeia o estado.
+- **Status:** aceita e implementada. O relatório foi dissolvido, e com ele a série dos cinco.

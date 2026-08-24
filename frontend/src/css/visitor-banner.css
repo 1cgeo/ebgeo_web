@@ -1,0 +1,165 @@
+/* Path: src/css/visitor-banner.css */
+
+/**
+ * @fileoverview Faixa persistente da VISITA PÚBLICA (`js/session/visitor-banner.js`).
+ *
+ * Importada pelo próprio módulo JS (`import '@css/visitor-banner.css'`) e não pela cadeia de
+ * `style.css`: a faixa só existe dentro do mapa, e prendê-la ao módulo garante que estilo e
+ * comportamento entrem e saiam juntos.
+ *
+ * ELA SOBREPÕE, NUNCA OCUPA ALTURA. `index.html` monta o `<body>` como flex de coluna com
+ * `#map-sig` a 100%: um elemento em fluxo acima do mapa encolheria o canvas sem que nada
+ * disparasse o `resize` do MapLibre. Daí `position: fixed`, pelo mesmo raciocínio do cabeçalho
+ * sobreposto de `calibracao.css`.
+ *
+ * A FAMÍLIA VISUAL É A DE `.tab-lock-degraded`: faixa no topo, ícone à esquerda, duas linhas de
+ * texto, botão à direita. O que muda é a PALETA, e de propósito: aquela é vermelha porque avisa
+ * de um risco de perda de dado; esta é neutra porque não há nada errado acontecendo. Uma faixa
+ * de alarme permanente numa visita normal treina a pessoa a ignorar faixa.
+ */
+
+/* A ALTURA DE PARTIDA E UMA SO, e ela e VARIAVEL porque tres regras dependem dela: a propria
+   faixa, o recuo dela quando o tab-lock degradado ocupa o topo, e o recuo do painel de camada
+   que nao desenha. Escrever o numero tres vezes garante que a proxima pessoa mude uma.
+
+   O VALOR FOI ESCOLHIDO POR CAPTURA, nao por calculo: a 12px a faixa cobria a linha de chips
+   do mapa (Catalogo, Tutorial, Informacoes), o que para um visitante publico duraria a visita
+   inteira, porque esta faixa e permanente. O painel de camada tambem passa por ali, mas ele e
+   transitorio e some; permanente cobrindo navegacao e outra coisa. 100px poe a faixa abaixo da
+   barra de busca e da linha de chips, e ainda abaixo do tab-lock degradado no caso comum. */
+:root {
+    --visitor-banner-top: 100px;
+}
+
+.visitor-banner {
+    position: fixed;
+    top: var(--visitor-banner-top);
+    left: 50%;
+    z-index: var(--z-floating);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    max-width: min(560px, calc(100vw - var(--space-8)));
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: #fff;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+
+    /* transform, nunca `top`/`left`: a faixa fica sobre o canvas do mapa. */
+    transform: translate(-50%, calc(-1 * var(--space-2)));
+    transition:
+        opacity var(--transition-normal),
+        visibility var(--transition-normal),
+        transform var(--transition-normal);
+}
+
+.visitor-banner--visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+}
+
+.visitor-banner__icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: var(--primary-50);
+    color: var(--primary-600);
+}
+
+.visitor-banner__icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.visitor-banner__text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.visitor-banner__title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+    line-height: var(--line-height-tight);
+
+    /* Nome de atlas longo já chega truncado do módulo de frase; isto cobre a tela estreita. */
+    overflow-wrap: anywhere;
+}
+
+.visitor-banner__message {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    line-height: var(--line-height-normal);
+}
+
+.visitor-banner__exit {
+    flex-shrink: 0;
+    align-self: center;
+    padding: var(--space-2) var(--space-4);
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition:
+        background var(--transition-fast),
+        color var(--transition-fast);
+}
+
+.visitor-banner__exit:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+}
+
+.visitor-banner__exit:focus-visible {
+    outline: 2px solid var(--primary-600);
+    outline-offset: 2px;
+}
+
+/* Tela estreita: a saída desce para baixo do texto em vez de espremer as duas colunas. */
+@media (width <= 640px) {
+    .visitor-banner {
+        flex-wrap: wrap;
+        max-width: calc(100vw - var(--space-6));
+        padding: var(--space-3);
+    }
+
+    .visitor-banner__exit {
+        width: 100%;
+        min-height: var(--touch-target-min);
+    }
+}
+
+/* O aviso degradado do tab-lock também é faixa de topo centralizada, e é MAIS GRAVE
+   (o lock falhou aberto, e duas abas podem estar escrevendo no mesmo endereço). Quando
+   os dois coexistem, quem desce é a visita: ela é permanente e informativa, o outro é
+   excepcional e acionável. `:has()` já é idioma da casa (account.css, attribute-table.css). */
+body:has(.tab-lock-degraded--visible) .visitor-banner {
+    top: calc(var(--visitor-banner-top) + 78px);
+}
+
+/* TERCEIRO OCUPANTE DA MESMA FAIXA, achado por CAPTURA e não por leitura: o painel de camada
+   que não desenha (`.data-layer-notice`) é `position: absolute` no topo centralizado do
+   container do mapa, e numa visita pública com recurso emprestado os dois aparecem juntos, que
+   é exatamente o cenário mais provável deste perfil.
+
+   AQUI QUEM DESCE É O PAINEL, e não a visita, ao contrário da regra do tab-lock acima. O
+   critério não é gravidade, é PERMANÊNCIA: a faixa da visita fica a visita inteira, e o painel
+   vai e volta a cada camada que falha ou volta a desenhar. Empurrar o permanente a cada evento
+   transitório faz a tela pular; empurrar o transitório para baixo do permanente é estável. */
+body:has(.visitor-banner--visible) .data-layer-notice {
+    top: calc(var(--visitor-banner-top) + 78px);
+}

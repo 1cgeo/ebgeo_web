@@ -44,11 +44,33 @@
  *      its `styledataloading` before this object exists (`map_sig.js` builds the map at PHASE 3
  *      and the managers two statements later).
  *
- *      That failure IS already known, precisely, one call frame away: the style-load promise in
- *      `BaseLayerControl.switchLayer` rejects, and today the rejection is swallowed by a
- *      `console.warn`. `reportBasemapFailure` / `clearBasemapFailure` exist for that call site to
- *      use. Until something calls them, shape 2 stays silent, and this comment is the record of
- *      that rather than a claim of coverage.
+ *      That failure IS already known, precisely, one call frame away, and since 2026-08-24 it is
+ *      SPOKEN: `BaseLayerControl.switchLayer` calls `reportBasemapFailure` (naming the requested
+ *      layer, which is possible there and only there, because the id is still in the variable
+ *      before the fallback reassigns it) and `clearBasemapFailure` when the style does resolve.
+ *      The paragraph above used to end "until something calls them, shape 2 stays silent"; that
+ *      sentence outlived the call site by one lot, and a header that understates its own coverage
+ *      sends the next reader to build a second notice next to this one.
+ *
+ * ── TWO SURFACES DO NOT COME FROM THE MAP AT ALL ────────────────────────────────────────────
+ *
+ * The 3D viewer (Cesium) and the 360 viewer (Three.js) fetch their own bytes: nothing they ask
+ * for is a MapLibre source, so `map.on('error')` never carries them and `resolveLayerId` has
+ * nothing to resolve. Until 2026-08-24 that is why they were declared OUT of this panel, and the
+ * owner's decision that day was to bring them in through the other door instead: they REPORT
+ * directly, from their own load-failure path, through {@link createLoaderFailureSurface}. The
+ * basemap was already the proof that the door works ({@link reportBasemapFailure}).
+ *
+ * TWO CONSEQUENCES follow, and both are declared rather than discovered later:
+ *
+ *   - A style reload does NOT re-request them, so it must not drop their accusation either.
+ *     `rebuiltByStyle: false` is what keeps a basemap switch from silently absolving a 3D model
+ *     that is still broken.
+ *   - The panel lives in the MAP container, and both viewers hide it (`#map-sig` gets
+ *     `display: none` while they are open). So their accusation is READ when the person comes
+ *     back to the map, which for the 3D root failure is immediate (the control returns to the
+ *     map on the way out) and for the 360 is when the viewer is closed. What speaks INSIDE the
+ *     viewer is a toast at the failure site; this panel is the state that outlives it.
  *
  * THE BASEMAP HAS NO RETRY, and the button is not drawn when it is the only thing accused. Asking
  * for it again means `setStyle` with the style the basemap resolves to, which this file cannot
@@ -59,7 +81,7 @@
 
 import { setupCleanup, addDomListener, trackTimer, cleanup, removeElement } from '@utils/event-cleanup.js';
 import {
-    RETRY_ACTION_LABEL, DISMISS_ACTION_LABEL, layerDisplayName,
+    RETRY_ACTION_LABEL, DISMISS_ACTION_LABEL, layerDisplayName, SURFACE_NOUN,
     layerLoadFailureCauseNotice, layerLoadFailureStatusDetail,
     loadFailureHeadline, layerNoticeRegionLabel,
 } from './data-layer-phrases.js';
@@ -112,6 +134,11 @@ export function getLayerFailureNotice(map) {
  * @property {(layerId: string) => boolean} isVisible - Whether the person actually switched it on.
  * @property {((layerId: string) => void)} [retry] - Re-requests the layer. ABSENT means the
  *   surface cannot be re-requested, and the retry button is not drawn for it.
+ * @property {string} [noun] - Which `SURFACE_NOUN` this surface is spoken about as. Defaults to
+ *   the layer, which is what every source-backed surface is.
+ * @property {boolean} [rebuiltByStyle] - Whether a `style.load` re-requests this surface's bytes.
+ *   True for anything that is a map source; FALSE for a viewer that loads on its own, whose
+ *   failure survives a basemap switch untouched.
  */
 
 export class LayerFailureNotice {
@@ -314,13 +341,14 @@ export class LayerFailureNotice {
      * the basemap's source ids can be learned without a name convention, since a style declares
      * whatever ids it likes (`osm`, `satellite`, `bdgex` in this deploy).
      *
-     * And a rebuilt style makes every standing accusation a statement about a map that is gone:
-     * every surface is being asked for again right now, so keeping the panel up would accuse
-     * layers whose tiles are in flight.
+     * And a rebuilt style makes a standing accusation a statement about a map that is gone: every
+     * SOURCE-BACKED surface is being asked for again right now, so keeping the panel up would
+     * accuse layers whose tiles are in flight. What a style reload does NOT re-request is the 3D
+     * model and the 360 photo, so their accusation survives it: see the file header.
      */
     _handleStyleLoad() {
         this._snapshotBasemapSources();
-        this._clearAll();
+        this._clearStyleRebuilt();
     }
 
     /** @private */
@@ -368,7 +396,13 @@ export class LayerFailureNotice {
     /** @private */
     _nameOf(kind, layerId) {
         if (kind === BASEMAP_SURFACE) return this._basemapName;
-        return layerDisplayName(this._surfaces.get(kind)?.layerName?.(layerId));
+        const surface = this._surfaces.get(kind);
+        return layerDisplayName(surface?.layerName?.(layerId), this._nounOf(kind));
+    }
+
+    /** @private The noun a surface is spoken about as. Anything unclassified is a layer. */
+    _nounOf(kind) {
+        return this._surfaces.get(kind)?.noun || SURFACE_NOUN.CAMADA;
     }
 
     /** @private */
@@ -405,13 +439,22 @@ export class LayerFailureNotice {
         }
     }
 
-    /** @private */
-    _clearAll() {
-        if (this._failures.size === 0) return;
-        this._failures.clear();
-        this._announced.clear();
-        this._retried = false;
-        this._hideNotice();
+    /**
+     * @private Forgets what a style reload genuinely re-requested, and only that.
+     *
+     * A surface that loads its own bytes (`rebuiltByStyle: false`) is untouched by `setStyle`, so
+     * dropping its accusation here would absolve a 3D model that is still broken the moment the
+     * person switched basemap.
+     */
+    _clearStyleRebuilt() {
+        let removed = false;
+        for (const [key, entry] of [...this._failures]) {
+            if (this._surfaces.get(entry.kind)?.rebuiltByStyle === false) continue;
+            this._failures.delete(key);
+            this._announced.delete(key);
+            removed = true;
+        }
+        if (removed) this._afterClear();
     }
 
     /**
@@ -477,27 +520,42 @@ export class LayerFailureNotice {
      *
      * The names come from the Map, so the sentence is per LAYER by construction: there is no path
      * here that could ever produce one line per failed request.
+     *
+     * THE GROUPING IS BY NOUN, not by surface: two managers both speaking about "camadas" share
+     * one sentence and one count, while a 3D model gets its own, because they are different
+     * things and pt-BR agrees with each differently.
+     *
+     * `retried` is decided PER GROUP, and only a group whose every entry can actually be
+     * re-requested can carry it: the retry button acts on all retryable entries at once, so
+     * anything still standing that is NOT retryable was never asked for again, and saying
+     * "após a nova tentativa" about it would describe an attempt that did not happen.
      */
     _renderNotice() {
         const notice = this._ensureNotice();
         if (!notice) return;
 
-        const layerNames = [];
         const statuses = new Set();
         let basemapFailed = false;
         let basemapName = null;
+        /** noun → {names, retried} */
+        const groups = new Map();
         for (const entry of this._failures.values()) {
             if (entry.kind === BASEMAP_SURFACE) {
                 basemapFailed = true;
                 basemapName = entry.name;
             } else {
-                layerNames.push(entry.name);
+                const noun = this._nounOf(entry.kind);
+                const group = groups.get(noun) || { noun, names: [], retried: this._retried };
+                group.names.push(entry.name);
+                group.retried = group.retried
+                    && typeof this._surfaces.get(entry.kind)?.retry === 'function';
+                groups.set(noun, group);
             }
             for (const code of entry.statuses) statuses.add(code);
         }
 
         const headline = loadFailureHeadline({
-            layerNames, basemapFailed, basemapName, retried: this._retried,
+            groups: [...groups.values()], basemapFailed, basemapName,
         });
         if (!headline) {
             this._hideNotice();
@@ -570,6 +628,85 @@ export class LayerFailureNotice {
         this._retried = false;
         this._hideNotice();
     }
+}
+
+/**
+ * A surface whose bytes are fetched by SOMETHING OTHER THAN THE MAP, wired to whichever map it
+ * is attached to.
+ *
+ * WHY A FACTORY AND NOT A SECOND PANEL. The 3D viewer and the 360 viewer each need exactly three
+ * things (hold the map, name what failed, report and retract), and each of them is split across
+ * two files: an `IControl` that owns the map and a lazily imported engine that owns the failure.
+ * Writing that twice is how the two copies drift; writing it here keeps the notice the single
+ * place that knows what a surface is.
+ *
+ * IT IS INERT UNTIL ATTACHED, on purpose. The engine modules are lazy and can be imported by a
+ * test, a deep link or a briefing before any control has run its `onAdd`; reporting into a map
+ * that does not exist yet has to be a no-op rather than a throw, because a load failure is the
+ * worst possible moment to raise a second error.
+ *
+ * @param {{kind: string, noun: string}} spec - `kind` is the surface key in the failure map
+ *   (unique per notice); `noun` is a `SURFACE_NOUN`, which decides how the sentence agrees.
+ * @returns {{attach: Function, detach: Function, report: Function, clear: Function, isAttached: Function}}
+ */
+export function createLoaderFailureSurface({ kind, noun }) {
+    /** The map whose notice this reports into, or null while unattached. */
+    let host = null;
+    /** id → printable name, learned at report time: the engine knows it, this file cannot. */
+    const names = new Map();
+
+    const surface = {
+        // A map source id is NEVER one of these. The bytes are fetched by Cesium or by Three.js,
+        // so `map.on('error')` cannot carry them and there is nothing here to resolve.
+        resolveLayerId: () => null,
+        layerName: (id) => names.get(id),
+        // Reported means asked for: nothing but an actual load attempt can produce the call.
+        isVisible: () => true,
+        noun,
+        // `setStyle` rebuilds the map's own sources and nothing else: a viewer keeps whatever it
+        // loaded, or failed to load, across a basemap switch.
+        rebuiltByStyle: false,
+    };
+
+    return {
+        /** @param {Object} map - The MapLibre map whose panel speaks for this surface. */
+        attach(map) {
+            if (!map) return;
+            host = map;
+            getLayerFailureNotice(map).registerSurface(kind, surface);
+        },
+        /** Hands the surface back, dropping everything it was accused of. */
+        detach() {
+            if (host) getLayerFailureNotice(host).unregisterSurface(kind);
+            host = null;
+            names.clear();
+        },
+        /**
+         * @param {string} id - Stable id of what failed (tileset id, photo name).
+         * @param {{name?: *, status?: *}} [detail] - `name` is what the panel prints; `status` is
+         *   an HTTP code when one was actually observed.
+         * @returns {boolean} Whether the accusation reached a panel.
+         */
+        report(id, { name, status } = {}) {
+            if (!host || !id) return false;
+            if (name !== undefined) names.set(id, name);
+            getLayerFailureNotice(host).report(kind, id, status);
+            return true;
+        },
+        /**
+         * Retracts one accusation. A no-op when there was none, so a caller can run it before
+         * every load attempt without having to know whether the previous one failed.
+         * @param {string} id
+         */
+        clear(id) {
+            if (!host || !id) return;
+            getLayerFailureNotice(host).clear(kind, id);
+        },
+        /** @returns {boolean} Whether a map is attached, which is the only way to report. */
+        isAttached() {
+            return host !== null;
+        },
+    };
 }
 
 export default LayerFailureNotice;

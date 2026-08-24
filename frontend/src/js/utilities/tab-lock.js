@@ -480,8 +480,17 @@
  *
  *   - THE WITNESS IS ONLY AS GOOD AS THE CALLER THAT PASSES ONE. `acquire()` no longer grants on
  *     silence alone (section 5), but a caller that omits the `witness` gets the old answer, and
- *     a runtime with no `navigator.locks` (plain HTTP) has no fact to read. Adding a fifth wipe
- *     without a witness reopens the hole in that one path, silently.
+ *     a runtime with no `navigator.locks` (plain HTTP) has no fact to read. Adding a wipe without
+ *     a witness reopens the hole in that one path, silently, and ONE live caller is already in
+ *     that state: `AccountControl.saveLocalToServer` (`account/account.control.js`) claims with a
+ *     bare `acquireTabLock(remoteAtlasKey(...))` and wipes a few lines below. It is the narrowest
+ *     of the five (the atlas it claims was created one line earlier, so no other tab can hold it),
+ *     which is why it is a hole and not an outage, and why it is written here instead of being
+ *     left to be rediscovered. THIS BULLET USED TO NAME THE PUBLIC-LINK OPEN IN `index.js`, and
+ *     that was FALSE: `openPublicAtlasFromUrl` passes `witness: remoteMountWitness(atlas.id)`, and
+ *     the comment at that call says by extenso that it was the fourth destructive site and was
+ *     wired. A doc that reports a closed hole as open is worse than one that omits it, because the
+ *     next reader "fixes" it by deleting the witness to match the prose.
  *   - THE FENCE HAS NO EPOCH, so it reaches exactly as far as the peers do. Section 6 describes
  *     the two halves that close the ordinary case (the evictor denies the stale claim once, the
  *     woken tab re-enters as a newcomer). Both need somebody to still be there: a tab that was
@@ -2101,8 +2110,10 @@ export function getTabLock() {
  * Claims a key on the page's lock and reports whether this tab may proceed.
  *
  * A caller that is about to DESTROY databases must pass `witness` (section 5), or its grant is
- * decided by the settle alone. `account/open-atlas.service.js` builds one for every such caller
- * it owns; the public-link open in `index.js` is the one that still asks without it.
+ * decided by the settle alone. `account/open-atlas.service.js` builds one for every such caller it
+ * owns, and so does the public-link open in `index.js` (`openPublicAtlasFromUrl`, which passes
+ * `witness: remoteMountWitness(atlas.id)`). The one that still asks WITHOUT it is
+ * `AccountControl.saveLocalToServer`; see section 11.
  * @param {TabLockKey} key
  * @param {{settleMs?: number, witness?: (() => Promise<boolean|null>)|null}} [options]
  * @returns {Promise<{granted: boolean, blockedBy: TabLockClaim|null, degraded: boolean,

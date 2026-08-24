@@ -437,6 +437,12 @@
 .atlas-header {
     display: flex;
     align-items: center;
+
+    /* `wrap` existe por causa de `.atlas-header__note`, que ocupa a linha inteira logo abaixo do
+       nome e dos dois crachás. Embrulhar dentro do MESMO bloco (em vez de pendurar a frase depois
+       dele) é o que mantém a divisória abaixo do aviso: um aviso do outro lado do risco se lê
+       como sendo sobre a seção seguinte. */
+    flex-wrap: wrap;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
     padding-bottom: var(--space-3);
@@ -500,6 +506,17 @@
     background: transparent;
     color: var(--gray-500);
     border-style: dashed;
+}
+
+/* ONDE O TRABALHO MORA, dito em texto que se lê sem passar o mouse. Só aparece em atlas LOCAL
+   (o JS esconde nos demais), e é deliberadamente discreto: ele informa uma vez, não alarma a
+   cada olhada. `flex: 0 0 100%` toma a linha inteira dentro do cabeçalho embrulhado. */
+.atlas-header__note {
+    flex: 0 0 100%;
+    margin: 0;
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+    color: var(--gray-600);
 }
 
 /* Section Header */

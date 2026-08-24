@@ -29,6 +29,8 @@ import {
     derivarForma3d,
     visualizadorDaForma
 } from '@catalog/forma-3d.js';
+import { requestStatus } from '@utils/request-failure.js';
+import { model3dFailures, statusOfCesiumTileFailure } from './model3d-failure.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -304,6 +306,16 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
     });
 
     viewer.scene.primitives.add(tileset);
+
+    // THE ROOT LOADED, WHICH SAYS NOTHING ABOUT THE CHILDREN. A tileset whose `tileset.json`
+    // answers 200 and whose every `.b3dm` answers 404 renders an EMPTY scene and rejects
+    // nothing: no promise fails, no exception is thrown, and the person sees a model that is
+    // simply not there. `tileFailed` is the only channel that carries it, so it is the one the
+    // panel listens to. One accusation per model, not per tile: the notice keys by id and
+    // coalesces the burst.
+    removeTileFailedListener = tileset.tileFailed.addEventListener((erro) => {
+        reportModel3dFailure(tilesetConfig, statusOfCesiumTileFailure(erro?.message));
+    });
 
     const heightOffset = tilesetConfig.heightOffset;
     const boundingSphere = tileset.boundingSphere;
@@ -777,6 +789,29 @@ function initCesiumEventHandlers() {
 let currentTileset = null;
 let _currentTilesetId = null;
 
+/**
+ * Detaches the `tileFailed` listener of the tileset currently on screen.
+ *
+ * Cesium's `Event.addEventListener` returns its own remover, and it is kept here for the reason
+ * this codebase pairs every listener: the tileset is destroyed on switch and the event goes with
+ * it, but "the object that owned it is gone" is not a pairing, it is a coincidence that holds
+ * until somebody stops destroying it.
+ */
+let removeTileFailedListener = null;
+
+/**
+ * Accuses ONE model in the map's shared failure panel.
+ *
+ * The name comes from the catalog entry, which is what the person clicked, and never from the
+ * URL or the id: a sentence naming `bd2f1c…` is a sentence nobody can act on.
+ * @param {Object} tilesetConfig - The `config.tilesets` entry.
+ * @param {number|null} [status] - HTTP status, when a response actually arrived.
+ */
+function reportModel3dFailure(tilesetConfig, status) {
+    if (!tilesetConfig?.id) return;
+    model3dFailures.report(tilesetConfig.id, { name: tilesetConfig.name, status });
+}
+
 // ===== CAMERA POSITION FUNCTIONS =====
 
 /**
@@ -899,6 +934,8 @@ async function loadSingleTileset(viewer, tilesetId) {
     }
 
     if (currentTileset) {
+        removeTileFailedListener?.();
+        removeTileFailedListener = null;
         viewer.scene.primitives.remove(currentTileset);
         if (!currentTileset.isDestroyed()) {
             currentTileset.destroy();
@@ -906,6 +943,12 @@ async function loadSingleTileset(viewer, tilesetId) {
         currentTileset = null;
         _currentTilesetId = null;
     }
+
+    // THE ACCUSATION IS RETRACTED WHERE THE REQUEST IS MADE AGAIN, which is here and not on
+    // success: a model whose root loads can still lose every child, so "it opened" is not
+    // evidence that it drew. Asking for it again is, and everything this attempt fails at is
+    // reported from scratch below.
+    model3dFailures.clear(tilesetId);
 
     const tilesetConfig = config.tilesets.find(t => t.id === tilesetId);
     if (!tilesetConfig) {
@@ -1284,6 +1327,19 @@ export async function openViewerWithTileset(tilesetId) {
         resumeRendering();
     } catch (error) {
         console.error(`Error loading 3D model "${tilesetId}":`, error);
+        // THE ROOT DOCUMENT FAILED, and this is the choke point every door goes through: the
+        // control, the catalog, the briefing and the deep link all end up in
+        // `openViewerWithTileset`, and two of them call it without passing through the control's
+        // own catch. The toast below is what speaks while the viewer is still on screen; the
+        // panel is what is still there when the person is back on the map, which is where this
+        // path leaves them.
+        //
+        // `requestStatus` reads `statusCode` as well as `status`, which is exactly the shape of
+        // Cesium's `RequestErrorEvent`, the rejection of `fromUrl` for a 403 or a 404.
+        reportModel3dFailure(
+            config.tilesets?.find(t => t.id === tilesetId) ?? { id: tilesetId },
+            requestStatus(error)
+        );
         hideLoading3DScreen();
         showError('Erro ao carregar modelo 3D');
         throw error;

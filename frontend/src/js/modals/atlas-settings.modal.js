@@ -52,6 +52,7 @@ import { apiClient } from '@store/sync/api-client.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
 import config from '@js/config.js';
 import { getControl } from '@store';
+import { isRemoteStoreSync } from '@store/store-origin.js';
 import { getDeployDataLayers, getDeployAnalysisLayers, getDeployTilesets } from '@store/sync/atlas-settings.service.js';
 import {
     readAtlasAppearance,
@@ -119,6 +120,29 @@ const PROJECTION_CHOICES = [
     { id: 'globo', label: 'Globo', value: true },
     { id: 'plano', label: 'Plano', value: false },
 ];
+
+/**
+ * A frase do rodapé: até onde vai o que se acabou de escolher.
+ *
+ * A SEGUNDA METADE NÃO VALIA PARA TODO MUNDO. Ela dizia, sem condição nenhuma, "e para quem o
+ * compartilha", e num atlas LOCAL não há com quem compartilhar: o atlas local não se compartilha
+ * pelo sistema (CONSTITUICAO.md 7.5), então a metade prometia a um visitante deslogado um efeito
+ * que a tela dele não tem. O que separa os dois casos é o marcador de origem
+ * (`@store/store-origin.js`), não a permissão: um atlas de servidor propaga a aparência por sync
+ * para os outros participantes mesmo quando quem escolheu não administra nada.
+ *
+ * Pura, para ser verificável em node: a tela só a interpola.
+ * @param {{canRestrict?: boolean, isRemote?: boolean}} [options] - `canRestrict`: o usuário
+ *   administra as restrições do projeto (atlas de servidor com `manage`). `isRemote`: a store
+ *   montada é a de um atlas de SERVIDOR.
+ * @returns {string}
+ */
+export function appearanceScopeNote({ canRestrict = false, isRemote = false } = {}) {
+    if (canRestrict) return 'Vale para todos os participantes deste atlas.';
+    return isRemote
+        ? 'Vale para este atlas, neste computador e para quem o compartilha.'
+        : 'Vale para este atlas, neste computador.';
+}
 
 /**
  * Modal de configurações do projeto.
@@ -248,9 +272,10 @@ export class AtlasSettingsModal extends ModalBase {
             </div>
             <div class="atlas-config__actions">
                 <span class="atlas-config__scope" data-testid="atlas-settings-scope">${
-    this._canRestrict
-        ? 'Vale para todos os participantes deste atlas.'
-        : 'Vale para este atlas, neste computador e para quem o compartilha.'
+    escapeHtml(appearanceScopeNote({
+        canRestrict: this._canRestrict,
+        isRemote: isRemoteStoreSync(),
+    }))
 }</span>
                 <button type="button" class="atlas-config__btn-cancel" data-action="cancel">Cancelar</button>
                 <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm"

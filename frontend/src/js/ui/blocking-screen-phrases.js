@@ -19,6 +19,16 @@
  * caso de rede recarregar pode resolver, e a pessoa precisa saber que vale tentar de novo depois;
  * no caso de erro do app recarregar quase nunca resolve, e o que serve é dizer que o problema é do
  * programa e não do ambiente dela, para que ela relate em vez de reiniciar o roteador.
+ *
+ * ================= O SEGUNDO DEFEITO, FECHADO EM 2026-08-24 ==================
+ *
+ * A tela de rede substitui o app INTEIRO, e o app inteiro inclui a metade que não depende de
+ * servidor nenhum: os atlas locais, guardados só neste navegador, para os quais o produto anuncia
+ * "Nada aqui vai para o servidor". Quem tem dez deles lia "EBGeo indisponível" e concluía,
+ * razoavelmente, que tinha perdido tudo. A frase de `SERVER_UNREACHABLE` passou a dizer o
+ * contrário, e ela é INCONDICIONAL de propósito: esta tabela não sabe (nem pode saber, sendo
+ * folha) quantos atlas locais existem, e a afirmação continua verdadeira com zero deles, porque o
+ * que ela promete é que a queda do servidor não apaga nada deste computador.
  */
 
 /** As causas que a tela de bloqueio sabe distinguir. */
@@ -33,13 +43,16 @@ export const BlockingCause = Object.freeze({
  * As frases de cada causa.
  *
  * `SERVER_UNREACHABLE` mantém palavra por palavra o texto que já estava em produção, porque ele
- * está certo para a causa dele e é o que os testes de e2e procuram.
+ * está certo para a causa dele e é o que os testes de e2e procuram; o que ele ganhou foi uma
+ * SEGUNDA frase, que diz o que a primeira deixava a pessoa supor.
  * @type {Object<string, {title: string, message: string, retryLabel: string}>}
  */
 const TELAS = Object.freeze({
     [BlockingCause.SERVER_UNREACHABLE]: {
         title: 'EBGeo indisponível',
-        message: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.',
+        message: 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente. '
+            + 'Os atlas guardados neste navegador continuam intactos: nada deste computador se '
+            + 'perde quando o servidor está fora.',
         retryLabel: 'Tentar novamente'
     },
     [BlockingCause.APP_ERROR]: {

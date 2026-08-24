@@ -3,6 +3,12 @@
 /**
  * @fileoverview Import tab component for sidebar.
  * Provides file import functionality for GeoJSON, Shapefile, KML/KMZ, GPX, and CSV.
+ *
+ * O `.ebgeo` NÃO É IMPORTADO AQUI, e mesmo assim é nomeado aqui: a ação vive na aba Mapas
+ * (aditiva ao atlas atual) e no arrastar-e-soltar, e esta aba carrega só um PONTEIRO até ela
+ * ({@link ImportTab#_createEbgeoPointerButton}). O formato próprio do produto estar ausente da
+ * aba chamada "Importar" é um buraco de descoberta, não de funcionalidade, e reimplementar a
+ * ação para fechá-lo criaria duas portas que divergem.
  */
 
 import {
@@ -16,6 +22,8 @@ import { showSuccess, showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
+import { SIDEBAR_TABS } from '@sidebar/sidebar.constants.js';
+import { getStateManager } from '@store/services.js';
 
 /**
  * Import format configurations.
@@ -204,7 +212,74 @@ export class ImportTab {
         // Batch points button (same styling as format buttons)
         container.appendChild(this._createBatchPointsButton());
 
+        // The `.ebgeo` pointer, last: it is the only entry here that does not import anything
+        // by itself.
+        container.appendChild(this._createEbgeoPointerButton());
+
         return container;
+    }
+
+    /**
+     * O ponteiro para onde o formato PRÓPRIO do produto mora.
+     *
+     * ISTO É DESCOBERTA, NÃO FUNCIONALIDADE, e a distinção decide o que este botão faz. A ação
+     * de importar um `.ebgeo` já existe e é aditiva ao atlas atual (aba Mapas, "Importar"),
+     * mais o arrastar-e-soltar; o que faltava é que a aba chamada "Importar" listava cinco
+     * formatos e nenhum deles era o do EBGeo, de modo que quem procurava o próprio arquivo do
+     * produto procurava exatamente onde ele não está. Uma segunda implementação da ação aqui
+     * seria duas portas que divergem na primeira revisão: este botão só LEVA à porta.
+     *
+     * Sem ícone de propósito: os cinco formatos acima colorem o quadrado pelo formato, e um
+     * quadrado a mais sem cor própria prometeria um sexto formato de arquivo em vez de um
+     * atalho.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createEbgeoPointerButton() {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'import-option-btn';
+        btn.dataset.testid = 'import-ebgeo-pointer';
+        btn.title = 'Ir para a aba Mapas, onde o arquivo .ebgeo é importado';
+
+        const info = document.createElement('div');
+        info.className = 'import-option-info';
+
+        const nome = document.createElement('div');
+        nome.className = 'import-option-name';
+        nome.textContent = 'Arquivo do EBGeo (.ebgeo)';
+
+        const desc = document.createElement('div');
+        desc.className = 'import-option-desc';
+        desc.textContent = 'Fica na aba Mapas, em "Importar". Toque para ir até lá.';
+
+        info.appendChild(nome);
+        info.appendChild(desc);
+        btn.appendChild(info);
+
+        addDomListener(this, btn, 'click', () => this._goToMapsTab());
+
+        return btn;
+    }
+
+    /**
+     * Leva para a aba Mapas.
+     *
+     * O ESTADO É QUEM TROCA DE ABA, não a barra: `expandSidebar` emite `SIDEBAR_TAB_CHANGED`, e
+     * é isso que a barra (colapsada inclusive) escuta. Mexer no DOM da barra daqui deixaria o
+     * estado dizendo "importar" com a tela mostrando "mapas".
+     *
+     * `getStateManager()` LANÇA quando os serviços não subiram (não devolve nulo), e um clique
+     * que estoura em silêncio é pior do que um que recusa dizendo o motivo.
+     * @private
+     */
+    _goToMapsTab() {
+        try {
+            getStateManager().expandSidebar(SIDEBAR_TABS.MAPAS);
+        } catch (error) {
+            console.error('Failed to open the maps tab:', error);
+            showError('Não foi possível abrir a aba Mapas');
+        }
     }
 
     /**

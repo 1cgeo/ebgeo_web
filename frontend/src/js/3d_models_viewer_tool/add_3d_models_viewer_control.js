@@ -13,6 +13,7 @@ import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@utils/event-cleanup.js';
 import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 import { MARKER_KIND, buildMarkerFeatures, resolveMarkerDescriptor } from './marker-features.js';
+import { model3dFailures } from './model3d-failure.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -179,6 +180,12 @@ class Add3DModelsViewerControl {
         this.container = document.createElement('div');
         this.container.style.display = 'none';
 
+        // THE 3D VIEWER SPEAKS THROUGH THE MAP'S PANEL, and this is where it learns which map.
+        // The engine that discovers a model did not load (`map_3d.js`) is lazy and holds a Cesium
+        // viewer, never a MapLibre map, so the seam has to be attached from here: see
+        // `model3d-failure.js`.
+        model3dFailures.attach(map);
+
         // Listen for base layer changes to reload layers if active
         subscribe(this, getEventBus(), EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
 
@@ -273,6 +280,10 @@ class Add3DModelsViewerControl {
      */
     onRemove() {
         cleanup(this);
+
+        // Paired with the attach in onAdd: a surface left registered keeps the shared notice
+        // calling into a control that is gone.
+        model3dFailures.detach();
 
         // The cluster/marker handlers are raw map.on() registrations, outside the
         // event-cleanup bookkeeping: pair them here or they outlive the control.

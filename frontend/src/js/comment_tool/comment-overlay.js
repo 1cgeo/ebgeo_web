@@ -122,11 +122,24 @@ export class CommentOverlay {
         if (next === this._placement) return this._placement;
         if (next) {
             if (!this._canComment()) {
-                // A frase nomeia o motivo REAL, e sao tres diferentes: um "faca login" dito a
+                // A frase nomeia o motivo REAL, e sao QUATRO diferentes: um "faca login" dito a
                 // quem esta num atlas local manda a pessoa fazer algo que nao resolve nada.
+                //
+                // O DESDOBRAMENTO DO CASO LOCAL, em 2026-08-24, e do mesmo feitio do erro que a
+                // divisao original consertou, so que um degrau adiante: "Envie este atlas ao
+                // servidor" nomeia uma acao que a interface NAO oferece a quem nao entrou. O
+                // comando `save-server` nao esta na linha `local-anon` de `ACTIONS_BY_STATE`
+                // (`sidebar/tabs/atlas-actions.js`) e `AccountControl` o esconde sem sessao, entao
+                // o anonimo saia procurando um botao que nao existe. O ramo que manda ENTRAR na
+                // conta so era alcancado por quem JA estava num atlas de servidor.
+                //
+                // O primeiro periodo e o mesmo nos dois: o motivo continua sendo a natureza do
+                // atlas, e so o proximo passo muda.
                 let motivo;
                 if (!isRemoteStoreSync()) {
-                    motivo = 'Comentários existem só em atlas do servidor. Envie este atlas ao servidor para comentar.';
+                    motivo = sessionContext.isAuthenticated()
+                        ? 'Comentários existem só em atlas do servidor. Envie este atlas ao servidor para comentar.'
+                        : 'Comentários existem só em atlas do servidor. Entre na sua conta para enviar este atlas ao servidor.';
                 } else if (!sessionContext.isAuthenticated()) {
                     motivo = 'Entre na sua conta para adicionar comentários.';
                 } else {

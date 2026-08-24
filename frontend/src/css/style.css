@@ -7,6 +7,7 @@
 @import url('./design-tokens.css');
 @import url('./base.css');
 @import url('./tab-lock.css');
+@import url('./visitor-banner.css');
 
 /* ===== Layout & Structure ===== */
 @import url('./sidebar.css');

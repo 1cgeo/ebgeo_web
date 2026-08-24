@@ -38,8 +38,11 @@ import {
     getControl
 } from '@store';
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
-import { showSuccess } from '@utils/toast_service.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
+import { requestStatus } from '@utils/request-failure.js';
+import { layerLoadFailureNotice, SURFACE_NOUN } from '@js/terrain/data-layer-phrases.js';
+import { photo360Failures } from './photo360-failure.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -323,6 +326,39 @@ async function initNavigator(container) {
 // ===== PHOTO LOADING =====
 
 /**
+ * The name the accusation can say without lying.
+ *
+ * The metadata name is preferred when there IS metadata, because it is what the person reads on
+ * screen; the identifier they navigated by is the fallback, and it is a real answer rather than a
+ * placeholder: when the metadata request is the thing that failed, the id is genuinely all this
+ * client knows about the photo.
+ * @param {string} photoName - The identifier the caller navigated by (uuid or original name).
+ * @param {Object|null} data - Photo metadata, when it arrived.
+ * @returns {string}
+ */
+function nomeDaFoto(photoName, data) {
+    return data?.camera?.display_name || data?.camera?.img || photoName;
+}
+
+/**
+ * Accuses ONE photo in the map's shared failure panel.
+ *
+ * IT DOES NOT TOAST, and that is deliberate: the in-viewer jump already raises one
+ * (`navigation/navigator.js` on a failed `navigateToTarget`), and the open path raises its own
+ * where it catches. Toasting here too would double the word on one of the two paths, which is
+ * how a notice starts being ignored.
+ * @param {string} photoName
+ * @param {Object|null} data - Metadata, when it arrived.
+ * @param {*} error - The rejection, read only for a status it may carry.
+ */
+function anunciarFalhaDaFoto(photoName, data, error) {
+    photo360Failures.report(photoName, {
+        name: nomeDaFoto(photoName, data),
+        status: requestStatus(error),
+    });
+}
+
+/**
  * Loads a photo and its metadata
  * @param {string} photoName - Photo identifier
  * @param {number|null} [prevWorldHeading=null] - Previous world heading in degrees to preserve viewing direction
@@ -331,7 +367,21 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     // Capture the photo we are navigating FROM before overwriting currentPhotoName,
     // so the STREETVIEW_360_PHOTO_CHANGED payload carries a real previousPhoto.
     const previousPhotoName = streetViewState.currentPhotoName;
-    const data = await loadMetadataWithCache(photoName);
+
+    // THE ACCUSATION IS RETRACTED WHERE THE REQUEST IS MADE AGAIN. A no-op when this photo was
+    // never accused, which is what lets it run unconditionally on every load.
+    photo360Failures.clear(photoName);
+
+    let data;
+    try {
+        data = await loadMetadataWithCache(photoName);
+    } catch (error) {
+        // THE FIRST OF THE TWO HALVES THAT CAN FAIL, and the one a private photo fails in: the
+        // metadata route answers 403/404 for a panorama this visitor cannot read, and until now
+        // the viewer opened black over it without a word anywhere.
+        anunciarFalhaDaFoto(photoName, null, error);
+        throw error;
+    }
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
 
@@ -347,6 +397,10 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
         await loadTexture(data);
     } catch (error) {
         if (error.name === 'AbortError') return;
+        // THE SECOND HALF. An abort is NOT a failure of the photo (a newer navigation won the
+        // race), so it returns above without accusing anything: an accusation raised by the
+        // person navigating quickly is an accusation they learn to ignore.
+        anunciarFalhaDaFoto(photoName, data, error);
         throw error;
     }
 
@@ -450,7 +504,12 @@ async function fetchBlobWithRetry(url, options, retries = FETCH_MAX_RETRIES) {
     try {
         const response = await fetch(url, options);
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            // THE STATUS TRAVELS AS A FIELD, not only inside the sentence. It is a MEASURED
+            // fact and the failure notice prints it verbatim, so it has to survive as a number:
+            // `requestStatus` reads `status`/`statusCode` and nothing parses prose.
+            const erro = new Error(`HTTP ${response.status}`);
+            erro.status = response.status;
+            throw erro;
         }
         const blob = await response.blob();
         const expectedLength = response.headers.get('Content-Length');
@@ -2076,6 +2135,23 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         }
     } catch (error) {
         console.error('[street-view-viewer] Failed to initialize/load photo:', error);
+        // O SILÊNCIO ERA O DEFEITO. This catch existed to keep the viewer closeable, and it also
+        // swallowed the only sign that anything had happened: the person saw a black sphere and
+        // the console said something they will never read. The panel on the map already carries
+        // the accusation (`loadPhoto` reported it), but the panel lives in the map container and
+        // this viewer hides it, so the word has to arrive here too. It states the FACT and no
+        // cause, exactly like the panel: see the header of `terrain/data-layer-phrases.js`.
+        //
+        // THE METADATA IS ONLY THIS PHOTO'S WHEN IT ARRIVED. `currentInfo` still holds the
+        // PREVIOUS panorama when the metadata request is what failed, and naming that one would
+        // be the same defect the basemap notice avoids by refusing to print the id it last
+        // recorded: a sentence that is confidently about the wrong thing.
+        if (error?.name !== 'AbortError') {
+            const arrived = streetViewState.currentPhotoName === photoName
+                ? streetViewState.currentInfo
+                : null;
+            showError(layerLoadFailureNotice([nomeDaFoto(photoName, arrived)], SURFACE_NOUN.FOTO_360));
+        }
         // Even if photo loading fails, ensure the animation loop is running
         // so the viewer isn't stuck in an unrecoverable black screen state
         if (streetViewState.scene && !streetViewState.animationId) {

@@ -401,9 +401,18 @@ export class ExportImportService {
 
             const perdas = descreverPerdas(relatorio);
             if (perdas) {
-                const seguir = await showConfirm('Este arquivo sai sem os recursos restritos', {
-                    message: 'Um `.ebgeo` circula por e-mail e pendrive, então ele nunca leva '
-                        + 'recurso de catálogo restrito. Sai desta cópia:\n\n' + perdas
+                // O TÍTULO NÃO AFIRMA "RESTRITO", e a mudança é por um perfil inteiro. Sem
+                // sessão nada é privado para este cliente, então o visitante ANÔNIMO perdia só
+                // referência não classificável (todo o 360, por decisão registrada) e lia um
+                // aviso dizendo que perdia recurso restrito. Quem separa as duas naturezas é
+                // `descreverPerdas`; aqui fica a moldura, que passou a nomear a REGRA (só o
+                // comprovadamente público viaja) em vez de nomear uma das duas perdas.
+                // Sem crase: `ConfirmModal` desenha a mensagem como texto puro.
+                const seguir = await showConfirm('Este arquivo sai sem parte do catálogo', {
+                    message: 'Um arquivo .ebgeo circula por e-mail e pendrive, e fora do '
+                        + 'servidor não há como conferir quem pode ver o quê: só o recurso de '
+                        + 'catálogo comprovadamente público viaja nele. Sai desta cópia:\n\n'
+                        + perdas
                         + '\n\nO conteúdo desenhado por você (feições, camadas, textos) vai inteiro.',
                     confirmText: 'Exportar assim',
                     cancelText: 'Cancelar',

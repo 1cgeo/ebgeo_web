@@ -273,7 +273,12 @@ function photoMetadataUrl(photoIdOrName) {
 export async function fetchPhotoMetadata(photoIdOrName) {
   const response = await fetch(photoMetadataUrl(photoIdOrName));
   if (!response.ok) {
-    throw new Error(`Photo not found: ${photoIdOrName} (HTTP ${response.status})`);
+    // THE STATUS TRAVELS AS A FIELD, not only inside the sentence: the failure notice on the map
+    // prints the code it OBSERVED, and `requestStatus` (`@utils/request-failure.js`) reads
+    // `status`/`statusCode`. Nothing parses the message, and nothing should have to.
+    const error = new Error(`Photo not found: ${photoIdOrName} (HTTP ${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }

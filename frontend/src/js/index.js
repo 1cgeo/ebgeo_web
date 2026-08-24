@@ -6,6 +6,7 @@
  *
  * Orchestrates initialization in explicit sequential phases:
  * 1. Config — Apply app title, attach config helpers
+ * 1.5. Verify — consume a one-shot `?verify=` e-mail confirmation (it speaks before the map)
  * 2. Services — EventBus, StateManager, LayerManager, GroupManager
  * 3. Map — MapLibre GL instance with tile error handling
  * 4. Controls — All tools, UI components, control registrations
@@ -51,6 +52,7 @@ import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
 import { calibrationExitNotice } from './calibration/exit-decision.js';
 import { emailVerificationNotice } from './session/email-verification-phrases.js';
 import { sessionRestoreNotice } from './session/session-restore-phrases.js';
+import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banner.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -130,6 +132,27 @@ async function initApp() {
     initializeAppConfig();
     initConfigHelpers();
 
+    // Phase 1.5: an e-mail-confirmation link (`?verify=<token>`), anonymous and one-shot.
+    //
+    // AS CEDO QUANTO ELE PODE RODAR, e não mais cedo. Quem clica num link de confirmação de
+    // e-mail veio ler UMA frase; até 2026-08-24 ele a lia depois de `createControls` ter sido
+    // aguardado (preflight de streetview incluído) e depois do controlador de modo de visão, ou
+    // seja, depois de o mapa inteiro montar. (A auditoria original dizia "depois do
+    // `bootRendered`", o que é falso: a chamada estava antes dele. O atraso medido é o dos
+    // controles, que é grande o bastante sozinho.)
+    //
+    // O PISO É `applyRuntimeConfig`: `apiClient` não tem URL de base antes dela, então esta é a
+    // primeira linha do boot em que a chamada pode existir. `showToast` só precisa de
+    // `document.body`, que um módulo diferido já tem; e a rota é `auth: false`, então ela não
+    // depende da restauração de sessão que vem abaixo.
+    //
+    // AS TRÊS INVARIANTES DA ORDEM DO BOOT CONTINUAM: `?verify=` é consumido ANTES da cadeia
+    // (`openPublicAtlasFromUrl` → `openAtlasFromUrl` → `enterLocalMapOnBoot` →
+    // `openAtlasChooserOnBoot`); ele é consumido DEPOIS da Fase -1, que precisa ver o parâmetro
+    // na URL para manter este boot no mapa (`shouldRouteToProjects`); e ele continua sendo o
+    // PRIMEIRO dos parâmetros de uma vez só a falar, antes de `?sessao=`/`?trabalho=`.
+    await handleEmailVerificationFromUrl();
+
     // Phase 2: Services (EventBus, StateManager, LayerManager, GroupManager, MapResolver)
     initServices();
 
@@ -182,10 +205,8 @@ async function initApp() {
     // toggle. Wired after controls so the UI elements are registered with the visibility controller.
     getViewModeController().init();
 
-    // An e-mail-confirmation link (?verify=<token>) is handled first (anonymous, one-shot).
-    await handleEmailVerificationFromUrl();
-
     // A session that ended on the admin PAGE lands back here with `?sessao=` — say why.
+    // (`?verify=` was already consumed in Phase 1.5, above.)
     explainEndedSessionFromUrl();
 
     // Boot routing precedence (see docs/ui-ux-ebgeo.md §1): a public viewer link wins for an
@@ -389,7 +410,11 @@ function explainEndedSessionFromUrl() {
 /**
  * Confirms an account when the URL carries a verification token (`?verify=<token>`). Anonymous and
  * one-shot: shows the outcome as a toast and strips the param so a reload never retries a consumed
- * token. Best-effort — never blocks boot.
+ * token. Best-effort: every failure ends in a sentence, never in a thrown boot.
+ *
+ * IT RETURNS IMMEDIATELY WHEN THERE IS NO TOKEN, and that is what lets it sit in Phase 1.5, ahead
+ * of the map: the ordinary boot pays one `URLSearchParams` read for it. Only the boot that HAS a
+ * token waits on the round trip, and that boot is here for the sentence, not for the map.
  * @returns {Promise<void>}
  */
 async function handleEmailVerificationFromUrl() {
@@ -508,7 +533,20 @@ async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location
         await markStoreRemote(atlas.id);
         await syncEngine.connectPublic(atlas.id);
         await activateAtlasInitialMap();
-        showToast('Visualização pública — somente leitura', 'info');
+        // A FAIXA SUBSTITUI O TOAST, e não se soma a ele.
+        //
+        // O toast anterior ('Visualização pública, somente leitura') era o ÚNICO anúncio da visita
+        // e durava três segundos; depois deles a única diferença visível era a ausência das barras
+        // de ferramenta, que se lê como "ainda está carregando" ou como defeito (achado A2). A
+        // faixa diz as mesmas coisas e continua dizendo, mais o NOME do atlas e uma saída.
+        //
+        // O `false` mantém o anúncio antigo como PISO. Ele não deveria acontecer (a visita já
+        // marcou a sessão como visitante em `connectPublic`, três linhas acima), mas se um dia
+        // acontecer, o desfecho tem de ser o anúncio velho e não anúncio nenhum: perder a faixa é
+        // uma regressão, perder a fala é o defeito original de volta.
+        if (!showVisitorBanner(atlas.name)) {
+            showToast('Visualização pública, somente leitura', 'info');
+        }
         return true;
     } catch (error) {
         console.warn('[boot] public atlas open failed:', error);
@@ -626,6 +664,15 @@ window.addEventListener('beforeunload', () => {
         cleanup3DFeatures();
     } catch (error) {
         console.warn('Cesium cleanup error:', error);
+    }
+
+    // A faixa de visita pública: um assinante do barramento e um listener de clique, soltos aqui
+    // pelo mesmo motivo dos dois vizinhos. Ela vive tanto quanto a página de propósito (a única
+    // saída da visita é navegar), então este é o único ponto em que ela pode ser desfeita.
+    try {
+        destroyVisitorBanner();
+    } catch (error) {
+        console.warn('Visitor banner cleanup error:', error);
     }
 
     // First-person scene. The barrel wrapper is async (it dynamically imports the

@@ -293,10 +293,30 @@ function toCount(valor) {
  * zerado significa acervo vazio, e mandar desligar um filtro que não existe é um conselho
  * impossível de seguir.
  *
- * @param {{temBusca?: boolean, tiposAtivos?: *, acessosAtivos?: *}} [estado]
+ * E O ACERVO VAZIO DE QUEM NÃO ENTROU LEVA UM CONVITE, que é a única saída que essa pessoa
+ * tem daquela tela. O catálogo do visitante anônimo é o público do deploy e mais nada: o
+ * privado que uma conta alcança nem chega ao cliente. Não mostrar o restrito é correto por
+ * sigilo; não mencionar que entrar muda a lista é perda de descoberta, e a pessoa fica sem
+ * gesto nenhum a tomar.
+ *
+ * O CONVITE NÃO CONTA NADA E NÃO SE REPETE. Ele diz que a lista PODE crescer, nunca que
+ * existem N itens restritos: afirmar existência a quem não entrou é o oráculo de enumeração
+ * que a cláusula 5.6 fecha de propósito. E ele some para quem já entrou, senão vira ruído na
+ * tela de todo mundo que já tomou a decisão que ele sugere.
+ *
+ * `autenticado` É PARÂMETRO, E NUNCA UM IMPORT AQUI DENTRO. Este módulo é folha de zero
+ * imports por contrato (dois chunks diferentes o consomem), então quem sabe da sessão é o
+ * chamador, que já a tem em mãos.
+ *
+ * @param {{temBusca?: boolean, tiposAtivos?: *, acessosAtivos?: *, autenticado?: boolean}} [estado]
+ *   `autenticado` DEFAULTA A `true` de propósito: sem saber quem está olhando, o silêncio é o
+ *   desfecho seguro, e um convite para entrar mostrado a quem já entrou é pior que convite
+ *   nenhum.
  * @returns {string}
  */
-export function catalogEmptyNotice({ temBusca = false, tiposAtivos = 0, acessosAtivos = [] } = {}) {
+export function catalogEmptyNotice({
+    temBusca = false, tiposAtivos = 0, acessosAtivos = [], autenticado = true
+} = {}) {
     const partes = [];
     if (temBusca) partes.push('a busca');
 
@@ -309,7 +329,13 @@ export function catalogEmptyNotice({ temBusca = false, tiposAtivos = 0, acessosA
         partes.push(`o filtro de acesso (${nomes})`);
     }
 
-    if (partes.length === 0) return 'O catálogo não tem nenhum item para mostrar.';
+    if (partes.length === 0) {
+        const vazio = 'O catálogo não tem nenhum item para mostrar.';
+        // Só no ramo do vazio DE VERDADE: com filtro ligado o gesto útil é desligá-lo, e um
+        // convite ao lado dele disputaria a atenção com o conselho que resolve a tela.
+        return autenticado ? vazio
+            : `${vazio} Entrar na sua conta pode revelar itens que só quem tem acesso enxerga.`;
+    }
     return `Nenhum item passa por ${listar(partes)}. Desligue um filtro ou limpe a busca para `
         + 'ver mais itens.';
 }

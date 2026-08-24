@@ -3,6 +3,12 @@
 /**
  * @fileoverview Export tab component for sidebar.
  * Provides export functionality for PDF, screenshots, and project files.
+ *
+ * O `.ebgeo` NÃO É EXPORTADO AQUI, e mesmo assim é nomeado aqui: a ação vive na aba Mapas, e
+ * esta aba carrega só um PONTEIRO até ela (`EXPORT_OPTIONS.ebgeo` +
+ * {@link ExportTab#_goToMapsTab}). O formato próprio do produto estar ausente da aba chamada
+ * "Exportar" é um buraco de descoberta, não de funcionalidade, e reimplementar a ação para
+ * fechá-lo criaria duas portas que divergem.
  */
 
 import {
@@ -16,6 +22,8 @@ import { showSuccess, showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
 import { isStreetView360Open } from '@utils/streetview360-state.js';
+import { SIDEBAR_TABS } from '@sidebar/sidebar.constants.js';
+import { getStateManager } from '@store/services.js';
 
 /**
  * Export option configurations.
@@ -44,6 +52,17 @@ const EXPORT_OPTIONS = {
         name: 'Exportar Imagem',
         description: 'Capturar imagem do mapa atual',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+    },
+    // O PONTEIRO, e não uma quinta saída: a exportação `.ebgeo` já existe na aba Mapas, e uma
+    // segunda implementação dela aqui seria duas portas que divergem na primeira revisão. O que
+    // faltava era DESCOBERTA — a aba chamada "Exportar" oferecia quatro formatos e nenhum deles
+    // era o do próprio produto, então quem procurava o arquivo do EBGeo procurava exatamente
+    // onde ele não está. Este item leva à porta e não a duplica.
+    ebgeo: {
+        id: 'ebgeo',
+        name: 'Arquivo do EBGeo (.ebgeo)',
+        description: 'Fica na aba Mapas, em "Exportar". Toque para ir até lá.',
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
     },
 };
 
@@ -79,6 +98,7 @@ export class ExportTab {
         this._kmzContentExpanded = false;
         this._kmzContentContainer = null;
         this._kmzSection = null;
+        this._ebgeoPointerButton = null;
         this._is3DViewerOpen = false;
         this._is360ViewerOpen = false;
 
@@ -142,6 +162,12 @@ export class ExportTab {
         // Image Export option
         this._imageOptionButton = this._createExportOption(EXPORT_OPTIONS.image, () => this._handleImageExport());
         container.appendChild(this._imageOptionButton);
+
+        // O ponteiro para o `.ebgeo`, por último e SEM gate de visualizador: ele não exporta
+        // nada, só troca de aba, então não há o que bloquear no modo 3D ou 360.
+        this._ebgeoPointerButton = this._createExportOption(EXPORT_OPTIONS.ebgeo, () => this._goToMapsTab());
+        this._ebgeoPointerButton.dataset.testid = 'export-ebgeo-pointer';
+        container.appendChild(this._ebgeoPointerButton);
 
         // Setup 3D viewer state listeners
         this._setup3DViewerListeners();
@@ -284,6 +310,26 @@ export class ExportTab {
         addDomListener(this, button, 'click', handler);
 
         return button;
+    }
+
+    /**
+     * Leva para a aba Mapas, onde o `.ebgeo` é exportado.
+     *
+     * O ESTADO É QUEM TROCA DE ABA, não a barra: `expandSidebar` emite `SIDEBAR_TAB_CHANGED`, e
+     * é isso que a barra (colapsada inclusive) escuta. Mexer no DOM da barra daqui deixaria o
+     * estado dizendo "exportar" com a tela mostrando "mapas".
+     *
+     * `getStateManager()` LANÇA quando os serviços não subiram (não devolve nulo), e um clique
+     * que estoura em silêncio é pior do que um que recusa dizendo o motivo.
+     * @private
+     */
+    _goToMapsTab() {
+        try {
+            getStateManager().expandSidebar(SIDEBAR_TABS.MAPAS);
+        } catch (error) {
+            console.error('Failed to open the maps tab:', error);
+            showError('Não foi possível abrir a aba Mapas');
+        }
     }
 
     /**
@@ -997,5 +1043,6 @@ export class ExportTab {
         this._garminContentContainer = null;
         this._kmzOptionButton = null;
         this._kmzContentContainer = null;
+        this._ebgeoPointerButton = null;
     }
 }

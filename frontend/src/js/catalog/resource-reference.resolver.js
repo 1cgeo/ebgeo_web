@@ -152,11 +152,78 @@ const ROTULO_DE_SUPERFICIE = Object.freeze({
 });
 
 /**
+ * O cabeçalho de cada NATUREZA de perda, na ordem em que o aviso as mostra.
+ *
+ * AS DUAS SAEM PELA MESMA PORTA E NÃO SÃO A MESMA NOTÍCIA, e é por isso que o relatório
+ * carrega o veredito por perda desde sempre (`RefVerdict`) enquanto o aviso o ignorava.
+ * "Restrito" é uma afirmação sobre o ACESSO de quem exporta, e ela é falsa para o visitante
+ * ANÔNIMO: sem sessão nada é privado para este cliente (`isPrivateResource` responde `false`
+ * para tudo), então cem por cento do que ele perde é `unknown`. Dizer a ele que perdeu
+ * recurso restrito é ensinar errado o modelo de acesso do produto na única tela em que ele o
+ * encontra, e ainda por cima com cara de acusação.
+ */
+const CABECALHO_DE_NATUREZA = Object.freeze({
+    [RefVerdict.PRIVATE]: 'Por restrição de acesso:',
+    [RefVerdict.UNKNOWN]: 'Por não dar para confirmar, fora do servidor, que é público:',
+});
+
+/**
+ * A nota do 360, escrita só quando há 360 na lista do desconhecido.
+ *
+ * ELA É A METADE QUE FALTAVA DO AVISO. O 360 responde `unknown` SEMPRE, por decisão
+ * registrada (a referência gravada é o nome da foto, e o mapa foto -> projeto só existe no
+ * servidor), então uma foto PÚBLICA sai igual. Sem esta linha, quem exporta lê a contagem de
+ * 360 dentro de uma lista de perdas e conclui que tocou em algo restrito.
+ */
+const NOTA_360 = 'Toda foto 360 entra nesta lista, inclusive a pública.';
+
+/** @private Uma linha do aviso: contagem, rótulo em pt-BR e até três nomes. */
+function linhaDePerda(superficie, quantos, nomes) {
+    const rotulo = ROTULO_DE_SUPERFICIE[superficie] ?? superficie;
+    const amostra = nomes.slice(0, 3).join(', ');
+    const resto = nomes.length > 3 ? ` e mais ${nomes.length - 3}` : '';
+    return `• ${quantos} ${rotulo}${nomes.length ? ` (${amostra}${resto})` : ''}`;
+}
+
+/** @private Os nomes que o `config` sabe resolver, agrupados por superfície. */
+function nomesPorSuperficieDe(nomeados) {
+    const mapa = new Map();
+    for (const perda of nomeados) {
+        const nome = nomeDeRecursoConhecido(perda?.grupo, perda?.id);
+        if (!nome) continue;
+        if (!mapa.has(perda.superficie)) mapa.set(perda.superficie, new Set());
+        mapa.get(perda.superficie).add(nome);
+    }
+    return mapa;
+}
+
+/**
+ * @private A lista ÚNICA, sem separar naturezas: o aviso de antes desta divisão.
+ *
+ * É o desfecho de todo relatório que não traz veredito por perda, e o principal deles não é
+ * legado: o relatório do SERVIDOR (`descreverPerdasDoServidor`) manda só contagem por
+ * superfície, de propósito. Inventar uma natureza ali seria afirmar o que ninguém mediu.
+ */
+function listaUnica(relatorio, nomesPorSuperficie) {
+    const linhas = [];
+    for (const [superficie, quantos] of Object.entries(relatorio.porSuperficie ?? {})) {
+        linhas.push(linhaDePerda(superficie, quantos, [...(nomesPorSuperficie.get(superficie) ?? [])]));
+    }
+    return linhas.join('\n');
+}
+
+/**
  * O texto do aviso de perda, ou null quando não se perdeu nada.
  *
  * CONTA TUDO E NOMEIA O QUE DÁ: cada superfície entra com a contagem, e os nomes que o
  * `config` já carrega vão entre parênteses, com teto de três mais "e mais N". Id cru nunca
  * aparece — ele não informa quem lê e, no caso do 360, é o nome do arquivo da foto.
+ *
+ * E SEPARA AS DUAS NATUREZAS, quando o relatório as traz: o restrito de quem exporta em um
+ * bloco, o não classificável no outro, cada um com o seu porquê. A divisão é TUDO OU NADA —
+ * ou toda perda traz veredito conhecido, ou o aviso volta à lista única —, porque um bloco
+ * "por restrição" que contivesse metade das perdas restritas mentiria por omissão, que é
+ * pior do que a lista indiferenciada que ele substitui.
  *
  * @param {{porSuperficie: Object<string, number>, nomeados: Array, total: number}} relatorio
  * @returns {string|null}
@@ -164,23 +231,63 @@ const ROTULO_DE_SUPERFICIE = Object.freeze({
 export function descreverPerdas(relatorio) {
     if (!relatorio || relatorio.total === 0) return null;
 
-    const nomesPorSuperficie = new Map();
-    for (const perda of relatorio.nomeados) {
+    const nomeados = Array.isArray(relatorio.nomeados) ? relatorio.nomeados : [];
+    const nomesPorSuperficie = nomesPorSuperficieDe(nomeados);
+
+    // A NATUREZA VEM DE `nomeados` E A CONTAGEM CONTINUA VINDO DE `porSuperficie`: as duas
+    // são escritas na mesma passada por `anotar` (`private-reference-pruner.js`), então
+    // discordarem é sinal de relatório de outra procedência, e não de defeito a contornar.
+    const porChave = new Map();
+    const nomesPorChave = new Map();
+    const superficiesVistas = [];
+    let classificadas = 0;
+    let temFoto360 = false;
+
+    for (const perda of nomeados) {
+        const veredito = perda?.veredito;
+        if (veredito !== RefVerdict.PRIVATE && veredito !== RefVerdict.UNKNOWN) continue;
+        classificadas += 1;
+
+        const superficie = perda.superficie;
+        const chave = `${veredito}|${superficie}`;
+        if (!porChave.has(chave)) superficiesVistas.push(superficie);
+        porChave.set(chave, (porChave.get(chave) ?? 0) + 1);
+
         const nome = nomeDeRecursoConhecido(perda.grupo, perda.id);
-        if (!nome) continue;
-        if (!nomesPorSuperficie.has(perda.superficie)) nomesPorSuperficie.set(perda.superficie, new Set());
-        nomesPorSuperficie.get(perda.superficie).add(nome);
+        if (nome) {
+            if (!nomesPorChave.has(chave)) nomesPorChave.set(chave, new Set());
+            nomesPorChave.get(chave).add(nome);
+        }
+        if (veredito === RefVerdict.UNKNOWN && perda.grupo === RESOURCE_REF_GROUP.VIEWS_360) {
+            temFoto360 = true;
+        }
     }
 
-    const linhas = [];
-    for (const [superficie, quantos] of Object.entries(relatorio.porSuperficie)) {
-        const rotulo = ROTULO_DE_SUPERFICIE[superficie] ?? superficie;
-        const nomes = [...(nomesPorSuperficie.get(superficie) ?? [])];
-        const amostra = nomes.slice(0, 3).join(', ');
-        const resto = nomes.length > 3 ? ` e mais ${nomes.length - 3}` : '';
-        linhas.push(`• ${quantos} ${rotulo}${nomes.length ? ` (${amostra}${resto})` : ''}`);
+    if (classificadas !== relatorio.total) return listaUnica(relatorio, nomesPorSuperficie);
+
+    // A ordem de superfície é a de `porSuperficie`, e o que sobrar entra depois: nenhuma
+    // perda contada pode sumir da tela por não ter lugar na ordem.
+    const ordem = [...Object.keys(relatorio.porSuperficie ?? {})];
+    for (const superficie of superficiesVistas) {
+        if (!ordem.includes(superficie)) ordem.push(superficie);
     }
-    return linhas.join('\n');
+
+    const secoes = [];
+    for (const natureza of [RefVerdict.PRIVATE, RefVerdict.UNKNOWN]) {
+        const linhas = [];
+        for (const superficie of ordem) {
+            const chave = `${natureza}|${superficie}`;
+            const quantos = porChave.get(chave);
+            if (!quantos) continue;
+            linhas.push(linhaDePerda(superficie, quantos, [...(nomesPorChave.get(chave) ?? [])]));
+        }
+        if (linhas.length === 0) continue;
+        if (natureza === RefVerdict.UNKNOWN && temFoto360) linhas.push(NOTA_360);
+        secoes.push([CABECALHO_DE_NATUREZA[natureza], ...linhas].join('\n'));
+    }
+
+    if (secoes.length === 0) return listaUnica(relatorio, nomesPorSuperficie);
+    return secoes.join('\n\n');
 }
 
 /**
@@ -194,7 +301,9 @@ export function descreverPerdas(relatorio) {
  * O servidor manda `{ superfície: contagem }` (`pruner.report`, `atlas-resource-prune.js`), sem
  * ids e sem nomes, e isso é deliberado lá: o resumo volta ao cliente e vai para a trilha, e o nome
  * de um recurso privado é metadado do recurso. Por isso a saída aqui nunca traz nomes entre
- * parênteses, ao contrário do caminho de exportação, onde eles vêm do `config` local.
+ * parênteses, ao contrário do caminho de exportação, onde eles vêm do `config` local — e pelo
+ * mesmo motivo ela nunca separa "restrito" de "não classificável": sem `nomeados` não há
+ * veredito por perda, e a poda de LÁ é por destinatário, não keep-list.
  *
  * @param {Object|null|undefined} pruneReport - `{ [superficie]: number }`.
  * @returns {string|null}

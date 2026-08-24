@@ -128,7 +128,19 @@ const CENSO = [
             + 'ainda está na variável, antes da reatribuição.',
     },
     { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 2, classe: BASELINE, motivo: LE_TILESETS },
-    { arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 3, classe: BASELINE, motivo: LE_TILESETS },
+    {
+        arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 4,
+        classe: BASELINE,
+        motivo: LE_TILESETS
+            + ' A QUARTA leitura entrou em 2026-08-24 e é de NOME, não de estilo nem de URL: '
+            + 'quando o modelo não carrega, `openViewerWithTileset` acusa a falha nomeando-o '
+            + 'antes de relançar. É a mesma forma já declarada acima para '
+            + '`base-layer.control.js`, e o oposto de um vazamento: sem ela o tileset privado '
+            + 'emprestado a um visitante de link público some da cena sem uma palavra. O modelo '
+            + '3D tem DOIS caminhos de falha e este cobre um; o outro (todos os filhos `.b3dm` '
+            + 'recusados enquanto a raiz responde 200) não passa por aqui, não rejeita nada e só '
+            + 'existe como evento `tileFailed`, que não lê o catálogo.',
+    },
     { arquivo: 'src/js/3d_models_viewer_tool/components/panel-shared-3d.js', gatilho: 'catalogo', n: 1, classe: BASELINE, motivo: LE_TILESETS },
     { arquivo: 'src/js/features_tab/models3d-section.component.js', gatilho: 'catalogo', n: 2, classe: BASELINE, motivo: LE_TILESETS },
     {

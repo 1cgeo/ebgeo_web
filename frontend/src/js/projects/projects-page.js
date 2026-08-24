@@ -83,13 +83,20 @@ import {
     savePendingImport,
 } from '@store/atlas-namespace.js';
 import { loadStoreOrigin, markStoreLocal } from '@store/store-origin.js';
-import { AtlasDrive, LocalAtlasSection, createServerInvite } from './atlas-drive.js';
+import {
+    AtlasDrive,
+    LocalAtlasSection,
+    arrivalNotice,
+    createServerInvite,
+    createServerOutage,
+} from './atlas-drive.js';
 // The refusal-to-sentence rule, in a module a test can reach: this page boots on import, so the
 // one property that matters here (a refused local-atlas operation is never a silent no-op) has
 // nowhere else to be asserted. See `tests/unit/atlas-local-recusa-chega-ao-usuario.test.js`.
 import {
     NoticeKind,
     createNotice,
+    deleteConfirmMessage,
     deleteNotice,
     refusalNotice,
     renameNotice,
@@ -190,24 +197,24 @@ function clearSplash() {
     document.getElementById('initial-loader')?.remove();
 }
 
-/** Why the map sent the user here, and how to say it. */
-const ARRIVAL_NOTICES = Object.freeze({
-    excluido: 'Atlas excluído.',
-    'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
-});
-
 /**
  * Explains an arrival the user did not ask for — the atlas they had open was deleted, so the map
  * tore itself down and sent them here with `?aviso=<motivo>`. The message travels in the URL
  * because a toast raised on the map would be destroyed by the navigation that follows it.
  * One-shot: the param is stripped so a reload does not repeat it. Unknown values are ignored
  * rather than echoed.
+ *
+ * WHAT TO SAY (including "say nothing") is {@link arrivalNotice}, which is pure and where the
+ * session gate lives: both codes are facts about a SERVER atlas, and echoing them to a visitor
+ * with no account described the ownership of an atlas they never had, off a hand-written URL.
+ * The param is stripped either way.
+ * @param {boolean} signedIn
  */
-function explainArrivalFromUrl() {
+function explainArrivalFromUrl(signedIn) {
     const params = new URLSearchParams(window.location.search);
     const notice = params.get('aviso');
     if (!notice) return;
-    const message = ARRIVAL_NOTICES[notice];
+    const message = arrivalNotice(notice, { signedIn });
     if (message) showWarning(message);
     params.delete('aviso');
     const qs = params.toString();
@@ -271,9 +278,41 @@ async function loadLocalAtlases() {
     return { atlases, currentId };
 }
 
-/** Redraws the local section from the registry (after a create / rename / delete). */
+/**
+ * Redraws the local section from the registry (after a create / rename / delete).
+ *
+ * `listLocalAtlases` THROWS when the registry was never loaded (its own caller-bug convention), and
+ * that is reachable here: the first read can fail, and every handler below ends in this call. The
+ * `null` is the section's THIRD state ("did not load"), never an empty list.
+ */
 function refreshLocalSection() {
-    localSection?.setAtlases(listLocalAtlases(), getCurrentLocalAtlasId());
+    try {
+        localSection?.setAtlases(listLocalAtlases(), getCurrentLocalAtlasId());
+    } catch (error) {
+        console.error('[projects] local atlas registry unreadable:', error);
+        localSection?.setAtlases(null, null);
+    }
+}
+
+/** The sentence said when the local registry cannot be read. Same words in both call sites. */
+const REGISTRO_LOCAL_ILEGIVEL = 'Não foi possível ler os atlas deste computador.';
+
+/**
+ * "Tentar de novo" from the local section's failure tile: read the registry again and redraw.
+ *
+ * A FAILED RETRY GOES BACK TO THE FAILURE TILE, not to an empty grid — which is the whole point of
+ * the third state surviving `setAtlases`.
+ * @returns {Promise<void>}
+ */
+async function retryLocalAtlases() {
+    try {
+        const local = await loadLocalAtlases();
+        localSection?.setAtlases(local.atlases, local.currentId);
+    } catch (error) {
+        console.error('[projects] local atlas registry failed:', error);
+        localSection?.setAtlases(null, null);
+        showError(REGISTRO_LOCAL_ILEGIVEL);
+    }
 }
 
 /**
@@ -472,7 +511,13 @@ async function renameLocalAtlasFromPage(atlas) {
  * Deletes a local atlas, databases and all.
  *
  * The confirmation names the queue on purpose: an atlas's outbound queue dies with its databases,
- * and "there was something unsent in a LOCAL atlas" is not a state a user suspects.
+ * and "there was something unsent in a LOCAL atlas" is not a state a user suspects. IT NAMES IT
+ * ONLY TO SOMEBODY WHO HAS AN ACCOUNT, since 2026-08-24: to an anonymous visitor the sentence
+ * described a path they never had, and hinted that something in there had been going to the server,
+ * against what the section right above promises. The wording is {@link deleteConfirmMessage}.
+ *
+ * THE "ONLY ATLAS" REFUSAL NEVER REACHES THIS FUNCTION any more: `LocalAtlasSection._attemptDelete`
+ * says it on the click, before this dialog is staged. `deleteLocalAtlas` still re-checks.
  *
  * `blockedDatabases` is reported, never swallowed: it means another tab was holding those
  * databases open, so the slot left the registry while its files stayed on disk — and, worse, that
@@ -481,8 +526,7 @@ async function renameLocalAtlasFromPage(atlas) {
  */
 async function deleteLocalAtlasFromPage(atlas) {
     const ok = await showConfirm(`Excluir "${atlas?.name ?? ''}"?`, {
-        message: 'Os mapas, feições e imagens deste atlas serão apagados deste navegador, junto com '
-            + 'qualquer trabalho ainda não enviado ao servidor. Não há como desfazer.',
+        message: deleteConfirmMessage({ signedIn: sessionContext.isAuthenticated() }),
         destructive: true,
         confirmText: 'Excluir',
     });
@@ -759,6 +803,89 @@ function buildActions() {
 }
 
 /**
+ * The "Neste computador" section, wired to the local-atlas API.
+ *
+ * ONE BUILDER FOR BOTH BOOTS, and that is the point: the page with a server and the page without
+ * one draw the SAME local half, because none of these callbacks touches the network
+ * (`createLocalAtlas`, `renameLocalAtlas`, `duplicateLocalAtlas`, `deleteLocalAtlas` and
+ * `savePendingImport` are IndexedDB only). Two copies of this call would be two places for the
+ * offline page to quietly lose an action.
+ * @param {{atlases: Array<Object>|null, currentId: string|null}} local
+ * @returns {LocalAtlasSection}
+ */
+function buildLocalSection(local) {
+    return new LocalAtlasSection({
+        atlases: local.atlases,
+        currentId: local.currentId,
+        max: MAX_LOCAL_ATLASES,
+        onOpen: (atlas) => openLocalAtlas(atlas),
+        onCreate: () => createLocalAtlasFromPage(),
+        onRename: (atlas) => renameLocalAtlasFromPage(atlas),
+        onDuplicate: (atlas) => duplicateLocalAtlasFromPage(atlas),
+        onDelete: (atlas) => deleteLocalAtlasFromPage(atlas),
+        onOpenFile: (file) => openEbgeoFileAsLocalAtlas(file),
+        onRetry: () => retryLocalAtlases(),
+    });
+}
+
+/**
+ * The page WITHOUT a server: "Neste computador" plus an honest account of what is out.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO, and each omission is a failure this branch would otherwise
+ * stage against a server that is not answering:
+ *
+ *   - NO SESSION RESTORE. `getMe` would fail exactly like `/api/config` just did, three times over,
+ *     and produce a second sentence about a session nobody asked about. Anonymous here does not
+ *     mean signed out: it means unasked.
+ *   - NO SERVER HALF AT ALL, not even the sign-in invitation: "Entrar" is precisely what cannot
+ *     work, and offering it would be the page promising what it cannot keep. `createServerOutage`
+ *     stands there instead.
+ *   - NO IDLE WATCH, NO PRESENCE POLL, NO 401 HANDLER. All three are session machinery.
+ *
+ * WHAT IT KEEPS is the tab-lock (local arbitration, no network), the arrival param being STRIPPED
+ * from the URL, and the whole local section with every action live.
+ * @returns {Promise<void>}
+ */
+async function renderWithoutServer() {
+    document.title = `Seus atlas — ${config?.app?.title || 'EBGeo'}`;
+    initTabLock({ key: noneKey(), overlayHost: null });
+
+    let local = { atlases: null, currentId: null };
+    try {
+        local = await loadLocalAtlases();
+    } catch (error) {
+        console.error('[projects] local atlas registry failed:', error);
+    }
+
+    clearSplash();
+    // `false` is the truth here and not a shortcut: nobody was asked to sign in, so no arrival
+    // notice about a server atlas may be echoed. The param is still consumed.
+    explainArrivalFromUrl(false);
+    if (local.atlases === null) showError(REGISTRO_LOCAL_ILEGIVEL);
+
+    const appBar = createAppBar({
+        logo: EBGEO_LOGO_BASE64,
+        title: config?.app?.title || 'EBGeo',
+        user: null,
+        actions: buildActions(),
+        onLogout: null,
+    });
+    document.body.appendChild(appBar.element);
+
+    const body = document.createElement('div');
+    body.className = 'projects-body';
+    document.body.appendChild(body);
+
+    // O AVISO VEM PRIMEIRO, ao contrário da ordem da página completa (local em cima, servidor
+    // embaixo): aqui ele explica por que a tela está diferente, e a explicação precede o que ela
+    // explica.
+    body.appendChild(createServerOutage({ onRetry: () => window.location.reload() }));
+
+    localSection = buildLocalSection(local);
+    localSection.mount(body);
+}
+
+/**
  * Boots the "Seus atlas" page.
  *
  * The signed-out branch is not a degraded page: the local half is the WHOLE product for a visitor
@@ -770,10 +897,13 @@ function buildActions() {
 async function initProjectsPage() {
     configureApiClient({ baseUrl: resolveBackendBaseUrl() });
 
-    // Still fail-fast on the config, signed out included: `config.js` is a shape the server
-    // hydrates, and a page drawing from the un-hydrated shape would be inventing the product.
+    // NÃO É MAIS FAIL-FAST NESTA PÁGINA, e essa é a decisão do dono de 2026-08-24. O mapa continua
+    // sendo (`index.js`), porque lá TUDO vem do servidor; aqui não: "Neste computador" não faz uma
+    // requisição sequer, então trocar a página inteira pela tela de bloqueio tornava inalcançável
+    // a metade do produto que continuava funcionando, para a pessoa a quem o produto prometeu
+    // "Nada aqui vai para o servidor".
     if (!(await bootConfig())) {
-        showUnavailableScreen();
+        await renderWithoutServer();
         return;
     }
     document.title = `Seus atlas — ${config?.app?.title || 'EBGeo'}`;
@@ -813,17 +943,20 @@ async function initProjectsPage() {
         overview = extras;
     }
 
-    let local = { atlases: [], currentId: null };
+    // `null` É O TERCEIRO ESTADO, como no irmão de servidor logo acima: um registro que não pôde
+    // ser lido não é um registro vazio, e a lista vazia é literalmente o desenho da falha (o boot
+    // do store garante um cartão a todo visitante novo).
+    let local = { atlases: null, currentId: null };
     try {
         local = await loadLocalAtlases();
     } catch (error) {
         // A registry this page cannot read must not cost the visitor the server half.
         console.error('[projects] local atlas registry failed:', error);
-        showError('Não foi possível ler os atlas deste computador.');
+        showError(REGISTRO_LOCAL_ILEGIVEL);
     }
 
     clearSplash();
-    explainArrivalFromUrl();
+    explainArrivalFromUrl(signedIn);
     // AFTER the splash, and after the arrival notice: a session that could not be confirmed is the
     // reason the server half of this page is missing, so it is the last thing said and therefore
     // the one on top.
@@ -850,17 +983,7 @@ async function initProjectsPage() {
     body.className = 'projects-body';
     document.body.appendChild(body);
 
-    localSection = new LocalAtlasSection({
-        atlases: local.atlases,
-        currentId: local.currentId,
-        max: MAX_LOCAL_ATLASES,
-        onOpen: (atlas) => openLocalAtlas(atlas),
-        onCreate: () => createLocalAtlasFromPage(),
-        onRename: (atlas) => renameLocalAtlasFromPage(atlas),
-        onDuplicate: (atlas) => duplicateLocalAtlasFromPage(atlas),
-        onDelete: (atlas) => deleteLocalAtlasFromPage(atlas),
-        onOpenFile: (file) => openEbgeoFileAsLocalAtlas(file),
-    });
+    localSection = buildLocalSection(local);
     localSection.mount(body);
 
     if (signedIn) {

@@ -102,6 +102,19 @@
     white-space: nowrap;
 }
 
+/* Perto do teto e no teto. A ÊNFASE É REFORÇO: quem carrega o fato é o texto do próprio
+   contador ("8 de 10 · restam 2"), porque cor sozinha não diz nada a quem não a distingue. */
+.local-atlas__count--near {
+    background: rgb(245 158 11 / 12%);
+    color: #92400e;
+}
+
+.local-atlas__count--full {
+    background: rgb(245 158 11 / 18%);
+    color: #92400e;
+    box-shadow: inset 0 0 0 1px var(--color-warning);
+}
+
 .local-atlas__grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -273,6 +286,55 @@
     background: rgb(239 68 68 / 10%);
 }
 
+/* Bloqueado por ESTADO (é o único atlas local), não por posto: o item CONTINUA desenhado e
+   CONTINUA clicável, porque o clique é como o motivo chega. Só `aria-disabled`, nunca a
+   propriedade `disabled`, que impediria o clique e com ele a explicação. */
+.local-atlas__menu-item--blocked {
+    opacity: 0.6;
+}
+
+/* ===== Registro local ilegível ===== */
+
+/* Ocupa a grade inteira: o estado de falha substitui os cartões E a peça de criação, e não pode
+   ficar espremido numa coluna ao lado de um convite a criar por cima do que não se leu. */
+.local-atlas__failure {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--gray-50);
+    border: var(--border-width) dashed var(--border-color-dark);
+    border-radius: var(--radius-lg);
+}
+
+.local-atlas__failure-text {
+    max-width: 60ch;
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    line-height: 1.5;
+}
+
+.local-atlas__failure-retry {
+    padding: var(--space-2) var(--space-4);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.local-atlas__failure-retry:hover {
+    background: var(--primary-50);
+    border-color: var(--primary);
+    color: var(--primary-700);
+}
+
 /* ===== No servidor, signed out ===== */
 
 .server-invite {
@@ -299,5 +361,35 @@
     margin: 0;
     font-size: var(--font-size-sm);
     color: var(--gray-600);
+    line-height: 1.5;
+}
+
+/* ===== Servidor fora (o `GET /api/config` não respondeu) =====
+
+   NÃO É O CONVITE COM OUTRA COR. Ele fica ACIMA da seção local, e não no lugar dela lá embaixo,
+   porque explica por que a página está diferente, e a explicação precede o que ela explica. */
+.server-outage {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-6);
+    background: rgb(245 158 11 / 10%);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.server-outage__title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--gray-900);
+}
+
+.server-outage__text {
+    max-width: 72ch;
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
     line-height: 1.5;
 }

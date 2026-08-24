@@ -354,10 +354,16 @@ export class CatalogModal extends ModalBase {
             onShare: (item) => this._handleShare(item),
             // O ESTADO VAZIO NOMEIA O QUE O ESVAZIOU. Com dois eixos de filtro mais a busca,
             // "Nenhum item encontrado" deixa a pessoa sem saber qual dos três desligar.
+            //
+            // `autenticado` VEM DAQUI porque `access-origin-phrases.js` é folha de zero imports
+            // por contrato: a frase é pura, e quem conhece a sessão é esta tela. Sem ele o
+            // visitante anônimo lê "o catálogo não tem nenhum item" sobre um acervo que a conta
+            // dele poderia alargar, e sai sem gesto nenhum a tomar.
             emptyNotice: catalogEmptyNotice({
                 temBusca: !!this._searchQuery,
                 tiposAtivos: this._activeFilters.size,
-                acessosAtivos: [...this._activeAccessFilters]
+                acessosAtivos: [...this._activeAccessFilters],
+                autenticado: sessionContext.isAuthenticated()
             })
         });
 

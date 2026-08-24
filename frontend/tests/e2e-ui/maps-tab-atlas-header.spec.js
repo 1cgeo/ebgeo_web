@@ -48,7 +48,7 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         await expect(page.locator('#nav-btn-zoom-in')).toBeAttached({ timeout: 20000 });
         await openMapsTab(page);
 
-        expect(await actionLabels(page)).toEqual(['Abrir', 'Importar', 'Exportar', 'Limpar tudo']);
+        expect(await actionLabels(page)).toEqual(['Seus atlas', 'Importar', 'Exportar', 'Limpar tudo']);
         await expect(page.locator('[data-testid="atlas-origin-chip"]')).toHaveText('Local');
 
         const nameInput = page.locator('[data-testid="atlas-name-input"]');
@@ -110,7 +110,7 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         // and "Limpar tudo" STAYS — it used to vanish the moment you signed in, stranding a
         // signed-in user working locally with no way to wipe their own workspace.
         expect(await actionLabels(page)).toEqual([
-            'Abrir', 'Enviar ao servidor', 'Importar', 'Exportar', 'Limpar tudo'
+            'Seus atlas', 'Enviar ao servidor', 'Importar', 'Exportar', 'Limpar tudo'
         ]);
         await expect(page.locator('[data-testid="atlas-origin-chip"]')).toHaveText('Local');
 
@@ -123,7 +123,7 @@ describeOrSkip('Maps tab — atlas header and the three-state action grid', () =
         // "Salvar como local" entrou NESTA linha depois, e é o SIMÉTRICO de "Enviar ao servidor":
         // cada estado oferece a travessia que falta. A ordem vem da tabela por estado em
         // `maps.tab.js`, não da ordem em que os botões foram criados.
-        expect(await actionLabels(owner)).toEqual(['Abrir', 'Importar', 'Exportar', 'Salvar como local', 'Compartilhar']);
+        expect(await actionLabels(owner)).toEqual(['Seus atlas', 'Importar', 'Exportar', 'Salvar como local', 'Compartilhar']);
         await expect(owner.locator('[data-testid="atlas-origin-chip"]')).toHaveText('Servidor');
 
         // The owner reaches the manage rung, so the field is writable and the rename goes to the

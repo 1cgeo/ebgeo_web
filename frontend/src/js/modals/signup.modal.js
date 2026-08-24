@@ -14,6 +14,22 @@ import { addDomListener } from '@utils/event-cleanup.js';
 import { apiClient } from '@store/sync/api-client.js';
 import config from '@js/config.js';
 
+/**
+ * The help line under "Organização Militar", in the vocabulary of the statute.
+ *
+ * THE FIELD IS REQUIRED AND SAID NOTHING, which is the reading it invited: a mandatory
+ * "Organização Militar" on a form that also asks for rank looks like the field that decides what
+ * the account may do. It decides nothing. `CONSTITUICAO.md` 1.5 says the organisation declared at
+ * signup is LOTAÇÃO and does not authorise anything; 10.5 says it stays self-declared and that
+ * nobody verifies it. What actually binds role and production scope is the administrator
+ * (`users.producer_org_id`, guarded by the CHECK `users_producer_scope_check`), never this field.
+ *
+ * IT IS EXPORTED SO A NODE TEST CAN READ IT. The words are the whole content of the fix, and a
+ * constant inlined in the DOM builder would only be reachable through a browser.
+ */
+export const LOTACAO_HINT = 'Sua lotação, declarada por você: ninguém a verifica, e ela não '
+    + 'autoriza nada. Papel e escopo de produção são concedidos por um administrador.';
+
 /** Header icon (user-plus / create account). */
 const SIGNUP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`;
 
@@ -244,6 +260,17 @@ export class SignupModal extends ModalBase {
                 id: 'signup-om', label: 'Organização Militar',
                 testid: 'signup-om', required: true
             });
+
+        // The hint goes INSIDE the field (both builders append the control to a `field` div and
+        // that div to the form), so it stays attached to the control whichever branch above ran,
+        // and it is announced with the control through `aria-describedby`.
+        const omHint = document.createElement('p');
+        omHint.className = 'login-modal__hint';
+        omHint.id = 'signup-om-hint';
+        omHint.dataset.testid = 'signup-om-hint';
+        omHint.textContent = LOTACAO_HINT;
+        this._omInput.setAttribute('aria-describedby', omHint.id);
+        this._omInput.parentElement.appendChild(omHint);
 
         // Inline error (hidden until populated)
         const error = document.createElement('div');
