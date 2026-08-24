@@ -10,6 +10,14 @@ uma lista do que não deve ser mexido e oito perguntas ao dono.
 separar o que saiu do que fica, corrigir o que a auditoria superdeclarou e registrar o que a
 conferência achou de novo.
 
+**Baixa contra `59e9600c`, 2026-08-24: saiu UM, o N3, e o A8 encolheu.** A revisão acima foi escrita
+em `11150029`. Doze achados deste relatório citam arquivos que o commit seguinte tocou; os doze foram
+reabertos contra o código, e onze continuam de pé, **os dois críticos inclusive**. A observação da
+seção "Como esta revisão foi feita" continua valendo e ficou mais forte: **o lote não passa pelo
+painel**. Das seis abas, `59e9600c` tocou UMA (`frontend/src/js/admin/users-tab.js`), por um campo, e
+`frontend/src/js/admin/personnel-tab.js` continua sem citar `is_active` uma única vez, que é o achado
+C1 inteiro.
+
 ## Como esta revisão foi feita
 
 Cada achado foi reaberto **contra o código da árvore de trabalho**, não contra a lista de commits.
@@ -37,6 +45,8 @@ Duas coisas que só isso revela:
 | partidos em dois (misturavam metades de gravidades diferentes) | 2, que viram 4 |
 | achados NOVOS | 4 |
 | **em vigor depois desta revisão** | **38** |
+| **baixa contra `59e9600c`: saíram** | **1** (N3), mais o A8 encolhido |
+| **em vigor hoje** | **37**, com os 2 críticos intactos |
 
 Gravidade, **reordenada por gravidade real** e não pela numeração antiga: **2 críticos, 10 altos,
 19 médios, 7 baixos**. Os dois críticos são os dois atos de desativação, com a mesma raiz: o servidor
@@ -512,7 +522,17 @@ diferente derruba a confirmação, salvo se o mesmo pedido disser o contrário. 
 unicidade por `CHECK_EMAIL_EXISTS_EXCLUDING` e responde 409 com o motivo; `UPDATE_USER_ADMIN` ganhou
 o par valor/bandeira.
 
-**Aberto, e agora é pior, porque a capacidade existe e a tela não a alcança:** o payload de
+**BAIXA contra `59e9600c`: a metade do payload FECHOU.** O formulário de edição ganhou o campo
+"E-mail" (só na edição, porque `POST /users` não tem o campo e a conta que ele cria entra logando
+na hora) e o payload só o envia quando o valor MUDOU, senão salvar o posto derrubaria a confirmação
+de uma conta que ninguém quis mexer. O administrador já consegue ler e corrigir o endereço que
+aprova, que era o núcleo do achado.
+
+**Fica a metade da LISTAGEM, e ela é menor:** o selo "Pendente" continua sem o endereço no `title`,
+não há coluna de e-mail, e aprovar continua exigindo Editar, rolar até o fim e marcar uma caixa, sem
+ação de linha. O texto original da parte aberta segue abaixo, para registro.
+
+**Texto original.** O payload de
 `frontend/src/js/admin/users-tab.js` é nome, usuário, posto, lotação, papel e OM produtora, mais
 `is_active` e `email_verified` quando cabem, e `email` nunca é enviado; o cabeçalho da tabela é
 `['Usuário', 'Papel', 'Lotação', 'OM produtora', 'Status', '']`, e `u.email` é lido uma vez, como
@@ -749,8 +769,16 @@ rotulando "(atual)", que é a decisão certa e é o que a seção 5 elogia. Mas
 `frontend/src/js/admin/audit-tab.js` não passa o rótulo, então a opção sai como o UUID seguido de
 "(atual)". O filtro continua endereçável e deixou de ser legível, que era metade do ponto.
 
-**N3 (MÉDIO). `calibracao.html` é a única página que não resgata trabalho ao encerrar sessão, e ela é
-gateada por `isAdmin()` ou `isProducer()`.** O lote fechou metade:
+**N3 (MÉDIO) [RESOLVIDO em `59e9600c`]. `calibracao.html` é a única página que não resgata trabalho ao
+encerrar sessão, e ela é gateada por `isAdmin()` ou `isProducer()`.** **BAIXA:** o `endSession` de
+`frontend/src/js/calibration/calibracao-page.js` passou a chamar
+`preserveUnsyncedWorkOnLostSession()` ANTES do logout e a carimbar o desfecho na URL do mapa
+(`?sessao=`, `?trabalho=`, `?pendentes=`), como as outras três. O censo que cobra isso
+(`frontend/tests/unit/fim-de-sessao-resgata-censo.test.js`) é derivado de `git ls-files`, não lista
+escrita à mão, então a quarta página não pode ficar para trás de novo em silêncio. O texto original
+segue abaixo, para registro.
+
+**Texto original.** O lote fechou metade:
 `frontend/src/js/calibration/calibracao-page.js` passou a usar `classifyRequestFailure` e só apaga a
 credencial em `RequestFailure.CREDENTIAL`, e o guarda que protege isso
 (`frontend/tests/unit/falha-de-requisicao-nao-apaga-credencial.test.js`) deixou de ser lista escrita à
@@ -878,6 +906,14 @@ As oito da auditoria continuam de pé, porque o lote não passou aqui. A oitava 
 ---
 
 ## Nota de método
+
+**Como a baixa contra `59e9600c` foi limitada, e por que isso não é conferência de fé.** Os arquivos
+que o commit tocou saíram de `git show --name-only`; os caminhos citados em cada achado saíram do
+texto deste documento; a interseção foi computada. Um achado cujos arquivos o commit NÃO tocou não
+pode ter sido resolvido por ele: isso é propriedade, não leitura. Só os achados da interseção foram
+reabertos contra o código, um a um. A interseção erra nos dois sentidos (acusa por citação
+incidental, e deixa passar quem descreve o alvo por símbolo em vez de caminho), então ela estreita o
+trabalho sem substituí-lo.
 
 Nenhum arquivo de código foi modificado nesta revisão, nenhum commit foi feito, e o único arquivo
 escrito foi este. As afirmações do servidor foram conferidas nos módulos de autenticação, usuários,

@@ -10,6 +10,29 @@ código, um inventário de 39 ações e 7 perguntas ao dono.
 **Revisão: 2026-08-24.** Um lote grande entrou desde então (commit 76dbe93d, árvore de trabalho
 limpa), e este documento foi reescrito para separar o que saiu do que fica.
 
+**Baixa contra `59e9600c`, 2026-08-24: NENHUM achado saiu, e esse é o resultado que importa.** A
+revisão acima foi escrita em `11150029`; o commit seguinte fechou 23 achados do perfil de usuário
+comum e passou por 85 arquivos. Cinco achados deste relatório citam arquivos que ele tocou, e os
+cinco foram reabertos contra o código: os cinco continuam de pé. **Dos quatro perfis, este é o mais
+isolado do trabalho recente**, e a razão é estrutural, não acidental: as telas do credenciado são o
+modal de compartilhamento, a árvore de concessões e a aba Grupos, e nenhuma das três é tela do
+usuário comum. Ele não herda conserto de ninguém.
+
+Os cinco conferidos, e por que cada um continua aberto:
+
+- **C1** `frontend/src/js/store/sync/sync-engine.js` mudou, mas só para `clearLocalEditMarks` no
+  fim de atlas e de sessão. `refreshVisibleResources` continua best-effort, o retorno continua
+  descartado pelos três chamadores, e nenhuma tela oferece `retryVisibleResources`.
+- **A2** `backend/src/utils/mailer.js` mudou, e na direção oposta a este achado: o que ganhou
+  correção foi a frase da senha do e-mail de cadastro. Não existe e-mail de concessão.
+- **A3** `frontend/src/js/store/sync/api-client.js` mudou em pontos de sessão. Continua sem rota de
+  inventário do que este perfil concedeu.
+- **B1** `frontend/src/js/account/account.control.js` mudou bastante, e o menu passou a gatear por
+  sessão em vez de nome de usuário. O defeito deste achado é outro e continua: o botão nasce com o
+  texto "Administração" e só depois `_updateAdminVisibility` o reescreve.
+- **B3** é a nota fora de escopo, e as ocorrências que ela anota mudaram de vizinhança sem mudar de
+  natureza.
+
 ## Como esta revisão foi feita
 
 Cada achado foi reaberto **contra o código**, não contra a lista de commits. Onde este documento diz
@@ -32,6 +55,8 @@ briga de documento contra documento, não UX.
 | saíram (resolvidos, ou retirados por estarem errados) | 2 |
 | ficam | 17, dos quais 1 é parcial |
 | achados NOVOS, nascidos da revisão | 1 |
+| **baixa contra `59e9600c`: saíram** | **0** |
+| **em vigor hoje** | **18** |
 
 Gravidade dos 18 que ficam (17 antigos + 1 novo), **reordenada por gravidade real** e não pela
 numeração antiga: 1 crítico, 5 altos, 9 médios, 3 baixos.
@@ -572,6 +597,14 @@ Não se apaga o registro: quem ler daqui a três meses precisa saber que aquilo 
 ---
 
 ## Nota de método
+
+**Como a baixa contra `59e9600c` foi limitada, e por que isso não é conferência de fé.** Os arquivos
+que o commit tocou saíram de `git show --name-only`; os caminhos citados em cada achado saíram do
+texto deste documento; a interseção foi computada. Um achado cujos arquivos o commit NÃO tocou não
+pode ter sido resolvido por ele: isso é propriedade, não leitura. Só os achados da interseção foram
+reabertos contra o código, um a um. A interseção erra nos dois sentidos (acusa por citação
+incidental, e deixa passar quem descreve o alvo por símbolo em vez de caminho), então ela estreita o
+trabalho sem substituí-lo.
 
 Nenhum arquivo de código foi modificado nesta revisão, nenhum commit foi feito, e o único arquivo
 escrito foi este. As afirmações do servidor foram conferidas nos módulos de acesso a recurso, grupos

@@ -11,6 +11,14 @@ mexer e oito perguntas ao dono.
 que o precederam) tocou este perfil de lado. Reescrito para separar o que saiu do que fica, reavaliar
 a gravidade e registrar o que a auditoria não viu.
 
+**Baixa contra `59e9600c`, 2026-08-24: saiu UM, o A6.** A revisão acima foi escrita em `11150029`.
+Sete achados deste relatório citam arquivos que o commit seguinte tocou; os sete foram reabertos
+contra o código e seis continuam de pé, C1 e C2 inclusive. **Os dois críticos estão intactos byte a
+byte**, e a razão é precisa: o commit mexeu em `frontend/src/js/calibration/calibracao-page.js`, que
+é a CASCA da página, e não tocou `frontend/src/js/calibration/app.js`, que é onde os dois moram.
+A calibração ganhou resgate de trabalho não enviado e tela de erro honesta, e continua descartando
+calibração não salva no botão mais natural da tela.
+
 ## Como esta revisão foi feita
 
 Cada achado foi reaberto **contra o código da árvore de trabalho**, não contra a lista de commits:
@@ -33,6 +41,8 @@ irreversível de trabalho**, e a razão do rebaixamento está escrita em cada um
 | fundidos (dois achados da mesma causa viraram um) | 2 → 1 |
 | ficam | 37, dos quais 3 são parciais |
 | achados NOVOS | 4 |
+| **baixa contra `59e9600c`: saíram** | **1** (A6) |
+| **em vigor hoje** | **36**, com os 2 críticos intactos |
 
 Gravidade **depois da reavaliação**: **2 críticos, 6 altos, 14 médios, 15 baixos**. Dos sete CRÍTICOS
 originais, cinco foram rebaixados e um saiu resolvido. Os dois que ficam são a mesma coisa por dois
@@ -282,22 +292,19 @@ entra depois do boot fica **sem chip e sem porta nenhuma** até recarregar.
 compartilhar por linha. O impedimento técnico do segundo é real (o modal arrasta o motor de sync para
 uma página que boota sem a store) e é a pergunta 5 da seção 8.
 
-#### A6 (A7) "Minha conta" só é alcançável do mapa, e SEIS comentários dizem o contrário
+#### A6 (A7) [RESOLVIDO em `59e9600c`] "Minha conta" só é alcançável do mapa, e SEIS comentários dizem o contrário
 
-`showAccountSettingsModal` tem um chamador só em `frontend/src/`,
-`AccountControl._handleOpenAccountSettings`. `createAppBar` não oferece a entrada. Para o produtor,
-cuja casa é `admin.html` e `calibracao.html`, trocar a senha ou gerar a chave de API exige abrir o
-mapa e esperar o bundle.
+`createAppBar` (`frontend/src/js/ui/app-bar.js`) ganhou a ação "Minha conta", com o mesmo `import()`
+dinâmico de `@modals/account-settings.modal.js`, e os comentários que afirmavam a inalcançabilidade
+foram corrigidos junto (o de `frontend/src/css/projects-page.css` hoje explica o contrário: que
+saltar pelo mapa para digitar uma senha carregaria o bundle inteiro do mapa por causa de um
+formulário).
 
-**A afirmação falsa está em mais lugares do que o original dizia**, e foram contados um a um: o
-`@fileoverview` de `frontend/src/js/modals/account-settings.model.js`; um comentário de import e o
-docblock de `rankOptions` em `frontend/src/js/modals/account-settings.modal.js`; e um comentário em
-cada um dos três CSS de página (`frontend/src/css/style.css`,
-`frontend/src/css/projects-page.css`, `frontend/src/css/admin-page.css`). Seis afirmações de
-alcançabilidade inexistente, em arquivos que agentes leem como verdade.
-
-**Correção.** Uma ação em `createAppBar` gateada por `sessionContext.isAuthenticated()`, com o mesmo
-`import()` dinâmico; ou corrigir os seis, se a ausência for deliberada.
+**Fica UMA página fora, e ela é a deste perfil:** `calibracao.html` não monta a barra e por isso não
+ganhou a entrada. Isso NÃO é meia correção deste achado, é o A4, que continua aberto e cujo conserto
+(montar a mesma barra das outras duas páginas sem mapa) fecha identidade, saída e "Minha conta" de
+uma vez. Vale registrar a inversão de custo: quando este relatório foi escrito, A4 e A6 eram dois
+trabalhos; hoje A6 já está pago e A4 herdaria o resultado.
 
 ### MÉDIO
 
@@ -549,6 +556,19 @@ não risco.
 
 Não se apaga o registro: quem ler daqui a três meses precisa saber que aquilo já foi olhado.
 
+### Na baixa contra `59e9600c` (2026-08-24), UM
+
+- **A6** "Minha conta" ganhou porta em `createAppBar`, e os comentários que afirmavam o contrário
+  foram corrigidos. Detalhe no lugar de origem. `calibracao.html` continua fora, pelo A4.
+
+**O que a baixa NÃO alcançou, e é o que decide prioridade:** os dois críticos, que são a única perda
+irreversível deste perfil. `frontend/src/js/calibration/app.js` não foi tocado por nenhum dos três
+commits recentes. A calibração recebeu conserto de CASCA (resgate de trabalho não enviado, tela de
+erro que não culpa a rede, saída deliberada com motivo próprio) enquanto o miolo, que é onde o
+operador perde horas de alinhamento, continua como estava.
+
+### Da revisão anterior
+
 - **C5 (era crítico) "Remover acesso" era desenhado em toda linha e o servidor recusava a maioria
   delas.** Resolvido pelo caminho proposto: `_renderGrantItem`
   (`frontend/src/js/catalog/resource-share.modal.js`) consulta `revokeAvailability`
@@ -661,6 +681,14 @@ As oito da auditoria continuam sem resposta, e nasceu uma nona.
 ---
 
 ## Nota de método
+
+**Como a baixa contra `59e9600c` foi limitada, e por que isso não é conferência de fé.** Os arquivos
+que o commit tocou saíram de `git show --name-only`; os caminhos citados em cada achado saíram do
+texto deste documento; a interseção foi computada. Um achado cujos arquivos o commit NÃO tocou não
+pode ter sido resolvido por ele: isso é propriedade, não leitura. Só os achados da interseção foram
+reabertos contra o código, um a um. A interseção erra nos dois sentidos (acusa por citação
+incidental, e deixa passar quem descreve o alvo por símbolo em vez de caminho), então ela estreita o
+trabalho sem substituí-lo.
 
 Nenhum arquivo de código foi modificado, nenhum commit foi feito, e o único arquivo escrito foi este.
 As afirmações do servidor foram conferidas nos módulos de catálogo, acesso a recurso, auditoria, 360,

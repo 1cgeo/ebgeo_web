@@ -10,6 +10,12 @@ cláusulas, uma lista do que não deve ser mexido e sete perguntas ao dono.
 **Revisão: 2026-08-24.** Um lote grande entrou depois da auditoria (o commit de topo é 76dbe93d) e
 tocou este perfil em quatro pontos. Este documento foi reescrito para separar o que saiu do que fica.
 
+**Baixa contra `59e9600c`, 2026-08-24.** A revisão acima foi escrita em `11150029`; o commit
+seguinte fechou 23 achados do perfil de usuário comum e passou por esta superfície. Cada achado foi
+reaberto contra o código de `59e9600c`. **SETE saíram**, e quatro deles são achados NOVOS desta
+revisão, fechados antes de serem lidos. O critério de alcance é mecânico e está dito na nota de
+método: um achado cujos arquivos o commit não tocou não pode ter sido resolvido por ele.
+
 ## Como esta revisão foi feita
 
 Cada um dos 27 achados foi reaberto **contra o código**, não contra a lista de commits. Onde este
@@ -31,9 +37,13 @@ do proposto, e a metade atendida é justamente a que menos importa para este per
 | saíram (resolvidos) | 3 |
 | ficam | 24, dos quais 1 é parcial |
 | achados NOVOS | 4 |
+| **baixa contra `59e9600c`: saíram** | **7** (M2, M3, M5, N1, N2, N3, N4) |
+| **em vigor hoje** | **21** |
 
 Gravidade dos que ficam, **reordenada por gravidade real** e não pela numeração antiga: 4 altos, 10
-médios, 10 baixos. O único CRÍTICO original saiu, e não sobrou nenhum: **a interface não oferece mais
+médios, 10 baixos. **Depois da baixa contra `59e9600c`: 4 altos, 7 médios, 10 baixos**, e nenhum dos
+quatro NOVOS de pé. A numeração NÃO foi refeita, de propósito: renumerar quebra remissão, e este
+conjunto de relatórios já pagou esse preço uma vez. O único CRÍTICO original saiu, e não sobrou nenhum: **a interface não oferece mais
 ao anônimo nenhuma ação que o servidor recuse com erro genérico.**
 
 Duas gravidades foram rebaixadas por mérito, e o motivo está escrito no achado: o antigo A6
@@ -163,10 +173,14 @@ Reordenados por gravidade real. O número original é mantido entre parênteses,
 Intacto nas duas páginas que o anônimo usa. Em `initApp` (`frontend/src/js/index.js`), três
 tentativas de aplicar a configuração de runtime e, falhando, `showUnavailableScreen()` seguido de
 `return` antes de `initServices()`. Em `initProjectsPage`
-(`frontend/src/js/projects/projects-page.js`), a mesma coisa antes de `loadLocalAtlases`. O módulo
-`frontend/src/js/ui/unavailable-screen.js` exporta **um** símbolo, com uma mensagem literal única
-("Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.") e um botão que só
-recarrega.
+(`frontend/src/js/projects/projects-page.js`), a mesma coisa antes de `loadLocalAtlases`. **A DESCRIÇÃO ENVELHECEU EM `59e9600c`, e o achado não.** Este parágrafo dizia que
+`frontend/src/js/ui/unavailable-screen.js` exporta **um** símbolo com uma mensagem literal única.
+Hoje ele exporta também `BlockingCause` e as palavras moram em
+`frontend/src/js/ui/blocking-screen-phrases.js`, módulo puro e testado, com DUAS causas
+(`SERVER_UNREACHABLE` e `APP_ERROR`) e queda conservadora na desconhecida. **O achado continua
+inteiro:** o texto de `SERVER_UNREACHABLE` foi preservado palavra por palavra, de propósito, e é
+exatamente ele que não diz que os atlas deste navegador estão a salvo. O que mudou é o preço da
+correção, que passou de reescrever a tela para acrescentar uma frase a uma tabela pura.
 
 **Por que é o pior dos que sobram.** Uma pessoa com dez atlas locais, para quem o produto anunciou
 "Nada aqui vai para o servidor", lê "EBGeo indisponível" e conclui razoavelmente que perdeu tudo. A
@@ -269,33 +283,32 @@ SEGUNDO e último bloco do corpo, logo abaixo da seção local; para um visitant
 um cartão só. O atrito é menor do que o texto original sugeria, e o que continua verdadeiro é o
 caminho até a página: abrir a barra lateral, achar a aba Mapas e reconhecer "Abrir" como navegação.
 
-#### M2 (antigo M7) Não há "Criar conta" em `atlas.html`, mesmo onde o auto-cadastro está ligado
+#### M2 (antigo M7) [RESOLVIDO em `59e9600c`] Não há "Criar conta" em `atlas.html`, mesmo onde o auto-cadastro está ligado
 
-Intacto, e conferido por leitura direta. `openLoginDialog`
-(`frontend/src/js/projects/projects-page.js`) chama `showLoginModal` com `onSubmit` e **sem**
-`onRegister`, e `LoginModal._createForm` só constrói o link de criar conta quando o handler existe. O
-único sítio que lê a bandeira de auto-cadastro e liga o cadastro é `AccountControl._handleLogin`, no
-mapa.
+`openLoginDialog` (`frontend/src/js/projects/projects-page.js`) passa `onRegister`, gateado por
+`config.features.self_registration`, e `openSignupDialog` espelha `AccountControl._handleRegister`.
+O comentário no ponto diz por que a bandeira é obrigatória e não cortesia: `POST /auth/register` só
+é montada com `ALLOW_SELF_REGISTRATION`, então oferecer o botão sem consultá-la seria um beco de 404.
 
-Consequência: o visitante que seguiu o convite do servidor precisa voltar ao mapa para se cadastrar,
-que é exatamente a ida e volta que o docblock desta página diz existir para remover. **Correção:**
-extrair o par (ler a bandeira, montar `onRegister`) para um helper compartilhado, já que a duplicação
-é o que fez as duas telas divergirem.
+**A correção proposta aqui NÃO foi seguida, e a divergência está certa.** Este achado pedia um helper
+compartilhado para o par (ler a bandeira, montar `onRegister`); o que existe são duas leituras da
+mesma bandeira, uma por página. Extrair o helper obrigaria as duas páginas a compartilhar um módulo
+a mais, e `atlas.html` boota sem a store: o que evita a divergência aqui é o teste, não o helper.
 
-#### M3 (antigo M9) A confirmação de e-mail funde os desfechos numa frase só, e ela chuta
+#### M3 (antigo M9) [RESOLVIDO em `59e9600c`] A confirmação de e-mail funde os desfechos numa frase só, e ela chuta
 
-Intacto, e o lote o agravou. `handleEmailVerificationFromUrl` (`frontend/src/js/index.js`) tem um
-`catch` **sem parâmetro** e uma frase única que chuta a expiração. O servidor distingue em
-`verifyEmail` (`backend/src/modules/auth/auth.service.js`), e agora com mais casos que antes
-(inválido, expirado, endereço já em uso, conta inativa): todos chegam na mensagem do erro e todos são
-jogados fora. Quem já confirmou e clicou de novo lê que o link expirou, o que é falso.
+`handleEmailVerificationFromUrl` (`frontend/src/js/index.js`) passou a ler o CÓDIGO no ramo de falha
+e o PROPÓSITO no de sucesso, e a frase sai de `emailVerificationNotice`
+(`frontend/src/js/session/email-verification-phrases.js`, módulo folha sem imports). Do lado do
+servidor, `verifyEmail` (`backend/src/modules/auth/auth.service.js`) deixou de colapsar quatro
+recusas em `BAD_REQUEST`: `EMAIL_TOKEN_INVALID`, `EMAIL_TOKEN_EXPIRED`, `EMAIL_TAKEN` e
+`ACCOUNT_INACTIVE`. O espelho é cobrado por `frontend/tests/unit/email-verification-phrases.test.js`,
+que lê os códigos do arquivo do backend em vez de os recopiar.
 
-**O agravante novo:** `verifyEmail` passou a distinguir o PROPÓSITO do token, e o cliente ignora o
-retorno inteiro, emitindo sempre a frase que manda fazer login. O sucesso também continua sem abrir o
-modal de login, deixando a próxima ação por conta da pessoa.
-
-**Correção.** Propagar a mensagem do servidor com um fallback, e chamar o pedido de login no ramo de
-sucesso.
+**Divergência frente ao proposto, e ela é a metade que importa:** este achado mandava "propagar a
+mensagem do servidor com um fallback". O que foi feito é o contrário, e de propósito: a mensagem do
+servidor NÃO é propagada, o código é traduzido no cliente. Propagar texto de servidor para a tela é o
+que faz "HTTP 502" aparecer embaixo de um campo de formulário.
 
 #### M4 (antigo M1) "Abrir" é a única porta para "Seus atlas", e o rótulo não diz isso
 
@@ -308,18 +321,18 @@ Some-se que o nome do atlas no cabeçalho é um `<input>` de renomear, inerte ao
 natural de clicar não leva a lugar nenhum. **Correção:** rotular como "Seus atlas" e manter o `title`
 atual como explicação.
 
-#### M5 (antigo M3) "Importar" é oferecido ao visitante de link público e recusado operação a operação
+#### M5 (antigo M3) [RESOLVIDO em `59e9600c`] "Importar" é oferecido ao visitante de link público e recusado operação a operação
 
-Intacto nas duas metades, e a varredura foi refeita. A linha REMOTE de `ACTIONS_BY_STATE` inclui
-`import` sem gate nenhum, e `visibleAtlasActions` só filtra as duas portas de acesso, então o
-visitante público vê o botão, escolhe um arquivo, e cada op é barrada por `checkPermission` dentro
-das operações de store, com o toast de somente-leitura uma vez, com debounce. Nada explica que o
-arquivo escolhido não entrou.
+As duas metades fecharam, e por duas linhas de defesa. `visibleAtlasActions`
+(`frontend/src/js/sidebar/tabs/atlas-actions.js`) passou a filtrar `import` por
+`can('IMPORT_DATA')`, então o botão some para quem não escreve; e `MapsTab._handleImportAdditive`
+recusa na ENTRADA, com `denialNotice(perm.required)`, ANTES de montar o seletor de arquivo. O
+comentário no ponto explica por que a segunda linha existe apesar da primeira: o DOM velho e o
+rebaixamento que cai entre o repintar e o clique.
 
-**O achado estrutural por trás continua exato:** `GuardAction.IMPORT_DATA` tem **zero** consumidores
-em `frontend/src/js/`; a única ocorrência do símbolo é a própria declaração em
-`frontend/src/js/store/sync/permission-guard.js`. **Correção:** consumir `IMPORT_DATA` no ponto de
-entrada do import e recusar antes do seletor de arquivo, com frase que diga por quê.
+`GuardAction.IMPORT_DATA` deixou de ter zero consumidores, que era o achado estrutural por trás. A
+posição do gate (antes do gesto caro, não depois) é presa por
+`frontend/tests/unit/criacao-recusa-na-entrada.test.js`.
 
 #### M6 (antigo M6) A recusa do comentário manda o anônimo fazer o que a interface não lhe oferece
 
@@ -451,6 +464,15 @@ fosse um buraco vivo.
 
 ## 4. Achados NOVOS
 
+**OS QUATRO SAÍRAM na baixa contra `59e9600c`, e nenhum foi lido antes de ser fechado.** Eles
+nasceram desta revisão, escrita em `11150029`, e o commit seguinte atacou exatamente esta superfície
+(a fronteira entre cadastro, confirmação de e-mail e login) a partir do relatório do perfil vizinho.
+É o caso mais limpo do conjunto para a tese de que os cinco perfis compartilham telas: quatro
+achados deste perfil foram resolvidos por um trabalho que não olhava para ele.
+
+O texto original de cada um fica abaixo, com a baixa em seguida, porque o registro do que foi olhado
+não se apaga.
+
 Quatro coisas que não constam da auditoria original. Duas nasceram do lote e duas estavam na tela
 desde antes e escaparam, todas na fronteira entre o cadastro e a recuperação, que é a superfície onde
 este perfil mais depende de texto.
@@ -463,12 +485,24 @@ o comentário logo acima da escolha atribui `isSmtpConfigured` justamente a `aut
 falso. Fora de produção os dois discordam: a rota existe, a tela oferece o formulário, e a mensagem
 que chega ao candidato diz que este servidor não tem redefinição automática. Nasceu do lote.
 
+**BAIXA: RESOLVIDO em `59e9600c`.** `sendAccountExistsEmail` (`backend/src/utils/mailer.js`) deriva a
+linha da senha de `canDeliverAccountMail()`, o mesmo predicado que monta as rotas, e o comentário
+logo acima foi corrigido para nomeá-lo. O comentário novo registra a lição, que é a parte que
+sobrevive: uma frase derivada do predicado ERRADO mente igual a uma frase fixa, e o defeito foi
+cometido de novo ao consertar o anterior.
+
 **N2. O mesmo e-mail manda usar uma opção que a tela de cadastro não tem.**
 `sendAccountExistsEmail` instrui a usar a opção de reenviar a confirmação na tela de cadastro, e
 `SignupModal._createForm` não a tem: `apiClient.resendVerification` tem **um único chamador** em todo
 `frontend/src/`, dentro do diálogo pós-cadastro de `AccountControl._handleRegister`. Fechou o
 diálogo, acabou o reenvio. E a recuperação nova não cobre este caso de propósito, porque só alcança
 endereço confirmado. Estava na tela desde antes; o lote reescreveu as linhas vizinhas e deixou esta.
+
+**BAIXA: RESOLVIDO em `59e9600c`.** `apiClient.resendVerification` deixou de ter um chamador só.
+Ele tem três: o diálogo pós-cadastro do mapa, o de `atlas.html` e, o que fecha este achado,
+`LoginModal._resendVerification`, ao lado do erro de login. A rota passou a aceitar usuário OU e-mail
+(`.xor`, `backend/src/modules/auth/auth.schemas.js`), que era a condição para o reenvio existir numa
+tela que só tem o usuário digitado.
 
 **N3. Teclar Enter para dispensar o aviso pós-cadastro REENVIA o e-mail.**
 `AccountControl._handleRegister` chama `showConfirm` com um parágrafo de três frases no lugar do
@@ -483,6 +517,11 @@ ao dispensá-lo a pessoa fica olhando o mapa anônimo sem próximo passo. **Corr
 cadastro antes de anunciar e inverter os dois botões, ou usar `showChoice`, cujo `Enter` é inerte de
 propósito.
 
+**BAIXA: RESOLVIDO em `59e9600c`, pelas DUAS correções que este achado propôs, não por uma.** O
+diálogo virou `showChoice` (sem botão afirmativo, `Enter` inerte) e o formulário de cadastro fecha
+ANTES do anúncio, nas duas páginas que cadastram. O porquê está escrito no ponto
+(`account.control.js`), e não só no commit.
+
 **N4. O código de e-mail não confirmado não é lido no login, e agora custa mais caro.** O servidor
 devolve um código próprio ao recusar login por e-mail pendente (`backend/src/modules/auth/auth.service.js`),
 e `LoginModal._handleSubmit` só olha a mensagem, então não há botão de reenvio ao lado do erro. Antes
@@ -490,6 +529,12 @@ do lote isso era um incômodo; agora é a diferença entre ter e não ter saída
 senha nova é fechada a quem não confirmou (decisão 1.3) e o único reenvio é o de uso único do N2.
 **Correção:** ler o código do erro no `LoginModal` e oferecer o reenvio ali, que a rota é anônima e
 não vaza existência.
+
+**BAIXA: RESOLVIDO em `59e9600c`, pelo caminho exato que o achado propôs.** `LoginModal` lê
+`error?.code === 'EMAIL_NOT_VERIFIED'` e desenha a ação de reenvio ao lado do erro. O comentário no
+ponto acrescenta o que o achado não dizia e que decide o desenho: o botão é CONDICIONAL ao código, e
+não permanente, porque um botão de reenvio sempre visível convidaria qualquer pessoa a sondar
+endereços.
 
 ---
 
@@ -566,6 +611,26 @@ entorno e estão anotados, e dois nasceram no lote.
 
 Não se apaga o registro: quem ler daqui a três meses precisa saber que aquilo já foi olhado.
 
+### Na baixa contra `59e9600c` (2026-08-24), SETE
+
+O detalhe de cada um fica no lugar de origem, marcado `[RESOLVIDO em 59e9600c]`. Em resumo:
+
+- **M2** "Criar conta" em `atlas.html`, por bandeira, com o porquê da bandeira escrito.
+- **M3** A confirmação de e-mail passou a ler código e propósito; quatro recusas do servidor deixaram
+  de colapsar em uma.
+- **M5** "Importar" some para quem não escreve e recusa na entrada para quem passar pelo DOM velho.
+- **N1** O mailer passou a derivar a frase da senha do predicado que monta a rota.
+- **N2** O reenvio da confirmação deixou de ter um chamador de uso único.
+- **N3** `Enter` no aviso pós-cadastro deixou de disparar rede.
+- **N4** O login lê o código de e-mail não confirmado e oferece o reenvio ali.
+
+**O que a baixa NÃO alcançou, e é a informação mais útil daqui:** os QUATRO altos continuam de pé,
+intactos, e nenhum deles depende de decisão do dono. A1 encolheu para uma frase numa tabela pura; A2
+continua sem consumidor de interface para `isVisitor()`; A3 continua com a cópia honesta presa em
+`atlas.html`; A4 continua com o marcador de camada indisponível numa superfície só.
+
+### Da revisão anterior
+
 - **C1 (crítico) O visitante de link público recebia o botão "Compartilhar", que levava a um beco
   fechado.** Resolvido pela decisão 1.4, por caminho diferente do proposto: em vez do predicado de
   autenticação que o achado sugeria, o filtro é a escada (`atlasRoleHasAtLeast(role, 'manage')`), o
@@ -588,6 +653,16 @@ configuração de `backend/src/`, mais o middleware de sessão; as do cliente, l
 Onde este documento afirma ausência (por exemplo, "zero consumidores de `GuardAction.IMPORT_DATA`", ou
 "nenhum consumidor de interface para `isVisitor`"), a afirmação vem de varredura sobre
 `frontend/src/js/` inteiro.
+
+**O critério de alcance da baixa contra `59e9600c`, dito por extenso porque é ele que impede a
+superdeclaração.** Reabrir 28 achados à mão e declarar 21 intactos seria conferência de fé. O que
+foi feito: os arquivos que o commit tocou foram extraídos de `git show --name-only`, os caminhos
+citados em cada achado foram extraídos do texto, e a interseção foi computada. Um achado cujos
+arquivos o commit NÃO tocou não pode ter sido resolvido por ele, e isso não é leitura, é propriedade.
+Os achados da interseção (doze) foram abertos um a um contra o código. **A interseção erra nos dois
+sentidos e as duas correções foram feitas na mão:** ela acusa por citação incidental (A2 cita
+`session-context.js` só de passagem) e deixa passar o achado que descreve o alvo por símbolo em vez
+de caminho, que é como N2 e N3 quase escaparam. Ou seja, ela estreita o trabalho, não o substitui.
 
 Duas ressalvas de alcance, para não superdeclarar:
 
