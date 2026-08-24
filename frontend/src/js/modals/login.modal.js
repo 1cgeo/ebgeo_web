@@ -25,6 +25,7 @@
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '@utils/event-cleanup.js';
 import { apiClient } from '@store/sync/api-client.js';
+import { loginFailureMessage } from './login-failure.model.js';
 import config from '@js/config.js';
 import {
     ADMIN_RECOVERY_TEXT,
@@ -183,6 +184,22 @@ export class LoginModal extends ModalBase {
         error.setAttribute('role', 'alert');
         error.hidden = true;
         form.appendChild(error);
+
+        // A SAÍDA QUE FALTAVA PARA QUEM NÃO CONFIRMOU O E-MAIL. Ela não é decoração do erro: sem
+        // ela a pessoa não entra (o login recusa), não redefine a senha (a consulta de recuperação
+        // só acha endereço CONFIRMADO, de propósito) e o único botão de reenvio do produto vivia no
+        // diálogo pós-cadastro, que some ao primeiro clique. Fica escondido até o servidor devolver
+        // `EMAIL_NOT_VERIFIED`, e só ele o revela: um botão permanente aqui convidaria todo mundo a
+        // gastar o limitador da rota.
+        const errorAction = document.createElement('button');
+        errorAction.type = 'button';
+        errorAction.className = 'login-modal__link';
+        errorAction.dataset.testid = 'login-resend-verification';
+        errorAction.textContent = 'Reenviar e-mail de confirmação';
+        errorAction.hidden = true;
+        form.appendChild(errorAction);
+        this._errorActionEl = errorAction;
+        addDomListener(this, errorAction, 'click', () => this._resendVerification());
 
         // Actions
         const actions = document.createElement('div');
@@ -575,10 +592,46 @@ export class LoginModal extends ModalBase {
             await this._onSubmit({ username, password });
             this._close();
         } catch (error) {
-            const message = error?.message || 'Falha ao entrar. Tente novamente.';
-            this._showError(message);
+            // O CÓDIGO DECIDE, NÃO A MENSAGEM. O servidor distingue cinco recusas de login e esta
+            // tela olhava só o texto, então a única com uma SAÍDA acionável (o e-mail não
+            // confirmado) chegava como mais uma frase vermelha sem próximo passo.
+            //
+            // E A FALHA QUE NÃO É RECUSA GANHA FRASE PRÓPRIA. `buildApiErrorMessage` cai no código
+            // HTTP cru quando o corpo não traz mensagem, e o erro de rede do navegador escapava
+            // inteiro: quem derrubasse o backend via "HTTP 502" ou "Failed to fetch" num campo de
+            // senha, que lê como "errei a senha". A classificação já existia
+            // (`@utils/request-failure.js`) e era consumida pelo boot e pelas páginas sem mapa;
+            // este modal simplesmente não a importava.
+            this._showError(loginFailureMessage(error), {
+                canResendVerification: error?.code === 'EMAIL_NOT_VERIFIED'
+            });
         } finally {
             this._setSubmitting(false);
+        }
+    }
+
+    /**
+     * Re-sends the confirmation e-mail for the username typed in the form.
+     *
+     * BY USERNAME, because that is what this screen has. The route accepts either, always answers
+     * the same 200, and always mails the address REGISTERED on the account, so nothing here says
+     * whether that account exists; the outcome message says the same thing for both reasons.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _resendVerification() {
+        const username = this._userInput?.value.trim();
+        if (!username) return;
+        this._errorActionEl.disabled = true;
+        try {
+            await apiClient.resendVerification({ username });
+            this._showError('Se a confirmação ainda estiver pendente, enviamos um novo link para o '
+                + 'e-mail cadastrado.');
+        } catch {
+            this._showError('Não foi possível reenviar o e-mail agora. Tente de novo em instantes.',
+                { canResendVerification: true });
+        } finally {
+            this._errorActionEl.disabled = false;
         }
     }
 
@@ -615,10 +668,13 @@ export class LoginModal extends ModalBase {
      * @private
      * @param {string} message
      */
-    _showError(message) {
+    _showError(message, { canResendVerification = false } = {}) {
         if (!this._errorEl) return;
         this._errorEl.textContent = message;
         this._errorEl.hidden = false;
+        // Escrito em TODA passada, nunca só quando aparece: um botão que só sabe se revelar fica
+        // na tela depois do erro seguinte, oferecendo uma saída que já não é a desta recusa.
+        if (this._errorActionEl) this._errorActionEl.hidden = !canResendVerification;
     }
 
     /**
@@ -629,6 +685,7 @@ export class LoginModal extends ModalBase {
         if (!this._errorEl) return;
         this._errorEl.textContent = '';
         this._errorEl.hidden = true;
+        if (this._errorActionEl) this._errorActionEl.hidden = true;
     }
 }
 

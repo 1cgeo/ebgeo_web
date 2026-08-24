@@ -113,7 +113,10 @@ export const verifyEmail = asyncHandler(async (req, res) => {
 });
 
 export const resendVerification = asyncHandler(async (req, res) => {
-  const result = await authService.resendVerification(req.body.email, requestOrigin(req));
+  const result = await authService.resendVerification(
+    { email: req.body.email ?? null, username: req.body.username ?? null },
+    requestOrigin(req)
+  );
   res.json({ data: result });
 });
 

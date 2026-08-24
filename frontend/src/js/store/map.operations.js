@@ -174,7 +174,7 @@ export async function setMapOrder(orderArray) {
 export async function addMap(mapName, mapData = null, colorUsageData = null, notesData = null) {
     const perm = checkPermission(GuardAction.CREATE_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addMap', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addMap', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -235,7 +235,7 @@ export async function addMap(mapName, mapData = null, colorUsageData = null, not
 export async function removeMap(mapName) {
     const perm = checkPermission(GuardAction.DELETE_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeMap', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeMap', reason: perm.reason, required: perm.required });
         return { success: false, reason: 'PERMISSION_DENIED' };
     }
 
@@ -310,7 +310,7 @@ export async function removeMap(mapName) {
 export async function renameMap(oldName, newName) {
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: perm.reason, required: perm.required });
         return false;
     }
 
@@ -544,7 +544,7 @@ export async function setBaseLayer(layer, mapName = null) {
     // PERSISTENCE of someone else's map preference is refused, never the drawing.
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setBaseLayer', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setBaseLayer', reason: perm.reason, required: perm.required });
         return;
     }
 
@@ -592,7 +592,7 @@ export async function updateMapPosition(center_lat, center_long, zoom, bearing, 
     // refusal per click and not one per frame.
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateMapPosition', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateMapPosition', reason: perm.reason, required: perm.required });
         return;
     }
 
@@ -905,7 +905,7 @@ export function isCurrentMapLockedSync() {
 export async function toggleMapLock(mapName = null) {
     const perm = checkPermission(GuardAction.LOCK_MAP);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'toggleMapLock', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'toggleMapLock', reason: perm.reason, required: perm.required });
         return null;
     }
 

@@ -46,6 +46,8 @@ import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { exitOutcomeNotice } from './session/unsynced-work-phrases.js';
+import { emailVerificationNotice } from './session/email-verification-phrases.js';
+import { sessionRestoreNotice } from './session/session-restore-phrases.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -327,6 +329,12 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
 const ENDED_SESSION_MESSAGES = Object.freeze({
     inatividade: 'Sua sessão expirou por inatividade. Entre novamente.',
     encerrada: 'Sua sessão foi encerrada. Entre novamente.',
+    // SAIR DE PROPÓSITO É O TERCEIRO MOTIVO, e ele faltava. O botão "Sair agora" do aviso de
+    // inatividade mandava `inatividade`, então quem escolheu sair era informado de que a sessão
+    // dele havia EXPIRADO e convidado a entrar de novo: a tela contando uma causa que não
+    // aconteceu e desfazendo o gesto. Este ramo não pede login de volta, porque ninguém perdeu
+    // nada; ele só confirma o que a pessoa fez.
+    saida: 'Você saiu da conta.',
 });
 
 /**
@@ -376,11 +384,19 @@ async function handleEmailVerificationFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('verify');
     if (!token) return;
+    // O CÓDIGO E O PROPÓSITO DECIDEM, e os dois eram jogados fora aqui. Ver o `fileoverview` de
+    // `session/email-verification-phrases.js`: a frase única de erro chutava a expiração para as
+    // quatro recusas do servidor, e a de sucesso mandava fazer login inclusive para quem estava
+    // logado e acabara de trocar o próprio endereço.
+    let desfecho;
     try {
-        await apiClient.verifyEmail(token);
-        showToast('E-mail confirmado! Faça login para entrar.', 'success');
-    } catch {
-        showToast('Não foi possível confirmar o e-mail. O link pode ter expirado.', 'error');
+        const resposta = await apiClient.verifyEmail(token);
+        desfecho = emailVerificationNotice({ ok: true, purpose: resposta?.purpose ?? null });
+    } catch (error) {
+        desfecho = emailVerificationNotice({ ok: false, code: error?.code ?? null });
+    }
+    try {
+        showToast(desfecho.message, desfecho.tone);
     } finally {
         params.delete('verify');
         const qs = params.toString();
@@ -529,9 +545,19 @@ async function restoreSessionFromStorage() {
     } catch (error) {
         if (isCredentialFailure(error)) {
             apiClient.clearTokens();
-        } else {
-            console.warn('[boot] session restore deferred (server unreachable):', error);
+            return;
         }
+        console.warn('[boot] session restore deferred (server unreachable):', error);
+        // E DIZ ISSO NA TELA, que era a metade que faltava. A restauração adiada por falha
+        // transitória deixava o mapa idêntico a "eu nunca entrei": nenhum aviso, nenhuma
+        // diferença visível, e a conclusão natural de quem vê é que a conta sumiu. A frase existe
+        // desde 2026-08-23 (`session/session-restore-phrases.js`) e tinha UM consumidor,
+        // `atlas.html`; o mapa, que é onde a maior parte das pessoas está, continuava mudo.
+        //
+        // Ela diz, nos ramos transitórios, a coisa que mais importa: a conta continua ativa e
+        // nada foi apagado. É por isso que um toast genérico de erro não serviria.
+        const aviso = sessionRestoreNotice(classifyRequestFailure(error));
+        showToast(aviso.message, aviso.tone);
     }
 }
 

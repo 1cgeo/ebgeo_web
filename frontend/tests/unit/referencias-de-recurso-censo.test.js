@@ -119,6 +119,11 @@ const CENSO = [
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'photoId', n: 1, classe: PODA, superficies: ['briefing.slide.photoId'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'baseLayer', n: 1, classe: PODA, superficies: ['mapa.baseLayer'] },
     { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'catalogLayers', n: 1, classe: PODA, superficies: ['mapa.catalogLayers'] },
+    // Entrou em 2026-08-24, quando o relato de poda do CLONE passou a ser mostrado ao usuário:
+    // `descreverPerdasDoServidor` reusa a MESMA tabela de rótulos do aviso de saída, e o servidor
+    // anota esta superfície, que o cliente não tem. É rótulo de tela, não sítio de referência: o
+    // id nunca chega ao documento do cliente, que é a definição de `poda-so-no-servidor`.
+    { arquivo: 'src/js/catalog/resource-reference.resolver.js', campo: 'default_basemap', n: 1, classe: PODA_SERVIDOR, superficies: ['settings.default_basemap'] },
     { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/marker-features.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/3d_models_viewer_tool/components/marker-panel-3d.js', campo: 'tilesetId', classe: RUNTIME },

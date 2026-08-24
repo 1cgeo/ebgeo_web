@@ -316,6 +316,18 @@ class UsersTab {
 
         const nome = textField(form, 'Nome completo', 'admin-userform-nome', user?.nome || '');
         const username = textField(form, 'Usuário', 'admin-userform-username', user?.username || '');
+        // O CAMPO QUE FALTAVA, e a falta tinha efeito exato: a tela oferecia APROVAR o endereço
+        // (a caixa "E-mail verificado", abaixo) e não oferecia CORRIGI-LO, então diante de um
+        // cadastro com o endereço errado a única ação disponível era declarar verdadeiro o que
+        // estava errado. A capacidade já existia na API desde 2026-08-20
+        // (`updateUserAdminSchema` aceita `email`, e `resolveAdminEmail` derruba a confirmação
+        // quando o endereço muda); o que não existia era a porta.
+        //
+        // Só na EDIÇÃO: `POST /users` não tem campo de e-mail, e a conta que ele cria entra
+        // logando na hora, de propósito.
+        const email = isEdit
+            ? textField(form, 'E-mail', 'admin-userform-email', user?.email || '', 'email')
+            : null;
         const password = isEdit ? null
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
@@ -444,6 +456,13 @@ class UsersTab {
                     // Only the inactive→active transition travels: the backend refuses the reverse
                     // one, and resending `false` for an already-inactive user is a no-op edit.
                     if (user.is_active === false && active.checked) payload.is_active = true;
+                    // SÓ VIAJA SE MUDOU. Reenviar o mesmo endereço faria `resolveAdminEmail`
+                    // tratar a edição como troca e derrubar a confirmação de uma conta que
+                    // ninguém quis mexer: salvar o posto apagaria o e-mail verificado.
+                    const emailDigitado = email ? email.value.trim() : '';
+                    if (email && emailDigitado !== (user.email || '')) {
+                        payload.email = emailDigitado;
+                    }
                     if (emailVerified) payload.email_verified = emailVerified.checked;
 
                     // ESTE SALVAMENTO PODE DESTRUIR ACESSO, e até 2026-08-23 a tela não dizia

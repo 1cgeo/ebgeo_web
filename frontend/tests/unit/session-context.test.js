@@ -540,7 +540,12 @@ function vetor(sessao) {
 const VETORES_POR_ATLAS = Object.freeze({
     [UserRole.OWNER]: { canEdit: true, canDelete: true, canDeleteMap: true, canComment: true, canManageUsers: true, canLockMaps: true },
     [UserRole.ADMIN]: { canEdit: true, canDelete: true, canDeleteMap: true, canComment: true, canManageUsers: true, canLockMaps: true },
-    [UserRole.MANAGER]: { canEdit: true, canDelete: true, canDeleteMap: true, canComment: true, canManageUsers: true, canLockMaps: true },
+    // O GESTOR PERDEU `canLockMaps` EM 2026-08-24, e a linha mudou porque estava ERRADA, não
+    // porque o produto mudou de ideia: o servidor recusa toda escrita em `locked` de quem não é
+    // `owner` estrito (`operationDenialReason`), então esta tabela deixava a última linha de
+    // defesa do cliente mais frouxa que o servidor que ela defende. É a única flag em que o
+    // Gestor difere do Dono, e é por isso que ele deixou de compartilhar `FULL_PERMISSIONS`.
+    [UserRole.MANAGER]: { canEdit: true, canDelete: true, canDeleteMap: true, canComment: true, canManageUsers: true, canLockMaps: false },
     [UserRole.EDITOR]: { canEdit: true, canDelete: true, canDeleteMap: false, canComment: true, canManageUsers: false, canLockMaps: false },
     [UserRole.COMMENTER]: { canEdit: false, canDelete: false, canDeleteMap: false, canComment: true, canManageUsers: false, canLockMaps: false },
     [UserRole.VIEWER]: { canEdit: false, canDelete: false, canDeleteMap: false, canComment: false, canManageUsers: false, canLockMaps: false }

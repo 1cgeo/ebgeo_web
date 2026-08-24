@@ -11,6 +11,7 @@
 
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '@utils/event-cleanup.js';
+import { apiClient } from '@store/sync/api-client.js';
 import config from '@js/config.js';
 
 /** Header icon (user-plus / create account). */
@@ -40,6 +41,7 @@ export class SignupModal extends ModalBase {
 
         this._onSubmit = options.onSubmit || (() => Promise.resolve());
         this._onBackToLogin = options.onBackToLogin || null;
+        this._onRegistered = options.onRegistered || null;
         this._submitting = false;
     }
 
@@ -282,6 +284,18 @@ export class SignupModal extends ModalBase {
         backBtn.textContent = 'Já tenho conta — Entrar';
         secondary.appendChild(backBtn);
 
+        // O LINK QUE O E-MAIL DO SISTEMA JÁ PROMETIA E NÃO EXISTIA. `sendAccountExistsEmail`
+        // (`backend/src/utils/mailer.js`) manda, por extenso, "use a opção de reenviar a
+        // confirmação na tela de cadastro", e esta tela não tinha nenhuma: quem seguisse a
+        // instrução procurava um botão inexistente. Usa o endereço digitado no formulário acima,
+        // que é o único que esta tela conhece.
+        const resendBtn = document.createElement('button');
+        resendBtn.type = 'button';
+        resendBtn.className = 'login-modal__link';
+        resendBtn.dataset.testid = 'signup-resend-verification';
+        resendBtn.textContent = 'Não recebeu a confirmação? Reenviar';
+        secondary.appendChild(resendBtn);
+
         form.appendChild(secondary);
 
         this._form = form;
@@ -289,6 +303,7 @@ export class SignupModal extends ModalBase {
         this._submitBtn = submitBtn;
         this._cancelBtn = cancelBtn;
         this._backBtn = backBtn;
+        this._resendBtn = resendBtn;
 
         return form;
     }
@@ -307,6 +322,34 @@ export class SignupModal extends ModalBase {
             this._close();
             if (this._onBackToLogin) this._onBackToLogin();
         });
+        addDomListener(this, this._resendBtn, 'click', () => this._handleResend());
+    }
+
+    /**
+     * Re-sends the confirmation e-mail to the address typed above.
+     *
+     * It reports the SAME outcome whether or not that address has a pending account, mirroring the
+     * route, which answers one 200 for both. Saying "enviamos" only for real accounts would turn
+     * this convenience into the account oracle that `register` was rewritten to remove.
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _handleResend() {
+        const email = this._emailInput.value.trim();
+        this._clearError();
+        if (!email) {
+            this._showError('Digite o e-mail do cadastro para receber um novo link.');
+            return;
+        }
+        this._resendBtn.disabled = true;
+        try {
+            await apiClient.resendVerification({ email });
+            this._showError('Se houver confirmação pendente para esse endereço, enviamos um novo link.');
+        } catch {
+            this._showError('Não foi possível reenviar agora. Tente de novo em instantes.');
+        } finally {
+            this._resendBtn.disabled = false;
+        }
     }
 
     /**
@@ -352,6 +395,13 @@ export class SignupModal extends ModalBase {
                 organization_id: om
             });
             this._close();
+            // ANUNCIA DEPOIS DE FECHAR, e é por isso que existe um gancho separado do `onSubmit`.
+            // Enquanto o anúncio morava dentro do `onSubmit`, este `await` só terminava quando a
+            // pessoa dispensava o diálogo, então o formulário de cadastro ficava montado atrás
+            // dele COM A SENHA DIGITADA, e ao dispensar sobrava a tela do mapa anônimo sem
+            // próximo passo. Fechar primeiro também garante que o diálogo não empilhe sobre um
+            // formulário que já não serve para nada.
+            if (this._onRegistered) this._onRegistered({ email });
         } catch (error) {
             this._showError(error?.message || 'Falha ao criar a conta. Tente novamente.');
         } finally {
@@ -406,8 +456,8 @@ export class SignupModal extends ModalBase {
  * @param {function(): void} [options.onBackToLogin] Back-to-login handler.
  * @returns {SignupModal} The modal instance.
  */
-export function showSignupModal({ onSubmit, onBackToLogin } = {}) {
-    const modal = new SignupModal({ onSubmit, onBackToLogin });
+export function showSignupModal({ onSubmit, onBackToLogin, onRegistered } = {}) {
+    const modal = new SignupModal({ onSubmit, onBackToLogin, onRegistered });
     modal.render();
     modal.show();
     return modal;

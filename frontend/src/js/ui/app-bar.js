@@ -39,6 +39,8 @@ import { orgLabel } from '@js/admin/org-options.js';
 const LOGOUT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>`;
 const CALIBRATION_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`;
 
+const ACCOUNT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+
 /** The 360 calibration studio. Relative: the app may be served from a subpath. */
 const CALIBRATION_URL = './calibracao.html';
 
@@ -155,6 +157,34 @@ export function createAppBar({
 
         identity.append(avatar, text);
         bar.appendChild(identity);
+    }
+
+    // "MINHA CONTA" TINHA UMA PORTA SÓ, E ELA FICAVA DENTRO DO MAPA.
+    // `showAccountSettingsModal` tinha um único chamador em `frontend/src/js/`, o menu do avatar
+    // de `AccountControl`, que é `IControl` do MapLibre e por isso só existe dentro de um mapa. Ao
+    // mesmo tempo, o roteamento de boot manda todo visitante COM sessão numa URL nua direto para
+    // `atlas.html`: o caminho padrão do produto levava a pessoa exatamente para a página que não
+    // tinha a porta. Trocar a própria senha ou corrigir o próprio e-mail exigia abrir um atlas e
+    // esperar o bundle do mapa.
+    //
+    // A tela ainda ganhou conteúdo desde então (perfil, senha, chave de API, leitura e troca do
+    // e-mail), o que só piorou o desequilíbrio. Os CSS das três páginas já traziam o comentário
+    // afirmando que ela abre de todas; agora abre.
+    //
+    // `import()` dinâmico de propósito: o modal é pesado e nenhuma das duas páginas o usa no
+    // caminho comum. A condição é a sessão, e não `user?.name`, pela mesma razão de
+    // `AccountControl._openMenu`: o nome é rótulo, a autoridade é estar logado.
+    if (sessionContext.isAuthenticated()) {
+        bar.appendChild(buildAction(scope, {
+            label: 'Minha conta',
+            icon: ACCOUNT_ICON,
+            testid: 'app-bar-account',
+            title: 'Ver e editar seus dados, trocar a senha e obter uma chave de API',
+            onClick: async () => {
+                const { showAccountSettingsModal } = await import('@modals/account-settings.modal.js');
+                await showAccountSettingsModal();
+            },
+        }));
     }
 
     if (onLogout) {

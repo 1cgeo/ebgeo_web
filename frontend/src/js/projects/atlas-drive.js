@@ -57,6 +57,9 @@ import {
     getPermissionLabel, isKnownPermission, hasAtLeast, permissionRank, serverTreatsAsAtlasOwner,
 } from '@js/projects/permission-levels.js';
 import { showToast, showSuccess, showWarning, showError } from '@utils/toast_service.js';
+// Por ARQUIVO: esta página boota sem a store, e o rótulo de superfície tem uma tabela só, a mesma
+// que o aviso de poda de SAÍDA usa. Duas tabelas divergiriam na primeira superfície nova.
+import { descreverPerdasDoServidor } from '@js/catalog/resource-reference.resolver.js';
 // Import DIRETO, pela mesma razão dos de cima: `session-context.js` é folha desta página, e o
 // barrel `@store` arrastaria a store inteira para uma página que boota sem ela.
 import { sessionContext } from '@store/sync/session-context.js';
@@ -321,7 +324,11 @@ export function cardMenuActions({ permission, hasCover = false } = {}) {
     if (canManage) {
         actions.push({ id: 'access', testid: 'project-picker-access', label: 'Compartilhar', danger: false });
     }
-    actions.push({ id: 'duplicate', testid: 'project-picker-duplicate', label: 'Fazer uma cópia', danger: false });
+    // O RÓTULO DIZ A ORIGEM. 'Fazer uma cópia' era a MESMA string nos dois menus (aqui, para o
+    // atlas de SERVIDOR, e em `LocalAtlasSection._openMenu`, para o local), e as duas ações fazem
+    // coisas diferentes: esta cria um atlas NO SERVIDOR, em posse de quem clicou e podado por
+    // destinatário; a outra copia banco a banco neste computador e não perde nada.
+    actions.push({ id: 'duplicate', testid: 'project-picker-duplicate', label: 'Copiar no servidor', danger: false });
     if (canOwn) {
         actions.push({ id: 'trash', testid: 'project-picker-trash', label: 'Mover para lixeira', danger: true });
     }
@@ -406,6 +413,10 @@ export class AtlasDrive {
      */
     constructor(options = {}) {
         this._projects = Array.isArray(options.projects) ? options.projects : [];
+        // A LISTA NAO CHEGOU e a lista VEIO VAZIA sao estados diferentes, e colapsa-los era o
+        // defeito: `projects: null` significa que a consulta falhou, e a grade precisa dizer
+        // isso em vez de afirmar que a pessoa nao tem atlas nenhum.
+        this._loadFailed = options.projects === null;
         this._onPick = options.onPick || (() => Promise.resolve());
         this._onCreate = typeof options.onCreate === 'function' ? options.onCreate : null;
         this._onImport = typeof options.onImport === 'function' ? options.onImport : null;
@@ -796,6 +807,30 @@ export class AtlasDrive {
         // in a redraw, and a badge updated only where somebody remembered to update it goes stale
         // on the path nobody thought of.
         this._updateSharedBadge();
+        // TERCEIRO ESTADO: a lista NÃO CHEGOU. Sem ele, uma falha de rede na primeira carga
+        // entregava `[]` ao Drive, que escrevia "Nenhum atlas nesta categoria": passado o toast,
+        // a tela afirmava um fato FALSO e PERMANENTE, sem nada para tentar de novo. Lista vazia é
+        // uma resposta bem-formada, e é por isso que nenhuma suíte ficava vermelha.
+        //
+        // O irmão `_refresh` já fazia o certo (mantinha a lista anterior), o que mostra que a
+        // assimetria era acidente e não desenho.
+        if (this._loadFailed) {
+            const falha = document.createElement('div');
+            falha.className = 'atlas-drive__empty';
+            falha.dataset.testid = 'project-picker-load-error';
+            falha.textContent = 'Não foi possível carregar seus atlas do servidor. Eles continuam '
+                + 'lá; o que falhou foi esta consulta.';
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'atlas-drive__empty-retry';
+            retry.dataset.testid = 'project-picker-retry';
+            retry.textContent = 'Tentar de novo';
+            addScopedDomListener(this, 'grid', retry, 'click', () => this._refresh());
+            falha.appendChild(retry);
+            this._gridEl.appendChild(falha);
+            return;
+        }
+
         const isTrash = this._filter === 'lixeira';
         const q = this._query.trim().toLowerCase();
         const matches = (p) => !q || (p?.name ?? '').toLowerCase().includes(q);
@@ -1257,7 +1292,15 @@ export class AtlasDrive {
             // toast about a detail nobody asked for would bury the first one, which is the real news.
             apiClient.getAtlasOverview().catch(() => null),
         ]);
-        if (Array.isArray(list)) this._projects = list;
+        // A NOVA TENTATIVA E O UNICO CAMINHO QUE LIMPA A MARCA, e ela so limpa quando a lista de
+        // fato chegou: um retry que falhe de novo tem de continuar mostrando o estado de erro,
+        // nao cair no "nenhum atlas" que a marca existe para impedir.
+        if (Array.isArray(list)) {
+            this._projects = list;
+            this._loadFailed = false;
+        } else {
+            this._loadFailed = true;
+        }
         if (overview) this.setOverview(overview);
         else this._renderGrid();
     }
@@ -1350,11 +1393,31 @@ export class AtlasDrive {
         }
     }
 
-    /** @private Make a copy → POST /atlas/:id/clone. */
+    /**
+     * @private Make a copy → POST /atlas/:id/clone.
+     *
+     * O RELATO DE PODA JÁ VINHA DO SERVIDOR E ERA JOGADO FORA. `cloneAtlas`
+     * (`backend/src/modules/atlas/atlas.service.js`) monta o podador sobre `classifyResourceRefs`
+     * e devolve `pruneReport` com a contagem por superfície; esta função descartava a resposta
+     * inteira e dizia "Cópia criada", ponto. A pessoa ficava com um atlas silenciosamente menor
+     * que o original, e descobria a diferença abrindo um mapa e não achando a camada.
+     *
+     * A frase de posse também faltava: a cópia nasce em posse de quem clonou, e é essa a razão de
+     * a poda existir (o que o novo dono não enxerga não viaja).
+     */
     async _duplicate(project) {
         try {
-            await apiClient.cloneAtlas(project.id, { name: `${project?.name ?? 'Atlas'} (cópia)` });
-            showSuccess('Cópia criada.');
+            const copia = await apiClient.cloneAtlas(project.id, {
+                name: `${project?.name ?? 'Atlas'} (cópia)`,
+            });
+            const perdas = descreverPerdasDoServidor(copia?.pruneReport);
+            if (perdas) {
+                // `showWarning` e não `showSuccess`: a cópia saiu, mas saiu incompleta, e o tom é
+                // a primeira coisa que a pessoa lê.
+                showWarning('A cópia é sua e ficou sem o que você não tem acesso:\n' + perdas);
+            } else {
+                showSuccess('Cópia criada, e ela é sua.');
+            }
             await this._refresh();
         } catch (error) {
             showError(error?.message || 'Falha ao duplicar o atlas.');
@@ -1807,7 +1870,8 @@ export class LocalAtlasSection {
         // Mesmo rótulo do cartão de servidor: é a mesma ação para o usuário, ainda que por baixo
         // uma seja uma rota do backend e a outra uma cópia banco a banco entre dois namespaces de
         // IndexedDB (`copyAtlasDatabases`).
-        addItem('Fazer uma cópia', 'local-atlas-duplicate', false, () => this._onDuplicate(atlas));
+        // Ver a nota do irmão de servidor em `cardMenuActions`: o rótulo diz ONDE a cópia nasce.
+        addItem('Copiar neste computador', 'local-atlas-duplicate', false, () => this._onDuplicate(atlas));
         addItem('Excluir', 'local-atlas-delete', true, () => this._onDelete(atlas));
 
         this._root.appendChild(menu);

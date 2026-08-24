@@ -75,6 +75,8 @@ import config from '@js/config.js';
 // permite usá-lo daqui sem arrastar nada para `atlas.html` e `admin.html`, que bootam sem a
 // store e também abrem esta tela.
 import { globalRoleBadge, getGlobalRoleDescription } from '@js/ui/role-labels.js';
+// Também zero imports, pela mesma razão: esta tela abre das três páginas.
+import { emailRecoveryEnabled } from './password-recovery.model.js';
 import {
     ADMIN_ONLY_FIELDS_NOTE,
     API_KEY_COPY_NOW_TEXT,
@@ -87,6 +89,9 @@ import {
     EMAIL_CHANGE_PASSWORD_NOTE,
     EMAIL_CHANGE_SENT_TEXT,
     EMAIL_CHANGE_WARNING,
+    EMAIL_RESEND_FAILED,
+    EMAIL_RESEND_LABEL,
+    EMAIL_RESEND_SENT,
     EMAIL_UNVERIFIED_HINT,
     MAX_EMAIL_LENGTH,
     MAX_NAME_LENGTH,
@@ -539,7 +544,18 @@ export class AccountSettingsModal extends ModalBase {
         // The e-mail section comes BEFORE the password one because it is the recovery channel of
         // the password: someone who cannot get in reads this screen top-down, and the address is
         // what they have to get right first.
-        root.appendChild(this._renderEmailSection());
+        // SÓ ONDE O SERVIDOR CONSEGUE ENTREGAR. `PUT /users/me/email` passou a ser montada sob
+        // `canDeliverAccountMail()`, como as rotas de recuperação, e oferecer a seção onde ela não
+        // existe entregaria um 404 depois de a pessoa digitar o endereço novo e a senha atual.
+        //
+        // A BANDEIRA TEM NOME MAIS ESTREITO QUE O SIGNIFICADO: `features.password_reset_email` É o
+        // predicado de entrega (`canDeliverAccountMail()` em `config.service.js`), e não uma
+        // decisão só sobre senha. Ela é reusada aqui de propósito, para o fato não passar a viver
+        // em dois lugares; no dia em que o servidor gatear as duas coisas por predicados
+        // diferentes, este ponto precisa de bandeira própria.
+        if (emailRecoveryEnabled(config)) {
+            root.appendChild(this._renderEmailSection());
+        }
         root.appendChild(this._renderPasswordSection());
         root.appendChild(this._renderKeySection());
         body.appendChild(root);
@@ -710,6 +726,32 @@ export class AccountSettingsModal extends ModalBase {
             email.state === 'absent' ? email.status : `${email.address} (${email.status})`,
             email.state === 'unverified' ? EMAIL_UNVERIFIED_HINT : ''
         ));
+
+        // O BOTÃO QUE A FRASE ACIMA PEDIA AO ADMINISTRADOR. A rota é anônima e está sempre
+        // montada, então o caminho pelo administrador era trabalho de duas pessoas onde havia um
+        // clique. Só aparece no estado `unverified`: nos outros dois não há nada a reenviar.
+        if (email.state === 'unverified') {
+            const resend = el('button', 'account-settings__link');
+            resend.type = 'button';
+            resend.dataset.testid = 'account-email-resend';
+            resend.textContent = EMAIL_RESEND_LABEL;
+            const outcome = el('p', 'account-settings__section-hint', '');
+            outcome.hidden = true;
+            addScopedDomListener(this, LISTENER_SCOPE, resend, 'click', async () => {
+                resend.disabled = true;
+                try {
+                    await apiClient.resendVerification({ email: email.address });
+                    outcome.textContent = EMAIL_RESEND_SENT;
+                } catch {
+                    outcome.textContent = EMAIL_RESEND_FAILED;
+                } finally {
+                    outcome.hidden = false;
+                    resend.disabled = false;
+                }
+            });
+            readonly.appendChild(resend);
+            readonly.appendChild(outcome);
+        }
 
         readonly.appendChild(this._readonlyRow(
             'Lotação',

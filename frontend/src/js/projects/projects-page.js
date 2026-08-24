@@ -39,7 +39,7 @@ import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 // Do ARQUIVO, folha e sem imports: a definição única das audiências de `admin.html`.
 import { adminAudience } from '@js/admin/admin-audience.js';
-import { showUnavailableScreen } from '@ui/unavailable-screen.js';
+import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
 import { createAppBar } from '@ui/app-bar.js';
 import { startIdleWatch } from '../session/idle-watch.js';
 // Por ARQUIVO, nunca por barrel: este modulo alcanca o store por folhas, e e isso que o torna
@@ -55,9 +55,11 @@ import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // `index.js` e `admin/admin-page.js` consomem, e a razão de ela ter saído de dentro do mapa.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
 import { sessionRestoreNotice } from '../session/session-restore-phrases.js';
-import { showConfirm } from '@modals/confirm.modal.js';
+import { showConfirm, showChoice } from '@modals/confirm.modal.js';
 import { PromptModal } from '@modals/prompt.modal.js';
 import { showLoginModal } from '@modals/login.modal.js';
+// Por ARQUIVO, como os vizinhos: esta página não monta a store, e o barrel `@modals` a arrasta.
+import { showSignupModal } from '@modals/signup.modal.js';
 // A escada por atlas, de um módulo folha e SEM imports (contrato asserido em
 // `tests/unit/permission-levels.test.js`): esta página boota sem a store, então o barrel está fora
 // de questão. Nunca uma lista fechada de níveis escrita aqui.
@@ -329,7 +331,9 @@ async function pointAtLocalAtlasAndGo(atlas) {
  */
 async function duplicateLocalAtlasFromPage(atlas) {
     const name = await askAtlasName({
-        title: 'Fazer uma cópia',
+        // Casa com o rótulo do menu que abre este diálogo (`Copiar neste computador`): eram duas
+        // strings diferentes para o mesmo gesto, e a do menu não dizia onde a cópia nascia.
+        title: 'Copiar neste computador',
         defaultValue: `${atlas?.name ?? 'Atlas'} (cópia)`,
         confirmText: 'Copiar',
     });
@@ -510,11 +514,52 @@ async function deleteLocalAtlasFromPage(atlas) {
  * copy of that decision, and the two would drift.
  */
 function openLoginDialog() {
+    // "CRIAR CONTA" TAMBÉM AQUI, e pela mesma bandeira que o mapa consulta. Esta chamada não
+    // passava `onRegister`, então onde o auto-cadastro está LIGADO quem chegasse a "Seus atlas"
+    // via só "Entrar" e nenhuma porta para criar conta. E este não é um canto do produto: é o
+    // destino canônico de quem tem sessão (`shouldRouteToProjects`) e um endereço que as pessoas
+    // compartilham entre si, isto é, exatamente por onde um convidado chega.
+    //
+    // A bandeira é obrigatória, não cortesia: `POST /auth/register` só é montada com
+    // `ALLOW_SELF_REGISTRATION`, então oferecer o botão sem consultá-la seria um beco de 404.
+    const signupEnabled = config?.features?.self_registration === true;
     showLoginModal({
         onSubmit: async ({ username, password }) => {
             await apiClient.login(username, password);
             window.location.reload();
         },
+        onRegister: signupEnabled ? () => openSignupDialog() : undefined,
+    });
+}
+
+/**
+ * O cadastro, a partir desta página. Espelha `AccountControl._handleRegister`: o anúncio acontece
+ * DEPOIS de o formulário fechar (senão ele fica montado atrás do diálogo, com a senha digitada), e
+ * usa `showChoice`, cujo `Enter` é inerte — com `showConfirm` a tecla que todo mundo usa para
+ * dispensar um diálogo disparava o reenvio do e-mail.
+ */
+function openSignupDialog() {
+    showSignupModal({
+        onSubmit: (data) => apiClient.register(data),
+        onRegistered: async ({ email }) => {
+            const choice = await showChoice('Confira sua caixa de entrada', {
+                message: `Enviamos um e-mail para ${email}. Se ainda não houver conta com esse `
+                    + 'endereço, ele traz o link de confirmação do cadastro; se já houver, traz '
+                    + 'as instruções para recuperar o acesso.',
+                choices: [
+                    { id: 'ok', label: 'Entendi', variant: 'ghost' },
+                    { id: 'resend', label: 'Reenviar e-mail', variant: 'primary' },
+                ],
+            });
+            if (choice !== 'resend') return;
+            try {
+                await apiClient.resendVerification({ email });
+                showSuccess('E-mail de confirmação reenviado.');
+            } catch {
+                showError('Não foi possível reenviar o e-mail agora.');
+            }
+        },
+        onBackToLogin: () => openLoginDialog(),
     });
 }
 
@@ -618,6 +663,19 @@ async function applyAtlasSharing(atlasId, sharing) {
             await apiClient.addShare(atlasId, member.userId, permission);
         } catch (error) {
             console.warn('[projects] addShare failed:', error);
+        }
+    }
+    // O EIXO DE GRUPO, encenado pelo mesmo modal e aplicado pela mesma regra de menor privilégio.
+    // O servidor exige grupo PRÓPRIO para conceder (`assertCanAdministerGroup`, 404), e o modal já
+    // só oferece os administrados; este `catch` cobre a corrida em que a posse mudou entre abrir o
+    // diálogo e criar o atlas.
+    for (const group of (sharing.groups || [])) {
+        if (!group?.groupId) continue;
+        const permission = isGrantablePermission(group.permission) ? group.permission : 'read';
+        try {
+            await apiClient.addAtlasGroupShare(atlasId, group.groupId, permission);
+        } catch (error) {
+            console.warn('[projects] addAtlasGroupShare failed:', error);
         }
     }
 }
@@ -730,7 +788,11 @@ async function initProjectsPage() {
     // nothing to render, and it does not load `tab-lock.css` either.
     initTabLock({ key: noneKey(), overlayHost: null });
 
-    let projects = [];
+    // `null` SIGNIFICA "NÃO CHEGOU", e é por isso que ele viaja até o Drive em vez de virar `[]`
+    // aqui. O colapso era o achado: a falha de rede na primeira carga produzia uma grade que
+    // escrevia "Nenhum atlas nesta categoria", isto é, uma afirmação falsa e permanente sobre a
+    // conta da pessoa, com o toast já dissipado e nada para tentar de novo.
+    let projects = null;
     let overview = null;
     if (signedIn) {
         // The two in parallel, and they fail apart: the list IS the page, while the overview is
@@ -747,7 +809,7 @@ async function initProjectsPage() {
                 return null;
             }),
         ]);
-        if (Array.isArray(list)) projects = list;
+        projects = Array.isArray(list) ? list : null;
         overview = extras;
     }
 
@@ -817,7 +879,11 @@ async function initProjectsPage() {
         startPresenceRefresh(drive);
 
         apiClient.setAuthLostHandler(() => { endSession('encerrada'); });
-        startIdleWatch({ onExpire: () => { endSession('inatividade'); } });
+        startIdleWatch({
+        onExpire: () => { endSession('inatividade'); },
+        // "Sair agora" nao e expiracao: motivo proprio, e o mapa nao pede login de volta.
+        onLeaveNow: () => { endSession('saida'); },
+    });
     } else {
         body.appendChild(createServerInvite({ onLogin: openLoginDialog }));
     }
@@ -826,5 +892,8 @@ async function initProjectsPage() {
 initProjectsPage().catch((error) => {
     console.error('Projects page initialization failed:', error);
     clearSplash();
-    showUnavailableScreen();
+    // ERRO DE APLICACAO, nao de rede: o servidor JA respondeu (o `bootConfig` acima passou).
+    // Anunciar falha de conexao aqui manda a pessoa depurar a internet dela por um defeito do
+    // programa, que era exatamente o que esta tela fazia.
+    showUnavailableScreen(BlockingCause.APP_ERROR);
 });

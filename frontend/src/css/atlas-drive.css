@@ -546,6 +546,24 @@
     font-size: var(--font-size-base);
 }
 
+/* A nova tentativa do TERCEIRO estado da grade (a lista não chegou). Ela é a diferença entre um
+   fato falso e permanente ("você não tem atlas") e uma consulta que se pode repetir. */
+.atlas-drive__empty-retry {
+    display: block;
+    margin: var(--space-4) auto 0;
+    padding: var(--space-2) var(--space-4);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--white);
+    color: var(--primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.atlas-drive__empty-retry:hover {
+    background: var(--gray-50);
+}
+
 /* Card actions (⋯) menu */
 .atlas-drive__menu-btn {
     position: absolute;

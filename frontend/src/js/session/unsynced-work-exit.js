@@ -47,6 +47,7 @@ import {
     retainRemoteAtlasForRescue,
     releaseRemoteAtlasRescueVeto,
     remoteAtlasRescueVetoSince,
+    RESCUE_VETO_GRACE_MS,
 } from '@store/remote-atlas.api.js';
 import { operationQueue, operationBelongsToScope } from '@store/sync/operation-queue.js';
 import {
@@ -64,6 +65,10 @@ import {
  * caller of the exit guard has to know.
  */
 export { ExitOutcome };
+// Re-exportado, e não importado de novo lá: `account.control.js` monta as MESMAS frases, e o prazo
+// precisa vir da mesma constante que este módulo já usa. Um segundo caminho até
+// `@store/remote-atlas.api.js` é o que faz duas cópias de um número divergirem.
+export { RESCUE_VETO_GRACE_MS };
 
 /**
  * Whether a teardown must PRESERVE the local data instead of wiping it.
@@ -367,7 +372,7 @@ export async function preserveUnsyncedWorkOnLostSession({ atlasId = null, atlasN
         atlasId: alvo,
         message: preserved
             ? exitPreservedSummary(rescuedAtlasName(atlasName))
-            : exitPreserveFailedNotice({ retained: rescueVetoRecorded(alvo) }),
+            : exitPreserveFailedNotice({ retained: rescueVetoRecorded(alvo), graceMs: RESCUE_VETO_GRACE_MS }),
     };
 }
 

@@ -45,11 +45,13 @@ import { resolveRedirectTarget } from './remote-map-redirect.js';
 // A grade de ações mora FORA daqui de propósito: ela é uma decisão pura sobre três valores
 // (origem da store, sessão e posto na escada), e este arquivo não carrega em node.
 import { AtlasTabState, visibleAtlasActions } from './atlas-actions.js';
+import { MapMenuAction, mapMenuActions } from './map-menu-actions.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 // A ÚNICA implementação da escada por atlas. `_canRenameAtlas` já gateia por capacidade
 // (`checkPermission`); `_handleOpenSettings` precisa do POSTO, e posto se compara por hierarquia.
-import { atlasRoleHasAtLeast } from '@js/projects/permission-levels.js';
+import { atlasRoleHasAtLeast, getPermissionLabel, toAtlasPermission } from '@js/projects/permission-levels.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 // DIRECT import, not the `@store` barrel: the barrel re-exports only `adoptRemoteAtlasAsLocal`
@@ -151,6 +153,7 @@ export class MapsTab {
         this._atlasHeader = null;
         this._atlasNameInput = null;
         this._atlasOriginChip = null;
+        this._atlasLevelChip = null;
         /** @type {string|null} Name of the mounted atlas, as last resolved. */
         this._atlasName = null;
         this._actionButtons = new Map();
@@ -194,6 +197,10 @@ export class MapsTab {
         newMapBtn.setAttribute('data-testid', 'maps-new-map');
         newMapBtn.innerHTML = MAPS_ICONS.plus;
         addDomListener(this, newMapBtn, 'click', () => this._handleNewMap());
+        // Held so `_updateActionsVisibility` can gate it on the same repaint as the actions grid:
+        // creating a map is a WRITE (`GuardAction.CREATE_MAP`), and this button used to offer it
+        // to a Leitor, who was asked for a name and only then refused by the store.
+        this._newMapBtn = newMapBtn;
         sectionHeader.appendChild(newMapBtn);
 
         this._container.appendChild(sectionHeader);
@@ -292,6 +299,7 @@ export class MapsTab {
             remote: isRemoteStoreSync(),
             authenticated: sessionContext.isAuthenticated(),
             role: sessionContext.role,
+            can: (key) => checkPermission(key).allowed,
         };
     }
 
@@ -318,9 +326,16 @@ export class MapsTab {
      * @private
      */
     _updateActionsVisibility() {
-        const visible = visibleAtlasActions(this._atlasContext());
+        const context = this._atlasContext();
+        const visible = visibleAtlasActions(context);
         for (const [id, button] of this._actionButtons) {
             button.hidden = !visible.includes(id);
+        }
+        // "Novo mapa" lives in the section header rather than in the grid, so it needs the same
+        // treatment explicitly. It rides the SAME repaint, which is what makes a live demotion
+        // remove it alongside "Compartilhar" instead of under a click.
+        if (this._newMapBtn) {
+            this._newMapBtn.hidden = context.can('CREATE_MAP') !== true;
         }
     }
 
@@ -355,8 +370,18 @@ export class MapsTab {
         chip.setAttribute('data-testid', 'atlas-origin-chip');
         header.appendChild(chip);
 
+        // O NÍVEL, ao lado do nome, e não escondido no menu do avatar. Ele é a explicação de
+        // metade do que esta aba faz ou deixa de fazer (que comandos o menu do mapa mostra, se o
+        // nome é editável, se "Compartilhar" existe), e estava a dois cliques de distância, num
+        // menu suspenso que ninguém abre para descobrir por que um botão sumiu.
+        const levelChip = document.createElement('span');
+        levelChip.className = 'atlas-header__chip atlas-header__chip--level';
+        levelChip.setAttribute('data-testid', 'atlas-level-chip');
+        header.appendChild(levelChip);
+
         this._atlasNameInput = input;
         this._atlasOriginChip = chip;
+        this._atlasLevelChip = levelChip;
 
         addDomListener(this, input, 'blur', () => this._handleRenameAtlas(input.value));
         addDomListener(this, input, 'keydown', (e) => {
@@ -429,6 +454,24 @@ export class MapsTab {
         // (a peer connecting, a session refresh) would otherwise discard the edit in progress.
         if (document.activeElement !== this._atlasNameInput) {
             this._atlasNameInput.value = name ?? '';
+        }
+
+        // O nível só existe num atlas de SERVIDOR: no local não há escada nenhuma, a pessoa tem
+        // controle total, e um crachá dizendo "Dono" ali sugeriria uma hierarquia inexistente.
+        if (this._atlasLevelChip) {
+            // `toAtlasPermission` PRIMEIRO, e não `getPermissionLabel` direto: o que
+            // `sessionContext.role` carrega é um `UserRole` (SEIS valores, com o `admin` global
+            // dobrado para dentro da escada), e `getPermissionLabel` fala o vocabulário de CINCO
+            // do servidor. Sem a normalização, um administrador global veria o crachá escrito
+            // "admin" em minúscula, porque o ramo de desconhecido devolve a string crua.
+            const label = onRemote
+                ? getPermissionLabel(toAtlasPermission(sessionContext.role))
+                : '';
+            this._atlasLevelChip.textContent = label;
+            this._atlasLevelChip.hidden = !label;
+            this._atlasLevelChip.title = label
+                ? `Seu nível neste atlas: ${label}`
+                : '';
         }
 
         const canRename = this._canRenameAtlas();
@@ -1098,62 +1141,76 @@ export class MapsTab {
         this._contextMenu = menu;
         this._contextMenuAnchor = anchorEl;
 
-        // Menu items
-        const menuItems = [];
-
-        // Position items only for active map when unlocked
+        // WHICH commands this person sees is decided by `map-menu-actions.js`, not here: rank
+        // HIDES a command, state (locked, last map) DRAWS it and refuses the click with the
+        // reason. This menu consulted no permission at all until 2026-08-24 and offered a Leitor
+        // five commands the store refuses and an Editor two the server refuses; the read-only
+        // sibling `_updateCurrentMapCard`, in this same file, was already doing it right.
         const isActiveMap = mapName === this._currentMapName;
-        if (!locked && isActiveMap) {
-            menuItems.push({
+        const commands = mapMenuActions({
+            can: (key) => checkPermission(key).allowed,
+            locked,
+            isActiveMap,
+            hasSavedPosition,
+            isLastMap
+        });
+
+        const PRESENTATION = {
+            [MapMenuAction.SAVE_POSITION]: {
                 icon: MAPS_ICONS.mapPin,
                 label: hasSavedPosition ? 'Atualizar posição' : 'Salvar posição',
                 handler: () => this._handleSaveMapPosition(mapName)
-            });
-
-            if (hasSavedPosition) {
-                menuItems.push({
-                    icon: SIDEBAR_ICONS.trash,
-                    label: 'Limpar posição salva',
-                    handler: () => this._handleClearMapPosition(mapName),
-                    className: 'menu-item-danger'
-                });
-            }
-
-            menuItems.push({ separator: true });
-        }
-
-        // Duplicate (always available - read-only operation)
-        menuItems.push({
-            icon: MAPS_ICONS.copy,
-            label: 'Duplicar',
-            handler: () => this._handleDuplicateMap(mapName)
-        });
-
-        // Rename, Combine, Delete only when unlocked
-        if (!locked) {
-            menuItems.push({
+            },
+            [MapMenuAction.CLEAR_POSITION]: {
+                icon: SIDEBAR_ICONS.trash,
+                label: 'Limpar posição salva',
+                handler: () => this._handleClearMapPosition(mapName),
+                className: 'menu-item-danger'
+            },
+            [MapMenuAction.DUPLICATE]: {
+                icon: MAPS_ICONS.copy,
+                label: 'Duplicar',
+                handler: () => this._handleDuplicateMap(mapName)
+            },
+            [MapMenuAction.RENAME]: {
                 icon: MAPS_ICONS.edit,
                 label: 'Renomear',
                 handler: () => this._handleRenameMap(mapName)
-            });
-
-            menuItems.push({
+            },
+            [MapMenuAction.COMBINE]: {
                 icon: MAPS_ICONS.merge,
                 label: 'Puxar outros mapas',
                 handler: () => this._handleCombineMaps(mapName)
-            });
-
-            if (!isLastMap) {
-                menuItems.push({ separator: true });
-
-                menuItems.push({
-                    icon: SIDEBAR_ICONS.trash,
-                    label: 'Deletar',
-                    handler: () => this._handleDeleteMap(mapName),
-                    className: 'menu-item-danger'
-                });
+            },
+            [MapMenuAction.DELETE]: {
+                icon: SIDEBAR_ICONS.trash,
+                label: 'Deletar',
+                handler: () => this._handleDeleteMap(mapName),
+                className: 'menu-item-danger'
             }
-        }
+        };
+
+        // The two separators mark the same two seams as before (after the camera-position group,
+        // and before the destructive command), but they are derived from what SURVIVED the gate
+        // instead of assumed, so a menu whose delete was hidden does not end in a dangling rule.
+        const POSITION_GROUP = new Set([MapMenuAction.SAVE_POSITION, MapMenuAction.CLEAR_POSITION]);
+        const menuItems = [];
+        commands.forEach(({ id, blocked }, index) => {
+            const previous = commands[index - 1];
+            const seam = previous
+                && ((POSITION_GROUP.has(previous.id) && !POSITION_GROUP.has(id))
+                    || id === MapMenuAction.DELETE);
+            if (seam) menuItems.push({ separator: true });
+
+            const look = PRESENTATION[id];
+            menuItems.push({
+                icon: look.icon,
+                label: look.label,
+                className: blocked ? 'map-context-menu-item--blocked' : look.className,
+                blocked,
+                handler: blocked ? () => showWarning(blocked) : look.handler
+            });
+        });
 
         // Build menu items
         menuItems.forEach(item => {
@@ -1165,6 +1222,13 @@ export class MapsTab {
                 const menuItem = document.createElement('button');
                 menuItem.className = `map-context-menu-item ${item.className || ''}`;
                 menuItem.innerHTML = `${item.icon}<span>${item.label}</span>`;
+                // `aria-disabled`, never the `disabled` property: a disabled button fires no
+                // click, and the click IS how the reason reaches the person. The title carries
+                // the same sentence for a pointer that only hovers.
+                if (item.blocked) {
+                    menuItem.setAttribute('aria-disabled', 'true');
+                    menuItem.title = item.blocked;
+                }
                 addDomListener(this, menuItem, 'click', (e) => {
                     e.stopPropagation();
                     this._closeContextMenu();
@@ -1266,6 +1330,16 @@ export class MapsTab {
      * @private
      */
     async _handleNewMap() {
+        // REFUSE THE ENTRY, NOT THE SUBMISSION. This asked for a name and only then let the store
+        // refuse, so a Leitor typed a map name, confirmed, and got a denial. The button above is
+        // already hidden for them; this is the second line, for the stale DOM and the demotion
+        // that lands between the repaint and the click.
+        const perm = checkPermission('CREATE_MAP');
+        if (!perm.allowed) {
+            showWarning(denialNotice(perm.required));
+            return;
+        }
+
         const existingMaps = await getAllMapNamesStore();
         const defaultName = IDUtils.generateUniqueMapName(existingMaps, 'Novo Mapa');
         const mapName = await showPrompt('Nome do novo mapa:', defaultName);
@@ -1317,6 +1391,16 @@ export class MapsTab {
      * @private
      */
     _handleImportAdditive() {
+        // Same shape as `_handleNewMap`: the file picker used to open for anyone, and the import
+        // died in the store after the person had already chosen a file. "Importar" is now absent
+        // from the actions grid for whoever cannot write (`visibleAtlasActions`); this is the
+        // second line.
+        const perm = checkPermission('IMPORT_DATA');
+        if (!perm.allowed) {
+            showWarning(denialNotice(perm.required));
+            return;
+        }
+
         if (this._exportImportService) {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
@@ -1565,7 +1649,11 @@ export class MapsTab {
                 showSuccess(result.message);
                 // Emit event to update sidebar shortcuts and maps list
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
-            } else {
+            } else if (!result.silent) {
+                // A permission refusal is `silent`: the store already emitted
+                // STORE_OPERATION_BLOCKED and its listener named the capability. Showing
+                // `result.message` on top of that stacked a generic second toast over the
+                // specific first one, which is how the specific one got lost.
                 showWarning(result.message);
             }
         } catch (_error) {
@@ -1780,5 +1868,6 @@ export class MapsTab {
         this._atlasHeader = null;
         this._atlasNameInput = null;
         this._atlasOriginChip = null;
+        this._atlasLevelChip = null;
     }
 }

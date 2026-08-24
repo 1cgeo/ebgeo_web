@@ -7,7 +7,9 @@ import {
     clearCameraPosition,
     isCurrentMapLockedSync
 } from '@store/index.js';
-import { showSuccess, showError } from '@utils/index.js';
+import { showSuccess, showError, showWarning } from '@utils/index.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import {
@@ -634,11 +636,20 @@ function activeTool() {
                 );
             }
             break;
-        case 'add-marker-3d':
+        case 'add-marker-3d': {
+            // Recusa a ENTRADA no modo, como o 360 e como o comentário espacial: o visualizador
+            // 3D aceitava a ferramenta, a pessoa mirava e clicava na cena, e só então
+            // `addMarker3D` recusava na store. O atalho de teclado ('m') passa por aqui também.
+            const perm = checkPermission('CREATE_MARKER_3D');
+            if (!perm.allowed) {
+                showWarning(denialNotice(perm.required));
+                break;
+            }
             if (cesiumState.modules.markers && _currentTilesetId) {
                 cesiumState.modules.markers.activateMarkerTool(cesiumState.viewer, _currentTilesetId);
             }
             break;
+        }
     }
 }
 

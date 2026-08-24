@@ -135,17 +135,36 @@ export function atlasTabState({ remote = false, authenticated = false } = {}) {
  * @param {boolean} [context.remote] - Is the mounted store a SERVER atlas?
  * @param {boolean} [context.authenticated] - Is there a real account signed in?
  * @param {*} [context.role] - `sessionContext.role` (a `UserRole`) or a raw server permission.
+ * @param {function(string): boolean} [context.can] - Capability predicate over `GuardAction`
+ *   keys. Omitted, every capability-gated action is offered, which is the pre-2026-08-24
+ *   behaviour and is only right for a store where everyone may write.
  * @returns {string[]} Action ids, in the order {@link ACTIONS_BY_STATE} declares them.
  */
-export function visibleAtlasActions({ remote = false, authenticated = false, role = null } = {}) {
+export function visibleAtlasActions({
+    remote = false, authenticated = false, role = null, can = null
+} = {}) {
     const state = atlasTabState({ remote, authenticated });
     const row = ACTIONS_BY_STATE[state];
-    if (state !== AtlasTabState.REMOTE) return [...row];
+
+    // "Importar" WRITES INTO THE MOUNTED ATLAS, and it was in every row, the server one
+    // included, because this function only ever filtered the two access doors. A Leitor picked a
+    // file, watched it parse, and the import died in the store. It is gated by RANK, so it is
+    // hidden rather than drawn inert: there is nothing about a `.ebgeo` file the person can
+    // change to make their level sufficient.
+    //
+    // `can` is consulted in EVERY state, not only REMOTE, because `checkPermission` already
+    // answers "allowed" for a local store; routing the local rows around the predicate would put
+    // that knowledge in two places.
+    const gated = (ids) => (can
+        ? ids.filter((id) => id !== 'import' || can('IMPORT_DATA') === true)
+        : ids);
+
+    if (state !== AtlasTabState.REMOTE) return gated([...row]);
 
     const manages = atlasRoleHasAtLeast(role, SHARING_RUNG);
-    return row.filter((id) => {
+    return gated(row.filter((id) => {
         if (id === 'share') return manages;
         if (id === 'participants') return authenticated && !manages;
         return true;
-    });
+    }));
 }

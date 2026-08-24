@@ -114,16 +114,48 @@ export function exitPreservedSummary(atlasName) {
  * it, this live tab really is the last guarantee. A single fixed sentence would have to be wrong in
  * one of the two cases, which is the exact form of lie this whole path exists to remove.
  *
- * @param {{retained?: boolean}} [options] - `retained` when the namespace is under a rescue veto.
+ * O PRAZO ENTRA COMO ARGUMENTO, e não por import, porque este módulo tem ZERO IMPORTS por
+ * contrato (ele é lido das páginas que bootam sem a store) e a constante mora em
+ * `store/remote-atlas.api.js`, que arrasta a store inteira. Passá-lo é o que mantém o número
+ * DERIVADO da constante em vez de digitado aqui, que é a única forma de ele não envelhecer
+ * sozinho no dia em que o prazo mudar.
+ *
+ * E ele é dito porque "o quanto antes" NÃO É ACIONÁVEL: quem lê isso numa sexta à noite volta na
+ * segunda e perdeu o trabalho. A frase precisa do número para a pessoa poder decidir se corre
+ * agora ou se dá tempo.
+ *
+ * @param {{retained?: boolean, graceMs?: number|null}} [options] - `retained` when the namespace
+ *   is under a rescue veto; `graceMs` is `RESCUE_VETO_GRACE_MS`, in milliseconds.
  * @returns {string}
  */
-export function exitPreserveFailedNotice({ retained = false } = {}) {
+export function exitPreserveFailedNotice({ retained = false, graceMs = null } = {}) {
     const cabeca = 'Você saiu da conta, mas NÃO foi possível guardar o trabalho pendente como '
         + 'atlas local.';
-    return retained
-        ? `${cabeca} Ele continua neste computador por tempo limitado: entre novamente o quanto `
-            + 'antes para que seja enviado ao servidor.'
-        : `${cabeca} Não feche esta aba: entre novamente para que ele seja enviado ao servidor.`;
+    if (!retained) {
+        return `${cabeca} Não feche esta aba: entre novamente para que ele seja enviado ao servidor.`;
+    }
+    const prazo = prazoEmHoras(graceMs);
+    return `${cabeca} Ele continua neste computador por ${prazo}: entre novamente dentro desse `
+        + 'prazo para que seja enviado ao servidor.';
+}
+
+/**
+ * O prazo em português, a partir de um valor em milissegundos.
+ *
+ * DEGRADA PARA A FORMA VAGA quando o prazo não é um número utilizável, em vez de escrever
+ * "por NaN horas" ou de inventar um número. A forma vaga é pior que o número, mas é verdadeira.
+ * @param {*} graceMs
+ * @returns {string}
+ */
+function prazoEmHoras(graceMs) {
+    const ms = Number(graceMs);
+    if (!Number.isFinite(ms) || ms <= 0) return 'tempo limitado';
+    const horas = Math.floor(ms / 3_600_000);
+    if (horas >= 48) return `${Math.floor(horas / 24)} dias`;
+    if (horas === 24) return '24 horas';
+    if (horas >= 1) return `${horas} ${horas === 1 ? 'hora' : 'horas'}`;
+    const minutos = Math.max(1, Math.round(ms / 60_000));
+    return `${minutos} ${minutos === 1 ? 'minuto' : 'minutos'}`;
 }
 
 /**

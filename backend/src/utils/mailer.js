@@ -396,11 +396,18 @@ export async function sendAccountExistsEmail(
   const subject = 'EBGeo — cadastro não concluído';
   const acesso = appLink ? ` Acesse o EBGeo em ${appLink}` : ' Acesse o EBGeo';
   // A LINHA DA SENHA ESQUECIDA É DERIVADA DO MESMO PREDICADO QUE MONTA AS ROTAS
-  // (`isSmtpConfigured`, em `src/modules/auth/auth.routes.js`), e não uma frase fixa.
+  // (`canDeliverAccountMail`, em `src/modules/auth/auth.routes.js`), e não uma frase fixa.
   // Enquanto ela era fixa, ela era a ÚNICA orientação de recuperação de senha do produto
   // inteiro, e dizia "não há redefinição automática por e-mail" — verdade até existir a
   // rota, e mentira no minuto seguinte, numa mensagem que ninguém relê.
-  const senha = isSmtpConfigured()
+  //
+  // ELE JÁ FOI `isSmtpConfigured`, E O COMENTÁRIO ACIMA AFIRMAVA QUE ERAM O MESMO PREDICADO.
+  // Não são: `canDeliverAccountMail` é `isSmtpConfigured() || !config.isProd`, então fora de
+  // produção os dois DISCORDAM, e discordavam no pior sentido possível — a rota existia e a
+  // mensagem dizia que não havia redefinição automática. É a mesma classe do defeito que o
+  // parágrafo acima descreve, cometida de novo ao consertá-lo: uma frase derivada do predicado
+  // ERRADO mente igual a uma frase fixa.
+  const senha = canDeliverAccountMail()
     ? '- Se esqueceu a senha, use "Esqueci minha senha" na tela de entrada.\n'
     : '- Se esqueceu a senha, peça a redefinição ao administrador do EBGeo. Este servidor não '
       + 'tem redefinição automática por e-mail.\n';

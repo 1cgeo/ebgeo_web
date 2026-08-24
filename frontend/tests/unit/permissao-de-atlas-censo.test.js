@@ -176,6 +176,22 @@ const CENSO = [
             + 'criação, na página que não tem a store. As duas continuam separadas porque os '
             + 'clientes HTTP e os toasts são outros, mas a lista de níveis agora é uma só.',
     },
+    // O EIXO DE GRUPO, que o modal de criação passou a oferecer em 2026-08-24: o convite por
+    // pessoa existia e o por grupo não, embora a cláusula 4.1 diga que grupo serve a recurso E a
+    // atlas. São duas entradas porque são os DOIS chamadores do mesmo modal, e aplicar num só
+    // faria o grupo escolhido sumir sem erro dependendo de onde a pessoa clicou em "Novo atlas".
+    {
+        arquivo: 'src/js/account/account.control.js',
+        trecho: 'isGrantablePermission(group.permission)', n: 1, classe: ESCADA,
+        motivo: `${QUEDA_PARA_LEITURA} Mesma forma do irmão de MEMBRO, no eixo de GRUPO: o `
+            + 'servidor exige grupo próprio para conceder (`assertCanAdministerGroup`, 404), e o '
+            + 'modal já só oferece os administrados.',
+    },
+    {
+        arquivo: 'src/js/projects/projects-page.js',
+        trecho: 'isGrantablePermission(group.permission)', n: 1, classe: ESCADA,
+        motivo: `${QUEDA_PARA_LEITURA} O gêmeo do de cima, no eixo de GRUPO.`,
+    },
     {
         arquivo: 'src/js/sidebar/tabs/maps.tab.js',
         trecho: "atlasRoleHasAtLeast(sessionContext.role, 'manage')", n: 1, classe: ESCADA,

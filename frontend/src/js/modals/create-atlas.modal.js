@@ -78,6 +78,20 @@ export class CreateAtlasModal extends ModalBase {
         this._isPublic = false;
         /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
         this._members = [];
+        /**
+         * O EIXO DE GRUPO, que era exclusivo do modal de compartilhamento.
+         *
+         * A assimetria custava um percurso inteiro: quem criava um atlas para uma seção precisava
+         * criar, fechar, reabrir em "Compartilhar" e só então escolher o grupo. A cláusula 4.1 diz
+         * que grupo serve a recurso E a atlas, e este era o único ponto do produto onde o convite
+         * por pessoa existia e o por grupo não.
+         *
+         * @type {Array<{groupId:string, name:string, permission:string}>} Encenados; nada é
+         *   escrito antes de o atlas existir, como os membros.
+         */
+        this._groups = [];
+        /** @type {Array<{id:string, name:string}>|null} Os grupos que ESTA pessoa administra. */
+        this._myGroups = null;
         /** @type {boolean} Network/submit-in-flight guard. */
         this._busy = false;
         /** @type {number|null} */
@@ -123,6 +137,7 @@ export class CreateAtlasModal extends ModalBase {
                 ${this._renderPublicSection()}
                 ${this._renderMembersSection()}
                 ${this._renderAddSection()}
+                ${this._renderGroupsSection()}
                 <div class="project-picker__actions">
                     <button type="button" class="prompt-modal-btn prompt-modal-btn-cancel"
                             data-action="cancel" data-testid="create-atlas-cancel">Cancelar</button>
@@ -209,6 +224,98 @@ export class CreateAtlasModal extends ModalBase {
         `;
     }
 
+    /**
+     * @private A seção de grupos: os que a pessoa ADMINISTRA, com o nível de cada convite.
+     *
+     * SÓ OS ADMINISTRADOS, e não os que ela participa, porque é essa a regra do servidor:
+     * conceder a um grupo exige grupo próprio (`assertCanAdministerGroup`, que responde 404).
+     * Oferecer os outros seria o beco que este relatório inteiro existe para fechar.
+     *
+     * A lista chega por rede DEPOIS da montagem (`_loadMyGroups`), então esta função desenha três
+     * estados: carregando, sem grupo nenhum, e a lista. O estado "sem grupo" diz onde se criam,
+     * senão ele lê como defeito.
+     */
+    _renderGroupsSection() {
+        return `
+            <section class="sharing-section">
+                <h3 class="sharing-section__title">Grupos</h3>
+                <div class="sharing-members" data-groups>
+                    ${this._renderGroupsInner()}
+                </div>
+            </section>
+        `;
+    }
+
+    /** @private */
+    _renderGroupsInner() {
+        if (this._myGroups === null) {
+            return '<div class="sharing__empty">Carregando seus grupos…</div>';
+        }
+        if (!this._myGroups.length) {
+            return '<div class="sharing__empty">Você não administra nenhum grupo. '
+                + 'Crie um em Administração &gt; Grupos.</div>';
+        }
+        const escolhidos = new Map(this._groups.map((g) => [String(g.groupId), g.permission]));
+        return this._myGroups.map((g) => {
+            const id = String(g?.id ?? '');
+            const nome = g?.name ?? '';
+            const atual = escolhidos.get(id) ?? '';
+            const options = PERMISSION_LEVELS.map((p) =>
+                `<option value="${p.value}"${atual === p.value ? ' selected' : ''}>${p.label}</option>`
+            ).join('');
+            return `
+                <div class="sharing-member" data-group-id="${escapeHtml(id)}">
+                    <div class="sharing-member__info">
+                        <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                    </div>
+                    <select class="sharing-member__permission" data-action="group-permission"
+                            aria-label="Nível do grupo ${escapeHtml(nome)}">
+                        <option value=""${atual ? '' : ' selected'}>Não convidar</option>
+                        ${options}
+                    </select>
+                </div>
+            `;
+        }).join('');
+    }
+
+    /**
+     * @private Busca os grupos administrados e repinta a seção.
+     *
+     * BEST-EFFORT: sem grupo nenhum (ou com a chamada falhando) a criação segue igual, porque o
+     * eixo de grupo é opcional. Uma falha aqui não pode impedir alguém de criar um atlas.
+     */
+    async _loadMyGroups() {
+        try {
+            const grupos = await apiClient.listAccessGroups();
+            this._myGroups = Array.isArray(grupos) ? grupos : [];
+        } catch {
+            this._myGroups = [];
+        }
+        this._refreshGroups();
+    }
+
+    /** @private */
+    _refreshGroups() {
+        const host = this.getBody()?.querySelector('[data-groups]');
+        if (!host) return;
+        clearScopedListeners(this, 'groups');
+        host.innerHTML = this._renderGroupsInner();
+        for (const select of host.querySelectorAll('[data-action="group-permission"]')) {
+            addScopedDomListener(this, 'groups', select, 'change', () => {
+                const row = select.closest('[data-group-id]');
+                const groupId = row?.dataset.groupId;
+                if (!groupId) return;
+                this._groups = this._groups.filter((g) => String(g.groupId) !== String(groupId));
+                // Vazio significa "não convidar", e é por isso que a opção existe: sem ela, tirar
+                // um grupo da lista exigiria um segundo controle de remoção.
+                if (select.value && isGrantablePermission(select.value)) {
+                    const nome = this._myGroups.find((g) => String(g.id) === String(groupId))?.name ?? '';
+                    this._groups.push({ groupId, name: nome, permission: select.value });
+                }
+            });
+        }
+    }
+
     /** @private */
     _renderAddSection() {
         return `
@@ -287,6 +394,10 @@ export class CreateAtlasModal extends ModalBase {
         }
 
         this._wireMemberRows();
+        this._refreshGroups();
+        // Depois da montagem, de proposito: a lista chega por rede e a secao ja desenhou o
+        // estado "carregando".
+        this._loadMyGroups();
     }
 
     /** @private Wires the (re-rendered) member rows via the clearable 'members' scope. */
@@ -412,6 +523,7 @@ export class CreateAtlasModal extends ModalBase {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
+        clearScopedListeners(this, 'groups');
         container.innerHTML = results.length ? this._renderResults(results) : '';
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
@@ -436,7 +548,11 @@ export class CreateAtlasModal extends ModalBase {
         }
         this._busy = true;
         try {
-            await this._onCreate(name, { isPublic: this._isPublic, members: this._members.slice() });
+            await this._onCreate(name, {
+                isPublic: this._isPublic,
+                members: this._members.slice(),
+                groups: this._groups.slice(),
+            });
             this.hide();
         } catch {
             this._busy = false; // keep the dialog open on failure

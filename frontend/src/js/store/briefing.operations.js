@@ -151,7 +151,7 @@ export function getBriefingById(briefingId) {
 export async function createBriefing(data) {
     const perm = checkPermission(GuardAction.CREATE_BRIEFING);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createBriefing', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createBriefing', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -182,7 +182,7 @@ export async function createBriefing(data) {
 export async function updateBriefing(briefingId, data) {
     const perm = checkPermission(GuardAction.UPDATE_BRIEFING);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateBriefing', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateBriefing', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -223,7 +223,7 @@ export async function updateBriefing(briefingId, data) {
 export async function deleteBriefing(briefingId) {
     const perm = checkPermission(GuardAction.DELETE_BRIEFING);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteBriefing', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteBriefing', reason: perm.reason, required: perm.required });
         return false;
     }
 

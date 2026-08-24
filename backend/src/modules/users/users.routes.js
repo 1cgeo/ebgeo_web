@@ -4,6 +4,7 @@ import { auth } from '../../middleware/auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import { emailChangeLimiter } from '../../middleware/rate-limit.js';
+import { canDeliverAccountMail } from '../../utils/mailer.js';
 import * as ctrl from './users.controller.js';
 import * as schemas from './users.schemas.js';
 
@@ -17,7 +18,19 @@ router.put('/me/password', auth, validate({ body: schemas.updatePasswordSchema }
 // exige a senha atual e dispara re-verificação, e nenhuma das três coisas cabe na edição de nome
 // e posto. O limitador é por ENDEREÇO mesmo com o chamador autenticado, porque a rota manda
 // e-mail para um destino que o chamador digita (ver `emailChangeLimiter`).
-router.put('/me/email', auth, emailChangeLimiter, validate({ body: schemas.changeEmailSchema }), ctrl.changeMyEmail);
+//
+// MONTADA SÓ COM CANAL DE ENTREGA, pela MESMA porta que as rotas de recuperação em
+// `auth.routes.js`. Ela era incondicional, e a assimetria custava exatamente o que aquela decisão
+// tomou o cuidado de evitar do outro lado: numa produção sem relay o pedido respondia 200, o envio
+// só era registrado em log, e a tela mostrava a promessa de um link de confirmação que ninguém
+// mandou. O endereço da conta ficava pendurado num convite inalcançável.
+//
+// Sem canal, o caminho que sobra é o do administrador, que a decisão de 2026-08-20 abriu
+// (`updateUserAdminSchema` aceita `email`). Avaliado UMA vez na carga do módulo, como lá: a
+// configuração congela no boot.
+if (canDeliverAccountMail()) {
+  router.put('/me/email', auth, emailChangeLimiter, validate({ body: schemas.changeEmailSchema }), ctrl.changeMyEmail);
+}
 router.post('/me/api-key/rotate', auth, ctrl.rotateMyApiKey);
 router.get('/search', auth, validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
 

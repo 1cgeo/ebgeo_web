@@ -130,7 +130,7 @@ function resolveMap(mapName) {
 function guardWrite(guardAction, operationName, targetMap) {
     const perm = checkPermission(guardAction);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason, required: perm.required });
         return { blocked: true };
     }
     if (targetMap) {

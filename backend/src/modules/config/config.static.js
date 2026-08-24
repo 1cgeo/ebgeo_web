@@ -13,6 +13,20 @@ export const FEATURES = {
   imagens_panoramicas: true,
   apisearch: false,
   grid: false,
+  // AS DUAS DA INATIVIDADE, e elas existem porque o CLIENTE JÁ AS LIA. `resolveIdleMs` e
+  // `resolveWarnMs` (`frontend/src/js/session/idle-watch.js`) consultavam
+  // `features.idle_timeout_minutes` e `features.idle_warning_seconds` desde que o aviso de
+  // inatividade nasceu, e nenhuma das duas era emitida: na prática o valor era SEMPRE o padrão do
+  // cliente, e a configurabilidade que o código anunciava não existia em lugar nenhum.
+  //
+  // Publicá-las aqui é o conserto mais barato dos dois possíveis, e é o certo: o outro seria
+  // apagar as duas leituras, o que tiraria do administrador um controle sobre quanto tempo uma
+  // estação desatendida fica aberta numa sala onde ela desenha ordem de operações. Os valores
+  // batem com os padrões do cliente, então NADA muda de comportamento hoje; o que muda é que
+  // agora existe um lugar para mexer, e ele é o override de administrador, como todo o resto
+  // deste bloco.
+  idle_timeout_minutes: 30,
+  idle_warning_seconds: 60,
 };
 
 export const MAP2D_BASE = {

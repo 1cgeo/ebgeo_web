@@ -10,7 +10,6 @@ import {
   UnauthorizedError,
   ForbiddenError,
   BadRequestError,
-  ConflictError,
 } from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
 import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
@@ -572,15 +571,20 @@ export async function verifyEmail(token) {
   // read-check-then-write sequence let two concurrent requests both observe an
   // unconsumed token and both succeed, so the token was not truly single-use.
   return tx(async (t) => {
+    // CADA RECUSA LEVA CÓDIGO PRÓPRIO, e não é detalhe de arrumação. As quatro recusas desta
+    // função eram `BadRequestError` ou `ConflictError`, ou seja, TRÊS delas colapsavam no mesmo
+    // `BAD_REQUEST`, e o cliente não tinha como distingui-las: ele mostrava uma frase única que
+    // CHUTAVA a expiração ("o link pode ter expirado"), inclusive para o link inválido e para a
+    // conta desativada. Distinguir pela MENSAGEM seria acoplar a tela ao texto do servidor.
     const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [token, CONFIRMABLE_PURPOSES]);
     if (!claimed) {
       // Unknown token, already claimed, or minted for a purpose this route may not redeem.
-      throw new BadRequestError('Token de verificação inválido.');
+      throw new AppError('Token de verificação inválido.', 400, 'EMAIL_TOKEN_INVALID');
     }
     if (new Date(claimed.expires_at) < new Date()) {
       // Roll the claim back so an expired token is not silently burned — the
       // user can still ask for a new one and this row stays diagnosable.
-      throw new BadRequestError('Token de verificação expirado.');
+      throw new AppError('Token de verificação expirado.', 400, 'EMAIL_TOKEN_EXPIRED');
     }
 
     if (claimed.purpose === TokenPurpose.CHANGE_EMAIL) {
@@ -594,12 +598,12 @@ export async function verifyEmail(token) {
         claimed.user_id,
       ]);
       if (taken) {
-        throw new ConflictError('Este e-mail já está em uso por outra conta.');
+        throw new AppError('Este e-mail já está em uso por outra conta.', 409, 'EMAIL_TAKEN');
       }
       const applied = await t.oneOrNone(Q.APPLY_EMAIL_CHANGE, [claimed.user_id, claimed.new_email]);
       if (!applied) {
         // The account was deactivated between the request and the click.
-        throw new BadRequestError('Esta conta não está mais ativa.');
+        throw new AppError('Esta conta não está mais ativa.', 400, 'ACCOUNT_INACTIVE');
       }
       return { success: true, purpose: claimed.purpose };
     }
@@ -687,15 +691,15 @@ export async function resetPasswordWithToken(token, newPassword, req = null) {
     ]);
     if (!claimed) {
       // Unknown, already spent, or a confirmation token being presented here.
-      throw new BadRequestError('Código de redefinição inválido ou já utilizado.');
+      throw new AppError('Código de redefinição inválido ou já utilizado.', 400, 'RESET_TOKEN_INVALID');
     }
     if (new Date(claimed.expires_at) < new Date()) {
-      throw new BadRequestError('Código de redefinição expirado. Peça outro.');
+      throw new AppError('Código de redefinição expirado. Peça outro.', 400, 'RESET_TOKEN_EXPIRED');
     }
 
     const updated = await t.oneOrNone(Q.SET_USER_PASSWORD, [claimed.user_id, passwordHash]);
     if (!updated) {
-      throw new BadRequestError('Esta conta não está mais ativa.');
+      throw new AppError('Esta conta não está mais ativa.', 400, 'ACCOUNT_INACTIVE');
     }
 
     // Any OTHER live code of this account dies with the one just spent: a second code in a
@@ -727,11 +731,18 @@ export async function resetPasswordWithToken(token, newPassword, req = null) {
  * @param {string} [origin]
  * @returns {Promise<{ success: true }>}
  */
-export async function resendVerification(email, origin = '') {
-  const { rows } = await query(Q.FIND_USER_BY_EMAIL, [email]);
+export async function resendVerification({ email = null, username = null }, origin = '') {
+  // POR ENDEREÇO **OU** POR USUÁRIO. O segundo serve o botão que fica ao lado do erro de login,
+  // onde a tela só tem o usuário. Em qualquer dos dois o e-mail sai para o endereço REGISTRADO da
+  // conta (`user.email`), nunca para o que veio no pedido: é isso que impede a rota de virar um
+  // encaminhador de mensagem para endereço arbitrário.
+  const { rows } = email
+    ? await query(Q.FIND_USER_BY_EMAIL, [email])
+    : await query(Q.FIND_USER_BY_USERNAME, [username]);
   const user = rows[0];
   if (user && user.email && !user.email_verified) {
     await issueAndSendVerification(user, user.email, origin);
   }
+  // Sempre o mesmo desfecho, com ou sem conta: a rota não diz quem existe.
   return { success: true };
 }

@@ -2,7 +2,7 @@
 import { showLoginModal } from '@modals/login.modal.js';
 import { showSignupModal } from '@modals/signup.modal.js';
 import config from '@js/config.js';
-import { showConfirm } from '@modals/index.js';
+import { showConfirm, showChoice } from '@modals/index.js';
 import { clearLocalMapIntent } from '@js/deep-link/local-intent.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
@@ -29,6 +29,9 @@ import {
     preserveUnsyncedWorkAsLocal,
     countPendingOperations,
     rescueVetoRecorded,
+    // O prazo do veto de resgate vem por AQUI, e nao de `@store/remote-atlas.api.js`: as frases
+    // sao puras e recebem o numero, entao ele precisa chegar derivado da constante, nunca digitado.
+    RESCUE_VETO_GRACE_MS,
 } from '@js/session/unsynced-work-exit.js';
 import {
     exitPreservedSummary,
@@ -66,7 +69,7 @@ import { orgLabel } from '@js/admin/org-options.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { showSharingModal } from '@modals/sharing.modal.js';
-import { showSuccess, showError, showWarning } from '@utils';
+import { showSuccess, showError, showWarning, showToast } from '@utils';
 import {
     setupCleanup,
     subscribe,
@@ -402,8 +405,7 @@ export class AccountControl {
         subscribe(this, getEventBus(), EventTypes.CONNECTION_STATE_CHANGED, () => {
             this._updateShareVisibility();
             this._updateProjectsVisibility();
-            this._updateProjectsVisibility();
-        this._updateSaveToServerVisibility();
+            this._updateSaveToServerVisibility();
             this._updateDeleteAtlasVisibility();
         });
         // The connected atlas was deleted (by this user or another owner) — tear down + redirect.
@@ -493,7 +495,12 @@ export class AccountControl {
 
     /** @private */
     _openMenu() {
-        if (!this._menu || !this._username) return;
+        // O GATE É A SESSÃO, NÃO O NOME DE USUÁRIO. Enquanto era `!this._username`, uma sessão
+        // viva cujo perfil não trouxesse `username` (um token legado, uma resposta parcial)
+        // TRANCAVA a única porta para tudo o que mora neste menu, e o menu só cresceu: conta,
+        // calibração, administração, compartilhar, salvar no servidor, sair. O nome de usuário é
+        // um rótulo; a autoridade para abrir o menu é estar logado.
+        if (!this._menu || !sessionContext.isAuthenticated()) return;
         this._open = true;
         this._menu.hidden = false;
         this._container?.setAttribute('data-menu-open', 'true');
@@ -797,6 +804,19 @@ export class AccountControl {
                 console.warn('[AccountControl] addShare failed:', error);
             }
         }
+        // O EIXO DE GRUPO, pela mesma regra dos membros. Este método e o irmão de
+        // `projects/projects-page.js` são as DUAS portas do mesmo modal, e as duas precisam
+        // aplicar os dois eixos: aplicar em uma só faria o grupo escolhido sumir sem erro
+        // dependendo de onde a pessoa clicou em "Novo atlas".
+        for (const group of (sharing.groups || [])) {
+            if (!group?.groupId) continue;
+            const permission = isGrantablePermission(group.permission) ? group.permission : 'read';
+            try {
+                await apiClient.addAtlasGroupShare(atlasId, group.groupId, permission);
+            } catch (error) {
+                console.warn('[AccountControl] addAtlasGroupShare failed:', error);
+            }
+        }
     }
 
     /**
@@ -1050,26 +1070,49 @@ export class AccountControl {
      */
     _handleRegister() {
         showSignupModal({
-            onSubmit: async (data) => {
-                await syncEngine.register(data);
-                // An account created here is PENDING: the e-mail must be confirmed before login.
-                const resend = await showConfirm(
-                    `Enviamos um e-mail para ${data.email}. Se ainda não houver conta com esse endereço, ` +
-                    'ele traz o link de confirmação do cadastro; se já houver, traz as instruções para ' +
-                    'recuperar o acesso. Confira sua caixa de entrada.',
-                    { confirmText: 'Reenviar e-mail', cancelText: 'Entendi' }
-                );
-                if (resend) {
-                    try {
-                        await apiClient.resendVerification(data.email);
-                        showSuccess('E-mail de confirmação reenviado.');
-                    } catch {
-                        showError('Não foi possível reenviar o e-mail agora.');
-                    }
-                }
-            },
+            onSubmit: (data) => syncEngine.register(data),
+            onRegistered: ({ email }) => this._announceRegistration(email),
             onBackToLogin: () => this._handleLogin()
         });
+    }
+
+    /**
+     * Announces a finished registration, AFTER the signup form is gone.
+     *
+     * WHY `showChoice` AND NOT `showConfirm`. The old dialog put a three-sentence paragraph where
+     * `ConfirmModal` renders the `<h3>`, and bound `Enter` to the affirmative branch, which was
+     * "Reenviar e-mail". So the key everybody presses to dismiss a dialog fired a network action
+     * that re-sends mail, on a rate-limited route. `showChoice` has no affirmative button and its
+     * `Enter` is inert by design; dismissing resolves `null`, which is the outcome that must
+     * always be the harmless one.
+     *
+     * The reversible option comes first, per that helper's contract, and it is the one a person
+     * dismissing the dialog effectively takes.
+     * @private
+     * @param {string} email - The address the person typed.
+     * @returns {Promise<void>}
+     */
+    async _announceRegistration(email) {
+        // The backend answers the SAME 201 whether it created the account or found the address
+        // taken, so this text must cover both without saying which. See `_handleRegister`'s
+        // fileoverview note on non-enumeration.
+        const choice = await showChoice('Confira sua caixa de entrada', {
+            message: `Enviamos um e-mail para ${email}. Se ainda não houver conta com esse `
+                + 'endereço, ele traz o link de confirmação do cadastro; se já houver, traz as '
+                + 'instruções para recuperar o acesso.',
+            choices: [
+                { id: 'ok', label: 'Entendi', variant: 'ghost' },
+                { id: 'resend', label: 'Reenviar e-mail', variant: 'primary' }
+            ]
+        });
+        if (choice !== 'resend') return;
+
+        try {
+            await apiClient.resendVerification({ email });
+            showSuccess('E-mail de confirmação reenviado.');
+        } catch {
+            showError('Não foi possível reenviar o e-mail agora.');
+        }
     }
 
     /**
@@ -1118,6 +1161,19 @@ export class AccountControl {
      * saída destruir, e o atlas LOCAL não é tocado desde 2026-08-16.
      * @private
      */
+    /**
+     * A saída DELIBERADA, vista de fora deste controle.
+     *
+     * Existe para o aviso de inatividade: o botão "Sair agora" dele terminava em
+     * `handleSessionLost`, com a frase de EXPIRAÇÃO e o login reaberto em seguida. Nada tinha
+     * expirado, e a pessoa acabara de dizer que queria sair. O gesto é o mesmo do botão "Sair" do
+     * menu, então é o mesmo caminho, com o mesmo resgate e o mesmo aviso.
+     * @returns {Promise<void>}
+     */
+    async leaveByUserGesture() {
+        await this._handleLogoutGesture();
+    }
+
     async _handleLogoutGesture() {
         this._closeMenu();
         const atlasId = mountedRemoteAtlasId();
@@ -1137,7 +1193,7 @@ export class AccountControl {
         const guardado = await preserveUnsyncedWorkAsLocal(atlasId, atlasName);
         await this._handleLogout({ chosePreserve: guardado, pendingOps });
         if (guardado) showWarning(exitPreservedSummary(rescuedAtlasName(atlasName)));
-        else showError(exitPreserveFailedNotice({ retained: rescueVetoRecorded(atlasId) }));
+        else showError(exitPreserveFailedNotice({ retained: rescueVetoRecorded(atlasId), graceMs: RESCUE_VETO_GRACE_MS }));
     }
 
     /**
@@ -1206,7 +1262,7 @@ export class AccountControl {
                     // dois casos NADA reivindica o namespace. Prometer resgate aqui é a mentira que
                     // o caminho involuntário já pagou uma vez.
                     showError(
-                        exitPreserveFailedNotice({ retained: rescueVetoRecorded(mountedAtlasId) }),
+                        exitPreserveFailedNotice({ retained: rescueVetoRecorded(mountedAtlasId), graceMs: RESCUE_VETO_GRACE_MS }),
                         { duration: 0 }
                     );
                 } else {
@@ -1277,17 +1333,38 @@ export class AccountControl {
                 // remoto dividiam os mesmos dez bancos: o "mapa antigo" dele era o do SERVIDOR, e
                 // esvaziar tudo era a única forma de alcançá-lo. Aquele spec foi reescrito para
                 // afirmar o que o usuário de fato relatou.
+                const eraRemoto = isRemoteStoreSync();
                 await announceRemoteNamespaceTeardown();
-                if (isRemoteStoreSync()) {
+                if (eraRemoto) {
                     await clearAllDataStore();
                 }
                 await discardRemoteAtlasNamespaces();
-                // AQUI NÃO SE ANUNCIA NADA, e a razão mudou junto com a decisão do dono sobre a
+                // AQUI NÃO SE ANUNCIA PERDA, e a razão mudou junto com a decisão do dono sobre a
                 // saída voluntária. Enquanto o clique perguntava, este ramo era o "descartei N
                 // operações a seu pedido". Sem a pergunta, chegar aqui com fila significa que o
                 // RESGATE FALHOU, e quem sabe disso é `_handleLogoutGesture`, que já mostra o aviso
                 // de falha nomeando se o namespace ficou retido. Um segundo toast daqui diria a
                 // mesma coisa com outras palavras, e o pior par de avisos é o que se contradiz.
+                //
+                // O QUE SE ANUNCIA É O QUE ACABOU DE ACONTECER COM OS DADOS, e isso faltava: sair
+                // da conta APAGA deste computador o atlas de servidor que estava aberto, e o
+                // comentário deste bloco declarava, por extenso, que nada era dito. A pessoa via o
+                // mapa esvaziar sem explicação.
+                //
+                // A frase existe porque o silêncio é ambíguo, não porque haja perda: o dado
+                // continua no servidor e volta ao entrar de novo. É essa a informação, e é por
+                // isso que o tom é neutro e não há pergunta nenhuma, respeitando a decisão de
+                // 2026-08-23 de não perguntar na saída.
+                //
+                // Só quando havia atlas de SERVIDOR montado. Num atlas local nada foi apagado
+                // (o wipe não o alcança desde 2026-08-16), e dizer que algo saiu seria falso.
+                if (eraRemoto && !involuntary) {
+                    showToast(
+                        'Você saiu da conta. O atlas do servidor foi removido deste computador e '
+                        + 'continua no servidor: ele volta quando você entrar de novo.',
+                        'info'
+                    );
+                }
             }
             // Tab lock, the logout flow: this tab is no longer in a server atlas, so it must stop
             // claiming one — otherwise logging out here would lock every other tab out of the

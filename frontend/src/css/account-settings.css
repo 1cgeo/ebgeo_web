@@ -65,6 +65,28 @@
     line-height: var(--line-height-normal);
 }
 
+/* Ação em forma de link dentro de um bloco somente-leitura (hoje: reenviar o link de confirmação
+   do e-mail). Mesma linguagem visual de `.login-modal__link`, que é o outro lugar do produto onde
+   uma ação secundária mora ao lado de um texto explicativo. */
+.account-settings__link {
+    align-self: flex-start;
+    padding: var(--space-1) 0;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.account-settings__link:hover:not(:disabled) {
+    text-decoration: underline;
+}
+
+.account-settings__link:disabled {
+    color: var(--gray-400);
+    cursor: default;
+}
+
 /* =========================================================================
    READ-ONLY ROWS (what only an administrator changes)
    ========================================================================= */

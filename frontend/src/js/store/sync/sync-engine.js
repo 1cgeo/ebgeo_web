@@ -43,6 +43,7 @@ import { connectionState } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { refreshVisibleResources, clearVisibleResources } from './resource-access.service.js';
+import { clearLocalEditMarks } from './overwrite-notice.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
@@ -590,6 +591,9 @@ class SyncEngine {
         // impede o revert de apaga-los). Quem os tira e `clearVisibleResources`.
         // Chamar so uma deixa metade do trabalho feito.
         clearVisibleResources();
+        // Id de entidade nao e unico ENTRE atlas, entao uma marca de "eu editei isto" deixada
+        // do atlas anterior faria o proximo atlas avisar de atropelo que nunca houve.
+        clearLocalEditMarks();
         revertAtlasSettings();
         // Quem continua LOGADO nao perde a concessao PESSOAL ao sair do atlas: ela
         // nao depende de atlas nenhum. O que cai e so o EMPRESTIMO, e a forma de
@@ -621,6 +625,9 @@ class SyncEngine {
         await apiClient.logout();
         sessionContext.clearSession();
         clearVisibleResources();
+        // Id de entidade nao e unico ENTRE atlas, entao uma marca de "eu editei isto" deixada
+        // do atlas anterior faria o proximo atlas avisar de atropelo que nunca houve.
+        clearLocalEditMarks();
         disableOperationLogging();
         // Forget the atlas so a subsequent boot/connect starts clean and nothing thinks
         // a server atlas is still open.

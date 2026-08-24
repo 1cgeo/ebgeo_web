@@ -32,10 +32,16 @@ import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
-import { showUnavailableScreen } from '@ui/unavailable-screen.js';
+import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 import { startIdleWatch } from '../session/idle-watch.js';
+// Pelo ARQUIVO, nunca por barrel, que e o que o mantem carregavel numa pagina sem
+// `initServices()`. Mesma importacao que `admin-page.js` e `projects-page.js` fazem.
+import {
+    preserveUnsyncedWorkOnLostSession,
+    ExitOutcome,
+} from '../session/unsynced-work-exit.js';
 // A classificacao de falha de pedido, de um modulo folha e SEM imports: a MESMA definicao que
 // `index.js`, `projects/projects-page.js` e `admin/admin-page.js` consomem.
 import { classifyRequestFailure, RequestFailure } from '@utils/request-failure.js';
@@ -112,13 +118,33 @@ function clearSplash() {
  * @returns {Promise<void>}
  */
 async function endSession(reason) {
+    // A QUARTA PAGINA, e ela ficou para tras. As outras tres passaram a resgatar o trabalho nao
+    // enviado antes de encerrar a sessao em 2026-08-23; esta nao, porque e gateada por `isAdmin()`
+    // ou `isProducer()` e por isso ficou fora do relatorio do usuario comum. O buraco e o mesmo e
+    // nao depende do papel: sem o resgate, a fila pendente e destruida pela varredura de deslogado
+    // do boot seguinte, que apaga o namespace com ela dentro.
+    //
+    // O modulo ja era importavel daqui: `unsynced-work-exit.js` importa por ARQUIVO, nunca por
+    // barrel, que e o que o mantem carregavel numa pagina sem `initServices()`.
+    const guarda = await preserveUnsyncedWorkOnLostSession();
+
     try {
         await apiClient.logout();
     } catch {
         // logout() ja engole erro de rede e limpa localmente; nao sobra o que fazer.
     }
     sessionContext.clearSession();
-    window.location.replace(reason ? `${MAP_URL}?sessao=${encodeURIComponent(reason)}` : MAP_URL);
+
+    // O CODIGO, E NAO A FRASE, como nas outras duas: `replace` mata qualquer toast levantado logo
+    // antes, entao o desfecho viaja como valor e o mapa remonta a sentenca.
+    const params = new URLSearchParams();
+    if (reason) params.set('sessao', reason);
+    if (guarda.outcome && guarda.outcome !== ExitOutcome.NADA) {
+        params.set('trabalho', guarda.outcome);
+        if (guarda.pendingOps) params.set('pendentes', String(guarda.pendingOps));
+    }
+    const qs = params.toString();
+    window.location.replace(qs ? `${MAP_URL}?${qs}` : MAP_URL);
 }
 
 /**
@@ -174,11 +200,18 @@ async function initCalibracaoPage() {
 
     // O timeout de inatividade acompanha o operador ate aqui. Sem isto, uma sessao de admin ficaria
     // aberta indefinidamente numa tela que escreve no acervo.
-    startIdleWatch({ onExpire: () => { endSession('inatividade'); } });
+    startIdleWatch({
+        onExpire: () => { endSession('inatividade'); },
+        // "Sair agora" nao e expiracao: motivo proprio, e o mapa nao pede login de volta.
+        onLeaveNow: () => { endSession('saida'); },
+    });
 }
 
 initCalibracaoPage().catch((error) => {
     console.error('Calibration page initialization failed:', error);
     clearSplash();
-    showUnavailableScreen();
+    // ERRO DE APLICACAO, nao de rede: o servidor JA respondeu (o `bootConfig` acima passou).
+    // Anunciar falha de conexao aqui manda a pessoa depurar a internet dela por um defeito do
+    // programa, que era exatamente o que esta tela fazia.
+    showUnavailableScreen(BlockingCause.APP_ERROR);
 });

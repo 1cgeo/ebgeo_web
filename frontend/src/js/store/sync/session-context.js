@@ -76,7 +76,10 @@ export const PermissionAction = Object.freeze({
     LOCK_MAPS: 'canLockMaps'
 });
 
-/** Full-control permissions shared by Owner, Manager, Admin, and offline mode. */
+/**
+ * Full-control permissions, shared by Owner, the folded-in global Admin, and offline mode.
+ * The Manager USED to share this row and no longer does: see `canLockMaps` below.
+ */
 const FULL_PERMISSIONS = Object.freeze({
     canEdit: true,
     canDelete: true,
@@ -92,8 +95,29 @@ const FULL_PERMISSIONS = Object.freeze({
  */
 const ROLE_PERMISSIONS = Object.freeze({
     [UserRole.OWNER]: FULL_PERMISSIONS,
+    // The GLOBAL admin, folded into this ladder by `toFrontendRole`: the server resolves them to
+    // `owner` on any atlas, so they get the owner's row, lock included.
     [UserRole.ADMIN]: FULL_PERMISSIONS,
-    [UserRole.MANAGER]: FULL_PERMISSIONS,
+    // THE GESTOR IS NOT THE DONO, and lock is the one place that shows. The server keeps
+    // lock/unlock strictly owner-only (`permission !== 'owner'` in `operationDenialReason`,
+    // `backend/src/modules/sync/sync.service.js`), deliberately narrower than delete, because it
+    // is a coordination override rather than a management action. Sharing FULL_PERMISSIONS with
+    // the owner made this client's LAST line of defence looser than the server it defends: a
+    // Gestor reaching `toggleMapLock` would have enqueued an op the server refuses, and a refused
+    // op is what used to freeze the whole outbound queue.
+    //
+    // It was latent, not live: the only caller is `mapLockController.toggleMapLock`, gated by
+    // `canToggleLock` -> `serverTreatsAsAtlasOwner`, which already matched the server. Latent is
+    // where this class waits; the gate that disagrees with the server is the bug, not the click
+    // that happens to reach it.
+    [UserRole.MANAGER]: Object.freeze({
+        canEdit: true,
+        canDelete: true,
+        canDeleteMap: true,
+        canComment: true,
+        canManageUsers: true,
+        canLockMaps: false
+    }),
     [UserRole.EDITOR]: Object.freeze({
         canEdit: true,
         canDelete: true,

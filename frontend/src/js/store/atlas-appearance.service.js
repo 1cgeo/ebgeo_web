@@ -83,7 +83,8 @@ export async function saveAtlasAppearance(patch) {
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'saveAtlasAppearance',
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return false;
     }

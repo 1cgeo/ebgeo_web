@@ -10,6 +10,10 @@
  */
 
 import { StoreErrorEvents } from './store-errors.js';
+import { denialNotice } from './denial-phrases.js';
+import { overwriteNotice } from './sync/overwrite-notice.js';
+import { presenceStore } from '../presence/presence-store.js';
+import { EventTypes } from '../events/event_types.js';
 import { showInChannel } from '../utilities/toast_service.js';
 
 /** Minimum interval between "blocked" toasts (ms) */
@@ -66,15 +70,40 @@ export function registerStoreErrorListeners(eventBus) {
         if (now - _lastBlockedToastAt[kind] < BLOCKED_DEBOUNCE_MS) return;
         _lastBlockedToastAt[kind] = now;
 
+        // A ROLE REFUSAL NOW QUOTES THE CAPABILITY THE GATE CONSULTED. The single sentence that
+        // stood here ("Acesso somente leitura, você não pode editar este projeto") was true for a
+        // Visualizador and false for every level above them: an Editor refused `canDeleteMap` was
+        // told they could not edit a project they had just been editing. `denialNotice` keys on
+        // `payload.required`, the `PermissionAction` flag `checkPermission` actually refused on,
+        // and falls back to a sentence that asserts no specific limitation.
         let text;
         if (explicit) {
             text = payload.message;
         } else if (isLock) {
             text = 'Mapa bloqueado. Desbloqueie para editar.';
         } else {
-            text = 'Acesso somente leitura — você não pode editar este projeto.';
+            text = denialNotice(payload?.required);
         }
 
         showInChannel('store-blocked', text, 'warning', { duration: 2500 });
+    });
+
+    // O ATROPELO: um colega escreveu depois desta pessoa, na entidade que ela acabou de editar.
+    //
+    // AQUI, E NÃO NO HANDLER DE OP REMOTA, porque resolver o nome (presença) e desenhar o toast
+    // de lá arrastava o grafo do store para um módulo que várias suítes carregam com mock
+    // estreito. `remote-operation-handler.js` decide QUANDO (ele é quem sabe da janela de edição
+    // local); este ponto decide COMO SE DIZ.
+    //
+    // SEM NOME NÃO HÁ AVISO (`overwriteNotice` devolve null): a presença pode não conhecer o
+    // autor (entrou e saiu, ou o roster ainda não chegou), e um "alguém alterou isto" gasta a
+    // atenção da pessoa sem dar o que a faria agir, que é falar com o colega.
+    //
+    // Canal próprio: uma rajada de ops do mesmo colega vira um aviso, não uma pilha.
+    eventBus.on(EventTypes.REMOTE_EDIT_OVERWRITTEN, (payload) => {
+        const autor = presenceStore.getUsers()
+            .find((u) => String(u?.userId) === String(payload?.authorUserId));
+        const frase = overwriteNotice(autor?.userName ?? autor?.nome ?? null);
+        if (frase) showInChannel('remote-overwrite', frase, 'info', { duration: 6000 });
     });
 }

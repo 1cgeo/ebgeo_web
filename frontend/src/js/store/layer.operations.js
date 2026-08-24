@@ -80,7 +80,7 @@ export function getVisibleLayerIds(mapName = null) {
 export function createLayer(name = 'Nova Camada', mapName = null) {
     const perm = checkPermission(GuardAction.CREATE_LAYER);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayer', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayer', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -126,7 +126,7 @@ export function setActiveLayer(layerId, mapName = null) {
 export function renameLayer(layerId, newName, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameLayer', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameLayer', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -172,7 +172,7 @@ export function setLayerLocked(layerId, locked, mapName = null) {
 export function setLayerOpacity(layerId, opacity, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerOpacity', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerOpacity', reason: perm.reason, required: perm.required });
         return null;
     }
 
@@ -192,7 +192,7 @@ export function setLayerOpacity(layerId, opacity, mapName = null) {
 export function reorderLayers(orderedLayerIds, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'reorderLayers', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'reorderLayers', reason: perm.reason, required: perm.required });
         return;
     }
 
@@ -216,7 +216,7 @@ export function reorderLayers(orderedLayerIds, mapName = null) {
 export function deleteLayerOnly(layerId, mapName = null) {
     const perm = checkPermission(GuardAction.DELETE_LAYER);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerOnly', reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerOnly', reason: perm.reason, required: perm.required });
         return { success: false, reason: 'PERMISSION_DENIED' };
     }
 

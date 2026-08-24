@@ -6,7 +6,9 @@
  */
 
 import { addMarker360 } from '@store';
-import { showSuccess } from '@utils/toast_service.js';
+import { showSuccess, showWarning } from '@utils/toast_service.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 
 // ===== STATE =====
 
@@ -22,6 +24,17 @@ let navigatorRef = null;
  * @param {Object} navigator - Navigator instance
  */
 export function activateMarkerTool(photoName, navigator) {
+    // RECUSA A ENTRADA NO MODO, nomeando o motivo, que é o padrão de
+    // `CommentOverlay.togglePlacement`. Antes disto o visualizador 360 aceitava a ferramenta,
+    // punha o cursor em cruz, deixava a pessoa mirar e clicar, e só então `addMarker360` recusava
+    // na store: todo o gesto era gasto para chegar a um "não". Gatear aqui cobre também
+    // `toggleMarkerTool`, que é a única outra porta.
+    const perm = checkPermission('CREATE_MARKER_360');
+    if (!perm.allowed) {
+        showWarning(denialNotice(perm.required));
+        return;
+    }
+
     isActive = true;
     currentPhotoName = photoName;
     navigatorRef = navigator;

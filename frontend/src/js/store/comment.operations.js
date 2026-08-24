@@ -45,7 +45,7 @@ function guardComment(guardAction, operationName) {
     }
     const perm = checkPermission(guardAction);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason, required: perm.required });
         return false;
     }
     return true;

@@ -74,7 +74,8 @@ function guardStreetview360Write(guardAction, operationName) {
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: operationName,
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return false;
     }

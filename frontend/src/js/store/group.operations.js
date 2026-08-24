@@ -39,7 +39,7 @@ export function setGroupDependencies(dependencies) {
 function guardMutation(action, operation) {
     const perm = checkPermission(action);
     if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation, reason: perm.reason });
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation, reason: perm.reason, required: perm.required });
         return { blocked: true };
     }
 

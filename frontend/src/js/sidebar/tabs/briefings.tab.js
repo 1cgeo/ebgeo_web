@@ -24,8 +24,10 @@ import {
     addSlide
 } from '@store/index.js';
 import { EventTypes } from '@events/event_types.js';
-import { showSuccess, showError } from '@utils/index.js';
+import { showSuccess, showError, showWarning } from '@utils/index.js';
 import { showConfirm } from '@modals/index.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
+import { denialNotice } from '@store/denial-phrases.js';
 
 /**
  * Icons specific to briefings tab.
@@ -137,7 +139,12 @@ export class BriefingsTab {
         wrapper.className = 'briefings-create-wrapper';
 
         const button = document.createElement('button');
-        button.className = 'briefings-create-btn';
+        // `edit-affordance` põe este botão sob o mesmo regime das outras afordâncias de escrita:
+        // `body.is-view-only` o esconde (`css/view-mode.css`), e quem liga essa classe é
+        // `view-mode.controller.js`, pela MESMA capacidade que a criação de briefing exige
+        // (`GuardAction.CREATE_BRIEFING` resolve para `canEdit`). Sem isso, um Leitor recebia o
+        // botão, o briefing era batizado, e a recusa vinha da store depois.
+        button.className = 'briefings-create-btn edit-affordance';
         button.innerHTML = `
             ${BRIEFINGS_ICONS.plusCircle}
             <span>CRIAR BRIEFING</span>
@@ -294,6 +301,16 @@ export class BriefingsTab {
      * @private
      */
     async _handleCreateBriefing() {
+        // Segunda linha, atrás do `is-view-only` que esconde o botão: a despromoção que chega
+        // entre o repintar e o clique, e o DOM velho. Recusa a ENTRADA e nomeia o motivo, como
+        // `CommentOverlay.togglePlacement` já faz, em vez de deixar a store recusar depois de o
+        // briefing ter sido nomeado.
+        const perm = checkPermission('CREATE_BRIEFING');
+        if (!perm.allowed) {
+            showWarning(denialNotice(perm.required));
+            return;
+        }
+
         try {
             const name = await generateUniqueBriefingName();
             const briefing = await createBriefing({ name });

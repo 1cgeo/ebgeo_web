@@ -106,10 +106,32 @@ export const EMAIL_CHANGE_SENT_TEXT =
 export const EMAIL_CHANGE_PASSWORD_NOTE =
     'Pedimos a senha atual porque o e-mail é o caminho de recuperação da conta.';
 
-/** Said to someone whose address is not confirmed, on the screen where they can act on it. */
+/**
+ * Said to someone whose address is not confirmed, on the screen where they can act on it.
+ *
+ * ELA MANDAVA PEDIR O LINK AO ADMINISTRADOR, e isso era desnecessário: `POST
+ * /auth/resend-verification` é anônima e está montada sempre. A frase criava trabalho para duas
+ * pessoas onde havia um botão, e este é o caso exato do achado A3 (o produto tinha UM reenvio, no
+ * diálogo pós-cadastro, que sumia ao primeiro clique).
+ */
 export const EMAIL_UNVERIFIED_HINT =
     'Enquanto o e-mail não for confirmado, esta conta não entra pelo login. Se o endereço estiver '
-    + 'errado, troque-o aqui; se estiver certo, peça um novo link de confirmação ao administrador.';
+    + 'errado, troque-o aqui; se estiver certo, peça um novo link de confirmação.';
+
+/** Rótulo do botão que reenvia o link, ao lado do aviso acima. */
+export const EMAIL_RESEND_LABEL = 'Reenviar link de confirmação';
+
+/**
+ * Desfecho do reenvio pedido dali. Uniforme por construção, como a rota: ela responde o mesmo 200
+ * exista ou não confirmação pendente, e uma frase que afirmasse o envio transformaria a
+ * conveniência num oráculo de conta.
+ */
+export const EMAIL_RESEND_SENT =
+    'Se a confirmação ainda estiver pendente, enviamos um novo link para o endereço acima.';
+
+/** Desfecho de falha de rede no reenvio. */
+export const EMAIL_RESEND_FAILED =
+    'Não foi possível reenviar agora. Tente de novo em instantes.';
 
 /** Said when the server reports no address at all (an account created by an administrator). */
 export const EMAIL_ABSENT_TEXT = 'nenhum e-mail cadastrado';

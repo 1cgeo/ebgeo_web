@@ -750,3 +750,45 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
 - **A SEGUNDA METADE, descoberta medindo o próprio conserto:** com o reparo escrito e a spec rodando em série, apareceu a assinatura ESPELHADA, `servidor=#0000ff clientes=#0000ff,#0000ff,#00ff00`, o autor preso no PRÓPRIO valor depois de PERDER. A causa é a mesma falta de atomicidade, agora mordendo o reparo: `applyRemoteOperation` lê `shouldApplyVersion` e só então chama um handler que espera o lock do documento, de modo que duas aplicações passam pela checagem e aterrissam na ordem do LOCK, que é a ordem inversa. `ws-client.js` escondia isso para a op que chega pelo socket, encadeando-as (`_applyChain`), e TRÊS chamadores contornam esse encadeamento: o replay das ops adiadas, o reparo (os dois em `resolveLocalEdit`) e o replay pós-flush de `reconcilePendingLocalEdits`. Daí `serializeGuardedApply`, uma cadeia própria do caminho GUARDADO que torna checar, escrever e registrar um passo só. Ela não substitui o lock do documento: aquele ordena o DOCUMENTO e é por mapa; esta ordena o GUARDA. Ela não alcança `drainPendingFeatureOps`, que aplica por `applyRemoteFeatureOp` direto e carrega a própria checagem de versão.
   A lição de método é que o primeiro repro não pegou esta metade: ele montava a corrida com a marca de edição local de pé, e com ela a op do par é ADIADA em vez de aplicada, então o caso passava verde com e sem a cadeia. Foi o controle negativo, e não a leitura, que denunciou a cobertura vazia. O caso corrigido derruba o valor do autor sobre o do vencedor, com a assinatura de campo byte a byte.
 - **Status:** aceita. Mudança só do cliente: o servidor já carimbava a ordem no broadcast e no ack, e nada no contrato de rede mudou.
+
+### 2026-08-24: afordância negada SOME por posto e RECUSA por estado, e o relatório de UX do usuário comum é dissolvido
+
+- **Contexto:** cinco relatórios de UX por papel viviam na raiz do repositório, fora do alcance de
+  `frontend/tests/unit/docs-integridade.test.js` (que varre `docs/` e `.claude/`, não a raiz). O do
+  usuário comum listava 23 achados abertos. Reconferidos contra a árvore, 21 continuavam intactos;
+  **dois estavam errados**, e os dois na mesma direção, a que mais custa: o relatório acusava um
+  guarda de não guardar (`frontend/tests/unit/falha-de-requisicao-nao-apaga-credencial.test.js`
+  varre com `git ls-files`, não com lista à mão) e dava por aberto um defeito já corrigido em
+  `frontend/src/js/calibration/calibracao-page.js`. Um aviso que manda desconfiar da fonte certa
+  custa o mesmo que um que manda confiar na errada.
+- **As quatro decisões do dono, tomadas nesta data:**
+  1. **Afordância que o POSTO não alcança SOME; afordância bloqueada por ESTADO é desenhada e
+     recusa o clique nomeando o estado.** A assimetria é o desenho, não inconsistência: antes os
+     dois escondiam, e o menu de um Leitor era idêntico ao do dono de um mapa TRAVADO. Nenhum dos
+     dois aprendia nada, e um deles só precisava clicar no cadeado.
+  2. **A edição atropelada por um colega ganha aviso NOMEANDO o autor**, só quando a op remota toca
+     entidade que esta pessoa editou nos últimos segundos. O modelo de conflito não muda.
+  3. **O modal de criar atlas passa a oferecer o eixo de GRUPO**, fechando a assimetria com o de
+     compartilhamento (cláusula 4.1: grupo serve a recurso e a atlas).
+  4. **O documento é dissolvido ao fim**, com o durável migrando para cá, para `.claude/rules/` e
+     para `docs/livro-razao.md`.
+- **Alternativas rejeitadas, para a regra 1:**
+  - *Sempre sumir.* Uniforme e mais fácil de auditar, mas quem perde posto ao vivo vê a tela
+    encolher sem saber por quê, e o motivo (que o servidor carrega por extenso) nunca chega.
+  - *Sempre desabilitar com o motivo.* Ensina o produto e contraria a recusa já escrita em
+    `LocalAtlasSection` (`frontend/src/js/projects/atlas-drive.js`), onde um botão morto foi
+    recusado por não explicar nada. Adotá-la exigiria reverter aquela decisão no mesmo commit.
+- **Consequências:**
+  - A decisão pura do menu por mapa virou módulo próprio, `frontend/src/js/sidebar/tabs/map-menu-actions.js`,
+    irmão de `frontend/src/js/sidebar/tabs/atlas-actions.js` e testável em node.
+  - A frase de recusa deixou de ser única. `checkPermission`
+    (`frontend/src/js/store/sync/permission-guard.js`) passou a devolver `required`, os 25 sítios de
+    `STORE_OPERATION_BLOCKED` a carimbá-lo, e `denialNotice`
+    (`frontend/src/js/store/denial-phrases.js`) a derivar o texto da CAPACIDADE negada. A sentença
+    anterior afirmava acesso somente leitura, o que era falso para todo degrau acima de
+    Visualizador.
+  - **Um achado NOVO apareceu durante o trabalho:** o Gestor tinha `canLockMaps` no cliente e o
+    servidor exige `owner` estrito para tocar `locked` (`operationDenialReason`,
+    `backend/src/modules/sync/sync.service.js`). Era latente, porque o único chamador já gateava
+    por `serverTreatsAsAtlasOwner`, mas DOIS guardas fixavam a divergência sem justificá-la.
+- **Status:** aceita e implementada.

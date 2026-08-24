@@ -76,7 +76,8 @@ export async function setMapNotes(mapName, notes) {
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'setMapNotes',
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return;
     }
@@ -135,7 +136,8 @@ export async function setGridStyle(mapName, gridStyle) {
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'setGridStyle',
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return;
     }

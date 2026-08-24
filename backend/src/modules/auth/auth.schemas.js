@@ -62,9 +62,24 @@ export const verifyEmailSchema = Joi.object({
   token: Joi.string().uuid().required(),
 });
 
+// ACEITA ENDEREÇO **OU** NOME DE USUÁRIO, e o segundo existe por um beco medido: quem se cadastrou
+// e não confirmou não loga, não redefine a senha (a consulta de recuperação só acha endereço
+// CONFIRMADO, de propósito) e só tinha um botão de reenvio, no diálogo pós-cadastro, que sumia ao
+// primeiro clique. A saída natural é oferecer o reenvio ao lado do erro de login, e ali a tela tem
+// o USUÁRIO, nunca o endereço.
+//
+// Não abre enumeração: a rota responde o mesmo 200 nos dois casos, como já fazia, e o e-mail sai
+// para o endereço registrado da conta, nunca para um digitado por quem pede. Some-se a isso que a
+// recusa `EMAIL_NOT_VERIFIED` do login só acontece DEPOIS de a senha conferir, então quem chega
+// nesse botão já provou ser o dono.
+// `xor` E NÃO `or`: exatamente um dos dois. Com `or`, um pedido carregando os dois campos ficava
+// decidido por uma precedência implícita no serviço, e um teste que mandasse os dois mediria essa
+// precedência em vez da propriedade. Estado ambíguo que a validação pode recusar não deve chegar
+// ao serviço.
 export const resendVerificationSchema = Joi.object({
-  email: Joi.string().email().max(255).required(),
-});
+  email: Joi.string().email().max(255),
+  username: Joi.string().max(150),
+}).xor('email', 'username');
 
 /** Step one of the recovery: the address to mail a code to. Answers the same 200 either way. */
 export const forgotPasswordSchema = Joi.object({

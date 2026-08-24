@@ -118,7 +118,7 @@ export function showIdleWarning({ ms, onStay, onLogout }) {
  * @param {function(): void} opts.onExpire - What ending the session means for this page.
  * @returns {function(): void} Stops the watch (idempotent).
  */
-export function startIdleWatch({ onExpire }) {
+export function startIdleWatch({ onExpire, onLeaveNow = null }) {
     let lastActivity = 0;
     /** @type {(function(): void)|null} */
     let dismissWarning = null;
@@ -139,7 +139,16 @@ export function startIdleWatch({ onExpire }) {
             dismissWarning = showIdleWarning({
                 ms,
                 onStay: () => { dismiss(); timer.stayActive(); },
-                onLogout: () => { dismiss(); onExpire(); },
+                // SAIR DE PROPÓSITO NÃO É EXPIRAR, e os dois recebiam o MESMO corpo de callback.
+                // Quem clicou "Sair agora" era tratado como quem deixou o prazo vencer: no mapa,
+                // `IdleTimeoutController._expire` chamava `handleSessionLost` com a frase de
+                // expiração, que termina pedindo login de volta. Nada tinha expirado, e a pessoa
+                // acabara de dizer que queria sair; reabrir o login é desfazer o gesto dela.
+                //
+                // `onLeaveNow` é opcional para não obrigar todo chamador a distinguir de uma vez;
+                // quem não passar cai no comportamento antigo, que continua correto para páginas
+                // onde sair e expirar de fato terminam igual.
+                onLogout: () => { dismiss(); (onLeaveNow ?? onExpire)(); },
             });
         },
         onExpire: () => { dismiss(); onExpire(); },

@@ -17,6 +17,10 @@ Um `ls frontend/src/js/` conta a estrutura melhor que qualquer árvore aqui, e a
 - UI components subscribe to `UI_LAYOUT_CHANGED` for position updates
 - `selectFeature()` (`state_manager.js`) replaces the active selection set; the feature panel opens/closes via `FEATURE_PANEL_OPENED/CLOSED`, not by `selectFeature` itself
 
+**Afordância negada: o POSTO some, o ESTADO recusa o clique** (decisão do dono, 2026-08-24, registrada em [`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md)). Bloqueio por POSTO é permanente enquanto o papel for o que é, e não há nada que a pessoa possa fazer daquela tela: o comando **não é desenhado** (modelo: `cardMenuActions` e `visibleAtlasActions`, em `frontend/src/js/sidebar/tabs/atlas-actions.js`). Bloqueio por ESTADO é reversível, e a pessoa pode ser justamente quem o reverte (mapa travado, atlas local, offline): o comando **é desenhado e o clique recusa nomeando o estado** (modelo: `CommentOverlay.togglePlacement`; a tabela de decisão do menu por mapa é `frontend/src/js/sidebar/tabs/map-menu-actions.js`). A assimetria é o desenho: antes os dois escondiam, e o menu de um Leitor era idêntico ao do dono de um mapa TRAVADO, sem que nenhum dos dois aprendesse nada.
+
+Duas consequências que não se adivinham: use `aria-disabled` e **nunca** a propriedade `disabled` no comando bloqueado por estado, porque um botão desabilitado não dispara clique e o clique É como o motivo chega à pessoa; e a frase da recusa vem de `denialNotice` (`frontend/src/js/store/denial-phrases.js`), keyed pela CAPACIDADE que o gate consultou (`checkPermission(...).required`), nunca por papel. A sentença única anterior ("acesso somente leitura") era falsa para todo degrau acima de Visualizador.
+
 ## Data Model
 
 **Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features**.

@@ -81,7 +81,15 @@ class MapManager {
 
             const result = await removeMap(mapName);
 
+            // A REFUSAL IS NOT AN ERROR, and collapsing the two stacked a second, generic toast
+            // on top of the store's own explanation ("Erro ao deletar mapa" over "Apagar ou
+            // combinar mapas exige o nível Gestor"). `removeMap` already returns the distinction
+            // as `reason: 'PERMISSION_DENIED'`; it was simply discarded here. The store has
+            // already said why, so this branch stays silent rather than guessing a second time.
             if (!result.success) {
+                if (result.reason === 'PERMISSION_DENIED') {
+                    return { success: false, silent: true, reason: result.reason };
+                }
                 return { success: false, message: 'Erro ao deletar mapa' };
             }
 

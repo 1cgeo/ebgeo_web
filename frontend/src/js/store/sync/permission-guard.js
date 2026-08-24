@@ -88,8 +88,17 @@ export const GuardAction = Object.freeze({
 /**
  * Checks if the current user has permission to perform an action.
  *
+ * THE REFUSAL CARRIES THE CAPABILITY, not just prose. `reason` is a DEVELOPER string (it names
+ * the action, the flag and the current role, and tests assert on it); it is unfit for a toast,
+ * and using it as one was never the plan. What the screen needs is `required`, the
+ * `PermissionAction` flag the gate actually consulted, which `denialNotice`
+ * (`store/denial-phrases.js`) turns into a sentence that is true for whoever reads it.
+ *
+ * Before this, every refusal reached the user as one canned sentence claiming read-only access,
+ * which was false for every level above Visualizador. See that module's fileoverview.
+ *
  * @param {string} action - Action key from GuardAction (e.g. 'CREATE_FEATURE')
- * @returns {{ allowed: boolean, reason?: string }}
+ * @returns {{ allowed: boolean, reason?: string, action?: string, required?: string }}
  */
 export function checkPermission(action) {
     // Full local control whenever the store is the user's OWN local workspace — offline/anonymous OR
@@ -108,6 +117,8 @@ export function checkPermission(action) {
 
     return {
         allowed: false,
+        action,
+        required: permissionName,
         reason: `Permissão insuficiente: ${action} requer ${permissionName} (role atual: ${sessionContext.role})`
     };
 }

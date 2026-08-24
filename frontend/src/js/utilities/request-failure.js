@@ -3,21 +3,30 @@
 /**
  * @fileoverview WHY a request failed, as a value instead of as the bare fact of failing.
  *
- * ZERO IMPORTS, and that is a contract rather than an accident: the three boot entries that
- * consume this (`index.js`, `projects/projects-page.js`, `admin/admin-page.js`) include two
- * pages that boot WITHOUT the store, so anything reachable from here would be dragged into
- * `atlas.html` and `admin.html`. It is imported by FILE (`@utils/request-failure.js`), never
- * through the `@utils` barrel, for the same reason `tab-lock.js` is.
+ * ZERO IMPORTS, and that is a contract rather than an accident: the boot entries that consume
+ * this include pages that boot WITHOUT the store, so anything reachable from here would be
+ * dragged into `atlas.html`, `admin.html` and `calibracao.html`. It is imported by FILE
+ * (`@utils/request-failure.js`), never through the `@utils` barrel, for the same reason
+ * `tab-lock.js` is. WHO consumes it is not enumerated here on purpose: the census in
+ * `tests/unit/falha-de-requisicao-nao-apaga-credencial.test.js` derives that list from
+ * `git ls-files`, and a second list written in prose is the one that goes stale. This header
+ * said "the three boot entries" while there were already four.
  *
  * O DEFEITO QUE ELE EXISTE PARA FECHAR foi medido em 2026-08-23 e era o mesmo nos dois lados:
  * `catch { apiClient.clearTokens(); }` byte a byte em `projects-page.js` e em `admin-page.js`.
- * Um 502 do proxy, um pico de latência ou um 429 apagavam a credencial em definitivo, e o
- * desfecho é TERMINAL porque o produto não tem redefinição de senha por conta própria (as rotas
- * de `auth` são register, verify-email, resend-verification, login, refresh, logout, me; a
- * única redefinição é `POST /users/:userId/reset-password`, com `requireAdmin`). Quem não
- * soubesse a senha de cor perdia a conta até falar com um administrador. E este é o caminho
- * PADRÃO do produto, não uma borda: `shouldRouteToProjects` manda todo visitante com sessão
- * numa URL nua para `atlas.html`, cuja primeira ação é justamente essa.
+ * Um 502 do proxy, um pico de latência ou um 429 apagavam a credencial em definitivo. O desfecho
+ * ERA TERMINAL: naquela data o produto não tinha redefinição de senha por conta própria, e quem
+ * não soubesse a senha de cor perdia a conta até falar com um administrador.
+ *
+ * **ISSO MUDOU NO MESMO LOTE QUE CRIOU ESTE ARQUIVO**, e o parágrafo acima já nascia desatualizado
+ * porque enumerava as rotas de `auth` uma a uma: `POST /auth/forgot-password` e
+ * `POST /auth/reset-password` existem, montadas sob `canDeliverAccountMail()`. A perda deixou de
+ * ser terminal ONDE há canal de entrega, e continua terminal onde não há, que é justamente a
+ * produção sem relay. A regra abaixo não afrouxa por causa disso: preservar a credencial custa um
+ * recarregamento, e apagá-la à toa custa uma conta em metade dos ambientes.
+ *
+ * E este é o caminho PADRÃO do produto, não uma borda: `shouldRouteToProjects` manda todo
+ * visitante com sessão numa URL nua para `atlas.html`, cuja primeira ação é justamente essa.
  *
  * A REGRA É "O STATUS DECIDE, NUNCA O MERO FATO DE FALHAR". A mesma regra já era aplicada em
  * dois outros lugares e nascia de novo em cada um: `isCredentialFailure`, que morava dentro de

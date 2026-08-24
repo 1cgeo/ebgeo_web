@@ -115,7 +115,8 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'addCustomIcon',
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return null;
     }

@@ -102,6 +102,11 @@ vi.mock('@store/remote-atlas.api.js', () => ({
     retainRemoteAtlasForRescue: veto.retainRemoteAtlasForRescue,
     releaseRemoteAtlasRescueVeto: veto.releaseRemoteAtlasRescueVeto,
     remoteAtlasRescueVetoSince: () => veto.since,
+    // O PRAZO, com o valor REAL (24 h), porque a frase de falha passou a dizê-lo em vez de
+    // "o quanto antes". Um dublê com valor arbitrário mediria a formatação e não o produto:
+    // aqui o número tem de ser o que o módulo real exporta, senão o caso que confere "24 horas"
+    // ficaria verde contra qualquer coisa.
+    RESCUE_VETO_GRACE_MS: 24 * 60 * 60 * 1000,
 }));
 
 const fila = vi.hoisted(() => ({ count: vi.fn(async () => 0) }));
@@ -204,6 +209,8 @@ describe('as frases carregam a QUANTIDADE', () => {
 
         expect(comVeto).toContain('NÃO foi possível guardar');
         expect(semVeto).toContain('NÃO foi possível guardar');
+        // SEM O PRAZO ele degrada para a forma VAGA, e é isso que esta chamada mede (ela não
+        // passa `graceMs`): dizer "por NaN horas" ou inventar um número seria pior que a vagueza.
         expect(comVeto).toContain('tempo limitado');
         expect(semVeto).toContain('Não feche esta aba');
         // CONTROLE NEGATIVO: uma frase fixa para os dois casos estaria errada num deles.
@@ -346,7 +353,12 @@ describe('preserveUnsyncedWorkOnLostSession', () => {
         const com = await saida.preserveUnsyncedWorkOnLostSession({ atlasId: ATLAS });
 
         expect(sem.message).toContain('Não feche esta aba');
-        expect(com.message).toContain('tempo limitado');
+        // O PRAZO CONCRETO, e não "o quanto antes". Este caminho passa `RESCUE_VETO_GRACE_MS`,
+        // então a frase tem de trazer o número: "quanto antes" não é acionável, e quem lê isso
+        // numa sexta à noite volta na segunda e perdeu. O valor é DERIVADO da constante, nunca
+        // digitado na frase, e é por isso que o dublê acima carrega o valor real.
+        expect(com.message).toContain('24 horas');
+        expect(com.message).not.toContain('tempo limitado');
         expect(com.message).not.toBe(sem.message);
     });
 

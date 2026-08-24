@@ -903,8 +903,12 @@ export class ApiClient {
      * @param {string} email
      * @returns {Promise<Object>} { success: true }
      */
-    async resendVerification(email) {
-        return this._request('POST', '/auth/resend-verification', { body: { email }, auth: false });
+    async resendVerification({ email = null, username = null } = {}) {
+        // ENDEREÇO **OU** USUÁRIO: o diálogo pós-cadastro tem o endereço, e o erro de login tem o
+        // usuário. O servidor responde o mesmo 200 nos dois casos e sempre manda para o endereço
+        // registrado da conta, então nenhuma das duas formas diz quem existe.
+        const body = email ? { email } : { username };
+        return this._request('POST', '/auth/resend-verification', { body, auth: false });
     }
 
     /**

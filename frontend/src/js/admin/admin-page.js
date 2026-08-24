@@ -29,7 +29,7 @@ import config from '@js/config.js';
 import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
-import { showUnavailableScreen } from '@ui/unavailable-screen.js';
+import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
 // A classificação de falha de pedido, de um módulo folha e SEM imports: a MESMA definição que
@@ -224,11 +224,18 @@ async function initAdminPage() {
 
     // The idle timeout follows the user here: as an overlay on the map this page was covered by the
     // map's own watch, and moving it out would otherwise have dropped the protection silently.
-    startIdleWatch({ onExpire: () => { endSession('inatividade'); } });
+    startIdleWatch({
+        onExpire: () => { endSession('inatividade'); },
+        // "Sair agora" nao e expiracao: motivo proprio, e o mapa nao pede login de volta.
+        onLeaveNow: () => { endSession('saida'); },
+    });
 }
 
 initAdminPage().catch((error) => {
     console.error('Admin page initialization failed:', error);
     clearSplash();
-    showUnavailableScreen();
+    // ERRO DE APLICACAO, nao de rede: o servidor JA respondeu (o `bootConfig` acima passou).
+    // Anunciar falha de conexao aqui manda a pessoa depurar a internet dela por um defeito do
+    // programa, que era exatamente o que esta tela fazia.
+    showUnavailableScreen(BlockingCause.APP_ERROR);
 });

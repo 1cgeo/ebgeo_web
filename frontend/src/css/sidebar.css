@@ -493,6 +493,15 @@
     border-color: var(--primary-200);
 }
 
+/* O nível da pessoa NESTE atlas, ao lado do de origem. Deliberadamente mais discreto que o chip
+   de origem: os dois respondem perguntas diferentes (de onde vem o atlas / o que eu posso nele) e
+   dois selos com o mesmo peso competem em vez de informar. */
+.atlas-header__chip--level {
+    background: transparent;
+    color: var(--gray-500);
+    border-style: dashed;
+}
+
 /* Section Header */
 .sidebar-section-header {
     font-size: var(--font-size-xs);
@@ -1289,6 +1298,26 @@
 
 .map-context-menu-item.menu-item-danger svg {
     color: var(--color-error);
+}
+
+/* Blocked by the map's STATE (locked, or the last remaining map), not by the person's rank: the
+   command stays clickable on purpose, because the click is what explains the state. It reads as
+   unavailable and keeps the pointer, so nobody mistakes it for a rendering glitch. */
+.map-context-menu-item--blocked {
+    color: var(--gray-400);
+    cursor: default;
+}
+
+.map-context-menu-item--blocked svg {
+    color: var(--gray-400);
+}
+
+.map-context-menu-item--blocked:hover {
+    background: var(--gray-50);
+}
+
+.map-context-menu-item--blocked:hover svg {
+    color: var(--gray-400);
 }
 
 .map-context-menu-separator {

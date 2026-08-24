@@ -24,6 +24,7 @@ import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
 import { withMapDocument, withSideDocument } from '../document-lock.js';
 import { EntityType, OperationType } from './operation-types.js';
+import { editedRecentlyLocally } from './overwrite-notice.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
 
@@ -156,6 +157,33 @@ let guardedApplyChain = Promise.resolve();
  * @param {() => Promise<void>} fn
  * @returns {Promise<void>}
  */
+/**
+ * Avisa que a edição desta pessoa foi substituída pela de um colega, quando for o caso.
+ *
+ * TRÊS CONDIÇÕES, e cada uma tira um falso positivo: a op tem de vir de outra pessoa (o autor
+ * chega no quadro, `authorUserId`), a entidade tem de ter sido editada AQUI nos últimos segundos
+ * (`editedRecentlyLocally`), e a presença tem de saber o NOME de quem escreveu — sem nome não há
+ * aviso, porque um "alguém alterou isto" gasta a atenção sem dar o que faria a pessoa agir.
+ *
+ * BEST-EFFORT E SÍNCRONO: roda dentro do caminho quente de aplicação, então não lê rede, não
+ * espera nada e engole a própria falha. Um defeito no aviso não pode impedir a convergência.
+ * @param {string} entityId
+ * @param {string|null|undefined} authorUserId
+ */
+function announceOverwrite(entityId, authorUserId) {
+    try {
+        if (!authorUserId) return;
+        if (!editedRecentlyLocally(entityId, Date.now())) return;
+        // EMITE, NAO DESENHA. A primeira versao importava `presenceStore` e `showToast` daqui, e
+        // isso arrastou o grafo do store para dentro deste modulo: SETE suites de integracao
+        // pararam de CARREGAR, porque os mocks delas nao cobriam o que veio junto. O store emite e
+        // a UI escuta, que e a regra da casa e tambem o que mantem este caminho leve.
+        emit(EventTypes.REMOTE_EDIT_OVERWRITTEN, { entityId, authorUserId });
+    } catch {
+        // Um aviso que falha e um aviso a menos; uma excecao aqui seria uma op nao aplicada.
+    }
+}
+
 function serializeGuardedApply(fn) {
     const run = guardedApplyChain.then(fn, fn);
     guardedApplyChain = run.then(() => {}, () => {});
@@ -496,6 +524,7 @@ async function applyRemoteOperationInner(operation, guarded) {
             // re-enters here and marks itself, which is why `resolveLocalEdit` clears the entry
             // right AFTER awaiting it.
             markRemoteApplied(entityId, serverVersion);
+            announceOverwrite(entityId, operation.authorUserId);
         }
     }
 

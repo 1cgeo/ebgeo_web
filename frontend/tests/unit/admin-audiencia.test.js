@@ -83,6 +83,12 @@ const DISPENSADOS = Object.freeze({
     'src/js/admin/admin-panel.js':
         'Componente burro: recebe `title` por parâmetro e só tem "Administração" como '
         + 'default de construtor. Quem decide o título é `mountAdminPage`, que consome a função.',
+    'src/js/modals/create-atlas.modal.js':
+        'Cita "Administração" numa FRASE DE AJUDA ("Você não administra nenhum grupo. Crie um em '
+        + 'Administração > Grupos"), e não numa decisão sobre quem vê a porta: o modal não '
+        + 'desenha link nenhum para lá e não mede audiência. É o falso positivo que o gatilho por '
+        + 'LITERAL compra junto com a força dele, e classificá-lo é mais barato que reescrever a '
+        + 'frase para fugir da varredura, o que ensinaria a próxima pessoa a fazer o mesmo.',
 });
 
 /**

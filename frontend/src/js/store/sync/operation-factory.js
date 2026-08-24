@@ -9,6 +9,7 @@ import { generateUUID } from '../../utilities/uuid.js';
 import { addDomListener, cleanup, setupCleanup, trackTimer } from '@utils/event-cleanup.js';
 import { StoreScopeKind, getActiveScope, remoteAtlasIdFromDbSuffix } from '@store/atlas-namespace.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
+import { noteLocalEdit } from './overwrite-notice.js';
 
 // ===== CLIENT IDENTITY =====
 
@@ -430,6 +431,12 @@ export function createOperation(entityType, operationType, entityId, mapId, data
     }
 
     const { scopeSuffix, atlasId } = readScopeStamp();
+    const agora = Date.now();
+    // O CARIMBO DE "EU MEXI AQUI", e ele é posto no ÚNICO ponto por onde toda op de saída passa.
+    // É o que permite ao caminho de entrada distinguir "um colega alterou algo" de "um colega
+    // alterou justamente o que eu estava editando", que é a única das duas que merece aviso.
+    // Ver `sync/overwrite-notice.js`.
+    noteLocalEdit(entityId, agora);
 
     return {
         id: generateUUID(),
@@ -439,7 +446,7 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         mapId: mapId || null,
         data,
         previousData,
-        timestamp: Date.now(),
+        timestamp: agora,
         lamportTimestamp: ++lamportClock,
         clientId: getClientId(),
         traceId: actionTraceId,

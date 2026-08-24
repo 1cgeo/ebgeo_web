@@ -297,10 +297,10 @@ export class WsClient {
                 this._onConnected(msg);
                 break;
             case 'operation':
-                this._applyInboundOps(msg.op ? [msg.op] : []);
+                this._applyInboundOps(msg.op ? [msg.op] : [], msg.userId ?? null);
                 break;
             case 'operations':
-                this._applyInboundOps(Array.isArray(msg.ops) ? msg.ops : []);
+                this._applyInboundOps(Array.isArray(msg.ops) ? msg.ops : [], msg.userId ?? null);
                 break;
             case 'ack': {
                 const r = msg.result || {};
@@ -392,9 +392,14 @@ export class WsClient {
     }
 
     /** @private Routes a batch of inbound operations, skipping this client's own echoes. */
-    _applyInboundOps(ops) {
+    _applyInboundOps(ops, authorUserId = null) {
         const handler = this._handlers.operation;
-        for (const op of ops) {
+        for (const raw of ops) {
+            // O AUTOR VEM NO QUADRO, NAO NA OP. O servidor manda `{type, userId, ops}`
+            // (`broadcastOperations`), entao quem quiser saber quem escreveu precisa receber isso
+            // aqui: sem esta linha o caminho de aplicacao tem a mudanca e nao tem o autor, que e a
+            // metade que importa para avisar alguem de que foi atropelado.
+            const op = authorUserId ? { ...raw, authorUserId } : raw;
             record(TraceStage.WS_INBOUND, {
                 opId: op.id, traceId: op.traceId, clientId: op.clientId,
                 entityType: op.entityType, operationType: op.operationType,

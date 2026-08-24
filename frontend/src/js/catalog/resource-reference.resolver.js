@@ -144,6 +144,11 @@ const ROTULO_DE_SUPERFICIE = Object.freeze({
     'sv360.markers': 'marcador(es) em foto 360',
     'briefing.slide.modelId': 'slide(s) com modelo 3D (viram slide de mapa)',
     'briefing.slide.photoId': 'slide(s) com foto 360 (viram slide de mapa)',
+    // SÓ O SERVIDOR ANOTA ESTA, e ela chegou aqui quando o relato de poda do CLONE passou a ser
+    // mostrado. Ela é de `atlas.settings`, superfície que existe apenas do lado do servidor (o
+    // cliente a recebe no snapshot e nunca a persiste), e é id ÚNICO, não lista: cai de volta
+    // para o padrão em vez de esvaziar.
+    'settings.default_basemap': 'mapa base padrão do atlas (volta para o padrão)',
 });
 
 /**
@@ -176,4 +181,36 @@ export function descreverPerdas(relatorio) {
         linhas.push(`• ${quantos} ${rotulo}${nomes.length ? ` (${amostra}${resto})` : ''}`);
     }
     return linhas.join('\n');
+}
+
+/**
+ * O texto de perda a partir do relatório que o SERVIDOR devolve, ou null quando nada foi podado.
+ *
+ * POR QUE UMA SEGUNDA PORTA, E NÃO UM SEGUNDO TEXTO. As duas podas existem e são diferentes (fora
+ * do servidor a regra é keep-list, dentro dele é por destinatário, decidida em SQL), mas o que a
+ * pessoa precisa ler é o mesmo: quanta coisa e de que tipo ficou de fora. O que muda é só a FORMA
+ * do relatório, então o que se adapta é a forma, e a frase continua tendo uma implementação só.
+ *
+ * O servidor manda `{ superfície: contagem }` (`pruner.report`, `atlas-resource-prune.js`), sem
+ * ids e sem nomes, e isso é deliberado lá: o resumo volta ao cliente e vai para a trilha, e o nome
+ * de um recurso privado é metadado do recurso. Por isso a saída aqui nunca traz nomes entre
+ * parênteses, ao contrário do caminho de exportação, onde eles vêm do `config` local.
+ *
+ * @param {Object|null|undefined} pruneReport - `{ [superficie]: number }`.
+ * @returns {string|null}
+ */
+export function descreverPerdasDoServidor(pruneReport) {
+    if (!pruneReport || typeof pruneReport !== 'object') return null;
+    const porSuperficie = {};
+    let total = 0;
+    for (const [superficie, quantos] of Object.entries(pruneReport)) {
+        const n = Number(quantos);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        porSuperficie[superficie] = n;
+        total += n;
+    }
+    if (total === 0) return null;
+    // `nomeados` vazio de propósito: o servidor não manda ids, e inventar nomes aqui seria
+    // afirmar o que ninguém mediu.
+    return descreverPerdas({ total, porSuperficie, nomeados: [] });
 }

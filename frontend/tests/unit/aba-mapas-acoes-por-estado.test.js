@@ -274,15 +274,31 @@ describe('aba "Mapas": a grade de ações e a tabela de visibilidade', () => {
     it('a decisão pura é o que DECIDE a visibilidade, e a chave é o `id` da ação', () => {
         // Sem esta ligação, as asserções acima medem um módulo decorativo.
         const visibilidade = corpoDeMetodo('_updateActionsVisibility');
-        expect(visibilidade).toContain('visibleAtlasActions(this._atlasContext())');
+        // ANCORADO NA PROPRIEDADE, não no texto da chamada. A versão anterior casava a linha
+        // inteira (`visibleAtlasActions(this._atlasContext())`) e reprovou quando a chamada foi
+        // quebrada em duas para reaproveitar o contexto no botão "Novo mapa": o acoplamento
+        // continuava lá, só não cabia mais numa linha. Guarda que cobra escrita obriga o
+        // próximo a escrever igual em vez de escrever certo.
+        expect(visibilidade).toContain('visibleAtlasActions(');
+        expect(visibilidade).toContain('this._atlasContext()');
         expect(visibilidade).toMatch(/button\.hidden\s*=\s*!visible\.includes\(id\)/);
 
-        // E o contexto é lido dos TRÊS sinais vivos: origem da store, sessão e posto. Faltar o
-        // terceiro faria o gate por posto rodar sempre com `role` indefinido, que fecha tudo.
+        // "Novo mapa" mora no cabeçalho da seção e não na grade, então ele precisa da mesma
+        // decisão explicitamente. Ele é gateado por CAPACIDADE (criar mapa é escrita) e some,
+        // porque o bloqueio é de posto: a pessoa era convidada a digitar um nome e só então
+        // recusada pela store.
+        expect(visibilidade).toContain('this._newMapBtn');
+        expect(visibilidade).toContain("can('CREATE_MAP')");
+
+        // E o contexto é lido dos QUATRO sinais vivos: origem da store, sessão, posto e a
+        // capacidade. Faltar o posto faria o gate rodar com `role` indefinido, que fecha tudo;
+        // faltar a capacidade devolve `visibleAtlasActions` ao estado em que "Importar" era
+        // oferecido em todas as linhas, a remota inclusive.
         const contexto = corpoDeMetodo('_atlasContext');
         expect(contexto).toContain('isRemoteStoreSync()');
         expect(contexto).toContain('sessionContext.isAuthenticated()');
         expect(contexto).toContain('sessionContext.role');
+        expect(contexto).toContain('checkPermission(key).allowed');
 
         // A chave do mapa de botões é o `action.id`, que é o que a tabela lista.
         const grade = corpoDeMetodo('_createActionsGrid');
@@ -431,5 +447,67 @@ describe('aba "Mapas": as duas portas de acesso, por posto', () => {
         // A ordem é a da tabela, não a de um filtro que reordena.
         expect(noServidor('owner')).toEqual(['open', 'import', 'save', 'save-local', 'share']);
         expect(noServidor('read')).toEqual(['open', 'import', 'save', 'save-local', 'participants']);
+    });
+});
+
+// ============================================================================
+// "Importar" é ESCRITA, e era oferecida a quem não escreve
+// ============================================================================
+// O gate por posto desta função filtrava só as duas portas de ACESSO (Compartilhar e
+// Participantes), então "Importar" aparecia em todas as linhas, a do servidor inclusive.
+// Um Leitor abria o seletor de arquivos, escolhia um `.ebgeo`, via o arquivo ser lido, e a
+// importação morria na store. É a classe "a UI promete o que o servidor recusa".
+//
+// Ela é gateada por CAPACIDADE e SOME, em vez de aparecer inerte: não há nada no arquivo
+// que a pessoa possa mudar para o nível dela passar a bastar.
+
+describe('aba "Mapas": "Importar" respeita a capacidade de escrita', () => {
+    const podeTudo = () => true;
+    const naoEscreve = (key) => key !== 'IMPORT_DATA';
+
+    it('some da linha do SERVIDOR para quem não escreve', () => {
+        const visivel = visibleAtlasActions({
+            remote: true, authenticated: true, role: 'read', can: naoEscreve
+        });
+        expect(visivel).not.toContain('import');
+        // CONTROLE: o resto da linha continua lá, senão este caso passaria com a função
+        // devolvendo lista vazia.
+        expect(visivel).toContain('open');
+        expect(visivel).toContain('save');
+    });
+
+    it('fica para quem escreve, no mesmo estado', () => {
+        expect(visibleAtlasActions({
+            remote: true, authenticated: true, role: 'write', can: podeTudo
+        })).toContain('import');
+    });
+
+    it('o gate vale nos TRÊS estados, e não só no remoto', () => {
+        // `checkPermission` já responde "pode" para store local, então rotear os estados locais
+        // por fora do predicado poria essa regra em dois lugares. O que se prende aqui é que a
+        // função consulta o predicado sempre; quem decide que local pode é o guarda.
+        for (const estado of [
+            { remote: false, authenticated: false },
+            { remote: false, authenticated: true },
+            { remote: true, authenticated: true, role: 'owner' }
+        ]) {
+            expect(visibleAtlasActions({ ...estado, can: naoEscreve }), JSON.stringify(estado))
+                .not.toContain('import');
+            expect(visibleAtlasActions({ ...estado, can: podeTudo }), JSON.stringify(estado))
+                .toContain('import');
+        }
+    });
+
+    it('sem predicado nenhum, nada é filtrado por capacidade', () => {
+        // Compatibilidade deliberada: um chamador que não passe `can` recebe o comportamento
+        // anterior a 2026-08-24, em vez de uma grade misteriosamente vazia.
+        expect(visibleAtlasActions({ remote: false, authenticated: false })).toContain('import');
+    });
+
+    it('predicado que devolve truthy não-booleano NÃO abre a ação', () => {
+        for (const retorno of [1, 'sim', {}]) {
+            expect(visibleAtlasActions({ remote: false, can: () => retorno }))
+                .not.toContain('import');
+        }
     });
 });

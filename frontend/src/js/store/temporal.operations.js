@@ -113,7 +113,8 @@ export async function setMapTemporalConfig(mapName, patch) {
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'setMapTemporalConfig',
-            reason: perm.reason
+            reason: perm.reason,
+            required: perm.required
         });
         return null;
     }

@@ -240,6 +240,16 @@ export const EventTypes = Object.freeze({
     // ===== SYNC =====
     /** Payload: { operation } */
     REMOTE_OPERATION_APPLIED: 'sync:remoteOperationApplied',
+    /**
+     * A op remota que acabou de ser aplicada tocou uma entidade que ESTA pessoa editou nos últimos
+     * segundos: a edição dela foi substituída. Payload `{ entityId, authorUserId }`.
+     *
+     * O STORE EMITE E A UI ESCUTA, e a separação aqui não é cerimônia: resolver o nome do autor
+     * (presença) e desenhar o toast de dentro do handler de op remota arrastou o grafo do store
+     * para um módulo que sete suítes de integração carregam com mocks estreitos, e as sete
+     * pararam de carregar. Quem transforma isto em frase é `store/store-error-listener.js`.
+     */
+    REMOTE_EDIT_OVERWRITTEN: 'sync:remoteEditOverwritten',
     /** Payload: { atlasId } — the connected atlas was deleted server-side; tear down + redirect. */
     ATLAS_DELETED_REMOTE: 'sync:atlasDeletedRemote',
     /** Payload: { atlasId, newOwnerId } — atlas ownership changed; re-gate UI / role. */
