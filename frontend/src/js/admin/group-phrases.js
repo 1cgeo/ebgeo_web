@@ -516,8 +516,17 @@ export function leaveGroupSummary(result) {
  * @returns {string}
  */
 export function groupOwnerCannotLeaveNotice() {
+    // NÃO OFERECER A TRANSFERÊNCIA. Esta frase dizia "Apague o grupo, ou transfira a posse dele", e
+    // a segunda metade era falsa: não existe rota de transferência de grupo. `updateGroupSchema`
+    // aceita nome e descrição, as oito rotas do módulo não incluem nenhuma de posse, e o comentário
+    // do serviço fala da transferência no futuro do subjuntivo ("se ela existir um dia").
+    //
+    // A regra da casa é que uma negativa sem saída é só um muro, e foi ela que produziu o defeito:
+    // ao procurar uma saída para oferecer, o texto inventou a que faltava. Uma saída INEXISTENTE é
+    // pior que um muro, porque manda a pessoa caçar um botão que não há e ainda a faz duvidar da
+    // própria leitura da tela. A saída que sobra é real e está escrita: apagar.
     return 'Você é o dono deste grupo, e o dono não sai: um grupo sem dono fica sem quem o '
-        + 'administre. Apague o grupo, ou transfira a posse dele.';
+        + 'administre. Para deixar de participar, apague o grupo.';
 }
 
 /**

@@ -218,10 +218,43 @@ describe('leaveGroupSummary — o efeito MEDIDO, com o número do servidor', () 
 });
 
 describe('as duas frases de ausência — elas explicam, em vez de deixar espaço vazio', () => {
-    it('a recusa ao dono nomeia os DOIS caminhos que o servidor nomeia', () => {
+    it('a recusa ao dono nomeia a saída que EXISTE, e só ela', () => {
+        // ESTE CASO EXIGIA A PROMESSA FALSA, e é o exemplo mais nítido de guarda que prende o
+        // defeito em vez de prender a propriedade. A frase original oferecia "apague o grupo, ou
+        // transfira a posse dele", e a segunda metade nunca existiu: `updateGroupSchema` aceita
+        // nome e descrição, as oito rotas do módulo não incluem posse, e o comentário do serviço
+        // fala da transferência no futuro do subjuntivo. O teste, escrito junto com a frase,
+        // cobrava as duas metades, então o dia em que alguém corrigisse a mentira a suíte ficaria
+        // vermelha e o conserto pareceria a regressão.
+        //
+        // A regra da casa que produziu o erro é boa e continua valendo: negativa sem saída é só um
+        // muro. O que ela não diz, e passou a dizer aqui, é que saída INEXISTENTE é pior que muro,
+        // porque manda a pessoa caçar um botão que não há e a faz duvidar da própria leitura.
         const nota = groupOwnerCannotLeaveNotice();
-        expect(nota).toContain('Apague o grupo');
-        expect(nota).toContain('transfira a posse');
+        expect(nota).toContain('apague o grupo');
+        expect(nota).not.toMatch(/transfir|transferir a posse/i);
+    });
+
+    it('a cláusula 4.7 e a frase de tela concordam sobre as saídas que existem', async () => {
+        // A MESMA MENTIRA MORAVA NOS DOIS, e o estatuto é o que tem autoridade: a cláusula dizia
+        // que a recusa "nomeia os dois caminhos, apagar ou transferir a posse". Documento e tela
+        // foram corrigidos no mesmo trabalho, que é o que a constituição manda quando os dois
+        // divergem, e este caso existe para que voltem a divergir com alguém sabendo.
+        //
+        // Ele NÃO afirma que a transferência não deve existir: se ela nascer, o certo é a rota, a
+        // frase e a cláusula andarem juntas, e este vermelho é o lembrete.
+        const { readFileSync } = await import('node:fs');
+        const clausulas = readFileSync(
+            new URL('../../../CONSTITUICAO.md', import.meta.url), 'utf-8'
+        );
+        const inicio = clausulas.indexOf('**4.7**');
+        expect(inicio).toBeGreaterThan(0);
+        const corpo = clausulas.slice(inicio, clausulas.indexOf('**4.8**', inicio) > 0
+            ? clausulas.indexOf('**4.8**', inicio)
+            : inicio + 1200);
+        expect(corpo).toMatch(/apagar o grupo/i);
+        expect(corpo, 'a cláusula voltou a oferecer transferência de posse de grupo')
+            .not.toMatch(/nomeia os dois caminhos/i);
     });
 
     it('a ressalva de escopo impede que a ausência do número se leia como zero', () => {

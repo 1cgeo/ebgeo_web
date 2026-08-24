@@ -233,8 +233,11 @@ grupo a única escrita do papel.
 **4.7** Participar de um grupo é ato de duas vontades, e **sair é direito de quem entrou**. Qualquer
 membro se remove sozinho, sem depender de quem administra. **[vigente]** desde 2026-08-23. O dono é a
 exceção, e por necessidade estrutural, não por hierarquia: o predicado de administração exige dono VIVO,
-então um grupo abandonado pelo dono ficaria sem ninguém que o administre. Ele recebe recusa que nomeia os
-dois caminhos, apagar ou transferir a posse. Sair derruba o que o GRUPO dava e preserva o que a pessoa
+então um grupo abandonado pelo dono ficaria sem ninguém que o administre. A recusa nomeia a saída que
+EXISTE, apagar o grupo, e só ela: a primeira redação desta cláusula também oferecia transferir a posse,
+e isso era falso, porque não há rota de transferência de grupo. A regra de que uma negativa sem saída é
+só um muro foi o que produziu o erro, aqui e na frase de tela: ao procurar uma saída para oferecer, os
+dois textos inventaram a que faltava. Saída inexistente é pior que muro. Sair derruba o que o GRUPO dava e preserva o que a pessoa
 tinha por autoridade própria, que é a mesma regra da remoção por terceiro, no mesmo código. Preso por
 `backend/tests/integration/sair-do-grupo.test.js`, cujo controle negativo é a concessão de caminho
 próprio que sobrevive.

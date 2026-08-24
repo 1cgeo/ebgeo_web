@@ -1,509 +1,594 @@
 # Relatório de UX: o perfil CREDENCIADO
 
-Auditoria de interface e experiência do papel global `credenciado`, feita contra o código do branch
-`integracao_backend` em 2026-08-23. Fonte normativa: [`CONSTITUICAO.md`](CONSTITUICAO.md). Toda afirmação
-abaixo foi conferida no código; onde a prosa da wiki e o código divergiram, vale o código, e a divergência
-está anotada.
+Perfil avaliado: conta com papel GLOBAL `credenciado`, o que lê todo recurso privado do acervo e
+concede acesso a ele sem editá-lo. [`CONSTITUICAO.md`](CONSTITUICAO.md) é a especificação de
+referência.
+
+**Auditoria original: 2026-08-23.** 18 achados numerados, 4 divergências entre estatuto, documento e
+código, um inventário de 39 ações e 7 perguntas ao dono.
+
+**Revisão: 2026-08-24.** Um lote grande entrou desde então (commit 76dbe93d, árvore de trabalho
+limpa), e este documento foi reescrito para separar o que saiu do que fica.
+
+## Como esta revisão foi feita
+
+Cada achado foi reaberto **contra o código**, não contra a lista de commits. Onde este documento diz
+RESOLVIDO, o arquivo foi aberto e o símbolo, procurado; onde diz INTACTO, a varredura foi refeita.
+
+A conferência achou as três categorias esperadas, e as duas últimas foram as produtivas: um achado
+resolvido pelo caminho exato que a auditoria propôs, um resolvido **pela metade** cuja parte fechada
+esconde a parte aberta, e um achado que **estava errado na origem**, por tratar como defeito um
+marcador que se declara marcador.
+
+Além disso, esta revisão fecha três defeitos de FORMA do documento anterior: cinco remissões internas
+apontavam para números de achado que não existiam, uma migração era citada por número, e um achado era
+briga de documento contra documento, não UX.
+
+## Placar
+
+| | |
+|---|---|
+| itens conferidos | 22 (18 achados numerados + 4 divergências) |
+| saíram (resolvidos, ou retirados por estarem errados) | 2 |
+| ficam | 17, dos quais 1 é parcial |
+| achados NOVOS, nascidos da revisão | 1 |
+
+Gravidade dos 18 que ficam (17 antigos + 1 novo), **reordenada por gravidade real** e não pela
+numeração antiga: 1 crítico, 5 altos, 9 médios, 3 baixos.
+
+O CRÍTICO original saiu, e outro entrou no lugar por promoção. **A troca é o resumo do relatório:** o
+que era a pior falha (a tela oferecia um ato que o servidor recusava) foi fechado, e a pior que sobra
+é a que apaga o papel inteiro sem uma linha de aviso.
 
 ---
 
-## 1. O que o credenciado É
+## 1. O que o credenciado É, e onde estatuto, documento e código divergem
 
-### 1.1 Segundo o estatuto
+Isto não é achado, é conhecimento. Existe para que a próxima sessão não reabra a discussão.
 
-As cláusulas que definem este perfil, com o estado que o próprio documento declara (e que
-`frontend/tests/unit/constituicao-estado-das-clausulas.test.js` cobra: só 1.5, 9.3, 10.1 e 10.7 não são
-vigentes):
+### 1.1 O eixo, no código
 
-| cláusula | o que diz | estado |
+O papel é definido em `frontend/src/js/store/sync/session-context.js`. `GlobalRole` traz os quatro
+valores e o JSDoc diz por extenso que **não é escada**. `hasGlobalDataAccess()` é o único predicado
+nominal do credenciado no cliente inteiro, e tem **um consumidor só**, `canShareResource`
+(`frontend/src/js/store/sync/resource-access.service.js`). `isAdmin()`, `isProducer()` e
+`canProduceFor()` são todos nominais e todos falsos para ele.
+
+**Varredura de promoção silenciosa: negativa, e reconferida.** Não existe em `frontend/src/js/` nem em
+`backend/src/` nenhum `role !== 'user'` de gate: as três ocorrências da string são comentários que
+explicam por que ela seria errada (`frontend/src/js/admin/producer-scope-phrases.js`,
+`backend/src/modules/users/users.service.js` e a migração de identidade). A única escada do
+repositório é `PERMISSION_ORDER` (`frontend/src/js/projects/permission-levels.js`), que é o eixo POR
+ATLAS e exclui `producer` e `credenciado` de propósito. A classe de defeito que este perfil mais teme
+não está presente.
+
+### 1.2 As cláusulas que o definem
+
+Todas vigentes, salvo a última: 1.1 (quatro papéis que não formam escada), 1.3 (só o administrador
+promove), 2.6 (lê todo recurso privado sem concessão), 3.1 a 3.8 (a pessoa OU o grupo, dois níveis,
+quem origina, prazo, poda da cadeia, preservação de caminhos independentes), 4.1, 4.2 e 4.6 (grupo é
+entidade de usuário, e o credenciado não tem poder especial sobre ele), 4.7 e 5.8 (sair é direito de
+quem entrou, o dono é a exceção), 8.5 (a autoridade morre com quem a exercia), 9.1 e 9.2 (a trilha é
+do administrador e, recortada, do produtor; ele **não tem trilha**). A cláusula 10.1, sobre os bytes
+do tile privado, está **[pendente]** por decisão do dono.
+
+### 1.3 As divergências que sobram
+
+**D1. "Concede e revoga" ainda é mais do que o servidor faz.** [`CLAUDE.md`](CLAUDE.md) diz que o
+credenciado "concede/revoga no eixo de RECURSO". O servidor discorda: `requireGrantRevoker`
+(`backend/src/middleware/resource-access.js`) libera por administração do sistema (a consulta
+`GRANT_REVOKER_ACTOR`, cujo predicado é `u.role = 'admin'`) ou por AUTORIA (`g.granted_by = $2`).
+Ou seja, **o credenciado revoga só o que ele mesmo concedeu**. A constituição não conflita (3.5
+descreve o efeito, não o sujeito). **O que mudou:** a interface deixou de repetir o exagero, porque o
+gate do botão passou a espelhar o servidor. Sobra a frase de `CLAUDE.md` e a lacuna de 3.5, que é a
+Pergunta 1.
+
+**D2. Nenhum resíduo do mundo velho de grupos.** A decisão de 2026-08-19, que dava a administração de
+grupo ao credenciado por papel, foi superada pela cláusula 4.6, e a supersessão está escrita em três
+sítios do cliente (`frontend/src/js/admin/admin-audience.js`, o JSDoc de `hasGlobalDataAccess`, e o
+comentário acima de `listAccessGroups` em `frontend/src/js/store/sync/api-client.js`). Nenhum gate,
+rótulo ou texto vivo lhe dá poder de papel sobre grupo. O único resíduo é iconográfico (B1).
+
+**D3. O estatuto lhe dá leitura, e a pendência 10.1 tira metade dela na prática.** As duas convivem no
+documento; na tela o resultado é um cartão que abre e uma camada que não desenha (A1).
+
+*(A quarta divergência, D4, foi RETIRADA nesta revisão: ver a seção 6.)*
+
+---
+
+## 2. Onde há gate proativo de tela para este perfil, e onde não há
+
+O mapa que organiza os achados que sobraram. A divergência **nunca esteve no vocabulário**: onde há
+gate de tela para este perfil ele está certo e é por predicado compartilhado com o servidor. O que
+falta é a metade da tela que não decide nada e delega ao servidor, ou que decide certo e não conta o
+que decidiu.
+
+| superfície | gate proativo | efeito para o credenciado |
 |---|---|---|
-| 1.1 | quatro papéis globais que NÃO formam escada; gate "diferente de usuário comum" promove o credenciado em silêncio | vigente |
-| 1.3 | só o administrador promove alguém a credenciado; o papel é lido do banco a cada requisição | vigente |
-| 2.6 | o credenciado **lê todo recurso privado**, sem precisar de concessão | vigente |
-| 3.1 / 3.2 | concessão é a UMA pessoa OU a UM grupo, nunca aos dois; dois níveis, `ver` e `ver e compartilhar` | vigente |
-| 3.3 | **origina** concessão quem tem papel global de dado (administrador ou credenciado) ou quem produz o recurso | vigente |
-| 3.4 | toda concessão expira; teto e padrão de um ano; nenhuma vive mais que a de quem concedeu | vigente |
-| 3.5 / 3.6 / 3.7 | revogar derruba a cadeia derivada; caminhos independentes são preservados; descendente com concedente vivo é repai-ado | vigente |
-| 3.8 | apagar grupo ou tirar alguém de grupo poda pela mesma regra | vigente |
-| 4.1 / 4.2 | qualquer logado cria grupo; quem cria é o dono, e só ele administra | vigente |
-| 4.6 | **o credenciado não tem poder especial sobre grupo**; supera por escrito a decisão de 2026-08-19 | vigente |
-| 4.7 / 5.8 | sair de grupo e sair de atlas são direito de quem entrou; o dono é a exceção | vigente |
-| 8.5 | a autoridade morre com quem a exercia; rebaixar poda o que a pessoa concedeu de raiz | vigente |
-| 9.1 / 9.2 | a trilha é do administrador e, recortada por OM, do produtor. **O credenciado não tem trilha** | vigente / em obra (9.3) |
-| 10.1 | os bytes do tile privado não passam por gate, e o gêmeo: **o acervo privado não desenha para quem tem direito** | **pendente** |
-
-### 1.2 Segundo o código
-
-O eixo é definido em `frontend/src/js/store/sync/session-context.js`:
-
-- `GlobalRole` traz os quatro valores; o JSDoc diz por extenso que não é escada;
-- `hasGlobalDataAccess()` é `_globalRole === ADMIN || _globalRole === CREDENCIADO`. É o **único** predicado
-  nominal do credenciado no cliente inteiro, e tem **um consumidor só**: `canShareResource`
-  (`frontend/src/js/store/sync/resource-access.service.js`);
-- `isAdmin()`, `isProducer()` e `canProduceFor()` são todos nominais e todos falsos para ele.
-
-A porta de administração é decidida por `adminAudience` (`frontend/src/js/admin/admin-audience.js`), que
-devolve `{ label: 'Grupos', tabIds: ['groups'] }` para ele. Os seis consumidores dessa função (menu de conta
-no mapa, barra de `atlas.html`, montagem de `admin.html`, o gate de página, e as duas dicas dos modais de
-compartilhamento) leem a mesma definição, então o rótulo não diverge por tela.
-
-O gate de `calibracao.html` (`frontend/src/js/calibration/calibracao-page.js`, `initCalibracaoPage`) é
-`isAdmin() || isProducer()`, e os dois espelhos de menu (`account.control.js`
-`_updateCalibrationVisibility`, `ui/app-bar.js` `mayCalibrate`) escondem a entrada. O credenciado não vê a
-porta que não pode abrir.
-
-**Varredura de promoção silenciosa: negativa.** Não existe em `frontend/src/js/` nenhum `role !== 'user'`,
-nenhum `.includes(role)` sobre papel global e nenhuma comparação por ordem no eixo global. A única escada do
-repositório é `PERMISSION_ORDER` (`frontend/src/js/projects/permission-levels.js`), que é o eixo POR ATLAS e
-que exclui `producer` e `credenciado` de `ROLE_TO_PERMISSION` de propósito. A classe de defeito que este
-perfil mais teme não está presente hoje.
-
-### 1.3 Onde estatuto, doc e código divergem
-
-**D1. "Concede e revoga" não é o que o servidor faz.** [`CLAUDE.md`](CLAUDE.md) diz que o credenciado
-"concede/revoga no eixo de RECURSO", e `docs/wiki/acesso-a-recurso-privado.md` registra o contrário e mais
-exato: "o credenciado saiu do ramo curinga porque ler todo recurso privado não é autoridade sobre a concessão
-de terceiros". O código confirma a wiki: `requireGrantRevoker` (`backend/src/middleware/resource-access.js`)
-libera por `linha.administra === true || linha.concedeu === true`, e `administra` é a consulta
-`GRANT_REVOKER_ACTOR`, cujo predicado é `u.role = 'admin'`. Ou seja: **o credenciado revoga só o que ele
-mesmo concedeu.** A constituição não fala de quem revoga (3.5 descreve o efeito, não o sujeito), então não há
-conflito com ela; há conflito com a frase de `CLAUDE.md` e, sobretudo, com a interface (achado CRÍTICO 1).
-
-**D2. Nenhum resíduo do mundo velho de grupos.** A decisão de 2026-08-19, que dava a administração de grupo
-ao credenciado como privilégio de papel, foi superada e a supersessão está escrita em três sítios do cliente
-(`admin/admin-audience.js`, `session-context.js` no JSDoc de `hasGlobalDataAccess`, e o comentário acima de
-`listAccessGroups` em `store/sync/api-client.js`). Nenhum gate, rótulo ou texto vivo lhe dá poder de papel
-sobre grupo. O único resíduo é iconográfico: o `SHIELD_ICON` de `frontend/src/js/admin/admin-panel.js`
-(achado BAIXO 1).
-
-**D3. O estatuto lhe dá leitura, e a pendência 10.1 tira metade dela na prática.** 2.6 diz que ele lê todo
-recurso privado; 10.1 diz que o navegador pede o tile anonimamente e que o acervo privado "não desenha para
-quem tem direito". As duas convivem no documento, mas na tela o resultado é um cartão que abre e uma camada
-que não aparece (achado ALTO 2).
-
-**D4. Um teste do backend ainda chama de buraco o que a constituição decidiu.**
-`backend/tests/integration/papel-credenciado.test.js` rotula a concessão de raiz do credenciado como
-"BURACO CONHECIDO, o credenciado ainda CONCEDE de raiz, e isso é escrita", e assere `parent_grant_id ===
-null` sob esse rótulo. A cláusula 3.3, vigente desde 2026-08-20, diz o contrário: origina concessão quem tem
-papel global de dado, e a concessão dele nasce com pai nulo por decisão. O comportamento está certo, o
-rótulo é do mundo anterior. Não muda nada na tela, mas é o tipo de frase que faz a próxima sessão ir
-"consertar" o que é o desenho. O predicado `fn_can_grant_resource` citado ali não existe em lugar nenhum do
-repositório.
+| porta de Administração (menu do mapa, barra de `atlas.html`, montagem de `admin.html`) | `adminAudience` | vê só "Grupos"; as demais abas não existem, em vez de darem 403 |
+| `calibracao.html` e as duas entradas de menu | `initCalibracaoPage`, espelhado por `_updateCalibrationVisibility` e `mayCalibrate` | a porta que ele não pode abrir não aparece |
+| "Compartilhar" no cartão do catálogo e na camada base | `privado && canShareResource(...)` | aparece por papel, correto |
+| campo "Acesso (visibilidade)" do catálogo | `canProduceFor` em `_renderResourceForm` | escondido, não desabilitado |
+| "Remover acesso" na linha da concessão | `revokeAvailability` **(novo)** | some, e uma nota nomeia a quem pedir |
+| "Sair do grupo" | `leaveGroupAvailability` | some para o dono, com nota no lugar |
+| atlas, mapas, briefing, comentário, temporal | eixo POR ATLAS, `checkPermission` | entra na escada como conta comum, que é o desenho |
+| **selo "Privado" do cartão** | **nenhuma procedência** | um selo para três origens, com `title` falso para ele (M1) |
+| **prazo da concessão** | **nenhum campo** | não escolhe, e não renova (A4) |
+| **adicionar membro a grupo** | **nenhum aviso e nenhum relato** | concede N recursos em silêncio (A5) |
+| **camadas de análise, basemap, 3D e 360** | **nenhuma mensagem de falha** | falha muda, como as camadas de dado falhavam antes do lote (A1) |
+| **quem RECEBEU a concessão** | **nenhuma superfície** | não é avisado de que ganhou, nem de que venceu (A2) |
 
 ---
 
-## 2. Inventário de ações, ponta a ponta
+## 3. Os achados que ficam
 
-Veredito: OK (alcançável, rótulo verdadeiro, gate casado), ATRITO (funciona mal), ou o número do achado.
+Reordenados por gravidade real. O rótulo original é mantido entre parênteses, para rastreio.
 
-| # | ação | onde (arquivo · símbolo) | veredito |
-|---|---|---|---|
-| 1 | Entrar (login) | `account/account.control.js` · modal de login | OK |
-| 2 | Descobrir o que o papel lhe dá | `ui/role-labels.js` · `globalRoleBadge` + `GLOBAL_ROLE_DESCRIPTIONS`; espelhos em `account.control.js` · `_updateRoleBadge`, `ui/app-bar.js` · `buildRoleBadge`, `modals/account-settings.modal.js` · `_buildIdentitySection` | OK. O selo "Credenciado" com a frase "Enxerga todo recurso privado do acervo e pode conceder acesso a ele, sem editá-lo" existe nas quatro superfícies |
-| 3 | Saber POR QUE enxerga um recurso | `catalog/components/catalog-card.js` · `createCatalogCard` (selo "Privado") | MÉDIO 1. Selo único para três origens; o `title` diz "só quem recebeu acesso enxerga este item", e ele não recebeu nada |
-| 4 | Achar recurso privado no catálogo | `catalog/catalog.modal.js` · `_applyFilters`, `components/catalog-filters.js` | MÉDIO 2. Filtro só por TIPO. Ele vê o acervo privado inteiro do sistema e não tem como isolá-lo, nem por OM |
-| 5 | Achar camada base privada | `base-layer-selector/base-layer-selector.control.js` · `_createLayerOption` | OK (selo próprio, mesma razão escrita no código) |
-| 6 | Achar 360 e 3D privados | mesmos cartões do catálogo | OK, com a ressalva do item 3 |
-| 7 | Buscar (barra de busca) | `search/search-bar.search-providers.js` | ATRITO no 360. O provedor lê `getCachedProjects() ?? fetchProjects()` e não marca privacidade no resultado, então o projeto privado aparece na busca sem o selo que o cartão tem. Topônimo não tem eixo de acesso (cláusula 2.2), e a consulta `BUSCA` de `backend/src/modules/nomes/nomes.queries.js` de fato não tem predicado nenhum: aqui está certo |
-| 8 | Abrir o recurso privado no mapa | `terrain/data-layers.manager.js` · `addDataLayer` / `setupDataLayers` | ALTO 2. Falha de tile cai em `console.error`; a tela não diz nada |
-| 9 | Alcançar a tela de conceder | `catalog/components/catalog-card.js` · `createCatalogCard` (`privado && canShareResource(...)`) e `base-layer-selector.control.js` · `_createShareButton` | OK. `canShareResource` espelha `requireResourceShare` e inclui o credenciado por papel |
-| 10 | Conceder a uma PESSOA | `catalog/resource-share.modal.js` · `_renderAddSection`, `_handleGrant` | OK |
-| 11 | Conceder a um GRUPO | idem · `_renderGroupRow`, `_handleGrantGroup` | OK. Lista só grupos próprios, igual ao `WHERE` do servidor (`GET_ADDRESSABLE_LIVE_GROUP` chama `fn_can_administer_group`) |
-| 12 | Escolher o nível | idem · `GRANT_LEVELS` (`catalog/catalog.constants.js`) | OK. Padrão `view`, com texto explicando o que `view_share` delega |
-| 13 | Escolher o PRAZO | não existe: `_handleGrant`/`_handleGrantGroup` nunca mandam `expiresAt` | ALTO 6 |
-| 14 | Entender que a concessão VENCE | idem · parágrafo fixo de `_renderAddSection` + chip `expira em` de `_renderGrantItem` | OK, e é dos melhores textos do produto |
-| 15 | RENOVAR antes de vencer | bloqueado: `alreadyGranted` filtra quem já tem concessão viva da busca, e o servidor devolve 409 na segunda concessão do mesmo par | ALTO 6. O próprio texto do modal manda fazer isto |
-| 16 | Ver quem já tem acesso | idem · `_renderGrantsSection`, `_renderGrantItem` | Bom no que mostra (pessoa/grupo, dono do grupo, origem, prazo, chip de concedente morto); MÉDIO 7 no que omite |
-| 17 | Distinguir acesso por PAPEL de acesso por CONCESSÃO | frase de apoio de `_renderGrantsSection` ("Administradores, credenciados e produtores da OM dona enxergam este recurso por papel, sem concessão, e não aparecem nesta lista") | Parcial. Falta o empréstimo por atlas e o visitante de link público (MÉDIO 7); falta inteiro no CATÁLOGO (item 3) |
-| 18 | Entender a CASCATA antes de revogar | idem · chip `+N dependente(s)`; `catalog/grant-tree.js` · `fallenGrants`, `revocationWarning` | OK, e superestima de propósito |
-| 19 | **Revogar** | idem · `_renderGrantItem` (botão em toda linha), `_handleRevoke` | **CRÍTICO 1**. O botão aparece em concessões que ele não originou; o servidor recusa |
-| 20 | Saber o que caiu depois de revogar | idem · `_handleRevoke` (usa `revoked`, `reparented`, `trimmed` do servidor) | OK |
-| 21 | Achar as concessões que ELE fez | não existe (nenhum método em `store/sync/api-client.js`, nenhuma rota, nenhuma aba de auditoria para ele) | ALTO 3 |
-| 22 | Criar grupo | `admin/groups-tab.js` · `_renderForm`; atalho em `resource-share.modal.js` · `_renderGroupCreate` | OK |
-| 23 | Renomear / descrever grupo | `groups-tab.js` · `_renderForm` | OK |
-| 24 | Adicionar membro | `groups-tab.js` · `_buildMemberSearch`, `_addMember` | ALTO 5. É o ato que CONCEDE, e é o único do ciclo sem aviso e sem relato |
-| 25 | Remover membro | `groups-tab.js` · `_removeMember` + `admin/group-phrases.js` · `memberRemovalWarning` | OK no texto; MÉDIO 6 na frescura da contagem |
-| 26 | Apagar grupo | `groups-tab.js` · `_delete` + `groupDeletionWarning` / `groupDeletionSummary`, com `_reachForWarning` relendo antes | OK |
-| 27 | Transferir posse de grupo | não existe (nem UI nem rota), mas é oferecido por escrito | ALTO 4 |
-| 28 | Ver grupos de que participa | `groups-tab.js` · `_renderParticipating` + `participatingReachUnknownNotice` | OK |
-| 29 | Sair de um grupo | `groups-tab.js` · `_leave`, gateado por `leaveGroupAvailability` | OK; BAIXO 4 e 5 nas bordas |
-| 30 | Chegar à página "Grupos" | `account.control.js` · `_updateAdminVisibility`; `projects/projects-page.js` · `adminEntryLabel` | OK no rótulo; BAIXO 1 no ícone e na nav rail de um item |
-| 31 | Abrir atlas, mapas, camadas, feições | caminho comum, sem gate de papel global | OK |
-| 32 | Briefing, comentários, temporal | eixo POR ATLAS, `checkPermission` | OK. Ele entra na escada como conta comum, o que é o desenho |
-| 33 | Compartilhar um ATLAS (pessoa/grupo) | `modals/sharing.modal.core.js` | OK, e nada ali lhe dá privilégio |
-| 34 | Sair de um atlas | `projects/atlas-drive.js` · ação `leave`, `describeLeaveOutcome` | OK |
-| 35 | Exportar `.ebgeo` / salvar como local | `catalog/private-reference-pruner.js`, aviso por `aviso-de-perda-de-recursos` | OK. A poda é keep-list e ele é avisado do que perdeu |
-| 36 | Gerir a própria conta | `modals/account-settings.modal.js` | OK, e mostra o papel com a frase |
-| 37 | Abrir `calibracao.html` | `calibration/calibracao-page.js` · `initCalibracaoPage` | OK: negado, e a entrada nem aparece |
-| 38 | Abrir Catálogo / Usuários / Config / Auditoria | `admin/admin-audience.js` · `adminAudience` | OK: as abas não existem para ele, em vez de darem 403 na montagem |
-| 39 | Marcar recurso público/privado | `admin/catalog-tab.js` · `_renderResourceForm` (campo gateado por `canProduceFor`) | OK: escondido, não desabilitado. É o eixo de produção, não o dele |
+### CRÍTICO
 
----
+#### C1 (ALTO 3) A soma dos recursos privados falha em silêncio, e leva o papel inteiro junto
 
-## 3. Achados, por gravidade
+**Promovido de ALTO, e a razão é que esta é a única falha do perfil que o torna indistinguível de não
+existir.** As demais degradam uma tela; esta apaga o produto.
 
-### CRÍTICO 1. O botão "Remover acesso" aparece em concessões que o credenciado não pode revogar
+`refreshVisibleResources` (`frontend/src/js/store/sync/resource-access.service.js`) é best-effort por
+desenho: o `catch` devolve `false` sem propagar, e o JSDoc declara que o `false` cobre três casos que
+o chamador trata igual. Todos os chamadores descartam o retorno. `frontend/src/js/store/sync/sync-engine.js`
+o chama em `login` e na abertura de atlas sem olhar a resposta, e nos dois `.then` de reação a evento
+faz `if (!ok) return;`. `frontend/src/js/index.js` idem no boot.
 
-**O que acontece hoje.** `_renderGrantItem` (`frontend/src/js/catalog/resource-share.modal.js`) desenha o
-botão `data-action="revoke"` em **toda** linha da lista "Quem tem acesso", sem consultar quem originou a
-concessão. A lista vem de `LIST_GRANTS_FOR_RESOURCE`
-(`backend/src/modules/resource-access/resource-access.queries.js`), que **não filtra por ator**: o credenciado
-vê as concessões feitas pelo administrador, pelo produtor da OM dona, por outros credenciados e por qualquer
-beneficiário com `view_share`. O servidor recusa todas elas: `requireGrantRevoker`
-(`backend/src/middleware/resource-access.js`) só passa com `linha.administra` (que a consulta
-`GRANT_REVOKER_ACTOR` define como `u.role = 'admin'`) ou `linha.concedeu` (`g.granted_by = $2`).
+Falhada a soma na PRIMEIRA carga, `_privados` fica vazio e assim permanece (`indexarPayload` só roda
+no ramo de sucesso, de modo que uma soma anterior boa sobrevive a uma falha posterior; o que não
+sobrevive é a que nunca aconteceu). A consequência para este perfil é total: `isPrivateResource`
+devolve `false` para tudo, então nenhum cartão mostra "Privado"; o botão "Compartilhar" exige
+`privado && ...` em `createCatalogCard` (`frontend/src/js/catalog/components/catalog-card.js`), então
+ele some mesmo com `canShareResource` continuando verdadeiro por papel; e o catálogo fica **idêntico
+ao de um visitante anônimo**. Sem uma linha na tela.
 
-O caminho completo do erro é pior que um 403 seco. O usuário lê o chip `+3 dependente(s)`, clica, lê o
-diálogo destrutivo de `revocationWarning` (`frontend/src/js/catalog/grant-tree.js`), que NOMEIA até três
-pessoas que vão perder o acesso, confirma em "Remover acesso", e só então recebe o toast
-`Só quem concedeu esta permissão (ou um administrador) pode revogá-la.` Ele foi levado a decidir uma coisa
-irreversível para descobrir que não podia decidi-la.
+`retryVisibleResources` existe no mesmo arquivo, escrito exatamente para isto, e o único chamador é
+`frontend/src/js/catalog/resource-reference.resolver.js`, no caminho da poda de saída. Nenhuma tela o
+oferece.
 
-**Por que é ruim.** É a definição de "a UI promete o que o servidor recusa", agravada por um diálogo
-destrutivo no meio. E ensina a coisa errada sobre o papel: quem clica conclui que perdeu uma autoridade que
-nunca teve, ou que o sistema está quebrado.
-
-**Arquivo e símbolo.** Cliente: `frontend/src/js/catalog/resource-share.modal.js` · `_renderGrantItem`,
-`_handleRevoke`. Servidor: `backend/src/middleware/resource-access.js` · `requireGrantRevoker`,
-`GRANT_REVOKER_ACTOR`.
-
-**Correção proposta.** A listagem já traz `granted_by`. Gatear o botão por
-`sessionContext.isAdmin() || String(grant.granted_by) === String(sessionContext.userId)`, e nas demais linhas
-pôr, no lugar do botão, uma nota curta do tipo "só quem concedeu remove" (a linha já mostra de quem veio, por
-`grantOriginLabel`). A regra pertence a `grant-tree.js`, que é onde ela fica testável em node, ao lado de
-`fallenGrants` e `deadGrantorChip`; o modal só consome. Esconder, e não desabilitar, é a doutrina já escrita
-no próprio cartão do catálogo. Repare que a linha `granted_by` nulo (a concessão "pela administração") também
-cai fora para ele.
-
-### ALTO 2. O acervo privado pode não desenhar, e a tela não diz nada
-
-**O que acontece hoje.** A cláusula 10.1 declara, como pendência conhecida, que o navegador pede o tile
-anonimamente e que "o acervo privado hoje não desenha para quem tem direito". `PENDENCIA-TILE-PRIVADO.md`
-mede o escopo: `config.source` e `config.labelSource` de `data_layers`, `config.source` de `analysis_layers`,
-`config.style` de `basemaps`. No cliente, o erro morre em `console.error`:
-`addDataLayer` e `setupDataLayers` (`frontend/src/js/terrain/data-layers.manager.js`) engolem toda exceção.
-
-**Por que é ruim.** Este é o perfil cuja definição inteira é ler o acervo privado. Ele vê o cartão, vê o selo
-"Privado", clica, e o mapa fica igual. Não há mensagem, não há estado de camada quebrada, não há nada a
-reportar num chamado além de "não funcionou".
-
-**Arquivo e símbolo.** `frontend/src/js/terrain/data-layers.manager.js` · `addDataLayer`,
-`setupDataLayers`, `removeLayer`; cláusula 10.1 e `PENDENCIA-TILE-PRIVADO.md`.
-
-**Correção proposta.** Independe de fechar 10.1: assinar `error` da source no MapLibre e marcar a linha da
-camada como indisponível na aba de camadas, com o motivo ("o servidor recusou os dados desta camada"). A wiki
-já reconhece o mesmo sintoma no caminho da revogação ("o painel diz indisponível, o mapa ainda desenha o que
-o servidor já recusa"), o que sugere que metade do mecanismo existe.
-
-### ALTO 3. A soma dos recursos privados falha em silêncio, e leva o papel inteiro junto
-
-**O que acontece hoje.** `refreshVisibleResources`
-(`frontend/src/js/store/sync/resource-access.service.js`) é best-effort por desenho: o `catch` devolve
-`false` sem propagar. Todos os chamadores descartam o resultado. `sync-engine.js` faz
-`await refreshVisibleResources(null)` no `login` e em `_applyAtlasSettingsOverlay` sem olhar o retorno, e nos
-handlers de `atlasResources` e de troca de dono faz `.then((ok) => { if (!ok) return; })`. `index.js` idem no
-boot.
-
-Falhada a soma, `_privados` fica vazio. Consequência para este perfil, e ela é total: nenhum cartão mostra
-"Privado" (`isPrivateResource` devolve `false` para tudo), nenhum botão "Compartilhar" aparece
-(`canShareResource` ainda devolveria `true` por papel, mas o botão exige `privado &&`), e o catálogo fica
-idêntico ao de um visitante anônimo. O produto some sem uma linha de aviso.
-
-Existe `retryVisibleResources` no mesmo arquivo, escrito exatamente para isso, e o único chamador dele é
-`frontend/src/js/catalog/resource-reference.resolver.js`, no caminho da poda de saída. Nenhuma tela o oferece.
-
-**Por que é ruim.** É a falha silenciosa mais cara possível para este papel: indistinguível de "o acervo
-privado acabou".
+**Detalhe que a correção precisa levar em conta.** `retryVisibleResources` começa por
+`if (_escopo !== undefined) return true;`, e `_escopo` só é escrito no sucesso. Depois de uma soma bem
+sucedida, uma soma POSTERIOR que falhe (troca de atlas, por exemplo) deixa o escopo antigo de pé e a
+retentativa responde "está tudo bem" sem pedir nada. Uma ação "Tentar de novo" ligada a ela precisa
+ou de um caminho que ignore esse curto-circuito, ou de um sinal separado de "a última soma falhou".
 
 **Arquivo e símbolo.** `frontend/src/js/store/sync/resource-access.service.js` ·
-`refreshVisibleResources`, `retryVisibleResources`; `frontend/src/js/store/sync/sync-engine.js` · `login`,
-`_applyAtlasSettingsOverlay`, handlers `atlasResources` e `atlasOwner`.
+`refreshVisibleResources`, `retryVisibleResources`, `indexarPayload`;
+`frontend/src/js/store/sync/sync-engine.js`; `frontend/src/js/index.js`.
 
-**Correção proposta.** Um aviso não-modal e não-bloqueante quando a soma falha para uma sessão autenticada
-("Não foi possível carregar o acervo privado desta conta"), com ação "Tentar de novo" ligada a
-`retryVisibleResources()`. Fica no eixo do avatar ou na barra de status de conexão, que é onde o usuário já
-procura estado de sessão. O `false` já distingue os três casos que o chamador trata igual; basta um deles
-chegar à tela.
+**Correção.** Um aviso não modal e não bloqueante quando a soma falha para uma sessão autenticada
+("Não foi possível carregar o acervo privado desta conta"), com ação de nova tentativa, no eixo do
+avatar ou na luz de conexão, que é onde a pessoa já procura estado de sessão. O `false` já distingue o
+caso; basta ele chegar à tela.
 
-### ALTO 4. Não existe inventário do que ele concedeu
+### ALTO
 
-**O que acontece hoje.** A única superfície de concessão é o modal de UM recurso. Para revogar algo, o
-credenciado precisa lembrar QUAL recurso ele concedeu, achá-lo no catálogo, abrir o modal e procurar a linha.
-Não há rota de listagem por concedente (`backend/src/modules/resource-access/resource-access.routes.js` tem
-`GET /:type/:id/grants` e nada por ator), não há método no cliente
-(`frontend/src/js/store/sync/api-client.js` tem `grantResource` e `revokeResourceGrant`, e nenhum "listar as
-minhas"), e ele não tem a aba de Auditoria (`adminAudience` lhe dá só `groups`; o `fileoverview` de
-`frontend/src/js/admin/audit-tab.js` diz que é decisão).
+#### A1 (ALTO 2, PARCIAL) O acervo privado pode não desenhar, e agora só metade das superfícies fala
 
-**Por que é ruim.** O papel é definido por conceder e revogar, e o produto não tem a tela do meio: "o que eu
-já concedi". Some com a possibilidade de revisão periódica, que é a higiene natural de quem distribui acesso
-com prazo. Some também a resposta a "por que Fulano vê isto?" pelo lado de quem concedeu.
+**Metade resolvida, e é a metade que esconde a outra.** O lote construiu o mecanismo inteiro para as
+camadas de DADO: `frontend/src/js/terrain/data-layer-phrases.js` (novo, zero imports, testável em
+node) e um painel dentro do container do mapa, montado por `DataLayersManager._ensureNotice`. A falha
+chega por `_watchMapErrors`, que assina `error` e `sourcedata` do MapLibre (a falha assíncrona de
+tile, que nenhum `try/catch` daquele arquivo pegava) e **retira a acusação** quando a camada volta a
+desenhar; a rajada é agregada por camada, e `_layerIdFromSourceId` dobra `config.source` e
+`config.labelSource` sobre a mesma camada para não acusar duas vezes. A frase não afirma causa
+(`layerLoadFailureCauseNotice` enumera rede, servidor e restrição de acesso, com o acesso por último)
+e `layerLoadFailureStatusDetail` imprime o código HTTP sem interpretá-lo.
 
-**Arquivo e símbolo.** `backend/src/modules/resource-access/resource-access.routes.js`;
-`frontend/src/js/store/sync/api-client.js` · `grantResource`, `revokeResourceGrant`;
-`frontend/src/js/admin/admin-audience.js` · `ABAS_DE_QUEM_ENTROU`.
+**O que continua aberto, e é o escopo declarado em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md):**
+o `config.source` de `analysis_layers` e o `config.style` de `basemaps`. Varredura: fora de
+`frontend/src/js/terrain/`, nenhum arquivo de `frontend/src/js/` importa
+`frontend/src/js/terrain/data-layer-phrases.js` nem qualquer das frases dele. Não há fiação
+equivalente para tileset 3D, para o 360 nem para o basemap. Para este perfil isso importa mais que
+para os outros: a camada base privada tem selo próprio e botão de compartilhar, e é justamente uma das
+superfícies sem aviso.
 
-**Correção proposta.** Uma segunda aba na página que ele já abre ("Grupos" viraria "Acesso", com "Grupos" e
-"Concessões"), alimentada por uma rota nova de listagem por `granted_by`, com o recurso, o beneficiário, o
-nível e a data de vencimento, e o mesmo botão de revogar. Como efeito colateral, o CRÍTICO 1 fica quase
-resolvido: a tela onde ele revoga passa a ser, por construção, a das concessões que ele pode revogar.
+**Cobertura, para não superdeclarar.** `frontend/tests/unit/data-layer-phrases.test.js` importa só as
+funções puras. O desenho do painel, a agregação por camada e a retirada da acusação por `sourcedata`
+não têm teste.
 
-### ALTO 5. "Transfira a posse" é oferecida por escrito e não existe em lugar nenhum
+**Correção.** O mecanismo já existe e é reusável: estender a assinatura de `error` do MapLibre às
+sources de análise e ao basemap, e reusar as mesmas frases. A cláusula 10.1 não precisa fechar antes.
 
-**O que acontece hoje.** Quando o dono de um grupo tenta sair, `groupOwnerCannotLeaveNotice()`
-(`frontend/src/js/admin/group-phrases.js`) diz: "Apague o grupo, ou transfira a posse dele". Não há UI de
-transferência em `frontend/src/js/admin/groups-tab.js`, e não há rota:
-`backend/src/modules/access-groups/access-groups.routes.js` expõe `GET /`, `GET /participating`, `POST /`,
-`PATCH /:groupId`, `DELETE /:groupId`, `GET|POST /:groupId/members`, `DELETE /:groupId/members/me` e
-`DELETE /:groupId/members/:userId`, e o schema de atualização aceita só nome e descrição. Compare com atlas,
-que tem transferência de posse.
+#### A2 (NOVO) Ninguém avisa quem RECEBEU o acesso, nem quando ele vence
 
-**Por que é ruim.** Uma recusa que nomeia dois caminhos e entrega um é pior que uma que nomeia um: manda o
-usuário procurar um botão que não existe. E o caminho que sobra é destrutivo (apagar o grupo poda as
-concessões dele), então a recusa empurra para o ato irreversível.
+Este perfil foi auditado inteiro do lado de QUEM CONCEDE. Do outro lado não há tela nenhuma, e o
+próprio código diz o que isso custa.
 
-**Arquivo e símbolo.** `frontend/src/js/admin/group-phrases.js` · `groupOwnerCannotLeaveNotice`;
-`frontend/src/js/admin/groups-tab.js` · `_renderParticipating`;
-`backend/src/modules/access-groups/access-groups.routes.js`;
-`backend/src/modules/access-groups/access-groups.schemas.js` · `updateGroupSchema`.
+**Do lado de quem recebe, o produto é mudo nos dois eventos.** Não há notificação de concessão
+recebida: `backend/src/utils/mailer.js` exporta cinco remetentes, todos de ciclo de conta
+(`sendVerificationEmail`, `sendEmailChangeVerification`, `sendEmailInUseNotice`,
+`sendPasswordResetEmail`, `sendAccountExistsEmail`), e nenhum de acesso a recurso; e
+`backend/src/modules/resource-access/` não tem caminho de notificação. Não há rota de listagem por
+beneficiário, então quem recebeu não consegue nem perguntar o que tem.
 
-**Correção proposta.** Duas saídas, e a escolha é do dono do produto. Implementar a transferência (a coluna
-`owner_id` já existe e a autoridade já mora nela), ou trocar o texto por "Apague o grupo" enquanto ela não
-existir. A segunda é de uma linha e fecha a mentira hoje.
+**E o vencimento é pior, porque a defesa existe e não alcança quem precisa dela.** O `fileoverview` de
+`expiryLabel` (`frontend/src/js/catalog/resource-share.modal.js`) diz por extenso que a morte mora no
+predicado, que no dia seguinte o recurso simplesmente não vem mais, sem evento e sem aviso, e que
+mostrar o prazo na linha é "a única coisa que separa isso de o recurso sumiu do meu catálogo". Só que
+essa linha vive dentro do modal de concessão, e o modal só abre por um botão gateado por
+`privado && canShareResource(...)`. **Quem recebeu com nível `view` nunca vê aquele chip.** Para essa
+pessoa o recurso aparece um dia, some outro, e nada em lugar nenhum explica qualquer dos dois.
 
-### ALTO 6. Não dá para escolher o prazo, e o próprio texto manda renovar de um jeito impossível
+**A assimetria com o eixo de ATLAS é o argumento mais curto.** O mesmo lote criou
+`frontend/src/js/projects/shared-atlas-badge.js` justamente porque "nada dizia a uma pessoa que um
+atlas tinha sido compartilhado com ela", e o `fileoverview` registra a decisão do dono entre selo e
+e-mail. O eixo de RECURSO tem exatamente o mesmo buraco e não ganhou nada.
 
-**O que acontece hoje.** O parágrafo fixo de `_renderAddSection`
-(`frontend/src/js/catalog/resource-share.modal.js`) diz: "para manter, conceda de novo antes da data". Só que
-não há campo de prazo (nem `_handleGrant` nem `_handleGrantGroup` mandam `expiresAt`, embora
-`apiClient.grantResource` aceite o campo), e conceder de novo é impossível pelos dois lados: `alreadyGranted`
-tira da busca quem já tem concessão viva, e o servidor devolve 409 para a segunda concessão do mesmo
-concedente ao mesmo par. Renovar exige revogar antes, e revogar poda a subárvore, que não volta.
+**Por que é ALTO e não médio.** É o único achado deste relatório que descreve o efeito do papel sobre
+terceiros, e ele fecha em falso o ciclo inteiro: o credenciado concede com prazo, acredita ter
+informado alguém, e ninguém foi informado de nada.
 
-**Por que é ruim.** O texto instrui uma ação que a interface bloqueia. E a única saída disponível
-(revogar e conceder de novo) é justamente a que derruba tudo o que o beneficiário repassou.
+**Arquivo e símbolo.** `frontend/src/js/catalog/resource-share.modal.js` · `expiryLabel`;
+`frontend/src/js/catalog/components/catalog-card.js` · `createCatalogCard`;
+`frontend/src/js/projects/shared-atlas-badge.js` (o precedente);
+`backend/src/modules/resource-access/resource-access.routes.js` (sem rota por beneficiário).
 
-**Arquivo e símbolo.** `frontend/src/js/catalog/resource-share.modal.js` · `_renderAddSection`,
-`_handleGrant`, `_handleGrantGroup`, `alreadyGranted` (em `frontend/src/js/catalog/grant-tree.js`);
-`frontend/src/js/store/sync/api-client.js` · `grantResource`.
+**Correção.** Fecha junto com A3, e pela mesma rota: uma listagem por beneficiário responde "o que eu
+recebi, de quem e até quando", e uma listagem por concedente responde "o que eu dei". Enquanto a rota
+não existe, o barato é o selo do cartão dizer o prazo quando ele for conhecido.
 
-**Correção proposta.** Um botão "Estender" na linha da concessão viva, que empurre `expires_at` para frente
-pelo teto do pai (o `LEAST` de três tetos do `INSERT` já sabe fazer o clamp, então a regra existe), e o texto
-do parágrafo passando a apontar para esse botão. Escolher prazo mais curto no ato da concessão é
-independente, e é decisão de produto (ver Perguntas 2).
+#### A3 (ALTO 4) Não existe inventário do que ele concedeu
 
-### ALTO 7. Adicionar alguém a um grupo é o ato que concede, e é o único do ciclo que não avisa nem relata
+Intacto. A única superfície de concessão é o modal de UM recurso: para revogar algo, o credenciado
+precisa LEMBRAR qual recurso concedeu, achá-lo no catálogo, abrir o modal e procurar a linha.
+`backend/src/modules/resource-access/resource-access.routes.js` tem `GET /:type/:id/grants`,
+`POST /:type/:id/grants` e `DELETE /grants/:grantId`, e nada por ator.
+`frontend/src/js/store/sync/api-client.js` tem `grantResource` e `revokeResourceGrant`, e nenhum
+"listar as minhas". E ele não tem a aba de Auditoria: `adminAudience` lhe dá só `groups`, o que é
+decisão registrada.
 
-**O que acontece hoje.** Na aba Grupos, apagar o grupo e remover um membro têm confirmação com o alcance
-(`groupDeletionWarning`, `memberRemovalWarning`) e toast com o número do servidor (`groupDeletionSummary`,
-`memberRemovalSummary`). Adicionar não tem nada: `_addMember` (`frontend/src/js/admin/groups-tab.js`) diz
-apenas "Fulano entrou no grupo." A tabela de grupos mostra uma coluna "Recursos" com a CONTAGEM de recursos
-privados a que o grupo dá acesso, mas nunca quais, e o texto do sucesso não a menciona.
+**Por que continua alto.** O papel é definido por conceder, e o produto não tem a tela do meio. Some a
+revisão periódica, que é a higiene natural de quem distribui acesso com prazo, e some a resposta a
+"por que Fulano vê isto?" pelo lado de quem concedeu.
 
-**Por que é ruim.** Do ponto de vista do eixo de acesso, pôr alguém num grupo que já recebeu sete recursos
-privados é conceder sete acessos de uma vez, sem passar pelo gate de repasse e sem linha nova em
-`resource_grants` (é a delegação que `granteeGroupOwnerLabel` existe para tornar visível do outro lado). A
-simetria está invertida: o ato que TIRA acesso é o cuidadoso, e o que DÁ é o mudo.
+**Correção.** Uma segunda aba na página que ele já abre ("Grupos" viraria "Acesso", com "Grupos" e
+"Concessões"), sobre uma rota nova de listagem por `granted_by`, com recurso, beneficiário, nível e
+vencimento. Como efeito colateral, a tela onde ele revoga passa a ser, por construção, a das
+concessões que ele pode revogar, o que é a mesma propriedade que o gate de botão hoje só simula.
 
-**Arquivo e símbolo.** `frontend/src/js/admin/groups-tab.js` · `_addMember` (comparar com `_removeMember` e
-`_delete`); `frontend/src/js/admin/group-phrases.js` · `memberRemovalWarning`, `groupDeletionWarning`.
+#### A4 (ALTO 6) Não dá para escolher o prazo, e o próprio texto manda renovar de um jeito impossível
 
-**Correção proposta.** O toast de sucesso passa a relatar o alcance, com o `grant_count` e o
-`atlas_share_count` que a listagem já traz: "Fulano entrou no grupo e passa a enxergar 7 recursos privados e
-2 atlas". Sem confirmação prévia, porque adicionar é reversível e confirmar tudo treina a ignorar; o relato
-depois basta.
+Intacto nas três pontas. O parágrafo fixo de `_renderAddSection`
+(`frontend/src/js/catalog/resource-share.modal.js`) manda conceder de novo antes da data. Só que não
+há campo de prazo (varredura por `expiresAt` no arquivo inteiro: zero, embora `apiClient.grantResource`
+aceite o corpo que quiserem lhe dar), e conceder de novo é impossível pelos dois lados: `alreadyGranted`
+(`frontend/src/js/catalog/grant-tree.js`) tira da busca e do seletor de grupo quem já tem concessão
+viva, e o servidor devolve 409 na segunda concessão do mesmo par. Renovar exige revogar antes, e
+revogar poda a subárvore, que não volta.
 
-### MÉDIO 1. A UI não distingue POR QUE ele vê um recurso
+**Correção.** Um botão de estender na linha da concessão viva, empurrando `expires_at` pelo teto do
+pai (o `LEAST` de três tetos do `INSERT` já sabe fazer o clamp, então a regra existe do lado do
+servidor), e o parágrafo passando a apontar para ele. Escolher prazo mais curto no ato é independente,
+e é decisão de produto (Pergunta 2).
 
-O selo "Privado" do cartão (`frontend/src/js/catalog/components/catalog-card.js` · `createCatalogCard`) e o
-do seletor de camada base (`frontend/src/js/base-layer-selector/base-layer-selector.control.js` ·
-`_createLayerOption`) cobrem TRÊS origens: papel global, concessão pessoal e empréstimo do atlas em foco. O
-próprio código sabe disso e escreve por extenso em `lendingScopeNote`
-(`frontend/src/js/catalog/visibility-phrases.js`): "só a terceira SOME sozinha quando a pessoa troca de
-atlas". Pior, o `title` do selo diz "só quem recebeu acesso enxerga este item", frase que é FALSA para o
-único perfil que vê tudo sem ter recebido nada.
+#### A5 (ALTO 7) Adicionar alguém a um grupo é o ato que concede, e é o único do ciclo que não avisa nem relata
 
-O payload de `/resource-access/visible` não carrega procedência: `listVisibleResources`
-(`backend/src/modules/resource-access/resource-access.service.js`) devolve os cinco grupos de ids mais
-`shareable`, e o cliente indexa dois conjuntos (`_privados`, `_repassaveis`) em
-`indexarPayload`.
+Intacto, e a simetria continua invertida. Na aba Grupos, apagar o grupo e remover um membro têm
+confirmação com o alcance (`groupDeletionWarning`, `memberRemovalWarning`) e toast com o número do
+SERVIDOR (`groupDeletionSummary`, `memberRemovalSummary`); `_removeMember`
+(`frontend/src/js/admin/groups-tab.js`) foi reconferido linha a linha e faz as duas coisas. `_addMember`,
+no mesmo arquivo, diz apenas que a pessoa entrou no grupo (ou que já estava, quando o servidor
+responde idempotente). A tabela mostra uma coluna "Recursos" com a CONTAGEM de recursos privados que o
+grupo alcança, e o texto de sucesso não a menciona.
 
-Correção: no mínimo, trocar o `title` por algo verdadeiro para os três casos ("Recurso privado: não aparece
-no catálogo de quem não tem acesso a ele"). Idealmente, o servidor devolver a origem por id e o selo virar
-três: "por papel", "concedido a você" e "emprestado por este atlas", sendo o terceiro o único que some ao
-trocar de atlas. Isso responde a pergunta que este perfil faz o tempo todo, que é "o meu colega vê isto?".
+Do ponto de vista do eixo de acesso, pôr alguém num grupo que já recebeu sete recursos privados é
+conceder sete acessos de uma vez, sem passar pelo gate de repasse e sem linha nova em
+`resource_grants`. É exatamente a delegação que `granteeGroupOwnerLabel` existe para tornar visível do
+outro lado da tela.
 
-### MÉDIO 2. As telas dele são as mais cheias do produto, e não há como filtrar
+**Correção.** O toast de sucesso relata o alcance, com o `grant_count` e o `atlas_share_count` que a
+listagem já traz. Sem confirmação prévia, porque adicionar é reversível e confirmar tudo treina a
+ignorar; o relato depois basta.
 
-O catálogo filtra só por TIPO (`frontend/src/js/catalog/catalog.modal.js` · `_applyFilters`,
-`_computeFilterCounts`, e `components/catalog-filters.js`). O credenciado enxerga o acervo privado inteiro do
-sistema, de todas as OMs, somado ao público. Não há filtro por privacidade, por OM dona nem por produtor, e o
-cartão nem mostra a OM. Correção: um filtro "Privado / Público" (barato, o dado já está em
-`isPrivateResource`), e, se o item 1 acima for feito, um por origem.
+### MÉDIO
 
-### MÉDIO 3. Na busca de pessoas do modal, "ninguém encontrado" e "a rede caiu" são a mesma tela em branco
+#### M1 (MÉDIO 1) A UI não distingue POR QUE ele vê um recurso
 
-`_renderResultsInto` (`frontend/src/js/catalog/resource-share.modal.js`) faz
-`container.innerHTML = results.length ? this._renderResults(results) : ''`, o que torna o ramo
-`'Nenhum usuário encontrado'` de `_renderResults` **inalcançável**: o painel é revelado com string vazia. E
-`_runSearch` trata falha de rede com exatamente o mesmo par de chamadas. Resultado: uma caixa branca para as
-duas causas. Correção: renderizar o vazio (o texto já existe) e um estado de erro distinto, como o que a
-listagem de grupos já tem (`groupsLoadFailureNotice`).
+Intacto. O selo "Privado" do cartão (`frontend/src/js/catalog/components/catalog-card.js` ·
+`createCatalogCard`) e o do seletor de camada base
+(`frontend/src/js/base-layer-selector/base-layer-selector.control.js` · `_createLayerOption`) cobrem
+TRÊS origens: papel global, concessão pessoal e empréstimo do atlas em foco. O próprio código sabe
+disso e o escreve em `lendingScopeNote` (`frontend/src/js/catalog/visibility-phrases.js`): só a
+terceira some sozinha quando a pessoa troca de atlas.
 
-### MÉDIO 4. As telas de recusa do modal falam com o beneficiário errado, e o 404 não tem ramo
+O `title` do selo continua sendo, literalmente, "Recurso privado: só quem recebeu acesso enxerga este
+item", frase **falsa para o único perfil que vê tudo sem ter recebido nada**.
 
-`_renderDenied` mostra "Você recebeu este recurso apenas para ver." Para o credenciado essa frase é falsa em
-todas as palavras: ele não recebeu nada. E o 404 (recurso apagado por outra sessão) cai no `_renderError`
-genérico, com um "Tentar novamente" que nunca vai resolver. Correção: mensagem por status, e sem retry no
-404.
+O payload não carrega procedência: `listVisiblePrivateResources`
+(`backend/src/modules/resource-access/resource-access.service.js`) devolve os grupos de ids mais
+`shareable`, e o cliente indexa dois conjuntos em `indexarPayload`.
 
-### MÉDIO 5. Na aba Grupos, carregando e falha são visualmente idênticos, e não há retry
+**Correção.** No mínimo, um `title` verdadeiro nos três casos. Idealmente, o servidor devolvendo a
+origem por id e o selo virando três (por papel, concedido a você, emprestado por este atlas), sendo o
+terceiro o único que some ao trocar de atlas.
 
-`_renderList`, `_renderParticipating` e `_renderMembers` (`frontend/src/js/admin/groups-tab.js`) usam o mesmo
-`<p class="admin-users__status">` para "Carregando grupos…" e "Falha ao carregar os grupos.": mesma classe,
-mesmo cinza, sem `role="alert"`, sem botão de nova tentativa. A única recuperação é recarregar a página.
-Ironia útil: a frase certa existe, em `groupsLoadFailureNotice` (`frontend/src/js/admin/group-phrases.js`,
-"Isto é falha ao consultar o servidor, não ausência de grupos"), e quem a usa é o modal de recurso, não a
-aba. Correção: importá-la ali e acrescentar "Tentar de novo".
+#### M2 (ALTO 5) "Transfira a posse" é oferecida por escrito e não existe em lugar nenhum
 
-Do mesmo lote: nenhum `catch` da aba re-renderiza a lista, então um 404 de linha morta (grupo apagado noutra
-sessão) deixa a tela mostrando a linha com botões que vão falhar de novo.
+**Rebaixado de ALTO, e a justificativa é o que ele NÃO causa:** nenhum dado se perde, nenhum acesso
+vaza, e a recusa em si está certa. O que sobra é um beco: a pessoa procura um botão que não existe.
 
-### MÉDIO 6. O aviso de remoção de membro cita um alcance velho sem dizer que é velho
+Intacto no código. `groupOwnerCannotLeaveNotice` (`frontend/src/js/admin/group-phrases.js`) manda
+apagar o grupo **ou transferir a posse dele**. Não há UI de transferência em
+`frontend/src/js/admin/groups-tab.js`, e não há rota:
+`backend/src/modules/access-groups/access-groups.routes.js` expõe listagem, participação, criação,
+atualização, exclusão, membros e as duas saídas de membro, e `updateGroupSchema`
+(`backend/src/modules/access-groups/access-groups.schemas.js`) aceita só nome e descrição. Compare com
+atlas, que tem "Tornar dono" em `frontend/src/js/modals/sharing.modal.core.js`.
 
-`_reachForWarning` relê `listAccessGroups()` antes de apagar um grupo, e acrescenta `STALE_COUNTS_NOTICE`
-quando a releitura falha. `_removeMember` não faz nada disso: o `group` vem do fechamento de `_renderTable`, e
-`grant_count`/`atlas_share_count` são a foto do momento em que a aba montou (só `member_count` é atualizado,
-em `_renderMembers`). Os dois atos são igualmente irreversíveis. Correção: chamar `_reachForWarning` também
-em `_removeMember`.
+**O agravante que o rebaixamento não apaga, e que é novo nesta revisão:** a promessa deixou de ser só
+de um texto de tela. A cláusula 4.7, **[vigente]** desde 2026-08-23, também diz que o dono "recebe
+recusa que nomeia os dois caminhos, apagar ou transferir a posse". O estatuto agora promete o que o
+código não tem, e nenhum guarda pega isso: `frontend/tests/unit/constituicao-estado-das-clausulas.test.js`
+verifica o ESTADO declarado da cláusula, nunca se ela é verdade.
 
-### MÉDIO 7. A lista "quem tem acesso" subconta o alcance, e a frase de apoio não conta a metade que mais surpreende
+**Por que ainda é ruim.** Uma recusa que nomeia dois caminhos e entrega um manda a pessoa procurar um
+botão inexistente, e o caminho que sobra é destrutivo (apagar o grupo poda as concessões dele), então
+a recusa empurra para o ato irreversível.
 
-A frase de `_renderGrantsSection` nomeia três origens que não aparecem na lista (administradores,
-credenciados e produtores da OM dona). Faltam duas, e são as que mudam a decisão de quem concede:
+**Correção.** Duas saídas, e a escolha é do dono. Implementar a transferência (a coluna `owner_id` já
+existe e a autoridade já mora nela), ou trocar o texto por "Apague o grupo" enquanto ela não existir. A
+segunda é de uma linha, fecha a mentira hoje, e exige mexer também na cláusula 4.7.
 
-- **o empréstimo por atlas.** `LIST_GRANTS_FOR_RESOURCE` lê só `resource_grants`, e o braço D4 de
-  `fn_granted_resource_ids` (`backend/src/database/migrations/008_acesso_a_recurso.sql`) entrega o recurso a
-  quem abre um atlas cujo DONO o enxerga. Ninguém desses aparece na lista;
+#### M3 (MÉDIO 7) A lista "quem tem acesso" subconta o alcance, e a frase de apoio para na metade
+
+Intacto, texto conferido palavra a palavra. A frase de `_renderGrantsSection`
+(`frontend/src/js/catalog/resource-share.modal.js`) nomeia três origens que não aparecem na lista:
+administradores, credenciados e produtores da OM dona. Faltam duas, e são as que mudam a decisão de
+quem concede:
+
+- **o empréstimo por atlas.** `LIST_GRANTS_FOR_RESOURCE`
+  (`backend/src/modules/resource-access/resource-access.queries.js`) lê só `resource_grants`, enquanto
+  `fn_granted_resource_ids` entrega o recurso a quem abre um atlas cujo dono o enxerga. Ninguém desses
+  aparece na lista;
 - **o visitante anônimo de link público**, que herda o empréstimo pela cláusula 6.3.
 
-Ou seja: a tela pode dizer "3 pessoas têm acesso" enquanto um atlas público empresta o recurso para qualquer
-um com o link. Quem revoga a única linha da lista acha que fechou o acesso e não fechou.
+Ou seja: a tela pode dizer que três pessoas têm acesso enquanto um atlas público empresta o recurso
+para qualquer um com o link. Quem revoga a única linha da lista acha que fechou o acesso e não fechou.
 
-Existe texto certo em outro lugar do produto: `lendingScopeNote` e `lendingRemovalWarning`
-(`frontend/src/js/catalog/visibility-phrases.js`) explicam o empréstimo com precisão, mas moram na aba de
-configuração do atlas, que é a tela de quem empresta, não a de quem concede. Correção: acrescentar o
-empréstimo à frase de apoio da lista, e, se houver dado, uma linha "emprestado por N atlas" (o servidor já
-sabe resolver isso: `atlasesLendingResource`, usado para acordar as salas na revogação).
+O texto certo existe em outro lugar do produto (`lendingScopeNote` e `lendingRemovalWarning`,
+`frontend/src/js/catalog/visibility-phrases.js`), mas mora na aba de configuração do atlas, que é a
+tela de quem empresta, não a de quem concede. O servidor sabe resolver a contagem:
+`atlasesLendingResource` (`backend/src/modules/resource-access/resource-access.service.js`) já existe,
+usado para acordar as salas na revogação.
 
-### MÉDIO 8. O toast de revogação afirma um fim que os bytes do 3D ainda não têm
+#### M4 (MÉDIO 2) As telas dele são as mais cheias do produto, e não há como filtrar
 
-`_handleRevoke` diz "Acesso removido" assim que a rota volta. Para o 3D, os bytes continuam saindo por até 30
-segundos: `backend/src/modules/nomes/assets3d-acesso.js` memoiza a decisão de acesso (`TTL_MS`), e
-`gateDeAsset3d` serve do memo. Some-se a isso a cláusula 10.3, que registra que a revogação não é empurrada
-em tempo real para quem não está numa sala que empresta. O texto não precisa virar um tratado; basta não
-afirmar instantaneidade que o sistema não entrega, por exemplo "Acesso removido. Quem estiver com o recurso
-aberto pode continuar vendo até recarregar."
+Intacto. O catálogo filtra só por TIPO (`frontend/src/js/catalog/catalog.modal.js` · `_applyFilters`,
+`_computeFilterCounts`, e `frontend/src/js/catalog/components/catalog-filters.js`). O credenciado
+enxerga o acervo privado inteiro do sistema, de todas as OMs, somado ao público. Não há filtro por
+privacidade, por OM dona nem por produtor, e o cartão nem mostra a OM. Correção: um filtro de privado
+contra público, que é barato porque o dado já está em `isPrivateResource`, e um por origem se M1 for
+feito.
 
-### BAIXO 1. O escudo diz "administração" onde o rótulo foi escrito para não dizer
+#### M5 (MÉDIO 3) Na busca de pessoas do modal, "ninguém encontrado" e "a rede caiu" são a mesma tela em branco
 
-`SHIELD_ICON` (`frontend/src/js/admin/admin-panel.js`, usado incondicionalmente em `_buildHeader`) aparece ao
-lado do título "Grupos". `mountAdminPage` (`frontend/src/js/admin/index.js`) usa
-`title: label ?? 'Administração'` como fallback, e `account.control.js` cria o botão com o texto
-'Administração' antes de `_updateAdminVisibility` reescrevê-lo, então o rótulo errado existe no DOM por um
-instante. Somado a isso, a página monta uma nav rail vertical com um item só. Todo o cuidado do
-`fileoverview` de `admin-audience.js` ("o rótulo nomeia o que a pessoa recebe, nunca a página") é desfeito
-pela moldura.
+Intacto, e conferido nas duas pontas. `_renderResultsInto`
+(`frontend/src/js/catalog/resource-share.modal.js`) faz
+`container.innerHTML = results.length ? this._renderResults(results) : ''`, o que torna o ramo
+"Nenhum usuário encontrado" de `_renderResults` **inalcançável**: o painel é revelado com string
+vazia. E o `catch` de `_runSearch` chama exatamente o mesmo par (`_renderResultsInto([])` seguido de
+`_setResultsHidden(false)`). Resultado: uma caixa branca para as duas causas. Correção: renderizar o
+vazio (o texto já existe) e um estado de erro distinto, como o que a listagem de grupos tem em
+`groupsLoadFailureNotice`.
 
-### BAIXO 2. Bordas da aba Grupos
+#### M6 (MÉDIO 4) As telas de recusa do modal falam com o beneficiário errado, e o 404 não tem ramo
 
-Três, todas em `frontend/src/js/admin/groups-tab.js`: o ramo `LEAVE_AVAILABILITY.INDETERMINADO` de
-`_renderParticipating` renderiza uma div de ações vazia (o ramo `DONO` recebeu o cuidado, este não); a recusa
-ao dono (`groupOwnerCannotLeaveNotice`) só existe em `title`, invisível no toque, com "Você é o dono" como
-único texto visível; e a coluna "Dono" de `_renderTable` é 100% redundante para quem não é administrador (o
-comentário do código admite que ela existe para o administrador).
+Intacto. `_renderDenied` mostra "Você recebeu este recurso apenas para ver". Para o credenciado a
+frase é falsa em todas as palavras: ele não recebeu nada. E o 404 (recurso apagado por outra sessão)
+cai no `_renderError` genérico, com um "Tentar novamente" que nunca vai resolver. Correção: mensagem
+por status, e sem nova tentativa no 404.
 
-### BAIXO 3. Fora do alcance deste perfil, mas anotado
+#### M7 (MÉDIO 5) Na aba Grupos, carregando e falha são visualmente idênticos, e não há nova tentativa
 
-`users-tab.js` monta o chip de papel com `ROLE_CHIP[u.role]?.rotulo ?? 'Usuário'`, o que contradiz a política
-escrita em `frontend/src/js/ui/role-labels.js` ("falling back to 'Usuário' would be the silent demotion"). Um
-quinto papel emitido pelo servidor apareceria como "Usuário" na tabela do administrador. O credenciado não
-abre essa aba, então isto não o afeta; fica registrado porque é o mesmo eixo.
+Intacto. `_renderList`, `_renderParticipating` e `_renderMembers`
+(`frontend/src/js/admin/groups-tab.js`) usam o mesmo `<p class="admin-users__status">` para
+"Carregando grupos…" e para "Falha ao carregar os grupos.": mesma classe, mesmo cinza, sem
+`role="alert"`, sem botão. A única recuperação é recarregar a página. A frase certa existe, em
+`groupsLoadFailureNotice` (`frontend/src/js/admin/group-phrases.js`), e quem a usa é o modal de
+recurso, não a aba. Correção: importá-la ali e acrescentar a nova tentativa.
+
+Do mesmo lote: nenhum `catch` da aba re-renderiza a lista, então um 404 de linha morta (grupo apagado
+noutra sessão) deixa a tela mostrando a linha com botões que vão falhar de novo.
+
+#### M8 (MÉDIO 6) O aviso de remoção de membro cita um alcance velho sem dizer que é velho
+
+Intacto. `_reachForWarning` (`frontend/src/js/admin/groups-tab.js`) relê a listagem de gestão antes de
+apagar um grupo, e acrescenta a nota de números defasados quando a releitura falha. `_removeMember`
+não faz nada disso: o grupo vem do fechamento de `_renderTable`, e `grant_count` e `atlas_share_count`
+são a foto do momento em que a aba montou (só `member_count` é atualizado, em `_renderMembers`). Os
+dois atos são igualmente irreversíveis. Correção: chamar `_reachForWarning` também em `_removeMember`.
+
+#### M9 (MÉDIO 8) O toast de revogação afirma um fim que os bytes do 3D ainda não têm
+
+Intacto. `_handleRevoke` (`frontend/src/js/catalog/resource-share.modal.js`) declara o acesso removido
+assim que a rota volta. Para o 3D, os bytes continuam saindo por até 30 segundos:
+`backend/src/modules/nomes/assets3d-acesso.js` memoiza a decisão de acesso por `TTL_MS`, e
+`gateDeAsset3d` serve do memo. Some-se a isso a cláusula 10.3, que registra que a revogação não é
+empurrada em tempo real para quem não está numa sala que empresta. O texto não precisa virar tratado;
+basta não afirmar uma instantaneidade que o sistema não entrega.
+
+### BAIXO
+
+#### B1 (BAIXO 1) O escudo diz "administração" onde o rótulo foi escrito para não dizer
+
+Intacto. `SHIELD_ICON` (`frontend/src/js/admin/admin-panel.js`, usado incondicionalmente em
+`_buildHeader`) aparece ao lado do título "Grupos". `mountAdminPage`
+(`frontend/src/js/admin/index.js`) usa "Administração" como fallback do rótulo, e
+`frontend/src/js/account/account.control.js` cria o botão com o texto "Administração" antes de
+`_updateAdminVisibility` reescrevê-lo, então o rótulo errado existe no DOM por um instante. Somado a
+isso, a página monta uma barra de navegação vertical com um item só. Todo o cuidado do `fileoverview`
+de `frontend/src/js/admin/admin-audience.js` é desfeito pela moldura.
+
+#### B2 (BAIXO 2) Bordas da aba Grupos
+
+Três, todas em `frontend/src/js/admin/groups-tab.js`, e as três reconferidas:
+
+1. `leaveGroupAvailability` tem três desfechos e `_renderParticipating` desenha dois. No ramo
+   `LEAVE_AVAILABILITY.INDETERMINADO` (sessão não lida) a div de ações fica **vazia**: o ramo `DONO`
+   recebeu a nota que o `fileoverview` de `group-phrases.js` chama de padrão da casa, e este não.
+2. A recusa ao dono só existe em `title`. O texto visível é "Você é o dono", e a explicação (os dois
+   caminhos, um dos quais é o M2) é invisível no toque.
+3. A coluna "Dono" de `_renderTable` é redundante para quem não é administrador, e o comentário do
+   próprio código admite que ela existe para o administrador.
+
+#### B3 (BAIXO 3) Fora do alcance deste perfil, mas anotado
+
+`frontend/src/js/admin/users-tab.js` monta o chip de papel com um fallback literal para "Usuário", o
+que contradiz a política escrita em `frontend/src/js/ui/role-labels.js`, cujo `fileoverview` chama
+exatamente isso de "a despromoção silenciosa". Um quinto papel emitido pelo servidor apareceria como
+"Usuário" na tabela do administrador. O credenciado não abre essa aba; fica registrado porque é o
+mesmo eixo, e pertence ao relatório do administrador.
 
 ---
 
 ## 4. O que está BOM e não deve ser mexido
 
-1. **`adminAudience` como definição única da porta.** Uma função pura, sem imports, consumida por seis
-   sítios, com a decisão do credenciado escrita no `fileoverview`. Ela é a razão de o rótulo não divergir por
-   tela e de as abas serem recortadas no cliente em vez de darem 403 na montagem ("403 na montagem é a pior
-   forma de dizer não"). O único reparo que eu faria é de legibilidade, não de comportamento (ver Perguntas
-   6).
-2. **O selo de papel com a frase.** `globalRoleBadge` e `GLOBAL_ROLE_DESCRIPTIONS`
-   (`frontend/src/js/ui/role-labels.js`), replicados no menu de conta do mapa, na barra de `atlas.html` e
-   `admin.html`, e em "Minha conta". A frase do credenciado ("Enxerga todo recurso privado do acervo e pode
-   conceder acesso a ele, sem editá-lo") é exata e é a única coisa no produto que lhe ensina o papel. O
-   tratamento do papel desconhecido (mostrar o valor cru e dizer que não sabe descrevê-lo) é o padrão certo.
-3. **O texto do prazo.** O parágrafo de `_renderAddSection` e o chip `expira em DD/MM/AAAA` com o `title`
-   "Depois desta data o acesso deixa de valer sozinho, sem aviso". É a única defesa contra um sumiço que não
-   emite evento nenhum, e o `fileoverview` de `expiryLabel` diz exatamente por quê.
-4. **O relato da cascata, dos dois lados do clique.** O chip `+N dependente(s)` na linha, o
-   `revocationWarning` que conta e NOMEIA até três, e o toast pós-ato que usa o número do SERVIDOR e inclui
-   as MANTIDAS (`reparented` + `trimmed`) para que a poda parcial não pareça incompleta. É o melhor
+Esta seção não é cortesia. Cada item é uma decisão que custou caro e que uma "simplificação" futura
+desfaria. Os 13 itens originais foram reconferidos contra o código nesta revisão; **dois citavam
+símbolo que não existe** e estão corrigidos abaixo, e um item novo entrou.
+
+1. **`adminAudience` como definição única da porta.** Função pura, sem imports, com a decisão do
+   credenciado escrita no `fileoverview`. **Reconferido:** são SEIS chamadores
+   (`frontend/src/js/account/account.control.js`, `frontend/src/js/admin/admin-page.js`,
+   `frontend/src/js/admin/index.js`, `frontend/src/js/catalog/resource-share.modal.js`,
+   `frontend/src/js/modals/sharing.modal.core.js`, `frontend/src/js/projects/projects-page.js`), e é
+   por isso que o rótulo não diverge por tela. Recortar as abas no cliente em vez de deixar o servidor
+   responder 403 na montagem é a decisão certa.
+2. **O selo de papel com a frase.** `globalRoleBadge`, `GLOBAL_ROLE_DESCRIPTIONS` e
+   `getGlobalRoleDescription` (`frontend/src/js/ui/role-labels.js`, zero imports por contrato),
+   replicados no menu de conta do mapa (`_updateRoleBadge`), na barra de `atlas.html` e `admin.html`
+   (`buildRoleBadge`) e em "Minha conta". A frase do credenciado é exata e é a única coisa no produto
+   que lhe ensina o papel. **Correção de símbolo:** a leitura em "Minha conta" está em
+   `_renderProfileSection` (`frontend/src/js/modals/account-settings.modal.js`), e o símbolo
+   _buildIdentitySection que a versão anterior citava **não existe**. O tratamento do papel
+   desconhecido (mostrar o valor cru e dizer que não sabe descrevê-lo) é o padrão certo, e
+   `frontend/tests/unit/papel-global-rotulos.test.js` compara as duas fontes de rótulo.
+3. **O texto do prazo.** O parágrafo de `_renderAddSection` e o chip de vencimento, cujo `title` diz
+   que depois da data o acesso deixa de valer sozinho, sem aviso. É a única defesa contra um sumiço
+   que não emite evento nenhum, e o `fileoverview` de `expiryLabel` diz exatamente por quê. *(O que
+   falta não é o texto: é ele alcançar quem recebeu, que é o A2.)*
+4. **O relato da cascata, dos dois lados do clique.** O chip de dependentes na linha, o
+   `revocationWarning` que conta e NOMEIA até três, e o toast pós-ato que usa o número do SERVIDOR e
+   inclui as MANTIDAS (`reparented` e `trimmed`) para que a poda parcial não pareça incompleta. O
+   `fileoverview` de `fallenGrants` declara a direção do erro (superestimar) e por quê. É o melhor
    tratamento de ato destrutivo do produto.
-5. **A frase que diz quem NÃO aparece na lista.** "Administradores, credenciados e produtores da OM dona
-   enxergam este recurso por papel, sem concessão, e não aparecem nesta lista." Resolve, num lugar, a dúvida
-   estrutural de uma lista que é necessariamente parcial.
-6. **`granteeGroupOwnerLabel`.** Nomear o dono do grupo beneficiário torna visível a única transferência de
-   autoridade do sistema que não gera linha em `resource_grants`. O raciocínio está escrito no `fileoverview`
-   e vale manter.
+5. **A frase que diz quem NÃO aparece na lista.** Resolve, num lugar, a dúvida estrutural de uma lista
+   necessariamente parcial. *(Ela está certa no que diz; o M3 é sobre o que ela ainda não diz.)*
+6. **`granteeGroupOwnerLabel`.** Nomear o dono do grupo beneficiário torna visível a única
+   transferência de autoridade do sistema que não gera linha em `resource_grants`. O raciocínio está
+   no `fileoverview`, e a consulta do servidor o repete.
 7. **Criar grupo sem sair do fluxo de concessão** (`_renderGroupCreate`, um campo só), com
    `newGroupEmptyHint` avisando que grupo novo nasce vazio.
-8. **A separação "Meus grupos" / "Grupos de que participo"**, com `participatingReachUnknownNotice` dizendo
-   que a ausência do número não significa zero. É honestidade sobre o que a tela não sabe, que é raro.
-9. **O eixo de recurso e o eixo de grupo separados no cliente**, com `hasGlobalDataAccess` tendo um consumidor
-   só e o JSDoc dizendo qual, para que a próxima varredura não o pode como morto.
-10. **Esconder em vez de desabilitar.** O campo "Acesso (visibilidade)" de `catalog-tab.js` e o botão
-    "Compartilhar" do cartão seguem a mesma doutrina, e ela está escrita.
-11. **`calibracao.html` e as duas entradas de menu que a espelham.** O credenciado não vê a porta que não
-    pode abrir, e o espelho é por chamada da mesma função, não por cópia do predicado.
-12. **`canShareResource` cobre o buraco que o payload deixa, e o código diz por quê.** `LIST_SHAREABLE_OF_ACTOR`
-    (`backend/src/modules/resource-access/resource-access.queries.js`) lê só `resource_grants` de nível
-    `view_share` e a produção, então `shareable` chega **vazio** para o credenciado, que mesmo assim pode
-    conceder tudo. Quem soma o papel é o cliente, por `hasGlobalDataAccess()`, e o comentário do servidor
-    aponta para isso nominalmente. Uma UI que decidisse o botão só por `shareable` deixaria o credenciado com
-    a capacidade e sem porta; a que existe acerta. Não fundir os dois.
-13. **A ausência da classe de promoção silenciosa.** Não há um `role !== 'user'` no cliente inteiro, e o
-    censo `backend/tests/unit/papel-global-censo.test.js` reprova sítio de papel global não classificado no
-    servidor. Se algo deve ser preservado por regressão, é isto.
+8. **A separação "Meus grupos" e "Grupos de que participo"**, com `participatingReachUnknownNotice`
+   dizendo que a ausência do número não significa zero. É honestidade sobre o que a tela não sabe.
+9. **O eixo de recurso e o eixo de grupo separados no cliente**, com `hasGlobalDataAccess` tendo um
+   consumidor só e o JSDoc dizendo qual, para que a próxima varredura não o pode como morto.
+   **Reconferido:** a varredura por `hasGlobalDataAccess` em `frontend/src/js/` devolve quatro
+   ocorrências, das quais uma é a definição, duas são comentário e uma é a chamada.
+10. **Esconder em vez de desabilitar.** O campo "Acesso (visibilidade)" de
+    `frontend/src/js/admin/catalog-tab.js` (gateado por `canProduceFor`, que o próprio comentário
+    declara espelho exato do servidor) e o botão "Compartilhar" do cartão seguem a mesma doutrina, e
+    ela está escrita.
+11. **`calibracao.html` e as duas entradas de menu que a espelham.** O credenciado não vê a porta que
+    não pode abrir, e o espelho é por chamada da mesma função, não por cópia do predicado.
+12. **`canShareResource` cobre o buraco que o payload deixa, e o código diz por quê.**
+    `LIST_SHAREABLE_OF_ACTOR` (`backend/src/modules/resource-access/resource-access.queries.js`) lê só
+    `resource_grants` de nível `view_share` e a produção, então `shareable` chega **vazio** para o
+    credenciado, que mesmo assim pode conceder tudo. Quem soma o papel é o cliente, por
+    `hasGlobalDataAccess()`. Uma UI que decidisse o botão só por `shareable` deixaria o credenciado com
+    a capacidade e sem porta. **Correção de símbolo:** quem monta o payload é
+    `listVisiblePrivateResources`, e não o listVisibleResources que a versão anterior citava, que
+    **não existe**.
+13. **A ausência da classe de promoção silenciosa, e agora com rede nos dois eixos.** No eixo GLOBAL,
+    `backend/tests/unit/papel-global-censo.test.js` reprova sítio não classificado. **Mudou para
+    melhor desde a auditoria:** o eixo POR ATLAS, que a constituição declarava sem censo nenhum,
+    ganhou um nos DOIS pacotes (`frontend/tests/unit/permissao-de-atlas-censo.test.js` e
+    `backend/tests/unit/permissao-de-atlas-censo.test.js`). Isso importa para este perfil porque é o
+    eixo em que ele entra como conta comum, e é onde uma lista fechada o excluiria por engano.
+14. **NOVO: o gate de revogação, e o teste que prende a fiação.** `revokeAvailability`,
+    `REVOKE_AVAILABILITY` e `revokeBlockedNotice` (`frontend/src/js/catalog/grant-tree.js`) espelham
+    `GRANT_REVOKER_ACTOR` em função pura, e o `fileoverview` declara três propriedades que uma revisão
+    futura pode desfazer sem perceber: **não é lista fechada de papel** (o ramo largo pergunta por
+    administração do sistema e o estreito por AUTORIA, então papel novo entra por `granted_by` sem que
+    ninguém edite a função), **`granted_by` nulo FECHA** reproduzindo o `= $2::uuid` do servidor, e
+    **`isAdmin` é comparado com `true` estrito**. `frontend/tests/unit/revogar-concessao-quem-pode.test.js`
+    cobre o par de nulos que tornaria a concessão da administração revogável por visitante sem sessão,
+    e vai além da função pura: lê o texto de `frontend/src/js/catalog/resource-share.modal.js` e exige
+    que o botão nasça dentro do ramo permitido, que a nota ocupe o outro, e que a LINHA nunca seja
+    filtrada (ver quem tem acesso é o ponto daquela lista).
 
 ---
 
 ## 5. Perguntas em aberto, que só o dono decide
 
-1. **Quem revoga?** A constituição (3.5) descreve o efeito e não o sujeito; `CLAUDE.md` diz "concede/revoga";
-   o servidor deixa o credenciado revogar só o que ele originou. As duas saídas para o CRÍTICO 1 são
-   opostas: ou a UI passa a esconder o botão nas linhas alheias, ou o servidor devolve o credenciado ao ramo
-   curinga (o que a fase F9 tirou de propósito). Recomendo a primeira, e que a cláusula 3.5 ganhe a frase que
-   falta, dizendo quem revoga.
-2. **Prazo escolhível?** Hoje toda concessão nasce com o padrão do servidor. Um credenciado que empresta
-   acervo para um exercício de duas semanas não tem como dizer isso. Vale um campo, ou um par de atalhos (30
-   dias / 1 ano)?
-3. **Procedência do acesso.** Fazer `/resource-access/visible` devolver, por id, se o acesso veio de papel,
-   de concessão ou de empréstimo custa uma coluna a mais no payload e resolve o MÉDIO 1 e metade do MÉDIO 2.
-   O contra-argumento é que o cliente hoje não sabe de qual OM é cada item, e passar a saber alarga o que ele
-   precisa manter coerente. Vale o custo?
-4. **Trilha para o credenciado.** Ele não tem aba de Auditoria (decisão registrada), e também não tem
-   inventário do que concedeu (ALTO 4). São dois buracos que se fecham juntos: uma trilha recortada nas
-   concessões que ELE originou não é a trilha do sistema, e responderia às duas perguntas. Fica na porta dele
-   ou não fica?
-5. **Transferência de posse de grupo:** implementar, ou apagar a frase que a promete? A primeira é
-   trabalho de rota mais tela; a segunda é uma linha e para de mentir hoje.
-6. **`adminAudience` decide o credenciado por AUSÊNCIA.** Ela recebe três booleanos e ele chega ao ramo final
-   porque os três falharam. O destino é o certo e está documentado, mas o único freio contra uma futura linha
-   do tipo "tem papel global, então Administração" é a prosa. Aceitar `isCredenciado` na assinatura só para
-   devolver o mesmo resultado tornaria a decisão legível no código, ao preço de um parâmetro que ninguém usa.
-   Vale?
-7. **10.1 e este perfil.** Enquanto os bytes do tile não têm gate e o navegador pede sem credencial, o
-   credenciado é quem mais sente: o papel dele é ler o privado. Aceitar o silêncio atual, ou pagar agora o
-   marcador de "camada indisponível" (ALTO 2), que é útil de qualquer forma depois que 10.1 fechar?
+1. **Quem revoga?** A cláusula 3.5 descreve o efeito e não o sujeito; `CLAUDE.md` diz
+   "concede/revoga"; o servidor deixa o credenciado revogar só o que ele originou. **O cliente já
+   escolheu um lado** (esconder o botão nas linhas alheias), e a escolha está presa por teste. Falta a
+   cláusula 3.5 ganhar a frase que diz quem revoga, e `CLAUDE.md` parar de prometer mais.
+2. **Prazo escolhível?** Hoje toda concessão nasce com o padrão do servidor. Um credenciado que
+   empresta acervo para um exercício de duas semanas não tem como dizer isso. Vale um campo, ou um par
+   de atalhos?
+3. **Procedência do acesso.** Fazer o payload de recursos visíveis devolver, por id, se o acesso veio
+   de papel, de concessão ou de empréstimo custa uma coluna a mais e resolve M1 e metade do M4. O
+   contra-argumento é que o cliente hoje não sabe de qual OM é cada item, e passar a saber alarga o
+   que ele precisa manter coerente.
+4. **Trilha para o credenciado.** Ele não tem aba de Auditoria (decisão registrada) e não tem
+   inventário do que concedeu (A3). São dois buracos que se fecham juntos, e uma rota por ator
+   fecharia também o A2 pelo lado de quem recebe. Fica na porta dele ou não fica?
+5. **Transferência de posse de grupo:** implementar, ou apagar a promessa? A segunda é uma linha na
+   tela **mais uma na cláusula 4.7**, que também a promete.
+6. **`adminAudience` decide o credenciado por AUSÊNCIA.** Ela recebe três booleanos e ele chega ao
+   ramo final porque os três falharam. O destino é o certo e está documentado, mas o único freio contra
+   uma futura linha do tipo "tem papel global, então Administração" é a prosa.
+7. **10.1 e este perfil.** Enquanto os bytes do tile não têm gate, o credenciado é quem mais sente. O
+   lote pagou o marcador de camada indisponível para as camadas de dado, e ele é útil de qualquer
+   forma depois que 10.1 fechar. Estender às três superfícies que sobraram (A1), ou esperar?
+
+---
+
+## 6. Achados que SAÍRAM
+
+Não se apaga o registro: quem ler daqui a três meses precisa saber que aquilo já foi olhado.
+
+- **CRÍTICO 1 (o botão "Remover acesso" em concessões que o credenciado não pode revogar).
+  RESOLVIDO, pelo caminho exato que a auditoria propôs**, inclusive o lugar (`grant-tree.js`, onde a
+  regra fica testável em node) e a doutrina (esconder, não desabilitar, com uma nota que nomeia a quem
+  pedir). Ver o item 14 da seção 4 para o que precisa ser preservado.
+- **D4 (um teste do backend chama de buraco o que a constituição decidiu). RETIRADO: o achado estava
+  errado na origem.** O caso em `backend/tests/integration/papel-credenciado.test.js` abre com
+  "MARCADOR, NÃO ENDOSSO, E JÁ PELA METADE", declara qual metade fechou (revogar deixou de passar pelo
+  papel de dado), e diz que existe para ficar VERMELHO no dia em que um predicado próprio nascer,
+  devolvendo a decisão à mesa em vez de contradizê-la em silêncio. Isso é exatamente o mecanismo que a
+  constituição prescreve para decisão em aberto, e não um rótulo defasado. A objeção de que o
+  predicado citado ali não existe também não se sustenta: o comentário o propõe no futuro, não afirma
+  que existe. **O que sobra é uma linha de atrito, e ela é de documento contra documento, não de UX:**
+  o TÍTULO do caso continua começando por "BURACO CONHECIDO" enquanto a cláusula 3.3 declara a mesma
+  conduta vigente. Quem for mexer naquele arquivo pode alinhar o título; nada na tela depende disso.
+
+---
+
+## Nota de método
+
+Nenhum arquivo de código foi modificado nesta revisão, nenhum commit foi feito, e o único arquivo
+escrito foi este. As afirmações do servidor foram conferidas nos módulos de acesso a recurso, grupos
+de acesso, autenticação e catálogo de `backend/src/`; as do cliente, lendo os arquivos citados. Onde
+este documento afirma ausência (por exemplo, "nenhum arquivo fora de `frontend/src/js/terrain/` importa
+`frontend/src/js/terrain/data-layer-phrases.js`"), a afirmação vem de varredura sobre a árvore inteira.
+
+Três ressalvas de alcance, para não superdeclarar:
+
+- **Este arquivo não está sob nenhum guarda.** `frontend/tests/unit/docs-integridade.test.js` varre
+  `docs/`, `.claude/` e uma lista de alvos escrita à mão, e a raiz do repositório não é varrida.
+  Caminho e símbolo citados aqui não são verificados por teste nenhum: que estivessem todos certos na
+  conferência de hoje é resultado de leitura, não propriedade mecânica. A conferência à mão desta
+  revisão achou dois símbolos inexistentes na versão anterior, os dois na seção "o que está bom", que
+  é o lugar onde um símbolo morto engana mais, porque a seção existe para dizer o que preservar.
+- **Nenhuma afirmação deste documento foi verificada em tela.** A camada que exercita UI é o
+  Playwright, e ela ficou fora desta revisão; tudo aqui é leitura de código e de teste.
+- **A conferência é uma foto de uma árvore de trabalho LIMPA**, com o lote já em 76dbe93d. Ao
+  contrário da revisão irmã do usuário comum, aqui não há trabalho não commitado de que um achado
+  resolvido dependa.
