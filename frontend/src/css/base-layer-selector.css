@@ -190,6 +190,13 @@
     pointer-events: none;
 }
 
+/* O selo do acesso VOLÁTIL (camada base emprestada pelo atlas em foco). Tracejado pela mesma
+   razão do cartão do catálogo: aqui o rótulo é curto por falta de espaço ("Emprestado"), e o
+   contorno é o segundo canal que separa o temporário do permanente sem depender da leitura. */
+.base-layer-option-badge--lent {
+    border: 1px dashed rgb(255 255 255 / 70%);
+}
+
 /* "Compartilhar" da camada base privada: o análogo do botão do cartão do catálogo, no
    único lugar em que o basemap aparece para o usuário. Sobre a miniatura, e não abaixo do
    nome, para não empurrar a grade de duas colunas. */

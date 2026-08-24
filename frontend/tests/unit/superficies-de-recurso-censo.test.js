@@ -115,12 +115,17 @@ const CENSO = [
             + 'concedido entra por aqui, e o estilo dele viaja numa segunda chave.',
     },
     {
-        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 2,
+        arquivo: 'src/js/baselayers/base-layer.control.js', gatilho: 'catalogo', n: 3,
         classe: BASELINE,
         motivo: 'O seletor de camada base, que resolve o estilo por demanda contra '
             + '`config.basemapStyles`. Montar a tabela de estilos no construtor (como fazia antes da '
             + 'F9) faz o clique num basemap concedido cair silenciosamente noutra camada, porque o '
-            + 'concedido chega DEPOIS do boot.',
+            + 'concedido chega DEPOIS do boot. A TERCEIRA leitura entrou em 2026-08-24 e é de '
+            + 'NOME, não de estilo: quando o basemap pedido não resolve, `switchLayer` acusa a '
+            + 'falha nomeando a camada (`config.basemaps[layer].name`) antes de cair no fallback. '
+            + 'Ela é o oposto de um vazamento: é o que faz a queda silenciosa descrita acima '
+            + 'deixar de ser silenciosa. Nomear é possível AQUI e só aqui, porque quem pediu '
+            + 'ainda está na variável, antes da reatribuição.',
     },
     { arquivo: 'src/js/3d_models_viewer_tool/add_3d_models_viewer_control.js', gatilho: 'catalogo', n: 2, classe: BASELINE, motivo: LE_TILESETS },
     { arquivo: 'src/js/3d_models_viewer_tool/map_3d.js', gatilho: 'catalogo', n: 3, classe: BASELINE, motivo: LE_TILESETS },

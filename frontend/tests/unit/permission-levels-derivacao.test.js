@@ -216,11 +216,11 @@ describe('sharingGroupPickerHint — a dica manda para a porta que ESTA pessoa v
         expect(sharingGroupPickerHint(0, 'Administração'))
             .toBe('Só é possível compartilhar com grupos que você administra. Crie um em Administração.');
         expect(sharingGroupPickerHint(0, 'Catálogo')).toContain('Crie um em Catálogo.');
-        expect(sharingGroupPickerHint(0, 'Grupos')).toContain('Crie um em Grupos.');
+        expect(sharingGroupPickerHint(0, 'Acessos')).toContain('Crie um em Acessos.');
     });
 
     it('DISCRIMINAÇÃO: as três audiências produzem três frases diferentes', () => {
-        const frases = ['Administração', 'Catálogo', 'Grupos'].map((p) => sharingGroupPickerHint(0, p));
+        const frases = ['Administração', 'Catálogo', 'Acessos'].map((p) => sharingGroupPickerHint(0, p));
         expect(new Set(frases).size).toBe(3);
     });
 

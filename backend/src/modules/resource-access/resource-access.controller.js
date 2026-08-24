@@ -47,6 +47,54 @@ export const listGrants = asyncHandler(async (req, res) => {
   res.json({ data });
 });
 
+/**
+ * GET /api/v1/resource-access/grants/issued — o que EU concedi.
+ * GET /api/v1/resource-access/grants/received — o que EU recebi.
+ *
+ * CADA PESSOA VÊ O SEU, e o sujeito vem do TOKEN, nunca da query string: um `?userId=`
+ * transformaria as duas rotas em enumeração do acesso alheio, e o gate teria de ser
+ * inventado depois. Sem parâmetro não há o que gatear além do `auth`.
+ *
+ * `principalUserId` pelo mesmo motivo do payload aditivo: o visitante de link público
+ * carrega um sub sintético que estoura num cast `::uuid`. Aqui, porém, NULO não é um
+ * valor legítimo — ele não tem linha em `users`, logo não concedeu nem recebeu nada —, e
+ * a consulta com `$1` nulo devolve zero linha por construção (`granted_by = NULL` e
+ * `grantee_id = NULL` são NULL, nunca verdadeiro). O envelope vazio é a resposta certa, e
+ * é ela que evita um 500 num caminho que o visitante pode alcançar.
+ *
+ * `marcarEscopoJson` porque o corpo é, por definição, o de UM chamador: sem
+ * `Cache-Control` um cache compartilhado pode guardar por heurística e repor o inventário
+ * de uma pessoa para outra.
+ */
+export const grantsIssued = asyncHandler(async (req, res) => {
+  const grants = await svc.listGrantsIssuedByActor(principalUserId(req.user));
+  marcarEscopoJson(req, res);
+  res.json({ data: { grants } });
+});
+
+export const grantsReceived = asyncHandler(async (req, res) => {
+  const grants = await svc.listGrantsReceivedByActor(principalUserId(req.user));
+  marcarEscopoJson(req, res);
+  res.json({ data: { grants } });
+});
+
+/**
+ * PATCH /api/v1/resource-access/grants/:grantId — estende o prazo.
+ *
+ * A resposta carrega o prazo EFETIVO (pós-clamp), e não o pedido. Ver `extendGrant` no
+ * serviço: é a diferença que permite à tela dizer "pedi 180 dias e o teto do pai cortou
+ * em 20" em vez de afirmar um prazo que o banco não guardou.
+ */
+export const extendGrant = asyncHandler(async (req, res) => {
+  const data = await svc.extendGrant({
+    grantId: req.params.grantId,
+    expiresAt: req.body.expiresAt,
+    actor: req.user,
+    req,
+  });
+  res.json({ data });
+});
+
 export const createGrant = asyncHandler(async (req, res) => {
   const data = await svc.grantResource({
     type: req.params.type,

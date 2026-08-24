@@ -57,6 +57,30 @@ router.get(
 );
 
 /**
+ * GET /api/v1/resource-access/grants/issued   — o que EU concedi.
+ * GET /api/v1/resource-access/grants/received — o que EU recebi.
+ *
+ * AS DUAS PRECEDEM `/:type/:id/grants` NO ARQUIVO, e a ordem é o que as mantém
+ * alcançáveis. Elas têm DOIS segmentos e aquela tem TRÊS, então `/grants/issued` não casa
+ * com `/:type/:id/grants` (o Express casa por número de segmentos), e a colisão que o
+ * comentário do DELETE discute não se repete aqui. Declará-las antes é cinto de segurança
+ * barato: no dia em que alguém escrever uma rota de dois segmentos com `:type` na
+ * primeira posição, o parâmetro engoliria a palavra `grants` e a rota nova roubaria estas
+ * duas em silêncio — o sintoma seria 404 ou, pior, a listagem errada.
+ *
+ * O GATE É `auth` E NADA MAIS, e isso não é gate faltando: o SUJEITO das duas consultas é
+ * o próprio chamador, resolvido do token, e não há parâmetro por onde apontar para
+ * terceiro. O recorte mora na CONSULTA (`granted_by = $1` numa, autoria; beneficiário
+ * direto ou por grupo na outra), que é a mesma escada de `GET /access-groups/`.
+ *
+ * POR QUE ELAS EXISTEM: só havia listagem POR RECURSO, então quem concede precisava
+ * LEMBRAR o que concedeu para revogar, e quem recebeu não tinha como sequer perguntar o
+ * que tem. Autoridade que não se enumera é autoridade que não se desfaz.
+ */
+router.get('/grants/issued', auth, ctrl.grantsIssued);
+router.get('/grants/received', auth, ctrl.grantsReceived);
+
+/**
  * PATCH /api/v1/resource-access/:type/:id/visibility
  *
  * Marcar um recurso como público ou privado é ato de MANUTENÇÃO do acervo, não de
@@ -122,6 +146,31 @@ router.delete(
   validate({ params: schemas.grantIdParamsSchema }),
   requireGrantRevoker,
   ctrl.revokeGrant,
+);
+
+/**
+ * PATCH /api/v1/resource-access/grants/:grantId — estende o prazo de uma concessão viva.
+ *
+ * O GATE É O MESMO DA REVOGAÇÃO, `requireGrantRevoker`, REUSADO e não copiado: quem pode
+ * desfazer uma concessão pode prorrogá-la, e o predicado (administração do sistema, ou
+ * AUTORIA por `granted_by`) já está escrito uma vez. Uma segunda cópia dele divergiria da
+ * primeira no ramo que ninguém olha, e aqui a divergência seria para o lado aberto.
+ *
+ * POR QUE A ROTA EXISTE, e por que "conceder de novo" não resolvia: a segunda concessão
+ * do mesmo par devolve 409, e o único caminho que sobrava era revogar antes — mas revogar
+ * PODA a subárvore, e a poda não volta. Renovar destruía o acesso de terceiros que a
+ * renovação existia para preservar.
+ *
+ * NÃO EXISTE PATCH QUE ENCURTE. Mover a data para trás deixaria toda a subárvore vencendo
+ * DEPOIS do pai, e manter a invariante exigiria descer o aparo por ela — a escrita que o
+ * repai da poda já paga. Quem quer tirar acesso revoga.
+ */
+router.patch(
+  '/grants/:grantId',
+  auth,
+  validate({ params: schemas.grantIdParamsSchema, body: schemas.extendGrantSchema }),
+  requireGrantRevoker,
+  ctrl.extendGrant,
 );
 
 export { router as resourceAccessRoutes };

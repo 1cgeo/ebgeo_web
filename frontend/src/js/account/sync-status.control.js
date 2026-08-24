@@ -6,6 +6,12 @@ import { sessionContext } from '@store/sync/session-context.js';
 import { operationQueue } from '@store/sync/operation-queue.js';
 import { isRemoteStoreSync } from '@store/store-origin.js';
 import {
+    isResourceAccessDegraded,
+    onResourceAccessHealthChanged,
+    retryVisibleResources
+} from '@store/sync/resource-access.service.js';
+import { resourceAccessNotice } from '@store/sync/resource-access-phrases.js';
+import {
     setupCleanup,
     subscribe,
     addDomListener,
@@ -104,8 +110,16 @@ const HEARTBEAT_MS = 3000;
  * palavras) fica no elemento, com largura máxima e reticências para não empurrar o resto da
  * barra.
  *
+ * ELE CARREGA UM SEGUNDO ASSUNTO DESDE 2026-08-24, e o motivo de ser aqui é o mesmo que faz
+ * a luz existir: o AVISO de que o acervo privado desta conta não carregou. A soma dos
+ * recursos privados é best-effort e engolia o próprio erro, então uma conta `credenciado`
+ * que perdesse a primeira soma via um catálogo idêntico ao de um visitante anônimo, com o
+ * papel intacto e sem uma linha na tela. O aviso é não modal, não bloqueante, some sozinho
+ * quando o reparo dá certo, e nunca aparece para quem não entrou. A frase mora em
+ * `@store/sync/resource-access-phrases.js`; o sinal, em `resource-access.service.js`.
+ *
  * MapLibre IControl. Bound to CONNECTION_STATE_CHANGED + SESSION_CHANGED + os sinais de
- * fila, mais a batida periódica e `visibilitychange`.
+ * fila, mais a batida periódica, `visibilitychange` e o sinal de saúde do acervo privado.
  */
 export class SyncStatusControl {
     constructor() {
@@ -117,6 +131,13 @@ export class SyncStatusControl {
         this._dot = null;
         /** @type {HTMLSpanElement|null} The visible short label. */
         this._label = null;
+        /** @type {HTMLButtonElement|null} The private-collection notice, with its retry. */
+        this._notice = null;
+
+        /** @type {boolean} Whether a repair of the private-resource sum is in flight. */
+        this._repairing = false;
+        /** @type {(function(): void)|null} Unsubscribes from the resource-access health signal. */
+        this._unsubscribeHealth = null;
 
         /**
          * Last known queue size. `undefined` = never read; `null` = the read failed. The
@@ -157,6 +178,19 @@ export class SyncStatusControl {
         this._label.setAttribute('data-testid', 'sync-status-label');
         this._container.appendChild(this._label);
 
+        // O AVISO DO ACERVO PRIVADO MORA AQUI, e não numa superfície própria, porque este é
+        // o eixo em que a pessoa já procura estado de sessão, e porque este controle já se
+        // esconde inteiro para o visitante anônimo, que é exatamente quem não pode ver o
+        // aviso (ele não perdeu nada). É um BOTÃO e não um átomo passivo: o gesto de reparo
+        // é a metade que faltava, e um aviso sem saída ensina a ignorar avisos.
+        this._notice = document.createElement('button');
+        this._notice.type = 'button';
+        this._notice.className = 'resource-access-notice';
+        this._notice.setAttribute('data-testid', 'resource-access-notice');
+        this._notice.hidden = true;
+        this._container.appendChild(this._notice);
+        addDomListener(this, this._notice, 'click', () => this._repairResourceAccess());
+
         // Seed from what is known synchronously, so the light is never blank.
         this._render();
 
@@ -184,9 +218,43 @@ export class SyncStatusControl {
             'interval'
         );
 
+        // O SINAL DE SAÚDE VEM POR OBSERVADOR PRÓPRIO, e não pelo barramento nem pela batida
+        // periódica. Pela batida seria tarde e, pior, CEGO em atlas local: `_readQueue`
+        // devolve antes de repintar ali, então a única pessoa que veria o aviso seria a que
+        // está num atlas de servidor. `onResourceAccessHealthChanged` avisa só na virada.
+        this._unsubscribeHealth = onResourceAccessHealthChanged(() => {
+            this._render();
+        });
+
         this._scheduleQueueRead();
 
         return this._container;
+    }
+
+    /**
+     * Redoes the private-resource sum after it failed, from the person's own gesture.
+     *
+     * `force: true` is load-bearing: without it `retryVisibleResources` short-circuits on
+     * "some sum succeeded at some point", which is true right after a LATER sum failed (an
+     * atlas switch is the common case). That is the exact state this button exists for, so
+     * the plain call would make it a button that does nothing.
+     * @private
+     */
+    async _repairResourceAccess() {
+        if (this._repairing) return;
+        this._repairing = true;
+        this._render();
+        try {
+            await retryVisibleResources({ force: true });
+        } catch (error) {
+            // The service swallows its own failure; this only guards a broken import chain.
+            console.warn('Sync status: could not redo the private-resource sum:', error);
+        } finally {
+            this._repairing = false;
+            // Success flips the health signal and repaints through the subscription; this
+            // repaint is what clears the "Recuperando…" state when it did NOT succeed.
+            if (this._container) this._render();
+        }
     }
 
     /**
@@ -277,6 +345,36 @@ export class SyncStatusControl {
         this._container.setAttribute('title', work.detail);
         this._container.setAttribute('aria-label', work.detail);
         if (this._label) this._label.textContent = work.label;
+
+        this._renderResourceNotice();
+    }
+
+    /**
+     * Paints the private-collection notice, or hides it.
+     *
+     * `textContent`, never `innerHTML`: the sentence is a literal from a leaf module, but the
+     * node next to it carries the atlas name in this same bar and the habit is the guard.
+     * `aria-busy` rather than the `disabled` property while repairing, because a disabled
+     * button fires no click and the click is how the reason reaches the person; the re-entry
+     * guard lives in {@link _repairResourceAccess}.
+     * @private
+     */
+    _renderResourceNotice() {
+        if (!this._notice) return;
+        const notice = resourceAccessNotice({
+            authenticated: sessionContext.isAuthenticated(),
+            degraded: isResourceAccessDegraded(),
+            repairing: this._repairing,
+        });
+
+        this._notice.hidden = notice === null;
+        if (!notice) return;
+
+        this._notice.textContent = notice.label;
+        this._notice.setAttribute('data-tone', notice.tone);
+        this._notice.setAttribute('title', notice.detail);
+        this._notice.setAttribute('aria-label', notice.detail);
+        this._notice.setAttribute('aria-busy', notice.actionLabel === null ? 'true' : 'false');
     }
 
     onRemove() {
@@ -284,12 +382,17 @@ export class SyncStatusControl {
             clearTimeout(this._coalesceTimer);
             this._coalesceTimer = null;
         }
+        if (this._unsubscribeHealth) {
+            this._unsubscribeHealth();
+            this._unsubscribeHealth = null;
+        }
         // Removes EventBus subscriptions, DOM listeners and the heartbeat interval.
         cleanup(this);
         removeElement(this._container);
         this._container = null;
         this._dot = null;
         this._label = null;
+        this._notice = null;
         this._map = undefined;
     }
 }

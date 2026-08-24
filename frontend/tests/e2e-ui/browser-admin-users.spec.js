@@ -103,11 +103,16 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
 
     // OS DOIS CASOS ABAIXO AFIRMAVAM O MUNDO ANTERIOR A 2026-08-20 e reprovavam desde então.
     // O gate deixou de ser o papel global `admin` e passou a ser TER CONTA: `adminAudience`
-    // (`js/admin/admin-audience.js`) dá a qualquer autenticado a porta rotulada "Grupos", com a
-    // aba Grupos e só ela, porque grupo de acesso virou entidade de usuário, com dono. Reescrever
-    // o teste para o produto novo é obrigatório, e o NEGATIVO que sobrou é o anônimo/visitante:
-    // apagar os dois casos e não repor negativo nenhum deixaria a porta sem guarda.
-    test('a non-admin user gets the door LABELLED for what it gives (Grupos), not Administração', async ({ page }) => {
+    // (`js/admin/admin-audience.js`) dá a qualquer autenticado a porta rotulada pelo que ela
+    // entrega, porque grupo de acesso virou entidade de usuário, com dono. Reescrever o teste para
+    // o produto novo é obrigatório, e o NEGATIVO que sobrou é o anônimo/visitante: apagar os dois
+    // casos e não repor negativo nenhum deixaria a porta sem guarda.
+    //
+    // EM 2026-08-24 ELES MUDARAM DE NOVO, pela mesma regra: a audiência ganhou a aba "Concessões"
+    // (o inventário do que a pessoa concedeu e do que concederam a ela), e o rótulo acompanhou as
+    // abas, virando "Acessos". Um rótulo que continuasse dizendo "Grupos" prometeria uma página
+    // que já não é só isso, que é o defeito que o módulo de audiência existe para impedir.
+    test('a non-admin user gets the door LABELLED for what it gives (Acessos), not Administração', async ({ page }) => {
         const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' }); // stays role='user'
         await page.goto('/');
         await loginThroughUi(page, state.baseUrl, user);
@@ -116,10 +121,13 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await expect(page.locator('[data-testid="account-logout-btn"]')).toBeVisible({ timeout: 5000 });
         const porta = page.locator('[data-testid="account-admin-btn"]');
         await expect(porta).toBeVisible();
-        await expect(porta).toHaveText(/Grupos/);
+        await expect(porta).toHaveText(/Acessos/);
+        // A DISCRIMINAÇÃO, e ela é o ponto do caso: a porta não pode dizer "Administração" para
+        // quem recebe duas abas. Sem esta linha, um rótulo fixo passaria verde na de cima.
+        await expect(porta).not.toHaveText(/Administração/);
     });
 
-    test('a non-admin who types /admin.html gets the Grupos panel, and ONLY that tab', async ({ page }) => {
+    test('a non-admin who types /admin.html gets Grupos and Concessões, and NOTHING else', async ({ page }) => {
         const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' }); // stays role='user'
         await page.goto('/');
         await loginThroughUi(page, state.baseUrl, user);
@@ -128,9 +136,13 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await expect(page.locator('[data-testid="admin-panel"]')).toBeVisible({ timeout: 20000 });
         // A DISCRIMINAÇÃO É A LISTA DE ABAS, não a presença do painel: sem ela, um painel que
         // abrisse com as SEIS abas do administrador passaria verde neste caso.
-        await expect(page.locator('.admin-panel__tab')).toHaveCount(1);
+        await expect(page.locator('.admin-panel__tab')).toHaveCount(2);
         await expect(page.locator('[data-testid="admin-tab-groups"]')).toBeVisible();
+        await expect(page.locator('[data-testid="admin-tab-grants"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-users"]')).toHaveCount(0);
+        // `audit` é a ausência que espelha o 403 do servidor: a trilha do sistema não é acervo
+        // privado nem grupo próprio, e oferecê-la seria a pior forma de dizer não.
+        await expect(page.locator('[data-testid="admin-tab-audit"]')).toHaveCount(0);
     });
 
     test('an ANONYMOUS visitor who types /admin.html is sent back to the map', async ({ page }) => {

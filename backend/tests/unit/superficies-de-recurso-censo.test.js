@@ -310,6 +310,19 @@ const CENSO_CONSULTA = [
       + 'autorização deixaram de estar escritos aqui na fase F11 e vêm do builder compartilhado.',
   },
   {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js', unidade: 'originColumns',
+    n: 1, classe: DERIVADO,
+    predicado: 'src/modules/resource-access/resource-access.queries.js::listVisiblePrivate',
+    motivo: 'As TRÊS COLUNAS DE PROCEDÊNCIA do payload aditivo (papel, produção, concessão). Elas '
+      + 'não recortam linha nenhuma: quem recorta é o predicado do WHERE das duas consultas que as '
+      + 'incluem, e elas são a DECOMPOSIÇÃO daquele mesmo predicado por parâmetro — a concessão sai '
+      + 'chamando `fn_granted_resource_ids` com `p_atlas_id` NULO, que é o que desliga o braço de '
+      + 'empréstimo sem escrever uma segunda regra. O que sobra (linha no resultado sem nenhuma das '
+      + 'três colunas) só pode ter vindo do empréstimo, e o serviço a nomeia por eliminação. Elas '
+      + 'aparecem na varredura porque citam `fn_can_produce_resource`, que é o gatilho certo: um '
+      + 'braço novo de autorização precisa nascer com coluna aqui, senão vira `emprestimo` calado.',
+  },
+  {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
     unidade: 'LIST_VISIBLE_PRIVATE_360', n: 1, classe: SQL, predicado: P_360,
     motivo: 'O mesmo payload aditivo para o 360, que tem predicado próprio porque carrega o eixo de '
@@ -367,6 +380,20 @@ const CENSO_CONSULTA = [
       + 'homonima faziam a referencia ser classificada contra um projeto e servida por outro, '
       + 'nos dois sentidos. O `created_at` sobrevive como ultimo criterio porque esta classifica '
       + 'em lote e precisa ser deterministica.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.queries.js',
+    unidade: 'RECURSOS_VIVOS', n: 5, classe: PUBLICO,
+    motivo: 'O fragmento que dá NOME ao recurso nas duas listagens de concessão por ATOR (o que eu '
+      + 'concedi, o que eu recebi). Ele é uma união das cinco tabelas SEM predicado de acesso '
+      + 'nenhum, e a ausência é deliberada: aquelas duas rotas respondem sobre a AUTORIA e o '
+      + 'BENEFÍCIO de uma linha de `resource_grants`, não sobre a visibilidade do recurso — um '
+      + 'concedente que perdeu o acesso continua precisando ver e revogar o que deu. O RISCO é '
+      + 'exato e precisa ficar escrito: usado FORA de uma junção com uma concessão do próprio '
+      + 'chamador, ele entrega o nome de todo recurso privado do sistema. As duas consultas que o '
+      + 'usam o junta por INNER JOIN contra `resource_grants` já filtrada pelo ator, e o INNER é '
+      + 'também o que tira da lista o recurso MORTO (catálogo `active = false`, 360 hard-deletado), '
+      + 'que de outro modo apareceria como se estivesse vivo.',
   },
   {
     arquivo: 'src/modules/resource-access/resource-access.queries.js',
@@ -966,6 +993,22 @@ const CENSO_ROTA = [
       + 'um documento único e público.',
   },
   {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /grants/issued',
+    classe: R_FILTRADA, gate: 'auth',
+    motivo: 'O inventário do que ESTE chamador concedeu. Não serve o recurso, mas serve o NOME dele '
+      + '(o cartão precisa dizer de que acesso se trata), então o corpo carrega nome de recurso '
+      + 'privado e varia por chamador. O recorte não é um middleware e sim a CONSULTA: '
+      + '`granted_by = $1` sobre o id do token, sem parâmetro por onde apontar para terceiro.',
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /grants/received',
+    classe: R_FILTRADA, gate: 'auth',
+    motivo: 'O espelho da de cima: o que ESTE chamador recebeu, pelos DOIS caminhos (direto e por '
+      + 'grupo). O recorte mora na consulta e é termo a termo o dos braços de concessão de '
+      + '`fn_granted_resource_ids`, prazo e vida do concedente inclusive, para que ela não liste '
+      + 'como vivo um acesso que o predicado de leitura já não entrega.',
+  },
+  {
     arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /:type/:id/grants',
     classe: R_OUTRA, gate: 'requireResourceShare',
     motivo: 'Metadado de COMPARTILHAMENTO (quem concedeu a quem, e até quando), não o recurso. Sai '
@@ -1420,6 +1463,16 @@ const CENSO_REGIME = [
   {
     arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /visible',
     handler: 'visible', controller: 'src/modules/resource-access/resource-access.controller.js',
+    classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /grants/issued',
+    handler: 'grantsIssued', controller: 'src/modules/resource-access/resource-access.controller.js',
+    classe: C_CONDICIONAL, marcador: M_JSON,
+  },
+  {
+    arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'GET /grants/received',
+    handler: 'grantsReceived', controller: 'src/modules/resource-access/resource-access.controller.js',
     classe: C_CONDICIONAL, marcador: M_JSON,
   },
 

@@ -10,8 +10,8 @@ import { createAudit } from '../../utils/audit.js';
 import { invalidateAppConfigCache } from '../config/config.cache.js';
 import * as Q from './resource-access.queries.js';
 import {
-  RESOURCE_TYPES, PAYLOAD_KEY_BY_TYPE, assertResourceType, tableOf, assertCatalogTableOf,
-  assertAuditTargetTypeOfResource,
+  RESOURCE_TYPES, PAYLOAD_KEY_BY_TYPE, RESOURCE_ORIGIN, assertResourceType, tableOf,
+  assertCatalogTableOf, assertAuditTargetTypeOfResource,
 } from './resource-access.types.js';
 // A CHAVE DE JUNÇÃO vem do registro de superfícies, e não é escrita duas vezes: quem
 // consome este `Map` (o clone e o import) monta a mesma chave com a mesma função. Duas
@@ -112,30 +112,91 @@ export async function setResourceVisibility({ type, resourceId, accessLevel, act
  * mesmo assim abria o privado daquela OM; o eixo continua existindo, resolvido no
  * SQL pelo escopo de PRODUÇÃO, que só um administrador concede.
  *
+ * `origins` É A PROCEDÊNCIA de cada id, e ela fecha um defeito de TELA: o cliente
+ * desenhava um selo único ("só quem recebeu acesso enxerga este item") para TRÊS
+ * procedências, e a frase é falsa para duas delas. O que a tela precisa saber é qual
+ * delas SOME quando a pessoa troca de atlas, e só o empréstimo some. Ver
+ * {@link origemDeAcesso} para a precedência e o porquê dela.
+ *
  * @param {string|null} params.userId - null para o visitante de link público (R4).
  * @param {string|null} params.atlasId - O atlas em foco (empresta), ou null.
- * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object}>}
+ * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array, shareable: Object, origins: Object}>}
  */
 export async function listVisiblePrivateResources({ userId, atlasId }) {
   const catalogTypes = RESOURCE_TYPES.filter((t) => tableOf(t) !== null);
+  // O SHAPE É ESTÁVEL POR CONSTRUÇÃO: as cinco chaves nascem aqui, vazias, e são
+  // preenchidas depois. O cliente nunca deve precisar distinguir "sem procedência" de
+  // "o servidor não respondeu essa parte", e uma chave ausente é exatamente essa
+  // ambiguidade — é a mesma razão pela qual `shareable` nasce completo.
+  const origins = Object.fromEntries(RESOURCE_TYPES.map((t) => [PAYLOAD_KEY_BY_TYPE[t], {}]));
 
   const catalogRows = await Promise.all(catalogTypes.map(async (type) => {
     const table = assertCatalogTableOf(type);
+    const chave = PAYLOAD_KEY_BY_TYPE[type];
     const { rows } = await query(Q.listVisiblePrivate(table), [userId, atlasId, type]);
+    for (const r of rows) origins[chave][r.id] = origemDeAcesso(r);
     // A MESMA REPROJEÇÃO DE `config.service.js` (`{ id, name, ...config }`), e não
     // a linha crua: o cliente soma isto dentro dos mesmos arrays de `config`, e um
     // item com shape diferente dos vizinhos quebra o consumidor no ponto de USO,
-    // longe daqui.
-    return [PAYLOAD_KEY_BY_TYPE[type], rows.map((r) => ({ id: r.id, name: r.name, ...(r.config || {}) }))];
+    // longe daqui. Ela é também o que mantém as três colunas de procedência FORA do
+    // item: elas viajam na linha e saem por `origins`, nunca dentro do recurso.
+    return [chave, rows.map((r) => ({ id: r.id, name: r.name, ...(r.config || {}) }))];
   }));
 
   const { rows: rows360 } = await query(Q.LIST_VISIBLE_PRIVATE_360, [userId, atlasId]);
+  const chave360 = PAYLOAD_KEY_BY_TYPE.sv360_project;
+  for (const r of rows360) origins[chave360][r.id] = origemDeAcesso(r);
 
   return {
     ...Object.fromEntries(catalogRows),
-    [PAYLOAD_KEY_BY_TYPE.sv360_project]: rows360,
+    // A PROJEÇÃO DO 360 PASSOU A SER EXPLÍCITA, e a mudança é obrigatória, não estética:
+    // até aqui a linha saía CRUA, então as três colunas de procedência apareceriam
+    // dentro de cada item de `views360` — uma mudança de shape num payload que o cliente
+    // despeja em arrays de configuração. A lista de campos é a mesma que o SELECT já
+    // servia antes das colunas novas.
+    [chave360]: rows360.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      center_lat: r.center_lat,
+      center_long: r.center_long,
+      entry_photo_id: r.entry_photo_id,
+      photo_count: r.photo_count,
+      status: r.status,
+      capture_date: r.capture_date,
+    })),
     shareable: await listShareableOfActor(userId),
+    origins,
   };
+}
+
+/**
+ * A PROCEDÊNCIA de uma linha do payload aditivo, por PRECEDÊNCIA sobre as três colunas
+ * booleanas que a consulta trouxe.
+ *
+ * A ORDEM É `papel > concessao > emprestimo`, E ELA É SEMÂNTICA. As três não são
+ * exclusivas: a mesma pessoa pode ter concessão própria E estar num atlas que empresta o
+ * mesmo recurso. A tela usa este valor para dizer o que acontece ao TROCAR DE ATLAS, e
+ * só o empréstimo some sozinho nessa troca — chamar de `emprestimo` quem também tem
+ * concessão mentiria justamente na propriedade que a tela vai afirmar. O mesmo vale um
+ * degrau acima: papel global e produção são fatos de QUEM A PESSOA É e não vencem com o
+ * atlas nem com o prazo de ninguém.
+ *
+ * `emprestimo` É POR ELIMINAÇÃO, e é isso que o mantém correto sem uma segunda regra: a
+ * linha só está no resultado porque o predicado a deixou entrar, e o predicado tem
+ * exatamente quatro braços (papel, produção, concessão, empréstimo). Falsas as três
+ * primeiras colunas, sobrou uma. Uma quinta forma de enxergar recurso privado que
+ * apareça no predicado sem coluna aqui vira `emprestimo` em silêncio — é o único modo de
+ * falha desta função, e é por isso que o braço novo precisa nascer com coluna em
+ * `originColumns`.
+ *
+ * @param {{por_papel_global: boolean, por_producao: boolean, por_concessao: boolean}} row
+ * @returns {'papel'|'concessao'|'emprestimo'}
+ */
+export function origemDeAcesso(row) {
+  if (row.por_papel_global === true || row.por_producao === true) return RESOURCE_ORIGIN.PAPEL;
+  if (row.por_concessao === true) return RESOURCE_ORIGIN.CONCESSAO;
+  return RESOURCE_ORIGIN.EMPRESTIMO;
 }
 
 /**
@@ -228,6 +289,153 @@ export async function liveGrantsOfActor(actorId, type, resourceId) {
 export async function listGrantsForResource(type, resourceId) {
   const { rows } = await query(Q.LIST_GRANTS_FOR_RESOURCE, [assertResourceType(type), resourceId]);
   return rows;
+}
+
+// --- o inventário por ATOR --------------------------------------------------
+
+/**
+ * O QUE ESTE ATOR CONCEDEU, no shape do cliente.
+ *
+ * `granteeKind` É O DISCRIMINANTE, e ele existe porque o beneficiário é uma pessoa OU um
+ * grupo (o `num_nonnulls` da tabela), nunca os dois. `granteeId` carrega o id DO QUE O
+ * `granteeKind` disser: colapsar as duas colunas numa só sem o rótulo obrigaria toda
+ * leitura a consultar uma segunda coluna para saber o que aquele UUID significa, e um
+ * filtro por pessoa passaria a casar grupo por coincidência de id — é a mesma razão pela
+ * qual a trilha de `grantResource` mantém os dois campos separados.
+ *
+ * @param {string} actorId
+ * @returns {Promise<Array<{id: string, resourceType: string, resourceId: string,
+ *   resourceName: string, granteeKind: 'user'|'group', granteeId: string,
+ *   granteeName: string, level: string, expiresAt: Date, createdAt: Date}>>}
+ */
+export async function listGrantsIssuedByActor(actorId) {
+  const { rows } = await query(Q.LIST_GRANTS_ISSUED_BY_ACTOR, [actorId]);
+  return rows.map((r) => {
+    const paraGrupo = r.grantee_group_id !== null;
+    return {
+      id: r.id,
+      resourceType: r.resource_type,
+      resourceId: r.resource_id,
+      resourceName: r.resource_name,
+      granteeKind: paraGrupo ? 'group' : 'user',
+      granteeId: paraGrupo ? r.grantee_group_id : r.grantee_id,
+      granteeName: paraGrupo ? r.grantee_group_name : r.grantee_nome,
+      level: r.grant_level,
+      expiresAt: r.expires_at,
+      createdAt: r.created_at,
+    };
+  });
+}
+
+/**
+ * O QUE ESTE ATOR RECEBEU, no shape do cliente, PELOS DOIS CAMINHOS.
+ *
+ * `viaGroup` é `null` na concessão direta e nomeia o coletivo quando o acesso chegou por
+ * ele. Sem esse campo a pessoa não teria como saber que sair do grupo (ou o dono apagá-lo)
+ * derruba aquele acesso sem que ninguém revogue nada — a delegação seria a única parte do
+ * mecanismo invisível para quem depende dela.
+ *
+ * @param {string} actorId
+ * @returns {Promise<Array<{id: string, resourceType: string, resourceId: string,
+ *   resourceName: string, grantorId: string|null, grantorName: string|null, level: string,
+ *   expiresAt: Date, createdAt: Date, viaGroup: {id: string, name: string}|null}>>}
+ */
+export async function listGrantsReceivedByActor(actorId) {
+  const { rows } = await query(Q.LIST_GRANTS_RECEIVED_BY_ACTOR, [actorId]);
+  return rows.map((r) => ({
+    id: r.id,
+    resourceType: r.resource_type,
+    resourceId: r.resource_id,
+    resourceName: r.resource_name,
+    grantorId: r.grantor_id,
+    grantorName: r.grantor_nome ?? null,
+    level: r.grant_level,
+    expiresAt: r.expires_at,
+    createdAt: r.created_at,
+    viaGroup: r.via_group_id ? { id: r.via_group_id, name: r.via_group_name } : null,
+  }));
+}
+
+/**
+ * ESTENDE o prazo de uma concessão viva e devolve o prazo EFETIVO.
+ *
+ * A RESPOSTA É O EFETIVO, NUNCA O PEDIDO, e é o ponto da rota: o pedido de 180 dias que o
+ * teto do pai corta em 20 precisa voltar como 20, senão a tela afirma um prazo que o banco
+ * não guardou e a pessoa descobre o corte quando o acesso cair.
+ *
+ * QUEM DECIDE O CORTE É O `LEAST` DENTRO DO UPDATE, e não este JavaScript. Ele mistura
+ * três tetos (pedido, orçamento da linha, prazo do pai) e um deles depende de outra linha
+ * do banco; calcular aqui exigiria ler o pai antes e deixaria uma janela entre a leitura e
+ * a escrita. Ver o docblock de `EXTEND_GRANT`, inclusive para por que o teto da casa NÃO é
+ * o mesmo literal do INSERT.
+ *
+ * AS DUAS RECUSAS ANTES DA ESCRITA, e nenhuma delas usa o relógio do PROCESSO:
+ *   - concessão REVOGADA não se estende (seria desfazer uma revogação por uma rota de
+ *     prazo). `revoked_at` é coluna, comparação sem relógio;
+ *   - prazo que não passa do atual é recusado, e a comparação é entre dois instantes
+ *     ABSOLUTOS (o `expires_at` que o banco acabou de devolver e a data pedida). Encurtar
+ *     seria a operação perigosa: ela deixaria toda a subárvore vencendo DEPOIS do pai, e
+ *     manter a invariante exigiria descer o aparo — que é a escrita que o repai da poda já
+ *     paga e que esta rota não vai pagar de novo.
+ *
+ * A VIDA POR PRAZO É DECIDIDA PELO BANCO, no `WHERE` da própria escrita: zero linha com
+ * `revoked_at` nulo só pode ser vencimento, pelo relógio de quem guarda o dado.
+ *
+ * @param {{grantId: string, expiresAt: string, actor: object, req: object}} params
+ * @returns {Promise<{expiresAt: Date}>}
+ */
+export async function extendGrant({ grantId, expiresAt, actor, req }) {
+  const pedido = new Date(expiresAt);
+
+  const row = await tx(async (trx) => {
+    const alvo = await trx.oneOrNone(Q.GET_GRANT, [grantId]);
+    if (!alvo) throw new NotFoundError('Grant');
+    if (alvo.revoked_at !== null) {
+      throw new ConflictError('Esta concessão já foi revogada e não pode ser estendida.');
+    }
+    if (pedido.getTime() <= new Date(alvo.expires_at).getTime()) {
+      throw new ConflictError('O novo prazo precisa ser posterior ao prazo atual da concessão.');
+    }
+
+    const atualizada = await trx.oneOrNone(Q.EXTEND_GRANT, [grantId, pedido.toISOString()]);
+    if (!atualizada) {
+      throw new ConflictError('Esta concessão já venceu; conceda o acesso novamente.');
+    }
+
+    const t = assertResourceType(atualizada.resource_type);
+    const fatos = await fatosDoRecurso(t, atualizada.resource_id, trx);
+    // `SHARING_CHANGE` E NÃO UMA AÇÃO PRÓPRIA, pelo mesmo raciocínio já registrado no
+    // censo de auditoria para o metadado do 360: uma ação nova custaria alargar o CHECK
+    // de `audit_trail.action` (DROP/ADD CONSTRAINT mais uma linha em EXCECOES_DESTRUTIVAS)
+    // para dizer o que a ação existente já diz com verdade. `PERMISSION_GRANT` seria a
+    // escolha ERRADA por outro motivo: ela conta concessões, e uma extensão não cria
+    // nenhuma — quem contasse a ação para saber quantos acessos foram dados passaria a
+    // contar a mais. O de-para dos dois prazos mora em `details`, que é onde a pergunta
+    // "até quando aquele acesso valia" se responde.
+    await createAudit(req, {
+      action: 'SHARING_CHANGE',
+      actorId: actor.id,
+      targetType: assertAuditTargetTypeOfResource(t),
+      targetId: atualizada.resource_id,
+      targetOrgId: fatos.ownerOrgId,
+      details: {
+        resourceType: t,
+        grantId: atualizada.id,
+        grantLevel: atualizada.grant_level,
+        granteeId: atualizada.grantee_id,
+        granteeGroupId: atualizada.grantee_group_id,
+        // O PEDIDO E O EFETIVO, os dois, e a diferença entre eles É a informação: ela é o
+        // registro de que um teto incidiu, e sem ela a trilha não distingue "pediu 20
+        // dias" de "pediu 180 e levou 20".
+        expiresAtPedido: pedido.toISOString(),
+        expiresAtAnterior: alvo.expires_at,
+        expiresAt: atualizada.expires_at,
+      },
+    }, trx);
+    return atualizada;
+  });
+
+  return { expiresAt: row.expires_at };
 }
 
 /**

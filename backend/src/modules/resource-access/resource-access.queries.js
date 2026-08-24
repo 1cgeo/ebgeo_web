@@ -76,6 +76,45 @@ export const CAN_SEE_RESOURCE = `
 // --- o payload aditivo -----------------------------------------------------
 
 /**
+ * A PROCEDÊNCIA de cada linha do payload aditivo, DERIVADA das mesmas funções que
+ * decidem se a linha entra.
+ *
+ * O PROBLEMA QUE ELE RESOLVE, e por que ele não é um segundo predicado. O cliente
+ * desenhava UM selo "Privado" para três procedências diferentes (papel global,
+ * concessão pessoal e empréstimo do atlas em foco) com uma frase que só é verdadeira
+ * para uma delas. Separá-las exigiria saber POR QUAL braço a linha entrou, e o
+ * predicado é uma disjunção: ela responde "entra", nunca "por onde".
+ *
+ * A DECOMPOSIÇÃO É POR PARÂMETRO, NÃO POR REGRA NOVA, e é isso que mantém UMA
+ * definição de "quem vê o quê". Os dois primeiros braços já são funções escalares
+ * (`fn_has_global_data_access`, `fn_can_produce_resource`) e viram coluna direto. O
+ * terceiro se parte usando a MESMA `fn_granted_resource_ids` com `p_atlas_id` NULO:
+ * o braço de empréstimo dela exige `p_atlas_id IS NOT NULL`, então com NULL sobram
+ * exatamente os dois braços de CONCESSÃO (direta e por grupo). O que restar — linha
+ * que entrou no resultado e não casou nenhuma das três colunas — só pode ter vindo do
+ * braço de empréstimo, e o serviço a nomeia por eliminação. Escrever um SELECT
+ * próprio para "concessão" seria a segunda regra que divergiria da primeira.
+ *
+ * O VISITANTE ANÔNIMO DE LINK PÚBLICO chega com `$user` NULO: as duas funções de
+ * papel devolvem falso e `fn_granted_resource_ids` sai vazia (ela exige
+ * `fn_principal_vivo(p_user_id)`), então toda linha dele cai em `emprestimo`, que é o
+ * único caminho que ele tem. Não há `undefined` possível: as três colunas são
+ * booleanas e não-nulas.
+ *
+ * CUSTO: três avaliações por linha, sobre conjuntos que são o DELTA privado de um
+ * chamador (unidades a dezenas de linhas). A alternativa — três consultas separadas e
+ * uma junção em JS — pagaria três viagens ao banco por tipo de recurso.
+ *
+ * @param {{userParam: string, typeExpr: string, idExpr: string}} params - Fragmentos
+ *   já parametrizados ou literais de whitelist, nunca texto de request.
+ * @returns {string} Três colunas booleanas, para a lista de SELECT.
+ */
+const originColumns = ({ userParam, typeExpr, idExpr }) => `fn_has_global_data_access(${userParam}) AS por_papel_global,
+         fn_can_produce_resource(${userParam}, ${typeExpr}, ${idExpr}) AS por_producao,
+         (${idExpr} IN (SELECT resource_id
+                          FROM fn_granted_resource_ids(${userParam}, NULL::uuid, ${typeExpr}))) AS por_concessao`;
+
+/**
  * The PRIVATE resources of one catalog type that this principal can see.
  *
  * Semi-join against `fn_granted_resource_ids`, never `fn_can_see_resource` per row: one
@@ -106,12 +145,16 @@ export const CAN_SEE_RESOURCE = `
  * not go unnoticed. It is not guaranteed by construction: they are two maps in different files
  * (`PRODUCTION_TYPE_BY_TABLE` and `TYPE_BY_TABLE`), and `catalog-tabelas-paridade.test.js` is
  * what compares them.
+ * AS TRÊS COLUNAS DE PROCEDÊNCIA (`originColumns`, logo acima) viajam com a linha e são
+ * DERIVADAS destes mesmos braços; elas não decidem nada aqui e não entram no item que o
+ * cliente recebe (o serviço projeta explicitamente).
  *   $1 = userId (uuid|null), $2 = atlasId (uuid|null), $3 = resource type (text)
  * @param {string} table - Already validated by assertCatalogTableOf.
  * @returns {string}
  */
 export const listVisiblePrivate = (table) => `
-  SELECT t.id, t.name, t.description, t.config, t.sort_order
+  SELECT t.id, t.name, t.description, t.config, t.sort_order,
+         ${originColumns({ userParam: '$1::uuid', typeExpr: '$3::text', idExpr: 't.id' })}
     FROM ${table} t
    WHERE t.active = true
      AND t.access_level = 'private'
@@ -136,11 +179,16 @@ export const listVisiblePrivate = (table) => `
  * suítes verdes. O ramo da OM dona virou o de PRODUÇÃO (a OM deixou de ser
  * auto-declarada), e `status = 'disabled'` continua sendo o eixo de ocultação,
  * inclusive para quem tem concessão.
+ *
+ * AS TRÊS COLUNAS DE PROCEDÊNCIA são as mesmas do catálogo, com o tipo em LITERAL de
+ * whitelist (o predicado do 360 já o escreve assim) e o id em `::text`, porque aqui a
+ * chave é UUID e `resource_grants.resource_id` é TEXT.
  *   $1 = userId, $2 = atlasId
  */
 export const LIST_VISIBLE_PRIVATE_360 = `
   SELECT id::text AS id, slug, name, center_lat, center_long, entry_photo_id,
-         photo_count, status, capture_date
+         photo_count, status, capture_date,
+         ${originColumns({ userParam: '$1::uuid', typeExpr: `'sv360_project'`, idExpr: 'id::text' })}
     FROM sv360.projects
    WHERE access_level = 'private'
      AND ${sv360AccessPredicate(1, 2)}
@@ -257,6 +305,183 @@ export const LIST_GRANTS_FOR_RESOURCE = `
      AND g.resource_type = $1 AND g.resource_id = $2
      AND (g.grantee_group_id IS NULL OR gg.deleted_at IS NULL)
    ORDER BY g.created_at
+`;
+
+// --- o inventário de concessões POR ATOR -----------------------------------
+
+/**
+ * OS RECURSOS QUE AINDA EXISTEM, nos cinco tipos, com o NOME de cada um.
+ *
+ * Fragmento de NOME, e nada mais: ele não carrega predicado de acesso nenhum, de
+ * propósito, e é por isso que só pode ser usado em JUNÇÃO com uma concessão que já
+ * pertence ao chamador (recebida por ele, ou concedida por ele). Pôr o predicado aqui
+ * seria uma quarta cópia da regra e, pior, mudaria o assunto: as duas consultas de
+ * inventário respondem "o que EU concedi / o que EU recebi", e a autorização delas é a
+ * AUTORIA e o BENEFÍCIO da linha, nunca a visibilidade do recurso. Um concedente que
+ * perdeu o acesso ao recurso continua precisando ver — e poder revogar — o que deu.
+ *
+ * A JUNÇÃO É INTERNA, e isso é o filtro de recurso MORTO. O catálogo é soft-delete
+ * (`active = false`) e o 360 é hard-delete, então a concessão sobrevive ao recurso nos
+ * dois casos: sem o `JOIN`, a tela listaria acesso a coisas que não existem mais como
+ * se estivessem vivas (e no caso do 360 nem nome haveria para mostrar). A direção do
+ * erro é ESCONDER uma linha morta, nunca mostrar uma viva a mais.
+ *
+ * O `::text` UNIFORMIZA A CHAVE: as quatro tabelas de catálogo têm id textual (slug) e
+ * `sv360.projects` tem UUID, enquanto `resource_grants.resource_id` é TEXT para os
+ * cinco. Sem o cast o `UNION ALL` nem tipa.
+ */
+const RECURSOS_VIVOS = `
+    SELECT 'basemap'::text AS resource_type, id::text AS resource_id, name
+      FROM basemaps WHERE active = true
+     UNION ALL
+    SELECT 'tileset'::text, id::text, name
+      FROM tilesets WHERE active = true
+     UNION ALL
+    SELECT 'data_layer'::text, id::text, name
+      FROM data_layers WHERE active = true
+     UNION ALL
+    SELECT 'analysis_layer'::text, id::text, name
+      FROM analysis_layers WHERE active = true
+     UNION ALL
+    SELECT 'sv360_project'::text, id::text, name
+      FROM sv360.projects
+`;
+
+/**
+ * O NOME DE EXIBIÇÃO de uma pessoa, com o mesmo par que o resto do módulo usa.
+ *
+ * `nome` é o nome de guerra e `username` é o login; o e-mail NUNCA entra, aqui nem em
+ * lugar nenhum deste módulo. O `NULLIF` cobre a linha antiga com nome em branco, que
+ * mostraria um rótulo vazio na tela em vez de cair no login.
+ * @param {string} alias - Apelido da junção com `users`.
+ * @returns {string}
+ */
+const nomeDePessoa = (alias) => `COALESCE(NULLIF(${alias}.nome, ''), ${alias}.username)`;
+
+/**
+ * O QUE ESTE ATOR CONCEDEU e ainda está de pé.
+ *
+ * POR QUE ELA EXISTE: até aqui só havia listagem POR RECURSO
+ * (`LIST_GRANTS_FOR_RESOURCE`), o que obrigava quem concede a LEMBRAR o que concedeu
+ * para poder revogar. Uma autoridade cujo exercício não é enumerável é uma autoridade
+ * que não se consegue desfazer.
+ *
+ * "VIVA" É O MESMO PREDICADO DE SEMPRE — `revoked_at IS NULL` E `expires_at > NOW()` —,
+ * e a segunda metade não é opcional: a morte por vencimento mora no predicado e nunca
+ * numa varredura, então uma listagem que só olhasse `revoked_at` mostraria como viva
+ * uma concessão que já não entrega acesso nenhum, e ofereceria um botão "revogar" para
+ * desfazer o que o relógio já desfez.
+ *
+ * O GRUPO APAGADO SAI, pela mesma razão de `LIST_GRANTS_FOR_RESOURCE`:
+ * `fn_user_group_ids` exige `deleted_at IS NULL`, então a concessão a um grupo apagado
+ * não entrega acesso a ninguém e listá-la seria descrever um acesso que não existe.
+ *
+ * `granted_by` É A ÚNICA CONDIÇÃO DE AUTORIA, e é ela que dispensa gate fino na rota: o
+ * conjunto já é, por construção, o que este chamador fez.
+ *   $1 = o ator (granted_by)
+ */
+export const LIST_GRANTS_ISSUED_BY_ACTOR = `
+  WITH recurso AS (${RECURSOS_VIVOS})
+  SELECT g.id, g.resource_type, g.resource_id, r.name AS resource_name,
+         g.grantee_id, ${nomeDePessoa('gu')} AS grantee_nome,
+         g.grantee_group_id, gg.name AS grantee_group_name,
+         g.grant_level, g.expires_at, g.created_at
+    FROM resource_grants g
+    JOIN recurso r ON r.resource_type = g.resource_type AND r.resource_id = g.resource_id
+    LEFT JOIN users gu ON gu.id = g.grantee_id
+    LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
+   WHERE g.granted_by = $1::uuid
+     AND g.revoked_at IS NULL
+     AND g.expires_at > NOW()
+     AND (g.grantee_group_id IS NULL OR gg.deleted_at IS NULL)
+   ORDER BY g.created_at DESC, g.id
+`;
+
+/**
+ * O QUE ESTE ATOR RECEBEU e ainda está de pé, PELOS DOIS CAMINHOS.
+ *
+ * O BRAÇO DE GRUPO É A RAZÃO DE ELA EXISTIR NESTA FORMA. A delegação por coletivo NÃO
+ * cria linha em `resource_grants` para o membro: quem entra num grupo passa a alcançar
+ * o que foi concedido AO GRUPO, e uma listagem que só olhasse `grantee_id` responderia
+ * "você não recebeu nada" a quem recebeu tudo por essa porta. É a mesma lista fechada
+ * que a constituição proíbe, na forma de metade de um eixo.
+ *
+ * OS DOIS BRAÇOS SÃO OS DE `fn_granted_resource_ids`, TERMO A TERMO, e é isso que faz a
+ * resposta desta rota concordar com o que o payload aditivo entrega: `revoked_at`,
+ * `expires_at`, a vida do CONCEDENTE (D8(b)) e `fn_user_group_ids` para o coletivo (que
+ * já exige grupo vivo e dono vivo). O terceiro braço daquela função, o EMPRÉSTIMO por
+ * atlas, fica de fora de propósito: empréstimo não é concessão, não tem linha, não tem
+ * concedente e não se revoga — quem o quiser enumerar pergunta ao atlas.
+ *
+ * `via_group` NOMEIA O CAMINHO, e não é enfeite: a pessoa precisa saber que aquele
+ * acesso vem de um coletivo, porque a saída dela do grupo (ou a exclusão dele) o derruba
+ * sem que ninguém tenha revogado nada.
+ *   $1 = o ator (beneficiário)
+ */
+export const LIST_GRANTS_RECEIVED_BY_ACTOR = `
+  WITH recurso AS (${RECURSOS_VIVOS})
+  SELECT g.id, g.resource_type, g.resource_id, r.name AS resource_name,
+         g.granted_by AS grantor_id, ${nomeDePessoa('bu')} AS grantor_nome,
+         g.grant_level, g.expires_at, g.created_at,
+         g.grantee_group_id AS via_group_id, gg.name AS via_group_name
+    FROM resource_grants g
+    JOIN recurso r ON r.resource_type = g.resource_type AND r.resource_id = g.resource_id
+    LEFT JOIN users bu ON bu.id = g.granted_by
+    LEFT JOIN access_groups gg ON gg.id = g.grantee_group_id
+   WHERE g.revoked_at IS NULL
+     AND g.expires_at > NOW()
+     AND (g.granted_by IS NULL OR fn_principal_vivo(g.granted_by))
+     AND ( g.grantee_id = $1::uuid
+        OR g.grantee_group_id IN (SELECT group_id FROM fn_user_group_ids($1::uuid)) )
+   ORDER BY g.created_at DESC, g.id
+`;
+
+/**
+ * ESTENDE O PRAZO de uma concessão VIVA, com o clamp no MESMO statement da escrita.
+ *
+ * POR QUE A ROTA EXISTE: renovar era impossível. `alreadyGranted` tira da busca quem já
+ * tem concessão viva e o servidor devolve 409 na segunda concessão do mesmo par, então
+ * o único caminho era revogar antes — e revogar PODA a subárvore, que não volta. Ou
+ * seja, a única forma de renovar destruía o que os beneficiários do beneficiário tinham.
+ *
+ * OS TRÊS TETOS, e o do meio NÃO é o mesmo do `INSERT_GRANT`. Lá o teto da casa é
+ * `NOW() + 1 year`; aqui ele é `created_at + 1 year`, e a diferença é imposta pelo
+ * `resource_grants_expires_at_check`, que ancora as duas pontas em `created_at` (ele
+ * precisa continuar verdadeiro para sempre, e um CHECK ancorado no relógio ficaria falso
+ * amanhã e travaria QUALQUER update na linha). A consequência é real e precisa estar
+ * escrita: uma linha de concessão nunca dura mais de um ano CONTADO DO NASCIMENTO dela,
+ * e estender é gastar o que sobra desse orçamento. Copiar o `NOW() + 1 year` do INSERT
+ * aqui produziria 23514 em toda concessão com mais de alguns meses.
+ *
+ * O TETO DO PAI é o mesmo do INSERT e pela mesma razão: filho nunca sobrevive a quem o
+ * autorizou. Ele é lido da linha do pai qualquer que seja o estado dela — o pai revogado
+ * ou vencido também limita, o que é a direção conservadora.
+ *
+ * NÃO DESCE APARO PELA SUBÁRVORE, e não precisa: esta escrita só move a data para
+ * FRENTE (o serviço recusa pedido que não passe do prazo atual), e todo filho já estava
+ * clampado no prazo ANTIGO, que é menor. A invariante "filho nunca expira depois do pai"
+ * sobrevive por construção. Encurtar quebraria isso em silêncio, e é por isso que
+ * encurtar não é uma operação desta rota.
+ *
+ * O `WHERE` COBRA A VIDA DA LINHA, e não só o id: uma concessão revogada que aceitasse
+ * extensão seria uma revogação desfeita por uma rota de prazo, e uma vencida
+ * ressuscitaria acesso que o predicado já tinha matado. Zero linha é a resposta para as
+ * duas, e o serviço a traduz depois de ler o motivo.
+ *   $1 = id da concessão, $2 = prazo pedido (timestamptz)
+ */
+export const EXTEND_GRANT = `
+  UPDATE resource_grants g
+     SET expires_at = LEAST(
+           $2::timestamptz,
+           g.created_at + INTERVAL '1 year',
+           COALESCE((SELECT p.expires_at FROM resource_grants p WHERE p.id = g.parent_grant_id),
+                    'infinity'::timestamptz)
+         )
+   WHERE g.id = $1::uuid
+     AND g.revoked_at IS NULL
+     AND g.expires_at > NOW()
+   RETURNING g.id, g.resource_type, g.resource_id, g.grantee_id, g.grantee_group_id,
+             g.grant_level, g.parent_grant_id, g.created_at, g.expires_at
 `;
 
 /**
@@ -481,10 +706,19 @@ export const INSERT_GRANT = `
             parent_grant_id, created_at, expires_at
 `;
 
-/** Uma concessão por id, viva ou não (para o gate de revogação). $1 = id. */
+/**
+ * Uma concessão por id, viva ou não (para o gate de revogação e para a extensão de
+ * prazo). $1 = id.
+ *
+ * `expires_at` e `created_at` entraram com a extensão de prazo, e é ela quem os lê: o
+ * primeiro para recusar o pedido que não passa do prazo atual, o segundo para a mensagem
+ * de recusa poder dizer QUAL é o orçamento da linha. Não há uma segunda leitura da mesma
+ * linha para isso — dois SELECTs sobre a mesma concessão dentro de uma requisição são
+ * duas respostas possíveis para a mesma pergunta.
+ */
 export const GET_GRANT = `
   SELECT id, resource_type, resource_id, grantee_id, grantee_group_id, grant_level, granted_by,
-         parent_grant_id, revoked_at
+         parent_grant_id, revoked_at, expires_at, created_at
     FROM resource_grants WHERE id = $1::uuid
 `;
 

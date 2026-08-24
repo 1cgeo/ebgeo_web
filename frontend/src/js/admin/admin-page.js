@@ -16,7 +16,8 @@
  *   2. Session — restore the persisted tokens and validate them against the backend.
  *   3. Gate — QUATRO audiências, e a tabela delas é `admin-audience.js`, não este arquivo: o
  *      administrador global (todas as abas), o produtor (Catálogo mais os grupos dele) e
- *      qualquer outra sessão AUTENTICADA (Grupos, os dela). Desde 2026-08-20 o grupo de acesso
+ *      qualquer outra sessão AUTENTICADA (os grupos dela e as concessões dela, sob o rótulo
+ *      "Acessos"). Desde 2026-08-20 o grupo de acesso
  *      é entidade de usuário, então a página deixou de ser privilégio: quem entra na conta tem
  *      o que fazer aqui. Cada audiência estreita recebe o título do que ela de fato recebe,
  *      porque toda outra aba é `requireAdmin` na primeira requisição e uma aba que 403 na

@@ -128,8 +128,23 @@ const COMUM = { isAuthenticated: true, isAdmin: false, isProducer: false };
 const ANONIMO = { isAuthenticated: false, isAdmin: false, isProducer: false };
 
 describe('adminAudience — a tabela das quatro audiências', () => {
-    it('o usuário comum AUTENTICADO passa a receber a aba Grupos (o piso da mudança)', () => {
-        expect(adminAudience(COMUM)).toEqual({ label: 'Grupos', tabIds: ['groups'] });
+    it('o usuário comum AUTENTICADO recebe Grupos e Concessões, sob o rótulo "Acessos"', () => {
+        // ESTA LINHA MUDOU EM 2026-08-24, e o rótulo mudou COM as abas, que é a regra do módulo em
+        // ação: ele nomeia o que a pessoa RECEBE, e "Grupos" deixou de nomear uma página que também
+        // lista concessões. A aba nova é o inventário do que a pessoa concedeu e do que concederam
+        // a ela, e o caso que a motivou é o do CREDENCIADO, que cai justamente nesta linha: papel
+        // definido por conceder, sem trilha de auditoria (decisão registrada) e, até aqui, sem
+        // nenhuma tela que listasse o que ele havia concedido.
+        expect(adminAudience(COMUM)).toEqual({ label: 'Acessos', tabIds: ['groups', 'grants'] });
+    });
+
+    it('a aba de concessões NÃO foi para as outras duas linhas', () => {
+        // Discriminação, e é o que impede o "dá tudo para todo mundo" de passar verde: administrador
+        // e produtor já têm `audit`, que é o inventário de atos de concessão deles (recortado no
+        // servidor, no caso do produtor). Uma segunda tela do mesmo assunto duplicaria a pergunta.
+        expect(adminAudience(ADMIN).tabIds).not.toContain('grants');
+        expect(adminAudience(PRODUTOR).tabIds).not.toContain('grants');
+        expect(adminAudience(COMUM).tabIds).toContain('grants');
     });
 
     it('o anônimo não tem porta nenhuma', () => {
@@ -190,7 +205,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
     it('o credenciado cai na audiência do autenticado comum (D1: o eixo de grupo é posse)', () => {
         // No cliente, o credenciado é uma sessão autenticada que não é administrador nem
         // produtor. Não há terceiro booleano a passar, e é essa ausência que é a decisão.
-        expect(adminAudience(COMUM)).toEqual({ label: 'Grupos', tabIds: ['groups'] });
+        expect(adminAudience(COMUM)).toEqual({ label: 'Acessos', tabIds: ['groups', 'grants'] });
         expect(adminAudience(COMUM)).not.toEqual(adminAudience(ADMIN));
     });
 

@@ -30,6 +30,11 @@ import { apiClient } from '@store/sync/api-client.js';
 // imports por contrato (asserido em `frontend/tests/unit/permission-levels.test.js`), então
 // trazê-lo não arrasta nada; um barrel (`@utils`, `@modals`, `@store`) arrastaria.
 import { grantablePermissionOptions, isGrantablePermission } from '@js/projects/permission-levels.js';
+// `grant-tree.js` e `admin-audience.js` têm ZERO imports por contrato, então trazê-los para cá
+// não arrasta a store para `atlas.html`, que é onde este modal também vive.
+import { searchFailureNotice } from '@js/catalog/grant-tree.js';
+import { adminAudience } from '@js/admin/admin-audience.js';
+import { sessionContext } from '@store/sync/session-context.js';
 
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -252,8 +257,24 @@ export class CreateAtlasModal extends ModalBase {
             return '<div class="sharing__empty">Carregando seus grupos…</div>';
         }
         if (!this._myGroups.length) {
-            return '<div class="sharing__empty">Você não administra nenhum grupo. '
-                + 'Crie um em Administração &gt; Grupos.</div>';
+            // O DESTINO É CALCULADO, nunca a palavra fixa. A porta se chama "Administração"
+            // para o administrador, "Catálogo" para o produtor e "Acessos" para o resto de
+            // quem entrou (`adminAudience`). Esta frase dizia "Administração > Grupos", que
+            // errava em DOBRO depois que a aba de Concessões nasceu: o rótulo da porta mudou
+            // para três das quatro audiências, e a aba de destino deixou de se chamar só
+            // "Grupos". Sem porta (visitante anônimo) a frase não indica destino nenhum, em
+            // vez de indicar um que a pessoa não consegue abrir. Mesma doutrina de
+            // `sharingGroupPickerHint` (`sharing.modal.core.js`); a frase é outra porque o
+            // contexto é outro, mas o destino se deriva do mesmo lugar.
+            const { label: porta } = adminAudience({
+                isAuthenticated: sessionContext.isAuthenticated(),
+                isAdmin: sessionContext.isAdmin(),
+                isProducer: sessionContext.isProducer(),
+            });
+            const onde = typeof porta === 'string' && porta.trim()
+                ? ` Crie um em ${escapeHtml(porta.trim())}.`
+                : '';
+            return `<div class="sharing__empty">Você não administra nenhum grupo.${onde}</div>`;
         }
         const escolhidos = new Map(this._groups.map((g) => [String(g.groupId), g.permission]));
         return this._myGroups.map((g) => {
@@ -510,7 +531,7 @@ export class CreateAtlasModal extends ModalBase {
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
-            this._renderResultsInto([]);
+            this._renderSearchFailure(q);
             this._setResultsHidden(false);
         }
     }
@@ -524,11 +545,42 @@ export class CreateAtlasModal extends ModalBase {
         if (!container) return;
         clearScopedListeners(this, 'results');
         clearScopedListeners(this, 'groups');
-        container.innerHTML = results.length ? this._renderResults(results) : '';
+        // SEM O TERNÁRIO. Ver a irmã em `sharing.modal.core.js`: ele revelava o painel com
+        // string vazia, tornando INALCANÇÁVEL o "Nenhum usuário encontrado" que
+        // `_renderResults` já sabia devolver, e o `catch` da busca caía no mesmo par, de
+        // modo que "ninguém encontrado" e "a rede caiu" eram a mesma caixa em branco.
+        container.innerHTML = this._renderResults(results);
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
                 this._addMember(btn.dataset.userId, btn.dataset.username, btn.dataset.nome));
         });
+    }
+
+    /**
+     * @private Renders the search FAILURE, which is a different thing from an empty result.
+     *
+     * The retry keeps the query in hand, so the person does not have to retype it to find
+     * out whether the network came back. Phrase shared with the other two people-searches of
+     * the product (`searchFailureNotice`), never copied: three copies diverge on the first
+     * revision, and the divergence shows up exactly when someone compares two screens
+     * trying to tell whether the error is the same one.
+     * @param {string} q - The query to run again.
+     */
+    _renderSearchFailure(q) {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        clearScopedListeners(this, 'groups');
+        container.innerHTML = `
+            <div class="sharing-results__failed" data-testid="create-atlas-search-failed" role="alert">
+                <p class="sharing-section__hint">${escapeHtml(searchFailureNotice())}</p>
+                <button type="button" class="prompt-modal-btn" data-action="search-retry"
+                        data-testid="create-atlas-search-retry">Tentar de novo</button>
+            </div>`;
+        const retry = container.querySelector('[data-action="search-retry"]');
+        if (retry) {
+            addScopedDomListener(this, 'results', retry, 'click', () => this._runSearch(q));
+        }
     }
 
     /** @private */

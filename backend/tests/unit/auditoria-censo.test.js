@@ -191,6 +191,14 @@ const CENSO = [
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'PATCH /:type/:id/visibility', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: RA_SVC },
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'POST /:type/:id/grants', classe: AUDITADA, acao: 'PERMISSION_GRANT', emissor: RA_SVC },
   { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'DELETE /grants/:grantId', classe: AUDITADA, acao: 'PERMISSION_REVOKE', emissor: RA_SVC },
+  // A EXTENSÃO DE PRAZO reusa `SHARING_CHANGE`, e a escolha tem os dois lados escritos. Uma
+  // ação própria (`PERMISSION_EXTEND`) custaria alargar o CHECK de `audit_trail.action`
+  // (DROP/ADD CONSTRAINT mais uma linha em EXCECOES_DESTRUTIVAS), que é o mesmo preço que a
+  // rota de metadado do 360 recusou pagar logo acima. E `PERMISSION_GRANT` seria pior que
+  // caro, seria FALSO: ela conta concessões criadas, e estender não cria nenhuma — quem
+  // contasse a ação para saber quantos acessos foram dados passaria a contar a mais. O de-para
+  // dos prazos (pedido, anterior, efetivo) mora em `details`.
+  { arquivo: 'src/modules/resource-access/resource-access.routes.js', rota: 'PATCH /grants/:grantId', classe: AUDITADA, acao: 'SHARING_CHANGE', emissor: RA_SVC },
 
   // ---------------- grupo de acesso -------------------------------------------
   // As CINCO ações são declaradas em `002_auditoria.sql`. O ciclo de vida e a

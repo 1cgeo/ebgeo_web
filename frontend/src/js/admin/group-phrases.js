@@ -360,21 +360,65 @@ export function groupDeletionSummary(result) {
  * habilita a cascata: tirar a pessoa do grupo tira o acesso dela aos atlas do grupo, e
  * `atlas_shares` não tem subárvore para derrubar.
  *
+ * A RESSALVA DE NÚMERO DEFASADO ENTROU EM 2026-08-24, e a ausência dela aqui era assimetria pura:
+ * `groupDeletionWarning` já a tinha, os dois atos são igualmente irreversíveis, e este era o que
+ * citava a foto mais velha. As contagens desta tela vêm do fechamento de `_renderTable`, isto é,
+ * do instante em que a ABA montou (só `member_count` é refrescado, ao abrir o roster), então aqui
+ * o número tinha MAIS chance de estar velho que no irmão, e nada dizia.
+ *
  * @param {{name?: string, grant_count?: *, atlas_share_count?: *}} group
+ * @param {{countsStale?: boolean}} [options] - `countsStale` quando os números NÃO puderam ser
+ *   reconfirmados com o servidor antes do aviso.
  * @returns {string}
  */
-export function memberRemovalWarning(group) {
+export function memberRemovalWarning(group, { countsStale = false } = {}) {
     const recursos = toCount(group?.grant_count);
     const alcance = reachPhrase(group?.grant_count, group?.atlas_share_count);
+    const ressalva = countsStale ? ` ${STALE_COUNTS_NOTICE}` : '';
     if (alcance === '') {
         return 'O grupo não dá acesso a nenhum recurso nem atlas hoje, '
-            + 'então nada muda para ela agora.';
+            + `então nada muda para ela agora.${ressalva}`;
     }
     const cauda = recursos > 0
         ? ', e sai também o que ela repassou a partir deste grupo.'
         : '.';
     return `Ela perde o acesso a ${alcance} que este grupo dá, `
-        + `a menos que tenha acesso por outro caminho${cauda}`;
+        + `a menos que tenha acesso por outro caminho${cauda}${ressalva}`;
+}
+
+/**
+ * O TOAST DEPOIS DE PÔR ALGUÉM NO GRUPO, e ele RELATA O ALCANCE.
+ *
+ * ESTE ERA O ÚNICO ATO DO CICLO QUE NÃO RELATAVA NADA. Apagar o grupo e tirar um membro têm
+ * confirmação com o alcance e toast com o número do servidor; adicionar dizia apenas "Fulano entrou
+ * no grupo". Do ponto de vista do eixo de ACESSO a simetria está invertida: pôr alguém num grupo
+ * que já recebeu sete recursos privados é CONCEDER SETE ACESSOS DE UMA VEZ, sem passar pelo gate de
+ * repasse e sem uma linha nova em `resource_grants` para alguém revisar depois. A tabela ao lado
+ * mostrava esse número na coluna "Recursos" e a frase de sucesso não o mencionava.
+ *
+ * SEM CONFIRMAÇÃO PRÉVIA, e isso é decisão e não economia: adicionar é reversível (o botão
+ * "Remover" está na linha seguinte), e confirmar tudo treina a pessoa a atravessar confirmação sem
+ * ler, que é o que gasta a credibilidade das duas confirmações destrutivas irmãs. O relato DEPOIS
+ * entrega a mesma informação sem esse custo.
+ *
+ * O NÚMERO É O DA LISTAGEM, e não o do servidor no momento do ato, ao contrário dos irmãos: a rota
+ * de adicionar devolve só `added`, e não há contagem para citar. Por isso a frase diz o que a
+ * pessoa PASSA A VER, no presente, em vez de afirmar quantos acessos foram criados.
+ *
+ * @param {{name?: string, added?: boolean}} result - `name` já é o nome de exibição.
+ * @param {{grant_count?: *, atlas_share_count?: *}} [group] - as contagens da listagem.
+ * @returns {string}
+ */
+export function memberAdditionSummary(result, group) {
+    const nome = result?.name ?? '';
+    // `added === false` é a resposta idempotente ("já estava lá"), e ali nada mudou: anunciar
+    // alcance seria descrever uma concessão que este clique não fez.
+    if (result?.added === false) return `${nome} já estava no grupo.`;
+    const alcance = reachPhrase(group?.grant_count, group?.atlas_share_count);
+    if (alcance === '') {
+        return `${nome} entrou no grupo. Ele não dá acesso a nenhum recurso nem atlas hoje.`;
+    }
+    return `${nome} entrou no grupo, e com isso passa a ver ${alcance}.`;
 }
 
 /**
@@ -534,6 +578,65 @@ export function groupOwnerCannotLeaveNotice() {
     // própria leitura da tela. A saída que sobra é real e está escrita: apagar.
     return 'Você é o dono deste grupo, e o dono não sai: um grupo sem dono fica sem quem o '
         + 'administre. Para deixar de participar, apague o grupo.';
+}
+
+/**
+ * A MESMA RECUSA, CURTA O BASTANTE PARA FICAR VISÍVEL.
+ *
+ * A versão longa acima morava só no `title`, e `title` não existe no toque: no celular, e para quem
+ * navega por teclado, o texto visível era "Você é o dono" e a explicação era invisível. Uma
+ * negativa sem motivo é um muro, e a regra da casa é que o motivo chega junto com a recusa.
+ *
+ * O RECORTE É A SAÍDA, e não a metade decorativa: das duas coisas que a frase longa diz (por que
+ * não pode, e o que fazer), a segunda é a única acionável, então é ela que sobrevive ao corte. A
+ * explicação de POR QUE fica no `title`, que continua sendo a frase inteira — o inverso (deixar
+ * visível a explicação e esconder a saída) daria uma linha mais longa e menos útil.
+ * @returns {string}
+ */
+export function groupOwnerCannotLeaveShort() {
+    return 'Você é o dono: para sair, apague o grupo.';
+}
+
+/**
+ * O TERCEIRO DESFECHO DE "SAIR", que a tela desenhava como NADA.
+ *
+ * `leaveGroupAvailability` tem três ramos e a seção desenhava dois: no INDETERMINADO (a sessão não
+ * foi lida, então a tela não sabe se quem olha é o dono) a div de ações ficava vazia, e espaço
+ * vazio se lê como tela quebrada — exatamente a lição que o ramo DONO já tinha aprendido.
+ *
+ * A FRASE NÃO ACUSA NEM PROMETE. Dizer "você é o dono" seria afirmar uma posse que ninguém mediu, e
+ * oferecer o botão seria oferecer um ato que pode voltar 409 na cara de quem clicou. O que a tela
+ * sabe é que não sabe, e a saída real é recarregar, que é o que restabelece a sessão lida.
+ * @returns {string}
+ */
+export function leaveAvailabilityUnknownNotice() {
+    return 'Esta tela não conseguiu ler quem é você agora, então não oferece a saída do grupo: '
+        + 'quem é dono do grupo não pode sair, e oferecer o botão sem saber terminaria num erro. '
+        + 'Recarregue a página para tentar de novo.';
+}
+
+/**
+ * AS COLUNAS DA TABELA DE GESTÃO, recortadas por audiência.
+ *
+ * A coluna "Dono" existe para o ADMINISTRADOR GLOBAL, e o comentário do código que a desenha já
+ * admitia isso: o predicado do servidor tem um ramo curinga que devolve TODO grupo do sistema para
+ * ele, e sem a coluna a lista dele mostraria N grupos homônimos de gente diferente (a unicidade de
+ * nome passou a ser POR DONO). Para todo mundo mais a listagem é recortada por posse, então a
+ * coluna repete a mesma resposta em toda linha: "eu". Uma coluna cuja resposta é constante não
+ * informa nada e ainda empurra as que informam para fora da tela.
+ *
+ * A ÚLTIMA COLUNA É A DE AÇÕES e nasce sem rótulo de propósito (o cabeçalho de uma coluna de botões
+ * é ruído para leitor de tela). Ela é devolvida aqui, e não concatenada no chamador, porque a
+ * contagem de colunas do cabeçalho tem de casar com a das células, e duas listas em dois lugares
+ * divergem na primeira revisão.
+ *
+ * @param {{isAdmin?: boolean}} [audience]
+ * @returns {string[]} os rótulos, na ordem de renderização.
+ */
+export function groupTableColumns({ isAdmin = false } = {}) {
+    return isAdmin
+        ? ['Grupo', 'Membros', 'Recursos', 'Atlas', 'Dono', '']
+        : ['Grupo', 'Membros', 'Recursos', 'Atlas', ''];
 }
 
 /**

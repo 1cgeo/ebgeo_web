@@ -9,6 +9,13 @@
  * pelo payload aditivo (`GET /resource-access/visible`), que devolve só o privado
  * visível — daí `isPrivateResource`, que é uma consulta ao que o servidor entregou,
  * nunca uma leitura de propriedade.
+ *
+ * O SELO COBRE TRÊS ORIGENS DE ACESSO, e desde 2026-08-24 ele as distingue: papel global,
+ * concessão pessoal e empréstimo do atlas em foco. A frase única de antes ("só quem recebeu
+ * acesso enxerga este item") era falsa justamente para o CREDENCIADO, que enxerga o acervo
+ * privado inteiro por PAPEL, sem ter recebido nada. Quem dá o texto é
+ * `js/catalog/access-origin-phrases.js`; quem dá o dado é `resourceAccessOrigin`, e `null`
+ * (servidor antigo, soma que falhou) degrada para o selo genérico e verdadeiro.
  */
 
 import { escapeHtml } from '@utils/html-escape.js';
@@ -22,7 +29,12 @@ import {
     RESOURCE_ACCESS_BY_CATALOG_TYPE
 } from '../catalog.constants.js';
 import { formatCatalogDate } from '../catalog.service.js';
-import { isPrivateResource, canShareResource } from '@store/sync/resource-access.service.js';
+import {
+    canShareResource,
+    isPrivateResource,
+    resourceAccessOrigin
+} from '@store/sync/resource-access.service.js';
+import { accessExpiryPhrase, classifyAccess, privateBadgePhrase } from '../access-origin-phrases.js';
 // Import ESTÁTICO, e a escolha é medida e não preguiça: `vite.config.js` manda TODO
 // `src/js/catalog/` para o grupo `core`, então um `import()` daqui não adiaria carga
 // nenhuma — ele só acrescentaria uma promessa entre o clique e a janela abrir, e um
@@ -47,6 +59,58 @@ export function resourceAccessRefOf(item) {
 }
 
 /**
+ * A procedência do acesso a este item, canonizada, ou `null`.
+ *
+ * TRÊS RAZÕES DIFERENTES CAEM NO MESMO `null`, e o cartão trata as três igual de propósito:
+ * o item não é privado, o servidor não manda procedência (build mais velho que este cliente),
+ * ou a soma de recursos falhou. Nenhuma delas autoriza afirmar uma origem.
+ * @param {{grupo: string, id: string}|null} acesso
+ * @returns {'papel'|'concessao'|'emprestimo'|null}
+ */
+function origemDoAcesso(acesso) {
+    if (!acesso) return null;
+    return resourceAccessOrigin(acesso.grupo, acesso.id) ?? null;
+}
+
+/**
+ * A classe de acesso de um item do catálogo, para o filtro e para o contador da grade.
+ *
+ * MORA AQUI, e não no modal, porque é aqui que vive a tradução (item do catálogo) → (grupo, id)
+ * do eixo de acesso. Duas traduções da mesma coisa divergem, e divergir entre o que a lista
+ * mostra e o que o contador conta é o defeito específico que o contador deveria evitar.
+ * @param {CatalogItem} item
+ * @returns {'publico'|'papel'|'concessao'|'emprestimo'|'privado'}
+ */
+export function accessClassOfItem(item) {
+    const acesso = resourceAccessRefOf(item);
+    const privado = !!acesso && isPrivateResource(acesso.grupo, acesso.id);
+    return classifyAccess({ privado, origem: privado ? origemDoAcesso(acesso) : null });
+}
+
+/**
+ * O prazo do acesso a este item, quando o payload o carrega.
+ *
+ * LÊ O QUE JÁ CHEGOU, e nunca pergunta ao servidor: o cartão é desenhado em lote (dezenas por
+ * abertura da grade), e uma chamada por cartão seria uma tempestade de pedidos para enfeitar
+ * uma etiqueta. Enquanto o dado não chegar, isto é `null` em todo item e o chip simplesmente
+ * não existe, que é o estado de hoje.
+ *
+ * O DADO AINDA NÃO EXISTE NO PAYLOAD, e a leitura abaixo é o ponto de pouso, não uma promessa
+ * de que ele já pousou. Medido em 2026-08-24 contra o servidor deste repositório: o payload
+ * aditivo mantém as colunas de procedência FORA do item, num mapa irmão (`origins`), e a
+ * projeção do 360 virou lista explícita de campos — ou seja, uma coluna nova NÃO atravessa
+ * sozinha até `originalData` em nenhum dos cinco grupos. O prazo tem de viajar como `origins`
+ * viaja (um mapa `{grupo: {id: ISO}}`), com um leitor irmão de `resourceAccessOrigin` no
+ * serviço de acesso; quando ele existir, esta função é a ÚNICA linha a trocar, e o resto do
+ * caminho (frase, chip, estilo, teste) já está de pé.
+ * @param {CatalogItem} item
+ * @returns {*}
+ */
+function prazoDoAcesso(item) {
+    return item?.originalData?.access_expires_at ?? item?.originalData?.accessExpiresAt ?? null;
+}
+
+/**
  * Creates an individual catalog card.
  * @param {Object} options
  * @param {CatalogItem} options.item - Catalog item
@@ -58,6 +122,7 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     const typeConfig = CATALOG_TYPE_CONFIG[item.type];
     const acesso = resourceAccessRefOf(item);
     const privado = !!acesso && isPrivateResource(acesso.grupo, acesso.id);
+    const selagem = privado ? privateBadgePhrase(origemDoAcesso(acesso)) : null;
 
     const card = document.createElement('article');
     card.className = 'catalog-card';
@@ -92,12 +157,24 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
     // Selo de recurso PRIVADO. Ele aparece também na aba "Catálogo" da configuração
     // do atlas (modo `selectable`), de propósito: é lá que o Gestor decide o que
     // restringir, e é lá que ele mais precisa saber que um item não é público.
-    if (privado) {
+    //
+    // O RÓTULO SÓ MUDA NO CASO VOLÁTIL (empréstimo do atlas), porque só ele deixa de valer
+    // quando a pessoa sai daqui; a diferença entre papel e concessão vale a linha do `title`,
+    // não a do selo. `data-origem` fica na árvore para o e2e poder afirmar QUAL selo é qual
+    // sem depender da redação.
+    if (selagem) {
         const selo = document.createElement('span');
         selo.className = 'catalog-card-badge catalog-card-badge--private';
+        if (selagem.volatil) selo.classList.add('catalog-card-badge--lent');
         selo.dataset.testid = 'catalog-card-private';
-        selo.title = 'Recurso privado: só quem recebeu acesso enxerga este item.';
-        selo.innerHTML = `${LOCK}<span>Privado</span>`;
+        selo.dataset.origem = selagem.origem ?? 'desconhecida';
+        selo.title = selagem.title;
+        // `textContent` no rótulo: ele vem do módulo de frases, mas o ícone é SVG estático e
+        // a concatenação com `innerHTML` misturaria as duas naturezas num ponto só.
+        selo.innerHTML = LOCK;
+        const texto = document.createElement('span');
+        texto.textContent = selagem.rotulo;
+        selo.appendChild(texto);
         thumbnailWrapper.appendChild(selo);
     }
 
@@ -141,6 +218,24 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
         }
 
         content.appendChild(meta);
+    }
+
+    // O PRAZO DO ACESSO, quando o servidor o manda.
+    //
+    // ELE É A METADE QUE FALTAVA DE UM AVISO QUE JÁ EXISTIA. O modal de compartilhar já
+    // desenha "expira em <data>", mas ele só abre por um botão gateado por `canShareResource`:
+    // quem recebeu com nível `view` (a maioria de quem tem prazo) nunca vê aquele chip. Para
+    // essa pessoa o recurso aparecia um dia e sumia noutro, sem evento e sem aviso, porque a
+    // morte da concessão mora no predicado do servidor. Aqui o aviso alcança quem RECEBEU.
+    const prazo = privado ? accessExpiryPhrase(prazoDoAcesso(item)) : null;
+    if (prazo) {
+        const chip = document.createElement('p');
+        chip.className = `catalog-card-expiry catalog-card-expiry--${prazo.estado}`;
+        chip.dataset.testid = 'catalog-card-expiry';
+        chip.dataset.estado = prazo.estado;
+        chip.title = prazo.title;
+        chip.textContent = prazo.rotulo;
+        content.appendChild(chip);
     }
 
     card.appendChild(content);

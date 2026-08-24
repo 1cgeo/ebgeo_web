@@ -652,3 +652,54 @@
         animation: none;
     }
 }
+
+/* =========================================================================
+   RESOURCE ACCESS NOTICE (dentro da pílula da luz de sync)
+   O acervo PRIVADO desta conta não carregou. Não é modal e não bloqueia
+   nada: é um átomo a mais na mesma tira, clicável, que some sozinho quando
+   o reparo dá certo. Nunca aparece para o visitante anônimo, porque o
+   controle inteiro já se esconde para ele.
+   ========================================================================= */
+
+.resource-access-notice[hidden] {
+    display: none;
+}
+
+.resource-access-notice {
+    display: inline-flex;
+
+    /* Teto próprio, com reticências: a barra divide linha com o avatar e o
+       crachá de atlas, e a frase inteira já está no `title`. */
+    max-width: 200px;
+    align-items: center;
+    padding: 0 var(--space-1);
+    overflow: hidden;
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-error);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--gray-300);
+}
+
+.resource-access-notice:hover {
+    text-decoration: underline;
+}
+
+/* Reparo em curso: a mesma tira, sem a cor de perda e sem prometer ação,
+   porque o clique já foi dado e o botão está esperando resposta. */
+.resource-access-notice[data-tone="busy"] {
+    color: var(--gray-700);
+    cursor: progress;
+}
+
+/* O teto de largura da pílula existe para o RÓTULO da luz, que é curto por
+   contrato. Com o aviso aberto ele cortaria a frase que a pessoa precisa
+   ler, então o teto sai enquanto o aviso estiver de pé. */
+.sync-status-badge:has(.resource-access-notice:not([hidden])) {
+    max-width: none;
+}

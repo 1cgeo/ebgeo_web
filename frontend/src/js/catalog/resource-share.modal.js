@@ -55,17 +55,28 @@ import { GRANT_LEVELS, CATALOG_UI_ICONS } from './catalog.constants.js';
 import {
     alreadyGranted,
     deadGrantorChip,
+    extendGrantHint,
+    extensionDeadline,
+    extensionOutcome,
+    extensionSummary,
     fallenGrants,
+    GRANT_TERM_DEFAULT_DAYS,
+    GRANT_TERMS,
     grantOriginLabel,
     granteeGroupOwnerLabel,
     granteeName,
     granteeSubject,
+    grantsListScopeNote,
     groupMemberCount,
     groupOptionLabel,
     isGroupGrant,
+    loadFailureState,
+    revocationSummary,
     revocationWarning,
     revokeAvailability,
     revokeBlockedNotice,
+    searchFailureNotice,
+    LOAD_FAILURE,
     REVOKE_AVAILABILITY,
 } from './grant-tree.js';
 
@@ -107,17 +118,15 @@ function grantLevelLabel(value) {
  * como ser dito, e toda concessão nascia com um ano, que é o MÁXIMO.
  *
  * Um ano continua sendo o padrão selecionado, para não mudar o comportamento de quem não escolhe.
+ *
+ * A LISTA SAIU DAQUI em 2026-08-24, para `grant-tree.js`, quando a aba Concessões do painel
+ * passou a oferecer os mesmos degraus: duas cópias de uma escada de prazo divergem, e a
+ * divergência aparece como a mesma palavra valendo prazos diferentes em duas telas do produto.
  */
-const PRAZOS = Object.freeze([
-    { dias: 7, label: '7 dias' },
-    { dias: 30, label: '30 dias' },
-    { dias: 90, label: '90 dias' },
-    { dias: 180, label: '180 dias' },
-    { dias: 365, label: '1 ano (padrão)' },
-]);
+const PRAZOS = GRANT_TERMS;
 
 /** O padrão do servidor, e por isso o pré-selecionado. */
-const PRAZO_PADRAO_DIAS = 365;
+const PRAZO_PADRAO_DIAS = GRANT_TERM_DEFAULT_DAYS;
 
 /**
  * A data ISO de vencimento para um prazo em dias, ou nulo para deixar o servidor decidir.
@@ -236,8 +245,6 @@ export class ResourceShareModal extends ModalBase {
         /** @type {string} O nível escolhido no seletor (aplicado ao próximo convite). */
         this._level = DEFAULT_GRANT_LEVEL;
         this._dias = PRAZO_PADRAO_DIAS;
-        /** @type {boolean} O servidor recusou a listagem (403): sem permissão de repassar. */
-        this._denied = false;
     }
 
     /** @returns {HTMLElement} */
@@ -263,7 +270,6 @@ export class ResourceShareModal extends ModalBase {
             const grants = await apiClient.listResourceGrants(this._type, this._id);
             if (!this.getBody()) return;
             this._grants = Array.isArray(grants) ? grants : [];
-            this._denied = false;
             // FORÇADO: `_load()` roda na abertura e depois de toda mutação (conceder, revogar,
             // criar grupo), e é aí que a lista de grupos pode ter mudado.
             await this._loadGroups({ force: true });
@@ -271,12 +277,11 @@ export class ResourceShareModal extends ModalBase {
             this._renderBody();
         } catch (error) {
             if (!this.getBody()) return;
-            // 403 aqui não é falha de rede: é o gate de compartilhar dizendo que
-            // este usuário só recebeu `view`. Merece uma tela própria, porque
-            // "tentar novamente" nunca vai resolver.
-            this._denied = error?.status === 403;
-            if (this._denied) this._renderDenied();
-            else this._renderError();
+            // POR STATUS, e não um genérico com "Tentar novamente" para tudo: 403 é o gate de
+            // compartilhar (repetir nunca resolve) e 404 é o recurso que sumiu (repetir resolve
+            // menos ainda). Quem decide o texto e a oferta é `loadFailureState`, em função pura.
+            const estado = loadFailureState(error?.status);
+            this._renderLoadFailure(estado);
         }
     }
 
@@ -323,43 +328,39 @@ export class ResourceShareModal extends ModalBase {
         }
     }
 
-    /** @private */
-    _renderDenied() {
+    /**
+     * @private A tela de quando a listagem não veio, decidida por STATUS.
+     *
+     * TRÊS ESTADOS E DUAS OFERTAS. A recusa (403) NÃO AFIRMA A CAUSA, e essa metade já valia:
+     * o servidor emite 403 por três caminhos indistinguíveis daqui
+     * (`if (quem.global || quem.produz || quem.repassa) return next();`), então "você recebeu
+     * este recurso apenas para ver" era falso em pelo menos dois deles, a começar pelo
+     * credenciado, que não recebeu nada e enxerga por papel. O que entrou em 2026-08-24 é o
+     * ramo do recurso que SUMIU (404): ele caía no genérico, com um "Tentar novamente" que
+     * nunca ia resolver, porque o recurso não existe mais. O botão só é desenhado quando
+     * repetir pode mudar a resposta.
+     * @param {{kind: string, paragrafos: string[], retry: boolean}} estado
+     */
+    _renderLoadFailure(estado) {
         const body = this.getBody();
         if (!body) return;
         clearScopedListeners(this, 'body');
-        // NÃO AFIRMA A CAUSA, e antes afirmava uma que o status não carrega. O gatilho é
-        // qualquer 403, e o servidor o emite por TRÊS caminhos indistinguíveis daqui
-        // (`if (quem.global || quem.produz || quem.repassa) return next();`): não ter papel
-        // global de dado, não produzir aquele recurso, e não ter `view_share`.
-        //
-        // "Você recebeu este recurso apenas para ver" era falso em pelo menos dois deles. O pior
-        // é o produtor cujo escopo mudou entre o desenho do cartão e o clique, e o administrador
-        // ou credenciado REBAIXADO com token ainda vivo: `canShareResource` decide pelo
-        // `hasGlobalDataAccess()` lido do JWT, então ele vê o botão, leva 403 e lê que
-        // "recebeu apenas para ver" um recurso que ele mesmo mantinha. Nenhum dos dois recebeu
-        // coisa alguma.
-        body.innerHTML = `
-            <div class="sharing__state" data-testid="resource-share-denied">
-                <p>O servidor não autorizou você a conceder este recurso.</p>
-                <p>Isso acontece quando o seu acesso a ele não inclui compartilhar, ou quando ele
-                deixou de ser mantido por você. Se você acabou de mudar de papel ou de OM, recarregue
-                a página: a tela pode estar com a informação anterior.</p>
-            </div>
-        `;
-    }
-
-    /** @private */
-    _renderError() {
-        const body = this.getBody();
-        if (!body) return;
-        clearScopedListeners(this, 'body');
-        body.innerHTML = `
-            <div class="sharing__state sharing__state--error" data-testid="resource-share-error">
-                <p>Não foi possível carregar quem tem acesso a este recurso.</p>
-                <button type="button" class="prompt-modal-btn prompt-modal-btn-confirm" data-action="retry">
+        const testid = estado.kind === LOAD_FAILURE.SEM_AUTORIDADE
+            ? 'resource-share-denied'
+            : (estado.kind === LOAD_FAILURE.SUMIU ? 'resource-share-gone' : 'resource-share-error');
+        const classe = estado.kind === LOAD_FAILURE.FALHA ? ' sharing__state--error' : '';
+        // Já escapado parágrafo a parágrafo aqui; o nome da variável evita a interpolação
+        // crua que a regra de lint da casa procura, e o conteúdo é frase da casa, não dado.
+        const paragrafosHtml = estado.paragrafos.map((p) => `<p>${escapeHtml(p)}</p>`).join('');
+        const botao = estado.retry
+            ? `<button type="button" class="prompt-modal-btn prompt-modal-btn-confirm" data-action="retry">
                     Tentar novamente
-                </button>
+                </button>`
+            : '';
+        body.innerHTML = `
+            <div class="sharing__state${classe}" data-testid="${testid}">
+                ${paragrafosHtml}
+                ${botao}
             </div>
         `;
         const retry = body.querySelector('[data-action="retry"]');
@@ -395,9 +396,8 @@ export class ResourceShareModal extends ModalBase {
         return `
             <section class="sharing-section">
                 <h3 class="sharing-section__title">Quem tem acesso</h3>
-                <p class="sharing-section__hint">
-                    Administradores, credenciados e produtores da OM dona enxergam este recurso
-                    por papel, sem concessão, e não aparecem nesta lista.
+                <p class="sharing-section__hint" data-testid="resource-share-scope">
+                    ${escapeHtml(grantsListScopeNote())}
                 </p>
                 <div class="sharing-members" data-testid="resource-share-grants">${linhas}</div>
             </section>
@@ -515,6 +515,19 @@ export class ResourceShareModal extends ModalBase {
             isAdmin: sessionContext.isAdmin(),
         }) === REVOKE_AVAILABILITY.PODE;
         const recusa = podeRevogar ? null : revokeBlockedNotice(grant);
+        // ESTENDER FICA NA LINHA DA CONCESSÃO, e não na seção de conceder, porque o alvo é ESTA
+        // concessão. O gate é o MESMO do remover (`revokeAvailability`): quem não pode desfazer
+        // a linha também não é quem manda no prazo dela, e o servidor decide de novo.
+        // O prazo usado é o do seletor "Prazo" da seção de baixo; `extendGrantHint` diz isso na
+        // dica, porque o botão não abre diálogo (estender é ADITIVO, ninguém perde nada, e
+        // confirmar ato aditivo treina o operador a confirmar sem ler).
+        const estender = podeRevogar
+            ? `<button type="button" class="resource-share__extend" data-action="extend"
+                        data-testid="resource-share-extend" title="${escapeHtml(extendGrantHint())}"
+                        aria-label="Estender o prazo do acesso ${escapeHtml(granteeSubject(grant))}">
+                    Estender
+                </button>`
+            : '';
         const acao = podeRevogar
             ? `<button type="button" class="sharing-member__remove" data-action="revoke"
                         data-testid="resource-share-revoke" aria-label="Remover o acesso ${escapeHtml(granteeSubject(grant))}">
@@ -537,6 +550,7 @@ export class ResourceShareModal extends ModalBase {
                 ${prazo}
                 ${cascata}
                 <span class="resource-share__level" data-testid="resource-share-level">${escapeHtml(grantLevelLabel(grant?.grant_level))}</span>
+                ${estender}
                 ${acao}
             </div>
         `;
@@ -733,15 +747,18 @@ export class ResourceShareModal extends ModalBase {
                     <select class="sharing-member__permission" id="resource-share-expiry-select"
                             data-action="expiry" data-testid="resource-share-expiry-select">${prazos}</select>
                     <span class="settings-field__description">
-                        Vale para a próxima concessão. Rebaixar o nível de uma concessão que já
-                        existe não é possível: seria preciso remover o acesso, o que derruba a
-                        subárvore, e conceder de novo.
+                        Vale para a próxima concessão E para o botão "Estender" de cada linha.
+                        Rebaixar o nível de uma concessão que já existe continua não sendo
+                        possível: seria preciso remover o acesso, o que derruba a subárvore, e
+                        conceder de novo.
                     </span>
                 </div>
-                <p class="sharing-section__hint">
+                <p class="sharing-section__hint" data-testid="resource-share-expiry-hint">
                     Todo acesso concedido vence em até um ano, e nunca depois do acesso de quem
-                    concedeu. Vencido, ele deixa de valer sozinho, sem aviso: para manter, conceda
-                    de novo antes da data.
+                    concedeu. Vencido, ele deixa de valer sozinho, sem aviso: para manter, use
+                    "Estender" na linha da pessoa ou do grupo, antes da data. Conceder de novo
+                    não é caminho, porque o servidor recusa uma segunda concessão ao mesmo
+                    beneficiário.
                 </p>
                 ${this._renderGroupRow()}
                 <div class="sharing-search">
@@ -766,7 +783,10 @@ export class ResourceShareModal extends ModalBase {
         const { userIds } = alreadyGranted(this._grants);
         const escolhiveis = results.filter((u) => !userIds.has(String(u?.id)));
 
-        if (!results.length) return '<div class="sharing-results__empty">Nenhum usuário encontrado</div>';
+        // OS DOIS VAZIOS SÃO ALCANÇÁVEIS DESDE 2026-08-24. `_renderResultsInto` escrevia string
+        // vazia quando não havia resultado, o que tornava a primeira linha abaixo código morto:
+        // o painel era REVELADO em branco, e a mesma tela em branco servia à falha de rede.
+        if (!results.length) return '<div class="sharing-results__empty" data-testid="resource-share-no-results">Nenhum usuário encontrado</div>';
         if (!escolhiveis.length) return '<div class="sharing-results__empty">Todos já têm acesso</div>';
 
         return escolhiveis.map((u) => {
@@ -802,6 +822,8 @@ export class ResourceShareModal extends ModalBase {
             const grantId = row.dataset.grantId;
             const revoke = row.querySelector('[data-action="revoke"]');
             if (revoke) addScopedDomListener(this, 'body', revoke, 'click', () => this._handleRevoke(grantId));
+            const extend = row.querySelector('[data-action="extend"]');
+            if (extend) addScopedDomListener(this, 'body', extend, 'click', () => this._handleExtend(grantId));
         });
 
         const level = body.querySelector('[data-action="level"]');
@@ -907,28 +929,70 @@ export class ResourceShareModal extends ModalBase {
         this._busy = true;
         try {
             const resposta = await apiClient.revokeResourceGrant(grantId);
-            // A contagem vem do SERVIDOR, e não do que a tela calculou: a árvore pode
-            // ter crescido entre o desenho e o clique, e quem tem a verdade é a poda.
-            const derrubadas = Array.isArray(resposta?.revoked) ? resposta.revoked.length : 0;
-            // AS DUAS LISTAS NOVAS SÃO O FATO MAIS INTERESSANTE PARA QUEM ACABOU DE
-            // REVOGAR: elas dizem quem NÃO caiu porque alcança o recurso por outro
-            // concedente. Sem a frase, o usuário conclui que a poda foi incompleta.
-            // `trimmed` entra na mesma contagem de propósito: do ponto de vista de quem
-            // revogou, os dois são "continua com acesso".
-            const mantidas = (Array.isArray(resposta?.reparented) ? resposta.reparented.length : 0)
-                + (Array.isArray(resposta?.trimmed) ? resposta.trimmed.length : 0);
-            const caiu = derrubadas > 1
-                ? `Acesso removido — ${derrubadas} concessões caíram junto.`
-                : 'Acesso removido.';
-            const manteve = mantidas > 0
-                ? ` ${mantidas} ${mantidas === 1 ? 'concessão foi mantida' : 'concessões foram mantidas'}`
-                  + ' por outro caminho de acesso.'
-                : '';
-            showSuccess(`${caiu}${manteve}`);
+            // A CONTAGEM VEM DO SERVIDOR, e não do que a tela calculou: a árvore pode ter
+            // crescido entre o desenho e o clique, e quem tem a verdade é a poda. As duas
+            // listas de mantidas (`reparented` e `trimmed`) entram na mesma soma, porque do
+            // ponto de vista de quem revogou as duas são "continua com acesso"; sem a frase,
+            // um `revoked` menor que o esperado se lê como poda incompleta.
+            //
+            // E A FRASE NÃO DECLARA MAIS UM FIM INSTANTÂNEO: o gate do asset 3D memoiza a
+            // decisão por 30 s (`TTL_MS`, `backend/src/modules/nomes/assets3d-acesso.js`) e a
+            // cláusula 10.3 registra que a revogação não é empurrada em tempo real para quem
+            // não está numa sala que empresta. Quem escreve o texto é `revocationSummary`,
+            // testável em node com o tipo do recurso.
+            showSuccess(revocationSummary(resposta, this._type));
             await this._refreshVisible();
             await this._load();
         } catch (error) {
             showError(shareErrorMessage(error, 'Não foi possível remover o acesso.'));
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Estende o prazo de UMA concessão viva, pelo prazo escolhido no seletor.
+     *
+     * POR QUE UM BOTÃO, E NÃO A INSTRUÇÃO QUE ESTAVA AQUI. O parágrafo fixo da seção de
+     * conceder mandava "conceder de novo antes da data", e isso é impossível pelos DOIS lados:
+     * `alreadyGranted` tira da busca e do seletor quem já tem concessão viva, e o servidor
+     * devolve 409 na segunda concessão do mesmo par. O único caminho seria revogar antes, e
+     * revogar PODA A SUBÁRVORE, que não volta: a tela instruía a destruir para renovar.
+     *
+     * O `expiresAt` DA RESPOSTA É O EFETIVO, PÓS-CLAMP, e pode vir MENOR que o pedido, porque
+     * uma concessão não sobrevive à de quem a originou. A tela mostra o EFETIVO e diz quando
+     * ele veio menor (`extensionOutcome` + `extensionSummary`): um botão que pede 180 dias,
+     * recebe 20 e anuncia 180 é pior que não ter botão.
+     *
+     * SEM DIÁLOGO DE CONFIRMAÇÃO, de propósito: estender é aditivo. A assimetria entre ato
+     * aditivo e ato destrutivo é a mesma de `visibilityChangeWarning`
+     * (`catalog/visibility-phrases.js`), e confirmar os dois é como o "Confirmar" perde o
+     * efeito no caso em que ele importa.
+     * @param {string} grantId
+     */
+    async _handleExtend(grantId) {
+        if (this._busy || !grantId) return;
+        const alvo = this._grants.find((g) => String(g?.id) === String(grantId));
+        const pedido = extensionDeadline(this._dias);
+        if (!pedido) {
+            showError('Escolha um prazo antes de estender.');
+            return;
+        }
+        this._busy = true;
+        try {
+            const resposta = await apiClient.extendResourceGrant(grantId, pedido);
+            // `expiresAt` é o contrato acordado; `expires_at` é o nome da COLUNA, aceito aqui
+            // porque uma rota que devolva a linha crua não é um caso a descobrir por toast mudo.
+            const efetivo = resposta?.expiresAt ?? resposta?.expires_at ?? null;
+            const desfecho = extensionOutcome({
+                pedido,
+                efetivo,
+                anterior: alvo?.expires_at ?? null,
+            });
+            showSuccess(extensionSummary(desfecho, dataCurta(efetivo)));
+            await this._load();
+        } catch (error) {
+            showError(shareErrorMessage(error, 'Não foi possível estender o prazo.'));
         } finally {
             this._busy = false;
         }
@@ -1078,23 +1142,55 @@ export class ResourceShareModal extends ModalBase {
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
-            this._renderResultsInto([]);
+            // NÃO É `_renderResultsInto([])`: aquilo diria "Nenhum usuário encontrado" para uma
+            // busca que nunca chegou ao servidor, que é afirmar ausência sem ter perguntado.
+            this._renderSearchFailure(q);
             this._setResultsHidden(false);
         }
     }
 
     /**
-     * @private
+     * @private Desenha os resultados da busca, INCLUSIVE o vazio.
+     *
+     * O `results.length ? ... : ''` DE ANTES ERA O DEFEITO: ele revelava o painel com string
+     * vazia, o que tornava o ramo "Nenhum usuário encontrado" de `_renderResults`
+     * inalcançável, e o `catch` da busca chamava exatamente este par. Uma caixa branca
+     * respondia às duas causas ("ninguém com esse nome" e "a rede caiu"), que é a mesma
+     * confusão que `groupsLoadFailureNotice` já tinha separado no seletor de grupo.
      * @param {Array} results
      */
     _renderResultsInto(results) {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
-        container.innerHTML = results.length ? this._renderResults(results) : '';
+        container.innerHTML = this._renderResults(Array.isArray(results) ? results : []);
         container.querySelectorAll('[data-action="grant"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () => this._handleGrant(btn.dataset.userId));
         });
+    }
+
+    /**
+     * @private A FALHA da busca, com nova tentativa, no lugar da caixa branca.
+     *
+     * O botão repete a MESMA consulta guardada, e não a leitura do campo: entre o erro e o
+     * clique a pessoa pode ter digitado outra coisa, e repetir o que ela vê agora seria
+     * responder a uma pergunta que ela não fez. O modelo é `failureState`
+     * (`js/admin/admin-dom.js`): toda falha de carregamento tem saída.
+     * @param {string} q - A consulta que falhou.
+     */
+    _renderSearchFailure(q) {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        container.innerHTML = `
+            <div class="sharing-results__failed" data-testid="resource-share-search-failed">
+                <p class="sharing-section__hint">${escapeHtml(searchFailureNotice())}</p>
+                <button type="button" class="prompt-modal-btn" data-action="retry-search"
+                        data-testid="resource-share-search-retry">Tentar de novo</button>
+            </div>
+        `;
+        const retry = container.querySelector('[data-action="retry-search"]');
+        if (retry) addScopedDomListener(this, 'results', retry, 'click', () => this._runSearch(q));
     }
 
     /** @private */

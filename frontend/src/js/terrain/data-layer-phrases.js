@@ -38,6 +38,14 @@
  * dozens of tiles and MapLibre fires one `error` event per failed request. A phrase built from
  * the request count would say "42 falhas" about one layer, which is both useless and alarming.
  * Every function here takes LAYER NAMES.
+ *
+ * THREE SURFACES SHARE THESE WORDS, and one of them is not a layer. Since 2026-08-24 the same
+ * notice covers the data layers of `config.dataLayers`, the raster layers of
+ * `config.analysisLayers` and the BASEMAP (`config.basemaps` → the whole `config.style`). The
+ * first two are sources ADDED to the style and are named in the same list; the basemap is the
+ * style ITSELF, so it gets its own sentence rather than a slot in that list. Folding it into the
+ * list would produce "2 camadas não puderam ser carregadas: "Mapa base" e "Molduras"", which
+ * counts a thing that is not a layer and hides that the ground itself is missing.
  */
 
 /** Label of the affordance that re-asks for the layer. */
@@ -161,6 +169,48 @@ export function layerRetryStillFailingNotice(names) {
     const rendered = formatLayerNameList(names);
     if (count === 1) return `A camada ${rendered} continua sem carregar após a nova tentativa.`;
     return `${count} camadas continuam sem carregar após a nova tentativa: ${rendered}.`;
+}
+
+/**
+ * THE BASEMAP, WHICH IS NOT A LAYER IN THIS LIST. See the file header for why it gets its own
+ * sentence: it is the whole `config.style`, not a source added on top of one.
+ *
+ * THE NAME IS OPTIONAL, AND THE NAMELESS FORM IS THE HONEST DEFAULT, not a placeholder waiting to
+ * be filled. What reports a basemap failure inside the map is the tile request that failed, and at
+ * that moment the client cannot tell WHICH basemap id it belongs to without asking a module that
+ * is not the map (see the fileoverview of `layer-failure-notice.js`). Printing the id the app
+ * last recorded would name the PREVIOUS basemap during a switch, which is worse than naming none:
+ * only one basemap is ever displayed, so the person already knows which one is missing.
+ * @param {*} [name] - Basemap name, when the caller genuinely knows it.
+ * @returns {string}
+ */
+export function basemapLoadFailureNotice(name) {
+    const rendered = String(name ?? '').trim();
+    return rendered
+        ? `O mapa base "${rendered}" não pôde ser carregado.`
+        : 'O mapa base não pôde ser carregado.';
+}
+
+/**
+ * THE ONE HEADLINE the notice prints, however many surfaces are involved.
+ *
+ * THE BASEMAP COMES FIRST when both failed, and the order is an argument, not a taste: the
+ * basemap is the ground the other layers are drawn on, so its absence explains more of what the
+ * person is looking at than a layer's does. Reading "a camada X falhou" first, with a blank map
+ * behind it, sends the diagnosis to the wrong place.
+ *
+ * `retried` applies ONLY to the layer half. The basemap is not re-requested by this notice (there
+ * is no affordance for it: see `layer-failure-notice.js`), so claiming "após a nova tentativa"
+ * about it would describe an attempt that never happened.
+ * @param {{layerNames?: Array<*>, basemapFailed?: boolean, basemapName?: *, retried?: boolean}} [state]
+ * @returns {string} Empty string when nothing failed, so the caller cannot render a notice about nothing.
+ */
+export function loadFailureHeadline({
+    layerNames = [], basemapFailed = false, basemapName = null, retried = false,
+} = {}) {
+    const layers = retried ? layerRetryStillFailingNotice(layerNames) : layerLoadFailureNotice(layerNames);
+    const basemap = basemapFailed ? basemapLoadFailureNotice(basemapName) : '';
+    return [basemap, layers].filter(Boolean).join(' ');
 }
 
 /**

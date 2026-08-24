@@ -180,6 +180,19 @@ que nasceria morta recusada, e 364 dias aceitos.
 com B, tirar de A tira de B. **[vigente]** Preso por
 `backend/tests/integration/resource-grants-poda.test.js`, cuja discriminação é o ramo irmão ficando de pé.
 
+**E quem revoga é o AUTOR da concessão, ou a administração do sistema, e mais ninguém.** Esta cláusula
+descrevia o efeito e calava sobre o sujeito, e a lacuna deixou `CLAUDE.md` prometer que o credenciado
+"concede/revoga" quando o servidor sempre o limitou ao que ele mesmo originou. A frase entra em
+2026-08-24, sem mudança de comportamento: o gate é `requireGrantRevoker`
+(`backend/src/middleware/resource-access.js`), e a forma dele é a que importa preservar. O ramo largo
+pergunta por UM papel, o que administra o sistema; o ramo estreito não pergunta por papel nenhum,
+pergunta por autoria. Um papel novo entra por `granted_by` sem que ninguém edite aquele arquivo, o que
+é o oposto da lista fechada que a doutrina proíbe. Ter `view_share` no recurso NÃO basta: revogar a
+concessão de outra pessoa derrubaria uma subárvore que não é sua, e a poda é justamente a operação
+cujo alcance passa longe da linha que se aponta. O cliente já espelha isso em função pura
+(`revokeAvailability`, `frontend/src/js/catalog/grant-tree.js`), presa por
+`frontend/tests/unit/revogar-concessao-quem-pode.test.js`.
+
 **3.6** **Caminhos independentes são preservados.** Se B recebeu de A **e** de C, ou por um grupo, tirar A não
 tira B. **[vigente]** Preso por `backend/tests/integration/resource-grants-poda.test.js`.
 

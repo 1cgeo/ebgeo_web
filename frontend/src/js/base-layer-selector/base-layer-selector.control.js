@@ -16,7 +16,12 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
-import { isPrivateResource, canShareResource } from '@store/sync/resource-access.service.js';
+import {
+    canShareResource,
+    isPrivateResource,
+    resourceAccessOrigin
+} from '@store/sync/resource-access.service.js';
+import { privateBadgePhrase } from '@catalog/access-origin-phrases.js';
 
 /** Static icon (no user data) for the share affordance of a private base layer. */
 const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>';
@@ -219,13 +224,21 @@ export class BaseLayerSelectorControl {
         // pessoal ou empréstimo do atlas em foco), e é indistinguível de uma pública se
         // ninguém disser. Quem a vê precisa saber que ela não está no acervo de todos —
         // e, no caso do empréstimo, que ela sai da lista ao sair do atlas.
+        //
+        // AS TRÊS ORIGENS SE DISTINGUEM DESDE 2026-08-24, e a frase única de antes ("só quem
+        // recebeu acesso a enxerga") era falsa para quem enxerga por PAPEL. O rótulo curto é
+        // exigência de tela: o selo mora sobre uma miniatura de duas colunas.
         const privado = isPrivateResource('basemaps', layerId);
         if (privado) {
+            const origem = resourceAccessOrigin('basemaps', layerId) ?? null;
+            const selagem = privateBadgePhrase(origem, { sujeito: 'Camada base privada' });
             const selo = document.createElement('span');
             selo.className = 'base-layer-option-badge';
+            if (selagem.volatil) selo.classList.add('base-layer-option-badge--lent');
             selo.dataset.testid = 'base-layer-private';
-            selo.textContent = 'Privado';
-            selo.title = 'Camada base privada: só quem recebeu acesso a enxerga.';
+            selo.dataset.origem = selagem.origem ?? 'desconhecida';
+            selo.textContent = selagem.rotuloCurto;
+            selo.title = selagem.title;
             thumb.appendChild(selo);
         }
 

@@ -355,12 +355,19 @@ export class AccountControl {
         // administrador global, "Catálogo" para o produtor e "Grupos" para qualquer outra sessão
         // autenticada. Independe de atlas conectado — a página é global. O backend gateia toda
         // rota de administração; isto é afordância de interface e nada mais.
+        //
+        // ELE NASCE VAZIO, DE PROPÓSITO, e essa é a metade que faltava. Nascer com "Administração"
+        // e o escudo, para só então ser reescrito, punha no DOM o rótulo de UM dos quatro casos
+        // como se fosse o padrão dos quatro: para o credenciado, cujo recorte é só "Grupos", o
+        // rótulo errado existia por um instante e prometia um poder que ele não tem. Quem nomeia
+        // é `adminAudience` e mais ninguém; sem texto, não há nada errado a corrigir depois.
+        // (O botão nasce escondido, então "vazio" nunca chega à tela: `_updateAdminVisibility`
+        // roda no `_render` e no `_openMenu`, ambos antes de ele deixar de ser `hidden`.)
         this._adminBtn = document.createElement('button');
         this._adminBtn.type = 'button';
         this._adminBtn.className = 'account-control__btn account-control__btn--admin';
         this._adminBtn.setAttribute('role', 'menuitem');
         this._adminBtn.setAttribute('data-testid', 'account-admin-btn');
-        setMenuButtonContent(this._adminBtn, ICON_ADMIN, 'Administração');
         this._adminBtn.hidden = true;
         this._menu.appendChild(this._adminBtn);
 
@@ -747,8 +754,10 @@ export class AccountControl {
         // `adminAudience` foi escrita para nomear o que a pessoa RECEBE e nunca a pagina, e um
         // escudo ao lado da palavra desfaz esse cuidado sem uma linha de codigo dizendo isso.
         //
-        // `setMenuButtonContent` reescreve o conteudo inteiro, o que tambem elimina o instante em
-        // que o DOM carregava o rotulo errado antes desta funcao rodar.
+        // ESTA E A UNICA ESCRITA DO ROTULO. O botao nasce sem conteudo (ver `onAdd`), entao nao
+        // ha instante em que o DOM carregue o nome de outra audiencia. A versao anterior desta
+        // linha dizia que reescrever o conteudo inteiro "elimina" esse instante; ela apenas o
+        // ENCURTAVA, e o rotulo errado existia no DOM enquanto durasse.
         if (texto) {
             setMenuButtonContent(
                 this._adminBtn,

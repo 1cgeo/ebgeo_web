@@ -109,6 +109,39 @@
     color: var(--gray-700);
 }
 
+/* ==========================================================================
+   FILTER GROUP: ACESSO
+   ========================================================================== */
+
+/* O segundo grupo da barra (público / privado / as três origens). Ele é um bloco próprio
+   para poder sumir inteiro (`[hidden]`) quando não há nenhum item privado a separar. */
+.catalog-filters-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.catalog-filters-group[hidden] {
+    display: none;
+}
+
+.catalog-filters-title--acesso {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+}
+
+/* O botão de acesso não tem ícone nem cor por tipo: `--filter-color` vem daqui, e não de um
+   estilo embutido no JS como o do filtro de tipo, porque o eixo inteiro tem uma cor só. */
+.catalog-filter-btn--acesso {
+    --filter-color: var(--color-warning);
+
+    justify-content: flex-start;
+}
+
+.catalog-filter-btn--acesso[hidden] {
+    display: none;
+}
+
 .filter-count {
     margin-left: auto;
     font-size: var(--font-size-xs);
@@ -266,6 +299,27 @@
     left: auto;
     right: var(--space-2);
     background: rgb(180 83 9 / 88%);
+}
+
+/* Selo do acesso VOLÁTIL (o recurso é emprestado pelo atlas em foco e some ao sair dele).
+   O contorno tracejado é o segundo canal, além do texto: quem varre a grade com o olho
+   distingue o selo temporário do permanente sem ler os dois rótulos. */
+.catalog-card-badge--lent {
+    border: 1px dashed rgb(255 255 255 / 70%);
+}
+
+/* Prazo do acesso, no corpo do cartão e não sobre a miniatura: ele é texto que se lê, não
+   etiqueta que se reconhece, e sobre a foto competiria com o selo de privado. */
+.catalog-card-expiry {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.catalog-card-expiry--hoje,
+.catalog-card-expiry--vencido {
+    color: var(--color-warning);
+    font-weight: var(--font-weight-semibold);
 }
 
 /* Content */

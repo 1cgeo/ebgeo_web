@@ -26,6 +26,7 @@ import { createConfigTab } from './config-tab.js';
 import { createCatalogTab } from './catalog-tab.js';
 import { createPersonnelTab } from './personnel-tab.js';
 import { createGroupsTab } from './groups-tab.js';
+import { createGrantsTab } from './grants-tab.js';
 import { createAuditTab } from './audit-tab.js';
 
 /**
@@ -35,6 +36,7 @@ import { createAuditTab } from './audit-tab.js';
 const TAB_FACTORIES = Object.freeze({
     users: createUsersTab,
     groups: createGroupsTab,
+    grants: createGrantsTab,
     config: createConfigTab,
     catalog: createCatalogTab,
     personnel: createPersonnelTab,
@@ -57,11 +59,18 @@ export function mountAdminPage({ user, onBack, onLogout } = {}, host = document.
         isProducer: sessionContext.isProducer(),
     });
     const tabs = tabIds.map((id) => TAB_FACTORIES[id]).filter(Boolean).map((factory) => factory());
+    // O FALLBACK NÃO PODE SER "Administração", e essa era a moldura desfazendo o cuidado da
+    // audiência: `adminAudience` nomeia o que a pessoa RECEBE justamente para não prometer um poder
+    // que o primeiro clique nega, e um `?? 'Administração'` devolve a promessa pela porta dos
+    // fundos. O ramo é defensivo (quem chega aqui sem rótulo já foi mandado para o mapa pelo gate
+    // de `admin-page.js`), e é por isso mesmo que ele tem de ser o mais MODESTO possível: "Painel"
+    // é verdadeiro para toda audiência que esta página admite, e é a mesma palavra que
+    // `admin-page.js` usa no título provisório da aba, pela mesma razão.
     const panel = new AdminPanel(tabs, {
         user,
         onBack,
         onLogout,
-        title: label ?? 'Administração',
+        title: label ?? 'Painel',
     });
     panel.mount(host);
     return panel;

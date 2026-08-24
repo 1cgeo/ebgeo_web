@@ -17,9 +17,18 @@ import {
     CATALOG_MODAL_ICON
 } from './catalog.constants.js';
 import { createCatalogHeader } from './components/catalog-header.js';
-import { createCatalogFilters, updateFilterCounts } from './components/catalog-filters.js';
+import {
+    createCatalogFilters,
+    updateAccessFilterCounts,
+    updateFilterCounts
+} from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
-import { resourceAccessRefOf } from './components/catalog-card.js';
+import { accessClassOfItem, resourceAccessRefOf } from './components/catalog-card.js';
+import {
+    catalogEmptyNotice,
+    countByAccessFilter,
+    matchesAccessFilter
+} from './access-origin-phrases.js';
 import { showResourceShareModal } from './resource-share.modal.js';
 // Pelo ARQUIVO: a definicao unica da porta de administracao, para o rotulo nao divergir do que
 // a barra da conta usa. Ambos sao folhas de zero imports.
@@ -54,6 +63,18 @@ export class CatalogModal extends ModalBase {
         this._filteredItems = [];
         // Start with no filters active — show all items by default
         this._activeFilters = new Set();
+        // O SEGUNDO EIXO DE FILTRO (acesso), pela mesma regra do primeiro: vazio = tudo.
+        this._activeAccessFilters = new Set();
+        /**
+         * A classe de acesso de cada item da carga atual (`item` → `'publico'|'papel'|...`).
+         *
+         * MAPA, E NÃO UM CAMPO NO ITEM: o item de catálogo é remontado a cada `_loadItems`, e
+         * carimbá-lo faria a classe viajar dentro de um objeto que também alimenta a aba de
+         * configuração do atlas e a busca. Aqui ela vive exatamente uma carga, que é o tempo
+         * em que a resposta do servidor vale.
+         * @type {Map<Object, string>}
+         */
+        this._accessClasses = new Map();
         this._searchQuery = '';
 
         // DOM references
@@ -92,7 +113,9 @@ export class CatalogModal extends ModalBase {
         this._filtersContainer = createCatalogFilters({
             types: CATALOG_TYPE_CONFIG,
             activeFilters: this._activeFilters,
-            onFilterChange: (type, active) => this._handleFilterChange(type, active)
+            onFilterChange: (type, active) => this._handleFilterChange(type, active),
+            activeAccessFilters: this._activeAccessFilters,
+            onAccessFilterChange: (chave, ativa) => this._handleAccessFilterChange(chave, ativa)
         });
         layout.appendChild(this._filtersContainer);
 
@@ -177,7 +200,22 @@ export class CatalogModal extends ModalBase {
      */
     async _loadItems() {
         this._allItems = await CatalogService.getAllItems();
+        // A CLASSIFICAÇÃO ACONTECE UMA VEZ POR CARGA, e é a MESMA fonte para o contador e para
+        // a lista. Classificar de novo no ponto de desenho seria pagar a segunda resposta
+        // possível para a mesma pergunta, que é exatamente como um contador passa a discordar
+        // da grade que ele conta.
+        this._accessClasses = new Map(this._allItems.map((item) => [item, accessClassOfItem(item)]));
         updateFilterCounts(this._filtersContainer, this._computeFilterCounts());
+        const visiveis = updateAccessFilterCounts(
+            this._filtersContainer,
+            countByAccessFilter([...this._accessClasses.values()])
+        );
+        // FILTRO QUE SOME NÃO PODE CONTINUAR FILTRANDO. Trocar de atlas tira o empréstimo, e
+        // uma chave ligada num botão que acabou de se esconder deixaria a grade vazia sem nada
+        // na tela explicando por quê.
+        for (const chave of [...this._activeAccessFilters]) {
+            if (!visiveis.includes(chave)) this._activeAccessFilters.delete(chave);
+        }
         this._applyFilters();
     }
 
@@ -228,6 +266,21 @@ export class CatalogModal extends ModalBase {
     }
 
     /**
+     * Handles an access-filter toggle.
+     * @private
+     * @param {string} chave - Uma das chaves de `ACCESS_FILTER`.
+     * @param {boolean} ativa
+     */
+    _handleAccessFilterChange(chave, ativa) {
+        if (ativa) {
+            this._activeAccessFilters.add(chave);
+        } else {
+            this._activeAccessFilters.delete(chave);
+        }
+        this._applyFilters();
+    }
+
+    /**
      * Handles search.
      * @private
      * @param {string} query - Search query
@@ -262,6 +315,16 @@ export class CatalogModal extends ModalBase {
                 return false;
             });
 
+        // Segundo eixo: ACESSO. Ele CRUZA com o de tipo (interseção entre grupos, união dentro
+        // de cada um), que é o que faz "camadas de dados que só existem neste atlas" ser uma
+        // pergunta que a barra sabe responder.
+        if (this._activeAccessFilters.size > 0) {
+            items = items.filter((item) => matchesAccessFilter(
+                this._accessClasses.get(item),
+                this._activeAccessFilters
+            ));
+        }
+
         // Filter by search
         if (this._searchQuery) {
             items = CatalogService.searchItems(this._searchQuery, items);
@@ -288,7 +351,14 @@ export class CatalogModal extends ModalBase {
             items: this._filteredItems,
             onItemClick: (item) => this._handleItemClick(item),
             mapLocked: isCurrentMapLockedSync(),
-            onShare: (item) => this._handleShare(item)
+            onShare: (item) => this._handleShare(item),
+            // O ESTADO VAZIO NOMEIA O QUE O ESVAZIOU. Com dois eixos de filtro mais a busca,
+            // "Nenhum item encontrado" deixa a pessoa sem saber qual dos três desligar.
+            emptyNotice: catalogEmptyNotice({
+                temBusca: !!this._searchQuery,
+                tiposAtivos: this._activeFilters.size,
+                acessosAtivos: [...this._activeAccessFilters]
+            })
         });
 
         this._gridContainer.appendChild(grid);

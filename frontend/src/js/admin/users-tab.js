@@ -34,7 +34,9 @@ import {
 import {
     deactivationWarning, deactivationConfirmLabel, deactivationSummary, reactivationNotice,
 } from './user-deactivation-phrases.js';
-import { GLOBAL_ROLE_LABELS } from '@ui/role-labels.js';
+import {
+    GLOBAL_ROLE_LABELS, getGlobalRoleLabel, getGlobalRoleDescription, isKnownGlobalRole,
+} from '@ui/role-labels.js';
 
 /**
  * O papel global de que o par (papel, OM de produção) é exigido pelo banco.
@@ -251,8 +253,23 @@ class UsersTab {
 
             const roleTd = document.createElement('td');
             const roleChip = document.createElement('span');
-            roleChip.className = `admin-chip admin-chip--${ROLE_CHIP[u.role]?.variante ?? 'user'}`;
-            roleChip.textContent = ROLE_CHIP[u.role]?.rotulo ?? 'Usuário';
+            // O DESCONHECIDO É TRATADO COMO DESCONHECIDO desde 2026-08-24. Os dois fallbacks aqui
+            // eram literais (`?? 'Usuário'` e `?? 'user'`), então um QUINTO papel emitido pelo
+            // servidor apareceria como "Usuário" na tabela do administrador — a despromoção
+            // silenciosa que o `fileoverview` de `@ui/role-labels.js` nomeia, e o pior lugar
+            // possível para ela, porque é a tela em que alguém decide o papel de outra pessoa.
+            // O padrão certo já existia naquele arquivo e é o que se usa aqui: o valor CRU vira o
+            // rótulo e a frase diz que o aplicativo não sabe descrevê-lo. `ROLE_CHIP` continua
+            // sendo quem dá a `variante`, porque ela é nome de classe CSS desta aba e só existe
+            // para os quatro papéis com cor própria.
+            const conhecido = isKnownGlobalRole(u.role);
+            const variante = conhecido ? ROLE_CHIP[u.role].variante : 'desconhecido';
+            roleChip.className = `admin-chip admin-chip--${variante}`;
+            // `|| '—'`: conta sem papel nenhum é linha em branco, e uma célula vazia na coluna de
+            // papel se lê como "Usuário" tanto quanto o literal que acabou de sair daqui.
+            roleChip.textContent = getGlobalRoleLabel(u.role) || '—';
+            const descricao = getGlobalRoleDescription(u.role);
+            if (descricao) roleChip.title = descricao;
             roleTd.appendChild(roleChip);
             tr.appendChild(roleTd);
 

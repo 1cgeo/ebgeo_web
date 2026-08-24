@@ -77,7 +77,7 @@ import { showConfirm } from './confirm.modal.js';
 // uma contagem, e dizer o CONTRÁRIO quando a contagem é zero, é regra que já foi paga uma
 // vez do lado do catálogo. Reescrevê-la aqui daria a terceira cópia de uma frase que os
 // dois eixos precisam ter igual.
-import { accessLossClause, groupOptionLabel } from '@js/catalog/grant-tree.js';
+import { accessLossClause, groupOptionLabel, searchFailureNotice } from '@js/catalog/grant-tree.js';
 // A DICA DO SELETOR MANDA A PESSOA PARA UMA PORTA, então ela precisa dizer o nome que ESTA
 // pessoa vê escrito naquela porta — "Grupos" para uma sessão comum, "Catálogo" para o
 // produtor, "Administração" para o administrador. Escrever "Administração" fixo mandaria o
@@ -313,8 +313,8 @@ export function selectableGroups(administrados, jaNoAtlas) {
  * administra grupos e já pôs todos neste atlas não tem nada a fazer, e quem não administra
  * nenhum tem uma ação, criar um.
  *
- * O DESTINO É O RÓTULO CALCULADO, nunca a palavra "Grupos": a porta se chama "Administração"
- * para o administrador, "Catálogo" para o produtor e "Grupos" para o resto de quem entrou
+ * O DESTINO É O RÓTULO CALCULADO, nunca uma palavra fixa: a porta se chama "Administração"
+ * para o administrador, "Catálogo" para o produtor e "Acessos" para o resto de quem entrou
  * (`adminAudience`, `js/admin/admin-audience.js`). Escrever o rótulo fixo mandaria três das
  * quatro audiências procurar um botão com outro nome. Sem porta (visitante anônimo, ou de link
  * público) a frase simplesmente não indica destino, em vez de indicar um inexistente.
@@ -1676,7 +1676,7 @@ export class SharingModal extends ModalBase {
             this._setResultsHidden(false);
         } catch {
             if (seq !== this._searchSeq) return;
-            this._renderResultsInto([]);
+            this._renderSearchFailure(q);
             this._setResultsHidden(false);
         }
     }
@@ -1689,11 +1689,45 @@ export class SharingModal extends ModalBase {
         const container = this.getBody()?.querySelector('[data-results]');
         if (!container) return;
         clearScopedListeners(this, 'results');
-        container.innerHTML = results.length ? this._renderResults(results) : '';
+        // SEM O TERNÁRIO, e a razão é que ele tornava um ramo INALCANÇÁVEL: o painel era
+        // revelado com string vazia, então o "Nenhum usuário encontrado" que
+        // `_renderResults` já sabia devolver nunca chegava à tela. Somado ao `catch` de
+        // `_runSearch`, que chamava este mesmo par, "ninguém encontrado" e "a rede caiu"
+        // eram a MESMA caixa em branco.
+        container.innerHTML = this._renderResults(results);
         container.querySelectorAll('[data-action="add"]').forEach((btn) => {
             addScopedDomListener(this, 'results', btn, 'click', () =>
                 this._handleAdd(btn.dataset.userId));
         });
+    }
+
+    /**
+     * @private Renders the search FAILURE, which is a different thing from an empty result.
+     *
+     * The retry is what makes this a state and not a dead end: the query is still in hand,
+     * so the person does not have to retype it to find out whether the network came back.
+     * @param {string} q - The query to run again.
+     */
+    _renderSearchFailure(q) {
+        const container = this.getBody()?.querySelector('[data-results]');
+        if (!container) return;
+        clearScopedListeners(this, 'results');
+        // A FRASE VEM DE `grant-tree.js` e não é reescrita aqui. As TRÊS buscas de pessoa do
+        // produto (este modal, o de criar atlas e o de conceder recurso) tinham o mesmo
+        // defeito, então elas precisam da mesma frase: uma cópia por modal diverge na
+        // primeira revisão, e a divergência aparece justamente quando alguém compara duas
+        // telas tentando entender se o erro é o mesmo. Aquele arquivo tem ZERO imports, de
+        // modo que importá-lo daqui não arrasta nada para `atlas.html`.
+        container.innerHTML = `
+            <div class="sharing-results__failed" data-testid="sharing-search-failed" role="alert">
+                <p class="sharing-section__hint">${escapeHtml(searchFailureNotice())}</p>
+                <button type="button" class="prompt-modal-btn" data-action="search-retry"
+                        data-testid="sharing-search-retry">Tentar de novo</button>
+            </div>`;
+        const retry = container.querySelector('[data-action="search-retry"]');
+        if (retry) {
+            addScopedDomListener(this, 'results', retry, 'click', () => this._runSearch(q));
+        }
     }
 
     /** @private */

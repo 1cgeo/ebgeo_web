@@ -206,10 +206,13 @@ const CENSO_ROTA = [
   json('src/modules/ranks/ranks.routes.js', 'DELETE /:id'),
 
   json('src/modules/resource-access/resource-access.routes.js', 'GET /visible'),
+  json('src/modules/resource-access/resource-access.routes.js', 'GET /grants/issued'),
+  json('src/modules/resource-access/resource-access.routes.js', 'GET /grants/received'),
   json('src/modules/resource-access/resource-access.routes.js', 'PATCH /:type/:id/visibility'),
   json('src/modules/resource-access/resource-access.routes.js', 'GET /:type/:id/grants'),
   json('src/modules/resource-access/resource-access.routes.js', 'POST /:type/:id/grants'),
   json('src/modules/resource-access/resource-access.routes.js', 'DELETE /grants/:grantId'),
+  json('src/modules/resource-access/resource-access.routes.js', 'PATCH /grants/:grantId'),
 
   // Grupo de acesso: as OITO saem por `res.json`, e nenhuma carrega entidade de atlas
   // nem definição de recurso. O corpo mais gordo é a lista de membros (pessoas), e o

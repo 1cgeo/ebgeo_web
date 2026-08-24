@@ -1,15 +1,79 @@
 // Path: js/terrain/analysis-layers.manager.js
 import config from '../config.js';
 import { getMapAnalysisLayersStates } from '../store/settings.operations.js';
+import { getLayerFailureNotice } from './layer-failure-notice.js';
+
+/** Prefix every source of an analysis layer carries on the map. */
+const SOURCE_PREFIX = 'analysis-';
+
+/** Key this manager's layers are filed under in the shared notice. */
+export const ANALYSIS_SURFACE = 'analysis';
 
 /**
  * Manages raster analysis layers in the system.
  * State persistence is handled by catalogLayers, not by this manager.
+ *
+ * WHEN A LAYER DOES NOT DRAW, IT IS SAID — since 2026-08-24, and by the panel the data layers
+ * already used (`layer-failure-notice.js`). Before that every failure here ended in
+ * `console.error` and nothing else: the catalog item switched on, the raster did not paint, and
+ * the screen said nothing, which is exactly the state the data layers left the day before.
+ *
+ * ONE SOURCE PER LAYER, and that is the difference from the data layers worth writing down: a
+ * data layer can declare a SECOND source (`config.labelSource`), and folding the pair back onto
+ * one layer is what stops it being counted twice. `_addAnalysisLayer` adds `analysis-<id>` and
+ * nothing else, so there is no pair to fold here and `_layerIdFromSourceId` is a plain strip of
+ * the prefix.
  */
 class AnalysisLayersManager {
     constructor(map) {
         this.map = map;
         this._validateLayersConfig();
+        this._notice = getLayerFailureNotice(map);
+        this._notice.registerSurface(ANALYSIS_SURFACE, {
+            resolveLayerId: (sourceId) => this._layerIdFromSourceId(sourceId),
+            layerName: (layerId) => this.getLayerConfig(layerId)?.name,
+            isVisible: (layerId) => this.isLayerVisible(layerId),
+            retry: (layerId) => this._retryLayer(layerId),
+        });
+    }
+
+    /**
+     * Hands the surface back. Nothing calls this today (the manager lives as long as the map
+     * does), and it exists anyway because a registration the notice keeps calling into after this
+     * object is dead is the same class of leak as an unpaired `map.on()`.
+     */
+    destroy() {
+        this._notice?.unregisterSurface(ANALYSIS_SURFACE);
+        this._notice = null;
+    }
+
+    /**
+     * @private The layer a map source id belongs to, or `null` for anything that is not ours.
+     * @param {*} sourceId
+     * @returns {string|null}
+     */
+    _layerIdFromSourceId(sourceId) {
+        if (typeof sourceId !== 'string' || !sourceId.startsWith(SOURCE_PREFIX)) return null;
+        const raw = sourceId.slice(SOURCE_PREFIX.length);
+        return this.getLayerConfig(raw) ? raw : null;
+    }
+
+    /**
+     * @private Asks for ONE failed layer again. Called by the shared notice, never directly.
+     *
+     * DROPPING THE SOURCE IS THE POINT: MapLibre keeps a failed tile cached for the life of the
+     * source, so re-adding the layer over the old source repaints nothing and the button looks
+     * inert. The visibility is read BEFORE the removal, which is what destroys the map layer the
+     * answer comes from.
+     * @param {string} layerId
+     */
+    _retryLayer(layerId) {
+        const wasVisible = this.isLayerVisible(layerId);
+        const layerConfig = this.getLayerConfig(layerId);
+        this._removeAnalysisLayer(layerId);
+        if (!layerConfig) return;
+        this._addAnalysisLayer(layerConfig, undefined, { announceFailure: true });
+        if (wasVisible) this._applyVisibility(layerId, true);
     }
 
     /**
@@ -29,6 +93,11 @@ class AnalysisLayersManager {
         if (!this.isEnabled()) return;
 
         try {
+            // A style reload rebuilds every layer from scratch, so whatever failed against the
+            // PREVIOUS style is no longer a statement about what is on screen. Only THIS surface
+            // is cleared: a basemap or data-layer failure standing right now is still true.
+            this._notice.clearSurface(ANALYSIS_SURFACE);
+
             for (const layerConfig of config.analysisLayers.layers) {
                 this._addAnalysisLayer(layerConfig);
             }
@@ -48,11 +117,19 @@ class AnalysisLayersManager {
         if (!this.map.getLayer(mapLayerId)) {
             const layerConfig = this.getLayerConfig(layerId);
             if (!layerConfig) {
+                // NOT reported through the notice: a layer with no config at all is one the
+                // catalog no longer serves, and the catalog says so in its own words. The notice
+                // is for the other case, where the definition is here and the bytes are not.
                 console.warn(`Analysis layer config not found for: ${layerId}`);
                 return;
             }
-            this._addAnalysisLayer(layerConfig);
+            this._addAnalysisLayer(layerConfig, undefined, { announceFailure: enabled });
         }
+
+        // Switching a layer OFF retires whatever it was accused of. Without this, turning it back
+        // on later would be met by a notice about the previous attempt, and a person who dismissed
+        // the notice could never get it back for a genuinely new failure.
+        if (!enabled) this._notice.clear(ANALYSIS_SURFACE, layerId);
 
         this._applyVisibility(layerId, enabled);
     }
@@ -81,7 +158,10 @@ class AnalysisLayersManager {
      * @returns {Object|null}
      */
     getLayerConfig(layerId) {
-        return config.analysisLayers.layers.find(l => l.id === layerId) || null;
+        // Optional chaining, not a bare read: this now runs on EVERY map `error` event, through
+        // `_layerIdFromSourceId`, and a deploy whose `/api/config` omits `analysisLayers` would
+        // otherwise throw inside a listener, from a path that has nothing to do with analysis.
+        return config.analysisLayers?.layers?.find(l => l.id === layerId) || null;
     }
 
     /**
@@ -126,15 +206,28 @@ class AnalysisLayersManager {
         if (!this.isEnabled()) return;
 
         for (const layerConfig of config.analysisLayers.layers) {
-            const sourceId = `analysis-${layerConfig.id}`;
-            const layerId = this._mapLayerId(layerConfig.id);
+            this._removeAnalysisLayer(layerConfig.id);
+        }
+    }
 
-            try {
-                if (this.map.getLayer(layerId)) this.map.removeLayer(layerId);
-                if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
-            } catch (error) {
-                console.warn(`Error removing analysis layer ${layerConfig.id}:`, error);
-            }
+    /**
+     * Removes one analysis layer and its source from the map.
+     * @param {string} layerId - Layer ID (without 'analysis-' prefix)
+     * @private
+     */
+    _removeAnalysisLayer(layerId) {
+        const sourceId = `${SOURCE_PREFIX}${layerId}`;
+        const mapLayerId = this._mapLayerId(layerId);
+
+        try {
+            if (this.map.getLayer(mapLayerId)) this.map.removeLayer(mapLayerId);
+            if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
+            // Unconditional BECAUSE `clear` is a no-op for a layer that is not accused: the retry
+            // path empties the entry before calling this, and a clear that ran anyway would reset
+            // the retry flag and make the second failure repeat the first sentence word for word.
+            this._notice.clear(ANALYSIS_SURFACE, layerId);
+        } catch (error) {
+            console.warn(`Error removing analysis layer ${layerId}:`, error);
         }
     }
 
@@ -235,8 +328,12 @@ class AnalysisLayersManager {
      * Adds an individual analysis layer to the map
      * @param {Object} layerConfig - Layer configuration from config.js
      * @param {string} [beforeId='features-separator']
+     * @param {{announceFailure?: boolean}} [options] - `announceFailure` says this call came from
+     *   an explicit gesture (a switch, the retry button), so a failure is worth a word on screen.
+     *   It defaults to FALSE because `setupAnalysisLayers` re-adds EVERY layer on every style
+     *   load, and a notice raised there would accuse layers nobody asked for, on a basemap switch.
      */
-    _addAnalysisLayer(layerConfig, beforeId = 'features-separator') {
+    _addAnalysisLayer(layerConfig, beforeId = 'features-separator', { announceFailure = false } = {}) {
         const sourceId = `analysis-${layerConfig.id}`;
         const layerId = this._mapLayerId(layerConfig.id);
 
@@ -260,6 +357,10 @@ class AnalysisLayersManager {
             }
         } catch (error) {
             console.error(`Error adding analysis layer ${layerConfig.id}:`, error);
+            // The SYNCHRONOUS failure (a malformed source, a style the map refuses) lands in the
+            // same aggregation as the asynchronous tile failure. To the person looking at the map
+            // the two are one event: the layer is not there.
+            if (announceFailure) this._notice.report(ANALYSIS_SURFACE, layerConfig.id);
         }
     }
 

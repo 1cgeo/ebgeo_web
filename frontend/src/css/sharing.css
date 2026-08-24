@@ -1183,6 +1183,55 @@
     margin: 0;
 }
 
+/* A FALHA DA BUSCA DE PESSOAS, com a mesma divisão do bloco acima: a caixa com moldura e
+   botão é a falha, a dica solta (`.sharing-results__empty`) é o vazio. Enquanto as duas
+   causas dividiam o mesmo painel em branco, "ninguém encontrado" e "a rede caiu" eram a
+   mesma tela. */
+.sharing-results__failed {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3);
+    border: var(--border-width) solid rgb(245 158 11 / 35%);
+    border-radius: var(--radius-md);
+    background: rgb(245 158 11 / 10%);
+}
+
+.sharing-results__failed p {
+    flex: 1 1 14rem;
+    min-width: 0;
+    margin: 0;
+}
+
+/* ESTENDER O PRAZO, na linha da concessão e ao lado do remover.
+   NEUTRO E DISCRETO: o ato é aditivo (ninguém perde nada), então ele não pode competir
+   visualmente com o botão destrutivo vizinho, que é o único da linha que não se desfaz. */
+.resource-share__extend {
+    flex-shrink: 0;
+    padding: 2px var(--space-2);
+    background: transparent;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-full);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.resource-share__extend:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.resource-share__extend:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
 /* ----- Empréstimo por atlas (seção do modal de configuração) ----- */
 
 .atlas-config__lend-picker {

@@ -1852,8 +1852,17 @@ export class ApiClient {
      *
      * `atlasId` é opcional e MUDA a resposta: com ele entram também os recursos
      * que o atlas em foco empresta. Sem ele, só papel global e concessão pessoal.
+     *
+     * `origins` DIZ POR QUE cada id veio, uma palavra por id, com a precedência já resolvida
+     * no servidor (`papel > concessao > emprestimo`). As cinco chaves sempre existem numa
+     * resposta atual; um servidor anterior a esta fase simplesmente não manda a propriedade,
+     * e quem indexa (`resource-access.service.js`) degrada para `null` sem tratamento no
+     * chamador. Não recombine procedência no cliente: ele não sabe de qual OM é cada item.
      * @param {string|null} [atlasId]
-     * @returns {Promise<{tilesets: Array, dataLayers: Array, analysisLayers: Array, views360: Array}>}
+     * @returns {Promise<{basemaps: Array, tilesets: Array, dataLayers: Array,
+     *   analysisLayers: Array, views360: Array,
+     *   shareable: Object<string, Array<string>>,
+     *   origins?: Object<string, Object<string, 'papel'|'concessao'|'emprestimo'>>}>}
      */
     async getVisibleResources(atlasId = null) {
         const qs = atlasId ? `?atlasId=${encodeURIComponent(atlasId)}` : '';
@@ -1907,6 +1916,66 @@ export class ApiClient {
      */
     async revokeResourceGrant(grantId) {
         return this._request('DELETE', `/resource-access/grants/${encodeURIComponent(grantId)}`);
+    }
+
+    /**
+     * O que ESTE ator CONCEDEU: o inventário por ator, e não por recurso.
+     *
+     * `listResourceGrants` responde "quem alcança ESTE recurso" e exige que se saiba de qual
+     * recurso se fala. Esta responde a outra pergunta, a que ninguém conseguia fazer: "o que
+     * foi que eu abri, e para quem". Sem ela, revisar as próprias concessões exigia abrir um
+     * a um os itens do catálogo.
+     *
+     * `granteeKind` separa as duas formas de destinatário que a tabela mantém alternativas
+     * (`num_nonnulls = 1`): uma PESSOA ou um GRUPO de acesso. `granteeName` é o rótulo já
+     * resolvido pelo servidor; não o remonte a partir do id.
+     *
+     * @returns {Promise<{grants: Array<{id: string, resourceType: string, resourceId: string,
+     *   resourceName: string, granteeKind: 'user'|'group', granteeId: string,
+     *   granteeName: string, level: string, expiresAt: string|null, createdAt: string}>}>}
+     */
+    async listIssuedGrants() {
+        return this._request('GET', '/resource-access/grants/issued');
+    }
+
+    /**
+     * O que ESTE ator RECEBEU, com o caminho por onde recebeu.
+     *
+     * `viaGroup` é a metade que não se deduz da linha: um acesso herdado de um grupo de
+     * acesso NÃO é revogável por quem o recebeu nem por quem mantém o recurso sem mexer no
+     * grupo, e a tela precisa poder dizer isso. `null` significa concessão direta à pessoa.
+     *
+     * Não confundir com {@link listIssuedGrants}: os dois inventários têm colunas parecidas e
+     * sentidos opostos (`granteeName` lá, `grantorName` aqui).
+     *
+     * @returns {Promise<{grants: Array<{id: string, resourceType: string, resourceId: string,
+     *   resourceName: string, grantorId: string, grantorName: string, level: string,
+     *   expiresAt: string|null, createdAt: string,
+     *   viaGroup: {id: string, name: string}|null}>}>}
+     */
+    async listReceivedGrants() {
+        return this._request('GET', '/resource-access/grants/received');
+    }
+
+    /**
+     * Estende (ou encurta) o prazo de uma concessão.
+     *
+     * O `expiresAt` DA RESPOSTA É O EFETIVO, E PODE SER MENOR QUE O PEDIDO. Uma concessão
+     * derivada não pode sobreviver ao `view_share` de que ela deriva, então o servidor apara
+     * o valor pelo teto do pai (o mesmo aparo que a revogação relata como `trimmed`). Mostrar
+     * na tela o prazo PEDIDO em vez do devolvido produz a pior classe de mentira de
+     * interface: a pessoa lê uma data, planeja por ela, e o acesso cai antes. Leia sempre a
+     * resposta; esta linha do JSDoc é exatamente a que parece redundante e não é.
+     *
+     * @param {string} grantId
+     * @param {string|null} expiresAt - ISO 8601, ou `null` para sem prazo (o servidor ainda
+     *   apara pelo teto do pai, então "sem prazo" pode voltar com data).
+     * @returns {Promise<{expiresAt: string|null}>} O prazo EFETIVO, pós-clamp.
+     */
+    async extendResourceGrant(grantId, expiresAt) {
+        return this._request('PATCH', `/resource-access/grants/${encodeURIComponent(grantId)}`, {
+            body: { expiresAt },
+        });
     }
 
     /**

@@ -115,6 +115,36 @@ export const PAYLOAD_KEY_BY_TYPE = Object.freeze({
 });
 
 /**
+ * A PROCEDÊNCIA de um recurso privado no payload aditivo: POR QUE este chamador o
+ * enxerga.
+ *
+ * TRÊS VALORES, e a distinção que os justifica é UMA propriedade de tela: só
+ * `emprestimo` SOME sozinho quando a pessoa troca de atlas. Os outros dois são
+ * estáveis, e é por isso que um selo único ("só quem recebeu acesso enxerga este
+ * item") era falso para dois terços dos casos — o credenciado não recebeu nada, e o
+ * produtor tampouco.
+ *
+ * A PRECEDÊNCIA É `papel > concessao > emprestimo`, e ela é SEMÂNTICA, não estética:
+ * quem tem concessão própria E empréstimo continua vendo o recurso depois de trocar
+ * de atlas, então chamar esse caso de `emprestimo` mentiria justamente na
+ * propriedade que a tela vai usar para decidir o que dizer.
+ *
+ * `papel` ABSORVE O EIXO DE PRODUÇÃO, e isso precisa estar escrito porque o
+ * vocabulário tem três valores e os eixos de autorização são QUATRO
+ * (`fn_has_global_data_access`, `fn_can_produce_resource`, concessão, empréstimo). O
+ * produtor enxerga o privado da própria OM sem concessão nenhuma, exatamente como o
+ * credenciado enxerga o de todo mundo: é fato de QUEM ELE É, estável à troca de
+ * atlas, e é isso que o selo comunica. Se algum dia a tela precisar separar "sou
+ * administrador" de "minha OM produziu isto", o valor novo entra aqui e a derivação
+ * de `origemDeAcesso` (`resource-access.service.js`) é o único lugar que muda.
+ */
+export const RESOURCE_ORIGIN = Object.freeze({
+  PAPEL: 'papel',
+  CONCESSAO: 'concessao',
+  EMPRESTIMO: 'emprestimo',
+});
+
+/**
  * Whitelist de tipo. Lança quando o valor não é um dos cinco — o retorno é
  * usado para escolher nome de tabela, então um `includes` esquecido aqui é
  * injeção de SQL, não um 400 feio.

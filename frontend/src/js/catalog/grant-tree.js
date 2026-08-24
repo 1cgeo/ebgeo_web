@@ -40,6 +40,14 @@
  * tela desenhava o botão em toda linha, então a pessoa que não concedeu atravessava o aviso
  * destrutivo inteiro para receber 403 no fim. A regra é do SERVIDOR e mora aqui só porque é
  * aritmética sobre o payload, testável em node, como o resto do arquivo.
+ *
+ * E DESDE 2026-08-24 ELE CARREGA O QUE A TELA DIZ NOS ESTADOS QUE NÃO SÃO A LISTA (o alcance
+ * que a lista não cobre, a busca que falhou, a leitura recusada, o efeito real da revogação e
+ * o desfecho de estender um prazo). O critério de moradia é o mesmo de sempre: nada disso é
+ * DOM, tudo isso é decidido por comparação sobre o payload, e frase de ato irreversível que
+ * mora dentro de um construtor de HTML não é testável em node. O arquivo continua com ZERO
+ * imports, e isso é contrato (`frontend/tests/unit/compartilhar-sem-a-store.test.js` mede o
+ * grafo que ele acrescenta a uma página que boota sem a store).
  */
 
 /** O mesmo teto de `REVOKE_SUBTREE_PRESERVING_REACH`. Manter os dois iguais é o ponto. */
@@ -674,4 +682,361 @@ export function revocationWarning(grants, rootId, maxNomes = 3) {
 
     return `Remover o acesso ${quem} a este recurso? ` +
         `Quem recebeu acesso ATRAVÉS ${quem} perde junto: ${fallenSummary(caidos)} (${lista}).`;
+}
+
+/* ===================================================================================
+ * O QUE A TELA DIZ FORA DA LISTA: alcance, falha, recusa, efeito e prazo estendido.
+ * =================================================================================== */
+
+/**
+ * O QUE A LISTA "QUEM TEM ACESSO" NÃO ALCANÇA, dito na própria lista.
+ *
+ * A frase anterior nomeava TRÊS origens que não aparecem ali (administradores, credenciados e
+ * produtores da OM dona) e parava no meio. Faltavam as DUAS que mudam a decisão de quem
+ * concede, e as duas são justamente as que a listagem não tem como enumerar:
+ *
+ *   1. O EMPRÉSTIMO POR ATLAS. `LIST_GRANTS_FOR_RESOURCE` lê `resource_grants` e só, enquanto
+ *      `fn_granted_resource_ids` entrega o recurso a quem abre um atlas cujo DONO o enxerga
+ *      (cláusula 6.1). Nenhuma dessas pessoas tem linha nesta lista.
+ *   2. O VISITANTE ANÔNIMO DE LINK PÚBLICO, que herda o empréstimo (cláusula 6.3) e não tem
+ *      conta para aparecer em lista nenhuma.
+ *
+ * A CONSEQUÊNCIA É A RAZÃO DE A FRASE EXISTIR: a tela podia dizer que três pessoas têm acesso
+ * enquanto um atlas público emprestava o recurso para qualquer um com o link, e quem revogasse
+ * a única linha da lista concluiria que fechou o acesso.
+ *
+ * SEM NÚMERO, E A AUSÊNCIA É MEDIDA, não preguiça: o servidor sabe responder
+ * (`atlasesLendingResource`, `backend/src/modules/resource-access/resource-access.notify.js`),
+ * mas nenhuma rota expõe essa contagem ao cliente hoje, e as quatro rotas do módulo de acesso
+ * são visibilidade, listagem de concessões, concessão e revogação. Um número inventado aqui
+ * seria pior que a frase qualitativa, pela mesma razão escrita no `@fileoverview` de
+ * `catalog/visibility-phrases.js`.
+ *
+ * O VOCABULÁRIO É O DE LÁ, DE PROPÓSITO ("empresta", "quem entra pelo link público"), e este
+ * módulo não importa aquele: as duas frases respondem perguntas OPOSTAS (lá, o que acontece
+ * ao RETIRAR um empréstimo deste atlas; aqui, quem enxerga este recurso sem estar na lista), e
+ * nenhuma das funções de lá cabe nesta tela sem mentir sobre o sujeito. É o mesmo arranjo de
+ * {@link granteeGroupOwnerLabel} com `groupOwnerLabel`.
+ *
+ * @returns {string}
+ */
+export function grantsListScopeNote() {
+    return 'Esta lista mostra só as concessões diretas, a pessoas e a grupos. Enxergam este '
+        + 'recurso SEM aparecer aqui: administradores, credenciados e produtores da OM dona, '
+        + 'que o veem por papel; e todo mundo que abrir um atlas cujo dono o enxerga, inclusive '
+        + 'quem entra pelo link público. Remover uma linha daqui não fecha esses dois caminhos: '
+        + 'o empréstimo se desfaz na configuração do atlas que empresta.';
+}
+
+/**
+ * A FALHA DA BUSCA DE PESSOAS, escrita para NÃO se parecer com "ninguém encontrado".
+ *
+ * As duas eram a MESMA tela em branco: `_renderResultsInto` escrevia string vazia no ramo sem
+ * resultado (o que tornava o "Nenhum usuário encontrado" de `_renderResults` inalcançável) e o
+ * `catch` da busca chamava exatamente esse par. Quem lê um painel vazio depois de um erro de
+ * rede conclui que a pessoa procurada não existe, que é afirmar uma coisa falsa; a distinção
+ * entre "não achei" e "não perguntei" só existe se estiver no texto. Irmã de
+ * `groupsLoadFailureNotice` (`js/admin/group-phrases.js`), e não a mesma função, porque aquela
+ * fala dos GRUPOS de quem pergunta.
+ *
+ * @returns {string}
+ */
+export function searchFailureNotice() {
+    return 'Não foi possível buscar pessoas agora. Isto é falha ao consultar o servidor, '
+        + 'não ausência de resultados: tente de novo.';
+}
+
+/**
+ * Os desfechos da leitura da lista que a tela desenha DIFERENTE.
+ *
+ * Enum, e não booleano, pela mesma razão de {@link REVOKE_AVAILABILITY}: o que muda entre os
+ * ramos não é o texto, é a OFERTA. Só um deles tem "Tentar novamente" que possa resolver.
+ */
+export const LOAD_FAILURE = Object.freeze({
+    /** 403: o servidor não autoriza esta pessoa a conceder este recurso. */
+    SEM_AUTORIDADE: 'sem-autoridade',
+    /** 404: o recurso não existe mais (apagado ou despublicado noutra sessão). */
+    SUMIU: 'sumiu',
+    /** Qualquer outra: rede, 500, timeout. É a única em que repetir pode resolver. */
+    FALHA: 'falha',
+});
+
+/**
+ * O QUE A TELA DIZ QUANDO A LISTAGEM NÃO VEIO, por STATUS, e se ela deve oferecer repetir.
+ *
+ * O `retry` É O PRODUTO PRINCIPAL, como o `null` de `visibilityChangeWarning`: um botão
+ * "Tentar novamente" sobre um recurso que foi APAGADO é um convite a repetir um pedido que
+ * nunca vai mudar de resposta, e o custo dele não é o clique, é a pessoa concluir que a tela
+ * está quebrada em vez de entender que o recurso acabou.
+ *
+ * O RAMO 403 NÃO AFIRMA A CAUSA, e essa metade já estava certa no código desde 2026-08-24: o
+ * servidor emite 403 por três caminhos indistinguíveis daqui (não ter papel global de dado,
+ * não produzir aquele recurso, não ter `view_share`), e a sentença única "você recebeu este
+ * recurso apenas para ver" era falsa em pelo menos dois deles, inclusive para o credenciado,
+ * que não recebeu nada e vê por papel. É a mesma lição de `denialNotice`
+ * (`js/store/denial-phrases.js`): a frase deriva da CAPACIDADE negada, nunca do papel de quem
+ * lê. O que este ramo acrescenta é só a moradia: em função pura, testável, ao lado das irmãs.
+ *
+ * HONESTIDADE SOBRE O RAMO 404: pela rota de LISTAGEM ele é raro, e para o credenciado hoje
+ * ele é inalcançável, porque `requireResourceShare` deixa passar quem tem papel global antes
+ * de qualquer pergunta sobre existência, e `listGrantsForResource` devolve lista vazia para um
+ * recurso que já não existe. Quem chega aqui de fato é o 404 das ESCRITAS (revogar ou estender
+ * uma concessão que outra sessão já removeu, `requireGrantRevoker` -> `NotFoundError('Grant')`).
+ * O ramo existe nos dois porque o mesmo vocabulário serve aos dois pontos.
+ *
+ * @param {*} status - O `status` do `ApiError`, ou nada quando a falha é de rede.
+ * @returns {{kind: string, paragrafos: string[], retry: boolean}}
+ */
+export function loadFailureState(status) {
+    const n = Number(status);
+    if (n === 403) {
+        return {
+            kind: LOAD_FAILURE.SEM_AUTORIDADE,
+            paragrafos: [
+                'O servidor não autorizou você a conceder este recurso.',
+                'Isso acontece quando o seu acesso a ele não inclui compartilhar, ou quando ele '
+                + 'deixou de ser mantido por você. Se você acabou de mudar de papel ou de OM, '
+                + 'recarregue a página: a tela pode estar com a informação anterior.',
+            ],
+            retry: false,
+        };
+    }
+    if (n === 404) {
+        return {
+            kind: LOAD_FAILURE.SUMIU,
+            paragrafos: [
+                'Este recurso não existe mais.',
+                'Ele foi apagado ou deixou de ser publicado enquanto esta tela estava aberta. '
+                + 'Não há o que tentar de novo aqui: feche e volte ao catálogo.',
+            ],
+            retry: false,
+        };
+    }
+    return {
+        kind: LOAD_FAILURE.FALHA,
+        paragrafos: ['Não foi possível carregar quem tem acesso a este recurso.'],
+        retry: true,
+    };
+}
+
+/**
+ * O ATRASO MÁXIMO COM QUE UMA REVOGAÇÃO É HONRADA nos bytes de um modelo 3D, em ms.
+ *
+ * ESPELHO DE `TTL_MS` (`backend/src/modules/nomes/assets3d-acesso.js`), conferido no código em
+ * 2026-08-24: o gate do asset 3D memoiza a decisão por recurso e por chamador, porque o Cesium
+ * abre um pedido por tile por LOD e uma consulta por pedido cairia no mesmo pool de dez
+ * conexões do sync e do `/api/config`. Se o número de lá mudar, este muda junto; um número que
+ * o produto não entrega é pior que nenhum.
+ * @type {number}
+ */
+export const REVOCATION_LAG_MS = 30_000;
+
+/**
+ * O QUE A REVOGAÇÃO AINDA NÃO TERMINOU DE FAZER quando a rota responde.
+ *
+ * O toast declarava o acesso removido no instante em que a resposta chegava, e para o modelo
+ * 3D isso é falso por até {@link REVOCATION_LAG_MS}. Some-se a cláusula 10.3: a revogação NÃO
+ * é empurrada em tempo real para quem não está numa sala de atlas que empresta o recurso, e
+ * essa metade vale para TODO tipo. O texto não vira tratado: ele só para de afirmar uma
+ * instantaneidade que o sistema não entrega.
+ *
+ * O RAMO DO 3D É POR TIPO porque o memo é do gate de ASSET (`gateDeAsset3d`), e é o único
+ * caminho de leitura com decisão memoizada. Dizer "30 segundos" numa camada de dados seria
+ * inventar um atraso que aquele caminho não tem.
+ *
+ * @param {string} [resourceType] - `tileset` | `data_layer` | `analysis_layer` | `sv360_project`.
+ * @returns {string}
+ */
+export function revocationLagNotice(resourceType) {
+    const segundos = Math.round(REVOCATION_LAG_MS / 1000);
+    const memo = resourceType === 'tileset'
+        ? `Os dados do modelo 3D podem continuar chegando a quem já o tinha aberto por até ${segundos} segundos. `
+        : '';
+    return `${memo}Quem não está num atlas que empreste este recurso só percebe a mudança no `
+        + 'próximo carregamento.';
+}
+
+/**
+ * O TOAST DEPOIS DA REVOGAÇÃO, com os números do SERVIDOR e sem a instantaneidade que não há.
+ *
+ * As DUAS listas de mantidas continuam somadas de propósito: do ponto de vista de quem acabou
+ * de revogar, `reparented` (re-pendurada noutro `view_share` vivo) e `trimmed` (mantida, com o
+ * prazo aparado pelo teto do pai novo) são a mesma notícia, "continua com acesso". Sem essa
+ * frase, um `revoked` menor que o esperado se lê como poda incompleta.
+ *
+ * @param {{revoked?: Array, reparented?: Array, trimmed?: Array}} resposta - A resposta da rota.
+ * @param {string} [resourceType] - Para o ramo do 3D em {@link revocationLagNotice}.
+ * @returns {string}
+ */
+export function revocationSummary(resposta, resourceType) {
+    const derrubadas = Array.isArray(resposta?.revoked) ? resposta.revoked.length : 0;
+    const mantidas = (Array.isArray(resposta?.reparented) ? resposta.reparented.length : 0)
+        + (Array.isArray(resposta?.trimmed) ? resposta.trimmed.length : 0);
+    const caiu = derrubadas > 1
+        ? `Acesso removido: ${derrubadas} concessões caíram junto.`
+        : 'Acesso removido.';
+    const manteve = mantidas > 0
+        ? ` ${mantidas} ${mantidas === 1 ? 'concessão foi mantida' : 'concessões foram mantidas'}`
+          + ' por outro caminho de acesso.'
+        : '';
+    return `${caiu}${manteve} ${revocationLagNotice(resourceType)}`;
+}
+
+/** Um dia em ms, para a aritmética de prazo. */
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A escada de prazos que as DUAS telas de concessão oferecem.
+ *
+ * MORA AQUI, e não na tela, porque são duas telas: o modal de um recurso (onde se concede e se
+ * estende) e a aba Concessões do painel (onde se revisa e se renova). Enquanto a lista era um
+ * `const` privado do modal, a aba só tinha duas saídas, e as duas ruins: copiar os cinco pares,
+ * que diverge na primeira revisão e faz a mesma palavra significar prazos diferentes em duas
+ * telas do mesmo produto, ou importar o modal inteiro para ler uma lista de cinco itens.
+ *
+ * UM ANO É O TETO DO SERVIDOR, e por isso é o último degrau e o padrão: `LEAST` apara qualquer
+ * pedido maior, então oferecer "2 anos" seria desenhar uma opção que o servidor recusa em
+ * silêncio. E ele é o PADRÃO para não mudar o comportamento de quem não escolhe nada.
+ *
+ * @type {ReadonlyArray<{dias: number, label: string}>}
+ */
+export const GRANT_TERMS = Object.freeze([
+    Object.freeze({ dias: 7, label: '7 dias' }),
+    Object.freeze({ dias: 30, label: '30 dias' }),
+    Object.freeze({ dias: 90, label: '90 dias' }),
+    Object.freeze({ dias: 180, label: '180 dias' }),
+    Object.freeze({ dias: 365, label: '1 ano (padrão)' }),
+]);
+
+/** O padrão do servidor, e por isso o degrau pré-selecionado nas duas telas. */
+export const GRANT_TERM_DEFAULT_DAYS = 365;
+
+/**
+ * O instante ISO que a tela PEDE ao estender um prazo, ou `null` para entrada inutilizável.
+ *
+ * SEMPRE DEVOLVE DATA, ao contrário de `vencimentoEmDias` (`catalog/resource-share.modal.js`),
+ * que devolve nulo no prazo padrão para deixar o servidor definir "um ano". A diferença é do
+ * contrato: `POST /grants` aceita `expiresAt` ausente, e o `PATCH` de estender é uma rota cujo
+ * corpo INTEIRO é `{ expiresAt }`, então omitir seria não pedir nada.
+ *
+ * MEIO-DIA UTC pela mesma razão do irmão: um prazo cravado no instante do clique vence "um dia
+ * antes" na leitura de quem só olha a data. Para todo prazo oferecido (7 dias em diante) o
+ * resultado continua no futuro, que é o que o `Joi.date().iso().greater('now')` do servidor
+ * exige.
+ *
+ * @param {*} dias - Quantos dias a partir de agora.
+ * @param {*} [agora] - Epoch ms, injetável para teste.
+ * @returns {string|null}
+ */
+export function extensionDeadline(dias, agora = Date.now()) {
+    const n = Number(dias);
+    const base = Number(agora);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    if (!Number.isFinite(base)) return null;
+    const d = new Date(base + n * DIA_MS);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setUTCHours(12, 0, 0, 0);
+    return d.toISOString();
+}
+
+/**
+ * O DIA de uma data ISO, como inteiro, ou `null` quando não há data utilizável.
+ *
+ * A comparação de prazo é por DIA e não por instante, e isso é decisão: a tela mostra
+ * `dd/mm/aaaa`, então "veio menos do que pedi" só é uma afirmação verdadeira para quem lê se a
+ * DATA visível for anterior. Comparar instantes acusaria aparo em dois casos normais: o teto
+ * de um ano do servidor (`NOW() + 1 ano`) fica algumas horas antes dos 365 dias ancorados ao
+ * meio-dia UTC, e o relógio do cliente não é o do servidor.
+ */
+function diaDe(iso) {
+    if (iso == null || iso === '') return null;
+    const t = new Date(iso).getTime();
+    return Number.isNaN(t) ? null : Math.floor(t / DIA_MS);
+}
+
+/**
+ * Os desfechos de um pedido de extensão, do ponto de vista de quem clicou.
+ */
+export const EXTENSION_OUTCOME = Object.freeze({
+    /** O prazo novo é o pedido (ou a diferença não aparece na data mostrada). */
+    ESTENDIDO: 'estendido',
+    /** O servidor aparou pelo teto de quem concedeu: veio MENOS do que se pediu. */
+    APARADO: 'aparado',
+    /** O teto já era a data atual: o clique não mudou nada. */
+    INALTERADO: 'inalterado',
+    /** A resposta não trouxe data utilizável. */
+    INDETERMINADO: 'indeterminado',
+});
+
+/**
+ * O QUE DE FATO ACONTECEU AO ESTENDER, comparando o pedido, o efetivo e o prazo anterior.
+ *
+ * O `expiresAt` DA RESPOSTA É O EFETIVO, pós-clamp, e pode ser MENOR que o pedido: uma
+ * concessão não pode sobreviver à de quem a originou, então o servidor corta pelo teto do pai
+ * (`LEAST(...)`). Um botão que pede 180 dias, recebe 20 e mostra 180 é pior que não ter botão,
+ * e é por isso que este desfecho existe como valor e não como booleano: a tela precisa dizer
+ * uma frase diferente, não esconder uma.
+ *
+ * A ORDEM DOS RAMOS É A REGRA. "Não mudou nada" vence "veio menos": quando o teto do pai já é
+ * a data que a linha tinha, dizer "estendido, porém menos" afirmaria uma mudança que não
+ * houve. Sem `anterior` (o payload não trouxe `expires_at`) o ramo simplesmente não se aplica,
+ * em vez de virar uma comparação com zero.
+ *
+ * @param {{pedido?: *, efetivo?: *, anterior?: *}} [params] - Datas ISO.
+ * @returns {string} Um valor de {@link EXTENSION_OUTCOME}.
+ */
+export function extensionOutcome({ pedido, efetivo, anterior } = {}) {
+    const dEfetivo = diaDe(efetivo);
+    if (dEfetivo === null) return EXTENSION_OUTCOME.INDETERMINADO;
+    const dAnterior = diaDe(anterior);
+    if (dAnterior !== null && dEfetivo <= dAnterior) return EXTENSION_OUTCOME.INALTERADO;
+    const dPedido = diaDe(pedido);
+    if (dPedido !== null && dEfetivo < dPedido) return EXTENSION_OUTCOME.APARADO;
+    return EXTENSION_OUTCOME.ESTENDIDO;
+}
+
+/**
+ * O TOAST DEPOIS DE ESTENDER, e ele nomeia o EFETIVO em todos os ramos.
+ *
+ * A data chega já formatada, como em `memberAdmissionTitle` (`js/admin/group-phrases.js`): a
+ * formatação é da tela (locale) e esta função é de vocabulário. Data ausente cai no ramo
+ * indeterminado mesmo que o desfecho diga outra coisa, porque uma frase que promete "até" e
+ * não completa a data é pior que a genérica.
+ *
+ * @param {string} outcome - Um valor de {@link EXTENSION_OUTCOME}.
+ * @param {string} [quando] - A data efetiva, já em pt-BR.
+ * @returns {string}
+ */
+export function extensionSummary(outcome, quando) {
+    const data = String(quando ?? '').trim();
+    if (!data || outcome === EXTENSION_OUTCOME.INDETERMINADO) {
+        return 'Prazo atualizado. O servidor não informou a nova data de vencimento.';
+    }
+    if (outcome === EXTENSION_OUTCOME.INALTERADO) {
+        return `O prazo não mudou: continua até ${data}, que já é o teto de quem concedeu `
+            + 'este acesso.';
+    }
+    if (outcome === EXTENSION_OUTCOME.APARADO) {
+        return `Prazo estendido até ${data}, menos do que foi pedido: uma concessão não vale `
+            + 'depois da de quem a originou, e o servidor aparou por esse teto.';
+    }
+    return `Prazo estendido até ${data}.`;
+}
+
+/**
+ * A DICA DO BOTÃO DE ESTENDER, que é onde o acoplamento com o seletor de prazo fica dito.
+ *
+ * O botão não abre diálogo: estender é ADITIVO (ninguém perde nada), e confirmar ato aditivo é
+ * como se treina o operador a clicar em "Confirmar" sem ler, que é a assimetria escrita no
+ * `@fileoverview` de `catalog/visibility-phrases.js`. O preço de não perguntar é que o prazo
+ * usado precisa estar visível ANTES do clique, e ele é o do seletor "Prazo" da seção de baixo.
+ *
+ * SEM NÚMERO NESTA FRASE, de propósito: ela é assada no HTML da linha, e o seletor muda sem
+ * redesenhar a lista. Um "estender por 30 dias" congelado no `title` mentiria no instante em
+ * que a pessoa trocasse o prazo.
+ * @returns {string}
+ */
+export function extendGrantHint() {
+    return 'Estender o prazo desta concessão, contado a partir de hoje, pelo prazo escolhido '
+        + 'em "Conceder acesso". O servidor apara pelo teto de quem concedeu.';
 }

@@ -56,9 +56,31 @@ export const grantSchema = Joi.object({
     'object.missing': 'Informe granteeId ou granteeGroupId.',
   });
 
-/** `:grantId` da rota de revogação. */
+/** `:grantId` da rota de revogação e da de extensão de prazo. */
 export const grantIdParamsSchema = Joi.object({
   grantId: Joi.string().uuid().required(),
+});
+
+/**
+ * O corpo de uma EXTENSÃO de prazo.
+ *
+ * `expiresAt` é OBRIGATÓRIO aqui, ao contrário do POST: ausente, o único significado
+ * possível seria "renove pelo default", e um default silencioso numa rota cujo produto É
+ * a data escolhida devolveria um prazo que ninguém pediu.
+ *
+ * O TETO DA BORDA É O MESMO DO POST (um ano a contar de agora) e continua sendo apenas
+ * SANIDADE, não a regra: o teto que vale é o `LEAST` do próprio UPDATE, e ele é mais
+ * ESTREITO que este — o orçamento da linha conta de `created_at`, não de agora. Ou seja,
+ * passar por aqui não promete que a data pedida será a data guardada, e é por isso que a
+ * resposta devolve o valor efetivo.
+ */
+export const extendGrantSchema = Joi.object({
+  expiresAt: Joi.date().iso().greater('now')
+    .custom((value, helpers) => (
+      value.getTime() > Date.now() + PRAZO_MAXIMO_MS ? helpers.error('any.invalid') : value
+    ))
+    .messages({ 'any.invalid': 'O prazo de uma concessão não pode passar de um ano.' })
+    .required(),
 });
 
 /**

@@ -27,6 +27,9 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
+// DO ARQUIVO, e não do barrel `@js/terrain`: o barrel arrasta os dois gerentes de camada, e
+// este controle é do caminho de boot do mapa.
+import { getLayerFailureNotice } from '../terrain/layer-failure-notice.js';
 import { setupMapFeatures } from '../layers';
 import { wireRemoteFeatureRender } from '../layers/remote-feature-render.js';
 import { showError } from '../utilities';
@@ -217,12 +220,29 @@ class BaseLayerControl {
             const offered = config.getEnabledBasemaps().map(([id]) => id);
             const fallback = firstStyledBasemap(offered, STYLE_MAP, config.basemapStyles);
             console.warn(`Base layer "${layer}" has no registered style. Using "${fallback}".`);
+            // O SILÊNCIO ERA O DEFEITO, e ele não chegava por evento nenhum: nenhum `error` do
+            // MapLibre, nenhum tile falho, nada que o painel de camadas indisponíveis pudesse
+            // pegar. A pessoa escolhia um mapa base, o produto trocava para OUTRO, e a única
+            // pista era um `console.warn`. Quem sente isto primeiro é quem enxerga acervo
+            // privado que não resolve para estilo, porque para ele o cartão diz "Privado" e a
+            // base simplesmente é outra.
+            //
+            // O NOME É CONHECIDO AQUI, ao contrário do caso da falha de TILE: quem pediu ainda
+            // está na variável, antes da reatribuição. É a única forma deste aviso que pode
+            // nomear a camada sem mentir.
+            getLayerFailureNotice(this.map).reportBasemapFailure({
+                name: config.basemaps?.[layer]?.name || layer,
+            });
             // No basemap at all resolves to a style (an empty catalog): return without
             // touching the map, exactly as before. Switching to nothing would blank it.
             if (!fallback) {
                 return;
             }
             layer = fallback;
+        } else {
+            // O PEDIDO RESOLVEU: retirar a acusação vale tanto quanto levantá-la, e um aviso
+            // que fica depois de resolvido treina a ignorar aviso.
+            getLayerFailureNotice(this.map).clearBasemapFailure();
         }
 
         if (!skipPersist) {

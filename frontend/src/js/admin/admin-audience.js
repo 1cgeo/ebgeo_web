@@ -18,7 +18,21 @@
  *   | anônimo                        | (nenhum)       | (nenhuma)                                        |
  *   | administrador global           | Administração  | users, groups, config, catalog, personnel, audit |
  *   | produtor                       | Catálogo       | catalog, groups, audit                           |
- *   | qualquer outro autenticado     | Grupos         | groups                                           |
+ *   | qualquer outro autenticado     | Acessos        | groups, grants                                   |
+ *
+ * A ÚLTIMA LINHA MUDOU EM 2026-08-24, e o rótulo mudou COM ela, que é a regra abaixo em ação: ela
+ * ganhou a aba "Concessões" (o inventário do que a pessoa concedeu e do que concederam a ela), e
+ * "Grupos" deixou de nomear o que ela recebe. "Acessos" nomeia os dois: o coletivo que carrega
+ * acesso e a concessão individual. O caso que motivou a aba é o do CREDENCIADO, que cai nesta
+ * linha: o papel dele é definido por conceder, ele não tem trilha de auditoria (decisão
+ * registrada) e, até aqui, a única superfície de concessão era o modal de UM recurso, alcançável
+ * só por quem lembrasse qual recurso havia concedido.
+ *
+ * E ELA NÃO FOI PARA AS OUTRAS DUAS LINHAS, de propósito: administrador e produtor já têm a aba
+ * `audit`, que é o inventário de atos de concessão deles (recortado no servidor, no caso do
+ * produtor). Dar-lhes uma segunda tela do mesmo assunto duplicaria a pergunta sem responder nada
+ * novo. O que ISSO deixa em aberto está escrito onde dói: o produtor e o administrador continuam
+ * sem uma lista do que RECEBERAM, e a trilha não responde essa pergunta.
  *
  * O CREDENCIADO NÃO TEM LINHA PRÓPRIA, e a ausência é a decisão: desde 2026-08-20 o grupo de
  * acesso é entidade de USUÁRIO, com dono, e a autoridade sobre ele deixou de ser papel global
@@ -66,8 +80,16 @@ const ABAS_DO_ADMINISTRADOR = Object.freeze([
  */
 const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'audit']);
 
-/** A de todo o resto de quem entrou. @type {ReadonlyArray<string>} */
-const ABAS_DE_QUEM_ENTROU = Object.freeze(['groups']);
+/**
+ * A de todo o resto de quem entrou: os grupos dele e as concessões dele, nessa ordem.
+ *
+ * A ORDEM É A DE MONTAGEM, e a primeira aba é a que o painel abre. "Grupos" continua na frente
+ * porque é a tela que já existia e onde a pessoa AGE (cria, põe gente, tira gente); "Concessões" é
+ * inventário, e quem abre o painel vem quase sempre para agir — o mesmo raciocínio que pôs `audit`
+ * por último na linha do administrador.
+ * @type {ReadonlyArray<string>}
+ */
+const ABAS_DE_QUEM_ENTROU = Object.freeze(['groups', 'grants']);
 
 /**
  * @typedef {Object} AdminAudience
@@ -94,5 +116,5 @@ export function adminAudience({ isAuthenticated = false, isAdmin = false, isProd
     // administrador. Para o anônimo, nenhum dos três é verdadeiro e a porta some.
     if (!isAuthenticated) return { label: null, tabIds: [] };
     if (isProducer) return { label: 'Catálogo', tabIds: [...ABAS_DO_PRODUTOR] };
-    return { label: 'Grupos', tabIds: [...ABAS_DE_QUEM_ENTROU] };
+    return { label: 'Acessos', tabIds: [...ABAS_DE_QUEM_ENTROU] };
 }

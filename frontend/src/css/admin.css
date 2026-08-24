@@ -4,7 +4,8 @@
  * Admin PAGE — the whole of `admin.html`, not an overlay over the map. TRÊS audiências a
  * dividem (a tabela é `js/admin/admin-audience.js`, e a quarta linha dela é a do anônimo, que
  * por definição não abre a página): o administrador global (todas as abas), o produtor
- * (Catálogo mais Grupos) e qualquer outra sessão autenticada (Grupos).
+ * (Catálogo mais Grupos e Auditoria) e qualquer outra sessão autenticada (Grupos e
+ * Concessões, sob o rótulo "Acessos").
  * App-shell layout: top bar + LEFT navigation rail + scrolling content area. Each tab renders a
  * section header + cards (table / forms / grid).
  * BEM blocks:
@@ -245,6 +246,24 @@
 }
 
 .admin-chip--user {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+/* O PAPEL QUE ESTE BUILD NÃO CONHECE. Ele NÃO pode herdar a cor de `--user`, que é o papel
+   mais fraco: um selo cinza igual ao do usuário comum é a versão visual da despromoção
+   silenciosa que `ui/role-labels.js` existe para impedir. A moldura tracejada diz "isto é
+   outra coisa" sem afirmar qual, que é exatamente o que a tela sabe. */
+.admin-chip--desconhecido {
+    background: transparent;
+    border: 1px dashed var(--gray-400);
+    color: var(--gray-700);
+}
+
+/* O beneficiário COLETIVO de uma concessão. Cinza como `--user` de propósito: aqui o selo não
+   diz autoridade, diz NATUREZA (uma linha é para uma pessoa, outra para um grupo), e uma cor
+   forte competiria com o chip de prazo, que é o que a pessoa veio ler nesta tabela. */
+.admin-chip--group {
     background: var(--gray-100);
     color: var(--gray-600);
 }
@@ -1032,6 +1051,126 @@
     flex: 1;
     font-size: var(--font-size-sm);
     color: var(--gray-600);
+}
+
+/* ===== Aba Concessões =====
+
+   Duas listas empilhadas ("Concedidos por mim" e "Recebidos por mim") em vez de duas telas
+   alternadas, pela mesma razão das duas seções da aba Grupos: as duas respondem perguntas
+   diferentes sobre o MESMO assunto, e quem revisa acesso quer ver as duas de uma vez.
+
+   O CHIP DE PRAZO É O ELEMENTO DA ABA, e é o único que ganha cor: a morte de uma concessão mora
+   no predicado do servidor, sem evento e sem aviso, e este chip é a única superfície do produto
+   que fala com quem RECEBEU antes de o recurso sumir do catálogo dele. */
+
+.admin-grants__section {
+    margin-top: var(--space-8);
+}
+
+/* A ressalva de escopo e a nota de prazo são PROSA sobre a lista, não itens dela: peso de
+   legenda, acima do cartão, para não competir com os nomes dos recursos. Mesma forma de
+   `.admin-groups__participating-scope`, e é de propósito que se pareçam. */
+.admin-grants__scope,
+.admin-grants__expiry-notice {
+    margin: 0 0 var(--space-3);
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
+.admin-grants__scope {
+    margin-top: calc(-1 * var(--space-2));
+}
+
+/* O selo de "é um grupo" fica na LINHA de baixo do nome, como o `@usuário` da tabela de
+   pessoas, e não ao lado: ao lado ele empurraria nomes longos para a reticência. */
+.admin-grants__kind {
+    align-self: flex-start;
+    margin-top: var(--space-1);
+}
+
+/* O CAMINHO DE GRUPO. Ele é procedência, como `.admin-groups__added-by`: responde "por que eu
+   vejo isto" e não pode competir com o nome de quem concedeu, que é o que se lê primeiro. */
+.admin-grants__via-group {
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    font-style: italic;
+    cursor: help;
+}
+
+/* ----- O chip de prazo -----
+   Quatro estados com tratamento próprio, e o quinto (sem prazo) herda o neutro. As cores saem
+   dos tokens de família (`--color-error`, `--color-warning`) pela mesma receita de
+   `color-mix` já usada em `.admin-chip--producer`, para que os pares não divirjam à mão. */
+.admin-grants__expiry {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    cursor: help;
+}
+
+/* Vencida: já não entrega acesso nenhum. É a única que descreve um fato consumado, e por isso a
+   única em vermelho. */
+.admin-grants__expiry--vencida {
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: color-mix(in srgb, var(--color-error) 78%, var(--gray-900));
+    font-weight: var(--font-weight-semibold);
+}
+
+/* Vence hoje e vence logo compartilham o âmbar, que é a mesma família do selo "Privado" e do
+   chip do Credenciado: as três falam de acesso que precisa de atenção. O peso separa as duas,
+   porque só uma delas acaba antes de amanhã. */
+.admin-grants__expiry--hoje,
+.admin-grants__expiry--proxima {
+    background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: color-mix(in srgb, var(--color-warning) 80%, var(--gray-900));
+}
+
+.admin-grants__expiry--hoje {
+    font-weight: var(--font-weight-semibold);
+}
+
+/* Sem prazo NÃO é neutro: é falta de informação sobre um campo que deveria existir sempre. A
+   moldura tracejada é a mesma convenção de `.admin-chip--desconhecido`, e pelo mesmo motivo. */
+.admin-grants__expiry--sem-prazo {
+    background: transparent;
+    border: 1px dashed var(--gray-400);
+    color: var(--gray-700);
+}
+
+/* O lugar do botão que não existe do lado recebido. Discreta, sem moldura e sem cursor de mão:
+   prometer clique onde não há clique é o mesmo defeito que um botão inerte. Mesma forma de
+   `.admin-groups__leave-blocked`. */
+.admin-grants__not-revocable {
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    font-style: italic;
+    cursor: help;
+}
+
+/* O SELETOR DE PRAZO da seção "Concedidos por mim", um para a seção inteira.
+   Ele fica ACIMA da tabela e alinhado à direita, para não competir com o cabeçalho da seção
+   e para ficar perto da coluna Vencimento, que é a que ele explica. */
+.admin-grants__term {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.admin-grants__term-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+/* Altura reduzida: o controle acompanha a tabela, não um formulário. */
+.admin-input--sm {
+    height: auto;
+    padding: var(--space-1) var(--space-2);
 }
 
 /* ==========================================================================

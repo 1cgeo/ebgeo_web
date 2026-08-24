@@ -14,17 +14,22 @@ import { CATALOG_UI_ICONS } from '../catalog.constants.js';
  * @param {Function} options.onItemClick - Item click callback
  * @returns {HTMLElement}
  */
-export function createCatalogGrid({ items, onItemClick, mapLocked = false, selectable = false, allowedIds, onToggle, onShare }) {
+export function createCatalogGrid({ items, onItemClick, mapLocked = false, selectable = false, allowedIds, onToggle, onShare, emptyNotice }) {
     const grid = document.createElement('div');
     grid.className = 'catalog-grid';
 
     if (items.length === 0) {
         const emptyState = document.createElement('div');
         emptyState.className = 'catalog-empty';
-        emptyState.innerHTML = `
-            ${CATALOG_UI_ICONS.EMPTY}
-            <p>Nenhum item encontrado</p>
-        `;
+        emptyState.dataset.testid = 'catalog-empty';
+        // O ícone é SVG estático; a frase vem por `textContent` porque quem a compõe é
+        // `catalogEmptyNotice`, e ela interpola rótulo de filtro. O default preserva o texto
+        // de antes para os chamadores que não passam frase nenhuma (a aba de configuração do
+        // atlas, que não tem filtro de acesso).
+        emptyState.innerHTML = CATALOG_UI_ICONS.EMPTY;
+        const frase = document.createElement('p');
+        frase.textContent = String(emptyNotice ?? '').trim() || 'Nenhum item encontrado';
+        emptyState.appendChild(frase);
         grid.appendChild(emptyState);
         return grid;
     }

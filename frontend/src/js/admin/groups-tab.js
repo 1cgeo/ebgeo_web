@@ -51,6 +51,8 @@ import {
     groupDeletionSummary,
     memberRemovalWarning,
     memberRemovalSummary,
+    memberAdditionSummary,
+    groupTableColumns,
     groupOwnerLabel,
     memberDisplayName,
     memberAddedByLabel,
@@ -60,6 +62,11 @@ import {
     leaveGroupWarning,
     leaveGroupSummary,
     groupOwnerCannotLeaveNotice,
+    groupOwnerCannotLeaveShort,
+    // A MESMA frase do modal de recurso, e não uma segunda escrita aqui: a aba dizia "Falha ao
+    // carregar os grupos de que você participa", que soa igual a "você não participa de nenhum".
+    groupsLoadFailureNotice,
+    leaveAvailabilityUnknownNotice,
     participatingReachUnknownNotice,
 } from './group-phrases.js';
 
@@ -229,10 +236,14 @@ class GroupsTab {
         host.appendChild(wrap);
 
         if (grupos === null) {
-            const falha = document.createElement('p');
-            falha.className = 'admin-users__status';
-            falha.textContent = 'Falha ao carregar os grupos de que você participa.';
-            wrap.appendChild(falha);
+            // A SAÍDA QUE FALTAVA TAMBÉM AQUI. `_renderList` e `_renderMembers` ganharam
+            // `failureState` no lote anterior e esta seção não: continuava um `<p>` com a mesma
+            // classe e o mesmo cinza do "Carregando…" logo acima, sem `role="alert"` e sem botão.
+            // Falha indistinguível de espera é a pior das três telas de estado, porque a pessoa
+            // fica esperando um carregamento que já terminou.
+            wrap.appendChild(failureState(groupsLoadFailureNotice(), {
+                onRetry: () => { if (this._alive) this._renderList(); },
+            }));
             return;
         }
 
@@ -293,18 +304,50 @@ class GroupsTab {
             } else if (saida === LEAVE_AVAILABILITY.DONO) {
                 // Espaço vazio se lê como tela quebrada; a nota diz por que não há botão, e o
                 // `title` carrega os dois caminhos que o servidor nomeia na recusa.
-                const nota = document.createElement('span');
-                nota.className = 'admin-groups__leave-blocked';
-                nota.dataset.testid = 'admin-group-leave-blocked';
-                nota.textContent = 'Você é o dono';
-                nota.title = groupOwnerCannotLeaveNotice();
-                acoes.appendChild(nota);
+                //
+                // O TEXTO VISÍVEL PASSOU A CARREGAR A SAÍDA em 2026-08-24. Era só "Você é o dono",
+                // com a explicação inteira no `title` — e `title` não existe no toque nem para quem
+                // navega por teclado, então a recusa era visível e o motivo não. A frase curta é a
+                // metade ACIONÁVEL (o que fazer), porque das duas é a única que a pessoa pode usar.
+                acoes.appendChild(this._leaveBlockedNote(
+                    'admin-group-leave-blocked',
+                    groupOwnerCannotLeaveShort(),
+                    groupOwnerCannotLeaveNotice(),
+                ));
+            } else {
+                // O TERCEIRO RAMO, que ficava VAZIO. `leaveGroupAvailability` tem três desfechos e
+                // esta seção desenhava dois: sem sessão lida a div de ações não recebia nada, e
+                // espaço vazio se lê como tela quebrada — a mesma lição que o ramo do dono acima já
+                // tinha aprendido. Não afirma posse que ninguém mediu e não oferece o ato.
+                acoes.appendChild(this._leaveBlockedNote(
+                    'admin-group-leave-unknown',
+                    'Saída indisponível agora',
+                    leaveAvailabilityUnknownNotice(),
+                ));
             }
             item.appendChild(acoes);
 
             list.appendChild(item);
         }
         wrap.appendChild(list);
+    }
+
+    /**
+     * @private A nota que OCUPA O LUGAR do botão "Sair", nos dois ramos em que ele não existe.
+     *
+     * Uma fábrica só para os dois porque a forma é a mesma (texto curto visível + frase inteira no
+     * `title`) e o que muda é o vocabulário, que mora em `group-phrases.js`. Duas cópias divergiriam
+     * no estilo, e foi exatamente assim que um dos ramos ficou sem nota nenhuma.
+     * @param {string} testid @param {string} visivel @param {string} completa
+     * @returns {HTMLElement}
+     */
+    _leaveBlockedNote(testid, visivel, completa) {
+        const nota = document.createElement('span');
+        nota.className = 'admin-groups__leave-blocked';
+        nota.dataset.testid = testid;
+        nota.textContent = visivel;
+        nota.title = completa;
+        return nota;
     }
 
     /**
@@ -323,15 +366,19 @@ class GroupsTab {
         const table = document.createElement('table');
         table.className = 'admin-users__table';
 
+        // A COLUNA "Dono" É RECORTADA POR AUDIÊNCIA desde 2026-08-24, e o comentário que morava
+        // aqui já dizia por quê sem tirar a consequência: ela existe para o ADMINISTRADOR, o único
+        // que vê grupo alheio (sem ela a lista dele mostraria N grupos homônimos de gente
+        // diferente, porque a unicidade de nome passou a ser POR DONO). Para todo mundo mais a
+        // listagem é recortada por posse, então a coluna respondia "eu" em toda linha. Quem decide
+        // é `groupTableColumns`, função pura, para que o recorte seja testável em node.
+        // ("Dono" e não "Criado por": quem criou é história, quem manda é autoridade, e as duas
+        // podem divergir. E "Atlas" é o SEGUNDO eixo de alcance do grupo, D2 de 2026-08-21:
+        // enquanto só "Recursos" existia, a tela mostrava metade do que a exclusão derruba.)
+        const mostraDono = sessionContext.isAdmin();
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        // "Dono" e não "Criado por": quem criou é história, quem manda é autoridade, e as duas
-        // podem divergir. A coluna existe para o ADMINISTRADOR, o único que vê grupo alheio —
-        // e sem ela a lista dele mostraria N grupos homônimos de gente diferente, porque a
-        // unicidade de nome passou a ser POR DONO.
-        // "Atlas" é o SEGUNDO eixo de alcance do grupo (D2, 2026-08-21). Enquanto só
-        // "Recursos" existia, a tela mostrava metade do que a exclusão derruba.
-        for (const h of ['Grupo', 'Membros', 'Recursos', 'Atlas', 'Dono', '']) {
+        for (const h of groupTableColumns({ isAdmin: mostraDono })) {
             const th = document.createElement('th');
             th.textContent = h;
             if (h === 'Recursos') th.title = 'Recursos privados a que este grupo dá acesso.';
@@ -368,7 +415,11 @@ class GroupsTab {
             tr.appendChild(cell(String(toCount(group.member_count))));
             tr.appendChild(cell(String(toCount(group.grant_count))));
             tr.appendChild(cell(String(toCount(group.atlas_share_count))));
-            tr.appendChild(cell(group.owner_nome || group.owner_username || 'Sem dono definido'));
+            // A célula segue o cabeçalho: as duas contagens têm de casar, e é por isso que a
+            // decisão é lida uma vez só, acima, em vez de reavaliada aqui dentro do laço.
+            if (mostraDono) {
+                tr.appendChild(cell(group.owner_nome || group.owner_username || 'Sem dono definido'));
+            }
 
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
@@ -512,6 +563,10 @@ class GroupsTab {
             if (this._alive) this._renderList();
         } catch (err) {
             showError(err?.message || 'Falha ao apagar o grupo.');
+            // A LISTA É RELIDA NO ERRO, e este é o caso que motivou a regra: um 404 aqui significa
+            // que o grupo já não existe (apagado noutra sessão, ou noutra aba), e a tela ficava
+            // mostrando a linha com os três botões, todos condenados a falhar de novo.
+            if (this._alive) this._renderList();
         }
     }
 
@@ -546,6 +601,9 @@ class GroupsTab {
             if (this._alive) this._renderList();
         } catch (error) {
             showError(error?.message || 'Falha ao sair do grupo.');
+            // Mesma regra de `_delete`: o grupo pode ter deixado de existir entre o desenho e o
+            // clique, e a linha morta com o botão "Sair" é o mesmo erro esperando repetição.
+            if (this._alive) this._renderList();
         }
     }
 
@@ -777,14 +835,22 @@ class GroupsTab {
     async _addMember(group, user) {
         try {
             const result = await apiClient.addAccessGroupMember(group.id, user.id);
-            // The route is idempotent, so "already there" is a success with `added: false` — saying
-            // "adicionada" there would claim a change that did not happen.
-            showSuccess(result?.added === false
-                ? `${memberDisplayName(user)} já estava no grupo.`
-                : `${memberDisplayName(user)} entrou no grupo.`);
+            // O TOAST RELATA O ALCANCE desde 2026-08-24, e a razão está no `fileoverview` de
+            // `memberAdditionSummary`: pôr alguém num grupo que já recebeu sete recursos privados é
+            // conceder sete acessos de uma vez, sem gate de repasse e sem linha nova em
+            // `resource_grants`. Este era o único ato do ciclo que não relatava nada, com a
+            // contagem visível na coluna ao lado e ausente da frase. A rota continua idempotente, e
+            // `added: false` cai no ramo que não anuncia mudança nenhuma.
+            showSuccess(memberAdditionSummary(
+                { name: memberDisplayName(user), added: result?.added },
+                group,
+            ));
             if (this._alive) this._renderMembers(group);
         } catch (error) {
             showError(error?.message || 'Falha ao adicionar a pessoa ao grupo.');
+            // SEM RE-RENDERIZAR AQUI, ao contrário dos três atos irmãos, e a assimetria é medida: a
+            // linha que pode estar morta neste caminho é um RESULTADO DE BUSCA, e redesenhar a tela
+            // apagaria o termo que a pessoa digitou junto com ele. O roster em si não mudou.
         }
     }
 
@@ -793,10 +859,19 @@ class GroupsTab {
      * @param {Object} group @param {Object} member
      */
     async _removeMember(group, member) {
+        // A RELEITURA VALE PARA OS DOIS ATOS IRREVERSÍVEIS, e até 2026-08-24 só `_delete` a fazia.
+        // Aqui o número era ainda MAIS velho que lá: `grant_count` e `atlas_share_count` vêm do
+        // fechamento de `_renderTable`, isto é, do instante em que a ABA montou (só `member_count`
+        // é refrescado, ao abrir este roster), e entre aquele instante e este clique alguém pode ter
+        // concedido um recurso ao grupo. Falhar a releitura NÃO cancela o ato: o aviso sai com a
+        // ressalva de números defasados, que é a diferença entre um número velho e um número velho
+        // apresentado como fresco.
+        const { group: alvo, stale } = await this._reachForWarning(group);
+        if (!this._alive) return;
         const ok = await showConfirm(
             `Tirar ${memberDisplayName(member)} do grupo "${group.name || ''}"?`,
             {
-                message: memberRemovalWarning(group),
+                message: memberRemovalWarning(alvo, { countsStale: stale }),
                 destructive: true,
                 confirmText: 'Remover',
             },
@@ -813,6 +888,10 @@ class GroupsTab {
             if (this._alive) this._renderMembers(group);
         } catch (error) {
             showError(error?.message || 'Falha ao remover a pessoa do grupo.');
+            // O ROSTER É RELIDO NO ERRO TAMBÉM. A causa mais provável de uma falha aqui é a linha
+            // já não existir (a pessoa saiu do grupo, ou outra sessão a removeu), e deixar a linha
+            // morta na tela com o mesmo botão é oferecer o mesmo erro de novo.
+            if (this._alive) this._renderMembers(group);
         }
     }
 }

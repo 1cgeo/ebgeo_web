@@ -1,7 +1,13 @@
 /* Path: css/data-layer-notice.css */
 
 /**
- * @fileoverview Aviso de camada de dados que não carregou, ancorado no contêiner do mapa.
+ * @fileoverview Aviso de superfície do mapa que não carregou, ancorado no contêiner do mapa.
+ *
+ * O NOME DO BLOCO CONTINUA `data-layer-notice` E O ARQUIVO TAMBÉM, embora o painel cubra desde
+ * 2026-08-24 três superfícies (camada de dado, camada de análise e mapa base). Renomear custaria
+ * o bloco, os seis elementos, os quatro `data-testid` e o import em `style.css` para não mudar um
+ * pixel; o que a leitura precisa saber está escrito aqui, e a implementação mora num arquivo cujo
+ * nome já é geral (`js/terrain/layer-failure-notice.js`).
  *
  * NÃO É UM TOAST, e a diferença é funcional, não estética: o toast desta casa não carrega botão
  * (`utilities/toast_service.js` só desenha o "×"), e o produto pede que o aviso OFEREÇA tentar de
@@ -84,6 +90,15 @@
     white-space: nowrap;
     cursor: pointer;
     transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+/* O POSTO QUE A PESSOA NÃO ALCANÇA NÃO SE DESENHA: quando o único acusado é o mapa base, não há
+   como pedi-lo de novo daqui (o estilo se resolve em `resolveBasemapStyle`, fora deste módulo),
+   e o JS marca `hidden` no botão. A regra é explícita porque `.data-layer-notice__actions` é um
+   flex container, e o `display` do estilo de usuário-agente para `[hidden]` perde para qualquer
+   `display` que uma regra futura ponha no botão. */
+.data-layer-notice__btn[hidden] {
+    display: none;
 }
 
 .data-layer-notice__btn--retry {

@@ -8,3 +8,4 @@
 export { default as TerrainControl, getTerrainElevation } from './terrain.control.js';
 export { default as AnalysisLayersManager } from './analysis-layers.manager.js';
 export { default as DataLayersManager } from './data-layers.manager.js';
+export { getLayerFailureNotice } from './layer-failure-notice.js';
