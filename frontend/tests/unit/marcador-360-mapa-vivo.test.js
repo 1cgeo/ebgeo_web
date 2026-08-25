@@ -123,14 +123,23 @@ describe('a camada de marcadores 360 do mapa sobreviveu à remoção da tabela h
         expect(sujosTipo, 'o tipo de recurso `streetview_marker` voltou ao cliente').toEqual([]);
 
         // A EXCEÇÃO TEM PISO PRÓPRIO, senão ela vira permissão para o token voltar por
-        // ali. Duas asserções, e as duas precisam existir: o arquivo TEM de conter o
+        // ali. Três asserções, e as três precisam existir: o arquivo TEM de conter o
         // rótulo (se alguém o apagar, a exceção fica obsoleta e este caso avisa em vez
-        // de emudecer), e ele só pode aparecer UMA vez, no mapa de alvos — nunca num
-        // gate, numa rota ou num seletor.
+        // de emudecer), e cada ocorrência precisa estar num dos DOIS sítios em que o
+        // token morto é legítimo — nunca num gate, numa rota ou num seletor.
+        //
+        // O SEGUNDO SÍTIO NASCEU EM 2026-08-25, com `ALVOS_RESERVADOS` em
+        // `audit-phrases.js`. Ele é a lista dos `target_type` DECLARADOS no CHECK que o
+        // filtro da aba NÃO oferece, por não terem emissor nenhum, e o token morto é o
+        // caso mais claro dela. A contagem subiu de 1 para 2 e a exceção ficou MAIS
+        // estreita, não mais larga: antes ela dizia só quantas vezes, e agora diz onde.
         const trilha = semComentarios(ler(ROTULO_HISTORICO));
         const ocorrencias = [...trilha.matchAll(/STREETVIEW_MARKER/g)];
-        expect(ocorrencias.length, 'a exceção de rótulo histórico não bate mais com o arquivo').toBe(1);
+        expect(ocorrencias.length, 'a exceção de rótulo histórico não bate mais com o arquivo').toBe(2);
         expect(trilha).toMatch(/STREETVIEW_MARKER:\s*'Marcador 360'/);
+        expect(trilha, 'o token morto só pode aparecer no mapa de rótulos e na lista de '
+            + 'alvos RESERVADOS (a que o filtro não oferece)')
+            .toMatch(/ALVOS_RESERVADOS = Object\.freeze\(\[[^\]]*'STREETVIEW_MARKER'/);
 
         const sujosRota = versionados.filter((rel) => ROTA_MORTA.test(semComentarios(ler(rel))));
         expect(sujosRota, 'a rota de catálogo `streetview-markers` voltou ao cliente').toEqual([]);

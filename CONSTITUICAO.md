@@ -459,9 +459,13 @@ uma conta que concedeu muito deve reconceder antes, porque não há transferênc
 ## 9. Auditoria
 
 **9.1** O administrador acessa **toda** a trilha e todas as configurações do sistema e dos recursos.
-**[vigente]** nos dois: existe aba de Auditoria, com agrupamento por dia, uma frase por linha e o de-para
-atrás de botão. Preso por `frontend/tests/unit/admin-audiencia.test.js` e
-`frontend/tests/unit/auditoria-rotulos.test.js`.
+**[vigente]** nos dois: existe aba de Auditoria, com agrupamento por dia e o de-para atrás de botão. A
+lista virou TABELA em 2026-08-25, com cabeçalho de coluna e um `<tbody>` por dia: era a única das sete abas
+sem `<table>`, e sem `<th>` o leitor de tela não recebia nome de coluna nenhum. O eixo de tempo passou a ser
+um seletor único (atalho ou datas exatas), porque os dois controles coexistiam e podiam discordar sem que a
+tela dissesse qual valia. Preso por `frontend/tests/unit/admin-audiencia.test.js`,
+`frontend/tests/unit/auditoria-rotulos.test.js`, `frontend/tests/unit/auditoria-eixo-de-tempo.test.js` e
+`frontend/tests/unit/auditoria-tabela-acessivel.test.js`.
 
 **9.2** O produtor acessa a trilha **dos recursos produzidos pela própria organização**. O recorte é imposto
 pelo servidor e nunca é parâmetro do cliente. **[vigente]** A trilha ganhou coluna de organização no alvo,

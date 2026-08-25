@@ -827,10 +827,16 @@
 
    A tela existe para NÃO ser um dump, e o CSS carrega metade dessa decisão: o dia é um
    cabeçalho pegajoso (a lista rola muito, e sem ele o leitor perde a data três linhas
-   abaixo), a linha é uma grade de larguras fixas para hora e OM (senão cada linha alinha
-   diferente e a coluna some), e o `details` nasce escondido pelo atributo `hidden`.
-   A cor do chip vem da FAMÍLIA da ação (`audit-phrases.js`), nunca da ação: cinco cores se
-   distinguem, trinta e cinco não. */
+   abaixo), e a gaveta nasce escondida pelo atributo `hidden`. A cor do chip vem da
+   FAMÍLIA da ação (`audit-phrases.js`), nunca da ação: cinco cores se distinguem, trinta
+   e cinco não.
+
+   ELA É UMA TABELA DESDE 2026-08-25, e reusa `.admin-users__table` como as outras cinco
+   abas. O que sobra aqui é só o que é DESTA tela: a largura da hora, o dia pegajoso, o
+   chip por família e a gaveta. Antes havia um namespace inteiro paralelo, com
+   `.admin-audit__select` e `.admin-audit__input` redeclarando altura, borda, raio e foco
+   que `.admin-input` já resolvia — duas cópias do mesmo desenho, que divergiriam no dia
+   em que alguém mexesse numa só. As duas regras saíram; a tela usa `.admin-input`. */
 
 /* `overflow: clip` NÃO É COSMÉTICO E NÃO PODE VIRAR `hidden`: este elemento também é
    `.admin-card`, que declara `overflow: hidden`, e `hidden` estabelece um SCROLL
@@ -842,20 +848,40 @@
 .admin-audit {
     display: block;
     overflow: clip;
+
+    /* A ALTURA DO CABEÇALHO DE COLUNA, declarada porque DOIS níveis grudam ao mesmo
+       tempo: o `<thead>` no topo e o cabeçalho de cada dia logo abaixo dele. O segundo
+       precisa saber onde o primeiro termina, e um número solto no `top` viraria mentira
+       na primeira mudança de tipografia. */
+    --admin-audit-cabecalho: 2.5rem;
 }
 
+/* A BARRA DE FILTROS, REFEITA EM 2026-08-25, e a medida é o que manda aqui: com oito
+   controles num `flex-wrap` de duas fileiras, mais uma nota de três linhas em corpo cheio,
+   ela ocupava 293px num navegador de 720px e empurrava a lista para começar a 479px — sob a
+   dobra. Numa tela de consulta a barra estava entre a pergunta e a resposta.
+
+   O QUE ENCOLHEU: o eixo de tempo virou UM seletor (eram quatro botões mais dois campos de
+   data), os três filtros de apuração foram para um recolhimento, "Por página" desceu para o
+   rodapé, junto da paginação de que ele trata, e a nota de escopo virou um `<details>` de uma
+   linha. Sobrou uma fileira só.
+
+   A COLUNA NO TOPO É PARA O RECOLHIMENTO: a fileira dos controles é um flex-row próprio
+   (`__linha`), e o painel da apuração entra abaixo dela sem participar do `wrap` dos
+   controles, que é o que produzia a segunda fileira esfarrapada. */
 .admin-audit__toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-6);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-audit__linha {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--space-3);
-    padding: var(--space-4) var(--space-6);
-    border-bottom: var(--border-width) solid var(--border-color);
-}
-
-.admin-audit__periodo {
-    display: flex;
-    gap: var(--space-1);
 }
 
 .admin-audit__filtro {
@@ -864,47 +890,175 @@
     gap: var(--space-1);
 }
 
+/* LARGURA IGUAL PARA TODOS OS CONTROLES, e é o conserto do arranjo antigo: cada `<select>` se
+   dimensionava pela própria opção mais longa, então "OM do acervo" ocupava quase metade da
+   fileira, "Por página" era um toco e sobrava um rasgo entre os dois. Uma base comum, e todos
+   encolhem juntos quando a janela aperta.
+
+   `min-width: 0` E `width: 100%` são o que faz essa base valer: sem os dois, a largura
+   intrínseca do `<select>` vence o `flex-basis` e a base comum vira sugestão. */
+.admin-audit__toolbar .admin-audit__filtro {
+    min-width: 0;
+}
+
+.admin-audit__toolbar .admin-audit__controle {
+    width: 100%;
+}
+
+.admin-audit__linha .admin-audit__filtro {
+    flex: 0 1 11rem;
+}
+
+/* ALTURA IGUAL, e não só linha de base igual. Os botões da fileira (`Apuração`, `Limpar
+   filtros`) são `--sm` e nasceriam mais baixos que os campos; com a mesma altura de alvo de
+   toque, a fileira inteira alinha em cima e embaixo. */
+.admin-audit__linha .admin-btn {
+    height: var(--touch-target-min);
+}
+
 .admin-audit__filtro-rotulo {
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
     color: var(--gray-600);
 }
 
-.admin-audit__select,
-.admin-audit__input {
-    height: var(--touch-target-min);
-    padding: 0 var(--space-3);
-    box-sizing: border-box;
-    border: var(--border-width) solid var(--border-color);
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-sm);
-    background: #fff;
+/* O RÓTULO AO LADO, e não em cima. Serve ao "Por página" do rodapé, que divide a fileira com
+   o resumo e os quatro saltos: ali não há uma faixa de rótulos para se alinhar. */
+.admin-audit__filtro--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
 }
 
-.admin-audit__select:focus,
-.admin-audit__input:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px var(--primary-100);
-    outline: none;
+.admin-audit__filtro--inline .admin-audit__controle {
+    width: 5rem;
 }
 
-/* A ressalva do backfill ocupa a linha inteira da barra: ela qualifica o que a lista
-   SIGNIFICA, e uma ressalva espremida ao lado de um filtro não se lê. */
+/* ----- a apuração recolhida ----- */
+
+.admin-audit__apuracao-btn {
+    gap: var(--space-2);
+}
+
+/* O SELO DA CONTAGEM. Ele é o que impede o recolhimento de virar filtro invisível: sem
+   número, um recorte por id fica escondido atrás de um botão fechado, e a lista curta que ele
+   produz lê-se como "não aconteceu". */
+.admin-audit__apuracao-selo {
+    min-width: 1.25rem;
+    text-align: center;
+    background: var(--primary-100);
+    color: var(--primary-700);
+}
+
+/* A SEGUNDA FILEIRA, que só existe aberta. As três larguras CONVERSAM: os dois campos de id
+   carregam um UUID e a OM carrega uma sigla, então todos crescem do mesmo piso em vez de cada
+   um pedir o seu. */
+.admin-audit__apuracao-painel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: var(--border-width) dashed var(--border-color);
+}
+
+.admin-audit__apuracao-painel .admin-audit__filtro {
+    flex: 1 1 14rem;
+}
+
+.admin-audit__apuracao-painel[hidden] {
+    display: none;
+}
+
+/* A BARRA INTEIRA DESLIGA enquanto uma busca está em voo, e a opacidade é o que torna
+   isso visível: sem ela, o `disabled` dos controles se lê como tela travada. É a metade
+   visível da proteção contra o clique duplo (a outra é o contador de geração, no JS). */
+.admin-audit__toolbar[aria-busy="true"] {
+    opacity: 0.6;
+}
+
+.admin-audit__controle:disabled {
+    cursor: wait;
+}
+
+/* A RESSALVA DO ESCOPO, recolhida e encostada à direita.
+
+   ELA FICA, porque responde "esta lista é a trilha inteira ou só a da minha OM?", e essa
+   resposta é o que impede o produtor de ler ausência como "não aconteceu". O que ela não
+   precisa é de três linhas em corpo cheio na largura toda da barra, antes de qualquer dado
+   aparecer: a resposta cabe no `<summary>` e a ressalva longa fica a um clique.
+
+   `margin-left: auto` a empurra para a ponta oposta aos filtros: ela não é um filtro, e ficar
+   na fila deles a fazia parecer um. */
 .admin-audit__nota {
-    flex-basis: 100%;
-    margin: 0;
+    max-width: 24rem;
+    margin-left: auto;
+    align-self: flex-end;
+
+    /* CENTRADA NO CONTROLE, e não na fileira. A fileira inclui a faixa de rótulos acima dos
+       campos, então centrar nela deixaria a nota flutuando acima da linha dos controles. O
+       recuo é derivado da altura do alvo de toque, e não um número escolhido a olho. */
+    padding-bottom: calc((var(--touch-target-min) - 1.25rem) / 2);
     font-size: var(--font-size-xs);
     color: var(--gray-600);
 }
 
-.admin-audit__day-header {
+.admin-audit__nota > summary {
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.admin-audit__nota-corpo {
+    margin: var(--space-1) 0 0;
+}
+
+/* Texto que só o leitor de tela recebe. Serve ao cabeçalho da coluna do botão
+   "Detalhes": um `<th>` vazio é anunciado como coluna sem nome, e a coluna carrega o
+   único controle de cada linha. `clip-path` e não `display: none`, que tiraria o texto
+   da árvore de acessibilidade junto. */
+.admin-audit__oculto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* ----- a tabela ----- */
+
+.admin-audit__table {
+    table-layout: auto;
+}
+
+/* Largura FIXA e tabular para a hora: ela é a primeira coluna de toda linha, e sem
+   largura fixa ela empurra o resto para a direita a cada minuto de dois dígitos. */
+.admin-audit__table .admin-audit__time {
+    width: 4.5rem;
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-500);
+    vertical-align: top;
+}
+
+.admin-audit__table thead th {
     position: sticky;
     top: 0;
-    z-index: 1;
-    margin: 0;
+    z-index: 3;
+    height: var(--admin-audit-cabecalho);
+}
+
+/* O CABEÇALHO DO DIA gruda LOGO ABAIXO do cabeçalho de coluna, e não no topo: com os
+   dois em `top: 0` um cobre o outro e a tela perde justamente o que estava sendo lido.
+   O `sticky` mora no `<th>` e não na `<tr>` nem no `<tbody>` de propósito: em célula ele
+   é suportado por todos os navegadores, nos outros dois não. */
+.admin-audit__day-header {
+    position: sticky;
+    top: var(--admin-audit-cabecalho);
+    z-index: 2;
     padding: var(--space-2) var(--space-6);
     background: var(--gray-100);
-    border-bottom: var(--border-width) solid var(--border-color);
+    text-align: left;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
@@ -912,49 +1066,78 @@
     color: var(--gray-600);
 }
 
-.admin-audit__row {
+.admin-audit__table td {
+    vertical-align: top;
+}
+
+.admin-audit__ator,
+.admin-audit__alvo {
     display: flex;
-    align-items: flex-start;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-6);
-    border-bottom: var(--border-width) solid var(--border-color);
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
 }
 
-.admin-audit__row:last-child {
-    border-bottom: none;
+.admin-audit__alvo {
+    flex-wrap: wrap;
 }
 
-/* Largura FIXA e tabular: a hora é a primeira coluna de toda linha, e sem largura fixa
-   ela empurra o resto da linha para a direita a cada minuto de dois dígitos. */
-.admin-audit__time {
-    flex: 0 0 3.5rem;
-    padding-top: 2px;
+.admin-audit__alvo-tipo {
     font-size: var(--font-size-xs);
-    font-variant-numeric: tabular-nums;
     color: var(--gray-500);
 }
 
-.admin-audit__body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.admin-audit__frase {
-    min-width: 0;
-    font-size: var(--font-size-sm);
+.admin-audit__ator-nome,
+.admin-audit__alvo-nome {
     color: var(--gray-800);
     overflow-wrap: anywhere;
 }
 
+.admin-audit__vazio {
+    color: var(--gray-400);
+}
+
+/* O NOME CLICÁVEL, que preenche o filtro de id exato.
+
+   ELE ERA UM CONTROLE INVISÍVEL, e é o defeito que estas regras fecham: a classe que o
+   marcava (`admin-audit__alvo--clicavel`) não tinha uma única regra em `src/css/`, então
+   o alvo tinha `role="button"` e `tabindex=0` sem cursor, sem estado de passagem e sem
+   foco visível. Hoje ele é um `<button>` de verdade, e o que sobra aqui é despi-lo do
+   desenho de botão sem tirar dele os quatro sinais de que é clicável. */
+.admin-audit__filtro-rapido {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--gray-800);
+    text-align: left;
+    text-decoration: underline dotted var(--gray-400);
+    text-underline-offset: 2px;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.admin-audit__filtro-rapido:hover {
+    color: var(--primary-700);
+    text-decoration-color: var(--primary);
+}
+
+.admin-audit__filtro-rapido:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
 .admin-audit__om {
-    flex: 0 0 6rem;
-    text-align: right;
+    width: 8rem;
     font-size: var(--font-size-xs);
     color: var(--gray-600);
+}
+
+.admin-audit__acoes {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
 }
 
 .admin-audit__chip {
@@ -988,19 +1171,32 @@
     color: var(--gray-700);
 }
 
-/* A gaveta ocupa a linha inteira abaixo da frase (o corpo é `flex-wrap`), e `hidden`
-   precisa vencer o `display` do bloco, senão o atributo perde o significado — o mesmo
-   conserto que `.admin-form__field[hidden]` já carrega. */
-.admin-audit__details {
-    flex-basis: 100%;
-    margin-top: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    background: var(--gray-50);
-    border-radius: var(--radius-md);
+/* A GAVETA é uma `<tr>` irmã, logo abaixo da linha, e `hidden` precisa vencer o
+   `display` que a tabela dá à linha — o mesmo conserto que `.admin-form__field[hidden]`
+   já carrega. */
+.admin-audit__details-row[hidden] {
+    display: none;
 }
 
-.admin-audit__details[hidden] {
-    display: none;
+.admin-audit__details-row > td {
+    padding: 0 var(--space-6) var(--space-3);
+    background: var(--gray-50);
+}
+
+/* O TETO DA GAVETA, e ele não é enfeite: `details` é JSONB SEM LIMITE no servidor
+   (`backend/src/utils/audit.js`), então uma única linha grande empurrava a lista inteira
+   para fora da tela e a paginação virava rolagem. Com altura máxima, a gaveta rola
+   DENTRO de si mesma e a lista fica onde estava.
+
+   ROLAR E NÃO TRUNCAR, de propósito: cortar o conteúdo esconderia dado numa tela de
+   auditoria, e esconder é pior que mostrar. A rolagem mostra tudo e não move nada. */
+.admin-audit__details {
+    max-height: 18rem;
+    overflow: auto;
+    padding: var(--space-2) var(--space-3);
+    background: var(--white, #fff);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
 }
 
 .admin-audit__details-list {
@@ -1032,6 +1228,14 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* A TERCEIRA seção (instante completo, id da linha, id do alvo, origem da requisição,
+   cliente declarado) é METADADO, não a mudança: peso menor para não competir com o
+   de-para, que é o motivo de a gaveta existir. */
+.admin-audit__details-tecnico {
+    color: var(--gray-500);
+    font-weight: var(--font-weight-medium);
+}
+
 /* CÓDIGO, e não texto. A gaveta mostra o que não tem tradução em vez de esconder, e a
    fonte monoespaçada é o que impede um enum do servidor (`USER_DEMOTION`, um UUID de OM)
    de se ler como uma frase em português mal escrita. Vale para o nome da chave e para o
@@ -1053,6 +1257,7 @@
     font-size: var(--font-size-sm);
     color: var(--gray-600);
 }
+
 
 /* ===== Aba Concessões =====
 

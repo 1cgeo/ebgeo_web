@@ -11,15 +11,25 @@
  * barra do mapa e não em `atlas.html`, ou aparece com um rótulo em cada tela. Desde 2026-08-20
  * a regra mora aqui e os quatro sítios a consomem.
  *
- * AS QUATRO AUDIÊNCIAS, e "Concessões" é hoje a única aba que TODAS as três que abrem a porta
- * recebem:
+ * AS QUATRO AUDIÊNCIAS, e "Concessões" e "Minha conta" são as DUAS abas que todas as três que
+ * abrem a porta recebem:
  *
- *   | principal                      | rótulo         | abas                                                     |
- *   |--------------------------------|----------------|----------------------------------------------------------|
- *   | anônimo                        | (nenhum)       | (nenhuma)                                                |
- *   | administrador global           | Administração  | users, groups, config, catalog, personnel, grants, audit |
- *   | produtor                       | Catálogo       | catalog, groups, grants, audit                           |
- *   | qualquer outro autenticado     | Acessos        | groups, grants                                           |
+ *   | principal                  | rótulo        | abas                                                        |
+ *   |----------------------------|---------------|-------------------------------------------------------------|
+ *   | anônimo                    | (nenhum)      | (nenhuma)                                                   |
+ *   | administrador global       | Administração | users, groups, config, catalog, personnel, grants, audit, account |
+ *   | produtor                   | Catálogo      | catalog, groups, grants, audit, account                     |
+ *   | qualquer outro autenticado | Acessos       | groups, grants, account                                     |
+ *
+ * `account` ENTROU EM 2026-08-25, por decisão do chefe, e nas TRÊS de uma vez: "Minha conta"
+ * deixou de ser modal (`modals/account-settings.modal.js`, apagado) e virou aba
+ * (`admin/account-tab.js`). O critério é trivial e é por isso que ele é seguro: quem entrou tem
+ * conta. Ela é a ÚLTIMA de cada lista pela régua que já pôs `audit` e `grants` no fim: a primeira
+ * aba é a que o painel abre, e ninguém abre o painel para ler o próprio nome.
+ *
+ * ELA NÃO MEXEU EM RÓTULO NENHUM, e a razão é a mesma que o teste desta regra cobra: uma aba que
+ * as TRÊS audiências recebem não distingue audiência nenhuma, então não há o que renomear. Quem
+ * chega por `admin.html?aba=account` chega direto nela, sem ler o rótulo da porta.
  *
  * A ÚLTIMA LINHA MUDOU EM 2026-08-24, e o rótulo mudou COM ela, que é a regra abaixo em ação: ela
  * ganhou a aba "Concessões" (o inventário do que a pessoa concedeu e do que concederam a ela), e
@@ -94,7 +104,7 @@
  * @type {ReadonlyArray<string>}
  */
 const ABAS_DO_ADMINISTRADOR = Object.freeze([
-    'users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit',
+    'users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account',
 ]);
 
 /**
@@ -112,10 +122,10 @@ const ABAS_DO_ADMINISTRADOR = Object.freeze([
  * desta conta, porque o gate de revogação é por AUTORIA.
  * @type {ReadonlyArray<string>}
  */
-const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'grants', 'audit']);
+const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'grants', 'audit', 'account']);
 
 /**
- * A de todo o resto de quem entrou: os grupos dele e as concessões dele, nessa ordem.
+ * A de todo o resto de quem entrou: os grupos dele, as concessões dele e a conta dele, nessa ordem.
  *
  * A ORDEM É A DE MONTAGEM, e a primeira aba é a que o painel abre. "Grupos" continua na frente
  * porque é a tela que já existia e onde a pessoa AGE (cria, põe gente, tira gente); "Concessões" é
@@ -123,7 +133,7 @@ const ABAS_DO_PRODUTOR = Object.freeze(['catalog', 'groups', 'grants', 'audit'])
  * por último na linha do administrador.
  * @type {ReadonlyArray<string>}
  */
-const ABAS_DE_QUEM_ENTROU = Object.freeze(['groups', 'grants']);
+const ABAS_DE_QUEM_ENTROU = Object.freeze(['groups', 'grants', 'account']);
 
 /**
  * @typedef {Object} AdminAudience

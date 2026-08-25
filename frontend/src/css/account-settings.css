@@ -1,33 +1,37 @@
 /* Path: src/css/account-settings.css */
 
 /**
- * @fileoverview BEM styles for the "Minha conta" modal
- * (`src/js/modals/account-settings.modal.js`).
+ * @fileoverview Estilos BEM da tela "Minha conta" (`src/js/admin/account-tab.js`).
  *
- * It sits on the shared modal shell (.modal-overlay / .modal-container / .modal-body, in
- * modals-redesign.css) and only adds the block below, so the screen looks like the rest of
- * the product instead of a page from another one. Fully tokenized: every colour, radius,
- * spacing and transition comes from design-tokens.css.
+ * ELE DEIXOU DE SER ESTILO DE MODAL EM 2026-08-25, e as duas consequências estão no código, não
+ * só nesta prosa. A tela virou ABA do painel, então (1) `.account-settings-modal-container`, que
+ * estreitava a casca compartilhada do modal, foi APAGADO: não há casca a estreitar, e a aba
+ * ganha a largura do corpo do painel; (2) o arquivo é importado por `admin-page.css` E SÓ, e
+ * saiu de `style.css` e de `projects-page.css`, que o traziam porque o modal abria das três
+ * páginas. Um `@import` que serve regra para uma tela que aquela página não desenha é peso morto
+ * que ninguém vê envelhecer.
  *
- * Block:
- *   - .account-settings            (the three stacked sections)
+ * Todo valor é token: cor, raio, espaçamento e transição vêm de design-tokens.css.
+ *
+ * Bloco:
+ *   - .account-settings            (as três seções empilhadas)
  *     - __section, __section-header, __section-title, __section-hint
  *     - __readonly, __readonly-row, __readonly-label, __readonly-value, __readonly-note
  *     - __form, __field, __label, __input, __field-note
- *     - __warning (the box that has to be seen before an irreversible click)
- *     - __state (--loading / --error / --done: three DIFFERENT looks on purpose)
+ *     - __warning (a caixa que precisa ser vista antes do clique irreversível)
+ *     - __state (--loading / --error / --done: três aparências DIFERENTES de propósito)
  *     - __actions, __btn (--primary / --danger / --ghost)
- *     - __key (the one-time secret block), __key-value, __key-warning
  */
-
-.account-settings-modal-container {
-    max-width: 560px;
-}
 
 .account-settings {
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
+
+    /* A LARGURA MORAVA NA CASCA DO MODAL (`.account-settings-modal-container`, 560px). Numa aba
+       de painel a casca é a largura do conteúdo, e um formulário de campo único esticado até a
+       borda da tela larga é ilegível: a linha do olho fica longa demais. */
+    max-width: 640px;
 }
 
 /* =========================================================================
@@ -305,64 +309,6 @@
 
 .account-settings__btn--ghost:hover:not(:disabled) {
     background: var(--gray-200);
-}
-
-.account-settings__btn.is-copied {
-    background: var(--color-success);
-    border-color: var(--color-success);
-}
-
-/* =========================================================================
-   THE ONE-TIME KEY
-   ========================================================================= */
-
-.account-settings__key {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-4);
-    background: var(--gray-900);
-    border-radius: var(--radius-md);
-}
-
-.account-settings__key-label {
-    margin: 0;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    color: var(--gray-300);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.account-settings__key-value {
-    display: block;
-    padding: var(--space-3);
-    font-family: ui-monospace, sfmono-regular, 'Courier New', monospace;
-    font-size: var(--font-size-sm);
-    color: var(--primary-200);
-    background: black;
-    border-radius: var(--radius-sm);
-    user-select: all;
-    overflow-wrap: anywhere;
-}
-
-.account-settings__key-actions {
-    display: flex;
-    gap: var(--space-2);
-}
-
-.account-settings__key-warning {
-    margin: 0;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    color: #fca5a5;
-    line-height: var(--line-height-normal);
-}
-
-.account-settings__key-note {
-    margin: 0;
-    font-size: var(--font-size-xs);
-    color: var(--primary-300);
 }
 
 /* =========================================================================

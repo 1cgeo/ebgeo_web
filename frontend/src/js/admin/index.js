@@ -28,6 +28,7 @@ import { createPersonnelTab } from './personnel-tab.js';
 import { createGroupsTab } from './groups-tab.js';
 import { createGrantsTab } from './grants-tab.js';
 import { createAuditTab } from './audit-tab.js';
+import { createAccountTab } from './account-tab.js';
 
 /**
  * As fábricas por id de aba. A ORDEM de montagem é a de `tabIds`, não a deste objeto: um mapa
@@ -41,6 +42,7 @@ const TAB_FACTORIES = Object.freeze({
     catalog: createCatalogTab,
     personnel: createPersonnelTab,
     audit: createAuditTab,
+    account: createAccountTab,
 });
 
 /**

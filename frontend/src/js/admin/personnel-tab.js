@@ -121,8 +121,14 @@ class PersonnelTab {
     _build() {
         const c = this._container;
         c.replaceChildren();
+        // A PORTA DE CRIAR MORA NO CABEÇALHO, pelo mesmo motivo da aba Catálogo: numa faixa
+        // solta abaixo da sub-nav ela não se lia como ação primária. O `+` é a convenção que a
+        // aba Usuários já usa, e o rótulo segue a sub-lista viva, reescrito por `_select`.
+        this._newBtn = button('', 'admin-btn admin-btn--primary', 'admin-personnel-new',
+            () => this._renderForm(null));
         c.appendChild(sectionHeader('Pessoal', {
             subtitle: 'Listas controladas usadas no cadastro — postos/graduações e organizações militares',
+            actions: [this._newBtn],
         }));
 
         const nav = document.createElement('nav');
@@ -153,6 +159,7 @@ class PersonnelTab {
         for (const [k, btn] of this._navButtons) {
             btn.classList.toggle('admin-catalog__nav-btn--active', k === key);
         }
+        if (this._newBtn) this._newBtn.textContent = `+ Novo — ${this._sub().label}`;
         this._renderList();
     }
 
@@ -163,12 +170,6 @@ class PersonnelTab {
         const sub = this._sub();
         const c = this._content;
         c.replaceChildren();
-
-        const toolbar = document.createElement('div');
-        toolbar.className = 'admin-users__toolbar';
-        toolbar.appendChild(button(`Novo — ${sub.label}`, 'admin-btn admin-btn--primary', 'admin-personnel-new',
-            () => this._renderForm(null)));
-        c.appendChild(toolbar);
 
         const wrap = card({ testid: 'admin-personnel-list', padded: false });
         wrap.classList.add('admin-users__table-wrap');
@@ -205,7 +206,7 @@ class PersonnelTab {
             // helper traz a DICA do que fazer agora, e era exatamente ela que faltava nas duas
             // abas que montavam o vazio à mão. Lista vazia sem próximo passo é beco.
             wrap.appendChild(emptyState('Nenhum item nesta lista.', {
-                hint: 'Use "Novo" acima para criar o primeiro.',
+                hint: 'Use "+ Novo" no topo da secao para criar o primeiro.',
             }));
             return;
         }

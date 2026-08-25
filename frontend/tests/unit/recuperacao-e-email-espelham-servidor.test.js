@@ -27,7 +27,7 @@ import {
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
 } from '../../src/js/modals/password-recovery.model.js';
-import { MAX_EMAIL_LENGTH } from '../../src/js/modals/account-settings.model.js';
+import { MAX_EMAIL_LENGTH } from '../../src/js/admin/account-model.js';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USERS_SCHEMAS = resolve(RAIZ, 'backend/src/modules/users/users.schemas.js');

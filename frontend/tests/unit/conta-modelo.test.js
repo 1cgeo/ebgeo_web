@@ -1,8 +1,15 @@
 // Path: tests/unit/conta-modelo.test.js
 
 /**
- * @fileoverview AS REGRAS E AS FRASES DA TELA "MINHA CONTA", que é onde o usuário troca a própria
- * senha e obtém a chave de API.
+ * @fileoverview AS REGRAS E AS FRASES DA TELA "MINHA CONTA", que é onde o titular lê o próprio
+ * registro, troca a própria senha e pede a troca do próprio e-mail.
+ *
+ * A METADE DE CHAVE DE API SAIU DAQUI EM 2026-08-25, com os dois `describe` que a mediam
+ * (`apiKeySectionState` e `hasUncopiedKey`) e os quatro casos das frases dela. Não foi poda de
+ * teste velho: as funções e as frases deixaram de existir, por decisão do chefe. A chave é
+ * credencial INTERNA, gerenciada pelo sistema para a subrequisição do nginx (cláusula 10.7 de
+ * `CONSTITUICAO.md`), e o usuário final não a vê nem a gerencia. As ROTAS do servidor continuam de
+ * pé e continuam com prova própria no backend.
  *
  * O QUE ESTE ARQUIVO PRENDE, e por que cada bloco existe:
  *
@@ -11,12 +18,6 @@
  *     auditoria a cada chamada, então o no-op suja o registro de atos da conta.
  *   - `validatePasswordForm` é o espelho local do schema, e a ORDEM das queixas é contrato de
  *     leitura: a primeira reclamação tem de ser sobre a primeira coisa errada do formulário.
- *   - `apiKeySectionState` decide o que a seção da chave desenha. `idle` NÃO significa "não existe
- *     chave": o servidor não tem rota nenhuma que responda essa pergunta, e uma tela que fingisse
- *     saber estaria inventando. A precedência (rotating > error > revealed) é o que impede a tela
- *     de mostrar como nova uma chave de tentativa anterior depois de uma falha.
- *   - `hasUncopiedKey` é o que segura o fechamento distraído. A chave aparece uma vez só; fechar
- *     sem copiar a perde para sempre.
  *   - AS FRASES SÃO ASSERIDAS PELO CONTEÚDO, não pela existência. Um aviso que existe e não nomeia
  *     a consequência é o mesmo que aviso nenhum, e é a forma que a constituição chama de
  *     verificação fantasma: `expect(FRASE).toBeTruthy()` passaria com a string errada.
@@ -25,23 +26,17 @@
 import { describe, it, expect } from 'vitest';
 import {
     ADMIN_ONLY_FIELDS_NOTE,
-    API_KEY_COPY_NOW_TEXT,
-    API_KEY_DISCARD_CONFIRM_MESSAGE,
-    API_KEY_ONE_TIME_WARNING,
-    API_KEY_ROTATE_CONFIRM_MESSAGE,
-    API_KEY_UNKNOWN_STATE_TEXT,
     EDITABLE_PROFILE_FIELDS,
     MAX_NAME_LENGTH,
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
+    PASSWORD_RULE_TEXT,
     PASSWORD_SESSION_WARNING,
     accountErrorMessage,
-    apiKeySectionState,
-    hasUncopiedKey,
     profilePatch,
     validatePasswordForm,
     validateProfileDraft,
-} from '../../src/js/modals/account-settings.model.js';
+} from '../../src/js/admin/account-model.js';
 
 describe('profilePatch', () => {
     const original = { nome: 'Ana Souza', rank_id: 'aaaa-1111' };
@@ -184,47 +179,6 @@ describe('validatePasswordForm', () => {
     });
 });
 
-describe('apiKeySectionState', () => {
-    it('sem nada na mão, é idle (que NÃO quer dizer "não existe chave")', () => {
-        expect(apiKeySectionState({})).toBe('idle');
-        expect(apiKeySectionState(undefined)).toBe('idle');
-        expect(apiKeySectionState({ apiKey: '' })).toBe('idle');
-    });
-
-    it('com a chave na mão, é revealed', () => {
-        expect(apiKeySectionState({ apiKey: 'uuid-da-chave' })).toBe('revealed');
-    });
-
-    it('a falha vence a chave de uma tentativa anterior', () => {
-        expect(apiKeySectionState({ apiKey: 'antiga', error: 'falhou' })).toBe('error');
-    });
-
-    it('a rotação em voo vence tudo', () => {
-        expect(apiKeySectionState({ rotating: true, apiKey: 'antiga', error: 'x' }))
-            .toBe('rotating');
-    });
-});
-
-describe('hasUncopiedKey', () => {
-    it('chave na tela e não copiada segura o fechamento', () => {
-        expect(hasUncopiedKey({ apiKey: 'abc', copied: false })).toBe(true);
-        expect(hasUncopiedKey({ apiKey: 'abc' })).toBe(true);
-    });
-
-    it('chave copiada não segura nada', () => {
-        expect(hasUncopiedKey({ apiKey: 'abc', copied: true })).toBe(false);
-    });
-
-    it('sem chave na tela, não há o que perder', () => {
-        expect(hasUncopiedKey({ apiKey: '', copied: false })).toBe(false);
-        expect(hasUncopiedKey({})).toBe(false);
-    });
-
-    it('uma cópia que falhou continua segurando (copied só vira true no sucesso)', () => {
-        expect(hasUncopiedKey({ apiKey: 'abc', copied: 'talvez' })).toBe(true);
-    });
-});
-
 describe('accountErrorMessage', () => {
     it('prefere a explicação do servidor', () => {
         expect(accountErrorMessage(new Error('A senha atual está incorreta.'), 'genérica'))
@@ -247,25 +201,6 @@ describe('as frases nomeiam a consequência, não só existem', () => {
         expect(PASSWORD_SESSION_WARNING).toMatch(/entrar de novo/i);
     });
 
-    it('o aviso da chave diz que ela aparece uma vez só', () => {
-        expect(API_KEY_ONE_TIME_WARNING).toMatch(/uma única vez/i);
-        expect(API_KEY_ONE_TIME_WARNING).toMatch(/gerar outra/i);
-    });
-
-    it('a confirmação da rotação nomeia a integração que para de funcionar', () => {
-        expect(API_KEY_ROTATE_CONFIRM_MESSAGE).toMatch(/integração/i);
-        expect(API_KEY_ROTATE_CONFIRM_MESSAGE).toMatch(/deixa de funcionar/i);
-    });
-
-    it('a tela admite que não sabe se já existe chave, em vez de fingir', () => {
-        expect(API_KEY_UNKNOWN_STATE_TEXT).toMatch(/não informa/i);
-    });
-
-    it('o aviso ao fechar diz que a chave não pode ser lida de novo', () => {
-        expect(API_KEY_DISCARD_CONFIRM_MESSAGE).toMatch(/não pode ser lida de novo/i);
-        expect(API_KEY_COPY_NOW_TEXT).toMatch(/copie a chave agora/i);
-    });
-
     it('a nota dos campos travados diz quem os muda', () => {
         expect(ADMIN_ONLY_FIELDS_NOTE).toMatch(/administrador/i);
     });
@@ -273,11 +208,7 @@ describe('as frases nomeiam a consequência, não só existem', () => {
     it('nenhuma frase da tela usa em-dash', () => {
         const frases = [
             ADMIN_ONLY_FIELDS_NOTE,
-            API_KEY_COPY_NOW_TEXT,
-            API_KEY_DISCARD_CONFIRM_MESSAGE,
-            API_KEY_ONE_TIME_WARNING,
-            API_KEY_ROTATE_CONFIRM_MESSAGE,
-            API_KEY_UNKNOWN_STATE_TEXT,
+            PASSWORD_RULE_TEXT,
             PASSWORD_SESSION_WARNING,
         ];
         expect(frases.length).toBeGreaterThan(0);

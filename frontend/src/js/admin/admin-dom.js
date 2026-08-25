@@ -18,6 +18,10 @@ export const ICON_AUDIT = `<svg viewBox="0 0 24 24" width="20" height="20" fill=
 // esta aba é sobre quem tem a chave dele. Ícone estático, sem dado de usuário, como os irmãos.
 export const ICON_GRANTS = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.3-8.3"/><path d="m16 6 3 3"/><path d="m19 3 2 2"/></svg>`;
 export const ICON_PERSONNEL = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>`;
+// UMA pessoa, e não o par de `ICON_USERS`: a aba "Minha conta" é sobre o próprio titular, e a
+// aba "Usuários" é sobre as contas dos outros. Duas silhuetas no trilho leriam como a mesma coisa.
+// É o mesmo desenho que a barra do topo já usa para "Minha conta" (`ui/app-bar.js`).
+export const ICON_ACCOUNT = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
 
 /**
  * A section header: a title (+ optional subtitle) with optional action elements on the right.

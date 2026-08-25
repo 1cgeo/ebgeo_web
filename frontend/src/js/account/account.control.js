@@ -92,8 +92,16 @@ const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 // O icone de quem NAO administra o sistema e chega ao painel por outra porta ("Catalogo" para o
 // produtor, "Grupos" para quem so tem conta). Ver `_updateAdminVisibility`.
 const ICON_CATALOG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>`;const ICON_ACCOUNT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>';
-const ICON_CALIBRATION = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>';
 const ICON_PROJECTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>';
+
+/**
+ * O id da aba de "Minha conta". A lista de quem a recebe é de `adminAudience`, e este literal só
+ * nomeia qual aba perguntar; escrevê-lo aqui não duplica decisão nenhuma.
+ */
+const ACCOUNT_TAB_ID = 'account';
+
+/** "Minha conta", que é a aba `account` do painel. Relativa: o app pode ser servido num subcaminho. */
+const ACCOUNT_URL = `./admin.html?aba=${ACCOUNT_TAB_ID}`;
 
 /**
  * Fills a dropdown menu button with a leading icon + a text label. The icon is a trusted static
@@ -179,8 +187,6 @@ export class AccountControl {
         this._deleteAtlasBtn = null;
         /** @type {HTMLButtonElement|null} The "Minha conta" menu item (any signed-in user). */
         this._accountBtn = null;
-        /** @type {HTMLButtonElement|null} The "Calibração 360" menu item (global admin or producer). */
-        this._calibrationBtn = null;
         /** @type {HTMLElement|null} Global-role badge (word + explaining title + producing OM). */
         this._roleLabel = null;
         /** @type {HTMLElement|null} The badge's word. */
@@ -245,7 +251,7 @@ export class AccountControl {
 
         // O PAPEL GLOBAL DE QUEM ESTÁ AQUI, que nenhuma das quatro páginas mostrava. Uma palavra
         // com `title` explicando o que ela permite, mais a OM de produção quando houver: era o
-        // único jeito de um produtor descobrir que pode calibrar, ou um credenciado entender por
+        // único jeito de um produtor descobrir o que mantém, ou de um credenciado entender por
         // que enxerga recurso que o colega não enxerga. O anônimo não ganha selo nenhum.
         this._roleLabel = document.createElement('span');
         this._roleLabel.className = 'account-control__role';
@@ -283,7 +289,7 @@ export class AccountControl {
         this._atlasLabel.appendChild(this._atlasLevelEl);
         this._menu.appendChild(this._atlasLabel);
 
-        // "Minha conta" — os dados da própria conta, num modal carregado sob demanda. Qualquer
+        // "Minha conta" — os dados da própria conta, hoje a aba `account` do painel. Qualquer
         // sessão autenticada.
         this._accountBtn = document.createElement('button');
         this._accountBtn.type = 'button';
@@ -339,20 +345,12 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
-        // A PORTA DO ESTÚDIO DE CALIBRAÇÃO 360, que não era linkada de lugar nenhum: a página era
-        // gateada por `isAdmin() || isProducer()` e só se chegava a ela digitando a URL. O gate
-        // desenhado aqui é o MESMO par de chamadas de `calibracao-page.js`, nunca uma cópia do
-        // predicado; quem recusa a escrita continua sendo o servidor, por OM dona do projeto.
-        this._calibrationBtn = document.createElement('button');
-        this._calibrationBtn.type = 'button';
-        this._calibrationBtn.className = 'account-control__btn account-control__btn--calibration';
-        this._calibrationBtn.setAttribute('role', 'menuitem');
-        this._calibrationBtn.setAttribute('data-testid', 'account-calibration-btn');
-        setMenuButtonContent(this._calibrationBtn, ICON_CALIBRATION, 'Calibração 360');
-        this._calibrationBtn.title =
-            'Abrir o estúdio de calibração 360: alinhar as fotos esféricas dos projetos que você mantém';
-        this._calibrationBtn.hidden = true;
-        this._menu.appendChild(this._calibrationBtn);
+        // A PORTA DO ESTÚDIO DE CALIBRAÇÃO 360 SAIU DAQUI em 2026-08-25, por ordem do chefe, e do
+        // gêmeo desta em `ui/app-bar.js`. Ela agora mora no CATÁLOGO, na linha de cada projeto 360
+        // (`admin/catalog-tab.js`), porque calibrar é sempre calibrar UM projeto: este item global
+        // levava ao seletor e mandava escolher de novo o projeto que a pessoa já tinha na tela.
+        // Nada de permissão mudou. `calibracao-page.js` continua recusando quem não é admin nem
+        // produtor, e o servidor continua recusando toda escrita 360 pela OM dona.
 
         // A PORTA DA PÁGINA DE ADMINISTRAÇÃO. O rótulo muda com a audiência
         // (`_updateAdminVisibility`, que consulta `adminAudience`): "Administração" para o
@@ -394,7 +392,6 @@ export class AccountControl {
         addDomListener(this, this._saveToServerBtn, 'click', () => this.saveLocalToServer());
         addDomListener(this, this._deleteAtlasBtn, 'click', () => this._handleDeleteAtlas());
         addDomListener(this, this._accountBtn, 'click', () => this._handleOpenAccountSettings());
-        addDomListener(this, this._calibrationBtn, 'click', () => this._handleOpenCalibration());
         addDomListener(this, this._adminBtn, 'click', () => this._handleOpenAdmin());
         addDomListener(this, this._logoutBtn, 'click', () => this._handleLogoutGesture());
 
@@ -487,7 +484,6 @@ export class AccountControl {
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateAccountSettingsVisibility();
-        this._updateCalibrationVisibility();
         this._updateAdminVisibility();
         // Logging out (or switching identity) must never leave the menu open.
         if (!loggedIn) {
@@ -512,7 +508,7 @@ export class AccountControl {
         // O GATE É A SESSÃO, NÃO O NOME DE USUÁRIO. Enquanto era `!this._username`, uma sessão
         // viva cujo perfil não trouxesse `username` (um token legado, uma resposta parcial)
         // TRANCAVA a única porta para tudo o que mora neste menu, e o menu só cresceu: conta,
-        // calibração, administração, compartilhar, salvar no servidor, sair. O nome de usuário é
+        // administração, compartilhar, salvar no servidor, sair. O nome de usuário é
         // um rótulo; a autoridade para abrir o menu é estar logado.
         if (!this._menu || !sessionContext.isAuthenticated()) return;
         this._open = true;
@@ -525,7 +521,6 @@ export class AccountControl {
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateAccountSettingsVisibility();
-        this._updateCalibrationVisibility();
         this._updateAdminVisibility();
         // Resolve the current atlas name lazily (fire-and-forget).
         this._renderAtlasName();
@@ -686,46 +681,30 @@ export class AccountControl {
      */
     _updateAccountSettingsVisibility() {
         if (!this._accountBtn) return;
-        this._accountBtn.hidden = !sessionContext.isAuthenticated();
+        // QUEM DECIDE É `adminAudience`, desde 2026-08-25: o item virou porta para `admin.html`,
+        // e porta se decide pela definição única, como já acontece com o item de administração
+        // logo abaixo. O resultado é o mesmo de `isAuthenticated()` hoje (as três audiências da
+        // porta recebem `account`), e a diferença aparece no dia em que a aba for recortada.
+        const { tabIds } = adminAudience({
+            isAuthenticated: sessionContext.isAuthenticated(),
+            isAdmin: sessionContext.isAdmin(),
+            isProducer: sessionContext.isProducer(),
+        });
+        this._accountBtn.hidden = !tabIds.includes(ACCOUNT_TAB_ID);
     }
 
     /**
-     * Mostra a porta da calibração 360 a quem o gate da PRÓPRIA PÁGINA aceita.
+     * Abre "Minha conta" — os dados da própria conta.
      *
-     * O PREDICADO NÃO É REIMPLEMENTADO: é o mesmo par de chamadas de `calibracao-page.js`, no eixo
-     * GLOBAL (`isProducer()` já exige o escopo de produção, porque no banco crachá e escopo são um
-     * bicondicional). Uma cópia que divergisse ofereceria uma porta que redireciona de volta para o
-     * mapa, ou esconderia do produtor a página que existe para o trabalho dele.
+     * ELA DEIXOU DE SER MODAL EM 2026-08-25 e virou ABA do painel (`admin/account-tab.js`), por
+     * decisão do chefe. O gesto passou a ser NAVEGAÇÃO, igual ao de `_handleOpenAdmin` logo
+     * abaixo, e com isso saiu o `import()` dinâmico protegido: não há mais chunk que possa faltar,
+     * e a página de destino tem o próprio boot com a própria tela de indisponível.
      * @private
      */
-    _updateCalibrationVisibility() {
-        if (!this._calibrationBtn) return;
-        this._calibrationBtn.hidden = !(sessionContext.isAdmin() || sessionContext.isProducer());
-    }
-
-    /** @private Fecha o menu e abre o estúdio de calibração 360 (navegação real, outra página). */
-    _handleOpenCalibration() {
+    _handleOpenAccountSettings() {
         this._closeMenu();
-        window.location.assign('./calibracao.html');
-    }
-
-    /**
-     * Abre "Minha conta" — os dados da própria conta, num modal carregado SOB DEMANDA.
-     *
-     * O `import()` é dinâmico porque o modal é uma tela rara, e é PROTEGIDO porque um módulo que
-     * não carregue (build parcial, rede caída no chunk) não pode derrubar o menu inteiro: o pior
-     * caso é uma frase dizendo que não deu.
-     * @private
-     */
-    async _handleOpenAccountSettings() {
-        this._closeMenu();
-        try {
-            const { showAccountSettingsModal } = await import('@modals/account-settings.modal.js');
-            await showAccountSettingsModal();
-        } catch (error) {
-            console.error('[AccountControl] account settings modal failed:', error);
-            showError('Não foi possível abrir "Minha conta" agora.');
-        }
+        window.location.assign(ACCOUNT_URL);
     }
 
     /**
@@ -1117,16 +1096,13 @@ export class AccountControl {
                 }
                 // The modal closes on resolve; advance to project selection.
                 //
-                // A GARANTIA SOBRE O TRABALHO LOCAL VIAJA COMO PARÂMETRO, e não como toast, porque
-                // `openProjectPicker` navega: um toast levantado aqui morre com a página, já que o
-                // serviço de toast não persiste. Ela só é dita a quem estava mesmo trabalhando
-                // LOCAL no instante do login; para quem já estava num atlas de servidor a frase é
-                // ruído sobre algo que a pessoa não estava fazendo. O desfecho de dados sempre foi
-                // o certo (nada é apagado); o que faltava era dizê-lo.
-                const trabalhavaLocal = !isRemoteStoreSync();
-                await this.openProjectPicker(
-                    trabalhavaLocal ? { notice: 'trabalho-local-intacto' } : undefined
-                );
+                // SEM AVISO DE CHEGADA, de propósito. Entrar numa conta não move nem apaga o
+                // trabalho local: `syncEngine.login` não toca no store, e isto aqui só navega.
+                // Por um dia esta linha dizia isso em voz alta, por `?aviso=trabalho-local-intacto`;
+                // o chefe mandou retirar a frase em 2026-08-25, porque a garantia levantava a
+                // dúvida que vinha responder. O desfecho de dados continua o mesmo. O parâmetro
+                // `notice` sobrevive só no caminho de EXCLUSÃO, onde há mesmo uma perda a relatar.
+                await this.openProjectPicker();
             },
             onRegister: signupEnabled ? () => this._handleRegister() : undefined
         });
@@ -1506,7 +1482,6 @@ export class AccountControl {
         this._deleteAtlasBtn = null;
         this._adminBtn = null;
         this._accountBtn = null;
-        this._calibrationBtn = null;
         this._roleLabel = null;
         this._roleName = null;
         this._roleOrg = null;

@@ -30,9 +30,8 @@
    never account.css (that is the map's account control). */
 @import url('./login-modal.css');
 
-/* "Minha conta" (modals/account-settings.modal.js) is opened from all three pages that
-   have a top bar, so its rules are imported by all three manifests. */
-@import url('./account-settings.css');
+/* account-settings.css is NOT imported here: "Minha conta" deixou de ser modal em 2026-08-25 e
+   virou aba de admin.html. O botão da barra do topo NAVEGA para lá; esta página não a desenha. */
 
 /* ===== The page itself ===== */
 @import url('./projects-sections.css');

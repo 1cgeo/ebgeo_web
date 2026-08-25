@@ -35,16 +35,24 @@ import { sessionContext } from '@store/sync/session-context.js';
 // The single id → OM name resolution of the app, reading the `GET /api/config` payload the page
 // already hydrated. It imports `@js/config.js` and nothing else.
 import { orgLabel } from '@js/admin/org-options.js';
+// A definição única das audiências de `admin.html`, folha e sem imports. Ela entra aqui desde
+// 2026-08-25, quando "Minha conta" virou aba: este botão passou a ser uma PORTA para aquela
+// página, e porta se decide por ela, nunca por um predicado escrito de novo aqui.
+import { adminAudience } from '@js/admin/admin-audience.js';
 // Modulo folha, zero imports: a mesma frase serve as tres paginas sem mapa e o mapa.
 import { producerOrgInactiveNotice } from './producer-org-notice.js';
 
 const LOGOUT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>`;
-const CALIBRATION_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`;
-
 const ACCOUNT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
 
-/** The 360 calibration studio. Relative: the app may be served from a subpath. */
-const CALIBRATION_URL = './calibracao.html';
+/**
+ * O id da aba de "Minha conta". A lista de quem a recebe é de `adminAudience`, e este literal só
+ * nomeia qual aba perguntar; escrevê-lo aqui não duplica decisão nenhuma.
+ */
+const ACCOUNT_TAB_ID = 'account';
+
+/** "Minha conta", que é a aba `account` do painel. Relativa: o app pode ser servido num subcaminho. */
+const ACCOUNT_URL = `./admin.html?aba=${ACCOUNT_TAB_ID}`;
 
 /**
  * @typedef {Object} AppBarAction
@@ -68,11 +76,15 @@ const CALIBRATION_URL = './calibracao.html';
  * @param {{ id?: string, name?: string }} [options.user] - Signed-in identity; omitted when
  *   unknown. The global-role badge is NOT a property of it: the bar reads the session itself.
  * @param {AppBarAction[]} [options.actions] - Page actions, rendered left to right before the identity.
+ * @param {boolean} [options.showAccount] - Se a porta de "Minha conta" entra nesta montagem.
+ *   Padrão `true`, que é o que as três páginas com painel querem. Uma página em que a conta não é
+ *   o destino útil desliga a porta e põe a sua em `actions` (ver a seção abaixo).
  * @param {function(): void} [options.onLogout] - Renders "Sair" when provided.
  * @returns {{ element: HTMLElement, destroy: function(): void }}
  */
 export function createAppBar({
-    title, subtitle, icon, logo = null, user = null, actions = [], onLogout = null,
+    title, subtitle, icon, logo = null, user = null, actions = [], showAccount = true,
+    onLogout = null,
 }) {
     /** Cleanup host — `addDomListener` tracks against any object. */
     const scope = {};
@@ -120,17 +132,12 @@ export function createAppBar({
         bar.appendChild(buildAction(scope, action));
     }
 
-    // A porta do estúdio de calibração 360, para quem o gate da própria página aceita. Ela não era
-    // linkada de lugar nenhum: só se chegava lá digitando a URL.
-    if (mayCalibrate()) {
-        bar.appendChild(buildAction(scope, {
-            label: 'Calibração 360',
-            icon: CALIBRATION_ICON,
-            testid: 'app-bar-calibration',
-            title: 'Abrir o estúdio de calibração 360: alinhar as fotos esféricas dos projetos que você mantém',
-            onClick: () => window.location.assign(CALIBRATION_URL),
-        }));
-    }
+    // A PORTA DO ESTÚDIO DE CALIBRAÇÃO 360 NÃO MORA MAIS AQUI. Ela foi um botão global desta
+    // barra até 2026-08-25, quando o chefe a mandou para o CATÁLOGO, na linha de cada projeto
+    // 360 (`admin/catalog-tab.js`). O motivo é de endereço, não de permissão: calibrar é sempre
+    // calibrar UM projeto, e o botão global levava ao seletor, obrigando a escolher de novo o
+    // projeto que a pessoa já tinha na tela. O gate real nunca esteve aqui: `calibracao-page.js`
+    // recusa quem não é admin nem produtor, e o servidor recusa toda escrita 360 pela OM dona.
 
     const name = (user?.name || '').trim();
     if (name) {
@@ -162,30 +169,49 @@ export function createAppBar({
     }
 
     // "MINHA CONTA" TINHA UMA PORTA SÓ, E ELA FICAVA DENTRO DO MAPA.
-    // `showAccountSettingsModal` tinha um único chamador em `frontend/src/js/`, o menu do avatar
+    // A tela era um modal com um único chamador em `frontend/src/js/`, o menu do avatar
     // de `AccountControl`, que é `IControl` do MapLibre e por isso só existe dentro de um mapa. Ao
     // mesmo tempo, o roteamento de boot manda todo visitante COM sessão numa URL nua direto para
     // `atlas.html`: o caminho padrão do produto levava a pessoa exatamente para a página que não
     // tinha a porta. Trocar a própria senha ou corrigir o próprio e-mail exigia abrir um atlas e
     // esperar o bundle do mapa.
     //
-    // A tela ainda ganhou conteúdo desde então (perfil, senha, chave de API, leitura e troca do
-    // e-mail), o que só piorou o desequilíbrio. Os CSS das três páginas já traziam o comentário
-    // afirmando que ela abre de todas; agora abre.
+    // ELA DEIXOU DE SER MODAL EM 2026-08-25 e virou ABA do painel (`admin/account-tab.js`), por
+    // decisão do chefe. O botão passou de "abre um modal aqui" para "navega até a aba", e o
+    // `import()` dinâmico do modal saiu junto: o destino é uma URL.
     //
-    // `import()` dinâmico de propósito: o modal é pesado e nenhuma das duas páginas o usa no
-    // caminho comum. A condição é a sessão, e não `user?.name`, pela mesma razão de
+    // O CASO QUE PRECISA DE DECISÃO É A PRÓPRIA `admin.html`, onde este botão navega para a página
+    // em que já se está. A escolha é NAVEGAR MESMO, e não alcançar o painel daqui: esta barra é
+    // compartilhada por três páginas e não conhece painel nenhum, então dar-lhe um atalho para o
+    // `AdminPanel` acoplaria a barra a uma das três. O custo é um recarregamento, e o desfecho é o
+    // certo nos dois casos, porque `?aba=account` é lido na montagem.
+    //
+    // A CONDIÇÃO PASSOU A SER A AUDIÊNCIA, e não `sessionContext.isAuthenticated()` sozinho. As
+    // duas dão o mesmo resultado hoje (as três audiências da porta recebem `account`), e não é
+    // por isso que a linha mudou: o botão virou porta para `admin.html`, e a regra da casa é que
+    // quem decide porta consome `adminAudience`. Um recorte futuro desta aba passa a valer aqui
+    // sem ninguém lembrar deste arquivo. Nunca é `user?.name`, pela razão de
     // `AccountControl._openMenu`: o nome é rótulo, a autoridade é estar logado.
-    if (sessionContext.isAuthenticated()) {
+    // E ELA É DESLIGÁVEL POR OPÇÃO desde 2026-08-25, por decisão do chefe sobre a CALIBRAÇÃO.
+    // Naquela tela "Minha conta" não leva a lugar nenhum de útil, e o caminho que falta é o de
+    // volta: desde a mesma data a calibração se alcança pela LINHA do projeto na aba Catálogo,
+    // então o botão que serve ali é "Catálogo".
+    //
+    // A ESCOLHA É UMA OPÇÃO, E NUNCA UM `if` SOBRE O NOME DO ARQUIVO DA PÁGINA. Esta barra é
+    // compartilhada por quatro páginas e não conhece nenhuma delas; conhecer uma seria o começo
+    // de conhecer as quatro, e o arquivo passaria a mudar toda vez que uma delas mudasse. Quem
+    // desliga a porta põe a sua em `actions`, que é o mecanismo que já existe para isso.
+    if (showAccount && adminAudience({
+        isAuthenticated: sessionContext.isAuthenticated(),
+        isAdmin: sessionContext.isAdmin(),
+        isProducer: sessionContext.isProducer(),
+    }).tabIds.includes(ACCOUNT_TAB_ID)) {
         bar.appendChild(buildAction(scope, {
             label: 'Minha conta',
             icon: ACCOUNT_ICON,
             testid: 'app-bar-account',
-            title: 'Ver e editar seus dados, trocar a senha e obter uma chave de API',
-            onClick: async () => {
-                const { showAccountSettingsModal } = await import('@modals/account-settings.modal.js');
-                await showAccountSettingsModal();
-            },
+            title: 'Ver e editar seus dados, trocar a senha e trocar o e-mail da conta',
+            onClick: () => window.location.assign(ACCOUNT_URL),
         }));
     }
 
@@ -227,20 +253,6 @@ export function createAppBar({
         element: header,
         destroy: () => cleanup(scope),
     };
-}
-
-/**
- * Whether this session may open `calibracao.html`.
- *
- * THE PREDICATE IS NOT REIMPLEMENTED HERE: it is the same pair of `sessionContext` calls the page
- * itself makes (`calibration/calibracao-page.js`), on the GLOBAL axis. A copy that drifts would
- * offer a door that redirects straight back to the map, or hide one from a producer whose whole
- * job is maintaining what their OM produced. Nothing here is a boundary: the server refuses every
- * 360 write by owning OM.
- * @returns {boolean}
- */
-function mayCalibrate() {
-    return sessionContext.isAdmin() || sessionContext.isProducer();
 }
 
 /**

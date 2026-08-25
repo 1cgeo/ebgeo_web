@@ -18,6 +18,16 @@
     --chip-height: 32px;
     --briefing-panel-width: 520px;
 
+    /* A altura da barra superior compartilhada (`app-bar.css`), que a impoe como
+       `min-height`. Ela existe como token porque uma pagina monta a barra em
+       SOBREPOSICAO (a calibracao 360, que precisa do canvas com a razao de aspecto
+       da viewport inteira) e por isso afasta do topo cada painel que a barra cobre.
+       Sem o token, esse afastamento seria um numero magico repetido painel a painel,
+       e o dia em que a barra mudasse de altura ele mentiria em todos.
+       O valor e a soma medida: 44px do alvo de toque do botao mais 2 x 12px de
+       `--space-3` de preenchimento. */
+    --app-bar-height: 68px;
+
     /* =========================================================================
        RESPONSIVE / TOUCH
        ========================================================================= */
@@ -92,6 +102,49 @@
     --color-error: #ef4444;
     --color-info: #3b82f6;
 
+    /* Os mesmos quatro papeis em tom FORTE, para TEXTO sobre a tinta clara deles.
+       `--color-warning` sobre um fundo de `--warning-rgb / 20%` da menos de 2:1 e
+       nao se le; o par certo de uma pilula clara e o tom escuro da mesma familia.
+       Use `--color-*` para PINTAR e `--color-*-strong` para ESCREVER. */
+    --color-warning-strong: #b45309;
+    --color-error-strong: #b91c1c;
+    --color-info-strong: #1d4ed8;
+
+    /* =========================================================================
+       COLORS - SUPERFICIE ESCURA
+
+       Uma tela do EBGeo desenha sobre imagem, e ali o painel PRECISA ser escuro:
+       a calibracao 360 sobrepoe o painel a uma foto esferica, e um painel claro
+       cegaria o operador. O que estes tokens dao a essa superficie e a familia,
+       nao a luminosidade: cada degrau abaixo E um degrau da escala de cinza que
+       ja existe acima, e nenhuma cor nova entra aqui.
+
+       Leia os nomes como par: `--surface-dark-*` pinta fundo e borda,
+       `--on-dark-*` pinta o que fica EM CIMA dela.
+       ========================================================================= */
+    --surface-dark-deep: var(--gray-900);    /* o fundo mais fundo: viewer, foto, dialogo */
+    --surface-dark: var(--gray-800);         /* a superficie base: pagina, painel, secao */
+    --surface-dark-raised: var(--gray-700);  /* bloco levantado, hover de lista, campo */
+    --surface-dark-border: var(--gray-600);  /* borda, trilho e separador sobre o escuro */
+    --on-dark-muted: var(--gray-500);        /* texto apagado: contador, dica, sequencia */
+    --on-dark-soft: var(--gray-400);         /* texto secundario: rotulo, subtitulo */
+    --on-dark: var(--gray-200);              /* texto principal sobre superficie escura */
+
+    /* Os mesmos degraus em CANAIS R G B, para as superficies TRANSLUCIDAS que
+       sobrepoem um canvas. `rgb()` nao aceita uma cor inteira vinda de `var()`
+       dentro de si, entao o que viaja e o canal: `rgb(var(--surface-dark-rgb) / 92%)`.
+       Cada linha repete, em decimal, o valor do token citado ao lado. */
+    --surface-dark-rgb: 31 41 55;        /* = var(--gray-800) */
+    --surface-dark-deep-rgb: 17 24 39;   /* = var(--gray-900) */
+    --on-dark-rgb: 229 231 235;          /* = var(--gray-200) */
+    --primary-rgb: 22 163 74;            /* = var(--primary-600) */
+    --primary-700-rgb: 21 128 61;        /* = var(--primary-700) */
+    --primary-800-rgb: 22 101 52;        /* = var(--primary-800) */
+    --success-rgb: 34 197 94;            /* = var(--color-success) */
+    --warning-rgb: 245 158 11;           /* = var(--color-warning) */
+    --error-rgb: 239 68 68;              /* = var(--color-error) */
+    --info-rgb: 59 130 246;              /* = var(--color-info) */
+
     /* =========================================================================
        COLORS - IMPORT TAB SPECIFIC
        ========================================================================= */
@@ -105,11 +158,19 @@
        TYPOGRAPHY
        ========================================================================= */
     --font-family-base: -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, sans-serif;
+
+    /* Os tres degraus ABAIXO de `xs` servem selo, contador e marca de estado, que
+       sao rotulo de uma palavra e nunca texto corrido. Eles entraram com a
+       calibracao 360, que ja desenhava 9, 10 e 11 px em literal solto. */
+    --font-size-4xs: 0.5625rem; /* 9px  */
+    --font-size-3xs: 0.625rem;  /* 10px */
+    --font-size-2xs: 0.6875rem; /* 11px */
     --font-size-xs: 0.75rem;    /* 12px */
     --font-size-sm: 0.875rem;   /* 14px */
     --font-size-base: 1rem;     /* 16px */
     --font-size-lg: 1.125rem;   /* 18px */
     --font-size-xl: 1.25rem;    /* 20px */
+    --font-size-2xl: 1.75rem;   /* 28px - titulo de tela cheia */
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;

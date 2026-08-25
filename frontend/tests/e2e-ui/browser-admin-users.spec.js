@@ -123,11 +123,11 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         await expect(porta).toBeVisible();
         await expect(porta).toHaveText(/Acessos/);
         // A DISCRIMINAÇÃO, e ela é o ponto do caso: a porta não pode dizer "Administração" para
-        // quem recebe duas abas. Sem esta linha, um rótulo fixo passaria verde na de cima.
+        // quem recebe três abas. Sem esta linha, um rótulo fixo passaria verde na de cima.
         await expect(porta).not.toHaveText(/Administração/);
     });
 
-    test('a non-admin who types /admin.html gets Grupos and Concessões, and NOTHING else', async ({ page }) => {
+    test('a non-admin who types /admin.html gets Grupos, Concessões e Minha conta, and NOTHING else', async ({ page }) => {
         const user = await createVerifiedUser({ prefix: 'uiadmin', nome: 'Admin Tester' }); // stays role='user'
         await page.goto('/');
         await loginThroughUi(page, state.baseUrl, user);
@@ -138,9 +138,13 @@ describeOrSkip('Admin panel — Usuários tab (real browser + real backend)', ()
         // abrisse com TODAS as abas do administrador passaria verde neste caso. (A contagem
         // saiu daqui em 2026-08-24, quando ela virou sete: este comentario nao mede nada, e
         // um numero em comentario que ninguem confere e a forma mais barata de mentir.)
-        await expect(page.locator('.admin-panel__tab')).toHaveCount(2);
+        // A CONTAGEM VIROU TRÊS EM 2026-08-25: "Minha conta" deixou de ser modal e virou aba
+        // (`admin/account-tab.js`), nas TRÊS audiências da porta. O número fica na ASSERÇÃO, e não
+        // num comentário, que é a lição que este mesmo caso já aprendeu uma vez.
+        await expect(page.locator('.admin-panel__tab')).toHaveCount(3);
         await expect(page.locator('[data-testid="admin-tab-groups"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-grants"]')).toBeVisible();
+        await expect(page.locator('[data-testid="admin-tab-account"]')).toBeVisible();
         await expect(page.locator('[data-testid="admin-tab-users"]')).toHaveCount(0);
         // `audit` é a ausência que espelha o 403 do servidor: a trilha do sistema não é acervo
         // privado nem grupo próprio, e oferecê-la seria a pior forma de dizer não.

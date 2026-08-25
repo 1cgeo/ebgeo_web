@@ -6,11 +6,20 @@
  * Built by src/js/ui/app-bar.js — the two pages must not grow separate headers.
  */
 
+/*
+ * A ALTURA E DECLARADA, e nao apenas resultante. Ela ja era 68px por soma (44px do alvo de
+ * toque do botao mais 2 x 12px de `--space-3`), e continua sendo a mesma; o que muda e haver um
+ * NUMERO que outra folha possa citar. A calibracao 360 monta esta barra em SOBREPOSICAO, porque
+ * o canvas dela precisa da razao de aspecto da viewport inteira, e por isso afasta do topo cada
+ * painel que a barra cobre. Sem `--app-bar-height` esse afastamento seria um literal repetido, e
+ * o dia em que o preenchimento daqui mudasse ele mentiria em todos os paineis de uma vez.
+ */
 .app-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
+    min-height: var(--app-bar-height);
     padding: var(--space-3) var(--space-6);
     background: linear-gradient(120deg, var(--primary-800), var(--primary-700));
     color: #fff;

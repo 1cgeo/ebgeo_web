@@ -215,7 +215,13 @@ export function initPreviewViewer(parentContainer, options = {}) {
     // Close button
     closeBtn = document.createElement('button');
     closeBtn.id = 'preview-viewer-close';
+    closeBtn.type = 'button';
     closeBtn.textContent = '\u00d7';
+    // O GLIFO NAO E NOME. `\u00d7` e o sinal de multiplicacao, e um leitor de tela
+    // o anuncia como "vezes" ou cala. O rotulo diz o que o botao FAZ, e o `title`
+    // repete para quem passa o ponteiro e nao reconhece o desenho.
+    closeBtn.setAttribute('aria-label', 'Fechar a previa');
+    closeBtn.title = 'Fechar a previa';
     closeBtn.classList.add('cal-preview__close');
     closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();

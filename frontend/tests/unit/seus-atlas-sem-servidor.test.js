@@ -42,6 +42,12 @@ const toast = await import('@utils/toast_service.js');
 const PAGE_SRC = readFileSync(
     fileURLToPath(new URL('../../src/js/projects/projects-page.js', import.meta.url)), 'utf8'
 );
+const DRIVE_SRC = readFileSync(
+    fileURLToPath(new URL('../../src/js/projects/atlas-drive.js', import.meta.url)), 'utf8'
+);
+const ACCOUNT_SRC = readFileSync(
+    fileURLToPath(new URL('../../src/js/account/account.control.js', import.meta.url)), 'utf8'
+);
 
 // ============================================================================
 // O `document` de mentira. Só o que `LocalAtlasSection` toca de verdade.
@@ -467,9 +473,29 @@ describe('B6 — a frase de chegada exige sessão', () => {
     });
 
     it('código desconhecido nunca é ecoado, com sessão ou sem', () => {
-        for (const codigo of ['<script>', 'inventado', '', null, undefined, 7]) {
+        // `toString` E `constructor` NÃO SÃO ENFEITE DA LISTA, e a lição está no livro-razão
+        // (2026-08-24, `teste-que-nao-prende`): `TABELA[codigo] ?? null` não distingue "esta
+        // chave não existe" de "esta chave veio do protótipo", então `?aviso=toString` devolvia
+        // a FUNÇÃO `Object.prototype.toString` para um parâmetro que qualquer um monta na barra
+        // de endereços. `Object.freeze` não protege disso, porque congela a tabela e não a
+        // cadeia. Quem protege é o `Object.hasOwn` de `arrivalNotice`. Nenhuma entrada que
+        // alguém invente de propósito acha esse defeito: só um nome de `Object.prototype`.
+        for (const codigo of ['<script>', 'inventado', '', null, undefined, 7, 0, {},
+            'toString', 'constructor', 'hasOwnProperty']) {
             expect(arrivalNotice(codigo, { signedIn: true }), String(codigo)).toBeNull();
         }
+    });
+
+    it('a garantia sobre o trabalho local saiu da tabela e não volta por acaso', () => {
+        // Ela viveu um dia (2026-08-24 a 2026-08-25) e o chefe mandou retirá-la. O caso é
+        // negativo porque a RETIRADA é a decisão: o desfecho de dados que a frase descrevia
+        // nunca mudou, então nada aqui afirma que o trabalho local se perde.
+        expect(arrivalNotice('trabalho-local-intacto', { signedIn: true })).toBeNull();
+        // As duas pontas, porque cada uma sozinha ressuscita a frase: a TABELA e o CHAMADOR.
+        // A busca casa a chave do literal (`'trabalho-local-intacto':`), nunca a menção em
+        // prosa entre crases, que o comentário do arquivo guarda de propósito como histórico.
+        expect(DRIVE_SRC).not.toContain("'trabalho-local-intacto':");
+        expect(ACCOUNT_SRC).not.toContain("notice: 'trabalho-local-intacto'");
     });
 
     it('a página passa a sessão e não guarda mais a tabela', () => {

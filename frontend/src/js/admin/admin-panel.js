@@ -62,14 +62,43 @@ export class AdminPanel {
     }
 
     /**
-     * Builds the shell into `host` and mounts the first tab.
+     * Builds the shell into `host` and mounts the tab the URL asks for, or the first one.
      * @param {HTMLElement} [host]
      */
     mount(host = document.body) {
         if (this._root) return;
         this._build();
         host.appendChild(this._root);
-        if (this._tabs.length) this._selectTab(this._tabs[0].id);
+        if (this._tabs.length) this._selectTab(this._initialTabId());
+    }
+
+    /**
+     * @private A aba de abertura: a que `?aba=<id>` pedir, ou a primeira.
+     *
+     * POR QUE ISTO EXISTE. Até 2026-08-25 o painel só sabia abrir na primeira aba, e por isso não
+     * havia como MANDAR alguém para uma tela daqui: o único endereço era `admin.html`. "Minha
+     * conta" virou aba nessa data, e as duas portas antigas dela (a barra do topo e o menu do
+     * avatar do mapa) precisavam de um destino que existisse como URL.
+     *
+     * O CASAMENTO É COM A ABA MONTADA, nunca com a lista de ids que existem: quem já foi recortado
+     * por `adminAudience` não pode entrar pela query. Um `?aba=users` na sessão de um usuário
+     * comum simplesmente cai na primeira aba dele.
+     *
+     * FALHA EM SILÊNCIO, de propósito. Um parâmetro de URL não é gesto da pessoa: ele chega de um
+     * link velho, de um favorito ou de uma cópia manual, e uma mensagem de erro sobre uma aba que
+     * ela não pediu explicaria um problema que não é dela. Ela vê o painel, que é o que veria sem
+     * o parâmetro.
+     * @returns {string}
+     */
+    _initialTabId() {
+        const padrao = this._tabs[0].id;
+        try {
+            const pedida = new URLSearchParams(window.location.search).get('aba');
+            if (pedida && this._tabs.some((t) => t.id === pedida)) return pedida;
+        } catch {
+            // `window.location` ausente (um teste em node sem jsdom): a primeira aba serve.
+        }
+        return padrao;
     }
 
     /** Tears the shell down, running tab + listener cleanup. */

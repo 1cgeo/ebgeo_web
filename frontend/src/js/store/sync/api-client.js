@@ -2063,8 +2063,15 @@ export class ApiClient {
     // ===== USERS — SELF (`auth` only; the caller is always the target) =====
     //
     // The four routes below answered nobody until 2026-08-23: they were mounted, audited and
-    // documented, and no call site existed in `frontend/src/`. `modals/account-settings.modal.js`
-    // is the screen that reaches them.
+    // documented, and no call site existed in `frontend/src/`. `admin/account-tab.js` is the
+    // screen that reaches them. Ela virou ABA em 2026-08-25; era o modal
+    // `modals/account-settings.modal.js`, apagado naquela data.
+    //
+    // TRÊS DAS QUATRO, e a exceção está dita para ninguém a "consertar": `rotateMyApiKey` voltou a
+    // ter ZERO chamadores em 2026-08-25, quando a seção de chave saiu da tela por decisão do
+    // chefe. A chave é credencial INTERNA, gerenciada pelo sistema para a subrequisição do nginx
+    // (cláusula 10.7 de `CONSTITUICAO.md`); a rota do servidor continua de pé porque a integração
+    // máquina a máquina depende dela, e este método continua aqui porque é a porta dela.
     //
     // WHAT `GET /users/me` DOES NOT RETURN, measured against `FIND_USER_BY_ID` in
     // `backend/src/modules/users/users.queries.js`: `role`, `producer_org_id`, `email` and
@@ -2301,6 +2308,10 @@ export class ApiClient {
 
     /**
      * Rotates another user's M2M API key (admin-only).
+     *
+     * SEM CHAMADOR desde 2026-08-25, pela mesma decisão que tirou a chave da tela do usuário: o
+     * botão "Revogar chave" saiu da aba Usuários (`admin/users-tab.js`). A rota do servidor
+     * continua de pé, e este método continua sendo a porta dela.
      * @param {string} userId
      * @returns {Promise<Object>}
      */

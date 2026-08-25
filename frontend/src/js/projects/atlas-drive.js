@@ -2177,32 +2177,25 @@ export function localCountLabel({ count, max } = {}) {
 /**
  * O que o mapa manda dizer quando se desmonta sozinho, por código de `?aviso=`.
  *
- * SÃO DUAS FAMÍLIAS, e a segunda nasceu em 2026-08-24: as duas primeiras são PERDAS (um atlas de
- * servidor que deixou de existir), e `trabalho-local-intacto` é uma GARANTIA. Ela existe porque
- * entrar numa conta leva embora a página do mapa, e o visitante que desenhou a tarde inteira num
- * atlas local chegava aqui sem uma linha dizendo que aquilo continua ali. O desfecho de dados
- * sempre foi o certo (`syncEngine.login` não toca no store, `openProjectPicker` só navega), então
- * o que faltava era dizê-lo, e o único canal que sobrevive à navegação é este parâmetro: um
- * `showToast` levantado antes do `location.assign` morre com a página, porque o serviço de toast
- * não persiste em `sessionStorage` nem em `localStorage`.
+ * SÓ PERDAS MORAM AQUI: um atlas de servidor que deixou de existir debaixo de quem o tinha
+ * aberto. A tabela hospedou por um dia uma GARANTIA (`trabalho-local-intacto`, dita a quem
+ * entrava numa conta trabalhando local), retirada em 2026-08-25 a pedido do chefe. O desfecho de
+ * dados que ela descrevia continua o mesmo e continua o certo: `syncEngine.login` não toca no
+ * store e `openProjectPicker` só navega, então entrar numa conta nunca moveu nem apagou o que já
+ * estava no navegador. O que caiu foi só a frase, que levantava a dúvida que vinha responder.
  */
 const ARRIVAL_NOTICES = Object.freeze({
     excluido: 'Atlas excluído.',
     'excluido-por-outro': 'Este atlas foi excluído pelo proprietário.',
-    'trabalho-local-intacto': 'Seu trabalho neste computador continua aqui, em "Neste computador". '
-        + 'Entrar numa conta não move nem apaga nada do que já estava neste navegador.',
 });
 
 /**
  * A frase de chegada, ou `null` quando não há nada honesto a dizer.
  *
- * TODO CÓDIGO DAQUI PRESSUPÕE SESSÃO, e por dois motivos distintos que dão no mesmo portão. Os
- * dois primeiros são fatos sobre um atlas de SERVIDOR, e só o mapa de uma sessão viva os produz
- * (`AccountControl._handleRemoteAtlasDeleted`): ecoá-los para quem não tem sessão descrevia a um
- * anônimo a propriedade de um atlas que ele nunca teve, por um parâmetro que qualquer um monta na
- * barra de endereços. O terceiro é a garantia sobre o trabalho local, dita no instante em que
- * alguém ENTRA numa conta: fora desse instante ela é ruído, e para quem nunca entrou é a resposta
- * a uma pergunta que ninguém fez. O portão único (`signedIn`) serve aos dois casos.
+ * TODO CÓDIGO DAQUI PRESSUPÕE SESSÃO. Os dois avisos são fatos sobre um atlas de SERVIDOR, e só
+ * o mapa de uma sessão viva os produz (`AccountControl._handleRemoteAtlasDeleted`): ecoá-los para
+ * quem não tem sessão descrevia a um anônimo a propriedade de um atlas que ele nunca teve, por um
+ * parâmetro que qualquer um monta na barra de endereços. Daí o portão `signedIn`.
  *
  * QUEM PERDE ALGO COM ISSO é o caso raro em que a sessão existe e não pôde ser confirmada neste
  * carregamento: ali a página já diz, por outra frase, que não conseguiu confirmar a sessão, que é

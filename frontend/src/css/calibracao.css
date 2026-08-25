@@ -3,10 +3,30 @@
    Folha ÚNICA da página autônoma de calibração.
 
    Não é um manifesto de @import como admin-page.css: a calibração veio do
-   ebgeo_360 com o estilo inteiro embutido no <head>, num tema próprio
-   (Catppuccin) que não compartilha um único token com o resto do EBGeo.
-   Fatiá-la em camadas importadas inventaria uma dependência que o código
-   portado não tem. Ela é servida só por calibracao.html.
+   ebgeo_360 com o estilo inteiro embutido no <head>. Fatiá-la em camadas
+   importadas inventaria uma dependência que o código portado não tem. Ela é
+   servida só por calibracao.html.
+
+   A PÁGINA DEIXOU DE TER TEMA PRÓPRIO EM 2026-08-25. Ela chegou aqui com o
+   Catppuccin inteiro (fundo roxo-escuro, texto lilás, lavanda nos botões) e não
+   compartilhava um único token com o resto do EBGeo. O chefe olhou a tela e
+   apontou a divergência: o resto da aplicação é claro, com o verde
+   `--primary`, e esta parecia outro produto.
+
+   A PALETA MUDOU PRIMEIRO, E A LUMINOSIDADE LOGO DEPOIS. A primeira passada
+   manteve a página escura, com o argumento de que um painel claro ao lado de uma
+   foto esférica cansaria o operador. O chefe olhou a tela pronta no mesmo dia e
+   mandou clarear, e quem julga isso é ele. A virada inteira mora no bloco
+   seguinte, numa lista de tokens.
+
+   As cores saem de `--surface-dark-*` e `--on-dark-*` (design-tokens.css), que
+   são degraus da MESMA escala de cinza do resto da aplicação. Confirmar é
+   `--primary`, destruir é `--color-error`, atenção é `--color-warning`: as cores
+   da casa, e não as de uma família importada.
+
+   Nenhum literal de cor sobrou aqui, e isso é medido:
+   `tests/unit/calibracao-sem-catppuccin.test.js` reprova a volta de qualquer
+   hex daquela paleta.
    ========================================================================= */
 
 /* As QUATRO superficies que a pagina herda do resto do EBGeo, porque o boot delas e
@@ -23,6 +43,51 @@
 @import url('./app-bar.css');
 
 /* ================================================================
+   A PAGINA VIROU CLARA, por decisao do chefe em 2026-08-25.
+
+   ELA NASCEU ESCURA e assim ficou por um dia: o argumento era que um painel
+   claro ao lado de uma foto esferica cansaria o operador. O chefe olhou a tela
+   pronta e decidiu o contrario, e quem julga isso e ele.
+
+   A VIRADA MORA NUMA LISTA SO, e nao espalhada pelas 1700 linhas abaixo. Os
+   tokens `--surface-dark-*` e `--on-dark-*` nascem em `design-tokens.css` e sao
+   consumidos SO por esta folha (nenhum outro arquivo os cita), entao redefini-los
+   aqui vira a pagina inteira sem tocar em mais nada e sem afetar pagina alguma.
+
+   OS NOMES CONTINUAM DIZENDO `dark`, e isso e divida assumida: renomear os 200
+   usos abaixo nao mudaria um pixel hoje. Leia-os como "a superficie desta
+   pagina", nao como "a superficie escura".
+
+   A PROFUNDIDADE INVERTE, e e o ponto que um flip ingenuo erraria. No escuro o
+   cartao era MAIS FUNDO que a pagina para se destacar; no claro ele precisa ser
+   MAIS CLARO que ela. Por isso `--surface-dark` (a pagina) fica cinza e
+   `--surface-dark-deep` (cartao, painel de previa, fundo do viewer) fica branco.
+
+   `--surface-dark-deep-rgb` NAO ENTRA NESTA LISTA, de proposito: ele so pinta os
+   tres veus (carregamento, dialogo e a sobreposicao interna), e veu que nao
+   escurece nao cumpre a funcao de veu. Ele continua escuro nos dois temas.
+   ================================================================ */
+:root {
+    --surface-dark: var(--gray-100);          /* a pagina e o painel de fundo */
+    --surface-dark-deep: #fff;                /* cartao, previa, fundo do viewer */
+    --surface-dark-raised: var(--gray-200);   /* bloco levantado, campo, borda suave */
+    --surface-dark-border: var(--gray-300);   /* borda, trilho e separador */
+
+    /* OS DOIS CINZAS SOBEM UM DEGRAU em relacao ao tema escuro, e a medida mandou.
+       `--gray-500` sobre `--gray-100` da 4,39:1, abaixo do piso de 4,5 da WCAG AA,
+       e ele pintava a dica, a distancia do alvo, a sequencia da foto e o botao
+       desabilitado. Sobre o fundo escuro o mesmo par passava folgado. */
+    --on-dark-muted: var(--gray-600);         /* texto apagado (6,4:1) */
+    --on-dark-soft: var(--gray-700);          /* texto secundario (9,7:1) */
+    --on-dark: var(--gray-900);               /* texto principal */
+
+    /* Os mesmos degraus em canais R G B, para as superficies TRANSLUCIDAS que
+       sobrepoem o canvas. Cada linha repete, em decimal, o token ao lado. */
+    --surface-dark-rgb: 255 255 255;          /* = o mesmo branco de `--surface-dark-deep` */
+    --on-dark-rgb: 17 24 39;                  /* = var(--gray-900) */
+}
+
+/* ================================================================
    RESET & BASE
    ================================================================ */
 *, *::before, *::after {
@@ -31,14 +96,20 @@
     padding: 0;
 }
 
+/* O `font-size: 13px` que morava no `html` SAIU em 2026-08-25, e a remoção é
+   pré-requisito de todo o resto desta folha. `rem` mede contra a raiz, então
+   com a raiz em 13px cada token de tipografia e de espaço (que são `rem`)
+   encolhia 19% ao entrar aqui: `--space-4` valia 13px e não 16px, e a própria
+   barra superior importada desenhava menor nesta página do que em admin.html.
+   O corpo passa a declarar o seu tamanho por token. */
 html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 13px;
-    color: #cdd6f4;
-    background: #1e1e2e;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--on-dark);
+    background: var(--surface-dark);
 }
 
 /* ================================================================
@@ -60,29 +131,31 @@ html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #11111b;
+    background: var(--surface-dark-deep);
 }
 
+/* O painel DESCE a altura da barra, e o canvas acima dele não: ver a secao
+   BARRA SUPERIOR, no fim do arquivo, para a razão de os dois se separarem. */
 #calibration-panel {
     position: absolute;
-    top: 0;
+    top: var(--app-bar-height);
     right: 0;
     width: 360px;
-    height: 100%;
+    height: calc(100% - var(--app-bar-height));
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    background: rgba(24, 24, 37, 0.92);
-    border-left: 1px solid #313244;
-    padding: 16px;
-    gap: 12px;
+    background: rgb(var(--surface-dark-rgb) / 92%);
+    border-left: var(--border-width) solid var(--surface-dark-raised);
+    padding: var(--space-4);
+    gap: var(--space-3);
     z-index: 20;
 
     /* backdrop-filter: blur removido: o painel sobrepõe o canvas WebGL
        re-renderizado em loop (rAF), e o compositor reamostraria/desfocaria a
        região atrás do painel a cada frame — um dos efeitos mais caros de GPU.
-       O background rgba(24,24,37,0.92) já é quase opaco, então o ganho visual
-       do blur era marginal. Mantemos o fundo semi-opaco sólido existente. */
+       O fundo a 92% já é quase opaco, então o ganho visual do blur era
+       marginal. Mantemos o fundo semi-opaco sólido existente. */
 }
 
 /* ================================================================
@@ -100,6 +173,9 @@ html, body {
    hit-test. Nao ha z-index aqui de proposito: a ordem no DOM ja poe o
    overlay sobre o canvas do Three.js, e um empilhamento explicito o
    levantaria sobre o minimapa e o loading, que sao irmaos posteriores.
+
+   ELE NAO DESCE A ALTURA DA BARRA, e e o unico irmao do canvas que nao
+   desce: ele existe para casar pixel a pixel com o canvas do Three.js.
    ================================================================ */
 .sv360-nav-overlay {
     position: absolute;
@@ -113,15 +189,21 @@ html, body {
 /* ================================================================
    MODO MAPA DO PROJETO — cobre o viewer inteiro, com o painel de
    calibracao continuando visivel a direita.
+
+   ELE DESCE A ALTURA DA BARRA, e o canvas do 360 nao. E mapa, e nao a
+   esfera: nada aqui depende da razao de aspecto da viewport. Descer o
+   bloco inteiro conserta de uma vez os TRES controles que a barra
+   cobria dentro dele: a legenda (topo direito), os botoes de zoom do
+   MapLibre (topo esquerdo) e o seletor de andar.
    ================================================================ */
 #project-map {
     position: absolute;
-    top: 0;
+    top: var(--app-bar-height);
     left: 0;
     right: 360px;
     bottom: 0;
     z-index: 30;
-    background: #11111b;
+    background: var(--surface-dark-deep);
 }
 
 #project-map[hidden] {
@@ -149,52 +231,52 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(17, 17, 27, 0.75);
-    color: #cdd6f4;
-    font-size: 14px;
+    background: rgb(var(--surface-dark-deep-rgb) / 75%);
+    color: var(--on-dark);
+    font-size: var(--font-size-sm);
     z-index: 3;
 }
 
 .pmap__legend {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: var(--space-3);
+    right: var(--space-3);
     z-index: 2;
-    background: rgba(24, 24, 37, 0.94);
-    border: 1px solid #313244;
-    border-radius: 8px;
-    padding: 10px 12px;
-    color: #cdd6f4;
-    font-size: 12px;
+    background: rgb(var(--surface-dark-rgb) / 94%);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-md);
+    padding: 10px var(--space-3);
+    color: var(--on-dark);
+    font-size: var(--font-size-xs);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 190px;
 }
 
 .pmap__legend-close {
-    background: #313244;
-    color: #cdd6f4;
+    background: var(--surface-dark-raised);
+    color: var(--on-dark);
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 6px 10px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--font-size-xs);
 }
 
 .pmap__legend-close:hover {
-    background: #45475a;
+    background: var(--surface-dark-border);
 }
 
 .pmap__legend-stat {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .pmap__legend-keys {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    color: #a6adc8;
+    color: var(--on-dark-soft);
 }
 
 .pmap__legend-keys i {
@@ -218,54 +300,55 @@ html, body {
 .pmap__floors {
     position: absolute;
     top: 50%;
-    left: 12px;
+    left: var(--space-3);
     transform: translateY(-50%);
     z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    background: rgba(24, 24, 37, 0.94);
-    border: 1px solid #313244;
-    border-radius: 8px;
-    padding: 4px;
+    background: rgb(var(--surface-dark-rgb) / 94%);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-md);
+    padding: var(--space-1);
 }
 
 .pmap__floor {
     width: 34px;
     height: 30px;
     background: transparent;
-    color: #a6adc8;
+    color: var(--on-dark-soft);
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
 }
 
 .pmap__floor:hover {
-    background: #313244;
-    color: #cdd6f4;
+    background: var(--surface-dark-raised);
+    color: var(--on-dark);
 }
 
+/* Andar selecionado: seleção é ação, então é o verde da casa. */
 .pmap__floor--on {
-    background: #89b4fa;
-    color: #11111b;
+    background: var(--primary-700);
+    color: #fff;
 }
 
 .pmap__card {
     position: absolute;
-    bottom: 16px;
-    left: 16px;
+    bottom: var(--space-4);
+    left: var(--space-4);
     z-index: 2;
     width: 300px;
-    background: rgba(24, 24, 37, 0.96);
-    border: 1px solid #313244;
-    border-radius: 10px;
-    padding: 12px;
-    color: #cdd6f4;
+    background: rgb(var(--surface-dark-rgb) / 96%);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3);
+    color: var(--on-dark);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .pmap__card[hidden] {
@@ -275,58 +358,58 @@ html, body {
 .pmap__card-close {
     position: absolute;
     top: 6px;
-    right: 8px;
+    right: var(--space-2);
     background: transparent;
     border: none;
-    color: #a6adc8;
-    font-size: 20px;
+    color: var(--on-dark-soft);
+    font-size: var(--font-size-xl);
     line-height: 1;
     cursor: pointer;
 }
 
 .pmap__card-close:hover {
-    color: #f38ba8;
+    color: var(--color-error-strong);
 }
 
 .pmap__card-img {
     width: 100%;
     aspect-ratio: 2 / 1;
     object-fit: cover;
-    border-radius: 6px;
-    background: #11111b;
+    border-radius: var(--radius-md);
+    background: var(--surface-dark-deep);
     display: block;
 }
 
 .pmap__card-head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     flex-wrap: wrap;
 }
 
 .pmap__card-name {
-    font-weight: 600;
-    font-size: 13px;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
 }
 
 .pmap__card-sub {
-    font-size: 11px;
-    color: #a6adc8;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-soft);
 }
 
 .pmap__badge {
-    font-size: 9px;
-    font-weight: 700;
+    font-size: var(--font-size-4xs);
+    font-weight: var(--font-weight-bold);
     letter-spacing: 0.5px;
     padding: 2px 6px;
-    border-radius: 4px;
-    background: #45475a;
-    color: #cdd6f4;
+    border-radius: var(--radius-sm);
+    background: var(--surface-dark-border);
+    color: var(--on-dark);
 }
 
 .pmap__badge--ok {
-    background: #a6e3a1;
-    color: #11111b;
+    background: var(--primary-700);
+    color: #fff;
 }
 
 .pmap__angles {
@@ -336,42 +419,42 @@ html, body {
 }
 
 .pmap__angle {
-    background: #1e1e2e;
-    border: 1px solid #313244;
-    border-radius: 6px;
-    padding: 5px 4px;
+    background: var(--surface-dark);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-md);
+    padding: 5px var(--space-1);
     text-align: center;
 }
 
 .pmap__angle span {
     display: block;
-    font-size: 10px;
-    color: #a6adc8;
+    font-size: var(--font-size-3xs);
+    color: var(--on-dark-soft);
 }
 
 .pmap__angle strong {
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
 }
 
 .pmap__card-btn {
-    background: #89b4fa;
-    color: #11111b;
+    background: var(--primary-700);
+    color: #fff;
     border: none;
-    border-radius: 6px;
-    padding: 8px;
-    font-size: 13px;
-    font-weight: 600;
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
 }
 
 .pmap__card-btn:hover:not(:disabled) {
-    background: #b4befe;
+    background: var(--primary-800);
 }
 
 .pmap__card-btn:disabled {
-    background: #313244;
-    color: #6c7086;
+    background: var(--surface-dark-raised);
+    color: var(--on-dark-muted);
     cursor: default;
 }
 
@@ -380,12 +463,12 @@ html, body {
    ================================================================ */
 #minimap-container {
     position: absolute;
-    bottom: 16px;
-    left: 16px;
+    bottom: var(--space-4);
+    left: var(--space-4);
     width: 343px;
     height: 281px;
-    border-radius: 8px;
-    border: 2px solid rgba(205, 214, 244, 0.2);
+    border-radius: var(--radius-md);
+    border: 2px solid rgb(var(--on-dark-rgb) / 20%);
     overflow: hidden;
     z-index: 10;
 }
@@ -399,11 +482,14 @@ html, body {
     overflow: visible;
 }
 
+/* A CAMERA E INFORMACAO, NAO ACAO: ela marca onde o operador esta, e nao
+   um botao a apertar. Por isso ela fica no azul semantico (`--color-info`)
+   e nao no verde, que nesta folha e reservado a confirmar e a selecionar. */
 .minimap-camera-marker__body {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #89b4fa;
+    background: var(--color-info);
     border: 2px solid #fff;
     position: absolute;
     top: 50%;
@@ -423,7 +509,7 @@ html, body {
        vertice na aresta inferior da caixa. */
     border-left: 22px solid transparent;
     border-right: 22px solid transparent;
-    border-top: 34px solid rgba(137, 180, 250, 0.55);
+    border-top: 34px solid rgb(var(--info-rgb) / 55%);
     position: absolute;
 
     /* Vertice ancorado EXATAMENTE no centro do marcador, que e tambem o
@@ -445,28 +531,27 @@ html, body {
    576x396 nesta folha faria o container e o canvas divergirem em
    silencio no dia em que a constante mudasse.
 
-   Cores literais (Catppuccin), como no resto desta folha: a pagina de
-   calibracao veio do ebgeo_360 com tema proprio e nao compartilha
-   token com design-tokens.css (ver o cabecalho do arquivo).
+   ELE DESCE A ALTURA DA BARRA: e sobreposicao de UI, e a barra o cobria
+   pelo canto superior esquerdo.
    ================================================================ */
 .cal-preview {
     position: absolute;
-    top: 12px;
-    left: 12px;
+    top: calc(var(--app-bar-height) + var(--space-3));
+    left: var(--space-3);
     border: 2px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     z-index: 15;
-    background: #11111b;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    background: var(--surface-dark-deep);
+    box-shadow: var(--shadow-xl);
 }
 
 .cal-preview--rear {
-    border-color: rgba(166, 227, 161, 0.6);
+    border-color: rgb(var(--primary-rgb) / 60%);
 }
 
 .cal-preview--target {
-    border-color: rgba(250, 179, 135, 0.6);
+    border-color: rgb(var(--warning-rgb) / 60%);
 }
 
 .cal-preview__canvas {
@@ -484,15 +569,31 @@ html, body {
     z-index: 1;
 }
 
+/* A BARRA E O BOTAO DE FECHAR TEM A MESMA ALTURA, e isso e contrato entre duas
+   regras irmas: o `x` e `position: absolute` dentro da previa, e nao filho desta
+   barra, entao nada no layout os obriga a casar. Ate 2026-08-25 a barra dava 19px
+   e o botao 26px, e ele transbordava 10,5px POR CIMA DA FOTO.
+
+   OS 22px SAO CALCULADOS, e nao escolhidos a olho: `--space-1` de cima mais o de
+   baixo dao 7px, entao a linha precisa de 15px para fechar 22. Mexeu num, refaca
+   a conta no outro.
+
+   O `padding-right` ABRE A VAGA do botao (22px mais um respiro), para o titulo
+   longo cortar com reticencias ANTES dele em vez de correr por baixo. E por isso
+   a barra continua `block`: `display: flex` faria o texto virar item anonimo, e
+   `text-overflow: ellipsis` nao alcanca item anonimo de flex. */
 .cal-preview__label {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    padding: 4px 8px;
-    background: rgba(24, 24, 37, 0.85);
-    font-size: 11px;
-    font-weight: 600;
+    height: 22px;
+    padding: var(--space-1) var(--space-2);
+    padding-right: 26px;
+    line-height: 15px;
+    background: rgb(var(--surface-dark-rgb) / 85%);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
     z-index: 2;
     pointer-events: none;
     white-space: nowrap;
@@ -500,80 +601,116 @@ html, body {
     text-overflow: ellipsis;
 }
 
+/* O verde ESCURO da escala (`--primary-800`) e nao o `--primary`: aqui ele e
+   TEXTO miudo sobre superficie CLARA, e o verde de acao da pouco mais de 3:1
+   nesse tamanho. Ate 2026-08-25 esta regra pedia `--primary-300` pelo motivo
+   espelhado, quando a superficie era escura. */
 .cal-preview--rear .cal-preview__label {
-    color: #a6e3a1;
+    color: var(--primary-800);
 }
 
 .cal-preview--target .cal-preview__label {
-    color: #fab387;
+    color: var(--color-warning-strong);
 }
 
+/* O X DE FECHAR A PREVIA, refeito em 2026-08-25 porque o chefe o apontou ao abrir
+   um alvo. Quatro defeitos de uma vez, e o primeiro nasceu da virada de tema:
+
+   1. FUNDO. Era `rgb(var(--on-dark-rgb) / 15%)`, um veu do texto sobre si mesmo.
+      Sobre o painel escuro isso dava um quadrado cinza-claro visivel; sobre o
+      painel CLARO da 15% de quase-preto sobre branco, um cinza lavado que nao se
+      le como botao. Agora e superficie solida com borda, que e o que a casa usa.
+   2. CENTRAGEM. `line-height: 20px` numa caixa de 22px com o glifo `\u00d7`
+      empurrava o traco para cima. Flex centra sem depender de metrica de fonte.
+   3. QUINA. `top: 2px` o encostava na borda arredondada da previa, e ele saia
+      cortado. Agora ele respeita o mesmo respiro dos irmaos.
+   4. ENQUADRAMENTO. Ele precisa caber DENTRO da barra de titulo, e nao pairar
+      sobre a foto: os 22px daqui sao os mesmos 22px da altura da barra, e o
+      `top: 0` os alinha. A primeira tentativa deu 26px e transbordou, que foi o
+      que o chefe viu.
+
+   O HOVER FICA SOLIDO, e nao vermelho a 50%: um vermelho translucido sobre foto
+   muda de cor conforme o pixel debaixo, e o glifo branco sumia sobre ceu claro. */
 .cal-preview__close {
     position: absolute;
-    top: 2px;
-    right: 4px;
+    top: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 22px;
     height: 22px;
     padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: rgba(205, 214, 244, 0.15);
-    color: #cdd6f4;
-    font-size: 16px;
-    line-height: 20px;
-    text-align: center;
+    border: var(--border-width) solid var(--surface-dark-border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-dark-deep);
+    color: var(--on-dark);
+    font-size: var(--font-size-base);
+    line-height: 1;
     cursor: pointer;
     z-index: 3;
     pointer-events: auto;
-    transition: background 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast),
+        border-color var(--transition-fast);
 }
 
 .cal-preview__close:hover {
-    background: rgba(243, 139, 168, 0.5);
+    background: var(--color-error-strong);
+    border-color: var(--color-error-strong);
+    color: #fff;
+}
+
+.cal-preview__close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
 }
 
 .cal-preview__btn {
     position: absolute;
-    right: 8px;
-    padding: 5px 12px;
+    right: var(--space-2);
+    padding: 5px var(--space-3);
     border: none;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
     z-index: 3;
     pointer-events: auto;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .cal-preview__btn--navigate {
-    bottom: 8px;
-    background: rgba(250, 179, 135, 0.9);
-    color: #1e1e2e;
+    bottom: var(--space-2);
+    background: rgb(var(--warning-rgb) / 90%);
+
+    /* TEXTO ESCURO SOBRE AMBAR, e explicito. Ate 2026-08-25 isto era
+       `--surface-dark-deep`, que era escuro; a pagina virou clara e o token com
+       ela, entao a cor precisa ser nomeada aqui. Ambar pede texto escuro. */
+    color: var(--gray-900);
 }
 
 .cal-preview__btn--navigate:hover {
-    background: rgba(250, 179, 135, 1);
+    background: var(--color-warning);
 }
 
 .cal-preview__btn--add {
     bottom: 36px;
-    background: rgba(166, 227, 161, 0.9);
-    color: #1e1e2e;
+    background: rgb(var(--primary-700-rgb) / 90%);
+    color: #fff;
 }
 
 .cal-preview__btn--add:hover {
-    background: rgba(166, 227, 161, 1);
+    background: var(--primary);
 }
 
 .cal-preview__btn--hide {
     bottom: 36px;
-    background: rgba(239, 68, 68, 0.9);
+    background: rgb(var(--error-rgb) / 90%);
     color: #fff;
 }
 
 .cal-preview__btn--hide:hover {
-    background: rgba(239, 68, 68, 1);
+    background: var(--color-error);
 }
 
 /* ================================================================
@@ -586,7 +723,7 @@ html, body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(17, 17, 27, 0.85);
+    background: rgb(var(--surface-dark-deep-rgb) / 85%);
     z-index: 100;
     align-items: center;
     justify-content: center;
@@ -595,8 +732,8 @@ html, body {
 .loading-spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid #313244;
-    border-top-color: #89b4fa;
+    border: 3px solid var(--surface-dark-raised);
+    border-top-color: var(--primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -607,78 +744,81 @@ html, body {
 
 /* ================================================================
    PROJECT SELECTOR
+
+   ELE DESCE A ALTURA DA BARRA: e tela cheia de UI, com titulo no topo,
+   e o titulo era a primeira coisa que a barra cobria.
    ================================================================ */
 #project-selector {
     display: none;
     flex-direction: column;
     align-items: center;
-    gap: 24px;
+    gap: var(--space-6);
     position: absolute;
-    top: 0;
+    top: var(--app-bar-height);
     left: 0;
     width: 100%;
-    height: 100%;
-    padding: 48px;
+    height: calc(100% - var(--app-bar-height));
+    padding: var(--space-8);
     z-index: 30;
-    background: #1e1e2e;
+    background: var(--surface-dark);
     overflow-y: auto;
 }
 
 .project-selector__title {
-    font-size: 28px;
-    font-weight: 600;
-    color: #cdd6f4;
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-semibold);
+    color: var(--on-dark);
 }
 
 .project-selector__subtitle {
-    color: #a6adc8;
-    font-size: 15px;
+    color: var(--on-dark-soft);
+    font-size: var(--font-size-base);
 }
 
 .project-selector__grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+    gap: var(--space-4);
     width: 100%;
     max-width: 900px;
 }
 
 .project-selector__card {
-    background: #181825;
-    border: 1px solid #313244;
-    border-radius: 8px;
-    padding: 20px;
+    background: var(--surface-dark-deep);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
     cursor: pointer;
-    transition: border-color 0.2s, transform 0.15s;
+    transition: border-color var(--transition-normal), transform var(--transition-fast);
 }
 
 .project-selector__card:hover {
-    border-color: #89b4fa;
+    border-color: var(--primary);
     transform: translateY(-2px);
 }
 
 .project-selector__card-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 8px;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-2);
 }
 
 .project-selector__card-info {
-    color: #89b4fa;
-    font-size: 13px;
-    margin-bottom: 4px;
+    color: var(--primary-800);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-1);
 }
 
 
 .project-selector__card-location {
-    color: #a6adc8;
-    font-size: 12px;
+    color: var(--on-dark-soft);
+    font-size: var(--font-size-xs);
     font-style: italic;
 }
 
 .project-selector__error {
-    color: #f38ba8;
-    font-size: 15px;
+    color: var(--color-error-strong);
+    font-size: var(--font-size-base);
 }
 
 /* ================================================================
@@ -689,56 +829,50 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-2);
     height: 100%;
-    color: #a6adc8;
+    color: var(--on-dark-soft);
 }
 
 .cal-panel__hint {
-    font-size: 11px;
-    color: #6c7086;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-muted);
 }
 
 .cal-panel__section {
-    background: #1e1e2e;
-    border-radius: 8px;
-    padding: 12px;
+    background: var(--surface-dark);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
 }
 
 
 .cal-panel__title {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #a6adc8;
+    color: var(--on-dark-soft);
     margin-bottom: 10px;
 }
-
-
-
-
-
-
 
 /* ================================================================
    GRID TOGGLE
    ================================================================ */
 .cal-panel__section--grid {
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
 }
 
 .cal-panel__grid-toggle {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: #a6adc8;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--on-dark-soft);
     cursor: pointer;
 }
 
 .cal-panel__grid-toggle input[type="checkbox"] {
-    accent-color: #89b4fa;
+    accent-color: var(--primary);
     width: 14px;
     height: 14px;
     cursor: pointer;
@@ -748,18 +882,18 @@ html, body {
    INPUTS & SLIDERS
    ================================================================ */
 .cal-panel__input {
-    background: #313244;
-    border: 1px solid #45475a;
-    border-radius: 4px;
-    color: #cdd6f4;
-    padding: 4px 8px;
-    font-size: 12px;
+    background: var(--surface-dark-raised);
+    border: var(--border-width) solid var(--surface-dark-border);
+    border-radius: var(--radius-sm);
+    color: var(--on-dark);
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-xs);
     outline: none;
     flex: 1;
 }
 
 .cal-panel__input:focus {
-    border-color: #89b4fa;
+    border-color: var(--primary);
 }
 
 .cal-panel__input--narrow {
@@ -771,7 +905,7 @@ html, body {
 .cal-panel__slider-group {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     margin-bottom: 6px;
 }
 
@@ -780,7 +914,7 @@ html, body {
     -webkit-appearance: none;
     appearance: none;
     height: 4px;
-    background: #45475a;
+    background: var(--surface-dark-border);
     border-radius: 2px;
     outline: none;
 }
@@ -790,7 +924,7 @@ html, body {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #89b4fa;
+    background: var(--primary);
     cursor: pointer;
 }
 
@@ -798,7 +932,7 @@ html, body {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #89b4fa;
+    background: var(--primary);
     cursor: pointer;
     border: none;
 }
@@ -807,93 +941,118 @@ html, body {
    DELTA INDICATOR
    ================================================================ */
 .cal-panel__delta {
-    font-size: 11px;
+    font-size: var(--font-size-2xs);
     margin-bottom: 6px;
 }
 
 .cal-panel__delta--zero {
-    color: #6c7086;
+    color: var(--on-dark-muted);
 }
 
 .cal-panel__delta--changed {
-    color: #fab387;
-    font-weight: 600;
+    color: var(--color-warning-strong);
+    font-weight: var(--font-weight-semibold);
 }
 
 /* ================================================================
    BUTTONS
+
+   AS CORES DE ACAO SAO AS DA CASA desde 2026-08-25. Confirmar e
+   `--primary` com texto branco, a mesma regra de `.admin-btn--primary`;
+   destruir e `--color-error`. Antes "Salvar" era verde-agua, "Revisada →
+   Proxima" era azul lavanda e "Resetar Revisoes" era um vermelho de outra
+   familia: tres acoes, tres paletas, nenhuma delas do EBGeo.
    ================================================================ */
 .cal-panel__btn {
     border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-size: 12px;
-    font-weight: 500;
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
-    transition: background 0.15s, opacity 0.15s;
+    transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+/* DESABILITADO E PLANO E CINZA, nunca a cor do botao a 40%.
+   A opacidade servia sobre o painel escuro: verde a 40% sobre cinza-900 ainda
+   segurava o texto branco. Sobre o painel CLARO ela vira verde-agua palido com
+   `#fff` por cima, e "Salvar" e "Descartar" simplesmente somem. Trocar a cor
+   inteira diz "desabilitado" com mais forca e mantem o texto legivel. */
+
+/* O VERMELHO DESTE BOTAO VIVIA NUM `style=` INLINE, com o literal `#e74c3c` de
+   uma paleta que esta folha ja nao usa. O inline escapou da tokenizacao de
+   2026-08-25 porque o teste que a prende le o CSS, e nao o JS que monta o HTML.
+   Ele dava 3,47:1 sobre o painel claro. Aqui e token, e o tom FORTE, que le. */
+.cal-panel__btn--perigo {
+    color: var(--color-error-strong);
+    border-color: var(--color-error-strong);
 }
 
 .cal-panel__btn:disabled {
-    opacity: 0.4;
+    background: var(--surface-dark-raised) !important;
+    color: var(--on-dark-muted) !important;
+    border-color: var(--surface-dark-border) !important;
     cursor: not-allowed;
 }
 
 .cal-panel__btn--save {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: var(--primary-700);
+    color: #fff;
 }
 
 .cal-panel__btn--save:hover:not(:disabled) {
-    background: #94e291;
+    background: var(--primary-800);
 }
 
 .cal-panel__btn--discard {
-    background: #f38ba8;
-    color: #1e1e2e;
+    background: var(--color-error);
+    color: #fff;
 }
 
 .cal-panel__btn--discard:hover:not(:disabled) {
-    background: #f07a9a;
+    background: rgb(var(--error-rgb) / 85%);
 }
 
 .cal-panel__btn--small {
-    padding: 4px 10px;
-    font-size: 11px;
+    padding: var(--space-1) 10px;
+    font-size: var(--font-size-2xs);
 }
 
 .cal-panel__btn--icon {
     background: transparent;
-    border: 1px solid #45475a;
-    color: #a6adc8;
+    border: var(--border-width) solid var(--surface-dark-border);
+    color: var(--on-dark-soft);
     padding: 1px 6px;
-    font-size: 11px;
+    font-size: var(--font-size-2xs);
     font-family: monospace;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     vertical-align: middle;
     margin-left: 6px;
 }
 
 .cal-panel__btn--icon:hover {
-    background: #45475a;
-    color: #cdd6f4;
+    background: var(--surface-dark-border);
+    color: var(--on-dark);
 }
 
 .cal-panel__btn--ghost {
     background: transparent;
-    border: 1px solid #45475a;
-    color: #a6adc8;
+    border: var(--border-width) solid var(--surface-dark-border);
+    color: var(--on-dark-soft);
 }
 
 .cal-panel__btn--ghost:hover:not(:disabled) {
-    border-color: #89b4fa;
-    color: #cdd6f4;
+    border-color: var(--primary);
+    color: var(--on-dark);
 }
 
 .cal-panel__btn--active {
-    background: #fab387 !important;
-    color: #1e1e2e !important;
-    border-color: #fab387 !important;
+    background: var(--color-warning) !important;
+
+    /* Escuro sobre ambar, pelo mesmo motivo do botao de navegar da previa. */
+    color: var(--gray-900) !important;
+    border-color: var(--color-warning) !important;
 }
 
 /* ================================================================
@@ -901,7 +1060,7 @@ html, body {
    ================================================================ */
 .cal-panel__actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .cal-panel__actions .cal-panel__btn {
@@ -915,7 +1074,7 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     margin-bottom: 0;
 }
 
@@ -937,11 +1096,11 @@ html, body {
 }
 
 .cal-panel__title--collapsible:hover {
-    color: #cdd6f4;
+    color: var(--on-dark);
 }
 
 .cal-panel__chevron {
-    font-size: 10px;
+    font-size: var(--font-size-3xs);
     width: 10px;
     text-align: center;
     flex-shrink: 0;
@@ -952,14 +1111,14 @@ html, body {
 }
 
 .cal-panel__subtitle {
-    font-size: 11px;
-    font-weight: 600;
-    color: #a6adc8;
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--on-dark-soft);
     margin-bottom: 6px;
 }
 
 .cal-panel__slider-section {
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .cal-panel__slider-section:last-child {
@@ -981,19 +1140,19 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 8px;
-    border-radius: 4px;
+    padding: 6px var(--space-2);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .cal-panel__target-item:hover {
-    background: #313244;
+    background: var(--surface-dark-raised);
 }
 
 .cal-panel__target-item--selected {
-    background: rgba(250, 179, 135, 0.15);
-    border: 1px solid rgba(250, 179, 135, 0.3);
+    background: rgb(var(--warning-rgb) / 15%);
+    border: var(--border-width) solid rgb(var(--warning-rgb) / 30%);
 }
 
 .cal-panel__target-info {
@@ -1004,37 +1163,33 @@ html, body {
 }
 
 .cal-panel__target-name {
-    font-size: 12px;
-    color: #cdd6f4;
+    font-size: var(--font-size-xs);
+    color: var(--on-dark);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .cal-panel__target-dist {
-    font-size: 11px;
-    color: #6c7086;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-muted);
     flex-shrink: 0;
 }
 
 .cal-panel__next-badge {
-    font-size: 9px;
+    font-size: var(--font-size-4xs);
     padding: 1px 5px;
     border-radius: 3px;
-    background: #89b4fa;
-    color: #1e1e2e;
-    font-weight: 600;
+    background: var(--color-info-strong);
+    color: #fff;
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
 }
 
-
-
-
-
 .cal-panel__btn--hidden-active {
-    background: rgba(166, 227, 161, 0.15);
-    border: 1px solid #a6e3a1;
-    color: #a6e3a1;
+    background: rgb(var(--primary-rgb) / 15%);
+    border: var(--border-width) solid var(--primary-300);
+    color: var(--primary-800);
 }
 
 .cal-panel__target-actions {
@@ -1056,28 +1211,28 @@ html, body {
 }
 
 .cal-panel__hidden-badge {
-    font-size: 9px;
+    font-size: var(--font-size-4xs);
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(243, 139, 168, 0.25);
-    color: #f38ba8;
-    font-weight: 600;
+    background: rgb(var(--error-rgb) / 25%);
+    color: var(--color-error-strong);
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
 }
 
 
 .cal-panel__btn--hidden-active:hover:not(:disabled) {
-    background: rgba(166, 227, 161, 0.25);
+    background: rgb(var(--primary-rgb) / 25%);
 }
 
 .cal-panel__btn--danger {
     background: transparent;
-    border: 1px solid #f38ba8;
-    color: #f38ba8;
+    border: var(--border-width) solid var(--color-error);
+    color: var(--color-error-strong);
 }
 
 .cal-panel__btn--danger:hover:not(:disabled) {
-    background: rgba(243, 139, 168, 0.15);
+    background: rgb(var(--error-rgb) / 15%);
 }
 
 /* ================================================================
@@ -1088,23 +1243,23 @@ html, body {
 .cal-panel__select {
     width: 100%;
     margin: 2px 0 6px;
-    padding: 4px 6px;
-    font-size: 12px;
-    color: #e8e8e8;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 4px;
+    padding: var(--space-1) 6px;
+    font-size: var(--font-size-xs);
+    color: var(--on-dark);
+    background: var(--surface-dark-raised);
+    border: var(--border-width) solid var(--surface-dark-border);
+    border-radius: var(--radius-sm);
 }
 
 /* Marca do andar, quando a vizinha esta em outro nivel. Ela existe para
    o operador NAO ligar sem saber que atravessou o predio. */
 .cal-panel__nearby-floor {
     padding: 1px 5px;
-    font-size: 10px;
-    font-weight: 600;
-    color: #ffd479;
-    background: rgba(255, 212, 121, 0.12);
-    border: 1px solid rgba(255, 212, 121, 0.35);
+    font-size: var(--font-size-3xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-warning-strong);
+    background: rgb(var(--warning-rgb) / 12%);
+    border: var(--border-width) solid rgb(var(--warning-rgb) / 35%);
     border-radius: 3px;
     white-space: nowrap;
 }
@@ -1121,37 +1276,37 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
 }
 
 .cal-panel__nearby-item:hover {
-    background: #313244;
+    background: var(--surface-dark-raised);
 }
 
 .cal-panel__nearby-item--previewing {
-    background: rgba(250, 179, 135, 0.15);
-    border: 1px solid rgba(250, 179, 135, 0.3);
+    background: rgb(var(--warning-rgb) / 15%);
+    border: var(--border-width) solid rgb(var(--warning-rgb) / 30%);
 }
 
 .cal-panel__nearby-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
 }
 
 .cal-panel__nearby-name {
-    font-size: 12px;
-    color: #a6adc8;
+    font-size: var(--font-size-xs);
+    color: var(--on-dark-soft);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .cal-panel__nearby-dist {
-    font-size: 11px;
-    color: #6c7086;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-muted);
     flex-shrink: 0;
 }
 
@@ -1160,16 +1315,16 @@ html, body {
    ================================================================ */
 .cal-toast {
     position: fixed;
-    bottom: 24px;
+    bottom: var(--space-6);
     left: 50%;
     transform: translateX(-50%) translateY(20px);
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
+    padding: 10px var(--space-5);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
     z-index: 1000;
     opacity: 0;
-    transition: opacity 0.3s, transform 0.3s;
+    transition: opacity var(--transition-slow), transform var(--transition-slow);
     pointer-events: none;
 }
 
@@ -1179,18 +1334,18 @@ html, body {
 }
 
 .cal-toast--success {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: var(--primary-700);
+    color: #fff;
 }
 
 .cal-toast--error {
-    background: #f38ba8;
-    color: #1e1e2e;
+    background: var(--color-error);
+    color: #fff;
 }
 
 .cal-toast--info {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: var(--color-info);
+    color: #fff;
 }
 
 /* ================================================================
@@ -1202,7 +1357,7 @@ html, body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(17, 17, 27, 0.8);
+    background: rgb(var(--surface-dark-deep-rgb) / 80%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1210,29 +1365,29 @@ html, body {
 }
 
 .cal-dialog {
-    background: #1e1e2e;
-    border: 1px solid #313244;
-    border-radius: 12px;
-    padding: 24px;
+    background: var(--surface-dark);
+    border: var(--border-width) solid var(--surface-dark-raised);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
     max-width: 420px;
     width: 90%;
 }
 
 .cal-dialog__title {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 8px;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-2);
 }
 
 .cal-dialog__text {
-    color: #a6adc8;
-    margin-bottom: 16px;
-    font-size: 13px;
+    color: var(--on-dark-soft);
+    margin-bottom: var(--space-4);
+    font-size: var(--font-size-sm);
 }
 
 .cal-dialog__actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .cal-dialog__actions .cal-panel__btn {
@@ -1240,13 +1395,13 @@ html, body {
 }
 
 .cal-dialog__actions .cal-panel__btn--destructive {
-    background: #f38ba8;
-    color: #1e1e2e;
-    font-weight: 600;
+    background: var(--color-error);
+    color: #fff;
+    font-weight: var(--font-weight-semibold);
 }
 
 .cal-dialog__actions .cal-panel__btn--destructive:hover {
-    background: #eba0ac;
+    background: rgb(var(--error-rgb) / 85%);
 }
 
 /* ================================================================
@@ -1256,8 +1411,8 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding-bottom: 4px;
+    gap: var(--space-2);
+    padding-bottom: var(--space-1);
 }
 
 .cal-panel__review-progress {
@@ -1269,15 +1424,15 @@ html, body {
 }
 
 .cal-panel__review-counter {
-    font-size: 11px;
-    color: #a6adc8;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-soft);
 }
 
 .cal-panel__progress-bar,
 .project-selector__progress-bar {
     width: 100%;
     height: 4px;
-    background: #313244;
+    background: var(--surface-dark-raised);
     border-radius: 2px;
     overflow: hidden;
 }
@@ -1285,66 +1440,69 @@ html, body {
 .cal-panel__progress-fill,
 .project-selector__progress-fill {
     height: 100%;
-    background: #a6e3a1;
+    background: var(--primary);
     border-radius: 2px;
-    transition: width 0.3s;
+    transition: width var(--transition-slow);
 }
 
 .cal-panel__photo-nav {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .cal-panel__photo-counter {
-    font-size: 12px;
-    color: #cdd6f4;
-    font-weight: 500;
+    font-size: var(--font-size-xs);
+    color: var(--on-dark);
+    font-weight: var(--font-weight-medium);
 }
 
 /* ================================================================
    REVIEW WORKFLOW — Reviewed badge & actions
    ================================================================ */
 .cal-panel__reviewed-badge {
-    font-size: 9px;
+    font-size: var(--font-size-4xs);
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(166, 227, 161, 0.3);
-    color: #a6e3a1;
-    font-weight: 600;
+    background: rgb(var(--primary-rgb) / 30%);
+    color: var(--primary-800);
+    font-weight: var(--font-weight-semibold);
     margin-left: 6px;
     vertical-align: middle;
 }
 
 .cal-panel__review-actions {
     display: flex;
-    gap: 8px;
-    padding-top: 8px;
-    border-top: 1px solid #313244;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: var(--border-width) solid var(--surface-dark-raised);
 }
 
 .cal-panel__review-actions .cal-panel__btn {
     flex: 1;
 }
 
+/* "Marcar revisada" e "Revisada → Próxima" são a MESMA confirmação em dois
+   alcances, então são o mesmo verde. O que as separa é o peso: a que avança a
+   fila é a de maior consequência e vem em negrito. */
 .cal-panel__btn--reviewed {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: var(--primary-700);
+    color: #fff;
 }
 
 .cal-panel__btn--reviewed:hover:not(:disabled) {
-    background: #94e291;
+    background: var(--primary-800);
 }
 
 .cal-panel__btn--review-next {
-    background: #89b4fa;
-    color: #1e1e2e;
-    font-weight: 600;
+    background: var(--primary-700);
+    color: #fff;
+    font-weight: var(--font-weight-semibold);
 }
 
 .cal-panel__btn--review-next:hover:not(:disabled) {
-    background: #7ba8f0;
+    background: var(--primary-800);
 }
 
 /* ================================================================
@@ -1363,29 +1521,29 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 6px;
+    padding: var(--space-1) 6px;
     border-radius: 3px;
     cursor: pointer;
-    font-size: 11px;
-    border: 1px solid transparent;
+    font-size: var(--font-size-2xs);
+    border: var(--border-width) solid transparent;
 }
 
-.cal-panel__run-item:hover { background: #313244; }
+.cal-panel__run-item:hover { background: var(--surface-dark-raised); }
 
 .cal-panel__run-item--current {
-    background: rgba(137, 180, 250, 0.15);
-    border-color: rgba(137, 180, 250, 0.35);
+    background: rgb(var(--primary-rgb) / 15%);
+    border-color: rgb(var(--primary-rgb) / 35%);
 }
 
 .cal-panel__run-ord {
     min-width: 20px;
     text-align: right;
-    color: #6c7086;
+    color: var(--on-dark-muted);
     flex-shrink: 0;
 }
 
 .cal-panel__run-label {
-    color: #cdd6f4;
+    color: var(--on-dark);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
 }
@@ -1403,7 +1561,7 @@ html, body {
     flex: 1;
     min-width: 24px;
     height: 3px;
-    background: #45475a;
+    background: var(--surface-dark-border);
     border-radius: 2px;
     overflow: hidden;
 }
@@ -1411,21 +1569,21 @@ html, body {
 .cal-panel__run-fill {
     display: block;
     height: 100%;
-    background: #a6e3a1;
+    background: var(--primary);
 }
 
 .cal-panel__run-count {
-    color: #6c7086;
+    color: var(--on-dark-muted);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
 }
 
 /* Faixa concluida: o rotulo verde deixa o operador varrer a lista e ver
    de relance o que ainda falta, sem ler contador por contador. */
-.cal-panel__run-item--done .cal-panel__run-label { color: #a6e3a1; }
+.cal-panel__run-item--done .cal-panel__run-label { color: var(--primary-800); }
 
 .cal-panel__run-applied {
-    color: #89b4fa;
+    color: var(--color-info-strong);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
 }
@@ -1434,32 +1592,38 @@ html, body {
    ORIGEM DA CALIBRACAO e HORA DE CAPTURA
    Ver calibration_source no schema.sql. "sem medida" nao e falha:
    e foto cujo angulo veio do bloco da faixa, sem nada medido nela.
+
+   AS QUATRO ORIGENS VIRARAM SEMANTICA, e nao mais quatro cores avulsas:
+   sol e a medida que depende do ceu (aviso), IMU e leitura de instrumento
+   (informacao), manual e o operador confirmando (primaria), e "nenhuma" e
+   ausencia (apagado). O padrao de pintura e o mesmo dos selos acima: fundo
+   translucido da propria cor, texto na cor cheia.
    ================================================================ */
 .cal-panel__photo-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     margin-top: 3px;
-    font-size: 11px;
-    color: #9aa4b0;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-soft);
 }
 
 .cal-panel__fonte {
     flex: none;
     padding: 0 5px;
     border-radius: 3px;
-    font-size: 9px;
-    font-weight: 600;
+    font-size: var(--font-size-4xs);
+    font-weight: var(--font-weight-semibold);
     letter-spacing: 0.3px;
     text-transform: uppercase;
     line-height: 15px;
     white-space: nowrap;
 }
 
-.cal-panel__fonte--sol     { background: #6b5300; color: #ffd83b; }
-.cal-panel__fonte--imu     { background: #14405c; color: #63c7ff; }
-.cal-panel__fonte--manual  { background: #1c5230; color: #6ee79b; }
-.cal-panel__fonte--nenhuma { background: #33383f; color: #8b939c; }
+.cal-panel__fonte--sol     { background: rgb(var(--warning-rgb) / 20%); color: var(--color-warning-strong); }
+.cal-panel__fonte--imu     { background: rgb(var(--info-rgb) / 25%); color: var(--color-info-strong); }
+.cal-panel__fonte--manual  { background: rgb(var(--primary-rgb) / 20%); color: var(--primary-800); }
+.cal-panel__fonte--nenhuma { background: var(--surface-dark-raised); color: var(--on-dark-soft); }
 
 /* ================================================================
    REVIEW WORKFLOW — Faixas colapsaveis
@@ -1467,19 +1631,19 @@ html, body {
    constante dentro dela, entao rever uma foto vale pela faixa.
    ================================================================ */
 .cal-panel__faixa {
-    border-bottom: 1px solid #2a2f36;
+    border-bottom: var(--border-width) solid var(--surface-dark-raised);
 }
 
 .cal-panel__faixa-cab {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 8px;
+    padding: 5px var(--space-2);
     cursor: pointer;
-    font-size: 11px;
-    font-weight: 600;
-    color: #c9d1d9;
-    background: #21262d;
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--on-dark);
+    background: var(--surface-dark-raised);
     list-style: none;
     user-select: none;
 }
@@ -1489,7 +1653,7 @@ html, body {
 .cal-panel__faixa-cab::before {
     content: '\25B8';
     flex: none;
-    color: #7d868f;
+    color: var(--on-dark-muted);
     transition: transform 0.12s;
 }
 
@@ -1497,7 +1661,7 @@ html, body {
     transform: rotate(90deg);
 }
 
-.cal-panel__faixa-cab:hover { background: #2b3138; }
+.cal-panel__faixa-cab:hover { background: var(--surface-dark-border); }
 
 .cal-panel__faixa-nome {
     flex: 1;
@@ -1506,14 +1670,14 @@ html, body {
     white-space: nowrap;
 }
 
-.cal-panel__faixa-num { flex: none; color: #8b939c; font-weight: 400; }
-.cal-panel__faixa-sol { flex: none; color: #ffd83b; font-weight: 400; }
+.cal-panel__faixa-num { flex: none; color: var(--on-dark-soft); font-weight: var(--font-weight-normal); }
+.cal-panel__faixa-sol { flex: none; color: var(--color-warning-strong); font-weight: var(--font-weight-normal); }
 
 .cal-panel__faixa-fotos {
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: 2px 0 4px;
+    padding: 2px 0 var(--space-1);
 }
 
 /* ================================================================
@@ -1531,11 +1695,11 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
+    padding: var(--space-1) var(--space-2);
     border-radius: 3px;
     cursor: pointer;
-    font-size: 11px;
-    transition: background 0.15s;
+    font-size: var(--font-size-2xs);
+    transition: background var(--transition-fast);
 
     /* A lista tem uma linha por foto do projeto — 17.590 no maior deles.
        content-visibility deixa o navegador pular layout e pintura dos
@@ -1547,35 +1711,35 @@ html, body {
 }
 
 .cal-panel__photo-item:hover {
-    background: #313244;
+    background: var(--surface-dark-raised);
 }
 
 .cal-panel__photo-item--current {
-    background: rgba(137, 180, 250, 0.15);
-    border: 1px solid rgba(137, 180, 250, 0.3);
+    background: rgb(var(--primary-rgb) / 15%);
+    border: var(--border-width) solid rgb(var(--primary-rgb) / 30%);
 }
 
 .cal-panel__photo-item--reviewed .cal-panel__photo-status {
-    color: #a6e3a1;
+    color: var(--primary-800);
 }
 
 .cal-panel__photo-status {
     width: 14px;
     text-align: center;
     flex-shrink: 0;
-    color: #585b70;
+    color: var(--on-dark-muted);
 }
 
 .cal-panel__photo-name {
     flex: 1;
-    color: #cdd6f4;
+    color: var(--on-dark);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .cal-panel__photo-seq {
-    color: #6c7086;
+    color: var(--on-dark-muted);
     flex-shrink: 0;
 }
 
@@ -1583,14 +1747,14 @@ html, body {
    PROJECT SELECTOR — Review stats
    ================================================================ */
 .project-selector__review-stats {
-    margin-top: 8px;
+    margin-top: var(--space-2);
 }
 
 .project-selector__review-text {
-    font-size: 11px;
-    color: #a6adc8;
+    font-size: var(--font-size-2xs);
+    color: var(--on-dark-soft);
     display: block;
-    margin-top: 4px;
+    margin-top: var(--space-1);
 }
 
 /* ================================================================
@@ -1605,12 +1769,12 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #45475a;
+    background: var(--surface-dark-border);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #585b70;
+    background: var(--on-dark-muted);
 }
 
 /* ================================================================
@@ -1625,9 +1789,23 @@ html, body {
    passaria a calibrar num enquadramento que o visualizador nao reproduz: a
    barra teria custado a fidelidade que a pagina inteira existe para garantir.
 
-   Sobrepor e o padrao ja estabelecido aqui (o painel, o minimapa e o seletor
-   de projetos tambem sobrepoem). O preco e a faixa do topo deixar de arrastar
-   a camera, e ele e menor que o outro.
+   ESSE MOTIVO VALE PARA O CANVAS, E SO PARA ELE. Ate 2026-08-25 ele valia para
+   a pagina inteira, e o preco era outro: a barra tambem cobria a UI. O topo do
+   painel da direita ficava debaixo dela ("Mapa do projeto [M]" aparecia
+   cortado, e havia um controle escondido acima), e com ele os controles de zoom
+   do modo mapa, a legenda do mapa, o titulo do seletor de projetos e o canto do
+   painel de previa. Sobrepor imagem e o preco aceito; sobrepor botao e defeito.
+
+   A REGRA QUE FICOU: a barra sobrepoe o CANVAS, e todo painel de UI que ela
+   cobriria desce `--app-bar-height`. O afastamento e o token, nunca um numero
+   repetido, e quem muda a altura da barra muda a folha `app-bar.css` uma vez.
+   Os cinco descidos estao marcados um a um acima: `#calibration-panel`,
+   `#project-map` (que leva junto legenda, zoom e seletor de andar),
+   `#project-selector` e `.cal-preview`. Os que NAO descem sao o canvas,
+   `.sv360-nav-overlay` (que casa pixel a pixel com ele), e os que ja moram
+   abaixo ou acima da barra: minimapa, cartao do mapa, toast e o dialogo.
+
+   O preco continua o mesmo: a faixa do topo nao arrasta a camera.
    ================================================================ */
 .app-layout .app-bar,
 body > .app-bar {
@@ -1638,7 +1816,9 @@ body > .app-bar {
     z-index: 40;
 
     /* Translucida, porque ela cobre imagem: o operador precisa continuar vendo
-       o que esta debaixo dela ao enquadrar o topo da esfera. */
-    background: linear-gradient(120deg, rgb(30 30 46 / 92%), rgb(30 30 46 / 78%));
+       o que esta debaixo dela ao enquadrar o topo da esfera. O gradiente e o
+       MESMO de app-bar.css (o verde da casa), so que com alfa: antes ele era um
+       roxo que nao existia em lugar nenhum do EBGeo. */
+    background: linear-gradient(120deg, rgb(var(--primary-800-rgb) / 92%), rgb(var(--primary-700-rgb) / 78%));
     backdrop-filter: blur(6px);
 }

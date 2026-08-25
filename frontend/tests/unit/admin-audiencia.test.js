@@ -15,8 +15,8 @@
  *
  * A DISCRIMINAÇÃO é o resto da tabela, em asserção ABSOLUTA (igualdade do array inteiro, não
  * `toContain`): um predicado quebrado que devolvesse tudo para todo mundo passaria verde numa
- * asserção de presença. O anônimo continua sem porta, o administrador tem as SETE abas
- * nomeadas e o produtor tem `catalog`, `groups`, `grants` e `audit`.
+ * asserção de presença. O anônimo continua sem porta, o administrador tem as OITO abas
+ * nomeadas e o produtor tem `catalog`, `groups`, `grants`, `audit` e `account`.
  *
  * `grants` PASSOU A SER UNIVERSAL entre as três audiências que abrem a porta (2026-08-24, o
  * fechamento da pendência declarada no mesmo dia), e as demais continuam recortadas. O rótulo
@@ -140,27 +140,45 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // a ela, e o caso que a motivou é o do CREDENCIADO, que cai justamente nesta linha: papel
         // definido por conceder, sem trilha de auditoria (decisão registrada) e, até aqui, sem
         // nenhuma tela que listasse o que ele havia concedido.
-        expect(adminAudience(COMUM)).toEqual({ label: 'Acessos', tabIds: ['groups', 'grants'] });
+        expect(adminAudience(COMUM)).toEqual({
+            label: 'Acessos',
+            tabIds: ['groups', 'grants', 'account'],
+        });
     });
 
-    it('a aba de concessões é a ÚNICA que as TRÊS audiências da porta recebem', () => {
-        // ESTA ASSERÇÃO INVERTEU EM 2026-08-24, e a inversão é o fechamento de uma pendência
-        // registrada no mesmo dia: a versão anterior afirmava que administrador e produtor NÃO
-        // ganhavam a aba porque `audit` já seria "o inventário de atos de concessão deles".
-        // A trilha registra ATO e o inventário registra ESTADO (prazo, revogar, renovar), e do
-        // lado RECEBIDO a trilha é muda para os dois: para o produtor por construção, porque o
-        // recorte do servidor é pela OM DONA DO RECURSO, e a concessão que outra OM lhe deu tem
-        // `target_org_id` daquela outra OM.
-        expect(adminAudience(ADMIN).tabIds).toContain('grants');
-        expect(adminAudience(PRODUTOR).tabIds).toContain('grants');
-        expect(adminAudience(COMUM).tabIds).toContain('grants');
+    it('DUAS abas são universais entre as três audiências da porta: concessões e a conta', () => {
+        // ESTA ASSERÇÃO INVERTEU EM 2026-08-24 e ganhou a SEGUNDA universal em 2026-08-25.
+        // `grants`: a versão de 2026-08-24 fechou a pendência que dizia que administrador e
+        // produtor não precisavam da aba porque `audit` já seria o inventário deles. A trilha
+        // registra ATO e o inventário registra ESTADO (prazo, revogar, renovar), e do lado
+        // RECEBIDO a trilha é muda para os dois: para o produtor por construção, porque o recorte
+        // do servidor é pela OM DONA DO RECURSO.
+        // `account`: "Minha conta" deixou de ser modal e virou aba, e o critério é trivial, que é
+        // o que o torna seguro: quem entrou tem conta.
+        for (const audiencia of [ADMIN, PRODUTOR, COMUM]) {
+            expect(adminAudience(audiencia).tabIds).toContain('grants');
+            expect(adminAudience(audiencia).tabIds).toContain('account');
+        }
         // A DISCRIMINAÇÃO, senão um predicado quebrado que devolvesse todas as abas para todo
-        // mundo passaria verde nas três linhas acima. `grants` é a única universal: as outras
-        // seis continuam recortadas, e é o recorte que impede o 403 na montagem.
+        // mundo passaria verde nas linhas acima. Só essas DUAS são universais: as outras seis
+        // continuam recortadas, e é o recorte que impede o 403 na montagem.
         expect(adminAudience(COMUM).tabIds).not.toContain('users');
         expect(adminAudience(COMUM).tabIds).not.toContain('audit');
         expect(adminAudience(PRODUTOR).tabIds).not.toContain('users');
         expect(adminAudience(ANONIMO).tabIds).not.toContain('grants');
+        // E universal NÃO alcança quem não abre a porta: o anônimo não tem conta a mostrar.
+        expect(adminAudience(ANONIMO).tabIds).not.toContain('account');
+    });
+
+    it('"Minha conta" é a ÚLTIMA de cada lista: a primeira aba é a que o painel abre', () => {
+        // A ORDEM É CONTRATO, e aqui ela é a decisão registrada: ninguém abre o painel para ler o
+        // próprio nome. É a mesma régua que pôs `audit` e `grants` no fim da linha do
+        // administrador. Sem esta asserção, uma inserção descuidada no topo da lista faria a aba
+        // de conta virar a tela de abertura das TRÊS audiências, sem nada ficar vermelho.
+        for (const audiencia of [ADMIN, PRODUTOR, COMUM]) {
+            const abas = adminAudience(audiencia).tabIds;
+            expect(abas[abas.length - 1]).toBe('account');
+        }
     });
 
     it('a aba nova NÃO mexeu no rótulo de ninguém, e isso é a decisão', () => {
@@ -182,12 +200,12 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         expect(adminAudience()).toEqual({ label: null, tabIds: [] });
     });
 
-    it('o administrador tem as SETE abas, com Concessões e Auditoria por último', () => {
+    it('o administrador tem as OITO abas, com Concessões, Auditoria e Minha conta no fim', () => {
         // A ORDEM É CONTRATO (é a de montagem, e a primeira aba é a que o painel abre): as duas
         // de CONSULTA ficam no fim, e entre elas a pessoal vem antes da do sistema.
         expect(adminAudience(ADMIN)).toEqual({
             label: 'Administração',
-            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit'],
+            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account'],
         });
     });
 
@@ -197,7 +215,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // `grants` necessária e não redundante para ele.
         expect(adminAudience(PRODUTOR)).toEqual({
             label: 'Catálogo',
-            tabIds: ['catalog', 'groups', 'grants', 'audit'],
+            tabIds: ['catalog', 'groups', 'grants', 'audit', 'account'],
         });
     });
 
@@ -221,7 +239,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         // Nada aqui é fronteira de segurança: quem gateia é o servidor.
         expect(adminAudience({ isAuthenticated: false, isAdmin: true })).toEqual({
             label: 'Administração',
-            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit'],
+            tabIds: ['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account'],
         });
         // A discriminação: o produtor NÃO tem a mesma robustez, porque ele é testado depois
         // da sessão. Trocar as duas linhas quebraria a asserção de cima ou esta.
@@ -237,7 +255,10 @@ describe('adminAudience — a tabela das quatro audiências', () => {
     it('o credenciado cai na audiência do autenticado comum (D1: o eixo de grupo é posse)', () => {
         // No cliente, o credenciado é uma sessão autenticada que não é administrador nem
         // produtor. Não há terceiro booleano a passar, e é essa ausência que é a decisão.
-        expect(adminAudience(COMUM)).toEqual({ label: 'Acessos', tabIds: ['groups', 'grants'] });
+        expect(adminAudience(COMUM)).toEqual({
+            label: 'Acessos',
+            tabIds: ['groups', 'grants', 'account'],
+        });
         expect(adminAudience(COMUM)).not.toEqual(adminAudience(ADMIN));
     });
 
@@ -245,7 +266,7 @@ describe('adminAudience — a tabela das quatro audiências', () => {
         const primeiro = adminAudience(ADMIN);
         primeiro.tabIds.length = 0;
         expect(adminAudience(ADMIN).tabIds)
-            .toEqual(['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit']);
+            .toEqual(['users', 'groups', 'config', 'catalog', 'personnel', 'grants', 'audit', 'account']);
     });
 });
 

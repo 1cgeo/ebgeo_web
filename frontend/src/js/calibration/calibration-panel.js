@@ -707,7 +707,7 @@ function renderBatchSection(s) {
             </button>
         </div>
         <div style="margin-top: 8px;">
-            <button id="btn-reset-reviewed" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost" style="color: #e74c3c; border-color: #e74c3c;">
+            <button id="btn-reset-reviewed" class="cal-panel__btn cal-panel__btn--small cal-panel__btn--ghost cal-panel__btn--perigo">
                 Resetar Revisoes
             </button>
         </div>

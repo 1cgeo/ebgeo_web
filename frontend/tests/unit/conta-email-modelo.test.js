@@ -26,7 +26,7 @@ import {
     MAX_EMAIL_LENGTH,
     emailPresentation,
     validateEmailChangeForm,
-} from '../../src/js/modals/account-settings.model.js';
+} from '../../src/js/admin/account-model.js';
 
 describe('emailPresentation — três estados, não dois', () => {
     it('endereço confirmado', () => {

@@ -1,16 +1,25 @@
-// Path: js/modals/account-settings.model.js
+// Path: js/admin/account-model.js
 
 /**
  * @fileoverview The rules and the sentences of the "Minha conta" screen, with no DOM and no I/O.
  *
- * WHY IT IS A FILE OF ITS OWN. The modal that uses it reaches `apiClient`, the toast service and
+ * WHY IT IS A FILE OF ITS OWN. The tab that uses it reaches `apiClient`, the toast service and
  * `event-cleanup`, so importing it in a node test drags a browser-shaped graph. What is worth
  * testing here is arithmetic and prose: the password rule that has to MIRROR the server, the
- * warnings that have to be shown BEFORE the irreversible click, and the state a section is in.
- * Splitting them out is what makes the verifiable part verifiable.
+ * warnings that have to be shown BEFORE the irreversible click, and the shape of what a section
+ * shows. Splitting them out is what makes the verifiable part verifiable.
  *
- * ZERO IMPORTS, and that is contract, for the same reason `ui/role-labels.js` has it: the screen
- * is reachable from `atlas.html` and `admin.html`, which boot without the store.
+ * ZERO IMPORTS, and that is contract, for the same reason `ui/role-labels.js` has it: this file
+ * é carregado por `admin.html`, que boota sem a store.
+ *
+ * ELE MUDOU DE ENDEREÇO EM 2026-08-25, de `modals/` para `admin/`, e a mudança é o rastro do que
+ * a tela virou: "Minha conta" deixou de ser modal e passou a ser ABA do painel
+ * (`admin/account-tab.js`), ao lado de "Grupos" e "Concessões".
+ *
+ * A CHAVE DE API SAIU DAQUI NA MESMA DATA, por decisão do chefe. Ela é credencial INTERNA, que o
+ * sistema gerencia para a subrequisição do nginx (cláusula 10.7 de `CONSTITUICAO.md`), e o
+ * usuário final não a vê nem a gerencia. As rotas do servidor continuam de pé, porque a
+ * integração máquina a máquina depende delas; o que saiu foi a superfície de tela.
  *
  * THE PASSWORD BOUNDS ARE A MIRROR, NOT A CHOICE. `updatePasswordSchema`
  * (`backend/src/modules/users/users.schemas.js`) is the authority; the constants below only
@@ -18,11 +27,6 @@
  * structurally by `frontend/tests/unit/conta-regra-de-senha-espelha-servidor.test.js`, which
  * reads the Joi source: a client that drifts below the server's `min` promises an acceptance the
  * server will deny, and one that drifts above forbids a password the server would take.
- *
- * WHAT THE SERVER DOES NOT TELL US, and why one sentence here is written in the negative: there
- * is no route, and no column selected anywhere in the `users` module, that says whether an
- * account already HAS an API key. So the screen may not claim there is one, may not claim there
- * is none, and says so out loud instead of guessing.
  *
  * THE E-MAIL SENTENCES ARE THE OTHER HALF OF THE SAME DISCIPLINE, added in 2026-08-23 together
  * with the address becoming readable at all (`FIND_USER_BY_ID` did not select `email` nor
@@ -135,42 +139,6 @@ export const EMAIL_RESEND_FAILED =
 
 /** Said when the server reports no address at all (an account created by an administrator). */
 export const EMAIL_ABSENT_TEXT = 'nenhum e-mail cadastrado';
-
-/** Shown before any rotation: the key is readable exactly once. */
-export const API_KEY_ONE_TIME_WARNING =
-    'A chave aparece uma única vez, na resposta desta operação. Não há como lê-la de novo: '
-    + 'se ela se perder, o único caminho é gerar outra.';
-
-/** The honest sentence for a fact the server does not expose. */
-export const API_KEY_UNKNOWN_STATE_TEXT =
-    'O servidor não informa se esta conta já tem uma chave, e esta tela não tem como descobrir. '
-    + 'Se já houver uma, gerar outra invalida a anterior na mesma hora.';
-
-/** Shown next to a revealed key, while it is still on screen. */
-export const API_KEY_COPY_NOW_TEXT =
-    'Copie a chave agora e guarde em lugar seguro. Ao fechar esta tela ela some para sempre.';
-
-/** What the person is confirming before a rotation. */
-export const API_KEY_ROTATE_CONFIRM_TITLE = 'Gerar uma chave de API nova?';
-
-/**
- * The body of the rotation confirmation.
- *
- * It names the concrete consequence (every integration using the current key stops working) and
- * does NOT pretend to know whether a key exists, because nothing here can know that.
- */
-export const API_KEY_ROTATE_CONFIRM_MESSAGE =
-    'Se esta conta já tiver uma chave, ela deixa de funcionar no mesmo instante, e toda '
-    + 'integração que a use para de autenticar até receber a chave nova.\n\n'
-    + API_KEY_ONE_TIME_WARNING;
-
-/** Asked when the modal is closed while a key is on screen and was never copied. */
-export const API_KEY_DISCARD_CONFIRM_TITLE = 'Fechar sem copiar a chave?';
-
-/** The body of that question. */
-export const API_KEY_DISCARD_CONFIRM_MESSAGE =
-    'A chave que está na tela não pode ser lida de novo depois que esta janela fechar. '
-    + 'Se você não a copiou, vai precisar gerar outra, e a que está aí deixa de valer.';
 
 /**
  * The message to show for a failed request: the SERVER's explanation when it sent one, the
@@ -350,36 +318,4 @@ export function validateEmailChangeForm(form) {
         return { valid: false, message: 'Informe a senha atual para confirmar a troca.' };
     }
     return { valid: true, message: '' };
-}
-
-/**
- * The state the API key section is in, as one word the renderer switches on.
- *
- * `idle` is NOT "there is no key": it is "no key is on screen right now", which is all this
- * client can honestly assert. See the fileoverview.
- *
- * A failure outranks a revealed key on purpose: if the last rotation failed, the key on screen
- * (if any) belongs to a previous attempt and showing it as fresh would be a lie. `rotating`
- * outranks everything because the request is in flight and neither of the other two is settled.
- *
- * @param {{ rotating?: boolean, apiKey?: *, error?: * }} section
- * @returns {'rotating'|'error'|'revealed'|'idle'}
- */
-export function apiKeySectionState(section) {
-    if (section?.rotating) return 'rotating';
-    if (section?.error) return 'error';
-    if (typeof section?.apiKey === 'string' && section.apiKey !== '') return 'revealed';
-    return 'idle';
-}
-
-/**
- * Whether closing the screen would silently throw away a key.
- *
- * `copied` is set only by a SUCCESSFUL copy: a failed clipboard write leaves it false, which is
- * exactly when the person most needs to be stopped.
- * @param {{ apiKey?: *, copied?: boolean }} section
- * @returns {boolean}
- */
-export function hasUncopiedKey(section) {
-    return apiKeySectionState(section) === 'revealed' && section?.copied !== true;
 }

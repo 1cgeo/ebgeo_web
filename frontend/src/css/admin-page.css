@@ -23,8 +23,9 @@
    which reuses the shared .modal-overlay/.modal-container/.confirm-modal-* rules. */
 @import url('./modals-redesign.css');
 
-/* "Minha conta" (modals/account-settings.modal.js) is opened from all three pages that
-   have a top bar, so its rules are imported by all three manifests. */
+/* "Minha conta" (admin/account-tab.js) é ABA desta página desde 2026-08-25, e não mais um modal
+   aberto das três páginas com barra do topo. Por isso este é o ÚNICO manifesto que a importa:
+   `style.css` e `projects-page.css` a traziam pelo modal, que deixou de existir. */
 @import url('./account-settings.css');
 
 /* ===== The page itself ===== */

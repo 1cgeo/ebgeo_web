@@ -84,14 +84,21 @@ export async function seedTileset(dbName, {
  * Cria um projeto 360 PÚBLICO com uma foto, e devolve o `original_name` dela, que é a forma
  * pela qual `streetview360_data.photo_name` referencia o projeto (`RESOLVE_SV360_REFS`).
  *
+ * `entryPhotoId` É OPCIONAL E NASCE FALSO, e a assimetria é deliberada. A coluna é anulável no
+ * DDL (`007_sv360.sql:45`) porque a ingestão pode não achar a foto de entrada, e a maioria dos
+ * treze specs que chamam este semeador nem olha o projeto: eles querem um id de recurso que o
+ * servidor enxergue. Quem precisa da foto de entrada é o botão "Calibrar" da linha do catálogo,
+ * que muda de URL conforme ela exista, e esse spec pede os DOIS lados.
+ *
  * @param {string} dbName - `readState().dbName`.
- * @param {{photoName?: string, slug?: string}} [opts]
- * @returns {Promise<{photoName: string, projectId: string, slug: string}>}
+ * @param {{photoName?: string, slug?: string, entryPhotoId?: boolean}} [opts]
+ * @returns {Promise<{photoName: string, projectId: string, slug: string, photoId: string}>}
  */
-export async function seedSv360Photo(dbName, { photoName, slug } = {}) {
+export async function seedSv360Photo(dbName, { photoName, slug, entryPhotoId = false } = {}) {
     const sufixo = Math.random().toString(36).slice(2, 10);
     const nomeFoto = photoName ?? `foto-e2e-${sufixo}.jpg`;
     const slugProjeto = slug ?? `projeto-e2e-${sufixo}`;
+    const idFoto = `foto-${sufixo}`;
     const conn = conectar(dbName);
     const projeto = await conn.one(
         `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, status, access_level)
@@ -102,9 +109,13 @@ export async function seedSv360Photo(dbName, { photoName, slug } = {}) {
     await conn.none(
         `INSERT INTO sv360.photos (id, project_id, original_name, sequence_number, lat, lon)
          VALUES ($1, $2, $3, 1, -22.9, -43.2)`,
-        [`foto-${sufixo}`, projeto.id, nomeFoto],
+        [idFoto, projeto.id, nomeFoto],
     );
-    return { photoName: nomeFoto, projectId: projeto.id, slug: slugProjeto };
+    if (entryPhotoId) {
+        await conn.none('UPDATE sv360.projects SET entry_photo_id = $1 WHERE id = $2',
+            [idFoto, projeto.id]);
+    }
+    return { photoName: nomeFoto, projectId: projeto.id, slug: slugProjeto, photoId: idFoto };
 }
 
 /**

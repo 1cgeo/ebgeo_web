@@ -204,8 +204,22 @@ class CatalogTab {
     _build() {
         const c = this._container;
         c.replaceChildren();
+        // A PORTA DE CRIAR MORA NO CABEÇALHO, e não numa faixa solta acima da tabela.
+        //
+        // ELA ERA UM BOTÃO ÓRFÃO numa `admin-users__toolbar` de um item só, logo abaixo da
+        // sub-nav, e ali não se lia como ação primária: parecia mais um filtro. A aba Usuários
+        // já resolvia isso desde sempre (`users-tab.js`, "+ Novo usuário" em `actions`), e a
+        // divergência era só destas duas abas. O `+` é a mesma convenção de lá, e é o que
+        // distingue "criar" de "abrir" à primeira vista.
+        //
+        // O RÓTULO E O `testid` MUDAM COM A CATEGORIA, porque o botão é um só e o alvo dele não:
+        // as quatro categorias de catálogo abrem formulário, e o 360 abre o envio de bundle, que
+        // é outra rota e outro nome. `_selectCategory` os reescreve.
+        this._newBtn = button('', 'admin-btn admin-btn--primary', 'admin-catalog-new',
+            () => this._acionarCriacao());
         c.appendChild(sectionHeader('Catálogo', {
             subtitle: 'Recursos globais — 3D, 360, dados, análises e basemaps (metadados)',
+            actions: [this._newBtn],
         }));
 
         // A legenda dos três eixos fica NA TELA, e não só no código: eles se parecem o
@@ -256,8 +270,38 @@ class CatalogTab {
         for (const [k, btn] of this._navButtons) {
             btn.classList.toggle('admin-catalog__nav-btn--active', k === key);
         }
+        this._ajustarBotaoDeCriar(key);
         if (key === 'sv360') this._render360List();
         else this._renderResourceList(key);
+    }
+
+    /**
+     * Reescreve rótulo e `testid` do botão primário para a categoria da vez.
+     *
+     * O `testid` MUDA DE VERDADE, e não é descuido: `admin-catalog-new` e `admin-360-upload` são
+     * dois alvos que specs já miram, e são duas AÇÕES distintas (abrir formulário contra abrir
+     * envio de bundle). Fundi-los num nome só quebraria os specs e apagaria a diferença; mantê-los
+     * como dois botões desenhados ao mesmo tempo mostraria uma porta que a categoria da vez não
+     * tem. Um botão que troca de identidade é o que descreve o que a tela faz.
+     * @private
+     * @param {string} key
+     */
+    _ajustarBotaoDeCriar(key) {
+        if (!this._newBtn) return;
+        if (key === 'sv360') {
+            this._newBtn.textContent = '+ Enviar bundle 360°';
+            this._newBtn.dataset.testid = 'admin-360-upload';
+            return;
+        }
+        const label = CATEGORIES.find((x) => x.key === key)?.label ?? key;
+        this._newBtn.textContent = `+ Novo — ${label}`;
+        this._newBtn.dataset.testid = 'admin-catalog-new';
+    }
+
+    /** @private O clique do botão primário, despachado pela categoria viva. */
+    _acionarCriacao() {
+        if (this._category === 'sv360') this._render360Upload();
+        else this._renderResourceForm(this._category, null);
     }
 
     // ----- resources list -----
@@ -266,13 +310,6 @@ class CatalogTab {
     async _renderResourceList(category) {
         const c = this._content;
         c.replaceChildren();
-
-        const toolbar = document.createElement('div');
-        toolbar.className = 'admin-users__toolbar';
-        const label = CATEGORIES.find((x) => x.key === category)?.label ?? category;
-        toolbar.appendChild(button(`Novo — ${label}`, 'admin-btn admin-btn--primary', 'admin-catalog-new',
-            () => this._renderResourceForm(category, null)));
-        c.appendChild(toolbar);
 
         // O REGIME DE ESCOPO MUDA ENTRE AS SUB-ABAS, e nada dizia isso. Estas quatro vêm de
         // `listCatalog`, recortada por ACESSO: o acervo público inteiro mais o privado dele, com a
@@ -327,7 +364,7 @@ class CatalogTab {
             // `emptyState` E NAO paragrafo cru, como as outras quatro abas ja faziam: o
             // helper traz a DICA do proximo passo, e vazio sem proximo passo e beco.
             wrap.appendChild(emptyState('Nenhum item nesta categoria.', {
-                hint: 'Use o botao "Novo" acima para criar o primeiro.',
+                hint: 'Use o botao "+ Novo" no topo da secao para criar o primeiro.',
             }));
             return;
         }
@@ -979,25 +1016,20 @@ class CatalogTab {
         const c = this._content;
         c.replaceChildren();
 
-        // A PORTA DO ENVIO, que nao existia. `POST /sv360/admin/projects/upload` e autenticada,
-        // aceita o produtor e IMPOE a OM dele, e mesmo assim tinha zero chamadores no cliente: o
-        // unico caminho de ingestao era shell no servidor, e esta propria aba anunciava isso como
-        // se fosse desenho. Decisao do dono, 2026-08-24: a tela do 360 nasce (a rota ja existia);
-        // a ingestao 3D continua sendo operacao de servidor, e a clausula 2.4 passa a dize-lo.
-        const toolbar = document.createElement('div');
-        toolbar.className = 'admin-users__toolbar';
-        toolbar.appendChild(button('Enviar bundle 360°', 'admin-btn admin-btn--primary',
-            'admin-360-upload', () => this._render360Upload()));
-        c.appendChild(toolbar);
-
+        // A PORTA DO ENVIO mora no cabecalho da secao desde 2026-08-25, e nao mais numa faixa
+        // solta aqui. `POST /sv360/admin/projects/upload` e autenticada, aceita o produtor e IMPOE
+        // a OM dele, e mesmo assim tinha zero chamadores no cliente: o unico caminho de ingestao
+        // era shell no servidor, e esta propria aba anunciava isso como se fosse desenho. Decisao
+        // do dono, 2026-08-24: a tela do 360 nasce (a rota ja existia); a ingestao 3D continua
+        // sendo operacao de servidor, e a clausula 2.4 passa a dize-lo.
         const note = document.createElement('p');
         note.className = 'admin-form__hint';
-        // ANUNCIA AS QUATRO ACOES, e nao duas. A nota falava em "status/exclusao" enquanto a
-        // linha oferece ativar/desativar, publico/privado, video e excluir: as duas nao anunciadas
-        // sao justamente as que mudam quem VE o projeto.
+        // ANUNCIA AS CINCO ACOES, e nao duas. A nota falava em "status/exclusao" enquanto a
+        // linha oferece ativar/desativar, publico/privado, calibrar, video e excluir: as nao
+        // anunciadas incluem justamente as que mudam quem VE o projeto.
         note.textContent = 'Aqui você gerencia os metadados do projeto 360: status (Ativo/Inativo), '
-            + 'acesso (Público/Privado), vídeo de prévia e exclusão. O envio do bundle é feito '
-            + 'pelo botão acima.';
+            + 'acesso (Público/Privado), calibração das fotos, vídeo de prévia e exclusão. '
+            + 'O envio do bundle é feito pelo botão no topo da seção.';
         c.appendChild(note);
 
         const wrap = card({ testid: 'admin-360-list', padded: false });
@@ -1031,7 +1063,7 @@ class CatalogTab {
         wrap.replaceChildren();
         if (projects.length === 0) {
             wrap.appendChild(emptyState('Nenhum projeto 360.', {
-                hint: 'Use "Enviar bundle 360" acima para ingerir o primeiro.',
+                hint: 'Use "+ Enviar bundle 360" no topo da secao para ingerir o primeiro.',
             }));
             return;
         }
@@ -1081,15 +1113,20 @@ class CatalogTab {
             // `organization_id` JÁ É a OM dona do projeto 360 (não existe uma segunda coluna
             // para o eixo de produção aqui), então é ela que responde `canProduceFor`.
             const mantem = sessionContext.canProduceFor(p.organization_id ?? p.organizationId);
-            // OS TRÊS BOTÕES SÃO DE QUEM MANTÉM, e o de ACESSO entrou aqui em 2026-08-20:
+            // OS CINCO BOTÕES SÃO DE QUEM MANTÉM, e o de ACESSO entrou aqui em 2026-08-20:
             // marcar público/privado deixou de ser `requireAdmin` e virou
             // `requireResourceMaintainer`, do qual `canProduceFor` é o espelho. Um `if`
             // separado para o acesso seria a mesma pergunta feita por dois critérios.
+            // CALIBRAR entrou em 2026-08-25 pelo mesmo gate, e por um motivo de endereço: o
+            // estúdio era um botão global da barra do topo, que levava ao seletor e mandava
+            // escolher de novo o projeto que a pessoa já tinha na tela.
             if (mantem) {
                 actions.appendChild(button(enabled ? 'Desativar' : 'Ativar', 'admin-btn admin-btn--ghost', 'admin-360-toggle',
                     () => this._toggle360(p, enabled ? 'disabled' : 'enabled')));
                 actions.appendChild(button(privado ? 'Tornar público' : 'Tornar privado', 'admin-btn admin-btn--ghost',
                     'admin-360-access', () => this._toggle360Access(p, privado ? 'public' : 'private')));
+                actions.appendChild(button('Calibrar', 'admin-btn admin-btn--ghost', 'admin-360-calibrar',
+                    () => this._calibrar360(p)));
                 // O VÍDEO DE PRÉVIA DO 360 É AÇÃO DE LINHA, e não campo de formulário: esta
                 // categoria não tem formulário nenhum (o bundle entra fora do painel), então
                 // a única superfície de escrita que existe é a tabela. O rótulo diz o ESTADO
@@ -1211,6 +1248,30 @@ class CatalogTab {
      * é REMOÇÃO e escreve. Confundir os dois faria "cancelar" apagar o vídeo.
      * @param {Object} project
      */
+    /**
+     * Abre o estúdio de calibração 360 na FOTO DE ENTRADA do projeto desta linha.
+     *
+     * O CONTRATO DA URL É UMA CHAVE SÓ. `calibration/app.js` lê `?photo=` e nada mais: não existe
+     * `?projeto=` nem `?slug=`. Passar a foto de entrada basta, porque `startCalibration` busca os
+     * metadados dela e carrega o contexto do projeto sozinho. Sem o parâmetro, a página cai no
+     * seletor de projetos, que é exatamente o desvio que este botão veio eliminar.
+     *
+     * `entry_photo_id` É ANULÁVEL (`007_sv360.sql:45`): é referência lógica, e a foto pode não
+     * existir na ingestão. Daí o desvio para a URL sem parâmetro, que ainda leva ao estúdio.
+     *
+     * NAVEGAÇÃO, NÃO ESCRITA. Por isso não há `showConfirm`, `showSuccess` nem guarda de `_alive`:
+     * a página inteira vai embora. O gate da página de destino (`isAdmin() || isProducer()`) é
+     * satisfeito por construção, porque este botão só existe dentro de `if (mantem)`.
+     * @private
+     * @param {Object} project - A linha crua de `GET /sv360/admin/projects`.
+     */
+    _calibrar360(project) {
+        const entrada = project.entry_photo_id ?? project.entryPhotoId ?? null;
+        window.location.assign(entrada
+            ? `./calibracao.html?photo=${encodeURIComponent(entrada)}`
+            : './calibracao.html');
+    }
+
     async _edit360Video(project) {
         const slug = project.slug ?? project.name;
         const atual = project.preview_video ?? project.previewVideo ?? '';

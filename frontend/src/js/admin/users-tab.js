@@ -315,13 +315,11 @@ class UsersTab {
                 actions.appendChild(button('Aprovar', 'admin-btn admin-btn--ghost admin-btn--sm',
                     'admin-user-approve', () => this._approve(u)));
             }
-            // REVOGAR A CHAVE DE OUTRA PESSOA. A rota existe desde sempre
-            // (`POST /users/:userId/api-key/rotate`, com `requireAdmin`) e o método do cliente
-            // também (`apiClient.rotateUserApiKey`), com ZERO chamadores: a única forma de cortar
-            // uma chave comprometida alheia era SQL no banco. Rotacionar É revogar: a chave antiga
-            // deixa de autenticar no instante em que a nova é gravada.
-            actions.appendChild(button('Revogar chave', 'admin-btn admin-btn--ghost admin-btn--sm',
-                'admin-user-revoke-key', () => this._revokeApiKey(u)));
+            // "REVOGAR CHAVE" SAIU DAQUI EM 2026-08-25, por decisão do chefe, junto com a seção de
+            // chave de "Minha conta". A chave de API é credencial INTERNA, que o sistema gerencia
+            // para a subrequisição do nginx (cláusula 10.7 de `CONSTITUICAO.md`): ninguém a pede,
+            // ninguém a lê e ninguém a revoga pela tela. As rotas do servidor continuam de pé,
+            // porque a integração máquina a máquina depende delas.
             if (u.is_active) {
                 const deBtn = button('Desativar', 'admin-btn admin-btn--danger admin-btn--sm', 'admin-user-deactivate',
                     () => this._deactivate(u));
@@ -694,34 +692,6 @@ class UsersTab {
             if (this._alive) this._renderList();
         } catch (err) {
             showError(err?.message || 'Falha ao aprovar o acesso.');
-        }
-    }
-
-    /**
-     * Rotaciona (e portanto revoga) a chave de API de outra pessoa.
-     *
-     * NÃO MOSTRA A CHAVE NOVA, e a omissão é a decisão: quem revoga uma chave comprometida está
-     * cortando acesso, não emitindo credencial para si. A chave nova pertence ao dono da conta, e
-     * ele a lê em "Minha conta", onde a revelação já tem o cuidado todo (uma vez só, com guarda ao
-     * fechar sem copiar). Mostrá-la aqui entregaria ao administrador uma credencial alheia viva.
-     * @private
-     * @param {Object} user
-     * @returns {Promise<void>}
-     */
-    async _revokeApiKey(user) {
-        const ok = await showConfirm(`Revogar a chave de API de "${user.username}"?`, {
-            message: 'A chave atual deixa de autenticar imediatamente, e toda integração que a '
-                + 'use para de funcionar. Uma chave nova é gerada no lugar, e só a própria pessoa '
-                + 'consegue lê-la, em "Minha conta". Isto não se desfaz: a chave antiga não volta.',
-            destructive: true,
-            confirmText: 'Revogar',
-        });
-        if (!ok) return;
-        try {
-            await apiClient.rotateUserApiKey(user.id);
-            showSuccess('Chave de API revogada. A pessoa precisa pegar a nova em "Minha conta".');
-        } catch (err) {
-            showError(err?.message || 'Falha ao revogar a chave de API.');
         }
     }
 

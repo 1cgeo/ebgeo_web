@@ -33,10 +33,14 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { apiClient, configureApiClient } from '@store/sync/api-client.js';
 import { sessionContext, sessionUserInfoFromMe } from '@store/sync/session-context.js';
 import { showUnavailableScreen, BlockingCause } from '@ui/unavailable-screen.js';
-// A MESMA barra de atlas.html e admin.html, pelo arquivo. Ela traz 'Minha conta' e 'Sair' de
-// graca, que era metade do buraco desta pagina; a outra metade (saida para o mapa) entra como
-// acao propria abaixo.
+// A MESMA barra de atlas.html e admin.html, pelo arquivo. Ela traz identidade, selo de papel e
+// 'Sair' de graca, que era metade do buraco desta pagina; a outra metade (voltar ao catalogo e ir
+// para o mapa) entra como acao propria abaixo. 'Minha conta' fica de fora aqui, por opcao.
 import { createAppBar } from '@ui/app-bar.js';
+// A definicao unica das audiencias de `admin.html`, folha e sem imports. Ela entra aqui porque
+// o botao 'Catalogo' e uma PORTA para aquela pagina, e a regra da casa e que quem decide porta
+// consome `adminAudience`, nunca um predicado escrito de novo.
+import { adminAudience } from '@js/admin/admin-audience.js';
 import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 // From the FILE, never from the `@utils` barrel: the barrel reaches `@store` transitively.
 import { initTabLock, noneKey } from '@utils/tab-lock.js';
@@ -58,6 +62,25 @@ import { CALIBRATION_LOST_PARAM, CalibrationExitParam } from './exit-decision.js
 const MAP_URL = './';
 /** "Sair da calibracao" devolve ao seletor de projetos, que e de onde se chega a Administracao. */
 const PROJECTS_URL = './atlas.html';
+
+/**
+ * O CAMINHO DE VOLTA desta tela: a aba Catalogo do painel, que e de onde se chega aqui.
+ *
+ * Desde 2026-08-25 a calibracao se alcanca pela LINHA do projeto 360 naquela aba
+ * (`admin/catalog-tab.js`), e nao mais por um botao global. Uma ida sem volta e o defeito que
+ * isto fecha: quem entrava no estudio so tinha 'Ir para o mapa', que devolve ao EBGeo e nao ao
+ * inventario de onde ele veio. Relativa, como as duas acima.
+ */
+const CATALOG_URL = './admin.html?aba=catalog';
+
+/**
+ * O id da aba de Catalogo. Quem recebe a aba e `adminAudience`, e este literal so nomeia qual
+ * aba perguntar; escreve-lo aqui nao duplica decisao nenhuma.
+ */
+const CATALOG_TAB_ID = 'catalog';
+
+/** Icone do botao "Catalogo": pilha de camadas, estatico e sem dado de usuario. */
+const CATALOG_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>`;
 
 const CONFIG_BOOT_ATTEMPTS = 3;
 const CONFIG_BOOT_RETRY_MS = 1000;
@@ -277,22 +300,56 @@ async function initCalibracaoPage() {
     // Ela SOBREPOE o viewer (ver calibracao.css, secao BARRA SUPERIOR): empurrar o viewer para
     // baixo mudaria a razao de aspecto do canvas, que e o que garante que a projecao aqui seja
     // identica a do visualizador 360 do mapa.
+    //
+    // 'MINHA CONTA' SAI E 'CATALOGO' ENTRA, e so nesta pagina. Decisao do chefe, 2026-08-25: a
+    // conta nao e destino util de quem esta calibrando, e o que faltava era o caminho de VOLTA
+    // para a aba de onde se chega aqui. Quem tira a porta da conta e a OPCAO `showAccount`, nunca
+    // um `if` sobre o nome do arquivo dentro de `app-bar.js`: aquela barra serve quatro paginas e
+    // nao conhece nenhuma. As outras tres continuam com 'Minha conta' por nao passarem a opcao.
+    //
+    // E QUEM DECIDE A PORTA NOVA E `adminAudience`, e nao o gate desta pagina. As duas dao o mesmo
+    // resultado hoje (as duas audiencias que calibram recebem a aba `catalog`), e nao e por isso
+    // que a linha e assim: um recorte futuro daquela aba passa a valer aqui sem ninguem lembrar
+    // deste arquivo, que e a razao de a definicao ser unica.
+    const audiencia = adminAudience({
+        isAuthenticated: sessionContext.isAuthenticated(),
+        isAdmin: sessionContext.isAdmin(),
+        isProducer: sessionContext.isProducer(),
+    });
+
+    const acoes = [];
+    if (audiencia.tabIds.includes(CATALOG_TAB_ID)) {
+        acoes.push({
+            label: 'Catálogo',
+            icon: CATALOG_ICON,
+            testid: 'calibracao-catalogo',
+            title: 'Voltar ao catálogo 360, onde fica a linha deste projeto',
+            // PASSA PELO GUARDA pela mesma razao do botao ao lado: e saida da pagina.
+            onClick: async () => {
+                const { proceed } = await guardCalibrationExit({ voluntary: true });
+                if (proceed) window.location.assign(CATALOG_URL);
+            },
+        });
+    }
+    acoes.push({
+        label: 'Ir para o mapa',
+        testid: 'calibracao-sair',
+        title: 'Sair da calibração e voltar ao EBGeo',
+        // PASSA PELO GUARDA, como o botao '← Projetos': sair da pagina com alinhamento nao
+        // gravado e a mesma perda, e `beforeunload` nao intercepta navegacao programatica.
+        onClick: async () => {
+            const { proceed } = await guardCalibrationExit({ voluntary: true });
+            if (proceed) window.location.assign(MAP_URL);
+        },
+    });
+
     const barra = createAppBar({
         logo: EBGEO_LOGO_BASE64,
         title: 'Calibração 360',
         subtitle: config?.app?.title || 'EBGeo',
         user: { id: sessionContext.userId, name: sessionContext.username },
-        actions: [{
-            label: 'Ir para o mapa',
-            testid: 'calibracao-sair',
-            title: 'Sair da calibração e voltar ao EBGeo',
-            // PASSA PELO GUARDA, como o botao '← Projetos': sair da pagina com alinhamento nao
-            // gravado e a mesma perda, e `beforeunload` nao intercepta navegacao programatica.
-            onClick: async () => {
-                const { proceed } = await guardCalibrationExit({ voluntary: true });
-                if (proceed) window.location.assign(MAP_URL);
-            },
-        }],
+        showAccount: false,
+        actions: acoes,
         onLogout: () => { endSession('saida', { voluntary: true }); },
     });
     document.body.prepend(barra.element);
