@@ -49,11 +49,19 @@ export const MOSAIC_CUT_SLACK_MM = 2;
  * and combined with a cut at the full overlap it left a white strip ≈ m at every
  * seam regardless of overlap.)
  *
+ * A default PARAMETER only fires for `undefined`, so `null` (and NaN, and a
+ * string) used to reach the arithmetic: `getMosaicOverlapMm(null)` answered 4 mm
+ * where the fixed margin gives 24 mm, which is a seam that does not close. The
+ * guard is explicit so every spelling of "no margin given" lands on the default.
+ *
  * @param {number} [printerMarginMm=MOSAIC_PRINTER_MARGIN_MM] - Assumed unprintable margin (mm)
  * @returns {number} Overlap in mm
  */
 export function getMosaicOverlapMm(printerMarginMm = MOSAIC_PRINTER_MARGIN_MM) {
-    return 2 * (printerMarginMm + MOSAIC_CUT_SLACK_MM);
+    const margin = Number.isFinite(printerMarginMm)
+        ? printerMarginMm
+        : MOSAIC_PRINTER_MARGIN_MM;
+    return 2 * (margin + MOSAIC_CUT_SLACK_MM);
 }
 
 /** Seam overlap (mm) at the fixed printer margin (= 24 mm). */
@@ -64,9 +72,17 @@ export const MOSAIC_WARN_TILES = 16;
 
 /**
  * Parses the denominator from a scale string like "1:25000".
+ *
+ * A scale denominator has to be POSITIVE, and `|| 25000` only caught 0 and NaN:
+ * '1:-5000' came back as -5000 and reached every consumer (bar width, ground
+ * span, zoom), flipping their signs instead of falling back.
+ *
  * @param {string} scale - Scale string
  * @returns {number} Scale denominator (defaults to 25000 if parsing fails)
  */
 export function parseScaleDenom(scale) {
-    return parseInt(scale.split(':')[1], 10) || 25000;
+    // A non-string still throws, deliberately: that is a caller bug, and every
+    // caller already passes `scale || '1:25000'`.
+    const denom = parseInt(scale.split(':')[1], 10);
+    return Number.isFinite(denom) && denom > 0 ? denom : 25000;
 }

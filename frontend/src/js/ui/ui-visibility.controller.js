@@ -98,7 +98,16 @@ export const UIVisibilityEvents = Object.freeze({
 /**
  * Profile definitions - maps profile names to element visibility.
  * true = visible, false = hidden
- * Elements not listed inherit from 'normal' profile.
+ *
+ * THERE IS NO INHERITANCE. This comment used to promise "elements not listed inherit from
+ * the 'normal' profile", and `applyProfile` never implemented it: an element a profile omits
+ * simply KEEPS whatever state it had, which is the previous profile's state, not the normal
+ * one. The promise is harmless today only because every built-in table below is exhaustive
+ * over `UIElement`, so nothing is ever omitted. The prose was corrected rather than the code
+ * because the code is the one the seven tables were written against, and a late-added
+ * inheritance step would silently re-show elements that a partial profile meant to leave
+ * alone. `defineProfile` DOES merge over normal, and that is a property of that function, not
+ * of the table format.
  */
 const PROFILES = {
     [VisibilityProfile.NORMAL]: {
@@ -248,6 +257,13 @@ const PROFILES = {
     }
 };
 
+/**
+ * Names `defineProfile` refuses to redefine. Derived from the enum so a profile added there
+ * is protected without a second edit.
+ * @type {Set<string>}
+ */
+const BUILT_IN_PROFILES = new Set(Object.values(VisibilityProfile));
+
 // ============================================================================
 // CONTROLLER CLASS
 // ============================================================================
@@ -295,7 +311,10 @@ class UIVisibilityController {
      * @param {Function} callbacks.hide - Called to hide the element
      */
     register(elementId, callbacks) {
-        if (!callbacks.show || !callbacks.hide) {
+        // Test the OBJECT before reading through it: `callbacks.show` on a null/undefined
+        // argument throws a TypeError out of a method whose whole job is to refuse bad input,
+        // so a single mis-wired control took down the caller instead of logging a warning.
+        if (!callbacks || !callbacks.show || !callbacks.hide) {
             console.warn(`UIVisibilityController: Invalid callbacks for ${elementId}`);
             return;
         }
@@ -329,7 +348,14 @@ class UIVisibilityController {
      * @returns {boolean} True if profile was applied
      */
     applyProfile(profileName) {
-        const profile = PROFILES[profileName];
+        // `Object.hasOwn`, NEVER the bare lookup: `PROFILES` is an object literal, so its
+        // prototype chain is live and `PROFILES['constructor']` (or 'toString', 'valueOf',
+        // 'hasOwnProperty') answers with a FUNCTION, which is truthy. The guard below then
+        // passed, the method reported success, stamped `_currentProfile` with the bogus name
+        // and emitted PROFILE_CHANGED, all without applying a single visibility. Same shape as
+        // `arrivalNotice` in `projects/atlas-drive.js`; freezing the literal would not help,
+        // because the chain stays reachable.
+        const profile = Object.hasOwn(PROFILES, profileName) ? PROFILES[profileName] : null;
         if (!profile) {
             console.warn(`UIVisibilityController: Unknown profile ${profileName}`);
             return false;
@@ -432,16 +458,30 @@ class UIVisibilityController {
     // =========================================================================
 
     /**
-     * Defines a custom visibility profile.
+     * Defines a custom visibility profile, merged over the NORMAL baseline.
+     *
+     * A BUILT-IN profile (any value of `VisibilityProfile`) is refused, not overwritten.
+     * Overwriting used to be allowed with only a warning, and the damage outlived the call:
+     * `PROFILES` is a module-level mutable object, so poisoning NORMAL once meant every later
+     * "back to normal" in that page load restored the POISONED table (a sidebar that stayed
+     * hidden for the rest of the session, with nothing on screen explaining why). Redefining
+     * a CUSTOM profile stays allowed, and still warns, because a caller that owns the name
+     * owns the table.
      *
      * @param {string} profileName - Unique profile name
      * @param {Object} visibility - Map of elementId to boolean
+     * @returns {boolean} True if the profile was defined
      */
     defineProfile(profileName, visibility) {
-        if (PROFILES[profileName]) {
+        if (BUILT_IN_PROFILES.has(profileName)) {
+            console.warn(`UIVisibilityController: Refusing to redefine built-in profile ${profileName}`);
+            return false;
+        }
+        if (Object.hasOwn(PROFILES, profileName)) {
             console.warn(`UIVisibilityController: Overwriting existing profile ${profileName}`);
         }
         PROFILES[profileName] = { ...PROFILES[VisibilityProfile.NORMAL], ...visibility };
+        return true;
     }
 
     // =========================================================================

@@ -19,8 +19,8 @@
  * - `generateBoundaryGeometry`: which fallback each bad input actually reaches.
  * - `createEchelonSymbol`: the line/polygon arithmetic (2 per X, 1 per I, one polygon
  *   per o) and what an unknown character does.
- * - `generateBoundaryTexts`: the `text_distance_ratio || 0.9` falsy-zero fallback and
- *   the rotation seam at bearing 0 and 180.
+ * - `generateBoundaryTexts`: the finite-guarded ratio/size fallbacks and the
+ *   rotation seam at bearing 0 and 180.
  * - `updateFromHandle` for `vertex` and `midpoint`: the asymmetric index guards.
  *
  * WHAT IT DOES NOT REACH
@@ -150,9 +150,10 @@ describe('AddBoundaryGeometry.normalizeBaseCoordinates', () => {
         expect(geom.normalizeBaseCoordinates('[[0,0],[null,1]]')).toBeNull();
     });
 
-    it('JSON válido que NÃO é array vira null (ao contrário do da seta)', () => {
-        // The arrow tool returns the scalar; here the shape is checked. Same problem,
-        // two different answers in two files of the same tool family.
+    it('JSON válido que NÃO é array vira null', () => {
+        // The arrow tool used to return the scalar here; it now refuses too, with its
+        // own sentinel ([] rather than null). The SENTINELS still differ, the policy
+        // no longer does.
         expect(geom.normalizeBaseCoordinates('42')).toBeNull();
         expect(geom.normalizeBaseCoordinates('{"a":1}')).toBeNull();
     });
@@ -193,28 +194,36 @@ describe('AddBoundaryGeometry.normalizeBaseCoordinates', () => {
     });
 });
 
-describe('DEFEITO: normalizeBaseCoordinates aceita Infinity', () => {
-    // `!isNaN(Infinity)` is false, so the "is it a real number" test lets it through.
-    // `typeof` says number and NaN says no, but nothing asks `Number.isFinite`. The
-    // very same shape as the `validate` bugs the Lote 1 fixed in circle/line/polygon.
+describe('CONSERTADO: normalizeBaseCoordinates aceitava Infinity', () => {
+    // `!isNaN(Infinity)` is false, so the old "is it a real number" test let it
+    // through: `typeof` said number and NaN said no, but nothing asked
+    // `Number.isFinite`. The same shape as the `validate` bugs Lote 1 fixed in
+    // circle/line/polygon. The four hand-written copies of that predicate are now one
+    // `AddBoundaryGeometry.isFinitePosition`.
 
     it('CONTROLE: o mesmo predicado recusa NaN', () => {
         expect(geom.normalizeBaseCoordinates([[0, 0], [NaN, 1]])).toBeNull();
     });
 
-    it.fails('DEVERIA recusar Infinity (hoje devolve o array)', () => {
+    it('recusa Infinity (antes devolvia o array)', () => {
         expect(geom.normalizeBaseCoordinates([[0, 0], [Infinity, 1]])).toBeNull();
     });
 
-    it.fails('DEVERIA recusar -Infinity (hoje devolve o array)', () => {
+    it('recusa -Infinity (antes devolvia o array)', () => {
         expect(geom.normalizeBaseCoordinates([[0, 0], [1, -Infinity]])).toBeNull();
     });
 
-    it('OBSERVADO: as três funções deixam Infinity passar, em conjunto', () => {
+    it('as três funções recusam Infinity em conjunto', () => {
         const withInfinity = [[0, 0], [Infinity, 1]];
-        expect(geom.normalizeBaseCoordinates(withInfinity)).toBe(withInfinity);
-        expect(geom.validate(withInfinity)).toBe(true);
-        expect(geom.isValidBoundary(withInfinity)).toBe(true);
+        expect(geom.normalizeBaseCoordinates(withInfinity)).toBeNull();
+        expect(geom.validate(withInfinity)).toBe(false);
+        expect(geom.isValidBoundary(withInfinity)).toBe(false);
+        // Control: the same three still ACCEPT the finite version of that list, so
+        // the block above is not passing because the predicate rejects everything.
+        const finite = [[0, 0], [1, 1]];
+        expect(geom.normalizeBaseCoordinates(finite)).toBe(finite);
+        expect(geom.validate(finite)).toBe(true);
+        expect(geom.isValidBoundary(finite)).toBe(true);
     });
 });
 
@@ -342,17 +351,16 @@ describe('AddBoundaryGeometry.removeVertexAtIndex', () => {
     });
 });
 
-describe('DEFEITO: removeVertexAtIndex aceita índice não-inteiro (mesmo defeito da seta)', () => {
+describe('CONSERTADO: removeVertexAtIndex aceitava índice não-inteiro (mesmo defeito da seta)', () => {
     it('CONTROLE: o mesmo caminho recusa um inteiro fora do intervalo', () => {
         expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 5)).toBeNull();
+        // ...and still accepts a valid one, so the guard did not close entirely.
+        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 1)).toEqual([[0, 0], [2, 2]]);
     });
 
-    it.fails('DEVERIA recusar NaN (hoje apaga o vértice 0)', () => {
+    it('recusa NaN e o fracionário (antes NaN apagava o vértice 0)', () => {
         expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], NaN)).toBeNull();
-    });
-
-    it('OBSERVADO: NaN apaga o primeiro vértice, sem aviso', () => {
-        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], NaN)).toEqual([[1, 1], [2, 2]]);
+        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 1.5)).toBeNull();
     });
 });
 
@@ -377,9 +385,10 @@ describe('AddBoundaryGeometry.generateBoundaryGeometry', () => {
     });
 
     it('UM vértice ruim também vira [[0,0],[0,0]], porque normalize já devolveu null', () => {
-        // Note which fallback is NOT reached: the `[[0,0],[1,1]]` branch guarded by
-        // `hasValidCoords` is unreachable, since normalize enforces the same predicate
-        // one step earlier and returns null.
+        // Note which fallback is NOT reached: there used to be a second
+        // `[[0,0],[1,1]]` branch guarded by a `hasValidCoords` re-check, and it was
+        // dead, since normalize enforces the same predicate one step earlier and
+        // returns null. It has been pruned.
         expect(geom.generateBoundaryGeometry({ baseCoordinates: [[0, 0], [NaN, 1]] }))
             .toEqual({ type: 'LineString', coordinates: [[0, 0], [0, 0]] });
         expect(geom.generateBoundaryGeometry({ baseCoordinates: 'lixo' }))
@@ -392,24 +401,32 @@ describe('AddBoundaryGeometry.generateBoundaryGeometry', () => {
     });
 });
 
-describe('DEFEITO: lista vazia produz uma LineString com ZERO posições', () => {
-    // `[]` is truthy, so `baseCoordinates || [[0,0],[0,0]]` keeps the empty array and the
-    // fallback emits `{type:'LineString', coordinates: []}`. GeoJSON requires a LineString
-    // to have at least two positions, so this is malformed output, not a degenerate one.
+describe('CONSERTADO: lista vazia produzia uma LineString com ZERO posições', () => {
+    // `[]` is truthy, so `baseCoordinates || [[0,0],[0,0]]` kept the empty array and
+    // the fallback emitted `{type:'LineString', coordinates: []}`. GeoJSON requires a
+    // LineString to have at least two positions, so that was malformed output, not a
+    // degenerate one. The fallback now tests the LENGTH instead of the truthiness.
 
     it('CONTROLE: null, no mesmo ramo, produz uma LineString com duas posições', () => {
         expect(geom.generateBoundaryGeometry({ baseCoordinates: null }).coordinates.length).toBe(2);
     });
 
-    it.fails('DEVERIA emitir ao menos 2 posições (hoje emite 0)', () => {
+    it('emite ao menos 2 posições para a lista vazia (antes emitia 0)', () => {
         expect(geom.generateBoundaryGeometry({ baseCoordinates: [] }).coordinates.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("OBSERVADO: [] e '[]' produzem coordinates vazio", () => {
+    it("[] e '[]' caem no mesmo degenerado de null", () => {
         expect(geom.generateBoundaryGeometry({ baseCoordinates: [] }))
-            .toEqual({ type: 'LineString', coordinates: [] });
+            .toEqual({ type: 'LineString', coordinates: [[0, 0], [0, 0]] });
         expect(geom.generateBoundaryGeometry({ baseCoordinates: '[]' }))
-            .toEqual({ type: 'LineString', coordinates: [] });
+            .toEqual({ type: 'LineString', coordinates: [[0, 0], [0, 0]] });
+    });
+
+    it('LIMITE CONHECIDO: o vértice ÚNICO ainda sai com uma posição só', () => {
+        // Also malformed GeoJSON, and deliberately left alone here: the only caller
+        // that can produce it is a boundary mid-draw, and the sibling test above
+        // ("um único vértice vira a LineString degenerada de UM ponto") pins it.
+        expect(geom.generateBoundaryGeometry({ baseCoordinates: [[5, 5]] }).coordinates.length).toBe(1);
     });
 });
 
@@ -519,11 +536,12 @@ describe('AddBoundaryGeometry.generateBoundaryTexts', () => {
     });
 });
 
-describe('DEFEITO: text_distance_ratio === 0 cai para 0.9 (forma falsy-zero)', () => {
+describe('CONSERTADO: text_distance_ratio === 0 caía para 0.9 (forma falsy-zero)', () => {
     // `symbol_size * (text_distance_ratio || 0.9)`. Zero is a ratio the user can set
     // (the drag handle clamps at TEXT_DISTANCE_MIN 0.1, but a persisted or imported
-    // feature is not clamped), and it means "label glued to the symbol". It comes back
-    // as 0.9, i.e. almost the default, and nothing reports the substitution.
+    // feature is not clamped), and it means "label glued to the symbol". It came back
+    // as 0.9, i.e. almost the default, with nothing reporting the substitution. The
+    // fallback is now `Number.isFinite`, so only a MISSING ratio reaches the default.
     const withRatio = (ratio) => boundaryFeature({
         baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, text_distance_ratio: ratio,
     });
@@ -539,40 +557,50 @@ describe('DEFEITO: text_distance_ratio === 0 cai para 0.9 (forma falsy-zero)', (
         expect(offsetOf(2)).toBe(4);
     });
 
-    it.fails('DEVERIA usar offset 0 (hoje usa 0.9, ou seja offset 1.8)', () => {
+    it('usa offset 0 para ratio 0 (antes usava 0.9, ou seja offset 1.8)', () => {
         expect(offsetOf(0)).toBe(0);
     });
 
-    it('OBSERVADO: ratio 0 produz a MESMA saída de ratio ausente', () => {
-        expect(offsetOf(0)).toBeCloseTo(1.8, 10);
-        expect(offsetOf(0)).toBe(offsetOf(undefined));
+    it('ratio 0 deixou de produzir a mesma saída de ratio ausente', () => {
+        expect(offsetOf(undefined)).toBeCloseTo(1.8, 10);
+        expect(offsetOf(0)).not.toBe(offsetOf(undefined));
+        // A non-finite ratio still falls back, which is the case the guard is for.
+        expect(offsetOf(NaN)).toBeCloseTo(1.8, 10);
+        expect(offsetOf('1')).toBeCloseTo(1.8, 10);
     });
 });
 
-describe('DEFEITO: symbol_size ausente produz coordenada NaN, sem erro', () => {
-    // `undefined * (ratio || 0.9)` is NaN, and NaN flows straight into
-    // `turf.destination` and out into the emitted feature's geometry.
+describe('CONSERTADO: symbol_size ausente produzia coordenada NaN, sem erro', () => {
+    // `undefined * (ratio || 0.9)` is NaN, and NaN flowed straight into
+    // `turf.destination` and out into the emitted feature's geometry. The size now
+    // falls back to the same DEFAULT_SYMBOL_SIZE the handles already assumed.
 
-    it('CONTROLE: com symbol_size definido a coordenada é finita', () => {
+    it('CONTROLE: com symbol_size definido a coordenada é finita e vale o pedido', () => {
         const out = geom.generateBoundaryTexts(boundaryFeature({
-            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2,
+            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: 2, text_distance_ratio: 1,
         }));
         expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
+        expect(out[0].geometry.coordinates[0]).toBe(7);   // centre 5 + offset 2
     });
 
-    it.fails('DEVERIA emitir coordenada finita ou não emitir nada (hoje emite NaN)', () => {
-        const out = geom.generateBoundaryTexts(boundaryFeature({
-            baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA',
-        }));
-        expect(out.length === 0 || Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
-    });
-
-    it('OBSERVADO: a feição de texto sai com coordenada NaN', () => {
+    it('emite coordenada finita sem symbol_size (antes emitia NaN)', () => {
         const out = geom.generateBoundaryTexts(boundaryFeature({
             baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA',
         }));
         expect(out.length).toBe(1);
-        expect(Number.isNaN(out[0].geometry.coordinates[0])).toBe(true);
+        expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
+        // Absolute anchor: DEFAULT_SYMBOL_SIZE 2 times the default ratio 0.9.
+        expect(out[0].geometry.coordinates[0]).toBeCloseTo(5 + 1.8, 10);
+    });
+
+    it('symbol_size não-finito também cai no padrão', () => {
+        for (const bad of [NaN, Infinity, '2', null]) {
+            const out = geom.generateBoundaryTexts(boundaryFeature({
+                baseCoordinates: [[0, 0], [1, 0]], text_top: 'CIMA', symbol_size: bad,
+            }));
+            expect(out.length).toBe(1);
+            expect(Number.isFinite(out[0].geometry.coordinates[0])).toBe(true);
+        }
     });
 });
 
@@ -659,12 +687,13 @@ describe('AddBoundaryGeometry.updateFromHandle: guardas de entrada', () => {
     });
 });
 
-describe('DEFEITO: os índices de vertex e midpoint não têm limite INFERIOR', () => {
+describe('CONSERTADO: os índices de vertex e midpoint não tinham limite INFERIOR', () => {
     // The arrow tool writes `handleIndex >= 0 && handleIndex < coords.length`. Here the
-    // guards are `handleIndex < coordinates.length` and `handleIndex <= coordinates.length`,
-    // with no lower bound, so a negative index is accepted by both branches and each does
-    // something different and wrong: `vertex` writes a non-index property `"-1"` onto the
-    // array (invisible to JSON, invisible to length) and `midpoint` splices from the END.
+    // guards were `handleIndex < coordinates.length` and `handleIndex <= coordinates.length`,
+    // with no lower bound, so a negative index was accepted by both branches and each did
+    // something different and wrong: `vertex` wrote a non-index property `"-1"` onto the
+    // array (invisible to JSON, invisible to length) and `midpoint` spliced from the END.
+    // Both now demand an INTEGER at or above 0; the asymmetric upper bound stays.
 
     it('CONTROLE: o mesmo ramo recusa o índice alto (vertex) e converge (midpoint)', () => {
         const highVertex = geom.updateFromHandle('vertex', [9, 9], boundaryFeature(), 3);
@@ -673,35 +702,28 @@ describe('DEFEITO: os índices de vertex e midpoint não têm limite INFERIOR', 
         expect(wayHigh.properties.baseCoordinates).toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 
-    it.fails('DEVERIA ignorar vertex com índice -1 (hoje escreve a chave "-1" no array)', () => {
-        const out = geom.updateFromHandle('vertex', [9, 9], boundaryFeature(), -1);
-        expect(Object.prototype.hasOwnProperty.call(out.properties.baseCoordinates, '-1')).toBe(false);
-    });
-
-    it('OBSERVADO: vertex -1 deixa o array com length 3 e uma chave "-1" fantasma', () => {
+    it('ignora vertex com índice -1 (antes escrevia a chave "-1" no array)', () => {
         const out = geom.updateFromHandle('vertex', [9, 9], boundaryFeature(), -1);
         const coords = out.properties.baseCoordinates;
+        expect(Object.prototype.hasOwnProperty.call(coords, '-1')).toBe(false);
+        expect(coords[-1]).toBeUndefined();
         expect(coords.length).toBe(3);
-        // `Array.from` drops the non-index key, which is exactly why every downstream
-        // reader sees an unchanged boundary: the write went nowhere observable.
         expect(Array.from(coords)).toEqual([[0, 0], [1, 0], [2, 0]]);
-        expect(coords[-1]).toEqual([9, 9]);
-        // The ghost key survives in memory and dies on the next JSON round-trip, which
-        // is why nothing downstream ever notices.
-        expect(JSON.parse(JSON.stringify(coords))).toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 
-    it.fails('DEVERIA ignorar midpoint com índice -1 (hoje insere ANTES do último vértice)', () => {
+    it('ignora midpoint com índice -1 (antes inseria ANTES do último vértice)', () => {
         const out = geom.updateFromHandle('midpoint', [9, 9], boundaryFeature(), -1);
         expect(out.properties.baseCoordinates).toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 
-    it('OBSERVADO: midpoint -1 insere na penúltima posição', () => {
-        const out = geom.updateFromHandle('midpoint', [9, 9], boundaryFeature(), -1);
-        expect(out.properties.baseCoordinates).toEqual([[0, 0], [1, 0], [9, 9], [2, 0]]);
+    it('os dois ramos também recusam índice não-inteiro', () => {
+        expect(geom.updateFromHandle('vertex', [9, 9], boundaryFeature(), NaN).properties.baseCoordinates)
+            .toEqual([[0, 0], [1, 0], [2, 0]]);
+        expect(geom.updateFromHandle('midpoint', [9, 9], boundaryFeature(), 1.5).properties.baseCoordinates)
+            .toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 
-    it('OBSERVADO: o `<=` do midpoint aceita índice IGUAL ao comprimento e anexa no fim', () => {
+    it('MANTIDO: o `<=` do midpoint aceita índice IGUAL ao comprimento e anexa no fim', () => {
         // Backlog row: "midpoint uses `<=`, vertex uses `<`". Confirmed, and here is what
         // it buys: index 3 on a 3-vertex boundary appends instead of doing nothing.
         const out = geom.updateFromHandle('midpoint', [9, 9], boundaryFeature(), 3);

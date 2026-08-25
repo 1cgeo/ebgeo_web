@@ -264,24 +264,28 @@ describe('calculateAngle & generateArcCoordinates (turf stubbed)', () => {
         expect(calculateAngle([45, 0], [0, 0], [45, 0])).toBe(0);
     });
 
-    // Documents actual behaviour: the wrap is `if (angle < 0) angle += 360`.
-    // For a sub-ULP negative difference near a multiple of 360 (e.g. b1=5e-324,
-    // b2=0) float rounding makes `360 + (-5e-324) === 360` exactly, so the result
-    // can be 360 rather than strictly < 360. Hence the inclusive upper bound.
-    it('property: result is always in [0, 360]', () => {
+    // CORRIGIDO EM 2026-08-24, E O LIMITE SUPERIOR MUDOU DE INCLUSIVO PARA EXCLUSIVO. Esta
+    // propriedade admitia `<= 360` para acomodar o defeito que o caso abaixo documentava, e o
+    // caso abaixo o afirmava como comportamento. Os dois juntos transformavam o bug em contrato:
+    // quem consertasse veria vermelho e reverteria. O wrap agora e `((x % 360) + 360) % 360`, e a
+    // faixa e a que o JSDoc sempre prometeu.
+    it('property: result is always in [0, 360)', () => {
         fc.assert(fc.property(
             fc.double({ min: -180, max: 180, noNaN: true }),
             fc.double({ min: -180, max: 180, noNaN: true }),
             (b1, b2) => {
                 const a = calculateAngle([b1, 0], [0, 0], [b2, 0]);
-                return a >= 0 && a <= 360;
+                return a >= 0 && a < 360;
             }
         ));
     });
 
-    it('documents: a sub-ULP negative difference can round up to exactly 360', () => {
-        // 0 - 5e-324 = -5e-324 (< 0) → += 360 → 360 (float-exact).
-        expect(calculateAngle([5e-324, 0], [0, 0], [0, 0])).toBe(360);
+    it('uma diferenca negativa sub-ULP devolve 0, e nao 360', () => {
+        // ANTES: `0 - 5e-324 = -5e-324 (< 0)` → `+= 360` → **360 exato**, porque a soma arredonda
+        // para o vizinho mais proximo. Tres pontos quase colineares mediam 360 graus em vez de ~0.
+        expect(calculateAngle([5e-324, 0], [0, 0], [0, 0])).toBe(0);
+        // CONTROLE: o wrap continua funcionando para uma diferenca negativa de verdade.
+        expect(calculateAngle([90, 0], [0, 0], [-90, 0])).toBeCloseTo(180, 9);
     });
 
     // ---- generateArcCoordinates ----

@@ -9,10 +9,10 @@
  *
  * WHAT THIS SUITE HOLDS
  *  - the module-private `hexToRgb`, exercised through the ONLY door it has, the
- *    `customColor` argument of `applyBrazilianModifications`. It has NO validation:
- *    a short or non-hex colour is written into the SVG as `rgb(...,NaN)`, silently.
- *    Contrast with `CoordinationMeasureGenerator.hexToRgb`, which returns null and
- *    makes its caller a no-op (pinned in tests/unit/coordination-measure-generator.test.js);
+ *    `customColor` argument of `applyBrazilianModifications`. It used to have NO
+ *    validation, so a short or non-hex colour was written into the SVG as
+ *    `rgb(...,NaN)`, silently; it now matches `CoordinationMeasureGenerator.hexToRgb`
+ *    (null, caller is a no-op; pinned in tests/unit/coordination-measure-generator.test.js);
  *  - that the colour substitution runs on BOTH exits of the function (the early
  *    return taken when the SIDC carries no Brazilian extension, and the full path);
  *  - the four engagement-bar colours it targets, and that it targets no others;
@@ -128,44 +128,50 @@ describe('applyBrazilianModifications custom colour (the private hexToRgb)', () 
         expect(out).toBe(svg);
     });
 
-    it('DEFECT: the 3-digit shorthand #fff yields rgb(255,15,NaN), not white', () => {
-        // substring(0,2)='ff'->255, substring(2,4)='f'->15, substring(4,6)=''->NaN.
-        // The backlog predicted rgb(255,NaN,NaN); the middle channel is 15, not NaN.
+    it('FIXED: the 3-digit shorthand #fff is a no-op, not rgb(255,15,NaN)', () => {
+        // It used to slice blindly: substring(0,2)='ff'->255, substring(2,4)='f'->15,
+        // substring(4,6)=''->NaN. (The backlog predicted rgb(255,NaN,NaN); the middle
+        // channel was 15, not NaN.) The shorthand is REJECTED, not expanded, which is
+        // the same policy `CoordinationMeasureGenerator.hexToRgb` has.
         const out = colored('#fff');
 
-        expect(out.match(/rgb\(255,15,NaN\)/g)).toHaveLength(4);
+        expect(out).toBe(BAR_SVG);
+        expect(out).not.toContain('NaN');
     });
 
-    it('DEFECT: a non-hex colour is written straight in as rgb(NaN,NaN,NaN)', () => {
-        expect(colored('zzzzzz').match(/rgb\(NaN,NaN,NaN\)/g)).toHaveLength(4);
+    it('FIXED: a non-hex colour leaves the SVG alone instead of writing NaN channels', () => {
+        expect(colored('zzzzzz')).toBe(BAR_SVG);
+        expect(colored('#GGGGGG')).toBe(BAR_SVG);
+        expect(colored('#ff000000')).toBe(BAR_SVG);
     });
 
-    it('DEFECT: it even parses PART of a word, so "vermelho" becomes rgb(NaN,NaN,14)', () => {
-        // 've' and 'rm' are not hex, but 'el' parses as the leading 'e' -> 14.
-        expect(colored('vermelho').match(/rgb\(NaN,NaN,14\)/g)).toHaveLength(4);
+    it('FIXED: it no longer parses PART of a word ("vermelho" was rgb(NaN,NaN,14))', () => {
+        // 've' and 'rm' are not hex, but 'el' parsed as the leading 'e' -> 14.
+        expect(colored('vermelho')).toBe(BAR_SVG);
+        expect(colored('vermelho')).not.toContain('NaN');
     });
 
     it('skips the substitution entirely for the empty string (falsy customColor)', () => {
         expect(colored('')).toBe(BAR_SVG);
     });
 
-    // CONTROL for the it.fails below: the colour path is reachable and it DOES
-    // discriminate between a good and a bad hex. Without this, the it.fails would
-    // go green on any throw, an import failure included.
+    // CONTROL for the fix below: the colour path is reachable and it DOES
+    // discriminate between a good and a bad hex. Without this, the assertions above
+    // would go green on any throw, an import failure included, and on a substitution
+    // block that stopped running entirely.
     it('control: the colour path is reachable and discriminates good from bad hex', () => {
         expect(colored('#11FF00')).toContain('rgb(17,255,0)');
         expect(colored('#11FF00')).not.toContain('NaN');
-        expect(colored('vermelho')).toContain('NaN');
+        expect(colored('#11FF00')).not.toBe(BAR_SVG);
+        expect(colored('vermelho')).toBe(BAR_SVG);
     });
 
-    it.fails(
-        'DEFECT (expected red): an invalid custom colour should leave the SVG '
-        + 'untouched, as CoordinationMeasureGenerator.applyCustomColor does; instead '
-        + 'the private hexToRgb has no validation and emits NaN channels',
-        () => {
-            expect(colored('zzzzzz')).toBe(BAR_SVG);
-        }
-    );
+    it('an invalid custom colour leaves the SVG untouched, on BOTH exits', () => {
+        // Same policy as `CoordinationMeasureGenerator.applyCustomColor`: the private
+        // hexToRgb validates and returns null, and the caller becomes a no-op.
+        expect(colored('zzzzzz', NO_EXTENSION)).toBe(BAR_SVG);
+        expect(colored('zzzzzz', NULL_EXTENSION)).toBe(BAR_SVG);
+    });
 
     it('applies the colour on BOTH exits: with and without a Brazilian extension', () => {
         // The substitution block is duplicated, once before the early return and

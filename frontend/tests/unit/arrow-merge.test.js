@@ -6,13 +6,14 @@
  *
  * WHAT IT PINS
  * - `canMergeArrows` / `canSplitArrows`: the exported gates, including the
- *   `layerId || 'default'` bucket (a falsy layer id merges ACROSS layers) and the
- *   strict `isMerged === true`.
+ *   `layerId ?? 'default'` bucket (only null/undefined share it) and the strict
+ *   `isMerged === true`.
  * - `extractBranches`, which is NOT exported. It is reached through `mergeArrows`
  *   and observed on the feature handed to `addFeature`, which is the only surface
  *   the branch list ever reaches. What is pinned: falsy-but-DEFINED geometric props
  *   (`width: 0`, `showArrowHead: false`, `airmobilePosition: 0`) are copied, an
- *   already-merged arrow is flattened, and how much of `baseCoordinates` is copied.
+ *   already-merged arrow is flattened, and that `baseCoordinates` is normalized and
+ *   copied one vertex at a time.
  * - The write ORDER of `mergeArrows` (add the merged arrow before removing the
  *   sources), which is the property that keeps a persist failure recoverable.
  *
@@ -137,16 +138,21 @@ describe('canMergeArrows', () => {
         expect(canMergeArrows(selection)).toEqual({ canMerge: true });
     });
 
-    it("FORMA `valor || padrao`: layerId 0 e '' viram o balde 'default' e combinam com ele", () => {
-        // `f.properties?.layerId || 'default'` swallows every falsy id. A layer whose id
-        // is 0 or the empty string is therefore indistinguishable from "no layer", and
-        // two arrows in genuinely different places pass the same-layer gate.
-        expect(canMergeArrows([arrow({ layerId: 0 }), arrow({ layerId: 'default' })])).toEqual({ canMerge: true });
-        expect(canMergeArrows([arrow({ layerId: '' }), arrow({ layerId: 'default' })])).toEqual({ canMerge: true });
-        expect(canMergeArrows([arrow({ layerId: 0 }), arrow({ layerId: '' })])).toEqual({ canMerge: true });
-        // Control: a non-falsy pair of distinct ids is still refused, so the block above
-        // is not passing because the check is dead.
+    it("CONSERTADO: layerId 0 e '' deixaram de cair no balde 'default'", () => {
+        // `f.properties?.layerId || 'default'` swallowed every falsy id, so a layer
+        // whose id is 0 or the empty string was indistinguishable from "no layer" and
+        // two arrows in genuinely different places passed the same-layer gate. With
+        // `??` only null/undefined reach the default bucket.
+        const sameLayer = { canMerge: false, reason: 'Setas devem estar na mesma camada' };
+        expect(canMergeArrows([arrow({ layerId: 0 }), arrow({ layerId: 'default' })])).toEqual(sameLayer);
+        expect(canMergeArrows([arrow({ layerId: '' }), arrow({ layerId: 'default' })])).toEqual(sameLayer);
+        expect(canMergeArrows([arrow({ layerId: 0 }), arrow({ layerId: '' })])).toEqual(sameLayer);
+        // Control: a non-falsy pair of distinct ids is still refused, and a matching
+        // falsy pair is still ALLOWED, so the block above is not passing because the
+        // bucket became unconditionally distinct.
         expect(canMergeArrows([arrow({ layerId: '0' }), arrow({ layerId: 'default' })]).canMerge).toBe(false);
+        expect(canMergeArrows([arrow({ layerId: 0 }), arrow({ layerId: 0 })])).toEqual({ canMerge: true });
+        expect(canMergeArrows([arrow({ layerId: null }), arrow({})])).toEqual({ canMerge: true });
     });
 });
 
@@ -258,11 +264,11 @@ describe('extractBranches (via mergeArrows)', () => {
     });
 });
 
-describe('DEFEITO: extractBranches copia baseCoordinates de forma RASA', () => {
-    // The backlog row says "baseCoordinates deep-copy". Measured, it is `[...props.key]`,
-    // a one-level spread: the outer array is new, every inner [lng, lat] is the SAME
-    // object as the source arrow's. Editing a vertex of the merged arrow therefore
-    // reaches back into the feature the merge was supposed to consume.
+describe('CONSERTADO: extractBranches copiava baseCoordinates de forma RASA', () => {
+    // The backlog row said "baseCoordinates deep-copy". Measured, it was
+    // `[...props.key]`, a one-level spread: the outer array was new, every inner
+    // [lng, lat] was the SAME object as the source arrow's, so editing a vertex of
+    // the merged arrow reached back into the feature the merge had just consumed.
 
     it('CONTROLE: o array EXTERNO realmente é novo', async () => {
         const coords = [[0, 0], [1, 1]];
@@ -270,20 +276,22 @@ describe('DEFEITO: extractBranches copia baseCoordinates de forma RASA', () => {
         expect(mergedProps().branches[0].baseCoordinates).not.toBe(coords);
     });
 
-    it.fails('DEVERIA isolar os vértices (hoje o [lng, lat] interno é compartilhado)', async () => {
+    it('isola os vértices (antes o [lng, lat] interno era compartilhado)', async () => {
         const coords = [[0, 0], [1, 1]];
         await mergeArrows([arrow({ id: '1', baseCoordinates: coords }), arrow({ id: '2' })], {}, selectionManager);
         expect(mergedProps().branches[0].baseCoordinates[0]).not.toBe(coords[0]);
+        // ...and the value survived the copy, so the isolation is not a wipe.
+        expect(mergedProps().branches[0].baseCoordinates).toEqual([[0, 0], [1, 1]]);
     });
 
-    it('OBSERVADO: mutar o vértice do ramo muta o da seta de origem', async () => {
+    it('mutar o vértice do ramo NÃO alcança a seta de origem', async () => {
         const coords = [[0, 0], [1, 1]];
         await mergeArrows([arrow({ id: '1', baseCoordinates: coords }), arrow({ id: '2' })], {}, selectionManager);
         mergedProps().branches[0].baseCoordinates[0][0] = 99;
-        expect(coords[0][0]).toBe(99);
+        expect(coords[0][0]).toBe(0);
     });
 
-    it('OBSERVADO: no caminho JÁ COMBINADO nem o array externo é copiado', async () => {
+    it('no caminho JÁ COMBINADO o array externo também é copiado', async () => {
         const branchCoords = [[0, 0], [1, 1]];
         const alreadyMerged = {
             properties: {
@@ -292,35 +300,42 @@ describe('DEFEITO: extractBranches copia baseCoordinates de forma RASA', () => {
             },
         };
         await mergeArrows([alreadyMerged, arrow({ id: '2' })], {}, selectionManager);
-        // `{ ...b }` copies the branch object but not the array it points at.
         expect(mergedProps().branches[0]).not.toBe(alreadyMerged.properties.branches[0]);
-        expect(mergedProps().branches[0].baseCoordinates).toBe(branchCoords);
+        expect(mergedProps().branches[0].baseCoordinates).not.toBe(branchCoords);
+        expect(mergedProps().branches[0].baseCoordinates[0]).not.toBe(branchCoords[0]);
+        expect(mergedProps().branches[0].baseCoordinates).toEqual([[0, 0], [1, 1]]);
     });
 });
 
-describe('DEFEITO: extractBranches destrói baseCoordinates guardado como string', () => {
+describe('CONSERTADO: extractBranches destruía baseCoordinates guardado como string', () => {
     // `AddArrowGeometry.normalizeBaseCoordinates` has an explicit branch for a JSON
     // string, which is the codebase saying that shape reaches it from persistence.
-    // `extractBranches` does not normalize: it spreads, and spreading a string yields
-    // its CHARACTERS. The merged arrow then carries a coordinate list of "[", "0", ",".
+    // `extractBranches` did not normalize: it spread, and spreading a string yields
+    // its CHARACTERS, so the merged arrow carried "[", "0", "," as its coordinates.
+    // It now goes through the same normalizer before copying.
 
     it('CONTROLE: com array a mesma chamada produz coordenadas de verdade', async () => {
         await mergeArrows([arrow({ id: '1', baseCoordinates: [[0, 0], [1, 1]] }), arrow({ id: '2' })], {}, selectionManager);
         expect(mergedProps().branches[0].baseCoordinates).toEqual([[0, 0], [1, 1]]);
     });
 
-    it.fails('DEVERIA normalizar a string JSON (hoje espalha em caracteres)', async () => {
-        const persisted = arrow({ id: '1', baseCoordinates: '[[0,0],[1,1]]' });
-        await mergeArrows([persisted, arrow({ id: '2' })], {}, selectionManager);
-        expect(mergedProps().branches[0].baseCoordinates).toEqual([[0, 0], [1, 1]]);
-    });
-
-    it('OBSERVADO: o ramo recebe os 13 caracteres da string', async () => {
+    it('normaliza a string JSON (antes espalhava em 13 caracteres)', async () => {
         const persisted = arrow({ id: '1', baseCoordinates: '[[0,0],[1,1]]' });
         await mergeArrows([persisted, arrow({ id: '2' })], {}, selectionManager);
         const out = mergedProps().branches[0].baseCoordinates;
-        expect(out.length).toBe(13);
-        expect(out).toEqual(['[', '[', '0', ',', '0', ']', ',', '[', '1', ',', '1', ']', ']']);
+        expect(out).toEqual([[0, 0], [1, 1]]);
+        expect(out.length).toBe(2);
+    });
+
+    it('a string do caminho JÁ COMBINADO também é normalizada', async () => {
+        const alreadyMerged = {
+            properties: {
+                id: 'm', source: 'arrow', isMerged: true,
+                branches: [{ baseCoordinates: '[[0,0],[1,1]]' }, { baseCoordinates: [[5, 5], [6, 6]] }],
+            },
+        };
+        await mergeArrows([alreadyMerged, arrow({ id: '2' })], {}, selectionManager);
+        expect(mergedProps().branches[0].baseCoordinates).toEqual([[0, 0], [1, 1]]);
     });
 });
 
@@ -398,9 +413,10 @@ describe('splitArrows: guarda de entrada', () => {
         expect(created[0].properties.airmobilePosition).toBe(0.7);
     });
 
-    it("FORMA `valor || padrao` no split: headLengthRatio 0 e airmobilePosition 0 viram 1.5 e 0.7", () => {
-        // Same falsy-zero shape the merge path avoids with `!== undefined`. A branch that
-        // legitimately stored 0 comes back changed, and nothing reports it.
+    it("CONSERTADO: headLengthRatio 0 e airmobilePosition 0 sobrevivem ao split", () => {
+        // Same falsy-zero shape the merge path already avoided with `!== undefined`:
+        // a branch that legitimately stored 0 came back as 1.5 / 0.7, silently. The
+        // split now uses `??`, so merge and split are inverses again.
         const merged = {
             properties: {
                 id: 'm', source: 'arrow', isMerged: true,
@@ -412,8 +428,12 @@ describe('splitArrows: guarda de entrada', () => {
         };
         return splitArrows(merged, {}, selectionManager).then((created) => {
             expect(created.length).toBe(2);
-            expect(created[0].properties.headLengthRatio).toBe(1.5);
-            expect(created[0].properties.airmobilePosition).toBe(0.7);
+            expect(created[0].properties.headLengthRatio).toBe(0);
+            expect(created[0].properties.airmobilePosition).toBe(0);
+            // Control: the branch that stores NOTHING still gets the defaults, so the
+            // two assertions above are not passing because the fallback died.
+            expect(created[1].properties.headLengthRatio).toBe(1.5);
+            expect(created[1].properties.airmobilePosition).toBe(0.7);
         });
     });
 });

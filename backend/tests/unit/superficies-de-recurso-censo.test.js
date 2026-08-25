@@ -1228,6 +1228,25 @@ const CENSO_ROTA = [
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /:userId', classe: R_OUTRA, gate: 'requireAdmin', motivo: SO_ADMIN },
   { arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
+  {
+    arquivo: 'src/modules/auth/auth.routes.js', rota: 'GET /tile-access', classe: R_OUTRA,
+    gate: 'requireTileKey',
+    motivo: 'O `auth_request` do nginx para as rotas do servidor de tiles (cláusula 10.7). Ele é '
+      + 'R_OUTRA e NÃO `recurso-com-filtro` por uma razão que precisa estar escrita aqui, porque é '
+      + 'a mesma que o `fileoverview` de `src/modules/auth/tile-access.js` declara em voz alta: ele '
+      + 'responde SIM ou NÃO sobre a CREDENCIAL e nunca sobre a CAMADA. Não recebe o caminho do '
+      + 'tile, não sabe qual recurso está sendo pedido, e `fn_can_see_resource` não entra na '
+      + 'história. Não serve recurso nenhum (a resposta é vazia nos dois desfechos) e não recorta '
+      + 'recurso nenhum. A CONSEQUÊNCIA, dita sem eufemismo para que nenhuma tela prometa mais do '
+      + 'que existe: um usuário comum com chave viva alcança os bytes do tile de uma camada privada '
+      + 'que o catálogo não lhe mostra. O que este endpoint compra é o público deixar de ser '
+      + '"qualquer um" e passar a ser "quem porta uma chave viva", que é um estreitamento real e '
+      + 'não é privacidade por recurso. Classificá-lo `recurso-com-filtro` seria declarar um filtro '
+      + 'que não existe, e classificá-lo `recurso-publico-por-desenho` seria dizer que ele serve '
+      + 'recurso. O gate é `requireTileKey` (o `auth` estrito recusaria a chave de escopo `tiles`, '
+      + 'que é exatamente a credencial que o tile carrega). Comportamento em '
+      + '`tests/integration/tile-access-auth-request.test.js`.',
+  },
   { arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me', classe: R_OUTRA, gate: 'auth', motivo: IDENTIDADE },
   {
     arquivo: 'src/modules/users/users.routes.js', rota: 'GET /me/api-keys', classe: R_OUTRA, gate: 'auth',

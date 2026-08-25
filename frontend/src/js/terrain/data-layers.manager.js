@@ -15,6 +15,57 @@ const LABEL_SOURCE_SUFFIX = '-label-source';
 export const DATA_SURFACE = 'data';
 
 /**
+ * Returns `value` when it is a usable number, otherwise `fallback`.
+ *
+ * The `|| default` form ate three legitimate zeros here: a border declared
+ * INVISIBLE (`width: 0` or `opacity: 0`) drew at full strength, and a layer
+ * configured to never appear (`maxzoom: 0`) appeared at every zoom. `fill.opacity`
+ * three lines away already used `??` and preserved its zero, which is what made
+ * the inconsistency visible. `??` alone is not enough: NaN is not a paint value.
+ * @param {*} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function numberOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Tightest longitude span covering every value, unwrapped across the antimeridian.
+ *
+ * Plain min/max turned a layer sitting on the date line into the box of the WHOLE
+ * WORLD, mirrored: 179 and -179 became west -179 / east 179, so `fitBounds` framed
+ * everything EXCEPT the layer and zoomed out until the planet fit.
+ *
+ * The method is the largest empty arc: sort the longitudes, find the widest gap
+ * between neighbours (the wrap from the last back to the first included), and keep
+ * the complement. When the widest gap IS the wrap, the answer is the ordinary
+ * [min, max]. Otherwise the span is expressed with an `east` beyond 180, which
+ * keeps west < east so the box still has positive width.
+ *
+ * @param {number[]} lngs - Finite longitudes, at least one
+ * @returns {[number, number]} [west, east], with east possibly greater than 180
+ */
+function antimeridianSafeLngSpan(lngs) {
+    const sorted = [...lngs].sort((a, b) => a - b);
+    const last = sorted.length - 1;
+
+    let widestGap = sorted[0] + 360 - sorted[last]; // the wrap-around gap
+    let gapStart = -1;                              // -1 means "the wrap wins"
+
+    for (let i = 0; i < last; i++) {
+        const gap = sorted[i + 1] - sorted[i];
+        if (gap > widestGap) {
+            widestGap = gap;
+            gapStart = i;
+        }
+    }
+
+    if (gapStart === -1) return [sorted[0], sorted[last]];
+    return [sorted[gapStart + 1], sorted[gapStart] + 360];
+}
+
+/**
  * Manages vector data layers in the system.
  * State persistence is handled by catalogLayers, not by this manager.
  *
@@ -338,11 +389,12 @@ class DataLayersManager {
                 },
                 border: {
                     present: !!border,
-                    // Mirror _addBorderLayer's fallbacks exactly (|| 1, || '#666666').
+                    // Mirror _addBorderLayer's fallbacks exactly, `numberOr`
+                    // included, so a declared zero survives on both paths.
                     values: {
                         'line-color': border?.color || '#666666',
-                        'line-width': border?.width || 1,
-                        'line-opacity': border?.opacity || 1
+                        'line-width': numberOr(border?.width, 1),
+                        'line-opacity': numberOr(border?.opacity, 1)
                     }
                 },
                 label: {
@@ -497,7 +549,7 @@ class DataLayersManager {
             },
             layout: { visibility: 'none' },
             minzoom: layerConfig.minzoom || 0,
-            maxzoom: layerConfig.maxzoom || 22
+            maxzoom: numberOr(layerConfig.maxzoom, 22)
         }, beforeId);
     }
 
@@ -507,8 +559,8 @@ class DataLayersManager {
 
         const paint = {
             'line-color': layerConfig.style.border.color || '#666666',
-            'line-width': layerConfig.style.border.width || 1,
-            'line-opacity': layerConfig.style.border.opacity || 1
+            'line-width': numberOr(layerConfig.style.border.width, 1),
+            'line-opacity': numberOr(layerConfig.style.border.opacity, 1)
         };
 
         if (layerConfig.style.border.offset) {
@@ -523,7 +575,7 @@ class DataLayersManager {
             paint,
             layout: { visibility: 'none' },
             minzoom: layerConfig.minzoom || 0,
-            maxzoom: layerConfig.maxzoom || 22
+            maxzoom: numberOr(layerConfig.maxzoom, 22)
         }, beforeId);
     }
 
@@ -546,8 +598,16 @@ class DataLayersManager {
 
         // Symbols on polygons are placed at the centroid, so this renders one
         // marker per feature. Gate it by zoom with icon-opacity / icon-size.
-        if (marker && !layout['icon-image']) {
-            layout['icon-image'] = this._markerImageId(layerConfig.id);
+        //
+        // The `hasImage` check is what ties this to `_registerMarkerImage`, which
+        // runs immediately before it and REFUSES some markers ('circle' has no
+        // drawer, an unknown symbol has none either, and the generator can throw).
+        // Declaring `icon-image` anyway left the sub-layer pointing at an image
+        // the map does not hold, and MapLibre answers that with a per-tile
+        // "image not found" and no marker.
+        const markerImageId = this._markerImageId(layerConfig.id);
+        if (marker && !layout['icon-image'] && this.map.hasImage(markerImageId)) {
+            layout['icon-image'] = markerImageId;
         }
 
         if (label?.textAllowOverlap) {
@@ -562,7 +622,7 @@ class DataLayersManager {
             layout,
             paint: label?.paint || {},
             minzoom: layerConfig.labelMinzoom || layerConfig.minzoom || 0,
-            maxzoom: layerConfig.maxzoom || 22
+            maxzoom: numberOr(layerConfig.maxzoom, 22)
         }, beforeId);
     }
 
@@ -608,18 +668,20 @@ class DataLayersManager {
      * @private
      */
     _calculateBounds(features) {
-        let minLng = Infinity;
-        let minLat = Infinity;
-        let maxLng = -Infinity;
-        let maxLat = -Infinity;
+        const lngs = [];
+        const lats = [];
 
         const processCoordinates = (coords) => {
             if (typeof coords[0] === 'number') {
                 const [lng, lat] = coords;
-                if (lng < minLng) minLng = lng;
-                if (lng > maxLng) maxLng = lng;
-                if (lat < minLat) minLat = lat;
-                if (lat > maxLat) maxLat = lat;
+                // A NaN corner used to vanish: every `<` and `>` against it is
+                // false, so the box quietly SHRANK around the bad point instead
+                // of reporting anything. It is dropped explicitly now, and a
+                // feature whose points are ALL non-finite still yields null.
+                if (Number.isFinite(lng) && Number.isFinite(lat)) {
+                    lngs.push(lng);
+                    lats.push(lat);
+                }
             } else {
                 coords.forEach(processCoordinates);
             }
@@ -631,9 +693,13 @@ class DataLayersManager {
             }
         }
 
-        if (minLng === Infinity) return null;
+        if (lngs.length === 0) return null;
 
-        return [[minLng, minLat], [maxLng, maxLat]];
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const [west, east] = antimeridianSafeLngSpan(lngs);
+
+        return [[west, minLat], [east, maxLat]];
     }
 }
 

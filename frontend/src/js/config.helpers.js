@@ -50,8 +50,12 @@ export function validateBasemapsConfig() {
  * @returns {Array} Array of [id, config] tuples sorted by priority
  */
 export function getEnabledBasemaps() {
-    return Object.entries(config.basemaps)
-        .filter(([, basemapConfig]) => basemapConfig.enabled)
+    // `config.basemaps` is hydrated by the server; a partial /api/config that omits
+    // it used to make `Object.entries` throw, taking basemap resolution down with
+    // it. Degrading to [] is what lets `getValidBasemapFallback` keep its promise
+    // of returning '' instead of crashing the base-layer swap.
+    return Object.entries(config.basemaps || {})
+        .filter(([, basemapConfig]) => basemapConfig?.enabled)
         .sort(([, a], [, b]) => a.priority - b.priority);
 }
 
@@ -87,7 +91,10 @@ export function getBasemapLayoutClass(count) {
  * @returns {string} Usable basemap ID, or '' only when no basemaps are configured
  */
 export function getValidBasemapFallback(currentBasemap = null) {
-    if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
+    // The optional chain below protects the VALUE, not the container: with
+    // `config.basemaps` absent this line threw before step 3's `|| {}` could
+    // deliver the '' the doc promises.
+    if (currentBasemap && config.basemaps?.[currentBasemap]?.enabled) {
         return currentBasemap;
     }
 
@@ -110,6 +117,19 @@ export function getValidBasemapFallback(currentBasemap = null) {
 // ===== 3D PROVIDERS =====
 
 /**
+ * Returns `value` when it is a usable number, otherwise `fallback`.
+ *
+ * `||` ate the legitimate zeros here (level 0 is the base tile alone) and `??`
+ * would let NaN through, which reaches Cesium as a tile grid it cannot build.
+ * @param {*} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function numberOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+/**
  * Create imagery provider configuration object
  * @returns {Object|boolean} Provider config or false if disabled
  */
@@ -117,21 +137,23 @@ export function createImageryProvider() {
     const imageryConfig = config.map3d.providers.imagery;
     if (!imageryConfig.enabled) return false;
 
+    const options = imageryConfig.options || {};
+
     switch (imageryConfig.type) {
         case 'UrlTemplate':
             return {
                 provider: 'UrlTemplateImageryProvider',
                 url: imageryConfig.url,
-                maximumLevel: imageryConfig.options.maximumLevel || 18,
-                minimumLevel: imageryConfig.options.minimumLevel || 0,
-                tileWidth: imageryConfig.options.tileWidth || 256,
-                tileHeight: imageryConfig.options.tileHeight || 256
+                maximumLevel: numberOr(options.maximumLevel, 18),
+                minimumLevel: numberOr(options.minimumLevel, 0),
+                tileWidth: numberOr(options.tileWidth, 256),
+                tileHeight: numberOr(options.tileHeight, 256)
             };
         case 'WMS':
             return {
                 provider: 'WebMapServiceImageryProvider',
                 url: imageryConfig.url,
-                layers: imageryConfig.options.layers
+                layers: options.layers
             };
         case 'SingleTile':
             return {

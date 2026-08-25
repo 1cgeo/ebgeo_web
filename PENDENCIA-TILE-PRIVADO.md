@@ -3,8 +3,12 @@
 Apurado em 2026-08-20, durante a auditoria da constituição do produto. Este arquivo existe para
 que a próxima pessoa (ou o próximo agente) não precise refazer a investigação.
 
-**ESTADO EM 2026-08-24: as TRÊS AMARRAS estão de pé; o `location` do nginx continua por fazer,
-por decisão do dono.** Este cabeçalho dizia "Nada foi implementado" e passou a ser falso no
+**ESTADO EM 2026-08-24: as TRÊS AMARRAS estão de pé, o ENDPOINT de `auth_request` existe, e o
+`location` do nginx continua por fazer.** O endpoint é `GET /api/v1/auth/tile-access`, e ele
+responde SIM ou NÃO sobre a CREDENCIAL, nunca sobre a camada: leia o passo 1 e o passo 2 da lista
+no fim da seção (e) antes de descrever este trabalho em qualquer lugar, porque o que ele fecha e o
+que ele não fecha são coisas diferentes e a segunda é a que se esquece. Este cabeçalho dizia "Nada
+foi implementado" e passou a ser falso no
 instante em que a migração `010_chaves_de_api.sql` entrou, o que é a pior forma de documentação
 envelhecida: ela manda reimplementar o que já existe. O que ficou pronto é o prazo na chave
 (com teto de um ano por CHECK, ancorado em `created_at` como o de concessão), o escopo por
@@ -145,15 +149,35 @@ desejos. **As três primeiras foram feitas em 2026-08-24** (migração `010_chav
 
 **O QUE FALTA PARA LIGAR O `location`, em ordem, apurado em 2026-08-24 ao fazer as amarras:**
 
-1. **Endpoint de `auth_request`.** Precisa ser rota SÓ-flexível, porque o `auth` estrito recusa
-   a chave de escopo `tiles`, que é justamente a que o tile carrega. Responde 200/401 sem corpo
-   e lê `?api_key=` da query repassada pelo nginx. Decidir se ele também diz QUAL camada o
-   portador alcança, ou se o nginx só quer sim/não.
-2. **O recorte por RECURSO, que é a decisão que ainda não foi tomada.** O escopo hoje diz
-   "tiles, sim ou não", nunca QUAIS tiles. Enquanto for assim, uma chave de tile de qualquer
-   conta abre TODO `location` protegido, e `fn_can_see_resource` não entra na história. Se o
-   requisito for "a chave alcança o que a pessoa pode ver", o endpoint precisa receber o
-   caminho e consultar aquele predicado.
+1. ~~**Endpoint de `auth_request`.**~~ **FEITO em 2026-08-24:** `GET /api/v1/auth/tile-access`
+   (`backend/src/modules/auth/tile-access.js`), rota SÓ-`flexibleAuth` (o `auth` estrito recusa a
+   chave de escopo `tiles`, que é justamente a que o tile carrega), respondendo 200 ou 401 **sem
+   corpo** e lendo `?api_key=` da query repassada pelo nginx. Sem trilha de auditoria, por decisão
+   declarada na rota: `audit_trail.action` não tem ação de LEITURA, e seria uma linha por TILE.
+   Provas em `backend/tests/integration/tile-access-auth-request.test.js` e
+   `backend/tests/unit/tile-access-predicado.test.js`.
+2. **O recorte por RECURSO: DEIXOU DE SER DECISÃO PENDENTE E PASSOU A SER LIMITAÇÃO DECLARADA.**
+   O dono decidiu em 2026-08-24 pelo **sim/não simples**: o endpoint responde sobre a CREDENCIAL e
+   nunca sobre a CAMADA. Ele não recebe o caminho do tile, não sabe qual camada está sendo pedida,
+   e **`fn_can_see_resource` não entra na história**.
+
+   **O que isso COMPRA:** os bytes do tile saem de "abertos para a internet inteira" (é o estado de
+   hoje, um `location` apontando para o Martin sem predicado nenhum) e passam a "exigem uma chave
+   de API viva, de escopo que alcance tile". É um estreitamento real, e é o que torna o `location`
+   ligável.
+
+   **O que isso NÃO COMPRA, sem eufemismo:** privacidade POR RECURSO. Um usuário COMUM com uma
+   chave viva alcança os bytes do tile de uma camada privada que o catálogo não lhe mostra,
+   inclusive de outra OM. O que muda é o TAMANHO do público, de "qualquer um" para "quem porta uma
+   chave viva"; não muda quem, dentro desse público, pode ver o quê. Nenhuma tela pode dizer
+   "tile privado fechado" a partir daqui.
+
+   **O motivo de a alternativa não ter sido feita agora**, escrito para que ninguém a redescubra do
+   zero: o caminho do tile é texto livre digitado no cadastro (não existe mapa caminho -> linha de
+   catálogo), a consulta ao predicado seria por TILE e não por sessão, e o acervo privado ainda
+   divide prefixo com o público (item 3 abaixo), de modo que não haveria recorte a aplicar. Se o
+   requisito virar "a chave alcança o que a pessoa pode ver", o endpoint precisa receber o caminho,
+   resolver a camada e consultar `fn_can_see_resource`, e o item 3 precisa vir antes.
 3. **Republicar o acervo privado sob prefixo próprio.** O `location` vale sobre um prefixo: se
    privado e público dividirem o mesmo, ou tudo passa a exigir chave (e o anônimo, que é o
    produto, quebra) ou nada passa. É a pergunta em aberto nº 2 deste documento.
@@ -173,7 +197,11 @@ mundo dentro do intervalo. Se o volume de tile privado crescer, isso reaparece c
 banda, e a saída continua sendo (b) para o acervo mais quente.
 
 **Verificação, quando for feito.** As três amarras têm teste de servidor (prazo recusado,
-escopo recusado, revogação individual). A validação no nginx **não** tem teste neste
+escopo recusado, revogação individual), e o endpoint de `auth_request` também: a chave viva abre,
+e sem chave, vencida, revogada, de conta desativada e de OM inativa não abrem, cada uma com o par
+positivo sobre a MESMA linha e com o predicado rodado sem o termo acusado (senão "não achou" e
+"recusou" são a mesma resposta). O custo é medido, não estimado: uma consulta por tile, e ZERO
+quando a query não tem forma de UUID. A validação no nginx **não** tem teste neste
 repositório, pela mesma razão que a 10.1 já registra: ela vira sonda com data, rodada à mão
 no deploy e com o resultado anotado. Sem ela, "o tile privado está fechado" é afirmação sobre
 o repositório, não sobre o servidor.

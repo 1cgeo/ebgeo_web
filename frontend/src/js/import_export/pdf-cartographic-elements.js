@@ -1229,16 +1229,33 @@ function _clipSegment(a, b, left, top, right, bottom) {
 /**
  * Formats a degree value in degrees, minutes, seconds with hemisphere.
  * Omits seconds when 0, omits minutes+seconds when both 0.
+ *
+ * The seconds carry is NOT cosmetic. `Math.round` on the seconds remainder can
+ * land on exactly 60, and without the carry the sheet prints `43°11'60"W` where
+ * cartography requires `43°12'W`. It is reached by ordinary values, not only by
+ * accumulated drift: `-43.3` is not representable, so `(43.3 - 43) * 60` is
+ * 17.99999999999983 and its remainder rounds to 60. Measured at 1:250.000 it hit
+ * ten of the twelve labels of a single tile.
+ *
  * @param {number} value - Degrees (signed)
  * @param {'lat'|'lng'} axis
  * @returns {string} e.g. "22°15'30"S" or "43°W"
  */
 function _formatDMS(value, axis) {
     const abs = Math.abs(value);
-    const deg = Math.floor(abs);
+    let deg = Math.floor(abs);
     const minFloat = (abs - deg) * 60;
-    const min = Math.floor(minFloat);
-    const sec = Math.round((minFloat - min) * 60);
+    let min = Math.floor(minFloat);
+    let sec = Math.round((minFloat - min) * 60);
+
+    if (sec === 60) {
+        sec = 0;
+        min += 1;
+    }
+    if (min === 60) {
+        min = 0;
+        deg += 1;
+    }
 
     const hemisphere = axis === 'lat'
         ? (value >= 0 ? 'N' : 'S')

@@ -115,7 +115,12 @@ export class ExportImportService {
         if (Array.isArray(coords[0])) {
             return coords.map(coord => this.roundCoordinates(coord));
         }
-        return coords.map(coord => Math.round(coord * 1e6) / 1e6);
+        // NAO-FINITO NAO E ARREDONDAVEL, e passava intacto para dentro do `.ebgeo`: `NaN` e
+        // `+-Infinity` sobreviviam, e `null` virava 0 (porque `null * 1e6 === 0`), gravando uma
+        // coordenada INVENTADA no arquivo que circula por e-mail e pendrive. Preservar a entrada
+        // e a resposta certa aqui: quem valida geometria e o import do outro lado, e trocar lixo
+        // por um zero plausivel e o que faz o defeito chegar longe da causa.
+        return coords.map(coord => (Number.isFinite(coord) ? Math.round(coord * 1e6) / 1e6 : coord));
     }
 
     /**
@@ -160,7 +165,12 @@ export class ExportImportService {
      * @returns {string} File extension
      */
     getBlobExtension(blob) {
-        const mimeType = blob.type || 'image/png';
+        // NORMALIZA ANTES DO SWITCH: um `Blob` real carrega o tipo em minusculas, mas o valor vem
+        // de fora (canvas, arquivo escolhido pela pessoa, sync) e as duas formas legitimas do
+        // cabecalho MIME quebravam o casamento exato. Medido em 2026-08-24: `IMAGE/JPEG` e
+        // `image/jpeg; charset=binary` caiam no `default` e a foto era gravada como `.png`. O
+        // parametro sai no `;`, e o resto vira minusculo.
+        const mimeType = String(blob.type || 'image/png').split(';')[0].trim().toLowerCase();
         switch (mimeType) {
             case 'image/svg+xml': return 'svg';
             case 'image/jpeg': return 'jpg';

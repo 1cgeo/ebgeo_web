@@ -214,8 +214,13 @@ export class ReferenceValidator {
     async _validateSlide(slide, index, result, resources) {
         const { availableMaps, availableModels, availablePhotos } = resources;
 
-        // Check position
-        if (!slide.position || slide.position.longitude === null || slide.position.latitude === null) {
+        // Check position. `=== null` was too narrow: `{}`, `{ longitude: 1 }` and
+        // a pair of NaN all read as "has a position", so a slide whose capture
+        // failed validated clean and then drew nowhere. `Number.isFinite` is the
+        // right predicate here, and `?? 0` would NOT be (it lets NaN through);
+        // -0 stays valid, which is what the negative-zero regression pins.
+        const { longitude, latitude } = slide.position || {};
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
             result.addError(new ValidationError(
                 index,
                 slide.id,
@@ -226,9 +231,8 @@ export class ReferenceValidator {
         } else if (slide.mode === SlideMode.VIEWER_360) {
             // For 360 slides, position should contain geographic coordinates (not camera rotation).
             // Legacy briefings may have camera rotation values in position - detect and warn.
-            const { longitude, latitude } = slide.position;
-            const looksLikeCameraRotation = longitude != null && latitude != null
-                && Math.abs(latitude) > 90;
+            // Both values are already known finite by the branch above.
+            const looksLikeCameraRotation = Math.abs(latitude) > 90;
             if (looksLikeCameraRotation) {
                 result.addError(new ValidationError(
                     index,

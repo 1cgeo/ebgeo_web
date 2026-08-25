@@ -129,19 +129,54 @@ function buildTextElement(descriptor) {
     return `<text x="${descriptor.position.x}" y="${descriptor.position.y}" text-anchor="middle" font-size="${descriptor.style.fontSize}" font-family="${fontFamily}" font-weight="${descriptor.style.fontWeight}" fill="${descriptor.style.fill}">${descriptor.text}</text>`;
 }
 
+/** The four engagement-bar colours a custom colour overrides. */
+const ENGAGEMENT_BAR_COLORS = [
+    /rgb\(128,224,255\)/g,
+    /rgb\(255,255,128\)/g,
+    /rgb\(170,255,170\)/g,
+    /rgb\(255,128,128\)/g
+];
+
 /**
  * Convert HEX color to RGB string
+ *
+ * Validates first, like `CoordinationMeasureGenerator.hexToRgb` does. Without the
+ * test, `parseInt` on a non-hex string wrote NaN channels straight into the SVG:
+ * '#fff' became rgb(255,15,NaN) and 'vermelho' became rgb(NaN,NaN,14), silently.
  * @param {string} hex - HEX color (e.g., "#11FF00" or "11FF00")
- * @returns {string} RGB string (e.g., "rgb(17,255,0)")
+ * @returns {string|null} RGB string (e.g., "rgb(17,255,0)"), or null when not a 6-digit hex
  */
 function hexToRgb(hex) {
-    hex = hex.replace('#', '');
+    const normalized = String(hex).replace(/^#/, '');
 
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
+    if (!/^[0-9A-F]{6}$/i.test(normalized)) {
+        return null;
+    }
+
+    const r = parseInt(normalized.substring(0, 2), 16);
+    const g = parseInt(normalized.substring(2, 4), 16);
+    const b = parseInt(normalized.substring(4, 6), 16);
 
     return `rgb(${r},${g},${b})`;
+}
+
+/**
+ * Repaint the engagement bars with a custom colour, or leave the SVG untouched.
+ * @param {string} svgString - SVG to recolour
+ * @param {string|null} customColor - Custom color in HEX, or falsy for no change
+ * @returns {string} SVG, unchanged when there is no colour or the colour is invalid
+ */
+function applyEngagementBarColor(svgString, customColor) {
+    const customRgb = customColor ? hexToRgb(customColor) : null;
+
+    if (!customRgb) {
+        return svgString;
+    }
+
+    return ENGAGEMENT_BAR_COLORS.reduce(
+        (svg, pattern) => svg.replace(pattern, customRgb),
+        svgString
+    );
 }
 
 /**
@@ -178,14 +213,7 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
 
     if (!extension) {
         // Apply engagement bar color if custom color is set
-        if (customColor) {
-            const customRgb = hexToRgb(customColor);
-            result = result.replace(/rgb\(128,224,255\)/g, customRgb);
-            result = result.replace(/rgb\(255,255,128\)/g, customRgb);
-            result = result.replace(/rgb\(170,255,170\)/g, customRgb);
-            result = result.replace(/rgb\(255,128,128\)/g, customRgb);
-        }
-        return result;
+        return applyEngagementBarColor(result, customColor);
     }
     if (hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
         const entityExt = getCatalogEntryWithStandardIdentity(
@@ -280,15 +308,7 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
         }
     }
 
-    if (customColor) {
-        const customRgb = hexToRgb(customColor);
-        result = result.replace(/rgb\(128,224,255\)/g, customRgb);
-        result = result.replace(/rgb\(255,255,128\)/g, customRgb);
-        result = result.replace(/rgb\(170,255,170\)/g, customRgb);
-        result = result.replace(/rgb\(255,128,128\)/g, customRgb);
-    }
-
-    return result;
+    return applyEngagementBarColor(result, customColor);
 }
 
 /**

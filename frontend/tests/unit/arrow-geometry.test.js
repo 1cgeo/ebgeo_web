@@ -7,10 +7,11 @@
  *
  * WHAT IT PINS
  * - `normalizeBaseCoordinates`: the four input shapes (array by reference, JSON
- *   string, malformed string, non-array) and the fact that a JSON scalar escapes
- *   as a scalar.
- * - `removeVertexAtIndex`: bounds, the two-vertex floor, immutability of the input.
- * - `validate`: the 10 m floor is measured against the REAL haversine of
+ *   string, malformed string, non-array) and the shape check that keeps a JSON
+ *   scalar from escaping as a scalar.
+ * - `removeVertexAtIndex`: bounds, the integer test, the two-vertex floor,
+ *   immutability of the input.
+ * - `validate`: the finiteness gate, and the 10 m floor measured against the REAL haversine of
  *   `utilities/geometry-utils.js` (the mock BaseGeometry delegates to the very
  *   function the real base class delegates to), cross-checked by an INDEPENDENT
  *   chord-length derivation written in this file.
@@ -215,48 +216,48 @@ describe('AddArrowGeometry.normalizeBaseCoordinates', () => {
     });
 });
 
-describe('DEFEITO: normalizeBaseCoordinates deixa escapar o escalar de um JSON válido', () => {
-    // The string branch returns `JSON.parse(...)` with no shape check, so any valid
-    // JSON scalar or object leaves the function pretending to be a coordinate list.
-    // Measured: `'42'` -> 42, `'null'` -> null, `'{}'` -> {}. Downstream,
-    // `coords.length < 2` is `undefined < 2` === false for 42, so the length guard
-    // does NOT fire and an invalid GeoJSON reaches the caller (next block).
+describe('CONSERTADO: normalizeBaseCoordinates deixava escapar o escalar de um JSON válido', () => {
+    // The string branch used to return `JSON.parse(...)` with no shape check, so any
+    // valid JSON scalar or object left the function pretending to be a coordinate
+    // list: `'42'` -> 42, `'null'` -> null, `'{}'` -> {}. Downstream,
+    // `coords.length < 2` was `undefined < 2` === false for 42, so the length guard
+    // did NOT fire and invalid GeoJSON reached the caller (next block).
+    // The parsed value is now shape-checked and a non-array falls back to [].
 
     it('CONTROLE: a função é alcançável e discrimina (string boa devolve o array)', () => {
         expect(geom.normalizeBaseCoordinates('[[0,0],[1,1]]')).toEqual([[0, 0], [1, 1]]);
         expect(geom.normalizeBaseCoordinates('lixo')).toEqual([]);
     });
 
-    it('comportamento OBSERVADO hoje: escalares e objetos passam intactos', () => {
-        expect(geom.normalizeBaseCoordinates('42')).toBe(42);
-        expect(geom.normalizeBaseCoordinates('null')).toBeNull();
-        expect(geom.normalizeBaseCoordinates('{}')).toEqual({});
+    it('escalares e objetos JSON válidos viram [], como o JSON malformado', () => {
+        expect(geom.normalizeBaseCoordinates('42')).toEqual([]);
+        expect(geom.normalizeBaseCoordinates('null')).toEqual([]);
+        expect(geom.normalizeBaseCoordinates('{}')).toEqual([]);
     });
 
-    it.fails('DEVERIA sempre devolver um array (hoje devolve o escalar 42)', () => {
+    it('sempre devolve um array (antes devolvia o escalar 42)', () => {
         expect(Array.isArray(geom.normalizeBaseCoordinates('42'))).toBe(true);
     });
 });
 
-describe('DEFEITO: o escalar que escapa vira geometria GeoJSON inválida', () => {
+describe('CONSERTADO: o escalar que escapava virava geometria GeoJSON inválida', () => {
     it('CONTROLE: entrada boa produz um Polygon com anel fechado', () => {
         const g = geom.generateSingleArrow([[0, 0], [1, 0], [2, 0]], { width: 1000 });
         expect(g.type).toBe('Polygon');
         expect(g.coordinates[0][0]).toEqual(g.coordinates[0][g.coordinates[0].length - 1]);
     });
 
-    it.fails("DEVERIA recusar baseCoordinates '42' (hoje emite LineString com coordinates: 42)", () => {
+    it("recusa baseCoordinates '42' (antes emitia LineString com coordinates: 42)", () => {
         const g = geom.generateSingleArrow('42', { width: 1000 });
         expect(g === null || Array.isArray(g.coordinates)).toBe(true);
+        // Absolute anchor: the length guard now fires, so the answer is the refusal
+        // sentinel and not some other well-formed geometry.
+        expect(g).toBeNull();
     });
 
-    it('OBSERVADO: a saída é {type:"LineString", coordinates: 42}', () => {
-        expect(geom.generateSingleArrow('42', { width: 1000 }))
-            .toEqual({ type: 'LineString', coordinates: 42 });
-    });
-
-    it.fails("DEVERIA recusar baseCoordinates 'null' (hoje lança TypeError fora do try)", () => {
+    it("recusa baseCoordinates 'null' (antes lançava TypeError fora do try)", () => {
         expect(() => geom.generateSingleArrow('null', { width: 1000 })).not.toThrow();
+        expect(geom.generateSingleArrow('null', { width: 1000 })).toBeNull();
     });
 });
 
@@ -315,26 +316,24 @@ describe('AddArrowGeometry.removeVertexAtIndex', () => {
     });
 });
 
-describe('DEFEITO: removeVertexAtIndex aceita índice não-inteiro', () => {
-    // `index < 0` and `index >= length` are both false for NaN, so the guard lets it
-    // through and `Array.prototype.splice` coerces NaN to 0: the FIRST vertex is
+describe('CONSERTADO: removeVertexAtIndex aceitava índice não-inteiro', () => {
+    // `index < 0` and `index >= length` are both false for NaN, so the old guard let
+    // it through and `Array.prototype.splice` coerced NaN to 0: the FIRST vertex was
     // deleted instead of nothing. `x ?? 0` would not have helped either; the guard
-    // needs `Number.isInteger`.
+    // needed `Number.isInteger`, which is what it has now.
 
     it('CONTROLE: o mesmo caminho recusa um índice inteiro fora do intervalo', () => {
         expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 3)).toBeNull();
     });
 
-    it.fails('DEVERIA recusar NaN (hoje apaga o vértice 0 em silêncio)', () => {
+    it('recusa NaN (antes apagava o vértice 0 em silêncio)', () => {
         expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], NaN)).toBeNull();
     });
 
-    it('OBSERVADO: NaN apaga o primeiro vértice', () => {
-        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], NaN)).toEqual([[1, 1], [2, 2]]);
-    });
-
-    it('OBSERVADO: índice fracionário 1.5 é truncado para 1 pelo splice', () => {
-        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 1.5)).toEqual([[0, 0], [2, 2]]);
+    it('recusa o índice fracionário 1.5 (antes o splice o truncava para 1)', () => {
+        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], 1.5)).toBeNull();
+        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], Infinity)).toBeNull();
+        expect(geom.removeVertexAtIndex([[0, 0], [1, 1], [2, 2]], '1')).toBeNull();
     });
 });
 
@@ -404,29 +403,32 @@ describe('AddArrowGeometry.validate', () => {
     });
 });
 
-describe('DEFEITO: validate aceita coordenada não-finita', () => {
+describe('CONSERTADO: validate aceitava coordenada não-finita', () => {
     // The haversine of a NaN/Infinity pair is NaN, and `NaN < 10` is false, so the
-    // "too close" test never fires. This is the classic "`x ?? 0` does not guard NaN"
-    // shape: nothing in the chain asks `Number.isFinite`.
+    // "too close" test never fired. Classic "`x ?? 0` does not guard NaN" shape:
+    // nothing in the chain asked `Number.isFinite`. It does now, BEFORE the floor.
 
     it('CONTROLE: o mesmo predicado reprova um par finito abaixo do piso', () => {
         expect(geom.validate([[0, 0], [0, 0]])).toBe(false);
     });
 
-    it.fails('DEVERIA recusar NaN (hoje aceita)', () => {
+    it('recusa NaN (antes aceitava)', () => {
         expect(geom.validate([[0, 0], [NaN, NaN]])).toBe(false);
+        expect(geom.validate([[NaN, 0], [1, 1]])).toBe(false);
     });
 
-    it.fails('DEVERIA recusar Infinity (hoje aceita)', () => {
+    it('recusa Infinity nas duas componentes e nos dois sinais (antes aceitava)', () => {
         expect(geom.validate([[0, 0], [Infinity, 1]])).toBe(false);
+        expect(geom.validate([[0, 0], [1, -Infinity]])).toBe(false);
     });
 
-    it('OBSERVADO: os dois passam como válidos', () => {
-        expect(geom.validate([[0, 0], [NaN, NaN]])).toBe(true);
-        expect(geom.validate([[0, 0], [Infinity, 1]])).toBe(true);
+    it('recusa vértice que não é par de números', () => {
+        expect(geom.validate([[0, 0], ['1', '1']])).toBe(false);
+        expect(geom.validate([[0, 0], [1]])).toBe(false);
+        expect(geom.validate([[0, 0], null])).toBe(false);
     });
 
-    it.fails("DEVERIA recusar o escalar de '42' (hoje aceita, sem par nenhum para medir)", () => {
+    it("recusa o escalar de '42' (antes aceitava, sem par nenhum para medir)", () => {
         expect(geom.validate('42')).toBe(false);
     });
 });
@@ -623,9 +625,11 @@ describe('AddArrowGeometry._applyAirmobileFromHandle', () => {
     });
 });
 
-describe('DEFEITO: _applyAirmobileFromHandle grava NaN em linha de comprimento zero', () => {
+describe('CONSERTADO: _applyAirmobileFromHandle gravava NaN em linha de comprimento zero', () => {
     // 0/0 is NaN, and `Math.max(0.01, Math.min(0.99, NaN))` is NaN, not 0.01: neither
-    // Math.min nor Math.max sanitizes it. The clamp reads like a guard and is not one.
+    // Math.min nor Math.max sanitizes it. The clamp read like a guard and was not one.
+    // The RATIO is now guarded before the clamp, falling back to the 0.5 that
+    // `createAirmobileHandle` already uses as its default position.
     const zeroLengthLine = () => {
         turfState.length = 0;
         turfState.nearestLocation = 0;
@@ -639,18 +643,24 @@ describe('DEFEITO: _applyAirmobileFromHandle grava NaN em linha de comprimento z
         expect(props.airmobilePosition).toBe(0.01);
     });
 
-    it.fails('DEVERIA continuar dentro de [0.01, 0.99] (hoje grava NaN)', () => {
+    it('continua dentro de [0.01, 0.99] em linha degenerada (antes gravava NaN)', () => {
         zeroLengthLine();
         const props = {};
         geom._applyAirmobileFromHandle(props, [[0, 0], [0, 0]], [0, 0]);
         expect(Number.isFinite(props.airmobilePosition)).toBe(true);
+        // Absolute anchor: the fallback is the midpoint, not a clamp boundary, so a
+        // future change that silently returned 0.01 or 0.99 here would be caught.
+        expect(props.airmobilePosition).toBe(0.5);
+        turfState.length = 500;
+        turfState.nearestLocation = 5;
     });
 
-    it('OBSERVADO: airmobilePosition vira NaN', () => {
-        zeroLengthLine();
+    it('a distância não-finita também cai no meio, sem virar NaN', () => {
+        turfState.length = 10;
+        turfState.nearestLocation = NaN;
         const props = {};
-        geom._applyAirmobileFromHandle(props, [[0, 0], [0, 0]], [0, 0]);
-        expect(Number.isNaN(props.airmobilePosition)).toBe(true);
+        geom._applyAirmobileFromHandle(props, [[0, 0], [1, 1]], [0, 0]);
+        expect(props.airmobilePosition).toBe(0.5);
         turfState.length = 500;
         turfState.nearestLocation = 5;
     });
@@ -705,31 +715,37 @@ describe('AddArrowGeometry.updateFromHandle', () => {
     });
 });
 
-describe('DEFEITO: o ramo LEGADO `vertex-N` não confere limite nenhum', () => {
-    // The modern branch checks `handleIndex >= 0 && handleIndex < coords.length`.
-    // The legacy string branch (`vertex-N` / `midpoint-N`) parses N and assigns
-    // straight into the array, so an out-of-range N grows a SPARSE array with holes.
+describe('CONSERTADO: o ramo LEGADO `vertex-N` não conferia limite nenhum', () => {
+    // The modern branch checks `handleIndex >= 0 && handleIndex < coords.length`. The
+    // legacy string branch (`vertex-N` / `midpoint-N`) parsed N and assigned straight
+    // into the array, so an out-of-range N grew a SPARSE array with holes. It now
+    // carries the SAME bounds as the modern branch.
 
     it('CONTROLE: o mesmo ramo legado funciona para um índice dentro do intervalo', () => {
         const out = geom.updateFromHandle('vertex-1', [9, 9], arrowFeature());
         expect(out.properties.baseCoordinates).toEqual([[0, 0], [9, 9], [2, 0]]);
+        const mid = geom.updateFromHandle('midpoint-0', [9, 9], arrowFeature());
+        expect(mid.properties.baseCoordinates).toEqual([[0, 0], [9, 9], [1, 0], [2, 0]]);
     });
 
-    it.fails('DEVERIA ignorar `vertex-99` (hoje cria um array esparso de 100 posições)', () => {
-        const out = geom.updateFromHandle('vertex-99', [9, 9], arrowFeature());
-        expect(out.properties.baseCoordinates.length).toBe(3);
-    });
-
-    it('OBSERVADO: o array cresce para 100, com 97 buracos', () => {
+    it('ignora `vertex-99` (antes criava um array esparso de 100 posições)', () => {
         const out = geom.updateFromHandle('vertex-99', [9, 9], arrowFeature());
         const coords = out.properties.baseCoordinates;
-        expect(coords.length).toBe(100);
-        expect(coords[99]).toEqual([9, 9]);
-        expect(Object.prototype.hasOwnProperty.call(coords, 50)).toBe(false);
+        expect(coords.length).toBe(3);
+        expect(coords).toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 
-    it.fails('DEVERIA ignorar `vertex-abc` (NaN); hoje escreve na chave "NaN"', () => {
+    it('ignora `vertex-abc` (NaN); antes escrevia na chave "NaN"', () => {
         const out = geom.updateFromHandle('vertex-abc', [9, 9], arrowFeature());
         expect(Object.prototype.hasOwnProperty.call(out.properties.baseCoordinates, 'NaN')).toBe(false);
+        expect(out.properties.baseCoordinates).toEqual([[0, 0], [1, 0], [2, 0]]);
+    });
+
+    it('o ramo legado de midpoint também guarda as duas pontas', () => {
+        // `midpoint-2` on a 3-vertex arrow would append past the last segment.
+        expect(geom.updateFromHandle('midpoint-2', [9, 9], arrowFeature()).properties.baseCoordinates)
+            .toEqual([[0, 0], [1, 0], [2, 0]]);
+        expect(geom.updateFromHandle('midpoint-abc', [9, 9], arrowFeature()).properties.baseCoordinates)
+            .toEqual([[0, 0], [1, 0], [2, 0]]);
     });
 });

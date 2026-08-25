@@ -114,10 +114,21 @@ export class CoordinationMeasureGenerator {
     const textFieldsConfig = pointData.textFields || {};
     const fieldNames = Object.keys(textFieldsConfig);
 
-    return fieldNames.some(fieldName => {
-      const value = properties[fieldName];
-      return value !== undefined && value !== null && value !== '';
-    });
+    return fieldNames.some(fieldName => this.hasTextValue(properties[fieldName]));
+  }
+
+  /**
+   * Whether a text-modifier value counts as filled in.
+   *
+   * ONE predicate for the three places that used to ask the question differently.
+   * `hasExternalText` and `calculateDynamicViewBox` tested undefined/null/'';
+   * `addExternalTexts` tested `!value && value !== 0`. The boolean `false` split
+   * them, so the symbol grew its viewBox to fit a label that was never drawn.
+   * @param {*} value - Raw property value
+   * @returns {boolean} True when the value should be rendered
+   */
+  hasTextValue(value) {
+    return value !== undefined && value !== null && value !== '';
   }
 
   /**
@@ -199,7 +210,7 @@ export class CoordinationMeasureGenerator {
     Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
       const value = properties[fieldName];
 
-      if (!value && value !== 0) return;
+      if (!this.hasTextValue(value)) return;
 
       textElements.push(this.createTextElement(
         config.position.x,
@@ -254,7 +265,10 @@ export class CoordinationMeasureGenerator {
       fill = 'black'
     } = options;
 
-    return `  <text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}" font-family="Arial">${this.escapeXml(content)}</text>`;
+    // `String(content)`: `escapeXml` calls String.prototype.replace, so a NUMERIC
+    // label (which `hasTextValue` deliberately admits, 0 included) used to throw a
+    // TypeError here and take the whole symbol render down with it.
+    return `  <text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}" font-family="Arial">${this.escapeXml(String(content))}</text>`;
   }
 
   /**
@@ -330,7 +344,9 @@ export class CoordinationMeasureGenerator {
     }
 
     if (pointData.code === '240601') {
-      if (!properties.numeroConcentracao) {
+      // Explicit presence test, not `!value`: a concentration number of 0 is a value
+      // the operator can enter, and it used to be reported as missing.
+      if (!this.hasTextValue(properties.numeroConcentracao)) {
         errors.push('Enter concentration number (e.g. HA 107)');
       }
     }
@@ -433,7 +449,7 @@ export class CoordinationMeasureGenerator {
     Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
       const value = properties[fieldName];
 
-      if (value === undefined || value === null || value === '') return;
+      if (!this.hasTextValue(value)) return;
 
       const x = config.position.x;
       const y = config.position.y;

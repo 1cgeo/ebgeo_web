@@ -155,6 +155,10 @@ const CENSO_ROTA = [
   json('src/modules/auth/auth.routes.js', 'POST /refresh'),
   json('src/modules/auth/auth.routes.js', 'POST /logout'),
   json('src/modules/auth/auth.routes.js', 'GET /me'),
+  // O `auth_request` do nginx. NÃO TEM CORPO NENHUM, nos dois desfechos (200 e 401), e é
+  // por isso que ele cai na mesma classe pelo motivo mais forte: não há JSON para podar.
+  // Os dois emissores estão declarados abaixo, em `src/modules/auth/tile-access.js`.
+  json('src/modules/auth/auth.routes.js', 'GET /tile-access'),
 
   json('src/modules/briefings/briefings.routes.js', 'GET /'),
   json('src/modules/briefings/briefings.routes.js', 'GET /:briefingId'),
@@ -338,6 +342,14 @@ const CENSO_EMISSOR = [
 
   { arquivo: 'src/modules/auth/auth.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
+
+  { arquivo: 'src/modules/auth/tile-access.js', texto: 'res.status(401).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Este e o NAO do auth_request do nginx (clausula 10.7). `
+      + 'Ele nao lanca UnauthorizedError de proposito: o errorHandler serializaria um envelope JSON '
+      + 'que o auth_request descarta sem ler, uma vez POR TILE. O motivo da recusa sai em cabecalho.' },
+  { arquivo: 'src/modules/auth/tile-access.js', texto: 'res.status(200).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} O SIM do mesmo endpoint, pela mesma razao. Ele nao `
+      + 'devolve NADA sobre o portador, e nao poderia: a rota valida a CREDENCIAL e nunca o recurso.' },
 
   { arquivo: 'src/modules/catalog/catalog.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },

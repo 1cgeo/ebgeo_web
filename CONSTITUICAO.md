@@ -551,7 +551,7 @@ nunca na conta, então enquanto o convite está de pé o endereço segue livre p
 unicidade é conferida no pedido e DE NOVO no resgate, nunca segurada no meio. Um token que caduca sem ser
 aberto não deixa nada reservado.
 
-**10.7** **A chave de API ganhou as três amarras em 2026-08-24; o `location` do nginx continua por fazer.**
+**10.7** **A chave de API ganhou as três amarras em 2026-08-24, e o ENDPOINT que o nginx vai consultar; o `location` continua por fazer.**
 Até aquela data ela era o usuário inteiro: resolvia para a linha de `users`, carregava o papel global,
 `FIND_USER_BY_API_KEY` filtrava apenas `is_active`, e não havia coluna de validade nem de escopo. Hoje as
 três existem, e cada uma no lugar em que este sistema já põe as suas. **Prazo:** morre no PREDICADO daquela
@@ -560,14 +560,41 @@ concessão, 3.4). **Escopo:** `API_KEY_SCOPE_REACH` é uma tabela de alcance por
 dela alcança administração, de modo que `requireAdmin` recusa TODA chave, inclusive a de um administrador, e
 o `auth` estrito recusa a chave de escopo `tiles`. **Revogação:** `api_keys` guarda uma linha por chave viva,
 e revogar uma não derruba as irmãs; a chave também passou a cair no corte de sessão em massa, comparado com
-o NASCIMENTO da chave, já que ela não tem `iat`. Provas em `backend/tests/integration/chave-de-api-tres-amarras.test.js`
+o NASCIMENTO da chave, já que ela não tem `iat`. **Essa última parte é DECISÃO DO DONO, confirmada em
+2026-08-24 quando ela foi levantada como possível excesso: a chave NÃO sobrevive a uma troca de senha.**
+A tensão é real e fica registrada para que ninguém a "conserte" depois: a terceira amarra existe
+justamente para que revogar uma credencial não derrube as outras integrações da pessoa, e o corte em
+massa derruba todas de uma vez. O que separa os dois casos é o GATILHO: rotação de rotina é higiene e
+não deve custar as irmãs; troca de senha, reset por administrador, desativação e detecção de reuso são
+eventos de SEGURANÇA, em que a suposição correta é a de que a identidade inteira está comprometida. Provas em `backend/tests/integration/chave-de-api-tres-amarras.test.js`
 e `backend/tests/unit/chave-de-api-alcance-e-prazo.test.js`.
+
+**O ENDPOINT DE `auth_request` EXISTE DESDE 2026-08-24, e o que ele responde é DECISÃO DO DONO da mesma
+data: SIM ou NÃO SIMPLES.** `GET /api/v1/auth/tile-access` (`backend/src/modules/auth/tile-access.js`) é
+rota só-`flexibleAuth`, porque o `auth` estrito recusa a chave de escopo `tiles`, que é exatamente a que o
+tile carrega; responde 200 ou 401 **sem corpo** (o `auth_request` descarta o corpo e só olha o status, e um
+payload aqui seria banda gasta por TILE) e lê `?api_key=` da query, que é o único lugar em que o MapLibre
+consegue carregar credencial. Sem trilha de auditoria, por decisão declarada na rota: `audit_trail.action`
+não tem ação de LEITURA para gravar, e seria uma linha por tile. **O que ele COMPRA:** os bytes do tile
+saem de "abertos para a internet inteira" para "exigem uma chave viva de escopo `tiles`", que é um
+estreitamento real. **O que ele NÃO COMPRA, e a frase precisa ficar sem eufemismo:** privacidade POR
+RECURSO. Ele valida a CREDENCIAL e nunca a CAMADA, `fn_can_see_resource` não entra na história, e um
+usuário comum com chave viva alcança o tile de uma camada que o catálogo não lhe mostra. O que muda é o
+tamanho do público, não quem dentro dele vê o quê. Provas em
+`backend/tests/integration/tile-access-auth-request.test.js` e
+`backend/tests/unit/tile-access-predicado.test.js`; a alternativa recusada (o endpoint receber o caminho e
+consultar o predicado) está escrita, com o motivo, no passo 2 de
+[`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md), onde ela deixou de ser decisão pendente e passou
+a ser limitação declarada.
 
 **O que continua aberto, e é por isso que a cláusula não está vigente.** O slot antigo (`users.api_key`, uma
 chave por conta) não foi apagado, porque migração é forward-only e integradores o carregam: ele ganhou prazo
 e corte de sessão, resolve com o escopo mais largo e continua sem revogação individual, que é a amarra que
 só o modelo novo entrega. A chave segue guardada em claro, como sempre esteve. E o `location` do nginx, que
-é o ponto da decisão, não existe.
+é o ponto da decisão, não existe: o endpoint que ele consultaria já existe, mas um endpoint que ninguém
+consulta não fecha byte nenhum. Falta também distribuir a chave ao cliente (não há `transformRequest` no
+frontend, e o visitante anônimo e o de link público não têm chave nenhuma), sem o que ligar o `location`
+fecharia o vazamento e apagaria a camada da tela de quem tem direito.
 
 O rumo está decidido, e é o que torna isto urgente em vez de acadêmico: **a chave passa a ser a credencial
 que o nginx valida** para as rotas servidas pelo Martin, que hoje são públicas e ficam fora do alcance de
@@ -578,5 +605,6 @@ que falta: uma credencial permanente que hoje só um integrador usa passaria a v
 **As três amarras vieram primeiro, e essa ordem não era preferência:** ligar o `location` antes delas
 trocaria um vazamento de bytes por uma sessão de administrador sem prazo. A apuração, com a opção comparada
 às outras quatro, está em [`PENDENCIA-TILE-PRIVADO.md`](PENDENCIA-TILE-PRIVADO.md).
-**[em obra]**: as amarras estão de pé, falta o `location` do nginx (que não tem teste neste repositório e
-vira sonda com data, rodada à mão no deploy) e a aposentadoria do slot antigo.
+**[em obra]**: as amarras e o endpoint de `auth_request` estão de pé, falta o `location` do nginx (que não
+tem teste neste repositório e vira sonda com data, rodada à mão no deploy), a distribuição da chave ao
+cliente e a aposentadoria do slot antigo.

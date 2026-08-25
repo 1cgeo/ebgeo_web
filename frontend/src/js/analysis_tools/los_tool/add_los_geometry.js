@@ -42,13 +42,15 @@ class AddLOSGeometry extends BaseGeometry {
             return false;
         }
 
+        // Number.isFinite, not `typeof === 'number' && !isNaN`: the old pair let Infinity
+        // and -Infinity through, and an infinite endpoint reaches turf and the terrain
+        // sampler as a real coordinate. Number.isFinite does not coerce, so a string
+        // coordinate is still refused.
         return coordinates.every(coord =>
             Array.isArray(coord) &&
             coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1])
+            Number.isFinite(coord[0]) &&
+            Number.isFinite(coord[1])
         );
     }
 
@@ -88,7 +90,14 @@ class AddLOSGeometry extends BaseGeometry {
 
         const observerHeight = options.observerHeight ?? this.DEFAULT_OBSERVER_HEIGHT;
         const targetHeight = options.targetHeight ?? this.DEFAULT_TARGET_HEIGHT;
-        const samplePoints = options.samplePoints ?? this.DEFAULT_SAMPLE_POINTS;
+        // `??` alone does NOT guard NaN, and a NaN count made `Math.max(2, NaN)` NaN, so the
+        // sweep loop below never ran and the analysis reported "everything visible" over a
+        // 5 km mountain: a well-formed verdict, not visible garbage, and the wrong direction
+        // to fail in for a targeting tool. A non-finite count falls back to the default.
+        const requestedSamplePoints = options.samplePoints ?? this.DEFAULT_SAMPLE_POINTS;
+        const samplePoints = Number.isFinite(requestedSamplePoints)
+            ? requestedSamplePoints
+            : this.DEFAULT_SAMPLE_POINTS;
 
         const [startCoordinates, endCoordinates] = coordinates;
         const line = turf.lineString(coordinates);

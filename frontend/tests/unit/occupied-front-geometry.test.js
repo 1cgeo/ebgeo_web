@@ -12,8 +12,8 @@
  *  - the degenerate cases that silently drop an arm (`distance < 1 m`);
  *  - the three DIFFERENT validity policies of the file (`validate`,
  *    `areValidBaseCoordinates`, `normalizeBaseCoordinates`) and where they disagree;
- *  - the two known holes the backlog suspected: `p3` is never distance-checked,
- *    and `calculatePreview` has no handleType allowlist;
+ *  - the hole the backlog suspected and that is STILL open by decision: `p3` is
+ *    never distance-checked, so dragging it onto p1 drops the lower arm;
  *  - immutability of the caller's `baseCoordinates` across update/preview.
  *
  * WHAT IT DOES NOT REACH
@@ -161,10 +161,28 @@ describe('AddOccupiedFrontGeometry.destination', () => {
         expect(haversine([0, 0], target)).toBeCloseTo(111195, 3);
     });
 
-    it('LIMITATION: longitude is never wrapped, so crossing 180 yields lng > 180', () => {
+    it('FIXED: crossing the antimeridian wraps back into [-180, 180]', () => {
+        // 200 km east of 179.99 used to come back as 181.79, an off-globe longitude
+        // that MapLibre draws in an empty world copy, so an occupied front placed near
+        // the antimeridian lost its arms on screen.
         const target = geom.destination([179.99, 0], 200000, 90);
 
-        expect(target[0]).toBeGreaterThan(180);
+        expect(target[0]).toBeLessThanOrEqual(180);
+        expect(target[0]).toBeCloseTo(-178.2, 1);
+        // Westwards over the same seam, and the round trip still measures 200 km, so
+        // the wrap changed the LABEL of the longitude and not the point.
+        const west = geom.destination([-179.99, 0], 200000, 270);
+        expect(west[0]).toBeGreaterThanOrEqual(-180);
+        expect(west[0]).toBeCloseTo(178.2, 1);
+        expect(haversine([179.99, 0], target)).toBeCloseTo(200000, 3);
+    });
+
+    it('leaves an in-range longitude BIT-identical (the wrap is guarded)', () => {
+        // The modulo round-trip costs ~1e-14 degrees, which would show up in every
+        // caller that compares positions, so it only runs when it has to.
+        const target = geom.destination([-43.2, -22.9], 0, 137);
+
+        expect(target[0]).toBe(-43.2);
     });
 
     it('returns the start point for a zero distance', () => {
@@ -339,17 +357,24 @@ describe('AddOccupiedFrontGeometry.validate', () => {
         expect(geom.validate([P1, P2, [0, 0]])).toBe(true);
     });
 
-    it('rejects NaN only by accident, through `NaN >= 10` being false', () => {
+    it('FIXED: rejects NaN BY DESIGN now, p3 included', () => {
+        // It used to reject p1/p2 only by accident (`NaN >= 10` is false) and to accept
+        // a NaN p3 outright, because p3 is never measured. `validate` now delegates the
+        // shape/finiteness half to `areValidBaseCoordinates`, which covers all three.
         expect(geom.validate([[NaN, 0], P2, P3])).toBe(false);
-        // ... and the accident does not cover p3, which is never measured.
-        expect(geom.validate([P1, P2, [NaN, NaN]])).toBe(true);
+        expect(geom.validate([P1, P2, [NaN, NaN]])).toBe(false);
+        expect(geom.validate([P1, P2, [Infinity, 0]])).toBe(false);
     });
 
-    it('DEFECT: accepts STRING coordinates, which areValidBaseCoordinates rejects', () => {
+    it('FIXED: the two predicates agree on STRING coordinates', () => {
         const stringy = [['0', '0'], ['0.01', '0.01'], ['0.01', '-0.01']];
 
-        expect(geom.validate(stringy)).toBe(true);
+        expect(geom.validate(stringy)).toBe(false);
         expect(geom.areValidBaseCoordinates(stringy)).toBe(false);
+        // Control: the numeric twin of that list is still accepted by both, so the
+        // agreement is not "both refuse everything".
+        expect(geom.validate([P1, P2, P3])).toBe(true);
+        expect(geom.areValidBaseCoordinates([P1, P2, P3])).toBe(true);
     });
 });
 
@@ -367,26 +392,18 @@ describe('AddOccupiedFrontGeometry.areValidBaseCoordinates', () => {
         expect(geom.areValidBaseCoordinates([[0, '0'], P2, P3])).toBe(false);
     });
 
-    it('DEFECT: accepts Infinity, because the guard is isNaN and not Number.isFinite', () => {
-        expect(geom.areValidBaseCoordinates([[Infinity, 0], P2, P3])).toBe(true);
-        expect(geom.areValidBaseCoordinates([[0, -Infinity], P2, P3])).toBe(true);
-    });
-
-    // CONTROL for the it.fails below: the predicate is reachable and it DOES
-    // discriminate. Without this pair, the it.fails would go green on any throw,
-    // an import error included.
+    // CONTROL for the fix below: the predicate is reachable and it DOES discriminate.
+    // Without this pair, the assertion would go green on any throw, an import error
+    // included.
     it('control: the predicate is reachable and separates valid from NaN input', () => {
         expect(geom.areValidBaseCoordinates([P1, P2, P3])).toBe(true);
         expect(geom.areValidBaseCoordinates([[NaN, 0], P2, P3])).toBe(false);
     });
 
-    it.fails(
-        'DEFECT (expected red): a non-finite coordinate should be rejected, '
-        + 'and areValidBaseCoordinates lets Infinity through',
-        () => {
-            expect(geom.areValidBaseCoordinates([[Infinity, 0], P2, P3])).toBe(false);
-        }
-    );
+    it('FIXED: rejects Infinity, because the guard is Number.isFinite and not isNaN', () => {
+        expect(geom.areValidBaseCoordinates([[Infinity, 0], P2, P3])).toBe(false);
+        expect(geom.areValidBaseCoordinates([[0, -Infinity], P2, P3])).toBe(false);
+    });
 });
 
 // ============================================================================
@@ -465,9 +482,9 @@ describe('AddOccupiedFrontGeometry.getBoundingBox', () => {
         expect(geom.getBoundingBox([[NaN, 0], P2, P3])).toBeNull();
     });
 
-    it('DEFECT: an Infinity coordinate passes the guard and poisons the box', () => {
-        expect(geom.getBoundingBox([[Infinity, 0], [1, 1], [2, 2]]))
-            .toEqual([1, 0, Infinity, 2]);
+    it('FIXED: an Infinity coordinate is refused instead of poisoning the box', () => {
+        // It used to return [1, 0, Infinity, 2], an unusable extent.
+        expect(geom.getBoundingBox([[Infinity, 0], [1, 1], [2, 2]])).toBeNull();
     });
 
     it('LIMITATION: the box is naive across the antimeridian and spans the globe', () => {
@@ -633,13 +650,15 @@ describe('AddOccupiedFrontGeometry.calculatePreview', () => {
         expect(preview.geometry).toEqual(update.geometry);
     });
 
-    it('DEFECT: no handleType allowlist, so an unknown handle yields geometry anyway', () => {
-        const preview = geom.calculatePreview('bogus', [9, 9], freshFeature());
-
-        expect(preview).not.toBeNull();
-        // Nothing moved, and nothing complained: updateFromHandle returns null here.
-        expect(preview.baseCoordinates).toEqual([P1, P2, P3]);
+    it('FIXED: shares the p1/p2/p3 allowlist with updateFromHandle', () => {
+        // It used to have no allowlist, so an unknown handle produced geometry on the
+        // way in and null on the way out.
+        expect(geom.calculatePreview('bogus', [9, 9], freshFeature())).toBeNull();
+        expect(geom.calculatePreview(undefined, [9, 9], freshFeature())).toBeNull();
         expect(geom.updateFromHandle('bogus', [9, 9], freshFeature())).toBeNull();
+        expect(warn).toHaveBeenCalled();
+        // Control: a KNOWN handle still produces a preview.
+        expect(geom.calculatePreview('p2', [0.02, 0.02], freshFeature())).not.toBeNull();
     });
 
     it('returns null under the 10 m floor for p1 and p2', () => {
@@ -652,11 +671,17 @@ describe('AddOccupiedFrontGeometry.calculatePreview', () => {
             .toBeNull();
     });
 
-    it('ALIASES baseCoordinates and handlePositions to the same array', () => {
+    it('FIXED: handlePositions is a separate array from baseCoordinates', () => {
         const preview = geom.calculatePreview('p1', [0.005, 0.005], freshFeature());
 
-        // A caller that edits handlePositions in place also edits baseCoordinates.
-        expect(preview.baseCoordinates).toBe(preview.handlePositions);
+        // The two used to be the SAME object, so a caller editing handlePositions in
+        // place silently edited baseCoordinates.
+        expect(preview.baseCoordinates).not.toBe(preview.handlePositions);
+        expect(preview.baseCoordinates[0]).not.toBe(preview.handlePositions[0]);
+        expect(preview.handlePositions).toEqual(preview.baseCoordinates);
+
+        preview.handlePositions[0][0] = 99;
+        expect(preview.baseCoordinates[0][0]).not.toBe(99);
     });
 
     it('does not mutate the feature it was handed', () => {

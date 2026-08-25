@@ -10,6 +10,12 @@
  * pure helpers; the one store-backed dependency (catalog-layer availability) is
  * passed in by the caller.
  *
+ * A NULL MEMBER IS SKIPPED, NOT DEREFERENCED. A hand-edited or truncated `.ebgeo` can carry
+ * a null entry inside `maps`, `layers[*]` or `groups[*][*]`; reading `.sync` off it threw a
+ * TypeError out of the migration, which runs before anything is shown, so one bad member
+ * aborted the whole import with a raw stack. The `groups` guard only ever covered the
+ * CONTAINER, never the member.
+ *
  * INVARIANT (phantom-map regression): neither function may assign an `id` to a
  * map. Map identity and storage keying belong to addMap()/createMapCompat(); an
  * id injected here made addMap register a name->UUID resolver mapping that
@@ -36,6 +42,7 @@ export function migrateImportDataToV2(data) {
     // Migrate each map
     if (migrated.maps) {
         for (const [_mapName, mapData] of Object.entries(migrated.maps)) {
+            if (!mapData || typeof mapData !== 'object') continue;
             // Add sync metadata to map
             if (!mapData.sync) {
                 mapData.sync = createSyncMetadata(null);
@@ -50,6 +57,7 @@ export function migrateImportDataToV2(data) {
                 for (const [_featureType, features] of Object.entries(mapData.features)) {
                     if (!Array.isArray(features)) continue;
                     for (const feature of features) {
+                        if (!feature || typeof feature !== 'object') continue;
                         if (feature.properties && !feature.properties.sync) {
                             feature.properties.sync = createSyncMetadata(null);
                         }
@@ -64,6 +72,7 @@ export function migrateImportDataToV2(data) {
         for (const [_mapName, layers] of Object.entries(migrated.layers)) {
             if (!Array.isArray(layers)) continue;
             for (const layer of layers) {
+                if (!layer || typeof layer !== 'object') continue;
                 if (!layer.sync) {
                     layer.sync = createSyncMetadata(null);
                 }
@@ -76,6 +85,7 @@ export function migrateImportDataToV2(data) {
         for (const [_mapName, groups] of Object.entries(migrated.groups)) {
             if (!groups || typeof groups !== 'object') continue;
             for (const [_groupId, group] of Object.entries(groups)) {
+                if (!group || typeof group !== 'object') continue;
                 if (!group.sync) {
                     group.sync = createSyncMetadata(null);
                 }

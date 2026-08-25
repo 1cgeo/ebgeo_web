@@ -268,7 +268,12 @@ class LayerManager {
      * @returns {Object} Updated layer
      */
     setLayerOpacity(layerId, opacity, mapName = null) {
-        const n = Number(opacity);
+        // `Number(null)` is 0 and `Number('')` is 0, both of which survive
+        // `Number.isFinite` and clamp to a FULLY TRANSPARENT layer, while
+        // `Number(undefined)` is NaN and falls on the default 1. Three spellings
+        // of "no choice was made" came out at opposite ends of the scale, and the
+        // null one made a layer vanish. Nullish and empty now share the default.
+        const n = (opacity === null || opacity === '') ? NaN : Number(opacity);
         const clamped = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
         const layer = this.getLayerById(layerId, mapName);
         if (layer && layer.opacity === clamped) return layer;
@@ -285,11 +290,17 @@ class LayerManager {
         const layersMap = this.memoryStore.layers[targetMap];
         const mapId = mapResolver.resolveToId(targetMap);
 
-        orderedLayerIds.forEach((layerId, index) => {
+        // The index must count the layers that EXIST, not the positions of the
+        // received array: a stale id left in the UI list used to consume index 0
+        // and push the whole stack down by one, with no error anywhere.
+        let index = 0;
+        orderedLayerIds.forEach((layerId) => {
             const layer = layersMap.get(layerId);
-            if (layer && layer.order !== index) {
+            if (!layer) return;
+            const position = index++;
+            if (layer.order !== position) {
                 const oldLayer = { ...layer };
-                layer.order = index;
+                layer.order = position;
                 layer.updatedAt = Date.now();
                 layer.version = (oldLayer.version || 0) + 1;
                 // Sync the new render order to peers — it was persisted locally but never logged,

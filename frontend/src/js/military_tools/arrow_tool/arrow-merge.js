@@ -13,6 +13,26 @@ const BRANCH_GEOMETRIC_PROPS = [
     'headLengthRatio', 'airmobile', 'airmobilePosition'
 ];
 
+/** Shared instance: `normalizeBaseCoordinates` carries no per-arrow state. */
+const branchGeometry = new AddArrowGeometry();
+
+/**
+ * Copy a branch coordinate list so the branch owns every vertex.
+ *
+ * Two things this does that a spread does not. It NORMALIZES first, because
+ * persistence hands `baseCoordinates` back as a JSON string and spreading a string
+ * yields its characters; and it copies each `[lng, lat]`, because a one-level copy
+ * leaves the vertices shared with the arrow the merge is about to consume, so
+ * editing the merged arrow reaches back into the deleted one.
+ * @param {string|Array} raw - Stored baseCoordinates (array or JSON string)
+ * @returns {Array} Detached array of detached positions
+ */
+function copyBranchCoordinates(raw) {
+    return branchGeometry
+        .normalizeBaseCoordinates(raw)
+        .map(coord => (Array.isArray(coord) ? [...coord] : coord));
+}
+
 /**
  * Extract branch data from a single arrow feature
  * @param {Object} feature - Arrow feature (regular or merged)
@@ -22,14 +42,18 @@ function extractBranches(feature) {
     const props = feature.properties;
 
     if (props.isMerged && Array.isArray(props.branches) && props.branches.length > 0) {
-        return props.branches.map(b => ({ ...b }));
+        return props.branches.map(b => (
+            b.baseCoordinates !== undefined
+                ? { ...b, baseCoordinates: copyBranchCoordinates(b.baseCoordinates) }
+                : { ...b }
+        ));
     }
 
     const branch = {};
     for (const key of BRANCH_GEOMETRIC_PROPS) {
         if (props[key] !== undefined) {
             branch[key] = key === 'baseCoordinates'
-                ? [...props[key]]
+                ? copyBranchCoordinates(props[key])
                 : props[key];
         }
     }
@@ -51,7 +75,9 @@ export function canMergeArrows(selectedFeatures) {
         return { canMerge: false, reason: 'Todas as feições devem ser setas' };
     }
 
-    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId || 'default'));
+    // `??`, not `||`: a falsy-but-real layer id (0, '') used to collapse into the
+    // 'default' bucket, letting arrows from genuinely different layers through.
+    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId ?? 'default'));
     if (layerIds.size > 1) {
         return { canMerge: false, reason: 'Setas devem estar na mesma camada' };
     }
@@ -229,9 +255,12 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
                 baseCoordinates: branch.baseCoordinates,
                 width: branch.width,
                 showArrowHead: branch.showArrowHead !== false,
-                headLengthRatio: branch.headLengthRatio || 1.5,
-                airmobile: branch.airmobile || false,
-                airmobilePosition: branch.airmobilePosition || 0.7
+                // `??`, not `||`: `mergeArrows` preserves a branch that stored 0
+                // (it copies every DEFINED key), so `||` here would hand a different
+                // arrow back than the one the merge consumed.
+                headLengthRatio: branch.headLengthRatio ?? 1.5,
+                airmobile: branch.airmobile ?? false,
+                airmobilePosition: branch.airmobilePosition ?? 0.7
             };
 
             const featureGeometry = geometry.generate(featureProps.baseCoordinates, featureProps);

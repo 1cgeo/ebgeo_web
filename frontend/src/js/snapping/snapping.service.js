@@ -136,6 +136,20 @@ function closestPointOnSegment(p, a, b) {
 
 /**
  * Linearly interpolates between two geographic coordinates.
+ *
+ * NOT UNWRAPPED ACROSS THE ANTIMERIDIAN, and that is a known defect left standing
+ * on purpose (2026-08-24). A segment from 179 to -179 snaps to the Greenwich
+ * meridian, because `t` comes from the geometry in PIXELS, where the segment is
+ * short, and it is applied to a raw 358-degree difference.
+ *
+ * The obvious fix (take the shorter of the two arcs whenever |delta| > 180) was
+ * written, measured and REVERTED: `queryRenderedFeatures` legitimately returns
+ * segments wider than 180 degrees at low zoom, and the rule turned one of those
+ * ([-100, 9] to [100, 9], a case the suite already pinned) into a snap at
+ * longitude -180. The two cases are indistinguishable from the longitudes alone;
+ * telling them apart needs the PROJECTED endpoints, which this helper does not
+ * receive. Fix it there, or not at all.
+ *
  * @param {[number, number]} coordA - [lng, lat]
  * @param {[number, number]} coordB - [lng, lat]
  * @param {number} t - Interpolation parameter ∈ [0,1]

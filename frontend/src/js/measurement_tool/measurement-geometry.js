@@ -82,8 +82,12 @@ export function calculateAngle(p1, p2, p3) {
     const bearing1 = turf.bearing(turf.point(p2), turf.point(p1));
     const bearing2 = turf.bearing(turf.point(p2), turf.point(p3));
 
-    let angle = bearing2 - bearing1;
-    if (angle < 0) angle += 360;
+    // MODULO, NAO `if (a < 0) a += 360`: uma diferenca negativa de magnitude menor que METADE do
+    // ULP de 360 (~2.84e-14) soma para 360 EXATO, e o angulo medido entre tres pontos quase
+    // colineares sai 360 no lugar de ~0. Aqui a faixa que reproduz e MAIS LARGA que a do bearing
+    // geografico, porque esta e uma subtracao crua e nao passa por `atan2`: medido em 2026-08-24,
+    // `-1e-14` ja devolvia 360.
+    const angle = ((bearing2 - bearing1) % 360 + 360) % 360;
 
     return angle;
 }
@@ -102,8 +106,10 @@ export function generateArcCoordinates(center, bearing1, bearing2, radiusMeters,
     // poisoning every bearing. Fall back to the documented default.
     if (!Number.isFinite(numPoints) || numPoints < 1) numPoints = 36;
 
-    let sweep = bearing2 - bearing1;
-    if (sweep < 0) sweep += 360;
+    // MESMA forma, e aqui a consequencia e a maior das quatro: um sweep de `-1e-16` virava 360, e
+    // o arco desenhava a CIRCUNFERENCIA INTEIRA no lugar de um arco de largura zero. Medido em
+    // 2026-08-24, junto com os tres irmaos (setor, visibilidade, QAN).
+    const sweep = ((bearing2 - bearing1) % 360 + 360) % 360;
 
     const coords = [];
     for (let i = 0; i <= numPoints; i++) {

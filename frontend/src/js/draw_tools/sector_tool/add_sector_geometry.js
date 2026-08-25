@@ -81,9 +81,13 @@ class AddSectorGeometry extends BaseGeometry {
         const dx = dLng * cosLat;
         const dy = dLat;
         // Geographic bearing: 0=N, 90=E
-        let bearing = Math.atan2(dx, dy) * 180 / Math.PI;
-        if (bearing < 0) bearing += 360;
-        return bearing;
+        const bearing = Math.atan2(dx, dy) * 180 / Math.PI;
+        // MODULO, NAO `if (b < 0) b += 360`: um bearing negativo de magnitude menor que METADE do
+        // ULP de 360 (~2.84e-14) soma para 360 EXATO, que esta fora do [0, 360) que esta funcao
+        // promete. Medido pela API em 2026-08-24: `dLng = -1e-16` (todo ponto um fio a oeste do
+        // norte) devolvia 360. O gemeo desta linha em `analysis_tools/visibility_tool` tinha o
+        // mesmo defeito e foi consertado no mesmo dia.
+        return ((bearing % 360) + 360) % 360;
     }
 
     /**

@@ -5,15 +5,17 @@
  * `military_tools/coordination_measure_tool/coordination_measure_generator.js`.
  *
  * WHAT THIS SUITE HOLDS
- *  - `hexToRgb`: the strict 6-digit-only policy (3-digit and 8-digit are REJECTED,
- *    unlike the namesake in `brazilian_svg_postprocessing.js`, which is not strict
- *    at all and is pinned in `tests/unit/brazilian-svg-postprocessing.test.js`);
+ *  - `hexToRgb`: the strict 6-digit-only policy (3-digit and 8-digit are REJECTED).
+ *    The namesake in `brazilian_svg_postprocessing.js` was NOT strict and now is;
+ *    it is pinned in `tests/unit/brazilian-svg-postprocessing.test.js`;
  *  - `applyCustomColor`: the asymmetry between 'none' (fill only) and a real hex
  *    (every rgb(255,255,255), stroke included), plus the silent no-op on bad hex;
  *  - `extractDimensions`: the viewBox parse and the fallback, including the
  *    leading-space case where the split yields five tokens;
  *  - `calculateDynamicViewBox`: which values count as "present" (0 does, '' does not),
- *    the 5-unit margin, the floor/ceil integerisation and the anchor arithmetic;
+ *    the 5-unit margin, the floor/ceil integerisation and the anchor arithmetic. The
+ *    three "is it filled in" guards share ONE predicate, `hasTextValue`, and that
+ *    agreement is asserted value by value;
  *  - `validate` for the three rule families (supply / echelon / concentration);
  *  - `escapeXml`, `estimateTextWidth`, `hasExternalText`, `applyDashedStroke` and the
  *    catalog query helpers.
@@ -267,10 +269,11 @@ describe('CoordinationMeasureGenerator.hasExternalText', () => {
         expect(gen.hasExternalText({ rotulo: 0 }, pointData)).toBe(true);
     });
 
-    it('DEFECT: counts boolean false as present, but addExternalTexts draws nothing', () => {
-        // hasExternalText and calculateDynamicViewBox use the ===undefined/null/''
-        // test; addExternalTexts uses `!value && value !== 0`. `false` splits them,
-        // so the symbol grows to fit a label that is never drawn.
+    it('FIXED: boolean false is counted as present AND drawn, by one predicate', () => {
+        // hasExternalText and calculateDynamicViewBox used the ===undefined/null/''
+        // test; addExternalTexts used `!value && value !== 0`. `false` split them, so
+        // the symbol grew to fit a label that was never drawn. The three now share
+        // `hasTextValue`, so growth and drawing cannot disagree for ANY value.
         expect(gen.hasExternalText({ rotulo: false }, pointData)).toBe(true);
 
         // Field placed OUTSIDE the base box so the growth is observable at all.
@@ -278,7 +281,27 @@ describe('CoordinationMeasureGenerator.hasExternalText', () => {
         const expanded = gen.calculateDynamicViewBox(SVG, { rotulo: false }, outside);
 
         expect(expanded.width).toBeGreaterThan(gen.extractDimensions(SVG).width);
-        expect(gen.addExternalTexts(SVG, { rotulo: false }, outside)).toBe(SVG);
+        expect(gen.addExternalTexts(SVG, { rotulo: false }, outside)).toContain('>false</text>');
+    });
+
+    it('the three guards answer the same for every value, drawn or not', () => {
+        const outside = pointDataWithField({ position: { x: 60, y: 20 } });
+        const base = gen.extractDimensions(SVG).width;
+        const cases = [
+            [{ rotulo: 'ABC' }, true],
+            [{ rotulo: 0 }, true],
+            [{ rotulo: false }, true],
+            [{ rotulo: '' }, false],
+            [{ rotulo: null }, false],
+            [{}, false],
+        ];
+
+        expect(cases.length).toBe(6);
+        for (const [properties, present] of cases) {
+            expect(gen.hasExternalText(properties, outside)).toBe(present);
+            expect(gen.calculateDynamicViewBox(SVG, properties, outside).width > base).toBe(present);
+            expect(gen.addExternalTexts(SVG, properties, outside) !== SVG).toBe(present);
+        }
     });
 
     it('ignores properties that are not declared as text fields', () => {
@@ -494,8 +517,8 @@ describe('CoordinationMeasureGenerator.addExternalTexts', () => {
             .toContain('>0</text>');
     });
 
-    // CONTROL for the it.fails below: the same call path works for a string, so a
-    // red it.fails is about the numeric input and not about the module being broken.
+    // CONTROL for the fix below: the same call path works for a string, so a red
+    // assertion is about the numeric input and not about the module being broken.
     it('control: addExternalTexts is reachable and discriminates on the value type', () => {
         expect(gen.addExternalTexts(SVG, { rotulo: '0' }, pointDataWithField()))
             .not.toBe(SVG);
@@ -503,21 +526,21 @@ describe('CoordinationMeasureGenerator.addExternalTexts', () => {
             .toBe(SVG);
     });
 
-    it.fails(
-        'DEFECT (expected red): addExternalTexts admits the NUMBER 0 by an explicit '
-        + '`value !== 0` branch and then throws in escapeXml, which calls '
-        + 'String.prototype.replace on it',
-        () => {
-            expect(gen.addExternalTexts(SVG, { rotulo: 0 }, pointDataWithField()))
-                .toContain('>0</text>');
-        }
-    );
-
-    it('pins the actual failure mode for a numeric label: a TypeError, not a symbol', () => {
+    it('FIXED: a NUMERIC label is drawn instead of throwing in escapeXml', () => {
+        // The value guard deliberately admits a number (0 included), and
+        // `createTextElement` used to hand it straight to `escapeXml`, which calls
+        // String.prototype.replace: the whole symbol render died on a TypeError.
+        expect(gen.addExternalTexts(SVG, { rotulo: 0 }, pointDataWithField()))
+            .toContain('>0</text>');
+        expect(gen.addExternalTexts(SVG, { rotulo: 42 }, pointDataWithField()))
+            .toContain('>42</text>');
         expect(() => gen.addExternalTexts(SVG, { rotulo: 0 }, pointDataWithField()))
-            .toThrow(TypeError);
-        expect(() => gen.addExternalTexts(SVG, { rotulo: 42 }, pointDataWithField()))
-            .toThrow(TypeError);
+            .not.toThrow();
+    });
+
+    it('the number and the string of the same label produce the SAME element', () => {
+        expect(gen.addExternalTexts(SVG, { rotulo: 0 }, pointDataWithField()))
+            .toBe(gen.addExternalTexts(SVG, { rotulo: '0' }, pointDataWithField()));
     });
 
     it('is a no-op when the point declares no text fields', () => {
@@ -589,9 +612,21 @@ describe('CoordinationMeasureGenerator.validate', () => {
         expect(gen.validate('130100', {})).toEqual([]);
     });
 
-    it('DEFECT: a concentration number of 0 is rejected as missing (falsy)', () => {
-        expect(gen.validate('240601', { numeroConcentracao: 0 }))
-            .toEqual(['Enter concentration number (e.g. HA 107)']);
+    it('FIXED: a concentration number of 0 is accepted, not reported as missing', () => {
+        expect(gen.validate('240601', { numeroConcentracao: 0 })).toEqual([]);
+        // Control: the three genuinely empty sentinels are still reported, so the
+        // gate did not simply stop firing.
+        expect(gen.validate('240601', { numeroConcentracao: '' })).toHaveLength(1);
+        expect(gen.validate('240601', { numeroConcentracao: null })).toHaveLength(1);
+        expect(gen.validate('240601', {})).toHaveLength(1);
+    });
+
+    it('LIMITE CONHECIDO: the OTHER three gates still use the falsy test', () => {
+        // `classeSuprimento`, `nome` and `status` keep `!value`, so a 0 there still
+        // reads as missing. Left alone deliberately: none of the three has a
+        // measured case where 0 is a legitimate value.
+        expect(gen.validate('SUPPLY_I', { classeSuprimento: 0 })).toEqual(['Select supply class']);
+        expect(gen.validate('ECHELON_16', { nome: 0, status: 0 })).toHaveLength(2);
     });
 });
 

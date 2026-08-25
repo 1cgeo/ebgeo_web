@@ -39,6 +39,14 @@ export function getPointerPosition(event, canvas) {
  * @returns {{x: number, y: number}}
  */
 export function getTouchesMidpoint(touches) {
+    // An EMPTY list degrades like the two siblings (`getTouchesDistance` and
+    // `getTouchesAngle` both answer 0 for it) instead of throwing on
+    // `touches[0].clientX`. The three are called together, from the same handlers,
+    // so one of them throwing on an input the other two accept is a gesture that
+    // dies mid-way.
+    if (touches.length === 0) {
+        return { x: 0, y: 0 };
+    }
     if (touches.length < 2) {
         return { x: touches[0].clientX, y: touches[0].clientY };
     }

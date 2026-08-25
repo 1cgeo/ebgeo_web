@@ -589,8 +589,13 @@ class AddRectangleGeometry extends BaseGeometry {
                 return null;
         }
 
-        // Validate minimum dimensions
-        if (width < 10 || height < 10) {
+        // Validate minimum dimensions. `Number.isFinite` FIRST: every comparison against NaN
+        // is false, so `width < 10 || height < 10` waved a NaN or an undefined dimension
+        // straight through and the method returned a non-null result whose width was NaN and
+        // whose polygon had four NaN vertices (a rectangle that vanishes from the map with no
+        // error). A NaN reaches here from a handle position the map could not resolve; an
+        // undefined from a stored feature whose height was never written.
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 10 || height < 10) {
             console.warn('Rectangle dimensions too small:', { width, height });
             return null;
         }
@@ -687,8 +692,8 @@ class AddRectangleGeometry extends BaseGeometry {
                 return null;
         }
 
-        // Validate minimum dimensions
-        if (width < 10 || height < 10) {
+        // Same non-finite hole as updateFromHandle: see the comment there.
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 10 || height < 10) {
             return null;
         }
 
@@ -745,13 +750,14 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     isValidCoordinate(coordinates) {
-        return coordinates &&
-               Array.isArray(coordinates) &&
+        // `Number.isFinite`, not `!isNaN`: Infinity is not NaN, so the old guard accepted
+        // [Infinity, 0] while `validate` (which measures the pair with turf and gets NaN back)
+        // rejected it. Two guards over the same input disagreeing is worse than either being
+        // wrong alone, because a call site picks one and inherits an answer the other denies.
+        return Array.isArray(coordinates) &&
                coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' &&
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) &&
-               !isNaN(coordinates[1]);
+               Number.isFinite(coordinates[0]) &&
+               Number.isFinite(coordinates[1]);
     }
 
     /**
@@ -793,19 +799,63 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * CRITICAL FIX: Synchronize properties with actual geometry
-     * Updates feature properties to match the normalized geometry
+     * Synchronize properties with actual geometry.
+     *
+     * A ROTATED RECTANGLE IS NOT DESCRIBED BY ITS BOUNDING BOX, and that is the whole reason
+     * this method has two paths. `extractCornersFromGeometry` returns the AABB of the ring, so
+     * for a 4000 x 1000 rectangle at bearing 45 the old single path wrote back ~3535 x ~3535
+     * (the AABB side, on both axes) while leaving `bearing` at 45: the properties then
+     * described a near-square at 45 degrees, which is not the shape on screen. The rewrite was
+     * silent and lossy, and re-deriving the geometry from those properties would have redrawn
+     * the feature at the wrong size.
+     *
+     * So: when the feature carries a usable rotation (finite, non-zero bearing plus finite
+     * stored centre, width and height), the stored parameters are AUTHORITATIVE and only the
+     * corner pair is refreshed, in the same convention `updateFromHandle` uses (corner1 at
+     * +half/+half, corner2 at -half/-half, both rotated). Only an unrotated rectangle, whose
+     * AABB genuinely IS the rectangle, keeps the derive-from-geometry path.
+     *
+     * KNOWN GAP, declared: a rotated feature whose centre/width/height were never stored has
+     * nothing authoritative to fall back to, so it takes the AABB path and is still rewritten.
+     * Guessing dimensions from an AABB that does not touch the rectangle's own corners would
+     * be a different wrong answer, not a better one.
+     *
      * @param {Object} feature - Rectangle feature to sync
      * @returns {Object} Feature with synchronized properties
      */
     synchronizePropertiesWithGeometry(feature) {
+        const props = feature.properties || {};
+        const storedCenter = this.normalizeCenter(props.center);
+        const bearing = props.bearing;
+
+        const isRotated = Number.isFinite(bearing) && bearing !== 0;
+        const hasStoredShape = storedCenter
+            && Number.isFinite(storedCenter[0]) && Number.isFinite(storedCenter[1])
+            && Number.isFinite(props.width) && Number.isFinite(props.height);
+
+        if (isRotated && hasStoredShape) {
+            const halfWidth = props.width / 2;
+            const halfHeight = props.height / 2;
+            return {
+                ...feature,
+                properties: {
+                    ...props,
+                    corner1: this.rotateAndTranslate(halfWidth, halfHeight, storedCenter, bearing),
+                    corner2: this.rotateAndTranslate(-halfWidth, -halfHeight, storedCenter, bearing),
+                    center: storedCenter,
+                    width: props.width,
+                    height: props.height
+                }
+            };
+        }
+
         const corners = this.extractCornersFromGeometry(feature.geometry);
         const { center, width, height } = this.calculateDimensionsFromCorners(corners.corner1, corners.corner2);
 
         return {
             ...feature,
             properties: {
-                ...feature.properties,
+                ...props,
                 corner1: corners.corner1,
                 corner2: corners.corner2,
                 center: center,

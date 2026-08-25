@@ -166,7 +166,12 @@ export function isDirty(sync) {
  * @returns {boolean} True if valid sync metadata
  */
 export function isValidSyncMetadata(obj) {
-    return (
+    // Boolean(...) is load-bearing, not decoration: a bare `obj && ...` chain RETURNS the
+    // falsy operand, so a null/absent `sync` used to answer `null`/`undefined` instead of
+    // `false`, and `isValidAtlas` handed that straight out through its own `&&` chain,
+    // breaking its declared @returns {boolean}. Every caller negates the answer today, so
+    // nothing misbehaved, but `=== false` or a JSON round trip reads the leak as "not refused".
+    return Boolean(
         obj &&
         typeof obj === 'object' &&
         typeof obj.createdAt === 'number' &&

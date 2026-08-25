@@ -261,6 +261,13 @@ export class GarminKmzExport {
         const totalWidth = Math.round(pxEast - pxWest);
         const totalHeight = Math.round(pxSouth - pxNorth);
 
+        // Every guard below FAILS OPEN for NaN: `NaN < 1`, `NaN > MAX_TILES` and
+        // `NaN > MAX_CANVAS_DIM` are all false. A bbox with one non-finite corner
+        // therefore walked past all three and produced a grid of `cols: NaN` and
+        // `tiles: []`, which is a KMZ with no imagery at all and a tile count that
+        // reads NaN on screen.
+        if (!Number.isFinite(totalWidth) || !Number.isFinite(totalHeight)) return null;
+
         if (totalWidth < 1 || totalHeight < 1) return null;
 
         const cols = Math.max(1, Math.ceil(totalWidth / TILE_SIZE));

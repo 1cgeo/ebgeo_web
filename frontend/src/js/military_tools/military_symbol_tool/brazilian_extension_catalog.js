@@ -1186,6 +1186,30 @@ const COMMAND_ELEMENTS = {
 };
 
 /**
+ * Own-property lookup for every table in this file.
+ *
+ * EVERY KEY USED HERE COMES FROM FEATURE DATA (`symbolSet`, `mainIcon`, `modifier1/2`,
+ * `standardIdentity`, extension numbers), and feature data arrives from a hand-edited
+ * `.ebgeo` or from another user over sync. The tables are object literals, so their prototype
+ * chain is live: a bare `TABLE[key]` answered `Object.prototype.constructor` (a FUNCTION, and
+ * therefore truthy) for `symbolSet: 'constructor'`. That made `getSymbolSetCatalog` hand back
+ * a Function instead of null, `supportsCommand('toString')` report true, and
+ * `getCommandElement('constructor')` return `{ svg: undefined }` (a truthy object drawing
+ * nothing), which the post-processing then spliced into the SVG as the literal text
+ * "undefined". `Object.hasOwn` is the only guard that separates "this key is absent" from
+ * "this key came from the prototype"; freezing the literals would not help, because the chain
+ * stays reachable. Same shape as `arrivalNotice` in `projects/atlas-drive.js`.
+ *
+ * @param {Object} table - Plain-object table to read from.
+ * @param {*} key - Untrusted key.
+ * @returns {*} The own value, or undefined.
+ */
+function ownEntry(table, key) {
+    if (!table) return undefined;
+    return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/**
  * Get catalog entry with bi-dimensional extension support
  *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
@@ -1212,20 +1236,20 @@ const COMMAND_ELEMENTS = {
  */
 export function getCatalogEntry(symbolSet, elementType, modificationType, codeBase, extensionNumber = null) {
     // Validate symbol set
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
     if (!catalog) {
         console.warn(`Symbol set ${symbolSet} not found in catalog`);
         return null;
     }
 
     // Validate element type
-    if (!catalog[elementType]) {
+    if (!ownEntry(catalog, elementType)) {
         console.warn(`Element type ${elementType} not found for symbol set ${symbolSet}`);
         return null;
     }
 
     // Validate modification type
-    const modifications = catalog[elementType][modificationType];
+    const modifications = ownEntry(ownEntry(catalog, elementType), modificationType);
     if (!modifications) {
         console.warn(`Modification type ${modificationType} not found for ${symbolSet}/${elementType}`);
         return null;
@@ -1237,17 +1261,17 @@ export function getCatalogEntry(symbolSet, elementType, modificationType, codeBa
             return null;
         }
 
-        const codeExtensions = modifications[codeBase];
+        const codeExtensions = ownEntry(modifications, codeBase);
         if (!codeExtensions) {
             // No extensions for this code base
             return null;
         }
 
-        return codeExtensions[String(extensionNumber)] || null;
+        return ownEntry(codeExtensions, String(extensionNumber)) || null;
     }
 
     // Handle labelMappings and graphicAdaptations (single-dimensional)
-    return modifications[codeBase] || null;
+    return ownEntry(modifications, codeBase) || null;
 }
 
 /**
@@ -1261,7 +1285,7 @@ export function getCatalogEntry(symbolSet, elementType, modificationType, codeBa
  * // Returns: { mainIcon: {...}, modifier1: {...}, modifier2: {...} }
  */
 export function getSymbolSetCatalog(symbolSet) {
-    return SYMBOL_SET_CATALOGS[symbolSet] || null;
+    return ownEntry(SYMBOL_SET_CATALOGS, symbolSet) || null;
 }
 
 /**
@@ -1273,13 +1297,17 @@ export function getSymbolSetCatalog(symbolSet) {
  * @returns {boolean} True if extensions exist
  */
 export function hasExtensions(symbolSet, elementType, codeBase) {
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
-    if (!catalog || !catalog[elementType]) {
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
+    if (!catalog || !ownEntry(catalog, elementType)) {
         return false;
     }
 
-    const extensions = catalog[elementType].extensions;
-    return extensions && extensions[codeBase] !== undefined;
+    // `extensions && ...` returned the falsy `extensions` itself (undefined) when the element
+    // type has no extensions block, so a function documented as returning a boolean answered
+    // `undefined` on one of its two negative paths. It reads the same in an `if`, which is why
+    // it survived; it does not read the same to anything that compares against `false`.
+    const extensions = ownEntry(catalog, elementType).extensions;
+    return ownEntry(extensions, codeBase) !== undefined;
 }
 
 /**
@@ -1291,17 +1319,17 @@ export function hasExtensions(symbolSet, elementType, codeBase) {
  * @returns {Array<number>} Array of extension numbers
  */
 export function getExtensionNumbers(symbolSet, elementType, codeBase) {
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
-    if (!catalog || !catalog[elementType]) {
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
+    if (!catalog || !ownEntry(catalog, elementType)) {
         return [];
     }
 
-    const extensions = catalog[elementType].extensions;
-    if (!extensions || !extensions[codeBase]) {
+    const extensions = ownEntry(catalog, elementType).extensions;
+    if (!extensions || !ownEntry(extensions, codeBase)) {
         return [];
     }
 
-    return Object.keys(extensions[codeBase]).map(Number);
+    return Object.keys(ownEntry(extensions, codeBase)).map(Number);
 }
 
 /**
@@ -1325,23 +1353,23 @@ export function getAvailableSymbolSets() {
  * hasSection('15', 'modifier2'); // false (Equipment doesn't use modifier2)
  */
 export function hasSection(symbolSet, sectionName) {
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
     if (!catalog) {
         return false;
     }
 
     // Check if section exists
-    if (!catalog[sectionName]) {
+    if (!ownEntry(catalog, sectionName)) {
         return false;
     }
 
     // For special modifiers, check if object has any keys
     if (sectionName === 'specialModifiers') {
-        return Object.keys(catalog[sectionName]).length > 0;
+        return Object.keys(ownEntry(catalog, sectionName)).length > 0;
     }
 
     // For element types (mainIcon, modifier1, modifier2), check if it has any subsections
-    const section = catalog[sectionName];
+    const section = ownEntry(catalog, sectionName);
     if (typeof section !== 'object') {
         return false;
     }
@@ -1365,7 +1393,7 @@ export function hasSection(symbolSet, sectionName) {
  * supportsCommand('15'); // false (Equipment doesn't support command)
  */
 export function supportsCommand(symbolSet) {
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
     if (!catalog) {
         return false;
     }
@@ -1393,7 +1421,7 @@ export function supportsCommand(symbolSet) {
  * // Returns: { 1: { type: 'svg', svg: '...' } } (only armored)
  */
 export function getSpecialModifiers(symbolSet) {
-    const catalog = SYMBOL_SET_CATALOGS[symbolSet];
+    const catalog = ownEntry(SYMBOL_SET_CATALOGS, symbolSet);
     if (!catalog) {
         return null;
     }
@@ -1426,10 +1454,11 @@ export function getCatalogEntryWithStandardIdentity(
 
     if (!standardIdentity) return baseEntry;
 
-    if (baseEntry.byStandardIdentity && baseEntry.byStandardIdentity[standardIdentity]) {
+    const siVariant = ownEntry(baseEntry.byStandardIdentity, standardIdentity);
+    if (siVariant) {
         return {
             ...baseEntry,
-            ...baseEntry.byStandardIdentity[standardIdentity]
+            ...siVariant
         };
     }
 
@@ -1444,11 +1473,12 @@ export function getCatalogEntryWithStandardIdentity(
  * @returns {Object|null} Command element object { svg: '...' } or null
  */
 export function getCommandElement(symbolSet, standardIdentity = null) {
-    const commandData = COMMAND_ELEMENTS[symbolSet];
+    const commandData = ownEntry(COMMAND_ELEMENTS, symbolSet);
     if (!commandData) return null;
 
-    if (standardIdentity && commandData.byStandardIdentity?.[standardIdentity]) {
-        return { svg: commandData.byStandardIdentity[standardIdentity] };
+    const siSvg = standardIdentity ? ownEntry(commandData.byStandardIdentity, standardIdentity) : undefined;
+    if (siSvg) {
+        return { svg: siSvg };
     }
 
     return { svg: commandData.default };

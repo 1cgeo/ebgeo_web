@@ -88,14 +88,24 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @returns {number} Bearing in degrees [0, 360)
      */
     calculateBearing(center, point) {
-        const dLng = point[0] - center[0];
+        // Unwrap the longitude difference across the antimeridian. Subtracting raw
+        // longitudes turns a pair 1 degree apart into 359 degrees the other way, so a
+        // sector drawn over 180 used to point due WEST for a target due EAST.
+        let dLng = point[0] - center[0];
+        if (dLng > 180) dLng -= 360;
+        else if (dLng < -180) dLng += 360;
+
         const dLat = point[1] - center[1];
         const cosLat = Math.cos(center[1] * Math.PI / 180);
         const dx = dLng * cosLat;
         const dy = dLat;
-        let bearing = Math.atan2(dx, dy) * 180 / Math.PI;
-        if (bearing < 0) bearing += 360;
-        return bearing;
+        const bearing = Math.atan2(dx, dy) * 180 / Math.PI;
+
+        // Modulo, not `if (bearing < 0) bearing += 360`: that form lands exactly ON 360
+        // for any negative smaller than half the double spacing near 360 (~2.84e-14),
+        // which is every point a hair west of due north, and 360 is outside the
+        // documented [0, 360).
+        return ((bearing % 360) + 360) % 360;
     }
 
     /**
@@ -254,9 +264,15 @@ class AddVisibilityGeometry extends BaseGeometry {
         const MIN_STEP = 30;
         const TARGET_POINTS = 10000;
 
-        const numRays = Math.ceil(aperture / ANGULAR_STEP);
+        // Number.isFinite, not `?? 0`: NaN and Infinity survive `??`, and `Math.max(1, NaN)`
+        // is NaN, so a non-finite input propagated straight through and broke the invariant
+        // this function promises (a multiple of 30, never below 30).
+        const safeRadius = Number.isFinite(radius) ? radius : 0;
+        const safeAperture = Number.isFinite(aperture) ? aperture : 0;
+
+        const numRays = Math.ceil(safeAperture / ANGULAR_STEP);
         const idealPointsPerRay = Math.max(1, Math.round(TARGET_POINTS / Math.max(1, numRays)));
-        const idealStep = radius / idealPointsPerRay;
+        const idealStep = safeRadius / idealPointsPerRay;
         const step = Math.max(MIN_STEP, Math.ceil(idealStep / MIN_STEP) * MIN_STEP);
         return step;
     }
@@ -615,8 +631,12 @@ class AddVisibilityGeometry extends BaseGeometry {
      */
     validate(center, radius, aperture) {
         if (!center || !Array.isArray(center) || center.length < 2) return false;
-        if (typeof radius !== 'number' || radius <= 0) return false;
-        if (typeof aperture !== 'number' || aperture < 1 || aperture > 359) return false;
+        // Number.isFinite, not `typeof === 'number'`: every comparison with NaN is false,
+        // so `radius <= 0` and `aperture < 1 || aperture > 359` both waved NaN through, and
+        // `Infinity <= 0` waved an infinite radius through as well. Number.isFinite does not
+        // coerce, so the string case the old `typeof` guard caught stays caught.
+        if (!Number.isFinite(radius) || radius <= 0) return false;
+        if (!Number.isFinite(aperture) || aperture < 1 || aperture > 359) return false;
         return true;
     }
 

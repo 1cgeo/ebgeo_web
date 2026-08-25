@@ -60,14 +60,19 @@ function featureMatchesQuery(feature, normalizedQuery) {
     const props = feature.properties;
     if (!props) return null;
 
+    // A non-string `nome` (a number, an object) used to throw here. The caller
+    // catches per MAP, so one malformed feature made every feature of that map
+    // invisible to the search, with no error anywhere. Coerce instead of trusting.
+    const asText = (value) => (typeof value === 'string' ? value : '');
+
     // Check name/nome
-    const name = props.name || props.nome || '';
+    const name = asText(props.name) || asText(props.nome);
     if (name.toLowerCase().includes(normalizedQuery)) {
         return { field: 'nome' };
     }
 
     // Check description/descricao
-    const description = props.description || props.descricao || '';
+    const description = asText(props.description) || asText(props.descricao);
     if (description.toLowerCase().includes(normalizedQuery)) {
         return { field: 'descrição' };
     }
@@ -97,9 +102,17 @@ function getFeatureCenter(feature) {
         return geom.coordinates;
     }
 
-    // Calculate centroid for other geometry types
+    // Calculate centroid for other geometry types. A GeoJSON ring repeats its
+    // first vertex at the end; averaging it twice pulls the centre towards that
+    // corner, and the fewer the vertices the worse it gets (a closed unit square
+    // came out at [0.4, 0.4] instead of [0.5, 0.5]).
     if (geom.type === 'Polygon' && geom.coordinates[0]) {
-        const coords = geom.coordinates[0];
+        const ring = geom.coordinates[0];
+        const closed = ring.length > 1
+            && ring[0][0] === ring[ring.length - 1][0]
+            && ring[0][1] === ring[ring.length - 1][1];
+        const coords = closed ? ring.slice(0, -1) : ring;
+        if (coords.length === 0) return null;
         const sum = coords.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1]], [0, 0]);
         return [sum[0] / coords.length, sum[1] / coords.length];
     }

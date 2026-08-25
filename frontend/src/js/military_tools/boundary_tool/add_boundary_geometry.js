@@ -27,9 +27,31 @@ class AddBoundaryGeometry extends BaseGeometry {
         POSITION_RATIO_MAX: 0.99        // Maximum position ratio
     };
 
+    /** Fallback symbol size, the same one `createHandles` and `updateFromHandle` use. */
+    static DEFAULT_SYMBOL_SIZE = 2;
+
+    /** Fallback label distance ratio for `generateBoundaryTexts`. */
+    static DEFAULT_TEXT_DISTANCE_RATIO = 0.9;
+
     constructor(properties = {}) {
         super(properties);
         this.MIN_DISTANCE_METERS = AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_DISTANCE_METERS;
+    }
+
+    /**
+     * Whether a value is a usable coordinate position.
+     *
+     * `Number.isFinite`, not `!isNaN`: `!isNaN(Infinity)` is false, so the previous
+     * hand-written predicate accepted Infinity in every one of the four places it
+     * was copied to. This is the single copy those four now share.
+     * @param {*} coord - Candidate position
+     * @returns {boolean} True when the first two components are finite numbers
+     */
+    static isFinitePosition(coord) {
+        return Array.isArray(coord)
+            && coord.length >= 2
+            && Number.isFinite(coord[0])
+            && Number.isFinite(coord[1]);
     }
 
     /**
@@ -105,14 +127,7 @@ class AddBoundaryGeometry extends BaseGeometry {
             return false;
         }
 
-        const validCoords = coordinates.filter(coord =>
-            Array.isArray(coord) &&
-            coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1])
-        );
+        const validCoords = coordinates.filter(AddBoundaryGeometry.isFinitePosition);
 
         return validCoords.length >= 2;
     }
@@ -129,14 +144,7 @@ class AddBoundaryGeometry extends BaseGeometry {
         }
 
         if (Array.isArray(coords)) {
-            const isValidArray = coords.every(coord =>
-                Array.isArray(coord) &&
-                coord.length >= 2 &&
-                typeof coord[0] === 'number' &&
-                typeof coord[1] === 'number' &&
-                !isNaN(coord[0]) &&
-                !isNaN(coord[1])
-            );
+            const isValidArray = coords.every(AddBoundaryGeometry.isFinitePosition);
 
             if (isValidArray) {
                 return coords;
@@ -191,28 +199,20 @@ class AddBoundaryGeometry extends BaseGeometry {
 
         if (!baseCoordinates || baseCoordinates.length < 2) {
             console.warn('Invalid baseCoordinates for boundary:', baseCoordinates);
+            // The empty array is TRUTHY, so `baseCoordinates || [[0,0],[0,0]]` kept it
+            // and emitted a LineString with zero positions, which is malformed GeoJSON
+            // rather than a degenerate line. Test the LENGTH, not the truthiness.
             return {
                 type: 'LineString',
-                coordinates: baseCoordinates || [[0, 0], [0, 0]]
+                coordinates: baseCoordinates && baseCoordinates.length > 0
+                    ? baseCoordinates
+                    : [[0, 0], [0, 0]]
             };
         }
 
-        const hasValidCoords = baseCoordinates.every(coord =>
-            Array.isArray(coord) &&
-            coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1])
-        );
-
-        if (!hasValidCoords) {
-            console.warn('Invalid coordinates detected in boundary:', baseCoordinates);
-            return {
-                type: 'LineString',
-                coordinates: [[0, 0], [1, 1]]
-            };
-        }
+        // (The `[[0,0],[1,1]]` fallback that used to sit here was dead: it was guarded
+        // by the very predicate `normalizeBaseCoordinates` already enforces one step
+        // earlier, so a coordinate list that failed it was already null above.)
 
         try {
             const instances = this.getSymbolInstances(properties);
@@ -523,7 +523,18 @@ class AddBoundaryGeometry extends BaseGeometry {
         try {
             const line = turf.lineString(baseCoordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
-            const labelOffset = symbol_size * (text_distance_ratio || 0.9);
+            // Neither factor may go through `||`: a ratio of 0 ("label glued to the
+            // symbol") is a value a persisted or imported boundary can carry, and it
+            // used to come back as the 0.9 default; and a MISSING symbol_size made the
+            // product NaN, which flowed into `turf.destination` and out into the
+            // emitted text feature's coordinates, with no error anywhere.
+            const ratio = Number.isFinite(text_distance_ratio)
+                ? text_distance_ratio
+                : AddBoundaryGeometry.DEFAULT_TEXT_DISTANCE_RATIO;
+            const size = Number.isFinite(symbol_size)
+                ? symbol_size
+                : AddBoundaryGeometry.DEFAULT_SYMBOL_SIZE;
+            const labelOffset = size * ratio;
             const instances = this.getSymbolInstances(boundaryFeature.properties);
 
             // Render the shared labels only at instances that opt in (showLabels).
@@ -831,15 +842,19 @@ class AddBoundaryGeometry extends BaseGeometry {
                 break;
             }
 
+            // Both branches need a LOWER bound, and neither had one. A negative index
+            // made `vertex` write the non-index key "-1" onto the array (invisible to
+            // length and to JSON, so the edit went nowhere) and made `midpoint` splice
+            // from the END, inserting before the last vertex.
             case 'vertex':
-                if (handleIndex !== null && handleIndex < coordinates.length) {
+                if (Number.isInteger(handleIndex) && handleIndex >= 0 && handleIndex < coordinates.length) {
                     coordinates[handleIndex] = newPosition;
                     updatedProperties.baseCoordinates = coordinates;
                 }
                 break;
 
             case 'midpoint':
-                if (handleIndex !== null && handleIndex <= coordinates.length) {
+                if (Number.isInteger(handleIndex) && handleIndex >= 0 && handleIndex <= coordinates.length) {
                     coordinates.splice(handleIndex, 0, newPosition);
                     updatedProperties.baseCoordinates = coordinates;
                 }
@@ -898,14 +913,7 @@ class AddBoundaryGeometry extends BaseGeometry {
             return false;
         }
 
-        return coordinates.every(coord =>
-            Array.isArray(coord) &&
-            coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1])
-        );
+        return coordinates.every(AddBoundaryGeometry.isFinitePosition);
     }
 
     /**
@@ -915,7 +923,9 @@ class AddBoundaryGeometry extends BaseGeometry {
      * @returns {Array|null} New coordinates or null if invalid
      */
     removeVertexAtIndex(coordinates, index) {
-        if (!coordinates || index < 0 || index >= coordinates.length) {
+        // Same trap as the arrow tool: `NaN < 0` and `NaN >= length` are both false,
+        // and `splice` coerces NaN to 0, so a NaN index deleted the first vertex.
+        if (!coordinates || !Number.isInteger(index) || index < 0 || index >= coordinates.length) {
             return null;
         }
 

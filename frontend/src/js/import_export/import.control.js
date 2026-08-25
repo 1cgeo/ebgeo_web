@@ -390,6 +390,13 @@ class AddImportControl {
 
         if (geometry.type === 'GeometryCollection') {
             const features = [];
+            // A hand-edited or truncated file can declare the collection and omit its member
+            // list; `for..of undefined` threw a TypeError out of the per-feature loop of
+            // importGeoJSON, which has no catch, so ONE malformed collection aborted the whole
+            // file. The null MEMBER already had a guard below; the missing CONTAINER did not.
+            if (!Array.isArray(geometry.geometries)) {
+                return features;
+            }
             for (const geom of geometry.geometries) {
                 // A GeometryCollection may legally contain a null geometry member;
                 // skip it instead of throwing on geom.type (which aborted the import).
@@ -443,21 +450,30 @@ class AddImportControl {
                 if (source) {
                     const data = await source.getData();
                     if (data && data.features) {
-                        const existingNumbers = [];
+                        // ONE SCAN, no `Math.max(...array)`. Spreading an array into the call
+                        // pushes one argument per element onto the stack, which above ~125k
+                        // elements throws RangeError; the per-source try/catch below swallowed
+                        // it and the counter fell back to 1, so on a big map EVERY imported
+                        // name collided with an existing one, with only a console.warn. Same
+                        // class already closed in `add_brush_geometry.getBoundingBox`.
+                        let maxNumber = 0;
                         const expectedPrefix = TYPE_DISPLAY_NAMES[sourceType];
+                        const namePattern = new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`);
 
                         data.features.forEach(feature => {
                             if (feature.properties && feature.properties.nome) {
                                 const name = feature.properties.nome;
-                                const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
+                                const match = name.match(namePattern);
                                 if (match) {
-                                    existingNumbers.push(parseInt(match[1], 10));
+                                    const parsed = parseInt(match[1], 10);
+                                    if (Number.isFinite(parsed) && parsed > maxNumber) {
+                                        maxNumber = parsed;
+                                    }
                                 }
                             }
                         });
 
-                        if (existingNumbers.length > 0) {
-                            const maxNumber = Math.max(...existingNumbers);
+                        if (maxNumber > 0) {
                             typeCounters[sourceType] = maxNumber + 1;
                         }
                     }
@@ -472,13 +488,26 @@ class AddImportControl {
 
     /**
      * Generates unique name based on type and counter
+     *
+     * Throws on a type outside the three buckets instead of naming the feature
+     * "undefined #undefined" and poisoning `counters[targetType]` with NaN (every later
+     * feature of that type then got the SAME undefined name). `getTargetType` only ever
+     * yields points/lines/polygons or null, and the null is filtered by the caller, so the
+     * throw marks a caller bug rather than writing garbage into user data. A counter that is
+     * absent or non-finite restarts at 1: `x ?? 1` would not catch the NaN.
+     *
      * @param {string} targetType - Type of feature (points, lines, polygons)
      * @param {Object} counters - Counter object to track naming sequence
      * @returns {string} Generated unique name
+     * @throws {Error} If targetType is not one of the three known buckets
      */
     generateImportName(targetType, counters) {
-        const name = `${TYPE_DISPLAY_NAMES[targetType]} #${counters[targetType]}`;
-        counters[targetType]++;
+        if (!Object.hasOwn(TYPE_DISPLAY_NAMES, targetType)) {
+            throw new Error(`Tipo de importação desconhecido: ${targetType}`);
+        }
+        const current = Number.isFinite(counters[targetType]) ? counters[targetType] : 1;
+        const name = `${TYPE_DISPLAY_NAMES[targetType]} #${current}`;
+        counters[targetType] = current + 1;
         return name;
     }
 

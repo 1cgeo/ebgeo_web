@@ -90,12 +90,19 @@ function addLayerOnce(map, layerDef) {
 /**
  * Extracts background polygon features from text features that have
  * `showBackground` enabled and a `selectionBox` geometry.
+ *
+ * The optional chain is load-bearing, not defensive style. A text feature with no
+ * `properties` (one that arrived over sync, or a half-written import) threw here,
+ * and the throw escapes BEFORE the four `addLayerOnce` calls below, so the cost
+ * was not the one missing background: no text layer was created at all and every
+ * text disappeared from the map.
+ *
  * @param {Array} texts - Text GeoJSON features
  * @returns {Array}
  */
 function toBackgroundFeatures(texts) {
     return texts
-        .filter(f => f.properties.showBackground && f.properties.selectionBox)
+        .filter(f => f?.properties?.showBackground && f.properties.selectionBox)
         .map(f => ({
             type: 'Feature',
             properties: { ...f.properties, id: f.properties.id + '_bg' },

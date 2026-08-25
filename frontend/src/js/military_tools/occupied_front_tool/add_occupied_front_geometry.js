@@ -2,6 +2,17 @@
 import { BaseGeometry } from '@tools';
 
 /**
+ * The only handle names this tool answers to. Shared by `updateFromHandle` and
+ * `calculatePreview` so the two cannot drift: the preview used to have no
+ * allowlist at all, so an unknown handle produced geometry on the way in and
+ * `null` on the way out.
+ */
+const HANDLE_TYPES = ['p1', 'p2', 'p3'];
+
+/** Minimum p1-p2 separation, in metres. */
+const MIN_ARM_DISTANCE_METERS = 10;
+
+/**
  * Occupied Front Geometry Operations
  * Handles all geometric calculations and handle management for occupied front features
  */
@@ -25,20 +36,17 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     validate(baseCoordinates) {
-        if (!baseCoordinates || !Array.isArray(baseCoordinates) || baseCoordinates.length < 3) {
+        // Delegate the shape/finiteness half to the ONE predicate this file has, so the
+        // two stop disagreeing: `validate` used to accept string coordinates and a
+        // non-finite p3 (which it never measures), both of which
+        // `areValidBaseCoordinates` refuses.
+        if (!this.areValidBaseCoordinates(baseCoordinates)) {
             return false;
-        }
-
-        // Check that we have valid coordinates
-        for (const coord of baseCoordinates) {
-            if (!Array.isArray(coord) || coord.length < 2) {
-                return false;
-            }
         }
 
         // Check minimum distance between p1 and p2
         const distance = this.calculateDistance(baseCoordinates[0], baseCoordinates[1]);
-        return distance >= 10;
+        return distance >= MIN_ARM_DISTANCE_METERS;
     }
 
     /**
@@ -207,7 +215,7 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
      * @returns {Object} Updated geometry and base coordinates
      */
     updateFromHandle(handleType, newPosition, feature) {
-        if (!['p1', 'p2', 'p3'].includes(handleType)) {
+        if (!HANDLE_TYPES.includes(handleType)) {
             console.warn('Unknown handle type for occupied front:', handleType);
             return null;
         }
@@ -227,7 +235,7 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
         // Validate minimum distance (only check p1-p2 since p3 is derived)
         if (handleType === 'p1' || handleType === 'p2') {
             const distance = this.calculateDistance(newCoords[0], newCoords[1]);
-            if (distance < 10) {
+            if (distance < MIN_ARM_DISTANCE_METERS) {
                 console.warn('Occupied front distance too small:', distance);
                 return null;
             }
@@ -249,6 +257,11 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
      * @returns {Object} Preview geometry and handle positions
      */
     calculatePreview(handleType, newPosition, feature) {
+        if (!HANDLE_TYPES.includes(handleType)) {
+            console.warn('Unknown handle type for occupied front preview:', handleType);
+            return null;
+        }
+
         const currentCoords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!currentCoords || currentCoords.length < 3) {
             return null;
@@ -262,7 +275,7 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
         // Validate minimum distance
         if (handleType === 'p1' || handleType === 'p2') {
             const distance = this.calculateDistance(previewCoords[0], previewCoords[1]);
-            if (distance < 10) {
+            if (distance < MIN_ARM_DISTANCE_METERS) {
                 return null;
             }
         }
@@ -272,7 +285,9 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
         return {
             geometry: previewGeometry,
             baseCoordinates: previewCoords,
-            handlePositions: previewCoords
+            // A separate array on purpose: the two used to be the SAME object, so a
+            // caller editing handlePositions in place silently edited baseCoordinates.
+            handlePositions: previewCoords.map(coord => (Array.isArray(coord) ? [...coord] : coord))
         };
     }
 
@@ -286,13 +301,14 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
             return false;
         }
 
+        // `Number.isFinite`, not `!isNaN`: `!isNaN(Infinity)` is false, so Infinity used
+        // to pass and poison every consumer downstream (`getBoundingBox` returned a box
+        // with an infinite edge).
         return coords.every(coord =>
             Array.isArray(coord) &&
             coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1])
+            Number.isFinite(coord[0]) &&
+            Number.isFinite(coord[1])
         );
     }
 
@@ -371,7 +387,19 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
             Math.cos(distance / R) - Math.sin(lat1) * Math.sin(lat2)
         );
 
-        return [lng2 * 180 / Math.PI, lat2 * 180 / Math.PI];
+        let lngDeg = lng2 * 180 / Math.PI;
+
+        // Wrap into [-180, 180]. Travelling east from 179.99 used to produce 181.79,
+        // an off-globe longitude that MapLibre draws in an empty world copy, so an
+        // occupied front placed near the antimeridian lost its arms on screen. The
+        // wrap is GUARDED so an in-range longitude comes back bit-identical: the
+        // modulo round-trip costs about 1e-14 degrees, and this tool's callers
+        // compare positions.
+        if (lngDeg > 180 || lngDeg < -180) {
+            lngDeg = ((lngDeg + 180) % 360 + 360) % 360 - 180;
+        }
+
+        return [lngDeg, lat2 * 180 / Math.PI];
     }
 
     /**

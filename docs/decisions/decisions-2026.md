@@ -959,3 +959,54 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   M10 foi confirmada de ponta a ponta: o item é desenhado, fica `aria-disabled`, e o clique
   entrega a frase que nomeia o estado.
 - **Status:** aceita e implementada. O relatório foi dissolvido, e com ele a série dos cinco.
+
+### 2026-08-24: o backlog de testes vira 98 defeitos reais, e três formas atravessam o repositório
+
+- **Contexto:** fechadas as pendências dos cinco relatórios de UX, o dono mandou fazer "todo o resto,
+  inclusive o `TESTING-BACKLOG.md`". Aquele inventário tinha 28 domínios, cinco concluídos, e
+  descrevia por símbolo o risco e os edge cases apurados por leitura. O trabalho foi feito em três
+  ondas de agentes com propriedade exclusiva de arquivo: escrever teste medindo o comportamento
+  REAL, marcar o defeito sem consertá-lo, e consertar numa onda seguinte com controle negativo.
+- **Decisão:** cobrir os 23 domínios abertos, consertar todo defeito achado, e tratar cada linha do
+  backlog como HIPÓTESE em vez de achado. Toda tarefa levou uma seção obrigatória "o que contradiz o
+  enunciado".
+- **O que isso rendeu, e o número é a parte menos interessante:** cerca de 4400 casos novos e **98
+  defeitos reais de produto**, todos consertados ou registrados como decisão. O backlog foi refutado
+  cerca de **trinta vezes**, e nenhuma das refutações era descuido dele: todas são leituras
+  plausíveis do código que não sobreviveram à execução.
+- **TRÊS FORMAS atravessaram o repositório, e nenhuma seria achada lendo arquivo por arquivo**,
+  porque em cada sítio ela parece decisão local:
+  - **`valor || padrao` engolindo o zero legítimo**, em NOVE domínios, com sintomas que não se
+    parecem entre si: opacidade 0 desenha opaca, `maxzoom` 0 aparece em todo zoom, exagero de
+    terreno 0 devolve 53,33 em vez de terreno plano, `labelCreatedAtZoom` 0 reescreve a âncora de
+    toda etiqueta nunca reancorada, `layerId` 0 faz setas de camadas diferentes passarem pelo
+    portão de mesma-camada. São 261 ocorrências da forma na árvore, e por isso a saída é CENSO com
+    motivo por sítio, nunca varredura cega, que seria churn.
+  - **Lookup por `TABELA[chave]` com chave vinda de fora**, em três sítios. O pior devolve `true`,
+    grava o estado e EMITE o evento para o nome `'constructor'`.
+  - **`if (x < 0) x += 360` devolvendo 360 exato**, em quatro sítios de azimute. A pior consequência
+    não é rótulo: em `generateArcCoordinates` o arco desenha a circunferência inteira. Fechado por
+    censo de forma (`frontend/tests/unit/azimute-nunca-devolve-360.test.js`), com a única ocorrência
+    legítima declarada e medida como mutante equivalente.
+- **Os defeitos que saem em papel ou apagam tela**, para registro: o rótulo da folha do PDF imprimia
+  `43°11'60"W` (10 de 12 rótulos errados num tile a 1:250.000); o conversor de coordenadas escrevia
+  zona UTM **61** no antimeridiano e não conseguia reler o que escrevia; os três placeholders da
+  caixa de coordenada apontavam para três lugares diferentes; uma feição malformada apagava a busca
+  de um mapa inteiro em silêncio; `calculateLOS` com amostragem não-finita reportava uma montanha de
+  5000 m como "tudo visível", que é o modo de falha errado numa ferramenta de análise militar.
+- **Alternativas recusadas, com o porquê:**
+  - *Consertar as 261 ocorrências de `|| numero`.* A maioria é legítima (0 mapeia para o mesmo
+    resultado, ou não é valor de domínio). Censo com motivo escrito, não varredura.
+  - *Consertar o antimeridiano do snapping.* Foi escrito, medido e **revertido**: tomar o arco menor
+    sempre que `|Δlng| > 180` quebra uma aresta de 200 graus que `queryRenderedFeatures`
+    legitimamente devolve em zoom baixo, e os dois casos são indistinguíveis só pelas longitudes. O
+    teatro é o Brasil; a troca é ruim. Fica a medição escrita no arquivo.
+  - *Consertar funções sem chamador por simetria.* A varredura de chamadores mudou dez decisões:
+    `simplifyLine`, o `getBoundingBox` do pincel e o cluster inteiro de `add_occupied_front_geometry`
+    não têm chamador. Consertou-se onde não havia irmã viva de que divergir; deixou-se onde havia.
+- **A prática que mais rendeu, e ela é de método:** a seção obrigatória "o que contradiz o enunciado"
+  pegou cerca de trinta afirmações erradas, minhas e do backlog. A razão é estrutural: quem escreve o
+  enunciado carrega as próprias premissas para dentro dele, e um agente que as aceita produz trabalho
+  errado com APARÊNCIA de trabalho conferido.
+- **Status:** aceita e implementada. O `TESTING-BACKLOG.md` deixa de ser inventário de leitura e
+  passa a ser registro do que foi medido.

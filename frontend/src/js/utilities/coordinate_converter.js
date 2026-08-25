@@ -32,11 +32,17 @@ function buildUtmProjection(zone, hemisphere) {
 
 /**
  * Computes the UTM zone number from a longitude value.
+ *
+ * The clamp is not cosmetic. Longitude exactly 180 (the antimeridian, a legal
+ * value everywhere else in this module) computed zone 61, which does not exist:
+ * the module then WROTE `61N ...` and `parseUTMWGS84` refused to read it back,
+ * so a user copying the string the app had just shown got nothing.
+ *
  * @param {number} lng - Longitude in decimal degrees
  * @returns {number} UTM zone (1-60)
  */
 function getUtmZone(lng) {
-    return Math.floor((lng + 180) / 6) + 1;
+    return Math.min(60, Math.max(1, Math.floor((lng + 180) / 6) + 1));
 }
 
 /**
@@ -106,14 +112,31 @@ function toDMSParts(absValue) {
 
 /**
  * Formats a DMS decomposition as a string like `30º07'56.8" S`.
+ *
+ * The carry lives HERE, not in `toDMSParts`, because the rounding that creates
+ * the problem is the `toFixed(1)` of this function: the minute has already been
+ * floored by then, so a seconds field that rounds up to 60.0 has nowhere to go
+ * and the app printed `1º01'60.0" N` for what is `1º02'00.0" N`.
+ *
  * @param {{ deg: number, min: number, sec: number }} parts
  * @param {string} direction - Cardinal direction letter (N, S, L, O)
  * @returns {string}
  */
 function formatDMSString(parts, direction) {
-    const minStr = parts.min.toString().padStart(2, '0');
-    const secStr = parts.sec.toFixed(1).padStart(4, '0');
-    return `${parts.deg}º${minStr}'${secStr}" ${direction}`;
+    let { deg, min } = parts;
+    let secStr = parts.sec.toFixed(1);
+
+    if (Number.parseFloat(secStr) >= 60) {
+        secStr = '0.0';
+        min += 1;
+    }
+    if (min >= 60) {
+        min -= 60;
+        deg += 1;
+    }
+
+    const minStr = min.toString().padStart(2, '0');
+    return `${deg}º${minStr}'${secStr.padStart(4, '0')}" ${direction}`;
 }
 
 /**
@@ -141,6 +164,14 @@ function dmsGroupToDecimal(degStr, minStr, secStr, dirStr) {
 
 /**
  * Gets placeholder text for a coordinate format.
+ *
+ * THE FOUR HINTS ARE THE SAME POINT, Resende (-22.455921, -44.449655), and each
+ * one is exactly what `formatCoordinates` writes for it in that format. They were
+ * three different places, and the UTM one did not even parse in its own format:
+ * it advertised the MGRS band letter (`23K`) where `parseUTMWGS84` accepts only
+ * N/S, so a user who copied the hint verbatim got nothing. When changing one,
+ * change all four together, and keep them round-trippable.
+ *
  * @param {string} formatId - Format identifier
  * @returns {string} Placeholder text
  */
@@ -149,11 +180,11 @@ export function getPlaceholderForFormat(formatId) {
         case 'latlong':
             return '-22.455921, -44.449655';
         case 'latlong_dms':
-            return '30º07\'56.8" S 55º01\'04.3" O';
+            return '22º27\'21.3" S 44º26\'58.8" O';
         case 'utm_wgs84':
-            return '23K 680834 7516602';
+            return '23S 556624 7516604';
         case 'mgrs':
-            return '23K TP 80834 16602';
+            return '23K NR 56624 16603';
         default:
             return 'Entrar coordenadas';
     }

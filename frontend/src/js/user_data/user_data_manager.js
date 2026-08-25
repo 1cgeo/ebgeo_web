@@ -103,6 +103,19 @@ const SYSTEM_PROPERTIES = new Set([
     '_keys', '_values', '_z', '_x', '_y',
 ]);
 
+/**
+ * Case-folded index of `SYSTEM_PROPERTIES`, DERIVED so the two cannot drift.
+ *
+ * `validateAttributeKey` lowercases the key before looking it up, and the set it
+ * looked into stores most names in camelCase, so the lookup could only ever hit
+ * the handful of entries already spelled lowercase. A second hand-written list
+ * would reintroduce exactly that gap the next time a name is added.
+ * @constant {Set<string>}
+ */
+const SYSTEM_PROPERTIES_LOWER = new Set(
+    [...SYSTEM_PROPERTIES].map(name => name.toLowerCase())
+);
+
 // IMAGE_CONFIG is imported from utilities/image_utils.js
 
 /**
@@ -505,6 +518,18 @@ const userDataManager = {
                 continue;
             }
 
+            // Handle special case: imported property named "attributes" that isn't
+            // an object. This MUST precede the system skip: 'attributes' is itself
+            // listed in SYSTEM_PROPERTIES (to avoid recursion on the object form),
+            // so while the skip ran first this whole branch was unreachable and an
+            // imported scalar named `attributes` was dropped without a trace.
+            if (key === 'attributes' && value !== null && value !== undefined
+                && typeof value !== 'object') {
+                // Sanitize to prevent XSS from imported data
+                extracted['attributes_imported'] = sanitizeHtml(String(value));
+                continue;
+            }
+
             // Skip system properties
             if (SYSTEM_PROPERTIES.has(key)) {
                 continue;
@@ -517,13 +542,6 @@ const userDataManager = {
 
             // Skip null/undefined values
             if (value === null || value === undefined) {
-                continue;
-            }
-
-            // Handle special case: imported property named "attributes" that isn't an object
-            if (key === 'attributes' && typeof value !== 'object') {
-                // Sanitize to prevent XSS from imported data
-                extracted['attributes_imported'] = sanitizeHtml(String(value));
                 continue;
             }
 
@@ -560,8 +578,13 @@ const userDataManager = {
             return { valid: false, reason: 'Chave muito longa (máximo 50 caracteres)' };
         }
 
-        // Check for system property conflict
-        if (SYSTEM_PROPERTIES.has(trimmed.toLowerCase())) {
+        // Check for system property conflict. The lookup lowercases the key, so
+        // it MUST be made against a lowercased index: `SYSTEM_PROPERTIES` stores
+        // 'fillColor', 'layerId', 'groupId', 'fontSize' and dozens more in
+        // camelCase, and comparing a lowercased key against them guaranteed the
+        // miss. Every camelCase entry validated as free, and the user could
+        // create an attribute that shadows a real visual property.
+        if (SYSTEM_PROPERTIES_LOWER.has(trimmed.toLowerCase())) {
             return { valid: false, reason: 'Chave reservada pelo sistema' };
         }
 

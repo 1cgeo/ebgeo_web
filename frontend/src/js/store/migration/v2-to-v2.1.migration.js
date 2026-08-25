@@ -49,7 +49,11 @@ function migratePointZoomProperties(features) {
     let changed = false;
     for (const feature of points) {
         if (!feature?.properties) continue;
-        if (!feature.properties.sizeCreatedAtZoom) {
+        // Number.isFinite, not truthiness: zoom 0 is the whole-world zoom level, a value an
+        // author can legitimately create a point at, and `!feature.properties.sizeCreatedAtZoom`
+        // read it as ABSENCE and rewrote it to 10, after which the size zoom correction drew
+        // the point at a size nobody chose. NaN and null still backfill, which is wanted.
+        if (!Number.isFinite(feature.properties.sizeCreatedAtZoom)) {
             feature.properties.sizeCreatedAtZoom = DEFAULT_SIZE_ZOOM;
             changed = true;
         }

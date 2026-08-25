@@ -32,7 +32,12 @@ function canMergeArrows(selectedFeatures) {
     }
     const allArrows = selectedFeatures.every(f => f.properties?.source === 'arrow');
     if (!allArrows) return { canMerge: false, reason: 'Todas as feições devem ser setas' };
-    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId || 'default'));
+    // `??`, NUNCA `||`: um `layerId` de `0` ou `''` e valor de dominio, e o `||` o trocava por
+    // 'default', fazendo setas de CAMADAS DIFERENTES passarem pelo portao de mesma-camada. O gemeo
+    // desta linha vive em `military_tools/arrow_tool/arrow-merge.js` e foi consertado em
+    // 2026-08-24; esta copia existe para nao criar ciclo de chunk entre core e military-tools, e
+    // por isso mesmo ela nao herda conserto nenhum: quem mexer num lado mexe nos dois.
+    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId ?? 'default'));
     if (layerIds.size > 1) return { canMerge: false, reason: 'Setas devem estar na mesma camada' };
     return { canMerge: true };
 }

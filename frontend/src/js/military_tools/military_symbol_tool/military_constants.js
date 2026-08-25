@@ -256,12 +256,21 @@ export function getEngagementBarData() {
 
 /**
  * Check if echelon is applicable for a symbol set
+ *
+ * DERIVED FROM `getEchelonData`, which is the single source of truth here. The two used to be
+ * hand-maintained lists and contradicted each other in BOTH directions: '15' and '27' had
+ * data and a label while the predicate said no, and '30' and '35' passed the predicate while
+ * `getEchelonData` handed back `{ data: [], label: '', applicable: false }`. A panel gated on
+ * the predicate alone therefore drew an EMPTY echelon selector for surface and subsurface
+ * symbol sets. `getEchelonData` wins because it is the one with callers (the symbol form
+ * reads its `data`, `label` and `applicable`) and the one that carries what the screen needs;
+ * a predicate that disagrees with the data it gates is the half with nothing behind it.
+ *
  * @param {string} symbolSetCode - Symbol set code
  * @returns {boolean} True if echelon is applicable
  */
 export function isEchelonApplicable(symbolSetCode) {
-    const echelonApplicable = ['10', '30', '35'];
-    return echelonApplicable.includes(symbolSetCode);
+    return getEchelonData(symbolSetCode).applicable;
 }
 
 /**

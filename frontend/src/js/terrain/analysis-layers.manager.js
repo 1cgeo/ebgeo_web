@@ -10,6 +10,21 @@ const SOURCE_PREFIX = 'analysis-';
 export const ANALYSIS_SURFACE = 'analysis';
 
 /**
+ * Returns `value` when it is a usable number, otherwise `fallback`.
+ *
+ * `opacity || 1` sent a layer declared FULLY TRANSPARENT to the map fully opaque,
+ * in two places that have to agree (the style descriptor and the paint of the
+ * layer actually added). `??` alone would not do: NaN is not a paint value
+ * MapLibre accepts.
+ * @param {*} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function numberOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+/**
  * Manages raster analysis layers in the system.
  * State persistence is handled by catalogLayers, not by this manager.
  *
@@ -255,9 +270,10 @@ class AnalysisLayersManager {
                 raster: {
                     present: true,
                     values: {
-                        // _addAnalysisLayer sets raster-opacity = opacity || 1.0
-                        // (the explicit key overrides the paint spread); mirror it.
-                        'raster-opacity': layerConfig?.opacity || 1,
+                        // _addAnalysisLayer sets raster-opacity through the same
+                        // `numberOr` guard (the explicit key overrides the paint
+                        // spread); mirror it, zero included.
+                        'raster-opacity': numberOr(layerConfig?.opacity, 1),
                         'raster-brightness-min': paint['raster-brightness-min'] ?? 0,
                         'raster-brightness-max': paint['raster-brightness-max'] ?? 1,
                         'raster-contrast': paint['raster-contrast'] ?? 0,
@@ -349,7 +365,7 @@ class AnalysisLayersManager {
                     source: sourceId,
                     paint: {
                         ...layerConfig.paint,
-                        'raster-opacity': layerConfig.opacity || 1.0
+                        'raster-opacity': numberOr(layerConfig.opacity, 1)
                     },
                     layout: { visibility: 'none' }
                 };

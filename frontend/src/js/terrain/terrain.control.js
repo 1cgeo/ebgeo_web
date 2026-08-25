@@ -23,7 +23,17 @@ export async function getTerrainElevation(map, coordinates, options = { exaggera
     const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
     const altitude = sceneElevation - fixedPointElevation;
 
-    return altitude / (terrain.exaggeration || 1.5);
+    // `exaggeration || 1.5` read a declared ZERO as the default, and zero IS
+    // reachable: `initExaggeration(0)` and `setExaggeration(0)` accept it and hand
+    // it to the map. Measured, a real 80 m difference came back as 53,33, which is
+    // neither the true altitude nor an error. With the scene flattened there is
+    // nothing to un-exaggerate, so the honest answer is 0, not a division by zero.
+    const exaggeration = Number.isFinite(terrain.exaggeration)
+        ? terrain.exaggeration
+        : DEFAULT_TERRAIN_EXAGGERATION;
+    if (exaggeration === 0) return 0;
+
+    return altitude / exaggeration;
 }
 
 class TerrainControl {

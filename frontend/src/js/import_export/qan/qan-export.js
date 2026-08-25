@@ -31,9 +31,11 @@ export function generateQAN(feature) {
         const from = points[i];
         const to = points[i + 1];
 
-        // Bearing: turf returns -180..180, convert to 0..360
-        let azimuth = getBearing(from, to);
-        if (azimuth < 0) azimuth += 360;
+        // Bearing: turf returns -180..180, convert to 0..360.
+        // MODULO, NAO `if (a < 0) a += 360`: um azimute negativo de magnitude menor que METADE do
+        // ULP de 360 (~2.84e-14) soma para 360 EXATO, e a tabela de navegacao IMPRIME "360.0",
+        // fora da faixa que a coluna promete. Medido em 2026-08-24.
+        const azimuth = ((getBearing(from, to) % 360) + 360) % 360;
 
         const distance = calculateSegmentDistance(from, to);
 

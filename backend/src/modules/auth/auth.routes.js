@@ -15,6 +15,7 @@ import {
 import { canDeliverAccountMail } from '../../utils/mailer.js';
 import * as ctrl from './auth.controller.js';
 import * as schemas from './auth.schemas.js';
+import { requireTileKey, tileAccess } from './tile-access.js';
 
 const router = Router();
 
@@ -79,5 +80,23 @@ router.post('/login', authLimiter, validate({ body: schemas.loginSchema }), ctrl
 router.post('/refresh', refreshLimiter, validate({ body: schemas.refreshSchema }), ctrl.refresh);
 router.post('/logout', auth, validate({ body: schemas.logoutSchema }), ctrl.logout);
 router.get('/me', auth, ctrl.getMe);
+
+// O `auth_request` do nginx para as rotas do servidor de tiles (cláusula 10.7).
+//
+// SÓ-`flexibleAuth`, e a ausência do `auth` estrito é a decisão que sustenta a rota
+// inteira: o estrito recusa a chave de escopo `tiles` (é assim que a amarra 2 foi
+// implementada), que é justamente a credencial que o tile carrega. Montá-lo aqui faria
+// este endpoint recusar todo tile.
+//
+// SEM `validate`: não há corpo nem parâmetro de rota, e a única entrada (`?api_key=`) é
+// peneirada por forma de UUID dentro de `flexibleAuth` antes de qualquer consulta.
+//
+// SEM AUDITORIA, por decisão declarada no `fileoverview` de `tile-access.js`: seria uma
+// linha por TILE, e `audit_trail.action` não tem ação de leitura para gravar.
+//
+// LEIA O `fileoverview` DE `tile-access.js` ANTES DE DESCREVER ESTA ROTA EM QUALQUER
+// LUGAR: ela valida a CREDENCIAL e nunca o RECURSO, então ela não fecha o tile privado
+// por camada.
+router.get('/tile-access', requireTileKey, tileAccess);
 
 export { router as authRoutes };

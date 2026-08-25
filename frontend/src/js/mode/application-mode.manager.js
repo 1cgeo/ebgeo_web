@@ -361,8 +361,14 @@ export function getApplicationModeManager() {
 /**
  * Creates the ApplicationModeManager instance.
  * Should be called once during service initialization.
- * Throws if already created to prevent accidental double-init.
- * @returns {ApplicationModeManager}
+ *
+ * IT DOES NOT THROW ON A SECOND CALL, it warns and hands back the existing instance. This
+ * line promised a throw, and the prose was the half that got corrected: a throw here would
+ * turn a harmless double-init into a boot abort, and the whole point of the singleton is that
+ * every holder of a reference keeps talking to the SAME mode state. Someone "fixing" the code
+ * to match the old sentence would replace a warning with a crash on the map's boot path.
+ *
+ * @returns {ApplicationModeManager} The single instance, newly created or pre-existing.
  */
 export function createApplicationModeManager() {
     if (instance) {

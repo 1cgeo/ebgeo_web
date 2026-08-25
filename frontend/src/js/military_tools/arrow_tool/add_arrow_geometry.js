@@ -558,13 +558,20 @@ class AddArrowGeometry extends BaseGeometry {
                 updatedProperties.baseCoordinates = coords;
             }
         } else if (handleType.startsWith('vertex-')) {
+            // The legacy string form carries its index in the handle name. It gets the
+            // SAME bounds as the modern branch above: without them, `vertex-99` on a
+            // 3-vertex arrow grew a sparse array of length 100 with 97 holes.
             const index = parseInt(handleType.split('-')[1], 10);
-            coords[index] = newPosition;
-            updatedProperties.baseCoordinates = coords;
+            if (Number.isInteger(index) && index >= 0 && index < coords.length) {
+                coords[index] = newPosition;
+                updatedProperties.baseCoordinates = coords;
+            }
         } else if (handleType.startsWith('midpoint-')) {
-            const insertIndex = parseInt(handleType.split('-')[1], 10) + 1;
-            coords.splice(insertIndex, 0, newPosition);
-            updatedProperties.baseCoordinates = coords;
+            const index = parseInt(handleType.split('-')[1], 10);
+            if (Number.isInteger(index) && index >= 0 && index < coords.length - 1) {
+                coords.splice(index + 1, 0, newPosition);
+                updatedProperties.baseCoordinates = coords;
+            }
         } else if (handleType === 'width') {
             this._applyWidthFromHandle(updatedProperties, coords, newPosition);
         } else if (handleType === 'headLength') {
@@ -670,10 +677,14 @@ class AddArrowGeometry extends BaseGeometry {
         const snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
         const newDistance = snappedPoint.properties.location;
 
-        let newPositionNormalized = newDistance / lineLength;
-        newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
+        // A zero-length line makes this 0/0 === NaN, and the clamp below does NOT
+        // sanitize it: `Math.max(0.01, Math.min(0.99, NaN))` is NaN. Guard the ratio
+        // before clamping, falling back to the same 0.5 the handle placement uses.
+        const ratio = (Number.isFinite(newDistance) && Number.isFinite(lineLength) && lineLength > 0)
+            ? newDistance / lineLength
+            : 0.5;
 
-        props.airmobilePosition = newPositionNormalized;
+        props.airmobilePosition = Math.max(0.01, Math.min(0.99, ratio));
     }
 
     /**
@@ -709,6 +720,18 @@ class AddArrowGeometry extends BaseGeometry {
         const coords = this.normalizeBaseCoordinates(baseCoordinates);
 
         if (coords.length < 2) {
+            return false;
+        }
+
+        // `Number.isFinite`, not `!isNaN`: the haversine of a NaN/Infinity pair is NaN
+        // and `NaN < MIN_DISTANCE_METERS` is false, so the distance floor below can
+        // never reject a non-finite vertex on its own.
+        const isFinitePosition = (coord) => Array.isArray(coord)
+            && coord.length >= 2
+            && Number.isFinite(coord[0])
+            && Number.isFinite(coord[1]);
+
+        if (!coords.every(isFinitePosition)) {
             return false;
         }
 
@@ -748,12 +771,23 @@ class AddArrowGeometry extends BaseGeometry {
      */
     normalizeBaseCoordinates(baseCoordinates) {
         if (typeof baseCoordinates === 'string') {
+            let parsed;
             try {
-                return JSON.parse(baseCoordinates);
+                parsed = JSON.parse(baseCoordinates);
             } catch (e) {
                 console.error('Error parsing baseCoordinates:', e);
                 return [];
             }
+
+            // A valid JSON scalar ('42', 'null', '{}') is still not a coordinate list.
+            // Without this shape check the scalar escapes and `coords.length < 2`
+            // becomes `undefined < 2` (false), letting invalid GeoJSON reach the caller.
+            if (!Array.isArray(parsed)) {
+                console.warn('Parsed baseCoordinates is not an array:', parsed);
+                return [];
+            }
+
+            return parsed;
         }
 
         if (!Array.isArray(baseCoordinates)) {
@@ -792,7 +826,10 @@ class AddArrowGeometry extends BaseGeometry {
      * @returns {Array|null} New coordinates or null if invalid
      */
     removeVertexAtIndex(coordinates, index) {
-        if (!coordinates || index < 0 || index >= coordinates.length) {
+        // `Number.isInteger` is load-bearing: `NaN < 0` and `NaN >= length` are BOTH
+        // false, so a NaN index used to reach `splice`, which coerces it to 0 and
+        // deletes the first vertex instead of nothing.
+        if (!coordinates || !Number.isInteger(index) || index < 0 || index >= coordinates.length) {
             return null;
         }
 

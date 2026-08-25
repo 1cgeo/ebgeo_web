@@ -146,7 +146,9 @@ export class CatalogService {
      * @returns {CatalogItem[]}
      */
     static searchItems(query, items) {
-        if (!query || query.trim() === '') return items;
+        // `query.trim()` threw on a truthy non-string, which is the same class of
+        // defect as the field guards below and sits one line earlier.
+        if (typeof query !== 'string' || query.trim() === '') return items;
 
         const normalizedQuery = this._normalizeText(query);
 
@@ -200,11 +202,20 @@ export class CatalogService {
 
     /**
      * Normalizes text for search (lowercase, removes accents).
+     *
+     * Non-strings normalize to the empty string rather than throwing. The call
+     * sites guarded with `item.name || ''`, which only stops FALSY values, so a
+     * catalogue row whose `name` arrived as a number threw `.toLowerCase is not a
+     * function` from inside `Array.prototype.filter` and took the whole search
+     * down. This is the single choke point of the four fields, so guarding here
+     * covers name, description, local, keywords and the query itself.
+     *
      * @private
-     * @param {string} text - Text to normalize
+     * @param {*} text - Text to normalize; anything not a string yields ''
      * @returns {string}
      */
     static _normalizeText(text) {
+        if (typeof text !== 'string') return '';
         return text
             .toLowerCase()
             .normalize('NFD')

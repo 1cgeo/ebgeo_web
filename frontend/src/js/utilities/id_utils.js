@@ -22,6 +22,11 @@ function findNextAvailableName(existingNames, baseName) {
     const usedNumbers = new Set();
 
     for (const name of existingNames) {
+        // A name that is not a string is SKIPPED, not fed to `String.prototype
+        // .match`. A layer with no `name` (one still being created, one that
+        // arrived half-written over sync) used to throw here and take the whole
+        // "new layer" gesture down; it can only ever fail to reserve a number.
+        if (typeof name !== 'string') continue;
         const match = name.match(pattern);
         if (match) {
             const num = match[1] ? parseInt(match[1], 10) : 1;
