@@ -184,3 +184,68 @@ export function deleteConfirmMessage({ signedIn = false } = {}) {
         ? `${base}, junto com qualquer trabalho ainda não enviado ao servidor. Não há como desfazer.`
         : `${base}. Não há como desfazer.`;
 }
+
+/**
+ * O QUE A TELA DIZ DEPOIS DE "ENVIAR AO SERVIDOR", e PARA ONDE ela vai em seguida.
+ *
+ * O DESTINO SAI DAQUI, e não da fiação, porque ele é a metade do achado que pode mentir. Terminado
+ * o envio, o produto tem de apontar para o atlas NOVO do servidor: continuar no local deixaria a
+ * pessoa editando uma cópia que ninguém mais vê, e cada edição a partir dali é trabalho que o envio
+ * já não alcança. Um `openAtlasId` construído na fiação seria uma decisão sem teste, e o modo de
+ * errar é barato: `./?atlas=undefined` é uma tela de erro, não um desfecho.
+ *
+ * POR ISSO ELE FALHA FECHADO. Sem um id de servidor que seja string não vazia, `openAtlasId` é
+ * `null` e a página fica onde está, com a frase na tela. Um envio que subiu e não soube dizer para
+ * onde ir é um estado ruim; mandar a pessoa para um endereço inventado é pior.
+ *
+ * SÃO DOIS MOTIVOS PARA `openAtlasId` SER NULO, e o segundo não é falha nenhuma: o ramo de AVISO
+ * também fica. Navegar destrói a frase, porque o toast morre com a página que o desenhou, e essa
+ * frase é a única que nomeia as imagens que ficaram para trás. Ver o comentário do ramo.
+ *
+ * O TOM VEM DO QUE FALTOU CHEGAR. `skipped` (formato de imagem que o servidor recusa) e `failed`
+ * (upload que não completou) são perdas parciais REAIS: o atlas existe no servidor, mas sem
+ * aquelas imagens. Anunciá-las como sucesso liso é a tela mentindo sobre o que acabou de
+ * acontecer, e a pessoa descobriria na primeira feição de imagem vazia.
+ *
+ * Pura, como as vizinhas.
+ *
+ * @param {{atlasId?: *, name?: *, stats?: Object, imageStats?: Object}|null|undefined} result -
+ *   O retorno de `sendLocalAtlasToServer`.
+ * @returns {{kind: string, message: string, openAtlasId: string|null}}
+ */
+export function sendToServerNotice(result) {
+    const atlasId = typeof result?.atlasId === 'string' && result.atlasId.trim().length > 0
+        ? result.atlasId
+        : null;
+    const nome = String(result?.name ?? '').trim();
+    const alvo = nome ? `"${nome}"` : 'O atlas';
+    const maps = Number(result?.stats?.maps) || 0;
+    const features = Number(result?.stats?.features) || 0;
+    const perdidas = (Number(result?.imageStats?.skipped) || 0)
+        + (Number(result?.imageStats?.failed) || 0);
+
+    const base = `${alvo} foi enviado ao servidor (${maps} mapa(s), ${features} feição(ões)).`;
+    if (perdidas > 0) {
+        return {
+            kind: NoticeKind.WARNING,
+            // O QUE SOBROU AQUI É DITO JUNTO, porque é o que muda a decisão de quem lê: o atlas
+            // do servidor está incompleto, e o original continua neste navegador com as imagens.
+            message: `${base} ${perdidas} imagem(ns) não enviada(s). O atlas local continua aqui`
+                + ' com elas. Ele já está no servidor, e aparece na lista de cima.',
+            // O AVISO FICA, E POR ISSO A PÁGINA NÃO NAVEGA. Medido no navegador em 2026-08-25: a
+            // navegação partia 543 ms depois do clique, e o toast morre com a página que o
+            // desenhou. Amostrando a tela a cada 20 ms por 5 s, NENHUM toast chegou a aparecer.
+            //
+            // NO SUCESSO ISSO NÃO CUSTA NADA: o desfecho é o atlas novo na tela, que diz o mesmo
+            // que a frase diria. AQUI CUSTA A FRASE INTEIRA, e ela é a única que fala das imagens
+            // que ficaram para trás. Um envio incompleto anunciado a ninguém é a perda parcial
+            // virando perda silenciosa, que é exatamente o que o tom de aviso existe para impedir.
+            //
+            // O preço está escrito: quem cai neste ramo fica na lista e abre o atlas com um
+            // clique a mais. É o ramo raro (formato que o servidor recusa, ou upload que não
+            // completou), e é o único em que a pessoa tem uma decisão a tomar.
+            openAtlasId: null,
+        };
+    }
+    return { kind: NoticeKind.SUCCESS, message: base, openAtlasId: atlasId };
+}

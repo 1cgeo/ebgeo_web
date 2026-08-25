@@ -583,6 +583,10 @@ class SyncEngine {
      */
     disconnect({ resumeGranted = true } = {}) {
         wsClient.disconnect();
+        // O PAPEL E DO ATLAS, e sai com ele. Ficando, o `owner` do atlas A valeria durante a
+        // janela de conexao do atlas B, que e conceder o que o servidor ainda nao respondeu.
+        // Ver `sessionContext.forgetAtlasRole`.
+        sessionContext.forgetAtlasRole();
         // The per-atlas config overlay no longer applies — restore the deploy-level config and
         // re-gate the UI back to its defaults.
         //

@@ -84,6 +84,14 @@ hidratação da sessão, que hoje começa em Leitor. **[vigente]** Preso por
 `frontend/tests/unit/org-role-nao-promove-em-atlas.repro.test.js`, que guarda o defeito pelo nome, e por
 `backend/tests/integration/register-tenant-claim.test.js`, que cobra a ausência do claim no token.
 
+**A SEMENTE PASSOU A SE DECLARAR SEMENTE em 2026-08-25**, e o piso fechado acima não mudou. O papel real
+chega depois, do servidor, no payload `connected`; entre os dois momentos o cliente tinha DOIS valores para
+TRÊS situações, e "é Leitor" era indistinguível de "ainda não sei". O custo foi medido: o **dono** de um
+atlas dava F5, a escrita de boot batia no guarda, e a tela dizia a ele que seu nível não permitia editar.
+`sessionContext.isAtlasRoleResolved()` separa os dois. Ele **não autoriza nada**: as permissões continuam
+falsas e a escrita continua recusada, e o que muda é só o direito de ACUSAR. Preso por
+`frontend/tests/unit/recusa-antes-do-papel-chegar.repro.test.js`, que guarda a frase falsa pelo nome.
+
 **1.5** O usuário deslogado cria a própria conta. Ela nasce sempre como `user`: papel, escopo de produção e
 vínculo institucional não são escolhíveis no cadastro. A organização declarada no cadastro é **lotação** e
 **não autoriza nada**. **[pendente]** O endurecimento (e-mail obrigatório, limite por endereço, validação de
@@ -362,8 +370,20 @@ SÓ pelo empréstimo da origem e ele não viaja.
 `frontend/tests/unit/local-atlas-api.test.js`, que mede o décimo aceito e o décimo primeiro recusado com erro
 nomeado.
 
-**7.2** O usuário logado **envia um atlas local ao servidor**, tornando-o remoto. **[vigente]** Preso por
-`frontend/tests/e2e/local-atlas-import.e2e.test.js`.
+**7.2** O usuário logado **envia um atlas local ao servidor**. **[vigente]** São **duas portas, e elas se
+comportam diferente**, o que a redação anterior ("tornando-o remoto") escondia por descrever só a primeira:
+
+- do **mapa**, pelo menu da conta (`AccountControl.saveLocalToServer`), o store local É o atlas que sobe, e o
+  wipe posterior é a troca de atlas. Ali o local vira mesmo remoto;
+- da **lista de atlas**, pelo menu do cartão local (`sendLocalAtlasToServerFromPage`, 2026-08-25), é **cópia**:
+  o cartão clicado nem sempre é o slot montado, então apagá-lo destruiria sem perguntar o que a pessoa mandou
+  copiar. O cartão local continua na lista depois.
+
+O item da lista tem **portão de sessão**: sem conta a página não tem para onde enviar, e `atlas.html` é a tela
+inteira de quem trabalha sem conta. Preso por `frontend/tests/e2e/local-atlas-import.e2e.test.js`, por
+`frontend/tests/unit/menu-do-cartao-local.test.js` (quem vê o item, e o desfecho) e por
+`frontend/tests/unit/enviar-atlas-local-ao-servidor.test.js`, que cobra contra IndexedDB real que ler o
+namespace não o monta nem o altera.
 
 **7.3** E **salva um atlas remoto como local**. **[vigente]** Existe comando de um passo, e ele **não** é um
 round-trip de `.ebgeo`: é cópia banco a banco mais a poda de saída, então a aba não troca de atlas nem

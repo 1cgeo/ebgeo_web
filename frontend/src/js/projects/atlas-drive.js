@@ -1685,6 +1685,54 @@ export class AtlasDrive {
  * The local/remote distinction is NEVER carried by colour alone: each card states in words that
  * the atlas stays in this browser, the way a server card states owner and permission.
  */
+/**
+ * O QUE O MENU `⋯` DO CARTÃO LOCAL OFERECE, e a quem.
+ *
+ * É o irmão de {@link cardMenuActions}, e nasceu pela MESMA razão que aquele: o gate morava dentro
+ * de `_openMenu`, entre `document.createElement` e `getBoundingClientRect`, num ambiente de teste
+ * que é node puro, então a única propriedade que importa ali (quem vê o quê) não tinha como ser
+ * asserida. Ele NÃO se funde com o de servidor: os dois menus não compartilham um item sequer, e
+ * uma função com dois modos seria uma matriz de permissão de servidor respondendo sobre um atlas
+ * que não tem dono, nível nem lixeira.
+ *
+ * "ENVIAR AO SERVIDOR" É O ÚNICO ITEM COM GATE, e o gate é a SESSÃO. Sem sessão a página não tem
+ * como cumprir o comando: `atlas.html` não exige login (é a tela inteira de quem trabalha offline
+ * ou sem conta), e `renderWithoutServer` a desenha com o servidor fora do ar. Um item que aparece
+ * ali é um botão que só descobre a própria impossibilidade DEPOIS do clique. Ele falha FECHADO por
+ * `=== true`: `signedIn` chega de `sessionContext.isAuthenticated()`, e um valor que não seja o
+ * booleano verdadeiro é estado que este build não sabe descrever.
+ *
+ * O ITEM ENTRA ANTES DE "EXCLUIR", nunca depois: a ação destrutiva é a última dos dois menus desta
+ * tela, e essa é a convenção que o leitor usa para saber onde parar de clicar sem ler.
+ *
+ * O `testid` VAI ESCRITO POR EXTENSO, pela razão que `cardMenuActions` documenta: montá-lo em
+ * runtime tira o literal de `src/` e reprova `tests/unit/e2e-testids-existem.test.js`.
+ *
+ * Pura, e devolve array NOVO a cada chamada.
+ * @param {{signedIn?: boolean}} [options]
+ * @returns {Array<{id: string, testid: string, label: string, danger: boolean}>} na ordem em que
+ *   aparecem.
+ */
+export function localCardMenuActions({ signedIn = false } = {}) {
+    const actions = [
+        { id: 'open', testid: 'local-atlas-open', label: 'Abrir', danger: false },
+        { id: 'rename', testid: 'local-atlas-rename', label: 'Renomear', danger: false },
+        // `Duplicar`, contra o `Copiar no servidor` do cartão de servidor: as duas ações fazem
+        // coisas diferentes, então nenhuma pode se chamar o que a outra se chama.
+        { id: 'duplicate', testid: 'local-atlas-duplicate', label: 'Duplicar', danger: false },
+    ];
+    if (signedIn === true) {
+        actions.push({
+            id: 'send',
+            testid: 'local-atlas-send-to-server',
+            label: 'Enviar ao servidor',
+            danger: false,
+        });
+    }
+    actions.push({ id: 'delete', testid: 'local-atlas-delete', label: 'Excluir', danger: true });
+    return actions;
+}
+
 export class LocalAtlasSection {
     /**
      * @param {Object} options
@@ -1698,6 +1746,11 @@ export class LocalAtlasSection {
      * @param {Function} options.onRename - Called with the entry to rename.
      * @param {Function} [options.onDuplicate] - Called with the entry to copy.
      * @param {Function} options.onDelete - Called with the entry to delete.
+     * @param {boolean} [options.signedIn] - Whether a session is live. It gates "Enviar ao
+     *   servidor" and nothing else; see {@link localCardMenuActions}.
+     * @param {Function} [options.onSendToServer] - Called with the entry to send. Omitted leaves
+     *   the item out EVEN WITH a session, by the same rule as `onOpenFile`: a command drawn with
+     *   nothing behind it is a dead button, and the click is what would discover it.
      * @param {Function} [options.onOpenFile] - Called with the chosen `.ebgeo` `File`. Omitted
      *   leaves the button out entirely, rather than showing one that does nothing.
      * @param {Function} [options.onRetry] - Called when the visitor asks to read the registry again
@@ -1718,6 +1771,13 @@ export class LocalAtlasSection {
         this._onRename = options.onRename || (() => {});
         this._onDuplicate = options.onDuplicate || (() => {});
         this._onDelete = options.onDelete || (() => {});
+        this._onSendToServer = typeof options.onSendToServer === 'function'
+            ? options.onSendToServer
+            : null;
+        // AS DUAS CONDIÇÕES JUNTAS, e não só a sessão: o gate de produto é ter conta, mas um
+        // callback ausente é a mesma promessa quebrada com outra causa. Guardar o `&&` aqui
+        // deixa `localCardMenuActions` responder por UMA coisa só, que é o que a torna pura.
+        this._signedIn = options.signedIn === true && this._onSendToServer !== null;
         this._onOpenFile = options.onOpenFile || null;
         this._onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
         this._root = null;
@@ -2077,22 +2137,27 @@ export class LocalAtlasSection {
             return item;
         };
 
-        addItem('Abrir', 'local-atlas-open', false, () => this._open(atlas));
-        addItem('Renomear', 'local-atlas-rename', false, () => this._onRename(atlas));
-        // Mesmo rótulo do cartão de servidor: é a mesma ação para o usuário, ainda que por baixo
-        // uma seja uma rota do backend e a outra uma cópia banco a banco entre dois namespaces de
-        // IndexedDB (`copyAtlasDatabases`).
-        // Ver a nota do irmão de servidor em `cardMenuActions`: o rótulo diz ONDE a cópia nasce.
-        addItem('Copiar neste computador', 'local-atlas-duplicate', false, () => this._onDuplicate(atlas));
-
+        // QUAIS ITENS, E EM QUE ORDEM, É `localCardMenuActions`, pura e testada. Este laço só
+        // desenha: a lista que existia aqui era o mesmo tipo de literal que `cardMenuActions`
+        // saiu para deixar de ser, e um gate escrito entre `createElement` e
+        // `getBoundingClientRect` não tem como ser asserido em node.
+        const handlers = {
+            open: () => this._open(atlas),
+            rename: () => this._onRename(atlas),
+            duplicate: () => this._onDuplicate(atlas),
+            send: () => this._onSendToServer?.(atlas),
+            delete: () => this._attemptDelete(atlas),
+        };
         // "EXCLUIR" É DESENHADO SEMPRE, e recusa quando este é o único atlas. Ver `deleteAttempt`:
         // ser o único é ESTADO reversível, então o comando fica na tela e o CLIQUE traz o motivo.
         // NUNCA `disabled`: botão desabilitado não dispara clique, e o clique é o portador.
         const attempt = deleteAttempt(this._atlases.length);
-        const del = addItem('Excluir', 'local-atlas-delete', true, () => this._attemptDelete(atlas));
-        if (!attempt.allowed) {
-            del.setAttribute('aria-disabled', 'true');
-            del.classList.add('local-atlas__menu-item--blocked');
+        for (const action of localCardMenuActions({ signedIn: this._signedIn })) {
+            const item = addItem(action.label, action.testid, action.danger, handlers[action.id]);
+            if (action.id === 'delete' && !attempt.allowed) {
+                item.setAttribute('aria-disabled', 'true');
+                item.classList.add('local-atlas__menu-item--blocked');
+            }
         }
 
         this._root.appendChild(menu);

@@ -56,6 +56,9 @@ vi.mock('../../src/js/store/sync/session-context.js', () => ({
     sessionContext: {
         get role() { return sessao.podeEditar ? 'editor' : 'viewer'; },
         isOffline: () => sessao.offline,
+        // O papel destes casos JA chegou do servidor: eles medem recusa por nivel, nao a
+        // janela de hidratacao (essa vive em `recusa-antes-do-papel-chegar.repro.test.js`).
+        isAtlasRoleResolved: () => true,
         canPerformAction: (name) => (name === 'canEdit' ? sessao.podeEditar : false)
     }
 }));

@@ -74,6 +74,7 @@ import {
     listLocalAtlases,
     renameLocalAtlas,
     duplicateLocalAtlas,
+    scopeOfLocalAtlas,
     setCurrentLocalAtlas,
     MAX_LOCAL_ATLASES,
 } from '@store/local-atlas.api.js';
@@ -100,6 +101,7 @@ import {
     deleteNotice,
     refusalNotice,
     renameNotice,
+    sendToServerNotice,
 } from './local-atlas-notices.js';
 // The name only, from a module with no imports: the server importer that lives next to it opens
 // with `import JSZip`, and this path never parses the archive (the map's importer does).
@@ -370,9 +372,9 @@ async function pointAtLocalAtlasAndGo(atlas) {
  */
 async function duplicateLocalAtlasFromPage(atlas) {
     const name = await askAtlasName({
-        // Casa com o rótulo do menu que abre este diálogo (`Copiar neste computador`): eram duas
-        // strings diferentes para o mesmo gesto, e a do menu não dizia onde a cópia nascia.
-        title: 'Copiar neste computador',
+        // Casa com o rótulo do menu que abre este diálogo (`Duplicar`): eram duas strings
+        // diferentes para o mesmo gesto, e nenhuma delas distinguia esta cópia da do servidor.
+        title: 'Duplicar',
         defaultValue: `${atlas?.name ?? 'Atlas'} (cópia)`,
         confirmText: 'Copiar',
     });
@@ -388,6 +390,59 @@ async function duplicateLocalAtlasFromPage(atlas) {
     } catch (error) {
         console.error('[projects] local atlas duplicate failed:', error);
         showError('Não foi possível copiar este atlas.');
+    }
+}
+
+/**
+ * "Enviar ao servidor" de um atlas LOCAL. Só aparece com sessão (`localCardMenuActions`).
+ *
+ * NÃO DESTRUTIVO, E É A DIFERENÇA PARA O IRMÃO DO MAPA. `AccountControl.saveLocalToServer` apaga o
+ * store local depois de subir, porque lá o store local É o atlas que subiu, e o wipe é a troca de
+ * atlas. Aqui não há atlas montado, e o cartão clicado nem sempre é o slot corrente: apagá-lo seria
+ * destruir, sem perguntar, o que a pessoa mandou COPIAR. O cartão continua na lista depois.
+ *
+ * O DESFECHO É ABRIR O ATLAS DE SERVIDOR, e não redesenhar a lista com ele selecionado. Três
+ * razões, em ordem de peso:
+ *   - é o que o vizinho mais próximo já faz. `importProjectFromFile` termina em `openAtlas(atlasId)`
+ *     depois de `importEbgeoAsAtlas`, que é literalmente a mesma operação com outra fonte;
+ *   - é o que "a aplicação passa a apontar para o atlas novo" significa de verdade. Uma lista
+ *     redesenhada deixa a pessoa na tela de escolha, e o próximo clique dela é tão capaz de cair no
+ *     cartão local quanto no novo, que é o estado que este item existe para tirar;
+ *   - abrir é uma NAVEGAÇÃO (`./?atlas=<uuid>`), e o boot do mapa já sabe reivindicar, limpar,
+ *     conectar e ativar o mapa inicial (`openRemoteAtlas`, passo 2.7 `activateRemoteAtlas`).
+ *     Repetir esse trecho numa página sem store é justamente o que `projects-page.js` remove.
+ * O destino sai de `sendToServerNotice`, pura: sem id de servidor ela devolve `null` e a página
+ * fica onde está, com a frase na tela, em vez de navegar para `./?atlas=undefined`.
+ *
+ * O COMPARTILHAMENTO NÃO É PERGUNTADO AQUI, ao contrário do "+ Novo atlas": o atlas nasce privado
+ * e cai na lista do servidor, onde "Compartilhar" já é o caminho. Um segundo lugar aplicando
+ * `applyAtlasSharing` seria a segunda cópia daquelas regras.
+ * @param {{id: string, name: string, dbSuffix: string}} atlas
+ */
+async function sendLocalAtlasToServerFromPage(atlas) {
+    const name = await askAtlasName({
+        title: 'Enviar ao servidor',
+        defaultValue: atlas?.name ?? 'Atlas',
+        confirmText: 'Enviar',
+    });
+    if (name === null) return;
+    try {
+        // Por `import()`, como o importador de `.ebgeo` ao lado: nem a transformação nem o leitor
+        // de namespace pesam no carregamento de quem só veio escolher um atlas.
+        const { sendLocalAtlasToServer } = await import('./send-local-to-server.service.js');
+        const result = await sendLocalAtlasToServer(atlas, {
+            apiClient,
+            scopeOf: scopeOfLocalAtlas,
+            name,
+        });
+        const notice = sendToServerNotice(result);
+        tell(notice);
+        if (notice.openAtlasId) openAtlas(notice.openAtlasId);
+        // Sem destino, a pessoa fica na lista: o cartão local nunca some, então não há o que
+        // redesenhar do lado local, e o lado de servidor será relido no próximo boot.
+    } catch (error) {
+        console.error('[projects] local atlas send to server failed:', error);
+        showError(error?.message || 'Não foi possível enviar este atlas ao servidor.');
     }
 }
 
@@ -822,6 +877,11 @@ function buildLocalSection(local) {
         onCreate: () => createLocalAtlasFromPage(),
         onRename: (atlas) => renameLocalAtlasFromPage(atlas),
         onDuplicate: (atlas) => duplicateLocalAtlasFromPage(atlas),
+        // A ÚNICA AÇÃO LOCAL QUE TOCA A REDE, e por isso a única com gate de sessão. Sem conta a
+        // página não tem para onde enviar, e `renderWithoutServer` monta esta mesma seção com o
+        // servidor fora do ar: nos dois casos `isAuthenticated()` é falso e o item some.
+        signedIn: sessionContext.isAuthenticated(),
+        onSendToServer: (atlas) => sendLocalAtlasToServerFromPage(atlas),
         onDelete: (atlas) => deleteLocalAtlasFromPage(atlas),
         onOpenFile: (file) => openEbgeoFileAsLocalAtlas(file),
         onRetry: () => retryLocalAtlases(),

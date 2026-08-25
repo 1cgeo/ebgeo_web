@@ -146,14 +146,17 @@ const CENSO = [
             + 'em `atlas.html`, página que boota sem a store.',
     },
     {
-        arquivo: 'src/js/store/sync/session-context.js', trecho: '', n: 17, classe: VOCABULARIO,
+        arquivo: 'src/js/store/sync/session-context.js', trecho: '', n: 19, classe: VOCABULARIO,
         motivo: 'Declara o `UserRole` (o vocabulário de SEIS valores do cliente) e a tabela '
             + '`ROLE_PERMISSIONS`, que é de FLAGS por papel e NÃO tem ordem: gatear a partir dela '
             + 'obriga a comparar por igualdade, que é a forma proibida. O caminho legítimo que sai '
             + 'daqui é `checkPermission(GuardAction.X)`, no `permission-guard.js`, que consulta a '
             + 'flag e nunca o nome. As linhas varridas são a declaração do enum, as chaves da tabela '
             + 'e o default `VIEWER` de sessão pela metade, que é a degradação fechada certa. Ele NÃO '
-            + 'é dispensado da regra de lista fechada: um `||` de dois papéis escrito aqui reprova.',
+            + 'é dispensado da regra de lista fechada: um `||` de dois papéis escrito aqui reprova. '
+            + 'Subiu de 17 para 19 em 2026-08-25, com `forgetAtlasRole`: sair de um atlas devolve o '
+            + 'papel ao piso VIEWER e o marca como NÃO resolvido, e as duas linhas novas são essa '
+            + 'mesma degradação fechada (o papel e as flags dele).',
     },
 
     // ============ gates pela hierarquia (a forma certa) =====================

@@ -463,6 +463,9 @@ describe('sessionUserInfoFromMe', () => {
         expect(info).toEqual({
             userId: 'u9',
             role: UserRole.VIEWER,
+            // A semente se declara semente: `setSession` precisa distinguir este VIEWER de
+            // piso do VIEWER que o servidor resolveu. Ver `isAtlasRoleResolved`.
+            atlasRoleResolved: false,
             globalRole: GlobalRole.PRODUCER,
             producerOrgId: 'om-a',
             producerOrgActive: true,

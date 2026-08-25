@@ -160,6 +160,12 @@ class SessionContext {
         /** @type {string|null} */
         this._role = null;
 
+        /**
+         * @type {boolean} Whether `_role` is the answer the SERVER gave for THIS atlas, as
+         * opposed to the closed placeholder the hydration seeds (see `isAtlasRoleResolved`).
+         */
+        this._atlasRoleResolved = false;
+
         /** @type {string|null} Global system role (a `GlobalRole` value), independent of per-atlas role. */
         this._globalRole = null;
 
@@ -214,6 +220,30 @@ class SessionContext {
      */
     get role() {
         return this._role;
+    }
+
+    /**
+     * Se o papel POR ATLAS de `role` foi RESOLVIDO pelo servidor, ou se ainda e a semente.
+     *
+     * O TERCEIRO ESTADO, e ele existe porque faltava um. `sessionUserInfoFromMe` semeia
+     * VIEWER SEMPRE (D7), e o papel real so chega depois, no payload `connected`
+     * (`sync-engine.js` connect). Entre os dois momentos o cliente tinha DOIS estados para
+     * TRES situacoes: "e leitor" e "ainda nao sei" eram o mesmo `viewer`.
+     *
+     * O CUSTO MEDIDO DISSO, em 2026-08-25: o dono de um atlas dava F5, o marcador de origem
+     * ja dizia REMOTO (ele e duravel), a escrita de boot `setBaseLayer` batia no guarda, e a
+     * tela anunciava "Seu nivel neste atlas nao permite editar" a um dono. O `connected`
+     * chegava um instante depois e corrigia tudo, menos a frase, que ja tinha sido dita.
+     *
+     * ELE NAO AUTORIZA NADA, e a direcao e deliberada: o papel continua caindo em VIEWER, com
+     * as permissoes todas em falso, entao a escrita continua RECUSADA. O que este predicado
+     * muda e so o direito de ACUSAR: quem nao sabe o papel nao anuncia nivel insuficiente
+     * (`store/store-error-listener.js`). Conceder por otimismo seria o defeito oposto, e pior.
+     *
+     * @returns {boolean}
+     */
+    isAtlasRoleResolved() {
+        return this._atlasRoleResolved === true;
     }
 
     /**
@@ -420,8 +450,10 @@ class SessionContext {
     /**
      * Sets an authenticated session.
      * Transitions from offline to online mode.
-     * @param {{ userId: string, role: string, globalRole?: string, producerOrgId?: string|null,
-     *   username?: string, permissions?: Object }} userInfo
+     * @param {{ userId: string, role: string, atlasRoleResolved?: boolean, globalRole?: string,
+     *   producerOrgId?: string|null, username?: string, permissions?: Object }} userInfo
+     *   `atlasRoleResolved: false` marks a payload whose `role` is the closed PLACEHOLDER, not
+     *   the server's answer for this atlas (see `isAtlasRoleResolved`).
      *   `globalRole` is the system role (a `GlobalRole` value) and `producerOrgId` its production
      *   scope; when omitted BOTH are PRESERVED, so per-atlas role re-sets (e.g. `connect`) do not
      *   wipe the global bits established at login. The scope follows the same rule as the role
@@ -439,6 +471,14 @@ class SessionContext {
         this._mode = SessionMode.ONLINE;
         this._userId = userInfo.userId;
         this._role = role;
+        // DUAS CONDICOES, e as duas dizem a mesma coisa por caminhos diferentes: o papel so
+        // esta resolvido se veio um papel EXPLICITO no payload E a forma nao o desmentiu.
+        // `atlasRoleResolved: false` e como `sessionUserInfoFromMe` declara que o VIEWER dela
+        // e semente, nao resposta; a checagem do campo `role` cobre um chamador que
+        // simplesmente o omita, cujo VIEWER tambem seria semente. Ver `isAtlasRoleResolved`.
+        this._atlasRoleResolved = userInfo.atlasRoleResolved !== false
+            && typeof userInfo.role === 'string'
+            && userInfo.role.length > 0;
         if (userInfo.globalRole !== undefined) {
             this._globalRole = userInfo.globalRole;
         }
@@ -470,6 +510,9 @@ class SessionContext {
         this._mode = SessionMode.ONLINE;
         this._userId = null;
         this._role = UserRole.VIEWER;
+        // RESOLVIDO, e nao pendente: o visitante e leitor POR CONSTRUCAO, e nenhum papel vai
+        // chegar depois para ele. Uma recusa aqui e definitiva, e tem de ser explicada.
+        this._atlasRoleResolved = true;
         this._globalRole = null;
         this._producerOrgId = null;
         this._producerOrgName = null;
@@ -488,6 +531,7 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._atlasRoleResolved = false;
         this._globalRole = null;
         this._producerOrgId = null;
         this._producerOrgName = null;
@@ -507,8 +551,37 @@ class SessionContext {
      */
     updateRole(role) {
         this._role = role;
+        // Chamado so por quem RECEBEU o papel do servidor (`atlas_owner_changed`,
+        // `sharing_updated`): e uma resposta, nao uma semente.
+        this._atlasRoleResolved = true;
         const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[UserRole.VIEWER];
         this._permissions = { ...perms };
+        this._notifyListeners();
+    }
+
+    /**
+     * Esquece o papel POR ATLAS, preservando a identidade. Chamado ao SAIR de um atlas
+     * (`syncEngine.disconnect`), e o papel volta a ser desconhecido.
+     *
+     * O BURACO QUE ELE FECHA, achado em 2026-08-25 ao consertar a recusa falsa e ainda LATENTE
+     * (hoje os dois chamadores de `openRemoteAtlas` rodam no boot, sem socket vivo): `disconnect`
+     * não tocava no papel, então o `owner` do atlas A sobrevivia à troca e valia durante a janela
+     * de conexão do atlas B. A direção é a perigosa: o cliente CONCEDERIA edição num atlas que o
+     * servidor ainda não respondeu. O sentido inverso também importa — um papel velho marcado
+     * como RESOLVIDO faria a tela acusar nível insuficiente na janela do atlas novo, que é
+     * exatamente o defeito que `isAtlasRoleResolved` existe para calar.
+     *
+     * A queda é fechada: VIEWER com as permissões todas em falso. Enquanto não há atlas montado
+     * o guarda é permissivo por outra razão (store local), então isto não tira nada de ninguém.
+     * @returns {void}
+     */
+    forgetAtlasRole() {
+        if (this._role === null && this._atlasRoleResolved === false) return;
+        this._role = this._mode === SessionMode.ONLINE ? UserRole.VIEWER : null;
+        this._atlasRoleResolved = false;
+        this._permissions = this._mode === SessionMode.ONLINE
+            ? { ...ROLE_PERMISSIONS[UserRole.VIEWER] }
+            : { ...FULL_PERMISSIONS };
         this._notifyListeners();
     }
 
@@ -535,6 +608,7 @@ class SessionContext {
             userId: this._userId,
             clientId: this.clientId,
             role: this._role,
+            atlasRoleResolved: this._atlasRoleResolved,
             globalRole: this._globalRole,
             producerOrgId: this._producerOrgId,
             producerOrgName: this._producerOrgName,
@@ -562,6 +636,7 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._atlasRoleResolved = false;
         this._globalRole = null;
         this._producerOrgId = null;
         this._producerOrgName = null;
@@ -601,13 +676,18 @@ class SessionContext {
  * @param {Object} user - The backend user record.
  * @param {string} [fallbackUsername] - Used when the record carries no display name (the
  *   login form knows what was typed even if the response omits it).
- * @returns {{ userId: string, role: string, globalRole: string, producerOrgId: string|null,
- *   username: string }}
+ * @returns {{ userId: string, role: string, atlasRoleResolved: false, globalRole: string,
+ *   producerOrgId: string|null, username: string }}
  */
 export function sessionUserInfoFromMe(user, fallbackUsername) {
     return {
         userId: user.id,
         role: UserRole.VIEWER,
+        // A SEMENTE SE DECLARA SEMENTE. O VIEWER acima e o piso fechado que D7 exige, e ele
+        // continua identico; o que faltava era o cliente PODER saber que aquilo ainda nao e a
+        // resposta do servidor. Sem esta linha, "e leitor" e "ainda nao sei" sao o mesmo valor,
+        // e a tela acusa nivel insuficiente a um dono no meio do boot. Ver `isAtlasRoleResolved`.
+        atlasRoleResolved: false,
         globalRole: user.role || GlobalRole.USER,
         producerOrgId: user.producer_org_id ?? null,
         // OS DOIS CAMPOS NOVOS vêm do mesmo `FIND_USER_BY_ID`, que passou a juntar a OM

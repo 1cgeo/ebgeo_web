@@ -98,7 +98,9 @@ export const GuardAction = Object.freeze({
  * which was false for every level above Visualizador. See that module's fileoverview.
  *
  * @param {string} action - Action key from GuardAction (e.g. 'CREATE_FEATURE')
- * @returns {{ allowed: boolean, reason?: string, action?: string, required?: string }}
+ * @returns {{ allowed: boolean, reason?: string, action?: string, required?: string,
+ *   pending?: boolean }} `pending` marks a refusal decided while the per-atlas role was still
+ *   the hydration placeholder — a "não sei ainda", not a "não pode".
  */
 export function checkPermission(action) {
     // Full local control whenever the store is the user's OWN local workspace — offline/anonymous OR
@@ -119,6 +121,13 @@ export function checkPermission(action) {
         allowed: false,
         action,
         required: permissionName,
+        // A RECUSA DIZ SE ELA É DEFINITIVA OU SÓ PREMATURA. `pending` é verdadeiro enquanto o
+        // papel POR ATLAS ainda é a semente da hidratação (D7) e o servidor não respondeu no
+        // payload `connected`. Ele NÃO afrouxa nada: `allowed` continua falso, porque conceder
+        // por otimismo é o defeito oposto. Quem o consome é a camada que FALA
+        // (`store/store-error-listener.js`): não se anuncia nível insuficiente a quem ainda
+        // não teve o nível resolvido. Ver `sessionContext.isAtlasRoleResolved`.
+        pending: !sessionContext.isAtlasRoleResolved(),
         reason: `Permissão insuficiente: ${action} requer ${permissionName} (role atual: ${sessionContext.role})`
     };
 }

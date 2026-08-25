@@ -84,6 +84,9 @@ const h = vi.hoisted(() => {
         sessionContextMock: {
             setSession: vi.fn(), clearSession: vi.fn(), updateRole: vi.fn(),
             isAuthenticated: vi.fn(() => false),
+            // O PAPEL E DO ATLAS E SAI COM ELE: `disconnect` o esquece, para que o `owner`
+            // do atlas A nao valha na janela de conexao do atlas B (2026-08-25).
+            forgetAtlasRole: vi.fn(),
         },
         applyRemoteOperation: vi.fn(async () => {}),
         applyRemoteSnapshot: vi.fn(async () => {}),
@@ -264,6 +267,11 @@ describe('login', () => {
             // decide esse eixo e ele começa fechado. Quem o resolve é o servidor, no
             // payload de `connect` — dois casos abaixo, em `connect`, medem isso.
             role: 'viewer',
+            // A SEMENTE SE DECLARA SEMENTE (2026-08-25): o VIEWER acima e o piso fechado de D7,
+            // e este campo e o que permite ao cliente saber que ele ainda NAO e a resposta do
+            // servidor. Sem ele, "e leitor" e "ainda nao sei" eram o mesmo valor, e a tela
+            // acusava nivel insuficiente a um dono no meio do boot.
+            atlasRoleResolved: false,
             globalRole: 'user',
             producerOrgId: null,
             // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a
@@ -283,6 +291,11 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-9',
             role: 'viewer',
+            // A SEMENTE SE DECLARA SEMENTE (2026-08-25): o VIEWER acima e o piso fechado de D7,
+            // e este campo e o que permite ao cliente saber que ele ainda NAO e a resposta do
+            // servidor. Sem ele, "e leitor" e "ainda nao sei" eram o mesmo valor, e a tela
+            // acusava nivel insuficiente a um dono no meio do boot.
+            atlasRoleResolved: false,
             globalRole: 'user',
             producerOrgId: null,
             // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a
@@ -304,6 +317,11 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-7',
             role: 'viewer',
+            // A SEMENTE SE DECLARA SEMENTE (2026-08-25): o VIEWER acima e o piso fechado de D7,
+            // e este campo e o que permite ao cliente saber que ele ainda NAO e a resposta do
+            // servidor. Sem ele, "e leitor" e "ainda nao sei" eram o mesmo valor, e a tela
+            // acusava nivel insuficiente a um dono no meio do boot.
+            atlasRoleResolved: false,
             globalRole: 'admin',
             producerOrgId: null,
             // OS DOIS CAMPOS NOVOS (2026-08-24) vêm de `FIND_USER_BY_ID`, que passou a juntar a

@@ -11,6 +11,7 @@
 
 import { StoreErrorEvents } from './store-errors.js';
 import { denialNotice } from './denial-phrases.js';
+import { sessionContext } from './sync/session-context.js';
 import { overwriteNotice } from './sync/overwrite-notice.js';
 import { presenceStore } from '../presence/presence-store.js';
 import { EventTypes } from '../events/event_types.js';
@@ -65,6 +66,36 @@ export function registerStoreErrorListeners(eventBus) {
         const explicit = typeof payload?.message === 'string' && payload.message.length > 0;
         const isLock = LOCK_REASONS.has(payload?.reason);
         const kind = explicit ? 'explicit' : (isLock ? 'lock' : 'denied');
+
+        // "AINDA NÃO SEI" NÃO SE ANUNCIA, e este é o único lugar que precisa saber disso.
+        //
+        // O DEFEITO, medido em 2026-08-25: o DONO de um atlas dava F5, ou entrava no atlas que
+        // acabara de enviar, e lia "Seu nível neste atlas não permite editar". A cadeia era
+        // toda legítima e mesmo assim mentia. A sessão hidrata com o papel POR ATLAS semeado em
+        // Visualizador (D7, `sessionUserInfoFromMe`); o marcador de origem já diz REMOTO, porque
+        // ele é durável e sobrevive ao recarregamento; e a primeira coisa que o boot faz é
+        // escrever — `switchMap` → `switchLayer` → `setBaseLayer`
+        // (`baselayers/base-layer.control.js`), que consulta o guarda e emite este evento com
+        // `required: 'canEdit'`. O papel real chega um instante depois, no payload `connected`
+        // do WebSocket, e conserta tudo menos a frase, que já foi dita.
+        //
+        // A PERGUNTA É FEITA À SESSÃO, e não ao payload, de propósito: são mais de vinte sítios
+        // que emitem este evento, e uma operação nova que esquecesse de repassar o campo
+        // devolveria o defeito calada. A sessão é a mesma que o guarda consultou, e `emit` é
+        // síncrono, então é o mesmo instante.
+        //
+        // SÓ O RAMO `denied` CALA. O cadeado não depende de papel nenhum, e uma recusa com
+        // mensagem própria fala de outra coisa: calar qualquer um dos dois trocaria este defeito
+        // por outro. E calar não é conceder — a escrita continua recusada pelo guarda.
+        //
+        // A SESSÃO OFFLINE FICA DE FORA, e a exclusão é medida, não zelo. Offline o papel por
+        // atlas nunca é resolvido (não há atlas), mas o guarda também nunca recusa por papel:
+        // as recusas que sobram ali falam de outra coisa, e a única viva é a do comentário sem
+        // autor (`comment.operations.js`, `reason: 'not-authenticated'`). Sem esta metade, o
+        // anônimo que tentasse comentar não receberia aviso nenhum — o defeito trocado por
+        // outro, no caminho vizinho.
+        const janelaDeHidratacao = !sessionContext.isOffline() && !sessionContext.isAtlasRoleResolved();
+        if (kind === 'denied' && janelaDeHidratacao) return;
 
         const now = Date.now();
         if (now - _lastBlockedToastAt[kind] < BLOCKED_DEBOUNCE_MS) return;

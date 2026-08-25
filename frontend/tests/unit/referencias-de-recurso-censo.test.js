@@ -184,6 +184,10 @@ const CENSO = [
     { arquivo: 'src/js/presence/presence-bridge.js', campo: 'photoName', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/presence/presence-store.js', campo: 'photoName', classe: RUNTIME },
+    // O leitor de namespace de "Enviar ao servidor" na tela de escolha: lê os dois campos do
+    // documento de mapa no IndexedDB e os entrega a `buildServerImportPayload`, que é quem poda.
+    { arquivo: 'src/js/projects/send-local-to-server.service.js', campo: 'baseLayer', n: 1, classe: PERSISTE },
+    { arquivo: 'src/js/projects/send-local-to-server.service.js', campo: 'catalogLayers', n: 1, classe: PERSISTE },
     { arquivo: 'src/js/search/feature-search.control.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/search/search-bar.component.js', campo: 'tilesetId', classe: RUNTIME },
     { arquivo: 'src/js/search/search-bar.search-providers.js', campo: 'tilesetId', classe: RUNTIME },

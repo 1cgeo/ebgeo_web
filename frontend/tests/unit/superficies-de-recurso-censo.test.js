@@ -276,6 +276,16 @@ const CENSO = [
             + 'estreitá-lo para evitar este falso positivo esconderia junto um consumidor de verdade.',
     },
     {
+        arquivo: 'src/js/projects/send-local-to-server.service.js', gatilho: 'catalogo', n: 1,
+        classe: SEM_EIXO,
+        motivo: 'FALSO POSITIVO DECLARADO, e o irmão exato de `local-atlas-to-server.js`: a chave '
+            + '`analysisLayers` é do DADO DO MAPA que está sendo lido do IndexedDB, não do '
+            + 'singleton `config`. O arquivo não importa o singleton, e não pode: ele roda em '
+            + '`atlas.html`, que boota sem a store e sem `initServices()`. A poda de referência '
+            + 'privada de catálogo deste caminho acontece adiante, dentro de '
+            + '`buildServerImportPayload`.',
+    },
+    {
         arquivo: 'src/js/calibration/api.js', gatilho: 'projetos', n: 1, classe: OUTRO_MODULO,
         motivo: 'HOMÔNIMO, não consumidor: a página de calibração tem cliente HTTP próprio, sem '
             + 'cache nenhum, e não importa o serviço do 360. Desde 2026-08-23 ela compartilha UMA '
