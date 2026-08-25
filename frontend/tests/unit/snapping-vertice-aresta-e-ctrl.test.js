@@ -359,12 +359,18 @@ describe('7. a interpolacao da aresta e linear, sem desenrolar o antimeridiano',
         // aplicado numa diferenca de 358 graus, entao o ponto grudado aterrissa no meridiano de
         // Greenwich.
         //
-        // NAO CONSERTADO EM 2026-08-24, e o motivo esta medido: pegar o menor dos dois arcos
-        // sempre que |delta| > 180 quebra o caso "vertice a 15 px PERDE para aresta a 9 px", cuja
-        // aresta e [[-100,9],[100,9]] e passaria a grudar em -180. `queryRenderedFeatures`
-        // devolve segmentos legitimamente mais largos que 180 graus em zoom baixo, e os dois casos
-        // nao se distinguem so pelas longitudes: sao precisos os extremos PROJETADOS, que este
-        // ajudante nao recebe. Fixado aqui para que o conserto, quando vier, seja deliberado.
+        // NAO-OBJETIVO DECLARADO PELO DONO EM 2026-08-25. Isto NAO e uma pendencia: e uma decisao
+        // de nao consertar, e este caso existe para que o comportamento seja ESTAVEL, nao para
+        // cobrar um conserto futuro. Quem vier "arrumar" isto vai derrubar este teste, e o teste
+        // esta certo.
+        //
+        // O motivo esta medido: pegar o menor dos dois arcos sempre que |delta| > 180 quebra o
+        // caso "vertice a 15 px PERDE para aresta a 9 px", cuja aresta e [[-100,9],[100,9]] e
+        // passaria a grudar em -180. `queryRenderedFeatures` devolve segmentos legitimamente mais
+        // largos que 180 graus em zoom baixo, e os dois casos nao se distinguem so pelas
+        // longitudes: sao precisos os extremos PROJETADOS, que `interpolateLngLat` nao recebe. O
+        // conserto correto seria alargar a assinatura no chamador, no caminho quente de um handler
+        // de mouse-move, para comprar nada num produto cujo teatro e o Brasil.
         const s = servico(true);
         const anti = { type: 'LineString', coordinates: [[179, 0], [-179, 0]] };
         const m = {

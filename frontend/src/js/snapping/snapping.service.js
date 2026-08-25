@@ -137,18 +137,32 @@ function closestPointOnSegment(p, a, b) {
 /**
  * Linearly interpolates between two geographic coordinates.
  *
- * NOT UNWRAPPED ACROSS THE ANTIMERIDIAN, and that is a known defect left standing
- * on purpose (2026-08-24). A segment from 179 to -179 snaps to the Greenwich
- * meridian, because `t` comes from the geometry in PIXELS, where the segment is
- * short, and it is applied to a raw 358-degree difference.
+ * NOT UNWRAPPED ACROSS THE ANTIMERIDIAN, and since 2026-08-25 that is a DECLARED
+ * NON-GOAL by the product owner, not a pending item. Do not open it again.
  *
- * The obvious fix (take the shorter of the two arcs whenever |delta| > 180) was
- * written, measured and REVERTED: `queryRenderedFeatures` legitimately returns
- * segments wider than 180 degrees at low zoom, and the rule turned one of those
- * ([-100, 9] to [100, 9], a case the suite already pinned) into a snap at
- * longitude -180. The two cases are indistinguishable from the longitudes alone;
- * telling them apart needs the PROJECTED endpoints, which this helper does not
- * receive. Fix it there, or not at all.
+ * The behaviour: a segment from 179 to -179 snaps to the Greenwich meridian,
+ * because `t` comes from the geometry in PIXELS, where the segment is short, and
+ * it is applied to a raw 358-degree difference.
+ *
+ * WHY IT IS CLOSED RATHER THAN DEFERRED. The obvious fix (take the shorter of the
+ * two arcs whenever |delta| > 180) was written, measured and reverted:
+ * `queryRenderedFeatures` legitimately returns segments wider than 180 degrees at
+ * low zoom, and the rule turned one of those ([-100, 9] to [100, 9], a case the
+ * suite already pinned) into a snap at longitude -180. The two cases are
+ * INDISTINGUISHABLE from the longitudes alone; telling them apart needs the
+ * PROJECTED endpoints, which this helper does not receive. So the real fix is not
+ * a guard here at all: it is a change of signature at the call site, which already
+ * holds the projected endpoints because it uses them to compute `t`.
+ *
+ * That change is not worth its cost. The theatre of operations is Brazil, roughly
+ * 130 degrees away from the date line, so the defect is unreachable in use; the
+ * cheap fix is a measured regression; and the correct fix widens an interface on
+ * the hot path of a mouse-move handler to buy nothing for this product.
+ *
+ * A reader who arrives here from the antimeridian entries elsewhere in this repo
+ * (the bounding box of `data-layers.manager.js`, the bearing of the sector and
+ * visibility tools) will notice those WERE fixed. The difference is not rigour, it
+ * is cost: those were guards inside one function, this one is an interface.
  *
  * @param {[number, number]} coordA - [lng, lat]
  * @param {[number, number]} coordB - [lng, lat]

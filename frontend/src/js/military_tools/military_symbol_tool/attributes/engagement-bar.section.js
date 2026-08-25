@@ -3,9 +3,15 @@
 /**
  * @fileoverview Engagement bar section for the military symbol modal.
  * Allows configuration of engagement stages and weapons.
+ *
+ * THE FORMAT LIVES IN `engagement-bar-codec.js`, NOT HERE. Until 2026-08-25 the encode was a
+ * closure on a `change` listener and the decode hung off the returned element, so the two halves
+ * of one format were written apart, read apart, and reachable only through a browser. They must be
+ * inverses and nothing checked that. This file is now DOM only.
  */
 
 import { getEngagementBarData } from '../military_constants.js';
+import { encodeEngagementBar, decodeEngagementBar } from './engagement-bar-codec.js';
 
 /**
  * Populates a select element with options from data array.
@@ -88,24 +94,11 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
      * Updates engagement bar property from controls.
      */
     function updateEngagementBar() {
-        const stage = stageField.select.value;
-        const weapon = weaponField.select.value;
-        const remote = remoteCheckbox.checked;
-
-        if (!stage && !weapon) {
-            tempProperties.engagementBar = null;
-        } else {
-            const prefix = remote ? 'R:' : '';
-            let text = '';
-
-            if (stage && weapon) {
-                text = `${stage}-${weapon}`;
-            } else {
-                text = stage || weapon;
-            }
-
-            tempProperties.engagementBar = `${prefix}${text}`;
-        }
+        tempProperties.engagementBar = encodeEngagementBar({
+            stage: stageField.select.value,
+            weapon: weaponField.select.value,
+            remote: remoteCheckbox.checked,
+        });
 
         onUpdate();
     }
@@ -123,37 +116,16 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
      * @param {Object} properties - Properties object
      */
     container.updateFromProperties = (properties) => {
-        const engagementBar = properties.engagementBar;
-        if (!engagementBar) {
-            stageField.select.value = '';
-            weaponField.select.value = '';
-            remoteCheckbox.checked = false;
-            return;
-        }
+        // The catalogue is what resolves a LONE value: it has no shape that tells a stage from a
+        // weapon, so the codec asks this predicate instead of importing the table, which is what
+        // keeps it a leaf.
+        const { stage, weapon, remote } = decodeEngagementBar(properties?.engagementBar, {
+            isStage: (candidato) => data.stages.some((s) => s.value === candidato),
+        });
 
-        let processedBar = engagementBar;
-        let isRemote = false;
-
-        if (processedBar.startsWith('R:')) {
-            isRemote = true;
-            processedBar = processedBar.substring(2);
-        }
-
-        if (processedBar.includes('-')) {
-            const parts = processedBar.split('-');
-            stageField.select.value = parts[0] || '';
-            weaponField.select.value = parts[1] || '';
-        } else {
-            const stageExists = data.stages.some(s => s.value === processedBar);
-            if (stageExists) {
-                stageField.select.value = processedBar;
-                weaponField.select.value = '';
-            } else {
-                stageField.select.value = '';
-                weaponField.select.value = processedBar;
-            }
-        }
-        remoteCheckbox.checked = isRemote;
+        stageField.select.value = stage;
+        weaponField.select.value = weapon;
+        remoteCheckbox.checked = remote;
     };
 
     return container;

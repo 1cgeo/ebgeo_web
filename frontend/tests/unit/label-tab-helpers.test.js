@@ -169,21 +169,50 @@ describe('computeShapeCentroid', () => {
         ));
     });
 
+    // O GERADOR EXCLUI SUBNORMAIS DE PROPOSITO, e a razao nao e "imprecisao de float": e um
+    // mecanismo especifico, medido em 2026-08-25 quando esta propriedade falhou depois de tres
+    // rodadas verdes (semente aleatoria, entao ela e medicao probabilistica, e um verde nao a
+    // prova). O contraexemplo tinha o ultimo vertice em `5e-324` e o deslocamento em `-8.9e-308`:
+    // a soma ARREDONDA para exatamente o deslocamento, o ultimo vertice fica identico ao primeiro,
+    // a deteccao de anel fechado passa a disparar, e `len` cai de 5 para 4. A media das latitudes
+    // muda de 2e-8 para 2.5e-8, e a diferenca da exatamente o limiar de `toBeCloseTo(..., 8)`.
+    //
+    // Ou seja: TRANSLADAR UM ANEL PODE MUDAR SE ELE SE LE COMO FECHADO. Isso e verdade do
+    // algoritmo, nao defeito, e e inalcancavel com coordenada de mapa. A propriedade passa a
+    // gerar magnitudes que existem no produto, e o mecanismo fica preso pelo caso deterministico
+    // abaixo, que e onde ele pertence.
     it('propriedade: transladar o anel translada o centroide igual', () => {
-        const vertex = () => fc.tuple(
-            fc.double({ min: -50, max: 50, noNaN: true }),
-            fc.double({ min: -50, max: 50, noNaN: true })
-        );
+        const grau = () => fc.double({ min: -50, max: 50, noNaN: true, minExcluded: false })
+            .filter((v) => v === 0 || Math.abs(v) > 1e-6);
+        const vertex = () => fc.tuple(grau(), grau());
         return fc.assert(fc.property(
             fc.array(vertex(), { minLength: 3, maxLength: 12 }),
-            fc.double({ min: -10, max: 10, noNaN: true }),
+            fc.double({ min: -10, max: 10, noNaN: true }).filter((v) => v === 0 || Math.abs(v) > 1e-6),
             (ring, shift) => {
                 const base = computeShapeCentroid([ring]);
                 const moved = computeShapeCentroid([ring.map(([x, y]) => [x + shift, y])]);
                 expect(moved[0]).toBeCloseTo(base[0] + shift, 8);
                 expect(moved[1]).toBeCloseTo(base[1], 8);
             }
-        ));
+        ), { numRuns: 500 });
+    });
+
+    it('OBSERVADO: transladar pode fazer um anel ABERTO se ler como FECHADO, e o centroide muda', () => {
+        // O contraexemplo que a propriedade acima achou, agora deterministico. Ele nao e defeito
+        // de produto (nenhuma coordenada de mapa tem magnitude subnormal), e existe para que o
+        // mecanismo esteja escrito: a deteccao de fechamento e por igualdade EXATA, e a soma de um
+        // subnormal com um numero muito maior arredonda para o maior.
+        const ring = [[0, 6e-323], [0, 1.0000000000000001e-7], [0, 0], [0, 0], [5e-324, 6e-323]];
+        const shift = -8.900295434026402e-308;
+        const movedRing = ring.map(([x, y]) => [x + shift, y]);
+
+        // O primeiro anel e ABERTO; o transladado le como FECHADO.
+        expect(ring[0][0] === ring[4][0]).toBe(false);
+        expect(movedRing[0][0] === movedRing[4][0]).toBe(true);
+
+        // E por isso a media das latitudes muda: cinco vertices contra quatro.
+        expect(computeShapeCentroid([ring])[1]).toBeCloseTo(2e-8, 12);
+        expect(computeShapeCentroid([movedRing])[1]).toBeCloseTo(2.5e-8, 12);
     });
 });
 

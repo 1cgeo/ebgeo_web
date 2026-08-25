@@ -1010,3 +1010,55 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   errado com APARÊNCIA de trabalho conferido.
 - **Status:** aceita e implementada. O `TESTING-BACKLOG.md` deixa de ser inventário de leitura e
   passa a ser registro do que foi medido.
+
+### 2026-08-25: o antimeridiano do snapping é NÃO-OBJETIVO, e as duas peças do mil-symbol saem para módulos folha
+
+- **Contexto:** os dois itens que sobraram do `TESTING-BACKLOG` depois do lote de 2026-08-24. Um é
+  um defeito medido que ninguém vai consertar; o outro é uma extração que estava listada há meses.
+- **Decisão 1: o antimeridiano do `interpolateLngLat` (`snapping/snapping.service.js`) NÃO SERÁ
+  CONSERTADO, e isso é declarado, não adiado.** O comportamento é real (um segmento de 179 a -179
+  gruda em Greenwich, porque o `t` vem da geometria em PIXELS e é aplicado numa diferença crua de
+  358 graus), e continua fixado por teste para ser ESTÁVEL, não para cobrar conserto.
+  - **Por que fechar em vez de deixar pendente.** O conserto barato foi escrito, medido e revertido:
+    tomar o arco menor sempre que `|delta| > 180` quebra um caso que a suíte já prendia, cuja aresta
+    (`[-100,9]` a `[100,9]`) tem 200 graus e passa a grudar em -180. `queryRenderedFeatures` devolve
+    segmentos legitimamente mais largos que 180 graus em zoom baixo, e os dois casos **não se
+    distinguem só pelas longitudes**: distingui-los exige os extremos PROJETADOS, que aquele
+    ajudante não recebe. Ou seja, o conserto correto não é uma guarda ali, é **alargar a assinatura
+    no chamador**, que já tem os extremos projetados porque os usa para calcular o `t`.
+  - **Por que não vale o custo.** O teatro de operações é o Brasil, a uns 130 graus da linha de
+    data, então o defeito é inalcançável em uso; o conserto barato é regressão medida; e o conserto
+    correto alarga uma interface no caminho quente de um handler de `mousemove` para comprar nada.
+  - **A pergunta que um leitor vai fazer, respondida no arquivo:** por que os OUTROS antimeridianos
+    desta mesma leva foram consertados (a caixa de `data-layers.manager.js`, o bearing do setor e da
+    visibilidade). A diferença não é rigor, é custo: aqueles eram guardas dentro de UMA função,
+    este é uma interface.
+- **Decisão 2: as duas peças do `mil-symbol` que o backlog pedia saem para módulos folha**, que era
+  a única forma de alcançá-las sem browser.
+  - **`text-modifiers-mapping.js`** (zero imports) recebe `extractTextModifiers`, que era `function`
+    sem `export` dentro de `military_symbol_generator.js`, cujo grafo puxa o carregador do milsymbol
+    e a conversão para PNG por canvas. Ela é o ÚLTIMO passo antes de a biblioteca de terceiro
+    desenhar, e o que ela tem de não-mecânico virou contrato: os catorze campos diretos, os DOIS
+    renomeados (`dateTimeGroup` para `dtg`, `credibility` para `evaluationRating`, o campo combinado
+    J+K), e **o filtro que admite ZERO**. Esse último é o ponto: a guarda já era
+    `!== null && !== undefined && !== ''` e não `if (value)`, ou seja, uma quantidade de 0 sobrevive.
+    Foi a única das dezenas de ocorrências dessa família que já estava certa, e agora está presa
+    contra uma "simplificação" futura.
+  - **`engagement-bar-codec.js`** (zero imports) recebe o par `encode`/`decode` da barra de
+    engajamento, que eram DUAS closures dentro de um construtor de DOM: a codificação num ouvinte de
+    `change`, a decodificação pendurada no elemento devolvido. O risco não era nenhuma das metades,
+    era elas precisarem ser INVERSAS sem que nada checasse. O round-trip agora é propriedade de
+    fast-check sobre o vocabulário real das duas tabelas.
+  - **Um defeito achado ao extrair, e consertado:** a decodificação fazia `split('-')` e pegava as
+    duas primeiras partes, então um armamento com hífen perdia tudo depois do segundo em silêncio
+    (`TGT-A-B` voltava como `TGT` + `A`). O corte passou a ser o PRIMEIRO, e o armamento fica com os
+    hífens dele.
+  - **Duas ambiguidades ficam declaradas e não guardadas**, porque são do FORMATO e não do código:
+    um ESTÁGIO com hífen não sobrevive à volta (o corte é sempre o primeiro), e um valor que comece
+    com `R:` é indistinguível do prefixo de designação remota. As duas são inalcançáveis pelos
+    catálogos de hoje, o que é o que as torna observação em vez de defeito, e guardá-las exigiria um
+    escape que os dados já persistidos não têm.
+- **Alternativa recusada:** exportar `extractTextModifiers` do próprio gerador em vez de mover. Não
+  resolveria: o teste continuaria carregando o grafo do milsymbol e do canvas para exercitar uma
+  função pura.
+- **Status:** aceita e implementada. Com isto o `TESTING-BACKLOG` fica sem alvo de Fase 1 aberto.

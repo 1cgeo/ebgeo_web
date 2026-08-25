@@ -8,6 +8,7 @@ import {
 import { hasExtensions } from './brazilian_extension_catalog.js';
 import { convertImageToPngBlob } from '../svg-to-png.js';
 import { ensureMilsymbol } from './milsymbol-loader.js';
+import { extractTextModifiers } from './text-modifiers-mapping.js';
 
 const DEFAULT_SIZE = 100;
 
@@ -341,47 +342,3 @@ export class MilitarySymbolGenerator {
     }
 }
 
-/**
- * Extract text modifiers from feature properties, mapping to milsymbol.js field names
- * @param {Object} properties - Feature properties
- * @returns {Object} Text modifiers for milsymbol.js (only non-empty)
- */
-function extractTextModifiers(properties) {
-    const modifiers = {};
-
-    const directFields = [
-        'uniqueDesignation',
-        'higherFormation',
-        'quantity',
-        'reinforcedReduced',
-        'additionalInformation',
-        'type',
-        'iffSif',
-        'altitudeDepth',
-        'equipmentTeardownTime',
-        'location',
-        'speed',
-        'specialHeadquarters',
-        'direction',
-        'engagementBar'
-    ];
-
-    directFields.forEach(field => {
-        const value = properties[field];
-        if (value !== null && value !== undefined && value !== '') {
-            modifiers[field] = value;
-        }
-    });
-
-    // Map dateTimeGroup -> dtg (milsymbol.js field name)
-    if (properties.dateTimeGroup && properties.dateTimeGroup !== '') {
-        modifiers.dtg = properties.dateTimeGroup;
-    }
-
-    // Map credibility -> evaluationRating (milsymbol.js combined J+K field)
-    if (properties.credibility && properties.credibility !== '') {
-        modifiers.evaluationRating = properties.credibility;
-    }
-
-    return modifiers;
-}

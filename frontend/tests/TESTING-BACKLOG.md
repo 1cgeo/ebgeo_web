@@ -41,11 +41,21 @@ domínios; lookup por `TABELA[chave]` com chave de fora em três sítios; `if (x
 devolvendo 360 exato em quatro sítios de azimute) estão em
 [`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md).
 
-**O que continua aberto**, e é pouco: o `mil-symbol` parcial, cujos dois alvos restantes
-(`extractTextModifiers` e a lógica dentro de `engagement-bar.section.js`) não têm `export` e exigem
-extração; a Fase 2 declarada de vários domínios (canvas, jsdom, MapLibre, FileReader, JSZip); e o
-antimeridiano do snapping, cujo conserto foi escrito, medido e **revertido** com o motivo escrito no
-arquivo.
+**FECHADO EM 2026-08-25: não há mais alvo de Fase 1 aberto.** Os dois últimos, `extractTextModifiers`
+e o par encode/decode da barra de engajamento, foram extraídos para módulos folha de zero imports
+(`frontend/src/js/military_tools/military_symbol_tool/text-modifiers-mapping.js` e
+`frontend/src/js/military_tools/military_symbol_tool/attributes/engagement-bar-codec.js`) e prendidos, o que era a única
+forma de alcançá-los sem browser. A extração achou e consertou um defeito: a decodificação fazia
+`split('-')` e um armamento com hífen perdia tudo depois do segundo, em silêncio.
+
+**O que continua aberto, e é pouco:** a Fase 2 declarada de vários domínios (canvas, jsdom,
+MapLibre, FileReader, JSZip), que exige outro ambiente de teste; e o antimeridiano do
+`interpolateLngLat` do snapping, que **NÃO É PENDÊNCIA: é não-objetivo declarado pelo dono em
+2026-08-25**. O conserto barato foi escrito, medido e revertido (quebra uma aresta de 200 graus que
+`queryRenderedFeatures` devolve legitimamente em zoom baixo), e o conserto correto alargaria uma
+interface no caminho quente de um `mousemove` para comprar nada num produto cujo teatro é o Brasil.
+Quem for "arrumar" isso vai derrubar um teste que está certo. O motivo está no arquivo e em
+[`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md).
 
 **Lote 1 — CONCLUÍDO** (9 suítes, +491 testes, 10 bugs corrigidos), e por isso
 seus alvos **saíram das tabelas abaixo**, com um ponteiro no lugar de cada bloco.
@@ -199,7 +209,7 @@ declividade).
 | `draw_tools/point_tool/add_point_geometry.js` | `calculateSelectionBoxGeometry` | alto | **BUG: callsite `createPointAtCoordinates` passa 4 args (5 esperados)→effectiveZoom=null**; cosLat polos; anel fechado 5 pts | fixar geometria com assinatura 5-arg; anel[0]===anel[4] | sim | M |
 | `tool_manager/helpers/label-tab.helpers.js` | `computeShapeCentroid` | FEITO 2026-08-24 | Anel fechado exclui vértice de fechamento; <3→null; ~~antimeridiano errado~~ (longitudes somadas desenroladas); holes ignorados | quadrado fechado→[1,1]; centroid dentro do anel | sim | S |
 
-### Domínio: mil-symbol (parcialmente concluído) — o que sobra é `extractTextModifiers` e `engagement-bar.section.js`, os DOIS sem `export`
+### Domínio: mil-symbol — CONCLUÍDO em 2026-08-25 (os dois últimos alvos saíram para módulos folha: `text-modifiers-mapping` e `engagement-bar-codec`)
 `buildSIDC`, `parseSIDC` (com round-trip), `validateSIDC`, `canParseSIDC` e
 `extractViewBoxDimensions` estão cobertos por `tests/unit/military-symbol-generator.test.js`;
 a extensão brasileira do SIDC, por `tests/unit/brazilian-sidc.test.js`. As linhas abaixo são
