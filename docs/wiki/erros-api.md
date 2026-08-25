@@ -8,7 +8,7 @@ Onde o envelope `{ error: { code, message } }` não vale, o que o transporte já
 
 O backend apura **todos** os campos inválidos de uma vez (`abortEarly: false`, `backend/src/middleware/validate.js`) e os manda em `details: [{ field, message }]`. O cliente guarda o array em `ApiError` **e**, só quando o `code` é `VALIDATION_ERROR`, injeta os campos dentro de `error.message` (`buildApiErrorMessage`, `frontend/src/js/store/sync/api-client.js`).
 
-A composição existe porque o `message` de topo de um 422 é a constante `'Validation failed'` e **toda** tela do app mostra `error.message`: sem ela, o nome do campo que o servidor já apurou nunca chegava ao usuário. Duas consequências: não reimplemente a formatação na sua camada, e para marcação campo a campo leia `error.details`, nunca parseie a `message`.
+A composição existe porque o `message` de topo de um 422 é a constante `'Falha na validação'` e **toda** tela do app mostra `error.message`: sem ela, o nome do campo que o servidor já apurou nunca chegava ao usuário. Duas consequências: não reimplemente a formatação na sua camada, e para marcação campo a campo leia `error.details`, nunca parseie a `message`.
 
 > Até 2026-08-14 esta seção afirmava que `ApiError` descartava `details` e que "marcação campo a campo não é possível hoje". As duas coisas deixaram de ser verdade; o campo e o compositor existem.
 

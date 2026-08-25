@@ -97,6 +97,7 @@ import {
 import {
     NoticeKind,
     createNotice,
+    createdAtlasToOpen,
     deleteConfirmMessage,
     deleteNotice,
     refusalNotice,
@@ -532,12 +533,31 @@ async function askAtlasName({ title, defaultValue = '', confirmText }) {
     return trimmed.length > 0 ? trimmed : null;
 }
 
-/** "+ Novo atlas local". The ceiling is the API's to enforce; this only reports the refusal. */
+/**
+ * "+ Novo atlas local". The ceiling is the API's to enforce; this only reports the refusal.
+ *
+ * CRIA E ABRE desde 2026-08-25. Quem pede um atlas novo quer trabalhar nele, e a lista com um
+ * cartão a mais cobrava um segundo clique ("Abrir") que não decidia nada.
+ *
+ * A NAVEGAÇÃO É DECIDIDA POR `createdAtlasToOpen`, e não por um `openLocalAtlas` escrito na linha
+ * seguinte. `createLocalAtlas` RECUSA o décimo primeiro slot, e navegar por cima da recusa é o
+ * defeito inteiro: a pessoa não recebeu atlas nenhum, chegaria ao mapa no atlas ANTERIOR, e a
+ * frase que explica o teto morreria junto com esta página. Ver o módulo dos avisos.
+ *
+ * ABRE PELO MESMO CAMINHO DO CARTÃO (`openLocalAtlas`), e isso é o que garante que a página não
+ * passa a segurar nada de novo: ela aponta o ponteiro, navega, e o mapa faz o trabalho.
+ */
 async function createLocalAtlasFromPage() {
     const name = await askAtlasName({ title: 'Novo atlas local', confirmText: 'Criar' });
     if (name === null) return;
     try {
-        tell(createNotice(await createLocalAtlas(name)));
+        const result = await createLocalAtlas(name);
+        tell(createNotice(result));
+        const destino = createdAtlasToOpen(result);
+        if (destino) {
+            await openLocalAtlas(result.atlas);
+            return;
+        }
         refreshLocalSection();
     } catch (error) {
         console.error('[projects] local atlas create failed:', error);

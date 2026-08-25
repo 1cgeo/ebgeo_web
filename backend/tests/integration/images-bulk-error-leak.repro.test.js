@@ -149,7 +149,7 @@ describe('POST /images/bulk — erro sanitizado e sem linha órfã (108 + 80)', 
     assert.equal(res.body.data.uploaded.length, 0);
     assert.equal(res.body.data.failed.length, 1);
     assert.equal(res.body.data.failed[0].localId, localId);
-    assert.equal(res.body.data.failed[0].error, 'Resource already exists');
+    assert.equal(res.body.data.failed[0].error, 'Já existe um registro com esses dados. Altere e tente de novo.');
     const corpo = JSON.stringify(res.body);
     assert.doesNotMatch(corpo, DRIVER_TEXT, `texto de driver no corpo: ${corpo}`);
 

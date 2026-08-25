@@ -250,14 +250,17 @@ function collectImageIds(buckets, c3d, sv, sink) {
 /**
  * Builds the server bulk-import payload from a local `.ebgeo` export object.
  *
- * Images: the production path is a SINGLE pass. `save-local-atlas.service.js:98-105` builds the
- * payload once, imports the atlas, and then uploads the blobs PRESERVING the client-side id, so
- * every reference already in the payload (image-feature ids, custom-icon `markerSymbol` + registry
- * ids, 3D/360 `images[]`) stays valid without any rewrite.
+ * Images: the production path is TWO passes, and `meta.imageIdMap` is what the second one uses.
+ * `save-local-atlas.service.js` builds once to learn WHICH blobs the atlas cites, mints a fresh
+ * id for each, and builds again with `imageIdMap = { localId: novoId }`, which rewrites every
+ * blob reference at once (image-feature ids, custom-icon `markerSymbol` + registry ids, 3D/360
+ * `images[]`). The blobs are then uploaded under those fresh ids.
  *
- * `meta.imageIdMap` still works — call again with `{ localId: serverId }` to rewrite the refs —
- * but no production caller does. It survives from the two-pass design that solved the same problem
- * from the opposite side; do not assume from this signature that a second pass is required.
+ * A minting is not cosmetic: `images.id` is a GLOBAL primary key on the server, so re-sending the
+ * same local atlas would try to claim a taken id. The server re-mints colliding ids for every
+ * OTHER entity, but it cannot do that for a blob that arrives AFTER the features that point at
+ * it. The client decides this one instead. See `backend/src/modules/atlas/atlas.service.js`,
+ * the block before `TABELA_POR_SUPERFICIE`.
  *
  * @param {Object} exportData - The object produced by the `.ebgeo` exporter (handleExport's
  *   `data`): `{ maps, layers, groups, cesium3d, streetview360, temporal, gridStyle, mapNotes,

@@ -26,7 +26,7 @@ import { apiKeyReaches } from '../modules/users/api-key-terms.js';
 export function requireAdmin(req, res, next) {
   // No credential is an authentication problem (401), not authorization (403).
   if (!req.user) {
-    return next(new UnauthorizedError('Authentication required'));
+    return next(new UnauthorizedError());
   }
 
   if (req.authVia === 'api_key' && !apiKeyReaches(req.user.apiKeyScope, 'administracao')) {

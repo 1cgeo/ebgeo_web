@@ -83,7 +83,9 @@ describeOrSkip('aparência atravessa as trocas de atlas', () => {
         await page.locator('[data-testid="local-atlas-create"]').click();
         await page.locator('[data-testid="local-atlas-name-input"]').fill('Segundo local');
         await page.locator('[data-testid="local-atlas-name-confirm"]').click();
-        await page.locator('[data-testid="local-atlas-item"]', { hasText: 'Segundo local' }).click();
+        // O CLIQUE NO CARTAO SAIU EM 2026-08-25, e nao por conveniencia: criar um atlas local
+        // AGORA JA ABRE o atlas (pedido do dono). O cartao nunca chega a ser desenhado, entao o
+        // clique que estava aqui esperava um elemento que a pagina nao ia mais mostrar.
         await esperarMapa(page);
         const segundoLocal = await lerAparencia(page);
         expect(segundoLocal.globoEfetivo, 'o "plano" do primeiro slot vazou para o segundo').toBe(true);

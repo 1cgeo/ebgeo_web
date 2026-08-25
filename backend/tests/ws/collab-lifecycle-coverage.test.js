@@ -146,7 +146,7 @@ describe('WebSocket collab — connection-lifecycle coverage', () => {
 
       const err = await client.waitForType('error');
       assert.equal(err.code, 'FORBIDDEN');
-      assert.match(err.message.toLowerCase(), /read/);
+      assert.equal(err.message, 'Seu acesso a este atlas é somente leitura.');
 
       // Give any (buggy) async write time to land, then assert the log is clean.
       await sleep(300);

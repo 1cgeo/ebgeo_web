@@ -34,13 +34,13 @@
  * where an over-long filename or an out-of-range INTEGER is reachable from the body.
  */
 const PG_SAFE_MESSAGES = Object.freeze({
-  '22001': 'Value too long for its field',
-  '22003': 'Numeric value out of range',
-  '22P02': 'Malformed value (invalid id or type)',
-  '23502': 'Missing required field',
-  '23503': 'Referenced resource not found or still in use',
-  '23505': 'Resource already exists',
-  '23514': 'Value violates a constraint',
+  '22001': 'Valor longo demais para o campo.',
+  '22003': 'Valor numérico fora do intervalo permitido.',
+  '22P02': 'Valor mal formado (identificador ou tipo inválido).',
+  '23502': 'Preencha todos os campos obrigatórios.',
+  '23503': 'O registro referenciado não existe ou ainda está em uso.',
+  '23505': 'Já existe um registro com esses dados. Altere e tente de novo.',
+  '23514': 'Um valor não atende a uma regra do sistema.',
 });
 
 /**
@@ -48,8 +48,8 @@ const PG_SAFE_MESSAGES = Object.freeze({
  *
  * Three outcomes, in order:
  *  1. `err.isOperational` (an `AppError` subclass) -> `err.message` unchanged. That
- *     text was WRITTEN for the user ('Photo not found', 'Read-only users cannot send
- *     operations', the 503 of a busy sync push); masking it would turn a precise,
+ *     text was WRITTEN for the user ('Photo not found', 'Seu acesso a este atlas e
+ *     somente leitura.', the 503 of a busy sync push); masking it would turn a precise,
  *     actionable answer into noise. This is the branch that keeps the 360 batch's
  *     NotFound/Forbidden per-item reasons informative.
  *  2. A recognized SQLSTATE -> the fixed sentence above.
@@ -65,7 +65,7 @@ const PG_SAFE_MESSAGES = Object.freeze({
  * @param {string} [fallback] - Generic text for the unclassified case.
  * @returns {string} A message safe to send to any authenticated client.
  */
-export function safeErrorMessage(err, fallback = 'Operation failed') {
+export function safeErrorMessage(err, fallback = 'A operação falhou.') {
   if (!err || typeof err !== 'object') return fallback;
 
   if (err.isOperational === true && typeof err.message === 'string' && err.message.length > 0) {

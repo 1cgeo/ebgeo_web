@@ -264,8 +264,15 @@ describeOrSkip('atlas local: excluir avisa a aba irmã', () => {
         await tela.locator('[data-testid="local-atlas-create"]').click();
         await tela.locator('[data-testid="local-atlas-name-input"]').fill('Alvo do aviso');
         await tela.locator('[data-testid="local-atlas-name-confirm"]').click();
+        // CRIAR AGORA ABRE O ATLAS (mudanca de 2026-08-25, a pedido do dono), entao esta aba sai
+        // para o mapa e MONTA o slot que acabou de criar.
+        await esperarMapa(tela);
+        // E PRECISA VOLTAR ANTES DE A ABA 2 ENTRAR, senao ela encontraria o lock de montagem e o
+        // caso passaria por um bloqueio qualquer em vez de pelo aviso de exclusao, que e o que ele
+        // mede. A premissa "nada de overlay antes do aviso", asserida logo abaixo, depende disto.
+        await tela.goto('/atlas.html');
         await expect(tela.locator('[data-testid="local-atlas-item"]', { hasText: 'Alvo do aviso' }))
-            .toBeVisible({ timeout: 10000 });
+            .toBeVisible({ timeout: 20000 });
 
         // Aba 2: o mapa, DENTRO desse slot.
         const mapa = await context.newPage();

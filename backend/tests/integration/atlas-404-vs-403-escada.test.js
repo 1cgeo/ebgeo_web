@@ -108,7 +108,7 @@ describe('requireAtlasPermission — escada 404 (sem relação) vs 403 (nível i
             .send({ name: 'tentativa' });
 
         assert.equal(res.status, 403);
-        assert.match(res.body.error.message, /Insufficient permissions/);
+        assert.match(res.body.error.message, /Você não tem permissão/);
     });
 
     it('o nível do MEIO se comporta igual: comment escreve feição e toma 403, não 404', async () => {

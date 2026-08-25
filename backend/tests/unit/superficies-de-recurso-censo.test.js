@@ -899,6 +899,17 @@ const CENSO_CONSULTA = [
       + '`resource_grants`. O padrão `FROM ${...}` casa qualquer tabela interpolada de propósito: '
       + 'estreitá-lo para evitar este falso positivo esconderia junto uma interpolação de catálogo.',
   },
+  {
+    arquivo: 'src/modules/atlas/atlas.service.js', unidade: 'cunharIdsOcupados', n: 1,
+    classe: NAO_RECURSO,
+    motivo: 'FALSO POSITIVO DECLARADO, irmão do de `mergeMaps`. A interpolação percorre '
+      + '`TABELA_POR_SUPERFICIE`, uma constante do módulo com as OITO tabelas de entidade de atlas '
+      + '(maps, layers, groups, features, briefings, slides e as duas de 3D/360 de mapa), nenhuma '
+      + 'delas de catálogo, de projeto 360 ou de modelo 3D. A consulta lê SÓ a coluna `id`, e só '
+      + 'dos ids que o próprio payload de import trouxe, para saber quais já estão ocupados e '
+      + 'recunhá-los. Nada dela sai no corpo: o que volta ao cliente é a CONTAGEM `remappedIds` no '
+      + 'summary. Não há superfície de conteúdo a recortar.',
+  },
 ];
 
 /**

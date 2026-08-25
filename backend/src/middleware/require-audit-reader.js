@@ -86,7 +86,7 @@ export function requireAuditReader(req, res, next) {
     // Sem credencial é problema de AUTENTICAÇÃO (401), não de autorização (403), como
     // em `require-admin.js`. A rota já roda atrás do `auth` estrito, então isto é a
     // segunda linha de defesa e não a primeira.
-    if (!userId) return next(new UnauthorizedError('Authentication required'));
+    if (!userId) return next(new UnauthorizedError());
 
     const linha = await oneOrNone(AUDIT_READER_ACTOR, [userId]);
     if (linha?.administra === true) {

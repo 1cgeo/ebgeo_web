@@ -146,7 +146,7 @@ describe('POST /sv360/photos/batch-calibration — erro por item sanitizado (109
     // (a) o corpo não carrega nada do driver.
     assert.equal(res.body.failed.length, 1);
     assert.equal(res.body.failed[0].uuid, photoB);
-    assert.equal(res.body.failed[0].error, 'Numeric value out of range');
+    assert.equal(res.body.failed[0].error, 'Valor numérico fora do intervalo permitido.');
     const corpo = JSON.stringify(res.body.failed);
     assert.doesNotMatch(corpo, DRIVER_TEXT, `texto de driver no corpo: ${corpo}`);
     assert.ok(!corpo.includes('9999999999'), `o valor ofensor foi ecoado de volta: ${corpo}`);

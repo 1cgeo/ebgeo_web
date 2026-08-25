@@ -439,10 +439,10 @@ describe('Maps + Briefings — audit gaps', () => {
     assert.equal(res.status, 400, `a malformed id must be refused at the border, got ${res.status}`);
     assert.ok(res.body.error, 'the standard error envelope');
     assert.equal(res.body.error.code, 'BAD_REQUEST');
-    // The message is deliberately generic ('Malformed value (invalid id or type)'):
+    // The message is deliberately generic ('Valor mal formado (identificador ou tipo inválido).'):
     // it must not confirm which id shape the server considers valid. Pinned as it
     // is so that a future version leaking the parameter or the expected format
     // shows up here.
-    assert.equal(res.body.error.message, 'Malformed value (invalid id or type)');
+    assert.equal(res.body.error.message, 'Valor mal formado (identificador ou tipo inválido).');
   });
 });

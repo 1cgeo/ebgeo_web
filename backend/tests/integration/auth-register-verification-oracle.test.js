@@ -192,7 +192,7 @@ describe('register / resend — existence oracle and best-effort verification (7
 
     it('E-MAIL em caixa diferente colide e nada é criado (prende o LOWER() de CHECK_EMAIL_EXISTS)', async () => {
       // Sem o LOWER(), a colisão escaparia até o índice único idx_users_email_lower e o
-      // errorHandler devolveria 409 'Resource already exists' — o oráculo de volta, e por
+      // errorHandler devolveria 409 'Já existe um registro com esses dados.' — o oráculo de volta, e por
       // um caminho que nenhum comentário do serviço menciona.
       const { rows: antes } = await db.query('SELECT COUNT(*)::int AS n FROM users');
       const res = await register(payload({ email: base.email.toUpperCase() })).expect(201);

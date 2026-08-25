@@ -73,63 +73,110 @@ describe('Atlas Gaps', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // atlas-03: re-importing an atlas whose client UUIDs already exist
-  //  -> clean 409 (PG 23505) AND no orphan atlas committed (tx rolls back).
+  // atlas-03: reenviar um atlas cujos UUIDs de cliente JA EXISTEM.
+  //
+  // A PREMISSA DESTE CASO MUDOU EM 2026-08-25, e o que ele media virou o defeito. Ele
+  // cobrava "409 limpo com rollback" para o SEGUNDO envio do mesmo atlas local, que e
+  // exatamente o que o chefe relatou como impedimento: apagou os atlas, tentou criar de
+  // novo, e leu "Resource already exists". O import agora PRESERVA o id quando ele esta
+  // livre e RECUNHA quando esta ocupado (`atlas.service.js`, `cunharIdsOcupados`).
+  //
+  // Do caso antigo sobrevive o que ele guardava de verdade e continua valendo: nada de
+  // 500, e um import RECUSADO nao commita nada. A recusa que resta e outra, e legitima:
+  // id repetido DENTRO do proprio arquivo. Ver
+  // `tests/integration/import-id-ja-usado.repro.test.js` para a cadeia inteira.
   // ---------------------------------------------------------------------------
-  describe('atlas-03: duplicate-id import is a clean 409 with full rollback', () => {
-    it('second import with same map UUID -> 409, no orphan atlas/map', async () => {
-      const mapId = randomUUID();
-      const payload = {
-        atlas: { name: uniq('Dup Import') },
-        maps: [{
-          id: mapId,
-          name: 'Dup Map',
-          base_layer: 'osm',
-          center_lat: 0,
-          center_long: 0,
-          zoom: 5,
-          features: [],
-          layers: [],
-          groups: [],
-        }],
-        briefings: [],
-      };
+  describe('atlas-03: id ja usado e recunhado, e o import recusado nao commita nada', () => {
+    /** @returns {Object} O payload de um atlas local de um mapa so. */
+    const payloadDe = (mapId) => ({
+      atlas: { name: uniq('Dup Import') },
+      maps: [{
+        id: mapId,
+        name: 'Dup Map',
+        base_layer: 'osm',
+        center_lat: 0,
+        center_long: 0,
+        zoom: 5,
+        features: [],
+        layers: [],
+        groups: [],
+      }],
+      briefings: [],
+    });
 
-      // First import succeeds.
+    it('second import with same map UUID -> 201, and the id is re-minted', async () => {
+      const mapId = randomUUID();
+
       const first = await supertest(app)
         .post('/api/v1/atlas/import')
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send(payload)
+        .send(payloadDe(mapId))
         .expect(201);
       const firstAtlasId = first.body.data.id;
 
-      // Count atlas rows for this owner before retry.
       const before = await db.query(
         'SELECT count(*)::int AS n FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL',
         [owner.id]
       );
 
-      // Re-import the SAME payload (same map UUID) -> PK conflict 23505.
+      const res = await supertest(app)
+        .post('/api/v1/atlas/import')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send(payloadDe(mapId));
+
+      assert.notEqual(res.status, 500, 'duplicate id must not surface as 500');
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      assert.notEqual(res.body.data.id, firstAtlasId, 'nasceu um atlas novo');
+
+      const after = await db.query(
+        'SELECT count(*)::int AS n FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL',
+        [owner.id]
+      );
+      assert.equal(after.rows[0].n, before.rows[0].n + 1, 'exatamente um atlas a mais');
+
+      // O ID ORIGINAL NAO FOI ROUBADO: ele continua sendo do primeiro atlas, e o segundo
+      // recebeu um mapa proprio, com id diferente. E a metade que o caso antigo media e
+      // que continua sendo a que importa.
+      const maps = await db.query('SELECT atlas_id FROM maps WHERE id = $1', [mapId]);
+      assert.equal(maps.rows.length, 1);
+      assert.equal(maps.rows[0].atlas_id, firstAtlasId);
+
+      const doSegundo = await db.query(
+        'SELECT id FROM maps WHERE atlas_id = $1', [res.body.data.id]
+      );
+      assert.equal(doSegundo.rows.length, 1, 'o segundo atlas tem o mapa dele');
+      assert.notEqual(doSegundo.rows[0].id, mapId, 'com id recunhado');
+    });
+
+    it('an import refused mid-transaction commits nothing', async () => {
+      // Id repetido DENTRO do arquivo: recusa legitima, e ela acontece DEPOIS de a linha
+      // de atlas ser inserida na transacao. Sem rollback sobraria um atlas orfao.
+      const mapId = randomUUID();
+      const payload = payloadDe(mapId);
+      payload.maps.push({ ...payload.maps[0], name: 'Dup Map 2' });
+
+      const before = await db.query(
+        'SELECT count(*)::int AS n FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL',
+        [owner.id]
+      );
+
       const res = await supertest(app)
         .post('/api/v1/atlas/import')
         .set('Authorization', `Bearer ${ownerToken}`)
         .send(payload);
 
-      assert.notEqual(res.status, 500, 'duplicate id must not surface as 500');
-      assert.equal(res.status, 409);
-      assert.equal(res.body.error.code, 'CONFLICT');
+      assert.notEqual(res.status, 500);
+      assert.equal(res.status, 400, JSON.stringify(res.body));
+      assert.equal(res.body.error.code, 'BAD_REQUEST');
 
-      // No orphan atlas was committed by the failed transaction.
       const after = await db.query(
         'SELECT count(*)::int AS n FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL',
         [owner.id]
       );
       assert.equal(after.rows[0].n, before.rows[0].n, 'no extra atlas committed');
 
-      // The map still belongs only to the first atlas (no second copy).
-      const maps = await db.query('SELECT atlas_id FROM maps WHERE id = $1', [mapId]);
-      assert.equal(maps.rows.length, 1);
-      assert.equal(maps.rows[0].atlas_id, firstAtlasId);
+      const maps = await db.query('SELECT id FROM maps WHERE id = $1', [mapId]);
+      assert.equal(maps.rows.length, 0, 'nem o mapa do arquivo recusado');
     });
   });
 

@@ -1168,10 +1168,166 @@ export async function transferOwnership(atlasId, currentOwnerId, newOwnerId, req
   return getAtlasById(atlasId);
 }
 
+// ---------------------------------------------------------------------------
+// A COLISAO DE ID NA IMPORTACAO (2026-08-25).
+//
+// `maps.id`, `layers.id`, `groups.id`, `features.id`, `briefings.id`, `slides.id` e as duas
+// tabelas de 3D/360 sao CHAVE PRIMARIA GLOBAL, sem escopo de atlas. O empacotador do cliente
+// (`frontend/src/js/import_export/local-atlas-to-server.js`, `makeIdMapper`) PRESERVA o id
+// local quando ele ja e um UUID valido, e essa preservacao e DELIBERADA: o guarda de
+// navegador `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js` acha no servidor,
+// pelo mesmo id do cliente, a feicao que a pessoa desenhou.
+//
+// As duas propriedades brigam no REENVIO. Mandar o mesmo atlas local ao servidor uma segunda
+// vez repetia os ids, o Postgres recusava por unicidade (23505) e a tela imprimia "Resource
+// already exists", em ingles e sem dizer o que fazer.
+//
+// MEDIDO por API antes deste conserto: o id de feicao vindo de atlas NA LIXEIRA recusa, o id
+// vindo de atlas VIVO recusa igual, e o id inedito passa. Logo a lixeira NAO e a causa, e so
+// onde o defeito apareceu. Dois usuarios que enviam copias do mesmo arquivo colidem entre si
+// do mesmo jeito, e purgar a lixeira (proibido pela clausula 7.4 da CONSTITUICAO, que exige
+// a lixeira restauravel COM conteudo) so adiaria o caso do atlas vivo.
+//
+// A REGRA ESCOLHIDA: preserva o id quando ele esta LIVRE, cunha um id novo quando esta
+// OCUPADO. So o SERVIDOR sabe o que esta ocupado, entao a decisao mora aqui e nao no cliente.
+// O caminho sem colisao, que e o do primeiro envio e o normal, nao muda em nada. O guarda
+// de navegador continua verde pelo motivo certo.
+//
+// A JANELA QUE FICA: dois imports simultaneos do mesmo arquivo podem ambos ver o id livre, e
+// o perdedor volta a cair em 23505 e rollback. E corrida estreita, e o desfecho e o de hoje.
+// ---------------------------------------------------------------------------
+
+/** Superficie do payload -> tabela de chave primaria GLOBAL que ela ocupa. */
+const TABELA_POR_SUPERFICIE = {
+  maps: 'maps',
+  layers: 'layers',
+  groups: 'groups',
+  features: 'features',
+  briefings: 'briefings',
+  slides: 'slides',
+  cesium3d: 'cesium3d_data',
+  streetview360: 'streetview360_data',
+};
+
+/**
+ * Os ids que o payload quer ocupar, por superficie.
+ *
+ * Um id REPETIDO dentro do proprio arquivo nao e colisao com o banco, e sim arquivo
+ * inconsistente: duas linhas disputam a mesma identidade e nenhuma escolha do servidor seria
+ * a certa. Isso e recusa LEGITIMA, e ela carrega frase propria em portugues. Antes deste
+ * conserto o mesmo caso caia no 23505.
+ * @param {Array<Object>} mapList
+ * @param {Array<Object>} briefingList
+ * @returns {Object} `{ superficie: Set<string> }`
+ */
+function idsDoPayload(mapList, briefingList) {
+  const porSuperficie = {};
+  for (const superficie of Object.keys(TABELA_POR_SUPERFICIE)) {
+    porSuperficie[superficie] = new Set();
+  }
+  const cadastrar = (superficie, id) => {
+    if (id == null) return;
+    if (porSuperficie[superficie].has(id)) {
+      throw new BadRequestError(
+        `O arquivo repete o id de ${ROTULO_DA_SUPERFICIE[superficie]}. ` +
+        'Cada item precisa de id único no arquivo. Exporte o atlas de novo e reenvie.'
+      );
+    }
+    porSuperficie[superficie].add(id);
+  };
+
+  for (const map of mapList) {
+    cadastrar('maps', map.id);
+    for (const layer of map.layers || []) cadastrar('layers', layer.id);
+    for (const group of map.groups || []) cadastrar('groups', group.id);
+    for (const feature of map.features || []) cadastrar('features', feature.id);
+    for (const item of map.cesium3dData || []) cadastrar('cesium3d', item.id);
+    for (const item of map.streetview360Data || []) cadastrar('streetview360', item.id);
+  }
+  for (const briefing of briefingList) {
+    cadastrar('briefings', briefing.id);
+    for (const slide of briefing.slides || []) cadastrar('slides', slide.id);
+  }
+  return porSuperficie;
+}
+
+/** O nome que a recusa usa, porque "features" nao e palavra que o usuario reconheca. */
+const ROTULO_DA_SUPERFICIE = {
+  maps: 'um mapa', layers: 'uma camada', groups: 'um grupo', features: 'uma feição',
+  briefings: 'um briefing', slides: 'um slide',
+  cesium3d: 'um item 3D', streetview360: 'um item 360',
+};
+
+/**
+ * Descobre quais ids do payload JA existem no banco e cunha um id novo para cada um.
+ *
+ * `deleted_at` NAO entra no filtro de proposito: uma linha na lixeira continua ocupando a
+ * chave primaria, e e justamente ela que o chefe encontrou.
+ *
+ * UMA consulta para as oito superficies. O custo do import nao pode crescer com o numero de
+ * linhas, invariante que `atlas-clone-import-n1.repro.test.js` prende com teto absoluto.
+ * @param {Object} t - Contexto de transacao
+ * @param {Object} porSuperficie - `{ superficie: Set<string> }`
+ * @returns {Promise<Object>} `{ superficie: Map<idAntigo, idNovo> }`, so os ocupados
+ */
+async function cunharIdsOcupados(t, porSuperficie) {
+  const remap = {};
+  const partes = [];
+  const valores = [];
+  for (const [superficie, tabela] of Object.entries(TABELA_POR_SUPERFICIE)) {
+    remap[superficie] = new Map();
+    const ids = [...porSuperficie[superficie]];
+    if (ids.length === 0) continue;
+    valores.push(ids);
+    // O rotulo e a tabela vem das constantes acima, nunca do payload: nada de entrada do
+    // usuario e interpolado nesta string.
+    partes.push(
+      `SELECT '${superficie}' AS superficie, id::text AS id FROM ${tabela} ` +
+      `WHERE id IN ($${valores.length}:csv)`
+    );
+  }
+  if (partes.length === 0) return remap;
+
+  const linhas = await t.any(partes.join(' UNION ALL '), valores);
+  for (const linha of linhas) remap[linha.superficie].set(linha.id, crypto.randomUUID());
+  return remap;
+}
+
+/**
+ * O id que vai para o banco: o novo se houve colisao, o do payload se nao houve.
+ * @param {Map<string, string>} mapa
+ * @param {string|null} id
+ * @returns {string|null}
+ */
+function idFinal(mapa, id) {
+  if (id == null) return id;
+  return mapa.get(id) || id;
+}
+
+/**
+ * `properties.id` e `properties.layerId` ESPELHAM as colunas homonimas: a tela le a feicao
+ * pelos dois caminhos, e o guarda de navegador le justamente por `properties.id`. Quando a
+ * coluna foi recunhada, o espelho tem de acompanhar.
+ *
+ * Reescreve so o que DE FATO mudou e so quando o campo de fato espelhava, para que o caminho
+ * sem colisao continue gravando `properties` identico ao de hoje.
+ * @param {Object} feature - Linha do payload
+ * @param {string} id - Id gravado
+ * @param {string|null} layerId - `layer_id` gravado
+ * @returns {Object}
+ */
+function propriedadesRealinhadas(feature, id, layerId) {
+  const props = feature.properties || {};
+  const saida = { ...props };
+  if (id !== feature.id && props.id === feature.id) saida.id = id;
+  if (layerId !== feature.layer_id && props.layerId === feature.layer_id) saida.layerId = layerId;
+  return saida;
+}
+
 /**
  * Imports a complete atlas from offline storage (IndexedDB).
  * Creates atlas with all maps, features, layers, groups, briefings, and slides.
- * IDs from the client are preserved.
+ * IDs from the client are preserved WHEN FREE. See the block above for the collision rule.
  */
 export async function importAtlas(userId, data) {
   const { atlas, maps, briefings } = data;
@@ -1221,6 +1377,16 @@ export async function importAtlas(userId, data) {
     const briefingList = briefings || [];
     const mapIds = mapList.map((map) => map.id);
 
+    // 1.1 A COLISAO DE ID: preserva quando livre, cunha quando ocupado. O bloco de comentario
+    // antes de `TABELA_POR_SUPERFICIE` explica por que a decisao mora no servidor.
+    const remap = await cunharIdsOcupados(t, idsDoPayload(mapList, briefingList));
+    const novoMapa = (id) => idFinal(remap.maps, id);
+    const novaCamada = (id) => idFinal(remap.layers, id);
+    const novoGrupo = (id) => idFinal(remap.groups, id);
+    const novaFeicao = (id) => idFinal(remap.features, id);
+    const novoBriefing = (id) => idFinal(remap.briefings, id);
+    const novoSlide = (id) => idFinal(remap.slides, id);
+
     // Every foreign key in the payload must resolve to an entity created BY THIS
     // IMPORT. The loops below used to insert client-supplied ids verbatim, and the FK
     // constraint only requires the referenced row to EXIST — not to be yours. So a
@@ -1252,7 +1418,7 @@ export async function importAtlas(userId, data) {
 
     // 2. Maps
     await insertMany(t, CS.maps, mapList.map((map) => ({
-      id: map.id,
+      id: novoMapa(map.id),
       atlas_id: atlasId,
       name: map.name,
       base_layer: pruner.baseLayer(map.base_layer),
@@ -1271,8 +1437,8 @@ export async function importAtlas(userId, data) {
 
     // 2.1 Layers (before features, to allow layer_id references)
     const layerRows = mapList.flatMap((map) => (map.layers || []).map((layer) => ({
-      id: layer.id,
-      map_id: map.id,
+      id: novaCamada(layer.id),
+      map_id: novoMapa(map.id),
       name: layer.name,
       visible: layer.visible !== false,
       locked: layer.locked === true,
@@ -1284,25 +1450,29 @@ export async function importAtlas(userId, data) {
 
     // 2.2 Groups (parent_id only resolves within the payload)
     const groupRows = mapList.flatMap((map) => (map.groups || []).map((group) => ({
-      id: group.id,
-      map_id: map.id,
+      id: novoGrupo(group.id),
+      map_id: novoMapa(map.id),
       name: group.name,
       visible: group.visible !== false,
       locked: group.locked === true,
       style: JSON.stringify(group.style || {}),
-      parent_id: importedGroupIds.has(group.parent_id) ? group.parent_id : null,
+      parent_id: importedGroupIds.has(group.parent_id) ? novoGrupo(group.parent_id) : null,
     })));
     await insertMany(t, CS.groups, groupRows);
 
     // 2.3 Features
-    const featureRows = mapList.flatMap((map) => (map.features || []).map((feature) => ({
-      id: feature.id,
-      map_id: map.id,
-      feature_type: feature.feature_type,
-      geometry: JSON.stringify(feature.geometry),
-      properties: JSON.stringify(feature.properties || {}),
-      layer_id: importedLayerIds.has(feature.layer_id) ? feature.layer_id : null,
-    })));
+    const featureRows = mapList.flatMap((map) => (map.features || []).map((feature) => {
+      const id = novaFeicao(feature.id);
+      const layerId = importedLayerIds.has(feature.layer_id) ? novaCamada(feature.layer_id) : null;
+      return {
+        id,
+        map_id: novoMapa(map.id),
+        feature_type: feature.feature_type,
+        geometry: JSON.stringify(feature.geometry),
+        properties: JSON.stringify(propriedadesRealinhadas(feature, id, layerId)),
+        layer_id: layerId,
+      };
+    }));
     await insertMany(t, CS.features, featureRows);
 
     // 2.4 Group-feature associations. Both ends must have been created by this import; a
@@ -1314,7 +1484,9 @@ export async function importAtlas(userId, data) {
       CS.groupFeatures,
       mapList.flatMap((map) => (map.groupFeatures || [])
         .filter((gf) => importedGroupIds.has(gf.group_id) && importedFeatureIds.has(gf.feature_id))
-        .map((gf) => ({ group_id: gf.group_id, feature_id: gf.feature_id }))),
+        .map((gf) => ({
+          group_id: novoGrupo(gf.group_id), feature_id: novaFeicao(gf.feature_id),
+        }))),
       ' ON CONFLICT DO NOTHING'
     );
 
@@ -1322,8 +1494,8 @@ export async function importAtlas(userId, data) {
     const cesium3dRows = mapList.flatMap((map) => (map.cesium3dData || [])
       .filter((cesium3d) => pruner.manterCesium3d(cesium3d))
       .map((cesium3d) => ({
-        id: cesium3d.id,
-        map_id: map.id,
+        id: idFinal(remap.cesium3d, cesium3d.id),
+        map_id: novoMapa(map.id),
         data_type: cesium3d.data_type,
         tileset_id: cesium3d.tileset_id || null,
         data: JSON.stringify(cesium3d.data || {}),
@@ -1334,8 +1506,8 @@ export async function importAtlas(userId, data) {
     const sv360Rows = mapList.flatMap((map) => (map.streetview360Data || [])
       .filter((sv360) => pruner.manterSv360(sv360))
       .map((sv360) => ({
-        id: sv360.id,
-        map_id: map.id,
+        id: idFinal(remap.streetview360, sv360.id),
+        map_id: novoMapa(map.id),
         data_type: sv360.data_type,
         photo_name: sv360.photo_name || null,
         data: JSON.stringify(sv360.data || {}),
@@ -1350,31 +1522,35 @@ export async function importAtlas(userId, data) {
       t,
       CS.catalogLayers,
       mapList.flatMap((map) => catalogLayerRows(
-        map.id, (map.catalog_layers || []).filter((c) => pruner.manterCatalogLayer(c)), []
+        novoMapa(map.id),
+        (map.catalog_layers || []).filter((c) => pruner.manterCatalogLayer(c)), []
       ))
     );
 
     // 3. Update map_order
     if (mapIds.length > 0) {
-      await t.none(`UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`, [atlasId, mapIds]);
+      await t.none(
+        `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
+        [atlasId, mapIds.map(novoMapa)]
+      );
     }
 
     // 4. Briefings + slides
     await insertMany(t, CS.briefings, briefingList.map((briefing) => ({
-      id: briefing.id,
+      id: novoBriefing(briefing.id),
       atlas_id: atlasId,
       name: briefing.name,
       description: briefing.description || null,
       settings: JSON.stringify(briefing.settings || {}),
-      slide_order: (briefing.slides || []).map((s) => s.id),
+      slide_order: (briefing.slides || []).map((s) => novoSlide(s.id)),
     })));
 
     const slideRows = briefingList.flatMap((briefing) => (briefing.slides || []).map((slide) => ({
-      id: slide.id,
-      briefing_id: briefing.id,
+      id: novoSlide(slide.id),
+      briefing_id: novoBriefing(briefing.id),
       title: slide.title || null,
       content: slide.content || null,
-      map_id: importedMapIds.has(slide.map_id) ? slide.map_id : null,
+      map_id: importedMapIds.has(slide.map_id) ? novoMapa(slide.map_id) : null,
       ...pruner.slide(slide),
       position: JSON.stringify(slide.position || {}),
       orientation: JSON.stringify(slide.orientation || {}),
@@ -1394,6 +1570,12 @@ export async function importAtlas(userId, data) {
     // CONTAGEM POR SUPERFICIE, nunca ids nem nomes: o resumo volta ao cliente e vai para a
     // trilha, e o nome de um recurso privado e metadado do recurso.
     if (!pruner.vazio) summary.prunedResourceRefs = pruner.report;
+
+    // Quantos ids do arquivo ja estavam ocupados e foram recunhados. CONTAGEM, pela mesma
+    // razao da linha acima: o resumo vai para a trilha de auditoria, e um mapa de milhares
+    // de pares de id nao e registro, e ruido.
+    const idsRecunhados = Object.values(remap).reduce((total, m) => total + m.size, 0);
+    if (idsRecunhados > 0) summary.remappedIds = idsRecunhados;
 
     // 5. Return created atlas with summary
     const result = await t.one(

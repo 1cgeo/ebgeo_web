@@ -32,7 +32,7 @@ describe('Error Classes', () => {
     const err = new ForbiddenError();
     assert.equal(err.statusCode, 403);
     assert.equal(err.code, 'FORBIDDEN');
-    assert.equal(err.message, 'Insufficient permissions');
+    assert.equal(err.message, 'Você não tem permissão para esta ação.');
 
     const errCustom = new ForbiddenError('Access denied');
     assert.equal(errCustom.message, 'Access denied');
@@ -42,7 +42,7 @@ describe('Error Classes', () => {
     const err = new UnauthorizedError();
     assert.equal(err.statusCode, 401);
     assert.equal(err.code, 'UNAUTHORIZED');
-    assert.equal(err.message, 'Authentication required');
+    assert.equal(err.message, 'Faça login para continuar.');
   });
 
   it('ConflictError: 409, CONFLICT', () => {
@@ -60,7 +60,7 @@ describe('Error Classes', () => {
     assert.deepEqual(err.details, details);
 
     const errDefault = new ValidationError();
-    assert.equal(errDefault.message, 'Validation failed');
+    assert.equal(errDefault.message, 'Falha na validação');
     assert.equal(errDefault.details, null);
   });
 
@@ -68,7 +68,7 @@ describe('Error Classes', () => {
     const err = new BadRequestError();
     assert.equal(err.statusCode, 400);
     assert.equal(err.code, 'BAD_REQUEST');
-    assert.equal(err.message, 'Bad request');
+    assert.equal(err.message, 'Requisição inválida.');
   });
 
   // ServiceUnavailableError was the ONLY subclass this file omitted, and no test
@@ -82,7 +82,7 @@ describe('Error Classes', () => {
     assert.equal(err.statusCode, 503);
     assert.equal(err.code, 'SERVICE_UNAVAILABLE');
     assert.equal(err.isOperational, true, 'transient overload is EXPECTED, not a programming bug');
-    assert.equal(err.message, 'Service temporarily unavailable');
+    assert.equal(err.message, 'Serviço temporariamente indisponível. Tente novamente em instantes.');
     assert.ok(err instanceof AppError, 'must reach the errorHandler AppError branch');
     assert.ok(err instanceof Error);
   });

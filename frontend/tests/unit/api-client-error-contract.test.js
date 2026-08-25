@@ -206,16 +206,16 @@ describe('ApiError — o campo que o servidor nomeou chega ao usuário', () => {
 
 describe('buildApiErrorMessage — bordas', () => {
     it('falls back to the envelope message when details are absent or unusable', () => {
-        const base = { code: 'VALIDATION_ERROR', message: 'Validation failed' };
-        expect(buildApiErrorMessage({ ...base, details: [] }, 422)).toBe('Validation failed');
-        expect(buildApiErrorMessage({ ...base, details: null }, 422)).toBe('Validation failed');
-        expect(buildApiErrorMessage({ ...base, details: 'boom' }, 422)).toBe('Validation failed');
-        expect(buildApiErrorMessage({ ...base, details: [{}, { field: '' }] }, 422)).toBe('Validation failed');
+        const base = { code: 'VALIDATION_ERROR', message: 'Falha na validação' };
+        expect(buildApiErrorMessage({ ...base, details: [] }, 422)).toBe('Falha na validação');
+        expect(buildApiErrorMessage({ ...base, details: null }, 422)).toBe('Falha na validação');
+        expect(buildApiErrorMessage({ ...base, details: 'boom' }, 422)).toBe('Falha na validação');
+        expect(buildApiErrorMessage({ ...base, details: [{}, { field: '' }] }, 422)).toBe('Falha na validação');
     });
 
     it('does not compose for a code that is not VALIDATION_ERROR', () => {
-        const err = { code: 'CONFLICT', message: 'Resource already exists', details: [{ field: 'x', message: 'y' }] };
-        expect(buildApiErrorMessage(err, 409)).toBe('Resource already exists');
+        const err = { code: 'CONFLICT', message: 'Já existe um registro com esses dados. Altere e tente de novo.', details: [{ field: 'x', message: 'y' }] };
+        expect(buildApiErrorMessage(err, 409)).toBe('Já existe um registro com esses dados. Altere e tente de novo.');
     });
 
     it('uses the field alone when the detail has no message, and HTTP <status> as the floor', () => {

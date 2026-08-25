@@ -84,7 +84,7 @@ export const createUserAdminSchema = Joi.object({
   // O BICONDICIONAL DA CRIACAO, espelhado do CHECK `users_producer_scope_check`:
   // cracha sem escopo e escopo sem cracha sao os dois estados impossiveis. Cobra-lo
   // aqui e o que faz o erro voltar como 422 com NOME DE CAMPO, em vez do 23514 que
-  // o errorHandler traduz num 400 generico ("Value violates a constraint") sem dizer
+  // o errorHandler traduz num 400 generico ("Um valor nao atende a uma regra do sistema.") sem dizer
   // o que fazer. Um produtor produz para UMA OM so; acima disso e admin.
   producer_org_id: Joi.string().uuid().allow(null, '')
     .when('role', {

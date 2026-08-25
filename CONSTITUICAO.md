@@ -385,6 +385,26 @@ inteira de quem trabalha sem conta. Preso por `frontend/tests/e2e/local-atlas-im
 `frontend/tests/unit/enviar-atlas-local-ao-servidor.test.js`, que cobra contra IndexedDB real que ler o
 namespace não o monta nem o altera.
 
+**7.2.1** O **mesmo atlas local sobe quantas vezes a pessoa quiser**. **[vigente] desde 2026-08-25.** O envio
+PRESERVA o id de cada entidade, e `features.id`, `layers.id`, `groups.id`, `briefings.id`, `slides.id` e os
+dois de 3D/360 são chave primária GLOBAL: o segundo envio repetia os ids e o Postgres recusava com 23505, que
+a tela imprimia como "Resource already exists". A regra agora é **preserva quando o id está livre, cunha um
+id novo quando está ocupado**, e ela mora no SERVIDOR (`atlas.service.js`, `cunharIdsOcupados`), porque só
+ele sabe o que está livre. Quem não colide continua chegando com o próprio id, que é a premissa de
+`frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`.
+
+O **blob de imagem é a exceção, e no CLIENTE**: `images.id` também é global, mas o blob sobe DEPOIS do
+import, então um id recunhado lá deixaria pendurada a referência já gravada na feição. O cliente cunha o id
+do blob antes de montar o payload e reescreve as referências pelo `imageIdMap`. **As DUAS portas fazem
+isso**, e a segunda entrou no mesmo dia: a do mapa (`import_export/save-local-atlas.service.js`) e a da
+lista (`projects/send-local-to-server.service.js`). Elas são leitores diferentes do mesmo formato, e a da
+lista subia o blob numa passada só, então um reenvio com imagem por ali entrava e a imagem sumia calada.
+
+A lixeira **não** é a causa e não foi tocada: medido que o id de atlas VIVO recusa igual, e a cláusula 7.4
+continua exigindo a lixeira restaurável com conteúdo. Preso por
+`backend/tests/integration/import-id-ja-usado.repro.test.js` (reenvio, lixeira, dois usuários, e o controle
+positivo do id inédito) e por `frontend/tests/unit/enviar-blob-com-id-novo.test.js`.
+
 **7.3** E **salva um atlas remoto como local**. **[vigente]** Existe comando de um passo, e ele **não** é um
 round-trip de `.ebgeo`: é cópia banco a banco mais a poda de saída, então a aba não troca de atlas nem
 recarrega. Preso por `frontend/tests/integration/salvar-remoto-como-local.test.js` e, do lado da tela, por

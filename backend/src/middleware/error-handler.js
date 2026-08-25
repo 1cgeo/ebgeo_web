@@ -77,12 +77,12 @@ export function errorHandler(err, req, res, next) {
   // of leaking a raw 500. Messages are generic on purpose — the driver's text can
   // expose column/constraint names, so we never forward err.message here.
   const PG_ERROR_MAP = {
-    '23505': { statusCode: 409, code: 'CONFLICT', message: 'Resource already exists' },
-    '23503': { statusCode: 409, code: 'CONFLICT', message: 'Referenced resource not found or still in use' },
-    '23502': { statusCode: 400, code: 'BAD_REQUEST', message: 'Missing required field' },
-    '23514': { statusCode: 400, code: 'BAD_REQUEST', message: 'Value violates a constraint' },
-    '22P02': { statusCode: 400, code: 'BAD_REQUEST', message: 'Malformed value (invalid id or type)' },
-    '22003': { statusCode: 400, code: 'BAD_REQUEST', message: 'Numeric value out of range' },
+    '23505': { statusCode: 409, code: 'CONFLICT', message: 'Já existe um registro com esses dados. Altere e tente de novo.' },
+    '23503': { statusCode: 409, code: 'CONFLICT', message: 'O registro referenciado não existe ou ainda está em uso.' },
+    '23502': { statusCode: 400, code: 'BAD_REQUEST', message: 'Preencha todos os campos obrigatórios.' },
+    '23514': { statusCode: 400, code: 'BAD_REQUEST', message: 'Um valor não atende a uma regra do sistema.' },
+    '22P02': { statusCode: 400, code: 'BAD_REQUEST', message: 'Valor mal formado (identificador ou tipo inválido).' },
+    '22003': { statusCode: 400, code: 'BAD_REQUEST', message: 'Valor numérico fora do intervalo permitido.' },
   };
   if (typeof err.code === 'string' && PG_ERROR_MAP[err.code]) {
     const mapped = PG_ERROR_MAP[err.code];
@@ -116,11 +116,11 @@ export function errorHandler(err, req, res, next) {
     };
     const safeMessage = (err.expose === true || config.isDev)
       ? err.message
-      : 'Bad request';
+      : 'Requisição inválida.';
     return res.status(err.statusCode).json({
       error: {
         code: CLIENT_CODES[err.statusCode] || 'BAD_REQUEST',
-        message: safeMessage || 'Bad request',
+        message: safeMessage || 'Requisição inválida.',
       },
     });
   }
@@ -130,7 +130,7 @@ export function errorHandler(err, req, res, next) {
   const response = {
     error: {
       code: 'INTERNAL_ERROR',
-      message: config.isDev ? err.message : 'Something went wrong',
+      message: config.isDev ? err.message : 'Algo deu errado. Tente novamente.',
     },
   };
 

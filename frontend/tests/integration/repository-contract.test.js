@@ -193,9 +193,52 @@ describe('Repository contract tests', () => {
         });
 
         it('saveActiveLayerId + getActiveLayerId round-trips', async () => {
+            // AS CAMADAS SAO SEMEADAS AQUI, e ate 2026-08-25 nao eram. O caso vizinho as grava,
+            // mas o store e limpo entre casos, entao este afirmava que um id ORFAO volta intacto,
+            // que e exatamente o estado quebrado consertado nesta data. O contrato que ele existe
+            // para prender (o valor atravessa o armazenamento) continua prendido, agora sobre uma
+            // montagem que pode acontecer de verdade.
+            await repo.saveLayers('map-1', [
+                { id: 'layer-1', name: 'Camada 1', visible: true, locked: false },
+                { id: 'layer-2', name: 'Camada 2', visible: true, locked: false },
+            ]);
             await repo.saveActiveLayerId('map-1', 'layer-2');
             const activeId = await repo.getActiveLayerId('map-1');
             expect(activeId).toBe('layer-2');
+        });
+
+        // ====================================================================
+        // A CAMADA ATIVA E SEMPRE UMA QUE EXISTE (defeito de 2026-08-25)
+        // ====================================================================
+
+        it('sem chave gravada, a camada ativa e a PRIMEIRA do mapa, e nao o literal "default"', async () => {
+            // O CASO DO ATLAS DE SERVIDOR. O snapshot traz camadas com UUID e NAO traz a chave
+            // `activeLayer_`. A queda antiga era o literal `'default'`, que e o id da camada
+            // padrao LOCAL e nao existe em atlas nenhum do servidor: toda feicao desenhada dali
+            // em diante nascia orfa, sumia do mapa pelo filtro de camada e continuava listada na
+            // aba de feicoes. Medido no banco do chefe: tres pontos com `layer_id` NULO.
+            await repo.saveLayers('map-servidor', [
+                { id: '68ea95b9-c54b-41a3-897a-9687906ee1e7', name: 'Padrão', visible: true, locked: false },
+            ]);
+            expect(await repo.getActiveLayerId('map-servidor'))
+                .toBe('68ea95b9-c54b-41a3-897a-9687906ee1e7');
+        });
+
+        it('um id gravado que nao nomeia camada nenhuma cai para a primeira que existe', async () => {
+            // O MESMO ORFAO PELO OUTRO CAMINHO: a camada ativa foi apagada e a chave ficou
+            // apontando para o vazio. Conferir so a AUSENCIA da chave deixaria este passar.
+            await repo.saveLayers('map-podado', [
+                { id: 'uuid-viva', name: 'Viva', visible: true, locked: false },
+            ]);
+            await repo.saveActiveLayerId('map-podado', 'uuid-apagada');
+            expect(await repo.getActiveLayerId('map-podado')).toBe('uuid-viva');
+        });
+
+        it('CONTROLE: no atlas local sem camada salva, a queda continua sendo "default"', async () => {
+            // O controle que impede o conserto de virar uma mudanca de comportamento no caminho
+            // local. `getLayers` SINTETIZA `getDefaultLayer()` quando nao ha nenhuma, entao a
+            // primeira camada que existe E a padrao local, com o id `'default'` de sempre.
+            expect(await repo.getActiveLayerId('map-local-virgem')).toBe('default');
         });
     });
 

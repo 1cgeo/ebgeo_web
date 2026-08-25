@@ -72,11 +72,33 @@ class LayerManager {
     }
 
     /**
-     * Get active layer ID (synchronous).
+     * O id da camada ATIVA, sincrono, e ele nomeia uma camada que EXISTE.
+     *
+     * O GEMEO ASSINCRONO E `LocalRepository.getActiveLayerId`, e os dois tinham a MESMA queda:
+     * o literal `'default'`, que e o id da camada padrao LOCAL (`getDefaultLayer`). Num atlas de
+     * SERVIDOR toda camada tem UUID, entao esse id nao nomeia nada, e a feicao criada com ele
+     * nasce orfa: o filtro de camada a esconde do mapa e a aba de feicoes continua listando-a.
+     * Medido em 2026-08-25, no atlas do chefe.
+     *
+     * ESTE E O CAMINHO QUE A CRIACAO USA, por ser sincrono, entao consertar so o do repositorio
+     * deixaria o defeito de pe por baixo. Os dois precisam cair na mesma coisa.
+     *
+     * A QUEDA E A PRIMEIRA CAMADA DO MAPA. No atlas local ela continua sendo `'default'` por
+     * construcao, porque a camada padrao sintetizada tem esse id. O `'default'` final so responde
+     * quando nao ha mapa resolvido nem camada nenhuma, que e o estado de antes do boot.
+     * @param {string} [mapName] - Map name (null = current map)
      * @returns {string}
      */
-    getActiveLayerIdSync() {
-        return this.memoryStore.activeLayerId || 'default';
+    getActiveLayerIdSync(mapName = null) {
+        const ativo = this.memoryStore.activeLayerId;
+        let camadas = [];
+        // `getLayers` indexa `memoryStore.layers[mapa]` sem conferir, e este getter e chamado
+        // ANTES de existir mapa (o boot pergunta a camada ativa cedo). Um `catch` aqui vale mais
+        // que um guarda a mais: o que importa e nunca lancar num caminho de leitura.
+        try { camadas = this.getLayers(mapName); } catch { camadas = []; }
+        if (ativo && camadas.some((l) => l?.id === ativo)) return ativo;
+        if (camadas.length > 0) return camadas[0].id;
+        return ativo || 'default';
     }
 
     /**

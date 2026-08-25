@@ -115,7 +115,7 @@ function uuidOuNulo(v) {
  *
  * POR QUE AQUI E NAO SO NO CHECK. `users_producer_scope_check` e a guarda que vale,
  * e ela nao pode sair; mas quando ela dispara o driver levanta 23514, que o
- * `errorHandler` traduz num 400 generico ("Value violates a constraint") de
+ * `errorHandler` traduz num 400 generico ("Um valor nao atende a uma regra do sistema.") de
  * proposito, porque o texto do driver expoe nome de coluna e de constraint. O
  * administrador que tentasse promover alguem a Produtor sem OM leria um erro que nao
  * diz o que corrigir. Esta funcao devolve a mesma recusa com a frase certa.

@@ -594,14 +594,40 @@ export class LocalRepository {
     }
 
     /**
-     * Gets active layer ID for a map.
+     * A camada ATIVA do mapa, e ela e sempre uma camada que EXISTE.
+     *
+     * O DEFEITO QUE ISTO FECHA, medido em 2026-08-25 no atlas do chefe. A queda era o literal
+     * `'default'`, que e o id da camada padrao LOCAL (`getDefaultLayer`). Num atlas de SERVIDOR
+     * nenhuma camada tem esse id: o import cunha UUID para cada uma. Como o snapshot nao traz a
+     * chave `activeLayer_`, todo mapa de servidor abria com a camada ativa apontando para uma
+     * camada inexistente, e cada feicao desenhada dali em diante nascia com `layerId: 'default'`.
+     *
+     * O QUE A PESSOA VIA: a feicao sumia do mapa e continuava na lista de feicoes. Os dois lados
+     * estao certos e e por isso que o sintoma engana. O filtro da camada de pontos cobra
+     * `coalesce(layerId, 'default')` DENTRO da lista de ids reais do mapa, entao a feicao orfa e
+     * escondida; a aba de feicoes le a store, que nao filtra, entao ela a lista. Medido no banco:
+     * tres pontos com `layer_id` NULO e `properties.layerId = 'default'`, ao lado de uma linha que
+     * viera pelo import com o UUID certo e desenhava normalmente.
+     *
+     * A QUEDA PASSA A SER A PRIMEIRA CAMADA QUE EXISTE, e no atlas local isso continua sendo
+     * exatamente `'default'`: `getLayers` SINTETIZA `getDefaultLayer()` quando nao ha nenhuma, de
+     * modo que o comportamento local nao muda por construcao, e nao por coincidencia.
+     *
+     * O ID GRAVADO TAMBEM E CONFERIDO, e nao so a ausencia dele: uma camada apagada deixa a chave
+     * `activeLayer_` apontando para o vazio, e esse estado produzia o mesmo orfao pelo outro
+     * caminho. Conferir os dois custa a leitura das camadas, que ja esta em cache do store.
      * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<string>}
      */
     async getActiveLayerId(mapIdOrName) {
         const resolvedKey = await this._resolveMapKey(mapIdOrName);
         const activeId = await this._getWithFallback(layerStore(), resolvedKey, mapIdOrName, 'activeLayer_');
-        return activeId || 'default';
+        const layers = await this.getLayers(mapIdOrName);
+        if (activeId && layers.some((l) => l?.id === activeId)) return activeId;
+        // `getLayers` nunca devolve lista vazia (ela sintetiza a padrao), mas o `?? 'default'`
+        // fica: quem ler esta linha nao deve precisar ir ate la para saber que ela nao devolve
+        // `undefined`, e uma implementacao futura que devolva vazio nao vira id indefinido.
+        return layers[0]?.id ?? 'default';
     }
 
     /**

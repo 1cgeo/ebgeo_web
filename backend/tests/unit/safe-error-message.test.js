@@ -41,8 +41,8 @@ describe('safeErrorMessage — texto do driver nunca atravessa a borda (107/108/
   it('devolve intacta a mensagem de um AppError (foi escrita para o usuário)', () => {
     assert.equal(safeErrorMessage(new NotFoundError('Photo')), 'Photo not found');
     assert.equal(
-      safeErrorMessage(new ForbiddenError('Insufficient permissions')),
-      'Insufficient permissions'
+      safeErrorMessage(new ForbiddenError('Você não tem permissão para esta ação.')),
+      'Você não tem permissão para esta ação.'
     );
     // O 503 do push de sync ocupado: texto pt-BR acionável, que mascarar destruiria.
     assert.equal(
@@ -54,34 +54,34 @@ describe('safeErrorMessage — texto do driver nunca atravessa a borda (107/108/
   it('mapeia o unique_violation para texto fixo e some com o nome da constraint', () => {
     const raw = 'duplicate key value violates unique constraint "images_pkey"';
     const out = safeErrorMessage(pgError('23505', raw), 'Unknown error');
-    assert.equal(out, 'Resource already exists');
+    assert.equal(out, 'Já existe um registro com esses dados. Altere e tente de novo.');
     assert.doesNotMatch(out, /pkey|constraint|violates/i, 'nada do texto do driver');
   });
 
   it('mapeia FK, NOT NULL, CHECK, cast e overflow para os mesmos textos do errorHandler', () => {
     assert.equal(
       safeErrorMessage(pgError('23503', 'violates foreign key constraint "slides_map_id_fkey"')),
-      'Referenced resource not found or still in use'
+      'O registro referenciado não existe ou ainda está em uso.'
     );
     assert.equal(
       safeErrorMessage(pgError('23502', 'null value in column "atlas_id" violates not-null')),
-      'Missing required field'
+      'Preencha todos os campos obrigatórios.'
     );
     assert.equal(
       safeErrorMessage(pgError('23514', 'new row violates check constraint "valid_feature_type"')),
-      'Value violates a constraint'
+      'Um valor não atende a uma regra do sistema.'
     );
     assert.equal(
       safeErrorMessage(pgError('22P02', 'invalid input syntax for type uuid: "nao-e-uuid"')),
-      'Malformed value (invalid id or type)'
+      'Valor mal formado (identificador ou tipo inválido).'
     );
     assert.equal(
       safeErrorMessage(pgError('22003', 'value "9999999999" is out of range for type integer')),
-      'Numeric value out of range'
+      'Valor numérico fora do intervalo permitido.'
     );
     assert.equal(
       safeErrorMessage(pgError('22001', 'value too long for type character varying(255)')),
-      'Value too long for its field'
+      'Valor longo demais para o campo.'
     );
   });
 
@@ -98,12 +98,12 @@ describe('safeErrorMessage — texto do driver nunca atravessa a borda (107/108/
     // casaria EPERM, EBUSY, EROFS, EPIPE e EBADF, e um errno de fs sairia rotulado
     // como violação de dado. Nenhum deles vaza, mas o texto mentiria sobre a causa.
     const out = safeErrorMessage(fsError('EPERM', "EPERM: operation not permitted, open '/srv/x'"));
-    assert.equal(out, 'Operation failed');
+    assert.equal(out, 'A operação falhou.');
   });
 
   it('um SQLSTATE não mapeado cai no fallback, sem revelar que houve erro de SQL', () => {
-    const out = safeErrorMessage(pgError('42P01', 'relation "operations" does not exist'), 'Sync failed');
-    assert.equal(out, 'Sync failed');
+    const out = safeErrorMessage(pgError('42P01', 'relation "operations" does not exist'), 'A sincronização falhou.');
+    assert.equal(out, 'A sincronização falhou.');
     assert.doesNotMatch(out, /operations|relation|exist/i);
   });
 
@@ -112,11 +112,11 @@ describe('safeErrorMessage — texto do driver nunca atravessa a borda (107/108/
     // passe-livre para o próprio texto.
     const impostor = new Error('violates unique constraint "users_pkey"');
     impostor.isOperational = 'yes';
-    assert.equal(safeErrorMessage(impostor), 'Operation failed');
+    assert.equal(safeErrorMessage(impostor), 'A operação falhou.');
 
     const naoOperacional = new Error('relation "atlas" does not exist');
     naoOperacional.isOperational = false;
-    assert.equal(safeErrorMessage(naoOperacional), 'Operation failed');
+    assert.equal(safeErrorMessage(naoOperacional), 'A operação falhou.');
   });
 
   it('AppError sem texto útil cai no fallback em vez de devolver string vazia', () => {
@@ -133,7 +133,7 @@ describe('safeErrorMessage — texto do driver nunca atravessa a borda (107/108/
   });
 
   it('o fallback default não é vazio nem revela nada', () => {
-    assert.equal(safeErrorMessage(new Error('boom')), 'Operation failed');
+    assert.equal(safeErrorMessage(new Error('boom')), 'A operação falhou.');
   });
 
   it('não muta o erro recebido (o logger ainda precisa dele inteiro)', () => {

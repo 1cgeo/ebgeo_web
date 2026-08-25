@@ -332,7 +332,7 @@ describe('F6 — o prazo da concessão vive dentro do predicado', () => {
     assert.equal(res.body.error.code, 'VALIDATION_ERROR');
     assert.match(
       JSON.stringify(res.body), /expiresAt/,
-      'o 422 precisa nomear o campo: o CHECK da tabela só sabe dizer "Value violates a constraint"'
+      'o 422 precisa nomear o campo: o CHECK da tabela só sabe dizer "Um valor não atende a uma regra do sistema."'
     );
 
     // NADA FOI GRAVADO, e afirmar isso separa "recusou" de "recusou depois de escrever".

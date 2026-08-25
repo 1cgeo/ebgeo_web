@@ -76,18 +76,23 @@ describe('verifyAndMapUser()', () => {
     assert.equal(user.role, 'user');
   });
 
-  it('throws UnauthorizedError with "Token expired" for expired tokens', () => {
+  // AS FRASES VIRARAM PORTUGUES em 2026-08-25, e o que estes casos prendem NAO e a frase: e o
+  // 401 e a DISTINCAO entre expirado e invalido, que o cliente usa para decidir se renova a
+  // sessao ou manda entrar de novo. Colar a frase inteira aqui faria a proxima melhoria de
+  // texto reprovar um comportamento correto, que e o guarda virando obstaculo.
+  it('lanca UnauthorizedError de EXPIRADO para token vencido', () => {
     const token = jwt.sign({ sub: 'u1', username: 'test', nome: 'T', posto: 'S' }, TEST_SECRET, { expiresIn: '0s' });
     assert.throws(
       () => verifyAndMapUser(token),
-      (err) => err.message === 'Token expired' && err.statusCode === 401
+      (err) => /expirou/i.test(err.message) && err.statusCode === 401
     );
   });
 
-  it('throws UnauthorizedError with "Invalid token" for malformed tokens', () => {
+  it('lanca UnauthorizedError de INVALIDO para token malformado', () => {
     assert.throws(
       () => verifyAndMapUser('not.a.valid.jwt'),
-      (err) => err.message === 'Invalid token' && err.statusCode === 401
+      (err) => /nao e valida/i.test(err.message.normalize('NFD').replace(/[̀-ͯ]/g, ''))
+        && err.statusCode === 401
     );
   });
 
@@ -95,7 +100,8 @@ describe('verifyAndMapUser()', () => {
     const token = jwt.sign({ sub: 'u1' }, 'wrong-secret');
     assert.throws(
       () => verifyAndMapUser(token),
-      (err) => err.message === 'Invalid token' && err.statusCode === 401
+      (err) => /nao e valida/i.test(err.message.normalize('NFD').replace(/[̀-ͯ]/g, ''))
+        && err.statusCode === 401
     );
   });
 });
@@ -107,7 +113,10 @@ describe('auth() middleware', () => {
     auth(req, res, (err) => {
       assert.ok(err);
       assert.equal(err.statusCode, 401);
-      assert.match(err.message, /Missing or invalid/);
+      // O ARGUMENTO EXPLICITO SAIU: a classe ja diz "Faca login para continuar.", e repetir o
+      // texto no `next()` foi o que manteve tres irmaos em ingles depois de a tabela ser
+      // traduzida. O que este caso prende e o 401 sem cabecalho, nao a redacao.
+      assert.match(err.message.normalize('NFD').replace(/[̀-ͯ]/g, ''), /login/i);
       done();
     });
   });

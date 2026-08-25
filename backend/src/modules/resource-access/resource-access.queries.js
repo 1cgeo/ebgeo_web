@@ -734,7 +734,7 @@ export const GRANT_IDS_FED_BY_MEMBER_VIA_GROUP = `
  *   - o pedido do concedente (`$7`), ou um ano quando ele não pediu nada;
  *   - o TETO DA CASA (um ano), que o CHECK da tabela também cobra — calculá-lo com
  *     o `NOW()` do banco é o que impede um relógio de cliente adiantado de virar
- *     23514 (`Value violates a constraint`) em vez de uma data válida;
+ *     23514 (`Um valor nao atende a uma regra do sistema.`) em vez de uma data válida;
  *   - o prazo do PAI (`$8`, nulo na concessão de raiz), porque filho nunca pode
  *     sobreviver a quem o autorizou. `'infinity'` é o neutro do LEAST para a raiz.
  * `GREATEST` não aparece: o piso (`expires_at > created_at`) é cobrado na borda.

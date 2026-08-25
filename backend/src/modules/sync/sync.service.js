@@ -1146,7 +1146,7 @@ const LOCKABLE_CHILD_TARGETS = new Set([
 function assertOperationAllowed(op, permission) {
   // Read-only never writes (defensive — the route/WS gate already blocks it).
   if (permission === 'read') {
-    throw new ForbiddenError('Read-only users cannot send operations');
+    throw new ForbiddenError('Seu acesso a este atlas é somente leitura.');
   }
   // Comentarista (comment tier) may only create/edit/delete spatial comments.
   if (permission === 'comment' && op.target !== 'comment') {

@@ -45,8 +45,12 @@ import {
     getStoreFor,
 } from '@store/atlas-namespace.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
+// DIRETO DO ARQUIVO, e nao pelo barril `@store`: o barril arrasta a store inteira, e este modulo
+// existe justamente por a pagina de escolha nao a ter. `repository.utils.js` nao importa nada.
+import { getDefaultLayer } from '@store/repository.utils.js';
 import { buildServerImportPayload } from '@js/import_export/local-atlas-to-server.js';
 import { buildImageUploads, uploadImagesInChunks } from '@js/import_export/atlas-image-upload.js';
+import { generateUUID } from '@utils/uuid.js';
 
 /**
  * As chaves de disco que este leitor usa, num lugar só.
@@ -152,7 +156,31 @@ export async function buildLocalAtlasExportData(scope) {
     }
 
     for (const [mapKey, mapName] of nomePorChave) {
-        porSecao(data.layers, mapName, await ler(StoreName.LAYERS, scope, KEY.layers(mapKey)));
+        // A CAMADA PADRAO SE SINTETIZA QUANDO NAO FOI GRAVADA, e esta linha e a metade que
+        // faltava. Ela nasceu de um defeito medido em 2026-08-25, no banco do chefe: todo atlas
+        // enviado por este caminho tinha ZERO camadas e 100% das feicoes orfas, enquanto os
+        // enviados pelo menu do mapa tinham camada e nenhuma orfa.
+        //
+        // POR QUE O IRMAO DO MAPA NAO ERRAVA: ele le pelo REPOSITORIO, e `LocalRepository.getLayers`
+        // devolve `[getDefaultLayer()]` quando a chave nao existe. Um atlas local que so usou a
+        // camada padrao NUNCA grava `layers_`, porque essa camada e sintetizada na leitura e nunca
+        // persistida. Este leitor e cru, entao a secao subia vazia.
+        //
+        // O ESTRAGO ERA MUDO E TOTAL: sem camada no servidor, `buildLayers` devolve lista vazia, o
+        // atlas nasce sem nenhuma, e o `layerId` cunhado para cada feicao nao nomeia coisa alguma.
+        // O filtro do mapa esconde todas, e a aba de feicoes, que nao filtra, lista todas. A
+        // pessoa ve um atlas cheio na lista e um mapa vazio.
+        //
+        // OS DOIS LADOS PASSAM PELO MESMO `layerIdFor`, e e isso que faz o remendo casar:
+        // `buildFeatures` mapeia `props.layerId || 'default'` e `buildLayers` mapeia `l.id`, que
+        // aqui tambem e `'default'`. O mesmo mapeador cunha o mesmo UUID para os dois.
+        //
+        // O CABECALHO DESTE MODULO JA AVISAVA que ser um SEGUNDO leitor do formato de disco custa
+        // esta classe de divergencia. Custou. Se `LocalRepository.getLayers` mudar a sintese, esta
+        // linha tem de mudar junto.
+        const camadas = await ler(StoreName.LAYERS, scope, KEY.layers(mapKey));
+        porSecao(data.layers, mapName,
+            Array.isArray(camadas) && camadas.length > 0 ? camadas : [getDefaultLayer()]);
         porSecao(data.groups, mapName, await ler(StoreName.GROUPS, scope, mapKey));
         porSecao(data.cesium3d, mapName,
             await ler(StoreName.CESIUM3D, scope, KEY.cesium3d(mapKey)));
@@ -247,13 +275,34 @@ export async function sendLocalAtlasToServer(entry, { apiClient, scopeOf, name }
         throw new Error('Este atlas local não tem nenhum mapa para enviar ao servidor.');
     }
 
-    const built = buildServerImportPayload(exportData, { name: atlasName });
+    // O BLOB GANHA ID NOVO A CADA ENVIO, pela mesma razao da porta irma
+    // (`import_export/save-local-atlas.service.js`), e as duas precisam faze-lo.
+    //
+    // `images.id` e chave primaria GLOBAL. Feicao, camada e grupo tambem sao, mas ali o conserto
+    // vive no SERVIDOR, que recunha o que ja esta ocupado no momento do import. Com o blob esse
+    // conserto NAO ALCANCA: ele sobe DEPOIS, entao um id recunhado la deixaria a referencia ja
+    // gravada na feicao apontando para o nada. Cunhar ANTES de montar o payload resolve por
+    // construcao, e nada precisa voltar do servidor.
+    //
+    // O SINTOMA SEM ISTO E MUDO: o reenvio de um atlas COM IMAGEM entra, e a imagem some. Foi
+    // apontado em 2026-08-25 como a metade que faltava do conserto da colisao de id.
+    //
+    // DUAS PASSADAS da funcao PURA, e a leitura cara do IndexedDB continua sendo uma so: a
+    // primeira serve para descobrir QUAIS blobs o atlas cita. A segunda reescreve, pelo
+    // `imageIdMap`, todas as referencias de uma vez.
+    const sondagem = buildServerImportPayload(exportData, { name: atlasName });
+    const imageIdMap = Object.fromEntries(sondagem.imageIds.map((id) => [id, generateUUID()]));
+    const built = buildServerImportPayload(exportData, { name: atlasName, imageIdMap });
     const atlas = await apiClient.importAtlas(built.payload);
 
+    // O BLOB SE LE PELO ID LOCAL E SOBE PELO NOVO. `built.imageIds` continua sendo a lista de ids
+    // LOCAIS que o atlas cita, e nao a recunhada: quem carrega a troca e o `imageIdMap`, que a
+    // segunda passada ja aplicou as REFERENCIAS dentro do payload. Ler pelo id novo devolveria
+    // vazio, e o envio subiria sem imagem nenhuma, calado.
     const encontradas = [];
     for (const id of built.imageIds) {
         const blob = await ler(StoreName.IMAGES, scope, id);
-        if (blob) encontradas.push([id, blob]);
+        if (blob) encontradas.push([imageIdMap[id] ?? id, blob]);
     }
     const { uploads, skipped } = await buildImageUploads(encontradas);
     const { failed } = await uploadImagesInChunks(apiClient, atlas.id, uploads);

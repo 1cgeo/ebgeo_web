@@ -307,7 +307,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       const errorMsg = await client.waitForType('error');
       assert.ok(errorMsg);
       assert.equal(errorMsg.code, 'FORBIDDEN');
-      assert.ok(errorMsg.message.toLowerCase().includes('read'));
+      assert.equal(errorMsg.message, 'Seu acesso a este atlas é somente leitura.');
 
       client.close();
     });

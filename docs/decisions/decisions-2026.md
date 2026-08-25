@@ -1062,3 +1062,40 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   resolveria: o teste continuaria carregando o grafo do milsymbol e do canvas para exercitar uma
   função pura.
 - **Status:** aceita e implementada. Com isto o `TESTING-BACKLOG` fica sem alvo de Fase 1 aberto.
+
+### 2026-08-25: o id do atlas local sobe preservado quando está livre, e recunhado quando está ocupado
+
+- **Contexto:** o chefe apagou vários atlas, que foram para a lixeira, e depois não conseguiu criar
+  de novo: `POST /atlas/import` respondia "Resource already exists". A suspeita dele apontava a
+  lixeira. **Medido por API:** o id de feição vindo de atlas NA LIXEIRA recusa, o id vindo de atlas
+  VIVO recusa igual, e o id inédito passa. Logo a lixeira é onde o defeito apareceu, não a causa.
+- **A causa:** `features.id`, `layers.id`, `groups.id`, `briefings.id`, `slides.id`, `maps.id` e as
+  duas tabelas de 3D/360 são chave primária GLOBAL, sem escopo de atlas, e o empacotador do cliente
+  (`local-atlas-to-server.js`, `makeIdMapper`) PRESERVA o id local quando ele já é um UUID. Logo o
+  reenvio do mesmo atlas local colide SEMPRE, com ou sem lixeira, e dois usuários que enviam cópias
+  do mesmo arquivo colidem entre si.
+- **Decisão: preserva quando livre, cunha na colisão, e a decisão mora no SERVIDOR**
+  (`atlas.service.js`, `cunharIdsOcupados`). Uma consulta cobre as oito superfícies, então o custo
+  do import continua constante no número de linhas.
+- **Alternativa recusada 1: cunhar id novo para tudo na importação.** Quebraria
+  `frontend/tests/e2e-ui/browser-save-local-to-server.spec.js`, cujo guarda VERDE acha no servidor a
+  feição desenhada no cliente pelo mesmo id. A preservação é deliberada e tem dependente.
+- **Alternativa recusada 2: purgar de verdade o que vai para a lixeira.** Proibida pela cláusula 7.4
+  da `CONSTITUICAO.md` (lixeira restaurável COM conteúdo, presa por `atlas-restore-integrity`), e
+  ainda por cima não resolveria o caso do atlas VIVO.
+- **A exceção, e ela é no CLIENTE: o blob de imagem.** `images.id` também é global, mas o blob sobe
+  DEPOIS do import, então um id recunhado lá deixaria pendurada a referência já gravada na feição.
+  `save-local-atlas.service.js` cunha o id do blob antes de montar o payload e reescreve as
+  referências pelo `imageIdMap` que a função pura já aceitava.
+- **Recusa legítima nova, com frase própria em português:** id repetido DENTRO do arquivo é arquivo
+  inconsistente, não colisão com o banco, e vira 400 com "O arquivo repete o id de ...".
+- **A porta irmã foi fechada no mesmo dia:** `frontend/src/js/projects/send-local-to-server.service.js`
+  (envio pelo cartão da lista) subia blob numa passada só, e um reenvio com imagem entrava com a
+  imagem sumida, sem erro. As duas portas são leitores diferentes do mesmo formato de disco, e essa
+  duplicação já tinha custado outro defeito no mesmo dia (a camada padrão que não subia), então a
+  regra vale nas duas ou não vale. O caso que a prendia dizia "sobe a imagem PRESERVANDO o id local",
+  premissa que virou o defeito escrito como contrato; ele passou a medir a CONCORDÂNCIA entre o id
+  que sobe e o id que o payload cita, que é o que não pode divergir.
+- **Status:** aceita e implementada. Cláusula 7.2.1 nova em `CONSTITUICAO.md`. Presa por
+  `backend/tests/integration/import-id-ja-usado.repro.test.js` e
+  `frontend/tests/unit/enviar-blob-com-id-novo.test.js`.

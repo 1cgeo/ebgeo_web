@@ -244,7 +244,7 @@ export function requireAtlasPermission(requiredLevel) {
       // today only because the `atlas_shares.permission` CHECK (003_atlas.sql) constrains the column — which is a
       // guarantee of the schema, not of this file.
       if (resolvedLevel === undefined || resolvedLevel < requiredLevelNum) {
-        return next(new ForbiddenError('Insufficient permissions'));
+        return next(new ForbiddenError());
       }
 
       // Set permission on request for downstream use

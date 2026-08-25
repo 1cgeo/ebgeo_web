@@ -108,7 +108,7 @@ describe('errorHandler middleware', () => {
 
     assert.notEqual(res.body.error.code, 'INTERNAL_ERROR', 'a 503 masked as 500 stops client retries');
     assert.notEqual(res.body.error.code, 'BAD_REQUEST', 'the 400..499 branch must not capture it');
-    assert.notEqual(res.body.error.message, 'Something went wrong', 'must not be masked as unknown');
+    assert.notEqual(res.body.error.message, 'Algo deu errado. Tente novamente.', 'must not be masked as unknown');
     assert.equal(res.statusCode, 503);
   });
 
@@ -170,7 +170,7 @@ describe('errorHandler middleware', () => {
 
     assert.equal(res.statusCode, 500);
     assert.equal(res.body.error.code, 'INTERNAL_ERROR');
-    assert.equal(res.body.error.message, 'Something went wrong', 'raw message must be masked');
+    assert.equal(res.body.error.message, 'Algo deu errado. Tente novamente.', 'raw message must be masked');
     assert.equal(res.body.error.stack, undefined, 'stack must never be exposed outside dev');
   });
 
@@ -254,7 +254,7 @@ describe('errorHandler middleware', () => {
 
     assert.equal(res.statusCode, 403);
     assert.equal(res.body.error.code, 'FORBIDDEN');
-    assert.equal(res.body.error.message, 'Bad request', 'unexposed message must be masked');
+    assert.equal(res.body.error.message, 'Requisição inválida.', 'unexposed message must be masked');
     assert.doesNotMatch(res.body.error.message, /secret/, 'internal path must never leak');
   });
 });

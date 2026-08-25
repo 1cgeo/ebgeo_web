@@ -87,6 +87,33 @@ export function createNotice(result) {
 }
 
 /**
+ * PARA QUAL ATLAS LOCAL IR depois de uma criação, ou `null` para ficar na lista.
+ *
+ * "+ Novo atlas local" passou a CRIAR E ABRIR em 2026-08-25: quem pede um atlas novo quer
+ * trabalhar nele, e a lista com um cartão a mais cobrava um segundo clique que não decidia nada.
+ *
+ * O DESTINO SAI DA FIAÇÃO E VEM PARA CÁ, pela mesma razão de {@link sendToServerNotice}: ele é a
+ * metade que pode mentir. `createLocalAtlas` RECUSA o décimo primeiro slot (o teto de dez), e a
+ * recusa é um resultado legítimo, não uma exceção. Um "criar e abrir" escrito como duas linhas em
+ * sequência navega POR CIMA dela: a pessoa não recebeu atlas nenhum, vai para o mapa, encontra o
+ * atlas ANTERIOR, e a frase da recusa morre junto com a página que a desenhou.
+ *
+ * POR ISSO ELE FALHA FECHADO. Sem um id que seja string não vazia, a resposta é `null` e a página
+ * fica onde está. Um sucesso sem id utilizável levaria a `setCurrentLocalAtlas(undefined)`, que
+ * recusa com NOT_FOUND: a pessoa leria "Atlas criado." e, em seguida, "atlas não encontrado".
+ *
+ * Pura, como as vizinhas. `projects-page.js` boota no import e nada nele pode ser exercitado por
+ * um teste; isto pode.
+ *
+ * @param {Object} [result] - O retorno de `createLocalAtlas`.
+ * @returns {string|null} O id do atlas local a abrir, ou null.
+ */
+export function createdAtlasToOpen(result) {
+    if (result?.ok !== true) return null;
+    return texto(result?.atlas?.id);
+}
+
+/**
  * @param {Object} [result] - Result of `renameLocalAtlas`.
  * @returns {Notice}
  */

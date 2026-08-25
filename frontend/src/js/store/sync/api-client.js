@@ -695,7 +695,7 @@ export class ApiClient {
             const raw = parsed && typeof parsed === 'object' ? parsed.error : null;
             const err = typeof raw === 'string' ? { message: raw, code: undefined } : raw;
             // `details` (422) is kept on the error AND folded into the message: the top-level
-            // message of a validation failure is the constant 'Validation failed', so the field
+            // message of a validation failure is the constant 'Falha na validacao', so the field
             // the server named lives nowhere else. See `buildApiErrorMessage`.
             throw new ApiError(buildApiErrorMessage(err, res.status), {
                 status: res.status,

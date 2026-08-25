@@ -190,7 +190,7 @@ describe('cross-tenant / cross-actor negatives', () => {
       // colliding item is REFUSED; the refusal reason is now the same fixed text the
       // errorHandler gives for 23505 over REST, with the raw driver message going to
       // the log instead (pinned in tests/integration/images-bulk-error-leak.repro.test.js).
-      assert.equal(failed[0].error, 'Resource already exists');
+      assert.equal(failed[0].error, 'Já existe um registro com esses dados. Altere e tente de novo.');
       assert.doesNotMatch(
         failed[0].error,
         /pkey|constraint|violates/i,

@@ -59,9 +59,9 @@ export function verifyAndMapUser(token) {
     };
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
-      throw new UnauthorizedError('Token expired');
+      throw new UnauthorizedError('Sua sessão expirou. Entre novamente.');
     }
-    throw new UnauthorizedError('Invalid token');
+    throw new UnauthorizedError('Sua sessão não é válida. Entre novamente.');
   }
 }
 
@@ -105,7 +105,7 @@ export async function auth(req, res, next) {
     if (!req.user) {
       const token = extractBearerToken(req);
       if (!token) {
-        return next(new UnauthorizedError('Missing or invalid authorization header'));
+        return next(new UnauthorizedError());
       }
       req.user = verifyAndMapUser(token); // throws UnauthorizedError on invalid/expired
     }
@@ -151,10 +151,10 @@ export async function auth(req, res, next) {
       if (!live.userIsActive) {
         // 401 so the client tears the session down (deactivation also revoked its
         // refresh token, so the retry fails too).
-        return next(new UnauthorizedError('Account is inactive'));
+        return next(new UnauthorizedError('Sua conta está desativada. Procure o administrador.'));
       }
       if (!live.orgIsActive) {
-        return next(new ForbiddenError('Organization is inactive'));
+        return next(new ForbiddenError('Sua organização está desativada. Procure o administrador.'));
       }
 
       // SESSION CUT-OFF (bugs-backend #35). Mass revocation — reuse detection, password
@@ -167,7 +167,7 @@ export async function auth(req, res, next) {
       // down (the retry through /auth/refresh fails too, since the family went with it),
       // instead of a 403 it would read as an ordinary permission problem.
       if (tokenPredatesSessionCut(req.user.tokenIssuedAt, live.sessionsValidFrom)) {
-        return next(new UnauthorizedError('Session revoked'));
+        return next(new UnauthorizedError('Sua sessão foi encerrada. Entre novamente.'));
       }
 
       // Adopt the live GLOBAL role so `requireAdmin` can never honour a stale
@@ -190,7 +190,7 @@ export async function auth(req, res, next) {
       req.user.producer_org_id = live.producerOrgId;
     } else if (req.user.organization_id && !(await orgIsActive(req.user.organization_id))) {
       // No user row to reconcile — fall back to the original org-only gate.
-      return next(new ForbiddenError('Organization is inactive'));
+      return next(new ForbiddenError('Sua organização está desativada. Procure o administrador.'));
     }
 
     // AMARRA 2 (ESCOPO) DA CLÁUSULA 10.7, e ela vem POR ÚLTIMO de propósito.

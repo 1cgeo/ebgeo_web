@@ -160,7 +160,7 @@ describe('Collab WS — mensagem de erro sanitizada nos três catches (107)', ()
 
     // (a) o cliente não recebe nada do driver.
     assert.equal(frame.code, 'OPERATION_FAILED');
-    assert.equal(frame.message, 'Malformed value (invalid id or type)');
+    assert.equal(frame.message, 'Valor mal formado (identificador ou tipo inválido).');
     const bruto = JSON.stringify(frame);
     assert.doesNotMatch(bruto, DRIVER_TEXT, `texto de driver no frame: ${bruto}`);
     assert.doesNotMatch(bruto, /[/\\]/, `separador de caminho no frame: ${bruto}`);
@@ -180,7 +180,7 @@ describe('Collab WS — mensagem de erro sanitizada nos três catches (107)', ()
     const frame = await client.waitForType('error');
 
     assert.equal(frame.code, 'OPERATION_FAILED');
-    assert.equal(frame.message, 'Malformed value (invalid id or type)');
+    assert.equal(frame.message, 'Valor mal formado (identificador ou tipo inválido).');
     const bruto = JSON.stringify(frame);
     assert.doesNotMatch(bruto, DRIVER_TEXT, `texto de driver no frame: ${bruto}`);
     assert.ok(!bruto.includes(BAD_MAP_ID), `o valor ofensor foi ecoado de volta: ${bruto}`);
@@ -200,7 +200,7 @@ describe('Collab WS — mensagem de erro sanitizada nos três catches (107)', ()
     const frame = await client.waitForType('error');
 
     assert.equal(frame.code, 'SYNC_FAILED');
-    assert.equal(frame.message, 'Malformed value (invalid id or type)');
+    assert.equal(frame.message, 'Valor mal formado (identificador ou tipo inválido).');
     const bruto = JSON.stringify(frame);
     assert.doesNotMatch(bruto, DRIVER_TEXT, `texto de driver no frame: ${bruto}`);
     assert.ok(!bruto.includes('nao-e-numero'), `o valor ofensor foi ecoado de volta: ${bruto}`);

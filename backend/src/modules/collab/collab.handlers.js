@@ -205,7 +205,7 @@ export async function handleOperation(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'FORBIDDEN',
-      message: 'Read-only users cannot send operations',
+      message: 'Seu acesso a este atlas é somente leitura.',
     }));
     return;
   }
@@ -254,7 +254,7 @@ export async function handleOperation(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'OPERATION_FAILED',
-      message: safeErrorMessage(err, 'Operation failed'),
+      message: safeErrorMessage(err, 'A operação falhou.'),
     }));
   }
 }
@@ -267,7 +267,7 @@ export async function handleOperations(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'FORBIDDEN',
-      message: 'Read-only users cannot send operations',
+      message: 'Seu acesso a este atlas é somente leitura.',
     }));
     return;
   }
@@ -310,7 +310,7 @@ export async function handleOperations(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'OPERATION_FAILED',
-      message: safeErrorMessage(err, 'Operation failed'),
+      message: safeErrorMessage(err, 'A operação falhou.'),
     }));
   }
 }
@@ -410,7 +410,7 @@ export async function handleSyncRequest(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'SYNC_FAILED',
-      message: safeErrorMessage(err, 'Sync failed'),
+      message: safeErrorMessage(err, 'A sincronização falhou.'),
     }));
   }
 }

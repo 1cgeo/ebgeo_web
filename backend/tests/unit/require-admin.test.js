@@ -10,7 +10,7 @@ describe('requireAdmin middleware', () => {
     requireAdmin({ user: undefined }, {}, (err) => {
       assert.ok(err);
       assert.equal(err.statusCode, 401);
-      assert.match(err.message, /Authentication required/);
+      assert.match(err.message, /Faça login para continuar/);
       done();
     });
   });

@@ -71,6 +71,7 @@ const BANCOS_DE_DADO = [
     'LAYERS', 'CESIUM3D', 'STREETVIEW360', 'BRIEFINGS', 'COMMENTS',
 ];
 
+let buildServerImportPayload;
 const UUID_ALFA = 'a1b2c3d4-0000-4000-8000-000000000001';
 const ID_FEICAO = 'f0000000-0000-4000-8000-00000000000f';
 const ID_IMAGEM = 'e0000000-0000-4000-8000-00000000000e';
@@ -88,6 +89,7 @@ beforeEach(async () => {
     globalThis.FileReader = FileReaderDublê;
     ns = await import('../../src/js/store/atlas-namespace.js');
     servico = await import('../../src/js/projects/send-local-to-server.service.js');
+    ({ buildServerImportPayload } = await import('../../src/js/import_export/local-atlas-to-server.js'));
 });
 
 afterEach(() => {
@@ -304,6 +306,83 @@ describe('buildLocalAtlasExportData :: endereço', () => {
 // 2 — ESCOPO: lê o slot pedido, e só ele
 // ============================================================================
 
+// ============================================================================
+// A CAMADA PADRAO SOBE JUNTO (defeito de 2026-08-25)
+// ============================================================================
+
+describe('buildLocalAtlasExportData :: a camada padrao', () => {
+    /** Um atlas com feicao e SEM a chave `layers_`, que e o atlas local mais comum. */
+    async function semearSemCamada(scope) {
+        await gravar('ATLAS', scope, 'current_atlas', {
+            id: 'atlas-alvo', name: 'Sem Camada', schemaVersion: '2.3', mapOrder: [UUID_ALFA],
+        });
+        await gravar('MAPS', scope, UUID_ALFA, {
+            id: UUID_ALFA, name: 'Mapa Alfa', baseLayer: 'osm',
+            features: {
+                points: [{
+                    geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
+                    properties: { id: ID_FEICAO, source: 'point', layerId: 'default' },
+                }],
+            },
+        });
+        // NENHUM `gravar('LAYERS', ...)` AQUI, e essa ausencia E o caso. Um atlas local que so
+        // usou a camada padrao nunca grava a chave: `LocalRepository.getLayers` SINTETIZA a
+        // padrao na leitura e nunca a persiste.
+    }
+
+    it('sem a chave `layers_`, a camada padrao e SINTETIZADA no documento', async () => {
+        const scope = escopoAlvo();
+        await semearSemCamada(scope);
+        const data = await servico.buildLocalAtlasExportData(scope);
+        expect(data.layers['Mapa Alfa']).toHaveLength(1);
+        expect(data.layers['Mapa Alfa'][0]).toEqual(expect.objectContaining({
+            id: 'default', name: 'Padrão',
+        }));
+    });
+
+    it('INVARIANTE: toda feicao do payload aponta para uma camada QUE ESTA no payload', async () => {
+        // ESTE E O CASO QUE REPROVA O DEFEITO, e ele mede o que a tela sofre, nao o formato.
+        //
+        // Medido em 2026-08-25, no banco do chefe: os atlas enviados por este caminho tinham ZERO
+        // camadas e 100% das feicoes orfas, enquanto os enviados pelo menu do mapa tinham camada
+        // e nenhuma orfa. Sem camada no servidor, o `layerId` cunhado para cada feicao nao nomeia
+        // coisa alguma, o filtro do mapa esconde todas, e a aba de feicoes, que nao filtra, lista
+        // todas. O atlas parece cheio na lista e vazio no mapa.
+        //
+        // A assercao e sobre o PAYLOAD INTEIRO de propósito. Conferir so `data.layers` deixaria
+        // passar um remendo que cria a camada com um id que o mapeador nao usa nas feicoes, que e
+        // exatamente o mesmo estrago por outro caminho.
+        const scope = escopoAlvo();
+        await semearSemCamada(scope);
+        const data = await servico.buildLocalAtlasExportData(scope);
+        const { payload } = buildServerImportPayload(data, { name: 'Enviado' });
+
+        for (const mapa of payload.maps) {
+            const idsDeCamada = new Set((mapa.layers || []).map((l) => l.id));
+            expect(idsDeCamada.size, `o mapa "${mapa.name}" subiu sem camada nenhuma`)
+                .toBeGreaterThan(0);
+            for (const f of (mapa.features || [])) {
+                expect(idsDeCamada.has(f.properties.layerId),
+                    `feicao ${f.id} aponta para a camada ${f.properties.layerId}, que nao subiu`)
+                    .toBe(true);
+            }
+        }
+    });
+
+    it('CONTROLE: com a chave gravada, sao as camadas DELA que sobem, e nao a sintetizada', async () => {
+        // Sem este controle, "sintetiza a padrao" passaria verde numa implementacao que IGNORASSE
+        // as camadas reais do atlas e mandasse sempre uma padrao sozinha.
+        const scope = escopoAlvo();
+        await semearSemCamada(scope);
+        await gravar('LAYERS', scope, `layers_${UUID_ALFA}`, [
+            { id: 'uuid-um', name: 'Camada Um', visible: true, locked: false, opacity: 1, order: 0 },
+            { id: 'uuid-dois', name: 'Camada Dois', visible: true, locked: false, opacity: 1, order: 1 },
+        ]);
+        const data = await servico.buildLocalAtlasExportData(scope);
+        expect(data.layers['Mapa Alfa'].map((l) => l.name)).toEqual(['Camada Um', 'Camada Dois']);
+    });
+});
+
 describe('buildLocalAtlasExportData :: escopo', () => {
     it('não lê o slot vizinho, ainda que ele tenha um mapa de mesmo NOME', async () => {
         const alvo = escopoAlvo();
@@ -365,12 +444,29 @@ describe('sendLocalAtlasToServer', () => {
         const alfa = payload.maps.find((m) => m.name === 'Mapa Alfa');
         expect(alfa.base_layer).toBe('osm');
         expect(alfa.zoom).toBe(9);
-        expect(alfa.features.map((f) => f.id)).toEqual([ID_FEICAO, ID_IMAGEM]);
+        // A FEICAO COMUM MANTEM O ID; A DE IMAGEM, NAO. Desde 2026-08-25 o blob ganha id novo a
+        // cada envio, porque `images.id` e chave primaria global e o blob sobe DEPOIS do import,
+        // fora do alcance do recunho do servidor. A feicao de imagem tem `properties.id` IGUAL ao
+        // id do blob, entao ela viaja junto na troca. A comum nao tem nada a ver com blob.
+        expect(alfa.features[0].id).toBe(ID_FEICAO);
+        expect(alfa.features[1].id).not.toBe(ID_IMAGEM);
+        expect(alfa.features).toHaveLength(2);
         expect(alfa.groups.map((g) => g.name)).toEqual(['Grupo Um']);
         expect(payload.atlas.settings.mapOrder).toEqual(['Mapa Bravo', 'Mapa Alfa']);
     });
 
-    it('sobe a imagem PRESERVANDO o id local, que é o que mantém a referência válida', async () => {
+    it('o blob sobe com id NOVO, e o payload aponta para esse mesmo id', async () => {
+        // ESTE CASO MUDOU DE PREMISSA EM 2026-08-25, e a premissa velha era o defeito.
+        //
+        // Ele dizia "sobe a imagem PRESERVANDO o id local", e isso valia enquanto o primeiro
+        // envio era o unico. Com o reenvio, `images.id` sendo chave primaria GLOBAL, o id local
+        // ja esta ocupado: o servidor recunha feicao, camada e grupo no momento do import, mas o
+        // blob sobe DEPOIS e fica fora desse alcance. O reenvio de um atlas com imagem entrava e
+        // a imagem sumia, em silencio.
+        //
+        // O QUE SE MEDE AGORA E A CONCORDANCIA, e nao o valor: nao importa qual id o blob recebe,
+        // importa que o payload ja aponte para ELE. Um teste que cobrasse o id local de volta
+        // seria o defeito escrito como contrato.
         const scope = escopoAlvo();
         await semearAtlas(scope);
         const apiClient = apiFalso();
@@ -380,9 +476,27 @@ describe('sendLocalAtlasToServer', () => {
         expect(apiClient.chamadas.bulkUploadImages).toHaveLength(1);
         const [atlasId, itens] = apiClient.chamadas.bulkUploadImages[0];
         expect(atlasId).toBe('srv-novo-1');
-        // O id do item é o id LOCAL: o atlas já subiu com as feições apontando para ele. São DOIS,
-        // porque o ícone personalizado também é um blob que o payload referencia.
-        expect(itens.map((i) => i.localId).sort()).toEqual([ID_IMAGEM, 'ico-1'].sort());
+        // SAO DOIS, porque o icone personalizado tambem e um blob que o payload referencia.
+        expect(itens).toHaveLength(2);
+        const enviados = itens.map((i) => i.localId).sort();
+
+        // 1. NENHUM id local sobreviveu.
+        expect(enviados).not.toContain(ID_IMAGEM);
+        expect(enviados).not.toContain('ico-1');
+
+        // 2. E o payload aponta EXATAMENTE para os ids que subiram. Esta e a asserção que o
+        //    defeito reprova: sem a troca em duas passadas, o payload guarda o id velho e a
+        //    referencia fica pendurada.
+        const [payload] = apiClient.chamadas.importAtlas;
+        const alfa = payload.maps.find((m) => m.name === 'Mapa Alfa');
+        const citados = [
+            alfa.features[1].id,
+            payload.atlas.settings.customIcons?.[0]?.id
+                ?? Object.keys(payload.atlas.settings.customIcons ?? {})[0],
+        ].filter(Boolean).sort();
+        expect(citados.length, 'o payload precisa citar os dois blobs').toBe(2);
+        expect(citados).toEqual(enviados);
+
         expect(itens.every((i) => i.mimeType === 'image/png')).toBe(true);
         expect(result.imageStats).toEqual({ total: 2, uploaded: 2, skipped: 0, failed: 0 });
     });
