@@ -23,6 +23,30 @@ cada alvo (risco, edge cases, se vale fast-check). Três regras de uso:
 
 ## Status
 
+**LOTE 2 — CONCLUÍDO em 2026-08-24: os 21 domínios que restavam foram cobertos, e o que este
+arquivo é mudou.** Ele nasceu como inventário de defeito SUSPEITADO, apurado por leitura; agora é
+registro do que foi MEDIDO. A diferença não é retórica: ao executar, o inventário foi **refutado
+cerca de trinta vezes**, e nenhuma das refutações era descuido. Ele mandava procurar símbolo em
+arquivo onde ele não existe (duas linhas), chamava de bug um parâmetro com default correto,
+afirmava deep-copy onde a cópia é rasa, dizia que uma função não trata antimeridiano quando ela
+trata (a irmã é que não), propunha um teste sobre `_niceNumber`, que não existe em lugar nenhum de
+`src/`, e tratava como "extrair primeiro" quatro grupos que já eram testáveis sem tocar em `src/`.
+As linhas foram corrigidas no lugar. **Trate toda célula abaixo como HIPÓTESE: meça antes de
+escrever o teste, e corrigir a linha faz parte de fechar o item.**
+
+Saldo do lote: cerca de 4400 casos novos e **98 defeitos reais de produto**, todos consertados ou
+registrados como decisão com a medição. Zero `it.fails` restante na árvore. A decisão e as três
+formas que atravessaram o repositório (`valor || padrao` engolindo o zero legítimo em nove
+domínios; lookup por `TABELA[chave]` com chave de fora em três sítios; `if (x < 0) x += 360`
+devolvendo 360 exato em quatro sítios de azimute) estão em
+[`../../docs/decisions/decisions-2026.md`](../../docs/decisions/decisions-2026.md).
+
+**O que continua aberto**, e é pouco: o `mil-symbol` parcial, cujos dois alvos restantes
+(`extractTextModifiers` e a lógica dentro de `engagement-bar.section.js`) não têm `export` e exigem
+extração; a Fase 2 declarada de vários domínios (canvas, jsdom, MapLibre, FileReader, JSZip); e o
+antimeridiano do snapping, cujo conserto foi escrito, medido e **revertido** com o motivo escrito no
+arquivo.
+
 **Lote 1 — CONCLUÍDO** (9 suítes, +491 testes, 10 bugs corrigidos), e por isso
 seus alvos **saíram das tabelas abaixo**, com um ponteiro no lugar de cada bloco.
 Suítes criadas: `tests/unit/measurement-geometry.test.js`,
@@ -148,7 +172,7 @@ Coberto por `tests/unit/line-geometry.test.js`, que absorveu também
 `frontend/src/js/draw_tools/line_tool/line_profile.js` (ganho/perda de elevação, faixa,
 declividade).
 
-### Domínio: draw-brush
+### Domínio: draw-brush — CONCLUÍDO em 2026-08-24 (brush-geometry)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `draw_tools/brush_tool/add_brush_geometry.js` | `simplifyLine` | FEITO 2026-08-24 | <=2 pts identidade; **Reumann-Witkam** (âncora em vizinhos originais, não último mantido)→curva suave colapsa; NaN dropa silenciosamente | linha reta→[first,last]; subsequência; monotônico em tolerância | sim | M |
@@ -157,25 +181,25 @@ declividade).
 | idem | `getBoundingBox` | FEITO 2026-08-24 | ~~Spread `Math.min(...lngs)` estoura pilha em arrays grandes~~ (varredura única, os QUATRO spreads); sem wrap | stress 200k pts; todo pt dentro do bbox | sim | S |
 | idem | `applyOffset` | médio | Inválido→input inalterado; dropa componente z; round-trip | round-trip +d/-d; z perdido | sim | S |
 
-### Domínio: draw-text
+### Domínio: draw-text — CONCLUÍDO em 2026-08-24 (text-geometry)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `draw_tools/text_tool/add_text_geometry.js` | `calculateRotationFromHandle` | ~~alto~~ FEITO 2026-08-24 | ~~Wrap `>=360` roda ANTES de Math.round~~: essa metade do `if` não reproduzia dentro do contrato de `turf.bearing`. O defeito real era o outro ramo: **`bearing - 270` cai em [-450, -90] e UM `+= 360` deixava a saída em [-90, 270]**, ou seja, rotação NEGATIVA no último quadrante e [271, 359] inalcançável | tests/unit/text-geometry.test.js + tests/integration/rotacao-de-texto-negativa.repro.test.js | sim | M |
 | idem | `calculateZoomAdjustedSize` | médio | diff=0→base; clamp 255; NaN não protegido; baseSize 0→0 | (16,10,11)→32; clamp 255; NaN→NaN | sim | S |
 | `tool_manager/managers/selection-highlight.manager.js` | `calculateExpandedDimensions` | alto | rot=0 early-return exato; 90→swap; 45→(w+h)/√2; ±r simétrico; 360 não early | (10,20,90)≈{20,10}; bbox nunca encolhe | sim | M |
 
-### Domínio: draw-image
+### Domínio: draw-image — CONCLUÍDO em 2026-08-24 (image-geometry)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `draw_tools/image_tool/add_image_geometry.js` | `calculateZoomAdjustedSize` | alto | Clamp 10 (não 255 como text!); 2^-Inf→0; NaN; base>10 clampa mesmo diff 0 | (1,15,16)→2; (1,0,20)→10; <=10 sempre | sim | S |
 
-### Domínio: draw-point
+### Domínio: draw-point — CONCLUÍDO em 2026-08-24 (point-geometry + label-tab-helpers)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `draw_tools/point_tool/add_point_geometry.js` | `calculateSelectionBoxGeometry` | alto | **BUG: callsite `createPointAtCoordinates` passa 4 args (5 esperados)→effectiveZoom=null**; cosLat polos; anel fechado 5 pts | fixar geometria com assinatura 5-arg; anel[0]===anel[4] | sim | M |
 | `tool_manager/helpers/label-tab.helpers.js` | `computeShapeCentroid` | FEITO 2026-08-24 | Anel fechado exclui vértice de fechamento; <3→null; ~~antimeridiano errado~~ (longitudes somadas desenroladas); holes ignorados | quadrado fechado→[1,1]; centroid dentro do anel | sim | S |
 
-### Domínio: mil-symbol (parcialmente concluído)
+### Domínio: mil-symbol (parcialmente concluído) — o que sobra é `extractTextModifiers` e `engagement-bar.section.js`, os DOIS sem `export`
 `buildSIDC`, `parseSIDC` (com round-trip), `validateSIDC`, `canParseSIDC` e
 `extractViewBoxDimensions` estão cobertos por `tests/unit/military-symbol-generator.test.js`;
 a extensão brasileira do SIDC, por `tests/unit/brazilian-sidc.test.js`. As linhas abaixo são
@@ -186,7 +210,7 @@ o que sobrou aberto no domínio.
 | `brazilian_svg_postprocessing.js` | `hexToRgb` (+`applyBrazilianModifications`) | alto | **3-dígitos `#fff`→`rgb(255,NaN,NaN)`**; lowercase; sem `#` | `#fff`→NaN (flag bug); 4 cores engagement substituídas | não | M |
 | `engagement-bar.section.js` | encode/decode (extrair; nomes sugeridos, ainda não existem) | alto | `'STAGE-WEAPON'`; `R:` prefix; desambiguação stage-vs-weapon; round-trip com valores contendo `<` | extrair pure; round-trip stage×weapon×remote | sim | M |
 
-### Domínio: mil-arrow
+### Domínio: mil-arrow — CONCLUÍDO em 2026-08-24 (arrow-geometry + arrow-merge)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `military_tools/arrow_tool/add_arrow_geometry.js` | `normalizeBaseCoordinates` | alto | JSON malformado→[]; `'null'`/`'42'`→retorna null/42 (shape ruim); array passa por ref | round-trip; `'42'`→documenta bug | sim | S |
@@ -196,7 +220,7 @@ o que sobrou aberto no domínio.
 | idem | `canMergeArrows`/`canSplitArrows` | médio | <2→false; source≠arrow; layerId ausente→'default' bucket; isMerged+branches | 2 arrows sem layerId→mergeable | não | S |
 | idem | `_applyWidthFromHandle` (extrair sideSign) | alto | Cross-product esquerda(>0)/direita; colinear `>0` estrito→não inverte | extrair `sideSign(a,b,p)`; esquerda→>0 | sim | M |
 
-### Domínio: mil-boundary
+### Domínio: mil-boundary — CONCLUÍDO em 2026-08-24 (boundary-geometry-coordenadas-e-echelon)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `military_tools/boundary_tool/add_boundary_geometry.js` | `normalizeBaseCoordinates` | alto | null→null; JSON→array; **all-or-nothing** (1 NaN rejeita tudo, diverge de validate); `'[]'`→[] | round-trip; um NaN→null | sim | S |
@@ -205,14 +229,14 @@ o que sobrou aberto no domínio.
 | idem | `generateBoundaryGeometry`/`createEchelonSymbol`/`updateFromHandle` | alto | Fallback LineString; **`updateFromHandle` midpoint usa `<=` (vertex usa `<`)→off-by-one**; clamps | stub turf; #linhas=2·X+I, #polys=o; `<=` append | sim/não | M |
 | idem | `generateBoundaryTexts` | médio | **`text_distance_ratio===0` cai p/ 0.9** (falsy-zero); rotação seam 0/180 | ratio 0→fallback 0.9 (flag) | não | M |
 
-### Domínio: mil-occupied
+### Domínio: mil-occupied — CONCLUÍDO em 2026-08-24 (occupied-front-geometry)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `frontend/src/js/military_tools/occupied_front_tool/add_occupied_front_geometry.js` | `createOccupiedFrontGeometry`/`createRay` | alto | 3 pts→MultiLineString 10 segmentos; ratios 60/10/10; turn ±225, head ±150; dist<1→[] | coords.length===10; arm omitido se p2==p1 | sim | M |
 | idem | `calculateBearing` (local, distinto de utils) | médio | Norte→0, leste→90; normalizado [0,360); **antimeridiano NÃO tratado** (bug) | norte≈0; sempre [0,360); round-trip destination | sim | S |
 | idem | `updateFromHandle`/`calculatePreview` | alto | **p3 NÃO validado por distância** (pode colapsar em p1); **calculatePreview sem allowlist de handleType**; imutabilidade | p3 anyPos sucesso (flag); handleType bogus→geometria | não | M |
 
-### Domínio: mil-coordmeasure
+### Domínio: mil-coordmeasure — CONCLUÍDO em 2026-08-24 (coordination-measure-* + coordination-points-catalog)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `coordination_measure_generator.js` | `hexToRgb` | alto | `/i`; sem `#`; 3-dígito→null; 8-dígito→null; `#000000`/`#FFFFFF` | `#FFF`→null; `''`→null | sim | S |
@@ -223,7 +247,7 @@ o que sobrou aberto no domínio.
 | `add_coordination_measure_geometry.js` | `calculateZoomAdjustedSize` | alto | diff=0→base; clamp 10; 2^-n; base 0→0 | (2,10,11)→4; (5,0,20)→10 | sim | S |
 | `coordination_points_catalog.js` | invariantes catálogo + `getTextFieldsConfig` | médio | ECHELON_/SUPPLY_ gerados; code===key; svg string | cada code→Array; counts batem | sim | M |
 
-### Domínio: analysis (los + visibility)
+### Domínio: analysis (los + visibility) — CONCLUÍDO em 2026-08-24 (visibility-geometry + los-geometry)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `frontend/src/js/analysis_tools/visibility_tool/add_visibility_geometry.js` | `calculateBearing`/`pointAtBearing` (cópias próprias) | alto | Norte/leste/sul/oeste; [0,360); radius 0→center; cosLat polo; antimeridiano | round-trip bearing/destination; norte=0 | sim | S |
@@ -245,7 +269,7 @@ Os três módulos (`frontend/src/js/import_export/csv/csv-parser.js`,
 `csvToGeoJSON`. O bug do `_parseNumber` (o `replace(',')` que trocava só a primeira vírgula)
 foi corrigido nesse lote. A escrita de CSV fica à parte, em `tests/unit/csv-escape.test.js`.
 
-### Domínio: ie-pdf / ie-ebgeo (cartográfico — extrair privados)
+### Domínio: ie-pdf / ie-ebgeo (cartográfico — extrair privados) — CONCLUÍDO em 2026-08-24 (pdf-mosaico-grade-cartografica + pdf-export-constantes)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `pdf-cartographic-elements.js` | `_formatDMS` (extrair) | alto | **Carry seg=60** (floor min + round sec); 0→'0°N'; hemisférios | seg arredonda a 60 (flag); /^...[NSEW]$/ | sim | M |
@@ -255,7 +279,7 @@ foi corrigido nesse lote. A escrita de CSV fica à parte, em `tests/unit/csv-esc
 | `pdf-export.tab.js` | `calculateBoundsFromScaleAtCenter` (extrair) | alto | cosLat correção; **lat=90→div-zero→Infinity**; antimeridiano lng>180; usable dentro do paper; simetria | usable strictly inside paper (property); lat0 vs lat60 2× | sim | M |
 | `pdf-export.constants.js` | `parseScaleDenom` | médio | `'1:0'`→25000 (silencioso); sem `:`→25000; **`'1:25.000'`→25** (pt-BR ponto); não-string→throw | `'1:0'`→25000 (documenta); `'1:25.000'`→25 (flag) | sim | S |
 
-### Domínio: processing
+### Domínio: processing — CONCLUÍDO em 2026-08-24 (processing-registry + processing-buffer + processing-voronoi)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `processing/processing.constants.js` | `extractBaseCoordinates` | alto | null→inalterado; <=1→inalterado; `===` estrito (float quase-igual não strip); **coord len<2→`undefined===undefined`→strip errado** | round-trip strip-of-close; idempotente | sim | S |
@@ -263,7 +287,7 @@ foi corrigido nesse lote. A escrita de CSV fica à parte, em `tests/unit/csv-esc
 | `frontend/src/js/processing/algorithms/buffer.algorithm.js` | `executeBuffer` (via getAlgorithm) | alto | **MultiPolygon→fan-out 1 Polygon/poly**; null→skip; anel degenerado→skip; turf throw→continua; structuredClone attrs | stub turf MultiPolygon 2→2 results | não | M |
 | `frontend/src/js/processing/algorithms/voronoi.algorithm.js` | `executeVoronoi` | alto | pointsOnly filtra; centroid overwrite props; **alinhamento pointSources[i] vs voronoi reordenado** (cell errada); <2→throw | stub turf; nome 'Alvo'→'Proximidade - Alvo' | não | L |
 
-### Domínio: store-rest
+### Domínio: store-rest — CONCLUÍDO em 2026-08-24 (atlas-entity + migracao-feicao-e-zoom-de-ponto)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `store/migration/v1-to-v2.migration.js` | `migrateFeature` | alto | null→inalterado; id null→não cunha UUID; layerId 'default' literal; resolveId idempotente | mesma id 2×→mesmo UUID; 'default' preservado | sim | S |
@@ -278,13 +302,13 @@ sidebar↔painel de feição, os helpers de seleção e de grupo da toolbar, `re
 integração com o EventBus. As linhas de state que estavam repetidas em `## P2` saíram
 junto.
 
-### Domínio: mode
+### Domínio: mode — CONCLUÍDO em 2026-08-24 (application-mode-manager + ui-visibility-controller)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `mode/application-mode.manager.js` | `enterMode`/`exitMode` | alto | Modo inválido→false sem push; mesmo modo sobrescreve context; stack nested; viewerMode restore | round-trip enter/exit volta ao snapshot inicial | sim | M/S |
 | `ui/ui-visibility.controller.js` | `applyProfile` | alto | Perfil desconhecido→false; callbacks só p/ mudanças; restore briefing→NORMAL re-mostra | NORMAL→briefing→NORMAL restaura baseline (property) | sim | M |
 
-### Domínio: ie-vector
+### Domínio: ie-vector — CONCLUÍDO em 2026-08-24 (import-control-decomposicao + import-normalize-migracao + export-import-helpers-puros)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes sugeridos | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `import_export/import.control.js` | `decomposeMultiGeometry` (via prototype.call) | alto | Multi*→N features; **GeometryCollection com geom null SKIP** (não throw); recursão aninhada; props shallow-clone | GC [Point,null,Line]→2 features; isolamento de props | sim | M |
@@ -294,7 +318,7 @@ junto.
 
 ## P2 — Risco Médio OU Coupling `mixed` (extrair primeiro)
 
-### Domínio: draw-* (geometrias restantes)
+### Domínio: draw-* (geometrias restantes) — CONCLUÍDO em 2026-08-24 (rectangle-geometry + circle-create-handles)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `add_point_geometry.js` | `applyOffset`/`getBoundingBox`/`normalizeCoordinates` | médio/baixo | Inválido→input inalterado (no-op); JSON `'5'`→null; bbox degenerado | round-trip; `'5'`→null | sim | S |
@@ -314,7 +338,7 @@ junto.
 `tests/unit/ellipse-geometry.test.js`; e `normalizeCenter`/`isValidCenter` de círculo, em
 `tests/unit/circle-geometry.test.js`.
 
-### Domínio: mil-* (restantes)
+### Domínio: mil-* (restantes) — CONCLUÍDO em 2026-08-24 (military-constants + brazilian-extension-catalog)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `military_constants.js` | `isModifier1/2Applicable`/`isEngagementBar...`/`isValidSymbolSet`/`getEchelonData` etc | médio | **allow-by-default p/ código desconhecido** (`!includes`); `isValidSymbolSet` hasOwnProperty vs `__proto__` | 'zz'→true (documenta); `__proto__`→false | não | S |
@@ -327,7 +351,7 @@ junto.
 | `coordination_measure_generator.js` | `escapeXml`/`estimateTextWidth`/`hasExternalText` | médio | `&` escapa primeiro; bold 0.7/normal 0.6; numero 0 presente | sem `&lt;`; numero 0→true | sim/não | S |
 | `add_coordination_measure_geometry.js` | `getBoundingBox`/`affectsSIDC/TextModifiers/Visuals`/`moveSymbol` | médio/baixo | 111320 sem correção lat; conjuntos disjuntos sidc/visuals | sidc∩visuals=∅; pointCode→affectsSIDC | não | S |
 
-### Domínio: import/export (extrações)
+### Domínio: import/export (extrações) — CONCLUÍDO em 2026-08-24 (qan-export + garmin-kmz-grade-mercator + drag-drop-classificacao)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `import.control.js` | `getTargetType`/`generateImportName`/`uniquify` (extrair) e um stripClosingVertex extraído (nome sugerido) | médio/baixo | substring case-insensitive; counter mutação; sufixo começa em 2; **strip `===` exato** | 'POLYGON'→polygons; uniquify gap; strip 1e-9→não | sim/não | S |
@@ -339,7 +363,7 @@ junto.
 | `pdf-cartographic-elements.js` | `_utmZone`/`_formatBarLabel`/`_formatScaleText`/`_getGridSpacing` (extrair) | médio/baixo | `_utmZone(-180)→1`,180→60,NaN→NaN; barLabel 0/'1.5 km'; scaleText '1:25.000' pt-BR | -180→1; 1500→'1.5 km'; 25000→'1:25.000' | sim/não | S |
 | `pdf-export.tab.js` | `calculateA4PixelSize`/`convertMMToMapUnitsFromScale`/`_getFeatureCoord`/getters | médio/baixo | landscape/portrait swap; pixelRatio=dpi/96; UTM allowed `<` 2.5M estrito; Polygon anel vazio→undefined | dpi linear; UTM 2.5M excluído (fronteira) | sim/não | S/M |
 
-### Domínio: terrain
+### Domínio: terrain — CONCLUÍDO em 2026-08-24 (terreno-exagero-e-camadas-de-analise + camadas-de-dado-limites-e-estilo)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `data-layers.manager.js` | `_calculateBounds` (extrair `calculateBounds(features)`) | alto | Vazio→null (sentinel Infinity); recursão depth arbitrária; [0,0]≠falsy; **NaN→sentinels Infinity persistem**; antimeridiano | extrair pure; todo pt dentro bbox (property); MultiPolygon≡LineString | sim | M |
@@ -347,7 +371,7 @@ junto.
 | idem | `setExaggeration`/`initExaggeration`/`terrainConfig` | médio | map null→não throw; init NÃO chama setTerrain; 0 passa sem clamp | init não chama setTerrain; exag 0→0 | não | S |
 | `analysis-layers.manager.js` | `_validateLayersConfig` | médio | disabled→skip; len≠4→throw; west>=east→throw; antimeridiano west>east→throw | bounds len 3→throw; antimeridiano→throw (documenta) | não | M |
 
-### Domínio: layers
+### Domínio: layers — CONCLUÍDO em 2026-08-24 (camada-nasce-com-tres-carimbos + filtro-de-camada-por-passo + fundo-de-texto-derivado)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `layers/visibility-filter.js` | `createLayerVisibilityFilter`/`createHatchLayerFilter` | alto | **null vs [] additionalFilters** (null→ramo curto, []→spread); hatch true→2 sub-filtros/false→1; ordem VISIBLE índice 1 | filtro deep-equal; null→3 elementos | sim/não | S |
@@ -355,7 +379,7 @@ junto.
 | idem | `getLayers`/`_getNextLayerOrder`/`_switchActiveLayerOnDelete`/`getUnlockedLayerIds` | médio | `order||0` ties; **vazio→0 (evita -Infinity)**; switch por ordem-Map não order-field; locked undefined→incluído | vazio→0; switch ignora order (fixar) | sim/não | M |
 | `layers/styles/content.layers.js` | `toBackgroundFeatures` (exportar) | médio | showBackground+selectionBox ambos; id+'_bg'; **sem guard p/ properties undefined** | numérico id 5→'5_bg'; ambos requeridos | não | S |
 
-### Domínio: snapping
+### Domínio: snapping — CONCLUÍDO em 2026-08-24 (snapping-vertice-aresta-e-ctrl)
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `snapping/snapping.service.js` | `closestPointOnSegment` (extrair) | alto | lenSq=0→t=0 sem NaN; clamp t∈[0,1]; vertical/horizontal | extrair; t∈[0,1] sempre; dist<=dist(a)e dist(b) | sim | M |
@@ -364,7 +388,7 @@ junto.
 | idem | computeEffectiveEnabled (extrair o XOR; nome sugerido) | médio | global XOR ctrl; tabela-verdade 4 combos | global!==ctrl (tabela) | não | S |
 | idem | `_findBestSnap` (extrair) | alto | vertex bonus vence edge; geometry null skip; tolerância; tie primeiro | bonus 4 faz vertex 10px vencer edge 9px | não | L |
 
-### Domínio: catalog/search/coordinates/util/userdata/briefing/store
+### Domínio: catalog/search/coordinates/util/userdata/briefing/store — CONCLUÍDO em 2026-08-24 (dez suites (coordenadas, id-utils, pointer-utils, config-helpers, briefing x2, catalogo, user-data, busca, navegacao))
 | Módulo | Símbolo | Risco | Edge cases-chave | Testes | fast-check | Est. |
 |---|---|---|---|---|---|---|
 | `catalog/catalog.service.js` | `searchItems`/`_normalizeText` | alto/médio | query ''→todos; NFD accent-fold (ç NÃO decompõe); name null→sem throw; só keyword casa | 'analise'→'Análise'; '' →todos; ç sobrevive | sim | S |
