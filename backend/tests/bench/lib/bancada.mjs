@@ -49,7 +49,7 @@ export async function comBancada({ titulo, dsn = DSN_PADRAO, extraCabecalho = {}
 
   await prepararBanco({ dsn, recriar: true });
   const servidor = await subirServidor({ databaseUrl: dsn });
-  let codigo = 0;
+  let codigo;
   try {
     codigo = (await corpo({ dsn, servidor, base: servidor.base })) ?? 0;
   } finally {
