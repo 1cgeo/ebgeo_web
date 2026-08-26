@@ -31,6 +31,23 @@ export const DSN_PADRAO =
   process.env.BENCH_DATABASE_URL
   || 'postgresql://ebgeo:ebgeo_secret@localhost:5432/ebgeo_bench_escrita';
 
+// PostGIS is NOT a trusted extension, so `CREATE EXTENSION postgis` needs a SUPERUSER, and the
+// application role (`ebgeo`) is not one. Migration `006_ng.sql` therefore dies mid-way on a
+// freshly created database, leaving it with five of eleven migrations applied — measured on this
+// machine before this variable existed, and `ebgeo_revisor` in the local cluster is a survivor of
+// exactly that failure (it holds `pgcrypto` and nothing else).
+//
+// The bench role still CREATES and DROPS the database, so it stays the owner and the migrations
+// keep running with the same privileges production has. The superuser connection is used for one
+// thing only: creating the extensions inside the new database, right after it is born. Least
+// privilege, and the same split `scripts/run-tests.js` already makes with `ADMIN_DATABASE_URL`.
+export const ADMIN_DSN =
+  process.env.BENCH_ADMIN_DATABASE_URL || process.env.ADMIN_DATABASE_URL || null;
+
+// Every extension the migrations ask for. `IF NOT EXISTS` makes the migration's own CREATE a
+// no-op afterwards, so `006_ng.sql` and `007_sv360.sql` run unchanged.
+const EXTENSOES = ['postgis', 'pg_trgm', 'unaccent', 'pgcrypto'];
+
 const SENHA = 'Bench@1234';
 
 /**
@@ -64,6 +81,8 @@ export async function prepararBanco({ dsn = DSN_PADRAO, recriar = true } = {}) {
     await admin.end().catch(() => {});
   }
 
+  await criarExtensoes(dsn, nome);
+
   // Imported late and by URL: `src/database/migrate.js` pulls in `config.js`, which calls
   // `required('DATABASE_URL')` at module evaluation. Importing it before the variable is set
   // would abort the bench with a configuration error that has nothing to do with the bench.
@@ -71,6 +90,50 @@ export async function prepararBanco({ dsn = DSN_PADRAO, recriar = true } = {}) {
   const { runMigrations } = await import('../../../src/database/migrate.js');
   await runMigrations(dsn);
   return dsn;
+}
+
+/**
+ * Creates the PostGIS-and-friends extensions with the superuser connection.
+ *
+ * FAILS LOUDLY WHEN THERE IS NO SUPERUSER DSN, and does not try to be clever about it. Letting
+ * the run continue would hand the migration a database it cannot finish, and the error would then
+ * point at `006_ng.sql` instead of at the missing credential — a wrong answer wearing the clothes
+ * of a right one.
+ */
+async function criarExtensoes(dsn, nome) {
+  const url = new URL(dsn);
+  const alvo = new pg.Client({ connectionString: dsn });
+  await alvo.connect();
+  let faltando;
+  try {
+    const { rows } = await alvo.query('SELECT extname FROM pg_extension');
+    const tem = new Set(rows.map((r) => r.extname));
+    faltando = EXTENSOES.filter((e) => !tem.has(e));
+  } finally {
+    await alvo.end().catch(() => {});
+  }
+  if (faltando.length === 0) return;
+
+  if (!ADMIN_DSN) {
+    throw new Error(
+      `O banco "${nome}" precisa das extensoes [${faltando.join(', ')}], e "${url.username}" nao e `
+      + 'superusuario. Aponte BENCH_ADMIN_DATABASE_URL para uma conexao de superusuario no MESMO '
+      + 'cluster (ver tests/bench/README.md). O banco continua sendo criado e possuido pelo papel '
+      + 'da aplicacao; o superusuario so cria as extensoes.'
+    );
+  }
+
+  const adminUrl = new URL(ADMIN_DSN);
+  adminUrl.pathname = `/${nome}`;
+  const su = new pg.Client({ connectionString: adminUrl.toString() });
+  await su.connect();
+  try {
+    for (const ext of faltando) {
+      await su.query(`CREATE EXTENSION IF NOT EXISTS ${ext}`);
+    }
+  } finally {
+    await su.end().catch(() => {});
+  }
 }
 
 /**

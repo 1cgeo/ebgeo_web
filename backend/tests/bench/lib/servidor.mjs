@@ -23,15 +23,67 @@
 // ready in the middle. `/api/v1/health` answering 200 is the only signal used here.
 
 import { spawn } from 'child_process';
+import { createServer } from 'net';
 import { setTimeout as sleep } from 'timers/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const DIR_BENCH = path.dirname(fileURLToPath(import.meta.url));
 const DIR_BACKEND = path.resolve(DIR_BENCH, '../../..');
 
-export const PORTA_PADRAO = Number(process.env.BENCH_PORT || 8099);
-export const PORTA_SONDA = Number(process.env.BENCH_PROBE_PORT || 8098);
+// MEASURED, NOT GUESSED. `node --import <caminho>` rejects a Windows absolute path with
+// `ERR_UNSUPPORTED_ESM_URL_SCHEME: Received protocol 'd:'` — the ESM loader reads the argument as
+// a URL, and `D:\...` parses as a scheme. `pathToFileURL` is the conversion the loader wants, and
+// it is harmless on POSIX. This cost the first real run of this bench.
+const URL_SONDA = pathToFileURL(path.join(DIR_BENCH, 'sonda-laco.mjs')).href;
+
+export const PORTA_PADRAO = process.env.BENCH_PORT ? Number(process.env.BENCH_PORT) : null;
+export const PORTA_SONDA = process.env.BENCH_PROBE_PORT
+  ? Number(process.env.BENCH_PROBE_PORT)
+  : null;
+
+/**
+ * Asks the OS for N free ports, holding every socket open until all of them are assigned.
+ *
+ * TWO BUGS PAID FOR THIS FUNCTION, both on the first real runs of this bench:
+ *
+ *   1. FIXED PORTS were the wrong default. A parallel `npm run dev` and a Playwright run on this
+ *      machine already held the hard-coded number, and the bench died before its first request.
+ *
+ *   2. CALLING A ONE-PORT HELPER TWICE returns the SAME port. Each call binds zero, reads the
+ *      assignment and closes; the OS then hands the very same number to the next request, so the
+ *      app and the probe both got 49247 and the second bind crashed the server process. Holding
+ *      all the sockets open at once is what makes the numbers distinct.
+ *
+ * A residual race remains (someone can take a port between the close and the spawn), which is why
+ * the probe's listener is also non-fatal. The alternative is a bench that fails for a reason with
+ * nothing to do with what it measures.
+ */
+export function portasLivres(quantas) {
+  const sockets = [];
+  return new Promise((resolve, reject) => {
+    const portas = [];
+    let pendentes = quantas;
+    for (let i = 0; i < quantas; i += 1) {
+      const s = createServer();
+      sockets.push(s);
+      s.once('error', reject);
+      s.listen(0, '127.0.0.1', () => {
+        portas.push(s.address().port);
+        pendentes -= 1;
+        if (pendentes === 0) {
+          let fechando = sockets.length;
+          for (const aberto of sockets) {
+            aberto.close(() => {
+              fechando -= 1;
+              if (fechando === 0) resolve(portas);
+            });
+          }
+        }
+      });
+    }
+  });
+}
 
 /**
  * Boots the server and waits until it answers health.
@@ -52,10 +104,15 @@ export async function subirServidor({
   timeoutMs = 30_000,
 } = {}) {
   if (!databaseUrl) throw new Error('subirServidor exige databaseUrl explícita');
+  if (porta == null || portaSonda == null) {
+    const [a, b] = await portasLivres(2);
+    porta = porta ?? a;
+    portaSonda = portaSonda ?? b;
+  }
 
   const filho = spawn(
     process.execPath,
-    ['--import', path.join(DIR_BENCH, 'sonda-laco.mjs'), 'src/index.js'],
+    ['--import', URL_SONDA, 'src/index.js'],
     {
       cwd: DIR_BACKEND,
       env: {

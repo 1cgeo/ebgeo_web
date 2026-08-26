@@ -54,9 +54,16 @@ export class Serie {
     return this.amostras.length + this.erros.length;
   }
 
-  /** Requests that the server accepted. Everything else is a refusal, not a measurement of work. */
+  /**
+   * Attempts the server accepted. Everything else is a refusal, not a measurement of work.
+   *
+   * `WS_ACK` COUNTS TOO, and leaving it out was a column that lied: the socket path never produces
+   * an HTTP status, so E3's WS row reported `ok = 0` next to `acked = 200` in the accounting right
+   * below it. A reader comparing the two rows would have read a total failure where the run was
+   * clean. Caught on the first real run of E3.
+   */
   get ok() {
-    return this.porStatus.get(200) ?? 0;
+    return (this.porStatus.get(200) ?? 0) + (this.porStatus.get('WS_ACK') ?? 0);
   }
 
   get indisponivel() {
@@ -156,4 +163,96 @@ export function imprimirCabecalho(h) {
     console.log(`  ${k.padEnd(14)} ${v}`);
   }
   console.log('='.repeat(78));
+}
+
+// ---------------------------------------------------------------------------------------------
+// HISTOGRAMA DE BALDE FIXO — o instrumento que sobrevive à fronteira de processo.
+//
+// `Serie` guarda toda amostra num array e ordena na hora do relatório, o que é exato e barato
+// para os cenários de escrita (dezenas de milhares de amostras, um processo só). O teste de
+// população não cabe nesse molde: a 1600 ops/s durante cinco minutos são quase meio milhão de
+// amostras, espalhadas por vários processos de driver, e serializar isso em JSON para agregar
+// custaria dezenas de megabytes por rodada.
+//
+// Este histograma resolve as duas coisas ao mesmo tempo. A resolução é de 1 ms até 10 s, que é
+// grosseira demais para medir um round-trip de rede e SUFICIENTE aqui: os números que separam
+// "bom" de "quebrado" nesta bancada são da ordem de 300 ms contra 3000 ms. E a agregação entre
+// processos vira soma elemento a elemento, sem perda nenhuma.
+//
+// O QUE ELE NÃO ESCONDE: o máximo é guardado exato, fora dos baldes, porque a cauda é onde mora
+// a fila do lock e arredondá-la para o balde de transbordo apagaria o resultado.
+// ---------------------------------------------------------------------------------------------
+
+const TETO_MS = 10_000;
+
+export class Histograma {
+  constructor(nome = '') {
+    this.nome = nome;
+    this.baldes = new Int32Array(TETO_MS + 1); // o último balde é o transbordo
+    this.n = 0;
+    this.soma = 0;
+    this.max = 0;
+  }
+
+  registrar(ms) {
+    const i = ms >= TETO_MS ? TETO_MS : Math.max(0, Math.round(ms));
+    this.baldes[i] += 1;
+    this.n += 1;
+    this.soma += ms;
+    if (ms > this.max) this.max = ms;
+  }
+
+  /** Soma outro histograma dentro deste. É assim que os processos de driver se juntam. */
+  fundir(outro) {
+    for (let i = 0; i <= TETO_MS; i += 1) this.baldes[i] += outro.baldes[i];
+    this.n += outro.n;
+    this.soma += outro.soma;
+    if (outro.max > this.max) this.max = outro.max;
+    return this;
+  }
+
+  percentil(p) {
+    if (this.n === 0) return null;
+    const alvo = Math.ceil((p / 100) * this.n);
+    let acumulado = 0;
+    for (let i = 0; i <= TETO_MS; i += 1) {
+      acumulado += this.baldes[i];
+      if (acumulado >= alvo) return i === TETO_MS ? this.max : i;
+    }
+    return this.max;
+  }
+
+  get media() {
+    return this.n === 0 ? null : this.soma / this.n;
+  }
+
+  /** Forma enxuta para atravessar processo: só os baldes não vazios. */
+  serializar() {
+    const pares = [];
+    for (let i = 0; i <= TETO_MS; i += 1) {
+      if (this.baldes[i] !== 0) pares.push([i, this.baldes[i]]);
+    }
+    return { nome: this.nome, n: this.n, soma: this.soma, max: this.max, pares };
+  }
+
+  static desserializar(bruto) {
+    const h = new Histograma(bruto.nome);
+    h.n = bruto.n;
+    h.soma = bruto.soma;
+    h.max = bruto.max;
+    for (const [i, c] of bruto.pares) h.baldes[i] = c;
+    return h;
+  }
+
+  resumo() {
+    if (this.n === 0) return { n: 0, p50: '-', p95: '-', p99: '-', max: '-' };
+    return {
+      n: this.n,
+      media: round(this.media),
+      p50: this.percentil(50),
+      p95: this.percentil(95),
+      p99: this.percentil(99),
+      max: round(this.max),
+    };
+  }
 }
