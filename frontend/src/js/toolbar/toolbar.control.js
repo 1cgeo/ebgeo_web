@@ -6,7 +6,7 @@
  */
 
 import { ToolbarGroup } from './components/toolbar-group.js';
-import { TOOL_GROUPS, STANDALONE_TOOLS, TOGGLE_TOOLS } from './toolbar.constants.js';
+import { TOOL_GROUPS, STANDALONE_TOOLS, TOGGLE_TOOLS, ACTION_TOOLS } from './toolbar.constants.js';
 import {
     setupCleanup,
     addDomListener,
@@ -73,6 +73,14 @@ export class ToolbarControl {
         // Create toggle buttons (state-driven, not tool-driven)
         TOGGLE_TOOLS.forEach(toolConfig => {
             const button = this._createToggleButton(toolConfig);
+            this._container.appendChild(button);
+        });
+
+        // Create action buttons — appended LAST, so they sit below the snapping
+        // toggle. Order here is the order on screen, and the actions belong at the
+        // bottom: they are not part of the draw/edit flow the rest of the bar is.
+        ACTION_TOOLS.forEach(toolConfig => {
+            const button = this._createActionButton(toolConfig);
             this._container.appendChild(button);
         });
 
@@ -153,6 +161,81 @@ export class ToolbarControl {
         this._standaloneButtons.set(toolConfig.id, button);
         return button;
     }
+
+    /**
+     * Creates a button that runs a one-shot action.
+     *
+     * It never sets `data-active` and subscribes to nothing: there is no lasting
+     * state for it to reflect, which is exactly what separates it from the other
+     * two kinds. It is also kept OUT of `_standaloneButtons`, because that map is
+     * what the lock and active-state passes iterate over, and an action has no
+     * business in either — sharing a view is a READ, so it survives a locked map.
+     * @private
+     * @param {Object} toolConfig - { id, label, icon, action, shortcut? }
+     * @returns {HTMLButtonElement}
+     */
+    _createActionButton(toolConfig) {
+        const button = document.createElement('button');
+        button.className = 'toolbar-standalone-btn';
+        button.dataset.toolId = toolConfig.id;
+        button.title = toolConfig.shortcut
+            ? `${toolConfig.label} (${toolConfig.shortcut})`
+            : toolConfig.label;
+        button.setAttribute('aria-label', toolConfig.label);
+        button.innerHTML = toolConfig.icon;
+
+        addDomListener(this, button, 'click', () => {
+            const run = this._actions[toolConfig.action];
+            if (!run) {
+                console.warn(`[toolbar] no handler for action "${toolConfig.action}"`);
+                return;
+            }
+            // The click handler stays synchronous: a rejected promise from an async
+            // listener is an unhandled rejection nobody sees, and the actions report
+            // their own outcome to the user anyway.
+            run().catch(error => console.error(`[toolbar] action "${toolConfig.action}" failed:`, error));
+        });
+
+        return button;
+    }
+
+    /**
+     * Handlers for `ACTION_TOOLS`, keyed by the `action` name in the config.
+     *
+     * Declared here and not in the constants file on purpose: the constants stay
+     * declarative (id, label, icon) and importable by anything, while the behaviour
+     * lives where the map and the controls already are.
+     * @private
+     */
+    _actions = {
+        /**
+         * Copies a link to the current 2D view: base layer plus camera.
+         *
+         * The deep-link module is imported lazily because it is only ever needed
+         * when someone presses this, and it drags the store barrel with it.
+         */
+        shareView: async () => {
+            const [{ buildShareUrlBasemap, copyShareUrl }, { getCurrentBaseLayer }] = await Promise.all([
+                import('@js/deep-link/deep-link.js'),
+                import('@store/map.operations.js'),
+            ]);
+
+            const center = this._map.getCenter();
+            // The base layer is read from the STORE, not from the control's own
+            // field: the store is what `switchMap` reconciles on boot, so it is the
+            // one that still agrees with the screen after a fallback took over.
+            const basemap = await getCurrentBaseLayer().catch(() => null);
+
+            await copyShareUrl(buildShareUrlBasemap(
+                basemap,
+                center.lng,
+                center.lat,
+                this._map.getZoom(),
+                this._map.getBearing(),
+                this._map.getPitch(),
+            ));
+        },
+    };
 
     /**
      * Sets up event listeners.

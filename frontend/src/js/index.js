@@ -44,6 +44,7 @@ import { publicLinkFailureNotice, shouldForgetPublicLink } from './deep-link/pub
 import { classifyRequestFailure, isCredentialFailure } from '@utils/request-failure.js';
 import { hasLocalMapIntent } from './deep-link/local-intent.js';
 import { shouldRouteToProjects } from './deep-link/route-decision.js';
+import { parseDeepLink } from './deep-link/parse.js';
 import { consumePendingEbgeoImport } from './deep-link/pending-import.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
@@ -78,6 +79,16 @@ async function initApp() {
     // Reading here, before the first await, is the only point guaranteed to still see the original URL.
     const bootPublicLink = new URLSearchParams(window.location.search).get('atlasPublico');
     const bootAtlasLink = parseAtlasLink();
+
+    // A VISTA COMPARTILHADA (`#view=base`) e capturada aqui e aplicada la embaixo, no `finally` do
+    // roteamento. Ela nao pode ser lida no ponto de uso porque `handleDeepLink` limpa o hash muito
+    // antes (dentro do manipulador de `load`), e nao pode ser APLICADA no ponto de leitura porque a
+    // camera 2D ainda vai ser movida duas vezes: por `renderBootMap` ou por `openRemoteAtlas`, e os
+    // dois terminam em `applyMapSavedPosition`. Aplicada cedo, ela e sobrescrita em silencio.
+    //
+    // `parseDeepLink` vem de `parse.js`, e nunca de `deep-link.js`: aquele arrasta `@store` e o
+    // barril `@utils` para o pedaco de boot, que e a razao de a leitura morar separada.
+    const bootSharedView = parseDeepLink();
 
     // Phase -1: page routing. A signed-in visitor arriving at a bare `/` is here to CHOOSE a
     // project, so send them to the chooser page BEFORE building a map they did not ask for — that
@@ -324,6 +335,17 @@ async function initApp() {
         // resto pinta o slot local, que e o que o boot antigo entregava em qualquer desfecho.
         if (_abriuAtlasDeServidor) hideLoadingScreen();
         else await renderBootMap().catch(() => hideLoadingScreen());
+
+        // A VISTA COMPARTILHADA VAI POR ULTIMO, e o lugar dela e aqui pelo mesmo motivo que a
+        // cortina cai aqui: e o unico ponto que roda em TODO desfecho da cadeia acima, e depois
+        // de a pintura ter movido a camera. O modulo entra por import dinamico porque so este
+        // boot precisa dele, e um import estatico o traria (com `@store` e o barril `@utils`)
+        // para o pedaco de boot de todo mundo.
+        if (bootSharedView?.type === 'base') {
+            await import('./deep-link/deep-link.js')
+                .then(({ applySharedView }) => applySharedView(bootSharedView))
+                .catch((error) => console.warn('[boot] vista compartilhada nao aplicada:', error));
+        }
     }
 }
 

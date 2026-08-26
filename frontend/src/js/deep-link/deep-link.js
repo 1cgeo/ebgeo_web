@@ -10,9 +10,14 @@
  *   #view=360&photo=<uuid>&lon=<deg>&lat=<deg>&fov=<deg>
  *   #view=3d&tileset=<id>&lon=<deg>&lat=<deg>&h=<meters>&heading=<rad>&pitch=<rad>&roll=<rad>
  *   #view=fp&scene=<id>&x=<m>&y=<m>&z=<m>&yaw=<rad>&pitch=<rad>
+ *   #view=base&base=<id>&lon=<deg>&lat=<deg>&z=<n>&b=<deg>&p=<deg>
  *
  * The first-person pose is in the scene's own metric space (the octree frame),
  * not in geographic coordinates: it comes straight out of the walk controller.
+ *
+ * The grammar itself lives in `./parse.js`, and it is a FROZEN CONTRACT shared
+ * with the `main` line of the product: the rules and the golden vectors that hold
+ * them are named in that file's header.
  */
 
 import { getControl } from '@store';
@@ -41,6 +46,30 @@ function formatFixed(value, digits) {
 // ===== URL BUILDING =====
 
 /**
+ * The part of the current address a shared link keeps: origin, path AND query.
+ *
+ * THE QUERY USED TO BE DROPPED HERE, and in this package that omission had teeth:
+ * `?atlas=` and `?map=` live in the query, so a share URL built from origin+path
+ * alone forgot which atlas the person was in. The hash and the query are
+ * orthogonal by design (`deep-link/atlas-link.js` says so) and never collide, so
+ * keeping the query costs nothing.
+ *
+ * WHAT IT DOES NOT FIX, said out loud so nobody reads more into it: the atlas in
+ * the query is not yet consulted when the viewer opens. The 360 and 3D deep links
+ * fire from the map's `load` handler, and the atlas scope is only declared when
+ * the sync engine connects, which happens after. So a link to a resource that is
+ * only reachable through an atlas LOAN still fails, and this is a separate fix.
+ * A public resource, which is what these links are for, needs no scope at all.
+ *
+ * The existing hash is deliberately NOT kept: it is about to be replaced by the
+ * one the caller is building.
+ * @returns {string} Everything up to (and excluding) the fragment.
+ */
+function shareUrlBase() {
+    return window.location.origin + window.location.pathname + window.location.search;
+}
+
+/**
  * Builds a shareable URL for a 360 photo view.
  * @param {string} photoName - Photo UUID
  * @param {number} lon - Horizontal rotation (degrees)
@@ -49,7 +78,7 @@ function formatFixed(value, digits) {
  * @returns {string} Full URL with hash
  */
 export function buildShareUrl360(photoName, lon, lat, fov) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', '360');
     params.set('photo', photoName);
@@ -71,7 +100,7 @@ export function buildShareUrl360(photoName, lon, lat, fov) {
  * @returns {string} Full URL with hash
  */
 export function buildShareUrl3D(tilesetId, lon, lat, height, heading, pitch, roll) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', '3d');
     params.set('tileset', tilesetId);
@@ -98,7 +127,7 @@ export function buildShareUrl3D(tilesetId, lon, lat, height, heading, pitch, rol
  * @returns {string} Full URL with hash
  */
 export function buildShareUrlFirstPerson(sceneId, x, y, z, yaw, pitch) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', 'fp');
     params.set('scene', sceneId);
@@ -107,6 +136,46 @@ export function buildShareUrlFirstPerson(sceneId, x, y, z, yaw, pitch) {
     params.set('z', formatFixed(z, 2));
     params.set('yaw', formatFixed(yaw, 4));
     params.set('pitch', formatFixed(pitch, 4));
+    return `${base}#${params.toString()}`;
+}
+
+/**
+ * Builds a shareable URL for the 2D map: a base layer, seen from a camera.
+ *
+ * WHY THE BASE LAYER AND NOT THE WHOLE SCREEN. This link answers "look at THIS,
+ * from HERE", and the base layer is the only part of the 2D view that is both a
+ * catalogued thing with a stable id and cheap to name in a URL. Which catalogue
+ * layers were on, what the temporal cursor read, which features were drawn: none
+ * of that fits in a fragment, and most of it is not the recipient's to see. The
+ * atlas, which IS the way to share the rest, already travels in the query.
+ *
+ * PRECISION IS CHOSEN, NOT COPIED. Six decimals of degree is about 10 cm, past
+ * what the base layer itself has to show; zoom keeps two decimals because
+ * MapLibre zoom is continuous and a rounded one visibly jumps; bearing and pitch
+ * keep one, finer than anyone can aim by dragging.
+ *
+ * `basemapId` MAY BE NULL and then the key is simply absent, rather than present
+ * and empty. The parser reads an absent base as "keep whatever the recipient has",
+ * and `base=` with nothing after it would mean the same thing while looking like a
+ * value. One way to say one thing.
+ * @param {string|null} basemapId - Base layer id, or null to share only the camera
+ * @param {number} lon - Camera longitude (degrees)
+ * @param {number} lat - Camera latitude (degrees)
+ * @param {number} zoom - Zoom level
+ * @param {number} bearing - Camera bearing (degrees)
+ * @param {number} pitch - Camera pitch (degrees)
+ * @returns {string} Full URL with hash
+ */
+export function buildShareUrlBasemap(basemapId, lon, lat, zoom, bearing, pitch) {
+    const base = shareUrlBase();
+    const params = new URLSearchParams();
+    params.set('view', 'base');
+    if (basemapId) params.set('base', basemapId);
+    params.set('lon', formatFixed(lon, 6));
+    params.set('lat', formatFixed(lat, 6));
+    params.set('z', formatFixed(zoom, 2));
+    params.set('b', formatFixed(bearing, 1));
+    params.set('p', formatFixed(pitch, 1));
     return `${base}#${params.toString()}`;
 }
 
@@ -212,8 +281,27 @@ export function waitFor(produce, timeoutMs = 5000, intervalMs = 100) {
  * Handles a deep link on app initialization.
  * Reads the URL hash, opens the appropriate viewer, and clears the hash.
  * Must be called after all controls are registered and the map is ready.
+ *
+ * WHY THE 2D VIEW IS THE ONE THAT CAN BE DEFERRED, AND HAS TO BE. The other three
+ * viewers own their camera: nothing else in the boot moves it, so opening them
+ * from the map's `load` handler is safe. The 2D camera is contested. This boot
+ * paints in one of two places, and BOTH end by moving it: the local slot through
+ * `renderBootMap` (`switchMap(true)` finishes in `applyMapSavedPosition`), and a
+ * server atlas through `openRemoteAtlas`, which runs LATER than this handler and
+ * ends the same way. Applying the shared view here would leave no error behind,
+ * just the recipient's own last view where the sender's was meant to be.
+ *
+ * So the caller decides. `map_sig.js` calls this with `deferSharedView` and
+ * `index.js` applies it in the `finally` of the boot routing, which is the one
+ * point that has run in every outcome. Outside the boot (a link pasted into an
+ * open tab) nothing is racing, and the default applies it right here.
+ *
+ * @param {{deferSharedView?: boolean}} [options]
+ * @param {boolean} [options.deferSharedView=false] - Leave a `#view=base` link for
+ *   the caller to apply once the boot has finished painting. The hash is cleared
+ *   either way, so the caller must have captured the descriptor beforehand.
  */
-export async function handleDeepLink() {
+export async function handleDeepLink({ deferSharedView = false } = {}) {
     const link = parseDeepLink();
     if (!link) return;
 
@@ -226,6 +314,8 @@ export async function handleDeepLink() {
         await openDeepLink3D(link);
     } else if (link.type === 'fp') {
         await openDeepLinkFp(link);
+    } else if (link.type === 'base' && !deferSharedView) {
+        await applySharedView(link);
     }
 }
 
@@ -348,6 +438,59 @@ async function openDeepLink3D(link) {
     } catch (error) {
         console.error('[deep-link] Failed to open 3D viewer:', error);
         showError('Erro ao abrir modelo 3D');
+    }
+}
+
+/**
+ * Applies a 2D map view (base layer plus camera) from a deep link descriptor.
+ *
+ * EXPORTED, unlike the other three openers, because the boot has to call it at a
+ * point `handleDeepLink` cannot reach: after the atlas is mounted and painted.
+ * See that function's header for why the 2D camera is the contested one.
+ *
+ * BOTH HALVES ARE OPTIONAL AND INDEPENDENT. A link may carry only a base layer
+ * (share what to look at, from wherever the recipient is), only a camera (share
+ * where to look, on whatever base layer they have), or both.
+ *
+ * @param {{ basemap: string|null, lon: number|null, lat: number|null, zoom: number|null, bearing: number|null, pitch: number|null }} link
+ * @returns {Promise<void>}
+ */
+export async function applySharedView(link) {
+    try {
+        const baseLayerControl = getControl('BaseLayerControl');
+        const map = baseLayerControl?.map;
+        if (!map) {
+            showError('Não foi possível abrir o link: o mapa não está pronto');
+            return;
+        }
+
+        if (link.basemap) {
+            const applied = await baseLayerControl.applySharedBasemap(link.basemap);
+
+            // THE SWAP IS ANNOUNCED, and this is why the method returns what it
+            // applied. A base layer the recipient cannot see (private, or simply
+            // not in this deploy) falls back to one they can, and staying quiet
+            // hands them a map that looks like the one they were sent and is not.
+            // Naming the layer that IS on screen is the part they can act on.
+            if (applied && applied !== link.basemap) {
+                showError(`A camada base do link não está disponível. Mostrando "${applied}".`);
+            }
+        }
+
+        // MapLibre constrains zoom, bearing and pitch to the map's own limits, so a
+        // hand-edited hash asking for zoom 99 is clamped rather than refused. Each
+        // key is omitted when absent instead of passed as a default, so what the
+        // link is silent about keeps whatever the recipient already had.
+        if (link.lon !== null && link.lat !== null) {
+            const camera = { center: [link.lon, link.lat] };
+            if (link.zoom !== null) camera.zoom = link.zoom;
+            if (link.bearing !== null) camera.bearing = link.bearing;
+            if (link.pitch !== null) camera.pitch = link.pitch;
+            map.jumpTo(camera);
+        }
+    } catch (error) {
+        console.error('[deep-link] Failed to apply map view:', error);
+        showError('Erro ao abrir a vista compartilhada');
     }
 }
 

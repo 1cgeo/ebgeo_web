@@ -815,7 +815,12 @@ export function initializeApp(map, controlsPromise, { pintarSlotLocal = true } =
             // Handle deep link from URL hash (opens 360/3D viewer if hash present)
             try {
                 const { handleDeepLink, initDeepLinkListener } = await deepLinkPromise;
-                await handleDeepLink();
+                // `deferSharedView`: um `#view=base` NAO e aplicado aqui. Este manipulador roda
+                // antes de o roteamento de boot abrir o atlas, e `openRemoteAtlas` termina em
+                // `switchMap`, que termina em `applyMapSavedPosition`: a camera compartilhada
+                // seria sobrescrita pela salva, sem erro nenhum. Quem a aplica e o `finally` do
+                // roteamento, em `index.js`, que roda em todo desfecho e depois da pintura.
+                await handleDeepLink({ deferSharedView: true });
                 // Start listening for future hash changes so pasting a shared URL
                 // into an already-open tab also opens the correct viewer.
                 initDeepLinkListener();
