@@ -698,7 +698,73 @@ describeOrSkip('Duas abas, um usuário: namespace por atlas (E0)', () => {
         const dbX = mapsDbOf(remoteSuffix(X.id));
         await expectFeatureInDb(tab, dbX, point, 'antes do logout, o ponto está no namespace do atlas');
 
+        // O PONTO TEM DE SER DADO DE SERVIDOR ANTES DE A SAÍDA SER MEDIDA, e sem esta espera o
+        // caso media OUTRA COISA em 2 de 3 execuções. Medido em 2026-08-26, com o relatório da
+        // varredura instrumentado: o desenho sai da fila de saída em até 1,5 s (o intervalo do
+        // `startAutoFlush`), e o clique em "Sair" chegava antes disso. Aí o gesto de logout lê
+        // `countPendingOperations() > 0`, entra no RESGATE
+        // (`AccountControl._handleLogoutGesture` → `preserveUnsyncedWorkAsLocal`) e ADOTA o
+        // namespace como atlas LOCAL, com o `dbSuffix` `remote-<id>` intacto por ser cópia zero.
+        // A varredura nem chega a rodar: o ramo que a chama é o outro. O que sobrevivia não era
+        // dado de servidor escapando do expurgo, era trabalho que o servidor NUNCA RECEBEU, que a
+        // decisão de 2026-08-15 manda preservar. Nas 6 execuções instrumentadas, `pendingOps=0`
+        // deu verde e `pendingOps>0` deu vermelho, sem uma exceção.
+        //
+        // A ESPERA É POR CONDIÇÃO OBSERVÁVEL, e a condição é a PRÓPRIA GRANDEZA que decide o ramo:
+        // `countPendingOperations()`, relida a cada amostra. Não é prazo, é a premissa do caso.
+        // O ramo do resgate tem prova própria, em B3 de
+        // `browser-multi-tab-teardown-queue.spec.js`; este caso é o do atlas JÁ sincronizado.
+        //
+        // NÃO É O SELO DA BARRA, e a tentativa de usá-lo caiu na armadilha que o cabeçalho deste
+        // arquivo já nomeia: o selo REPINTA por evento coalescido (250 ms) e por batida de 3 s
+        // (`account/sync-status.control.js`), então `data-work="enviado"` responde sobre um
+        // instante PASSADO. Ele já estava em `enviado` desde a abertura do atlas, com a fila
+        // vazia, e a asserção passava na hora sem nunca ter visto o desenho entrar e sair da
+        // fila. Medido: 7 vermelhos em 9 com o selo, todos no resgate.
+        await expect
+            .poll(async () => tab.evaluate(async () => {
+                const uwe = await import('/src/js/session/unsynced-work-exit.js');
+                return uwe.countPendingOperations();
+            }), {
+                timeout: 30000,
+                message: 'a fila de saída esvaziou: o ponto é dado de SERVIDOR, e não trabalho por enviar'
+            })
+            .toBe(0);
+
         await logoutUI(tab);
+
+        // NENHUM RESGATE, DITO POR EXTENSO. Sem esta linha, uma regressão que reponha o caso no
+        // ramo do resgate volta a reprovar pela asserção final ("a feição ainda é legível"), que
+        // aponta para o expurgo e manda quem lê investigar a função errada. Foi exatamente o que
+        // aconteceu. A adoção é aguardada DENTRO do gesto, antes de o botão "Entrar" reaparecer,
+        // então esta leitura não corre com nada.
+        const adotante = await tab.evaluate(async (atlasId) => {
+            const la = await import('/src/js/store/local-atlas.api.js');
+            const entry = await la.localAtlasAdoptingRemote(atlasId);
+            return entry ? { id: entry.id, name: entry.name, dbSuffix: entry.dbSuffix } : null;
+        }, X.id);
+        expect(adotante, 'nenhum atlas local adotou o namespace: o caso mede o EXPURGO, não o resgate')
+            .toBeNull();
+
+        // A VARREDURA TERMINOU, e este era o segundo instrumento furado. `logoutUI` devolve quando
+        // o botão "Entrar" reaparece, e quem o reexibe é o `_render` pendurado em `SESSION_CHANGED`,
+        // que `syncEngine.logoutAndDisconnect()` dispara ANTES do wipe e da varredura. Medido na
+        // execução verde da instrumentação: o registro remoto ainda listava o atlas no instante em
+        // que o caso lia os bancos. Ele passou porque o `clearAllDataStore` anterior já tinha
+        // esvaziado o banco de mapas, que é sorte, não garantia.
+        //
+        // O SINAL É A PÓS-CONDIÇÃO DA PRÓPRIA VARREDURA: `destroyRemoteAtlas` apaga a chave do
+        // registro por ÚLTIMO, depois de esvaziar e de derrubar os onze bancos. Registro sem o
+        // atlas significa, portanto, destruição concluída. E ele NÃO torna a asserção final
+        // impossível de falhar: no estado defeituoso o registro TAMBÉM ficava vazio (a adoção
+        // remove a entrada), então esta espera passava e a feição continuava legível. Ela reprova
+        // o estado anterior ao conserto, que é a condição para valer alguma coisa.
+        await expect
+            .poll(async () => tab.evaluate(async () => {
+                const ra = await import('/src/js/store/remote-atlas.api.js');
+                return (await ra.listRemoteAtlases()).map((e) => e.atlasId);
+            }), { timeout: 30000, message: 'a varredura terminou: o atlas saiu do registro remoto' })
+            .not.toContain(X.id);
 
         await attachNamespaces(testInfo, tab, 'A3b depois do logout');
 

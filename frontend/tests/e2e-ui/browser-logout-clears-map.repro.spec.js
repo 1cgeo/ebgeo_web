@@ -100,6 +100,26 @@ describeOrSkip('Sair da conta: o mapa do SERVIDOR some, o LOCAL fica', () => {
         expect(before.storeFeatures, 'point present in the store before logout').toBeGreaterThan(0);
         expect(before.sourceFeatures, 'point present in the live map source before logout').toBeGreaterThan(0);
 
+        // O PONTO TEM DE TER CHEGADO AO SERVIDOR ANTES DA SAÍDA, e sem esta espera o caso mede
+        // outro ramo. Com a fila de saída ainda cheia, o gesto de sair entra no RESGATE
+        // (`AccountControl._handleLogoutGesture` → `preserveUnsyncedWorkAsLocal`): ele ADOTA o
+        // namespace como atlas local e NÃO chama `clearAllDataStore`, então a feição continua no
+        // store por decisão de produto, e não por defeito. Medido em 2026-08-26, com `--retries=0`:
+        // 1 vermelho em 4 sem a espera, sempre com a fila não vazia. O `retries: 1` da configuração
+        // vinha reportando isso como "flaky", que é uma rodada verde.
+        //
+        // A ESPERA É PELA GRANDEZA QUE DECIDE O RAMO, relida a cada amostra, nunca por prazo. O
+        // ramo do resgate tem prova própria (`browser-multi-tab-teardown-queue.spec.js`, B3).
+        await expect
+            .poll(async () => page.evaluate(async () => {
+                const uwe = await import('/src/js/session/unsynced-work-exit.js');
+                return uwe.countPendingOperations();
+            }), {
+                timeout: 30000,
+                message: 'a fila de saída esvaziou: o ponto é dado de SERVIDOR, e não trabalho por enviar'
+            })
+            .toBe(0);
+
         await logoutPeloMenu(page);
 
         // O BUG RELATADO: o traço visual. O store é a metade fácil; as sources vivas são o que o

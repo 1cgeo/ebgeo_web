@@ -229,15 +229,35 @@ describeOrSkip('a troca de atlas ao vivo contra a troca por recarga', () => {
         // que ele afirma e a direcao: eliminar a recarga nao pode sair MAIS CARO que a recarga.
         expect(medianaAoVivo).toBeLessThan(medianaRecarga);
 
-        // A CONFERENCIA DO INSTRUMENTO, e ela vale mais que o piso acima. Os dois caminhos rodam o
-        // MESMO `openRemoteAtlas`, entao "recarga menos boot" e "troca ao vivo" medem o mesmo termo
-        // por dois caminhos independentes. Uma divergencia grande aqui diz que um dos dois
-        // cronometros esta medindo outra coisa — que foi exatamente o defeito da primeira versao
-        // deste arquivo. A folga e larga de proposito: sao medidas de mundo real, com rede e disco.
+        // A CONFERENCIA DO INSTRUMENTO. Ela mudou de forma em 2026-08-26, e a razao e que a
+        // primeira versao tinha a PREMISSA ERRADA.
+        //
+        // Ela afirmava que "recarga menos boot do mapa" e "troca ao vivo" mediam o mesmo termo por
+        // caminhos independentes, e exigia que concordassem dentro de 60%. NAO MEDEM. A recarga
+        // paga DOIS boots, nao um: o da pagina de atlas, onde a pessoa escolhe, e o da pagina do
+        // mapa, para onde ela volta. Subtrair so o segundo deixa o primeiro inteiro dentro da
+        // conta, e a troca ao vivo nao paga nenhum dos dois.
+        //
+        // O erro so apareceu quando o conserto ficou BOM: numa maquina livre a troca ao vivo caiu
+        // para 1010 ms contra 2864 ms de recarga-menos-boot, e a conferencia reprovou por 65%.
+        // Ou seja, ela reprovava o produto por ter melhorado. Um instrumento que dispara quando a
+        // coisa medida melhora esta medindo outra coisa.
+        //
+        // O QUE SOBROU E O QUE DE FATO DISCRIMINA, e as tres afirmacoes juntas ainda pegam o
+        // defeito que a versao antiga existia para pegar (um cronometro apontado para o alvo
+        // errado): a troca ao vivo tem de ser POSITIVA (zero significa que o marco de chegada
+        // resolveu antes de o trabalho comecar), tem de ser MENOR que recarga-menos-boot (porque
+        // ela pula tambem o boot da pagina de atlas), e as duas tem de ficar dentro de uma ordem
+        // de grandeza (fora disso, alguem esta cronometrando outra pagina).
         const semBoot = medianaRecarga - medianaBoot;
-        expect(Math.abs(semBoot - medianaAoVivo) / medianaAoVivo,
-            `recarga-menos-boot (${semBoot} ms) e troca ao vivo (${medianaAoVivo} ms) discordam`)
-            .toBeLessThan(0.6);
+        expect(medianaAoVivo, 'troca ao vivo em zero: o marco de chegada resolveu cedo demais')
+            .toBeGreaterThan(50);
+        expect(medianaAoVivo, `troca ao vivo (${medianaAoVivo} ms) nao pode custar mais que `
+            + `recarga-menos-boot (${semBoot} ms): ela pula tambem o boot da pagina de atlas`)
+            .toBeLessThan(semBoot);
+        expect(semBoot / medianaAoVivo, `recarga-menos-boot (${semBoot} ms) e troca ao vivo `
+            + `(${medianaAoVivo} ms) estao a mais de uma ordem de grandeza: um dos dois cronometros `
+            + 'esta medindo outra coisa').toBeLessThan(10);
 
         // A guarda de no-op, no navegador de verdade: trocar para o atlas ja montado nao repete o
         // trabalho e nao re-carimba a reivindicacao do tab-lock.
