@@ -922,15 +922,15 @@ const SYMBOL_SET_10_CATALOG = {
         },
         2: {
             type: 'svg',
-            svg: '<path d="M100,50L100,150" stroke-width="3" stroke="black" fill="black"></path>',
-            byStandardIdentity: {}
-        },
-        3: {
-            type: 'svg',
             svg: `<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none"></path>
                 <circle cx="70" cy="125" r="5" stroke-width="3" stroke="black" fill="none"></circle>
                 <circle cx="100" cy="125" r="5" stroke-width="3" stroke="black" fill="none"></circle>
                 <circle cx="130" cy="125" r="5" stroke-width="3" stroke="black" fill="none"></circle>`,
+            byStandardIdentity: {}
+        },
+        3: {
+            type: 'svg',
+            svg: '<path d="M100,50L100,150" stroke-width="3" stroke="black" fill="black"></path>',
             byStandardIdentity: {}
         },
         4: {
