@@ -10,33 +10,23 @@
  *   #view=360&photo=<uuid>&lon=<deg>&lat=<deg>&fov=<deg>
  *   #view=3d&tileset=<id>&lon=<deg>&lat=<deg>&h=<meters>&heading=<rad>&pitch=<rad>&roll=<rad>
  *   #view=fp&scene=<id>&x=<m>&y=<m>&z=<m>&yaw=<rad>&pitch=<rad>
+ *   #view=base&base=<id>&lon=<deg>&lat=<deg>&z=<n>&b=<deg>&p=<deg>
  *
  * The first-person pose is in the scene's own metric space (the octree frame),
  * not in geographic coordinates: it comes straight out of the walk controller.
+ *
+ * The grammar itself lives in `./parse.js`, and the reason it lives there is in
+ * that file's header: it is a frozen contract, and a contract has to be provable
+ * without booting the app.
  */
 
 import { getControl } from '@store';
 import { showSuccess, showError } from '@utils';
+import { parseDeepLink } from './parse.js';
 
-// ===== URL PARSING =====
-
-/**
- * Parses one hash parameter as a finite number.
- *
- * Everything in the hash is third-party text: it can be truncated by a chat
- * client, hand-edited or plain garbage. `parseFloat('12abc')` returns 12 and
- * `Number('')` returns 0 - both would send the camera somewhere nobody asked
- * for. This accepts only a value that reads as a whole finite number, and
- * reports anything else as absent so the caller can fall back.
- *
- * @param {string|null} raw - Raw parameter value
- * @returns {number|null} The number, or null when it is missing or invalid
- */
-function parseFiniteParam(raw) {
-    if (raw === null || raw.trim() === '') return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : null;
-}
+// Re-exported because every existing call site imports the reader from this
+// module, and the split is an internal matter.
+export { parseDeepLink };
 
 /**
  * Formats a number for the hash, falling back to zero when it is not finite.
@@ -49,65 +39,26 @@ function formatFixed(value, digits) {
     return (Number.isFinite(value) ? value : 0).toFixed(digits);
 }
 
-/**
- * Parses the URL hash into a typed deep link descriptor.
- * @returns {{ type: '360', photo: string, lon: number, lat: number, fov: number }
- *         | { type: '3d', tileset: string, lon: number, lat: number, height: number, heading: number, pitch: number, roll: number }
- *         | { type: 'fp', scene: string, x: number|null, y: number|null, z: number|null, yaw: number|null, pitch: number|null }
- *         | null}
- */
-export function parseDeepLink() {
-    const hash = window.location.hash;
-    if (!hash || hash.length < 2) return null;
-
-    const params = new URLSearchParams(hash.substring(1));
-    const view = params.get('view');
-
-    if (view === '360') {
-        const photo = params.get('photo');
-        if (!photo) return null;
-        return {
-            type: '360',
-            photo,
-            lon: parseFloat(params.get('lon')),
-            lat: parseFloat(params.get('lat')),
-            fov: parseFloat(params.get('fov'))
-        };
-    }
-
-    if (view === '3d') {
-        const tileset = params.get('tileset');
-        if (!tileset) return null;
-        return {
-            type: '3d',
-            tileset,
-            lon: parseFloat(params.get('lon')),
-            lat: parseFloat(params.get('lat')),
-            height: parseFloat(params.get('h')),
-            heading: parseFloat(params.get('heading')),
-            pitch: parseFloat(params.get('pitch')),
-            roll: parseFloat(params.get('roll'))
-        };
-    }
-
-    if (view === 'fp') {
-        const scene = params.get('scene');
-        if (!scene) return null;
-        return {
-            type: 'fp',
-            scene,
-            x: parseFiniteParam(params.get('x')),
-            y: parseFiniteParam(params.get('y')),
-            z: parseFiniteParam(params.get('z')),
-            yaw: parseFiniteParam(params.get('yaw')),
-            pitch: parseFiniteParam(params.get('pitch'))
-        };
-    }
-
-    return null;
-}
-
 // ===== URL BUILDING =====
+
+/**
+ * The part of the current address a shared link keeps: origin, path AND query.
+ *
+ * THE QUERY USED TO BE DROPPED HERE, and it was not a harmless omission. The
+ * query is where every other deep link of this app lives, so building a share
+ * URL from origin+path alone silently discards whatever context the person was
+ * in when they pressed the button. The hash and the query are orthogonal by
+ * design and never collide, so keeping the query costs nothing and is the only
+ * way the link can mean "this view, where I am" rather than "this view, at the
+ * default".
+ *
+ * The existing hash is deliberately NOT kept: it is about to be replaced by the
+ * one the caller is building.
+ * @returns {string} Everything up to (and excluding) the fragment.
+ */
+function shareUrlBase() {
+    return window.location.origin + window.location.pathname + window.location.search;
+}
 
 /**
  * Builds a shareable URL for a 360 photo view.
@@ -118,7 +69,7 @@ export function parseDeepLink() {
  * @returns {string} Full URL with hash
  */
 export function buildShareUrl360(photoName, lon, lat, fov) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', '360');
     params.set('photo', photoName);
@@ -140,7 +91,7 @@ export function buildShareUrl360(photoName, lon, lat, fov) {
  * @returns {string} Full URL with hash
  */
 export function buildShareUrl3D(tilesetId, lon, lat, height, heading, pitch, roll) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', '3d');
     params.set('tileset', tilesetId);
@@ -167,7 +118,7 @@ export function buildShareUrl3D(tilesetId, lon, lat, height, heading, pitch, rol
  * @returns {string} Full URL with hash
  */
 export function buildShareUrlFirstPerson(sceneId, x, y, z, yaw, pitch) {
-    const base = window.location.origin + window.location.pathname;
+    const base = shareUrlBase();
     const params = new URLSearchParams();
     params.set('view', 'fp');
     params.set('scene', sceneId);
@@ -176,6 +127,45 @@ export function buildShareUrlFirstPerson(sceneId, x, y, z, yaw, pitch) {
     params.set('z', formatFixed(z, 2));
     params.set('yaw', formatFixed(yaw, 4));
     params.set('pitch', formatFixed(pitch, 4));
+    return `${base}#${params.toString()}`;
+}
+
+/**
+ * Builds a shareable URL for the 2D map: a base layer, seen from a camera.
+ *
+ * WHY THE BASE LAYER AND NOT THE WHOLE SCREEN. This link answers "look at THIS,
+ * from HERE", and the base layer is the only part of the 2D view that is both a
+ * catalogued thing with a stable id and cheap to name in a URL. Which catalogue
+ * layers were toggled, what the temporal cursor read, which features were drawn:
+ * none of that fits in a fragment, and half of it is not the recipient's to see.
+ *
+ * PRECISION IS CHOSEN, NOT COPIED. Six decimals of degree is about 10 cm, which is
+ * past the point where the base layer itself has anything more to show; zoom keeps
+ * two decimals because MapLibre zoom is continuous and a rounded one visibly jumps;
+ * bearing and pitch keep one, which is finer than anyone can aim by dragging.
+ *
+ * `basemapId` MAY BE NULL and then the key is simply absent, rather than present
+ * and empty. The parser treats an absent base as "keep whatever the recipient has",
+ * and `base=` with nothing after it would have to mean the same thing while looking
+ * like a value. One way to say one thing.
+ * @param {string|null} basemapId - Base layer id, or null to share only the camera
+ * @param {number} lon - Camera longitude (degrees)
+ * @param {number} lat - Camera latitude (degrees)
+ * @param {number} zoom - Zoom level
+ * @param {number} bearing - Camera bearing (degrees)
+ * @param {number} pitch - Camera pitch (degrees)
+ * @returns {string} Full URL with hash
+ */
+export function buildShareUrlBasemap(basemapId, lon, lat, zoom, bearing, pitch) {
+    const base = shareUrlBase();
+    const params = new URLSearchParams();
+    params.set('view', 'base');
+    if (basemapId) params.set('base', basemapId);
+    params.set('lon', formatFixed(lon, 6));
+    params.set('lat', formatFixed(lat, 6));
+    params.set('z', formatFixed(zoom, 2));
+    params.set('b', formatFixed(bearing, 1));
+    params.set('p', formatFixed(pitch, 1));
     return `${base}#${params.toString()}`;
 }
 
@@ -245,6 +235,8 @@ export async function handleDeepLink() {
         await openDeepLink3D(link);
     } else if (link.type === 'fp') {
         await openDeepLinkFp(link);
+    } else if (link.type === 'base') {
+        await openDeepLinkBasemap(link);
     }
 }
 
@@ -383,6 +375,62 @@ function resolveFpPose(link, poseInicial = null) {
     }
 
     return pose;
+}
+
+/**
+ * Applies a 2D map view (base layer plus camera) from a deep link descriptor.
+ *
+ * WHY THIS ONE RUNS LAST AND THE OTHERS DO NOT CARE. The boot applies the map's
+ * SAVED position (`switchMap(true)` → `applyMapSavedPosition`) before calling
+ * `handleDeepLink`, so the camera in the link lands on top of the saved one and
+ * wins. Move this call earlier and the link still "works" in the sense that no
+ * error appears: the saved position simply overwrites it, and the person sees
+ * their own last view instead of the one they were sent. The other three viewers
+ * are immune because they own their own camera.
+ *
+ * BOTH HALVES ARE OPTIONAL AND INDEPENDENT. A link may carry only a base layer
+ * (share what to look at, from wherever the recipient is), only a camera (share
+ * where to look, on whatever base layer they have), or both.
+ *
+ * @param {{ basemap: string|null, lon: number|null, lat: number|null, zoom: number|null, bearing: number|null, pitch: number|null }} link
+ */
+async function openDeepLinkBasemap(link) {
+    try {
+        const baseLayerControl = getControl('BaseLayerControl');
+        const map = baseLayerControl?.map;
+        if (!map) {
+            showError('Não foi possível abrir o link: o mapa não está pronto');
+            return;
+        }
+
+        if (link.basemap) {
+            const applied = await baseLayerControl.applySharedBasemap(link.basemap);
+
+            // THE SWAP IS ANNOUNCED, and this is the whole reason the method above
+            // returns what it applied. A base layer the recipient cannot see falls
+            // back to one they can, and staying quiet about it hands them a map that
+            // looks like the one they were sent and is not. Naming the layer that IS
+            // on screen is the part they can act on.
+            if (applied && applied !== link.basemap) {
+                showError(`A camada base do link não está disponível. Mostrando "${applied}".`);
+            }
+        }
+
+        // MapLibre constrains zoom, bearing and pitch to the map's own limits, so a
+        // hand-edited hash asking for zoom 99 is clamped rather than refused. Each
+        // key is omitted when absent instead of passed as a default, so what the
+        // link is silent about keeps whatever the recipient already had.
+        if (link.lon !== null && link.lat !== null) {
+            const camera = { center: [link.lon, link.lat] };
+            if (link.zoom !== null) camera.zoom = link.zoom;
+            if (link.bearing !== null) camera.bearing = link.bearing;
+            if (link.pitch !== null) camera.pitch = link.pitch;
+            map.jumpTo(camera);
+        }
+    } catch (error) {
+        console.error('[deep-link] Failed to apply map view:', error);
+        showError('Erro ao abrir a vista compartilhada');
+    }
 }
 
 /**

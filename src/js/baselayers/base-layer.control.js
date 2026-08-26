@@ -268,6 +268,39 @@ class BaseLayerControl {
         getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
 
+    /**
+     * Applies a base layer that came from a SHARED LINK, without writing it down.
+     *
+     * THE WHOLE POINT IS THE `skipPersist`. Opening someone else's link is a visit,
+     * not an edit: `setBaseLayer` writes the choice into the map record, so a plain
+     * `switchLayer` here would silently change the recipient's map (and, once this
+     * lands on the branch with a server, everyone else's copy of it too). A visit
+     * that mutates what it visits is the one behaviour this feature cannot have.
+     *
+     * `setupMapFeatures` IS NOT OPTIONAL AFTER A STYLE SWAP, and forgetting it is
+     * the trap this method exists to close: `setStyle` drops every source and layer
+     * the app added, so the drawn features vanish and nothing reports an error. It
+     * is the same pairing `switchMap` does, which is exactly why this lives next to
+     * it instead of in the deep-link module.
+     *
+     * The position is deliberately NOT touched here: the link carries its own
+     * camera, and `applyMapSavedPosition` would overwrite it with the stored one.
+     *
+     * @param {string} basemapId - Base layer id asked for by the link.
+     * @returns {Promise<string>} The id actually applied, which differs from the
+     *   argument when the requested layer is unavailable and a fallback took over.
+     */
+    async applySharedBasemap(basemapId) {
+        await this.switchLayer(config.getValidBasemapFallback(basemapId), { skipPersist: true });
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+
+        // READ BACK, never echo the argument: `switchLayer` has a SECOND fallback of
+        // its own (a basemap enabled in config can still have no registered style),
+        // so the only honest answer about what is on screen is the field it sets.
+        getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: this.currentLayer });
+        return this.currentLayer;
+    }
+
     async applyMapSavedPosition(mapName = null) {
         try {
             const targetMapName = mapName || await getCurrentMapName();

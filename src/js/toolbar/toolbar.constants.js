@@ -106,6 +106,9 @@ export const TOOLBAR_ICONS = {
 
     // Snapping magnet icon
     snapping: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15a6 6 0 0 0 12 0V9h-4v6a2 2 0 1 1-4 0V9H6v6z"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="10" y1="9" x2="10" y2="5"/><line x1="14" y1="9" x2="14" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></svg>`,
+
+    // Share link: two chain halves (a copied address, not a social network)
+    shareView: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
 };
 
 /**
@@ -186,5 +189,26 @@ export const TOGGLE_TOOLS = [
         icon: TOOLBAR_ICONS.snapping,
         shortcut: 'G',
         statePath: 'ui.snapping.enabled',
+    },
+];
+
+/**
+ * Action tools — buttons that RUN something once and go back to idle.
+ *
+ * The third kind, and it needed to be its own list because the other two describe
+ * a lasting state that the button then reflects: a standalone button shows which
+ * tool is active, a toggle shows a boolean. An action has no state to show, so it
+ * never sets `data-active` and never subscribes to anything.
+ *
+ * `shortcut` is optional here, unlike in the two lists above: the keyboard map is
+ * a scarce, contested resource, and an action that is used occasionally does not
+ * earn a letter. The button title drops the parenthetical when there is none.
+ */
+export const ACTION_TOOLS = [
+    {
+        id: 'share-view',
+        label: 'Compartilhar esta vista',
+        icon: TOOLBAR_ICONS.shareView,
+        action: 'shareView',
     },
 ];
