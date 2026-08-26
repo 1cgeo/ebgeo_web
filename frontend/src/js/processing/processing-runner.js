@@ -14,6 +14,7 @@ import { getControl } from '@store/control.registry.js';
 import { EventTypes } from '@events/event_types.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { IDUtils } from '@utils/id_utils.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================
 // PUBLIC API
@@ -70,6 +71,14 @@ export async function runProcessing(options) {
         if (inputFeatures.length === 0) {
             throw new Error('Nenhuma feição compatível encontrada na camada selecionada');
         }
+
+        // O FUNIL DOS TRES ALGORITMOS. `execute` e SINCRONO por contrato
+        // (`algorithms/algorithm.interface.js`), e os tres o cumprem lendo `window.turf`
+        // direto: buffer, envoltoria convexa e Voronoi. Tornar `execute` assincrono mudaria a
+        // interface para todo algoritmo futuro por uma dependencia que e detalhe da
+        // implementacao de tres deles. O `await` fica aqui, no unico chamador, uma linha antes
+        // — e este e o gesto de RODAR o algoritmo, entao a carga continua sob demanda.
+        await ensureTurf();
 
         const resultFeatures = algorithm.execute(inputFeatures, {
             ...params,

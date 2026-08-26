@@ -11,7 +11,7 @@ import {
   ForbiddenError,
   BadRequestError,
 } from '../../utils/errors.js';
-import { orgIsActive } from '../../utils/org-status.js';
+import { orgIsActiveFromRow } from '../../utils/org-status.js';
 import { createAudit, createAuditBestEffort } from '../../utils/audit.js';
 import {
   sendVerificationEmail,
@@ -119,7 +119,10 @@ export async function login(username, password) {
   }
 
   // O1: a member of a deactivated organization cannot start a session.
-  if (!(await orgIsActive(user.organization_id))) {
+  // Decidido sobre a linha JÁ LIDA: `FIND_USER_BY_USERNAME` junta `organizations` para
+  // trazer o nome, e projeta `org_ativa` no mesmo JOIN. A chamada a `orgIsActive` que
+  // estava aqui abria uma segunda consulta à MESMA linha.
+  if (!orgIsActiveFromRow(user.organization_id, user.org_ativa)) {
     throw new ForbiddenError('Organização inativa');
   }
 
@@ -247,7 +250,9 @@ export async function refresh(refreshToken) {
   const user = userResult.rows[0];
 
   // O1: a member of a deactivated organization cannot renew a session.
-  if (!(await orgIsActive(user.organization_id))) {
+  // Mesma troca do login: `FIND_USER_BY_ID` acima já leu a organização de lotação junto
+  // com o usuário, então a vivacidade sai daquela linha, não de uma segunda consulta.
+  if (!orgIsActiveFromRow(user.organization_id, user.org_ativa)) {
     throw new ForbiddenError('Organização inativa');
   }
 

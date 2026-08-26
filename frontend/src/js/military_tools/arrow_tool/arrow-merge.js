@@ -4,6 +4,7 @@ import { addFeature, removeFeature, getActiveLayerIdSync, startBatchUndo, commit
 import { IDUtils, showSuccess, showWarning } from '@utils';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 /**
  * Per-branch geometric properties extracted from an arrow feature
@@ -117,6 +118,14 @@ export async function mergeArrows(features, map, selectionManager) {
         return null;
     }
 
+    // O SEGUNDO DONO DE `add_arrow_geometry.js`, e o que o tira do grupo coberto por
+    // `ensureControl`. Os setenta sitios de Turf daquele arquivo chegam por dois caminhos: a
+    // ferramenta de seta (funil do registro) e este modulo, que `context-menu.control.js` e
+    // `tool_manager/helpers/feature-header.helpers.js` importam por `import()` proprio, sem
+    // passar pelo registro de ferramentas. As duas funcoes publicas que geram geometria ja
+    // eram assincronas, entao o funil deste caminho custa uma linha em cada.
+    await ensureTurf();
+
     const geometry = new AddArrowGeometry();
 
     // Collect all branches from all source arrows (flatten already-merged arrows)
@@ -223,6 +232,10 @@ export async function splitArrows(mergedFeature, map, selectionManager) {
         showWarning('Esta seta não é uma seta combinada');
         return null;
     }
+
+    // Mesmo motivo do `mergeArrows` acima. As duas guardas ficam ANTES: recusar o gesto nao
+    // pode baixar 619 kB.
+    await ensureTurf();
 
     const geometry = new AddArrowGeometry();
     const createdFeatures = [];

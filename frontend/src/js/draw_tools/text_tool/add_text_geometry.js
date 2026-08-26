@@ -156,6 +156,13 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {number} Rotation in degrees (0-360)
      */
     calculateRotationFromHandle(center, handlePosition) {
+        // SINCRONO DE PROPOSITO. Este metodo roda a cada movimento do mouse enquanto se
+        // ARRASTA a alca de rotacao, e a alca so existe depois de a feicao de texto estar
+        // SELECIONADA. A selecao passa por
+        // `tool_manager/selection_manager.js:getCompleteFeatureFromSource`, que ja esperou o
+        // Turf. Um `await` aqui poria uma promessa dentro do laco de arraste sem garantir
+        // nada que o gesto anterior nao garanta. Ver `utilities/turf-loader.js`.
+
         // Handle bearing from center: turf.bearing returns -180 to 180
         const bearing = turf.bearing(center, handlePosition);
 

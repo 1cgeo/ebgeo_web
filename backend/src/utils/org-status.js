@@ -20,6 +20,40 @@ export async function orgIsActive(organizationId) {
   return rows[0].is_active === true;
 }
 
+/**
+ * A MESMA REGRA, decidida sobre uma linha JÁ LIDA, para quem pagou o JOIN.
+ *
+ * `login` e `refresh` liam a organização DUAS vezes: `FIND_USER_BY_USERNAME` e
+ * `FIND_USER_BY_ID` já juntavam `organizations` (para o nome), e logo depois `orgIsActive`
+ * abria outra consulta na mesma linha. As duas consultas projetam agora
+ * `COALESCE(o.is_active, true) AS org_ativa` e chamam esta função.
+ *
+ * A REGRA MORA AQUI, e não no serviço, porque ela tem duas ISENÇÕES fáceis de perder na
+ * cópia, e perdê-las tranca gente fora sem erro nenhum aparecer:
+ *   1. sem organização (`organization_id` NULL) o membro passa — não há OM para desativar,
+ *      e é o caso do usuário legado, do criado por administrador e do M2M;
+ *   2. organização inexistente conta como ATIVA — é anomalia, não desativação deliberada.
+ * O `COALESCE` da consulta cobre a segunda (e, de fato, também a primeira), mas a primeira
+ * é escrita aqui em voz alta: um dia alguém tira o COALESCE, e o teste explícito sobre
+ * `organizationId` é o que impede a regressão de virar 403 para quem não tem OM.
+ *
+ * `=== true` FALHA FECHADO DE PROPÓSITO. Chamador que esqueça de projetar a coluna passa
+ * `undefined`, e aí TODO usuário com OM é recusado — regressão barulhenta, que os testes
+ * pegam na hora. A alternativa permissiva (`!== false`) apagaria o portão O1 em silêncio,
+ * que é o modo de falhar caro deste controle.
+ *
+ * `orgIsActive` continua sendo a definição para quem NÃO tem a linha em mãos (o middleware
+ * `auth` estrito) e é a mesma decisão, feita com uma consulta a mais.
+ *
+ * @param {string|null|undefined} organizationId - A OM de LOTAÇÃO do usuário.
+ * @param {boolean|undefined} orgAtiva - A coluna `COALESCE(o.is_active, true) AS org_ativa`.
+ * @returns {boolean} true when the member may proceed.
+ */
+export function orgIsActiveFromRow(organizationId, orgAtiva) {
+  if (!organizationId) return true;
+  return orgAtiva === true;
+}
+
 // P1 — a deactivated or demoted user must lose access IMMEDIATELY, not merely when
 // the current access token expires. The JWT's `is_active`/`role` claims
 // are up to JWT_ACCESS_EXPIRY=15min stale, and the sliding-session renewal used to

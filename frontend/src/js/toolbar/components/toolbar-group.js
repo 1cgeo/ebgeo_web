@@ -14,7 +14,8 @@ import {
 } from '@utils/event-cleanup.js';
 import { EventTypes } from '@events/event_types.js';
 import config from '@js/config.js';
-import { showWarning } from '@utils/toast_service.js';
+import { showWarning, showError } from '@utils/toast_service.js';
+import { controlType, ensureControl } from '@tools/tool-registry.js';
 
 /**
  * Toolbar group component.
@@ -29,7 +30,6 @@ export class ToolbarGroup {
      * @param {Array} config.tools - Array of tool configurations
      * @param {Object} dependencies - Dependencies
      * @param {Object} dependencies.toolManager - ToolManager instance
-     * @param {Object} dependencies.controls - Tool controls map
      * @param {Object} dependencies.eventBus - EventBus instance
      * @param {Object} dependencies.stateManager - StateManager instance
      * @param {Object} dependencies.map - MapLibre map instance
@@ -37,10 +37,12 @@ export class ToolbarGroup {
     constructor(config, dependencies) {
         this._config = config;
         this._toolManager = dependencies.toolManager;
-        this._controls = dependencies.controls;
         this._eventBus = dependencies.eventBus;
         this._stateManager = dependencies.stateManager;
         this._map = dependencies.map;
+
+        /** @type {boolean} Tranca do clique enquanto uma ferramenta está a caminho. */
+        this._carregandoFerramenta = false;
 
         this._container = null;
         this._button = null;
@@ -275,13 +277,7 @@ export class ToolbarGroup {
      * @private
      * @param {Object} toolConfig - Tool configuration
      */
-    _handleToolClick(toolConfig) {
-        const control = this._controls[toolConfig.controlKey];
-        if (!control) {
-            console.warn(`Control not found: ${toolConfig.controlKey}`);
-            return;
-        }
-
+    async _handleToolClick(toolConfig) {
         // Check terrain requirement
         if (toolConfig.requiresTerrain) {
             if (config.map2d?.terrainSource == null) {
@@ -294,11 +290,27 @@ export class ToolbarGroup {
             }
         }
 
-        // Activate tool
-        this._toolManager.setActiveTool(control);
+        const toolButton = this._toolButtons.get(toolConfig.id);
 
-        // Close popup after selection
-        this._closePopup();
+        // A TRANCA, e ela não é enfeite. A ferramenta agora vem por `await import()`, então o
+        // clique retorna ANTES de ela existir. Dois cliques rápidos no mesmo botão entrariam
+        // duas vezes em `setActiveTool` — e o segundo desativaria a ferramenta que o primeiro
+        // acabou de ligar, deixando o usuário com um botão aceso e nenhum desenho.
+        if (this._carregandoFerramenta) return;
+        this._carregandoFerramenta = true;
+        toolButton?.setLoading(true);
+
+        try {
+            const control = await ensureControl(toolConfig.controlKey);
+            this._toolManager.setActiveTool(control);
+            this._closePopup();
+        } catch (erro) {
+            console.error(`Falha ao carregar a ferramenta ${toolConfig.controlKey}:`, erro);
+            showError('Não foi possível carregar a ferramenta');
+        } finally {
+            this._carregandoFerramenta = false;
+            toolButton?.setLoading(false);
+        }
     }
 
     /**
@@ -313,10 +325,11 @@ export class ToolbarGroup {
             const toolConfig = this._config.tools.find(t => t.id === toolId);
             if (!toolConfig) return;
 
-            // Check if this tool's control matches the active tool
-            const control = this._controls[toolConfig.controlKey];
-            const controlType = this._inferControlType(control);
-            const isActive = controlType === activeToolType;
+            // O tipo vem da TABELA, não da instância. Duas consequências, e as duas importam:
+            // o botão sabe se acender antes de a ferramenta existir, e o tipo deixa de depender
+            // de `control.constructor.name`, que só funcionava porque o build mantém
+            // `keepNames: true`.
+            const isActive = controlType(toolConfig.controlKey) === activeToolType;
 
             button.setActive(isActive);
 
@@ -329,28 +342,6 @@ export class ToolbarGroup {
         if (this._button) {
             this._button.dataset.active = hasActiveTool.toString();
         }
-    }
-
-    /**
-     * Infers tool type from control instance.
-     * @private
-     * @param {Object} control - Tool control instance
-     * @returns {string|null}
-     */
-    _inferControlType(control) {
-        if (!control) return null;
-
-        // First check for explicit type property
-        if (control.type) {
-            return control.type;
-        }
-
-        // Fallback: derive from constructor name
-        const className = control.constructor.name;
-        return className
-            .replace('Add', '')
-            .replace('Control', '')
-            .toLowerCase();
     }
 
     /**

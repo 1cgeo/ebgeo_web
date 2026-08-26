@@ -31,6 +31,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { esperarFerramentaPronta } from './helpers/ferramenta-pronta.js';
 import {
     seedSharedAtlas, openClient, drawLineUI, readFeatures, pollPeerFeature,
 } from './helpers/collab-helpers.js';
@@ -65,6 +66,9 @@ async function drawMilitarySymbolUI(page) {
     await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup'))
         .toHaveAttribute('data-visible', 'true', { timeout: 5000 });
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    // A ferramenta agora vem por `await import()`: sem esta espera o clique no mapa da linha
+    // seguinte chega antes de o controle existir, e nenhuma feicao nasce.
+    await esperarFerramentaPronta(page, 'militarySymbol');
 
     const box = await canvasBox(page);
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);

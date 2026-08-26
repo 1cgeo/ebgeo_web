@@ -42,6 +42,7 @@ import {
     collabTest, expect, readFeatures, drawLineUI,
 } from './helpers/collab.fixtures.js';
 import { setSharePermission } from './helpers/collab-helpers.js';
+import { esperarCargaDeFerramenta } from './helpers/ferramenta-pronta.js';
 import { expectNotSynced } from './helpers/full-chain.js';
 import { readIdbEntity } from './helpers/idb.js';
 
@@ -108,6 +109,9 @@ async function attemptDrawLineBlockedUI(page, coords, attemptedId) {
     await drawGroup.click();
     const btn = page.locator('.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="line"]');
     await btn.click();
+    // So a CARGA: um papel sem edicao clica de proposito para provar que nada acontece, entao
+    // esperar por ativacao seria esperar pelo que o teste nega.
+    await esperarCargaDeFerramenta(page);
     await page.waitForTimeout(200);
 
     const pts = await page.evaluate((cs) => {

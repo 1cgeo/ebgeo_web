@@ -1602,7 +1602,13 @@ export class AtlasDrive {
         //
         // Não dá para reusar `_subtitle` aqui: as DUAS consultas de lixeira projetam o literal
         // `'owner' as user_permission`, então ele diria "por Você" em todo cartão.
-        const dono = (project?.owner_nome ?? project?.owner_username ?? '').trim();
+        //
+        // E O NOME SÓ ENTRA QUANDO É DE OUTRA PESSOA (`_donoAlheio`, 2026-08-25). Ele existe
+        // para tornar o atlas ALHEIO identificável; no cartão do próprio dono ele virava
+        // "excluído agora · de Drive Tester", isto é, o leitor lendo o próprio nome como se
+        // fosse o de um terceiro. É o mesmo engano que o diálogo de `_restore` tinha, e vinha
+        // do mesmo lugar: `owner_nome` chega preenchido em TODA linha das duas consultas.
+        const dono = this._donoAlheio(project);
         const quando = when ? `excluído ${when}` : 'na lixeira';
         meta.textContent = dono ? `${quando} · de ${dono}` : quando;
         const restoreBtn = document.createElement('button');
@@ -1617,13 +1623,48 @@ export class AtlasDrive {
         return card;
     }
 
+    /**
+     * @private O nome do dono do atlas QUANDO ELE NÃO É QUEM ESTÁ OLHANDO, e string vazia
+     * quando é. É a única pergunta que separa "restaurar o próprio" de "restaurar o alheio".
+     *
+     * O EIXO É O `owner_id`, e não o nome. Ver `_restore`: a distinção estava escrita como
+     * "tem `owner_nome`?", e essa pergunta responde SEMPRE que sim. As duas consultas de
+     * lixeira (`LIST_DELETED_USER_ATLAS` e `LIST_ALL_DELETED_ATLAS`, em `atlas.queries.js`)
+     * fazem `JOIN users` e projetam `owner_nome`/`owner_username` em toda linha, inclusive
+     * nas do próprio dono — é o que o comentário de `_trashCard` já dizia sobre
+     * `user_permission`, que as duas fixam no literal `'owner'` e por isso também não serve.
+     *
+     * `user_permission` continua fora daqui pela mesma razão, e o `owner_id` serve porque
+     * `SELECT a.*` o traz nas duas.
+     * @param {Object} project
+     * @returns {string} Vazio quando o atlas é de quem está olhando.
+     */
+    _donoAlheio(project) {
+        const donoId = String(project?.owner_id ?? '');
+        const euId = String(sessionContext.userId ?? '');
+        // SEM SESSÃO NÃO HÁ LIXEIRA (as duas consultas são autenticadas), então um `euId`
+        // vazio aqui é estado impossível. Tratá-lo como "não sou eu" mantém a pergunta, que
+        // é o lado seguro: perguntar demais atrasa, deixar de perguntar restaura o alheio
+        // em silêncio.
+        if (!donoId || !euId) return (project?.owner_nome ?? project?.owner_username ?? '').trim();
+        if (donoId === euId) return '';
+        return (project?.owner_nome ?? project?.owner_username ?? '').trim();
+    }
+
     /** @private Restore a trashed atlas → POST /atlas/:id/restore. */
     async _restore(project) {
         // PERGUNTA QUANDO O ATLAS É DE OUTRA PESSOA, e só nesse caso. Restaurar o próprio é
         // desfazer o próprio gesto e não merece um passo a mais; restaurar o alheio devolve à
         // vista um atlas que outra pessoa jogou fora, e ela não é avisada. A distinção existe
         // porque a lixeira do SISTEMA só é visível para o administrador.
-        const dono = (project?.owner_nome ?? project?.owner_username ?? '').trim();
+        //
+        // O TESTE DA DISTINÇÃO ERA `if (owner_nome)`, E ELE ERA SEMPRE VERDADEIRO. Medido em
+        // 2026-08-25, no navegador: o dono restaurando o PRÓPRIO atlas recebia o diálogo
+        // "Este atlas é de Drive Tester, e foi essa pessoa que o mandou para a lixeira" — com
+        // o próprio nome no lugar do de terceiro. O passo a mais que o comentário acima
+        // dispensa por escrito estava lá em todo restauro, e a frase mentia sobre quem tinha
+        // excluído. Ver `_donoAlheio` para por que o nome não distingue nada.
+        const dono = this._donoAlheio(project);
         if (dono) {
             const ok = await showConfirm(`Restaurar "${project?.name ?? ''}"?`, {
                 message: `Este atlas é de ${dono}, e foi essa pessoa que o mandou para a lixeira. `

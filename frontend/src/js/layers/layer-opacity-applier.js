@@ -7,20 +7,49 @@
  * application, then rebuild from the snapshot whenever layer opacities change.
  * The new expression multiplies the original (typically `['get', 'opacity']`
  * for feature opacity) by a `match` expression keyed on `layerId`.
+ *
+ * DUAS ECONOMIAS MEDIDAS, e as duas valem em TODO boot e em toda troca de mapa base, porque
+ * `invalidateOpacityCache()` zera o cache e este modulo recomeca do nada. Os numeros vem do
+ * pacote de producao, boot de visitante com IndexedDB vazio:
+ *
+ *   - a varredura pergunta a propriedade de tinta PELO TIPO da camada, e nao as seis em todas.
+ *     Eram 252 `getPaintProperty`, 209 delas lancando excecao usada como teste; passaram a 43,
+ *     nenhuma lancando (`OPACITY_PROPS_POR_TIPO`);
+ *   - com toda opacidade valendo 1 o multiplicador e a identidade, e a escrita e pulada. Eram
+ *     43 `setPaintProperty` por boot; passaram a zero, e a expressao de tinta fica como o modulo
+ *     de estilo a escreveu, mais barata de avaliar por feicao a cada quadro.
+ *
+ * O guarda das duas, incluindo o caso que o atalho poderia engolir (opacidade que VOLTA para 1),
+ * esta em `tests/unit/opacidade-de-camada-nao-escreve-a-toa.test.js`.
  */
 
 import { FEATURE_LAYER_IDS } from './layer.constants.js';
 import { getLayers } from '../store';
 
-/** Opacity-style paint properties found in feature MapLibre layers. */
-const OPACITY_PROPS = [
-    'fill-opacity',
-    'line-opacity',
-    'circle-opacity',
-    'circle-stroke-opacity',
-    'text-opacity',
-    'icon-opacity'
-];
+/**
+ * As propriedades de opacidade QUE EXISTEM em cada tipo de camada do MapLibre.
+ *
+ * POR QUE UM MAPA POR TIPO, e nao uma lista unica varrida em todas as camadas. `getPaintProperty`
+ * LANCA quando a propriedade nao pertence ao tipo daquela camada, e a versao anterior usava esse
+ * lance como teste: varria as seis propriedades nas 42 camadas e engolia o erro num `catch`.
+ * Medido no pacote de producao, o boot de visitante fazia 252 chamadas de `getPaintProperty`, das
+ * quais 209 lancavam. Excecao nao e barata: cada uma captura pilha. Com o tipo em maos a varredura
+ * pergunta so o que pode existir, e nenhuma lanca.
+ *
+ * Um tipo ausente daqui devolve lista vazia, entao camada de raster, hillshade ou fundo passa
+ * batido em vez de virar erro. Isso e proposital: `FEATURE_LAYER_IDS` so lista camadas de feicao,
+ * mas ela e editada a mao e um id de outro tipo nao pode quebrar a aplicacao inteira.
+ */
+const OPACITY_PROPS_POR_TIPO = {
+    fill: ['fill-opacity'],
+    line: ['line-opacity'],
+    circle: ['circle-opacity', 'circle-stroke-opacity'],
+    symbol: ['text-opacity', 'icon-opacity'],
+    'fill-extrusion': ['fill-extrusion-opacity'],
+    raster: ['raster-opacity'],
+    heatmap: ['heatmap-opacity'],
+    background: ['background-opacity'],
+};
 
 /**
  * Cache of original paint property expressions, keyed by `${layerId}:${prop}`.
@@ -33,6 +62,19 @@ const originalPaintCache = new Map();
 let lastSignature = null;
 
 /**
+ * Se ALGUM multiplicador diferente de 1 ja foi escrito no estilo VIVO desde o ultimo
+ * `invalidateOpacityCache()`.
+ *
+ * Ele existe por causa do atalho de identidade abaixo, e a assimetria e o ponto: enquanto ninguem
+ * mexeu na opacidade de camada nenhuma, escrever `['*', <original>, ['match', ..., 1, 1]]` nao muda
+ * pixel algum, entao a escrita inteira e desperdicio. Assim que UMA opacidade sai de 1, porem, o
+ * estilo vivo passa a carregar o multiplicador, e voltar todas para 1 exige reescrever para
+ * restaurar. Sem esta bandeira o atalho engoliria justamente essa volta.
+ * @type {boolean}
+ */
+let multiplicadorAplicado = false;
+
+/**
  * Captures the original paint property if not already cached.
  * Returns the original expression, or `undefined` if the property is not set.
  * @param {Object} mapInstance
@@ -43,16 +85,10 @@ let lastSignature = null;
 function snapshotOriginal(mapInstance, mapLayerId, prop) {
     const key = `${mapLayerId}:${prop}`;
     if (!originalPaintCache.has(key)) {
-        let value;
-        try {
-            value = mapInstance.getPaintProperty(mapLayerId, prop);
-        } catch {
-            // MapLibre throws when `prop` is not a valid paint property for this
-            // layer's type (e.g. 'fill-opacity' on a circle/symbol layer).
-            // Treat as absent so the caller skips it.
-            value = undefined;
-        }
-        originalPaintCache.set(key, value);
+        // Sem `try`: `OPACITY_PROPS_POR_TIPO` ja garante que a propriedade pertence ao tipo desta
+        // camada, e um `getPaintProperty` que ainda assim lance aqui e defeito de verdade, que
+        // deve aparecer em vez de virar `undefined` silencioso.
+        originalPaintCache.set(key, mapInstance.getPaintProperty(mapLayerId, prop));
     }
     return originalPaintCache.get(key);
 }
@@ -98,12 +134,25 @@ export function applyLayerOpacities(mapInstance) {
     if (signature === lastSignature) return;
     lastSignature = signature;
 
+    // O ATALHO DA IDENTIDADE. Toda opacidade valendo 1 faz de `opacityMatch` um `match` que devolve
+    // 1 para qualquer `layerId`, e o que se escreveria seria `['*', <original>, 1]`: expressao
+    // diferente, pixel igual. Enquanto nada foi multiplicado ainda, pular a escrita economiza as
+    // 43 mutacoes de estilo que o boot de visitante media, e deixa a expressao de tinta como o
+    // modulo de estilo a escreveu, mais barata de avaliar por feicao a cada quadro.
+    //
+    // A bandeira e obrigatoria: depois que uma opacidade saiu de 1, voltar todas para 1 e uma
+    // RESTAURACAO, e restaurar exige escrever.
+    const todasEmUm = layers.every((l) => (typeof l.opacity === 'number' ? l.opacity : 1) === 1);
+    if (todasEmUm && !multiplicadorAplicado) return;
+    multiplicadorAplicado = !todasEmUm;
+
     const opacityMatch = buildOpacityMatch(layers);
 
     for (const mapLayerId of FEATURE_LAYER_IDS) {
-        if (!mapInstance.getLayer(mapLayerId)) continue;
+        const camada = mapInstance.getLayer(mapLayerId);
+        if (!camada) continue;
 
-        for (const prop of OPACITY_PROPS) {
+        for (const prop of (OPACITY_PROPS_POR_TIPO[camada.type] || [])) {
             const original = snapshotOriginal(mapInstance, mapLayerId, prop);
             if (original === undefined || original === null) continue;
 
@@ -123,4 +172,8 @@ export function applyLayerOpacities(mapInstance) {
 export function invalidateOpacityCache() {
     originalPaintCache.clear();
     lastSignature = null;
+    // O estilo foi remontado, entao nenhum multiplicador sobreviveu nele. Nao zerar aqui deixaria
+    // o atalho de identidade acreditando que ainda ha o que restaurar, e reescreveria 43
+    // propriedades de tinta a cada troca de mapa base sem motivo.
+    multiplicadorAplicado = false;
 }

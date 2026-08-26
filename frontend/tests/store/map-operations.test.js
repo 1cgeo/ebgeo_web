@@ -37,6 +37,18 @@ const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps,
 // Mock dependencies
 // ============================================================================
 
+// `map.operations.js` passou a importar os dois carregadores de memoria por mapa, porque
+// `adoptMountedLocalAtlas` (a entrada em atlas LOCAL ao vivo) refaz o espelho em memoria do
+// slot recem-montado. Nenhum caso deste arquivo exercita 3D nem 360, entao os dois entram como
+// dubles vazios: mocka-los aqui e mais estreito do que estender o mock de `repositories/`, que
+// teria de ganhar os quatro `Compat` de 3D/360 sem que nada os use.
+vi.mock('../../src/js/store/cesium3d.operations.js', () => ({
+    loadCesium3dDataToMemory: vi.fn(async () => {})
+}));
+vi.mock('../../src/js/store/streetview360.operations.js', () => ({
+    loadStreetview360DataToMemory: vi.fn(async () => {})
+}));
+
 vi.mock('../../src/js/store/store-errors.js', () => ({
     StoreErrorEvents: {
         STORE_OPERATION_BLOCKED: 'store:operationBlocked',

@@ -8,6 +8,7 @@
 import { formatCoordinates } from '@utils/coordinate_converter.js';
 import { zoomToFeature } from '@utils/feature_navigation_utils.js';
 import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 // Feature types that should show coordinates
 const TYPES_WITH_COORDINATES = ['point', 'text', 'coordination_measure', 'image', 'military_symbol', 'circle'];
@@ -27,6 +28,18 @@ const EDITABLE_COORDINATE_TYPES = ['point', 'coordination_measure', 'military_sy
  */
 export async function createLocationSection(options) {
     const { feature, featureType, map, control, uiManager } = options;
+
+    // Os tres sitios de Turf deste arquivo estao em funcoes SINCRONAS chamadas daqui para
+    // baixo: `getFeatureCenter` (dois `turf.centroid`, para poligono e multipoligono) e
+    // `handleCoordinateUpdate` (o `turf.circle` que regenera o circulo pelo centro novo). O
+    // `await` fica na unica funcao exportada do modulo, que ja era assincrona e e o gesto de
+    // abrir o painel da feicao. Nenhuma das duas precisa mudar de assinatura, e o botao de
+    // editar coordenada (que so existe depois deste `await`) herda a garantia.
+    await ensureTurf().catch((erro) => {
+        // `getFeatureCenter` ja cai para a primeira coordenada quando o centroide falha, e o
+        // painel inteiro nao pode deixar de abrir por causa de uma biblioteca de geometria.
+        console.warn('Turf nao carregou para a secao de localizacao:', erro);
+    });
 
     const container = document.createElement('div');
     container.className = 'feature-location-section';

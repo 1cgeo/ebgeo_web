@@ -29,6 +29,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { esperarFerramentaPronta } from './helpers/ferramenta-pronta.js';
 import { waitForEntitySpan, waitForAcked } from './helpers/trace-helpers.js';
 import { createDb, closeDb } from './helpers/db.js';
 import {
@@ -88,6 +89,9 @@ async function drawMilitarySymbolUI(page, [lng, lat]) {
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
     await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup')).toHaveAttribute('data-visible', 'true', { timeout: 5000 });
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    // A ferramenta agora vem por `await import()`: sem esta espera o clique no mapa da linha
+    // seguinte chega antes de o controle existir, e nenhuma feicao nasce.
+    await esperarFerramentaPronta(page, 'militarySymbol');
     const pt = await page.evaluate((c) => {
         const map = globalThis.__ebgeoMap;
         const rect = map.getCanvas().getBoundingClientRect();

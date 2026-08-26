@@ -31,6 +31,9 @@ import { resolveBasemapStyle, firstStyledBasemap } from './basemap-style.js';
 // este controle é do caminho de boot do mapa.
 import { getLayerFailureNotice } from '../terrain/layer-failure-notice.js';
 import { setupMapFeatures } from '../layers';
+// DO ARQUIVO, e não do barrel `../layers`: o barrel já é arrastado pela linha acima, mas o
+// `clearFeatureSources` é do mesmo módulo e o caminho direto é o que o próprio barrel recomenda.
+import { clearFeatureSources } from '../layers/layer_setup.js';
 import { wireRemoteFeatureRender } from '../layers/remote-feature-render.js';
 import { showError } from '../utilities';
 
@@ -115,10 +118,25 @@ class BaseLayerControl {
 
         // A full store wipe (logout / "Limpar Tudo" / non-additive import) resets the store + loads a
         // BLANK map, but nothing repopulated the MapLibre feature sources — so the OLD map's features
-        // stayed drawn on the canvas after logout. Re-run setupMapFeatures, which setData()s every
-        // feature source from the now-blank current map, leaving no trace of the previous map.
+        // stayed drawn on the canvas after logout. Sem um ouvinte AQUI o defeito relatado volta
+        // (`tests/e2e-ui/browser-logout-clears-map.repro.spec.js`), porque depois do wipe nada mais
+        // repinta o mapa.
+        //
+        // E A RESPOSTA É PROPORCIONAL AO WIPE, que é o que `rebuild` diz. Com `rebuild` verdadeiro o
+        // escopo que o wipe deixou vai ser USADO (trocar de atlas, "Limpar Tudo", importar), e a
+        // remontagem inteira é o certo: ela restaura terreno, camadas de catálogo e filtros a partir
+        // do mapa em branco. Com `rebuild` falso o escopo morre em seguida (a saída da conta destrói
+        // o namespace), e remontá-lo é pintar um mapa para jogá-lo fora. Só o traço visual precisa
+        // sumir, e é isso que `clearFeatureSources` faz.
+        //
+        // O PADRÃO É `true` porque o evento tem oito outros ouvintes que não passam argumento nenhum,
+        // e um wipe sem opinião sobre isto é o wipe que quer o comportamento antigo.
         if (this._unsubAllCleared) this._unsubAllCleared();
-        this._unsubAllCleared = getEventBus().on(EventTypes.ALL_DATA_CLEARED, async () => {
+        this._unsubAllCleared = getEventBus().on(EventTypes.ALL_DATA_CLEARED, async ({ rebuild = true } = {}) => {
+            if (!rebuild) {
+                clearFeatureSources(this.map);
+                return;
+            }
             await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
         });
     }

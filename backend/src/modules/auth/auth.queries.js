@@ -2,9 +2,24 @@
 
 // posto_graduacao / organizacao_militar are DERIVED display names from the rank_id / organization_id
 // FKs (so the token claim + UI keep seeing strings while storage is normalized).
+//
+// `org_ativa` PROJETA A VIVACIDADE DA OM QUE O JOIN JA PAGA. Até 2026-08-25 esta consulta
+// juntava `organizations` e trazia só `o.nome`; o login então chamava `orgIsActive`
+// (utils/org-status.js), que abria uma SEGUNDA consulta na MESMA linha, já lida. Junção
+// paga, coluna descartada, e mais uma ida ao banco por entrada.
+//
+// `COALESCE(o.is_active, true)` NÃO É ESCOLHA DE ESTILO: é a regra defensiva de
+// `org-status.js`, copiada campo a campo. Lá, uma OM inexistente (linha sumida) conta como
+// ATIVA, porque isso é anomalia e não desativação deliberada, e trancar o usuário fora por
+// causa dela seria pior do que o problema. O LEFT JOIN devolve NULL nos DOIS casos que a
+// função isenta — sem OM e OM inexistente — e o COALESCE os manda para `true`, igual.
+// O `false` de `producer_org_ativa` abaixo é o oposto por um motivo que não vale aqui: sem
+// OM produtora a resposta certa é "não produz".
 export const FIND_USER_BY_USERNAME = `
   SELECT u.id, u.username, u.password_hash, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.producer_org_id,
+         u.organization_id, o.nome AS organizacao_militar,
+         COALESCE(o.is_active, true) AS org_ativa,
+         u.producer_org_id,
          u.is_active, u.role, u.email, u.email_verified
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -33,9 +48,16 @@ export const FIND_USER_BY_USERNAME = `
 //
 // `COALESCE(po.is_active, false)`: sem OM produtora, a resposta e "nao produz", que e o mesmo
 // que `producer_org_id IS NULL` ja dizia. Nao ha caso em que ausencia signifique ativa.
+//
+// `org_ativa` (a OM de LOTAÇÃO) entrou em 2026-08-25, pelo mesmo motivo que em
+// `FIND_USER_BY_USERNAME`: o `refresh` já pagava este JOIN e mesmo assim abria uma segunda
+// consulta a `organizations` pela função `orgIsActive`. As duas colunas COALESCEiam para
+// lados OPOSTOS de propósito, e a assimetria é a regra de cada uma: ausência de OM de
+// lotação ISENTA (não há o que desativar), ausência de OM produtora RECUSA (não produz).
 export const FIND_USER_BY_ID = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
          u.organization_id, o.nome AS organizacao_militar,
+         COALESCE(o.is_active, true) AS org_ativa,
          u.producer_org_id, po.nome AS producer_org_nome,
          COALESCE(po.is_active, false) AS producer_org_ativa,
          u.role, u.created_at, u.last_login_at

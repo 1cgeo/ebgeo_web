@@ -9,6 +9,7 @@ import { getTerrainElevation } from '@js/terrain';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { userDataManager } from '@js/user_data';
+import { ensureTurf } from '@utils/turf-loader.js';
 import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory } from '@js/temporal/temporal-import.js';
 
 /** Maps source type to Portuguese display name for imported features. */
@@ -101,6 +102,17 @@ class AddImportControl {
             this.toolManager.deactivateCurrentTool();
             return;
         }
+
+        // O FUNIL DA IMPORTACAO, e ele cobre os dois sitios de Turf deste arquivo:
+        // `calculateProfile` (perfil de elevacao de linha, ja assincrono) e `zoomToFeatures`
+        // (o `turf.bbox` do enquadramento final, sincrono e no meio de `updateMapSources`).
+        // O `await` fica aqui em vez de nos dois porque este e o gesto: escolher o arquivo.
+        // `processFileDirectly` (arrastar e soltar) delega para ca, entao os dois caminhos de
+        // entrada passam por esta linha.
+        //
+        // Ele vem DEPOIS da guarda de arquivo vazio: cancelar o seletor de arquivo nao pode
+        // baixar 619 kB.
+        await ensureTurf();
 
         try {
             const geoJSON = await this.processFile(file);

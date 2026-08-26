@@ -579,9 +579,32 @@ class SyncEngine {
 
     /**
      * Closes the WebSocket (no reconnect). Local state is retained.
+     *
+     * `forgetAtlas` E O QUE SEPARA "PAUSAR" DE "SAIR", e a falta dele era um defeito medido.
+     * Ate 2026-08-25 este metodo limpava papel, recursos concedidos, marcas de edicao e a
+     * sobreposicao de configuracao, e NAO zerava `_atlasId`; so `logoutAndDisconnect` zerava. O
+     * campo e lido por `currentAtlasLockKey` (`account/open-atlas.service.js`) ANTES de qualquer
+     * outra fonte, entao uma aba que saisse de um atlas de servidor para um atlas LOCAL sem
+     * recarregar a pagina continuava anunciando a chave `remote:<id>` do atlas que acabara de
+     * deixar. As consequencias sao duas, e nenhuma delas produz erro: a aba bloqueia outra aba
+     * que queira abrir aquele atlas de servidor, e ela propria fica sem defender o slot local que
+     * de fato montou. O mesmo campo alimenta `deep-link/atlas-url-sync.js`, entao a barra de
+     * enderecos tambem continuava exibindo `?atlas=` de um atlas fechado.
+     *
+     * O PADRAO CONTINUA `false` DE PROPOSITO. O freio do tab-lock
+     * (`store/sync/tab-lock-sync-brake.js`) chama este metodo para PARAR a aba, e a retomada
+     * reconecta o MESMO atlas: zerar o id ali apagaria justamente o que a retomada precisa ler.
+     * Quem passa `true` e quem esta indo embora do atlas para valer, e hoje sao os dois caminhos
+     * de entrada em atlas LOCAL (`switchAtlas` e `switchToNewLocalAtlas`).
+     *
+     * @param {object} [options]
+     * @param {boolean} [options.resumeGranted=true] - Re-somar as concessoes PESSOAIS sem atlas
+     *   em foco. O logout passa false, porque limpa a sessao logo em seguida.
+     * @param {boolean} [options.forgetAtlas=false] - Esquecer QUAL atlas estava conectado. Passe
+     *   true quando a aba nao vai voltar a esse atlas por si mesma.
      * @returns {void}
      */
-    disconnect({ resumeGranted = true } = {}) {
+    disconnect({ resumeGranted = true, forgetAtlas = false } = {}) {
         wsClient.disconnect();
         // O PAPEL E DO ATLAS, e sai com ele. Ficando, o `owner` do atlas A valeria durante a
         // janela de conexao do atlas B, que e conceder o que o servidor ainda nao respondeu.
@@ -611,6 +634,15 @@ class SyncEngine {
             getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: null });
         } catch {
             // No UI bus (headless).
+        }
+        if (forgetAtlas) {
+            // As TRES linhas sao a mesma frase dita as tres partes que guardam "em que atlas eu
+            // estou": o motor, a versao que ele ja aplicou, e o destino das imagens. Zerar so o
+            // id deixaria um `_lastVersion` de outro atlas valendo no proximo `connect` sem pull
+            // inicial, e deixaria a sincronizacao de imagens escrevendo no atlas abandonado.
+            this._atlasId = null;
+            this._lastVersion = 0;
+            setImageSyncAtlas(null);
         }
     }
 

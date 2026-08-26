@@ -84,6 +84,18 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
         // de 25 (a menor que a tela oferece), então a paginação tem para onde andar. Sem isto
         // o caso da paginação mediria um botão desabilitado.
         const etiqueta = marca();
+        // QUANTAS EXCLUSÕES DE GRUPO JÁ EXISTEM ANTES DESTE CASO. O passo 3 afirma sobre o
+        // recorte de `ACCESS_GROUP_DELETE`, e o caso semeia exatamente DUAS — mas o banco
+        // desta camada é UM só para a rodada inteira, e uma RETENTATIVA (o `retries: 1` do
+        // `playwright.config.js`) roda por cima da semeadura da tentativa anterior.
+        // OBSERVADO em 2026-08-25: a tentativa 1 falhou adiante, e na retentativa o passo 3
+        // recebeu "1 a 4 de 4 eventos" contra um `toContainText('2 eventos')` fixo. O
+        // segundo veredito era do BANCO SUJO, não do produto, e escondia o defeito real.
+        // Medir a linha de base torna a afirmação "este caso acrescentou duas", que é o que
+        // ele de fato sabe, sem afrouxar nada: um filtro ignorado continua devolvendo o todo.
+        const antesDeExcluir = Number(
+            (await api(admin.accessToken, 'GET', '/audit?action=ACCESS_GROUP_DELETE&limit=1'))?.total ?? 0,
+        );
         const criados = [];
         for (let i = 0; i < 30; i += 1) {
             const grupo = await api(admin.accessToken, 'POST', '/access-groups', {
@@ -134,12 +146,14 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
 
         // ----- 3. O FILTRO RECORTA -------------------------------------------------
         const totalAntes = Number((await rodape.textContent()).match(/de (\d+) eventos/)[1]);
+        // AS DUAS EXCLUSÕES DESTE CASO, MAIS AS QUE JÁ ESTAVAM LÁ. Ver `antesDeExcluir`.
+        const excluidos = antesDeExcluir + 2;
         await page.locator('[data-testid="admin-audit-acao"]').selectOption('ACCESS_GROUP_DELETE');
-        await expect(rodape).toContainText('2 eventos');
+        await expect(rodape).toContainText(`${excluidos} eventos`);
         // A DISCRIMINAÇÃO: o recorte precisa ser MENOR que o todo, senão um filtro ignorado
         // passaria verde nas duas asserções acima.
-        expect(totalAntes).toBeGreaterThan(2);
-        await expect(page.locator('[data-testid="admin-audit-row"]')).toHaveCount(2);
+        expect(totalAntes).toBeGreaterThan(excluidos);
+        await expect(page.locator('[data-testid="admin-audit-row"]')).toHaveCount(excluidos);
         await expect(page.locator('.admin-audit__chip').first()).toHaveText('Grupo de acesso apagado');
 
         // O botão "Limpar filtros" só existe com filtro aplicado, e ele desfaz.
@@ -199,7 +213,33 @@ describeOrSkip('Painel — aba Auditoria (navegador real + backend real)', () =>
 
         // O `to` que a tela não sabia mandar: uma janela que termina ONTEM não pode conter o
         // que acabou de ser semeado.
-        const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        //
+        // A DATA É DO CALENDÁRIO LOCAL, E O INSTRUMENTO ERRADO AQUI REPROVAVA O PRODUTO CERTO.
+        // Este passo era `new Date(Date.now() - 86400000).toISOString().slice(0, 10)`, isto é,
+        // um dia a menos lido no relógio UTC. Um `<input type="date">` carrega uma data de
+        // calendário LOCAL, e é assim que a tela a lê (`datasDoAtalho` e `inicioDoDiaLocal`
+        // usam `getFullYear`/`getMonth`/`getDate`). A oeste de Greenwich as duas contas
+        // discordam depois que o dia vira em Londres: MEDIDO em 2026-08-25 às 23:25 BRT
+        // (UTC-3), `toISOString()` já dizia `2026-08-26T02:25Z`, então "ontem em UTC" saía
+        // `2026-08-25` — que é HOJE no calendário local, e é o valor que o campo já tinha.
+        // A janela pedida terminava no começo de 2026-08-26 local, continha a semeadura
+        // inteira, e o caso acusava de "não filtrar" um filtro que estava filtrando.
+        //
+        // Por isso o caso REPROVAVA SÓ DEPOIS DAS 21h local, e passava o dia todo. Um caso
+        // que muda de veredito com a hora do relógio mede o fuso, não o produto.
+        //
+        // A subtração é `new Date(a, m - 1, d - 1)` e não uma soma de milissegundos: a soma
+        // erra o dia em qualquer salto de horário de verão, que é a mesma razão escrita em
+        // `inicioDoDiaLocal`, do lado do produto.
+        const hoje = new Date();
+        const diaAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+        const doisDigitos = (n) => String(n).padStart(2, '0');
+        const ontem = `${diaAnterior.getFullYear()}-${doisDigitos(diaAnterior.getMonth() + 1)}`
+            + `-${doisDigitos(diaAnterior.getDate())}`;
+        // A DISCRIMINAÇÃO DO PRÓPRIO INSTRUMENTO: se a data escolhida for a que o campo já
+        // tem, o passo abaixo não pede janela nenhuma e o "Nenhum evento" que viesse seria
+        // sorte. O campo nasce com HOJE (`datasDoAtalho`), então ontem tem de ser diferente.
+        await expect(page.locator('[data-testid="admin-audit-ate"]')).not.toHaveValue(ontem);
         await page.locator('[data-testid="admin-audit-ate"]').fill(ontem);
         await expect(page.locator('[data-testid="admin-audit-pager"]'))
             .toContainText('Nenhum evento');

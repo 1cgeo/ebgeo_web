@@ -314,6 +314,40 @@ export const LIST_USER_ATLAS_COVERS = `
     )
 `;
 
+// SÓ OS IDS dos atlas que o chamador alcança. Mesmo escopo das três listagens acima, e
+// nenhuma coluna além da que o consumidor lê.
+//
+// QUEM PEDE. `listUserAtlasPresence` rodava `LIST_USER_ATLAS` inteira — `SELECT a.*` mais
+// `JOIN users` mais `ORDER BY` — e o laço que consome usa UM campo: `atlas.id`. Todo o
+// resto (o `settings` jsonb, `map_order`, `description`, o nome e o login do dono)
+// atravessava a rede para ser jogado fora. MEDIDO no banco de desenvolvimento em
+// 2026-08-25, sobre os 10 atlas vivos: a linha inteira pesa 5984 bytes, `a.id` pesa 160, e
+// só o `settings` responde por 4504 deles. E a presença não é um pedido raro: a tela já
+// pediu a listagem larga por `GET /atlas`, e o poll a repete a cada 20 s, por aba aberta.
+//
+// O ORDER BY SAI porque presença é um MAPA (atlas id → conectados), e mapa não tem ordem.
+// O `JOIN users` sai porque só existia para o nome do dono, que o cartão desenha e a
+// presença não.
+//
+// O PREDICADO É COPIADO, PALAVRA POR PALAVRA, e a cópia é o risco a vigiar. Divergir aqui
+// não dá erro: faz a presença aparecer em atlas que o cartão não desenha, ou sumir de
+// atlas que ele desenha. O braço de GRUPO é o que se perde primeiro (um JOIN cru sobre
+// `atlas_shares` só enxerga o alvo PESSOA), e é por isso que `fn_user_atlas_shares` tem de
+// ser a mesma fonte aqui. `LIST_USER_ATLAS` fica intocada de propósito: ela sai inteira
+// pela rota `GET /atlas`, cinco superfícies do cliente a consomem, e enumerar colunas lá
+// seria adivinhar quais campos elas leem — o campo esquecido vira `undefined` silencioso no
+// cliente, nunca erro.
+export const LIST_USER_ATLAS_IDS = `
+  SELECT a.id
+  FROM atlas a
+  LEFT JOIN fn_user_atlas_shares($1::uuid) us ON us.atlas_id = a.id
+  WHERE a.deleted_at IS NULL
+    AND (
+      a.owner_id = $1
+      OR us.atlas_id IS NOT NULL
+    )
+`;
+
 export const UPSERT_ATLAS_COVER = `
   INSERT INTO atlas_covers (atlas_id, mime_type, bytes, width, height, updated_by)
   VALUES ($1, $2, $3, $4, $5, $6)

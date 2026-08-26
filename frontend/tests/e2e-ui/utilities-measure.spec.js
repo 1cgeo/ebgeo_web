@@ -14,6 +14,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { esperarFerramentaPronta } from './helpers/ferramenta-pronta.js';
 import { readState } from './state.js';
 
 const state = readState();
@@ -58,6 +59,11 @@ async function activateUtilityTool(page, toolId) {
     const btn = utilityToolBtn(page, toolId);
     await expect(btn).toHaveAttribute('data-active', 'false');
     await btn.click();
+    // AS TRES DE MEDIDA VEM POR `await import()` desde 2026-08-25, entao o clique no botao volta
+    // ANTES de a ferramenta existir e o clique no mapa da linha seguinte cairia no vazio. Esperar
+    // pelo `data-active` do grupo nao bastaria: ele acende quando o `activeTool.type` muda, e o
+    // que arma o handler de clique do mapa e o `activate()` que roda depois.
+    await esperarFerramentaPronta(page, toolId);
     // The toolbar closes the popup after a pick; the group button reflects the active child.
     await expect(utilityGroupBtn(page)).toHaveAttribute('data-active', 'true', { timeout: 5000 });
 }
@@ -156,6 +162,30 @@ describeOrSkip('§10.1-5 Measurement utilities (real browser, local pure-UI on c
         // Re-open the popup and confirm the Select tool button itself is marked active.
         await openUtilityGroup(page);
         await expect(utilityToolBtn(page, 'rectangleSelection')).toHaveAttribute('data-active', 'true', {
+            timeout: 5000,
+        });
+    });
+
+    test('§10.5 a tecla X ativa Medir Ângulo, que só existe depois do `await import()`', async ({ page }) => {
+        // O ATALHO DE TECLADO É O SEGUNDO CAMINHO DE ATIVAÇÃO, e a carga tardia o mudou tanto
+        // quanto ao botão: `handleToolShortcuts` virou `async` e a ferramenta vem por
+        // `await import()`. Nenhum spec exercitava uma tecla de ferramenta — os de teclado só
+        // pressionam Ctrl+C, Ctrl+V e Escape — então a onda teria trocado o caminho síncrono por
+        // um assíncrono sem que nada o acionasse uma vez.
+        //
+        // `x` (Medir Ângulo) é a escolha certa aqui porque `measurement_tool` saiu do payload
+        // ansioso nesta onda: se o `preventDefault()` tivesse ficado DEPOIS do primeiro `await`,
+        // ou se a promessa de carga fosse ignorada, este caso reprovaria.
+        await bootApp(page);
+
+        // Sem clicar em nada antes: o handler vive no `document`, e o foco recém-carregado já
+        // está no corpo da página. Um clique de "preparação" no canto do canvas cai na barra
+        // lateral recolhida, que o cobre.
+        await page.keyboard.press('x');
+
+        await esperarFerramentaPronta(page, 'measureAngle');
+        await openUtilityGroup(page);
+        await expect(utilityToolBtn(page, 'measureAngle')).toHaveAttribute('data-active', 'true', {
             timeout: 5000,
         });
     });

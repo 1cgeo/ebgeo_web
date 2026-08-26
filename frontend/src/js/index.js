@@ -35,6 +35,7 @@ import {
     clearMountedAtlasIfGranted,
     remoteMountWitness,
     switchToNewLocalAtlas,
+    switchAtlas,
 } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { publicLinkFailureNotice, shouldForgetPublicLink } from './deep-link/public-link-phrases.js';
@@ -56,6 +57,7 @@ import { showVisitorBanner, destroyVisitorBanner } from './session/visitor-banne
 import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
+import { hideLoadingScreen } from '@ui/loading-screen.js';
 import { initTabLock, isTabLockBlocked, acquireTabLock, remoteAtlasKey } from '@utils/tab-lock.js';
 import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/diag/trace-core.js';
 import { showUnavailableScreen } from '@ui/unavailable-screen.js';
@@ -176,10 +178,40 @@ async function initApp() {
     // race condition where map fires 'load' during the preflight fetch timeout.
     const controlsPromise = createControls(map, analysisLayersManager, dataLayersManager);
 
+    // ESTE BOOT VAI ABRIR UM ATLAS DE SERVIDOR? A pergunta se responde AQUI, e nao la embaixo no
+    // roteamento, porque a resposta muda o que o manipulador de `load` faz.
+    //
+    // O QUE ELA ECONOMIZA. Com `?atlas=` na barra de enderecos e sessao viva, o unico desfecho
+    // ordinario e `openAtlasFromUrl` -> `openRemoteAtlas`, cujo `clearAllDataStore` esvazia o
+    // escopo montado. Ate 2026-08-25 o boot montava, migrava, lia para a memoria e DESENHAVA o
+    // slot local inteiro antes disso, para apaga-lo em seguida. Medido em A/B pareado nesta
+    // bancada, 5 boots de cada lado: porta a porta, mediana de 2515 ms para 1370 ms. A pintura
+    // jogada fora custava 125 ms; o resto era a CONTENCAO que ela deixava. A conta por etapa esta
+    // no JSDoc de `renderBootMap` (`map_sig.js`).
+    //
+    // E O QUE A PESSOA VE TAMBEM MUDA. Quem clica num link de atlas de servidor via, por um
+    // segundo e meio, o atlas LOCAL dela aparecer e ser substituido. Hoje a cortina fica de pe ate
+    // o atlas pedido estar montado, que e o unico conteudo que aquele clique pediu.
+    //
+    // AS DUAS CORRIDAS QUE `bootRendered` SERIALIZAVA NAO VOLTAM, e a razao e que a serializacao
+    // deixa de ser necessaria em vez de ser dispensada. A primeira era o `clearAllDataStore` da
+    // abertura remota interlevando com o `switchMap` do manipulador: sem pintura nao ha `switchMap`
+    // no manipulador. A segunda era o boot do store deixando um "Principal" local ao lado dos
+    // mapas sincronizados (o terceiro mapa fantasma no F5): o `await` de `bootRendered` e de
+    // `statePromise` CONTINUA onde estava, entao o boot do store continua terminando antes de
+    // qualquer wipe. O que saiu do manipulador foi a pintura, nunca a montagem.
+    //
+    // A SESSAO PRECISA ESTAR VIVA, e ela ja esta decidida: `restoreSessionFromStorage` roda acima.
+    // Sem sessao, `openAtlasFromUrl` guarda o link e abre o login, e ali o mapa local pintado e o
+    // fundo certo para a caixa de entrada.
+    const abreAtlasDeServidor = Boolean(bootAtlasLink) && sessionContext.isAuthenticated();
+
     // Phase 5+6: Register map.on('load') handler synchronously — BEFORE 'load' can fire.
     // Capture the local-store boot + initial-render promises so the remote reconnect/open below
     // can await them (so its clearAllDataStore can't race the load handler — see bootRendered).
-    const { statePromise, bootRendered } = initializeApp(map, controlsPromise);
+    const { statePromise, bootRendered, renderBootMap } = initializeApp(map, controlsPromise, {
+        pintarSlotLocal: !abreAtlasDeServidor,
+    });
 
     // Wait for controls to finish (preflight + UI setup)
     const controls = await controlsPromise;
@@ -251,28 +283,88 @@ async function initApp() {
     getEventBus().on(EventTypes.CONNECTION_STATE_CHANGED, syncAtlasLockKey);
     getEventBus().on(EventTypes.SESSION_CHANGED, syncAtlasLockKey);
 
-    // A `.ebgeo` handed over by "Seus atlas" comes FIRST, and it is not a fifth entry in the chain
-    // below: it is the completion of a gesture the user already made on the other page, so there is
-    // nothing left for the chain to route. It runs after the lock is up, because it both creates an
-    // atlas and wipes the mounted scope; and it declines to the chain when a deep link is present,
-    // because a `?atlas=` boot is going to open a SERVER atlas and a file must never be imported
-    // into one.
-    //
-    // `createAtlas` IS THE ENTRY INTO A NEW ATLAS, injected rather than imported over there because
-    // `pending-import.js` is unit-tested in bare node and this pipeline drags the whole store. It
-    // is the same one the in-map import uses when it has to leave a server atlas
-    // (`_prepareNonAdditiveTarget`), which is what keeps "who may mount an atlas" a list of one.
-    if (await consumePendingEbgeoImport({
-        hasDeepLink: Boolean(bootPublicLink || bootAtlasLink),
-        getImporter: () => getControl('exportImport'),
-        createAtlas: (name) => switchToNewLocalAtlas(name),
-        notify: showToast,
-    })) return;
+    installLiveAtlasSwitchHook();
 
-    if (await openPublicAtlasFromUrl(bootPublicLink)) return;
-    if (await openAtlasFromUrl(bootAtlasLink)) return;
-    if (await enterLocalMapOnBoot()) return;
-    openAtlasChooserOnBoot();
+    // A CORTINA CAI EM TODO DESFECHO, e o `finally` e o que faz disso um fato em vez de uma
+    // promessa. Quando `pintarSlotLocal` foi false, o manipulador de `load` nao pintou nada e nao
+    // baixou a cortina: quem pinta e `openRemoteAtlas`, no caminho feliz. Nos desfechos em que a
+    // abertura remota NAO acontece (outra aba segura o atlas, o usuario recusou descartar um
+    // resgate, o servidor respondeu 403/404, a sessao caiu no meio), a cortina ficaria de pe para
+    // sempre sobre um mapa em branco — que e uma tela travada, nao uma abertura lenta.
+    //
+    // `renderBootMap` E IDEMPOTENTE E SO CORRE UMA VEZ, entao chama-lo aqui depois de um `?atlas=`
+    // bem-sucedido nao repinta nada: `abriuAtlasDeServidor` ja o dispensa, e a idempotencia e o
+    // piso caso um caminho novo esqueca de dispensa-lo.
+    try {
+        // A `.ebgeo` handed over by "Seus atlas" comes FIRST, and it is not a fifth entry in the chain
+        // below: it is the completion of a gesture the user already made on the other page, so there is
+        // nothing left for the chain to route. It runs after the lock is up, because it both creates an
+        // atlas and wipes the mounted scope; and it declines to the chain when a deep link is present,
+        // because a `?atlas=` boot is going to open a SERVER atlas and a file must never be imported
+        // into one.
+        //
+        // `createAtlas` IS THE ENTRY INTO A NEW ATLAS, injected rather than imported over there because
+        // `pending-import.js` is unit-tested in bare node and this pipeline drags the whole store. It
+        // is the same one the in-map import uses when it has to leave a server atlas
+        // (`_prepareNonAdditiveTarget`), which is what keeps "who may mount an atlas" a list of one.
+        if (await consumePendingEbgeoImport({
+            hasDeepLink: Boolean(bootPublicLink || bootAtlasLink),
+            getImporter: () => getControl('exportImport'),
+            createAtlas: (name) => switchToNewLocalAtlas(name),
+            notify: showToast,
+        })) return;
+
+        if (await openPublicAtlasFromUrl(bootPublicLink)) return;
+        if (await openAtlasFromUrl(bootAtlasLink)) return;
+        if (await enterLocalMapOnBoot()) return;
+        openAtlasChooserOnBoot();
+    } finally {
+        // O caminho feliz do `?atlas=` ja pintou o atlas de SERVIDOR (`openRemoteAtlas` termina em
+        // `switchMap` mais a releitura de aparencia), entao aqui so falta baixar a cortina. Todo o
+        // resto pinta o slot local, que e o que o boot antigo entregava em qualquer desfecho.
+        if (_abriuAtlasDeServidor) hideLoadingScreen();
+        else await renderBootMap().catch(() => hideLoadingScreen());
+    }
+}
+
+/**
+ * True depois de `openRemoteAtlas` ter aberto o atlas do deep link.
+ *
+ * ELE EXISTE PORQUE `openAtlasFromUrl` DEVOLVE `true` EM TRES DESFECHOS DIFERENTES: o atlas abriu,
+ * a aba foi bloqueada por outra, e o usuario ainda nao entrou (o login foi pedido). Os tres dizem
+ * "assumi o boot", que e a pergunta da cadeia de roteamento; so o primeiro diz "o mapa ja esta
+ * pintado", que e a pergunta do `finally` acima. Alargar o retorno daquela funcao para responder
+ * as duas coisas mudaria a cadeia inteira por causa de um caso; um sinalizador de modulo com nome
+ * proprio responde a segunda pergunta e deixa a primeira em paz.
+ */
+let _abriuAtlasDeServidor = false;
+
+/**
+ * O GANCHO DE MEDICAO DA TROCA AO VIVO. Sem interface, de proposito.
+ *
+ * PARA QUE ELE EXISTE: `switchAtlas` elimina a recarga da pagina, e a recarga e o custo inteiro
+ * da troca (medido: de 1,6 a 2,9 s, com 4203 kB de JavaScript executados no boot do mapa). Uma
+ * afirmacao de ganho sem numero e chute, e o numero so sai exercitando a troca no navegador de
+ * verdade. Este gancho e o que da a bancada (Playwright, ou o console) acesso ao caminho novo.
+ *
+ * POR QUE NAO TEM BOTAO. A porta VISIVEL para a troca ao vivo (trocar o que "Seus atlas" faz, ou
+ * por um seletor dentro do mapa) e uma decisao de produto separada, e ela esta com o dono. Um
+ * seletor construido aqui por conta propria seria interface que ninguem pediu, no caminho que a
+ * pagina de projetos ja ocupa.
+ *
+ * ELE E INSTALADO ANTES DO ROTEAMENTO DE BOOT porque cada ramo daquela cadeia sai com `return`:
+ * instalado depois, ele so existiria no boot que caisse no seletor de atlas.
+ * @returns {void}
+ */
+function installLiveAtlasSwitchHook() {
+    /**
+     * @param {'remote'|'local'} kind - Tipo do destino.
+     * @param {string} atlasId - Id do atlas (UUID do servidor, ou id do slot local).
+     * @param {string|null} [mapId] - Mapa a ativar dentro do destino.
+     * @returns {Promise<import('./account/open-atlas.service.js').AtlasSwitchResult>}
+     */
+    globalThis.__ebgeoSwitchAtlas = (kind, atlasId, mapId = null) =>
+        switchAtlas({ kind, atlasId, mapId });
 }
 
 /**
@@ -324,6 +416,9 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
 
     try {
         const opened = await openRemoteAtlas(link.atlasId, { mapId: link.mapId });
+        // O atlas de servidor esta montado E pintado (`openRemoteAtlas` termina com `switchMap` e
+        // com a releitura de aparencia), entao o `finally` do roteamento nao tem o que pintar.
+        if (opened) _abriuAtlasDeServidor = true;
         // User declined the "replace local work" confirm → stay local; drop the deep link so a
         // reconnect doesn't re-open it, and don't fall through to the last-atlas reconnect.
         //

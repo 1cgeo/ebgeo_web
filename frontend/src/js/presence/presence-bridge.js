@@ -371,6 +371,21 @@ export function startPresence({ map } = {}) {
     // our current map (piggybacked on a positionless cursor frame).
     subscribe(state, eventBus, EventTypes.MAP_LOCK_CHANGED, () => broadcastCurrentMap());
 
+    // A TROCA DE ATLAS AO VIVO, e ela e o unico caminho pelo qual o roster fica velho na tela.
+    //
+    // O ROSTER SO E SUBSTITUIDO POR UM QUADRO `connected` (`setInitial`, acima) ou pela parada da
+    // ponte (`stopPresence`). Numa troca para outro atlas de SERVIDOR isso basta: o `connect` do
+    // atlas novo traz o quadro e a lista e trocada inteira. Numa troca para um atlas LOCAL nao ha
+    // socket e nunca havera quadro nenhum, entao os colegas do atlas anterior continuavam
+    // listados, com cursor e selecao, num projeto que nao tem colegas.
+    //
+    // A CONDICAO E O SOCKET, e nao o tipo do destino, porque e o socket que decide se alguem vai
+    // repovoar a lista: com uma conexao de pe, `setInitial` ja passou por aqui e limpar seria
+    // apagar o roster que acabou de chegar.
+    subscribe(state, eventBus, EventTypes.ATLAS_SWITCHED, () => {
+        if (!wsClient.isConnected()) presenceStore.clear();
+    });
+
     // Case E — temporal instant/playback: the timeline is local per user; share
     // the cursor so peers can show "Fulano — em D+3".
     subscribe(state, eventBus, EventTypes.TEMPORAL_CURSOR_CHANGED, ({ cursor } = {}) => {

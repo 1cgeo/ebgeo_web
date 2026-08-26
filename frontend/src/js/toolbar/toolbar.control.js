@@ -16,6 +16,7 @@ import {
 } from '@utils/event-cleanup.js';
 import { EventTypes } from '@events/event_types.js';
 import { isCurrentMapLockedSync } from '@store/index.js';
+import { controlType, ensureControl } from '@tools/tool-registry.js';
 
 /**
  * Main toolbar controller.
@@ -24,14 +25,12 @@ export class ToolbarControl {
     /**
      * @param {Object} dependencies - Required dependencies
      * @param {Object} dependencies.toolManager - ToolManager instance
-     * @param {Object} dependencies.controls - Map of tool controls
      * @param {Object} dependencies.eventBus - EventBus instance
      * @param {Object} dependencies.stateManager - StateManager instance
      * @param {Object} dependencies.map - MapLibre map instance
      */
     constructor(dependencies) {
         this._toolManager = dependencies.toolManager;
-        this._controls = dependencies.controls;
         this._eventBus = dependencies.eventBus;
         this._stateManager = dependencies.stateManager;
         this._map = dependencies.map;
@@ -56,7 +55,6 @@ export class ToolbarControl {
         Object.values(TOOL_GROUPS).forEach(groupConfig => {
             const group = new ToolbarGroup(groupConfig, {
                 toolManager: this._toolManager,
-                controls: this._controls,
                 eventBus: this._eventBus,
                 stateManager: this._stateManager,
                 map: this._map,
@@ -102,10 +100,21 @@ export class ToolbarControl {
         button.setAttribute('aria-label', toolConfig.label);
         button.innerHTML = toolConfig.icon;
 
-        addDomListener(this, button, 'click', () => {
-            const control = this._controls[toolConfig.controlKey];
-            if (control) {
+        // Mesma tranca do botão de grupo: com carga tardia o clique volta antes de a ferramenta
+        // existir, e dois cliques rápidos entrariam duas vezes em `setActiveTool`.
+        let carregando = false;
+        addDomListener(this, button, 'click', async () => {
+            if (carregando) return;
+            carregando = true;
+            button.dataset.loading = 'true';
+            try {
+                const control = await ensureControl(toolConfig.controlKey);
                 this._toolManager.setActiveTool(control);
+            } catch (erro) {
+                console.error(`Falha ao carregar a ferramenta ${toolConfig.controlKey}:`, erro);
+            } finally {
+                carregando = false;
+                delete button.dataset.loading;
             }
         });
 
@@ -205,34 +214,12 @@ export class ToolbarControl {
             const button = this._standaloneButtons.get(toolConfig.id);
             if (!button) return;
 
-            const control = this._controls[toolConfig.controlKey];
-            const controlType = this._inferControlType(control);
-            const isActive = controlType === activeToolType;
+            // O tipo vem da tabela do registro, sem instância e sem esperar por rede. Ver o
+            // gêmeo em `components/toolbar-group.js`.
+            const isActive = controlType(toolConfig.controlKey) === activeToolType;
 
             button.dataset.active = isActive.toString();
         });
-    }
-
-    /**
-     * Infers tool type from control instance.
-     * @private
-     * @param {Object} control - Tool control instance
-     * @returns {string|null}
-     */
-    _inferControlType(control) {
-        if (!control) return null;
-
-        // First check for explicit type property
-        if (control.type) {
-            return control.type;
-        }
-
-        // Fallback: derive from constructor name
-        const className = control.constructor.name;
-        return className
-            .replace('Add', '')
-            .replace('Control', '')
-            .toLowerCase();
     }
 
     /**

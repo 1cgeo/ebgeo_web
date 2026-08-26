@@ -42,6 +42,42 @@
     /* translateX e não `margin-left` negativo: a casa anima e posiciona por transform. */
     transform: translateX(-50%);
     z-index: var(--z-toast);
+
+    /* O AVISO NÃO PODE ENGOLIR CLIQUE DO MAPA, e até 2026-08-25 ele engolia.
+     *
+     * Ele é `position: absolute` no topo centralizado do contêiner do mapa e PERSISTE enquanto a
+     * falha durar, que é a decisão escrita acima ("não serve um aviso que some em três segundos
+     * para uma falha que persiste enquanto a pessoa navega"). Essa mesma persistência é o que
+     * torna o painel um obstáculo: sem `pointer-events`, ele intercepta todo clique na faixa
+     * superior do mapa, e a pessoa que tenta desenhar ali não recebe erro nenhum, só um clique
+     * que não fez nada.
+     *
+     * MEDIDO, não suposto: cinco casos de Playwright falhavam com "elemento coberto por
+     * div.data-layer-notice" ao clicar no mapa, em specs que não têm nada a ver com camada que
+     * falha. O ambiente de teste bloqueia os tiles externos, o aviso sobe, e ele passa a tapar o
+     * alvo. O defeito é do painel, não dos testes.
+     *
+     * O BLOCO DEIXA PASSAR, OS FILHOS INTERATIVOS PEGAM DE VOLTA. É o par obrigatório: só
+     * `pointer-events: none` no bloco mataria os botões "tentar de novo" e "dispensar", que são a
+     * razão de este painel não ser um toast. */
+    pointer-events: none;
+}
+
+/* A metade que RECUPERA o clique, e ela cobre SÓ O QUE É INTERATIVO.
+ *
+ * O TEXTO FICA DE FORA DE PROPÓSITO, e isso foi medido. A primeira versão desta regra incluía
+ * `.data-layer-notice__body`, e o `__detail` é filho dele: o bloco de prosa herdava
+ * `pointer-events: auto` e voltava a interceptar. O sintoma foi um caso de Playwright
+ * (`static-modals`, o modal de atalhos) estourando em 60 s com
+ * "data-layer-notice__detail ... intercepts pointer events" sobre um botão que não tem nada a ver
+ * com camada nenhuma. Metade do conserto é pior que conserto nenhum: parecia resolvido.
+ *
+ * O texto não perde nada que importe. Ele não é alvo de gesto: quem precisa agir usa os dois
+ * botões, e são eles que justificam este painel não ser um toast. O que se perde é a seleção do
+ * texto com o mouse, e o que se ganha é o mapa inteiro clicável por baixo do aviso. */
+.data-layer-notice__actions,
+.data-layer-notice__btn {
+    pointer-events: auto;
 }
 
 .data-layer-notice[hidden] {

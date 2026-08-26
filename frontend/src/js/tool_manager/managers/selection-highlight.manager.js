@@ -11,6 +11,7 @@
 import { getStateManager } from '@store';
 import { pixelsToDegrees } from '@utils/geometry-utils.js';
 import { deepClone } from '@utils/deep-utils.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================
 // SELECTION HIGHLIGHT MANAGER
@@ -165,6 +166,23 @@ export class SelectionHighlightManager {
      * Each tool is responsible for creating its own selection boxes.
      */
     updateSelectionHighlight = () => {
+        // O TURF PRIMEIRO, e a assinatura fica SINCRONA de proposito.
+        //
+        // Este metodo tem cerca de sessenta chamadores no repositorio, todos descartando o
+        // retorno, e nenhum deles precisa saber que a caixa depende de uma biblioteca que
+        // pode nao ter chegado. Torna-lo `async` obrigaria a mexer nos sessenta para nada.
+        // A saida e a mesma forma do stand-in de ferramenta em `tool-registry.js`: sair
+        // agora, pedir o Turf, e refazer a chamada quando ele chegar. Na pratica isso quase
+        // nunca acontece — `selection_manager.js:getCompleteFeatureFromSource` ja garantiu o
+        // Turf um gesto antes —, e a guarda existe para o caminho que NAO passa por la: o
+        // `_handleZoomChange`, que redesenha as caixas a cada passo de zoom.
+        if (typeof globalThis.turf === 'undefined') {
+            ensureTurf()
+                .then(() => this.updateSelectionHighlight())
+                .catch((erro) => console.warn('Turf nao carregou para a caixa de selecao:', erro));
+            return;
+        }
+
         // Skip during drag to avoid visual lag
         if (this._isDragging()) return;
 
@@ -481,6 +499,12 @@ export class SelectionHighlightManager {
 
     /**
      * Calculate buffer around feature.
+     *
+     * SEM FUNIL DE TURF DE PROPOSITO, e a razao e uma medida: em 2026-08-25 este metodo nao
+     * tem chamador nenhum na arvore, so o repasse morto de `ui_manager.js:calculateBuffer`,
+     * que tambem nao tem. Quem o ligar de volta precisa garantir o Turf antes, do jeito que
+     * `updateSelectionHighlight` faz aqui em cima.
+     *
      * @param {Object} feature - GeoJSON feature
      * @param {number} bufferSize
      * @returns {Object}

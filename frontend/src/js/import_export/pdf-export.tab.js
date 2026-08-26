@@ -1,6 +1,11 @@
 // Path: js/import_export/pdf-export.tab.js
-/* global initGdalJs */
 import { showError } from '@utils/toast_service.js'
+// GDAL entra SOB DEMANDA, e nao mais por `<script>` no `index.html`. Eram 187 kB
+// que a pagina do mapa baixava em toda carga sem ninguem ler no boot. O `/* global
+// initGdalJs */` que estava aqui saiu junto: o global agora chega pelo retorno de
+// `ensureGdal()`, e nao por uma tag que o eslint precisava aprender de cor.
+import { ensureGdal } from '@utils/gdal-loader.js'
+import { ensureTurf } from '@utils/turf-loader.js'
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
@@ -940,6 +945,25 @@ export default class PDFExportTab {
         if (this._exporting) return;
         this._exporting = true;
 
+        // O TURF DA LEGENDA, e ele vem DEPOIS da trava `_exporting`, nao antes.
+        //
+        // Os cinco sitios de Turf deste arquivo estao em `_buildExportBoundsPolygon` e
+        // `_featureIntersectsBounds`, os dois SINCRONOS e chamados no meio do desenho da
+        // legenda, tanto no caminho de folha unica quanto no de mosaico. Este metodo e o
+        // unico ponto por onde os dois passam.
+        //
+        // A ORDEM COM A TRAVA E O QUE IMPORTA. Um `await` acrescentado ANTES de
+        // `this._exporting = true` abriria uma janela entre o primeiro clique e a trava, e
+        // dois cliques rapidos no botao entrariam os dois na exportacao. A trava e o
+        // `disabled` do botao continuam sendo a primeira coisa que este metodo faz, de forma
+        // sincrona, e o `await` so entra depois de a porta estar fechada.
+        await ensureTurf().catch((erro) => {
+            // Turf ausente degrada a LEGENDA, e nao a exportacao: `_buildExportBoundsPolygon`
+            // devolve null no catch dele, e o filtro espacial cai para "conta todas". Parar a
+            // exportacao aqui seria pior do que uma legenda mais larga.
+            console.warn('Turf nao carregou para o filtro espacial da legenda:', erro);
+        });
+
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) exportBtn.disabled = true;
 
@@ -966,6 +990,18 @@ export default class PDFExportTab {
             this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
+            // ESTE E O CHOKEPOINT REAL do GDAL, e nao o `_preInitGdal()`. MEDIDO em
+            // navegador em 2026-08-25: no caminho normal da interface,
+            // `sidebar/tabs/export.tab.js:_renderPdfContent` INLINA o que `show()`
+            // faz (preview, bounds, zoom, listener de `move`) e nunca chama `show()`.
+            // So o `_createFallbackPdfUI` chama. Ou seja, `_preInitGdal()` ja era
+            // codigo morto na interface normal ANTES de o GDAL sair do `index.html`:
+            // a sonda abriu a aba de PDF, esperou 5 s e nao viu um pedido de GDAL.
+            // Entao o `await` aqui nao e uma rede de seguranca, e a unica garantia.
+            //
+            // Dois cliques rapidos nao entram duas vezes: `this._exporting` fecha a
+            // porta antes deste `await`, e o botao ja saiu desabilitado acima.
+            const initGdalJs = await ensureGdal()
             Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
 
             if (this._exportCancelled) return;
@@ -1163,18 +1199,37 @@ export default class PDFExportTab {
     }
 
     /**
-     * Pre-initializes GDAL WASM in the background.
-     * Called when the export tab is shown to avoid WASM load latency during export.
-     * initGdalJs() returns a cached promise on subsequent calls, so this is safe.
+     * Pre-initializes GDAL WASM in the background, aquecendo o export.
+     *
+     * `initGdalJs()` returns a cached promise on subsequent calls, so this is safe
+     * to call more than once.
+     *
+     * ATENCAO, ISTO HOJE QUASE NUNCA RODA. So `show()` o chama, e no caminho normal
+     * da interface ninguem chama `show()`: `sidebar/tabs/export.tab.js`
+     * (`_renderPdfContent`) inlina o corpo de `show()` e segue. Sobra o
+     * `_createFallbackPdfUI`, que e o caminho de excecao. MEDIDO por sonda de
+     * navegador em 2026-08-25: abrir a aba de PDF nao dispara pedido nenhum de
+     * GDAL. Quem de fato carrega o GDAL e o `await ensureGdal()` do
+     * `handleExport`. Nao confie neste metodo como garantia; ele e so aquecimento
+     * oportunista, e o dia em que a aba voltar a chamar `show()` ele volta a valer.
+     *
+     * AGORA SAO DUAS ETAPAS, e a primeira e nova: `ensureGdal()` baixa o proprio
+     * `gdal3.js`, que ate 2026-08-25 vinha por `<script defer>` no `index.html`.
+     * Este metodo continua SINCRONO de proposito. Ele so dispara a corrente e
+     * volta, entao `show()` nao virou `async` e nenhum chamador de `show()`
+     * precisou mudar. Um `await` aqui atrasaria a abertura da aba para esperar
+     * 187 kB de script mais 39 MB de WASM, que e exatamente o oposto do objetivo.
      */
     _preInitGdal() {
         if (this._gdalPreInitStarted) return;
         this._gdalPreInitStarted = true;
 
-        initGdalJs({ path: this._getGdalPath(), useWorker: false }).catch(() => {
-            // Reset flag so it can be retried on next show()
-            this._gdalPreInitStarted = false;
-        });
+        ensureGdal()
+            .then((initGdalJs) => initGdalJs({ path: this._getGdalPath(), useWorker: false }))
+            .catch(() => {
+                // Reset flag so it can be retried on next show()
+                this._gdalPreInitStarted = false;
+            });
     }
 
     /**

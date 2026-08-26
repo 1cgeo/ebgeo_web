@@ -17,20 +17,24 @@
  * chokepoint every caller passes through — not at each call site, which is the
  * version that forgets one.
  *
- * WHY NOT `map_3d.js`'s loadScript. That one resolves as soon as a `<script>`
- * with the same src exists in the DOM, which is true from the moment it is
- * appended and long before it has executed. Two concurrent callers therefore get
- * a resolved promise while `window.ms` is still undefined. Here the promise is
- * memoized instead: everyone awaits the SAME load, and a failure clears the memo
- * so a later attempt can retry rather than inheriting a rejected promise forever.
+ * A MECANICA MUDOU DE CASA em 2026-08-25, e o comportamento nao: memo da
+ * PROMESSA (e nao da tag), `onload` que nao e prova de que o global existe, memo
+ * limpo na falha e `src` derivado do `BASE_URL` vivem em
+ * `utilities/vendor-loader.js`, com o porque de cada decisao. Este era o
+ * primeiro dos tres carregadores identicos da casa; o terceiro (o do Turf) foi
+ * o momento de parar de copiar. `tests/unit/milsymbol-loader.test.js` continua
+ * sendo o contrato, e foi ele que provou a extracao.
  *
  * @module military_tools/military_symbol_tool/milsymbol-loader
  */
 
-const MILSYMBOL_SRC = '/vendors/milsymbol.min.js';
+import { criarCarregadorDeVendor } from '@utils/vendor-loader.js';
 
-/** In-flight (or settled) load. Memoized so concurrent callers share one fetch. */
-let carregando = null;
+const carregador = criarCarregadorDeVendor({
+    caminho: 'vendors/milsymbol.min.js',
+    nome: 'ms',
+    pronto: () => (typeof globalThis.ms !== 'undefined' ? globalThis.ms : null),
+});
 
 /**
  * Ensures `window.ms` is available, loading the vendor bundle on first use.
@@ -42,33 +46,7 @@ let carregando = null;
  * @throws {Error} when the bundle cannot be loaded, or loads without defining `ms`
  */
 export function ensureMilsymbol() {
-    if (typeof globalThis.ms !== 'undefined') return Promise.resolve(globalThis.ms);
-    if (carregando) return carregando;
-
-    carregando = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = MILSYMBOL_SRC;
-        script.async = true;
-        script.onload = () => {
-            // `onload` says the file ran, not that it defined what we need: a
-            // wrong path served as HTML by the dev server also fires onload.
-            if (typeof globalThis.ms === 'undefined') {
-                reject(new Error(`${MILSYMBOL_SRC} carregou sem definir "ms"`));
-                return;
-            }
-            resolve(globalThis.ms);
-        };
-        script.onerror = () => reject(new Error(`Falha ao carregar ${MILSYMBOL_SRC}`));
-        document.head.appendChild(script);
-    }).catch((err) => {
-        // Drop the memo so a later draw can try again instead of inheriting a
-        // permanently rejected promise (a transient network blip would otherwise
-        // disable military symbols for the whole session).
-        carregando = null;
-        throw err;
-    });
-
-    return carregando;
+    return carregador.ensure();
 }
 
 /**
@@ -76,5 +54,5 @@ export function ensureMilsymbol() {
  * @returns {void}
  */
 export function resetMilsymbolLoader() {
-    carregando = null;
+    carregador.reset();
 }

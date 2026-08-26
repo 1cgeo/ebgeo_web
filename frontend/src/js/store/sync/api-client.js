@@ -131,6 +131,25 @@ const REFRESH_COOLDOWN_MS = 30000;
 const BOOT_TIMEOUT_MS = 8000;
 
 /**
+ * Timeout (ms) for the logout revoke, which is an EXCEPTION to the unbounded default above.
+ *
+ * THE DEFAULT IS DELIBERATE AND THIS IS NOT A REPAIR OF IT: a request left unbounded protects a
+ * large transfer on a degrading network, where aborting is worse than waiting (P6). A logout
+ * transfers nothing. It sends one refresh token and reads a 204, so there is no transfer left to
+ * protect, and a backend that accepts the connection without answering leaves the user staring at
+ * a menu that does not close.
+ *
+ * IT BUYS NO TIME ON A BACKEND THAT ANSWERS. Measured on the owner's machine, the gain is zero.
+ * What it buys is a bound: it turns an exit hung forever into an exit that ends in 3 s. The local
+ * tokens leave either way — the abort is a rejected fetch, it lands in the empty `catch` of
+ * {@link ApiClient#logout}, and the `finally` clears them.
+ *
+ * 3 s because the route is one round trip with no body worth reading, so anything slower than
+ * that is already a failure the user should not wait through.
+ */
+const LOGOUT_TIMEOUT_MS = 3000;
+
+/**
  * Headroom (ms) before `exp` at which the access token is renewed BEFORE being used,
  * instead of waiting for the 401 that reactively triggers a refresh.
  *
@@ -650,9 +669,10 @@ export class ApiClient {
         if (auth && this._accessToken) headers['Authorization'] = `Bearer ${this._accessToken}`;
 
         // Boot-critical requests (config + session restore) pass a `timeoutMs` so a hung backend
-        // can't block boot (P1); the abort surfaces as a rejected fetch handled by the caller's
-        // offline/anonymous fallback. All other requests (snapshot pull / op push) are left
-        // UNBOUNDED so a large transfer on a slow/degrading network is never aborted (P6).
+        // can't block boot (P1), and so does the logout revoke (LOGOUT_TIMEOUT_MS), which carries
+        // nothing worth waiting for; the abort surfaces as a rejected fetch handled by the
+        // caller's offline/anonymous fallback. All other requests (snapshot pull / op push) are
+        // left UNBOUNDED so a large transfer on a slow/degrading network is never aborted (P6).
         let res;
         if (timeoutMs) {
             const controller = new AbortController();
@@ -952,6 +972,14 @@ export class ApiClient {
      * `/auth/logout` route is auth-strict: it needs the Bearer access token AND the
      * refreshToken in the body. Network errors are swallowed so the local tokens are
      * always cleared.
+     *
+     * IT IS BOUNDED BY {@link LOGOUT_TIMEOUT_MS}, unlike the unbounded default of `_request`: a
+     * backend that accepts the connection and never answers used to hang the exit for as long as
+     * the socket lived. The abort is a rejected fetch, so it takes the empty `catch` and the
+     * `finally` still clears the tokens.
+     *
+     * `_retry: false` STAYS. A 401 here says the access token is already dead, and refreshing to
+     * retry would ask the server to revoke using a token it has just refused.
      */
     async logout() {
         try {
@@ -959,6 +987,7 @@ export class ApiClient {
                 await this._request('POST', '/auth/logout', {
                     body: { refreshToken: this._refreshToken },
                     _retry: false,
+                    timeoutMs: LOGOUT_TIMEOUT_MS,
                 });
             }
         } catch {

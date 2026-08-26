@@ -36,10 +36,11 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { join, resolve } from 'path';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
+import { contarBlobs } from '../helpers/blobs-em-disco.js';
 import config from '../../src/config.js';
 
 const uname = (p) => `iuem_${p}_${randomUUID().slice(0, 8)}`;
@@ -67,9 +68,22 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     await teardownTestEnv(db);
   });
 
-  /** Arquivos no diretorio do atlas (0 se ele ainda nao existe). */
+  /**
+   * Blobs de verdade no diretorio do atlas (0 se ele ainda nao existe).
+   *
+   * Isto era `readdirSync(atlasDir).length`, e era a origem do vermelho
+   * intermitente deste arquivo. `readdirSync` conta ENTRADAS DE DIRETORIO, e no
+   * Windows o unlink de um blob faz nascer, logo DEPOIS da resposta, uma entrada
+   * `<UUID em caixa alta>.PNG.tmp` de zero byte. O caso seguinte ja tinha tirado o
+   * retrato, entao a contagem subia de 0 para 1 no meio dele. Medido em 12 de 400
+   * repeticoes da sequencia deste arquivo.
+   *
+   * O helper conta so o que o servidor consegue escrever, `<uuid>.<ext>` minusculo,
+   * e ainda confere com `statSync`. A medicao inteira, com a ordem dos eventos e o
+   * porque de `statSync` sozinho NAO bastar, esta em helpers/blobs-em-disco.js.
+   */
   function countFiles() {
-    return existsSync(atlasDir) ? readdirSync(atlasDir).length : 0;
+    return contarBlobs(atlasDir);
   }
 
   /** Linhas de imagem do atlas. */
@@ -134,6 +148,7 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
 
   it('dois arquivos no campo "image" (limits.files=1 do single): 400 BAD_REQUEST pelo mesmo ramo', async () => {
     const arquivosAntes = countFiles();
+    const linhasAntes = await countRows();
 
     const res = await post()
       .attach('image', PNG_1x1, { filename: 'a.png', contentType: 'image/png' })
@@ -143,17 +158,30 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     assert.equal(res.body.error.code, 'BAD_REQUEST');
     assert.match(res.body.error.message, /^Upload error: /);
 
-    // O primeiro arquivo pode ter sido escrito antes do segundo ser recusado;
-    // o que NAO pode e sobrar mais de um blob por uma requisicao rejeitada.
-    assert.ok(
-      countFiles() - arquivosAntes <= 1,
-      `no maximo um blob orfao por requisicao abortada, ganhou ${countFiles() - arquivosAntes}`
+    // O primeiro arquivo E escrito antes de o segundo ser recusado, mas o multer o
+    // apaga antes de responder: `abortWithError` chama `removeUploadedFiles` e so
+    // depois `done(err)`. Logo o saldo correto e ZERO, nao "no maximo um".
+    //
+    // A tolerancia `<= 1` que morava aqui nao era folga do aplicativo, era o
+    // fantasma de delete pending do Windows entrando na contagem por `readdirSync`.
+    // Contando blobs de verdade a folga deixa de existir, e a assercao volta a
+    // poder reprovar: se alguem trocar a ordem no wrapper e responder antes de
+    // limpar, este numero passa a 1. Verificado plantando um blob real no
+    // diretorio, que reprova o caso em 5 execucoes de 5.
+    assert.equal(
+      countFiles(),
+      arquivosAntes,
+      `requisicao rejeitada nao deixa blob, ganhou ${countFiles() - arquivosAntes}`
     );
-    const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM images WHERE atlas_id = $1', [atlas.id]);
-    assert.ok(rows[0].n >= 0, 'consulta valida');
+    // `n >= 0` morava aqui, e contagem nunca e negativa: era uma assercao que nao
+    // podia reprovar. O que o caso de fato promete e que a requisicao rejeitada nao
+    // cria linha, entao a comparacao e contra o estado de antes.
+    assert.equal(await countRows(), linhasAntes, 'requisicao rejeitada nao cria linha');
   });
 
   it('a mensagem do ramo de TAMANHO e distinta da do ramo generico (o ternario e observavel)', async () => {
+    const arquivosAntes = countFiles();
+    const linhasAntes = await countRows();
     const grande = Buffer.alloc((config.images.maxSizeMb + 1) * 1024 * 1024, 0x00);
     const res = await post()
       .attach('image', grande, { filename: 'huge.png', contentType: 'image/png' })
@@ -162,6 +190,14 @@ describe('Images — mapeamento de erro do upload single (item 165)', () => {
     assert.equal(res.body.error.code, 'BAD_REQUEST');
     assert.equal(res.body.error.message, `Image too large (max ${config.images.maxSizeMb}MB)`);
     assert.doesNotMatch(res.body.error.message, /^Upload error: /, 'nao pode cair no ramo generico');
+
+    // O multer COMECA a gravar antes de o limite cortar, entao a pergunta legitima
+    // e se o blob truncado sobra. Nao sobra, e a ordem e a prova: o `fs.unlink` do
+    // multer esta no caminho critico do `next(err)`, entao ele termina antes do
+    // primeiro byte da resposta. Medido com um cliente lento, 1 MB a cada 150 ms:
+    // blob criado aos 222 ms, apagado aos 2254 ms, resposta 400 aos 2256 ms.
+    assert.equal(countFiles(), arquivosAntes, 'o blob truncado nao pode sobrar em disco');
+    assert.equal(await countRows(), linhasAntes, 'nenhuma linha criada');
   });
 
   // ─────────────────────────────────────────────────────────────────────────

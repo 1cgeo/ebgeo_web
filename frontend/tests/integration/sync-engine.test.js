@@ -111,6 +111,7 @@ const h = vi.hoisted(() => {
         // verde com e sem a mudança, que é a cobertura vazia nomeada na constituição.
         refreshVisibleResourcesMock: vi.fn(async () => true),
         clearVisibleResourcesMock: vi.fn(),
+        setImageSyncAtlasMock: vi.fn(),
     };
 });
 
@@ -130,6 +131,7 @@ const {
     reconcilePendingLocalEdits,
     syncGatewayMock,
     eventBusMock,
+    setImageSyncAtlasMock,
 } = h;
 
 vi.mock('../../src/js/store/sync/api-client.js', () => ({
@@ -195,6 +197,14 @@ vi.mock('../../src/js/store/sync/resource-access.service.js', () => ({
 
 vi.mock('../../src/js/store/services.js', () => ({
     getEventBus: vi.fn(() => h.eventBusMock),
+}));
+
+// O DESTINO DAS IMAGENS é a terceira coisa que guarda "em que atlas eu estou" (as outras duas
+// são `_atlasId` e `_lastVersion`), e `disconnect({ forgetAtlas: true })` tem de zerá-lo junto.
+// Ele entra como dublê só para ser OBSERVÁVEL: o módulo real escreve num ponteiro de módulo que
+// nenhuma asserção alcança de fora.
+vi.mock('../../src/js/store/sync/image-sync.js', () => ({
+    setImageSyncAtlas: h.setImageSyncAtlasMock,
 }));
 
 // The engine warns the user when the server refuses an operation per-op.
@@ -1043,6 +1053,41 @@ describe('pull', () => {
 describe('disconnect', () => {
     it('closes the WebSocket', () => {
         syncEngine.disconnect();
+        expect(wsClientMock.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    // O DEFEITO, medido em 2026-08-25 e fechado no mesmo dia. `disconnect()` limpava papel,
+    // recursos, marcas de edicao e a sobreposicao de configuracao, e NAO zerava `_atlasId`; so
+    // `logoutAndDisconnect` zerava. Quem le esse campo primeiro e `currentAtlasLockKey`
+    // (`account/open-atlas.service.js`), entao uma aba que saisse de um atlas de servidor para
+    // um atlas LOCAL sem recarregar a pagina continuava anunciando a chave `remote:<id>` do
+    // atlas que acabara de deixar: bloqueava outra aba por um atlas que ninguem tinha aberto, e
+    // deixava de defender o slot local que de fato montou. Nao produzia erro nenhum.
+    it('PADRAO: uma desconexao comum LEMBRA o atlas, porque ela tambem serve para PAUSAR', () => {
+        syncEngine._atlasId = 'atlas-1';
+        syncEngine._lastVersion = 7;
+
+        syncEngine.disconnect();
+
+        // O freio do tab-lock (`store/sync/tab-lock-sync-brake.js`) chama assim para PARAR a
+        // aba, e a retomada reconecta o MESMO atlas. Esquecer aqui apagaria o que ela le.
+        expect(syncEngine.atlasId).toBe('atlas-1');
+        expect(syncEngine.lastVersion).toBe(7);
+        expect(setImageSyncAtlasMock).not.toHaveBeenCalled();
+    });
+
+    it('`forgetAtlas: true` esquece o atlas, a versao aplicada e o destino das imagens', () => {
+        syncEngine._atlasId = 'atlas-1';
+        syncEngine._lastVersion = 7;
+
+        syncEngine.disconnect({ forgetAtlas: true });
+
+        expect(syncEngine.atlasId).toBeNull();
+        // A versao vai junto: um `_lastVersion` de outro atlas valeria no proximo `connect`
+        // sem pull inicial, e o motor pediria a partir de uma versao que nao e dele.
+        expect(syncEngine.lastVersion).toBe(0);
+        expect(setImageSyncAtlasMock).toHaveBeenCalledWith(null);
+        // E o socket fecha do mesmo jeito: a bandeira nao troca o que `disconnect` ja fazia.
         expect(wsClientMock.disconnect).toHaveBeenCalledTimes(1);
     });
 });

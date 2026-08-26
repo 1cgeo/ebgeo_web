@@ -1384,10 +1384,20 @@ export class AccountControl {
                 // remoto dividiam os mesmos dez bancos: o "mapa antigo" dele era o do SERVIDOR, e
                 // esvaziar tudo era a única forma de alcançá-lo. Aquele spec foi reescrito para
                 // afirmar o que o usuário de fato relatou.
+                //
+                // O WIPE NÃO REINICIALIZA O REPOSITÓRIO AQUI, e este é o único sítio de chamada
+                // que passa `reinitialize: false`. `initializeRepository` roda a limpeza de dado
+                // legado, a cadeia de migrações e o detector de migração (que lê os bancos
+                // pré-namespace) para deixar um repositório pronto. A linha SEGUINTE destrói esse
+                // namespace. O mapa em branco continua sendo gravado, porque os ouvintes de
+                // `ALL_DATA_CLEARED` o leem pelo nome; o que não se paga é preparar para uso um
+                // escopo que não vai ser usado. Os outros chamadores mantêm o padrão `true`: os
+                // três que montam atlas de servidor logo depois LEEM o repositório que este wipe
+                // deixa.
                 const eraRemoto = isRemoteStoreSync();
                 await announceRemoteNamespaceTeardown();
                 if (eraRemoto) {
-                    await clearAllDataStore();
+                    await clearAllDataStore({ reinitialize: false });
                 }
                 await discardRemoteAtlasNamespaces();
                 // AQUI NÃO SE ANUNCIA PERDA, e a razão mudou junto com a decisão do dono sobre a

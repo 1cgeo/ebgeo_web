@@ -21,6 +21,7 @@ import {
     getStorageTypeFromSource
 } from '../store';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
+import { ensureTurf } from '../utilities/turf-loader.js';
 
 class SelectionManager {
     /**
@@ -34,6 +35,23 @@ class SelectionManager {
 
         /** @type {Map<string, Object>} Tool controls registry */
         this.controls = new Map();
+
+        /**
+         * @type {Map<string, {getSourceNames: Function, getEditHandleSource: Function, ensure: Function}>}
+         *
+         * AS FERRAMENTAS QUE AINDA NAO EXISTEM, e este e o ponto mais delicado da carga tardia.
+         *
+         * Clicar numa feicao JA DESENHADA num mapa recem carregado procura o controle POR TIPO,
+         * sem gesto de ferramenta nenhum. Antes da carga tardia toda ferramenta estava
+         * instanciada no boot, entao `this.controls` respondia sempre. Agora nem sempre.
+         *
+         * O descritor e o meio-termo: ele responde SINCRONO o que a varredura de clique precisa
+         * (as fontes que a ferramenta possui e a fonte das alcas de edicao), porque essa
+         * varredura roda dentro do handler de clique do mapa e nao pode esperar por rede. O
+         * modulo so e resolvido quando a selecao de fato acontece, por `ensureControlFor`, e a
+         * partir dai a instancia vive em `this.controls` como qualquer outra.
+         */
+        this.controlFactories = new Map();
 
         // Context menu state (local, not in StateManager - ephemeral UI)
         this.contextMenu = null;
@@ -178,7 +196,7 @@ class SelectionManager {
             return;
         }
 
-        const control = this.controls.get(type);
+        const control = await this.ensureControlFor(type);
         const isSelected = stateManager.isFeatureSelected(type, featureIdStr);
 
         if (isSelected && forceDeselect) {
@@ -242,7 +260,12 @@ class SelectionManager {
             });
         }
 
-        const control = this.controls.get(type);
+        // A ferramenta e resolvida AQUI, e nao la em cima: `getCompleteFeatureFromSource` ja
+        // nao precisa dela (le as fontes pelo descritor), e o par `_mapLocked = true` /
+        // `onFeatureSelected` / `_mapLocked = false` tem de ficar SINCRONO. Um await no meio
+        // dele devolveria o controle com o flag ja limpo, e um mapa bloqueado ganharia alcas
+        // de edicao.
+        const control = await this.ensureControlFor(type);
         if (control?.onFeatureSelected) {
             // Signal locked state so controls skip edit handle creation
             const locked = isCurrentMapLockedSync();
@@ -340,6 +363,73 @@ class SelectionManager {
      */
     registerControl(type, control) {
         this.controls.set(type, control);
+        // Uma vez instanciada, a ferramenta responde por si: o descritor cumpriu o papel dele.
+        this.controlFactories.delete(type);
+    }
+
+    /**
+     * Register a LAZY tool control: static metadata now, module on demand.
+     *
+     * @param {string} type - Feature type identifier (`properties.source`)
+     * @param {Object} descriptor
+     * @param {() => string[]} descriptor.getSourceNames - Sources the tool owns (sync)
+     * @param {() => string|null} descriptor.getEditHandleSource - Edit-handle source (sync)
+     * @param {() => Promise<Object>} descriptor.ensure - Loads + instantiates the control
+     */
+    registerControlFactory(type, descriptor) {
+        if (this.controls.has(type)) return;
+        this.controlFactories.set(type, descriptor);
+    }
+
+    /**
+     * The control for `type`, loading it on first use.
+     *
+     * Every selection path is already `async`, so the await costs nothing where the control is
+     * present and is the whole point where it is not.
+     *
+     * @param {string} type - Feature type
+     * @returns {Promise<Object|null>}
+     */
+    async ensureControlFor(type) {
+        const pronto = this.controls.get(type);
+        if (pronto) return pronto;
+
+        const descritor = this.controlFactories.get(type);
+        if (!descritor) return null;
+
+        try {
+            const controle = await descritor.ensure();
+            // `ensure` ja chama `registerControl` por dentro do registro de ferramentas; a
+            // linha abaixo cobre um descritor de teste que nao o faca.
+            if (controle) this.controls.set(type, controle);
+            this.controlFactories.delete(type);
+            return controle ?? null;
+        } catch (erro) {
+            console.warn(`Falha ao carregar a ferramenta do tipo ${type}:`, erro);
+            return null;
+        }
+    }
+
+    /**
+     * Every registered type with the two SYNCHRONOUS lookups the click sweep needs, loaded or
+     * not. Iterating only `this.controls` would make a click on a feature of a never-loaded
+     * tool land on empty ground — the feature is drawn, and nothing would find it.
+     * @returns {Array<[string, {getSourceNames: Function, getEditHandleSource: Function}]>}
+     * @private
+     */
+    _descritoresDeTipo() {
+        return [...this.controls.entries(), ...this.controlFactories.entries()];
+    }
+
+    /**
+     * Source names a type owns, WITHOUT loading the tool.
+     * @param {string} type
+     * @returns {string[]}
+     * @private
+     */
+    _fontesDoTipo(type) {
+        const alvo = this.controls.get(type) ?? this.controlFactories.get(type);
+        return alvo?.getSourceNames?.() ?? [];
     }
 
     /**
@@ -511,8 +601,10 @@ class SelectionManager {
         const clickedFeatures = [];
         const visibleLayerSet = new Set(getVisibleLayerIds());
 
-        for (const [type, control] of this.controls) {
-            const sourceNames = control.getSourceNames();
+        // Descritores, NAO instancias: uma feicao desenhada por uma ferramenta que ainda nao
+        // carregou continua clicavel, porque as fontes dela sao dado estatico da tabela.
+        for (const [type, descritor] of this._descritoresDeTipo()) {
+            const sourceNames = descritor.getSourceNames?.() ?? [];
             for (const sourceName of sourceNames) {
                 const matchingFeatures = features.filter(f =>
                     f.source === sourceName && f.properties.source === type
@@ -651,7 +743,7 @@ class SelectionManager {
             }
             if (completeFeature) {
                 stateManager.addToSelection(featureRef.type, String(featureRef.id), completeFeature);
-                const control = this.controls.get(featureRef.type);
+                const control = await this.ensureControlFor(featureRef.type);
                 if (control?.onFeatureSelected) {
                     control.onFeatureSelected(completeFeature);
                 }
@@ -671,10 +763,19 @@ class SelectionManager {
             return;
         }
 
+        // As ferramentas do grupo sao resolvidas ANTES do lote. `batchUpdate` recebe uma funcao
+        // SINCRONA (ela existe para disparar os assinantes uma vez so), entao um await la dentro
+        // sairia do lote e cada membro do grupo notificaria por conta propria.
+        const controlesPorTipo = new Map();
+        for (const featureRef of group.features) {
+            if (controlesPorTipo.has(featureRef.type)) continue;
+            controlesPorTipo.set(featureRef.type, await this.ensureControlFor(featureRef.type));
+        }
+
         stateManager.batchUpdate(() => {
             for (const featureRef of group.features) {
                 stateManager.removeFromSelection(featureRef.type, String(featureRef.id));
-                const control = this.controls.get(featureRef.type);
+                const control = controlesPorTipo.get(featureRef.type);
                 if (control?.onFeatureDeselected) {
                     control.onFeatureDeselected(null);
                 }
@@ -846,8 +947,8 @@ class SelectionManager {
     isClickOnEditHandle(point) {
         const features = this.map.queryRenderedFeatures(point);
 
-        for (const control of this.controls.values()) {
-            const editHandleSource = control.getEditHandleSource();
+        for (const [, descritor] of this._descritoresDeTipo()) {
+            const editHandleSource = descritor.getEditHandleSource?.();
             if (editHandleSource) {
                 const hasHandle = features.some(f =>
                     f.source === editHandleSource && f.properties.user_isEditingHandle
@@ -866,13 +967,28 @@ class SelectionManager {
      * @returns {Promise<Object|null>} Complete GeoJSON feature or null
      */
     async getCompleteFeatureFromSource(type, featureId) {
-        const control = this.controls.get(type);
-        if (!control) {
-            console.warn(`Control not found for type: ${type}`);
-            return null;
-        }
+        // O SEGUNDO FUNIL DO TURF, e o que fecha o caminho que `ensureControl` nao ve.
+        //
+        // Quem le `turf.bbox` na selecao e o `createSelectionBox` de vinte e quatro controles,
+        // e ele e chamado de dois lugares, os DOIS sincronos: `managers/selection-highlight.
+        // manager.js` (a caixa local) e `presence/remote-selections.layer.js` (a caixa do
+        // colega). O segundo nao pode ser tocado nesta onda, e nao precisa: ele e `async` e
+        // chama ESTE metodo antes de pedir a caixa ao controle. Um `await` aqui garante o Turf
+        // um gesto antes, e vale para os dois caminhos de uma vez.
+        //
+        // A CONTA E BARATA depois da primeira vez: `ensureTurf` devolve uma promessa ja
+        // resolvida, e este metodo ja era `async` e ja fazia um `await mapSource.getData()`.
+        // Selecao em grupo chama isto por feicao, e o memo do carregador absorve o laco.
+        await ensureTurf().catch((erro) => {
+            // Turf ausente nao pode cancelar a SELECAO: sem a caixa a feicao ainda seleciona,
+            // ainda abre o painel e ainda edita. Cancelar aqui trocaria uma caixa que falta
+            // por uma ferramenta que nao responde.
+            console.warn('Turf nao carregou antes da selecao:', erro);
+        });
 
-        const sourceNames = control.getSourceNames();
+        // Le a FONTE pelo descritor, nunca pela instancia: ler a geometria completa de uma
+        // feicao nao e motivo para baixar a ferramenta que a desenha.
+        const sourceNames = this._fontesDoTipo(type);
         if (!sourceNames?.length) {
             console.warn(`Source names not found for type: ${type}`);
             return null;
@@ -928,6 +1044,8 @@ class SelectionManager {
         if (this.vectorTileInfoControl?.isActive) return this.vectorTileInfoControl;
         if (this.rectangleSelectionControl?.isActive) return this.rectangleSelectionControl;
 
+        // So instancias, e nao ha buraco nisso: uma ferramenta que nunca carregou nunca foi
+        // ativada, porque ativa-la e o que a carrega.
         for (const control of this.controls.values()) {
             if (control.isActive) return control;
         }
@@ -958,7 +1076,7 @@ class SelectionManager {
         if (needsBatch) startBatchUndo();
         try {
             for (const [type, features] of featuresByType) {
-                const control = this.controls.get(type);
+                const control = await this.ensureControlFor(type);
                 await control?.deleteFeatures?.(features);
             }
             if (needsBatch) commitBatchUndo();
@@ -1003,7 +1121,7 @@ class SelectionManager {
         if (needsBatch) startBatchUndo();
         try {
             for (const [type, features] of featuresByType) {
-                const control = this.controls.get(type);
+                const control = await this.ensureControlFor(type);
                 await control?.updateFeatures?.(features, true);
             }
             if (needsBatch) commitBatchUndo();

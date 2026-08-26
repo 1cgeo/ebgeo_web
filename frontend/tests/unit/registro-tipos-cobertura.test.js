@@ -114,8 +114,12 @@ const CENSO = [
         motivo: 'Classifies each type into the KML shape it exports as. An unknown type falls through to plain linework, losing fill, label and symbol without an error. The processing outputs are explicitly skipped upstream.',
     },
     {
-        arquivo: 'map_sig.js', completa: 'tipo', universo: 'selecionaveis',
-        motivo: 'The FOUR edit sites a tool has to enter: SELECTION_CONTROLS, CONTROL_REGISTRY, and the TWO independent `controls:` literals (KeyboardShortcuts and ToolbarControl), which carry the same names in different order and are held together by nothing. Registering the control alone does not make the button work; entering one twin and not the other gives a button with no shortcut.',
+        arquivo: 'tool_manager/tool-registry.js', completa: 'tipo', universo: 'selecionaveis',
+        motivo: 'O CATALOGO das ferramentas do mapa, e o herdeiro dos QUATRO lugares soltos que map_sig.js mantinha em sincronia por nada (SELECTION_CONTROLS, CONTROL_REGISTRY e os DOIS literais `controls:`, o do teclado e o da barra). Uma linha aqui carrega tipo de UI, tipo de feicao, fontes, alca de edicao e o `import()` do modulo. Uma ferramenta que nao entre aqui nao tem botao, nao tem atalho, nao e selecionavel e nao carrega.',
+    },
+    {
+        arquivo: 'map_sig.js',
+        motivo: 'SUBSET POR MIGRACAO, nao buraco: a lista completa mudou-se para tool_manager/tool-registry.js na onda de carga tardia de 2026-08-25. O que sobrou aqui sao as SEIS ferramentas de desenho que continuam ansiosas porque o boot as chama de forma sincrona (applyZoomCorrections em layers/styles/*.js, restoreMeasurements em layer_setup.js, DEFAULT_PROPERTIES em import.control.js). Quando esses tres arquivos entrarem na onda, esta entrada sai do censo sozinha.',
     },
     {
         arquivo: 'sidebar/components/feature-identification.js', completa: 'tipo', universo: 'selecionaveis',
@@ -398,16 +402,21 @@ describe('cobertura do registro: os tres estados', () => {
     it('ABSOLUTE: as nove listas que prometem completude, nomeadas', () => {
         // Absolute alongside the derived: if someone quietly demotes an entry to SUBSET, the
         // property above goes on passing and only this case notices.
+        //
+        // A TROCA DE 2026-08-25 passou por AQUI, e e por isso que este caso existe: a lista
+        // completa saiu de `map_sig.js` e entrou em `tool_manager/tool-registry.js`, na onda de
+        // carga tardia das ferramentas. Uma migracao legitima parece exatamente com um
+        // rebaixamento silencioso enquanto ninguem escreve os dois lados na mesma linha.
         expect(CENSO.filter(e => e.completa).map(e => e.arquivo).sort()).toEqual([
             'features_tab/features_tab.constants.js',
             'import_export/kmz/kmz-feature-types.js',
             'import_export/local-atlas-to-server.js',
             'layers/layer.constants.js',
-            'map_sig.js',
             'sidebar/components/feature-identification.js',
             'store/repositories/local.repository.js',
             'store/repository.utils.js',
             'tool_manager/helpers/feature-header.helpers.js',
+            'tool_manager/tool-registry.js',
         ]);
     });
 });

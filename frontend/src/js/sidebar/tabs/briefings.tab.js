@@ -169,6 +169,11 @@ export class BriefingsTab {
         subscribe(this, this._eventBus, EventTypes.BRIEFING_CREATED, () => this._loadBriefings());
         subscribe(this, this._eventBus, EventTypes.BRIEFING_UPDATED, () => this._loadBriefings());
         subscribe(this, this._eventBus, EventTypes.BRIEFING_DELETED, () => this._loadBriefings());
+        // A TROCA DE ATLAS AO VIVO. Os tres eventos acima cobrem o que ACONTECE COM UM BRIEFING,
+        // e nenhum deles dispara quando o conjunto inteiro muda de dono: os briefings sao por
+        // atlas (`briefing.operations.js` le o escopo montado), entao uma troca sem recarga
+        // deixava a lista mostrando os briefings do atlas anterior, clicaveis.
+        subscribe(this, this._eventBus, EventTypes.ATLAS_SWITCHED, () => this._loadBriefings());
     }
 
     /**

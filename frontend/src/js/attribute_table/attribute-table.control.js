@@ -20,6 +20,7 @@ import { renderTable, updateRowSelections } from './components/table-renderer.js
 import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
 import { showPrompt } from '@modals';
 import userDataManager from '@js/user_data/user_data_manager.js';
@@ -894,10 +895,26 @@ export class AttributeTableControl {
 
     /**
      * Handles zoom to feature.
+     *
+     * ASSINCRONO DESDE 2026-08-25, e a troca custou UM chamador: o `onZoomToFeature` que
+     * `_renderTable` passa ao renderizador, que descarta o retorno. Este e o caso em que
+     * tornar o metodo assincrono e mais barato do que arrumar um funil anterior: a tabela de
+     * atributos abre por gesto proprio, nao passa por `ensureControl` nem por selecao, e o
+     * unico Turf que ela le e o `turf.bbox` de enquadrar uma feicao que nao e ponto.
+     *
+     * O `await` fica DEPOIS da guarda de feicao vazia e ANTES do `try`: enquadrar um PONTO
+     * nao le Turf nenhum, mas separar os dois caminhos por causa disso trocaria uma linha por
+     * um ramo, e quem clica em "ir para a feicao" numa tabela clica em varias.
+     *
      * @param {Object} feature - Feature
+     * @returns {Promise<void>}
      */
-    _handleZoomToFeature(feature) {
+    async _handleZoomToFeature(feature) {
         if (!feature || !feature.geometry) return;
+
+        await ensureTurf().catch((erro) => {
+            console.warn('Turf nao carregou para enquadrar a feicao:', erro);
+        });
 
         try {
             const geometryType = feature.geometry.type;

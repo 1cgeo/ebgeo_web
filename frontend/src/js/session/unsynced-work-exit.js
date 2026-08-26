@@ -265,6 +265,18 @@ export async function countPendingOperations() {
 const QUEUE_KEY_PREFIX = 'op_';
 
 /**
+ * How many envelopes {@link countPendingOperationsFor} reads at the same time.
+ *
+ * It mirrors `COUNT_BATCH_SIZE` of `operation-queue.js` in intent, and it is a SEPARATE
+ * constant rather than an import on purpose: importing a third symbol from the queue module
+ * would break every test that doubles that module with a two-symbol factory, and a drift here
+ * costs latency, never correctness. That is the opposite of {@link QUEUE_KEY_PREFIX}, whose
+ * drift makes the count answer 0, which is why only that one is asserted against the source.
+ * @type {number}
+ */
+const COUNT_BATCH_SIZE = 200;
+
+/**
  * The pending-operation count of a NAMED server atlas, for a page that has no map and therefore no
  * remote scope mounted.
  *
@@ -278,7 +290,14 @@ const QUEUE_KEY_PREFIX = 'op_';
  *
  * The scope filter is the queue's OWN predicate (`operationBelongsToScope`), not a second rule: an
  * operation stamped for another address lives in the wrong database and must not be counted as
- * something this atlas would lose.
+ * something this atlas would lose. IT READS THE VALUES, IT NEVER COUNTS THE KEYS, for the same
+ * reason `operationQueue.count()` does: counting too much preserves work that was not at risk,
+ * counting too little authorises the teardown that destroys it.
+ *
+ * The reads go out TOGETHER, in batches of {@link COUNT_BATCH_SIZE}, because this is the first
+ * blocking step after the click on "Sair" and one round trip per operation is a wait paid for a
+ * number. A rejection inside a batch aborts the whole count and lands in the `catch` below, which
+ * answers NaN ("unknown") — and unknown preserves. Answering 0 there would authorise destruction.
  *
  * @param {string|null} atlasId - Server atlas UUID.
  * @returns {Promise<number>} The count, or NaN when it could not be measured.
@@ -288,12 +307,17 @@ export async function countPendingOperationsFor(atlasId) {
     try {
         const scope = remoteScope(atlasId);
         const store = getStoreFor(StoreName.OPERATION_QUEUE, scope);
-        const keys = await store.keys();
+        const keys = (await store.keys())
+            .filter(key => typeof key === 'string' && key.startsWith(QUEUE_KEY_PREFIX));
+        if (keys.length === 0) return 0;
+
         let total = 0;
-        for (const key of keys) {
-            if (typeof key !== 'string' || !key.startsWith(QUEUE_KEY_PREFIX)) continue;
-            const operation = await store.getItem(key);
-            if (operation && operationBelongsToScope(operation, scope.dbSuffix)) total += 1;
+        for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
+            const lote = keys.slice(i, i + COUNT_BATCH_SIZE);
+            const envelopes = await Promise.all(lote.map(key => store.getItem(key)));
+            for (const operation of envelopes) {
+                if (operation && operationBelongsToScope(operation, scope.dbSuffix)) total += 1;
+            }
         }
         return total;
     } catch (error) {

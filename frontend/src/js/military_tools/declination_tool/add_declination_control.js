@@ -279,6 +279,21 @@ class AddDeclinationControl extends BaseControl {
      * Regenerates the diagram SVG/PNG for a feature and updates the map icon.
      * @param {Object} feature - The declination feature
      */
+    /**
+     * Rebuilds this diagram's LOCAL-ONLY PNG from its synced props, and installs it on the map.
+     *
+     * NOME COMUM ÀS TRÊS FERRAMENTAS que registram regeneração de imagem, e é isso que permite
+     * ao `tool_manager/tool-registry.js` registrar UMA closure genérica no boot: ela carrega a
+     * ferramenta na primeira feição que precisar dela e chama este método. Aqui o trabalho já
+     * era público (`regenerateIcon`); o apelido existe para o contrato ser o mesmo nas três.
+     *
+     * @param {Object} feature
+     * @returns {Promise<void>}
+     */
+    regenerateImageFromProps(feature) {
+        return this.regenerateIcon(feature);
+    }
+
     async regenerateIcon(feature) {
         const svgString = generateDeclinationSvg(
             feature.properties.declination,

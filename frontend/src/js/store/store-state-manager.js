@@ -427,9 +427,8 @@ class MapManager {
 
         try {
             const allMaps = await getAllMapNames();
-            for (const mapName of allMaps) {
-                await removeColorUsage(mapName);
-            }
+            // EM PARALELO: N remocoes em bancos que nao dependem umas das outras.
+            await Promise.all(allMaps.map((mapName) => removeColorUsage(mapName)));
         } catch (error) {
             console.warn('Error clearing color caches:', error);
         }
@@ -443,8 +442,11 @@ class MapManager {
             this.projectColorCache.clear();
             const allMaps = await getAllMapNames();
 
-            for (const mapName of allMaps) {
-                const colorData = await getColorUsage(mapName);
+            // EM PARALELO. A agregacao e uma SOMA, entao ela nao depende da ordem de chegada
+            // e o laco com `await` dentro so enfileirava N leituras independentes. A soma
+            // continua sendo feita em serie, sobre os dados ja em memoria.
+            const dados = await Promise.all(allMaps.map((mapName) => getColorUsage(mapName)));
+            for (const colorData of dados) {
                 this.updateProjectColorCache(new Map(Object.entries(colorData)), 'add');
             }
         } catch (error) {

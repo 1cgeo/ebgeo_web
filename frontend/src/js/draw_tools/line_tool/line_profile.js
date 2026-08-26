@@ -8,6 +8,7 @@
  */
 
 import { getTerrainElevation } from '../../terrain';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 // ============================================================================
 // CONSTANTS
@@ -36,6 +37,11 @@ const PROFILE_STEPS = 25;
  * // Returns: [{ distance: 0, elevation: 100, slope: 0 }, ...]
  */
 export async function calculateProfile(map, coordinates) {
+    // Ja assincrona, e chamada tanto pelo controle de linha (que passa por `ensureControl`)
+    // quanto por `line-split.js`. Uma linha aqui torna a funcao autossuficiente em vez de
+    // depender de qual dos dois caminhos a alcancou.
+    await ensureTurf();
+
     const line = turf.lineString(coordinates);
     const length = turf.length(line, { units: 'meters' });
     const stepLength = length / PROFILE_STEPS;

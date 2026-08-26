@@ -512,6 +512,33 @@ async function stampSparedAt(entry) {
 }
 
 /**
+ * How many registry entries the sweep destroys at the same time.
+ *
+ * NOT a throttle on the databases: each entry already destroys its eleven in parallel
+ * (`clearAtlasDatabases`, `dropAtlasDatabases`), so this caps the product at 11 times four.
+ */
+const PURGE_BATCH_SIZE = 4;
+
+/**
+ * @returns {Object} A fresh set of the report's outcome lists, one per entry of the sweep.
+ *   `registered` is NOT here: it is captured once, before anything is destroyed.
+ */
+function emptyPurgeOutcome() {
+    return {
+        atlases: [],
+        empty: [],
+        spared: [],
+        forced: [],
+        failed: [],
+        cleared: [],
+        dropped: [],
+        blocked: [],
+        adopted: [],
+        retained: []
+    };
+}
+
+/**
  * THE LOGGED-OUT WIPE. Empties and deletes every registered remote namespace.
  *
  * It is derived from the registry, never from a hand-written list of atlases and never
@@ -563,14 +590,25 @@ export async function purgeAllRemoteAtlases({
     };
     if (entries.length === 0) return report;
 
+    // ONCE, BEFORE THE SWEEP, and none of the three may move inside the fan-out below. Releasing
+    // the mount is the sweep's first act (see above), the claim set is one read of the local
+    // registry, and `now` read once is what makes every entry judged against a SINGLE instant:
+    // one clock per entry would let two atlases with the same deadline land on opposite sides
+    // of it.
     await releaseRemoteMountLock();
     const claimed = await locallyClaimedSuffixes();
     const now = Date.now();
 
-    for (const entry of entries) {
+    // ONE OUTCOME SET PER ENTRY, merged into the report BY INDEX after everything settles. The
+    // entries run CONCURRENTLY, so writing straight into the shared report would order its lists
+    // by whichever database happened to answer first; merging by index keeps the report in
+    // registry order, which is what it always reported.
+    const outcomes = entries.map(() => emptyPurgeOutcome());
+
+    const purgeEntry = async (entry, index) => {
         try {
             await purgeOneRemoteAtlas(entry, {
-                report, claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs
+                report: outcomes[index], claimed, now, dropTimeoutMs, spareGraceMs, rescueGraceMs
             });
         } catch (error) {
             // ONE ATLAS FAILING MUST NOT ABORT THE SWEEP. Without this, an entry that throws
@@ -578,9 +616,34 @@ export async function purgeAllRemoteAtlases({
             // mid-clear) takes down the whole logged-out purge, and every OTHER server atlas on
             // the machine survives the logout, which is the invariant this function carries.
             // The entry is kept in the registry so the next boot retries it.
+            //
+            // THE CATCH IS INSIDE THE MAPPED FUNCTION, and that placement is the invariant now
+            // that the entries run in parallel: `Promise.all` over functions that never reject
+            // never rejects, so a throwing atlas still cannot cut the sweep short. A catch put
+            // around the `Promise.all` instead would abandon every other atlas at the first
+            // rejection, which is exactly the loss this block exists to prevent.
             console.error(`[remote-atlas] purge of ${entry.atlasId} failed:`, error);
-            report.failed.push(entry.atlasId);
+            outcomes[index].failed.push(entry.atlasId);
         }
+    };
+
+    // THE ENTRIES RUN IN PARALLEL because the serial loop made the logout WAIT: each blocked
+    // namespace costs up to `DROP_TIMEOUT_MS`, so N stuck atlases cost N times that, one after
+    // the other, with the user staring at a logout that is doing nothing.
+    //
+    // IN BATCHES, though, because each entry opens ELEVEN databases (`clearAtlasDatabases`) and
+    // then deletes eleven more: an unbounded fan-out over a registry with dozens of entries would
+    // ask the browser for 11xN simultaneous IndexedDB connections plus one pending timer each.
+    // Four is where the two costs meet: the realistic registry (a handful of server atlases this
+    // machine ever opened) fits in ONE batch and pays a single timeout, and a pathological one
+    // pays ceil(N/4) timeouts instead of N.
+    for (let start = 0; start < entries.length; start += PURGE_BATCH_SIZE) {
+        const batch = entries.slice(start, start + PURGE_BATCH_SIZE);
+        await Promise.all(batch.map((entry, offset) => purgeEntry(entry, start + offset)));
+    }
+
+    for (const outcome of outcomes) {
+        for (const field of Object.keys(outcome)) report[field].push(...outcome[field]);
     }
 
     // A sweep only ever runs because the session is over, so this client has no business in a
@@ -603,7 +666,8 @@ export async function purgeAllRemoteAtlases({
  *
  * @param {Object} entry - Registry entry.
  * @param {Object} ctx
- * @param {RemotePurgeReport} ctx.report - Mutated in place.
+ * @param {Object} ctx.report - THIS ENTRY'S outcome lists, mutated in place. The sweep runs the
+ *   entries concurrently and gives each one its own set, then merges them in registry order.
  * @param {Set<string>} ctx.claimed - Suffixes a LOCAL atlas claims (the rescue).
  * @param {number} ctx.now - Epoch ms, read once so every entry is judged against one instant.
  * @param {number} [ctx.dropTimeoutMs] - Bound on each database delete.

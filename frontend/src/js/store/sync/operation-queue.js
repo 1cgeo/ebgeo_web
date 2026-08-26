@@ -92,6 +92,21 @@ const KEY_PREFIX = 'op_';
 const MAX_QUEUE_SIZE = 10000;
 
 /**
+ * How many envelopes {@link OperationQueue#count} reads from IndexedDB at the same time.
+ *
+ * The count reads VALUES, never keys (the scope stamp lives in the envelope), and it used to
+ * read them one `await` at a time. That serialised up to {@link MAX_QUEUE_SIZE} round trips on
+ * the first blocking step of the logout, which is a wait nobody was paying for a number.
+ *
+ * IT IS A BATCH AND NOT A SINGLE `Promise.all` BECAUSE OF THE BOUND ABOVE: a full queue would
+ * hold ten thousand envelopes resident at once, and an envelope carries the entity payload it
+ * describes. 200 caps the resident set at 200 envelopes while still overlapping 200 reads, and
+ * it is above the size of an ordinary queue, so the common case is ONE batch with no
+ * serialisation at all.
+ */
+const COUNT_BATCH_SIZE = 200;
+
+/**
  * The address (database suffix) the queue is reading right now. The empty string is a real
  * address (the legacy slot, database `ebgeo`), never "no address".
  * @returns {string}
@@ -250,17 +265,44 @@ class OperationQueue {
     /**
      * Counts the pending operations OF THE ACTIVE SCOPE.
      *
-     * It reads the values rather than counting keys, because the stamp lives in the
-     * envelope and an operation in the wrong database must not be counted as flushable.
-     * That cost is only ever paid on a non-empty queue, and the caller that polls it
-     * (`sync-flush.js`) checks the connection first and flushes immediately afterwards,
-     * which reads the same values.
+     * IT READS THE VALUES, IT NEVER COUNTS THE KEYS. The stamp lives in the envelope, so an
+     * operation addressed to another scope must not be counted as flushable. This number also
+     * decides the RESCUE on the way out of the account (`unsynced-work-exit.js`), and the two
+     * errors are not symmetric: counting too much preserves work that was not at risk (one
+     * extra local atlas, recoverable), counting too little authorises the teardown that
+     * destroys it. Zero is the answer that permits destruction; never produce it by accident.
+     *
+     * IT DOES NOT REUSE `_loadOperations`, which exists to return a CHRONOLOGICAL list. The
+     * order was the only reason the count ever called it, and a count has no use for order.
+     * The reads go out together, in batches of {@link COUNT_BATCH_SIZE}, instead of one round
+     * trip per operation; the empty queue answers without reading anything, which is the
+     * ordinary case and the one on the logout's critical path.
+     *
+     * A READ THAT REJECTS PROPAGATES, on purpose: `countPendingOperations` turns the throw into
+     * NaN ("unknown"), and unknown preserves. Swallowing it here would answer 0.
      * @returns {Promise<number>} Number of pending operations
      */
     async count() {
         const keys = await this._getOrderedKeys();
-        const ops = await this._loadOperations(keys, { scopeSuffix: activeScopeSuffix() });
-        return ops.length;
+        if (keys.length === 0) return 0;
+
+        // Resolved ONCE, before the reads: the factory answers by the scope mounted at the
+        // instant of the call, and a scope swap in the middle of the batch would count part of
+        // one database and part of another.
+        const store = queueStore();
+        const scopeSuffix = activeScopeSuffix();
+
+        let total = 0;
+        for (let i = 0; i < keys.length; i += COUNT_BATCH_SIZE) {
+            const lote = keys.slice(i, i + COUNT_BATCH_SIZE);
+            const envelopes = await Promise.all(lote.map(key => store.getItem(key)));
+            for (const op of envelopes) {
+                if (!op) continue;
+                if (!operationBelongsToScope(op, scopeSuffix)) continue;
+                total += 1;
+            }
+        }
+        return total;
     }
 
     /**

@@ -257,6 +257,26 @@ export const EventTypes = Object.freeze({
     /** Payload: { settings } — the connected atlas's settings changed (Gestor edited 3D/360/basemap). */
     ATLAS_SETTINGS_CHANGED: 'sync:atlasSettingsChanged',
 
+    // ===== ATLAS LIFECYCLE =====
+    /**
+     * ESTA ABA TROCOU DE ATLAS SEM RECARREGAR A PAGINA. Payload:
+     * `{ kind: 'remote'|'local', atlasId: string, mapId: string|null }`.
+     *
+     * Emitido por `switchAtlas` (`account/open-atlas.service.js`) DEPOIS que o novo atlas ja
+     * esta montado, com o mapa corrente ativo e a aparencia reaplicada, nos dois ramos. Quem
+     * assina esta lendo "o que voce mostra na tela e de outro atlas agora".
+     *
+     * POR QUE ELE EXISTE, e por que nao bastam os eventos que ja havia. A troca ao vivo cura a
+     * maior parte da tela por eventos que ja existiam (`ALL_DATA_CLEARED`, `MAP_LOCK_CHANGED`,
+     * `CONNECTION_STATE_CHANGED`, `SESSION_CHANGED`), e tres consumidores ficavam de fora, cada
+     * um por assinar so o proprio dominio: a aba Camadas e Feicoes (assina apenas a troca de
+     * aba), a aba Briefings (apenas os eventos de briefing) e a presenca (o roster so e zerado
+     * pelo quadro `connected`, que numa troca para atlas LOCAL nunca chega). Chamar esses tres
+     * paineis pelo nome de dentro do servico de atlas seria a quarta copia de uma lista que ja
+     * envelhece sozinha; os outros oito controles ja se curam por evento.
+     */
+    ATLAS_SWITCHED: 'atlas:switched',
+
     // ===== SPATIAL COMMENTS =====
     /** Payload: { comment } — a spatial comment (root or reply) was created. */
     COMMENT_CREATED: 'comment:created',

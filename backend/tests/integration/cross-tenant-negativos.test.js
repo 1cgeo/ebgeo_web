@@ -34,13 +34,14 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, writeFileSync, existsSync, rmSync, readdirSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser, createAdminUser, createAtlas, createShare, loginUser,
   makeAtlasPublic, getPublicToken,
 } from '../helpers/fixtures.js';
+import { contarBlobs } from '../helpers/blobs-em-disco.js';
 import { recordSpan, getTrace, isTraceEnabled } from '../../src/utils/sync-trace.js';
 import config from '../../src/config.js';
 
@@ -91,10 +92,13 @@ describe('cross-tenant / cross-actor negatives', () => {
     return rows[0];
   }
 
-  /** Files currently in an atlas's upload directory (0 when it does not exist). */
+  /** Blobs de verdade no diretorio de upload de um atlas (0 quando ele nao existe). */
+  // Conta blobs de VERDADE, e nao entradas de diretorio. `readdirSync` sozinho
+  // devolvia tambem a entrada `<UUID>.PNG.tmp` de zero byte que o Windows deixa
+  // por alguns milissegundos depois do unlink, e esse fantasma ja produziu
+  // vermelho intermitente. A medicao esta em helpers/blobs-em-disco.js.
   function countFiles(atlasId) {
-    const dir = join(config.images.dir, atlasId);
-    return existsSync(dir) ? readdirSync(dir).length : 0;
+    return contarBlobs(join(config.images.dir, atlasId));
   }
 
   const as = (tok) => ({

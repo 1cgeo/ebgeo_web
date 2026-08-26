@@ -38,6 +38,11 @@ class ConfigTab {
     mount(container) {
         this._container = container;
         this._alive = true;
+        // O AVISO DE "RECARREGUE" É ESTADO DA ABA, e não do formulário que está na tela.
+        // Ver `_buildForm`: o salvamento relê o servidor e RECONSTRÓI o formulário, e um
+        // aviso que morasse só no nó antigo morria nessa reconstrução. Nasce apagado a cada
+        // montagem, porque quem acaba de abrir a aba não salvou nada.
+        this._salvou = false;
         this._render();
         return () => { this._alive = false; };
     }
@@ -144,6 +149,10 @@ class ConfigTab {
             try {
                 await apiClient.clearConfigOverrides();
                 showSuccess('Overrides limpos. Recarregue para aplicar.');
+                // LIMPAR NÃO É SALVAR. Sem esta linha, um "Limpar tudo" feito depois de um
+                // salvamento remontaria o formulário com "Configurações salvas" aceso, que
+                // é a afirmação contrária ao que acabou de acontecer.
+                this._salvou = false;
                 if (this._alive) this._render();
             } catch (err) {
                 showError(err?.message || 'Falha ao limpar os overrides.');
@@ -161,7 +170,22 @@ class ConfigTab {
         const notice = document.createElement('p');
         notice.className = 'admin-form__hint';
         notice.dataset.testid = 'admin-config-notice';
-        notice.hidden = true;
+        // O AVISO SOBREVIVE À RECONSTRUÇÃO DO FORMULÁRIO, e isso é o conserto de um defeito
+        // medido em 2026-08-25. `onSave` fazia, nesta ordem: `notice.hidden = false` e depois
+        // `this._render()`. O `_render` relê `GET /config/admin` e chama `_buildForm` de novo,
+        // que esvazia o container e monta um `notice` NOVO — e o novo nascia `hidden`. O aviso
+        // aparecia por um instante e sumia sozinho quando a releitura voltava, de modo que
+        // quem salvava nunca lia "Recarregue a página para aplicar". A configuração só entra
+        // em vigor no próximo carregamento (ver o `@fileoverview`), então esta frase é a única
+        // coisa na tela que explica por que nada mudou.
+        //
+        // O toast de sucesso NÃO substitui o aviso: ele some sozinho em poucos segundos e não
+        // diz o que fazer. Este parágrafo fica até a próxima ação.
+        //
+        // POR QUE O ESTADO E NÃO A ORDEM DAS LINHAS: revelar o aviso DEPOIS do `await
+        // this._render()` continuaria mexendo num nó que a releitura já tinha descartado.
+        // O único lugar de onde o aviso pode reaparecer é a montagem do formulário.
+        notice.hidden = !this._salvou;
         notice.textContent = 'Configurações salvas. Recarregue a página para aplicar.';
         form.appendChild(notice);
 
@@ -173,6 +197,10 @@ class ConfigTab {
 
         const onSave = async () => {
             error.hidden = true;
+            // O AVISO SE APAGA AO COMEÇAR UM SALVAMENTO NOVO, nos dois lugares: no nó que
+            // está na tela e no estado que a próxima montagem lê. Só no nó, um salvamento
+            // que falhasse deixaria "Configurações salvas" reaparecer na reconstrução.
+            this._salvou = false;
             notice.hidden = true;
 
             const payload = {};
@@ -235,6 +263,10 @@ class ConfigTab {
             try {
                 await apiClient.updateConfigOverrides(merged);
                 showSuccess('Configurações salvas.');
+                // O ESTADO PRIMEIRO, o nó depois: o `_render` logo abaixo monta um formulário
+                // novo, e é `this._salvou` que decide se o aviso nasce visível nele. A linha
+                // seguinte cobre o caso em que a releitura falha e o formulário atual fica.
+                this._salvou = true;
                 notice.hidden = false;
                 // RELÊ DEPOIS DE SALVAR, como o botão de limpar ao lado já fazia. O formulário fechava sobre
                 // o `eff` da montagem e comparava TODO diff contra ele, então um segundo salvamento na mesma

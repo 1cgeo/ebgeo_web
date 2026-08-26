@@ -295,14 +295,18 @@ export class LocalRepository {
      * @returns {Promise<Map<string, Object>>}
      */
     async getAllMaps() {
-        const maps = new Map();
         const keys = await mapStore().keys();
-        for (const key of keys) {
-            const data = await mapStore().getItem(key);
-            if (data) {
-                maps.set(key, data);
-            }
-        }
+        // EM PARALELO. Este metodo le TODOS os documentos por definicao, entao nao ha saida
+        // antecipada a preservar e o laco com `await` dentro so serializava N idas ao disco
+        // que nao dependem umas das outras. A ordem de insercao no `Map` continua a das
+        // chaves, porque quem monta o resultado e o `forEach` abaixo, e nao a ordem de
+        // chegada das leituras.
+        const valores = await Promise.all(keys.map((key) => mapStore().getItem(key)));
+
+        const maps = new Map();
+        keys.forEach((key, i) => {
+            if (valores[i]) maps.set(key, valores[i]);
+        });
         return maps;
     }
 
@@ -355,17 +359,14 @@ export class LocalRepository {
         if (!mapName) {
             return false;
         }
-        const keys = await mapStore().keys();
-        for (const key of keys) {
-            if (excludedKeys.includes(key)) {
-                continue;
-            }
-            const data = await mapStore().getItem(key);
-            if (data && data.name === mapName) {
-                return true;
-            }
-        }
-        return false;
+        const keys = (await mapStore().keys()).filter((key) => !excludedKeys.includes(key));
+
+        // EM PARALELO, e a saida antecipada que se perde aqui quase nunca existia: a resposta
+        // e "algum outro registro ainda atende por este nome", e o caso COMUM e nenhum
+        // atender, que ja lia os N documentos em fila ate o fim. Sair no primeiro casamento
+        // so encurtava a leitura quando a resposta era `true`, que e a excecao.
+        const documentos = await Promise.all(keys.map((key) => mapStore().getItem(key)));
+        return documentos.some((data) => data && data.name === mapName);
     }
 
     /**

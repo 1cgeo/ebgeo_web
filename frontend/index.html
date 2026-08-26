@@ -656,9 +656,24 @@
          Bibliotecas grandes ou especializadas mantidas como scripts externos
          As demais foram migradas para npm e bundleadas pelo Vite
     ======================================== -->
-    <!-- Críticos para inicialização do mapa -->
+    <!-- Crítico para inicialização do mapa: o MapLibre não sai, porque o mapa É a página. -->
     <script src="/vendors/maplibre-gl.js"></script>
-    <script src="/vendors/turf.min.js"></script>
+
+    <!-- Turf: carregado SOB DEMANDA (js/utilities/turf-loader.js). São 619 kB, o maior
+         item depois do MapLibre no script que esta página baixava no boot (3749 kB
+         medidos no pacote de produção em 2026-08-25, fora o `prefetch` do Cesium).
+         Ao contrário do milsymbol e do GDAL, o Turf NÃO tem um leitor único: são 257
+         sítios de chamada em 35 arquivos, todos lendo o global direto. Por isso a
+         cobertura é por FUNIL, e são dois que respondem pela maioria:
+         `tool_manager/tool-registry.js:ensureControl` (todo gesto que ativa uma
+         ferramenta) e `tool_manager/selection_manager.js:getCompleteFeatureFromSource`
+         (toda seleção, local ou de colega, que é o que dispara `createSelectionBox`).
+         O resto ganhou `await ensureTurf()` no próprio ponto de entrada: importação,
+         exportação de PDF, processamento, dividir linha, combinar setas, painel de
+         localização, tabela de atributos, visualizador 360 e o `restoreMeasurements`
+         do boot. A carga é ESTRITAMENTE sob demanda, sem aquecimento em segundo
+         plano: com aquecimento, um sítio esquecido acharia o Turf pronto quase
+         sempre e falharia só às vezes. Não recoloque a tag aqui sem medir de novo. -->
 
     <!-- Simbologia militar: carregada SOB DEMANDA, na primeira geração de símbolo
          (js/military_tools/military_symbol_tool/milsymbol-loader.js). São 855 kB,
@@ -666,8 +681,17 @@
          window.ms num navegador real mostrou que nada os lê durante o boot, nem
          em F5 com símbolo já na tela. Não recoloque a tag aqui sem medir de novo. -->
 
-    <!-- GDAL para export de PDF georreferenciado (defer) -->
-    <script src="/vendors/gdal/gdal3.js" defer></script>
+    <!-- GDAL para export de PDF georreferenciado: carregado SOB DEMANDA, no clique
+         em Exportar (js/utilities/gdal-loader.js, chamado por `handleExport` em
+         import_export/pdf-export.tab.js). São 187 kB dos 4509 kB
+         de script que esta página baixava no boot, medidos no pacote de produção em
+         2026-08-25. Estava com `defer`, e `defer` adia QUANDO o script roda, nunca
+         SE ele baixa: a página pagava os 187 kB em toda carga, e de novo em cada
+         login, logout e troca de atlas. O único leitor é o pdf-export, e o
+         construtor dele não toca em GDAL. Os arquivos irmãos (.wasm e .data)
+         continuam resolvendo: o gdal3.js os acha pela opção `path` que o
+         pdf-export passa, e não pela posição desta tag. Não recoloque a tag aqui
+         sem medir de novo. -->
 
     <!-- ========================================
          SCRIPT PRINCIPAL (processado pelo Vite)

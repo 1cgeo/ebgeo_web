@@ -6,6 +6,7 @@
 
 import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { getImageRegenerator } from './image-regen-registry.js';
+import { ensureTurf } from '../utilities/turf-loader.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { catalogLayerReferenceId } from '../catalog/catalog-layer.ref.js';
 import { initGridLayers } from '../grid/index.js';
@@ -39,6 +40,11 @@ import {
     setupAuxiliaryLayers,
 } from './styles/index.js';
 import { setupMeasurementLayers } from '../measurement_tool/measurement-labels.js';
+// IMPORTADO, e não só reexportado no fim do arquivo: `export { X } from '...'` reencaminha o
+// símbolo para quem importa DESTE módulo e NÃO traz o binding para o escopo local, então
+// `clearFeatureSources` não enxergaria a lista sem esta linha.
+import { FEATURE_SOURCES } from './layer.constants.js';
+import { writeWholeCollection } from './geojson-dispatcher.js';
 
 /**
  * Content signature of the per-feature point marker image last registered for a
@@ -329,9 +335,20 @@ function clearAllMeasurements() {
 
 /**
  * Restores measurements for features.
+ *
+ * O UNICO CAMINHO DE BOOT QUE LE TURF SEM GESTO NENHUM, e por isso ele e o unico ponto de
+ * `layer_setup.js` que espera o carregador. `updateFeatureMeasurement` de linha e de poligono
+ * cai em `measurement_tool/measurement-geometry.js` (`turf.length`, `turf.area`,
+ * `turf.centroid`), e a visada de LOS em `add_los_geometry.js`.
+ *
+ * O `await` FICA DEPOIS DA VARREDURA, e nao antes: um mapa sem nenhuma feicao com
+ * `properties.measure` (que e o mapa novo, e a maioria dos mapas) nao baixa 619 kB para
+ * descobrir que nao tinha nada a remedir. Carga estritamente sob demanda quer dizer isto.
+ *
  * @param {Object} features - Feature collection
+ * @returns {Promise<void>}
  */
-function restoreMeasurements(features) {
+async function restoreMeasurements(features) {
     try {
         const controlFeaturePairs = [
             ['AddLineControl', features.lines],
@@ -339,15 +356,22 @@ function restoreMeasurements(features) {
             ['AddLOSControl', features.los],
         ];
 
+        const aRemedir = [];
         for (const [controlName, featureList] of controlFeaturePairs) {
             const control = getControl(controlName);
             if (!control || !featureList) continue;
 
             for (const feature of featureList) {
                 if (feature.properties?.measure) {
-                    control.updateFeatureMeasurement(feature);
+                    aRemedir.push([control, feature]);
                 }
             }
+        }
+        if (aRemedir.length === 0) return;
+
+        await ensureTurf();
+        for (const [control, feature] of aRemedir) {
+            control.updateFeatureMeasurement(feature);
         }
     } catch (error) {
         console.warn('Error restoring measurements:', error);
@@ -483,6 +507,20 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
         setupLayerSeparators(mapInstance);
 
+        // OS TRES `await` ABAIXO NAO SAO CONCORRENCIA DESPERDICADA, e por isso nao viram
+        // `Promise.all`. Medido em 2026-08-25, pacote de producao, boot de visitante com
+        // IndexedDB vazio: `_setupTerrainSources()` nem sequer e `async` (um `addSource`), e
+        // `setupAnalysisLayers` / `setupDataLayers` sao `async` na assinatura com ZERO `await`
+        // no corpo. Os tres correm ate o fim sincronamente, entao nao ha E/S para sobrepor e
+        // `Promise.all` economizaria tres saltos de microtarefa.
+        //
+        // Ele COBRARIA um preco real, porem: os tres chamam `addLayer`, e a ordem das camadas
+        // no mapa e semantica (e o motivo de `setupLayerSeparators` existir). Sequencial, a
+        // ordem de insercao e fixa; concorrente, ela passa a depender do escalonador.
+        //
+        // `restoreCatalogLayers` e o unico genuinamente assincrono (le o catalogo do IndexedDB)
+        // e DEPENDE dos tres, porque religa camada por camada pelos dois gerentes e pelo
+        // controle de terreno. Ele fica onde esta.
         await restoreTerrainState();
 
         await analysisLayersManager.setupAnalysisLayers();
@@ -531,6 +569,68 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
     } catch (error) {
         console.error('Error setting up map features:', error);
     }
+}
+
+/**
+ * ESVAZIA as sources de feição do mapa vivo, sem remontar camada nenhuma.
+ *
+ * POR QUE ELA EXISTE. Apagar o traço do mapa antigo da tela e RECONSTRUIR o mapa são coisas
+ * diferentes, e até aqui só havia `setupMapFeatures`, que faz as duas. Na saída da conta a segunda
+ * metade é desperdício puro: ela restaura terreno, camadas de catálogo, imagens e filtros de um
+ * escopo que é destruído em seguida. A primeira metade não é desperdício nenhum, é o defeito
+ * relatado pelo usuário (`tests/e2e-ui/browser-logout-clears-map.repro.spec.js`): depois do wipe
+ * nada mais repovoa as sources, então quem não as esvaziar deixa as feições desenhadas no canvas.
+ *
+ * AS ETIQUETAS DE MEDIÇÃO NÃO SÃO SOURCE. Elas são nós DOM pendurados em marcadores do MapLibre,
+ * então `setData` não as alcança e `clearAllMeasurements()` é obrigatório aqui. Sem ele o mapa
+ * fica sem feições e com os rótulos das feições que sumiram.
+ *
+ * O QUE ELA DELIBERADAMENTE NÃO FAZ: remover camadas, imagens registradas ou o terreno. Esvaziar
+ * é reversível por um `setupMapFeatures` seguinte; remover exigiria remontar tudo.
+ *
+ * A ESCRITA PASSA PELO DESPACHANTE (`writeWholeCollection`), nunca por um `setData` cru. Quase
+ * toda source desta lista foi migrada para o despachante de diff, e um `setData` direto substitui
+ * o slot de pending-update do MapLibre: o diff que uma ferramenta acabou de enfileirar some sem
+ * erro nenhum. A semântica de coleção inteira é a certa aqui, e é `replaceAll`: descartar o que
+ * estava na fila é exatamente o que um wipe quer, porque o dado que aquela fila descrevia acabou
+ * de ser apagado.
+ *
+ * @param {Object} mapInstance - MapLibre map instance.
+ */
+export function clearFeatureSources(mapInstance) {
+    if (!mapInstance) return;
+
+    const emptyCollection = { type: 'FeatureCollection', features: [] };
+
+    for (const sourceId of Object.values(FEATURE_SOURCES)) {
+        const source = mapInstance.getSource(sourceId);
+        // A source pode não existir (o estilo ainda não montou esta camada), e `setData` é testado
+        // porque nem toda source do estilo é GeoJSON: uma raster que tenha caído com um destes ids
+        // responderia ao `getSource` e não a este método.
+        if (!source || typeof source.setData !== 'function') continue;
+        writeWholeCollection(mapInstance, sourceId, emptyCollection);
+    }
+
+    // AS DUAS SOURCES DERIVADAS DO LIMITE NAO ESTAO EM `FEATURE_SOURCES`, e por isso
+    // escapariam desta varredura. Quem as esvazia no caminho normal e
+    // `restoreBoundaryDependentFeatures`, que so roda dentro de `setupMapFeatures` (a linha
+    // la diz, com todas as letras, que limpa-las conserta um bug de persistencia na troca de
+    // mapa). O caminho `rebuild: false` nao passa por `setupMapFeatures`, entao sem estas duas
+    // linhas o limite de um atlas de SERVIDOR continuaria desenhado depois do logout.
+    //
+    // O SPEC NAO PEGOU ISSO, e vale registrar por que: `browser-logout-clears-map.repro` fecha
+    // em zero porque o cenario dele nao desenha limite nenhum. Uma verificacao que passa por
+    // ausencia do caso nao e verificacao dele.
+    //
+    // `setData` CRU AQUI, e nao `writeWholeCollection`, porque estas duas NAO foram migradas
+    // para o despachante de diff: e o mesmo gesto que `restoreBoundaryDependentFeatures` ja
+    // faz, e o guarda `despachante-sem-escrita-crua` so proibe a escrita crua sobre source
+    // migrada.
+    for (const derivada of ['boundary-circles', 'boundary-texts']) {
+        mapInstance.getSource(derivada)?.setData(emptyCollection);
+    }
+
+    clearAllMeasurements();
 }
 
 export { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';

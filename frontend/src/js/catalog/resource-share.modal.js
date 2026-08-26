@@ -148,6 +148,29 @@ function vencimentoEmDias(dias) {
 }
 
 /**
+ * O corpo de uma concessão, com `expiresAt` AUSENTE quando o prazo é o padrão.
+ *
+ * AUSENTE E NÃO NULO, e a diferença reprovava a concessão inteira. `grantSchema`
+ * (`backend/src/modules/resource-access/resource-access.schemas.js`) declara
+ * `expiresAt: Joi.date().iso().greater('now')` SEM `.allow(null)`, e o próprio JSDoc de lá diz
+ * "`expiresAt` é OPCIONAL e ausente significa um ano". Mandar a chave com `null` não é ausência:
+ * o Joi a valida como data e devolve 422. `vencimentoEmDias` devolve `null` justamente no caso
+ * PADRÃO (um ano), que é o de quem não mexe no seletor de prazo, então o caminho MAIS COMUM da
+ * tela era o único que o servidor recusava.
+ *
+ * MEDIDO em 2026-08-26, no Chromium do e2e-ui: `POST /resource-access/basemap/<id>/grants`
+ * respondeu `422 {"error":{"code":"VALIDATION_ERROR","details":[{"field":"expiresAt",
+ * "message":"expiresAt não é uma data válida."}]}}`, nenhuma concessão nasceu, e a tela mostrou
+ * o toast de erro com essa frase em vez do de sucesso.
+ * @param {Object} base - o resto do corpo (beneficiário e nível).
+ * @param {string|null} vencimento - a data ISO, ou nulo para deixar o servidor decidir.
+ * @returns {Object}
+ */
+function corpoDaConcessao(base, vencimento) {
+    return vencimento ? { ...base, expiresAt: vencimento } : { ...base };
+}
+
+/**
  * A data de vencimento de uma concessão, em pt-BR, ou string vazia quando não há.
  *
  * TODA CONCESSÃO VENCE (no máximo um ano, e nunca depois da de quem concedeu), e a morte
@@ -1040,13 +1063,13 @@ export class ResourceShareModal extends ModalBase {
         if (this._busy || !userId) return;
         this._busy = true;
         try {
-            await apiClient.grantResource(this._type, this._id, {
+            // A chave SAI do corpo no prazo padrão: ver `corpoDaConcessao`. Quando ela vai, o
+            // servidor apara pelo teto da casa E pelo prazo de quem concedeu, então a data daqui
+            // é um pedido, não a palavra final.
+            await apiClient.grantResource(this._type, this._id, corpoDaConcessao({
                 granteeId: userId,
                 grantLevel: this._level,
-                // Nulo no padrão: ver `vencimentoEmDias`. O servidor apara pelo teto da casa E
-                // pelo prazo de quem concedeu, então a data daqui é um pedido, não a palavra final.
-                expiresAt: vencimentoEmDias(this._dias),
-            });
+            }, vencimentoEmDias(this._dias)));
             showSuccess('Acesso concedido.');
             this._searchSeq++; // invalida qualquer busca em voo
             await this._load();
@@ -1072,11 +1095,10 @@ export class ResourceShareModal extends ModalBase {
         if (this._busy || !groupId) return;
         this._busy = true;
         try {
-            await apiClient.grantResource(this._type, this._id, {
+            await apiClient.grantResource(this._type, this._id, corpoDaConcessao({
                 granteeGroupId: groupId,
                 grantLevel: this._level,
-                expiresAt: vencimentoEmDias(this._dias),
-            });
+            }, vencimentoEmDias(this._dias)));
             showSuccess('Acesso concedido ao grupo.');
             await this._load();
         } catch (error) {

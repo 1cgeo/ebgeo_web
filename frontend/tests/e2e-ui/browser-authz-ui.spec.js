@@ -19,6 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { esperarCargaDeFerramenta } from './helpers/ferramenta-pronta.js';
 import { seedSharedAtlas, openClient, readFeatures, attemptStoreWriteBlocked } from './helpers/collab-helpers.js';
 import { createDb, closeDb } from './helpers/db.js';
 
@@ -55,6 +56,10 @@ async function attemptDrawLineBlocked(page, coords) {
 
     await drawGroup.click();
     await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="line"]').click();
+    // So a CARGA, nunca a ativacao: este teste existe para o caso em que a ferramenta NAO deve
+    // ativar (visao segura / papel sem edicao), e esperar por ativacao seria esperar pelo que
+    // ele nega. O que a carga tardia acrescentou foi apenas a janela do `await import()`.
+    await esperarCargaDeFerramenta(page);
     await page.waitForTimeout(200); // if the tool still activates (not the safe view), the WRITE is gated
 
     const pts = await page.evaluate((cs) => {

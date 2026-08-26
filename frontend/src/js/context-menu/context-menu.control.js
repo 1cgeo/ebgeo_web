@@ -19,7 +19,47 @@ import {
 import { EventTypes } from '@events';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
 import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
-import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '@js/military_tools/arrow_tool/arrow-merge.js';
+// ── Portões de combinar/separar setas ─────────────────────────────────────────────────────────
+//
+// POR QUE OS PREDICADOS ESTÃO AQUI, COPIADOS. O import estático de `arrow-merge.js` prendia
+// `military_tools` inteiro (47 módulos, 820 kB de fonte) no chunk `ui-components`, que é ansioso:
+// a página do mapa baixava as ferramentas militares só para poder DECIDIR se mostra dois itens
+// de menu. As operações de verdade (`mergeArrows`, `splitArrows`) já viraram `await import()`
+// dentro dos handlers, que é o padrão que este mesmo arquivo já usava para cortar linha.
+//
+// OS PREDICADOS NÃO PODEM SER ASSÍNCRONOS, e é isso que obriga a cópia: `_addArrowMergeOptions`
+// MONTA o menu com eles, não os usa dentro do handler. Um `await` aqui mudaria o instante em que
+// o item aparece — o menu abriria sem "Combinar Setas" e o item brotaria depois, sob o cursor.
+//
+// O GÊMEO DELES vive em `military_tools/arrow_tool/arrow-merge.js`, e há um terceiro em
+// `tool_manager/helpers/feature-header.helpers.js`, pelo mesmo motivo e com o mesmo aviso: quem
+// mexer num lado mexe nos três. `arrow-merge.test.js` prende o comportamento do original.
+
+/** Pure property check — no heavy imports needed */
+function canMergeArrows(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length < 2) {
+        return { canMerge: false, reason: 'Selecione pelo menos 2 setas' };
+    }
+    const allArrows = selectedFeatures.every(f => f.properties?.source === 'arrow');
+    if (!allArrows) return { canMerge: false, reason: 'Todas as feições devem ser setas' };
+    // `??`, NUNCA `||`: um `layerId` de `0` ou `''` e valor de dominio, e o `||` o trocava por
+    // 'default', fazendo setas de CAMADAS DIFERENTES passarem pelo portao de mesma-camada.
+    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId ?? 'default'));
+    if (layerIds.size > 1) return { canMerge: false, reason: 'Setas devem estar na mesma camada' };
+    return { canMerge: true };
+}
+
+/** Pure property check — no heavy imports needed */
+function canSplitArrows(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length !== 1) return { canSplit: false };
+    const f = selectedFeatures[0];
+    return {
+        canSplit: f.properties?.source === 'arrow' &&
+            f.properties?.isMerged === true &&
+            Array.isArray(f.properties?.branches) &&
+            f.properties.branches.length > 1
+    };
+}
 
 /** Pure property check for line split eligibility (no heavy imports) */
 function canSplitLineCheck(selectedFeatures) {
@@ -260,6 +300,7 @@ class ContextMenuControl {
 
     async _handleMergeArrows(features) {
         try {
+            const { mergeArrows } = await import('@js/military_tools/arrow_tool/arrow-merge.js');
             await mergeArrows(features, this._map, this._selectionManager);
         } catch (error) {
             console.error('Error merging arrows:', error);
@@ -269,6 +310,7 @@ class ContextMenuControl {
 
     async _handleSplitArrows(mergedFeature) {
         try {
+            const { splitArrows } = await import('@js/military_tools/arrow_tool/arrow-merge.js');
             await splitArrows(mergedFeature, this._map, this._selectionManager);
         } catch (error) {
             console.error('Error splitting arrows:', error);

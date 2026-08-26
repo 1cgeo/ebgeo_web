@@ -3,7 +3,22 @@
 /**
  * @module measurement_tool/measurement-geometry
  * @description Pure geometry calculations for measurement tools using Turf.js.
- * @dependencies turf (global)
+ * @dependencies turf (global, sob demanda por `utilities/turf-loader.js`)
+ *
+ * TODAS AS FUNCOES CONTINUAM SINCRONAS, e a decisao e de 2026-08-25, quando os 619 kB do Turf
+ * sairam do `index.html`. Sao vinte e cinco sitios de `turf.` em oito funcoes PURAS, e essas
+ * oito sao importadas por treze modulos (painel da feicao, aba de rotulo, identificacao,
+ * exportacao QAN, os tres controles de medicao, o de linha, o de poligono). Tornar uma funcao
+ * pura assincrona por causa de uma tag de script contamina os treze e nao ganha nada.
+ *
+ * QUEM GARANTE O TURF ANTES, e sao TRES caminhos, cada um com o seu `await ensureTurf()`:
+ *   - `tool_manager/tool-registry.js:ensureControl` — ativar qualquer ferramenta de medida,
+ *     de linha ou de poligono;
+ *   - `tool_manager/selection_manager.js:getCompleteFeatureFromSource` — selecionar a feicao
+ *     cujo painel de atributos chama `calculatePolygonMetrics` e `formatAreaAuto`;
+ *   - `layers/layer_setup.js:restoreMeasurements` — o BOOT, que remede linha, poligono e
+ *     visada ja desenhados. E o unico caminho sem gesto, e por isso o unico que precisou de
+ *     um `await` proprio.
  */
 
 /**

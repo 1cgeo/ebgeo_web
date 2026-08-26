@@ -96,6 +96,19 @@ export class LayersTab {
         // Listen for visibility changes
         subscribe(this, this._eventBus, EventTypes.SIDEBAR_TAB_CHANGED,
             (payload) => this._onTabChanged(payload));
+
+        // A TROCA DE ATLAS AO VIVO. Ate ela existir, o unico jeito de o atlas mudar embaixo desta
+        // lista era um F5, entao assinar a troca de aba bastava.
+        //
+        // ESTA LINHA E A SEGUNDA GARANTIA, E ISSO FOI MEDIDO, NAO DEDUZIDO. A analise por
+        // assinaturas dizia que esta aba ficaria velha sem ela; a observacao no navegador
+        // (`tests/e2e-ui/troca-viva-de-atlas-tela.spec.js`, com o aviso DESLIGADO no barramento)
+        // mostrou a lista ja limpa: a arvore de camadas e feicoes se cura por `ALL_DATA_CLEARED`,
+        // que os dois ramos da troca emitem. Ela fica porque a cura de hoje depende de um evento
+        // cujo nome fala de OUTRA coisa ("todo o dado foi apagado"), e o dia em que aquela emissao
+        // for estreitada esta aba nao pode ser a que descobre. `refresh` so trabalha com a aba
+        // visivel, e quando ela nao esta o proximo `show()` ja recarrega — o custo e zero.
+        subscribe(this, this._eventBus, EventTypes.ATLAS_SWITCHED, () => this.refresh());
     }
 
     /**

@@ -21,6 +21,7 @@ import { setStoreErrorEventBus } from './store-errors.js';
 import { registerStoreErrorListeners } from './store-error-listener.js';
 import {
     initializeRepository,
+    seedBlankDefaultMap,
     clearAllAtlasStores,
     setAppSetting,
     getColorUsage
@@ -169,6 +170,12 @@ async function unmountCurrentAtlas({ clearQueue = true } = {}) {
     }
 }
 
+/** Janela em que um anúncio repetido da MESMA lista reaproveita o relatório do primeiro. */
+const TEARDOWN_ANNOUNCE_MEMO_MS = 5000;
+
+/** @type {{key: string, at: number, report: object|null}|null} O último anúncio, ou null. */
+let lastTeardownAnnounce = null;
+
 /**
  * WARNS THE OTHER TABS BEFORE THE SWEEP TOUCHES ANYTHING, and answers with the lock's report.
  *
@@ -190,6 +197,20 @@ async function unmountCurrentAtlas({ clearQueue = true } = {}) {
  * exactly the previous behaviour, which is that the sibling keeps its mount lock and its namespace
  * is spared.
  *
+ * E O MESMO ANÚNCIO NÃO SE PAGA DUAS VEZES. A saída da conta chama esta função por nome
+ * (`AccountControl._handleLogout`) e a varredura que vem logo depois a chama de novo por dentro.
+ * As duas chamadas EXISTEM por bons motivos, escritos em `discardRemoteAtlasNamespaces`, e nenhuma
+ * das duas sai. O que sai é o custo da segunda: cada anúncio espera os acks das abas irmãs, com
+ * teto de 2000 ms, e o segundo anúncio pergunta a mesma coisa à mesma vizinha, que já parou de
+ * escrever. A memória vive DENTRO da função, e não num parâmetro, porque quem chama não sabe (nem
+ * deve saber) se alguém já avisou: quem sabe é o anúncio.
+ *
+ * A CHAVE É A LISTA DE ENDEREÇOS, ordenada, e não o simples "já rodei": duas listas diferentes são
+ * dois avisos diferentes, e reaproveitar um pelo outro deixaria um endereço sem aviso nenhum. A
+ * janela é curta (5000 ms) pela mesma razão: ela cobre um gesto, não a sessão. Passado esse tempo,
+ * um segundo anúncio da mesma lista é um evento novo e volta a custar o que custa. A lista é
+ * derivada ANTES da consulta à memória, sempre, porque é ela que decide se há acerto.
+ *
  * @returns {Promise<{addresses: string[], peers: number, acked: number, frozen: number,
  *   timedOut: boolean, degraded: boolean}|null>} The lock's report, or null when nothing was
  *   announced (no registered namespace, or the registry could not be read).
@@ -207,7 +228,20 @@ export async function announceRemoteNamespaceTeardown() {
                 && dbSuffix.length > 0
                 && !claimed.has(dbSuffix));
         if (addresses.length === 0) return null;
-        return await announceTabLockTeardown(addresses);
+
+        const key = [...addresses].sort().join('|');
+        const now = Date.now();
+        if (lastTeardownAnnounce
+            && lastTeardownAnnounce.key === key
+            && now - lastTeardownAnnounce.at < TEARDOWN_ANNOUNCE_MEMO_MS) {
+            return lastTeardownAnnounce.report;
+        }
+
+        const report = await announceTabLockTeardown(addresses);
+        // Marcado com o instante em que o anúncio TERMINOU, não em que começou: a janela conta a
+        // partir do momento em que as irmãs já pararam, que é o que o segundo anúncio reaproveita.
+        lastTeardownAnnounce = { key, at: Date.now(), report };
+        return report;
     } catch (error) {
         console.warn('[store] announcing the namespace teardown failed:', error);
         return null;
@@ -246,7 +280,9 @@ export async function announceRemoteNamespaceTeardown() {
  * that comes back, so the warning is bound to the sweep instead of to the caller. The logout still
  * announces on its own, EARLIER, and that is not redundancy: its `clearAllDataStore` runs before
  * this and empties the atlas that tab has mounted, which a notice sent from here would reach too
- * late.
+ * late. Os dois anúncios FICAM; o que não se paga duas vezes é a espera pelos acks, porque
+ * `announceRemoteNamespaceTeardown` reaproveita o relatório do primeiro quando a lista de
+ * endereços é a mesma e o segundo vem logo atrás.
  *
  * @returns {Promise<import('./remote-atlas.api.js').RemotePurgeReport>}
  */
@@ -426,16 +462,37 @@ export async function initializeWithLastActiveMap() {
  * separate parameter and not a rename of `markLocal` so a caller that ever needs to split the
  * two can, instead of discovering the coupling by losing work.
  *
+ * REINICIALIZAR O REPOSITÓRIO TAMBÉM É DECISÃO DO CHAMADOR (`reinitialize`, padrão true), e o
+ * caso que a separou é a saída da conta. `initializeRepository` não é barato: ele roda
+ * `checkAndCleanLegacyData`, a cadeia de migrações legadas e `detectMigrationNeeded`, que lê os
+ * bancos PRÉ-NAMESPACE (o argumento padrão dele é `legacyScope()`). O carimbo de `schemaVersion`
+ * logo abaixo é escrito no escopo MONTADO, então ele NÃO alcança esse detector e não evita
+ * cadeia nenhuma. No logout tudo isso é trabalho para um repositório que a linha seguinte
+ * (`discardRemoteAtlasNamespaces`) destrói.
+ *
+ * Com `reinitialize: false` o wipe usa `seedBlankDefaultMap()`, que grava o mesmo mapa em branco
+ * e nada mais. O PADRÃO CONTINUA `true` de propósito: `openRemoteAtlas`,
+ * `openPublicAtlasFromUrl` e `saveLocalToServer` montam dado logo depois, e o repositório que
+ * eles deixam é LIDO.
+ *
  * @param {object} [options]
  * @param {boolean} [options.markLocal=true] - Whether to leave the origin marker on LOCAL.
  *   Pass false when the caller mounts a REMOTE atlas straight after (it marks REMOTE itself)
  *   or when it must not speak for the whole installation.
  * @param {boolean} [options.clearQueue=markLocal] - Whether to also empty the outbound queue of
  *   the mounted atlas.
+ * @param {boolean} [options.reinitialize=true] - Se o repositório deve ser reinicializado
+ *   (migrações inclusas). Passe false quando o namespace que este wipe esvazia vai ser
+ *   DESTRUÍDO em seguida, que é o caso da saída da conta.
  *
  * @returns {Promise<void>}
  */
-export async function clearAllDataStore({ markLocal = true, clearQueue = markLocal } = {}) {
+// A ASSINATURA FICA NUMA LINHA SÓ, e isso é requisito, não estilo: dois testes recortam esta
+// função da fonte procurando o primeiro `\n}` depois da declaração
+// (`tests/unit/portao-de-montagem.test.js`), então uma lista de parâmetros quebrada em várias
+// linhas fecha com `\n} = {}) {` e o recorte morre na própria assinatura, deixando o caso
+// vermelho por uma quebra de linha.
+export async function clearAllDataStore({ markLocal = true, clearQueue = markLocal, reinitialize = true } = {}) {
     await unmountCurrentAtlas({ clearQueue });
 
     await mapManager.clearAllColorCaches();
@@ -444,23 +501,40 @@ export async function clearAllDataStore({ markLocal = true, clearQueue = markLoc
     clearCesium3dCache();
     clearStreetview360Cache();
 
-    // A cleared store is a BRAND-NEW (empty) repository rebuilt at the current schema by
-    // initializeRepository (getEmptyMapData already produces v2.2 structures) — stamp it at the
-    // CURRENT version so the no-op Atlas migration chain does NOT re-run on every project open.
-    // Migrations are only for OLD pre-existing repositories carrying data at an older version.
+    // A cleared store is a BRAND-NEW (empty) repository rebuilt at the current schema
+    // (getEmptyMapData already produces v2.2 structures) — stamp it at the CURRENT version so the
+    // no-op Atlas migration chain does NOT re-run on every project open. Migrations are only for
+    // OLD pre-existing repositories carrying data at an older version.
+    //
+    // O CARIMBO É DO ESCOPO MONTADO, e é só disso que ele dá conta: `setAppSetting` escreve nas
+    // configurações do escopo ativo, enquanto `detectMigrationNeeded` lê, por padrão, os bancos
+    // pré-namespace. Este carimbo NÃO desliga aquele detector, e o comentário que dizia isso
+    // estava errado. Quem evita a cadeia inteira no caminho em que ela é desperdício é
+    // `reinitialize: false`, logo abaixo.
     await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
     if (markLocal) {
         await markStoreLocal();
     }
 
-    const defaultMap = await initializeRepository();
+    // `seedBlankDefaultMap` GRAVA o mapa antes de devolver o nome, que é o que as duas linhas
+    // seguintes e os ouvintes de `ALL_DATA_CLEARED` leem. Ele é o mesmo bloco que
+    // `initializeRepository` usa quando o escopo não tem mapa, extraído para lá.
+    const defaultMap = reinitialize
+        ? await initializeRepository()
+        : await seedBlankDefaultMap();
     await mapManager.setCurrentMap(defaultMap);
     await loadMapDataToMemory(defaultMap);
 
     // Emit AFTER the blank default map is current + loaded, so ALL_DATA_CLEARED listeners (notably the
-    // base-layer control re-running setupMapFeatures) repopulate the live map sources from the now
-    // EMPTY map — clearing every feature the old map left drawn on the canvas (no traces after logout).
-    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
+    // base-layer control) repopulate the live map sources from the now EMPTY map — clearing every
+    // feature the old map left drawn on the canvas (no traces after logout). Emitir ANTES faria os
+    // ouvintes repovoarem a partir do mapa VELHO, então esta linha não sobe.
+    //
+    // `rebuild` SEGUE `reinitialize`, e o acoplamento é significado, não coincidência: os dois
+    // dizem "o escopo que este wipe deixa vai ser LIDO". Quando não vai (a saída da conta destrói
+    // o namespace em seguida), remontar as camadas inteiras pinta um mapa que morre duas linhas
+    // depois. O ouvinte então só ESVAZIA as sources vivas, que é a metade que o usuário vê.
+    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED, { rebuild: reinitialize });
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 }

@@ -16,6 +16,7 @@
 
 import { collabTest, expect, drawPointUI, drawPolygonUI, readFeatures } from './helpers/collab.fixtures.js';
 import { realFeature, ALL_FEATURE_SOURCES } from '../helpers/real-fixtures.js';
+import { esperarFerramentaPronta } from './helpers/ferramenta-pronta.js';
 
 /**
  * Source → storage-bucket map, taken from the store itself.
@@ -79,6 +80,9 @@ async function drawMilitarySymbolUI(page) {
     await page.waitForTimeout(300);
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    // A ferramenta agora vem por `await import()`: sem esta espera o clique no mapa da linha
+    // seguinte chega antes de o controle existir, e nenhuma feicao nasce.
+    await esperarFerramentaPronta(page, 'militarySymbol');
     await page.waitForTimeout(300);
     const box = await page.locator('#map-sig .maplibregl-canvas').boundingBox();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);

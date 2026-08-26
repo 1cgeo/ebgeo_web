@@ -40,6 +40,7 @@ import {
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess, showError } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 import { requestStatus } from '@utils/request-failure.js';
 import { layerLoadFailureNotice, SURFACE_NOUN } from '@js/terrain/data-layer-phrases.js';
 import { photo360Failures, createTileHoleWatch } from './photo360-failure.js';
@@ -307,6 +308,19 @@ async function initThreeJS() {
  */
 async function initNavigator(container) {
     try {
+        // O TURF DO PROJETOR 360, e este e um caso de "garantir num gesto ANTERIOR".
+        //
+        // `navigation/projector.js:lonLatToMeters` le `turf.point` e `turf.distance` cinco
+        // vezes, e ele roda POR MARCADOR E POR QUADRO enquanto o usuario gira a camera.
+        // Torna-lo assincrono poria um `await` dentro do laco de renderizacao, que e o pior
+        // lugar possivel para um. O projetor so nasce dentro do `StreetViewNavigator`, o
+        // navegador so nasce aqui, e aqui ja e assincrono: uma linha, e o metodo quente
+        // continua sincrono.
+        //
+        // A COPIA IRMA NAO PRECISA DISTO: `calibration/projector.js` e outro arquivo, sem
+        // sitio de Turf nenhum, e `calibracao.html` nunca teve a tag do Turf.
+        await ensureTurf();
+
         const { StreetViewNavigator } = await import('./navigation/navigator.js');
         streetViewState.navigator = new StreetViewNavigator(
             container,

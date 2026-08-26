@@ -137,8 +137,16 @@ function chamadasDeAcquire(texto) {
 const CENSO = Object.freeze({
     // `openPublicAtlasFromUrl`: o quarto sítio destrutivo, ligado em 2026-08-16.
     'src/js/index.js': { chamadas: 1, comTestemunha: 1 },
-    // `claimRemoteAtlas` e `clearMountedAtlasIfGranted`: os dois que a frente original ligou.
-    'src/js/account/open-atlas.service.js': { chamadas: 2, comTestemunha: 2 },
+    // TRES, E A TERCEIRA NAO E DESTRUTIVA. `claimRemoteAtlas` e `clearMountedAtlasIfGranted` sao
+    // os dois que a frente original ligou. A terceira e `switchToExistingLocalAtlas` (a troca ao
+    // vivo para um atlas LOCAL que ja existe, 2026-08-25), e ela e o primeiro sitio deste
+    // repositorio que reivindica SEM apagar nada: o que ela protege nao e um wipe, e a MONTAGEM
+    // por cima de um slot que outra aba pode ter aberto — duas abas nos mesmos dez bancos, cada
+    // uma achando que e a unica. A testemunha (`localMountWitness`) e a irma local de
+    // `remoteMountWitness`, com a mesma regra de `selfHolds`. Por ela nao destruir nada, ela NAO
+    // aparece no segundo censo (o de `clearAllDataStore`) mais abaixo, e essa ausencia e a
+    // afirmacao de que a entrada em atlas local existente e nao-destrutiva.
+    'src/js/account/open-atlas.service.js': { chamadas: 3, comTestemunha: 3 },
     // `AccountControl.saveLocalToServer`: ERA O FURO VIVO, fechado em 2026-08-24. Ficou aberto por
     // ser o mais estreito dos cinco (o atlas nasce uma linha antes do pre-flight, então nenhuma
     // outra aba pode tê-lo montado, e `remoteMountWitness` deriva `selfHolds: 0` do escopo ATIVO,

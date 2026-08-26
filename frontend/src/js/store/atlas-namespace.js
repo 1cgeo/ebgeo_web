@@ -1478,29 +1478,35 @@ export const DROP_TIMEOUT_MS = 3000;
  * destruction, and an operation carries the entity payload it describes: a queue left standing
  * after its server atlas was destroyed is readable server data surviving a logout.
  *
+ * THE ELEVEN RUN IN PARALLEL, like the deletes in `dropAtlasDatabases`. Opening a database is the
+ * expensive step and these are ELEVEN DISTINCT databases: nothing here depends on anything else,
+ * so a serial loop only made the logout pay eleven opens end to end. The `keys()` still precedes
+ * the `clear()` OF THE SAME STORE, which is the whole invariant above; what runs concurrently is
+ * one store against another. The report stays in DESCRIPTOR ORDER because `cleared` is rebuilt
+ * from `names` BY INDEX, never from the order the promises happened to settle.
+ *
  * @param {{ kind: string, dbSuffix: string }} scope - Scope to empty.
  * @returns {Promise<{ names: string[], cleared: string[] }>} `names` is every per-atlas database
  *   of the scope (the ten data ones plus the queue), in descriptor order; `cleared` is the subset
- *   that actually HELD DATA and was emptied. An empty `cleared` means there was nothing there to
- *   destroy.
+ *   that actually HELD DATA and was emptied, in that same order. An empty `cleared` means there
+ *   was nothing there to destroy.
  */
 export async function clearAtlasDatabases(scope) {
     if (!scope || typeof scope.dbSuffix !== 'string') {
         throw new Error('clearAtlasDatabases: expected a scope built by localScope()/remoteScope()');
     }
-    const names = [];
-    const cleared = [];
-    for (const descriptor of STORE_DESCRIPTORS) {
-        if (!descriptor.perAtlas) continue;
-        const store = getStoreFor(descriptor.id, scope);
-        const name = resolveDbName(descriptor.id, scope);
-        names.push(name);
+    const descriptors = STORE_DESCRIPTORS.filter(descriptor => descriptor.perAtlas);
+    const names = descriptors.map(descriptor => resolveDbName(descriptor.id, scope));
 
+    const emptied = await Promise.all(descriptors.map(async descriptor => {
+        const store = getStoreFor(descriptor.id, scope);
         const keys = await store.keys();
-        if (keys.length === 0) continue;
+        if (keys.length === 0) return false;
         await store.clear();
-        cleared.push(name);
-    }
+        return true;
+    }));
+
+    const cleared = names.filter((_, i) => emptied[i]);
     return { names, cleared };
 }
 

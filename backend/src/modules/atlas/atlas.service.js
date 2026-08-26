@@ -377,7 +377,12 @@ export async function listUserAtlasMembers(userId) {
  *   status: string}>>>} Atlas id → connected users. Atlases with nobody online are omitted.
  */
 export async function listUserAtlasPresence(userId) {
-  const { rows } = await query(Q.LIST_USER_ATLAS, [userId]);
+  // SÓ OS IDS: este laço lê `atlas.id` e mais nada, e `LIST_USER_ATLAS` (que rodava aqui
+  // até 2026-08-25) é `SELECT a.*` — arrastava o `settings` jsonb de cada atlas, que
+  // sozinho pesa 75% da linha, para descartá-lo. `LIST_USER_ATLAS_IDS` repete o predicado
+  // de alcance PALAVRA POR PALAVRA; divergir dele faria a presença aparecer em atlas que o
+  // cartão não desenha, ou sumir de atlas que ele desenha.
+  const { rows } = await query(Q.LIST_USER_ATLAS_IDS, [userId]);
   const presence = {};
   for (const atlas of rows) {
     const byUser = new Map();

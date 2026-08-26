@@ -15,6 +15,7 @@
  */
 
 import { expect } from '@playwright/test';
+import { esperarFerramentaPronta } from './ferramenta-pronta.js';
 import { waitForRemoteEntity } from './trace-helpers.js';
 import { collectLedger, reduceLedger, renderReport } from './ledger.js';
 import { ApiClient } from '../../../src/js/store/sync/api-client.js';
@@ -906,6 +907,9 @@ export async function drawMilitarySymbolUI(page, lngLat) {
     await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup'))
         .toHaveAttribute('data-visible', 'true', { timeout: 5000 });
     await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    // A ferramenta militar agora vem por `await import()` (43 modulos), entao o clique no botao
+    // RETORNA antes de ela existir e o clique no mapa abaixo cairia no vazio.
+    await esperarFerramentaPronta(page, 'militarySymbol');
 
     const pt = await page.evaluate((c) => {
         const map = globalThis.__ebgeoMap;

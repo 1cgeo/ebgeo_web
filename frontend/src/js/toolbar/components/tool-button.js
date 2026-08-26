@@ -86,6 +86,28 @@ export class ToolButton {
     }
 
     /**
+     * Sets the LOADING state: the tool is coming over the network.
+     *
+     * Marca `data-loading="true"` no botão e o desabilita de verdade. Os dois lados servem:
+     * o atributo é o que o teste de ponta a ponta espera sumir antes de clicar no mapa (com
+     * carga tardia, o clique no botão volta antes de a ferramenta existir), e o `disabled`
+     * é o que impede o segundo clique de entrar duas vezes em `setActiveTool`.
+     *
+     * @param {boolean} loading
+     */
+    setLoading(loading) {
+        if (!this._button) return;
+        if (loading) {
+            this._button.dataset.loading = 'true';
+        } else {
+            delete this._button.dataset.loading;
+        }
+        // Não mexe em `_isDisabled`: quem manda no desabilitado permanente é `setDisabled`
+        // (terreno ausente), e sobrescrevê-lo aqui reabriria um botão que devia continuar preso.
+        this._button.disabled = loading || this._isDisabled;
+    }
+
+    /**
      * Sets the disabled state.
      * @param {boolean} disabled
      * @param {string|null} [reason] - Tooltip reason shown when disabled

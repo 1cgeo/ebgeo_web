@@ -595,6 +595,23 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   /** Rebuilds and re-installs a military symbol's image from its synced props (peer side). */
+  /**
+   * Rebuilds this feature's LOCAL-ONLY PNG from its synced props, and installs it on the map.
+   *
+   * PÚBLICO DE PROPÓSITO, e o motivo é a carga tardia. `layer_setup.js` regenera o PNG de um
+   * símbolo quando um snapshot remoto chega, SEM clique nenhum, e o faz pelo
+   * `image-regen-registry`. Com a ferramenta militar fora do payload do boot, quem se registra
+   * lá no boot é uma closure de `tool_manager/tool-registry.js`, que carrega esta ferramenta na
+   * PRIMEIRA feição que precisar dela e chama este método. O registro é ansioso, o módulo não —
+   * e uma closure não alcança um método privado.
+   *
+   * @param {Object} feature - Feição com as props sincronizadas (SIDC e afins)
+   * @returns {Promise<void>}
+   */
+  regenerateImageFromProps(feature) {
+    return this._regenerateRemote(feature);
+  }
+
   async _regenerateRemote(feature) {
     if (!this.map || !feature?.properties?.id) return;
     const result = await this.symbolGenerator.generateSymbolBlob(feature.properties);

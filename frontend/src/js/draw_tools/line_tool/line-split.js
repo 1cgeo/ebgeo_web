@@ -18,6 +18,7 @@ import AddLineGeometry from './add_line_geometry.js';
 import { removeMeasurement, updateFeatureMeasurement } from './line_measurement.js';
 import { calculateProfile } from './line_profile.js';
 import { getGeoJsonDispatcher } from '@layers/geojson-dispatcher.js';
+import { ensureTurf } from '@utils/turf-loader.js';
 
 /** Minimum distance (meters) from endpoints to allow a split */
 const MIN_ENDPOINT_DISTANCE = 1;
@@ -70,6 +71,15 @@ export async function splitLineAtPoint(lineFeature, clickLngLat, map, selectionM
         showWarning('Linha sem coordenadas suficientes');
         return { success: false };
     }
+
+    // TODOS OS NOVE SITIOS DE TURF DESTE ARQUIVO estao daqui para baixo, nesta funcao, e
+    // ela ja era assincrona. O funil precisa ser proprio: quem abre o modo de dividir linha e
+    // `context-menu.control.js` ou `tool_manager/helpers/feature-header.helpers.js`, cada um
+    // com o seu `import()`, e nenhum dos dois passa por `ensureControl`.
+    //
+    // As duas guardas (mapa bloqueado, linha curta demais) ficam ANTES: recusar o gesto nao
+    // baixa a biblioteca.
+    await ensureTurf();
 
     // Build turf geometries
     const turfLine = window.turf.lineString(coords);

@@ -54,7 +54,7 @@
  */
 
 import { syncEngine } from '@store/sync/sync-engine.js';
-import { getControl } from '@store';
+import { getControl, getEventBus } from '@store';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
     clearAllDataStore,
@@ -63,11 +63,16 @@ import {
     activateAtlasInitialMap,
     activateRemoteAtlas,
 } from '@store/store.js';
+// PELO ARQUIVO, e nao pelo barril `@store`: `adoptMountedLocalAtlas` e a entrada em atlas LOCAL
+// ao vivo, e a fachada da store re-exporta uma lista fixa de nomes de `map.operations.js`.
+import { adoptMountedLocalAtlas } from '@store/map.operations.js';
 import {
     createLocalAtlas,
+    getLocalAtlas,
     localAtlasAdoptingRemote,
     mountLocalAtlas,
     releaseAdoptedLocalAtlas,
+    scopeOfLocalAtlas,
 } from '@store/local-atlas.api.js';
 import {
     getActiveScope,
@@ -92,6 +97,7 @@ import {
 import { showChoice } from '@modals/confirm.modal.js';
 import { showError } from '@utils/toast_service.js';
 import { reapplyAtlasAppearance } from '@store/atlas-appearance.service.js';
+import { EventTypes } from '@events/event_types.js';
 
 // =================================================================================================
 // TAB-LOCK KEY: which atlas this tab holds
@@ -553,7 +559,12 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     // server has no "switch"), then wipe local + connect the new one.
     if (syncEngine.atlasId) {
         stopAutoFlush();
-        syncEngine.disconnect();
+        // `forgetAtlas: true` porque a aba esta SAINDO deste atlas, e nao pausando nele. O
+        // caminho feliz reescreve o id no `connect` logo abaixo; quem precisa do esquecimento e
+        // o caminho de falha, onde `retractAtlasClaim()` roda com o escopo ja apontando para o
+        // atlas novo e um `_atlasId` velho faria a proxima releitura da chave (`syncAtlasLockKey`,
+        // ligada a `CONNECTION_STATE_CHANGED`) reanunciar o atlas que esta aba deixou.
+        syncEngine.disconnect({ forgetAtlas: true });
     }
 
     // THE NAMESPACE OF THIS ATLAS, activated before anything writes. `activateRemoteAtlas` is the
@@ -619,6 +630,221 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
     return true;
 }
 
+// =================================================================================================
+// A TROCA DE ATLAS AO VIVO: um orquestrador, nunca um quinto pipeline
+// =================================================================================================
+
+/**
+ * Para onde uma troca ao vivo pode ir.
+ * @typedef {{ kind: 'remote'|'local', atlasId: string, mapId?: string|null }} AtlasDestination
+ */
+
+/**
+ * O que uma troca devolve. `changed: false` com `ok: true` e a guarda de no-op: nada se moveu
+ * porque nada precisava se mover.
+ * @typedef {{ ok: boolean, changed: boolean, reason?: string }} AtlasSwitchResult
+ */
+
+/**
+ * TROCA O ATLAS DESTA ABA SEM RECARREGAR A PAGINA.
+ *
+ * MEDIDA QUE JUSTIFICA A FUNCAO: no pacote de producao, trocar de atlas custava de 1,6 a 2,9 s,
+ * e a causa nao era o dado — era a NAVEGACAO. Toda troca passava por `atlas.html`, que volta ao
+ * mapa por `./?atlas=<uuid>`, e o boot da pagina do mapa executa 4203 kB de JavaScript. Reduzir
+ * bytes rendeu 7%; o resto so sai eliminando a recarga.
+ *
+ * ELA NAO ESCREVE PIPELINE NENHUM, E ISSO E UM REQUISITO DO PROPRIO REPOSITORIO. O comentario de
+ * `AccountControl.openProjectPicker` conta a historia: o pipeline de abertura (desconectar,
+ * limpar, marcar REMOTE, conectar, ativar, `switchMap`, auto-flush) vivia em DOIS ramos
+ * duplicados, e a navegacao foi o preco pago para ter um dono unico. Somar uma quarta copia dos
+ * passos aqui desfaria essa compra. Entao o ramo remoto delega INTEIRO a `openRemoteAtlas`, que
+ * ja cobre remoto->remoto e local->remoto, e o ramo local chama os mesmos donos que
+ * `switchToNewLocalAtlas` chama.
+ *
+ * A GUARDA DE NO-OP NAO E OTIMIZACAO. `acquire()` carimba um `claimedAt` novo e a ordem total do
+ * tab-lock e `claimedAt` primeiro (`utilities/tab-lock.js`), entao re-reivindicar o atlas que
+ * esta aba JA tem montado a manda para o fim da fila e entrega o proprio atlas a quem esperava
+ * atras dela. `claimRemoteAtlas` tem um atalho com a mesma forma, mas ele exige arbitragem
+ * GANHA e nao cobre o ramo local; a guarda aqui responde antes dos dois.
+ *
+ * TROCAR DE MAPA DENTRO DO MESMO ATLAS NAO E TROCA DE ATLAS, e por isso o `mapId` nao rompe o
+ * no-op: quem troca de mapa e o seletor de mapas, que ja tem dono. Uma funcao que fizesse as
+ * duas coisas seria um segundo dono para a segunda.
+ *
+ * @param {AtlasDestination} destination - Para onde ir.
+ * @param {{ mapId?: string|null }} [options] - `mapId` alternativo ao do destino.
+ * @returns {Promise<AtlasSwitchResult>} `ok` diz se a aba esta no atlas pedido ao fim da chamada.
+ * @throws Propaga um erro de conexao do ramo remoto (403/404, backend fora), como
+ *   `openRemoteAtlas` faz, para o chamador poder falar com o usuario.
+ */
+export async function switchAtlas(destination, { mapId = null } = {}) {
+    const kind = destination?.kind;
+    const atlasId = destination?.atlasId;
+    if (typeof atlasId !== 'string' || atlasId.length === 0) {
+        throw new Error('switchAtlas: destination.atlasId must be a non-empty string');
+    }
+    const targetMapId = mapId ?? destination?.mapId ?? null;
+
+    if (isMountedAtlas(kind, atlasId)) return { ok: true, changed: false };
+
+    if (kind === 'remote') {
+        // ZERO CODIGO NOVO AQUI, de proposito. `openRemoteAtlas` ja faz o claim com testemunha,
+        // a pergunta do resgate, a troca de escopo, o wipe, a marcacao REMOTE, a conexao com
+        // pull inicial, o mapa inicial, o `switchMap` e a aparencia. Sair de um atlas remoto
+        // para outro e o caso que ela ja cobre (o atalho de claim so vale para o MESMO atlas).
+        const opened = await openRemoteAtlas(atlasId, { mapId: targetMapId });
+        if (opened) announceAtlasSwitch(kind, atlasId, targetMapId);
+        return { ok: opened, changed: opened, reason: opened ? undefined : 'refused' };
+    }
+    if (kind === 'local') {
+        const result = await switchToExistingLocalAtlas(atlasId, targetMapId);
+        if (result.ok) announceAtlasSwitch(kind, atlasId, targetMapId);
+        return result;
+    }
+    throw new Error(`switchAtlas: unknown destination kind "${String(kind)}"`);
+}
+
+/**
+ * Se o destino nomeia o atlas que esta aba JA tem montado.
+ *
+ * As duas perguntas sao diferentes de proposito. Um atlas de SERVIDOR so conta como montado com
+ * a conexao de pe (`syncEngine.atlasId`): uma aba pode ter o namespace remoto montado e o
+ * socket caido — e o boot produz exatamente esse estado — e ali a troca tem trabalho a fazer.
+ * Um slot LOCAL nao tem socket, entao o escopo ativo e toda a verdade que existe, e a checagem
+ * de conexao vem junto porque com um atlas de servidor aberto o ponteiro local pode estar
+ * apontando para o slot de destino sem que ele esteja montado.
+ * @param {string|undefined} kind - 'remote' ou 'local'.
+ * @param {string} atlasId - Id do destino.
+ * @returns {boolean}
+ */
+function isMountedAtlas(kind, atlasId) {
+    if (kind === 'remote') return syncEngine.atlasId === atlasId;
+    if (kind !== 'local') return false;
+    if (syncEngine.atlasId) return false;
+    const scope = getActiveScope();
+    return scope?.kind === StoreScopeKind.LOCAL && scope.atlasId === atlasId;
+}
+
+/**
+ * Diz ao resto da aplicacao que ela esta olhando para outro atlas agora.
+ *
+ * O EVENTO, E NAO UMA LISTA DE PAINEIS. Oito controles ja se curam por evento; chamar os tres
+ * que faltavam pelo nome daqui criaria uma lista que envelhece sozinha dentro do servico de
+ * atlas. Ver `EventTypes.ATLAS_SWITCHED` para quais sao os tres e por que cada um ficava velho.
+ * Nunca lanca: uma pagina sem barramento (teste, headless) nao pode reprovar uma troca que deu
+ * certo por causa de um aviso.
+ * @param {string} kind - 'remote' ou 'local'.
+ * @param {string} atlasId - Atlas que passou a valer.
+ * @param {string|null} mapId - Mapa pedido, quando houve um.
+ * @returns {void}
+ */
+function announceAtlasSwitch(kind, atlasId, mapId) {
+    try {
+        getEventBus().emit(EventTypes.ATLAS_SWITCHED, { kind, atlasId, mapId });
+    } catch (error) {
+        console.warn('[atlas] ATLAS_SWITCHED not announced:', error);
+    }
+}
+
+/**
+ * A testemunha de um slot LOCAL que esta aba esta prestes a MONTAR.
+ *
+ * Irma de `remoteMountWitness`, com a mesma regra de `selfHolds`: 1 quando o endereco perguntado
+ * e o que esta aba ja tem montado (a store guarda no maximo um lock de montagem por cliente),
+ * 0 quando nao e. Ela existe porque um slot local tambem pode estar aberto em outra aba, e duas
+ * abas nos mesmos dez bancos e o que o lock inteiro existe para impedir — mesmo aqui, onde
+ * ninguem apaga nada, porque as duas passariam a escrever no mesmo lugar sem saber.
+ * @param {{dbSuffix: string}} scope - Escopo do slot, de `scopeOfLocalAtlas`.
+ * @returns {(() => Promise<boolean|null>)|null}
+ */
+function localMountWitness(scope) {
+    return mountWitness(scope.dbSuffix, getActiveScope()?.dbSuffix === scope.dbSuffix ? 1 : 0);
+}
+
+/**
+ * Entra num atlas LOCAL QUE JA EXISTE, ao vivo.
+ *
+ * E A IRMA DE `switchToNewLocalAtlas`, e as diferencas sao as que a existencia previa do slot
+ * obriga. Sao duas, e ambas sao correcoes e nao acrescimos:
+ *
+ *   1. HA CLAIM, com testemunha. `switchToNewLocalAtlas` pode mover a chave sem arbitragem
+ *      porque o slot dela nasceu uma linha antes, com UUID e bancos novos que nenhum par pode
+ *      segurar. Um slot que ja existe nao tem essa propriedade: outra aba pode estar dentro
+ *      dele, e a chave dele pode ate colidir com um atlas de SERVIDOR (o slot resgatado por
+ *      `adoptRemoteAtlasAsLocal` mantem o sufixo `remote-<id>`), que e por que a chave sai de
+ *      `localKeyOfScope` e nao de `localAtlasKey(id)` cru.
+ *   2. NAO HA WIPE. `clearAllDataStore` esvazia os dez bancos do escopo ATIVO, e a esta altura o
+ *      escopo ativo e o slot de DESTINO: o wipe destruiria o trabalho que a pessoa pediu para
+ *      abrir. `switchToNewLocalAtlas` chama o wipe porque o alvo dela e vazio por construcao, e
+ *      o que ela obtem dele e a derrubada do espelho em MEMORIA. Essa metade, sem a destrutiva,
+ *      e `adoptMountedLocalAtlas` (`store/map.operations.js`), que tambem ativa o ultimo mapa do
+ *      slot.
+ *
+ * A ORDEM E A MESMA DAS OUTRAS QUATRO ENTRADAS EM ATLAS: reivindicar antes de qualquer coisa,
+ * desconectar (um socket pertence a um atlas, o servidor nao tem "trocar"), montar, so entao
+ * mexer no conteudo, e declarar a origem por ultimo, ja com o namespace certo montado.
+ *
+ * A DESCONEXAO ESQUECE O ATLAS (`forgetAtlas: true`), e sem isso a troca ficaria mentindo:
+ * `disconnect()` nao zerava `_atlasId`, e `currentAtlasLockKey` le esse campo ANTES do escopo,
+ * entao a aba sairia de um atlas de servidor anunciando a chave dele enquanto escreve num slot
+ * local. Ver `SyncEngine.disconnect`.
+ *
+ * A FILA DE SAIDA NAO E LIMPA, e nem poderia ser: ela pertence ao atlas de servidor que esta
+ * aba acabou de deixar, que continua no servidor e reabrivel. Nada aqui a toca, porque nada
+ * aqui esvazia banco.
+ *
+ * @param {string} atlasId - Id do slot local (entrada do registro).
+ * @param {string|null} mapId - Mapa a ativar dentro do slot, ou null para o ultimo ativo.
+ * @returns {Promise<AtlasSwitchResult>} Uma recusa nomeada quando o slot nao existe ou quando
+ *   outra aba o segura; nos dois casos NADA se moveu.
+ */
+async function switchToExistingLocalAtlas(atlasId, mapId) {
+    const entry = getLocalAtlas(atlasId);
+    if (!entry) return { ok: false, changed: false, reason: 'not-found' };
+    // PELO ESCOPO, e nao pela entrada de registro. As duas parecem intercambiaveis e nao sao: a
+    // entrada chama o campo de `id`, e o escopo de `atlasId`, entao `localKeyOfScope(entry)`
+    // devolve `noneKey()` em silencio — uma reivindicacao que nao colide com ninguem, que e o
+    // contrario do que este pre-voo existe para fazer. Medido em
+    // `tests/unit/troca-viva-de-atlas.test.js`, no caso da ordem.
+    const scope = scopeOfLocalAtlas(entry);
+
+    // PRE-VOO PRIMEIRO, pelo mesmo motivo de `openRemoteAtlas`: montar por cima e o passo que
+    // redireciona toda escrita seguinte, e uma aba so pode montar o que reivindicou.
+    const { granted, deniedBy } = await acquireTabLock(localKeyOfScope(scope), {
+        witness: localMountWitness(scope),
+    });
+    if (!granted) {
+        // Fica reivindicando e BLOQUEADA, com a troca guardada: a sobreposicao e a resposta ao
+        // usuario, e o "Usar aqui" dela termina esta mesma troca.
+        deferAtlasOpen(() => switchToExistingLocalAtlas(atlasId, mapId));
+        if (deniedBy === 'witness') showError(OCCUPIED_MESSAGE);
+        return { ok: false, changed: false, reason: deniedBy ?? 'refused' };
+    }
+
+    if (syncEngine.atlasId) {
+        stopAutoFlush();
+        syncEngine.disconnect({ forgetAtlas: true });
+    }
+
+    await mountLocalAtlas(entry.id);
+    syncAtlasLockKey();
+    await adoptMountedLocalAtlas(mapId);
+    // A ORIGEM POR ULTIMO, como nas outras entradas: o marcador e GLOBAL a instalacao, entao
+    // declara-lo antes de o namespace estar montado anunciaria as outras abas uma origem que
+    // esta ainda nao tem.
+    await markStoreLocal();
+
+    // Redesenha o mapa corrente (camada base, fontes de feicao, rasters gerados no cliente). O
+    // mesmo passo que `openRemoteAtlas` faz pelo mesmo motivo: a troca torna um mapa corrente
+    // sem nunca ter rodado `setupMapFeatures` para ele.
+    await getControl('BaseLayerControl')?.switchMap?.(false);
+    // A APARENCIA E DO ATLAS QUE ACABOU DE ENTRAR, e o cache dela vive num modulo: sem esta
+    // releitura, o relevo de um projeto de servidor continuaria valendo no slot local.
+    await reapplyAtlasAppearance(getControl('TerrainControl'), globalThis.__ebgeoMap);
+
+    return { ok: true, changed: true };
+}
+
 /**
  * Leaves whatever atlas this tab holds and lands on a BRAND-NEW, EMPTY local atlas.
  *
@@ -668,7 +894,12 @@ export async function switchToNewLocalAtlas(name) {
 
     if (syncEngine.atlasId) {
         stopAutoFlush();
-        syncEngine.disconnect();
+        // `forgetAtlas: true` e o que faz `syncAtlasLockKey()` tres linhas abaixo dizer a
+        // verdade. Sem ele, `currentAtlasLockKey` le `syncEngine.atlasId` primeiro, acha o id do
+        // atlas de servidor que esta aba ACABOU de deixar, e a aba segue anunciando a chave dele
+        // enquanto escreve no slot local recem-criado — bloqueando outra aba por um atlas que
+        // ninguem tem aberto. Ver `SyncEngine.disconnect`.
+        syncEngine.disconnect({ forgetAtlas: true });
     }
 
     await mountLocalAtlas(created.atlas.id);

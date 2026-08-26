@@ -28,6 +28,7 @@ import DragDropHandler from './import_export/drag-drop.handler.js';
 import ScreenshotControl from './import_export/screenshot.control.js';
 import PDFExportTab from './import_export/pdf-export.tab.js';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
+import { initToolRegistry, seedControl } from './tool_manager/tool-registry.js';
 import { MapManager, DragRotateHandler } from './map';
 import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
@@ -66,48 +67,37 @@ import { mapLockController } from '@js/locking/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { ConnectionStates } from '@store/sync/connection-state.js';
 
-// Draw tools
-import {
-    AddPointControl,
-    AddLineControl,
-    AddPolygonControl,
-    AddRectangleControl,
-    AddCircleControl,
-    AddEllipseControl,
-    AddTextControl,
-    AddImageControl,
-    AddBrushControl,
-    AddSectorControl
-} from './draw_tools/index.js';
-
-// Azimuth Distance tool (drawing tool - polar construction)
-import { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
-
-// Military tools
-import {
-    AddMilitarySymbolControl,
-    AddCoordinationMeasureControl,
-    AddArrowControl,
-    AddBoundaryControl,
-    AddOccupiedFrontControl,
-    AddDeclinationControl
-} from './military_tools/index.js';
-
-// Measurement tools (ephemeral distance/area/angle)
-import {
-    MeasurementDistanceControl,
-    MeasurementAreaControl,
-    MeasurementAngleControl,
-} from './measurement_tool/index.js';
+// ---------------------------------------------------------------------------------------------
+// FERRAMENTAS: as SEIS que ficam, e as dezesseis que sairam.
+//
+// As dezesseis restantes (retangulo, circulo, elipse, setor, azimute, as seis militares, as duas
+// de analise e as tres de medida) entram por `tool_manager/tool-registry.js`, com `await import()`
+// no primeiro gesto que as pede. Elas somavam 47 modulos de `military_tools`, 10 de
+// `azimuth_distance_tool`, 8 de `measurement_tool` e 7 de `analysis_tools` no payload do boot,
+// sem um clique.
+//
+// Estas seis ficam, e o motivo e um so: o BOOT DESENHA O QUE JA ESTAVA NO MAPA, e o desenho
+// chama estes controles de forma SINCRONA e usando o valor de volta.
+//   - `layers/styles/point.layers.js`, `content.layers.js` e `line.layers.js` chamam
+//     `applyZoomCorrections` de ponto, texto, imagem e pincel no setup das camadas. O de ponto
+//     tem conta propria (tamanho do rotulo), que nenhum stand-in reproduz sem copiar.
+//   - `layer_setup.js` remede linha e poligono (`restoreMeasurements`), e `import.control.js` le
+//     `DEFAULT_PROPERTIES` das classes de ponto, linha e poligono ao importar arquivo.
+// Os tres arquivos ficaram fora da superficie desta onda. Custo medido do que ficou: 24 modulos
+// e 355 kB de fonte, contra 72 modulos e 1169 kB que sairam.
+//
+// Import DIRETO de cada arquivo, nunca pelo barril `./draw_tools/index.js`: o barril reexporta as
+// dez ferramentas de desenho, e alcanca-lo por qualquer nome traz as dez de volta ao payload
+// ansioso, desfazendo o corte em silencio.
+import AddPointControl from './draw_tools/point_tool/add_point_control.js';
+import AddLineControl from './draw_tools/line_tool/add_line_control.js';
+import AddPolygonControl from './draw_tools/polygon_tool/add_polygon_control.js';
+import AddTextControl from './draw_tools/text_tool/add_text_control.js';
+import AddImageControl from './draw_tools/image_tool/add_image_control.js';
+import AddBrushControl from './draw_tools/brush_tool/add_brush_control.js';
 
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';
-
-// Analysis tools
-import {
-    AddLOSControl,
-    AddVisibilityControl
-} from './analysis_tools/index.js';
 
 // ============================================================================
 // CONSTANTS
@@ -231,35 +221,18 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     const imageControl = new AddImageControl(toolManager);
 
-    const losControl = new AddLOSControl(toolManager);
-
-    const visibilityControl = new AddVisibilityControl(toolManager);
-
     const importControl = new AddImportControl(toolManager);
     importControl.setMap(map);
 
     const add3DModelsViewerControl = new Add3DModelsViewerControl(toolManager);
     const addStreetViewControl = new AddStreetViewControl(toolManager);
 
-    const circleControl = new AddCircleControl(toolManager);
-    const rectangleControl = new AddRectangleControl(toolManager);
-    const ellipseControl = new AddEllipseControl(toolManager);
-    const arrowControl = new AddArrowControl(toolManager);
-    const boundaryControl = new AddBoundaryControl(toolManager);
-    const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
-    const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
     const brushControl = new AddBrushControl(toolManager);
-    const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
-    const declinationControl = new AddDeclinationControl(toolManager);
-    const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
-    const sectorControl = new AddSectorControl(toolManager);
-
-    // Measurement tools (ephemeral, read-only — no selection registration)
-    const measureDistanceControl = new MeasurementDistanceControl(toolManager);
-    const measureAreaControl = new MeasurementAreaControl(toolManager);
-    const measureAngleControl = new MeasurementAngleControl(toolManager);
 
     // ===== SELECTION MANAGER REGISTRATIONS (declarative) =====
+    // Só as ferramentas ANSIOSAS entram aqui. As tardias entram por descritor em
+    // `initToolRegistry`, logo abaixo, e o SelectionManager resolve o módulo delas na primeira
+    // seleção de uma feição daquele tipo.
 
     const SELECTION_CONTROLS = [
         ['point', pointControl],
@@ -267,25 +240,28 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['polygon', polygonControl],
         ['text', textControl],
         ['image', imageControl],
-        ['los', losControl],
-        ['visibility', visibilityControl],
-        ['circle', circleControl],
-        ['rectangle', rectangleControl],
-        ['ellipse', ellipseControl],
-        ['arrow', arrowControl],
-        ['boundary', boundaryControl],
-        ['occupied_front', occupiedFrontControl],
-        ['military_symbol', militarySymbolControl],
         ['brush', brushControl],
-        ['coordination_measure', coordinationMeasureControl],
-        ['magnetic_declination', declinationControl],
-        ['azimuth_distance', azimuthDistanceControl],
-        ['sector', sectorControl],
     ];
 
     for (const [type, ctrl] of SELECTION_CONTROLS) {
         selectionManager.registerControl(type, ctrl);
     }
+
+    // ===== REGISTRO DE FERRAMENTAS (carga tardia) =====
+    // Instala TUDO que precisa existir antes do primeiro clique: o descritor de seleção de cada
+    // ferramenta tardia, o stand-in que responde por ela no registro global (`getControl`), e a
+    // closure de regeneração de imagem que o caminho de snapshot remoto consulta sem clique
+    // nenhum. O registro é ansioso, o módulo não. Ver `tool_manager/tool-registry.js`.
+    initToolRegistry({ toolManager, selectionManager, map });
+
+    // As ansiosas se apresentam ao registro para que a barra, o teclado e o menu tenham UM
+    // caminho só (`ensureControl`), em vez de um para as tardias e outro para estas.
+    seedControl('pointControl', pointControl);
+    seedControl('lineControl', lineControl);
+    seedControl('polygonControl', polygonControl);
+    seedControl('textControl', textControl);
+    seedControl('imageControl', imageControl);
+    seedControl('brushControl', brushControl);
 
     // ===== UI MANAGERS =====
 
@@ -301,6 +277,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 
     selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
+    seedControl('vectorTileInfoControl', vectorTileInfoControl);
     const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade);
 
     const mapManager = new MapManager(baseLayerControl, selectionManager);
@@ -347,6 +324,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
     selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
+    seedControl('rectangleSelectionControl', rectangleSelectionControl);
 
     // ===== SNAPPING SERVICE =====
 
@@ -362,32 +340,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         clipboardManager,
         addStreetViewControl,
         add3DModelsViewerControl,
-        controls: {
-            pointControl,
-            lineControl,
-            polygonControl,
-            textControl,
-            imageControl,
-            losControl,
-            visibilityControl,
-            circleControl,
-            rectangleControl,
-            ellipseControl,
-            arrowControl,
-            boundaryControl,
-            occupiedFrontControl,
-            militarySymbolControl,
-            brushControl,
-            rectangleSelectionControl,
-            vectorTileInfoControl,
-            coordinationMeasureControl,
-            declinationControl,
-            azimuthDistanceControl,
-            sectorControl,
-            measureDistanceControl,
-            measureAreaControl,
-            measureAngleControl,
-        }
+        // `controls` NÃO carrega mais instância de ferramenta: as teclas de atalho guardam
+        // `controlKey` e pedem a ferramenta ao registro (ver `keyboard/keyboard-shortcuts.js`).
+        // O que sobra aqui é o que não é ferramenta de barra — a sobreposição de comentários,
+        // que `map_sig.js` pendura logo abaixo, depois de criá-la.
+        controls: {}
     });
 
     // NOTE: keyboardShortcuts.enable() is called after toolbar controls are initialized
@@ -447,31 +404,20 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     // but they still need the map reference for their functionality.
     // We call onAdd() manually BEFORE creating ToolbarControl to ensure
     // controls have the map reference when toolbar buttons are clicked.
+    //
+    // Só as ANSIOSAS. Para as tardias, quem chama `onAdd(map)` é `ensureControl`, no mesmo
+    // instante em que constrói a instância — e isso importa mais do que parece: é o `onAdd`
+    // que instala o listener de zoom e a assinatura de regeneração remota de imagem de cada
+    // ferramenta. Uma ferramenta construída sem `onAdd` existe e não funciona.
     const toolbarManagedControls = [
         pointControl,
         lineControl,
         polygonControl,
         textControl,
         imageControl,
-        circleControl,
-        rectangleControl,
-        ellipseControl,
         brushControl,
-        arrowControl,
-        boundaryControl,
-        occupiedFrontControl,
-        militarySymbolControl,
-        coordinationMeasureControl,
-        declinationControl,
-        azimuthDistanceControl,
-        sectorControl,
-        losControl,
-        visibilityControl,
         vectorTileInfoControl,
         rectangleSelectionControl,
-        measureDistanceControl,
-        measureAreaControl,
-        measureAngleControl,
     ];
 
     toolbarManagedControls.forEach(control => {
@@ -506,34 +452,12 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     // ===== TOOLBAR CONTROL (Reorganized tool groups) =====
 
+    // A barra NÃO recebe mais o mapa de instâncias. Ela já descrevia cada botão por
+    // `controlKey` (uma string) em `toolbar.constants.js`; agora ela resolve essa string pelo
+    // registro de ferramentas, no clique. Era este literal, gêmeo do de cima e mantido em
+    // sincronia por nada, um dos quatro lugares que uma ferramenta nova tinha de entrar.
     const toolbarControl = new ToolbarControl({
         toolManager: toolManager,
-        controls: {
-            rectangleSelectionControl,
-            pointControl,
-            lineControl,
-            polygonControl,
-            rectangleControl,
-            circleControl,
-            ellipseControl,
-            textControl,
-            imageControl,
-            brushControl,
-            militarySymbolControl,
-            coordinationMeasureControl,
-            declinationControl,
-            arrowControl,
-            boundaryControl,
-            occupiedFrontControl,
-            azimuthDistanceControl,
-            sectorControl,
-            losControl,
-            visibilityControl,
-            vectorTileInfoControl,
-            measureDistanceControl,
-            measureAreaControl,
-            measureAngleControl,
-        },
         eventBus: getEventBus(),
         stateManager: getStateManager(),
         map: map,
@@ -689,33 +613,18 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     // ===== REGISTER CONTROLS IN CONTROL REGISTRY (declarative) =====
     // This allows other modules (like layer_setup.js) to access controls by name
 
+    // As ferramentas TARDIAS não estão aqui: `initToolRegistry` já registrou um stand-in sob o
+    // nome de classe de cada uma, e `ensureControl` troca o stand-in pela instância de verdade
+    // quando ela nasce. Registrá-las aqui exigiria construí-las, que é exatamente o custo que
+    // esta onda tirou do boot.
     const CONTROL_REGISTRY = [
-        // Draw tools
+        // Draw tools (as ansiosas)
         ['AddPointControl', pointControl],
         ['AddLineControl', lineControl],
         ['AddPolygonControl', polygonControl],
         ['AddTextControl', textControl],
         ['AddImageControl', imageControl],
-        ['AddCircleControl', circleControl],
-        ['AddRectangleControl', rectangleControl],
-        ['AddEllipseControl', ellipseControl],
         ['AddBrushControl', brushControl],
-        ['AddAzimuthDistanceControl', azimuthDistanceControl],
-        ['AddSectorControl', sectorControl],
-        // Military tools
-        ['AddMilitarySymbolControl', militarySymbolControl],
-        ['AddCoordinationMeasureControl', coordinationMeasureControl],
-        ['AddDeclinationControl', declinationControl],
-        ['AddArrowControl', arrowControl],
-        ['AddBoundaryControl', boundaryControl],
-        ['AddOccupiedFrontControl', occupiedFrontControl],
-        // Analysis tools
-        ['AddLOSControl', losControl],
-        ['AddVisibilityControl', visibilityControl],
-        // Measurement tools
-        ['MeasurementDistanceControl', measureDistanceControl],
-        ['MeasurementAreaControl', measureAreaControl],
-        ['MeasurementAngleControl', measureAngleControl],
         // Infrastructure
         ['TerrainControl', terrainControl],
         ['MouseCoordinatesControl', mouseCoordinatesControl],
@@ -794,21 +703,96 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
  *
  * @param {maplibregl.Map} map - Map instance
  * @param {Promise<Object>} controlsPromise - Promise that resolves to controls from createControls()
- * @returns {Promise<string>} Resolves when the local store boot (default-map creation / last-active
- *   selection) is settled. Callers MUST await this before a remote reconnect/open clears + repopulates
- *   the store, so the two don't interleave and leave a stray local "Principal" (phantom map on F5).
+ * @param {object} [opcoes]
+ * @param {boolean} [opcoes.pintarSlotLocal=true] - Se o manipulador de `load` deve DESENHAR o slot
+ *   que o boot montou (camada base, feicoes, aparencia) e baixar a cortina. Passe false quando o
+ *   boot ja sabe que vai abrir um atlas de SERVIDOR: ver `renderBootMap`.
+ * @returns {{statePromise: Promise<string>, bootRendered: Promise<void>,
+ *   renderBootMap: () => Promise<void>}}
  */
-export function initializeApp(map, controlsPromise) {
+export function initializeApp(map, controlsPromise, { pintarSlotLocal = true } = {}) {
     // Start loading state from IndexedDB (fast, ~10-50ms).
     const statePromise = initializeWithLastActiveMap();
+
+    // O MODULO DE DEEP LINK COMECA A CHEGAR AGORA, e nao la embaixo, dentro do manipulador de
+    // `load`. Ele e importado dinamicamente de proposito (o boot que nao tem `#view=` na URL nao
+    // precisa dele para pintar nada), mas o `await import(...)` estava no CAMINHO CRITICO: o
+    // manipulador so terminava depois de o modulo chegar, e `bootRendered` so resolvia depois do
+    // manipulador. Medido em 2026-08-25, nesta bancada de desenvolvimento (Vite servindo modulo a
+    // modulo), num boot com `?atlas=`: de 201 a 328 ms de mediana entre esconder a cortina e o
+    // modulo chegar, conforme a bateria, com `handleDeepLink()` custando ZERO em seguida (ele
+    // retorna na primeira linha quando nao ha hash). Ou seja, um quinto de segundo de espera por
+    // uma busca de rede, e nao por trabalho.
+    //
+    // A ORDEM NAO MUDA: o manipulador continua aguardando esta mesma promessa no mesmo ponto, e
+    // `handleDeepLink()` continua rodando depois da pintura. O que muda e QUANDO a busca comeca.
+    // O `catch` vazio esta aqui porque uma promessa rejeitada e ninguem olhando vira rejeicao nao
+    // tratada; quem trata o erro de verdade continua sendo o `try` la embaixo, que aguarda esta
+    // mesma promessa e ja rejeita por ela.
+    const deepLinkPromise = import('./deep-link/deep-link.js');
+    deepLinkPromise.catch(() => {});
 
     // Resolves once the boot 'load' handler has rendered the initial map AND removed the splash.
     // A remote open/reconnect (which clears + re-pulls the store) MUST await this so its
     // clearAllDataStore does NOT run CONCURRENTLY with the handler's switchMap() below — that race
     // hangs the handler before hideLoadingScreen(), leaving the splash stuck (the logged-in
     // `?atlas=&map=` deep-link symptom). Always resolves (even on a boot error) so it can't deadlock.
+    //
+    // COM `pintarSlotLocal: false` A CORRIDA DEIXA DE EXISTIR EM VEZ DE SER SERIALIZADA, e o
+    // contrato desta promessa continua o mesmo: ela resolve quando o manipulador terminou o que
+    // lhe cabia. Sem `switchMap` no manipulador nao ha `switchMap` para o wipe interlevar, e sem
+    // pintura o wipe nao encontra escopo pintado para substituir.
     let resolveBootRendered;
     const bootRendered = new Promise((resolve) => { resolveBootRendered = resolve; });
+
+    /**
+     * DESENHA O SLOT LOCAL E BAIXA A CORTINA. Uma vez so, chamado por quem chegar primeiro.
+     *
+     * ELE E UMA FUNCAO, E NAO UM BLOCO, POR CAUSA DO BOOT COM `?atlas=`. Naquele boot o slot local
+     * e montado, migrado, lido para a memoria e DESENHADO, e o `clearAllDataStore` de
+     * `openRemoteAtlas` o apaga um segundo depois: a pintura inteira e trabalho jogado fora, e nao
+     * so o tempo dela. O que ela deixa para tras e um MapLibre ocupado (estilo da camada base,
+     * fontes de feicoes, pedidos de tile) que rouba a linha principal da abertura remota que vem
+     * em seguida, e essa metade e a maior das duas.
+     *
+     * MEDIDO EM 2026-08-25, A/B pareado na mesma bancada e na mesma pagina, 5 boots de cada lado,
+     * com `?atlas=` de um atlas de servidor com um mapa vazio. A pintura em si custava 125 ms
+     * (`switchMap` 77, aparencia 48). A CONTENCAO que ela deixava custava mais: a leitura do
+     * registro local dentro de `openRemoteAtlas` caiu de 426 ms para 2 ms, o `acquire` do tab-lock
+     * de 440 para 314 (o assentamento e 300 ms, entao o resto era espera por linha principal), o
+     * `connect` mais o primeiro pull de 412 para 226, e o `switchMap` final de 184 para 10.
+     * Porta a porta: mediana de 2515 ms para 1370 ms, uma economia de 1145 ms (45%).
+     *
+     * ESTA BANCADA E DESENVOLVIMENTO, entao o numero ABSOLUTO nao e o do pacote de producao. O que
+     * ela mede honestamente e a RAZAO entre os dois caminhos, medida no mesmo instrumento.
+     *
+     * ENTAO O BOOT QUE VAI ABRIR UM ATLAS DE SERVIDOR NAO PINTA, e a cortina fica de pe ate o
+     * atlas de servidor estar montado — o que ela mostrava antes, durante um segundo e meio, era
+     * o atlas ERRADO. Quem pinta naquele caminho e o proprio `openRemoteAtlas`, que ja termina com
+     * `switchMap` e com a releitura de aparencia.
+     *
+     * E ELE CONTINUA EXISTINDO PARA OS DESFECHOS EM QUE A ABERTURA REMOTA NAO ACONTECE (outra aba
+     * segura o atlas, o usuario recusou descartar um resgate, o servidor respondeu 403/404): ali
+     * `index.js` o chama no `finally` do roteamento, e a cortina cai sobre o slot local pintado,
+     * que e exatamente o que o boot antigo entregava.
+     * @returns {Promise<void>}
+     */
+    let renderBootMapPromise = null;
+    const renderBootMap = () => {
+        renderBootMapPromise ??= (async () => {
+            const controls = await controlsPromise;
+            await controls.baseLayerControl.switchMap(true);
+
+            // A APARÊNCIA É RELIDA AQUI, e não basta a leitura que alimentou o controle de
+            // terreno lá em cima: aquela roda enquanto os controles são construídos, ANTES de
+            // `activateBootAtlasScope` montar o namespace do atlas que o boot escolheu. Trocar de
+            // atlas local é uma navegação, então o boot inteiro roda de novo — e com a leitura só
+            // no ponto antigo o segundo slot herdava a projeção do primeiro, sem erro nenhum.
+            await reapplyAtlasAppearance(controls.terrainControl, map);
+            hideLoadingScreen();
+        })();
+        return renderBootMapPromise;
+    };
 
     // Map load handler — fires when MapLibre finishes rendering tiles.
     // Must be registered synchronously to avoid race with async createControls().
@@ -817,28 +801,20 @@ export function initializeApp(map, controlsPromise) {
             map.doubleClickZoom.disable();
             map.boxZoom.disable();
             map.dragRotate.disable();
-
-            // Wait for both IndexedDB state and controls to be ready
-            const [, controls] = await Promise.all([statePromise, controlsPromise]);
-            const { baseLayerControl } = controls;
-
-            await baseLayerControl.switchMap(true);
-
-            // A APARÊNCIA É RELIDA AQUI, e não basta a leitura que alimentou o controle de
-            // terreno lá em cima: aquela roda enquanto os controles são construídos, ANTES de
-            // `activateBootAtlasScope` montar o namespace do atlas que o boot escolheu. Trocar de
-            // atlas local é uma navegação, então o boot inteiro roda de novo — e com a leitura só
-            // no ponto antigo o segundo slot herdava a projeção do primeiro, sem erro nenhum.
-            await reapplyAtlasAppearance(controls.terrainControl, map);
-
-            // Disable sky/fog - universe background is set via CSS on #map-sig container
+            // Disable sky/fog - universe background is set via CSS on #map-sig container. SOBE
+            // PARA JUNTO DOS OUTROS TRES: e uma chamada sincrona do mapa, sem nada do store, e no
+            // ponto antigo (depois da pintura) ela ficava presa atras de `renderBootMap`, que hoje
+            // pode nao rodar neste manipulador.
             map.setSky(undefined);
 
-            hideLoadingScreen();
+            // Wait for both IndexedDB state and controls to be ready
+            await Promise.all([statePromise, controlsPromise]);
+
+            if (pintarSlotLocal) await renderBootMap();
 
             // Handle deep link from URL hash (opens 360/3D viewer if hash present)
             try {
-                const { handleDeepLink, initDeepLinkListener } = await import('./deep-link/deep-link.js');
+                const { handleDeepLink, initDeepLinkListener } = await deepLinkPromise;
                 await handleDeepLink();
                 // Start listening for future hash changes so pasting a shared URL
                 // into an already-open tab also opens the correct viewer.
@@ -854,7 +830,7 @@ export function initializeApp(map, controlsPromise) {
         }
     });
 
-    return { statePromise, bootRendered };
+    return { statePromise, bootRendered, renderBootMap };
 }
 
 // ============================================================================

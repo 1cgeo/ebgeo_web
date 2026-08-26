@@ -193,6 +193,21 @@ class BaseControl {
 
     /**
      * Create selection box for feature
+     *
+     * SINCRONO DE PROPOSITO, mesmo lendo Turf. Este metodo tem VINTE E QUATRO reimplementacoes
+     * quase identicas nos controles (cada ferramenta de desenho reescreveu `turf.bbox` +
+     * `turf.bboxPolygon` em vez de herdar esta), e ele so e chamado de dois lugares, os dois
+     * ja garantindo o Turf um gesto antes:
+     *
+     *   - `tool_manager/managers/selection-highlight.manager.js:updateSelectionHighlight`, que
+     *     sai e refaz a chamada se o Turf ainda nao chegou;
+     *   - `presence/remote-selections.layer.js:_buildBox`, que e assincrono e chama
+     *     `selection_manager.js:getCompleteFeatureFromSource` antes — e e la que o `await
+     *     ensureTurf()` daquele caminho mora.
+     *
+     * Tornar isto assincrono obrigaria a mudar as vinte e quatro assinaturas e os dois
+     * chamadores, por uma garantia que os dois chamadores ja dao. Ver `utilities/turf-loader.js`.
+     *
      * @param {Object} feature - Feature to create selection box for
      * @returns {Object} GeoJSON Polygon feature or null
      */

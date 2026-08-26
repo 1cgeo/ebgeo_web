@@ -509,6 +509,21 @@ class AddCoordinationMeasureControl extends BaseControl {
     return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
   }
 
+  /**
+   * Rebuilds this measure's LOCAL-ONLY PNG from its synced props, and installs it on the map.
+   *
+   * PÚBLICO DE PROPÓSITO: com a ferramenta militar fora do payload do boot, quem se registra no
+   * `image-regen-registry` durante o boot é uma closure de `tool_manager/tool-registry.js`, que
+   * carrega esta ferramenta na primeira feição que precisar dela e chama este método. Uma
+   * closure não alcança um método privado. Ver o gêmeo em `add_military_symbol_control.js`.
+   *
+   * @param {Object} feature
+   * @returns {Promise<void>}
+   */
+  regenerateImageFromProps(feature) {
+    return this._regenerateRemote(feature);
+  }
+
   /** Rebuilds and re-installs a coordination measure's image from its synced props (peer side). */
   async _regenerateRemote(feature) {
     if (!this.map || !feature?.properties?.id) return;

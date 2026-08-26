@@ -61,13 +61,19 @@ const naoResolve = (arquivo, trecho, motivo, n = 1) =>
  */
 const CENSO = [
   // ---- a função única ---------------------------------------------------------------
-  // CINCO destas entradas DECIDEM ACESSO (os dois gates e as três listagens de atlas); a
+  // CINCO destas entradas DECIDEM ACESSO (os dois gates e as quatro listagens de atlas); a
   // sexta, `EFFECTIVE_PERMISSIONS`, decide o que a FRAME de compartilhamento anuncia. A
   // distinção importa: nas cinco primeiras, ler metade do eixo é acesso perdido ou dado a
   // mais; na sexta, é a interface mentindo sobre um nível que o servidor nunca mudou.
   fn('src/middleware/permissions.js', '`SELECT permission FROM fn_user_atlas_shares('),
   fn('src/modules/collab/collab.gateway.js', "'SELECT permission FROM fn_user_atlas_shares("),
-  fn('src/modules/atlas/atlas.queries.js', 'LEFT JOIN fn_user_atlas_shares($1::uuid) us ON us.atlas_id = a.id', 3),
+  // QUATRO desde 2026-08-25, e a quarta é `LIST_USER_ATLAS_IDS`. A presença rodava
+  // `LIST_USER_ATLAS` inteira (`SELECT a.*`) para ler UM campo, `atlas.id`; a listagem
+  // estreita que a substituiu repete o predicado de alcance palavra por palavra, e é
+  // exatamente por isso que ela entra aqui. Copiar o predicado é o que mantém a presença
+  // no mesmo conjunto que o cartão desenha; esquecer o braço de GRUPO nessa cópia é a
+  // falha que este censo existe para pegar, porque ela não dá erro nenhum.
+  fn('src/modules/atlas/atlas.queries.js', 'LEFT JOIN fn_user_atlas_shares($1::uuid) us ON us.atlas_id = a.id', 4),
   fn('src/modules/atlas/atlas.queries.js', '1 + (SELECT COUNT(*) FROM fn_atlas_member_ids(a.id) mc'),
   fn('src/modules/atlas/atlas.queries.js', 'FROM fn_atlas_member_ids(a.id) ms'),
   // O NÍVEL DE CADA PARTICIPANTE NO CARTÃO (decisão do dono, 2026-08-23). Ele resolve pela

@@ -34,10 +34,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
+import { contarBlobs } from '../helpers/blobs-em-disco.js';
 import * as imagesService from '../../src/modules/images/images.service.js';
 import config from '../../src/config.js';
 
@@ -83,8 +84,12 @@ describe('Images — fronteira exata de MAX_IMAGE_SIZE_MB (item 166)', () => {
     await teardownTestEnv(db);
   });
 
+  // Conta blobs de VERDADE, e nao entradas de diretorio. `readdirSync` sozinho
+  // devolvia tambem a entrada `<UUID>.PNG.tmp` de zero byte que o Windows deixa
+  // por alguns milissegundos depois do unlink, e esse fantasma ja produziu
+  // vermelho intermitente. A medicao esta em helpers/blobs-em-disco.js.
   function countFiles() {
-    return existsSync(atlasDir) ? readdirSync(atlasDir).length : 0;
+    return contarBlobs(atlasDir);
   }
 
   async function countRows() {

@@ -27,10 +27,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
-import { existsSync, readdirSync } from 'fs';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
+import { blobsEmDisco } from '../helpers/blobs-em-disco.js';
 import config from '../../src/config.js';
 
 // Fixtures com MAGIC BYTES reais — um placeholder textual reprovaria pelo motivo
@@ -67,10 +67,13 @@ describe('images — double type validation (magic bytes vs declared) and disk c
     return rows[0].n;
   }
 
-  /** Files currently sitting in this atlas's upload directory (0 when absent). */
+  /** Blobs de verdade no diretorio de upload deste atlas ([] quando ele nao existe). */
+  // Conta blobs de VERDADE, e nao entradas de diretorio. `readdirSync` sozinho
+  // devolvia tambem a entrada `<UUID>.PNG.tmp` de zero byte que o Windows deixa
+  // por alguns milissegundos depois do unlink, e esse fantasma ja produziu
+  // vermelho intermitente. A medicao esta em helpers/blobs-em-disco.js.
   function filesOnDisk() {
-    const dir = join(config.images.dir, atlas.id);
-    return existsSync(dir) ? readdirSync(dir) : [];
+    return blobsEmDisco(join(config.images.dir, atlas.id));
   }
 
   before(async () => {

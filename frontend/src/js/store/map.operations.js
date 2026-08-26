@@ -17,7 +17,13 @@ import {
     getRepository
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
-import { memoryStore } from './memory-store.js';
+import { memoryStore, resetMemoryStore } from './memory-store.js';
+// A entrada em atlas LOCAL ao vivo (`adoptMountedLocalAtlas`) precisa do mesmo preparo do boot
+// (`initializeRepository`) e dos dois carregadores de memoria por mapa. Nenhum dos tres importa
+// este modulo de volta, entao nao ha ciclo.
+import { initializeRepository } from './repository.js';
+import { loadCesium3dDataToMemory } from './cesium3d.operations.js';
+import { loadStreetview360DataToMemory } from './streetview360.operations.js';
 import { MAP_BADGE_COLORS, mapBadgeColorForName } from './map-badge-colors.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
@@ -373,6 +379,87 @@ export async function setCurrentMap(mapName) {
 
     const locked = memoryStore.lockedMaps.has(mapName);
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked });
+}
+
+/**
+ * ADOTA O SLOT LOCAL QUE ACABOU DE SER MONTADO: larga o espelho em memoria do atlas que a aba
+ * deixou, e torna corrente o ULTIMO mapa do slot novo. NAO APAGA BANCO NENHUM.
+ *
+ * ELA EXISTE PORQUE `activateAtlasInitialMap` E O INSTRUMENTO ERRADO AQUI, e o motivo esta
+ * escrito na propria: ela roda "only AFTER connecting to a server atlas, where every map is
+ * UUID-keyed", e APAGA todo mapa cuja chave nao seja UUID, tratando-o como sobra local. Num
+ * atlas LOCAL os mapas sao exatamente esses: `Principal` e os que o usuario criou pelo nome.
+ * Reaproveitar aquela funcao para a entrada em atlas local apagaria o atlas que se quer abrir.
+ *
+ * E ELA NAO PODE SER `clearAllDataStore`, QUE E A OUTRA TENTACAO. Aquele wipe esvazia os dez
+ * bancos do escopo ATIVO (`repository.clearAllAtlasStores`), e o escopo ativo aqui ja e o slot
+ * de destino: o resultado seria destruir o trabalho local que a pessoa pediu para abrir.
+ * `switchToNewLocalAtlas` pode chamar o wipe porque o slot dela nasceu vazio uma linha antes;
+ * um slot que ja existe nao tem essa propriedade. A necessidade que o wipe atendia ali era
+ * outra, e e a que esta funcao atende: derrubar o espelho EM MEMORIA do atlas anterior.
+ *
+ * A ORDEM E O CONTRATO. Primeiro `resetMemoryStore()`, que zera os mapas, grupos, camadas,
+ * pilhas de desfazer, travas, cache de cores, 3D e 360 do atlas que ficou para tras — sem esta
+ * linha, um mapa de mesmo NOME nos dois atlas (e `Principal` esta nos dois) seria lido do cache
+ * velho. Depois `initializeRepository()`, que e o mesmo passo que o boot roda: ele executa a
+ * migracao do slot montado (um slot local guardado em versao antiga so e legivel depois dela),
+ * semeia um mapa em branco se o slot estiver vazio, e devolve o ultimo mapa ativo dele. So
+ * entao o resolvedor de nome/UUID e refeito, porque ele guarda os mapas do atlas ERRADO ate
+ * ser refeito, e e ele que nomeia o mapa na presenca e nos rotulos.
+ *
+ * `ALL_DATA_CLEARED` E EMITIDO NO FIM, e o nome do evento e mais estreito do que o contrato
+ * dele: os dez ouvintes o tratam como "o que voce espelhava sumiu, releia da store", que e
+ * literalmente o que acabou de acontecer. E o mesmo sinal que o caminho de atlas de servidor
+ * ja manda (por dentro do wipe), e e o que faz a camada base, os comentarios, os icones, o 3D,
+ * o 360 e a aba Mapas se curarem sem que ninguem os chame pelo nome.
+ *
+ * @param {string|null} [preferredMapId] - Um mapa especifico do slot (UUID ou nome). Cai para o
+ *   ultimo mapa ativo quando ausente ou nao encontrado.
+ * @returns {Promise<string>} O nome do mapa que ficou corrente.
+ */
+export async function adoptMountedLocalAtlas(preferredMapId = null) {
+    resetMemoryStore();
+    // O cache do gerente de camadas vive FORA do `memoryStore`, entao o reset acima nao o
+    // alcanca. Deixa-lo de pe faria a aba Camadas desenhar as camadas do atlas anterior.
+    deps.layerManager.clearLayersCache();
+
+    const lastActive = await initializeRepository();
+
+    // O resolvedor e refeito com o repositorio JA montado no slot novo. `clear()` sozinho
+    // deixaria a resolucao nome->UUID vazia pelo resto da sessao (nada a reconstroi), e a
+    // presenca passa o mapId por ele.
+    await mapResolver.initialize(getRepository());
+
+    const chosen = await resolveRequestedLocalMap(preferredMapId) ?? lastActive;
+    await setCurrentMap(chosen);
+    await loadCesium3dDataToMemory(chosen);
+    await loadStreetview360DataToMemory(chosen);
+
+    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED, { rebuild: true });
+    deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+    return chosen;
+}
+
+/**
+ * O nome do mapa pedido, quando ele existe no slot montado.
+ *
+ * Aceita UUID e nome porque um atlas local tem as duas formas de endereco: os mapas antigos
+ * sao chaveados por nome, e os criados por `addMap` carregam um `id` UUID. Devolver null
+ * (em vez de inventar um mapa) e o que deixa o chamador cair no ultimo mapa ativo.
+ * @param {string|null} preferredMapId - UUID ou nome do mapa pedido.
+ * @returns {Promise<string|null>} O nome do mapa, ou null.
+ */
+async function resolveRequestedLocalMap(preferredMapId) {
+    if (!preferredMapId) return null;
+    const all = await getRepository().getAllMaps();
+    const entries = all instanceof Map ? [...all.entries()] : Object.entries(all || {});
+    for (const [key, data] of entries) {
+        if (!data) continue;
+        if (data.id === preferredMapId || key === preferredMapId || data.name === preferredMapId) {
+            return data.name ?? key;
+        }
+    }
+    return null;
 }
 
 /**

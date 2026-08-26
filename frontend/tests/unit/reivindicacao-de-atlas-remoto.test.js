@@ -87,13 +87,21 @@ vi.mock('@store/sync/sync-engine.js', () => ({
     }
 }));
 
-vi.mock('@store', () => ({ getControl: vi.fn(() => null) }));
+vi.mock('@store', () => ({ getControl: vi.fn(() => null), getEventBus: vi.fn(() => ({ emit: vi.fn() })) }));
+// A ENTRADA EM ATLAS LOCAL AO VIVO entrou no mesmo modulo (`switchAtlas`), e ela importa a
+// adocao do slot montado. Sem este duble o import real arrasta a store inteira por
+// `permission-guard` -> `store-origin` -> `atlas-namespace`, e o duble estreito de
+// `atlas-namespace` acima quebra o carregamento do modulo sob teste. Nenhum caso deste arquivo
+// entra em atlas local: o que se mede aqui e a DECISAO de reivindicar um atlas de servidor.
+vi.mock('@store/map.operations.js', () => ({ adoptMountedLocalAtlas: vi.fn(async () => 'Principal') }));
 vi.mock('@store/sync/sync-flush.js', () => ({ startAutoFlush: vi.fn(), stopAutoFlush: vi.fn() }));
 vi.mock('@store/local-atlas.api.js', () => ({
     createLocalAtlas: vi.fn(),
+    getLocalAtlas: vi.fn(() => null),
     localAtlasAdoptingRemote: vi.fn(async () => null),
     mountLocalAtlas: vi.fn(),
-    releaseAdoptedLocalAtlas: vi.fn(async () => {})
+    releaseAdoptedLocalAtlas: vi.fn(async () => {}),
+    scopeOfLocalAtlas: vi.fn((entry) => ({ kind: 'local', atlasId: entry.id, dbSuffix: entry.dbSuffix }))
 }));
 vi.mock('@store/atlas-namespace.js', () => ({
     getActiveScope: () => store.activeScope,

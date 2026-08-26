@@ -14,6 +14,7 @@ import { showConfirm } from '@modals/index.js';
 import { showInChannel, showWarning } from '@utils/toast_service.js';
 import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
 import { getViewModeController } from '@ui/view-mode.controller.js';
+import { ensureControl } from '@tools/tool-registry.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -147,7 +148,7 @@ class KeyboardShortcuts {
         }
 
         if (!hasCtrl && !hasShift) {
-            this.handleToolShortcuts(e, key);
+            await this.handleToolShortcuts(e, key);
         }
 
         if (hasCtrl && !hasShift) {
@@ -240,7 +241,7 @@ class KeyboardShortcuts {
      * @param {KeyboardEvent} e - Keyboard event
      * @param {string} key - Pressed key
      */
-    handleToolShortcuts(e, key) {
+    async handleToolShortcuts(e, key) {
         // Snapping toggle (not a tool activation)
         if (key === 'g') {
             if (isCurrentMapLockedSync()) return;
@@ -252,32 +253,32 @@ class KeyboardShortcuts {
 
         // Tools allowed even when locked (read-only utilities)
         const readOnlyTools = {
-            'q': this.controls.rectangleSelectionControl,
-            'n': this.controls.vectorTileInfoControl,
-            'j': this.controls.measureDistanceControl,
-            'h': this.controls.measureAreaControl,
-            'x': this.controls.measureAngleControl,
+            'q': 'rectangleSelectionControl',
+            'n': 'vectorTileInfoControl',
+            'j': 'measureDistanceControl',
+            'h': 'measureAreaControl',
+            'x': 'measureAngleControl',
         };
 
         // Tools that require write access
         const writeTools = {
-            'p': this.controls.pointControl,
-            'l': this.controls.lineControl,
-            'a': this.controls.polygonControl,
-            't': this.controls.textControl,
-            'i': this.controls.imageControl,
-            'c': this.controls.circleControl,
-            'e': this.controls.ellipseControl,
-            's': this.controls.arrowControl,
-            'd': this.controls.boundaryControl,
-            'f': this.controls.occupiedFrontControl,
-            'm': this.controls.militarySymbolControl,
-            'r': this.controls.rectangleControl,
-            'b': this.controls.brushControl,
-            'k': this.controls.coordinationMeasureControl,
-            'z': this.controls.azimuthDistanceControl,
-            'u': this.controls.sectorControl,
-            'w': this.controls.declinationControl
+            'p': 'pointControl',
+            'l': 'lineControl',
+            'a': 'polygonControl',
+            't': 'textControl',
+            'i': 'imageControl',
+            'c': 'circleControl',
+            'e': 'ellipseControl',
+            's': 'arrowControl',
+            'd': 'boundaryControl',
+            'f': 'occupiedFrontControl',
+            'm': 'militarySymbolControl',
+            'r': 'rectangleControl',
+            'b': 'brushControl',
+            'k': 'coordinationMeasureControl',
+            'z': 'azimuthDistanceControl',
+            'u': 'sectorControl',
+            'w': 'declinationControl'
         };
 
         const locked = isCurrentMapLockedSync();
@@ -286,7 +287,7 @@ class KeyboardShortcuts {
             if (locked) return;
             e.preventDefault();
             if (this.map.getTerrain()) {
-                this.toolManager.setActiveTool(this.controls.visibilityControl);
+                await this._ativarPorChave('visibilityControl');
             } else {
                 showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
@@ -297,7 +298,7 @@ class KeyboardShortcuts {
             if (locked) return;
             e.preventDefault();
             if (this.map.getTerrain()) {
-                this.toolManager.setActiveTool(this.controls.losControl);
+                await this._ativarPorChave('losControl');
             } else {
                 showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
@@ -308,7 +309,7 @@ class KeyboardShortcuts {
         const readOnlyTool = readOnlyTools[key];
         if (readOnlyTool) {
             e.preventDefault();
-            this.toolManager.setActiveTool(readOnlyTool);
+            await this._ativarPorChave(readOnlyTool);
             return;
         }
 
@@ -318,7 +319,31 @@ class KeyboardShortcuts {
         const writeTool = writeTools[key];
         if (writeTool) {
             e.preventDefault();
-            this.toolManager.setActiveTool(writeTool);
+            await this._ativarPorChave(writeTool);
+        }
+    }
+
+    /**
+     * Ativa uma ferramenta pelo `controlKey`, carregando o módulo dela se preciso.
+     *
+     * O `preventDefault()` DE QUEM CHAMA TEM DE VIR ANTES do await, e não é detalhe de estilo:
+     * depois do primeiro `await` o evento já foi despachado, e cancelar o padrão do navegador
+     * deixa de ter efeito. Por isso a chamada acima cancela primeiro e só então espera.
+     *
+     * A REPETIÇÃO DE TECLA é coberta pelo memo de `ensureControl`: segurar a tecla dispara um
+     * `keydown` por autorrepetição, e todos compartilham a MESMA promessa de carga, então
+     * nasce uma instância só. O `setActiveTool` repetido sobre a mesma instância é idempotente.
+     *
+     * @param {string} controlKey
+     * @private
+     */
+    async _ativarPorChave(controlKey) {
+        try {
+            const control = await ensureControl(controlKey);
+            this.toolManager.setActiveTool(control);
+        } catch (erro) {
+            console.error(`Falha ao carregar a ferramenta ${controlKey}:`, erro);
+            showWarning('Não foi possível carregar a ferramenta');
         }
     }
 
