@@ -4,6 +4,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { join, extname } from 'path';
 import { mkdirSync } from 'fs';
+import { armazenamentoAbortavel } from '../../middleware/armazenamento-abortavel.js';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
@@ -31,8 +32,17 @@ function safeExtension(originalname) {
   return ext.length > 0 && ext.length <= 8 ? ext : 'bin';
 }
 
-// Configure multer for image uploads
-const storage = multer.diskStorage({
+// Configure multer for image uploads.
+//
+// NAO E `multer.diskStorage`, e a troca conserta um defeito medido. Uma conexao
+// derrubada no meio do upload deixava o blob parcial em disco E o `WriteStream`
+// aberto, porque `req.pipe(busboy)` nao propaga a morte da ORIGEM para o
+// DESTINO, entao o multer nunca fechava a requisicao. O
+// `armazenamentoAbortavel` tem a mesma assinatura de opcoes e acrescenta o
+// gancho de `req:close`. O porque completo esta no cabecalho de
+// `src/middleware/armazenamento-abortavel.js`; a prova, em
+// `tests/integration/upload-abortado-deixa-blob.repro.test.js`.
+const storage = armazenamentoAbortavel({
   destination: (req, file, cb) => {
     const atlasId = req.params.atlasId;
     const dest = join(config.images.dir, atlasId);

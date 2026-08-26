@@ -70,7 +70,12 @@ function tetoDeBytes() {
  * @param {import('express').NextFunction} next
  */
 export function drainOnError(err, req, res, next) {
-  if (req.complete || req.readableEnded || res.headersSent) return next(err);
+  // `req.destroyed` E NOVO AQUI, e sem ele o conserto do upload abortado piora o
+  // tempo de resposta: o erro do `armazenamentoAbortavel` chega com
+  // `req.complete === false`, e este middleware tentaria drenar um stream MORTO
+  // por 5 segundos inteiros (DRAIN_TIMEOUT_MS) antes de seguir. Nao ha corpo a
+  // ler de um socket destruido, nem cliente para receber a resposta.
+  if (req.complete || req.readableEnded || res.headersSent || req.destroyed) return next(err);
   if (!req.user) return next(err);   // anonymous: never read out, see above
 
   const teto = tetoDeBytes();

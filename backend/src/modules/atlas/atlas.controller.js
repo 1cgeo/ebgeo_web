@@ -40,9 +40,38 @@ export const listAtlas = asyncHandler(async (req, res) => {
 // Fora de `listAtlas` de propósito: aquela rota é chamada por quatro superfícies do cliente que
 // não desenham nada disto (o controle de conta, a aba Mapas, o nome do atlas), e engordá-la faria
 // toda troca de mapa pagar por esta tela.
+//
+// A REVALIDAÇÃO É O CONSERTO, e a ORDEM aqui é o conserto inteiro. As capas saem como data URI
+// base64 num objeto só, sem paginação: MEDIDO em 2026-08-26 (`tests/bench/overview-capas.bench.mjs`,
+// capas de 100 kB) são 2,7 MB para N=20, 13,7 MB para N=100 e 27,4 MB para N=200. Serializar isso
+// não cede o laço de eventos do Node, então o processo inteiro para, WebSockets de colaboração
+// inclusos, e o sintoma aparece no mapa de outra pessoa, nunca nesta tela.
+//
+// O `etag` padrão do Express já respondia 304 aqui, e não adiantava NADA no servidor: ele deriva o
+// ETag do corpo pronto, isto é, depois da consulta das capas, do base64 e do `JSON.stringify`. A
+// mesma bancada mediu 0,2696 s no 304 contra 0,2928 s no 200 com N=200. Por isso o ETag vem de
+// `listUserAtlasMembers`, que NÃO projeta `bytes`, e a decisão de 304 acontece ANTES de as capas
+// serem pedidas ao banco. Voltar a embrulhar as três consultas num `Promise.all` desfaz o conserto
+// sem apagar uma linha dele.
+//
+// O CORPO DO 200 NÃO MUDA. É o que mantém intactos os sete pontos do cliente que leem `covers` e o
+// contrato que `tests/integration/atlas-cartao-projeto.test.js` prende com data URIs literais.
+//
+// `private, no-cache` é "guarde e revalide", não "não guarde": é ele que faz o navegador mandar o
+// `If-None-Match` em toda visita. O `Vary: Authorization` existe porque a resposta depende de QUEM
+// pergunta, e sem ele a resposta de uma conta poderia ser servida à conta seguinte no mesmo
+// navegador. `res.vary()` e não `setHeader`, porque o CORS já escreveu `Vary: Origin` nesta
+// resposta e atribuir o cabeçalho apagaria aquilo.
 export const listAtlasOverview = asyncHandler(async (req, res) => {
-  const [atlases, covers, presence] = await Promise.all([
-    atlasService.listUserAtlasMembers(req.user.id),
+  const atlases = await atlasService.listUserAtlasMembers(req.user.id);
+  res.setHeader('ETag', atlasService.overviewETag(atlases));
+  res.setHeader('Cache-Control', 'private, no-cache');
+  res.vary('Authorization');
+  // `req.fresh` e não uma comparação à mão com `if-none-match`: ele já trata a lista de ETags, o
+  // `*`, o prefixo fraco `W/` e o `Cache-Control: no-cache` que o recarregamento forçado manda.
+  if (req.fresh) return res.status(304).end();
+
+  const [covers, presence] = await Promise.all([
     atlasService.listUserAtlasCovers(req.user.id),
     atlasService.listUserAtlasPresence(req.user.id),
   ]);

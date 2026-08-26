@@ -36,7 +36,10 @@
 /* admin.css is NOT imported here: Administração is its own page (admin.html → admin-page.css). */
 @import url('./idle-timeout.css');
 
-/* atlas-drive.css is NOT imported here: "Seus projetos" is its own page (atlas.html). */
+/* atlas-drive.css is NOT imported here: "Seus projetos" is its own page (atlas.html).
+   atlas-switch.css SIM: a porta de troca ao vivo de atlas e um MODAL desta pagina, e ela reusa
+   a secao "Neste computador" de `atlas.html`, entao arrasta `projects-sections.css` junto. */
+@import url('./atlas-switch.css');
 @import url('./view-mode.css');
 @import url('./sharing.css');
 @import url('./presence.css');

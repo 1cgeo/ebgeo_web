@@ -26,6 +26,73 @@ import { UNSEEN_RESOURCE_REASONS, declaredResourceRefs } from './resource-ref.ex
 const SETTING_OBJECT_KEYS = ['mapBadgeColors', 'colorUsage'];
 
 /**
+ * As coleções do snapshot que NÃO dependem de nada além do `atlasId`, na ordem em que viajam
+ * dentro de um pacote único de statements. Nome e SQL andam JUNTOS, de propósito.
+ *
+ * POR QUE UM PACOTE, E POR QUE NÃO `Promise.all`. `getAtlasSnapshot` roda dentro de um `task()`,
+ * que retém UMA conexão do pool (`config.db.poolMax`, 10 por padrão) do início ao fim. O
+ * protocolo do Postgres é pergunta-e-resposta por conexão: um `Promise.all` sobre `t.query`
+ * NÃO paralelizaria nada. As consultas seriam enfileiradas na mesma conexão e executadas em
+ * série exatamente como antes, com o código afirmando o contrário — pior que o estado anterior,
+ * porque a afirmação falsa sobrevive à leitura. `t.multi` envia os statements num pacote só e
+ * recebe os conjuntos de resultado de volta: UM round-trip para as nove.
+ *
+ * A ORDEM É CONTRATO. O retorno de `t.multi` é um array na ordem dos statements, e inserir um
+ * statement no meio deslocaria tudo abaixo EM SILÊNCIO — o sintoma seria `features` recebendo as
+ * linhas de `groups`, que passa em teste de contagem e falha só no conteúdo. Por isso a lista é
+ * de PARES: quem acrescentar uma coleção move o nome junto com o SQL, e a associação por índice
+ * (`montarColecoes`) continua correta sozinha. O comprimento é conferido a cada chamada.
+ *
+ * TODAS RECEBEM O MESMO `$1`, e é isso que torna o pacote possível. pg-promise formata `$1` do
+ * lado do cliente antes de enviar, então o mesmo valor serve os nove statements. Uma consulta
+ * com um SEGUNDO parâmetro não caberia aqui: `GET_VISIBLE_CATALOG_DEFINITIONS` tem quatro e por
+ * isso fica de fora — além de depender do resultado de `GET_ATLAS_CATALOG_LAYERS`.
+ *
+ * FICAM DE FORA, e cada uma por um motivo: `GET_ATLAS_METADATA` e `GET_ATLAS_MAPS` (o snapshot
+ * de um atlas inexistente retorna `null` antes de buscar o resto), `GET_ATLAS_COMMENTS`
+ * (condicional em `permission !== 'read'`) e as definições de catálogo (dependem do resultado das
+ * catalog_layers). MEDIDO com o gancho `db.$config.options.query`, sobre um atlas de 12 mapas:
+ * 13 idas viram 5 quando ha referencia de catalogo para resolver, e 12 viram 4 quando nao ha
+ * (o caso comum, em que `loadCatalogDefinitions` volta sem tocar no banco). Um leitor
+ * ('read', sem comentarios) paga 3.
+ */
+const COLECOES_DO_SNAPSHOT = [
+  ['features', Q.GET_ATLAS_FEATURES],
+  ['cesium3d', Q.GET_ATLAS_CESIUM3D],
+  ['streetview360', Q.GET_ATLAS_STREETVIEW360],
+  ['catalogLayers', Q.GET_ATLAS_CATALOG_LAYERS],
+  ['layers', Q.GET_ATLAS_LAYERS],
+  ['groups', Q.GET_ATLAS_GROUPS],
+  ['groupFeatures', Q.GET_ATLAS_GROUP_FEATURES],
+  ['briefings', Q.GET_ATLAS_BRIEFINGS],
+  ['slides', Q.GET_ATLAS_SLIDES],
+];
+
+/** O pacote de statements, montado uma vez. Nenhum dos SQL termina em `;`. */
+const SQL_DO_PACOTE_DO_SNAPSHOT = COLECOES_DO_SNAPSHOT.map(([, sql]) => sql).join(';\n');
+
+/**
+ * Casa os conjuntos de resultado do pacote com os nomes de `COLECOES_DO_SNAPSHOT`.
+ *
+ * A conferência de comprimento não é cerimônia. Um statement que deixasse de produzir conjunto
+ * de resultado encurtaria o array e deslocaria TODAS as coleções seguintes sem erro nenhum.
+ *
+ * @param {Array<Array<Object>>} conjuntos - O retorno de `t.multi`, na ordem dos statements.
+ * @returns {Object<string, Array<Object>>} As linhas por nome de coleção.
+ */
+function montarColecoes(conjuntos) {
+  if (!Array.isArray(conjuntos) || conjuntos.length !== COLECOES_DO_SNAPSHOT.length) {
+    throw new Error(
+      `pacote do snapshot devolveu ${conjuntos?.length} conjuntos, esperava `
+      + `${COLECOES_DO_SNAPSHOT.length}; a ordem posicional das coleções não é mais confiável`,
+    );
+  }
+  const porNome = {};
+  COLECOES_DO_SNAPSHOT.forEach(([nome], i) => { porNome[nome] = conjuntos[i]; });
+  return porNome;
+}
+
+/**
  * Maps frontend-specific entity types to backend generic types.
  * Frontend uses specific types like 'marker3d', 'measurement3d', etc.
  * Backend uses generic 'cesium3d' and 'streetview360' with data_type field.
@@ -937,6 +1004,10 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
     // conexão do pool (poolMax default 10) durante a série inteira. E isto está
     // no caminho quente: `pullOperations` chama o snapshot em todo connect e em
     // todo pull atrasado, não num relatório administrativo.
+    //
+    // Depois disso ainda sobravam NOVE round-trips em série, um por coleção, na mesma
+    // conexão retida. Eles agora viajam num pacote só (`COLECOES_DO_SNAPSHOT`), que é onde
+    // está a explicação de por que `Promise.all` não serviria e por que a ordem é contrato.
     const agrupar = (linhas, chave = 'map_id') => {
       const por = new Map();
       for (const linha of linhas) {
@@ -947,14 +1018,32 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
       return por;
     };
 
-    const featuresByMap = agrupar(await t.query(Q.GET_ATLAS_FEATURES, [atlasId]));
-    const cesium3dByMap = agrupar(await t.query(Q.GET_ATLAS_CESIUM3D, [atlasId]));
-    const streetview360ByMap = agrupar(await t.query(Q.GET_ATLAS_STREETVIEW360, [atlasId]));
-    const rawAllCatalogLayers = await t.query(Q.GET_ATLAS_CATALOG_LAYERS, [atlasId]);
+    // UM round-trip para as nove coleções. A desestruturação é POR NOME, e os nomes vêm de
+    // `COLECOES_DO_SNAPSHOT`, onde cada um está grudado no seu SQL.
+    const colecoes = montarColecoes(await t.multi(SQL_DO_PACOTE_DO_SNAPSHOT, [atlasId]));
+    const {
+      features: rawAllFeatures,
+      cesium3d: rawAllCesium3d,
+      streetview360: rawAllStreetview360,
+      catalogLayers: rawAllCatalogLayers,
+      layers: rawAllLayers,
+      groups: rawAllGroups,
+      groupFeatures: rawAllGroupFeatures,
+      briefings,
+      slides: rawAllSlides,
+    } = colecoes;
+
+    const featuresByMap = agrupar(rawAllFeatures);
+    const cesium3dByMap = agrupar(rawAllCesium3d);
+    const streetview360ByMap = agrupar(rawAllStreetview360);
     const catalogLayersByMap = agrupar(rawAllCatalogLayers);
-    const layersByMap = agrupar(await t.query(Q.GET_ATLAS_LAYERS, [atlasId]));
-    const groupsByMap = agrupar(await t.query(Q.GET_ATLAS_GROUPS, [atlasId]));
-    const groupFeaturesByMap = agrupar(await t.query(Q.GET_ATLAS_GROUP_FEATURES, [atlasId]));
+    const layersByMap = agrupar(rawAllLayers);
+    const groupsByMap = agrupar(rawAllGroups);
+    const groupFeaturesByMap = agrupar(rawAllGroupFeatures);
+    // Slides agrupam por briefing_id, NUNCA por map_id: o default de `agrupar` é `map_id` e
+    // um slide de modo 3D pode nem ter mapa. Perder este segundo argumento devolveria todo
+    // briefing sem slide nenhum.
+    const slidesByBriefing = agrupar(rawAllSlides, 'briefing_id');
 
     // F11 — the catalog definitions this caller may see. One query for the whole atlas,
     // collected before the per-map loop so it can never become one query per layer. While
@@ -1064,10 +1153,8 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner', userId = n
     // performs the inverse translation (resolveSlideMapId).
     const mapNameById = new Map(maps.map((m) => [m.id, m.name]));
 
-    const briefings = await t.query(Q.GET_ATLAS_BRIEFINGS, [atlasId]);
-    // Slides também vêm de uma vez só, agrupados por briefing_id — era mais um
-    // round-trip por briefing na mesma conexão retida.
-    const slidesByBriefing = agrupar(await t.query(Q.GET_ATLAS_SLIDES, [atlasId]), 'briefing_id');
+    // `briefings` e `slidesByBriefing` já vieram no pacote lá em cima. Slides vinham de um
+    // round-trip por briefing; depois viraram um só; agora não custam ida nenhuma própria.
     for (const briefing of briefings) {
       // Cópia: o `sort` abaixo muta o array, e o agrupamento é compartilhado.
       const rawSlides = [...(slidesByBriefing.get(briefing.id) || [])];

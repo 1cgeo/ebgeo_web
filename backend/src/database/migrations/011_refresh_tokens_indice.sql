@@ -1,0 +1,78 @@
+-- Path: src/database/migrations/011_refresh_tokens_indice.sql
+--
+-- DERRUBA `idx_refresh_tokens_hash`, que e SUBCONJUNTO do indice unico da mesma
+-- coluna. Ele so custa escrita.
+--
+-- ============================================================================
+-- O QUE HAVIA, E POR QUE ERA REDUNDANTE
+-- ============================================================================
+-- A `001_identidade.sql` declara `token_hash VARCHAR(255) NOT NULL UNIQUE`. O
+-- `UNIQUE` cria sozinho um btree sobre TODAS as linhas, chamado
+-- `refresh_tokens_token_hash_key`. Duas linhas abaixo, a mesma baseline criava
+-- `idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL`.
+--
+-- O indice parcial servia `FIND_REFRESH_TOKEN` (`auth.queries.js`), que casa
+-- `token_hash = $1 AND revoked_at IS NULL`. So que `token_hash = $1` sozinho ja
+-- devolve NO MAXIMO UMA linha, porque a coluna e unica. O `revoked_at IS NULL`
+-- vira um Filter sobre essa unica linha, e Filter sobre uma linha nao tem custo
+-- que se meca. O indice parcial nao acrescentava seletividade nenhuma: ele apenas
+-- repetia, sobre um recorte, uma busca que o indice unico ja resolve inteira.
+--
+-- Havia um segundo problema, invisivel no SELECT: quatro consultas do modulo
+-- filtram por `token_hash`, e TRES delas (`FIND_REFRESH_TOKEN_ANY`,
+-- `CLAIM_REFRESH_TOKEN` na hora da rotacao, `REVOKE_REFRESH_TOKEN` no logout)
+-- alcancam linha ja revogada. Essas linhas estao FORA do indice parcial por
+-- construcao, entao ele nunca poderia servi-las.
+--
+-- ============================================================================
+-- A MEDIDA QUE AUTORIZOU A QUEDA (2026-08-26)
+-- ============================================================================
+-- Bancada em `ebgeo_test_auth`, 300.000 linhas semeadas (70% revogadas), depois
+-- de `ANALYZE`. Sem isso o planejador prefere Seq Scan e a comparacao nao prova
+-- nada. `EXPLAIN (ANALYZE, BUFFERS)` das quatro consultas, antes e depois:
+--
+--   FIND_REFRESH_TOKEN
+--     antes:  Index Scan using idx_refresh_tokens_hash        cost 0.42..8.44  buffers hit=4
+--     depois: Index Scan using refresh_tokens_token_hash_key  cost 0.42..8.44  buffers hit=6
+--   FIND_REFRESH_TOKEN_ANY   antes e depois: refresh_tokens_token_hash_key, hit=4
+--   CLAIM_REFRESH_TOKEN
+--     antes:  Index Scan using idx_refresh_tokens_hash        cost 0.42..8.44
+--     depois: Index Scan using refresh_tokens_token_hash_key  cost 0.42..8.45
+--   REVOKE_REFRESH_TOKEN
+--     antes:  Index Scan using idx_refresh_tokens_hash        hit=4
+--     depois: Index Scan using refresh_tokens_token_hash_key  hit=6
+--
+-- Continua Index Scan, continua `rows=1`, o custo estimado nao muda. O preco e de
+-- dois buffers a mais nas duas consultas que herdaram o predicado como Filter, e
+-- eles sao a pagina de heap que o Filter le. Sao acessos em cache, no mesmo
+-- registro que a consulta ja ia buscar para projetar as colunas.
+--
+-- O GANHO, medido no lado da ESCRITA, que e onde o indice cobrava de verdade:
+-- 20.000 INSERTs, tres pares alternados com e sem o indice, mesma sessao:
+--   com  o indice parcial: 1075, 833, 727 ms  (media 879)
+--   sem  o indice parcial:  482, 508, 504 ms  (media 498)
+-- Delta de 381 ms por 20.000 linhas, ou seja cerca de 19 microssegundos por linha
+-- escrita. A tabela recebe um INSERT por login e um por rotacao de refresh, e cada
+-- rotacao ainda faz um UPDATE que mexia no indice (a linha SAI do recorte parcial
+-- quando `revoked_at` deixa de ser NULL). Em espaco, o indice pesava 19 MB sobre
+-- 420.000 linhas.
+--
+-- ============================================================================
+-- POR QUE NAO TEM `CONCURRENTLY`, E NAO ADIANTA O PROXIMO TENTAR
+-- ============================================================================
+-- `migrate.js` aplica cada arquivo dentro de `db.tx`. O PostgreSQL PROIBE
+-- `DROP INDEX CONCURRENTLY` e `CREATE INDEX CONCURRENTLY` em bloco de transacao,
+-- entao a forma concorrente aqui reprovaria a migracao inteira.
+--
+-- E nao ha o que ganhar. `DROP INDEX` simples toma `ACCESS EXCLUSIVE` na tabela,
+-- mas nao reescreve dado nenhum: ele apaga uma entrada de catalogo e libera os
+-- arquivos do indice. O lock dura milissegundos. Quem precisa de `CONCURRENTLY` e
+-- a CRIACAO de indice em tabela grande e quente, que varre a tabela inteira sob
+-- lock. Nao e este caso.
+--
+-- `IF EXISTS` porque a baseline `001_identidade.sql` continua criando o indice em
+-- banco novo (ela e escrita no estado final do dominio e nao foi editada), mas um
+-- banco que ja tenha sido consertado a mao nao pode reprovar aqui.
+-- ============================================================================
+
+DROP INDEX IF EXISTS idx_refresh_tokens_hash;

@@ -15,6 +15,7 @@ import multer from 'multer';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { armazenamentoAbortavel } from '../../middleware/armazenamento-abortavel.js';
 import { flexibleAuth } from '../../middleware/flexible-auth.js';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
@@ -47,7 +48,7 @@ function validateTileParams(req, res, next) {
 }
 
 // --- multer (bundle upload) -------------------------------------------------
-// diskStorage STREAMS the (multi-GB) images.db to a tmp path on the SAME volume
+// The disk storage STREAMS the (multi-GB) images.db to a tmp path on the SAME volume
 // as SV360_DB_DIR (so the later .tmp->dest rename is atomic, not cross-device).
 // The manifest + thumbnail are small; all four land in tmp and are cleaned by
 // the controller's finally. Field names: manifest / imagesDb / tilesDb / thumbnail.
@@ -64,7 +65,17 @@ const ALLOWED_FIELD_MIME = {
   thumbnail: ['image/webp', 'application/octet-stream'],
 };
 
-const uploadStorage = multer.diskStorage({
+//
+// NAO E `multer.diskStorage`, E AQUI O DEFEITO ERA PIOR QUE NA ROTA DE IMAGENS.
+// O teto e de 2 GiB POR ARQUIVO e sao QUATRO campos, entao uma conexao derrubada
+// no meio deixava ate quatro tmp gigantes em disco e ate quatro `WriteStream`
+// abertos. A limpeza desta rota mora num `finally` de controller
+// (`sv360.admin.controller.js:87-94`) que, com o multer pendurado em
+// `pendingWrites`, NUNCA e alcancado: o controller nem chega a rodar. O
+// `armazenamentoAbortavel` devolve ao multer o erro que o `pipe` comeu, entao a
+// requisicao volta a terminar e o `finally` volta a existir. Ver o cabecalho de
+// `src/middleware/armazenamento-abortavel.js`.
+const uploadStorage = armazenamentoAbortavel({
   destination: (req, file, cb) => {
     try {
       mkdirSync(config.sv360.tmpDir, { recursive: true });

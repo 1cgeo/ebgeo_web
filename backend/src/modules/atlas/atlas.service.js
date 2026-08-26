@@ -423,6 +423,70 @@ export async function listUserAtlasCovers(userId) {
   return covers;
 }
 
+/**
+ * O ETag FRACO de `GET /atlas/overview`, calculado SÓ com o que `listUserAtlasMembers` devolve.
+ *
+ * POR QUE ELE EXISTE, e o número é o argumento. A rota devolve toda capa alcançável como data URI
+ * base64 num objeto só, sem paginação. MEDIDO em 2026-08-26 na bancada
+ * `tests/bench/overview-capas.bench.mjs`, com capas de 100 kB: 2,7 MB para N=20, 13,7 MB para
+ * N=100 e 27,4 MB para N=200. O `JSON.stringify` dessa string não cede o laço de eventos do Node,
+ * então o processo inteiro para enquanto serializa, e junto com ele os WebSockets de colaboração
+ * de quem está no mapa noutra aba. O sintoma não aparece nesta tela.
+ *
+ * O QUE O EXPRESS JÁ FAZIA, E POR QUE NÃO BASTAVA. O `etag` padrão do Express também responde 304,
+ * mas ele deriva o ETag do CORPO PRONTO: a mesma bancada mediu, ANTES deste conserto, 0,2696 s no
+ * 304 contra 0,2928 s no 200 com N=200. Ou seja, o servidor pagava a consulta das capas, o base64
+ * e a serialização inteira para depois jogar fora. O ganho não está no 304, está em DECIDIR o 304
+ * antes de montar o corpo, e é por isso que este ETag vem de uma consulta que não projeta `bytes`.
+ *
+ * O QUE ENTRA. As linhas inteiras de `LIST_USER_ATLAS_MEMBERS`, que são exatamente a metade
+ * `atlases` do payload: id, `member_count`, `members`, `has_cover` e `cover_updated_at`. Entram
+ * ORDENADAS pelo id, porque a consulta não tem `ORDER BY` e a ordem que o Postgres devolve não é
+ * promessa nenhuma. Sem a ordenação o ETag mudaria sozinho, que é o modo de falha "nunca economiza
+ * nada". A CONTAGEM entra explícita porque acrescentar um atlas SEM capa precisa mudar o ETag: sem
+ * isso o cartão novo nunca apareceria.
+ *
+ * O QUE NÃO ENTRA, e é a única coisa que este ETag deixa envelhecer: a PRESENÇA. Ela muda sozinha,
+ * sem escrita nenhuma, e prendê-la aqui faria o ETag mudar a cada pessoa que abre uma aba, o que
+ * anula a economia. A tela não depende disto para ficar em dia: `GET /atlas/presence` é pedida em
+ * separado a cada ciclo (`startPresenceRefresh`, em `projects-page.js`) e sobrescreve os crachás,
+ * então o atraso máximo é um ciclo de poll.
+ *
+ * GRANULARIDADE DE MILISSEGUNDO. `cover_updated_at` chega do driver como `Date`, que não guarda os
+ * microssegundos do `timestamptz`. Duas trocas de capa DENTRO do mesmo milissegundo dariam o mesmo
+ * ETag. `NOW()` é o relógio do início da transação e cada `PUT /cover` é a sua, então na prática as
+ * duas escritas estão a milissegundos de distância; e como o `Cache-Control` é `no-cache`, o
+ * cliente revalida em toda visita, de modo que o pior caso é um cartão velho até a escrita seguinte.
+ *
+ * FRACO (`W/`) de propósito: o corpo tem `presence`, que pode diferir entre duas respostas com o
+ * mesmo ETag. É a semântica de equivalência, não a de igualdade byte a byte, e é a verdadeira aqui.
+ *
+ * @param {Array<Object>} atlases - As linhas de {@link listUserAtlasMembers}, como vieram.
+ * @returns {string} Já entre aspas e com o prefixo `W/`, pronto para o cabeçalho.
+ */
+export function overviewETag(atlases) {
+  // Separadores que NENHUM dos campos pode conter (uuid, inteiro, JSON): sem eles, `id` colado a
+  // `member_count` deixaria duas listas diferentes com a mesma cadeia, e o ETag pararia de
+  // discriminar em silêncio. São os separadores de campo e de registro do ASCII.
+  const SEP_CAMPO = '\u001f';
+  const SEP_LINHA = '\u001e';
+  const linhas = atlases.map((a) => [
+    a.id,
+    a.member_count,
+    a.has_cover ? '1' : '0',
+    // `getTime()` e não `toISOString()`: o mesmo instante, sem depender do fuso do processo.
+    a.cover_updated_at ? new Date(a.cover_updated_at).getTime() : '-',
+    JSON.stringify(a.members ?? []),
+  ].join(SEP_CAMPO));
+  // Ordena as LINHAS JÁ MONTADAS, que começam pelo id: é o mesmo que ordenar por id, e não
+  // depende de a consulta manter a ordem das colunas.
+  linhas.sort();
+  const digest = crypto.createHash('sha1')
+    .update(`${atlases.length}${SEP_LINHA}${linhas.join(SEP_LINHA)}`)
+    .digest('base64url');
+  return `W/"ov-${atlases.length}-${digest}"`;
+}
+
 /** Ceiling for a stored cover, in decoded bytes. The client downscales well below it. */
 export const COVER_MAX_BYTES = 512 * 1024;
 

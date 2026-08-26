@@ -300,9 +300,10 @@ export class AccountControl {
         this._accountBtn.hidden = true;
         this._menu.appendChild(this._accountBtn);
 
-        // "Seus atlas" — back to the chooser page. Shown to anyone signed in: it is the way
-        // OUT of the current atlas (and out of the local map) without logging out, which the menu
-        // previously offered no route to at all.
+        // "Seus atlas": a PORTA de troca de atlas (`openProjectPicker`). Shown to anyone signed
+        // in: it is the way OUT of the current atlas (and out of the local map) without logging
+        // out, which the menu previously offered no route to at all. Desde 2026-08-26 ela abre um
+        // modal e troca de atlas SEM recarregar a pagina, em vez de ir para `atlas.html`.
         this._projectsBtn = document.createElement('button');
         this._projectsBtn.type = 'button';
         this._projectsBtn.className = 'account-control__btn account-control__btn--projects';
@@ -646,7 +647,7 @@ export class AccountControl {
         this._projectsBtn.hidden = !sessionContext.isAuthenticated();
     }
 
-    /** @private Closes the menu and leaves for the chooser page. */
+    /** @private Fecha o menu e abre a porta de troca de atlas. Ver `openProjectPicker`. */
     _handleOpenProjects() {
         this._closeMenu();
         this.openProjectPicker();
@@ -1018,7 +1019,12 @@ export class AccountControl {
             this._render();
             // The explanation travels in the URL instead of a toast: the chooser is another PAGE
             // now, and a toast raised here would be destroyed by the navigation a line later.
-            await this.openProjectPicker({ notice });
+            //
+            // `navigate: true` É EXPLÍCITO AQUI, e não deduzido do `notice`. Este caminho tem uma
+            // segunda razão para navegar, independente da frase: o mapa acabou de se desmontar
+            // porque o atlas sumiu debaixo dele, e uma porta aberta por cima de um mapa vazio é
+            // uma escolha oferecida sobre um estado que ninguém escolheu.
+            await this.openProjectPicker({ notice, navigate: true });
         } finally {
             this._tearingDownDeletedAtlas = false;
         }
@@ -1102,7 +1108,13 @@ export class AccountControl {
                 // o chefe mandou retirar a frase em 2026-08-25, porque a garantia levantava a
                 // dúvida que vinha responder. O desfecho de dados continua o mesmo. O parâmetro
                 // `notice` sobrevive só no caminho de EXCLUSÃO, onde há mesmo uma perda a relatar.
-                await this.openProjectPicker();
+                //
+                // `navigate: true`: DEPOIS DO LOGIN A TELA DE ATLAS É O DESTINO, e não uma porta
+                // sobre o mapa. A pessoa ainda não escolheu onde trabalhar, então não há atlas
+                // corrente para uma troca AO VIVO trocar; e é esta navegação que o harness de
+                // colaboração observa (`helpers/collab-helpers.js` espera `**\/atlas.html` logo
+                // após o login). Trocá-la por um modal reescreveria 35 specs para não ganhar nada.
+                await this.openProjectPicker({ navigate: true });
             },
             onRegister: signupEnabled ? () => this._handleRegister() : undefined
         });
@@ -1167,27 +1179,91 @@ export class AccountControl {
     }
 
     /**
-     * Leaves the map for the "Seus atlas" PAGE (`atlas.html`).
+     * "Escolher outro atlas": a PORTA da troca ao vivo, e a navegação como caminho nomeado.
      *
-     * This used to build the chooser as an overlay AND own the whole open pipeline (disconnect →
-     * wipe → markRemote → connect → activate → switchMap → auto-flush) in two duplicated branches.
-     * All of that now lives in exactly one place: the page navigates to `./?atlas=<uuid>` and the
-     * map's boot router calls `openRemoteAtlas`. The unsaved-local-work question moved there too —
-     * it fires when a project is actually opened, not when the list is merely shown.
+     * ESTA FUNÇÃO É O ÚNICO PONTO DE MUDANÇA DE UMA ONDA INTEIRA, e isso não é economia de
+     * digitação. O gesto "Seus atlas" existe em DOIS lugares (o menu do avatar aqui e a grade de
+     * ações da aba Mapas, `sidebar/tabs/maps.tab.js`), e o segundo delega para o primeiro DE
+     * PROPÓSITO, para não haver uma segunda cópia do caminho. Trocar o que esta função faz troca
+     * os dois gestos de uma vez.
      *
-     * Clears the "Mapa local" intent: asking for the project list is the opposite of that choice,
-     * and leaving it set would make the chooser page bounce straight back to the map.
+     * O QUE ELA FAZIA, e por quê. Ela navegava para `atlas.html`, sempre. O motivo histórico é
+     * bom e continua valendo: o chooser já foi uma sobreposição que TAMBÉM era dona do pipeline
+     * de abertura (desconectar, limpar, marcar REMOTE, conectar, ativar, `switchMap`,
+     * auto-flush), em dois ramos duplicados, e a navegação foi o preço pago para o pipeline ter
+     * um dono único. Esse preço agora está medido: duas navegações e dois boots por troca de
+     * atlas, cerca de 1150 ms a mais que a troca ao vivo (bancada em
+     * `tests/e2e-ui/troca-viva-de-atlas-medida.spec.js`).
+     *
+     * O QUE MUDOU NÃO É O DONO DO PIPELINE. `switchAtlas` (`account/open-atlas.service.js`) NÃO
+     * escreve um quarto ramo: o ramo remoto delega inteiro a `openRemoteAtlas`. A porta só põe um
+     * gesto em cima dela. A compra de 2026-08 continua feita.
+     *
+     * `navigate: true` É O CAMINHO QUE SOBREVIVE, e ele tem dois chamadores, os dois legítimos:
+     *
+     *   1. o mapa que se DESMONTOU porque o atlas sumiu (`_handleRemoteAtlasDeleted`), que leva um
+     *      `?aviso=` na URL. A explicação viaja no endereço justamente porque um toast levantado
+     *      aqui não sobreviveria à navegação, e um modal por cima de um mapa que acabou de sumir
+     *      é uma porta em cima de um vazio;
+     *   2. logo DEPOIS DO LOGIN (`_handleLogin`), onde a pessoa ainda não escolheu onde trabalhar
+     *      e a tela de atlas é o destino inteiro. É também o que o harness de colaboração observa
+     *      (`tests/e2e-ui/helpers/collab-helpers.js` espera `**\/atlas.html`), então mantê-lo
+     *      navegando deixa as 35 specs de colaboração verdes sem tocar uma linha delas.
+     *
+     * Um `notice` implica navegação por construção: quem o mostra é a página de chegada.
+     *
+     * A NAVEGAÇÃO TAMBÉM É O PISO DE FALHA. Se o módulo da porta não carregar (rede, um chunk
+     * quebrado), esta função cai para o comportamento antigo em vez de engolir o clique.
+     *
+     * Limpar o "Mapa local" continua sendo do ramo que NAVEGA: pedir a lista é o oposto daquela
+     * escolha, e deixá-la de pé faria a página de atlas quicar de volta para o mapa. A porta não a
+     * limpa, e não pode limpar: ela não sai da página, e uma aba que fecha a porta sem trocar de
+     * atlas continua exatamente onde estava.
      *
      * @param {Object} [options]
      * @param {string} [options.notice] - Key of a message for the chooser to show on arrival (a
-     *   toast raised here would not survive the navigation).
+     *   toast raised here would not survive the navigation). Implies `navigate`.
+     * @param {boolean} [options.navigate] - Força a ida para `atlas.html`, em vez da porta.
      * @returns {Promise<void>}
      */
-    async openProjectPicker({ notice } = {}) {
+    async openProjectPicker({ notice, navigate = false } = {}) {
+        if (!navigate && !notice && await this._openAtlasSwitchDoor()) return;
         clearLocalMapIntent();
         window.location.assign(notice
             ? `./atlas.html?aviso=${encodeURIComponent(notice)}`
             : './atlas.html');
+    }
+
+    /**
+     * @private Abre a porta de troca ao vivo, por import DINÂMICO.
+     *
+     * O `await import()` É ORÇAMENTO, e o número está medido:
+     * `tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js` vigia o payload ansioso do boot do mapa
+     * contra um teto de 500 módulos, com 476 medidos, e um de 40 400 000 bytes, com 38 456 561
+     * medidos. São 24 módulos de folga. A porta alcança `atlas-drive.js`, a store e o cliente
+     * HTTP; um import estático aqui comeria a folga inteira e reprovaria aquele guarda.
+     *
+     * @returns {Promise<boolean>} True quando a porta ficou na tela. False manda o chamador
+     *   navegar, que é o comportamento anterior a esta onda.
+     */
+    async _openAtlasSwitchDoor() {
+        try {
+            const { showAtlasSwitchModal } = await import('@modals/atlas-switch.modal.js');
+            showAtlasSwitchModal({
+                signedIn: sessionContext.isAuthenticated(),
+                onRequestLogin: () => this.requestLogin(),
+                // RENOMEAR, DUPLICAR, CRIAR E EXCLUIR CONTINUAM EM `atlas.html`, que é a página
+                // dona do registro local. A porta escolhe onde trabalhar; ela não administra.
+                onManage: () => {
+                    clearLocalMapIntent();
+                    window.location.assign('./atlas.html');
+                },
+            });
+            return true;
+        } catch (error) {
+            console.warn('[AccountControl] porta de troca de atlas indisponível:', error);
+            return false;
+        }
     }
 
     /**

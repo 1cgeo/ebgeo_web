@@ -1,0 +1,262 @@
+/* Path: src/css/atlas-switch.css */
+
+/*
+ * A PORTA DE TROCA DE ATLAS (`js/modals/atlas-switch.modal.js`), dentro da pagina do mapa.
+ *
+ * DOIS BLOCOS BEM: `.atlas-switch` (a metade de servidor e a moldura) e o que este arquivo
+ * AJUSTA de `.local-atlas`, que vem inteiro de `projects-sections.css`.
+ *
+ * O IMPORT DE `projects-sections.css` E A ESCOLHA CENTRAL DESTE ARQUIVO. A porta reusa a classe
+ * `LocalAtlasSection`, e ela desenha `.local-atlas__*`. Copiar as 300 linhas daquelas regras para
+ * ca criaria duas folhas para um componente so, que e como as duas telas passam a discordar sobre
+ * a mesma peca. O arquivo importado tem 395 linhas; as que sobram (`.projects-body`,
+ * `.server-outage`) descrevem a coluna de `atlas.html` e nao casam com nada aqui, entao custam
+ * bytes de folha e zero risco.
+ *
+ * `atlas-drive.css` CONTINUA FORA, e isso e o oposto: ela tem 649 linhas para a classe
+ * `AtlasDrive`, que esta porta deliberadamente nao usa.
+ *
+ * ESTA FOLHA NAO PESA NO ORCAMENTO DE BOOT. `tests/e2e-ui/desempenho-do-boot-do-mapa.spec.js`
+ * conta requisicoes e bytes de SCRIPT, nunca de CSS. O que ele contaria e o modulo JavaScript da
+ * porta, e ele entra por `await import()`.
+ */
+
+@import url('./projects-sections.css');
+
+/* =========================================================================
+   A MOLDURA
+   ========================================================================= */
+
+/* MAIS LARGA QUE UM MODAL COMUM (600 px), porque a grade de cartoes e o conteudo: com 600 px
+   cabem dois cartoes por linha, e uma pessoa com oito atlas rola quatro vezes para achar um. */
+.atlas-switch-container {
+    max-width: 860px;
+}
+
+/*
+ * `transform: none` NESTE MODAL, E ELE E LOAD-BEARING, nao cosmetica.
+ *
+ * `.modal-container` anima com `transform: translateY() scale()`, e um ancestral TRANSFORMADO
+ * passa a ser o bloco contentor de todo descendente `position: fixed`. O menu de tres pontos do
+ * cartao local (`.local-atlas__menu`) e `position: fixed` e recebe `top`/`left` em coordenadas de
+ * viewport, de `getBoundingClientRect`. Com a transformacao de pe, ele sairia posicionado errado
+ * E seria recortado pelo `overflow: hidden` do proprio contentor, ou seja, o menu simplesmente
+ * nao apareceria. Sem transformacao, o bloco contentor dele volta a ser o viewport, as
+ * coordenadas voltam a valer e o recorte deixa de alcanca-lo.
+ *
+ * O PRECO E A ANIMACAO DE ABERTURA DESTE MODAL, e ele e o certo a pagar: um menu que nao abre e
+ * um defeito, e um modal que aparece sem deslizar e uma preferencia.
+ */
+.modal-overlay .atlas-switch-container,
+.modal-overlay[data-visible="true"] .atlas-switch-container {
+    transform: none;
+}
+
+.atlas-switch {
+    display: flex;
+    flex-direction: column;
+}
+
+/* A PORTA TRAVA INTEIRA ENQUANTO A TROCA CORRE. Um segundo clique durante a abertura dispararia
+   um segundo pipeline de abertura por cima do primeiro. O `_busy` do JavaScript ja recusa o
+   clique; isto e a metade visivel da mesma recusa. */
+.atlas-switch-container[data-busy="true"] .atlas-switch__grid,
+.atlas-switch-container[data-busy="true"] .atlas-switch__local,
+.atlas-switch-container[data-busy="true"] .atlas-switch__search {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+/* =========================================================================
+   A LINHA DE ESTADO
+   ========================================================================= */
+
+.atlas-switch__status {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-100);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+}
+
+/* =========================================================================
+   A METADE DE SERVIDOR
+   ========================================================================= */
+
+.atlas-switch__server {
+    padding-bottom: var(--space-5);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.atlas-switch__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.atlas-switch__title {
+    margin: 0;
+    color: var(--gray-900);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-bold);
+}
+
+.atlas-switch__search {
+    flex: 0 1 260px;
+    min-width: 160px;
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--gray-800);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+}
+
+.atlas-switch__search:focus-visible {
+    border-color: var(--primary-600);
+    outline: none;
+}
+
+.atlas-switch__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-3);
+    align-content: start;
+}
+
+/* =========================================================================
+   O CARTAO DE ATLAS DE SERVIDOR
+   ========================================================================= */
+
+.atlas-switch__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    width: 100%;
+    padding: var(--space-4);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.atlas-switch__card:hover {
+    border-color: var(--primary-300);
+    box-shadow: var(--shadow-md);
+}
+
+.atlas-switch__card--current {
+    border-color: var(--primary-600);
+    background: var(--primary-50);
+}
+
+.atlas-switch__name {
+    overflow: hidden;
+    color: var(--gray-900);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.atlas-switch__meta {
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
+}
+
+.atlas-switch__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+}
+
+/* A DISTINCAO NUNCA E SO A COR: cada selo carrega a palavra ("Servidor", o nivel, "Atual"), que
+   e o que um leitor de tela e um leitor daltonico recebem. O fundo e enfase, nao informacao. */
+.atlas-switch__chip {
+    padding: 2px var(--space-2);
+    background: var(--gray-100);
+    border-radius: var(--radius-sm);
+    color: var(--gray-600);
+    font-size: var(--font-size-xs);
+}
+
+.atlas-switch__chip--level {
+    background: var(--gray-200);
+    color: var(--gray-700);
+}
+
+.atlas-switch__chip--current {
+    background: var(--primary-100);
+    color: var(--primary-700);
+}
+
+/* =========================================================================
+   OS TRES ESTADOS QUE NAO SAO CARTAO
+   ========================================================================= */
+
+.atlas-switch__tile {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.atlas-switch__tile-text {
+    max-width: 72ch;
+    margin: 0;
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+}
+
+.atlas-switch__retry {
+    padding: var(--space-2) var(--space-3);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+}
+
+.atlas-switch__retry:hover {
+    border-color: var(--primary-300);
+    color: var(--primary-600);
+}
+
+/* =========================================================================
+   A METADE LOCAL, que vem inteira de `projects-sections.css`
+   ========================================================================= */
+
+/*
+ * SO A MOLDURA MUDA. `.local-atlas` foi escrita para uma PAGINA: ela tem o padding da coluna, o
+ * fundo branco da faixa e a borda que a separa da metade de servidor logo abaixo. Dentro de um
+ * modal esses tres desenham uma faixa dentro de outra faixa. As regras de cartao, de menu, de
+ * contador e de falha ficam exatamente como estao, que e o ponto de reusar a peca.
+ */
+.atlas-switch__local .local-atlas {
+    padding: var(--space-5) 0 0;
+    background: transparent;
+    border-bottom: none;
+}
+
+.atlas-switch__local .local-atlas__title {
+    font-size: var(--font-size-base);
+}
+
+.atlas-switch__local .local-atlas__grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-3);
+}

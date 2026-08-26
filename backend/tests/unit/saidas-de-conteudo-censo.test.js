@@ -339,6 +339,12 @@ const SEM_CORPO = 'Resposta sem corpo (204, 304 ou 416). Não há JSON para poda
 const CENSO_EMISSOR = [
   { arquivo: 'src/modules/atlas/atlas.controller.js', texto: 'res.status(204).send();', n: 2,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
+  { arquivo: 'src/modules/atlas/atlas.controller.js', texto: 'if (req.fresh) return res.status(304).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: `${SEM_CORPO} Este e o 304 de GET /atlas/overview, e ele existe `
+      + 'para NAO montar o corpo: aquela rota devolve toda capa alcancavel como data URI base64 num '
+      + 'objeto so (medido em 2026-08-26: 27,4 MB com 200 atlas de capa de 100 kB), e serializar isso '
+      + 'nao cede o laco de eventos. O ETag vem de `listUserAtlasMembers`, que nao projeta os bytes, '
+      + 'entao a decisao acontece antes de o blob sair do banco.' },
 
   { arquivo: 'src/modules/auth/auth.controller.js', texto: 'res.status(204).send();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },

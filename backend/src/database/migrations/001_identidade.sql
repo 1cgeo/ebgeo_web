@@ -198,7 +198,23 @@ CREATE TABLE refresh_tokens (
 );
 
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
-CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
+
+-- O INDICE PARCIAL SOBRE `token_hash` SAIU DAQUI EM 2026-08-26, e a razao e que ele nunca
+-- acrescentou nada. A coluna e `UNIQUE` vinte linhas acima, e `UNIQUE` ja cria um btree sobre
+-- TODAS as linhas (`refresh_tokens_token_hash_key`). O parcial era subconjunto dele: todo
+-- predicado que o parcial servia, o unico serve com mais seletividade.
+--
+-- MEDIDO antes de tirar, com 300.000 linhas e `ANALYZE`: as quatro consultas de `auth.queries.js`
+-- continuam em Index Scan com `rows=1` e o mesmo custo, agora pelo indice unico. O preco de
+-- manter era so escrita: 20.000 INSERTs custavam 879 ms com ele e 498 ms sem, cerca de 19
+-- microssegundos por linha, mais 19 MB de indice sobre 420.000 linhas. Um indice escrito em todo
+-- login e em toda rotacao, para nunca decidir um plano.
+--
+-- A BASELINE E O ESTADO FINAL, e por isso a linha sai daqui em vez de ficar e ser derrubada
+-- adiante: instalacao nova nunca chega a cria-lo. Mas banco que JA rodou esta baseline nao a
+-- reexecuta (o `_migrations` a pula), entao a convergencia dele vem da migracao
+-- `011_refresh_tokens_indice.sql`, que faz `DROP INDEX IF EXISTS` e e inocua onde ele ja nao
+-- existe. As duas edicoes sao necessarias, e nenhuma sozinha resolve os dois casos.
 
 -- ============================================================================
 -- EMAIL VERIFICATION TOKENS

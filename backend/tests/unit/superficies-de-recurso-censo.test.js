@@ -1317,6 +1317,18 @@ const CENSO_CACHE = [
       + 'um `/api/config` velho num navegador é um app apontando para catálogo que mudou.',
   },
   {
+    arquivo: 'src/modules/atlas/atlas.controller.js',
+    trecho: "'Cache-Control', 'private, no-cache'", n: 1, classe: C_PRIVADO,
+    motivo: 'A revalidação de `GET /atlas/overview`. `private` SEMPRE, e não por eixo nenhum: o '
+      + 'corpo é o acervo de projetos daquela conta, resolvido dentro da consulta pelo predicado de '
+      + 'alcance, então não existe versão pública desta resposta para um cache compartilhado guardar. '
+      + 'O `Vary: Authorization` da linha seguinte é o cinto do mesmo suspensório, para o proxy que '
+      + 'ignora `private`. `no-cache` é "guarde e revalide", nunca "não guarde": é ele que faz o '
+      + 'navegador mandar o `If-None-Match` que vira 304. E o 304 é o conserto, porque a resposta '
+      + 'cheia carrega toda capa como data URI base64 (medido: 27,4 MB com 200 atlas de capa de '
+      + '100 kB) e serializar isso trava o laço de eventos do processo inteiro.',
+  },
+  {
     arquivo: 'src/modules/images/images.controller.js',
     trecho: "'private, max-age=31536000, immutable'", n: 1, classe: C_PRIVADO,
     motivo: 'Imagem de atlas: sempre `private`, porque o alcance dela é a permissão do atlas e nunca '

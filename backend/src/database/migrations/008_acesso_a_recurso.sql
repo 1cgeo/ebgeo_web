@@ -303,6 +303,54 @@ $$;
 -- A conta e a OM de LOTAÇÃO precisam estar ativas, mesmo o eixo de lotação não
 -- autorizando mais nada: isso é LIVENESS (conta desativada não age), não
 -- autorização por OM, e é o mesmo COALESCE de `fn_has_global_data_access`.
+--
+-- POR QUE ELA CONTINUA `plpgsql`, E POR QUE REESCREVÊ-LA NÃO PAGA. Medido em
+-- 2026-08-26, PostgreSQL 18.1, banco de bancada com as migrações desta pasta.
+--
+-- A tentação é óbvia. Ela é avaliada POR LINHA no `WHERE` de `listVisiblePrivate`,
+-- porque o terceiro argumento é `t.id`. Quem lê este arquivo supõe que as irmãs
+-- `LANGUAGE sql STABLE` escapam disso por serem inlineáveis. ELAS NÃO SÃO.
+--
+-- O planejador só inlina corpo SEM `FROM` e SEM sublink. Quatro sondas mediram isso:
+-- `SELECT upper(a)` inlina; um sublink escalar não inlina; um `FROM` não inlina; um
+-- `SELECT EXISTS(...)` não inlina. Toda função que LÊ tabela precisa de `FROM` ou de
+-- sublink. Logo NENHUMA função de acesso deste arquivo é inlineável, e isso inclui
+-- `fn_has_global_data_access`, `fn_principal_vivo` e `fn_is_global_admin`. O plano de
+-- `fn_granted_resource_ids` confirma: `fn_principal_vivo(granted_by)` aparece literal
+-- dentro de um `Filter`, chamada uma vez por linha.
+--
+-- O QUE TORNA AS IRMÃS BARATAS NÃO É INLINING. É o argumento livre de `Var`: a
+-- cláusula inteira sobe para `One-Time Filter` e roda UMA vez por statement. Esta
+-- função recebe `t.id`, e nenhuma cláusula que contenha um `Var` sobe. É daí que vem o
+-- custo dela, e não da linguagem.
+--
+-- O CUSTO MEDIDO É 10,72 us por linha. Ele se decompõe em 4,68 us da consulta do ator,
+-- 4,17 us da consulta do recurso e 0,18 us da chamada `plpgsql` vazia. A linguagem
+-- responde por menos de 2 por cento do total. O overhead cruza 50 ms por tabela em
+-- 4.663 linhas privadas ativas. Nas quatro tabelas de catálogo hoje há ZERO.
+--
+-- AS DUAS SAÍDAS ÓBVIAS FORAM CONSTRUÍDAS E MEDIDAS, e as duas perderam:
+--   (a) reescrever tudo em `LANGUAGE sql`: 90 us por linha, 8,4 vezes PIOR. Sem
+--       inlining a função vira opaca, e o executor remonta os cinco sublinks a cada
+--       linha avaliada.
+--   (b) fundir as duas consultas SPI numa só: 11,17 us por linha, nenhum ganho. A
+--       consulta do ator é a metade cara, e fundir não a remove.
+-- O piso de qualquer função que só busque o recurso é 4,17 us por linha, igual em
+-- `plpgsql` e em `sql`. Ganhar mais exigiria resolver o ator UMA vez por statement. O
+-- mecanismo que faria isso é o inlining virando `InitPlan`, e ele não existe aqui.
+--
+-- A ÚNICA FUGA TEÓRICA é uma planner support function (`SupportRequestSimplify`). Ela
+-- reescreveria a chamada em tempo de plano, mantendo uma definição só. Ela tem de ser
+-- escrita em C, e não cabe numa migração `.sql`.
+--
+-- OS DOIS `LEFT JOIN` DO ATOR custam 2,43 dos 4,68 us, e NENHUM DOS DOIS PODE SAIR. Um
+-- carrega a vivacidade da OM de LOTAÇÃO, o outro a da OM PRODUTORA. Quem cortar tempo
+-- ali está cortando a regra, não a gordura.
+--
+-- E O CONSERTO QUE PARECE CERTO É JUSTAMENTE O PROIBIDO. Reescrever o predicado em SQL
+-- no ponto de leitura, com uma CTE que resolve o ator uma vez, é rápido e cria a
+-- SEGUNDA definição. Ver o que `resource-access.queries.js` conta sobre o predicado do
+-- 360, que morava escrito à mão em dois lugares, com as duas suítes verdes.
 CREATE FUNCTION fn_can_produce_resource(
     p_user_id UUID, p_type TEXT, p_resource_id TEXT
 ) RETURNS BOOLEAN LANGUAGE plpgsql STABLE AS $$

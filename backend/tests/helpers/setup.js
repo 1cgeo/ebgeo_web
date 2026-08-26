@@ -32,8 +32,46 @@ function ensureTestEnv() {
     process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   }
 
+  // O DISCO SEGUE O BANCO, e ate 2026-08-26 ele nao seguia.
+  //
+  // `TEST_DB_NAME` ja permitia duas suites ao mesmo tempo neste checkout, cada uma no seu banco.
+  // Mas os diretorios eram FIXOS, entao as duas escreviam em `./data/test-images` e em
+  // `./data/sv360-tmp` ao mesmo tempo. O sintoma nao e erro: e um caso vermelho num arquivo que
+  // ninguem tocou. Medido: `sv360-ingest.test.js` reprovou em "no leftover .tmp" numa rodada
+  // paralela e passou 21 de 21 sozinho, porque quem deixou o `.tmp` foi a suite vizinha.
+  //
+  // Vermelho que vem do vizinho e pior que vermelho nenhum: ele ensina a duvidar do teste.
+  //
+  // O SUFIXO SO APARECE QUANDO HA BANCO PROPRIO. Com `TEST_DB_NAME` no valor padrao os caminhos
+  // ficam exatamente onde sempre estiveram, entao rodada de sempre e rodada de CI nao mudam de
+  // lugar e nao passam a acumular diretorio novo a cada execucao.
+  const bancoDeTeste = process.env.TEST_DB_NAME || 'ebgeo_test';
+  const sufixo = bancoDeTeste === 'ebgeo_test' ? '' : `-${bancoDeTeste.replace(/[^a-z0-9_-]/gi, '')}`;
+
   if (!process.env.IMAGES_DIR) {
-    process.env.IMAGES_DIR = './data/test-images';
+    process.env.IMAGES_DIR = `./data/test-images${sufixo}`;
+  }
+
+  // OS DIRETORIOS DO 360 SO SE MOVEM QUANDO HA BANCO PROPRIO, e a assimetria e deliberada.
+  //
+  // Ao contrario de `IMAGES_DIR`, que ja apontava para `test-images`, estes NAO tinham prefixo de
+  // teste nenhum: a suite escrevia em `./data/sv360` e `./data/sv360-tmp`, os mesmos do
+  // desenvolvimento. Isso e defeito anterior a mim e vale conserto, mas conserta-lo aqui mudaria
+  // silenciosamente onde a rodada de sempre grava, e o preco de errar nisso e apagar dado de
+  // desenvolvimento. Fica registrado e nao tocado.
+  //
+  // O que esta linha resolve e so o que ela precisa resolver: DUAS suites ao mesmo tempo nao
+  // podem brigar pelo mesmo `.tmp`. Com banco proprio, disco proprio.
+  if (sufixo) {
+    if (!process.env.SV360_DB_DIR) process.env.SV360_DB_DIR = `./data/sv360${sufixo}`;
+    if (!process.env.SV360_TMP_DIR) process.env.SV360_TMP_DIR = `./data/sv360-tmp${sufixo}`;
+    // `config.js` tem SEIS caminhos de disco com valor padrao fixo. Estes tres sao os que a
+    // suite ESCREVE, e portanto os unicos que duas rodadas podem corromper uma para a outra.
+    // O sintoma do assets3d foi um 404 em rota que o proprio caso acabara de semear: a rodada
+    // vizinha recriou o arquivo entre a semeadura e a leitura.
+    if (!process.env.ASSETS_3D_DIR) process.env.ASSETS_3D_DIR = `./data/assets3d${sufixo}`;
+    if (!process.env.ASSETS_3D_SQLITE) process.env.ASSETS_3D_SQLITE = `./data/assets3d${sufixo}.sqlite`;
+    if (!process.env.MODELS_3D_DIR) process.env.MODELS_3D_DIR = `./data/models3d${sufixo}`;
   }
 }
 
