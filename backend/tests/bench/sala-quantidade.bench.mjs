@@ -32,7 +32,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { comBancada, arg, argLista, cabecalhoDaBase } from './lib/bancada.mjs';
+import { comBancada, arg, argLista, cabecalhoDaBase, pisoDaBase } from './lib/bancada.mjs';
 import { DSN_PADRAO } from './lib/semear.mjs';
 import { semearPopulacao, autenticarPopulacao, fatiar } from './lib/populacao.mjs';
 import { CADENCIAS } from './lib/usuario.mjs';
@@ -95,7 +95,7 @@ await comBancada(
       // O amostrador do Postgres e o que discrimina "o Node saturou" de "a fila do banco
       // encheu". Sem ele, uma latencia alta com laco ocioso nao tem como ser atribuida.
       const sondaPg = await amostrarPg(ctx.dsn);
-      const maquina = medirCargaDaMaquina();
+      const maquina = await medirCargaDaMaquina();
 
       const tokens = await autenticar();
       const specs = await rodarTrabalhadores({
@@ -110,12 +110,15 @@ await comBancada(
       const pg = await sondaPg.parar();
       const laco = await ctx.servidor.laco();
       const fundido = fundirResumos(specs);
-      const carga = maquina.parar({
+      const carga = await maquina.parar({
         servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
         driversMs: fundido.cpuDriversMs,
       });
-      const ambiente = saudeDoAmbiente(carga);
-      if (!ambiente.ok) console.log(`  ${ambiente.texto}`);
+      const ambiente = saudeDoAmbiente(carga, pisoDaBase());
+      // O veredito sai SEMPRE, nao so quando e ruim. Silencio e indistinguivel de "nao
+      // medido", e foi assim que o resumo da primeira fila do Grupo 0 saiu com o campo de
+      // ambiente vazio em quatro das seis rodadas.
+      console.log(`  ${ambiente.texto}`);
       const entrega = await juntarEntrega(specs);
       const rec = await reconciliarPopulacao({
         dsn: ctx.dsn, salas: fatia, porSala: fundido.porSala, enviadas: entrega.enviadas,
@@ -145,7 +148,7 @@ await comBancada(
         cpuPct: cpuDoServidorPct(laco, fundido.janelaMs + fundido.maiorConexaoMs),
         pgConex: pg.picoConexoes,
         pgLock: pg.picoEsperandoLock,
-        alheios: carga.nucleosAlheios,
+        alheios: ambiente.alheios,
         lacoMax: laco?.lacoMs?.max ?? '-',
         rssMB: laco?.memoria?.rssMB ?? '-',
         driverP99: fundido.lacoDriver.p99,

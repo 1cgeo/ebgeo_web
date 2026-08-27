@@ -26,12 +26,19 @@ import { reconciliar, imprimirProvas } from './reconciliar.mjs';
 import { Serie, cabecalho, imprimirCabecalho, tabela, round } from './metricas.mjs';
 import { escritorRest, criarRegistro } from './escritor.mjs';
 import { baseDaRodada } from './linha-de-base.mjs';
-import { medirCargaDaMaquina, saudeDoAmbiente } from './carga-da-maquina.mjs';
+import {
+  medirCargaDaMaquina, saudeDoAmbiente, medirPisoDaMaquina,
+} from './carga-da-maquina.mjs';
 
 // O cabecalho da rodada corrente. `fechar()` precisa dele para gravar a linha de base, e passa-lo
 // por parametro obrigaria a mexer nas sete bancadas de escrita por uma razao que nao e delas.
 // Escopo de modulo funciona porque uma bancada e um processo, e roda uma vez.
 let cabecalhoDaRodada = null;
+
+// O piso desta maquina, medido com o experimento ainda parado. Toda leitura de ambiente desconta
+// esse valor, porque um Windows de trabalho ocioso ja consome fracao de nucleo com servico e
+// indexador. Comparar contra zero acusa "sujo" numa maquina limpa.
+let pisoDaMaquina = 0;
 
 /**
  * Prepares the database, boots the server, runs `corpo`, and tears everything down.
@@ -55,6 +62,10 @@ export async function comBancada({ titulo, dsn = DSN_PADRAO, extraCabecalho = {}
   });
   imprimirCabecalho(cabecalhoDaRodada);
 
+  pisoDaMaquina = await medirPisoDaMaquina(3000);
+  console.log(`  piso da maquina (ocioso): ${pisoDaMaquina} nucleos
+`);
+
   await prepararBanco({ dsn, recriar: true });
   const servidor = await subirServidor({ databaseUrl: dsn });
   let codigo;
@@ -75,6 +86,11 @@ export async function comBancada({ titulo, dsn = DSN_PADRAO, extraCabecalho = {}
  */
 export function cabecalhoDaBase() {
   return cabecalhoDaRodada;
+}
+
+/** O piso ocioso medido no inicio da rodada, para quem le ambiente fora do `fechar()`. */
+export function pisoDaBase() {
+  return pisoDaMaquina;
 }
 
 /**
@@ -108,7 +124,7 @@ export async function aquecer({ servidor, token, atlasId, mapId, lotes = 3, opsP
  */
 export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, leitor = null }) {
   const sonda = await amostrarPg(ctx.dsn);
-  const maquina = medirCargaDaMaquina();
+  const maquina = await medirCargaDaMaquina();
   await ctx.servidor.laco({ reset: true });
 
   serie.abrir();
@@ -122,7 +138,7 @@ export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, l
   const laco = await ctx.servidor.laco();
   // O driver das bancadas de escrita e ESTE processo, entao a CPU dele entra na subtracao.
   const cpuProprio = process.cpuUsage();
-  const carga = maquina.parar({
+  const carga = await maquina.parar({
     servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
     driversMs: Math.round((cpuProprio.user + cpuProprio.system) / 1000),
   });
@@ -147,7 +163,7 @@ export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, l
       lacoMax: laco?.lacoMs?.max ?? '-',
       rssMB: laco?.memoria?.rssMB ?? '-',
       aRetentar: rec.resumo.aRetentar,
-      alheios: carga.nucleosAlheios,
+      alheios: saudeDoAmbiente(carga, pisoDaMaquina).alheios,
       provas: rec.ok ? 'OK' : 'FALHA',
     },
     reconciliacao: rec,
@@ -210,7 +226,7 @@ export function fechar(resultados, notas = [], colunas = COLUNAS) {
     (p, r) => ((r.carga?.nucleosAlheios ?? 0) > (p?.nucleosAlheios ?? 0) ? r.carga : p),
     null
   );
-  const ambiente = saudeDoAmbiente(pior);
+  const ambiente = saudeDoAmbiente(pior, pisoDaMaquina);
   console.log(`
   ${ambiente.texto}`);
   if (!ambiente.ok) console.log('  >>> ESTES NUMEROS NAO SERVEM DE LINHA DE BASE. <<<');

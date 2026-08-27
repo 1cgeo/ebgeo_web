@@ -45,7 +45,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { comBancada, arg, cabecalhoDaBase } from './lib/bancada.mjs';
+import { comBancada, arg, cabecalhoDaBase, pisoDaBase } from './lib/bancada.mjs';
 import { DSN_PADRAO } from './lib/semear.mjs';
 import {
   semearPopulacao, autenticarPopulacao, fatiar,
@@ -117,7 +117,7 @@ await comBancada(
       // O amostrador do Postgres e o que discrimina "o Node saturou" de "a fila do banco
       // encheu". Sem ele, uma latencia alta com laco ocioso nao tem como ser atribuida.
       const sondaPg = await amostrarPg(ctx.dsn);
-      const maquina = medirCargaDaMaquina();
+      const maquina = await medirCargaDaMaquina();
 
       const tokens = await autenticar();
       const specs = await rodarTrabalhadores({
@@ -132,11 +132,11 @@ await comBancada(
       const pg = await sondaPg.parar();
       const laco = await ctx.servidor.laco();
       const fundido = fundirResumos(specs);
-      const carga = maquina.parar({
+      const carga = await maquina.parar({
         servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
         driversMs: fundido.cpuDriversMs,
       });
-      const ambiente = saudeDoAmbiente(carga);
+      const ambiente = saudeDoAmbiente(carga, pisoDaBase());
       const entrega = await juntarEntrega(specs);
       const rec = await reconciliarPopulacao({
         dsn: ctx.dsn, salas, porSala: fundido.porSala, enviadas: entrega.enviadas,
