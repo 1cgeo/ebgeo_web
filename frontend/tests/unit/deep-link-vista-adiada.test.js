@@ -31,6 +31,17 @@ vi.mock('@utils', () => ({
     showSuccess: (...a) => showSuccess(...a),
 }));
 
+const abrir360 = vi.fn();
+// O VISUALIZADOR 360 É DUBLADO, e a razão é medida, não estética. `openDeepLink360`
+// faz `await import()` desse módulo antes de qualquer outra coisa, e ele arrasta o
+// Three.js: transformá-lo num cache frio custou 5,2 s e estourou o limite padrão de
+// 5 s deste caso. O caso pergunta POR ONDE o despacho foi, nunca o que o visualizador
+// desenha, então carregar o módulo de verdade era pagar segundos por nada e trocar um
+// teste de roteamento por um teste de tempo de transformação.
+vi.mock('@js/street_view_tool/street_view_viewer.js', () => ({
+    openViewer360WithPhoto: (...a) => abrir360(...a),
+}));
+
 const original = globalThis.window;
 
 /** Dublê do controle de camada base e do mapa. */
@@ -97,13 +108,17 @@ describe('vista compartilhada: quem aplica, e quando', () => {
         // boot os sobrescreve. Se `deferSharedView` começasse a valer para eles, um
         // link de foto 360 pararia de abrir e este caso é o que acusa.
         dublarControle();
+        abrir360.mockReset();
         const { handleDeepLink } = await comHash('#view=360&photo=foto.jpg&lon=1&lat=2&fov=75');
 
         await handleDeepLink({ deferSharedView: true });
 
-        // `getControl('streetView')` é consultado pelo abridor do 360: ele foi
-        // chamado, logo o caminho não foi adiado.
-        expect(getControl).toHaveBeenCalledWith('streetView');
+        // O visualizador foi ABERTO, com a foto e a orientação do link: o sinalizador
+        // não o alcançou. Asserir a abertura, e não só que `getControl` foi consultado,
+        // é o que separa "o despacho chegou lá" de "o despacho começou e morreu".
+        expect(abrir360).toHaveBeenCalledTimes(1);
+        expect(abrir360.mock.calls[0][0]).toBe('foto.jpg');
+        expect(abrir360.mock.calls[0][1].targetOrientation).toEqual({ lon: 1, lat: 2, fov: 75 });
     });
 
     it('applySharedView é exportada, porque o boot a chama de fora', async () => {
