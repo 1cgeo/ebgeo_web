@@ -77,15 +77,11 @@ const ALVOS = [
     // citar em crase o codigo que ainda nao existe: proposta se escreve em prosa (CLAUDE.md,
     // Documentacao), e a regra de simbolo abaixo cobra isso.
     'PROPOSTA-DADOS-SOLARES-E-LUNARES.md',
-    // A pendência do LINK DE COMPARTILHAMENTO entra em 2026-08-26 pela razão da linha acima, e com
-    // um agravante próprio: ela promete ESTABILIDADE de URL entre versões, e a promessa se apoia
-    // em três símbolos que decidem o trabalho (`switchMap`, `switchLayer`,
-    // `getValidBasemapFallback`) mais o caminho da migração que cria a tabela de tilesets. Um
-    // desses se mover sem aviso transforma a pendência num plano impossível de executar, que é
-    // exatamente o modo de falha que este alvo pega. O que ela NÃO pode fazer é citar em crase o
-    // link da camada base, que ainda não existe: a gramática proposta está em bloco de código e o
-    // resto em prosa.
-    'PENDENCIA-LINK-DE-COMPARTILHAMENTO.md',
+    // A PENDENCIA DO LINK DE COMPARTILHAMENTO esteve aqui de 2026-08-26 a 2026-08-27, e saiu com o
+    // arquivo. Ela não foi marcada como resolvida: foi APAGADA, e o que sobrou dela (a gramática
+    // congelada para a wiki, e as quatro dívidas que continuam abertas) virou entrada em
+    // `docs/decisions/decisions-2026.md`. Mesmo desfecho, e pela mesma razão, do
+    // PENDENCIAS-INTEGRACAO-MAIN-360.md citado no comentário abaixo.
     // MEMORY.md e livro-razao.md moraram na RAIZ até 2026-08-14, quando o dono
     // pediu os dois dentro de `docs/`. A mudança de uma linha de caminho aqui é o
     // passo que mais fácil se esquece e o único que falha CALADO: a montagem de

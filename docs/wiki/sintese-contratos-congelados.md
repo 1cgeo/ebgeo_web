@@ -32,6 +32,25 @@ O gazetteer contorna isso não usando o `ApiClient`: `frontend/src/js/search/gaz
 - **Caminhos relativos**: `previewThumbnail` do 360 vem sem prefixo e resolve contra o `serviceUrl` do `/api/config`. Hardcodar `/api/v1/assets3d` quebra qualquer deploy com host de estáticos separado. A URL de modelo 3D não segue essa regra e nunca seguiu: a linha de catálogo guarda a URL pronta e o cliente a usa verbatim ([[config-runtime-urls-relativas]], [[config-dinamico]], [[assets3d-distribuicao]]).
 - **Predicado de acesso no servidor**: para catálogo, assets 3D e sv360 a autorização está no `WHERE` ou num gate montado na rota, defesa em profundidade, e o cliente não deve filtrar nada nem assumir que recebe privados para esconder. O gazetteer é a exceção e não tem eixo de acesso nenhum desde 2026-08-19 ([[sintese-eixos-de-permissao]], [[acesso-a-recurso-privado]], [[sintese-modulos-fora-do-sync]]).
 - **ETag de binários**: ver [[sintese-cache-http-imutavel]].
+- **A gramática do link compartilhado (o fragmento `#view=`)**: é o único item desta página que não passa por HTTP, e ele é contrato entre VERSÕES do produto em vez de entre cliente e servidor. Um link copiado para um chat volta a ser aberto meses depois, por um build diferente, então três regras valem, e é delas que sai a forma conservadora do leitor:
+  - chave nova só ADITIVA, porque renomear ou remover mata todo link já distribuído;
+  - valor ausente ou ilegível cai no padrão do chamador e nunca no zero, porque zero é uma coordenada real (`parseDeepLink` recusa texto que não leia como número finito, e `resolveFpPose` mostra o molde: componente faltando volta ao padrão da cena, e pose meio montada é descartada inteira);
+  - chave desconhecida se ignora em silêncio, que é o que deixa um build velho abrir um link novo perdendo só o que não sabe expressar.
+
+  São quatro superfícies, todas lidas em `frontend/src/js/deep-link/parse.js`:
+
+  ```
+  #view=360&photo=<nome>&lon=<g>&lat=<g>&fov=<g>
+  #view=3d&tileset=<id>&lon=<g>&lat=<g>&h=<m>&heading=<rad>&pitch=<rad>&roll=<rad>
+  #view=fp&scene=<id>&x=<m>&y=<m>&z=<m>&yaw=<rad>&pitch=<rad>
+  #view=base&base=<id>&lon=<g>&lat=<g>&z=<n>&b=<g>&p=<g>
+  ```
+
+  **A query é ORTOGONAL ao fragmento e nunca colide com ele** ([[dominio-local-vs-remoto]]): `?atlas=` diz qual atlas, `#view=` diz o que olhar e de onde. Por isso os construtores preservam `window.location.search`, coisa que não faziam até 2026-08-26.
+
+  O guarda é `frontend/tests/unit/deep-link-gramatica.test.js`, e os vetores dele são **escritos à mão de propósito**: gerá-los pelo construtor que eles vigiam seria o teste conferindo o código contra ele mesmo, e passaria verde depois de qualquer renomeação de chave. Os MESMOS vetores existem no branch main, e essa duplicação é a única coisa que torna "o link abre nas duas versões" verificado em vez de afirmado. Quem editar um valor de vetor aqui e não lá quebra a promessa sem nada ficar vermelho.
+
+  **O que a gramática não alcança:** que o recurso nomeado exista do outro lado. Um id que mudou de espaço entre as versões atravessa o leitor intacto e falha depois, na busca. Isso é medida contra o acervo, não teste ([[acervo-3d-convertido]]).
 
 ## Divergências verificadas contra o código
 
@@ -57,3 +76,4 @@ O gazetteer contorna isso não usando o `ApiClient`: `frontend/src/js/search/gaz
 ## Histórico
 
 - 2026-08-19: a tabela tinha duas linhas a mais, `GET /nomes/feicoes` (objeto nu, `200` mesmo sem achar) e `GET /nomes/catalogo3d` (envelope paginado), e três regras operacionais dependiam delas. As duas rotas saíram do sistema com as tabelas que serviam, então os contratos não foram quebrados, deixaram de existir. Também saiu o predicado de acesso do gazetteer, que esta página listava entre os shapes congelados.
+

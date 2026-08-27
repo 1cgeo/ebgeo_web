@@ -1099,3 +1099,60 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
 - **Status:** aceita e implementada. Cláusula 7.2.1 nova em `CONSTITUICAO.md`. Presa por
   `backend/tests/integration/import-id-ja-usado.repro.test.js` e
   `frontend/tests/unit/enviar-blob-com-id-novo.test.js`.
+
+### 2026-08-27: o link de compartilhamento ganha a quarta superfície, e a PENDENCIA da raiz é dissolvida
+
+- **Contexto:** a pergunta do dono em 2026-08-26 era se os links de 360 e de 3D ainda funcionavam
+  depois da integração com o backend, e como fazer um para o mapa principal. Medido em vez de
+  deduzido: a mecânica passava (4 de 4 em `frontend/tests/e2e-ui/deep-link.spec.js`), e uma sonda
+  temporária de boot ANÔNIMO provou que recurso público chega ao visitante deslogado, com o
+  metadado do 360 respondendo 200 e o visualizador abrindo. O escopo real do pedido saiu de uma
+  segunda pergunta dele: o alvo é recurso PÚBLICO, então nada disto depende de atlas.
+- **Decisão: uma quarta gramática, `#view=base`, e a família inteira vira contrato congelado entre
+  VERSÕES.** As regras (chave só aditiva, ausente cai no padrão e nunca no zero, desconhecida se
+  ignora calada) e a razão de os vetores serem escritos à mão estão em
+  [[sintese-contratos-congelados]]. Feito nos DOIS branches, com os mesmos vetores dourados, porque
+  é a duplicação deles que faz a promessa ser verificada em vez de afirmada.
+- **A ordem de boot é a diferença entre os dois pacotes**, e ela está em
+  [[sessao-boot-e-ciclo-de-vida]]: aqui a vista 2D é adiada até a pintura terminar, no outro branch
+  o `switchMap` já roda antes.
+- **Defeito irmão consertado de passagem:** os três construtores antigos montavam a URL a partir de
+  origem e caminho, então a query morria. Medido com a query presente na entrada. Agora os quatro
+  passam pelo mesmo helper.
+- **Status:** aceita e implementada. `frontend/tests/unit/deep-link-gramatica.test.js`,
+  `frontend/tests/unit/deep-link-construtores.test.js`,
+  `frontend/tests/unit/deep-link-vista-compartilhada.test.js` e
+  `frontend/tests/unit/deep-link-vista-adiada.test.js`, os três primeiros idênticos aos do outro
+  branch. Três controles negativos rodados: devolver a origem+caminho reprova o caso da query,
+  renomear a chave `base` no leitor reprova cinco casos, e tirar o despacho do tipo `base` reprova
+  cinco do abridor.
+
+**O documento de pendência da raiz foi APAGADO neste commit, e não marcado como resolvido.** Ele
+seguiu o precedente do `PENDENCIAS-INTEGRACAO-MAIN-360.md` de 2026-08-21: o durável foi para a wiki,
+e o que continua ABERTO fica aqui, porque documento de trabalho pendente é o que mais depressa perde
+sincronia e conferir código contra ele confirma frase falsa com ar de verificação. As quatro dívidas
+que sobreviveram:
+
+1. **O ESPAÇO DE ID DO 3D, e é o risco.** No outro branch o catálogo vem do serviço ebgeo_3d e o id
+   do link é o que aquele serviço publica; aqui ele vem da tabela de tilesets, cuja chave primária é
+   texto escolhido no cadastro (`backend/src/database/migrations/005_catalogo.sql`). Nada no
+   repositório garante que a carga preservou os ids antigos. Se não preservou, todo link 3D já
+   distribuído morre na virada, em silêncio, com a mensagem de modelo não encontrado. Resolve-se com
+   uma MEDIDA e não com uma opinião: listar os ids que o serviço publica em produção, listar os da
+   tabela, comparar. Se divergirem, o conserto é um mapa de id antigo para id novo consultado quando
+   a busca direta falha, e ele precisa nascer junto com o link, nunca depois.
+2. **O nome da foto 360 é PROVÁVEL, não medido.** Os dois branches emitem `currentPhotoName`. Falta
+   confirmar que o `original_name` do acervo ingerido é igual ao nome de arquivo que a versão
+   estática servia. A camada base é o único dos três eixos MEDIDO: as cinco chaves apareceram
+   idênticas no config do visitante anônimo.
+3. **O escopo de atlas não alcança o deep link.** `handleDeepLink` roda dentro do manipulador de
+   `load`, e quem declara o escopo é `refreshVisibleResources`, chamado na conexão do
+   `frontend/src/js/store/sync/sync-engine.js`, depois. Medido: com sessão viva e o parâmetro de
+   atlas na URL, o pedido do 360 saiu sem ele, então o ramo de empréstimo de
+   `backend/src/modules/streetview360/sv360.service.js` morre e o recurso emprestado volta 404. Não
+   morde recurso público, que é o caso de hoje; morde no dia em que alguém pedir link de recurso
+   privado. Preservar a query nos construtores foi metade do conserto; a outra metade é de ORDEM.
+4. **"Abrir link não escreve" está implementado e NÃO tem teste próprio.** Os casos existentes
+   afirmam que `applySharedBasemap` foi chamada, e o `skipPersist` mora dentro dela. Falta o caso
+   que afirma que a fila de saída não ganhou op de camada base, com o controle negativo de trocar
+   por `setBaseLayer`.
