@@ -118,6 +118,12 @@ export function criarUsuario({
     chegadas: [],
     reconexoes: 0,
     fechadoPeloServidor: false,
+    // O CODIGO DO FECHAMENTO, e ele decide um diagnostico inteiro. O gateway fecha socket por
+    // SETE caminhos diferentes, e so um deles e a falha de autorizacao (`4003 authorization
+    // unverifiable`). A varredura de heartbeat usa `terminate()`, que chega ao cliente como
+    // 1006. Contar "derrubados" sem o codigo nao distingue "o banco nao respondeu" de "o
+    // servidor nao processou meu ping a tempo", e as duas pedem consertos opostos.
+    fechamentos: [],
     // EM VOO NO CORTE não é o mesmo que SEM VEREDITO, e juntar os dois quebrou a reconciliação da
     // primeira rodada de mil usuários: toda sala saiu FALHA porque as ops que ainda esperavam ack
     // quando a janela fechou foram contadas como perdidas, enquanto `ausentesDoLedger` dava ZERO —
@@ -165,11 +171,19 @@ export function criarUsuario({
     }
 
     if (msg.type === 'error') {
-      // O socket colapsa todo throw em OPERATION_FAILED sem opIds, então não dá para saber QUAL
-      // lote falhou. Tudo que ainda está em voo entra como sem veredito, e o ledger decide.
       estado.erros += 1;
-      estado.mudos += emVoo.size;
-      emVoo.clear();
+      // Desde que o frame carrega `opIds`, a falha e ATRIBUIVEL: so as ops nomeadas saem de voo.
+      // O que sobrar continua em voo e sera resolvido pelo ack seguinte ou pelo corte da janela.
+      // Sem os ids, o frame derrubava a fila inteira para "sem veredito", que era o defeito.
+      const nomeadas = Array.isArray(msg.opIds) ? msg.opIds : null;
+      if (nomeadas) {
+        for (const opId of nomeadas) {
+          if (emVoo.delete(opId)) estado.recusadas += 1;
+        }
+      } else {
+        estado.mudos += emVoo.size;
+        emVoo.clear();
+      }
       return;
     }
 
@@ -288,7 +302,11 @@ export function criarUsuario({
       ws = await conectar();
       vivo = true;
       ws.on('message', aoReceber);
-      ws.on('close', () => { if (vivo) estado.fechadoPeloServidor = true; });
+      ws.on('close', (codigo, motivo) => {
+        if (!vivo) return;
+        estado.fechadoPeloServidor = true;
+        estado.fechamentos.push(`${codigo}${motivo ? ` ${String(motivo).slice(0, 40)}` : ''}`);
+      });
       // Desencontro inicial: mil usuários começando a editar no mesmo milissegundo produziriam
       // um pico sintético que nenhuma sala real vê.
       agendar(lacoPing, entre(0, INTERVALO_PING_MS));
@@ -316,6 +334,7 @@ export function criarUsuario({
       estado.cursoresRecebidos = 0;
       estado.opsRecebidas = 0;
       estado.emVooNoFim = 0;
+      estado.fechamentos.length = 0;
       emVoo.clear();
     },
 

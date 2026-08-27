@@ -85,6 +85,45 @@ function normalizePresence(ws, schema, data) {
 }
 
 /**
+ * O frame de erro do socket, agora ATRIBUIVEL e com o sinal de re-tentativa.
+ *
+ * O PROBLEMA QUE ELE RESOLVE, medido. Sob contencao, o caminho REST responde 503 com mensagem
+ * retentavel e o cliente sabe que NADA foi aplicado. O socket colapsava todo throw num
+ * `{ type, code, message }` sem `opIds` e sem referencia ao lote: com mais de um lote em voo, o
+ * cliente nao tinha como saber O QUE reenviar. A bancada E3, com 16 escritores e lote de 250,
+ * mediu 750 operacoes nesse limbo numa unica janela.
+ *
+ * DOIS CAMPOS, E OS DOIS SAO ADITIVOS. `code` e `message` ficam intactos de proposito: dois testes
+ * fixam `code === 'OPERATION_FAILED'` para casos que continuam sendo exatamente isso
+ * (`collab-error-leak.repro` e `collab-commenter-authz`), e trocar o codigo por `err.code`
+ * transformaria uma recusa de permissao em `FORBIDDEN` no fio, que e mudanca de contrato e nao
+ * cabe num conserto de atribuicao.
+ *
+ * `retryable` sai do `statusCode`, nunca do `code`. O 503 do `lock_timeout` e a unica falha deste
+ * caminho que o cliente DEVE reenviar; recusa de permissao e violacao de integridade sao
+ * permanentes, e reenvia-las e so gastar a fila. Reenviar e seguro por causa do
+ * `ON CONFLICT (atlas_id, op_id) DO NOTHING`, entao o risco do sinal errado e desperdicio, nunca
+ * duplicata.
+ *
+ * OS `opIds` SAO DO PROPRIO REMETENTE, e voltam so para ele. Nao ha vazamento: ele acabou de
+ * escrever esses valores. O teste `collab-error-leak.repro.js` exige que o frame inteiro nao
+ * contenha separador de caminho, e continua valendo, porque o que entra aqui e o id que o cliente
+ * mandou, nunca texto de driver.
+ *
+ * @param {Error} err
+ * @param {string[]} opIds - As ops do lote que falhou, na ordem em que chegaram.
+ */
+function frameDeErro(err, opIds) {
+  return {
+    type: 'error',
+    code: 'OPERATION_FAILED',
+    message: safeErrorMessage(err, 'A operação falhou.'),
+    opIds,
+    retryable: err?.statusCode === 503,
+  };
+}
+
+/**
  * Handles ping messages (heartbeat).
  */
 export function handlePing(ws) {
@@ -251,11 +290,7 @@ export async function handleOperation(ws, data) {
     }, ws, { skipReadOnly: isComment });
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operation');
-    ws.send(JSON.stringify({
-      type: 'error',
-      code: 'OPERATION_FAILED',
-      message: safeErrorMessage(err, 'A operação falhou.'),
-    }));
+    ws.send(JSON.stringify(frameDeErro(err, [data.op?.id].filter(Boolean))));
   }
 }
 
@@ -307,11 +342,7 @@ export async function handleOperations(ws, data) {
     }
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operations batch');
-    ws.send(JSON.stringify({
-      type: 'error',
-      code: 'OPERATION_FAILED',
-      message: safeErrorMessage(err, 'A operação falhou.'),
-    }));
+    ws.send(JSON.stringify(frameDeErro(err, ops.map((op) => op.id))));
   }
 }
 

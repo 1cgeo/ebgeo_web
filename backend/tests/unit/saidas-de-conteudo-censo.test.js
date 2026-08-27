@@ -436,7 +436,13 @@ const SOCKET_DA_SALA = 'Socket de cliente de colaboração. Todo socket desta sa
 const CENSO_ENVIO_WS = [
   { arquivo: 'src/modules/collab/collab.gateway.js', texto: 'ws.send(JSON.stringify({', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
 
-  { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({', n: 10, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({', n: 8, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  // Os dois sitios de ERRO sairam do literal inline e passaram a montar o frame em
+  // `frameDeErro`, que acrescenta `opIds` e `retryable` sem tocar `code` nem `message`. O
+  // conteudo continua sendo controle de protocolo: ids que o PROPRIO remetente acabou de
+  // mandar, devolvidos so para ele, mais um booleano. Nenhum documento de entidade atravessa.
+  { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify(frameDeErro(err, [data.op?.id].filter(Boolean))));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
+  { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify(frameDeErro(err, ops.map((op) => op.id))));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send(JSON.stringify({ type: \'pong\' }));', n: 1, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
   { arquivo: 'src/modules/collab/collab.handlers.js', texto: 'ws.send({', n: 2, classe: W_EMBRULHADO, motivo: SOCKET_DA_SALA },
 

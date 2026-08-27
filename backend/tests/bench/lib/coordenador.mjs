@@ -121,6 +121,7 @@ export function fundirResumos(specs) {
           opsRecebidas: 0,
           fechadosPeloServidor: 0,
           emVooNoFim: 0,
+          codigosDeFechamento: {},
           ackHist: new Histograma(`ack-${chave}`),
         });
       }
@@ -129,6 +130,9 @@ export function fundirResumos(specs) {
         'cursoresEnviados', 'cursoresRecebidos', 'opsRecebidas', 'fechadosPeloServidor',
         'emVooNoFim']) {
         a[k] += b[k] ?? 0;
+      }
+      for (const [c, q] of Object.entries(b.codigosDeFechamento ?? {})) {
+        a.codigosDeFechamento[c] = (a.codigosDeFechamento[c] ?? 0) + q;
       }
       if (b.ackHist) a.ackHist.fundir(Histograma.desserializar(b.ackHist));
     }

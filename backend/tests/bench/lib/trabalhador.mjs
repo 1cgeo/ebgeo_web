@@ -108,6 +108,7 @@ for (const e of estados) {
       opsRecebidas: 0,
       fechadosPeloServidor: 0,
       emVooNoFim: 0,
+      codigosDeFechamento: {},
       ackHist: null,
     });
   }
@@ -123,6 +124,7 @@ for (const e of estados) {
   b.opsRecebidas += e.opsRecebidas;
   b.emVooNoFim += e.emVooNoFim;
   if (e.fechadoPeloServidor) b.fechadosPeloServidor += 1;
+  for (const c of e.fechamentos) b.codigosDeFechamento[c] = (b.codigosDeFechamento[c] ?? 0) + 1;
 
   for (const [opId, ts] of e.opsEnviadas) fluxoOps.write(`${opId} ${ts} ${e.tamanhoSala}\n`);
   for (const [opId, ts] of e.chegadas) fluxoChegadas.write(`${opId} ${ts}\n`);

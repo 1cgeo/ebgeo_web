@@ -179,6 +179,16 @@ await comBancada(
       console.log(`    POSTGRES: pico de ${pg.picoConexoes} conexoes, ${pg.picoAtivas} ativas, `
         + `${pg.picoEsperandoLock} esperando lock | esperas: ${JSON.stringify(pg.esperas)}`);
       console.log(`    entrega casada: ${entrega.casadas} ops, ${entrega.orfas} orfas`);
+      // A DISTRIBUICAO DOS CODIGOS DE FECHAMENTO, e ela decide de quem e a culpa. 4003 e
+      // autorizacao que o servidor nao conseguiu verificar; 1006 e `terminate()` da varredura
+      // de heartbeat, ou seja, ping nao processado a tempo. Os dois pedem consertos opostos.
+      const codigos = {};
+      for (const b of fundido.porSala.values()) {
+        for (const [c, q] of Object.entries(b.codigosDeFechamento ?? {})) {
+          codigos[c] = (codigos[c] ?? 0) + q;
+        }
+      }
+      console.log(`    codigos de fechamento: ${JSON.stringify(codigos)}`);
 
       console.log('\n    RECONCILIACAO POR SALA (ausentes do ledger tem de cair entre piso e teto)');
       tabela(rec.provas, ['sala', 'linhasNoLedger', 'ausentesDoLedger', 'piso', 'teto',

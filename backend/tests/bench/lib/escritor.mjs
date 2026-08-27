@@ -254,7 +254,19 @@ export async function escritorWs({
         for (const op of ops) registro.semVeredito.add(op.id);
       } else if (resposta.type === 'error') {
         serie.registrar(ms, 'WS_ERRO');
-        for (const op of ops) registro.semVeredito.add(op.id);
+        // ATRIBUICAO, e e ela que esta sendo medida. Antes de o servidor mandar `opIds`, um lote
+        // com erro deixava TODAS as suas ops sem veredito, porque o cliente nao tinha como saber
+        // quais falharam. Com os ids no frame, elas viram recusa CONHECIDA, e a coluna de
+        // inatribuiveis do E3 pode ir a zero. Sem esta mudanca na bancada, o conserto do servidor
+        // seria invisivel na tabela.
+        const nomeadas = new Set(resposta.opIds ?? []);
+        for (const op of ops) {
+          if (nomeadas.has(op.id)) {
+            registro.recusados.set(op.id, `${resposta.code}${resposta.retryable ? ' (retentavel)' : ''}`);
+          } else {
+            registro.semVeredito.add(op.id);
+          }
+        }
       } else {
         serie.registrar(ms, 'WS_ACK');
         contabilizar(registro, ops, resposta.results);
