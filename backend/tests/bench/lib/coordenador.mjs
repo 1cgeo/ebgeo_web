@@ -83,6 +83,7 @@ export function fundirResumos(specs) {
   let janelaMs = 0;
   const lacoDriver = { p99: 0, max: 0, piorTrabalhador: null };
   let rssDriverMB = 0;
+  let cpuDriversMs = 0;
 
   for (const spec of specs) {
     const r = JSON.parse(fs.readFileSync(spec.saida, 'utf8'));
@@ -102,6 +103,7 @@ export function fundirResumos(specs) {
       lacoDriver.max = Math.max(lacoDriver.max, r.lacoDriverMs.max);
     }
     rssDriverMB = Math.max(rssDriverMB, r.rssMB ?? 0);
+    cpuDriversMs += r.cpuMs ?? 0;
 
     for (const b of r.porSala) {
       const chave = String(b.tamanhoSala);
@@ -134,6 +136,7 @@ export function fundirResumos(specs) {
 
   return {
     porSala, conectados, pedidos, falhas, maiorConexaoMs, janelaMs, lacoDriver, rssDriverMB,
+    cpuDriversMs,
   };
 }
 

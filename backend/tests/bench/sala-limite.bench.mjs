@@ -35,7 +35,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { comBancada, arg, argLista } from './lib/bancada.mjs';
+import { comBancada, arg, argLista, cabecalhoDaBase } from './lib/bancada.mjs';
 import { DSN_PADRAO } from './lib/semear.mjs';
 import { semearPopulacao, autenticarPopulacao, fatiar } from './lib/populacao.mjs';
 import { CADENCIAS } from './lib/usuario.mjs';
@@ -45,6 +45,8 @@ import {
 } from './lib/coordenador.mjs';
 import { tabela, round } from './lib/metricas.mjs';
 import { amostrarPg } from './lib/sonda-pg.mjs';
+import { baseDaRodada } from './lib/linha-de-base.mjs';
+import { medirCargaDaMaquina, saudeDoAmbiente } from './lib/carga-da-maquina.mjs';
 
 const TAMANHOS = argLista('tamanhos', [10, 25, 50, 100, 200, 400]);
 const MINUTOS = arg('minutos', 2);
@@ -94,6 +96,7 @@ await comBancada(
       // O amostrador do Postgres e o que discrimina "o Node saturou" de "a fila do banco
       // encheu". Sem ele, uma latencia alta com laco ocioso nao tem como ser atribuida.
       const sondaPg = await amostrarPg(ctx.dsn);
+      const maquina = medirCargaDaMaquina();
 
       const tokens = await autenticar();
       const specs = await rodarTrabalhadores({
@@ -108,6 +111,12 @@ await comBancada(
       const pg = await sondaPg.parar();
       const laco = await ctx.servidor.laco();
       const fundido = fundirResumos(specs);
+      const carga = maquina.parar({
+        servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
+        driversMs: fundido.cpuDriversMs,
+      });
+      const ambiente = saudeDoAmbiente(carga);
+      if (!ambiente.ok) console.log(`  ${ambiente.texto}`);
       const entrega = await juntarEntrega(specs);
       const rec = await reconciliarPopulacao({
         dsn: ctx.dsn, salas: [sala], porSala: fundido.porSala, enviadas: entrega.enviadas,
@@ -127,6 +136,7 @@ await comBancada(
       linha.cpuPct = cpuDoServidorPct(laco, fundido.janelaMs + fundido.maiorConexaoMs);
       linha.pgConex = pg.picoConexoes;
       linha.pgLock = pg.picoEsperandoLock;
+      linha.alheios = carga.nucleosAlheios;
       linha.driverP99 = fundido.lacoDriver.p99;
       linha.instrumento = saude.nivel;
       linha.rssMB = laco?.memoria?.rssMB ?? '-';
@@ -150,8 +160,10 @@ await comBancada(
     tabela(linhas, [
       ...COLUNAS_POP.filter((c) => c !== 'usuarios'),
       'quadrosTeoricos', 'lacoP99', 'usoLacoPct', 'cpuPct', 'pgConex', 'pgLock',
-      'driverP99', 'instrumento', 'rssMB', 'provas',
+      'driverP99', 'alheios', 'instrumento', 'rssMB', 'provas',
     ]);
+
+    baseDaRodada({ linhas, cabecalho: cabecalhoDaBase(), chave: 'sala' });
 
     console.log('\n  LEITURA');
     console.log('    - quadrosTeoricos e cursorEnv/s x (S-1): o que o desenho manda transmitir.');

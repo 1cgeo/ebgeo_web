@@ -75,7 +75,10 @@ const msDeConexao = Date.now() - t0Conexao;
 // --- janela de regime permanente -----------------------------------------------------------------
 // Tudo que a rampa produziu é descartado aqui. O que sobra é população estável sob carga estável.
 for (const u of criados) u.zerar();
-laco.reset(); // a rampa nao conta: ela e serial por desenho e trava o laco de proposito
+laco.reset();
+// A CPU do driver e o segundo termo da subtracao que a sonda de ambiente faz: maquina ocupada
+// MENOS servidor MENOS drivers e o trabalho alheio ao experimento.
+const cpu0 = process.cpuUsage(); // a rampa nao conta: ela e serial por desenho e trava o laco de proposito
 const t0 = Date.now();
 await espera(duracaoMs);
 const janelaMs = Date.now() - t0;
@@ -154,6 +157,7 @@ fs.writeFileSync(saida, JSON.stringify({
     max: Math.round(laco.max / 1e6),
   },
   rssMB: Math.round(process.memoryUsage().rss / 1024 ** 2),
+  cpuMs: (() => { const c = process.cpuUsage(cpu0); return Math.round((c.user + c.system) / 1000); })(),
   porSala: [...porSala.values()],
 }));
 

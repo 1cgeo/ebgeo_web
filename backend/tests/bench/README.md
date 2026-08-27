@@ -185,6 +185,62 @@ Driver que trava um quarto de segundo já está atrasado para os dois.
 **Regra prática de dimensionamento:** cerca de 70 sockets por trabalhador. Mil usuários pedem 14
 trabalhadores, não 6.
 
+### Três guardas de instrumento, e cada uma nasceu de uma tabela que mentiu
+
+| guarda | vigia | o que ela pegou |
+|---|---|---|
+| sonda do laço | o **servidor** | nada, sozinha: laço a 84,8% de ocupação reporta 16 ms de atraso |
+| histograma do trabalhador | o **driver** | 167 sockets por processo produziram `ackP95` de 41 s com o servidor ocioso |
+| carga da máquina | o **ambiente** | trabalho alheio disputando CPU com o experimento |
+
+A terceira é a mais recente. A linha de base do E8 saiu com 95,9% de perda de cursor na sala de
+cem, contra 85,6% na rodada do diagnóstico, e a sala de **duas** pessoas saltou de 9,1% para 65,1%,
+com o backend idêntico entre as duas medidas. As duas leituras não podem ambas descrever o sistema.
+Ou o cenário tem variância enorme, ou a máquina estava ocupada. **A bancada não tinha como
+distinguir, e é isso que era o defeito.**
+
+`os.cpus()` dá o tempo acumulado de cada núcleo. Duas leituras, início e fim da janela, dão a
+ocupação real da máquina sem depender de contador de processo. Subtraindo o que o servidor e os
+drivers gastaram, o que sobra é trabalho **alheio**:
+
+| nível | núcleos alheios | leitura |
+|---|---|---|
+| `AMBIENTE LIMPO` | < 0,75 | os números valem |
+| `AMBIENTE SUJO` | 0,75 a 2 | leia p50, desconfie de p95 e p99 |
+| `MAQUINA OCUPADA` | 2 ou mais | descarte e meça de novo |
+
+O limiar é em núcleos absolutos, não em porcentagem da máquina. Meio núcleo alheio atrapalha igual
+numa máquina de 4 e numa de 20, porque o servidor é monothread e o que ele disputa é **um** núcleo,
+nunca a média.
+
+O resíduo é piso, não conta exata: sobra nele o Postgres, que roda em processo separado e é parte
+legítima do experimento. Por isso o alarme é generoso, para pegar "tinha um build rodando junto" e
+não para auditar milissegundos.
+
+### Linha de base: gravar e comparar
+
+```bash
+node tests/bench/sala-limite.bench.mjs --gravar-base
+node tests/bench/sala-limite.bench.mjs --comparar tests/bench/baselines/2026-08-27/sala-limite.json
+```
+
+`--gravar-base` grava `tests/bench/baselines/<data>/<cenario>.json` com as linhas e o cabeçalho da
+máquina. A data está no diretório de propósito: base sem data é uma afirmação sobre "o sistema",
+quando é uma afirmação sobre aquele dia, naquela máquina, naquele commit.
+
+`--comparar` imprime a variação **por linha e por coluna**, nunca um número resumo. Uma mudança que
+melhora a sala de 400 e piora a de 10 não pode aparecer como "melhorou 12%".
+
+**A direção de cada coluna está declarada no comparador.** Queda de 30% em `ops/s` é regressão; a
+mesma queda em `ackP95` é o objetivo. Sem essa tabela, o comparador imprimiria porcentagens e
+deixaria a interpretação para quem está torcendo.
+
+**Regressão não reprova a rodada.** A bancada não sabe se a mudança foi deliberada. Ela imprime e
+avisa. Só perda de dado sai com código 1.
+
+**A banda de ruído é medida, não arbitrada.** Antes de acreditar em qualquer melhora, a mesma
+bancada roda duas vezes sem mudança nenhuma, e o espalhamento observado vira a banda.
+
 ### A reconciliação é uma banda, não uma igualdade
 
 Op que ainda esperava ack quando o cronômetro parou pode ter sido gravada, ou não. As duas saídas

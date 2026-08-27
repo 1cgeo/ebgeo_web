@@ -45,7 +45,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { comBancada, arg } from './lib/bancada.mjs';
+import { comBancada, arg, cabecalhoDaBase } from './lib/bancada.mjs';
 import { DSN_PADRAO } from './lib/semear.mjs';
 import {
   semearPopulacao, autenticarPopulacao, fatiar,
@@ -58,6 +58,8 @@ import {
 } from './lib/coordenador.mjs';
 import { tabela, round } from './lib/metricas.mjs';
 import { amostrarPg } from './lib/sonda-pg.mjs';
+import { baseDaRodada } from './lib/linha-de-base.mjs';
+import { medirCargaDaMaquina, saudeDoAmbiente } from './lib/carga-da-maquina.mjs';
 
 const MINUTOS = arg('minutos', 5);
 const TRABALHADORES = arg('trabalhadores', 6);
@@ -115,6 +117,7 @@ await comBancada(
       // O amostrador do Postgres e o que discrimina "o Node saturou" de "a fila do banco
       // encheu". Sem ele, uma latencia alta com laco ocioso nao tem como ser atribuida.
       const sondaPg = await amostrarPg(ctx.dsn);
+      const maquina = medirCargaDaMaquina();
 
       const tokens = await autenticar();
       const specs = await rodarTrabalhadores({
@@ -129,6 +132,11 @@ await comBancada(
       const pg = await sondaPg.parar();
       const laco = await ctx.servidor.laco();
       const fundido = fundirResumos(specs);
+      const carga = maquina.parar({
+        servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
+        driversMs: fundido.cpuDriversMs,
+      });
+      const ambiente = saudeDoAmbiente(carga);
       const entrega = await juntarEntrega(specs);
       const rec = await reconciliarPopulacao({
         dsn: ctx.dsn, salas, porSala: fundido.porSala, enviadas: entrega.enviadas,
@@ -140,10 +148,17 @@ await comBancada(
 
       const saude = saudeDoInstrumento(fundido.lacoDriver);
       resultados.push({ nome, linhas, fundido, rec, laco, entrega, saude, pg });
+      // Uma linha de base POR CADENCIA: reuniao e exercicio sao experimentos diferentes, e
+      // guardar as duas no mesmo arquivo compararia carga leve contra carga pesada.
+      baseDaRodada({
+        linhas, cabecalho: cabecalhoDaBase(), chave: 'sala', sufixo: nome,
+      });
 
       console.log(`\n  CADENCIA "${nome}"  —  ${fundido.conectados}/${fundido.pedidos} conectados, `
         + `rampa ${round(fundido.maiorConexaoMs / 1000)} s, janela ${round(fundido.janelaMs / 1000)} s`);
       console.log(`  ${saude.texto}`);
+      console.log(`  ${ambiente.texto}`);
+      if (!ambiente.ok) console.log('  >>> ESTES NUMEROS NAO SERVEM DE LINHA DE BASE. <<<');
       if (!saude.ok) console.log('  >>> A TABELA ABAIXO NAO MEDE O SERVIDOR. <<<');
       tabela(linhas, COLUNAS_POP);
 

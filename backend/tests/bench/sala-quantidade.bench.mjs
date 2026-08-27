@@ -32,7 +32,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { comBancada, arg, argLista } from './lib/bancada.mjs';
+import { comBancada, arg, argLista, cabecalhoDaBase } from './lib/bancada.mjs';
 import { DSN_PADRAO } from './lib/semear.mjs';
 import { semearPopulacao, autenticarPopulacao, fatiar } from './lib/populacao.mjs';
 import { CADENCIAS } from './lib/usuario.mjs';
@@ -42,6 +42,8 @@ import {
 } from './lib/coordenador.mjs';
 import { tabela, round } from './lib/metricas.mjs';
 import { amostrarPg } from './lib/sonda-pg.mjs';
+import { baseDaRodada } from './lib/linha-de-base.mjs';
+import { medirCargaDaMaquina, saudeDoAmbiente } from './lib/carga-da-maquina.mjs';
 
 const SALAS = argLista('salas', [50, 100, 250, 500, 1000]);
 const MINUTOS = arg('minutos', 2);
@@ -93,6 +95,7 @@ await comBancada(
       // O amostrador do Postgres e o que discrimina "o Node saturou" de "a fila do banco
       // encheu". Sem ele, uma latencia alta com laco ocioso nao tem como ser atribuida.
       const sondaPg = await amostrarPg(ctx.dsn);
+      const maquina = medirCargaDaMaquina();
 
       const tokens = await autenticar();
       const specs = await rodarTrabalhadores({
@@ -107,6 +110,12 @@ await comBancada(
       const pg = await sondaPg.parar();
       const laco = await ctx.servidor.laco();
       const fundido = fundirResumos(specs);
+      const carga = maquina.parar({
+        servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
+        driversMs: fundido.cpuDriversMs,
+      });
+      const ambiente = saudeDoAmbiente(carga);
+      if (!ambiente.ok) console.log(`  ${ambiente.texto}`);
       const entrega = await juntarEntrega(specs);
       const rec = await reconciliarPopulacao({
         dsn: ctx.dsn, salas: fatia, porSala: fundido.porSala, enviadas: entrega.enviadas,
@@ -136,6 +145,7 @@ await comBancada(
         cpuPct: cpuDoServidorPct(laco, fundido.janelaMs + fundido.maiorConexaoMs),
         pgConex: pg.picoConexoes,
         pgLock: pg.picoEsperandoLock,
+        alheios: carga.nucleosAlheios,
         lacoMax: laco?.lacoMs?.max ?? '-',
         rssMB: laco?.memoria?.rssMB ?? '-',
         driverP99: fundido.lacoDriver.p99,
@@ -155,6 +165,8 @@ await comBancada(
 
     console.log('');
     tabela(linhas);
+
+    baseDaRodada({ linhas, cabecalho: cabecalhoDaBase(), chave: 'salas' });
 
     console.log('\n  LEITURA');
     console.log('    - conectados abaixo de sockets e o primeiro teto duro: o processo nao aceitou todos.');

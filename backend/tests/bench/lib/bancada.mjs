@@ -25,6 +25,13 @@ import { amostrarPg } from './sonda-pg.mjs';
 import { reconciliar, imprimirProvas } from './reconciliar.mjs';
 import { Serie, cabecalho, imprimirCabecalho, tabela, round } from './metricas.mjs';
 import { escritorRest, criarRegistro } from './escritor.mjs';
+import { baseDaRodada } from './linha-de-base.mjs';
+import { medirCargaDaMaquina, saudeDoAmbiente } from './carga-da-maquina.mjs';
+
+// O cabecalho da rodada corrente. `fechar()` precisa dele para gravar a linha de base, e passa-lo
+// por parametro obrigaria a mexer nas sete bancadas de escrita por uma razao que nao e delas.
+// Escopo de modulo funciona porque uma bancada e um processo, e roda uma vez.
+let cabecalhoDaRodada = null;
 
 /**
  * Prepares the database, boots the server, runs `corpo`, and tears everything down.
@@ -40,12 +47,13 @@ import { escritorRest, criarRegistro } from './escritor.mjs';
  */
 export async function comBancada({ titulo, dsn = DSN_PADRAO, extraCabecalho = {} }, corpo) {
   console.log(`\n${titulo}`);
-  imprimirCabecalho(await cabecalho({
+  cabecalhoDaRodada = await cabecalho({
     banco: new URL(dsn).pathname.replace(/^\//, ''),
     limitadores: 'DESLIGADOS (NODE_ENV=test)',
     log: 'silencioso (NODE_ENV=test)',
     ...extraCabecalho,
-  }));
+  });
+  imprimirCabecalho(cabecalhoDaRodada);
 
   await prepararBanco({ dsn, recriar: true });
   const servidor = await subirServidor({ databaseUrl: dsn });
@@ -56,6 +64,17 @@ export async function comBancada({ titulo, dsn = DSN_PADRAO, extraCabecalho = {}
     await servidor.parar();
   }
   process.exitCode = codigo;
+}
+
+/**
+ * O cabecalho da rodada corrente, para quem grava linha de base FORA do `fechar()`.
+ *
+ * As tres bancadas de populacao montam a propria tabela e nao passam por `fechar()`, mas a linha
+ * de base delas precisa do mesmo cabecalho (maquina, commit, pool) que as de escrita gravam. Sem
+ * isso a base guardaria numeros sem dizer de que maquina eles sao.
+ */
+export function cabecalhoDaBase() {
+  return cabecalhoDaRodada;
 }
 
 /**
@@ -89,6 +108,7 @@ export async function aquecer({ servidor, token, atlasId, mapId, lotes = 3, opsP
  */
 export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, leitor = null }) {
   const sonda = await amostrarPg(ctx.dsn);
+  const maquina = medirCargaDaMaquina();
   await ctx.servidor.laco({ reset: true });
 
   serie.abrir();
@@ -100,6 +120,12 @@ export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, l
   const leitura = leitor ? await leitor.parar() : null;
   const pg = await sonda.parar();
   const laco = await ctx.servidor.laco();
+  // O driver das bancadas de escrita e ESTE processo, entao a CPU dele entra na subtracao.
+  const cpuProprio = process.cpuUsage();
+  const carga = maquina.parar({
+    servidorMs: (laco?.cpuUsuarioMs ?? 0) + (laco?.cpuSistemaMs ?? 0),
+    driversMs: Math.round((cpuProprio.user + cpuProprio.system) / 1000),
+  });
   const rec = await reconciliar({ dsn: ctx.dsn, atlasIds, registro, leitura });
 
   const r = serie.resumo();
@@ -121,11 +147,13 @@ export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, l
       lacoMax: laco?.lacoMs?.max ?? '-',
       rssMB: laco?.memoria?.rssMB ?? '-',
       aRetentar: rec.resumo.aRetentar,
+      alheios: carga.nucleosAlheios,
       provas: rec.ok ? 'OK' : 'FALHA',
     },
     reconciliacao: rec,
     laco,
     pg,
+    carga,
     statusBrutos: r.status,
   };
 }
@@ -134,7 +162,7 @@ export async function medir({ ctx, rotulo, atlasIds, registro, serie, tarefas, l
 export const COLUNAS = [
   'degrau', 'lotes', 'ok', '503', 'p50', 'p95', 'p99', 'max',
   'lotes/s', 'ops/s', 'lockPico', 'conexPico', 'lacoP99', 'lacoMax', 'rssMB',
-  'aRetentar', 'provas',
+  'aRetentar', 'alheios', 'provas',
 ];
 
 /**
@@ -174,6 +202,27 @@ export function fechar(resultados, notas = [], colunas = COLUNAS) {
     console.log('\n  LEITURA');
     for (const n of notas) console.log(`    - ${n}`);
   }
+
+  // O AMBIENTE VEM ANTES DOS NUMEROS, porque ele decide se eles valem. Uma rodada com dois
+  // nucleos gastos fora do experimento nao compara com nada, e a bancada diz isso antes de a
+  // tabela ser lida, nao numa nota de rodape.
+  const pior = resultados.reduce(
+    (p, r) => ((r.carga?.nucleosAlheios ?? 0) > (p?.nucleosAlheios ?? 0) ? r.carga : p),
+    null
+  );
+  const ambiente = saudeDoAmbiente(pior);
+  console.log(`
+  ${ambiente.texto}`);
+  if (!ambiente.ok) console.log('  >>> ESTES NUMEROS NAO SERVEM DE LINHA DE BASE. <<<');
+
+  // Grava ou compara a linha de base, conforme as bandeiras. REGRESSAO NAO REPROVA por si: a
+  // bancada nao sabe se a mudanca foi deliberada. Ela imprime, e a decisao fica com quem leu o
+  // plano. So perda de dado sai com codigo 1.
+  baseDaRodada({
+    linhas: resultados.map((r) => r.linha),
+    cabecalho: cabecalhoDaRodada,
+    chave: 'degrau',
+  });
 
   const falhou = resultados.some((r) => !r.reconciliacao.ok);
   console.log('');
