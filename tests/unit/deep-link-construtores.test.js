@@ -9,6 +9,13 @@
  * de chave feita nos dois lados ao mesmo tempo passaria verde e quebraria todo link
  * já distribuído, que é exatamente o modo de falha que este par existe para pegar.
  *
+ * O MÓDULO É CARREGADO UMA VEZ, num `beforeAll` com folga de tempo, e isso não é
+ * estilo. `deep-link.js` importa `@store` e o barril `@utils`, e a PRIMEIRA vez que
+ * o Vite transforma esse grafo custa segundos num cache frio: com o import dentro
+ * dos casos, o primeiro deles pagava a conta sozinho e estourava o limite padrão de
+ * 5 s. Passava em cache quente e reprovava em CI, que é a pior forma de teste. O
+ * custo agora está num gancho, medido uma vez e fora do relógio de cada caso.
+ *
  * A SEGUNDA PROPRIEDADE É A QUERY. Os construtores montavam a URL a partir de
  * origem e caminho, e a busca morria junto. Ela é onde os outros deep links deste
  * app moram, então o link dizia "esta vista, no padrão" quando a pessoa quis dizer
@@ -16,7 +23,7 @@
  * não só no novo: o defeito era compartilhado.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 
 const original = globalThis.window;
 
@@ -38,9 +45,16 @@ afterEach(() => { globalThis.window = original; });
 
 const QUERY = '?atlas=11111111-1111-4111-8111-111111111111';
 
+/** O namespace de `deep-link.js`, resolvido uma vez. Ver o cabeçalho. */
+let construtores;
+beforeAll(async () => {
+    fingirEndereco();
+    construtores = await import('@js/deep-link/deep-link.js');
+}, 60000);
+
 describe('construtores de link: ida e volta pelo leitor', () => {
     it('360', async () => {
-        const { buildShareUrl360 } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrl360 } = construtores;
         const url = buildShareUrl360('PANO-0042.jpg', 123.45, -6.7, 75);
 
         expect(url).toBe('https://ebgeo.exemplo/#view=360&photo=PANO-0042.jpg&lon=123.45&lat=-6.70&fov=75.0');
@@ -50,7 +64,7 @@ describe('construtores de link: ida e volta pelo leitor', () => {
     });
 
     it('3D', async () => {
-        const { buildShareUrl3D } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrl3D } = construtores;
         const url = buildShareUrl3D('hangar-01', -43.2, -22.9, 150, 1.5708, -0.5236, 0);
 
         expect(await relerComoLink(url)).toEqual({
@@ -60,7 +74,7 @@ describe('construtores de link: ida e volta pelo leitor', () => {
     });
 
     it('primeira pessoa', async () => {
-        const { buildShareUrlFirstPerson } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrlFirstPerson } = construtores;
         const url = buildShareUrlFirstPerson('galpao', 1, 2.5, -3.25, 0.7854, -0.1);
 
         expect(await relerComoLink(url)).toEqual({
@@ -69,7 +83,7 @@ describe('construtores de link: ida e volta pelo leitor', () => {
     });
 
     it('camada base', async () => {
-        const { buildShareUrlBasemap } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrlBasemap } = construtores;
         const url = buildShareUrlBasemap('bdgex', -43.18, -22.97, 14.5, 30, 45);
 
         expect(url).toBe(
@@ -87,7 +101,7 @@ describe('construtores de link: a query sobrevive', () => {
         fingirEndereco({ search: QUERY });
         const {
             buildShareUrl360, buildShareUrl3D, buildShareUrlFirstPerson, buildShareUrlBasemap,
-        } = await import('@js/deep-link/deep-link.js');
+        } = construtores;
 
         const links = [
             buildShareUrl360('p.jpg', 1, 2, 75),
@@ -106,7 +120,7 @@ describe('construtores de link: a query sobrevive', () => {
 
     it('o hash antigo é substituído, nunca acumulado', async () => {
         fingirEndereco({ hash: '#view=360&photo=antiga.jpg' });
-        const { buildShareUrlBasemap } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrlBasemap } = construtores;
 
         const url = buildShareUrlBasemap('osm', 1, 2, 10, 0, 0);
         expect(url).not.toContain('antiga.jpg');
@@ -116,7 +130,7 @@ describe('construtores de link: a query sobrevive', () => {
 
 describe('construtor de camada base: os valores que ninguém escolheu', () => {
     it('sem camada base, a chave fica AUSENTE em vez de vazia', async () => {
-        const { buildShareUrlBasemap } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrlBasemap } = construtores;
         const url = buildShareUrlBasemap(null, -43.18, -22.97, 14.5, 0, 0);
 
         // `base=` com nada depois significaria a mesma coisa que a ausência, com
@@ -126,7 +140,7 @@ describe('construtor de camada base: os valores que ninguém escolheu', () => {
     });
 
     it('número não finito vira zero no texto, nunca a palavra NaN', async () => {
-        const { buildShareUrlBasemap } = await import('@js/deep-link/deep-link.js');
+        const { buildShareUrlBasemap } = construtores;
         const url = buildShareUrlBasemap('osm', -43.18, -22.97, NaN, undefined, Infinity);
 
         expect(url).not.toContain('NaN');
