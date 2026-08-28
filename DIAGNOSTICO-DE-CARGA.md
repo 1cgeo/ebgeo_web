@@ -36,7 +36,7 @@ Dois cenários medidos no mesmo dia, na mesma máquina:
 | ops/s escritas | 1.235 | 616 |
 | maior sala | 2 pessoas | **100 pessoas** |
 | perda de presença | **~0%** | 21% a 76% |
-| sockets derrubados | **0** | 138 |
+| sockets derrubados | **0** | 138 (*na rampa; ver P3*) |
 | ack mediano | 2.311 ms | 281 ms |
 
 **O dobro dos sockets e o dobro da escrita, com zero perda e zero desconexão.** O que separa os
@@ -58,14 +58,19 @@ o ack mediano vai de 16 ms (sala de 50) para **3,8 s**, e isso o usuário sente.
 **Aguenta degradado:** uma sala de cem.
 **Não aguenta:** uma sala de duzentos.
 
-### As três coisas a fazer, em ordem
+### O que falta fazer
 
-1. **Agregar quadros de cursor no servidor** (ação A). É o que separa "cem por sala, devagar" de
-   "centenas por sala".
-2. **Pool dedicado para a varredura de autorização** (ação B). Impede que a fila de escrita
-   desconecte usuários de outras salas.
-3. **Incluir os `opIds` no frame de erro do socket** (ação C). Uma linha, e o cliente passa a saber
-   o que reenviar.
+**Uma coisa só, e ela é grande: agregar quadros de cursor no servidor** (ação A). É o que separa
+"cem por sala, devagar" de "centenas por sala", e tudo o mais depende dela.
+
+Duas ações menores já entraram, e o que elas ensinaram mudou o plano:
+
+- **`opIds` no frame de erro** (ação C, `4b8baa86`): 750 operações saíram do limbo.
+- **Vivacidade por qualquer frame** (`403c7c41`): substituiu a ação B, que atacava uma causa
+  inexistente. Zerou as desconexões **e revelou que elas eram um descarte de carga acidental**.
+  Ver P3.
+
+A ação B (pool dedicado) foi **cancelada**: a medida mostrou que o pool nunca era o problema.
 
 ---
 
@@ -310,26 +315,41 @@ quase quatro segundos para ver a própria edição confirmada.
 A contrapressão protege a memória do servidor, que era o objetivo declarado. Ela não protege a
 latência do usuário, e nada no desenho hoje faz isso.
 
-### P3. Fome de pool desconecta usuários de outras salas (medido)
+### P3. A varredura de vivacidade era um descarte de carga acidental (medido)
 
-A espera pelo advisory lock RETÉM a conexão do pool. Na população de mil usuários com uma sala de
-cem, `pg_stat_activity` mostrou **10 conexões ativas e 9 esperando em `Lock/advisory`**.
+**A primeira versão deste problema estava errada, e o erro vale registrar.** Ela dizia que a fome
+de pool derrubava sockets: `reconcileAuthorization` falharia e fecharia com `4003`. Três medidas
+desmontaram isso:
 
-O dano não é óbvio. `reconcileAuthorization` roda a cada varredura de 30 s e consulta o banco. Sem
-conexão, ela falha:
+1. O pool **não tem `connectionTimeoutMillis`**. Ele espera em vez de lançar, e sem exceção o
+   `catch` que incrementa `authzFailures` nunca roda. Estava no código o tempo todo; o mecanismo
+   foi deduzido lendo o `catch` sem verificar se algo o alcança.
+2. Os códigos de fechamento, uma vez instrumentados, saíram **todos `1006`**: 156 na rampa e 16 na
+   janela. Nenhum `4003`. `1006` é `terminate()` da varredura de heartbeat.
+3. O laço do driver **durante a rampa** marcou p99 de 19 ms. Os pings saíram no horário. Quem não
+   os processou a tempo foi o servidor, ocupado com o fan-out de presença.
 
-```js
-ws.authzFailures = (ws.authzFailures || 0) + 1;
-if (ws.authzFailures >= AUTHZ_MAX_CONSECUTIVE_FAILURES) {
-  ws.close(4003, 'authorization unverifiable');
-}
-```
+**O mecanismo real.** A varredura terminava todo socket cujo `isAlive` estivesse falso, e só o
+`ping` rearmava a marca. Sob saturação de CPU o `ping` chega tarde, e um cliente que manda doze
+quadros de cursor por segundo era, para a varredura, indistinguível de um cliente morto.
 
-**138 sockets derrubados**, espalhados por todas as salas, inclusive as de duas pessoas com carga
-desprezível.
+**Consertado** (`403c7c41`): qualquer frame que chega rearma a marca. Derrubados foram a zero.
 
-**A causa é concentração, não volume.** O E10 escreveu 1.235 ops/s espalhadas por mil atlas, com o
-lock vazio e ZERO derrubados. O E8 escreveu metade disso, concentrada, e sequestrou o pool.
+**E o conserto revelou o problema de verdade.** Ao ceifar 156 sockets, a varredura removia 16% da
+população, e os sobreviventes recebiam serviço decente. Sem ela:
+
+| | antes | depois |
+|---|---|---|
+| derrubados na rampa | 156 | 0 |
+| **ackP50 sob saturação** | 72 ms | **114.427 ms** |
+
+**O sistema atravessava a saturação desconectando usuários em silêncio.** Ninguém projetou isso. O
+conserto não melhora desempenho: ele troca desconexão invisível por latência visível.
+
+Custo medido contra a linha de base: **zero até 50 pessoas por sala**; na de 100, ack de 3.844 para
+6.775 ms. O dano começa onde o sistema já estava fora do limite.
+
+**Isto não autoriza subir o limite de 50 por sala, nem ir a produção sem a ação A.**
 
 ### P4. O lote de 100 do cliente encosta no teto do lock (medido, lido)
 
@@ -339,13 +359,14 @@ simultâneos no mesmo atlas**.
 
 O modo de falha é ruim: uma pessoa cola ou importa muita coisa, e **os outros** levam recusa.
 
-### P5. O frame de erro do socket não diz o que falhou (medido)
+### P5. O frame de erro do socket não dizia o que falhou. **RESOLVIDO** em `4b8baa86`
 
-Sob contenção, 3 de 16 lotes levaram `OPERATION_FAILED` e 750 ops ficaram em limbo. O frame é
-`{ type, code, message }`, sem `opIds` e sem referência ao lote.
+Sob contenção, 3 de 16 lotes levavam `OPERATION_FAILED` e 750 ops ficavam em limbo, porque o frame
+era `{ type, code, message }`, sem `opIds`.
 
-Reenviar é seguro por causa da idempotência, mas o cliente não sabe O QUÊ reenviar. Com mais de um
-lote em voo, a falha é inatribuível.
+O frame ganhou `opIds` e `retryable`, ambos aditivos. Medido no E3 forçado: **750 ops
+inatribuíveis viraram zero**. Inversão que vale registrar: o socket agora informa mais que o REST,
+porque o 503 do REST também não traz veredito por op.
 
 ### P6. A janela do heartbeat tem 5 segundos de folga (lido, inferência)
 
@@ -383,16 +404,15 @@ Custo de UX: a presença passa de 80 ms para 100 ms de granularidade. Impercept�
 
 *Medir depois:* E9 nos mesmos degraus, contra a base de 2026-08-27.
 
-### B. Pool dedicado para a varredura de autorização — impacto alto, custo baixo
+### B. Pool dedicado para a varredura de autorização. **CANCELADA**
 
-Pool próprio, de 2 a 3 conexões, para `reconcileAuthorization`. A fila do advisory lock deixa de
-poder derrubar sockets. Ataca o P3 sem tocar no advisory lock.
+Ela pressupunha que a fila do advisory lock derrubava sockets por falha de autorização. A medida
+mostrou que não: nenhum fechamento `4003`, e o pool nem lança, porque não tem
+`connectionTimeoutMillis`. O conserto certo custou uma linha e está no P3.
 
-*Medir depois:* E8 na cadência de trabalho. `derrubados` deve ir de 138 a zero.
+### C. Incluir os `opIds` no frame de erro do socket. **FEITO** em `4b8baa86`
 
-### C. Incluir os `opIds` no frame de erro do socket — impacto médio, custo trivial
-
-Uma linha em `collab.handlers.js`. Resolve o P5 e torna o reenvio atribuível.
+De 750 ops inatribuíveis para zero, medido no E3 forçado.
 
 ### D. Alinhar a janela do heartbeat — impacto médio, custo trivial
 
@@ -447,7 +467,7 @@ Cinco cenários congelados, banda de ruído medida, três guardas de instrumento
 Duas abas no mesmo atlas, uma em segundo plano por 90 s, cinco repetições. Decide se o item D
 entra. **Se der não, o item D sai do plano, e a economia é o resultado.**
 
-### Grupo 2 — Higiene do socket
+### Grupo 2 — Higiene do socket. **FEITO** em `4b8baa86`
 
 `opIds` no frame de erro, e o item D se o Grupo 1 confirmar.
 
@@ -460,7 +480,15 @@ não tem como saber quais falharam. Sem isso a melhoria fica invisível.
 |---|---|---|
 | ops inatribuíveis no caminho WS | 750 | **0** |
 
-### Grupo 3 — Isolar a varredura de autorização
+### Grupo 3 — Isolar a varredura de autorização. **CANCELADO**, e substituído em `403c7c41`
+
+O alvo era `derrubados` de 138 a zero por meio de um pool dedicado. A medida mostrou que a causa
+não era o pool, e o conserto certo custou uma linha. Ver P3.
+
+**O alvo foi atingido e o problema não.** Zero derrubados, e a latência sob saturação piorou por
+isso mesmo. Fica dependente da ação A.
+
+<details><summary>O plano original, mantido para registro</summary>
 
 *Bancada:* E8, cadência trabalho, contra a base.
 
@@ -471,6 +499,8 @@ não tem como saber quais falharam. Sem isso a melhoria fica invisível.
 | ack mediano | 281 ms | continua igual, e isso é esperado |
 
 **Este grupo não conserta a latência.** Se o ack melhorar junto, alguma premissa está errada.
+
+</details>
 
 ### Grupo 4 — Agregar quadros de cursor
 
