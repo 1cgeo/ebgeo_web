@@ -102,7 +102,7 @@ describe('presença: `user_away` sempre termina em back ou left', () => {
     // ...e continua recebendo broadcast normal.
     abaB.clearMessages();
     observador.send({ type: 'cursor', position: { lng: -43.2, lat: -22.9 }, mapId: null });
-    const cursor = await abaB.waitForType('cursor');
+    const cursor = await abaB.waitForCursor();
     assert.equal(cursor.userId, owner.id, 'a aba viva segue na sala e recebendo');
 
     observador.close();

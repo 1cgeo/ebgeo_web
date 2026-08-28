@@ -473,6 +473,10 @@ const CENSO_TIPO_WS = [
   { tipo: 'ack_batch', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'adaptive-settings', classe: M_SEM_ENTIDADE, motivo: CONTROLE },
   { tipo: 'cursor', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
+  // O LOTE de cursor: mesma natureza do frame singular, so que agrupado por sala. Carrega uma
+  // lista de `{ clientId, userId, position, mapId }` e nada mais; nenhum documento de entidade
+  // atravessa. Ver a decisao de 2026-08-28.
+  { tipo: 'cursors', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'selection', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'temporal', classe: M_SEM_ENTIDADE, motivo: PRESENCA },
   { tipo: 'user_joined', classe: M_SEM_ENTIDADE, motivo: PRESENCA },

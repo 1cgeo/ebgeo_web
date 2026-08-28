@@ -467,7 +467,7 @@ describe('WebSocket Collaboration — gaps', () => {
       // Cursor presence stays ungated — a reader's cursor still reaches peers.
       o.clearMessages();
       r.send({ type: 'cursor', position: { lat: -22.9, lng: -43.2 }, mapId: map.id });
-      const cursor = await o.waitForType('cursor');
+      const cursor = await o.waitForCursor();
       assert.equal(cursor.userId, connectedR.userId);
 
       // Selection IS gated: a Visualizador (read) only sees peers' selections, it
@@ -495,7 +495,7 @@ describe('WebSocket Collaboration — gaps', () => {
 
       o.clearMessages();
       pub.send({ type: 'cursor', position: { lat: 1, lng: 1 }, mapId: null });
-      const cursor = await o.waitForType('cursor');
+      const cursor = await o.waitForCursor();
       assert.equal(cursor.userId, connectedPub.userId);
 
       o.close();

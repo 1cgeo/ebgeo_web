@@ -4,6 +4,7 @@
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 import { pruneResourcePayload } from '../catalog/resource-payload.prune.js';
+import config from '../../config.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
@@ -12,7 +13,7 @@ const rooms = new Map(); // atlasId -> Set<WebSocket>
 // to a backed-up client — the next frame supersedes them, so the drop self-heals. A socket past the
 // hard ceiling is terminated so it reconnects and replays via sync_request; dropping a durable op
 // would silently diverge that peer instead.
-const COALESCABLE_TYPES = new Set(['cursor', 'temporal', 'selection']);
+const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'temporal', 'selection']);
 const BACKPRESSURE_DROP_BYTES = 1 << 20; // 1 MiB — drop coalescable presence frames
 const BACKPRESSURE_KILL_BYTES = 8 << 20; // 8 MiB — terminate a hopelessly backed-up socket
 
@@ -249,4 +250,107 @@ export function getRoomUsers(atlasId) {
 export function getRoomSize(atlasId) {
   const room = rooms.get(atlasId);
   return room ? room.size : 0;
+}
+
+// =================================================================================================
+// AGRUPAMENTO DE CURSOR
+//
+// O CUSTO QUE ISTO ATACA, medido. A sala e `atlasId -> Set<WebSocket>` e nao tem subcanal, entao
+// cada quadro de cursor vira uma escrita em socket POR PAR. Com `S` membros e uma fracao `f` deles
+// movendo o mouse a 12,5 quadros por segundo (o throttle do cliente e de 80 ms), o servidor escreve
+// `S x f x 12,5 x (S - 1)` vezes por segundo. Dobrar a sala QUADRUPLICA o trabalho.
+//
+// A bancada mediu o teto: a sala de 100 entrega 60.636 quadros/s dos 61.707 que o desenho pede; a
+// de 200 pede 246.302 e entrega 46.436; a de 400 pede 971.086 e entrega os mesmos 46 mil. Acima do
+// teto o servidor gasta CPU DECIDINDO DESCARTAR, e a latencia de escrita vai junto: o ack mediano
+// sai de 16 ms na sala de 50 para 3,8 s na de 100.
+//
+// O QUE MUDA. Em vez de retransmitir cada quadro, guarda-se o ULTIMO de cada cliente e emite-se um
+// lote por sala a cada `cursorBatchMs`. As escritas caem de `S x f x 12,5 x (S-1)` para `S x 10`
+// por segundo: na sala de 400, de 971.086 para cerca de 4.000.
+//
+// POR QUE O REMETENTE NAO E EXCLUIDO. O ganho vem de serializar UMA vez por sala. Excluir cada
+// remetente exigiria um payload por destinatario, que e exatamente o custo que se quer eliminar. O
+// lote carrega `clientId` e o cliente descarta o proprio eco, que e o mesmo gesto que ele ja faz
+// com operacoes (ver `client-id-estavel`).
+//
+// PERDER QUADRO INTERMEDIARIO E O OBJETIVO, NAO UM EFEITO COLATERAL. Presenca nao tem historia: so
+// a ultima posicao importa. O que se perde e granularidade, de 80 ms para `cursorBatchMs`.
+//
+// UM TEMPORIZADOR SO, PARA TODAS AS SALAS. Um por sala custaria um `setInterval` por atlas aberto,
+// e o `unref` impede que ele segure o processo no encerramento.
+// =================================================================================================
+
+/**
+ * O intervalo do lote, lido VIVO do ambiente, com o `config` como piso.
+ *
+ * A leitura viva segue o mesmo padrao que `RATE_LIMIT_FORCE` e `EBGEO_TRACE` ja usam neste
+ * repositorio, e aqui ela paga duas contas de uma vez. Operacionalmente, permite desligar o
+ * agrupamento sem novo deploy, que e a valvula que se quer ter para uma mudanca de contrato no fio.
+ * E de teste, permite exercitar os dois regimes no mesmo processo: `config.ws` e `Object.freeze`,
+ * entao a propriedade nao se redefine, e sem isto o caminho antigo ficaria sem cobertura.
+ */
+function intervaloDeLote() {
+  const bruto = process.env.WS_CURSOR_BATCH_MS;
+  if (bruto === undefined || bruto === '') return config.ws.cursorBatchMs;
+  const n = parseInt(bruto, 10);
+  return Number.isFinite(n) ? n : config.ws.cursorBatchMs;
+}
+
+/** atlasId -> Map<clientId, quadro>. So o ULTIMO quadro de cada cliente sobrevive. */
+const cursoresPendentes = new Map();
+let temporizadorDeCursor = null;
+
+/** Emite o lote de cada sala com pendencia e desarma o temporizador quando nao ha mais nada. */
+function descarregarCursores() {
+  for (const [atlasId, porCliente] of cursoresPendentes) {
+    if (porCliente.size === 0) continue;
+    const lote = [...porCliente.values()];
+    porCliente.clear();
+    // Sem `excludeWs`: uma serializacao para a sala inteira, e cada cliente descarta o proprio.
+    broadcastToRoom(atlasId, { type: 'cursors', lote });
+  }
+  cursoresPendentes.clear();
+  if (temporizadorDeCursor) {
+    clearInterval(temporizadorDeCursor);
+    temporizadorDeCursor = null;
+  }
+}
+
+/**
+ * Enfileira um quadro de cursor para sair no proximo lote da sala.
+ *
+ * @param {string} atlasId
+ * @param {Object} quadro - `{ clientId, userId, position, mapId }`.
+ * @returns {boolean} `false` quando o agrupamento esta desligado, e o chamador deve retransmitir
+ *   na hora. Devolver um booleano em vez de decidir aqui mantem o caminho antigo intacto e
+ *   comparavel, que e o que permite medir antes e depois.
+ */
+export function enfileirarCursor(atlasId, quadro) {
+  const intervalo = intervaloDeLote();
+  if (!intervalo || intervalo <= 0) return false;
+
+  let porCliente = cursoresPendentes.get(atlasId);
+  if (!porCliente) {
+    porCliente = new Map();
+    cursoresPendentes.set(atlasId, porCliente);
+  }
+  // A CHAVE E O `clientId`, e nao o `userId`: duas abas da mesma pessoa sao duas presencas, e o
+  // registro da sala e keyed por clientId. Agrupar por usuario faria uma aba apagar a outra.
+  porCliente.set(quadro.clientId ?? quadro.userId, quadro);
+
+  if (!temporizadorDeCursor) {
+    temporizadorDeCursor = setInterval(descarregarCursores, intervalo);
+    temporizadorDeCursor.unref?.();
+  }
+  return true;
+}
+
+/** Descarta o que estiver pendente. Usado no encerramento e pelos testes. */
+export function limparCursoresPendentes() {
+  cursoresPendentes.clear();
+  if (temporizadorDeCursor) {
+    clearInterval(temporizadorDeCursor);
+    temporizadorDeCursor = null;
+  }
 }

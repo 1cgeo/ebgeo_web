@@ -180,6 +180,29 @@ const config = Object.freeze({
     // terminate) the user is marked `away` for this grace window instead of
     // being removed; a reconnect with the same clientId cancels removal.
     awayGraceMs: parseInt(optional('WS_AWAY_GRACE_MS', '120000'), 10),
+    // AGRUPAMENTO DE CURSOR. A sala e por atlas e sem subcanal, entao cada quadro de cursor era
+    // retransmitido a todos os pares: `S x f x 12,5 x (S-1)` escritas em socket por segundo. A
+    // bancada mediu a sala de 200 pedindo 246.302 quadros/s e o servidor entregando 46.436, e a
+    // de 400 pedindo 971.086 e entregando os mesmos 46 mil. Agrupando por sala a cada 100 ms com
+    // a ULTIMA posicao de cada um, a de 400 passa a pedir cerca de 4.000, um decimo do teto.
+    // Zero DESLIGA e volta ao relay imediato, que e como se compara antes e depois.
+    // LIGADO POR PADRAO, com 100 ms, que e o valor medido.
+    //
+    // O GANHO, na bancada E9 contra a linha de base de 2026-08-27:
+    //     sala de 100:  ack 3.844 ms -> 17 ms, CPU 84,8% -> 22,2%
+    //     sala de 200:  ack 84.961 ms -> 34 ms, CPU 87% -> 44,3%, 147 sockets derrubados -> ZERO
+    // O limite operacional de sala sai de cinquenta para duzentos, e a de 100 fica indistinguivel
+    // da de 50.
+    //
+    // ISTO E CONTRATO NO FIO, e a compatibilidade nao e retroativa: o frame passa de `cursor` (um
+    // por quadro, sem o remetente) para `cursors` (um lote por sala, COM o remetente, que o cliente
+    // descarta pelo clientId). Cliente antigo contra servidor novo simplesmente PARA DE VER CURSOR,
+    // sem erro nenhum, que e o modo de falha mais silencioso que existe. Os dois pacotes sao
+    // versionados juntos neste repositorio, e a decisao de 2026-08-28 registra isso.
+    //
+    // Zero DESLIGA e volta ao relay imediato, com teste proprio para que "desligado" nao possa
+    // estar silenciosamente ligado. E a valvula para reverter sem novo deploy de codigo.
+    cursorBatchMs: parseInt(optional('WS_CURSOR_BATCH_MS', '100'), 10),
   }),
 
   // How many reverse proxies sit in front of the app, for Express `trust proxy`.
@@ -360,6 +383,7 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   WS_HEARTBEAT_INTERVAL_MS: { min: 1000, max: 3600000 },
   WS_HEARTBEAT_TIMEOUT_MS: { min: 100, max: 3600000 },
   WS_AWAY_GRACE_MS: { min: 0, max: 86400000 },
+  WS_CURSOR_BATCH_MS: { min: 0, max: 5000 },
   RATE_LIMIT_AUTH_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_AUTH_MAX: { min: 1 },
   RATE_LIMIT_PUBLIC_WINDOW_MS: { min: 1000 },

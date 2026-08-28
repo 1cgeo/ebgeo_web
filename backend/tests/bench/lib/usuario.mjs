@@ -202,6 +202,19 @@ export function criarUsuario({
       return;
     }
 
+    // CONTA POR POSICAO, NUNCA POR FRAME. Desde o agrupamento, um unico frame `cursors` carrega a
+    // ultima posicao de varios clientes de uma vez. Contar frames faria a bancada acusar 99% de
+    // perda de presenca no exato momento em que o servidor passou a entregar TUDO, e a tabela
+    // reprovaria a mudanca que ela existe para aprovar.
+    //
+    // A regra de perda nao muda de forma: o esperado continua sendo `enviados x (S-1)`. O que muda
+    // e que o servidor agora manda MENOS quadros do que foram enviados, de proposito, porque so a
+    // ultima posicao de cada janela sobrevive. Por isso a leitura da coluna muda junto: com
+    // agrupamento ligado, `perdaCursorPct` deixa de medir descarte e passa a medir COALESCENCIA.
+    if (msg.type === 'cursors') {
+      estado.cursoresRecebidos += (msg.lote?.length ?? 0);
+      return;
+    }
     if (msg.type === 'cursor') estado.cursoresRecebidos += 1;
   }
 

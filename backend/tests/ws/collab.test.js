@@ -224,7 +224,7 @@ describe('WebSocket Collaboration', () => {
       });
 
       // Client 2 should receive cursor update
-      const cursorMsg = await client2.waitForType('cursor');
+      const cursorMsg = await client2.waitForCursor();
       assert.ok(cursorMsg);
       // The relay frame is FLAT (collab.handlers.js): `position` at the top level,
       // never nested under `data`.

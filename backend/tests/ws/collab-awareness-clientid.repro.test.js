@@ -67,7 +67,13 @@ describe('WS awareness — clientId no frame (regressão a358a6e)', () => {
       await receptor.waitForType('connected');
       receptor.clearMessages();
       emissor.send(payload);
-      return await receptor.waitForType(tipo);
+      // O cursor tem DOIS regimes no fio (relay imediato ou lote por sala, conforme
+      // `WS_CURSOR_BATCH_MS`), e o que este arquivo prende nao e o formato: e que a chave do
+      // roster e a do awareness sao a MESMA. `waitForCursor` diz isso nos dois. Os outros
+      // frames de presenca (selection, temporal) nao sao agrupados e seguem por tipo.
+      return tipo === 'cursor'
+        ? await receptor.waitForCursor()
+        : await receptor.waitForType(tipo);
     } finally {
       emissor.close();
       receptor.close();
@@ -120,7 +126,7 @@ describe('WS awareness — clientId no frame (regressão a358a6e)', () => {
       const entrada = await receptor.waitForType('user_joined');
       receptor.clearMessages();
       emissor.send({ type: 'cursor', position: { lat: 1, lng: 1 }, mapId: map.id });
-      const awareness = await receptor.waitForType('cursor');
+      const awareness = await receptor.waitForCursor();
 
       assert.ok(entrada.clientId, 'o frame de entrada precisa trazer clientId');
       assert.equal(

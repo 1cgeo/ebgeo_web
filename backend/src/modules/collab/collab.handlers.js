@@ -1,7 +1,7 @@
 // Path: src/modules/collab/collab.handlers.js
 // Individual message type handlers for WebSocket collaboration
 
-import { broadcastToRoom, broadcastOperations } from './collab.rooms.js';
+import { broadcastToRoom, broadcastOperations, enfileirarCursor } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
 import { VALIDATION_OPTIONS } from '../../middleware/validate.js';
@@ -143,17 +143,31 @@ export function handleCursor(ws, data) {
   ws.cursorPosition = value.position;
   ws.currentMapId = value.mapId;
 
-  broadcastToRoom(ws.atlasId, {
+  const quadro = {
     // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
     // back to `userId`: the roster is KEYED by clientId (collab.rooms.js:176), so an
     // awareness frame carrying only userId does not update the existing entry, it
     // CREATES A SECOND ONE. The peer then shows two roster rows per person, one with
     // a name and no cursor and one with a cursor labelled by the raw UUID.
     clientId: ws.clientId ?? null,
-    type: 'cursor',
     userId: ws.userId,
     position: value.position,
     mapId: value.mapId,
+  };
+
+  // O AGRUPAMENTO DECIDE, E O CAMINHO ANTIGO FICA INTEIRO. Com `WS_CURSOR_BATCH_MS` em zero o
+  // quadro sai na hora, exatamente como antes, e e assim que se mede o antes contra o depois na
+  // mesma bancada. Ver a nota longa em `collab.rooms.js`.
+  if (enfileirarCursor(ws.atlasId, quadro)) return;
+
+  broadcastToRoom(ws.atlasId, {
+    // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
+    // back to `userId`: the roster is KEYED by clientId (collab.rooms.js:176), so an
+    // awareness frame carrying only userId does not update the existing entry, it
+    // CREATES A SECOND ONE. The peer then shows two roster rows per person, one with
+    // a name and no cursor and one with a cursor labelled by the raw UUID.
+    ...quadro,
+    type: 'cursor',
   }, ws);
 }
 

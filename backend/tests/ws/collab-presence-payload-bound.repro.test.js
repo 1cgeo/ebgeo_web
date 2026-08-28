@@ -272,14 +272,14 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
 
     // Exactly what presence-bridge.js emits: a float lng/lat pair + the map NAME.
     v.send({ type: 'cursor', position: { lng: -43.20991234567891, lat: -22.90112345678912 }, mapId: map.name });
-    const cur = await peer.waitForType('cursor');
+    const cur = await peer.waitForCursor();
     assert.deepEqual(cur.position, { lng: -43.20991234567891, lat: -22.90112345678912 });
     assert.equal(cur.mapId, map.name);
 
     // A map switch piggybacks on a POSITIONLESS cursor frame (broadcastCurrentMap).
     peer.clearMessages();
     v.send({ type: 'cursor', position: null, mapId: map.name });
-    const noPos = await peer.waitForType('cursor');
+    const noPos = await peer.waitForCursor();
     assert.equal(noPos.position, null);
     assert.equal(noPos.mapId, map.name);
 
@@ -311,7 +311,7 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     const peer = await connect(atlas.id, ownerToken, `p6-${randomUUID().slice(0, 8)}`);
 
     v.send({ type: 'cursor', position: { lng: 197.5, lat: -22.9 }, mapId: map.name });
-    const cur = await peer.waitForType('cursor');
+    const cur = await peer.waitForCursor();
     assert.deepEqual(cur.position, { lng: 197.5, lat: -22.9 });
   });
 

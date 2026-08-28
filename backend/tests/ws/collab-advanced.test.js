@@ -77,7 +77,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       });
 
       // Client 2 should receive cursor update with mapId
-      const cursorMsg = await client2.waitForType('cursor');
+      const cursorMsg = await client2.waitForCursor();
       assert.ok(cursorMsg);
       assert.equal(cursorMsg.mapId, map.id);
       assert.ok(cursorMsg.position);

@@ -288,9 +288,26 @@ export function linhaDeSala(b, histEntrega, janelaMs) {
   const seg = Math.max(1, janelaMs / 1000);
   const ack = b.ackHist.resumo();
   const ent = histEntrega ? histEntrega.resumo() : null;
-  const esperadoCursor = b.cursoresEnviados * Math.max(0, b.tamanhoSala - 1);
+  // O DENOMINADOR MUDA QUANDO O SERVIDOR AGRUPA, e sem isso a coluna acusa como descarte o que e
+  // o desenho funcionando. Um usuario emite 12,5 quadros por segundo (throttle de 80 ms), mas com
+  // lote de `B` ms o servidor entrega no maximo `1000/B` por usuario: com B = 100, isso e 10, ou
+  // seja 20% dos quadros sao absorvidos POR DESIGN.
+  //
+  // Medido: com o agrupamento ligado, a formula antiga marcava 26,6% de "perda" na sala de DEZ,
+  // que nao tem congestionamento nenhum. Era coalescencia lida como descarte, e ela teria
+  // reprovado a mudanca que a bancada existe para aprovar.
+  const loteMs = Number(process.env.WS_CURSOR_BATCH_MS ?? 0);
+  const tetoPorUsuario = loteMs > 0 ? (janelaMs / 1000) * (1000 / loteMs) : Infinity;
+  const emitidosDepoisDoLote = loteMs > 0
+    ? Math.min(b.cursoresEnviados, tetoPorUsuario * b.usuarios)
+    : b.cursoresEnviados;
+  const esperadoCursor = emitidosDepoisDoLote * Math.max(0, b.tamanhoSala - 1);
   const perdaCursor = esperadoCursor > 0
-    ? round(100 * (1 - b.cursoresRecebidos / esperadoCursor), 1)
+    ? round(Math.max(0, 100 * (1 - b.cursoresRecebidos / esperadoCursor)), 1)
+    : 0;
+  // Quanto o agrupamento absorveu, separado do que se perdeu. Zero quando ele esta desligado.
+  const coalescido = loteMs > 0 && b.cursoresEnviados > 0
+    ? round(100 * (1 - emitidosDepoisDoLote / b.cursoresEnviados), 1)
     : 0;
   return {
     sala: b.tamanhoSala,
@@ -299,6 +316,7 @@ export function linhaDeSala(b, histEntrega, janelaMs) {
     'cursorEnv/s': round(b.cursoresEnviados / seg, 1),
     'cursorRec/s': round(b.cursoresRecebidos / seg, 1),
     perdaCursorPct: perdaCursor,
+    coalescPct: coalescido,
     ackP50: ack.p50,
     ackP95: ack.p95,
     ackP99: ack.p99,
@@ -363,7 +381,7 @@ export function cpuDoServidorPct(laco, janelaMs) {
 
 /** Column order for the population report. */
 export const COLUNAS_POP = [
-  'sala', 'usuarios', 'ops/s', 'cursorEnv/s', 'cursorRec/s', 'perdaCursorPct',
+  'sala', 'usuarios', 'ops/s', 'cursorEnv/s', 'cursorRec/s', 'coalescPct', 'perdaCursorPct',
   'ackP50', 'ackP95', 'ackP99', 'entregaP50', 'entregaP95', 'entregaP99',
   'erros', 'semVeredito', 'derrubados',
 ];

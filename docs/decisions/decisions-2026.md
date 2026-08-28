@@ -1156,3 +1156,74 @@ que sobreviveram:
    afirmam que `applySharedBasemap` foi chamada, e o `skipPersist` mora dentro dela. Falta o caso
    que afirma que a fila de saída não ganhou op de camada base, com o controle negativo de trocar
    por `setBaseLayer`.
+
+### 2026-08-28: o cursor sai em lote por sala, e o limite de sala vai de cinquenta para duzentos
+
+**Decisão.** O servidor deixa de retransmitir cada quadro de cursor e passa a emitir, a cada
+`WS_CURSOR_BATCH_MS`, UM lote por sala com a última posição de cada `clientId`. O tipo no fio muda
+de `cursor` para `cursors`, e o remetente passa a receber o próprio eco, que o cliente descarta.
+**Entra LIGADO**, com 100 ms.
+
+**A compatibilidade não é retroativa, e a escolha foi deliberada.** Cliente antigo contra servidor
+novo simplesmente para de ver cursor, sem erro nenhum, que é o modo de falha mais silencioso que
+existe. O branch `integracao_backend` não está em produção, e os dois pacotes são versionados
+juntos neste repositório: por isso o padrão reflete o comportamento pretendido em vez de esconder a
+capacidade atrás de uma variável. `WS_CURSOR_BATCH_MS=0` reverte sem novo deploy de código.
+
+**O custo que ela ataca, medido.** A sala é `atlasId -> Set<WebSocket>` sem subcanal, então cada
+quadro virava uma escrita em socket por par: `S x f x 12,5 x (S-1)` por segundo, porque o throttle
+do cliente é de 80 ms. A bancada E9 mediu a sala de 200 pedindo 246.302 quadros/s e o servidor
+entregando 46.436; a de 400 pedindo 971.086 e entregando os mesmos 46 mil. Acima do teto o servidor
+gasta CPU decidindo descartar, e a escrita paga junto.
+
+**O resultado, na mesma bancada, contra a linha de base de 2026-08-27:**
+
+| sala | ackP50 antes | ackP50 depois | CPU antes | CPU depois | derrubados |
+|---|---|---|---|---|---|
+| 100 | 3.844 ms | **17 ms** | 84,8% | **22,2%** | 0 → 0 |
+| 200 | 84.961 ms | **34 ms** | 87,0% | **44,3%** | **147 → 0** |
+| 400 | 67.955 ms | 89.344 ms | 90,7% | 83,0% | **371 → 0** |
+
+A sala de 200 saiu de quebrada para saudável, com fator de 2.500 no ack. A de 100 ficou
+indistinguível da de 50, que era o critério de aceitação. **O limite operacional de sala sai de
+cinquenta para duzentos.**
+
+A previsão bateu: a sala de 400 passou de 971.086 escritas em socket por segundo para cerca de
+4.000, ou seja 400 sockets vezes 10 lotes.
+
+**Três escolhas de desenho, e as três seriam fáceis de desfazer por engano:**
+
+1. **O remetente recebe o próprio eco.** O ganho vem de serializar UMA vez por sala; excluir cada
+   remetente exigiria um payload por destinatário, que é exatamente o custo a eliminar. Quem
+   descarta é o cliente, pelo `clientId`, como já faz com operação
+   (ver `client-id-estavel`). Reintroduzir a exclusão evapora o ganho.
+2. **A chave do agrupamento é `clientId`, nunca `userId`.** Duas abas da mesma pessoa são duas
+   presenças, e o registro da sala é indexado por `clientId`. Agrupar por usuário faria uma aba
+   apagar a outra.
+3. **O filtro do cliente compara `clientId` EXATO**, e não a metade de instalação que
+   `_isOwnClientId` usa para operação. Pela instalação, o cursor da outra aba do mesmo navegador
+   sumiria.
+
+**O que ela NÃO resolve.** A sala de 400 continua com ack de 89 s. Ela deixou de ser limitada por
+syscall e passou a ser limitada por carga útil: cada lote carrega até 400 posições, serializado uma
+vez mas escrito 400 vezes. O próximo teto é outro, e não foi medido.
+
+**Efeito colateral na régua.** Com o agrupamento ligado, a coluna de perda de cursor da bancada
+deixaria de medir descarte e passaria a medir coalescência: a fórmula antiga acusou 26,6% de
+"perda" na sala de DEZ, que não tem congestionamento nenhum. O denominador passou a descontar o
+teto do lote, e a coalescência ganhou coluna própria.
+
+**Reversível sem deploy de código**, pela variável de ambiente, e o caminho antigo tem teste
+próprio para que "desligado" não possa estar silenciosamente ligado.
+
+**O que a virada do padrão custou nos testes, e o que ela revelou.** Oito pontos de espera em sete
+arquivos afirmavam o formato antigo (`waitForType('cursor')`). Em vez de reescrever cada um para o
+formato novo, o ajudante de teste ganhou `waitForCursor()`, que aceita os DOIS regimes: a intenção
+daqueles casos nunca foi "chegou um frame do tipo X", e sim "o cursor do par chegou até mim".
+
+E a virada expôs um **verde vazio** em `multiuser-session-e2e`: a asserção
+`getMessagesOfType('cursor').length === 0`, comentada como "o remetente nunca vê a própria
+presença", continuava passando depois da mudança porque o eco passou a chegar como `cursors`. Ela
+aprovava sem verificar. Foi substituída por uma que afirma o contrato NOVO: o remetente recebe o
+próprio cursor no lote, e filtra no cliente. `selection` continua excluindo o remetente, e essa
+metade ficou guardada à parte.

@@ -166,12 +166,16 @@ describe('WebSocket multiuser session — e2e', () => {
     assert.deepEqual(loggedIds, [featA, featB].sort());
 
     // ── STEP 4: presence round-trip (cursor + selection), both directions ──────
-    // Proves the live-presence channel carries the right userId/mapId to peers and
-    // is strictly excluding-sender (the originator never sees its own presence).
+    // Proves the live-presence channel carries the right userId/mapId to peers.
+    //
+    // EXCLUDING-SENDER VALE PARA `selection`, E NAO VALE MAIS PARA CURSOR. Desde a decisao de
+    // 2026-08-28 o cursor sai em LOTE por sala, serializado uma vez, e o remetente recebe o proprio
+    // eco de proposito: excluir cada remetente exigiria um payload por destinatario, que e o custo
+    // que o agrupamento existe para eliminar. Quem descarta e o cliente, pelo `clientId`.
     a.clearMessages();
     b.clearMessages();
     a.send({ type: 'cursor', position: { lat: -22.85, lng: -43.15 }, mapId });
-    const bCursor = await b.waitForType('cursor');
+    const bCursor = await b.waitForCursor();
     assert.equal(bCursor.userId, A.id);
     assert.equal(bCursor.mapId, mapId);
     assert.deepEqual(bCursor.position, { lat: -22.85, lng: -43.15 });
@@ -180,12 +184,19 @@ describe('WebSocket multiuser session — e2e', () => {
     const bSelection = await b.waitForType('selection');
     assert.equal(bSelection.userId, A.id);
     assert.deepEqual(bSelection.featureIds, [featA]);
-    assert.equal(a.getMessagesOfType('cursor').length, 0);     // A saw none of its own presence
+    // `selection` CONTINUA excluindo o remetente, e esta assercao guarda isso.
     assert.equal(a.getMessagesOfType('selection').length, 0);
 
+    // O cursor de A VOLTA para A, dentro do lote. Assertar `getMessagesOfType('cursor') === 0`
+    // aqui passaria sem verificar nada, porque o eco chega como `cursors`: seria verde vazio.
+    const meuEco = await a.waitForCursor();
+    assert.equal(meuEco.userId, A.id, 'o remetente recebe o proprio cursor no lote, e filtra no cliente');
+
     // …and the reverse direction: B's cursor reaches A.
+    // Limpar antes, senao o proximo `waitForCursor` reencontra o eco de A que acabou de chegar.
+    a.clearMessages();
     b.send({ type: 'cursor', position: { lat: -23.0, lng: -43.3 }, mapId });
-    const aCursor = await a.waitForType('cursor');
+    const aCursor = await a.waitForCursor();
     assert.equal(aCursor.userId, B.id);
     assert.deepEqual(aCursor.position, { lat: -23.0, lng: -43.3 });
 

@@ -33,7 +33,7 @@ const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 30000;
 
 /** Coalescable presence frame types — safe to drop under local outbound backpressure. */
-const COALESCABLE_TYPES = new Set(['cursor', 'selection', 'temporal']);
+const COALESCABLE_TYPES = new Set(['cursor', 'cursors', 'selection', 'temporal']);
 /** Drop coalescable presence frames when the local outbound buffer exceeds this (bytes). */
 const PRESENCE_BUFFER_LIMIT = 1 << 20; // 1 MiB
 
@@ -333,6 +333,26 @@ export class WsClient {
                 break;
             case 'cursor':
                 this._emit('cursor', msg);
+                break;
+            case 'cursors':
+                // LOTE DE CURSOR. O servidor deixou de retransmitir cada quadro e passou a emitir,
+                // a cada `WS_CURSOR_BATCH_MS`, um lote por sala com a ÚLTIMA posição de cada
+                // cliente. O motivo está medido: a sala era `atlasId -> Set<WebSocket>` sem
+                // subcanal, então cada quadro virava uma escrita em socket POR PAR, e a sala de
+                // 400 pedia 971.086 escritas por segundo contra um teto de cerca de 60 mil.
+                //
+                // O lote é expandido aqui, no fio, e o resto do cliente não muda: `presence-bridge`
+                // e a camada de cursores remotos continuam recebendo o mesmo evento de sempre.
+                //
+                // O PRÓPRIO ECO É DESCARTADO AQUI, e é obrigação nova. Antes o servidor excluía o
+                // remetente do fan-out; agora ele serializa UMA vez para a sala inteira, que é de
+                // onde vem o ganho. A comparação é de `clientId` EXATO, nunca por instalação: duas
+                // abas do mesmo navegador são duas presenças legítimas, e filtrar por instalação
+                // apagaria o cursor da outra aba.
+                for (const item of msg.lote || []) {
+                    if (item.clientId && item.clientId === this._clientId) continue;
+                    this._emit('cursor', { type: 'cursor', ...item });
+                }
                 break;
             case 'selection':
                 this._emit('selection', msg);
