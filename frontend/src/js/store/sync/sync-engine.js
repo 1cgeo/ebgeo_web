@@ -50,8 +50,32 @@ import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { showWarning } from '../../utilities/toast_service.js';
 
-/** Max operations pushed per HTTP batch when flushing the queue. */
-const FLUSH_BATCH_SIZE = 100;
+/**
+ * Max operations pushed per HTTP batch when flushing the queue.
+ *
+ * VINTE E CINCO, E O NÚMERO FOI MEDIDO. A bancada `escrita-lote.bench.mjs` varre exatamente esta
+ * variável: o servidor não distingue "o cliente escolheu empacotar 25" de "o escritor da bancada
+ * mandou 25". Oito escritores no mesmo atlas, o mesmo total de operações repartido em lotes de
+ * tamanhos diferentes, três rodadas:
+ *
+ *     lote     ops/s (3 rodadas)      p50 por envio
+ *       10     818 / 725 / 691        ~89 ms
+ *       25     968 / 773 / 752        ~213 ms
+ *       50     843 / 792              ~445 ms
+ *      100     706 / 677              ~1.095 ms
+ *
+ * Cem perdia nos DOIS eixos, consistentemente. Entre 10 e 25 a vazão favorece 25 nas três rodadas e
+ * a latência por envio favorece 10 nas três; para carga em massa, que é o único regime em que o
+ * teto morde, dá empate (100 operações levam 890 ms com lote 10 e 852 ms com lote 25). O desempate
+ * é o custo que a bancada NÃO mede: 25 gera duas vezes e meia menos mensagens no fio e na CPU do
+ * navegador.
+ *
+ * O TETO TAMBÉM AFASTA O 503. O servidor serializa a escrita por atlas num advisory lock com
+ * `lock_timeout` de 5 s, e a recusa aparece quando `escritores x lote` passa de cerca de 4.000
+ * operações. Com 100 isso eram 40 escritores simultâneos no mesmo atlas; com 25 são 160, bem acima
+ * do limite de sala.
+ */
+const FLUSH_BATCH_SIZE = 25;
 
 /**
  * HTTP statuses that mean "these exact bytes will be refused forever".
