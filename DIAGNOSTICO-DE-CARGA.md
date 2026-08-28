@@ -65,12 +65,12 @@ A de 100 ficou indistinguível da de 50.
 | **E**, lote do cliente de 100 para 25 | `48b91f3f` | Vazão de 706 para 968 ops/s, ack por envio de 1.095 ms para 213 ms |
 | **C**, opIds no frame de erro | `4b8baa86` | 750 operações saíram do limbo |
 | vivacidade por qualquer frame | `403c7c41` | Zerou as desconexões, **e revelou que elas eram um descarte de carga acidental** |
+| vivacidade pelo ping do protocolo | (este) | Aba oculta deixa de ser ceifada. Medido: o Chrome trava o ping em 60 s depois de 5 min |
 
 A ação **B** (pool dedicado) foi **cancelada**: a medida mostrou que o pool nunca era o problema.
 
 ### O que falta
 
-- **Grupo 1**, o teste de aba em segundo plano, que decide se a ação D entra. Precisa de navegador.
 - **A sala de 400**, que continua com ack de 89 s. Ela deixou de ser limitada por syscall e passou
   a ser limitada por carga útil, e esse teto não foi medido.
 - **Grupo 6**, reavaliar o advisory lock. Provavelmente não vale mais.
@@ -371,15 +371,33 @@ O frame ganhou `opIds` e `retryable`, ambos aditivos. Medido no E3 forçado: **7
 inatribuíveis viraram zero**. Inversão que vale registrar: o socket agora informa mais que o REST,
 porque o 503 do REST também não traz veredito por op.
 
-### P6. A janela do heartbeat tem 5 segundos de folga (lido, inferência)
+### P6. Aba em segundo plano era ceifada. **MEDIDO e RESOLVIDO**
 
-O cliente pinga a cada 25 s (`DEFAULT_HEARTBEAT_MS`). O servidor varre a cada 30 s e **não tem
-handler de `pong`**: só o `{type:'ping'}` da aplicação rearma `isAlive`.
+O cliente pingava a cada 25 s e o servidor varre a cada 30 s, com **nenhum handler de `pong`**:
+só o `{type:'ping'}` da aplicação rearmava a marca de vida.
 
-Navegador estrangula temporizador de aba em segundo plano para cerca de um por minuto. Se isso
-valer aqui, aba em segundo plano é ceifada de forma confiável em até 60 s.
+**A medida, com sonda própria no Chrome** e um socket WebSocket aberto, para não medir uma página
+inerte:
 
-**Ainda não testado.** É o Grupo 1 do plano.
+| fase | intervalo do ping |
+|---|---|
+| oculta, primeiros ~5 min | **25.000 ms**, exatos |
+| oculta, além de ~5,6 min | **60.000 ms**, seis amostras consecutivas |
+
+O socket aberto **não** isentou a página, que era a dúvida do desenho. Com ping de 60 s contra
+varredura de 30 s, o socket morre de forma determinística: a varredura baixa a marca e a
+seguinte, trinta segundos depois, não encontrou ping nenhum.
+
+Numa sala de 200 pessoas, cada volta de aba esquecida virava rotatividade de presença para as
+outras 199.
+
+**Consertado com o ping do PROTOCOLO**, respondido pela pilha de rede do navegador. Não passa
+pelo JavaScript da página, então não existe temporizador para estrangular; a API de WebSocket nem
+expõe ping e pong ao script.
+
+A marca deixa de provar que o laço de JavaScript roda e passa a provar que a conexão e o processo
+do navegador estão vivos. **Isso é o conserto, não uma perda**: aba em segundo plano É uma página
+com o laço estrangulado, e matá-la era o falso positivo.
 
 ### P7. `heartbeatSweep` é O(sockets) de banco a cada 30 s (lido)
 
@@ -417,10 +435,14 @@ mostrou que não: nenhum fechamento `4003`, e o pool nem lança, porque não tem
 
 De 750 ops inatribuíveis para zero, medido no E3 forçado.
 
-### D. Alinhar a janela do heartbeat — impacto médio, custo trivial
+### D. Alinhar a janela do heartbeat. **DESCARTADA**, e substituída pelo ping do protocolo
 
-Subir `WS_HEARTBEAT_INTERVAL_MS` para 60 s, ou baixar o ping do cliente para 10 s. **Antes de
-mexer, fazer o teste de aba em segundo plano.**
+Subir o intervalo da varredura era remendo: aceitava que a prova de vida dependesse de um
+temporizador que o navegador tem o direito de estrangular, e pagava com socket morto ocupando
+memória e presença fantasma por minutos. Baixar o ping do cliente é impossível, porque o piso do
+estrangulamento é de um por minuto e nenhum temporizador o vence.
+
+O conserto real usa o ping do protocolo. Ver P6.
 
 ### E. Baixar o lote do cliente de 100 para 25. **FEITO** em `48b91f3f`
 
@@ -472,7 +494,12 @@ fora da bancada, e fica declarado como inferência: 25 gera duas vezes e meia me
 
 ## 5. O que ainda não foi medido
 
-- O teste de aba em segundo plano do P6.
+- **O lado do CLIENTE do heartbeat.** `ws-client.js` fecha a conexão com 4000 se um `pong`
+  ficar pendente de um tick para o outro. O conserto do P6 é do servidor, e essa regra
+  continua de pé. Na sonda ela não disparou: a aba estava estrangulada, não congelada, e o
+  laço seguia processando as respostas. **Inferência, não medida:** se o Chrome CONGELAR a
+  página logo depois de um ping, ela acorda com o `pong` pendente e fecha sozinha. Aba com
+  conexão aberta costuma ser isenta de congelamento, e por isso não se mexeu aqui.
 - A varredura de `DATABASE_POOL_MAX` e de `lock_timeout`, deliberadamente adiada.
 - O teto de sockets, que em 2.000 ainda não apareceu.
 - Qualquer cenário com mais de uma instância.
@@ -493,10 +520,17 @@ Três regras valem para todos:
 
 Cinco cenários congelados, banda de ruído medida, três guardas de instrumento no ar.
 
-### Grupo 1 — Medir a aba em segundo plano (sem mudar código)
+### Grupo 1 — Medir a aba em segundo plano. **FEITO**, e virou conserto
 
-Duas abas no mesmo atlas, uma em segundo plano por 90 s, cinco repetições. Decide se o item D
-entra. **Se der não, o item D sai do plano, e a economia é o resultado.**
+O teste de 90 s que este grupo propunha **não teria provado nada**: o Chrome só entra em
+estrangulamento agressivo depois de CINCO minutos de aba oculta, e antes disso o temporizador de
+25 s roda exato. Um teste curto daria "passou" e fecharia o assunto errado.
+
+Medido com sonda própria, aba oculta por 17 minutos, socket aberto: 25.000 ms exatos até os ~5,6
+min, depois **60.000 ms** em seis amostras consecutivas.
+
+O item D saiu do plano, mas não pela economia que este grupo previa: ele foi **substituído** por
+um conserto melhor, o ping do protocolo. Ver P6.
 
 ### Grupo 2 — Higiene do socket. **FEITO** em `4b8baa86`
 

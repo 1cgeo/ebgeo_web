@@ -238,6 +238,22 @@ export async function heartbeatSweep(wss) {
       return;
     }
     ws.isAlive = false;
+    // O PING DO PROTOCOLO, e nao o da aplicacao, e o que prova vida de forma confiavel.
+    //
+    // MEDIDO NO CHROME, com sonda propria e um socket aberto: uma aba oculta mantem o
+    // temporizador de 25 s exato por cerca de cinco minutos e depois entra em estrangulamento
+    // agressivo, travado em UM disparo por minuto. Seis amostras consecutivas de 60.000 ms. A
+    // conexao aberta NAO isentou a pagina, que era a duvida do teste.
+    //
+    // Com ping de aplicacao a 60 s e varredura a 30 s o socket morre de forma DETERMINISTICA: a
+    // varredura baixa a marca e a seguinte, trinta segundos depois, nao encontrou ping nenhum. O
+    // usuario troca de aba por cinco minutos e volta para uma reconexao, com rotatividade de
+    // presenca para a sala inteira.
+    //
+    // O ping do PROTOCOLO e respondido pela pilha de rede do navegador, automaticamente. Nao
+    // passa pelo JavaScript da pagina, entao nao existe temporizador para estrangular: a API de
+    // WebSocket nem expoe ping e pong ao script.
+    try { ws.ping(); } catch { /* socket fechando; a proxima varredura o colhe */ }
     live.push(ws);
   });
 
@@ -599,6 +615,22 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Set up error handler
   ws.on('error', (err) => {
     logger.error({ err, userId: ws.userId, atlasId: ws.atlasId }, 'WebSocket error');
+  });
+
+  // A RESPOSTA AO PING DO PROTOCOLO REARMA A MARCA, e a ausencia deste ouvinte era o buraco.
+  //
+  // O QUE A MARCA PASSA A SIGNIFICAR, e a mudanca e deliberada: antes ela provava que o LACO DE
+  // JAVASCRIPT da pagina rodava, porque so um ping de aplicacao a rearmava. Agora prova que a
+  // conexao e o processo do navegador estao vivos. Uma pagina congelada mas conectada passa a
+  // responder.
+  //
+  // Isso nao e perda de garantia: e o conserto. Aba em segundo plano E uma pagina com o laco
+  // estrangulado pelo navegador, e mata-la era o falso positivo. O proposito declarado da
+  // varredura e ceifar socket cujo cliente foi embora, e o pong de protocolo mede exatamente
+  // isso. Frame de aplicacao continua rearmando a marca por handleMessage; este virou o sinal
+  // PRIMARIO, aquele virou o bonus.
+  ws.on('pong', () => {
+    ws.isAlive = true;
   });
 }
 

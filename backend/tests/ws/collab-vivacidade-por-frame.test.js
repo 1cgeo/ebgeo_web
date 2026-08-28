@@ -13,10 +13,7 @@
 // autorizacao estava errada. E o laco do driver estava sadio (p99 de 19 ms), entao os pings SAIRAM
 // no horario: quem nao os processou a tempo foi o servidor, ocupado com o fan-out de presenca.
 //
-// O QUE ESTE TESTE PROVA. Que um frame de aplicacao qualquer (cursor, aqui) mantem o socket vivo
-// atraves de uma varredura, e que o socket que nao manda NADA continua sendo ceifado. O segundo
-// caso e tao importante quanto o primeiro: sem ele, o conserto poderia ter desligado a varredura
-// inteira e o teste ainda passaria.
+// O QUE ESTE TESTE PROVA. Que um frame de aplicacao qualquer (cursor, aqui) mantem o socket vivo,// atraves de uma varredura, e que o caminho do `ping` nao regrediu.,//,// O SEGUNDO CASO JA AFIRMOU O CONTRARIO DO QUE AFIRMA HOJE, e a inversao esta documentada nele.,// Enquanto so o trafego de aplicacao rearmava a marca, silencio significava morte, e o caso,// guardava a varredura contra um conserto que a desligasse. O ping do PROTOCOLO mudou o contrato:,// silencio de aplicacao deixou de provar ausencia, porque a pilha de rede responde pelo cliente.,// A guarda contra desligar a varredura nao sumiu, mudou de NIVEL e vive em,// `collab-vivacidade-por-protocolo.test.js`, no caso do transporte que nao responde.
 //
 // A VARREDURA E DISPARADA A MAO, e nao por espera de trinta segundos. `heartbeatSweep` e exportado
 // exatamente para isso. Esperar o intervalo real tornaria o teste lento E dependente de relogio,
@@ -32,7 +29,7 @@ import { createWsClient } from '../helpers/ws-client.js';
 
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('vivacidade do socket: qualquer frame rearma, o silencio nao', () => {
+describe('vivacidade do socket: qualquer frame de aplicacao rearma a marca', () => {
   let app;
   let db;
   let server;
@@ -109,7 +106,7 @@ describe('vivacidade do socket: qualquer frame rearma, o silencio nao', () => {
     );
   });
 
-  it('o socket que fica em silencio continua sendo ceifado', async () => {
+  it('o socket calado sobrevive, porque o TRANSPORTE responde por ele', async () => {
     const cliente = await createWsClient(server, atlas.id, token, randomUUID());
     abertos.push(cliente);
 
@@ -119,11 +116,23 @@ describe('vivacidade do socket: qualquer frame rearma, o silencio nao', () => {
     await heartbeatSweep(wss);
     await espera(300);
 
-    // ESTE CASO E O QUE IMPEDE O CONSERTO DE VIRAR "DESLIGAR A VARREDURA". Sem ele, rearmar a marca
-    // em lugar nenhum passaria no teste anterior e ninguem notaria que o zumbi ficou para sempre.
-    assert.notEqual(
+    // ESTE CASO AFIRMAVA O CONTRARIO ATE O PING DO PROTOCOLO ENTRAR, e a inversao e deliberada.
+    //
+    // Enquanto so o trafego de APLICACAO rearmava a marca, silencio significava morte, e era
+    // isto que o caso guardava. Mas a medida no Chrome mostrou que silencio de aplicacao NAO
+    // prova ausencia: uma aba oculta ha mais de cinco minutos tem o temporizador travado em um
+    // disparo por minuto, contra uma varredura de trinta segundos. Ela estava viva e morria.
+    //
+    // Agora a varredura manda o ping do PROTOCOLO, que a pilha de rede responde sem passar pelo
+    // JavaScript da pagina. Socket calado com transporte vivo SOBREVIVE, e e isso que se afirma
+    // aqui.
+    //
+    // A GARANTIA DE QUE A VARREDURA NAO FOI DESLIGADA nao se perdeu: ela mudou de nivel e vive em
+    // `collab-vivacidade-por-protocolo.test.js`, no caso do transporte que nao responde. O que
+    // precisa ser mudo para morrer deixou de ser a aplicacao e passou a ser o transporte.
+    assert.equal(
       cliente.ws.readyState, 1,
-      'socket mudo entre duas varreduras tem de ser terminado'
+      'socket calado com transporte vivo nao pode ser ceifado'
     );
   });
 
