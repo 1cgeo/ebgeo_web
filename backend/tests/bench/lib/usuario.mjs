@@ -334,6 +334,11 @@ export function criarUsuario({
       estado.cursoresRecebidos = 0;
       estado.opsRecebidas = 0;
       estado.emVooNoFim = 0;
+      // O BOOLEANO TAMBEM ZERA, e nao zera-lo era um defeito: `derrubados` (que sai dele) contava
+      // a RAMPA inteira, enquanto `fechamentos` contava so a janela medida. Os dois numeros
+      // descreviam periodos diferentes na mesma linha da tabela, e a diferenca entre eles chegou
+      // a ser de dezenas contra dois.
+      estado.fechadoPeloServidor = false;
       estado.fechamentos.length = 0;
       emVoo.clear();
     },

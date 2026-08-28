@@ -93,22 +93,6 @@ async function cpuDoPostgresMs() {
   }
 }
 
-/**
- * Mede o PISO da maquina: quanto ela consome com o experimento ainda parado.
- *
- * Chamado uma vez por rodada, antes de o servidor subir. Custa os segundos que recebe e paga por
- * si so na primeira vez que evita descartar uma medida boa.
- */
-export async function medirPisoDaMaquina(ms = 3000) {
-  const inicio = somaDosNucleos();
-  await new Promise((r) => setTimeout(r, ms));
-  const fim = somaDosNucleos();
-  const ocupado = fim.ocupado - inicio.ocupado;
-  const total = fim.total - inicio.total;
-  const nucleos = os.cpus().length;
-  const pct = total > 0 ? ocupado / total : 0;
-  return Math.round(pct * nucleos * 100) / 100;
-}
 
 /**
  * Comeca a medir a janela. Chame `parar()` no fim dela.
@@ -205,4 +189,33 @@ export function saudeDoAmbiente(carga, piso = 0) {
     alheios,
     texto: `Ambiente limpo: ${contexto}.`,
   };
+}
+
+/**
+ * Mede o PISO da maquina: quanto ela consome com o experimento ainda parado.
+ *
+ * Chamado uma vez por rodada, antes de o servidor subir.
+ */
+export async function medirPisoDaMaquina(ms = 3000, amostras = 4) {
+  // NAO CHAMA `medirCargaDaMaquina` DE PROPOSITO, e a razao e que a versao que chamava media a si
+  // mesma: cada leitura de CPU do Postgres nasce um PowerShell, e oito PowerShell num piso de
+  // quatro segundos custam mais do que o piso que eles tentam medir.
+  //
+  // Nao descontar o Postgres aqui e seguro, e isso foi MEDIDO: com a maquina parada o servico do
+  // banco nao aparece nem entre os dez maiores consumidores. O que aparece e o antivirus, que
+  // varre depois da atividade de disco das rodadas e sozinho respondeu por 0,33 nucleo numa
+  // amostragem de seis segundos. Piso alto quase sempre e ele, nunca o banco.
+  //
+  // O MINIMO, NUNCA A MEDIA: um transiente contamina UMA amostra, e o minimo o descarta.
+  const nucleos = os.cpus().length;
+  let menor = Infinity;
+  for (let i = 0; i < Math.max(1, amostras); i += 1) {
+    const inicio = somaDosNucleos();
+    await new Promise((r) => setTimeout(r, Math.max(250, Math.round(ms / amostras))));
+    const fim = somaDosNucleos();
+    const ocupado = fim.ocupado - inicio.ocupado;
+    const total = fim.total - inicio.total;
+    menor = Math.min(menor, total > 0 ? (ocupado / total) * nucleos : 0);
+  }
+  return Math.round(menor * 100) / 100;
 }
