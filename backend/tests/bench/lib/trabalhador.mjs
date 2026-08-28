@@ -74,6 +74,18 @@ const msDeConexao = Date.now() - t0Conexao;
 
 // --- janela de regime permanente -----------------------------------------------------------------
 // Tudo que a rampa produziu é descartado aqui. O que sobra é população estável sob carga estável.
+// A SAUDE DO DRIVER **DURANTE A RAMPA**, colhida antes do reset. Sem ela a rampa era um ponto
+// cego: 163 sockets caiam ali com codigo 1006 (ping nao processado a tempo) e nao havia como
+// dizer se quem nao processou foi o servidor ou o proprio trabalhador, ocupado abrindo sockets
+// enquanto os ja abertos mandavam cursor. O histograma da janela nao serve para isso, porque
+// ele comeca depois.
+const ns = (v) => Math.round(v / 1e6);
+const lacoNaRampa = {
+  p50: ns(laco.percentile(50)),
+  p99: ns(laco.percentile(99)),
+  max: ns(laco.max),
+};
+
 for (const u of criados) u.zerar();
 laco.reset();
 // A CPU do driver e o segundo termo da subtracao que a sonda de ambiente faz: maquina ocupada
@@ -109,6 +121,8 @@ for (const e of estados) {
       fechadosPeloServidor: 0,
       emVooNoFim: 0,
       codigosDeFechamento: {},
+      fechadosNaRampa: 0,
+      codigosNaRampa: {},
       ackHist: null,
     });
   }
@@ -125,6 +139,8 @@ for (const e of estados) {
   b.emVooNoFim += e.emVooNoFim;
   if (e.fechadoPeloServidor) b.fechadosPeloServidor += 1;
   for (const c of e.fechamentos) b.codigosDeFechamento[c] = (b.codigosDeFechamento[c] ?? 0) + 1;
+  b.fechadosNaRampa += e.fechamentosNaRampa.length;
+  for (const c of e.fechamentosNaRampa) b.codigosNaRampa[c] = (b.codigosNaRampa[c] ?? 0) + 1;
 
   for (const [opId, ts] of e.opsEnviadas) fluxoOps.write(`${opId} ${ts} ${e.tamanhoSala}\n`);
   for (const [opId, ts] of e.chegadas) fluxoChegadas.write(`${opId} ${ts}\n`);
@@ -151,6 +167,7 @@ fs.writeFileSync(saida, JSON.stringify({
   falhasDeConexao,
   msDeConexao,
   janelaMs,
+  lacoNaRampaMs: lacoNaRampa,
   lacoDriverMs: {
     media: Math.round(laco.mean / 1e6),
     p50: Math.round(laco.percentile(50) / 1e6),

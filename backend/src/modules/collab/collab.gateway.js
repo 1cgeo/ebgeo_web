@@ -606,6 +606,25 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
  * Routes incoming messages to appropriate handlers.
  */
 async function handleMessage(ws, data) {
+  // QUALQUER FRAME QUE CHEGA PROVA QUE O CLIENTE ESTA VIVO, e nao so o `ping`.
+  //
+  // O DEFEITO QUE ISTO CONSERTA, medido. A varredura de 30 s termina todo socket cujo `isAlive`
+  // esteja falso, e ate aqui SO `handlePing` rearmava a marca. Um cliente que manda doze quadros
+  // de cursor por segundo era, para a varredura, indistinguivel de um cliente morto: bastava o
+  // servidor demorar para processar o `ping` dele.
+  //
+  // E e exatamente o que acontece sob saturacao. Com mil usuarios em cadencia de trabalho a
+  // bancada mediu 156 sockets derrubados na rampa e 16 na janela, TODOS com codigo 1006, que e
+  // `terminate()` desta varredura. Nenhum 4003. O driver estava sadio (laco p99 de 19 ms), entao
+  // os pings SAIRAM no horario; quem nao os processou a tempo foi este processo, ocupado com o
+  // fan-out de presenca.
+  //
+  // A marca continua servindo ao que foi feita para servir. Ela existe para separar socket vivo de
+  // socket zumbi, e um frame de aplicacao e prova MAIS forte que um ping: ele mostra que o laco do
+  // cliente roda E que ele tem o que dizer. O cliente ocioso continua dependendo do ping, que e o
+  // unico sinal que ele emite.
+  ws.isAlive = true;
+
   switch (data.type) {
     case 'ping':
       handlers.handlePing(ws);

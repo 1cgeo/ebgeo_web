@@ -124,6 +124,11 @@ export function criarUsuario({
     // 1006. Contar "derrubados" sem o codigo nao distingue "o banco nao respondeu" de "o
     // servidor nao processou meu ping a tempo", e as duas pedem consertos opostos.
     fechamentos: [],
+    // A RAMPA NAO E DESCARTADA, E SEPARADA. Mil sockets abrindo em fila e uma tempestade de
+    // conexao que producao nao tem, mas o que ela derruba e resultado tanto quanto o que a
+    // janela derruba: sao dois regimes, e confundi-los ja fez a coluna `derrubados` contar a
+    // rampa enquanto a de codigos contava so o regime permanente.
+    fechamentosNaRampa: [],
     // EM VOO NO CORTE não é o mesmo que SEM VEREDITO, e juntar os dois quebrou a reconciliação da
     // primeira rodada de mil usuários: toda sala saiu FALHA porque as ops que ainda esperavam ack
     // quando a janela fechou foram contadas como perdidas, enquanto `ausentesDoLedger` dava ZERO —
@@ -339,6 +344,7 @@ export function criarUsuario({
       // descreviam periodos diferentes na mesma linha da tabela, e a diferenca entre eles chegou
       // a ser de dezenas contra dois.
       estado.fechadoPeloServidor = false;
+      estado.fechamentosNaRampa = [...estado.fechamentos];
       estado.fechamentos.length = 0;
       emVoo.clear();
     },

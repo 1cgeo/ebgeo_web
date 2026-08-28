@@ -82,6 +82,7 @@ export function fundirResumos(specs) {
   let maiorConexaoMs = 0;
   let janelaMs = 0;
   const lacoDriver = { p99: 0, max: 0, piorTrabalhador: null };
+  const lacoRampa = { p99: 0, max: 0 };
   let rssDriverMB = 0;
   let cpuDriversMs = 0;
 
@@ -101,6 +102,10 @@ export function fundirResumos(specs) {
         lacoDriver.piorTrabalhador = r.usuariosPedidos;
       }
       lacoDriver.max = Math.max(lacoDriver.max, r.lacoDriverMs.max);
+    }
+    if (r.lacoNaRampaMs) {
+      lacoRampa.p99 = Math.max(lacoRampa.p99, r.lacoNaRampaMs.p99);
+      lacoRampa.max = Math.max(lacoRampa.max, r.lacoNaRampaMs.max);
     }
     rssDriverMB = Math.max(rssDriverMB, r.rssMB ?? 0);
     cpuDriversMs += r.cpuMs ?? 0;
@@ -122,24 +127,29 @@ export function fundirResumos(specs) {
           fechadosPeloServidor: 0,
           emVooNoFim: 0,
           codigosDeFechamento: {},
+          fechadosNaRampa: 0,
+          codigosNaRampa: {},
           ackHist: new Histograma(`ack-${chave}`),
         });
       }
       const a = porSala.get(chave);
       for (const k of ['usuarios', 'opsEnviadas', 'acks', 'recusadas', 'erros', 'mudos',
         'cursoresEnviados', 'cursoresRecebidos', 'opsRecebidas', 'fechadosPeloServidor',
-        'emVooNoFim']) {
+        'emVooNoFim', 'fechadosNaRampa']) {
         a[k] += b[k] ?? 0;
       }
       for (const [c, q] of Object.entries(b.codigosDeFechamento ?? {})) {
         a.codigosDeFechamento[c] = (a.codigosDeFechamento[c] ?? 0) + q;
+      }
+      for (const [c, q] of Object.entries(b.codigosNaRampa ?? {})) {
+        a.codigosNaRampa[c] = (a.codigosNaRampa[c] ?? 0) + q;
       }
       if (b.ackHist) a.ackHist.fundir(Histograma.desserializar(b.ackHist));
     }
   }
 
   return {
-    porSala, conectados, pedidos, falhas, maiorConexaoMs, janelaMs, lacoDriver, rssDriverMB,
+    porSala, conectados, pedidos, falhas, maiorConexaoMs, janelaMs, lacoDriver, lacoRampa, rssDriverMB,
     cpuDriversMs,
   };
 }

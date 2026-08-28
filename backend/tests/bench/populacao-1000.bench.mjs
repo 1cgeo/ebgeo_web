@@ -188,7 +188,18 @@ await comBancada(
           codigos[c] = (codigos[c] ?? 0) + q;
         }
       }
-      console.log(`    codigos de fechamento: ${JSON.stringify(codigos)}`);
+      const naRampa = [...fundido.porSala.values()]
+        .reduce((s, b) => s + (b.fechadosNaRampa ?? 0), 0);
+      console.log(`    codigos de fechamento na JANELA: ${JSON.stringify(codigos)}`);
+      const codigosRampa = {};
+      for (const b of fundido.porSala.values()) {
+        for (const [c, q] of Object.entries(b.codigosNaRampa ?? {})) {
+          codigosRampa[c] = (codigosRampa[c] ?? 0) + q;
+        }
+      }
+      console.log(`    sockets derrubados na RAMPA: ${naRampa} ${JSON.stringify(codigosRampa)}`);
+      console.log(`    laco do DRIVER na RAMPA (pior): p99 ${fundido.lacoRampa.p99} ms, `
+        + `max ${fundido.lacoRampa.max} ms`);
 
       console.log('\n    RECONCILIACAO POR SALA (ausentes do ledger tem de cair entre piso e teto)');
       tabela(rec.provas, ['sala', 'linhasNoLedger', 'ausentesDoLedger', 'piso', 'teto',
