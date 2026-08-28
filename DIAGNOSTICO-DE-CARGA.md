@@ -46,31 +46,34 @@ dois é o tamanho da maior sala.
 
 | limite | medido | o que acontece ao cruzar |
 |---|---|---|
-| **Pessoas por sala** | **100** | Em 200, a perda de presença vai a 81% e 147 sockets caem |
+| **Pessoas por sala** | 50 → **200** | Em 400, o ack ainda vai a 89 s |
 | **Sockets no processo** | **2.000** | Não foi encontrado. Em 2.000 a CPU está em 95% |
 | Escrita num atlas | ~1.100 ops/s | Fila do advisory lock; 503 quando `N x lote` passa de ~4.000 |
 | Quadros de socket | ~60 mil/s | O máximo observado, na sala de 100 |
 
-Cem pessoas numa sala **funcionam**, com 1,3% a 1,7% de perda de presença e zero desconexões. Mas
-o ack mediano vai de 16 ms (sala de 50) para **3,8 s**, e isso o usuário sente.
+**Depois da ação A** (`b931cdcb`), a sala de 200 ficou saudável: ack de 34 ms e zero desconexões.
+A de 100 ficou indistinguível da de 50.
 
-**Aguenta com folga:** mil usuários em salas de até cinquenta.
-**Aguenta degradado:** uma sala de cem.
-**Não aguenta:** uma sala de duzentos.
+**Aguenta com folga:** mil usuários em salas de até duzentas pessoas.
+**Não aguenta:** uma sala de quatrocentas, que continua com ack de 89 s.
 
-### O que falta fazer
+### O que já entrou
 
-**Uma coisa só, e ela é grande: agregar quadros de cursor no servidor** (ação A). É o que separa
-"cem por sala, devagar" de "centenas por sala", e tudo o mais depende dela.
+| ação | commit | efeito medido |
+|---|---|---|
+| **A**, agregar cursor no servidor | `b931cdcb` | Sala de 200: ack de 84.961 ms para **34 ms**, 147 desconexões para **zero** |
+| **E**, lote do cliente de 100 para 25 | `48b91f3f` | Vazão de 706 para 968 ops/s, ack por envio de 1.095 ms para 213 ms |
+| **C**, opIds no frame de erro | `4b8baa86` | 750 operações saíram do limbo |
+| vivacidade por qualquer frame | `403c7c41` | Zerou as desconexões, **e revelou que elas eram um descarte de carga acidental** |
 
-Duas ações menores já entraram, e o que elas ensinaram mudou o plano:
+A ação **B** (pool dedicado) foi **cancelada**: a medida mostrou que o pool nunca era o problema.
 
-- **`opIds` no frame de erro** (ação C, `4b8baa86`): 750 operações saíram do limbo.
-- **Vivacidade por qualquer frame** (`403c7c41`): substituiu a ação B, que atacava uma causa
-  inexistente. Zerou as desconexões **e revelou que elas eram um descarte de carga acidental**.
-  Ver P3.
+### O que falta
 
-A ação B (pool dedicado) foi **cancelada**: a medida mostrou que o pool nunca era o problema.
+- **Grupo 1**, o teste de aba em segundo plano, que decide se a ação D entra. Precisa de navegador.
+- **A sala de 400**, que continua com ack de 89 s. Ela deixou de ser limitada por syscall e passou
+  a ser limitada por carga útil, e esse teto não foi medido.
+- **Grupo 6**, reavaliar o advisory lock. Provavelmente não vale mais.
 
 ---
 
@@ -392,7 +395,7 @@ deste documento vale para um processo.
 
 ## 4. O que podemos agir
 
-### A. Agregar quadros de cursor no servidor — impacto decisivo, custo médio
+### A. Agregar quadros de cursor no servidor. **FEITO** em `b931cdcb`
 
 Acumular por sala e emitir um lote a cada 100 ms, com a ÚLTIMA posição de cada usuário. As
 escritas em socket caem de `S x f x 12,5 x (S-1)` para `S x 10` por segundo.
@@ -419,7 +422,7 @@ De 750 ops inatribuíveis para zero, medido no E3 forçado.
 Subir `WS_HEARTBEAT_INTERVAL_MS` para 60 s, ou baixar o ping do cliente para 10 s. **Antes de
 mexer, fazer o teste de aba em segundo plano.**
 
-### E. Baixar `FLUSH_BATCH_SIZE` do cliente — impacto médio, custo baixo
+### E. Baixar o lote do cliente de 100 para 25. **FEITO** em `48b91f3f`
 
 De 100 para 25. O E2 mediu que o ponto ótimo de vazão é lote de 10 ops (1.020 ops/s) contra 753 em
 lote de 100. A mudança melhora vazão E afasta o 503 ao mesmo tempo.
@@ -436,6 +439,34 @@ memória do processo. Mudança de núcleo, com decisão registrada.
 - **Otimizar a serialização do fan-out.** Ela já é feita uma vez por transmissão, e a CPU está em
   tempo de sistema, não de usuário.
 - **Comprimir os quadros.** O gargalo é o número de syscalls, não a banda.
+
+---
+
+## 4.1 O resultado das ações, medido
+
+Tudo contra a linha de base congelada de 2026-08-27, com ambiente limpo declarado em cada rodada.
+
+**Ação A, agrupamento de cursor** (E9, mesmos degraus):
+
+| sala | ackP50 antes | ackP50 depois | CPU antes | CPU depois | derrubados |
+|---|---|---|---|---|---|
+| 100 | 3.844 ms | **17 ms** | 84,8% | **22,2%** | 0 → 0 |
+| 200 | 84.961 ms | **34 ms** | 87,0% | **44,3%** | **147 → 0** |
+| 400 | 67.955 ms | 89.344 ms | 90,7% | 83,0% | **371 → 0** |
+
+A previsão bateu: a sala de 400 saiu de 971.086 escritas em socket por segundo para cerca de 4.000.
+
+**Ação E, lote do cliente** (E2, três rodadas):
+
+| lote | ops/s | p50 por envio |
+|---|---|---|
+| 10 | 818 / 725 / 691 | ~89 ms |
+| **25** | **968 / 773 / 752** | ~213 ms |
+| 100 | 706 / 677 | ~1.095 ms |
+
+Cem perdia nos dois eixos. Entre 10 e 25, uma rodada não decidia (18% de diferença está dentro da
+banda de ruído de 20%), e foram precisas três para ver o sinal consistente. O desempate veio de
+fora da bancada, e fica declarado como inferência: 25 gera duas vezes e meia menos mensagens.
 
 ---
 
@@ -502,7 +533,7 @@ isso mesmo. Fica dependente da ação A.
 
 </details>
 
-### Grupo 4 — Agregar quadros de cursor
+### Grupo 4 — Agregar quadros de cursor. **FEITO** em `b931cdcb`
 
 Cruza os dois pacotes. Contrato novo em `docs/decisions/decisions-2026.md`.
 
@@ -524,7 +555,7 @@ transição:
 **Se o alvo não for atingido**, a hipótese central está errada, e o próximo suspeito é o custo por
 socket que o E10 isolou.
 
-### Grupo 5 — Lote do cliente
+### Grupo 5 — Lote do cliente. **FEITO** em `48b91f3f`
 
 `FLUSH_BATCH_SIZE` de 100 para 25. *Bancada:* E2, degraus 10, 25, 50, 100.
 
