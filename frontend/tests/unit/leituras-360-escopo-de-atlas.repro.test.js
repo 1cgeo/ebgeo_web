@@ -8,7 +8,8 @@
 // `requireAtlasPermission('read')` de verdade). Do lado do cliente so o template dos tiles MVT
 // recebeu o carimbo (`tiles-360-escopo-de-atlas.test.js` e quem prende aquela metade). As outras
 // leituras -- `/projects`, `/photos/nearest`, `/photos/:uuid`, `/photos/by-name/:nome`,
-// `/projects/:slug/floors`, `/photos/:uuid/image` -- saiam sem escopo.
+// `/projects/:slug/floors` -- saiam sem escopo. (A `/photos/:uuid/image` saiu no
+// tiles-only de 2026-08-29, com a rota de imagem inteira.)
 //
 // O SINTOMA E O PIOR ARRANJO POSSIVEL DOS DOIS: o panorama privado emprestado por um atlas
 // APARECIA como ponto na camada 2D (os tiles levavam o escopo) e SUMIA em todo o resto. O clique
@@ -94,9 +95,9 @@ describe('com um atlas em foco, as leituras do 360 do MAPA carimbam ?atlasId=', 
         const { mapa } = await montar(ATLAS);
         expect(mapa.sv360AtlasScope()).toBe(ATLAS);
         expect(mapa.sv360ReadUrl('/projects')).toBe(`${SERVICO}/projects?atlasId=${ATLAS}`);
-        // Query ja existente: `&`, nunca um segundo `?`.
-        expect(mapa.getPhotoImageUrl(FOTO, 'preview'))
-            .toBe(`${SERVICO}/photos/${FOTO}/image?quality=preview&atlasId=${ATLAS}`);
+        // A antiga `mapa.getPhotoImageUrl` saiu no tiles-only (2026-08-29): a rota de
+        // imagem inteira foi removida. O carimbo de `?atlasId=` na foto viaja hoje pela
+        // `sv360ReadUrl` do descritor de tiles e do tile, cobertos por `sv360ReadUrl`.
     });
 
     it('as que buscam: projetos, foto por uuid, foto por nome, vizinha, andares', async () => {
@@ -196,7 +197,6 @@ describe('O CONTROLE NEGATIVO: sem atlas em foco nenhuma leitura ganha parametro
         expect(mapa.sv360AtlasScope()).toBe(null);
         expect(mapa.sv360ReadUrl('/projects')).toBe(`${SERVICO}/projects`);
         expect(mapa.sv360ReadUrl('/projects')).not.toContain('?');
-        expect(mapa.getPhotoImageUrl(FOTO)).toBe(`${SERVICO}/photos/${FOTO}/image?quality=full`);
 
         vi.stubGlobal('fetch', fetchEspiao({ photo: null, floors: [] }));
         await mapa.fetchProjects(true);

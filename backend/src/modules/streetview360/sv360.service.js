@@ -508,9 +508,10 @@ export async function getPhotoPyramidMeta(uuid, user, atlasId = null) {
       // todo tile. O `?v=` é o token de geração que quebra o cache imutável do tile
       // numa regeração; o handler o IGNORA de propósito (ver `getPhotoTile`).
       template: `tiles/{level}/{x}/{y}?v=${totalBytes}`,
-      // LEGADO, e mantido só enquanto houver `preview_webp` em disco: a estratégia de
-      // fundo padrão do cliente é o tile de nível 0 e nunca toca este campo.
-      base: 'image?quality=preview',
+      // O campo `base` (LEGADO, `image?quality=preview`) saiu no tiles-only de
+      // 2026-08-29: a rota de imagem inteira nao existe mais, e a estrategia de fundo
+      // padrao do cliente e o tile de nivel 0, que nunca tocou este campo. Emitir uma
+      // URL para uma rota removida seria referencia morta a um 404.
     },
     tilesDbFile: blobstore.resolveTilesDbPath(row.db_filename),
     etag: `"${uuid}-pyr-${Number(row.total_bytes)}-${builtAt}"`,

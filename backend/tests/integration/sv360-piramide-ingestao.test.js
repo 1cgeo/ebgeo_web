@@ -404,13 +404,11 @@ describe('sv360 — a pirâmide ingerida é a pirâmide que o cliente lê', () =
       assert.equal(pedidos, A.tiles.length);
     });
 
-    it('o `base` legado continua no documento, relativo como o template', () => {
-      // O caminho PADRÃO do cliente não o toca (o fundo é o tile de nível 0); ele
-      // sobrevive para a estratégia 'preview' enquanto houver `preview_webp` em disco.
-      assert.equal(typeof descritor.base, 'string');
-      assert.ok(!/^https?:/i.test(descritor.base));
-      const resolvida = new URL(descritor.base, new URL(url(`/photos/${photoA}/tiles.json`), 'http://localhost'));
-      assert.equal(resolvida.pathname, `/api/v1/sv360/photos/${photoA}/image`);
+    it('o `base` legado saiu do documento (tiles-only 2026-08-29)', () => {
+      // O campo apontava para `image?quality=preview`, e a rota de imagem inteira foi
+      // removida. O caminho padrão do cliente é o tile de nível 0 e nunca o tocou;
+      // emitir uma URL para uma rota que dá 404 seria referência morta.
+      assert.equal(descritor.base, undefined);
     });
   });
 

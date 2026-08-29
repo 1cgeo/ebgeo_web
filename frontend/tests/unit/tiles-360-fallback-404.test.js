@@ -1,28 +1,25 @@
 // Path: tests/unit/tiles-360-fallback-404.test.js
 /**
- * @fileoverview O caminho NORMAL do 360 com tiles: a foto sem piramide.
+ * @fileoverview O tratamento de 404 do `tiles.json` no carregador de tiles do 360.
  *
- * POR QUE ESTE ARQUIVO EXISTE. So o projeto museu_cms tem piramide gerada. Os
- * outros 28 projetos respondem 404 no `tiles.json`, e vao continuar assim por
- * meses. Ou seja, o caminho que este teste cobre e o que quase todo usuario
- * percorre, e a novidade do porte e justamente um pedido a mais ANTES da foto.
+ * TILES-ONLY desde 2026-08-29. Antes, uma foto sem piramide caia num fallback para
+ * `image?quality=preview|full`; a rota de imagem inteira foi removida e o fallback
+ * saiu junto (visualizador e estudio). O que este arquivo cobre agora e so a metade
+ * que continua viva: como o CARREGADOR reage ao 404 do `tiles.json`.
  *
- * O MODO DE FALHA E MUDO, e por isso o teste existe. Se o 404 parar de cair no
- * `image?quality=full`, a panoramica simplesmente nao pinta: nao ha erro de
- * rede, nao ha excecao, so uma esfera com o preview borrado, ou preta. Nada
- * disso reprova nenhum outro teste da suite.
+ * O MODO DE FALHA E MUDO, e por isso o teste existe. Se o carregador parar de anexar
+ * o STATUS ao erro, ou nao distinguir "a rede caiu" de "esta foto nao tem piramide",
+ * a panoramica simplesmente nao pinta: nao ha excecao que reprove outro teste.
  *
  * O QUE ESTE ARQUIVO NAO COBRE, e fica dito em vez de fingido: o desenho em si.
- * `blobToTexture`, `applyTexture` e a composicao do canvas de tiles pedem
- * WebGL e um `document` de verdade, que o ambiente `node` do vitest nao tem. O
- * que da para medir sem GPU e a DECISAO e a URL, e e o que esta aqui: o
- * carregador separa "nao existe piramide" de "a rede caiu", nao gasta pedido
- * depois do 404, e a URL do full continua sendo a de sempre.
+ * A composicao do canvas de tiles pede WebGL e um `document` de verdade, que o
+ * ambiente `node` do vitest nao tem. O que da para medir sem GPU e a DECISAO: o
+ * carregador separa "nao existe piramide" de "a rede caiu", nao gasta pedido depois
+ * do 404, e pede o descritor na base da API, nao na origem da pagina.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTileLoader } from '@js/street_view_tool/tile-loader.js';
-import { getPhotoImageUrl } from '@js/street_view_tool/streetview-api.service.js';
 import config from '@js/config.js';
 
 /** Foto real do museu_cms, o unico projeto com piramide no servico. */
@@ -223,41 +220,5 @@ describe('tiles.json 404: o caminho normal, e nao a excecao', () => {
         // E a carga nova segue seu proprio caminho: 404, com o status na mao,
         // que e o sinal para cair no full.
         expect((await cargaB).status).toBe(404);
-    });
-});
-
-describe('a URL do full, que e o destino do fallback', () => {
-    it('continua sendo image?quality=full', () => {
-        // REPROVA um porte que troque a rota da imagem cheia ao acrescentar a
-        // dos tiles. Esta e a URL que o servico serve HOJE, conferida viva, e e
-        // a unica coisa que 28 dos 29 projetos tem.
-        expect(getPhotoImageUrl(UUID_SEM_PIRAMIDE, 'full')).toBe(
-            `${config.streetView360.serviceUrl}/photos/${UUID_SEM_PIRAMIDE}/image?quality=full`
-        );
-        expect(getPhotoImageUrl(UUID_SEM_PIRAMIDE)).toContain('quality=full');
-        expect(getPhotoImageUrl(UUID_SEM_PIRAMIDE, 'preview')).toContain('quality=preview');
-    });
-
-    it('sai da MESMA base que o descritor de tiles', async () => {
-        // REPROVA duas bases divergentes, que e o defeito classico deste porte:
-        // o tile numa raiz e a foto noutra passam despercebidos em
-        // desenvolvimento e quebram so em producao, atras do proxy.
-        fetchQueResponde(404);
-        const carregador = createTileLoader({});
-        await expect(carregador.carregarFoto(UUID_COM_PIRAMIDE)).rejects.toThrow();
-
-        // AS DUAS SE COMPARAM RESOLVIDAS, e não cruas. Neste pacote a base viaja
-        // RELATIVA no `/api/config` (é o default do servidor), e os dois consumidores a
-        // tratam de formas legítimas e diferentes: o carregador de tiles a resolve com
-        // `new URL(..., location.href)`, porque precisa de URL absoluta; o
-        // `getPhotoImageUrl` concatena crua, porque o `fetch` da thread principal resolve
-        // sozinho contra o documento. Comparar as strings como saem acusaria divergência
-        // onde não há nenhuma, e é isso que o navegador faz com as duas: a mesma origem.
-        const resolver = (u) => new URL(u, location.href).href.split('/photos/')[0];
-        const raizDoDescritor = resolver(pedidas[0]);
-        const raizDoFull = resolver(getPhotoImageUrl(UUID_COM_PIRAMIDE, 'full'));
-        expect(raizDoDescritor).toBe(raizDoFull);
-        // E o discriminante: sem esta linha, duas bases ambas VAZIAS passariam iguais.
-        expect(raizDoDescritor).toContain(BASE_DA_API);
     });
 });

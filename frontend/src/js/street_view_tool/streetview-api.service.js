@@ -266,25 +266,6 @@ export async function validatePhoto(photoId) {
 }
 
 // ============================================================
-// Image URLs
-// ============================================================
-
-/**
- * Returns the URL for a photo image at a given quality.
- *
- * The bytes are gated like the metadata (`/photos/:uuid/image` runs the same
- * `liftOptionalAtlasId` → `requireAtlasScopeWhenPresent` pair), so the atlas in
- * focus goes on this address too — an unscoped one 404s for a borrowed private
- * panorama and the viewer opens on a blank sphere.
- * @param {string} photoId - Photo UUID
- * @param {'full'|'preview'} [quality='full'] - Image quality variant
- * @returns {string} Image URL
- */
-export function getPhotoImageUrl(photoId, quality = 'full') {
-  return sv360ReadUrl(`/photos/${photoId}/image?quality=${quality}`);
-}
-
-// ============================================================
 // Display name resolution
 // ============================================================
 
