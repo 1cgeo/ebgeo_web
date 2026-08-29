@@ -31,6 +31,7 @@
 import { syncEngine } from './sync-engine.js';
 import { connectionState } from './connection-state.js';
 import { operationQueue } from './operation-queue.js';
+import { hasPendingLocalEdits } from './remote-operation-handler.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
@@ -182,7 +183,22 @@ async function hasWorkToFlush() {
  */
 async function flushOnce() {
     if (state.inFlight || !state.engine) return;
-    if (!(await hasWorkToFlush())) return;
+    if (!(await hasWorkToFlush())) {
+        // FILA VAZIA NAO E "NADA A FAZER". A auto-cura do freio de convergencia mora dentro de
+        // `engine.flush()`, e sair aqui a pulava justamente no estado em que ela e necessaria:
+        // um contador de edicao local preso (compactacao de fila, lote, ack sem versao, lote
+        // envenenado) deixa as ops remotas daquela entidade DEFERIDAS, e um cliente sem mais
+        // nada a enviar nunca reconciliava. Ele divergia em silencio ate um F5. O gate e o Map
+        // em memoria, entao o caminho comum (nada preso) nao paga ida nenhuma ao IndexedDB.
+        if (hasPendingLocalEdits()) {
+            try {
+                await state.engine.reconcileConvergenceGuard();
+            } catch (error) {
+                console.warn('Reconciliacao do freio de convergencia falhou:', error);
+            }
+        }
+        return;
+    }
 
     state.inFlight = true;
     try {

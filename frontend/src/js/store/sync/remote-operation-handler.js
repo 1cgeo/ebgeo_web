@@ -266,6 +266,19 @@ export function markLocalEditPending(featureId) {
     pendingLocalEditCount.set(featureId, (pendingLocalEditCount.get(featureId) || 0) + 1);
 }
 
+/**
+ * Ha alguma entidade com edicao local marcada como pendente?
+ *
+ * PERGUNTA BARATA DE PROPOSITO. Quem chama e o laco de auto-flush, a cada 1,5 s, para decidir se
+ * vale pagar a leitura da fila que a reconciliacao faz. Ler o tamanho de um Map em memoria e
+ * gratis; `operationQueue.getAll()` e uma ida ao IndexedDB.
+ *
+ * @returns {boolean} True enquanto qualquer entidade estiver com o freio de convergencia posto.
+ */
+export function hasPendingLocalEdits() {
+    return pendingLocalEditCount.size > 0;
+}
+
 /** Buffers a remote op while the local user has an un-acked edit on the same entity. */
 function deferRemoteOp(entityId, operation) {
     let arr = deferredRemoteOps.get(entityId);

@@ -535,6 +535,26 @@ class SyncEngine {
     }
 
     /**
+     * Roda a auto-cura do freio de convergencia FORA de um flush.
+     *
+     * POR QUE ELA PRECISA DE PORTA PUBLICA (medido em 2026-08-29). A reconciliacao so existia
+     * dentro de `flush()`, e `flushOnce` (sync-flush.js) sai antes de chamar o flush quando a
+     * fila local esta VAZIA. O resultado e um buraco exatamente no estado em que a rede de
+     * seguranca e necessaria: um contador de edicao local que ficou presoparalisa as ops remotas
+     * daquela entidade, e um cliente sem nada mais a enviar nunca mais reconcilia. Ele diverge em
+     * silencio ate um F5.
+     *
+     * Medido no `browser-collab-three-client-flow`: na disputa de tres clientes, o perdedor ficava
+     * com a propria cor por 30 s (o teste inteiro), com os `ws.inbound` do vencedor chegando e
+     * NENHUM `apply.persist` atras deles, enquanto os outros dois convergiam.
+     *
+     * @returns {Promise<void>}
+     */
+    async reconcileConvergenceGuard() {
+        await this._reconcileConvergenceGuard();
+    }
+
+    /**
      * @private Self-heals the pending-local-edit convergence guard against the operation queue
      * after a flush (clears leaked deferrals; see reconcilePendingLocalEdits). Never throws.
      * @returns {Promise<void>}

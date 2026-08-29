@@ -248,13 +248,40 @@ async function pontoQueAbreOMenu(page) {
     return ponto;
 }
 
+/**
+ * Abre o menu de contexto num ponto livre do canvas, ESCOLHENDO O PONTO E CLICANDO NO MESMO
+ * gesto, repetido ate o menu aparecer.
+ *
+ * O PONTO ENVELHECE ENTRE A ESCOLHA E O CLIQUE, e era essa a causa do flake cronico desta spec.
+ * `pontoQueAbreOMenu` valida com `document.elementFromPoint` no instante T; o clique acontece em
+ * T + delta, e nesse intervalo a tela se mexe sozinha (um toast de sincronizacao, a barra de
+ * presenca do par, um painel que abre). Se algo cobriu o pixel, o `contextmenu` vai para o
+ * overlay e NUNCA chega ao listener, que mora no canvas do MapLibre: o `.context-menu` fica no
+ * DOM, vazio e escondido, e o teste espera 5 s por um menu que ninguem mandou abrir.
+ *
+ * Medido em 2026-08-29, 8 rodadas isoladas desta spec: 4 reprovaram na primeira tentativa, e em
+ * TODAS elas uma sonda dentro de `_onRightClick` mostrou que o handler nao foi chamado nenhuma
+ * vez naquela tentativa (o produto estava intacto: nas execucoes em que o clique chegou, o menu
+ * montou 12 itens em 414 a 651 ms). Nao ha o que corrigir no app; o que estava errado era o
+ * gesto do driver, que separava a mira do tiro.
+ *
+ * Reescolher o ponto a cada tentativa e o que um usuario faz quando o clique direito nao abre
+ * nada. O teto de 20 s mantem a falha honesta: se o menu nunca abrir, o caso reprova.
+ */
+async function abrirMenuDeContexto(page) {
+    const menu = page.locator('.context-menu');
+    await expect(async () => {
+        const { x, y } = await pontoQueAbreOMenu(page);
+        await page.mouse.move(x, y);
+        await page.mouse.click(x, y, { button: 'right' });
+        await expect(menu).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20000 });
+    return menu;
+}
+
 /** Moves the selected feature(s) to `targetMapName` via the real "Mover para mapa" submenu. */
 async function moveSelectedToMapUI(page, targetMapName) {
-    const { x: cx, y: cy } = await pontoQueAbreOMenu(page);
-    await page.mouse.move(cx, cy);
-    await page.mouse.click(cx, cy, { button: 'right' });
-    const menu = page.locator('.context-menu');
-    await expect(menu).toBeVisible({ timeout: 5000 });
+    const menu = await abrirMenuDeContexto(page);
     const trigger = menu.locator('.context-menu-submenu-trigger', { hasText: 'Mover para mapa' });
     await expect(trigger).toBeVisible({ timeout: 5000 });
     await trigger.dispatchEvent('mouseenter');
