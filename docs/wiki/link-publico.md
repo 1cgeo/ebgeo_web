@@ -2,6 +2,18 @@
 
 Mecanismo de acesso anônimo em que um link opaco gerado por quem tem `manage` permite trocar a URL pública por um JWT de 1 hora com `permission: 'read'` e identidade "Visitante", usável em REST, pull de sync e WebSocket de colaboração.
 
+## O link expõe mais que o atlas, e desde 2026-08-29 quem publica é avisado
+
+O empréstimo que o atlas faz de um recurso privado **alcança o visitante do link** (cláusula 6.3 da [`CONSTITUICAO.md`](../../CONSTITUICAO.md)). Isso vale para camada de dados, análise, basemap, modelo 3D e projeto 360, e vale **mesmo com o visitante deslogado**.
+
+**A regra foi reexaminada e MANTIDA**, e o caminho até a manutenção é o que a torna defensável. A proposta era restringi-la a quem tem conta, e ela caiu por um argumento do dono: o auto-cadastro é aberto, então "estar logado" não é barreira nenhuma, e quem quisesse o recurso criaria uma conta. O eixo que separa de verdade não é autenticação, é **nomeação**: um share nominal significa que alguém com autoridade escolheu aquela pessoa, e o link público é o único caminho em que ninguém decidiu quem entra. O dono decidiu que a nomeação continua não sendo exigida aqui.
+
+**O que faltava não era o predicado, era o consentimento** (cláusula 6.6): um empréstimo é invisível para quem publica. Ao abrir o modal de compartilhamento, a seção do link nomeia os recursos privados que o atlas empresta, e o aviso aparece **antes** do link e **independe de ele estar ligado**, porque quem vai ligá-lo é justamente quem ainda não sabe o que está prestes a expor. As frases moram em `frontend/src/js/modals/link-publico-phrases.js`, e a lista vem de `GET /api/v1/atlas/:atlasId/resources`, que devolve `name` e `access_level` por item.
+
+Duas consequências que não se adivinham. O aviso **não** conta, nomeia: "3 recursos privados" não permite decidir nada. E um empréstimo **órfão** (a linha de catálogo sumiu) não entra nele, porque não expõe byte nenhum; contá-lo encheria o aviso de fantasmas e treinaria o dono a ignorá-lo.
+
+**O que o visitante NÃO alcança**, e é limite de plataforma e não decisão: a foto de item de uma cena 3D de primeira pessoa emprestada. Ela vira `img.src`, que só o cookie de sessão alcança, e o visitante não tem cookie (o token dele é efêmero e mora só em memória, por contrato do cliente). Um cookie para ele seria pior: cookie é por navegador e não por aba, e sobrescreveria a sessão de quem estivesse logado noutra aba. Ver [[tile-privado]] para os três transportes de credencial.
+
 ## O link não é a autoridade
 
 O link é um token opaco aleatório (`generatePublicLink`, `backend/src/modules/atlas/atlas.service.js`), não um JWT: é só chave de busca. A autoridade vem do JWT emitido na troca **somado** à releitura ao vivo de `atlas.is_public`, tanto no REST (`backend/src/middleware/permissions.js`) quanto no upgrade do socket (`backend/src/modules/collab/collab.gateway.js`). Nada de permissão viaja no link.

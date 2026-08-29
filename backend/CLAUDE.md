@@ -1,6 +1,6 @@
 # CLAUDE.md: EBGeo Backend
 
-API REST + WebSocket (Node 20, ES Modules) do app de mapeamento geoespacial militar EBGeo:
+API REST + WebSocket (Node 22, ES Modules) do app de mapeamento geoespacial militar EBGeo:
 auth JWT, persistência PostgreSQL/PostGIS, colaboração em tempo real e sync offline-first.
 
 **Constraint fundamental:** o backend é **aditivo**, e a app deve funcionar idêntica para usuário
@@ -22,6 +22,11 @@ app de subir, e não existe fallback estático no cliente.
 
 - `src/index.js` boot (HTTP + WS + `validateEnvVariables()` fail-fast) · `src/app.js` factory `createApp()` (testável)
 - `src/config.js` env · `src/database/` (`query`/`tx`, `migrate.js`, `migrations/`) · `src/middleware/` · `src/utils/`
+- **A imagem do Docker é `node:22` desde 2026-08-29, e o motivo não é "mais novo é melhor"**: o
+  `better-sqlite3` 12.10.0 tirou os prebuilds do Node 20 (EOL), então na 20 o `npm ci` cai em
+  `node-gyp` e morre por falta de Python e de toolchain na imagem slim, enquanto na 22 o prebuild
+  existe e a instalação termina sem compilar nada. Os dois `package.json` seguem declarando
+  `>=20.19.0`, que a 22 satisfaz. As duas alternativas recusadas estão no cabeçalho do Dockerfile.
 - `src/modules/<nome>/`: um `ls src/modules/` é a lista autoritativa, e não reponha aqui a enumeração que já morou nesta linha, porque ela envelheceu errada nos dois sentidos (listava módulo inexistente e omitia um inteiro). O único que não se adivinha: `debug` é o endpoint do SyncLedger e só é montado com o tracer ligado (test/dev).
 
 ## Comandos
@@ -137,6 +142,22 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   teste negativo (quem não tem permissão não vê) **e o positivo do mesmo par** (quem tem, vê): o
   negativo sozinho passa idêntico se a fixture não existir, se a rota sumir ou se o filtro passar a
   negar tudo.
+- **O TILE tem gate próprio, e ele é POR RECURSO desde 2026-08-29.** O nginx pergunta por
+  `auth_request` a `requireTileAccess` (`src/modules/auth/tile-access.js`) antes de fazer o proxy do
+  servidor de tiles; até ali o endpoint respondia sobre a CREDENCIAL e nunca sobre a CAMADA, então
+  qualquer chave viva baixava o tile de qualquer camada privada, de outra OM inclusive. O predicado
+  do ramo privado é o mesmo do 3D (`recursoPrivadoLiberado`, que se chamava assetLiberado até
+  aquela data), e o do ramo público é um índice em memória do catálogo
+  (`src/modules/nomes/tile-regime.js`), reconstruído só na escrita: uma ida ao banco por tile poria
+  a vazão de um deslocamento de mapa no mesmo pool de dez conexões que serve o sync e o
+  `GET /api/config`. Duas inversões que mordem quem chega pelo irmão do 3D: caminho NÃO reivindicado
+  por linha de catálogo é 401 aqui e é público lá (lá o Node serve arquivo legítimo fora do
+  catálogo; aqui o endereço é texto digitado à mão, e um erro de digitação numa linha privada
+  publicaria os bytes em silêncio), e este endpoint monta só `flexibleAuth`, nunca o `auth` estrito,
+  que recusaria de propósito a chave de escopo de tile que ele existe para aceitar. As cinco
+  decisões e a medição que as motivou estão em
+  [`../docs/wiki/tile-privado.md`](../docs/wiki/tile-privado.md), que absorveu o documento de
+  trabalho que morava na raiz.
 - **DOIS eixos de permissão, e eles NÃO compartilham uma palavra.** O eixo GLOBAL (`users.role`) tem
   quatro valores que **não são uma escada**: `user`, `producer`, `credenciado`, `admin`. Nenhum
   contém o outro, então comparar papel global por ordem (`>=`, índice em array, um `ROLE_ORDER`) é
@@ -286,9 +307,24 @@ npm run models3d:*     # o acervo 3D convertido: importar, adotar, verificar, re
   garantia. O censo de papel global já classifica este sítio; a frase é que dizia o contrário, e
   proibição absoluta com exceção não escrita é o que faz a próxima sessão "consertar" o código certo.
 
-  `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
-  `x-api-key`, preserva anônimo); rotas de escrita usam o middleware `auth` **estrito** (401 sem token).
-  `flexibleAuth` faz **sliding session**: renova o cookie `token` quando faltam <5 min p/ expirar.
+  `flexibleAuth` é global e **não-bloqueante** (chave de API, cookie e Bearer, nessa precedência e
+  sem fallback do cookie para o cabeçalho; preserva anônimo); rotas de escrita usam o middleware
+  `auth` **estrito** (401 sem token). Ele faz **sliding session**: renova o cookie `token` quando
+  faltam <5 min p/ expirar.
+
+  **O COOKIE DEIXOU DE SER ACIDENTE EM 2026-08-29, e é por isso que a ORIGEM do JWT virou decisão
+  de autorização.** Esta linha dizia que a renovação deslizante era o único emissor, e deixou de
+  valer naquela data: o LOGIN e o REFRESH passaram a emitir o cookie com o MESMO JWT que já vai no
+  corpo, e o LOGOUT o apaga. Não nasce credencial nova; muda a porta por onde a existente entra, e
+  o motivo é o pedido que o navegador faz sem aceitar cabeçalho nenhum (o tile do MapLibre, um
+  `img.src`, um `<video src>`), que antes só a chave de API na URL alcançava. O preço é CSRF, e a
+  amarra fica do lado estrito: `authVia` deixou de carimbar `'jwt'` nos dois ramos e hoje diz
+  `'cookie'` ou `'bearer'`, e o `auth` recusa com 401 o principal vindo de cookie nos métodos que
+  ESCREVEM. A condição olha TAMBÉM `temBearer`, a PRESENÇA do cabeçalho à parte de quem RESOLVEU, e
+  essa segunda metade não é refinamento: o cliente logado manda Bearer **e** carrega o cookie (mesma
+  origem, o navegador o envia sozinho), o cookie tem precedência de resolução, então uma amarra que
+  olhasse só `authVia` recusaria toda escrita de todo usuário. Foi medido: a primeira versão dela
+  derrubou a criação de atlas na captura de UI.
 - **Lifecycle de socket de colaboração é CLIENT-DRIVEN** (contrato p/ o frontend): `auth.logout` só revoga o
   refresh token, e **não** fecha sockets de `collab` nem limpa presença. Um socket só cai (a) quando o cliente
   fecha a conexão / envia `leave`, ou (b) quando o sweep de heartbeat (~30s, `reconcileAuthorization`)

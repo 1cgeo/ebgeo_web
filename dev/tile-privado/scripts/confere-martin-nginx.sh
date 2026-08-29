@@ -188,6 +188,32 @@ checar "e os tiles, nao so o TileJSON"     401 "$BASE/$URL_TILE/10/385/577?api_k
 checar "e o credenciado continua alcancando" 200 "$BASE/$URL_TILE?api_key=$CHAVE_CREDENCIADO"
 
 echo
+echo "=== O EMPRESTIMO POR ATLAS NAO ALCANCA O TILE (clausula 6.7) ==="
+# DEFEITO MEDIDO em 2026-08-29, e ele nao foi achado por estas conferencias: elas mediam
+# `?atlasId=` INVENTADO, que tem de dar 401, e nunca um emprestimo REAL passando. Um par
+# negativo sem o positivo do mesmo eixo passa verde sobre um ramo que nao funciona.
+#
+# A causa: o ramo de emprestimo do predicado depende do atlas em foco, que chega por
+# `?atlasId=`, e a subrequisicao do `auth_request` chega SEM QUERY. O gate do tile decide
+# sempre com atlas nulo.
+API="$BASE/api/v1"
+PID=$(curl -s -H "Authorization: Bearer $TP" "$API/auth/me" | python -c "import sys,json;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
+AT=$(curl -s -H "Authorization: Bearer $TA" -X POST "$API/atlas" -H 'Content-Type: application/json'      -d '{"name":"sonda-emprestimo-tile"}' | python -c "import sys,json;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
+curl -s -o /dev/null -H "Authorization: Bearer $TA" -X POST "$API/atlas/$AT/resources"      -H 'Content-Type: application/json' -d '{"resourceType":"data_layer","resourceId":"'"$CAMADA"'"}'
+curl -s -o /dev/null -H "Authorization: Bearer $TA" -X POST "$API/atlas/$AT/sharing/users"      -H 'Content-Type: application/json' -d '{"userId":"'"$PID"'","permission":"read"}'
+sql_catalogo "UPDATE data_layers SET access_level='private' WHERE id='$CAMADA';"
+
+# O par POSITIVO, no catalogo: sem ele, o 401 do tile poderia vir de o emprestimo nao
+# existir, e nao de o gate nao ve-lo.
+ve "o emprestimo VALE no catalogo aditivo"  "ve" "$URL_TILE" -H "Authorization: Bearer $TP" "$API/resource-access/visible?atlasId=$AT"
+defeito "e o TILE da mesma camada recusa"   401 -H "Authorization: Bearer $TP" "$BASE/$URL_TILE"
+defeito "e recusa ate com ?atlasId= na URL" 401 -H "Authorization: Bearer $TP" "$BASE/$URL_TILE?atlasId=$AT"
+
+sql "DELETE FROM atlas_resources WHERE atlas_id='$AT';"
+sql "DELETE FROM atlas_shares WHERE atlas_id='$AT';"
+sql "DELETE FROM atlas WHERE id='$AT';"
+
+echo
 echo "--- devolvendo as tres linhas ao estado original ---"
 sql_catalogo "UPDATE data_layers SET access_level='public' WHERE id='$CAMADA';"
 sql_catalogo "UPDATE basemaps SET access_level='public' WHERE id='bdgex';"
@@ -195,10 +221,10 @@ sql_catalogo "UPDATE analysis_layers SET access_level='public', config = jsonb_s
 ve "URL do tile de volta no config"        "ve" "$URL_TILE" "$BASE/api/config"
 
 echo
-echo "Metade 1 (catalogo, por recurso): $(( 20 - falhas ))/20 corretas."
+echo "Metade 1 (catalogo, por recurso): $(( 21 - falhas ))/21 corretas."
 echo "Metade 2 (bytes, por credencial): $defeitos porta(s) alcancada(s) por quem nao ve a camada."
 if [ "$falhas" -eq 0 ]; then
-    echo "x"
+    echo "CASO 4 (Martin via nginx) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
 else
     echo "CASO 4 COM $falhas DESVIO(S) INESPERADO(S)."
 fi

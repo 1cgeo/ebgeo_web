@@ -360,15 +360,23 @@ escolheu aquela pessoa; o link público é o único caminho em que ninguém deci
 decidiu que a nomeação continua não sendo exigida aqui.
 
 **6.6** O que faltava não era o predicado, era o **CONSENTIMENTO**: um empréstimo é invisível na tela de
-quem publica o link. Ao ativar o link público, a interface precisa **nomear os recursos privados que o
-atlas empresta**, porque hoje ela diz apenas que qualquer pessoa com o link visualiza o atlas, o que é
-verdade e é insuficiente. **[em obra]** desde 2026-08-29. Eram três coisas faltando, e a primeira delas
-saiu no mesmo dia: `GET /api/v1/atlas/:atlasId/resources` já devolve `name` e `access_level` por item, os
-dois nulos no empréstimo ÓRFÃO, que continua na lista de propósito, porque sumir esconderia um empréstimo
-vivo (preso por `backend/tests/integration/atlas-emprestimo-nomeia-recurso.test.js`). Faltam as outras
-duas: o modal de compartilhamento não tem o aviso; e o `transformRequest` do mapa só reconhece URL do 360,
-então o token efêmero do visitante não viaja no tile do servidor de tiles, e sem isso a cláusula fica
-escrita e não vale na tela.
+quem publica o link. Ao ativar o link público, a interface **nomeia os recursos privados que o atlas
+empresta**, porque antes ela dizia apenas que qualquer pessoa com o link visualiza o atlas, o que é verdade e
+é insuficiente. **[vigente]** desde 2026-08-29, no mesmo dia em que foi aberta: a rota
+`GET /api/v1/atlas/:atlasId/resources` passou a devolver o nome e o nível de acesso por item, o modal ganhou o
+aviso (as frases num módulo folha, `frontend/src/js/modals/link-publico-phrases.js`), e o carimbo de credencial
+no tile passou a cobrir o servidor de tiles além do 360 (`frontend/src/js/map/credencial-de-tile.js`). Preso
+por `frontend/tests/unit/link-publico-aviso-de-exposicao.test.js` e por
+`backend/tests/integration/atlas-emprestimo-nomeia-recurso.test.js`.
+
+**6.7** **O empréstimo por atlas NÃO alcança o tile**, e isto é um DEFEITO medido em 2026-08-29, não uma
+decisão. O ramo de empréstimo do predicado depende do atlas em foco (`?atlasId=`), e a subrequisição do
+`auth_request` do nginx chega ao backend **sem query**, de modo que o gate do tile sempre decide com atlas
+nulo. Medido: um membro do atlas que alcança a camada SÓ pelo empréstimo vê o item no payload aditivo do
+catálogo e recebe 401 no tile dela, inclusive com `?atlasId=` na URL. Isso contradiz a 6.3 exatamente onde ela
+mais importa, porque é o caso do visitante de link público. **[pendente]**: o conserto tem três pontas (o
+nginx repassar o atlas em cabeçalho, como já faz com o caminho; o gate lê-lo; e o cliente carimbá-lo na URL do
+tile, como `escoparUrlDeAsset` já faz para o 3D).
 
 **6.4** O empréstimo reconhece também o **produtor** como dono capaz de emprestar o acervo da própria
 organização. **[vigente]** desde 2026-08-21: a produção do dono do atlas entrou como termo próprio na

@@ -1484,9 +1484,23 @@ que é verdade e é insuficiente.
 2. O modal de compartilhamento (`frontend/src/js/modals/sharing.modal.core.js`,
    `_renderPublicSection`) precisa do aviso.
 3. O visitante precisa CONSEGUIR ver o que a decisão diz que ele vê: o
-   `transformRequest` do mapa hoje só reconhece URL do 360 (`isSv360Url`), então o token
-   efêmero dele não viaja no tile do servidor de tiles. Sem isso a decisão fica escrita e
-   não vale na tela.
+   `transformRequest` do mapa só reconhecia URL do 360, então o token efêmero do visitante
+   não viajava no tile do servidor de tiles.
+
+**OS TRÊS FORAM FEITOS no mesmo dia**, e o registro fica porque a ordem importou. O
+carimbo de credencial virou `credencialDeTile`
+(`frontend/src/js/map/credencial-de-tile.js`), que cobre as duas bases e substituiu o do
+360, removido junto com o predicado dele; a rota passou a devolver `name` e
+`access_level`; e o modal de compartilhamento passou a nomear os privados, com as frases
+num módulo folha (`frontend/src/js/modals/link-publico-phrases.js`).
+
+**O ITEM 3 COBROU UM DEFEITO QUE A SUÍTE NÃO PEGOU.** A amarra de CSRF da fase 4 olhava
+`req.authVia === 'cookie'`, e o `flexibleAuth` lê o cookie ANTES do Bearer: o cliente
+logado manda os dois, então `authVia` era `'cookie'` em toda requisição do app e TODA
+escrita de TODO usuário respondia 401. A suíte passava porque cada caso mandava UMA
+credencial por vez; quem pegou foi a captura de UI. A correção não mexeu na precedência:
+`flexibleAuth` passou a registrar a PRESENÇA do cabeçalho (`req.temBearer`), e é ela que
+autoriza a escrita, porque um formulário de outro site não consegue pôr `Authorization`.
 
 **Verificação do que já está pronto:** seis conferências em `dev/tile-privado/scripts/`,
 165 casos e zero defeito; backend com lint limpo e `npm test` completo verde (3943 casos,

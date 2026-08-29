@@ -52,7 +52,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[jwt-emissor-unico]] - um único segredo e um único payload servindo os três consumidores.
 - [[refresh-token-rotacao]] - uso único, rotação, detecção de reuso e revogações em massa.
 - [[auth-flexivel]] - o middleware não-bloqueante que popula o usuário e deixa a requisição seguir anônima.
-- [[api-keys]] - chave por usuário para integração máquina-a-máquina, rotacionável e auditada.
+- [[api-keys]] - chaves de API para integração máquina-a-máquina: duas moradas (a legada, uma por conta, e a tabela nomeada, várias por conta com rótulo e prazo), revogáveis e auditadas.
 - [[hardening-borda-api]] - rate limiting, login timing-safe, cabeçalhos, readiness e boot fail-fast.
 - [[upload-imagens-seguranca]] - validação dupla de tipo, limites de tamanho e entrega sempre como anexo.
 - [[erros-api]] - o envelope de erro visto do lado do cliente: o que ele descarta e o que já resolveu antes do seu catch.

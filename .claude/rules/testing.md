@@ -90,6 +90,27 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   hermética, e é aí que o atalho deixa de ser troca informada e vira medição falsa. A
   rodada que vale antes do commit é `npm test` sem argumento, no pacote, ou o
   `npm test` da raiz.
+
+  **DUAS RODADAS DO BACKEND NA MESMA MÁQUINA SE ATROPELAM, e o vermelho que sai disso
+  se lê como regressão** (medido em 2026-08-29). Elas compartilham o banco
+  `ebgeo_test`: a que começa depois o dropa e recria no meio da primeira, e o sintoma
+  é `3D000 database ... does not exist`, `42P01 relação ... não existe` e casos que
+  terminam `cancelled`, tudo em arquivos sem relação com o que você mexeu, e nada na
+  saída aponta para a causa. Antes de diagnosticar, confirme que não há outra rodada
+  viva (a de um agente em paralelo, a sua de dois terminais atrás). A saída é dar
+  banco próprio a uma delas por `TEST_DB_NAME`, que `backend/scripts/run-tests.js` lê
+  (no PowerShell, `$env:TEST_DB_NAME='ebgeo_test_2'` antes do comando; o Bash aceita
+  o prefixo na mesma linha). Reconfirme o vermelho sozinho antes de tratá-lo como
+  código quebrado: é a mesma regra do banco reaproveitado do `test:fast`.
+
+  **E o runner monta o ambiente do processo de teste EXPLICITAMENTE, sem ler o
+  arquivo .env.test.** Variável posta lá fica inócua com cara de configurada, que é a
+  classe "o verificador também quebra calado": ela tem de entrar na lista de
+  `backend/scripts/run-tests.js`. Foi o que aconteceu com `TILE_SERVER_URL` em
+  2026-08-29, e o modo de falha dela é o pior tipo: o índice de regime só indexa
+  endereço que caia sob aquela base, então sem ela o índice sai VAZIO, e índice vazio
+  significa recusar tudo, de modo que um teste de tile passaria medindo a ausência de
+  configuração em vez do gate.
 - **UI**: no preview or interactive-browser tool. The approved loop is a
   Playwright capture driving the real app and backend, then READING the produced
   image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.

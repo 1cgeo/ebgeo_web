@@ -52,6 +52,16 @@ Cinco rodadas de 200 pedidos com conexão reusada, em 2026-08-29:
 
 *(A primeira medição foi jogada fora: ela lançava um processo por pedido, e o piso saiu em 35 ms, que é o custo de criar processo no Windows. Nela o tile público chegou a medir menos que o piso, que é o sinal de que o instrumento dominava o sujeito.)*
 
+## O DEFEITO conhecido: o empréstimo por atlas não alcança o tile
+
+Medido em 2026-08-29, e registrado como cláusula 6.7 da [`CONSTITUICAO.md`](../../CONSTITUICAO.md). O ramo de empréstimo de `fn_granted_resource_ids` depende do atlas em foco, que chega por `?atlasId=`. **A subrequisição do `auth_request` chega ao backend sem query**, então o gate do tile decide sempre com atlas nulo, e aquele ramo nunca é exercido.
+
+A medição, com um membro do atlas que alcança a camada SÓ pelo empréstimo: ele vê o item no payload aditivo do catálogo (`GET /resource-access/visible?atlasId=`) e recebe **401 no tile dela**, inclusive com `?atlasId=` na URL. Ou seja, a camada aparece na lista e não desenha.
+
+Isso contradiz a cláusula 6.3 exatamente onde ela mais importa, porque o visitante de link público alcança recurso privado **só** por empréstimo. O conserto tem três pontas: o nginx repassar o atlas em cabeçalho (como já faz com o caminho, pelo mesmo `map`), o gate lê-lo, e o cliente carimbá-lo na URL do tile, como `escoparUrlDeAsset` já faz para o 3D.
+
+**Ele não foi achado pelas conferências**, e vale saber por quê: elas medem `?atlasId=` inventado, que tem de dar 401, e nunca mediram um empréstimo REAL passando. Um par negativo sem o positivo do mesmo eixo passa verde sobre um ramo que não funciona, que é a cobertura vazia da constituição na forma mais discreta.
+
 ## O que fica de fora, e é decisão, não pendência
 
 - **URL de terceiro só pode ser pública** (decisão do dono, 2026-08-29). Não há gate possível sobre servidor alheio. Hoje o efeito já é seguro pelo índice, que não cria entrada para endereço de outra origem, e o gate portanto recusa; o que falta é o **422 na escrita**, para que o cadastro avise em vez de deixar a pessoa descobrir no primeiro tile.

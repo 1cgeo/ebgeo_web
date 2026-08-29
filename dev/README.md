@@ -4,6 +4,25 @@ Ferramentas de operação que não são nem do `frontend/` nem do `backend/`: ro
 contra um banco, e não fazem parte de nenhum build. Não têm `package.json` próprio, elas
 resolvem as dependências a partir de `backend/node_modules`.
 
+## `tile-privado/`
+
+O ÚNICO item desta pasta que não é um script solto: um ambiente Docker completo (nginx,
+backend, servidor de tiles e uma cópia do banco de configuração) para medir o gate do tile
+privado, que é a única superfície de recurso privado cujos bytes não passam pelo Node.
+
+Ele existe porque aquele gate não tem como ser testado pelas suítes: o `auth_request` mora
+na configuração do nginx, que é do host e fica fora do versionamento. As seis conferências
+de lá são sonda com data, não teste, e o README delas diz o que provam e o que não provam.
+
+```bash
+npm run build --prefix frontend                    # o nginx serve frontend/dist
+dev/tile-privado/scripts/preparar.sh               # dump do banco de configuração local
+cd dev/tile-privado && docker compose up -d --build
+```
+
+O porquê do desenho, as decisões e o custo medido estão em
+[`docs/wiki/tile-privado.md`](../docs/wiki/tile-privado.md).
+
 ## `gerar-golden-busca.mjs` + `tune-busca.mjs`
 
 Conjunto dourado e calibrador de `GET /nomes/busca`. Exigem um acervo carregado.

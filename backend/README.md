@@ -1,6 +1,6 @@
 # EBGeo Backend
 
-API REST + WebSocket (Node 20, ES Modules) do app de mapeamento geoespacial militar **EBGeo**.
+API REST + WebSocket (Node 22 LTS na imagem, `engines` em >= 20.19, ES Modules) do app de mapeamento geoespacial militar **EBGeo**.
 Adiciona ao frontend local-first: autenticação JWT, persistência PostgreSQL/PostGIS, colaboração em
 tempo real e sincronização offline-first.
 
@@ -48,7 +48,15 @@ A divisão que decide onde escrever cada coisa:
 | Nomes geográficos, catálogo 3D, panoramas 360 | REST read-only (PostGIS) |
 
 `Express 4` · `pg-promise` (SQL direto, sem ORM) · `ws` · `jsonwebtoken`+`bcrypt` · `joi` · `pino` ·
-`better-sqlite3` (BLOBs 3D/360). Node 20 LTS, ES Modules.
+`better-sqlite3` (BLOBs 3D/360). ES Modules.
+
+**A imagem do Docker roda Node 22**, e a razão não é "mais novo é melhor": `better-sqlite3` 12.10.0
+removeu os binários pré-compilados para o Node 20, que está em fim de vida, e o pacote está em
+12.11.1. Em Node 20 não há o que baixar, o `npm ci` cai no `node-gyp rebuild` e morre com
+`gyp ERR! find Python`, porque a imagem slim não traz Python nem toolchain; em Node 22 o prebuild
+existe e a instalação termina em segundos sem toolchain nenhum. O `engines` continua em
+`>= 20.19.0`, que é o piso da linguagem e não o da dependência nativa. O cabeçalho do
+`Dockerfile` carrega as duas alternativas recusadas.
 
 ```
 src/

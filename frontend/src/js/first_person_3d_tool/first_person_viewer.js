@@ -408,8 +408,9 @@ function applyEngineQualityDefaults(viewer) {
  * `dev/tile-privado`: every other asset of the same scene loaded and the model did
  * not, which reads on screen as a broken viewer rather than as a denial.
  *
- * The `fileoverview` of `resolveSceneAssets` still counts this address among the ones
- * "not fetched by our code"; that half is what made the omission easy to miss.
+ * The `fileoverview` of `resolveSceneAssets` used to count this address among the ones
+ * "not fetched by our code", and that half is what made the omission easy to miss; it
+ * was corrected in the same commit, so do not read it as a second source any more.
  *
  * WHAT THIS DOES NOT FIX, and it is the larger half: `itens/*.jpg`, the marker photo
  * and the preview clip become `img.src` and `<video src>`, which carry no header and
