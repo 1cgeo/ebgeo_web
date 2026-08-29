@@ -13,7 +13,7 @@
  */
 
 import {
-    fetchProjects, fetchPhotoMetadata, getPhotoImageUrl,
+    fetchProjects, fetchPhotoMetadata,
     saveCalibration, saveMeshRotationX, saveMeshRotationZ,
     setPhotoReviewed, fetchProjectPhotos, fetchAllReviewStats, fetchProjectRuns,
     fetchProjectFloors,
@@ -431,10 +431,8 @@ async function startCalibration(photoId) {
         viewerSetMeshRotationX(metadata.camera?.mesh_rotation_x ?? 0);
         viewerSetMeshRotationZ(metadata.camera?.mesh_rotation_z ?? 0);
 
-        // Load panorama (progressive: preview then full)
-        const previewUrl = getPhotoImageUrl(photoId, 'preview');
-        const fullUrl = getPhotoImageUrl(photoId, 'full');
-        await loadProgressive(previewUrl, fullUrl);
+        // Compoe a panoramica por tiles (tiles-only desde 2026-08-29).
+        await loadProgressive(photoId);
 
         // Carga obsoleta apos a textura terminar de carregar: descarta o resto.
         if (myGen !== loadGeneration) return;

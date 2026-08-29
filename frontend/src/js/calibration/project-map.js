@@ -20,7 +20,7 @@
  */
 
 import config from '@js/config.js';
-import { fetchProjectMap, getPhotoImageUrl, sv360Base } from './api.js';
+import { fetchProjectMap, sv360Base } from './api.js';
 import { stampAtlasOnUrl } from '@js/street_view_tool/tile-scope.js';
 import { currentResourceAtlasId } from '@store/sync/resource-scope.js';
 // Modulo direto, e nao o barrel `@utils`: por ele a pagina de calibracao
@@ -567,16 +567,9 @@ function renderCard() {
  * depois de uma regeracao. E um pedido a mais, e ele so acontece quando o
  * operador abre um cartao.
  *
- * Sem piramide, cai no preview de sempre. Isso vale enquanto houver foto sem
- * piramide, e some junto com o `preview_webp`.
- *
- * O ENDERECO SE COMPOE A PARTIR DO CAMINHO, e nao arrancando a query de outra URL.
- * Aqui morava `getPhotoImageUrl(...).replace(/\/image\?.*$/, '')`, e desde que
- * `getPhotoImageUrl` passou a carimbar `?atlasId=` esse `replace` engolia o escopo
- * junto com o `?quality=`: o `tiles.json` saia sem atlas nenhum. Hoje e inocuo (esta
- * pagina nao boota o motor de sync, entao o escopo fica nulo), mas era uma armadilha
- * plantada para o dia em que o estudio abrir projeto por atlas — e o defeito
- * apareceria longe da causa, como miniatura que nunca pinta.
+ * TILES-ONLY desde 2026-08-29: sem piramide nao ha miniatura, e a `img` fica sem
+ * `src`. O fallback `image?quality=preview` saiu com a rota de imagem inteira do
+ * backend. Toda foto servida tem piramide, entao o caminho de tiles acima assume.
  *
  * O CARIMBO SE REPETE NA URL DO TILE porque a resolucao relativa DESCARTA a query da
  * base: `new URL('tiles/0/0/0?v=N', '.../tiles.json?atlasId=X')` nao herda o atlas.
@@ -607,8 +600,10 @@ async function pintarMiniatura(img, photoId) {
         const absoluta = new URL(rel, new URL(docTiles, location.href)).href;
         img.src = stampAtlasOnUrl(absoluta, escopo);
     } catch {
-        // Foto sem piramide: o caminho de sempre.
-        img.src = getPhotoImageUrl(photoId, 'preview');
+        // Tiles-only (2026-08-29): a rota de imagem inteira saiu, e com ela o fallback
+        // `image?quality=preview` desta miniatura. Toda foto servida tem piramide, então
+        // o `try` acima assume; se ele falhar (sem pirâmide ou rede caída), não há fonte
+        // de miniatura, e a `img` fica sem `src` em vez de pedir uma rota que dá 404.
     }
 }
 

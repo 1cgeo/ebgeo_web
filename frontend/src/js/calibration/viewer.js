@@ -4,10 +4,10 @@
  * Renders an equirectangular photo on an inverted sphere with orbit-style controls.
  * Supports live mesh_rotation_y preview.
  *
- * A FONTE DA TEXTURA TEM DOIS CAMINHOS, e so isso. `loadProgressive` sonda o
- * `tiles.json` da foto e, se a piramide existir, compoe a panoramica por tiles
- * (ver street_view_tool/tile-loader.js). So o ramo SEM piramide pede preview e
- * full.
+ * A FONTE DA TEXTURA E O TILE, e so ele. `loadProgressive` sonda o `tiles.json`
+ * da foto e compoe a panoramica por tiles (ver street_view_tool/tile-loader.js).
+ * TILES-ONLY desde 2026-08-29: a rota de imagem inteira saiu do backend, e com ela
+ * o fallback preview/full para a foto sem piramide. Sem piramide, nao pinta.
  *
  * O CARREGADOR E O DO street_view_tool, e nao uma copia local. Ele ja resolveu
  * uma vez as duas adaptacoes desta casa: `three` do vendor e raiz da API por
@@ -185,7 +185,6 @@ export function initViewer(container, options = {}) {
 // TEXTURE LOADING
 // ============================================================================
 
-const textureLoader = new THREE.TextureLoader();
 
 // Token de geracao para descartar carregamentos de textura obsoletos em
 // navegacao rapida (foto A resolve depois de B nao deve sobrescrever B).
@@ -201,50 +200,6 @@ function nextLoadGeneration() {
     return ++loadGeneration;
 }
 
-/**
- * Loads a panorama image onto the sphere.
- * @param {string} url - Image URL
- * @param {boolean} [isPreview=false] - Whether this is a low-quality preview
- * @param {number} [generation] - Token de geracao; se informado e ja obsoleto
- *   quando a textura chega, a textura e descartada sem aplicar.
- * @returns {Promise<void>}
- */
-export function loadPanorama(url, isPreview = false, generation = loadGeneration) {
-    return new Promise((resolve, reject) => {
-        textureLoader.load(
-            url,
-            (texture) => {
-                texture.colorSpace = THREE.SRGBColorSpace;
-
-                // Carga obsoleta (outra foto comecou a carregar): descarta.
-                if (generation !== loadGeneration) {
-                    texture.dispose();
-                    resolve();
-                    return;
-                }
-
-                // Don't replace full-quality texture with preview
-                if (isPreview && material.map && material.map.userData?.isFull) {
-                    texture.dispose();
-                    resolve();
-                    return;
-                }
-
-                // Dispoe a textura antiga antes de aplicar a nova
-                descartarTexturaAtual();
-
-                texture.userData = { isFull: !isPreview };
-                material.map = texture;
-                material.color.set(0xffffff);
-                material.needsUpdate = true;
-                markNeedsRender();
-                resolve();
-            },
-            undefined,
-            (err) => reject(err)
-        );
-    });
-}
 
 /**
  * Descarta a textura que ACABOU de sair da esfera, seja de quem for.
@@ -366,19 +321,6 @@ function largarTiles() {
     orfa.dispose();
 }
 
-/**
- * Le o uuid da foto na URL da imagem.
- *
- * O viewer recebe URLs prontas, e nao o id. Ler o uuid daqui evita mudar a
- * assinatura de quem chama, e o `photoId` explicito continua tendo precedencia.
- *
- * @param {string} url - URL no formato /photos/{uuid}/image?quality=...
- * @returns {string|null} o uuid, ou null se a URL nao tiver esse formato
- */
-function uuidDaUrlDeImagem(url) {
-    const achado = /\/photos\/([^/?#]+)\/image/.exec(String(url));
-    return achado ? achado[1] : null;
-}
 
 /**
  * Tenta compor a panoramica pela piramide de tiles.
@@ -449,17 +391,17 @@ async function tentarTiles(photoId, generation) {
  * @param {string} fullUrl - URL da imagem inteira
  * @param {string} [photoId] - uuid da foto. Sem ele, sai da propria fullUrl
  */
-export async function loadProgressive(previewUrl, fullUrl, photoId = null) {
+export async function loadProgressive(photoId) {
     // Nova geracao: invalida qualquer carga anterior ainda em voo.
     const generation = nextLoadGeneration();
 
-    if (await tentarTiles(photoId || uuidDaUrlDeImagem(fullUrl), generation)) return;
+    if (await tentarTiles(photoId, generation)) return;
 
     // TILES-ONLY (2026-08-29): o ingest passou a EXIGIR piramide, entao toda foto
     // servida tem tiles e cai no ramo acima. A rota de imagem inteira
     // (`image?quality=preview|full`) saiu do backend, e com ela o fallback que
-    // baixava o WebP inteiro para a foto sem piramide. `previewUrl`/`fullUrl` seguem
-    // na assinatura so para `uuidDaUrlDeImagem` derivar o photoId quando ele nao vem.
+    // baixava o WebP inteiro para a foto sem piramide. A assinatura passou a receber
+    // o `photoId` direto: antes recebia URLs de imagem so para extrair o uuid delas.
     console.warn('[calibracao] foto sem piramide de tiles e sem fallback de imagem (tiles-only)');
 }
 

@@ -54,8 +54,8 @@ const base = sv360Base;
 /**
  * O endereco de UMA leitura do 360, com o atlas em foco ja carimbado.
  *
- * TODA leitura deste arquivo passa por aqui, `fetchPhotoMetadata` e `getPhotoImageUrl` inclusive,
- * que montam a propria URL por precisarem de query propria. Espalhar `?atlasId=` por chamador e o
+ * TODA leitura deste arquivo passa por aqui, `fetchPhotoMetadata` inclusive, que monta a propria
+ * URL por precisar de query propria. Espalhar `?atlasId=` por chamador e o
  * defeito que esta correcao veio desfazer do outro lado: o cliente do mapa carimbava so o template
  * dos tiles, e as outras quatorze leituras saiam sem escopo — o ponto aparecia no mapa 2D e nada
  * mais abria.
@@ -280,17 +280,6 @@ export async function fetchPhotoMetadata(photoId, { signal } = {}) {
     } finally {
         cleanup();
     }
-}
-
-/**
- * Returns the URL for a photo image at a given quality.
- * Does not perform a fetch -- just builds the URL string.
- * @param {string} photoId - Photo UUID
- * @param {'full'|'preview'} [quality='full'] - Image quality variant
- * @returns {string} Image URL
- */
-export function getPhotoImageUrl(photoId, quality = 'full') {
-    return url(`/photos/${encodeURIComponent(photoId)}/image?quality=${quality}`);
 }
 
 /**

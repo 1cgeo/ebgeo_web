@@ -139,7 +139,7 @@ describe('com um atlas em foco, as leituras do ESTUDIO de calibracao carimbam ?a
     // O estudio boota sem o motor de sync, entao HOJE o escopo dele e sempre nulo. O que estes
     // casos medem e que ele nao carrega uma SEGUNDA nocao de escopo: declarado o mesmo registro,
     // as leituras dele o nomeiam pela mesma funcao do cliente do mapa.
-    it('as sete leituras e a URL de imagem', async () => {
+    it('as sete leituras', async () => {
         const { calibracao } = await montar(ATLAS);
         vi.stubGlobal('fetch', fetchEspiao({ floors: [], runs: [], stats: {}, photos: [] }));
 
@@ -167,8 +167,6 @@ describe('com um atlas em foco, as leituras do ESTUDIO de calibracao carimbam ?a
             `${SERVICO}/photos/${FOTO}/nearby?radius=100&floor=all&atlasId=${ATLAS}`,
         ]);
 
-        expect(calibracao.getPhotoImageUrl(FOTO))
-            .toBe(`${SERVICO}/photos/${FOTO}/image?quality=full&atlasId=${ATLAS}`);
     });
 });
 
@@ -228,7 +226,6 @@ describe('O CONTROLE NEGATIVO: sem atlas em foco nenhuma leitura ganha parametro
             `${SERVICO}/projects/qg/floors`,
         ]);
         limpas(vistas);
-        limpas([calibracao.getPhotoImageUrl(FOTO)]);
     });
 });
 
@@ -238,7 +235,7 @@ describe('O CONTROLE NEGATIVO: sem atlas em foco nenhuma leitura ganha parametro
 
 describe('o atlas das leituras e o MESMO que decide o payload de recursos privados', () => {
     it('trocar de atlas troca a URL; sair do atlas a devolve limpa', async () => {
-        const { mapa, calibracao } = await montar(null);
+        const { mapa } = await montar(null);
         const escopo = await import('../../src/js/store/sync/resource-scope.js');
         const OUTRO = '99999999-8888-4777-8666-555555555555';
 
@@ -246,14 +243,12 @@ describe('o atlas das leituras e o MESMO que decide o payload de recursos privad
 
         escopo.setResourceScope(escopo.resourceScopeKey('u-1', ATLAS));
         expect(mapa.sv360ReadUrl('/projects')).toBe(`${SERVICO}/projects?atlasId=${ATLAS}`);
-        expect(calibracao.getPhotoImageUrl(FOTO)).toContain(`atlasId=${ATLAS}`);
 
         escopo.setResourceScope(escopo.resourceScopeKey('u-1', OUTRO));
         expect(mapa.sv360ReadUrl('/projects')).toBe(`${SERVICO}/projects?atlasId=${OUTRO}`);
 
         escopo.resetResourceScope();
         expect(mapa.sv360ReadUrl('/projects')).toBe(`${SERVICO}/projects`);
-        expect(calibracao.getPhotoImageUrl(FOTO)).not.toContain('atlasId');
     });
 
     it('a resposta em cache e rotulada com o MESMO atlas que a URL nomeou', async () => {

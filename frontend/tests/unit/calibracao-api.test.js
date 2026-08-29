@@ -88,15 +88,6 @@ describe('calibracao/api — prefixo do modulo 360', () => {
         expect(fetchGlobal.mock.calls[0][0]).toBe(`${BASE}/admin/projects`);
         expect(fetchGlobal.mock.calls[0][0]).not.toBe(`${BASE}/projects`);
     });
-
-    // REPROVA o prefixo fixo: aqui ele vem do config, entao acompanha o backend sem recompilar.
-    it('a URL da imagem segue o serviceUrl do config', () => {
-        config.streetView360 = { serviceUrl: 'http://outro.host/api/v1/sv360' };
-
-        expect(api.getPhotoImageUrl(PHOTO, 'preview'))
-            .toBe(`http://outro.host/api/v1/sv360/photos/${PHOTO}/image?quality=preview`);
-    });
-
     // REPROVA `/api/v1/photos/:uuid`: a escrita da rotacao ia para o prefixo sem /sv360.
     it('a escrita de mesh_rotation_y vai para /sv360/photos/:uuid/calibration', async () => {
         await api.saveCalibration(PHOTO, 175.6);
