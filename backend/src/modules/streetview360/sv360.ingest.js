@@ -577,7 +577,7 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, tilesTmp
 
   // The dest filename is DERIVED from (orgId, slug) — identical to the value
   // mergeProject persists, so the file and Postgres always agree (FIX-1/FIX-3).
-  const dbFilename = deriveDbFilename(orgId, validated.project.slug);
+  const dbFilename = deriveDbFilename(validated.project.slug);
   const destPath = resolveDbPath(dbFilename);
   // O SEGUNDO ARQUIVO do projeto, quando ele existe. O nome e DERIVADO do mesmo
   // `dbFilename`, entao os dois andam juntos por construcao e nao por convencao

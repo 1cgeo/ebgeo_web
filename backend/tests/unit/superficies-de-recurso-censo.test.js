@@ -237,6 +237,21 @@ const CENSO_CONSULTA = [
       + 'sumiu das listagens.',
   },
   {
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'setCatalogPreviewVideo', n: 2,
+    classe: ESCRITA, predicado: P_PRODUCAO,
+    motivo: 'Grava (ou apaga) `config.previewVideo` com a URL do vídeo hospedado, e o gate é o '
+      + 'MESMO `fn_can_produce_resource` no `WHERE` das outras escritas do módulo. As DUAS linhas '
+      + 'de contato são o `UPDATE ${t}` e a subconsulta `FROM ${t} … FOR UPDATE` que colhe o '
+      + '`config` anterior para o de-para; ela não é leitura própria, é a linha que o UPDATE trava.',
+  },
+  {
+    arquivo: 'src/modules/catalog/catalog.service.js', unidade: 'transferCatalogItemOwner', n: 1,
+    classe: ESCRITA, predicado: 'requireAdmin',
+    motivo: 'Transfere a OM dona (só-admin): o gate NÃO é de produção, é `requireAdmin` na rota '
+      + '(`catalog.routes.js`), porque mover acervo entre OMs é ato de sistema. Por isso o `WHERE` '
+      + 'casa por id, sem `fn_can_produce_resource` — quem chega já passou pelo administrador.',
+  },
+  {
     arquivo: 'src/modules/catalog/catalog.queries.js', unidade: 'catalogAuthorizationPredicate', n: 1,
     classe: SQL, predicado: P_PRODUCAO,
     motivo: 'A FÁBRICA do predicado de leitura do catálogo: papel global OU produção OU concessão. '
@@ -684,6 +699,20 @@ const CENSO_CONSULTA = [
     classe: ESCRITA, predicado: 'loadWritableProject', motivo: INGESTAO_360,
   },
   {
+    arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'CHECK_SLUG_IN_ORG', n: 1,
+    classe: ESCRITA, predicado: 'requireAdmin',
+    motivo: 'Guarda de colisão da transferência de OM (só-admin): confere se a OM destino já tem '
+      + 'um projeto com o mesmo slug, para dar 409 em vez de violar o `UNIQUE(org, slug)`. O gate é '
+      + '`requireAdmin` (`sv360.routes.js`), o mesmo da escrita que ela precede.',
+  },
+  {
+    arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'TRANSFER_PROJECT_OWNER', n: 1,
+    classe: ESCRITA, predicado: 'requireAdmin',
+    motivo: 'Move `organization_id` do projeto (só-admin). Troca de coluna: o `db_filename` NÃO '
+      + 'muda, e as leituras resolvem o arquivo por ele, então nada em disco se renomeia. Gate '
+      + '`requireAdmin` na rota.',
+  },
+  {
     arquivo: 'src/modules/streetview360/sv360.admin.queries.js', unidade: 'PURGE_PROJECT_TARGETS',
     n: 2, classe: ESCRITA, predicado: 'loadWritableProject', motivo: INGESTAO_360,
   },
@@ -767,10 +796,11 @@ const CENSO_CONSULTA = [
       + 'Escreve, não lê.',
   },
 
-  // ================= o índice de regime do /assets3d =========================
+  // ================= os DOIS índices de regime, e a consulta que os alimenta ==
   {
-    arquivo: 'src/modules/nomes/assets3d-regime.js', unidade: 'INDICE_SQL', n: 1, classe: PUBLICO,
-    motivo: 'A consulta que inverte CAMINHO -> RECURSO para o `/assets3d`, e ela lê as quatro '
+    arquivo: 'src/modules/catalog/catalog.tables.js', unidade: 'SELECT_LINHAS_DE_CATALOGO', n: 1,
+    classe: PUBLICO,
+    motivo: 'A consulta que inverte CAMINHO -> RECURSO, e ela lê as quatro '
       + 'tabelas SEM filtro nenhum, de propósito e nos dois sentidos: sem `active` (porque apagar '
       + 'um tileset privado não pode publicar os bytes dele) e sem princípio (porque o índice é '
       + 'construído uma vez para TODOS os chamadores, e é justamente isso que permite decidir o '
@@ -779,7 +809,12 @@ const CENSO_CONSULTA = [
       + 'recurso de catálogo, e um chamador futuro que a EXPONHA (uma rota de diagnóstico, um log) '
       + 'entregaria o inventário privado inteiro. Hoje ela tem um leitor só, `regimeDoCaminho`, que '
       + 'devolve um booleano e o par (tipo, id) daquele caminho — nunca a lista. Quem decide o '
-      + 'acesso continua sendo `fn_can_see_resource`, em `assets3d-acesso.js`.',
+      + 'acesso continua sendo `fn_can_see_resource`, em `assets3d-acesso.js` e em `tile-access.js`. '
+      + 'ELA MOROU DENTRO DE `assets3d-regime.js` ATÉ 2026-08-29, e saiu quando nasceu o SEGUNDO '
+      + 'consumidor (`tile-regime.js`, o índice do prefixo de tiles): uma segunda cópia divergiria '
+      + 'na primeira tabela de catálogo nova, e o índice esquecido trataria as linhas dela como '
+      + '"caminho que ninguém reivindica" — que é a resposta que os dois decidem de forma OPOSTA, '
+      + 'porque o do 3D a lê como pública e o do tile a recusa.',
   },
 
   // ================= acervo 3D convertido: registro por linha de comando =====
@@ -983,6 +1018,18 @@ const CENSO_ROTA = [
       + 'ao DELETE que ela precede, então linha de outra OM devolve 404 e não uma contagem. O corpo '
       + 'é só quantidade por superfície: nenhum nome ou id de atlas atravessa, o que importa porque '
       + 'a lista de atlas que citam um recurso seria metadado de quem o usa.',
+  },
+
+  // ---------------- vídeo de prévia hospedado --------------------------------
+  {
+    arquivo: 'src/modules/catalog-video/catalog-video.routes.js', rota: 'GET /:file', classe: R_PUBLICA,
+    gate: 'flexibleAuth',
+    motivo: 'Serve os bytes do vídeo de prévia hospedado, PÚBLICO-POR-URL: o nome do arquivo carrega '
+      + 'um token de 16 bytes aleatórios, e a URL só chega a quem VÊ o recurso (config público, ou o '
+      + 'payload aditivo do privado). O RISCO é o de um link de capacidade: quem tem a URL busca o '
+      + 'arquivo, como no link público de atlas. Não há gate por recurso aqui de propósito, porque o '
+      + 'token é o segredo; um gate por tipo exigiria mapear o arquivo de volta ao recurso, e o '
+      + 'vídeo de prévia não justifica isso.',
   },
 
   // ---------------- config: o documento de boot ------------------------------
@@ -1440,6 +1487,16 @@ const CENSO_CACHE = [
       + 'tile ausente, e o tile FORA DA ESCADA — este último é o único que não vem de divergência, '
       + 'e mesmo assim não se cacheia, porque a escada muda numa regeração e um 404 pregado no '
       + 'navegador sobreviveria à pirâmide nova.',
+  },
+  {
+    arquivo: 'src/modules/catalog-video/catalog-video.controller.js',
+    trecho: "'public, max-age=31536000, immutable'", n: 1, classe: C_PUBLICO_FIXO,
+    motivo: 'O vídeo de prévia hospedado sai `public, immutable`, e é FIXO de propósito, não por '
+      + 'descuido: o arquivo é público-por-URL (o token de 16 bytes no nome é a capacidade), então '
+      + 'não há eixo de acesso a seguir como na imagem 360 ou no modelo 3D. O RISCO é o do link de '
+      + 'capacidade — um cache compartilhado repõe o vídeo a quem tiver a URL —, e ele é aceito '
+      + 'porque a URL só chega a quem já vê o recurso, e o conteúdo é uma prévia, não dado sensível. '
+      + 'O token torna o arquivo único, então imutável é correto.',
   },
 ];
 
@@ -2111,9 +2168,15 @@ describe('Censo das superfícies de recurso (fase F9)', () => {
     const publicas = CENSO_ROTA.filter((e) => e.classe === R_PUBLICA);
     assert.deepEqual(
       publicas.map((e) => `${e.arquivo} :: ${e.rota}`),
-      ['src/modules/config/config.routes.js :: GET /'],
-      'a única rota de leitura pública por desenho é o documento de boot; qualquer outra precisa '
-      + 'ser classificada de novo, com o RISCO escrito'
+      [
+        // O vídeo de prévia hospedado, PÚBLICO-POR-URL: o token no nome do arquivo é a
+        // capacidade, e a URL só chega a quem vê o recurso (decisão do dono, 2026-08-29). O
+        // RISCO está escrito na entrada de CENSO_ROTA acima; entrar aqui é o ato deliberado.
+        'src/modules/catalog-video/catalog-video.routes.js :: GET /:file',
+        'src/modules/config/config.routes.js :: GET /',
+      ],
+      'as rotas de leitura públicas por desenho são o documento de boot e o vídeo hospedado; '
+      + 'qualquer outra precisa ser classificada de novo, com o RISCO escrito'
     );
     const semRisco = publicas.filter((e) => !e.motivo.includes('RISCO'))
       .map((e) => `${e.arquivo} :: ${e.rota}`);

@@ -330,7 +330,30 @@ export const projectMetadataBodySchema = Joi.object({
     .messages({
       'string.pattern.base': 'O vídeo de prévia é um endereço, não um arquivo embutido (data URL).',
     }),
+  // O NOME é o display, não o slug: renomear não toca `slug`, `db_filename` nem os arquivos
+  // SQLite, que continuam chaveados por `{orgId}__{slug}`. Por isso é editável sem risco. Não
+  // aceita vazio (a coluna é NOT NULL); a ausência do campo mantém o nome atual.
+  name: Joi.string().trim().min(1).max(255),
+  // A DESCRIÇÃO aceita vazio: a coluna é NULL-ável, e `''` é como o formulário diz "sem
+  // descrição". A ausência do campo mantém a atual (atualização parcial, como o vídeo).
+  description: Joi.string().trim().max(5000).allow('', null),
+  // OS CAMPOS DO CARTÃO DE CATÁLOGO (paralelo do 3D): palavra-chave, local, data de captura e o
+  // centro (longitude/latitude do marcador). Todos NULL-áveis e parciais. `keywords` é ARRAY de
+  // texto (o cartão itera sobre ela); `[]` e null viram "sem palavra-chave".
+  keywords: Joi.array().items(Joi.string().trim().max(100)).max(50).allow(null),
+  location: Joi.string().trim().max(255).allow('', null),
+  captureDate: Joi.string().trim().max(100).allow('', null),
+  centerLat: Joi.number().min(-90).max(90).allow(null),
+  centerLong: Joi.number().min(-180).max(180).allow(null),
 }).min(1).unknown(false);
+
+// PATCH /admin/projects/:slug/owner-org — a OM dona NOVA. Não aceita null: projeto 360
+// não tem estado institucional (a OM entra no upload e é obrigatória). A transferência é
+// TROCA DE COLUNA: o arquivo em disco não é renomeado, porque as leituras o resolvem pela
+// coluna `db_filename` gravada, nunca por (orgId, slug) recalculado. Só administrador.
+export const ownerOrgBodySchema = Joi.object({
+  owner_org_id: Joi.string().guid().required(),
+}).unknown(false);
 
 // GET /admin/projects — optional ?orgId filter (a global admin may scope the list
 // to a single OM). Non-admins ignore it (forced to their own org in the service).

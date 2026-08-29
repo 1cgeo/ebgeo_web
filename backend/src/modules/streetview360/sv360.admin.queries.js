@@ -68,7 +68,8 @@ export const CHECK_PHOTO_IDS_IN_OTHER_PROJECT = `
 // the fields a swap-compensation snapshot needs (status/created_at/db_filename).
 //   $1 = organization_id (uuid), $2 = slug (text)
 export const GET_PROJECT_FOR_ADMIN = `
-  SELECT id, organization_id, slug, name, center_lat, center_long,
+  SELECT id, organization_id, slug, name, description, location, keywords, capture_date,
+         center_lat, center_long,
          entry_photo_id, photo_count, db_filename, status, preview_video,
          created_at, updated_at
   FROM sv360.projects
@@ -87,7 +88,7 @@ export const UPSERT_PROJECT = `
     (organization_id, slug, name, center_lat, center_long,
      entry_photo_id, photo_count, db_filename)
   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
-  ON CONFLICT (organization_id, slug) DO UPDATE SET
+  ON CONFLICT (slug) DO UPDATE SET
      name           = EXCLUDED.name,
      center_lat     = EXCLUDED.center_lat,
      center_long    = EXCLUDED.center_long,
@@ -95,8 +96,38 @@ export const UPSERT_PROJECT = `
      photo_count    = EXCLUDED.photo_count,
      db_filename    = EXCLUDED.db_filename,
      updated_at     = now()
+  WHERE sv360.projects.organization_id = EXCLUDED.organization_id
   RETURNING id, organization_id, slug, name, center_lat, center_long,
             entry_photo_id, photo_count, db_filename, status,
+            created_at, updated_at
+`;
+
+// -------------------------------------------------------------------------
+// Transferência de OM dona (só-admin) — TROCA DE COLUNA, sem tocar o disco.
+// -------------------------------------------------------------------------
+
+// A OM destino existe e está ativa? (400 se não, em vez de violar a FK com 500.)
+//   $1 = organization_id (uuid)
+export const CHECK_ORG_ACTIVE = `
+  SELECT id FROM public.organizations WHERE id = $1::uuid AND is_active = true
+`;
+
+// A OM destino já tem um projeto com este slug? (o UNIQUE(org, slug) proíbe dois.)
+//   $1 = organization_id (uuid destino), $2 = slug
+export const CHECK_SLUG_IN_ORG = `
+  SELECT id FROM sv360.projects WHERE organization_id = $1::uuid AND slug = $2
+`;
+
+// Move a OM dona. `db_filename` NÃO muda: as leituras o resolvem pela coluna gravada,
+// então o arquivo `{orgOrig}__{slug}.db` continua sendo achado. Renomear seria trabalho
+// de disco sem efeito de leitura, e é o que esta rota EVITA de propósito.
+//   $1 = project id (uuid), $2 = nova organization_id (uuid)
+export const TRANSFER_PROJECT_OWNER = `
+  UPDATE sv360.projects
+     SET organization_id = $2::uuid, updated_at = now()
+   WHERE id = $1::uuid
+  RETURNING id, organization_id, slug, name, description, center_lat, center_long,
+            entry_photo_id, photo_count, db_filename, status, preview_video,
             created_at, updated_at
 `;
 
@@ -250,23 +281,37 @@ export const UPDATE_PROJECT_STATUS = `
             created_at, updated_at
 `;
 
-// METADADO DO PROJETO: hoje só `preview_video`, o endereço do vídeo de prévia.
+// METADADO DO PROJETO, editável no painel como no 3D: `preview_video`, `name`, `description`,
+// `keywords`, `location`, `capture_date` e o centro (`center_lat`/`center_long`). Cresceu com o
+// "360 paralelo do 3D" (2026-08-29); a versão anterior deste cabeçalho ainda dizia "hoje só
+// preview_video", e é o tipo de comentário que mente calado depois que a query dobra de tamanho.
 //
-// TABELA ALVO É `sv360.projects`, mesma da linha de status logo acima, e a razão de ser
-// uma consulta SEPARADA em vez de um SET dinâmico é a regra da casa: `SET` montado a
-// partir de input só existe a partir de whitelist de colunas, e uma whitelist de UM
-// elemento é um `SET` escrito por extenso com passos a mais.
+// TABELA ALVO É `sv360.projects`, mesma da linha de status logo acima. O `SET` é escrito por
+// extenso (uma coluna por linha) e não montado a partir de input: a regra da casa é `SET`
+// dinâmico só a partir de whitelist de colunas, e aqui a whitelist é o próprio corpo da query.
 //
-// `$3` ACEITA NULL, e é assim que o painel REMOVE o vídeo: o campo esvaziado vira null,
-// não string vazia, porque "sem vídeo" é a ausência da coluna e não um endereço de zero
-// caracteres — a forma pública devolve `previewVideo: null` nos dois casos e o cartão
-// esconde a afordância só na ausência.
-//   $1 = organization_id (uuid), $2 = slug, $3 = preview_video (text, nullable)
+// ATUALIZAÇÃO PARCIAL POR CAMPO: cada coluna só muda quando o campo foi FORNECIDO (o booleano
+// PAR de cada valor — `$4` para `$3`, `$6` para `$5`, e assim por diante), senão fica como está.
+// Sem isso, uma renomeação que não mande o vídeo o apagaria, e uma troca de vídeo apagaria o nome.
+// O booleano distingue "esvaziar" (valor NULL fornecido) de "não mexa" (não fornecido); e por
+// isso o `''`/null do painel para vídeo/descrição/local vira NULL na coluna, "sem valor".
+//   $1 = organization_id (uuid), $2 = slug, e daí em diante PARES (valor, fornecido?):
+//   $3/$4 preview_video, $5/$6 name, $7/$8 description, $9/$10 keywords (text[]),
+//   $11/$12 location, $13/$14 capture_date, $15/$16 center_lat, $17/$18 center_long.
 export const UPDATE_PROJECT_METADATA = `
   UPDATE sv360.projects
-     SET preview_video = $3, updated_at = now()
+     SET preview_video = CASE WHEN $4  THEN $3  ELSE preview_video END,
+         name          = CASE WHEN $6  THEN $5  ELSE name END,
+         description   = CASE WHEN $8  THEN $7  ELSE description END,
+         keywords      = CASE WHEN $10 THEN $9::text[]        ELSE keywords END,
+         location      = CASE WHEN $12 THEN $11               ELSE location END,
+         capture_date  = CASE WHEN $14 THEN $13               ELSE capture_date END,
+         center_lat    = CASE WHEN $16 THEN $15::double precision ELSE center_lat END,
+         center_long   = CASE WHEN $18 THEN $17::double precision ELSE center_long END,
+         updated_at = now()
    WHERE organization_id = $1::uuid AND slug = $2
-  RETURNING id, organization_id, slug, name, center_lat, center_long,
+  RETURNING id, organization_id, slug, name, description, location, keywords, capture_date,
+            center_lat, center_long,
             entry_photo_id, photo_count, db_filename, status, preview_video,
             created_at, updated_at
 `;
@@ -316,7 +361,8 @@ export const DELETE_PROJECT = `
 // ele teria de adivinhar um deles — que é como um eixo de acesso vira invisível
 // para quem o administra.
 export const LIST_PROJECTS_ADMIN = `
-  SELECT id, organization_id, slug, name, center_lat, center_long,
+  SELECT id, organization_id, slug, name, description, location, keywords, capture_date,
+         center_lat, center_long,
          entry_photo_id, photo_count, db_filename, status, access_level,
          preview_video,
          created_at, updated_at

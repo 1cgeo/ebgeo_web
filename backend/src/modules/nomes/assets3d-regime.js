@@ -31,8 +31,14 @@
 // decided downstream by `fn_can_see_resource`, which is where that question belongs.
 
 import path from 'node:path';
+// As quatro funcoes puras de caminho vivem num modulo FOLHA, compartilhado com o indice do
+// prefixo de tiles (`tile-regime.js`). Elas saíram daqui em 2026-08-29, quando o segundo
+// consumidor apareceu: as licoes do dobramento de barra invertida e do case-folding
+// custaram um vazamento medido cada uma, e uma copia que nao as recebesse repetiria os dois
+// defeitos noutro prefixo, com o mesmo desfecho e sem nenhum sinal.
+import { normalizarRel, ordenarEntradas, acharEntrada } from './caminho-de-recurso.js';
 import { query } from '../../database/index.js';
-import { CATALOG_TABLES, assertProductionTypeOf } from '../catalog/catalog.tables.js';
+import { SELECT_LINHAS_DE_CATALOGO } from '../catalog/catalog.tables.js';
 import config from '../../config.js';
 
 // The catalog fields that address a FOLDER (everything under them belongs to the row) and
@@ -46,12 +52,12 @@ const CAMPOS_DE_PASTA = Object.freeze(['basePath']);
 const CAMPOS_DE_ARQUIVO = Object.freeze(['previewVideo', 'previewThumbnail', 'thumbnail']);
 const CAMPO_RAIZ_DE_ARVORE = 'url';
 
-// One rebuild, one round trip. The table names come from the frozen whitelist, never from a
-// request, which is the rule every other interpolated table name in this codebase follows
-// (pg cannot bind a table name as a parameter).
-const INDICE_SQL = CATALOG_TABLES
-  .map((t) => `SELECT '${assertProductionTypeOf(t)}'::text AS tipo, id::text AS id, access_level, config FROM ${t}`)
-  .join('\n  UNION ALL\n  ');
+// A consulta vive em `catalog.tables.js` desde 2026-08-29, porque o índice do prefixo de
+// tiles (`tile-regime.js`) precisa exatamente das mesmas linhas: uma segunda cópia
+// divergiria na primeira tabela de catálogo nova, e o índice esquecido trataria as linhas
+// dela como caminho que ninguém reivindica — que é a resposta que os dois decidem de forma
+// oposta.
+const INDICE_SQL = SELECT_LINHAS_DE_CATALOGO;
 
 /** Backstop only. The mechanism is invalidation on write; this bounds a write path nobody wired. */
 const TTL_MS = 60_000;
@@ -75,55 +81,6 @@ let ultimoBom = null;
  */
 export function invalidarRegimeDeAssets3d() {
   entrada = null;
-}
-
-/**
- * @returns {string} The path with no leading slash, no `.`/`..` segments, no repeated slashes,
- *   and no backslash pretending not to be a separator.
- *
- * THE BACKSLASH IS FOLDED ON EVERY HOST, not only on Windows, and the reason is that this
- * index and the branch that serves the bytes must not disagree about what a path IS. The
- * filesystem branch resolves with `path.resolve`, whose separator set is the HOST's, so on
- * Windows `priv\tileset.json` reads as `priv/tileset.json` and is served, while an index that
- * normalized POSIX-only saw one opaque segment, matched no row, and called it public. Measured,
- * that spelling handed a private tileset to an anonymous caller with `public, immutable`.
- * Folding it here is host-independent by construction and errs closed: a genuine Linux filename
- * containing a backslash can only be judged MORE private than it is, never less.
- */
-function normalizarRel(bruto) {
-  const semQuery = String(bruto ?? '').split('?')[0].split('#')[0];
-  let decodificado = semQuery;
-  try {
-    decodificado = decodeURIComponent(semQuery);
-  } catch {
-    // A malformed escape is not a path we can normalize. Keeping the raw form can only fail
-    // to MATCH, and a path no row claims is a path the store and the filesystem will 404.
-  }
-  return path.posix.normalize(`/${decodificado.replace(/\\/g, '/')}`).replace(/^\/+/, '');
-}
-
-/**
- * The form paths are COMPARED in: normalized, then case-folded.
- *
- * Case-folding is the other half of the same lesson as the backslash above. `path.resolve` is
- * as case-insensitive as the host filesystem, so on Windows and on macOS `PRIV/tileset.json`
- * serves the bytes of `priv/tileset.json`, and an index comparing exact strings matched no row
- * and answered "public" — the private model, to an anonymous caller, with a full year of shared
- * caching. Deciding the regime by host semantics would mean a rule that is true on the
- * developer's machine and false on the deploy, which is precisely how a filter ends up applied
- * to one branch and not the other.
- *
- * The direction of the error is the point: folding can only make MORE spellings resolve to a
- * private row. The one case it would cost is two catalog rows whose paths differ ONLY in case,
- * one public and one private, where the public one would be gated and its anonymous readers
- * denied. That is a catalog collision, it is already resolved toward `private` by the tie-break
- * in `montarIndice`, and a wrong denial is recoverable in a way a wrong disclosure is not.
- *
- * @param {string} rel - An already-normalized path.
- * @returns {string}
- */
-function chaveDeCasamento(rel) {
-  return rel.toLowerCase();
 }
 
 /**
@@ -181,34 +138,9 @@ function montarIndice(linhas) {
       if (rel) entradas.push({ alvo: rel, arquivo: true, ...recurso });
     }
   }
-  // Longest first, and PRIVATE first on a tie. The tie-break is the fail-closed half: two
-  // rows claiming the same path is a catalog mistake, and the safe reading of a mistake is
-  // the restrictive one.
-  entradas.sort((a, b) => (b.alvo.length - a.alvo.length) || (Number(b.privado) - Number(a.privado)));
-  for (const e of entradas) e.chave = chaveDeCasamento(e.alvo);
-  return entradas;
-}
-
-/**
- * The entry a served path belongs to, or null.
- *
- * The loop lives here, in one copy, and is exported through `_internos` for the unit test to
- * call. It used to be re-implemented in that test, which is the arrangement where the matcher
- * and its own verification drift apart in the same edit: case-folding the index while the test
- * kept comparing raw strings would have left the test green over a matcher that matched
- * nothing.
- *
- * @param {Array<{chave: string, arquivo: boolean}>} indice - From `montarIndice`.
- * @param {string} rel - The served path, as the route received it.
- * @returns {object|null}
- */
-function acharEntrada(indice, rel) {
-  const alvo = chaveDeCasamento(normalizarRel(rel));
-  for (const e of indice) {
-    const casa = e.arquivo ? alvo === e.chave : (alvo === e.chave || alvo.startsWith(`${e.chave}/`));
-    if (casa) return e;
-  }
-  return null;
+  // Longest first, and PRIVATE first on a tie — the fail-closed half, now in
+  // `caminho-de-recurso.js` because the tile index needs exactly the same rule.
+  return ordenarEntradas(entradas);
 }
 
 /** @returns {Promise<Array>} The index, built at most once per invalidation. */

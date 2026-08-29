@@ -18,6 +18,7 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { createAudit } from '../../utils/audit.js';
 import { principalUserId } from '../../utils/principal.js';
 import * as asvc from './sv360.admin.service.js';
+import * as videoStore from '../catalog-video/catalog-video.store.js';
 import { BadRequestError } from '../../utils/errors.js';
 
 // Best-effort removal of a multer tmp file (never throws).
@@ -107,8 +108,9 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
 });
 
 /**
- * PATCH /sv360/admin/projects/:slug — metadado editável do projeto (hoje só
- * `previewVideo`). 200 com a linha atualizada, no mesmo envelope plano das irmãs.
+ * PATCH /sv360/admin/projects/:slug — metadado editável do projeto: nome, descrição,
+ * palavra-chave, local, data de captura, centro (lon/lat) e vídeo de prévia. 200 com a linha
+ * atualizada, no mesmo envelope plano das irmãs. Atualização parcial: só o que o corpo traz muda.
  */
 export const updateProjectMetadata = asyncHandler(async (req, res) => {
   const project = await asvc.updateProjectMetadata(req.params.slug, req.body, req.user, {
@@ -116,6 +118,72 @@ export const updateProjectMetadata = asyncHandler(async (req, res) => {
     orgSlug: req.query.orgSlug,
   }, req);
   res.json(project);
+});
+
+/**
+ * PATCH /sv360/admin/projects/:slug/owner-org — transfere a OM dona (só-admin). Troca de
+ * coluna, sem tocar o disco. 200 com a linha atualizada.
+ */
+export const transferProjectOwner = asyncHandler(async (req, res) => {
+  const project = await asvc.transferProjectOwner(req.params.slug, req.body.owner_org_id, req.user, {
+    orgId: req.query.orgId,
+    orgSlug: req.query.orgSlug,
+  }, req);
+  res.json(project);
+});
+
+/**
+ * POST /sv360/admin/projects/:slug/preview-video — ENVIA o vídeo de prévia (multipart, campo
+ * `video`). Salva o arquivo, grava a URL na coluna e apaga o vídeo hospedado anterior. 200.
+ */
+export const uploadPreviewVideo = asyncHandler(async (req, res) => {
+  const tmp = req.files?.video?.[0]?.path ?? req.file?.path;
+  if (!tmp) throw new BadRequestError('Envie um vídeo no campo "video".');
+  let url;
+  try {
+    url = await videoStore.saveVideo(tmp);
+  } finally {
+    cleanTmp(tmp);
+  }
+  try {
+    const { row, oldUrl } = await asvc.setProjectVideoUrl(req.params.slug, url, req.user, {
+      orgId: req.query.orgId, orgSlug: req.query.orgSlug,
+    }, req);
+    videoStore.deleteVideoByUrl(oldUrl);
+    res.json(row);
+  } catch (err) {
+    videoStore.deleteVideoByUrl(url);
+    throw err;
+  }
+});
+
+/**
+ * DELETE /sv360/admin/projects/:slug/preview-video — remove o vídeo (coluna + arquivo). 200.
+ */
+export const removePreviewVideo = asyncHandler(async (req, res) => {
+  const { row, oldUrl } = await asvc.setProjectVideoUrl(req.params.slug, null, req.user, {
+    orgId: req.query.orgId, orgSlug: req.query.orgSlug,
+  }, req);
+  videoStore.deleteVideoByUrl(oldUrl);
+  res.json(row);
+});
+
+/**
+ * POST /sv360/admin/projects/:slug/thumbnail — substitui a thumbnail (multipart, campo
+ * `thumbnail`). 200 com a linha. O tmp do multer é sempre limpo aqui.
+ */
+export const replaceThumbnail = asyncHandler(async (req, res) => {
+  const thumbnailPath = req.files?.thumbnail?.[0]?.path ?? req.file?.path;
+  if (!thumbnailPath) throw new BadRequestError('Envie uma imagem no campo "thumbnail".');
+  try {
+    const project = await asvc.replaceThumbnail(req.params.slug, thumbnailPath, req.user, {
+      orgId: req.query.orgId,
+      orgSlug: req.query.orgSlug,
+    }, req);
+    res.json(project);
+  } finally {
+    cleanTmp(thumbnailPath);
+  }
 });
 
 /**

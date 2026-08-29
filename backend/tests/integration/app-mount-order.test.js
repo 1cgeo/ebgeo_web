@@ -40,6 +40,7 @@ const PROBES = [
   { prefix: '/api/v1/config', path: '/api/v1/config' },
   { prefix: '/api/config', path: '/api/config' },
   { prefix: '/api/v1/assets3d', path: '/api/v1/assets3d/nao-existe.glb' },
+  { prefix: '/api/v1/catalog-videos', path: '/api/v1/catalog-videos/deadbeefdeadbeefdeadbeefdeadbeef.mp4' },
   { prefix: '/api/v1/auth', path: '/api/v1/auth/me' },
   { prefix: '/api/v1/users', path: '/api/v1/users/me' },
   { prefix: '/api/v1/atlas', path: '/api/v1/atlas' },

@@ -118,6 +118,18 @@ export const idParamsSchema = Joi.object({
 });
 
 /**
+ * O corpo da transferência de OM dona (`PATCH /:id/owner-org`, só administrador).
+ *
+ * `owner_org_id` é a ÚNICA chave, e `null` é valor de primeira classe: devolver a linha ao
+ * acervo institucional é um destino legítimo, não um campo esquecido. Por isso `.required()`
+ * sobre um valor que aceita null, e não `.allow(null)` sozinho numa chave opcional: o corpo
+ * precisa DIZER a nova OM, mesmo quando ela é nenhuma.
+ */
+export const ownerOrgSchema = Joi.object({
+  owner_org_id: Joi.string().guid({ version: 'uuidv4' }).allow(null).required(),
+});
+
+/**
  * Os schemas de ESCRITA daquela tabela.
  *
  * A fábrica existe porque a diferença entre as quatro tabelas de catálogo é UMA: o mapa

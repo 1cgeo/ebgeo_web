@@ -590,16 +590,16 @@ describe('StreetView 360 — admin/ingestion contract', () => {
     ]);
   });
 
-  it('two orgs sharing the SAME slug map to DIFFERENT files', async () => {
+  it('o SLUG é único GLOBAL: outra OM não pode reusar um slug já tomado (é recusada, não duplica)', async () => {
+    // Desde 2026-08-29 o arquivo é `{slug}.db` sem prefixo de OM, então dois projetos com o mesmo
+    // slug colidiriam no mesmo arquivo. O `UNIQUE(slug)` + a guarda do UPSERT (`WHERE ... =
+    // EXCLUDED.organization_id`) impedem isso: a primeira OM toma o slug, a segunda é RECUSADA.
     const sharedSlug = 'shared-slug';
-    const d1 = `${defaultOrgId}__${sharedSlug}.db`;
-    const d2 = `${otherOrgId}__${sharedSlug}.db`;
-    assert.notEqual(d1, d2, 'derived filenames must differ across orgs');
-
+    const derived = `${sharedSlug}.db`;
     const idA = uuidv5('default/shared-slug/sa.jpg');
     const idB = uuidv5('other/shared-slug/sb.jpg');
 
-    // Upload as default-org owner.
+    // Upload as default-org owner: toma o slug.
     const imgA = buildImagesDb('shared-a.db', [{ id: idA, full: full1, preview: prev1 }]);
     const manA = writeManifest(
       'shared-a.json',
@@ -616,7 +616,7 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .attach('imagesDb', imgA)
       .expect(201);
 
-    // Upload as the OTHER-org editor (same slug, different org).
+    // Upload as the OTHER-org editor (mesmo slug, outra OM): RECUSADO com 409.
     const imgB = buildImagesDb('shared-b.db', [{ id: idB, full: full2, preview: prev2 }]);
     const manB = writeManifest(
       'shared-b.json',
@@ -631,20 +631,16 @@ describe('StreetView 360 — admin/ingestion contract', () => {
       .set(...auth(crossOrgToken))
       .attach('manifest', manB)
       .attach('imagesDb', imgB)
-      .expect(201);
+      .expect(409);
 
-    const pathA = path.resolve(config.sv360.dbDir, d1);
-    const pathB = path.resolve(config.sv360.dbDir, d2);
-    assert.ok(existsSync(pathA), 'default-org file exists');
-    assert.ok(existsSync(pathB), 'other-org file exists');
+    // A OM dona do slug continua sendo a primeira, e há UM só arquivo.
+    const { rows } = await db.query('SELECT organization_id FROM sv360.projects WHERE slug = $1', [sharedSlug]);
+    assert.equal(rows.length, 1, 'um só projeto com o slug');
+    assert.equal(rows[0].organization_id, defaultOrgId, 'e ele é da OM que o tomou primeiro');
 
-    // Cleanup both projects + files.
-    rmSync(pathA, { force: true });
-    rmSync(pathB, { force: true });
-    await db.query(
-      `DELETE FROM sv360.projects WHERE organization_id = ANY($1::uuid[]) AND slug = $2`,
-      [[defaultOrgId, otherOrgId], sharedSlug]
-    );
+    // Cleanup.
+    rmSync(path.resolve(config.sv360.dbDir, derived), { force: true });
+    await db.query('DELETE FROM sv360.projects WHERE slug = $1', [sharedSlug]);
   });
 
   // --- FIX-3: swap-then-commit — a merge failure AFTER the swap rolls the file back

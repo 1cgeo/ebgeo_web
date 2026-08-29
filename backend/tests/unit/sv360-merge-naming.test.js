@@ -5,21 +5,17 @@
 // compare against a filename the test itself assembled by hand (so the test and the
 // production code would drift together, agreeing on a wrong name).
 //
-// The two properties that must hold for EVERY input, including the ETL backfill slug
-// that never passes through Joi:
-//   1. the derived name is a BASENAME — no path separator, no '..' segment, so no
-//      input can walk out of SV360_DB_DIR (defense in depth behind the schema);
-//   2. two organizations sharing a slug NEVER map to the same {slug}.db (FIX-1, the
-//      cross-OM BLOB-overwrite guard). Drop the orgId prefix and org B's upload
-//      overwrites org A's photo blobs with the suite green.
+// Desde 2026-08-29 o nome é por SLUG, SEM prefixo de OM, como no ebgeo_360 fonte-da-verdade. O
+// isolamento entre OMs que o prefixo garantia mudou de camada: agora é o `UNIQUE(slug)` do banco
+// que impede dois projetos (de qualquer OM) com o mesmo slug, então NÃO HÁ dois arquivos com o
+// mesmo slug para colidir. A propriedade que resta aqui é uma só:
+//   - the derived name is a BASENAME — no path separator, no '..' segment, so no
+//     input can walk out of SV360_DB_DIR (defense in depth behind the schema).
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { sanitizeSlug, deriveDbFilename } from '../../src/modules/streetview360/sv360.merge.js';
-
-const ORG_A = '00000000-0000-0000-0000-000000000001';
-const ORG_B = '11111111-1111-1111-1111-111111111111';
 
 // The adversarial + degenerate inputs reused across the property assertions below.
 const SLUGS = [
@@ -77,20 +73,20 @@ describe('sv360 merge naming — sanitizeSlug', () => {
 });
 
 describe('sv360 merge naming — deriveDbFilename', () => {
-  it('two organizations with the SAME slug never share a file (FIX-1)', () => {
-    const a = deriveDbFilename(ORG_A, 'centro');
-    const b = deriveDbFilename(ORG_B, 'centro');
-    assert.notEqual(a, b, 'the orgId prefix is the whole cross-OM overwrite guard');
-    assert.ok(a.startsWith(`${ORG_A}__`), 'the org prefix must be the leading token');
-    assert.ok(b.startsWith(`${ORG_B}__`));
+  it('o nome é por SLUG, sem prefixo de OM (paralelo do ebgeo_360)', () => {
+    // O mesmo slug produz o MESMO nome, independente de OM: o isolamento entre OMs
+    // saiu do nome do arquivo e virou o `UNIQUE(slug)` do banco (que impede dois
+    // projetos com o mesmo slug em qualquer OM). Aqui só se prova a forma do nome.
+    assert.equal(deriveDbFilename('centro'), 'centro.db');
+    assert.ok(!deriveDbFilename('centro').includes('__'), 'sem prefixo de OM');
   });
 
-  it('is deterministic and stable across repeated calls for the same (org, slug)', () => {
+  it('is deterministic and stable across repeated calls for the same slug', () => {
     // Postgres stores db_filename; the serve path re-derives nothing. A name that
     // varied per call would make the row point at a file that no longer exists.
-    const first = deriveDbFilename(ORG_A, 'Projeto Sao Paulo 2024');
-    assert.equal(deriveDbFilename(ORG_A, 'Projeto Sao Paulo 2024'), first);
-    assert.equal(first, `${ORG_A}__projeto-sao-paulo-2024.db`);
+    const first = deriveDbFilename('Projeto Sao Paulo 2024');
+    assert.equal(deriveDbFilename('Projeto Sao Paulo 2024'), first);
+    assert.equal(first, 'projeto-sao-paulo-2024.db');
   });
 
   it('the derived name is ALREADY a basename for every adversarial slug', () => {
@@ -98,7 +94,7 @@ describe('sv360 merge naming — deriveDbFilename', () => {
     // asserts the FIRST one, so a refactor that drops the basename() call cannot
     // silently turn a slug into a traversal.
     for (const raw of SLUGS) {
-      const name = deriveDbFilename(ORG_A, raw);
+      const name = deriveDbFilename(raw);
       assert.equal(path.basename(name), name, `not a basename for ${JSON.stringify(raw)}`);
       // Resolving the name against SV360_DB_DIR must land INSIDE that directory:
       // the parent of the resolved path is the directory itself, never above it.
@@ -115,7 +111,7 @@ describe('sv360 merge naming — deriveDbFilename', () => {
     // sv360.service.js / sv360.admin.service.js derive the per-project thumbnail as
     // db_filename.replace(/\.db$/i, '.webp'). If a slug could smuggle an inner '.db'
     // the rewrite would still hit only the suffix — asserted here rather than assumed.
-    const names = SLUGS.map((s) => deriveDbFilename(ORG_A, s));
+    const names = SLUGS.map((s) => deriveDbFilename(s));
     assert.equal(names.length, SLUGS.length, 'guard: every slug produced a name');
     for (const name of names) {
       assert.ok(name.endsWith('.db'), `${name} must end in .db`);
@@ -124,16 +120,16 @@ describe('sv360 merge naming — deriveDbFilename', () => {
       assert.equal(
         webp.slice(0, -'.webp'.length),
         name.slice(0, -'.db'.length),
-        'only the suffix may change — the tenant prefix and slug must be identical'
+        'only the suffix may change — the slug must be identical'
       );
       assert.equal((webp.match(/\.webp/g) || []).length, 1, 'exactly one .webp token');
     }
   });
 
-  it('a slug that sanitizes to the fallback still isolates by org', () => {
-    // Degenerate slugs all collapse to 'project'; the org prefix is then the ONLY
-    // thing keeping two tenants apart, which is precisely when it matters most.
-    assert.notEqual(deriveDbFilename(ORG_A, '///'), deriveDbFilename(ORG_B, '///'));
-    assert.equal(deriveDbFilename(ORG_A, '///'), `${ORG_A}__project.db`);
+  it('um slug degenerado cai no fallback `project.db`', () => {
+    // Slugs degenerados colapsam para 'project'; sem prefixo de OM, o nome é só isso.
+    // Dois projetos degenerados não coexistem: o `UNIQUE(slug)` recusaria o segundo.
+    assert.equal(deriveDbFilename('///'), 'project.db');
+    assert.equal(deriveDbFilename('---'), 'project.db');
   });
 });

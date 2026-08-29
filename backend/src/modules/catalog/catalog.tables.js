@@ -87,3 +87,21 @@ export function assertAuditTargetTypeOf(table) {
   }
   return alvo;
 }
+
+/**
+ * UMA CONSULTA que traz as linhas de catálogo de que os índices de regime precisam:
+ * tipo, id, nível de acesso e `config`.
+ *
+ * Ela mora aqui, e não em cada índice, porque são DOIS os consumidores desde 2026-08-29
+ * (`assets3d-regime.js`, para o prefixo do serviço, e `tile-regime.js`, para o prefixo do
+ * servidor de tiles) e uma segunda cópia divergiria na primeira tabela de catálogo nova:
+ * o índice esquecido passaria a tratar as linhas dela como "caminho que ninguém
+ * reivindica", que é justamente a resposta que os dois decidem de forma OPOSTA.
+ *
+ * O nome da tabela vem da whitelist congelada acima, nunca de uma requisição, que é a
+ * regra que todo nome de tabela interpolado nesta base segue (o pg não liga nome de
+ * tabela como parâmetro).
+ */
+export const SELECT_LINHAS_DE_CATALOGO = CATALOG_TABLES
+  .map((t) => `SELECT '${assertProductionTypeOf(t)}'::text AS tipo, id::text AS id, access_level, config FROM ${t}`)
+  .join(`\n  UNION ALL\n  `);

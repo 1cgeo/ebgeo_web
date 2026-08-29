@@ -1,6 +1,5 @@
 // Path: src/modules/auth/auth.routes.js
 import { Router } from 'express';
-import config from '../../config.js';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -16,26 +15,30 @@ import { canDeliverAccountMail } from '../../utils/mailer.js';
 import * as ctrl from './auth.controller.js';
 import * as schemas from './auth.schemas.js';
 import { requireTileKey, tileAccess } from './tile-access.js';
+import { requireSelfRegistrationEnabled } from './register-gate.js';
 
 const router = Router();
 
-// Self-registration is gated: disabled by default in production (military
-// network), enabled in dev/test. When disabled the route is not mounted (404).
+// Self-registration is a RUNTIME toggle since 2026-08-29 (owner decision): the route is
+// ALWAYS mounted and `requireSelfRegistrationEnabled` gates it on the effective
+// `features.self_registration`, which starts at the `ALLOW_SELF_REGISTRATION` env default and
+// the admin flips from the Sistema tab. The gate runs FIRST, before the limiters, so a disabled
+// registration answers 403 without consuming a rate-limit bucket. Disabled = the signup button
+// is hidden (same config flag) and this route answers 403.
 //
 // TWO limiters, in this order, because they key on different things. `registerLimiter`
 // is by ADDRESS and is the one that bounds mass creation: the `${ip}:${username}` key of
 // `authLimiter` is attacker-chosen here (the name never exists yet), so it hands out a
 // fresh bucket per request. `authLimiter` stays because it still throttles repetition
 // against one specific name.
-if (config.security.allowSelfRegistration) {
-  router.post(
-    '/register',
-    registerLimiter,
-    authLimiter,
-    validate({ body: schemas.registerSchema }),
-    ctrl.register
-  );
-}
+router.post(
+  '/register',
+  requireSelfRegistrationEnabled,
+  registerLimiter,
+  authLimiter,
+  validate({ body: schemas.registerSchema }),
+  ctrl.register
+);
 // One limiter per route, NOT one shared instance. `authLimiter` keys by
 // `${ip}:${body.username}`, which only means something on the two routes whose schema
 // declares `username`; on the other three it collapsed to `${ip}:` and the three
@@ -60,7 +63,9 @@ router.post('/resend-verification', resendVerificationLimiter, validate({ body: 
 // local stack. Using the narrow predicate would leave the whole flow unreachable in dev and in
 // the test suite, i.e. untestable and unusable exactly where it is developed.
 //
-// Evaluated ONCE at module load, like `allowSelfRegistration` above: config is frozen at boot.
+// Evaluated ONCE at module load (SMTP config is frozen at boot). This is the opposite of the
+// `/register` gate above, which is a RUNTIME check: mail delivery cannot be toggled without a
+// redeploy, self-registration now can.
 if (canDeliverAccountMail()) {
   router.post(
     '/forgot-password',

@@ -145,6 +145,9 @@ const CENSO = [
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'POST /', classe: AUDITADA, acao: 'CATALOG_CREATE', emissor: 'src/modules/catalog/catalog.controller.js' },
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'PUT /:id', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: 'src/modules/catalog/catalog.controller.js' },
   { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'DELETE /:id', classe: AUDITADA, acao: 'CATALOG_DELETE', emissor: 'src/modules/catalog/catalog.controller.js' },
+  { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'PATCH /:id/owner-org', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: 'src/modules/catalog/catalog.controller.js' },
+  { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'POST /:id/preview-video', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: 'src/modules/catalog/catalog.controller.js' },
+  { arquivo: 'src/modules/catalog/catalog.routes.js', rota: 'DELETE /:id/preview-video', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: 'src/modules/catalog/catalog.controller.js' },
 
   // ---------------- config: o documento de boot -------------------------------
   { arquivo: 'src/modules/config/config.routes.js', rota: 'PUT /admin', classe: AUDITADA, acao: 'CONFIG_UPDATE', emissor: 'src/modules/config/config.service.js' },
@@ -242,6 +245,10 @@ const CENSO = [
   // `audit_trail.action` (DROP/ADD CONSTRAINT mais uma linha em EXCECOES_DESTRUTIVAS) para
   // dizer a mesma coisa com outro nome. O emissor é o serviço, como nas outras duas.
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PATCH /admin/projects/:slug', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
+  { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PATCH /admin/projects/:slug/owner-org', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
+  { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'POST /admin/projects/:slug/thumbnail', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
+  { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'POST /admin/projects/:slug/preview-video', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
+  { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'DELETE /admin/projects/:slug/preview-video', classe: AUDITADA, acao: 'CATALOG_UPDATE', emissor: SV360_ADMIN_SVC },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'DELETE /admin/projects/:slug', classe: AUDITADA, acao: 'SV360_DELETE', emissor: SV360_ADMIN_SVC },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'POST /photos/batch-calibration', classe: ISENTA, motivo: CALIBRACAO_360 },
   { arquivo: 'src/modules/streetview360/sv360.routes.js', rota: 'PUT /photos/:uuid/calibration', classe: ISENTA, motivo: CALIBRACAO_360 },

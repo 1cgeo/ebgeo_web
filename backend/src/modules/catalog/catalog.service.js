@@ -128,7 +128,7 @@ export async function listCatalog(table, visibleTo = null) {
   const t = assertTable(table);
   const pred = accessPredicate(visibleTo, 0, assertProductionTypeOf(t));
   const { rows } = await query(
-    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.active = true ${pred.sql} ORDER BY t.sort_order, t.name`,
+    `SELECT ${COLS_COM_ACESSO} FROM ${t} t WHERE t.active = true ${pred.sql} ORDER BY t.created_at, t.name`,
     pred.params,
   );
   return rows;
@@ -349,6 +349,90 @@ export async function updateCatalogItem(table, id, data, actor) {
     depois: projetarEditaveis(publico),
     ownerOrgId: ownerOrgId ?? null,
   };
+}
+
+/**
+ * Grava (ou remove, com `url === null`) a URL do VÍDEO DE PRÉVIA de um item de catálogo.
+ *
+ * É rota própria porque o vídeo agora é ENVIADO (arquivo hospedado, `catalog-video.store`), não
+ * uma URL colada: o controller salva o arquivo, chama isto com a URL servida, e depois apaga o
+ * arquivo ANTIGO (que sai aqui no envelope como `oldUrl`). O gate é o mesmo `fn_can_produce_resource`
+ * das outras escritas, no `WHERE`.
+ *
+ * O MAPA BASE NÃO TEM VÍDEO (cláusula 2.4): a superfície dele é o seletor de camada, sem cartão,
+ * e o schema de update já recusa `config.previewVideo` para ele. Esta rota reafirma com 400, para
+ * o `jsonb_set` não contornar aquela regra.
+ *
+ * @param {string} table
+ * @param {string} id
+ * @param {string|null} url - a URL servida do vídeo, ou null para remover
+ * @param {AtorDeProducao} actor
+ * @returns {Promise<{row: Object, ownerOrgId: string|null, oldUrl: string|null}>}
+ */
+export async function setCatalogPreviewVideo(table, id, url, actor) {
+  const t = assertTable(table);
+  if (t === 'basemaps') throw new BadRequestError('Mapa base não tem vídeo de prévia.');
+  const tipo = assertProductionTypeOf(t);
+  const row = await oneOrNone(
+    `UPDATE ${t} AS t SET
+       config = CASE WHEN $2::text IS NULL
+                     THEN t.config - 'previewVideo'
+                     ELSE jsonb_set(t.config, '{previewVideo}', to_jsonb($2::text)) END,
+       updated_at = NOW()
+     FROM (SELECT id, config FROM ${t} WHERE id = $1 FOR UPDATE) antes
+     WHERE t.id = antes.id AND t.active = true
+       AND fn_can_produce_resource($3::uuid, $4::text, t.id)
+     RETURNING ${COLS_T}, t.owner_org_id, antes.config AS antes_config`,
+    [id, url, actor?.id ?? null, tipo],
+  );
+  if (!row) throw new NotFoundError('Catalog item');
+  invalidateAppConfigCache();
+  const { owner_org_id: ownerOrgId, antes_config: antesConfig, ...publico } = row;
+  return { row: publico, ownerOrgId: ownerOrgId ?? null, oldUrl: antesConfig?.previewVideo ?? null };
+}
+
+/**
+ * Transfere a OM DONA de um item de catálogo (a única escrita que toca `owner_org_id`).
+ *
+ * ELA É SEPARADA DO UPDATE DE PROPÓSITO, e a razão é a mesma da visibilidade: as três
+ * escritas comuns NUNCA leem `owner_org_id` do corpo, e `papel-produtor-catalogo.test.js`
+ * afirma isso. Um seletor de OM no PUT teria de fazer o SET só para o administrador dentro
+ * da consulta que também grava nome e config, misturando dois eixos numa query. Aqui o
+ * gate é da ROTA (`requireAdmin`), então esta função NÃO carrega gate de produção no
+ * `WHERE`: quem chega passou por administrador, e administrador transfere qualquer linha.
+ *
+ * `ownerOrgId` NULL É LEGÍTIMO: devolve a linha ao acervo INSTITUCIONAL. Uma OM que não
+ * exista ou esteja inativa é 400, e não uma violação de FK crua (23503 vira 500 na borda).
+ *
+ * O `FROM (… FOR UPDATE) antes` trava a linha e captura a OM ANTERIOR no mesmo statement,
+ * pelo mesmo motivo do UPDATE: a trilha registra de-para (`fromOrgId` -> `toOrgId`) e um
+ * "de" que nunca existiu é pior que nenhum.
+ *
+ * @param {string} table
+ * @param {string} id
+ * @param {string|null} ownerOrgId - A nova OM dona, ou null para institucional.
+ * @returns {Promise<{row: Object, fromOrgId: string|null, toOrgId: string|null}>}
+ */
+export async function transferCatalogItemOwner(table, id, ownerOrgId) {
+  const t = assertTable(table);
+  if (ownerOrgId) {
+    const org = await oneOrNone(
+      'SELECT id FROM organizations WHERE id = $1 AND is_active = true',
+      [ownerOrgId],
+    );
+    if (!org) throw new BadRequestError('OM dona inválida ou inativa.');
+  }
+  const row = await oneOrNone(
+    `UPDATE ${t} AS t SET owner_org_id = $2, updated_at = NOW()
+     FROM (SELECT id, owner_org_id FROM ${t} WHERE id = $1 FOR UPDATE) antes
+     WHERE t.id = antes.id AND t.active = true
+     RETURNING ${COLS_T}, t.owner_org_id, antes.owner_org_id AS antes_owner_org_id`,
+    [id, ownerOrgId ?? null],
+  );
+  if (!row) throw new NotFoundError('Catalog item');
+  invalidateAppConfigCache();
+  const { owner_org_id: toOrgId, antes_owner_org_id: fromOrgId, ...publico } = row;
+  return { row: publico, fromOrgId: fromOrgId ?? null, toOrgId: toOrgId ?? null };
 }
 
 /**

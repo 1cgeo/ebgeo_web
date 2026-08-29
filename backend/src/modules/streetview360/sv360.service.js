@@ -337,10 +337,12 @@ function previewThumbnailUrl(project) {
  * column yields undefined, which `?? null` normalizes to the same null the
  * frozen shape has always promised, so no consumer sees a missing key.
  *
- * `description` / `location` still have no column in `sv360.projects` (the
- * legacy SQLite carried them, this schema never adopted them); they remain
- * emitted as null. That is a KNOWN GAP, not a shape decision: only the date was
- * authorized for this pass.
+ * `description`, `location` e `keywords` SÃO colunas de `sv360.projects` agora (adicionadas por
+ * `013_sv360_keywords_local.sql` e sua irmã de `description`), para o projeto 360 ser paralelo do
+ * 3D no catálogo (decisão do dono, 2026-08-29). Cada uma chega a esta forma só quando a consulta a
+ * SELECIONA, e é lida pelo nome real, nunca sintetizada; uma consulta que a omita devolve
+ * undefined, que `?? null` normaliza para o mesmo null da forma congelada, então nenhum consumidor
+ * vê a chave sumir.
  * @param {Object} project - a sv360.projects row
  * @param {Object} [user]
  * @returns {Object} the public project view
@@ -350,12 +352,15 @@ function publicProjectView(project, user) {
     id: project.id,
     slug: project.slug,
     name: project.name,
-    description: project.description ?? null, // no column: always null
+    description: project.description ?? null,
     // Real column, SELECTed by both LIST_PROJECTS and
     // GET_PROJECT_BY_SLUG. A query that omits it yields undefined, which `?? null`
     // normalizes to the null the frozen shape has always promised.
     captureDate: project.capture_date ?? null,
-    location: project.location ?? null, // no column: always null
+    location: project.location ?? null,
+    // `keywords` é ARRAY (o cartão do catálogo itera sobre ela); a consulta que não a seleciona
+    // devolve undefined, normalizado para null como o resto da forma congelada.
+    keywords: project.keywords ?? null,
     center: { lat: project.center_lat, lon: project.center_long },
     entryPhotoId: project.entry_photo_id ?? null,
     // NULL QUANDO NÃO HÁ ARQUIVO, e a chave nunca some: os três consumidores

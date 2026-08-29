@@ -212,6 +212,104 @@ describe('sv360 admin — negative authorization on status + delete', () => {
     assert.equal(await previewVideoOf(), null);
   });
 
+  // --- PATCH /admin/projects/:slug/owner-org (TRANSFERÊNCIA DE OM, só-admin) ----
+
+  async function orgDe() {
+    const { rows } = await db.query('SELECT organization_id FROM sv360.projects WHERE id = $1', [projectId]);
+    return rows[0]?.organization_id ?? null;
+  }
+
+  it('produtor NÃO transfere de OM (requireAdmin) -> 403; a OM não muda', async () => {
+    assert.equal(await orgDe(), defaultOrgId, 'piso: começa na OM default');
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}/owner-org`))
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ owner_org_id: otherOrgId })
+      .expect(403);
+    assert.equal(await orgDe(), defaultOrgId);
+  });
+
+  it('o ADMINISTRADOR transfere por TROCA DE COLUNA, e o arquivo NÃO é renomeado', async () => {
+    assert.equal(existsSync(dbPath), true, 'piso: o arquivo existe antes');
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}/owner-org`))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ owner_org_id: otherOrgId })
+      .expect(200);
+    assert.equal(await orgDe(), otherOrgId, 'a OM mudou');
+    assert.equal(existsSync(dbPath), true, 'o arquivo {orgOrig}__{slug}.db continua no lugar');
+
+    // OM inexistente é 400, não 500 de FK crua. (Já está na otherOrg; desambigua por ?orgId.)
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}/owner-org?orgId=${otherOrgId}`))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ owner_org_id: crypto.randomUUID() })
+      .expect(400);
+
+    // RESTAURA à OM default, para os casos de DELETE abaixo partirem do piso.
+    await supertest(app)
+      .patch(url(`/admin/projects/${SLUG}/owner-org?orgId=${otherOrgId}`))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ owner_org_id: defaultOrgId })
+      .expect(200);
+    assert.equal(await orgDe(), defaultOrgId, 'restaurada à OM default');
+  });
+
+  it('o SLUG é único GLOBAL: nem dá para plantar o mesmo slug em outra OM (a colisão é impossível)', async () => {
+    // Desde 2026-08-29 o slug é `UNIQUE(slug)` global, como no ebgeo_360, porque o arquivo é
+    // `{slug}_tiles.db` sem prefixo de OM. Então a "colisão de transferência" que este caso media
+    // não pode nem existir: criar um segundo projeto com o mesmo slug em QUALQUER OM viola a
+    // restrição. É a invariante que torna a transferência de OM sempre segura (não há para onde
+    // colidir).
+    await assert.rejects(
+      db.query(
+        `INSERT INTO sv360.projects (organization_id, slug, name, db_filename, photo_count)
+         VALUES ($1, $2, $3, $4, 0)`,
+        [otherOrgId, SLUG, `Colisao ${RID}`, `${SLUG}.db`],
+      ),
+      /projects_slug_key|unicidade|unique/i,
+      'o UNIQUE(slug) recusa um segundo projeto com o mesmo slug',
+    );
+    assert.equal(await orgDe(), defaultOrgId, 'e o projeto original segue na OM default');
+  });
+
+  // --- POST /admin/projects/:slug/thumbnail (TROCA DE THUMBNAIL) ---------------
+
+  // WebP 1x1 real (magic bytes RIFF....WEBP), o mesmo dos testes de capa de atlas.
+  const WEBP_1X1 = Buffer.from('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAA=', 'base64');
+
+  it('anonymous troca de thumbnail -> 401', async () => {
+    await supertest(app)
+      .post(url(`/admin/projects/${SLUG}/thumbnail`))
+      .attach('thumbnail', WEBP_1X1, { filename: 't.webp', contentType: 'image/webp' })
+      .expect(401);
+  });
+
+  it('o produtor da OM troca a thumbnail com um WebP válido -> 200, e o arquivo é gravado', async () => {
+    const thumbPath = dbPath.replace(/\.db$/i, '.webp');
+    if (existsSync(thumbPath)) rmSync(thumbPath, { force: true });
+    await supertest(app)
+      .post(url(`/admin/projects/${SLUG}/thumbnail`))
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('thumbnail', WEBP_1X1, { filename: 't.webp', contentType: 'image/webp' })
+      .expect(200);
+    assert.equal(existsSync(thumbPath), true, 'a thumbnail org-keyed foi escrita');
+    rmSync(thumbPath, { force: true });
+  });
+
+  it('uma imagem que NÃO é WebP (por magic bytes) -> 400', async () => {
+    // PNG 1x1 rotulado como webp: o mime declarado não é evidência, os bytes decidem.
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await supertest(app)
+      .post(url(`/admin/projects/${SLUG}/thumbnail`))
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('thumbnail', PNG, { filename: 'fake.webp', contentType: 'image/webp' })
+      .expect(400);
+  });
+
   // --- DELETE /admin/projects/:slug ------------------------------------------
 
   it('anonymous DELETE -> 401; the row AND the {orgId}__{slug}.db survive', async () => {
@@ -242,6 +340,15 @@ describe('sv360 admin — negative authorization on status + delete', () => {
   it('a global admin disambiguates with ?orgSlug and CAN delete (the orgSlug branch)', async () => {
     // The happy path so far only ever used ?orgId; loadWritableProject's orgSlug
     // resolution had no coverage at all.
+    //
+    // O `_tiles.db` (o arquivo GRANDE, única fonte de pixel do acervo só-tiles) e a thumbnail
+    // org-keyed são plantados aqui: até 2026-08-29 o hard-delete só apagava o `{slug}.db` e
+    // deixava esses dois órfãos em disco. Este par prova que os três somem juntos.
+    const tilesPath = dbPath.replace(/\.db$/i, '_tiles.db');
+    const thumbPath = dbPath.replace(/\.db$/i, '.webp');
+    writeFileSync(tilesPath, Buffer.from('SQLite format 3\0'));
+    writeFileSync(thumbPath, Buffer.from('RIFF'));
+
     await supertest(app)
       .delete(url(`/admin/projects/${SLUG}`))
       .query({ orgSlug: 'default' })
@@ -250,5 +357,7 @@ describe('sv360 admin — negative authorization on status + delete', () => {
 
     assert.equal(await statusOf(), null, 'the row is hard-deleted');
     assert.equal(existsSync(dbPath), false, 'the SQLite file is removed with it');
+    assert.equal(existsSync(tilesPath), false, 'o {slug}_tiles.db (o arquivo grande) também é removido');
+    assert.equal(existsSync(thumbPath), false, 'a thumbnail org-keyed também é removida');
   });
 });

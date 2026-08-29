@@ -24,6 +24,7 @@ import { organizationsRoutes } from './modules/organizations/index.js';
 import { ranksRoutes } from './modules/ranks/index.js';
 import { auditRoutes } from './modules/audit/index.js';
 import { sv360Routes } from './modules/streetview360/index.js';
+import catalogVideoRoutes from './modules/catalog-video/catalog-video.routes.js';
 import { debugRoutes } from './modules/debug/debug.routes.js';
 import { resourceAccessRoutes } from './modules/resource-access/index.js';
 import { accessGroupsRoutes } from './modules/access-groups/index.js';
@@ -182,6 +183,8 @@ export function createApp() {
   // Public 3D asset serving (immutable, Range/ETag). Discovery is gated by the
   // catálogo de tilesets (`GET /api/v1/tilesets` e `GET /api/config`).
   app.use('/api/v1/assets3d', assets3dRoutes);
+  // Vídeo de prévia hospedado (só leitura; o envio mora nas rotas de catálogo e 360).
+  app.use('/api/v1/catalog-videos', catalogVideoRoutes);
 
   // Route mounting
   app.use('/api/v1/auth', authRoutes);

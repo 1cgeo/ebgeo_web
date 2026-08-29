@@ -133,6 +133,16 @@ const config = Object.freeze({
     maxBulkUploadMb: parseInt(optional('MAX_BULK_UPLOAD_MB', '50'), 10),
   }),
 
+  // Vídeo de prévia de recurso de catálogo HOSPEDADO (a thumbnail é embutida no config como
+  // data URL; o vídeo é grande demais para isso, então vive em disco e é servido por rota
+  // própria). O nome do arquivo carrega um token não-adivinhável, e a URL só chega a quem vê o
+  // recurso (config público, ou payload aditivo do privado), então servir é público-por-URL.
+  catalogVideo: Object.freeze({
+    dir: optional('CATALOG_VIDEO_DIR', './data/catalog-videos'),
+    baseUrl: optionalBase('CATALOG_VIDEO_BASE_URL', '/api/v1/catalog-videos'),
+    maxSizeMb: parseInt(optional('CATALOG_VIDEO_MAX_SIZE_MB', '50'), 10),
+  }),
+
   assets3d: Object.freeze({
     dir: optional('ASSETS_3D_DIR', './data/assets3d'),
     baseUrl: optionalBase('ASSETS_3D_BASE_URL', '/api/v1/assets3d'),
@@ -372,6 +382,9 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   DATABASE_POOL_MAX: { min: 1, max: 1000 },
   MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },
   MAX_BULK_UPLOAD_MB: { min: 1, max: 4096 },
+  // Vídeo de prévia hospedado: teto por arquivo. Piso 1 MB, teto 2 GB (o vídeo é prévia curta;
+  // acima disso o upload passa a exigir outro regime de streaming).
+  CATALOG_VIDEO_MAX_SIZE_MB: { min: 1, max: 2048 },
   ASSETS_3D_MAX_INFLIGHT: { min: 1, max: 1024 },
   // Teto de conexões abertas no pool de leitura, por modelo. O piso é 1 (com zero nenhum
   // modelo abriria) e o teto é 256 porque o produto com o cache do SQLite é o que tem de

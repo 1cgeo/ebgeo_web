@@ -241,8 +241,64 @@ describe('O Produtor escreve o catálogo da própria OM, e só ele', () => {
         .expect(200);
       assert.equal(
         (await linha(tabela, meu)).owner_org_id, orgA,
-        `${tabela}: nem o administrador transfere por aqui — transferência é rota própria, que ainda não existe`
+        `${tabela}: nem o administrador transfere por aqui — transferência é rota própria (PATCH /:id/owner-org)`
       );
+    }
+  });
+
+  it('a ROTA PRÓPRIA (PATCH /:id/owner-org) transfere, e só o administrador a alcança', async () => {
+    for (const { tabela, rota } of TABELAS) {
+      const alvo = idDe(tabela, 'a');
+      // Piso: a linha começa na OM A (o caso anterior a devolveu intacta).
+      assert.equal((await linha(tabela, alvo)).owner_org_id, orgA, `${tabela}: piso na OM A`);
+
+      // O PRODUTOR NÃO ALCANÇA a rota: 403 por `requireAdmin`, e a linha não se move.
+      await supertest(app)
+        .patch(`/api/v1/${rota}/${alvo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ owner_org_id: orgB })
+        .expect(403);
+      assert.equal((await linha(tabela, alvo)).owner_org_id, orgA, `${tabela}: produtor não move`);
+
+      // O ADMINISTRADOR TRANSFERE de A para B.
+      await supertest(app)
+        .patch(`/api/v1/${rota}/${alvo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenAdmin}`)
+        .send({ owner_org_id: orgB })
+        .expect(200);
+      assert.equal((await linha(tabela, alvo)).owner_org_id, orgB, `${tabela}: admin move para B`);
+
+      // E DEVOLVE AO INSTITUCIONAL com `owner_org_id: null` (destino legítimo, não campo vazio).
+      await supertest(app)
+        .patch(`/api/v1/${rota}/${alvo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenAdmin}`)
+        .send({ owner_org_id: null })
+        .expect(200);
+      assert.equal((await linha(tabela, alvo)).owner_org_id, null, `${tabela}: admin devolve ao institucional`);
+
+      // OM inexistente é 400, não 500 de FK crua.
+      await supertest(app)
+        .patch(`/api/v1/${rota}/${alvo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenAdmin}`)
+        .send({ owner_org_id: randomUUID() })
+        .expect(400);
+
+      // Id que não existe é 404.
+      await supertest(app)
+        .patch(`/api/v1/${rota}/nao-existe-${sufixo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenAdmin}`)
+        .send({ owner_org_id: orgA })
+        .expect(404);
+
+      // RESTAURA A LINHA 'a' À OM A, porque os casos seguintes deste describe a
+      // reusam como fixture no piso da OM A (soft-delete e leitura/escrita do produtor).
+      // Fechar isto aqui exercita de novo o caminho de transferência.
+      await supertest(app)
+        .patch(`/api/v1/${rota}/${alvo}/owner-org`)
+        .set('Authorization', `Bearer ${tokenAdmin}`)
+        .send({ owner_org_id: orgA })
+        .expect(200);
+      assert.equal((await linha(tabela, alvo)).owner_org_id, orgA, `${tabela}: restaurada à OM A`);
     }
   });
 

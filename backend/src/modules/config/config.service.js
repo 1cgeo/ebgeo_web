@@ -247,8 +247,10 @@ async function buildAppConfig() {
 
   const payload = {
     app: S.APP,
-    // self_registration tells the client whether to show the "Criar conta" affordance — the
-    // /auth/register route is only mounted when allowSelfRegistration is on (off in prod).
+    // self_registration tells the client whether to show the "Criar conta" affordance. It
+    // starts at the ALLOW_SELF_REGISTRATION env default and the admin override (deep-merged
+    // below) flips it at runtime. The /auth/register route reads the SAME merged value via
+    // `requireSelfRegistrationEnabled`, so the button and the gate never disagree.
     //
     // password_reset_email answers the same kind of question for the recovery panel of the login
     // screen, and it is READ FROM THE SAME PREDICATE that mounts the routes

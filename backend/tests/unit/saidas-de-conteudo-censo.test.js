@@ -171,6 +171,19 @@ const CENSO_ROTA = [
   // Quantos atlas guardam uma referencia a este recurso, para a confirmacao de exclusao poder
   // dizer o numero. Corpo e contagem por superficie, sem nome de atlas e sem bytes.
   json('src/modules/catalog/catalog.routes.js', 'GET /:id/references'),
+  // Transferencia de OM dona (so-admin) e envio/remocao do video de previa: todas devolvem a
+  // linha do recurso por `res.json`, entao passam pela poda de conteudo. O ENVIO recebe bytes
+  // (multipart), mas o corpo da RESPOSTA e a linha; os bytes do video saem pela rota de leitura
+  // de `catalog-video`, classificada abaixo.
+  json('src/modules/catalog/catalog.routes.js', 'PATCH /:id/owner-org'),
+  json('src/modules/catalog/catalog.routes.js', 'POST /:id/preview-video'),
+  json('src/modules/catalog/catalog.routes.js', 'DELETE /:id/preview-video'),
+
+  // O video de previa HOSPEDADO: a unica rota que serve os bytes do arquivo (streaming, Range),
+  // fora do `res.json`. Publica-por-URL (o token no nome e a capacidade), como as thumbnails do
+  // 360. O emissor e `catalog-video.controller.js` (`serveVideo`).
+  bytes('src/modules/catalog-video/catalog-video.routes.js', 'GET /:file',
+    'src/modules/catalog-video/catalog-video.controller.js'),
 
   json('src/modules/config/config.routes.js', 'GET /'),
   json('src/modules/config/config.routes.js', 'GET /admin'),
@@ -283,6 +296,13 @@ const CENSO_ROTA = [
   json('src/modules/streetview360/sv360.routes.js', 'GET /admin/projects'),
   json('src/modules/streetview360/sv360.routes.js', 'PATCH /admin/projects/:slug/status'),
   json('src/modules/streetview360/sv360.routes.js', 'PATCH /admin/projects/:slug'),
+  // Transferencia de OM, troca de thumbnail e envio/remocao de video: todas respondem a linha do
+  // projeto por `res.json` (envelope plano do 360). Os bytes enviados (thumbnail/video) sao
+  // entrada; a resposta e a linha. Os bytes do video saem pela rota de `catalog-video`.
+  json('src/modules/streetview360/sv360.routes.js', 'PATCH /admin/projects/:slug/owner-org'),
+  json('src/modules/streetview360/sv360.routes.js', 'POST /admin/projects/:slug/thumbnail'),
+  json('src/modules/streetview360/sv360.routes.js', 'POST /admin/projects/:slug/preview-video'),
+  json('src/modules/streetview360/sv360.routes.js', 'DELETE /admin/projects/:slug/preview-video'),
   json('src/modules/streetview360/sv360.routes.js', 'DELETE /admin/projects/:slug'),
 
   json('src/modules/sync/sync.routes.js', 'GET /admin/stats'),
@@ -410,6 +430,14 @@ const CENSO_EMISSOR = [
     classe: E_BYTES, motivo: BYTES_DE_ARQUIVO },
 
   { arquivo: 'src/modules/streetview360/sv360.write.controller.js', texto: 'res.status(204).end();', n: 2,
+    classe: E_SEM_CORPO, motivo: SEM_CORPO },
+
+  // O serve do video hospedado: os 304/416 sem corpo. Os BYTES do arquivo saem por
+  // `streamFileToResponse` (`stream-file.js`, `rs.pipe(res)`, ja no censo abaixo), nao por um
+  // `res.end` deste controller.
+  { arquivo: 'src/modules/catalog-video/catalog-video.controller.js', texto: 'if (req.headers[\'if-none-match\'] === etag) return res.status(304).end();', n: 1,
+    classe: E_SEM_CORPO, motivo: SEM_CORPO },
+  { arquivo: 'src/modules/catalog-video/catalog-video.controller.js', texto: 'return res.status(416).setHeader(\'Content-Range\', `bytes */${st.size}`).end();', n: 1,
     classe: E_SEM_CORPO, motivo: SEM_CORPO },
 
   { arquivo: 'src/utils/stream-file.js', texto: 'rs.pipe(res);', n: 1,

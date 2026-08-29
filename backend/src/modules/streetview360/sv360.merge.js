@@ -49,17 +49,17 @@ export function sanitizeSlug(slug) {
 }
 
 /**
- * DERIVE the per-project {slug}.db filename from (organization_id, slug) — the
- * SERVER is the single authority for this name; the client-supplied
- * manifest.project.db_filename is IGNORED (FIX-1, cross-OM BLOB-overwrite guard).
- * The orgId prefix guarantees two organizations sharing the same slug never map
- * to the same file. Format: `${orgId}__${sanitizeSlug(slug)}.db`.
- * @param {string} orgId - resolved target organization_id (uuid)
+ * DERIVE the per-project base filename from the slug — SEM prefixo de organização, como no
+ * ebgeo_360 fonte-da-verdade (decisão do dono, 2026-08-29). O servidor é a única autoridade
+ * deste nome; `manifest.project.db_filename` do cliente é IGNORADO. O SLUG é único global
+ * (`UNIQUE(slug)`), então não há colisão entre OMs a evitar com prefixo. Deste base saem o
+ * `{slug}_tiles.db` (pixels) e o `{slug}.webp` (thumbnail); a POSSE por OM é outra coluna.
+ * Formato: `${sanitizeSlug(slug)}.db`.
  * @param {string} slug  - project slug
  * @returns {string} the derived basename (no path separator)
  */
-export function deriveDbFilename(orgId, slug) {
-  return `${orgId}__${sanitizeSlug(slug)}.db`;
+export function deriveDbFilename(slug) {
+  return `${sanitizeSlug(slug)}.db`;
 }
 
 // --- capture instant: the zone is not optional ------------------------------
@@ -270,12 +270,13 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
   );
   const photoCount = photos.length - idsTombstonados.size;
 
-  // 2) UPSERT project by (organization_id, slug) — status/created_at preserved
-  //    on conflict (they are NOT in the UPSERT_PROJECT SET list). db_filename is
-  //    DERIVED server-side from (orgId, slug) (FIX-1): the client's manifest value
-  //    is IGNORED so an OM cannot point its store at another OM's {slug}.db.
-  const dbFilename = deriveDbFilename(orgId, project.slug);
-  const upserted = await t.one(AQ.UPSERT_PROJECT, [
+  // 2) UPSERT project by SLUG (único global) — status/created_at preservados no conflito (não
+  //    estão no SET). `db_filename` é DERIVADO no servidor a partir do slug (o valor do manifesto
+  //    é IGNORADO). O `WHERE ... = EXCLUDED.organization_id` do UPSERT recusa que uma OM sobrescreva
+  //    o projeto de OUTRA que já tenha o mesmo slug: nesse caso o UPDATE não casa, nada é inserido
+  //    (o conflito impede o INSERT), e a consulta volta VAZIA, que vira 409 aqui.
+  const dbFilename = deriveDbFilename(project.slug);
+  const upserted = await t.oneOrNone(AQ.UPSERT_PROJECT, [
     orgId,
     project.slug,
     project.name,
@@ -285,6 +286,9 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
     photoCount,
     dbFilename,
   ]);
+  if (!upserted) {
+    throw new ConflictError(`O slug '${project.slug}' já pertence a outra organização.`);
+  }
   const projectId = upserted.id;
 
   // 3) PURGE the project's child rows (targets -> photos -> tombstones). Deleting

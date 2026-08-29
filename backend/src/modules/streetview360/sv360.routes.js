@@ -18,6 +18,8 @@ import { mkdirSync } from 'node:fs';
 import { armazenamentoAbortavel } from '../../middleware/armazenamento-abortavel.js';
 import { flexibleAuth } from '../../middleware/flexible-auth.js';
 import { auth } from '../../middleware/auth.js';
+import { requireAdmin } from '../../middleware/require-admin.js';
+import { uploadVideo } from '../catalog-video/catalog-video.upload.js';
 import { validate } from '../../middleware/validate.js';
 import {
   liftOptionalAtlasId, requireAtlasScopeWhenPresent,
@@ -109,6 +111,18 @@ const uploadBundle = multer({
   { name: 'tilesDb', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
 ]);
+
+// Troca só da thumbnail (fora do bundle): UM campo, teto pequeno (5 MiB, como o
+// `MAX_THUMBNAIL_BYTES` do serviço, que ainda confere por magic bytes antes de gravar).
+// Reusa o mesmo storage abortável do bundle.
+const uploadThumbnail = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname !== 'thumbnail') return cb(new BadRequestError(`Unexpected upload field: ${file.fieldname}`));
+    return cb(null, true); // o serviço valida WebP por magic bytes
+  },
+}).fields([{ name: 'thumbnail', maxCount: 1 }]);
 
 // flexibleAuth (auth OPTIONAL) is applied to the whole router so reads stay
 // anon-friendly even when mounted standalone in tests. Write routes ADD the
@@ -530,6 +544,46 @@ router.patch(
     query: aschemas.orgScopeQuerySchema,
   }),
   actrl.updateProjectMetadata
+);
+
+// TRANSFERE A OM DONA (só-admin). Segmento próprio (`/owner-org`), disjunto de `/status`
+// e do `:slug` nu, pela mesma razão dos vizinhos. `requireAdmin` porque mover acervo entre
+// OMs é ato de sistema; o serviço reafirma.
+router.patch(
+  '/admin/projects/:slug/owner-org',
+  auth,
+  requireAdmin,
+  validate({
+    params: aschemas.slugParamSchema,
+    body: aschemas.ownerOrgBodySchema,
+    query: aschemas.orgScopeQuerySchema,
+  }),
+  actrl.transferProjectOwner
+);
+
+// TROCA A THUMBNAIL (multipart, campo `thumbnail`). Gate de posse no serviço
+// (`loadWritableProject`), como as outras escritas; `auth` estrito na borda.
+router.post(
+  '/admin/projects/:slug/thumbnail',
+  auth,
+  uploadThumbnail,
+  validate({ params: aschemas.slugParamSchema, query: aschemas.orgScopeQuerySchema }),
+  actrl.replaceThumbnail
+);
+
+// ENVIO/REMOÇÃO do vídeo de prévia (arquivo hospedado, não URL colada). Mesmo gate das irmãs.
+router.post(
+  '/admin/projects/:slug/preview-video',
+  auth,
+  uploadVideo,
+  validate({ params: aschemas.slugParamSchema, query: aschemas.orgScopeQuerySchema }),
+  actrl.uploadPreviewVideo
+);
+router.delete(
+  '/admin/projects/:slug/preview-video',
+  auth,
+  validate({ params: aschemas.slugParamSchema, query: aschemas.orgScopeQuerySchema }),
+  actrl.removePreviewVideo
 );
 
 router.delete(

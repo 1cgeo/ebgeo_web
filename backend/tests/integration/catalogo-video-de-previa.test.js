@@ -167,6 +167,89 @@ describe('Vídeo de prévia — quatro tipos, e o de-para sem a URL', () => {
     assert.equal(limpo.body.previewVideo, null, 'esvaziar o campo REMOVE o vídeo');
   });
 
+  it('o 360 se RENOMEIA pela mesma rota, e a atualização é PARCIAL (nome e vídeo não se apagam)', async () => {
+    const nomeDe = async () => (await db.query(
+      'SELECT name, preview_video FROM sv360.projects WHERE id = $1', [projeto360],
+    )).rows[0];
+
+    // Grava um vídeo primeiro, para provar que renomear não o apaga.
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ previewVideo: '/3d/videos/fica.webm' })
+      .expect(200);
+
+    // Renomear manda SÓ o nome: o vídeo tem de sobreviver.
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ name: `Renomeado ${RID}` })
+      .expect(200);
+    let linha = await nomeDe();
+    assert.equal(linha.name, `Renomeado ${RID}`, 'o nome mudou');
+    assert.equal(linha.preview_video, '/3d/videos/fica.webm', 'e o vídeo NÃO foi apagado pela renomeação');
+
+    // O par: trocar SÓ o vídeo não reescreve o nome.
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ previewVideo: '/3d/videos/outro.webm' })
+      .expect(200);
+    linha = await nomeDe();
+    assert.equal(linha.name, `Renomeado ${RID}`, 'o nome sobreviveu à troca de vídeo');
+    assert.equal(linha.preview_video, '/3d/videos/outro.webm');
+
+    // Nome vazio é recusado (a coluna é NOT NULL).
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ name: '   ' })
+      .expect(422);
+    assert.equal((await nomeDe()).name, `Renomeado ${RID}`, 'a recusa não tocou o nome');
+
+    // Limpa o vídeo para não vazar estado para os casos seguintes.
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ previewVideo: '' })
+      .expect(200);
+  });
+
+  it('os campos do cartão do 360 (palavra-chave, local, data, centro) gravam e saem na forma pública', async () => {
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({
+        keywords: ['aman', 'auditorio'],
+        location: 'Resende, RJ',
+        captureDate: '2024-05',
+        centerLat: -22.45,
+        centerLong: -44.44,
+      })
+      .expect(200);
+
+    const pub = await supertest(app).get(`/api/v1/sv360/projects/${slug360}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .expect(200);
+    assert.deepEqual(pub.body.keywords, ['aman', 'auditorio']);
+    assert.equal(pub.body.location, 'Resende, RJ');
+    assert.equal(pub.body.captureDate, '2024-05');
+    assert.equal(pub.body.center.lat, -22.45);
+    assert.equal(pub.body.center.lon, -44.44);
+
+    // PARCIAL: mudar só o local não apaga as palavras-chave.
+    await supertest(app)
+      .patch(`/api/v1/sv360/admin/projects/${slug360}?orgId=${orgId}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .send({ location: 'Outra Cidade' })
+      .expect(200);
+    const pub2 = await supertest(app).get(`/api/v1/sv360/projects/${slug360}`)
+      .set('Authorization', `Bearer ${tokenProdutor}`)
+      .expect(200);
+    assert.deepEqual(pub2.body.keywords, ['aman', 'auditorio'], 'as palavras-chave sobreviveram');
+    assert.equal(pub2.body.location, 'Outra Cidade');
+  });
+
   it('a LISTAGEM traz o vídeo, e é ela que alimenta o cartão do catálogo (não o GET por slug)', async () => {
     // DUAS SUPERFÍCIES PÚBLICAS ganharam a coluna e só uma estava conferida. O cartão do
     // 360 é montado por `_getPanoramic360` (`frontend/src/js/catalog/catalog.service.js`),

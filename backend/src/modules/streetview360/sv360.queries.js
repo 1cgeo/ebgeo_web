@@ -67,7 +67,8 @@ export const sv360AccessPredicate = (pUser, pAtlas, alias = '') => `(
 // imagem que responde 404. A checagem de disco roda DEPOIS deste WHERE, ou seja,
 // só sobre linhas que o predicado já entregou ao chamador.
 export const LIST_PROJECTS = `
-  SELECT id, slug, name, center_lat, center_long, entry_photo_id, photo_count, status,
+  SELECT id, slug, name, description, location, keywords,
+         center_lat, center_long, entry_photo_id, photo_count, status,
          capture_date, preview_video, db_filename
   FROM sv360.projects
   WHERE ${sv360AccessPredicate(1, 2)}
@@ -95,7 +96,8 @@ export const LIST_PROJECTS = `
 // que NAO APARECE NO WHERE: ela e ordenacao, nunca autorizacao, e o `$4` isolado e o
 // que torna essa distincao visivel para quem editar a consulta depois.
 export const GET_PROJECT_BY_SLUG = `
-  SELECT id, organization_id, slug, name, center_lat, center_long,
+  SELECT id, organization_id, slug, name, description, location, keywords,
+         center_lat, center_long,
          entry_photo_id, photo_count, db_filename, status, capture_date, access_level,
          preview_video
   FROM sv360.projects

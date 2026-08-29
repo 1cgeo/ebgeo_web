@@ -18,13 +18,14 @@ import { query, tx } from '../../database/index.js';
 import logger from '../../utils/logger.js';
 import * as AQ from './sv360.admin.queries.js';
 import { canWriteProject } from './sv360.write.service.js';
-import { resolveDbPath, ingestBundle, validateManifest } from './sv360.ingest.js';
+import { resolveDbPath, resolveTilesDbPath, ingestBundle, validateManifest } from './sv360.ingest.js';
 import { resolveOrgIdBySlug } from './sv360.merge.js';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
 import { principalUserId } from '../../utils/principal.js';
 import { createAudit } from '../../utils/audit.js';
 import { diffAuditavel } from '../../utils/audit-diff.js';
 import { purgeResourceLinks } from '../resource-access/resource-access.service.js';
+import * as videoStore from '../catalog-video/catalog-video.store.js';
 import {
   BadRequestError,
   ConflictError,
@@ -180,7 +181,7 @@ async function loadWritableProject(slug, user, opts = {}) {
       // No explicit org: locate by slug across OMs. Detect ambiguity (≥2 orgs
       // own this slug) and refuse to guess.
       const { rows } = await query(
-        `SELECT id, organization_id, slug, name, center_lat, center_long,
+        `SELECT id, organization_id, slug, name, description, center_lat, center_long,
                 entry_photo_id, photo_count, db_filename, status, preview_video,
                 created_at, updated_at
            FROM sv360.projects WHERE slug = $1 ORDER BY created_at`,
@@ -301,18 +302,164 @@ export async function setStatus(slug, status, user, opts = {}, req = null) {
  */
 export async function updateProjectMetadata(slug, data, user, opts = {}, req = null) {
   const project = await loadWritableProject(slug, user, opts);
+  // ATUALIZAÇÃO PARCIAL: só toca a coluna do campo FORNECIDO. `!== undefined` distingue
+  // "não mandou" de "mandou vazio", e é o que impede uma renomeação de apagar o vídeo.
+  const previewProvided = data.previewVideo !== undefined;
   // A string vazia é como o painel diz "remova o vídeo"; a coluna guarda NULL, que é o
   // mesmo estado de quem nunca teve vídeo. Duas representações para "sem vídeo" fariam a
   // forma pública devolver `''` num caso e `null` no outro, e o cartão teria de conhecer
   // as duas.
   const previewVideo = data.previewVideo ? String(data.previewVideo) : null;
+  const nameProvided = data.name !== undefined;
+  const name = nameProvided ? String(data.name) : null;
+  const descriptionProvided = data.description !== undefined;
+  // `''` e `null` viram NULL na coluna, o mesmo estado de "sem descrição": duas
+  // representações fariam a forma pública devolver `''` num caso e `null` no outro.
+  const description = data.description ? String(data.description) : null;
+  // OS CAMPOS DO CARTÃO: mesmo padrão de "fornecido" (parcial). `keywords` vazio ou ausente vira
+  // NULL; `location`/`captureDate` vazios viram NULL; `centerLat`/`centerLong` aceitam número.
+  const keywordsProvided = data.keywords !== undefined;
+  const keywords = Array.isArray(data.keywords) && data.keywords.length ? data.keywords : null;
+  const locationProvided = data.location !== undefined;
+  const location = data.location ? String(data.location) : null;
+  const captureDateProvided = data.captureDate !== undefined;
+  const captureDate = data.captureDate ? String(data.captureDate) : null;
+  const centerLatProvided = data.centerLat !== undefined;
+  const centerLat = data.centerLat ?? null;
+  const centerLongProvided = data.centerLong !== undefined;
+  const centerLong = data.centerLong ?? null;
   const { rows } = await query(AQ.UPDATE_PROJECT_METADATA, [
     project.organization_id,
     slug,
     previewVideo,
+    previewProvided,
+    name,
+    nameProvided,
+    description,
+    descriptionProvided,
+    keywords,
+    keywordsProvided,
+    location,
+    locationProvided,
+    captureDate,
+    captureDateProvided,
+    centerLat,
+    centerLatProvided,
+    centerLong,
+    centerLongProvided,
   ]);
-  const antes = { config: { previewVideo: project.preview_video ?? null } };
-  const depois = { config: { previewVideo } };
+  const antes = { config: {} };
+  const depois = { config: {} };
+  if (previewProvided) {
+    antes.config.previewVideo = project.preview_video ?? null;
+    depois.config.previewVideo = previewVideo;
+  }
+  if (nameProvided) {
+    antes.config.name = project.name ?? null;
+    depois.config.name = name;
+  }
+  if (descriptionProvided) {
+    antes.config.description = project.description ?? null;
+    depois.config.description = description;
+  }
+  // Os demais campos entram no de-para pelo NOME (o valor de mídia/endereço não vaza; estes são
+  // texto curto e coordenada, e a trilha de catálogo já mostra o campo tocado em `fields`).
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(user),
+    targetType: 'SV360_PROJECT',
+    targetId: project.id,
+    targetName: name ?? project.name ?? slug,
+    targetOrgId: project.organization_id,
+    details: {
+      table: 'sv360.projects',
+      fields: Object.keys(data || {}),
+      ...diffAuditavel(antes, depois),
+    },
+  });
+  return rows[0];
+}
+
+/**
+ * Transfere a OM DONA de um projeto 360 (o paralelo do que as quatro tabelas de catálogo
+ * ganharam). É TROCA DE COLUNA: nenhum arquivo em disco é renomeado, porque as leituras
+ * resolvem o store pela coluna `db_filename` gravada, nunca por (orgId, slug) recalculado
+ * (`resolveDbPath(row.db_filename)`). O `db_filename` fica com o prefixo da OM ORIGINAL, e
+ * isso é cosmético.
+ *
+ * SÓ ADMINISTRADOR: a rota é `requireAdmin`, e o serviço reafirma, porque mover acervo entre
+ * OMs é ato de sistema, não de quem produz. `loadWritableProject` já resolve o projeto por
+ * slug (com desambiguação de OM), e o `requireAdmin` da rota garante que o ramo de admin dele
+ * é o que roda.
+ *
+ * A colisão de slug no destino é 409, não uma violação crua do `UNIQUE(org, slug)`: se a OM
+ * destino já tem um projeto com este slug, os dois não podem coexistir, e o slug do 360 é
+ * único só POR OM. OM destino inexistente ou inativa é 400.
+ *
+ * @param {string} slug
+ * @param {string} newOrgId - a OM destino
+ * @param {Object} user
+ * @param {Object} [opts] - `orgId`/`orgSlug` para desambiguar o slug de ORIGEM (admin)
+ * @param {Object} [req]
+ * @returns {Promise<Object>} a linha atualizada
+ */
+export async function transferProjectOwner(slug, newOrgId, user, opts = {}, req = null) {
+  if (!user || user.role !== 'admin') throw new ForbiddenError('Só o administrador transfere de OM.');
+  const project = await loadWritableProject(slug, user, opts);
+  const fromOrgId = project.organization_id;
+
+  const { rows: orgRows } = await query(AQ.CHECK_ORG_ACTIVE, [newOrgId]);
+  if (!orgRows[0]) throw new BadRequestError('OM dona inválida ou inativa.');
+
+  if (newOrgId === fromOrgId) return project; // no-op: já é dela
+
+  const { rows: colisao } = await query(AQ.CHECK_SLUG_IN_ORG, [newOrgId, slug]);
+  if (colisao[0]) {
+    throw new ConflictError(`A OM destino já tem um projeto 360 com o slug '${slug}'.`);
+  }
+
+  const { rows } = await query(AQ.TRANSFER_PROJECT_OWNER, [project.id, newOrgId]);
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(user),
+    targetType: 'SV360_PROJECT',
+    targetId: project.id,
+    targetName: project.name ?? slug,
+    // A OM da TRILHA é a NOVA (dona a partir de agora); o de-para guarda de quem era.
+    targetOrgId: newOrgId,
+    details: { table: 'sv360.projects', transfer: true, fromOrgId, toOrgId: newOrgId },
+  });
+  return rows[0];
+}
+
+/**
+ * Grava (ou remove, com `url` falsy) a URL do vídeo de prévia HOSPEDADO, devolvendo também a URL
+ * ANTIGA para o controller apagar o arquivo. Reusa o `UPDATE_PROJECT_METADATA` com só o vídeo
+ * fornecido, então nome e descrição não se tocam. O vídeo do 360 é COLUNA (`preview_video`).
+ * @param {string} slug
+ * @param {string|null} url
+ * @param {Object} user
+ * @param {Object} [opts]
+ * @param {Object} [req]
+ * @returns {Promise<{row: Object, oldUrl: string|null}>}
+ */
+export async function setProjectVideoUrl(slug, url, user, opts = {}, req = null) {
+  const project = await loadWritableProject(slug, user, opts);
+  const oldUrl = project.preview_video ?? null;
+  const previewVideo = url || null;
+  // Só o vídeo é fornecido; os demais campos (nome, descrição, palavra-chave, local, data, centro)
+  // ficam não-fornecidos (o segundo booleano de cada par é false), então não se tocam.
+  const { rows } = await query(AQ.UPDATE_PROJECT_METADATA, [
+    project.organization_id, slug,
+    previewVideo, true,
+    null, false, // name
+    null, false, // description
+    null, false, // keywords
+    null, false, // location
+    null, false, // captureDate
+    null, false, // centerLat
+    null, false, // centerLong
+  ]);
   await createAudit(req, {
     action: 'CATALOG_UPDATE',
     actorId: principalUserId(user),
@@ -322,11 +469,49 @@ export async function updateProjectMetadata(slug, data, user, opts = {}, req = n
     targetOrgId: project.organization_id,
     details: {
       table: 'sv360.projects',
-      fields: Object.keys(data || {}),
-      ...diffAuditavel(antes, depois),
+      fields: ['previewVideo'],
+      ...diffAuditavel({ config: { previewVideo: oldUrl } }, { config: { previewVideo } }),
     },
   });
-  return rows[0];
+  return { row: rows[0], oldUrl };
+}
+
+/**
+ * Substitui a THUMBNAIL de um projeto 360 por um arquivo enviado. O bundle já trazia a
+ * thumbnail; esta rota é a porta para TROCÁ-LA sozinha, sem reenviar o bundle inteiro, que
+ * é o paralelo do uploader de miniatura das tabelas de catálogo.
+ *
+ * O DESTINO é o mesmo nome ORG-KEYED que `GET /sv360/thumbnails/:slug.webp` serve
+ * (`{db_filename sem .db}.webp`), então a troca aparece na hora, sem uma segunda regra de
+ * nome. `assertValidThumbnail` confere WebP por MAGIC BYTES antes de escrever, como no
+ * ingest: o arquivo vira imagem servida com `Content-Type: image/webp`, e o mime declarado
+ * não é evidência.
+ *
+ * O gate é `loadWritableProject` (produtor da OM dona, ou administrador), o mesmo das outras
+ * escritas do 360. O tmp do multer é do CONTROLLER limpar.
+ * @param {string} slug
+ * @param {string} thumbnailPath - caminho tmp do multer
+ * @param {Object} user
+ * @param {Object} [opts]
+ * @param {Object} [req]
+ * @returns {Promise<Object>} a linha do projeto
+ */
+export async function replaceThumbnail(slug, thumbnailPath, user, opts = {}, req = null) {
+  const project = await loadWritableProject(slug, user, opts);
+  await assertValidThumbnail(thumbnailPath);
+  const dest = resolveDbPath(project.db_filename.replace(/\.db$/i, '.webp'));
+  mkdirSync(path.dirname(dest), { recursive: true });
+  copyFileSync(thumbnailPath, dest);
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(user),
+    targetType: 'SV360_PROJECT',
+    targetId: project.id,
+    targetName: project.name ?? slug,
+    targetOrgId: project.organization_id,
+    details: { table: 'sv360.projects', fields: ['thumbnail'] },
+  });
+  return project;
 }
 
 /**
@@ -411,6 +596,27 @@ export async function deleteProject(slug, user, opts = {}, req = null) {
       }
     }
   });
+
+  // O SEGUNDO ARQUIVO do projeto, `{...}_tiles.db`, é o que carrega as PIRÂMIDES, e para acervo
+  // só-tiles (sem `full_webp`/`preview_webp` no images.db) é a ÚNICA fonte de pixel, ou seja, é o
+  // arquivo GRANDE. Ele estava fora desta limpeza, então cada hard-delete deixava dezenas de GB
+  // órfãos. Evicção própria (é outro handle no pool) na mesma janela, como o principal.
+  const tilesPath = resolveTilesDbPath(deleted.db_filename);
+  await withDbPathEvicted(tilesPath, () => {
+    for (const p of [tilesPath, tilesPath + '.tmp', tilesPath + '.bak']) {
+      if (existsSync(p)) {
+        try {
+          rmSync(p, { force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+
+  // O vídeo de prévia HOSPEDADO também é órfão depois do hard-delete. `deleteVideoByUrl` ignora
+  // URL externa (a que o deploy já tinha), então só apaga o que este backend guardou.
+  videoStore.deleteVideoByUrl(project.preview_video);
 }
 
 /**

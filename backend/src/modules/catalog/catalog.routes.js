@@ -1,10 +1,12 @@
 // Path: src/modules/catalog/catalog.routes.js
 import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
+import { requireAdmin } from '../../middleware/require-admin.js';
 import {
   requireCatalogProducer, liftOptionalAtlasId, requireAtlasScopeWhenPresent,
 } from '../../middleware/resource-access.js';
 import { validate } from '../../middleware/validate.js';
+import { uploadVideo } from '../catalog-video/catalog-video.upload.js';
 import * as ctrl from './catalog.controller.js';
 import * as schemas from './catalog.schemas.js';
 
@@ -59,6 +61,18 @@ export function makeCatalogRouter(table) {
   router.post('/', auth, produtor, validate({ body: escrita.create }), ctrl.create(table));
   router.put('/:id', auth, produtor,
     validate({ params: schemas.idParamsSchema, body: escrita.update }), ctrl.update(table));
+  // A TRANSFERÊNCIA DE OM DONA É SÓ-ADMINISTRADOR, e por isso NÃO usa `produtor`: o produtor
+  // mantém o que a OM dele produziu, mas mover a linha para OUTRA OM (ou para o institucional)
+  // é ato de sistema. `owner_org_id` continua fora do corpo das três escritas comuns; esta é a
+  // rota própria que a legenda da aba passou a nomear (decisão do dono, 2026-08-29).
+  router.patch('/:id/owner-org', auth, requireAdmin,
+    validate({ params: schemas.idParamsSchema, body: schemas.ownerOrgSchema }), ctrl.transferOwner(table));
+  // ENVIO do vídeo de prévia (arquivo hospedado, não mais URL colada). O `uploadVideo` (multer)
+  // vem ANTES do `validate` para parsear o multipart; o gate de escrita é o mesmo `produtor`.
+  router.post('/:id/preview-video', auth, produtor, uploadVideo,
+    validate({ params: schemas.idParamsSchema }), ctrl.setPreviewVideo(table));
+  router.delete('/:id/preview-video', auth, produtor,
+    validate({ params: schemas.idParamsSchema }), ctrl.removePreviewVideo(table));
   router.delete('/:id', auth, produtor, validate({ params: schemas.idParamsSchema }), ctrl.remove(table));
   return router;
 }

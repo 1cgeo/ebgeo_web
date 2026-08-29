@@ -1,8 +1,9 @@
 -- Path: src/database/migrations/007_sv360.sql
 -- STREETVIEW 360 (schema sv360): projects, capture_runs, photos, andares, targets,
 -- tracks, tombstones e o metadado da pirâmide de tiles. FORA do sync/CRDT/WS do
--- atlas. Os binários WebP vivem em SQLite por projeto ({orgId}__{slug}.db), nunca
--- aqui: este schema guarda metadado e o ponto PostGIS.
+-- atlas. Os binários vivem em SQLite por projeto, nomeado por SLUG ({slug}_tiles.db),
+-- SEM prefixo de OM, como no ebgeo_360 fonte-da-verdade; este schema guarda metadado
+-- e o ponto PostGIS.
 
 -- ============================================================================
 -- 1) Extensão e schema
@@ -20,10 +21,10 @@ CREATE SCHEMA IF NOT EXISTS sv360;
 -- hard-delete (mesma regra de `atlas.owner_id`). `entry_photo_id` é referência
 -- LÓGICA a photos.id, porque pode não existir no momento da ingestão.
 --
--- `organization_id` JÁ É a OM produtora (o projeto chega por bundle sob um
--- `{orgId}__{slug}.db`, e a coluna faz parte do UNIQUE). Por isso não há
--- `owner_org_id` como nas tabelas de catálogo: seria uma segunda resposta para a
--- mesma pergunta.
+-- `organization_id` JÁ É a OM produtora (a POSSE), e por isso não há `owner_org_id`
+-- como nas tabelas de catálogo: seria uma segunda resposta para a mesma pergunta. O
+-- SLUG é único GLOBAL (`UNIQUE(slug)`), porque o arquivo é `{slug}_tiles.db` sem
+-- prefixo de OM; a posse por OM é OUTRA coluna, não o nome do arquivo.
 --
 -- `capture_date` é a data da CAMPANHA e é TEXT de propósito: é o tipo da origem;
 -- campanha nem sempre é um dia (há projeto que registra a mais recente entre
@@ -55,7 +56,12 @@ CREATE TABLE sv360.projects (
     -- Só o ENDEREÇO do vídeo de prévia: o arquivo vive fora de banda, como nas tabelas de
     -- catálogo (onde o mesmo dado é `config.previewVideo`).
     preview_video   TEXT,
-    UNIQUE (organization_id, slug)
+    -- O SLUG É ÚNICO GLOBAL, como no ebgeo_360 fonte-da-verdade (decisão do dono, 2026-08-29). O
+    -- arquivo de tiles é `{slug}_tiles.db`, sem prefixo de OM, então dois projetos de OMs
+    -- diferentes NÃO podem compartilhar slug (colidiriam no mesmo arquivo). `organization_id`
+    -- CONTINUA sendo a coluna de POSSE (quem mantém, o eixo de acesso do web), que o 360 não tem
+    -- por ser mono-tenant: nome de arquivo por slug e posse por OM são coisas separadas.
+    UNIQUE (slug)
 );
 CREATE INDEX idx_sv360_projects_org ON sv360.projects(organization_id);
 -- Parcial no lado PRIVADO: é o conjunto pequeno, e é ele que a resolução de acesso
@@ -272,7 +278,7 @@ CREATE TABLE sv360.deleted_photos (
 -- ============================================================================
 -- 9) photo_pyramids — o metadado da pirâmide de tiles
 -- ============================================================================
--- Os BYTES ficam em {orgId}__{slug}_tiles.db (SQLite); aqui fica a grade.
+-- Os BYTES ficam em {slug}_tiles.db (SQLite); aqui fica a grade.
 --
 -- A ESCADA SE LÊ DAQUI, NUNCA SE DEDUZ. A regra de parada morava só no código da
 -- origem, e mudá-la reinterpretou em silêncio todo acervo já escrito: 98.854 das
@@ -300,7 +306,7 @@ CREATE INDEX idx_photo_pyramids_project
     ON sv360.photo_pyramids (photo_id)
     INCLUDE (max_level, tile_size, total_bytes);
 COMMENT ON TABLE sv360.photo_pyramids IS
-    'Metadado da piramide de tiles de uma foto 360. Os BYTES ficam em {orgId}__{slug}_tiles.db (SQLite), nunca aqui.';
+    'Metadado da piramide de tiles de uma foto 360. Os BYTES ficam em {slug}_tiles.db (SQLite), nunca aqui.';
 COMMENT ON COLUMN sv360.photo_pyramids.razao IS
     'Razao entre niveis da escada. Contrato: a grade sai de (width, height, tile_size, razao), e reconstruir com outra razao produz tile faltando sem erro.';
 COMMENT ON COLUMN sv360.photo_pyramids.max_level IS

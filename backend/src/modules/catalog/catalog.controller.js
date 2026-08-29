@@ -1,6 +1,16 @@
 // Path: src/modules/catalog/catalog.controller.js
 // Controllers are curried by `table` so one set serves every per-type router.
+import { existsSync, rmSync } from 'node:fs';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { BadRequestError } from '../../utils/errors.js';
+import * as videoStore from '../catalog-video/catalog-video.store.js';
+
+/** Remove um tmp do multer, sem lançar (o dado autoritativo já é o arquivo de token gravado). */
+function cleanTmpFile(p) {
+  if (p && existsSync(p)) {
+    try { rmSync(p, { force: true }); } catch { /* best-effort */ }
+  }
+}
 import { marcarEscopoJson } from '../../utils/cache-scope.js';
 import { createAudit } from '../../utils/audit.js';
 import { diffAuditavel } from '../../utils/audit-diff.js';
@@ -124,6 +134,91 @@ export const update = (table) => asyncHandler(async (req, res) => {
     targetName: row.name,
     targetOrgId: ownerOrgId,
     details: { table, fields: Object.keys(req.body || {}), ...diffAuditavel(antes, depois) },
+  });
+  res.json({ data: row });
+});
+
+/**
+ * TRANSFERE A OM DONA (`PATCH /:id/owner-org`, só administrador).
+ *
+ * REUSA A AÇÃO `CATALOG_UPDATE` em vez de cunhar `CATALOG_TRANSFER`, porque um valor novo no
+ * `CHECK` de `audit_trail.action` custa uma migração de constraint (cai e volta = destrutivo,
+ * com linha em `EXCECOES_DESTRUTIVAS`), e o de-para em `details` já diz que foi transferência.
+ * `targetOrgId` É A OM NOVA (a dona a partir de agora): a linha da trilha responde "de quem é
+ * hoje", e o `fromOrgId` em `details` guarda de quem era.
+ */
+export const transferOwner = (table) => asyncHandler(async (req, res) => {
+  const { row, fromOrgId, toOrgId } = await svc.transferCatalogItemOwner(
+    table, req.params.id, req.body.owner_org_id ?? null,
+  );
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(req.user),
+    targetType: assertAuditTargetTypeOf(table),
+    targetId: row.id,
+    targetName: row.name,
+    targetOrgId: toOrgId,
+    details: { table, transfer: true, fromOrgId, toOrgId },
+  });
+  res.json({ data: row });
+});
+
+/**
+ * ENVIA o vídeo de prévia (`POST /:id/preview-video`, multipart campo `video`). Salva o arquivo,
+ * grava a URL servida em `config.previewVideo` e apaga o vídeo ANTIGO se ele era hospedado aqui.
+ *
+ * A ORDEM tem uma armadilha: se a gravação no banco falhar DEPOIS de salvar o arquivo, o arquivo
+ * novo fica órfão. Por isso o `catch` o apaga (`deleteVideoByUrl` da URL nova). O tmp do multer é
+ * sempre limpo. O vídeo antigo só é apagado no caminho de sucesso, e nunca uma URL EXTERNA (o
+ * store ignora URL que não é dele).
+ */
+export const setPreviewVideo = (table) => asyncHandler(async (req, res) => {
+  const tmp = req.files?.video?.[0]?.path ?? req.file?.path;
+  if (!tmp) throw new BadRequestError('Envie um vídeo no campo "video".');
+  let url;
+  try {
+    url = await videoStore.saveVideo(tmp);
+  } finally {
+    cleanTmpFile(tmp);
+  }
+  try {
+    const { row, ownerOrgId, oldUrl } = await svc.setCatalogPreviewVideo(
+      table, req.params.id, url, producerActor(req),
+    );
+    videoStore.deleteVideoByUrl(oldUrl);
+    await createAudit(req, {
+      action: 'CATALOG_UPDATE',
+      actorId: principalUserId(req.user),
+      targetType: assertAuditTargetTypeOf(table),
+      targetId: row.id,
+      targetName: row.name,
+      targetOrgId: ownerOrgId,
+      details: { table, fields: ['previewVideo'] },
+    });
+    res.json({ data: row });
+  } catch (err) {
+    videoStore.deleteVideoByUrl(url); // desfaz o arquivo recém-salvo se o banco recusou
+    throw err;
+  }
+});
+
+/**
+ * REMOVE o vídeo de prévia (`DELETE /:id/preview-video`). Tira a chave do `config` e apaga o
+ * arquivo hospedado, se houver.
+ */
+export const removePreviewVideo = (table) => asyncHandler(async (req, res) => {
+  const { row, ownerOrgId, oldUrl } = await svc.setCatalogPreviewVideo(
+    table, req.params.id, null, producerActor(req),
+  );
+  videoStore.deleteVideoByUrl(oldUrl);
+  await createAudit(req, {
+    action: 'CATALOG_UPDATE',
+    actorId: principalUserId(req.user),
+    targetType: assertAuditTargetTypeOf(table),
+    targetId: row.id,
+    targetName: row.name,
+    targetOrgId: ownerOrgId,
+    details: { table, fields: ['previewVideo'] },
   });
   res.json({ data: row });
 });

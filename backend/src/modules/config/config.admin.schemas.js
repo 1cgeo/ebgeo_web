@@ -30,6 +30,10 @@ export const configOverridesSchema = Joi.object({
     imagens_panoramicas: Joi.boolean(),
     grid: Joi.boolean(),
     apisearch: Joi.boolean(),
+    // Runtime self-registration toggle (2026-08-29). Overrides the ALLOW_SELF_REGISTRATION env
+    // default; the served `features.self_registration` and the `/auth/register` gate both read
+    // the merged value. `password_reset_email` is NOT here: it mirrors SMTP config, frozen at boot.
+    self_registration: Joi.boolean(),
   }).unknown(true),
   map2d: Joi.object({
     minZoom: Joi.number().min(0).max(24),

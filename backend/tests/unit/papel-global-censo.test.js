@@ -194,6 +194,12 @@ const CENSO = [
     motivo: 'A mesma decisão na forma de booleano local, para a listagem ADMINISTRATIVA do 360. Ela recusa cedo quem não administra nem produz; quem recorta as linhas é `fn_can_produce_resource` no SQL, e não este booleano — a lição das sete cópias que a fase F6 removeu.',
   },
   {
+    arquivo: 'src/modules/streetview360/sv360.admin.service.js',
+    trecho: "if (!user || user.role !== 'admin') throw new ForbiddenError('Só o administrador transfere de OM.');",
+    n: 1, classe: PODER,
+    motivo: 'Transferir a OM dona de um projeto 360 é ato de SISTEMA, não de produção: nem o produtor da OM dona entra (ele mantém o que produziu, mas não move acervo entre OMs). Espelha `requireAdmin` da rota (`sv360.routes.js`); nem credenciado nem produtor passam.',
+  },
+  {
     arquivo: 'src/modules/streetview360/sv360.write.service.js',
     trecho: "if (user.role === 'admin') return true", n: 1, classe: PRODUCAO,
     motivo: 'canWriteProject: escrita de projeto 360. O segundo braço compara `user.producer_org_id` com a OM do projeto, e o eixo `organization_id` + `org_role` que morava ali SAIU inteiro nesta fase — ele autorizava por lotação auto-declarada. Credenciado não escreve.',
