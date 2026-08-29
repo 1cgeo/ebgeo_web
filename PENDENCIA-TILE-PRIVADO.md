@@ -302,6 +302,88 @@ por TILE dentro do pool do Martin, uma segunda implementação do predicado de c
 ao lado de `FIND_USER_BY_API_KEY`, e não cobriria raster (análise e basemap não são MVT
 de função).
 
+### ESTADO DA SEÇÃO (f) EM 2026-08-29: as fases 1 a 4 FEITAS, a 5 recusada por medição
+
+O gate por recurso **existe e está medido**. O que segue é o as-built, e ele corrige por
+antecipação a leitura mais provável deste arquivo daqui a um mês ("isto tudo é plano").
+
+**Fase 1 — o índice.** `backend/src/modules/nomes/tile-regime.js` diz a que linha de
+catálogo pertence um caminho servido sob o prefixo de tiles, lendo as quatro famílias de
+endereço (`source`, `labelSource`, o `source` raster da análise, e as fontes DENTRO de
+`config.style` do basemap). As funções puras de caminho saíram para
+`backend/src/modules/nomes/caminho-de-recurso.js`, módulo folha compartilhado com o índice
+do 3D, e a consulta única mora em `SELECT_LINHAS_DE_CATALOGO`
+(`backend/src/modules/catalog/catalog.tables.js`). Duas regras que não se adivinham têm
+caso próprio: endereço de OUTRA origem não vira entrada (decisão 1), e na COLISÃO a linha
+privada vence.
+
+**Fase 2 — o gate decide.** `requireTileAccess`
+(`backend/src/modules/auth/tile-access.js`) recebe o caminho em `X-Original-URI`, resolve
+pelo índice e responde os quatro desfechos. O predicado do ramo privado é o mesmo
+`fn_can_see_resource` do resto do acervo, por `recursoPrivadoLiberado`, que se chamava assetLiberado ate 2026-08-29 e nunca foi sobre asset.
+
+**Fase 3 — o `location` parou de exigir chave de todo mundo**, o que devolveu o visitante
+anônimo e o cache de borda do público.
+
+**Fase 4 — o cookie.** O login e o refresh emitem o cookie `token` com o MESMO JWT; o
+logout o apaga. Como o `auth` estrito reusa o `req.user` que o `flexibleAuth` populou, e o
+`flexibleAuth` lê o cookie, ele passou a recusar principal vindo de cookie NOS MÉTODOS QUE
+ESCREVEM — a recusa é por método e não por rota, e a lista é de métodos SEGUROS, para que
+um verbo novo caia no ramo restritivo. `authVia` deixou de carimbar `'jwt'` para as duas
+origens e passou a distinguir `'cookie'` de `'bearer'`.
+
+**O ganho da fase 4 fechou o último defeito do caso 3:** a foto de item da cena indoor
+(`img.src`, que não aceita cabeçalho e não tem API que o carimbe) carrega com o cookie e
+recusa sem credencial.
+
+**Fase 5 — NÃO FOI FEITA, e a recusa é medida, não preguiça.**
+`dev/tile-privado/scripts/mede-custo-do-gate.sh`, 5 rodadas de 200 pedidos com conexão
+reusada:
+
+| cenário | µs por pedido | acima do piso |
+|---|---|---|
+| piso (rota sem gate de tile) | 1130 | — |
+| tile PÚBLICO | 1135 | +5 |
+| tile PRIVADO por COOKIE | 1130 | 0 |
+| tile PRIVADO por CHAVE DE API | 1610 | +480 |
+
+O gate por recurso custa zero mensurável: o índice em memória e o memo de decisão fazem o
+trabalho, e as faixas do público e do cookie se sobrepõem à do piso. **O que custa é a
+chave de API**, e não o gate: `FIND_USER_BY_API_KEY` é uma consulta ao banco POR
+REQUISIÇÃO, dentro do `flexibleAuth`, e não é memoizada; o JWT do cookie é verificado por
+assinatura, sem I/O. Um `proxy_cache` na subrequisição compraria um atraso de revogação em
+troca de um ganho que a medição não acha. Se o volume um dia apertar, o alvo que esta
+tabela indica é outro: memoizar a resolução da CHAVE, não a subrequisição.
+
+**A primeira medição teve de ser jogada fora**, e vale saber por quê: ela lançava um
+processo de `curl` por pedido, e o PISO saiu em 35 ms por pedido — o custo de criar
+processo no Windows, não o do servidor. Nele o tile público chegou a medir MENOS que o
+piso, que é o sinal de que o instrumento estava dominando o sujeito.
+
+**O que continua fora, com as fases feitas:**
+
+- **O visitante de link público não ganha cookie.** O token dele é efêmero e mora só em
+  memória, por contrato do cliente (`setEphemeralToken`), e um cookie para ele seria pior:
+  cookie é por navegador, não por aba, e sobrescreveria a sessão de quem estivesse logado
+  noutra aba. Para ele resta o cabeçalho, que cobre o tile do MapLibre (por
+  `transformRequest`) e NÃO cobre `img.src`. Uma cena privada emprestada por atlas público
+  segue sem desenhar as fotos de item para o visitante.
+- **O guarda da decisão 1** (422 ao marcar privada uma linha cujo endereço não seja
+  gateável) ainda não foi escrito. Hoje o efeito é o do índice: endereço de terceiro não
+  vira entrada, e a linha privada que apontar para fora simplesmente não é reconhecida —
+  logo o gate a RECUSA, que é a direção segura, mas o cadastro aceita salvar e a pessoa só
+  descobre no primeiro tile.
+- **O inventário de produção** (quantas linhas apontam para fora do prefixo, cruzado com o
+  nível de acesso) segue sendo a fase 0, e ele decide se aquele guarda entra direto ou
+  precisa de relatório antes.
+- **A sonda com data no deploy.** Nada aqui prova o que o nginx do host faz.
+
+**Onde isto está medido:** `dev/tile-privado/scripts/`, seis conferências, 165 casos e
+zero defeito em 2026-08-29 — entre elas `confere-gate-por-recurso.sh`, que foi escrita
+ANTES do código e saiu de 12 pendentes para 24 de 24.
+
+---
+
 ### As cinco decisões do dono, e o porquê de cada uma
 
 1. **URL de terceiro só pode ser PÚBLICA.** Isso converte a isenção "não há como gatear
