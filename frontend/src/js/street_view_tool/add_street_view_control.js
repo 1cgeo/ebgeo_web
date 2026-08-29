@@ -15,7 +15,10 @@ import { getEventBus, registerControl } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import StreetviewMarkers from './streetview_markers.js';
 import SavedPhotosMarkers from './saved_photos_markers.js';
-import { fetchNearestPhoto, sv360AtlasScope, sv360TileSource, sv360TransformRequest } from './streetview-api.service.js';
+import { fetchNearestPhoto, sv360AtlasScope, sv360TileSource } from './streetview-api.service.js';
+// O mesmo carimbo do mapa principal, e nao o do 360 sozinho: o minimapa desenha camada de
+// dados tambem, e ela pode ser privada emprestada.
+import { credencialDeTile } from '../map/credencial-de-tile.js';
 import { rebuildScopedSource } from './tile-scope.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 import { photo360Failures } from './photo360-failure.js';
@@ -255,7 +258,7 @@ class AddStreetViewControl {
                 // flexibleAuth do mapa principal, e por isso precisa do mesmo
                 // carimbo. Sem ele, servindo o 360 de outra origem, o minimapa
                 // mostraria menos fotos que a trajetoria do mapa principal.
-                transformRequest: sv360TransformRequest
+                transformRequest: credencialDeTile
             });
         }
 

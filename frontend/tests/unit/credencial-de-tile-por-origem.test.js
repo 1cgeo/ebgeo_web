@@ -1,6 +1,12 @@
-// Path: tests/unit/tiles-360-credencial-de-origem.test.js
+// Path: tests/unit/credencial-de-tile-por-origem.test.js
 //
-// A CREDENCIAL DOS TILES DO 360, E EM QUE ORIGEM ELA PODE ENCOSTAR.
+// A CREDENCIAL DOS TILES, E EM QUE ORIGEM ELA PODE ENCOSTAR.
+//
+// ESTE ARQUIVO MEDIA SO O 360 ATE 2026-08-29, e o carimbo passou a cobrir DUAS bases: o
+// servico 360 e o servidor de tiles. A razao da segunda e a clausula 6.3: o emprestimo do
+// atlas alcanca o visitante de link publico, cujo token e EFEMERO e nao vira cookie, entao
+// sem carimbo ele nao ve a camada privada que o atlas lhe empresta. A lista de casos veio
+// inteira porque a licao dela nunca foi sobre o 360: e sobre COMO se compara uma URL.
 //
 // A rota do MVT (`/api/v1/sv360/tiles/:z/:x/:y.pbf`) e `flexibleAuth`. Sem principal ela
 // NAO responde 401: responde HTTP 200 com o subconjunto PUBLICO, porque o predicado de
@@ -32,7 +38,13 @@ const TOKEN = 'jwt-de-mentira.aaa.bbb';
 globalThis.window = { location: { origin: ORIGEM_DA_PAGINA } };
 
 const estado = vi.hoisted(() => ({
-    config: { streetView360: { serviceUrl: 'https://sv360.example.mil.br/api/v1/sv360' } },
+    config: {
+        streetView360: { serviceUrl: 'https://sv360.example.mil.br/api/v1/sv360' },
+        // A SEGUNDA base credenciada. Ela precisa existir no duplo desde o inicio: sem
+        // ela, os casos do servidor de tiles passariam por vacuidade (base ausente nao
+        // casa nada, entao `nao carimba` seria verdade pelo motivo errado).
+        services: { tileServerUrl: 'https://tiles.example.mil.br/tiles' },
+    },
     token: 'jwt-de-mentira.aaa.bbb',
 }));
 
@@ -46,9 +58,15 @@ vi.mock('../../src/js/store/sync/api-client.js', () => ({
     },
 }));
 
-const { isSv360Url, sv360TransformRequest } = await import(
-    '../../src/js/street_view_tool/streetview-api.service.js'
+const { ehUrlCredenciada, credencialDeTile } = await import(
+    '../../src/js/map/credencial-de-tile.js'
 );
+// Os nomes antigos continuam legiveis nos casos abaixo por ALIAS, e nao por copia: este
+// arquivo media `sv360TransformRequest`, que cobria SO o 360. Em 2026-08-29 o carimbo
+// passou a cobrir tambem o servidor de tiles, e a lista de casos foi preservada inteira
+// porque a licao dela nao e sobre o 360, e sim sobre COMO se compara uma URL.
+const isSv360Url = ehUrlCredenciada;
+const sv360TransformRequest = credencialDeTile;
 
 // OS DOIS PREDICADOS INGENUOS QUE ESTE ARQUIVO EXISTE PARA REPROVAR. Sao as duas
 // formas obvias de "e do 360?", e cada uma erra num eixo:
@@ -190,5 +208,71 @@ describe('entrada inutil nao derruba a criacao do mapa', () => {
         expect(isSv360Url(`${BASE_360}/tiles/3/1/2.pbf`)).toBe(false);
         expect(sv360TransformRequest(`${BASE_360}/tiles/3/1/2.pbf`)).toBeUndefined();
         estado.config.streetView360 = { serviceUrl: BASE_360 };
+    });
+});
+
+describe('a SEGUNDA base: o servidor de tiles', () => {
+    const BASE_TILES = 'https://tiles.example.mil.br/tiles';
+
+    beforeEach(() => {
+        estado.config.streetView360.serviceUrl = BASE_360;
+        estado.config.services.tileServerUrl = BASE_TILES;
+        estado.token = TOKEN;
+    });
+
+    it('carimba o tile de uma camada de dados, que e o caso da clausula 6.3', () => {
+        // Sem isto o visitante de link publico nao ve a camada privada que o atlas lhe
+        // empresta: o token dele e efemero e nao vira cookie.
+        const url = `${BASE_TILES}/areas_treinamento/10/385/577`;
+        expect(ehUrlCredenciada(url)).toBe(true);
+        expect(credencialDeTile(url)).toEqual({
+            url,
+            headers: { Authorization: `Bearer ${TOKEN}` },
+        });
+    });
+
+    it('carimba o documento TileJSON, e nao so os tiles', () => {
+        // O MapLibre busca o documento antes dos tiles; carimbar so os tiles deixaria a
+        // camada privada morrer no primeiro pedido.
+        expect(ehUrlCredenciada(`${BASE_TILES}/areas_treinamento`)).toBe(true);
+    });
+
+    it('NAO carimba o vizinho textual da base de tiles', () => {
+        // A fronteira de caminho, no eixo da segunda base: `/tilesextra` nao e `/tiles`.
+        const vizinho = 'https://tiles.example.mil.br/tilesextra/x/1/2/3';
+        // A assercao auxiliar prova que o predicado INGENUO aceitaria; ela usa a origem
+        // literal porque  casaria a ocorrencia do HOST.
+        expect(vizinho.startsWith('https://tiles.example.mil.br')).toBe(true);
+        expect(ehUrlCredenciada(vizinho)).toBe(false);
+        expect(credencialDeTile(vizinho)).toBeUndefined();
+    });
+
+    it('NAO carimba um host de terceiro que COMECA com o host dos tiles', () => {
+        // O mesmo defeito que os casos do 360 reprovam, no eixo da segunda base: um
+        // `startsWith` mandaria o token do usuario para o atacante.
+        const terceiro = 'https://tiles.example.mil.br.evil.example/tiles/x/1/2/3';
+        expect(terceiro.startsWith('https://tiles.example.mil.br')).toBe(true);
+        expect(ehUrlCredenciada(terceiro)).toBe(false);
+    });
+
+    it('AS DUAS bases valem ao mesmo tempo', () => {
+        // O par que impede a leitura "a segunda base substituiu a primeira".
+        expect(ehUrlCredenciada(`${BASE_360}/tiles/12/1543/2270.pbf`)).toBe(true);
+        expect(ehUrlCredenciada(`${BASE_TILES}/rodovias`)).toBe(true);
+    });
+
+    it('sem a base de tiles configurada, nada dela e carimbado', () => {
+        // Falha FECHADA: base ausente nao casa nada. E tambem a guarda contra o caso
+        // acima passar por vacuidade.
+        estado.config.services.tileServerUrl = '';
+        expect(ehUrlCredenciada(`${BASE_TILES}/rodovias`)).toBe(false);
+        // E a primeira base continua valendo, senao o teste mediria a ausencia das duas.
+        expect(ehUrlCredenciada(`${BASE_360}/tiles/1/2/3.pbf`)).toBe(true);
+    });
+
+    it('sem token, nao carimba nem na base certa', () => {
+        estado.token = null;
+        expect(ehUrlCredenciada(`${BASE_TILES}/rodovias`)).toBe(true);
+        expect(credencialDeTile(`${BASE_TILES}/rodovias`)).toBeUndefined();
     });
 });

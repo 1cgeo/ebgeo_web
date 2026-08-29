@@ -8,7 +8,6 @@
 
 import config from '../config.js';
 import { currentResourceAtlasId, currentResourceScope } from '@store/sync/resource-scope.js';
-import { apiClient } from '@store/sync/api-client.js';
 import { stampAtlasOnTiles, stampAtlasOnUrl } from './tile-scope.js';
 
 // ============================================================
@@ -117,107 +116,6 @@ export function sv360ReadUrl(path, atlasId = sv360AtlasScope()) {
 // ============================================================
 // MapLibre credential stamping (the 360 tiles)
 // ============================================================
-
-/**
- * The 360 service base as a parsed URL, or null when it cannot be parsed.
- *
- * `config.streetView360.serviceUrl` is served by `/api/config` and defaults to the
- * RELATIVE `/api/v1/sv360`, so it is resolved against the page origin. When
- * `SV360_SERVICE_URL` points at ANOTHER origin it is already absolute and the base
- * is ignored. Empty config (before the runtime merge) yields null, and null stamps
- * nothing — the anonymous request is the pre-existing behaviour, never a new leak.
- * @returns {URL|null}
- */
-function sv360Base() {
-  const raw = config.streetView360?.serviceUrl;
-  if (typeof raw !== 'string' || raw === '') return null;
-  try {
-    return new URL(raw, window.location.origin);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Whether a URL addresses the 360 service, compared by ORIGIN and by PATH BOUNDARY.
- *
- * NEVER BY STRING PREFIX, and this is the whole point of the function. With the
- * service at `https://sv360.example.mil.br/api/v1/sv360`, a plain `startsWith`
- * accepts `https://sv360.example.mil.br.evil.example/...` and
- * `https://sv360.example.mil.br@evil.example/...` — the first is a different
- * registrable domain, the second resolves to `evil.example` with the service name
- * demoted to userinfo. Both would hand the user's access token to a third party,
- * which is strictly worse than the silent feature loss this stamping exists to fix.
- * `URL.origin` answers scheme+host+port and cannot be fooled by either.
- *
- * The path boundary is the second half: on the DEFAULT same-origin deploy the whole
- * app shares one origin, so origin alone would stamp the token onto every basemap
- * tile and every glyph range the same host serves. `/api/v1/sv360` matches, and so
- * does `/api/v1/sv360/tiles/...`; `/api/v1/sv360extra` does not.
- * @param {string} url - the fully substituted URL MapLibre is about to request
- * @returns {boolean}
- */
-export function isSv360Url(url) {
-  const base = sv360Base();
-  if (!base || typeof url !== 'string' || url === '') return false;
-
-  let alvo;
-  try {
-    alvo = new URL(url, window.location.origin);
-  } catch {
-    return false;
-  }
-  // `origin` is the opaque string "null" for blob:/data:, which equals no http(s)
-  // origin and therefore never matches the service.
-  if (alvo.origin !== base.origin || alvo.origin === 'null') return false;
-
-  const raiz = base.pathname.replace(/\/+$/, '');
-  if (raiz === '') return true;
-  return alvo.pathname === raiz || alvo.pathname.startsWith(`${raiz}/`);
-}
-
-/**
- * The MapLibre `transformRequest` that keeps a LOGGED-IN user's private 360 projects
- * visible when the service is served from another origin.
- *
- * WHY IT IS NEEDED. The MVT route (`/tiles/:z/:x/:y.pbf`) is `flexibleAuth`: with no
- * principal it does not answer 401, it answers HTTP 200 with the PUBLIC subset —
- * `sv360AccessPredicate` is fed by `readScope(user, atlasId)`. Today the request
- * carries the session cookie only by accident: MapLibre builds its tile fetch as
- * `new Request(url, { credentials: t.credentials, ... })` with `t.credentials`
- * undefined, so the Fetch default `same-origin` applies. Point `SV360_SERVICE_URL`
- * at another origin — which `backend/src/config.js` supports on purpose — and the
- * cookie stops travelling, the tile still returns 200, and the user's own private
- * projects simply disappear from the 2D layer with nothing in the console.
- *
- * WHY BEARER AND NOT `credentials: 'include'`. The session cookie is minted with
- * `sameSite: 'strict'` in production (`backend/src/utils/environment.js`), so the
- * browser withholds it from a cross-SITE request no matter what the fetch asks for.
- * `include` would therefore fix nothing in the deploy that needs fixing. The Bearer
- * token is the mechanism the rest of the app already uses for exactly this shape of
- * problem (`store/sync/assets3d-request.js`, which stamps Cesium's `Resource`), and
- * `flexibleAuth` accepts it on the same route.
- *
- * SYNCHRONOUS, because MapLibre's `transformRequest` is. So it reads the token from
- * memory (`apiClient.getAccessToken()`) instead of `apiClient.authHeader()`, which
- * awaits a refresh. That costs nothing here: the token is read at REQUEST time, not
- * at map-creation time, and the boot sequence restores it from localStorage
- * (`restoreSessionFromStorage`) before `createMap()` runs.
- *
- * A falsy return is MapLibre's "leave it alone" — it falls back to `{ url }`. So a
- * basemap tile, a glyph range or a BDGEx WMS call comes out of here untouched, and
- * the default same-origin deploy keeps working exactly as it does today (there the
- * cookie still travels; `flexibleAuth` reads the cookie FIRST, so the added header
- * changes no answer).
- * @param {string} url - the URL MapLibre wants
- * @returns {{url: string, headers: Object}|undefined}
- */
-export function sv360TransformRequest(url) {
-  if (!isSv360Url(url)) return undefined;
-  const token = apiClient?.getAccessToken?.();
-  if (!token) return undefined;
-  return { url, headers: { Authorization: `Bearer ${token}` } };
-}
 
 // Canonical UUID shape, ANY version: the job here is to tell a photo id apart
 // from a legacy filename, not to validate a version. Pinning the version nibble

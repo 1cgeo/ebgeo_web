@@ -34,7 +34,10 @@ import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
 // Static, and it costs no eager weight: the barrel above already pulls
 // add_street_view_control.js, which imports this same module statically.
-import { sv360TransformRequest } from './street_view_tool/streetview-api.service.js';
+// O carimbo cobre o 360 E o servidor de tiles desde 2026-08-29: sem ele o visitante de
+// link publico nao ve a camada privada que o atlas lhe empresta (clausula 6.3), porque o
+// token dele e efemero e nao vira cookie. Ver `map/credencial-de-tile.js`.
+import { credencialDeTile } from './map/credencial-de-tile.js';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
 import { VectorTileInfoControl } from './vector_info';
 import { FeatureSearchControl, SearchBarComponent } from './search';
@@ -136,7 +139,7 @@ export function createMap() {
         // user's private projects vanish from the layer with no error at all. The
         // predicate compares ORIGIN, never a string prefix, and returns falsy for
         // everything else (basemap, glyphs, BDGEx) — MapLibre's "leave it alone".
-        transformRequest: sv360TransformRequest
+        transformRequest: credencialDeTile
     });
 
     map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
