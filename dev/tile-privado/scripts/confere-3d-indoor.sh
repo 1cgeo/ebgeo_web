@@ -13,20 +13,23 @@
 #
 #   COM CABECALHO (fetch nosso, carimbado por `cabecalhosDeAsset`):
 #     marcadores.json, voxel/voxel-meta.json, voxel/voxel.bin
-#   SEM CABECALHO, MAS POR FETCH NOSSO -- ou seja, OMISSAO, nao limitacao:
-#     cena.sog, os 20 MB do modelo. `loadSplat`
-#     (frontend/src/js/first_person_3d_tool/first_person_viewer.js) faz
-#     `fetch(splatUrl)` cru, le o `arrayBuffer()` e SO ENTAO entrega os bytes ao
-#     parser do motor. O carregador de terceiro nao busca nada pela rede. Conserto:
-#     passar `{ headers: await cabecalhosDeAsset() }`, como as tres portas de cima.
+#     e, desde 2026-08-29, cena.sog -- os 20 MB do modelo. Ele estava DE FORA por
+#     omissao e nao por limitacao: `loadSplat`
+#     (frontend/src/js/first_person_3d_tool/first_person_viewer.js) fazia
+#     `fetch(splatUrl)` cru, le o `arrayBuffer()` e SO ENTAO entrega os bytes ao parser
+#     do motor, ou seja o carregador de terceiro nunca tocou a rede. Foi esta
+#     conferencia que o achou: numa cena privada, os tres primeiros carregavam para o
+#     administrador e o modelo levava 404, o que na tela se le como visualizador
+#     quebrado e nao como negacao. O carimbo agora esta la, preso por
+#     `frontend/tests/unit/cena-indoor-carimba-credencial.test.js`.
 #   SEM CABECALHO E SEM COMO TER UM (o navegador busca sozinho):
 #     itens/*.jpg e a foto do marcador -> viram `img.src`
 #     preview/* -> viram `<video src>` e `img.src`
 #
-# A DISTINCAO ENTRE AS DUAS ULTIMAS LINHAS E O ACHADO DESTE CASO, e ela contraria o
-# comentario que mora em `resolveSceneAssets`, que conta o splat entre os enderecos
-# "nao buscados pelo nosso codigo". Medido em 2026-08-29: o fetch e nosso. Uma delas
-# custa uma linha para fechar; a outra nao tem API que a feche.
+# A DISTINCAO ENTRE OMISSAO E LIMITACAO FOI O ACHADO DESTE CASO, e ela contrariava o
+# comentario que morava em `resolveSceneAssets`, que contava o splat entre os enderecos
+# "nao buscados pelo nosso codigo". Aquele comentario foi corrigido no mesmo commit do
+# carimbo: estar do lado errado daquela lista era o que mantinha a omissao invisivel.
 #
 # `img.src` e `<video src>` NAO CARREGAM CABECALHO. Para elas a unica autorizacao que
 # atravessa e o `?atlasId=` carimbado na URL por `escoparUrlDeAsset`, que e o
@@ -117,24 +120,26 @@ checar "item_001.jpg, anonimo"                404 "$BASE$CENA/itens/item_001.jpg
 checar "usuario comum (pedro), cena.sog"      404 -H "Authorization: Bearer $TP" "$BASE$CENA/cena.sog"
 
 echo
-echo "=== AS TRES PORTAS QUE O NOSSO fetch BUSCA: a credencial viaja ==="
-# Estas sao as unicas em que `cabecalhosDeAsset` tem onde ser posto.
+echo "=== AS QUATRO PORTAS QUE O NOSSO fetch BUSCA: a credencial viaja ==="
+# Estas sao as unicas em que `cabecalhosDeAsset` tem onde ser posto. O `cena.sog` entrou
+# nesta lista em 2026-08-29: ate entao ele estava na de baixo, por omissao.
 checar "marcadores.json, administrador"       200 -H "Authorization: Bearer $TA" "$BASE$CENA/marcadores.json"
 checar "voxel-meta.json, administrador"       200 -H "Authorization: Bearer $TA" "$BASE$CENA/voxel/voxel-meta.json"
 checar "voxel.bin, administrador"             200 -H "Authorization: Bearer $TA" "$BASE$CENA/voxel/voxel.bin"
+checar "cena.sog, administrador (carimbado)"  200 -H "Authorization: Bearer $TA" "$BASE$CENA/cena.sog"
+checar "cena.sog, credenciado (carimbado)"    200 -H "Authorization: Bearer $TD" "$BASE$CENA/cena.sog"
 checar "marcadores.json, credenciado"         200 -H "Authorization: Bearer $TD" "$BASE$CENA/marcadores.json"
 
 echo
-echo "=== AS QUATRO PORTAS SEM CABECALHO: o defeito gemeo, medido ==="
-# Os dois pedidos chegam ANONIMOS ao servidor mesmo com o administrador logado, e por
-# motivos DIFERENTES: o splat porque o `fetch` nosso nao carimba (omissao), o item
-# porque `img.src` nao tem onde carimbar (limitacao). Reproduzo os dois literalmente:
-# mesma URL, sem cabecalho, que e como o navegador os pede hoje.
+echo "=== A PORTA QUE SEGUE SEM CABECALHO: o defeito gemeo, reduzido ==="
+# O pedido chega ANONIMO ao servidor mesmo com o administrador logado, porque `img.src`
+# nao tem onde carimbar. Reproduzo literalmente: mesma URL, sem cabecalho, que e como o
+# navegador a pede hoje. Eram DOIS casos aqui ate 2026-08-29; o outro era o `cena.sog`,
+# e ele subiu para o bloco de cima quando o `fetch` passou a carimbar.
 #
 # UM TERCEIRO ENDERECO NAO ENTRA AQUI POR NAO TER CONSUMIDOR: `itemsBaseUrl` e derivado
 # e nada em `frontend/src/js/` o le. Como `override_height` no 360, ele sobrevive como
 # campo sem leitor, e medi-lo daria a impressao de cobrir uma superficie que ninguem usa.
-defeito "cena.sog: fetch nosso SEM carimbo"    404 "$BASE$CENA/cena.sog"
 defeito "item_001.jpg: img.src, sem API possivel" 404 "$BASE$CENA/itens/item_001.jpg"
 
 echo
@@ -153,7 +158,7 @@ reiniciar
 checar "publica de volta, anonimo"            200 "$BASE$CENA/cena.sog"
 
 echo
-echo "Portas fechadas corretamente: $(( 16 - falhas ))/16 medidas, $defeitos porta(s) fechada(s) TAMBEM para quem tem direito."
+echo "Medidas: $(( 18 - falhas ))/18 corretas, $defeitos porta(s) fechada(s) TAMBEM para quem tem direito."
 if [ "$falhas" -eq 0 ]; then
     echo "CASO 3 (3D indoor) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
 else

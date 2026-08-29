@@ -46,6 +46,7 @@ import { EventTypes } from '@events/event_types.js';
 import { showError, showWarning } from '@utils/toast_service.js';
 import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
 import { requestStatus } from '@utils/request-failure.js';
+import { cabecalhosDeAsset } from '@store/sync/assets3d-request.js';
 // The measuring card is the 2D tool's card. Same component, same panel, same
 // unit selector — see showMeasurementResults().
 import { createDistanceResultsPanel } from '@js/measurement_tool/measurement-results-panel.js';
@@ -398,6 +399,24 @@ function applyEngineQualityDefaults(viewer) {
 
 /**
  * Download and mount the scene's splat model.
+ *
+ * THE CREDENTIAL IS STAMPED HERE, and until 2026-08-29 it was not. This `fetch` is
+ * OURS: the engine's loader never touches the network, it receives an `ArrayBuffer`
+ * this function already downloaded. So the 20 MB of a PRIVATE scene were being asked
+ * for anonymously while the viewer sat behind a logged-in session, and the server
+ * answered 404 — correctly. Measured with the scene marked private in
+ * `dev/tile-privado`: every other asset of the same scene loaded and the model did
+ * not, which reads on screen as a broken viewer rather than as a denial.
+ *
+ * The `fileoverview` of `resolveSceneAssets` still counts this address among the ones
+ * "not fetched by our code"; that half is what made the omission easy to miss.
+ *
+ * WHAT THIS DOES NOT FIX, and it is the larger half: `itens/*.jpg`, the marker photo
+ * and the preview clip become `img.src` and `<video src>`, which carry no header and
+ * have no API to give them one. For those the only authorisation that travels is the
+ * `?atlasId=` stamp `escoparUrlDeAsset` already writes, which covers the atlas LOAN
+ * and not a global role or a personal grant.
+ *
  * @param {Object} viewer - The aholo viewer
  * @param {string} splatUrl - Address of the .sog file
  * @returns {Promise<{splat: Object, splatLayer: Object}>} Mounted splat and its layer
@@ -406,7 +425,7 @@ async function loadSplat(viewer, splatUrl) {
     const splatLayer = new Object3D();
     viewer.getScene().add(splatLayer);
 
-    const response = await fetch(splatUrl);
+    const response = await fetch(splatUrl, { headers: await cabecalhosDeAsset() });
     if (!response.ok) {
         const erro = new Error(`HTTP ${response.status} em ${splatUrl}`);
         // THE STATUS TRAVELS AS A FIELD, not only inside the message. `requestStatus`

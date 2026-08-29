@@ -222,12 +222,19 @@ export function resolveSceneAssets(scene) {
         const bruto = override
             ? joinScenePath(base, override)
             : `${base}/${relative}`;
-        // THE ATLAS SCOPE IS STAMPED HERE, not in each consumer, because four of these seven
-        // addresses are NOT fetched by our code: the marker photo becomes an `img.src`, the
-        // preview clip becomes a `<video src>` and the splat goes to a third-party loader.
-        // None of them can carry a header, so for a PRIVATE scene the loan of the atlas in
-        // focus is the only authorisation that gets through. With no atlas in focus the URL
-        // comes out exactly as it always did.
+        // THE ATLAS SCOPE IS STAMPED HERE, not in each consumer, because some of these seven
+        // addresses are NOT fetched by our code: the marker photo and the item photos become
+        // an `img.src` and the preview clip becomes a `<video src>`. None of those can carry
+        // a header — there is no API to give them one — so for a PRIVATE scene the loan of
+        // the atlas in focus is the only authorisation that gets through. With no atlas in
+        // focus the URL comes out exactly as it always did.
+        //
+        // THE SPLAT IS NOT ONE OF THEM, and this comment said it was until 2026-08-29. The
+        // engine's loader never touches the network: `loadSplat` (`first_person_viewer.js`)
+        // fetches `cena.sog` itself and hands the parser an `ArrayBuffer`. Being on the wrong
+        // side of this list is what kept its missing credential invisible — 20 MB of a private
+        // scene asked for anonymously, answered 404, and read on screen as a broken viewer.
+        // It now stamps `cabecalhosDeAsset()` like the three fetches below.
         assets[field] = escoparUrlDeAsset(bruto);
     }
     return assets;
