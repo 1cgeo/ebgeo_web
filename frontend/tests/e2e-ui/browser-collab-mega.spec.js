@@ -43,6 +43,8 @@ import {
     drawLineUI,
     drawPointUI,
     currentMapName,
+    selectFeatureUI,
+    renameViaPanelUI,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
@@ -138,38 +140,35 @@ async function switchMapUI(page, name) {
     await expect.poll(async () => currentMapName(page), { timeout: 10000 }).toBe(name);
 }
 
-/** Opens the layers tab (idempotent — never toggles it closed). */
-async function openLayersTab(page) {
-    if ((await page.locator('.layer-container').count()) === 0) {
-        await page.locator('.sidebar-nav-btn[data-tab="camadas"]').click();
-    }
-    await expect(page.locator('.layer-container').first()).toBeVisible({ timeout: 10000 });
-}
-
 /** Selects a feature by id via its row in the real layers tree (expands collapsed nodes first). */
-async function selectFeatureInTreeUI(page, featureId) {
-    await openLayersTab(page);
-    for (const icon of await page.locator('.layer-expand-icon.collapsed').all()) {
-        await icon.click().catch(() => {});
-    }
-    const row = page.locator(`.feature-item[data-feature-id="${featureId}"] .feature-main`).first();
-    await expect(row).toBeVisible({ timeout: 10000 });
-    await row.evaluate((el) => el.click()); // raw DOM click — actionability can hang on overlapped rows
-}
+/**
+ * Seleciona pela arvore de camadas, DELEGANDO ao driver compartilhado.
+ *
+ * A copia local que morava aqui nao esperava o painel de atributos ABRIR: ela clicava na linha e
+ * seguia. Medido em 2026-08-28, e e a causa do flake cronico desta spec: em 3 rodadas seguidas,
+ * na primeira tentativa de cada uma, `.feature-panel[data-expanded="true"]` contava ZERO logo
+ * apos o clique, e o `.feature-identification-name` que o gesto seguinte pegava era o da feicao
+ * ANTERIOR (uma das rodadas mostrou o painel ainda em "Ponto #3" enquanto o alvo era o simbolo
+ * militar). O `onNameChange` daquele painel obsoleto chama
+ * `control.updateFeaturesProperty(selectedFeatures, ...)` com a selecao que ele capturou no
+ * fechamento, entao o display trocava para o nome novo e o STORE nao recebia nada: nenhuma op,
+ * nenhum span, e o par esperando para sempre. `selectFeatureUI` (helpers/collab-helpers.js) faz
+ * o MESMO clique cru e depois exige `data-expanded="true"`, que e a espera que faltava.
+ */
+const selectFeatureInTreeUI = (page, featureId) => selectFeatureUI(page, featureId);
 
-/** Renames a feature through the real attribute panel: select it, click the editable name, type, Enter.
- *  The panel uses the feature-identification component: a `.feature-identification-name` display that,
- *  when clicked, reveals the `.feature-identification-name-input` (its `--hidden` modifier is dropped). */
-async function renameViaPanelUI(page, featureId, newName) {
+/**
+ * Renomeia pelo painel de atributos, DELEGANDO ao driver compartilhado, e so entao fecha.
+ *
+ * A copia local tambem parava no `Enter` e fechava com `Escape`, enquanto o driver da casa
+ * COMITA pelo botao "Salvar", que e o gesto que o produto pede. Duas copias do mesmo gesto sao
+ * exatamente o defeito que esta spec pagou: a divergencia so aparece na cópia que esta FORA da
+ * suite normal, onde ninguem olha.
+ */
+async function renameSelecionadaViaPanelUI(page, featureId, newName) {
     await selectFeatureInTreeUI(page, featureId);
-    const nameDisplay = page.locator('.feature-identification-name').first();
-    await expect(nameDisplay).toBeVisible({ timeout: 10000 });
-    await nameDisplay.click();
-    const nameInput = page.locator('.feature-identification-name-input:not(.feature-identification-name-input--hidden)').first();
-    await expect(nameInput).toBeVisible({ timeout: 5000 });
-    await nameInput.fill(newName);
-    await nameInput.press('Enter');
-    await page.keyboard.press('Escape'); // close the panel/deselect so later gestures aren't intercepted
+    await renameViaPanelUI(page, newName);
+    await page.keyboard.press('Escape'); // fecha o painel para nao interceptar os gestos seguintes
 }
 
 /** Deletes a feature through the real UI: select it, press Delete, confirm the destructive modal. */
@@ -330,7 +329,7 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             //    symbol in A's layers tree → edit the editable feature-name input); B recolors
             //    A's line; both converge. Generous timeout: the multi phase above queued a burst
             //    of ops, so this edit may sit behind that backlog before it reaches the peer.
-            await renameViaPanelUI(A, symId, 'Companhia');
+            await renameSelecionadaViaPanelUI(A, symId, 'Companhia');
             // // no-UI: recolor — the panel color picker opens the OS-native color dialog, not
             // drivable to the EXACT '#22aa22' the assertion pins; driven as a store op.
             await applyStoreOp(B, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#22aa22']);

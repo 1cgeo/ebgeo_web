@@ -962,11 +962,26 @@ export async function pollPeerFeature(page, type, id, { timeout = 20000, viaSnap
         .toBe(true);
 }
 
-/** Waits until the peer's feature of `type`/`id` satisfies `pred(props)` (SyncLedger-gated). */
+/**
+ * Waits until the peer's feature of `type`/`id` satisfies `pred(props)` (SyncLedger-gated).
+ *
+ * O GATE ESPERA A OP DE `update`, E ESSA PALAVRA E O CONSERTO DE 2026-08-28. Sem ela o gate
+ * pedia QUALQUER `remote.applied` daquela entidade, e o ledger e um ANEL com historico: a
+ * criacao da mesma feicao, aplicada minutos antes, ja satisfazia a espera. O gate voltava na
+ * hora com `traced: true`, e o poll de confirmacao caia para 8 s FIXOS, engolindo o timeout que
+ * o chamador tinha pedido justamente por saber que aquela atualizacao viria atras de uma fila
+ * de ops. Medido na mega: `pollPeerFeatureWhere(..., 35000)` reprovava com "Timeout 8000ms
+ * exceeded" em 3 de 3 rodadas seguidas (a primeira tentativa de cada uma), com a UI do autor
+ * comprovadamente ja renomeada. O sintoma acusava o produto e a causa era o instrumento.
+ *
+ * Este helper existe para observar uma MUDANCA numa feicao que o par ja tem, entao `update` e a
+ * unica op que responde a pergunta dele. Chegada por snapshot nao emite op nenhuma: ali o gate
+ * estoura, cai no `catch` e o poll de store continua sendo a fonte da verdade.
+ */
 export async function pollPeerFeatureWhere(page, type, id, pred, timeout = 20000) {
     let traced = false;
     try {
-        traced = await waitForRemoteEntity(page, id, { timeout });
+        traced = await waitForRemoteEntity(page, id, { operationType: 'update', timeout });
     } catch {
         traced = true;
     }
