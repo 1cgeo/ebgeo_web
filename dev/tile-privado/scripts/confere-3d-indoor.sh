@@ -126,7 +126,7 @@ checar "cena.sog, credenciado (carimbado)"    200 -H "Authorization: Bearer $TD"
 checar "marcadores.json, credenciado"         200 -H "Authorization: Bearer $TD" "$BASE$CENA/marcadores.json"
 
 echo
-echo "=== A PORTA QUE SEGUE SEM CABECALHO: o defeito gemeo, reduzido ==="
+echo "=== A PORTA SEM CABECALHO: fechada pelo COOKIE em 2026-08-29 ==="
 # O pedido chega ANONIMO ao servidor mesmo com o administrador logado, porque `img.src`
 # nao tem onde carimbar. Reproduzo literalmente: mesma URL, sem cabecalho, que e como o
 # navegador a pede hoje. Eram DOIS casos aqui ate 2026-08-29; o outro era o `cena.sog`,
@@ -135,7 +135,28 @@ echo "=== A PORTA QUE SEGUE SEM CABECALHO: o defeito gemeo, reduzido ==="
 # UM TERCEIRO ENDERECO NAO ENTRA AQUI POR NAO TER CONSUMIDOR: `itemsBaseUrl` e derivado
 # e nada em `frontend/src/js/` o le. Como `override_height` no 360, ele sobrevive como
 # campo sem leitor, e medi-lo daria a impressao de cobrir uma superficie que ninguem usa.
-defeito "item_001.jpg: img.src, sem API possivel" 404 "$BASE$CENA/itens/item_001.jpg"
+# ESTE CASO INVERTEU DUAS VEZES EM 2026-08-29, e a segunda inversao e a boa. Primeiro
+# eram DOIS marcados DEFEITO, `cena.sog` e `itens/*.jpg`, porque nenhum carregava
+# credencial. O `cena.sog` saiu ao ganhar `cabecalhosDeAsset()` (era omissao). Sobrou o
+# `img.src`, que nao tem API para carimbar cabecalho: parecia teto de plataforma.
+#
+# NAO ERA. O cookie de sessao (decisao 3) e ambiente do navegador: ele viaja em `img.src`,
+# em `<video src>` e no tile do MapLibre sem que nenhuma linha do cliente o carimbe. O que
+# se mede aqui agora e o PAR completo, e nao mais um defeito.
+COOKIE_ADMIN="/tmp/ebgeo-indoor-cookie-$$.txt"
+curl -s -o /dev/null -c "$COOKIE_ADMIN" -X POST "$BASE/api/v1/auth/login"     -H 'Content-Type: application/json'     -d '{"username":"admin","password":"'"${SENHA:-tassofragoso}"'"}'
+checar "item da cena, so com COOKIE"          200 -b "$COOKIE_ADMIN" "$BASE$CENA/itens/item_001.jpg"
+checar "cena.sog, so com COOKIE"              200 -b "$COOKIE_ADMIN" "$BASE$CENA/cena.sog"
+checar "o mesmo item, sem credencial nenhuma" 404 "$BASE$CENA/itens/item_001.jpg"
+rm -f "$COOKIE_ADMIN"
+
+# O QUE NAO E MEDIDO AQUI, e fica declarado em vez de suposto: o VISITANTE DE LINK
+# PUBLICO. O token dele e efemero e mora so em memoria, por contrato do cliente
+# (`setEphemeralToken`), entao ele nao tem cookie -- e um cookie para ele seria pior,
+# porque cookie e por navegador e nao por aba, e sobrescreveria a sessao de quem
+# estivesse logado noutra aba. Para ele resta o cabecalho, que cobre o tile do MapLibre
+# e NAO cobre `img.src`: uma cena privada EMPRESTADA por atlas publico continua sem
+# desenhar as fotos de item para o visitante.
 
 echo
 echo "=== O QUE SALVA HOJE: a chave de API na URL, que o img.src carrega ==="
@@ -152,9 +173,9 @@ sql_catalogo "UPDATE tilesets SET access_level='public' WHERE id='museu-1cgeo';"
 checar "publica de volta, anonimo"            200 "$BASE$CENA/cena.sog"
 
 echo
-echo "Medidas: $(( 18 - falhas ))/18 corretas, $defeitos porta(s) fechada(s) TAMBEM para quem tem direito."
+echo "Medidas: $(( 20 - falhas ))/20 corretas, $defeitos porta(s) fechada(s) TAMBEM para quem tem direito."
 if [ "$falhas" -eq 0 ]; then
-    echo "CASO 3 (3D indoor) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
+    echo "CASO 3 (3D indoor) CONFERIDO -- $(date '+%Y-%m-%d %H:%M')."
 else
     echo "CASO 3 COM $falhas DESVIO(S) INESPERADO(S)."
 fi

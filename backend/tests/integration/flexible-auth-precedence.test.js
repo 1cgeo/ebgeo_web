@@ -441,9 +441,14 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
 
       // Enquanto produtor: passa do requireUploadCapability (o 4xx que vem depois é do
       // multer/serviço, não do gate — o que importa é NÃO ser 403).
+      // O TOKEN VAI NO CABEÇALHO, E NÃO NO COOKIE, desde 2026-08-29: o `auth` estrito
+      // recusa principal vindo de cookie nos métodos que ESCREVEM, porque cookie é
+      // ambiente do navegador e portanto postável cross-site. O sujeito deste caso é a
+      // reconciliação viva do papel, que vale igual nas duas origens; medir por cookie
+      // aqui daria 401 pelo transporte e esconderia o 403 que se quer ver.
       const antes = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
-        .set('Cookie', `token=${stale}`);
+        .set('Authorization', `Bearer ${stale}`);
       assert.notEqual(antes.status, 403, 'um produtor tem de passar da capability');
 
       await db.query(
@@ -452,7 +457,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
 
       const depois = await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
-        .set('Cookie', `token=${stale}`)
+        .set('Authorization', `Bearer ${stale}`)
         .expect(403);
       assert.equal(depois.body.error?.code ?? 'FORBIDDEN', 'FORBIDDEN');
     });
@@ -472,7 +477,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
 
       await supertest(app)
         .post('/api/v1/sv360/admin/projects/upload')
-        .set('Cookie', `token=${tok}`)
+        .set('Authorization', `Bearer ${tok}`)
         .expect(403);
     });
 

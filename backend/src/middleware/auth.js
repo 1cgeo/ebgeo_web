@@ -217,6 +217,48 @@ export async function auth(req, res, next) {
       ));
     }
 
+    // A SEGUNDA AMARRA, irmã da de cima e pela mesma lógica: o COOKIE não autoriza o que
+    // esta rota faz.
+    //
+    // POR QUE ELA NASCEU EM 2026-08-29. O login passou a emitir o cookie de sessão, para
+    // que o token viaje em pedidos que o navegador faz e que não aceitam cabeçalho: o
+    // tile do MapLibre, o `img.src` de uma cena 3D, o `<video src>` de uma prévia. Isso
+    // tira a chave de API portadora do caminho do navegador, que é o ganho. Mas este
+    // middleware REUSA o `req.user` que o `flexibleAuth` global já populou, e o
+    // `flexibleAuth` lê o cookie — então, sem esta amarra, emitir o cookie abriria as 87
+    // rotas de escrita a CSRF, porque cookie é ambiente do navegador e vai junto numa
+    // requisição disparada por outro site.
+    //
+    // ELE NÃO SUBSTITUI O `SameSite`, e sim o acompanha. `sameSite: 'strict'` (produção)
+    // já retém o cookie numa requisição de outro site, mas fora de produção ele é `lax`,
+    // e `lax` deixa passar navegação de topo. Mais concretamente: CINCO rotas de escrita
+    // aceitam `multipart/form-data`, que é um Content-Type CORS-simples e portanto
+    // postável por formulário cross-site SEM preflight (as quatro de prévia em vídeo do
+    // catálogo, o upload de imagem de atlas e as três do 360). São exatamente elas que
+    // uma defesa baseada só em preflight não alcança, e é para elas que esta linha existe.
+    //
+    // SÓ NOS MÉTODOS QUE ESCREVEM, e a proporção é o ponto. CSRF é um problema de
+    // ESCRITA: uma leitura disparada de outro site até sai com o cookie, mas o CORS
+    // impede o atacante de LER a resposta, então o ataque não colhe nada. Recusar o
+    // cookie também nas leituras quebraria o que já funciona hoje — `GET /auth/me` por
+    // cookie é caracterizado em teste desde antes desta mudança, porque a renovação
+    // deslizante já emitia o cookie — sem fechar risco nenhum. A primeira versão desta
+    // amarra recusava tudo, e onze casos ficaram vermelhos apontando exatamente isso.
+    //
+    // A LISTA É DE MÉTODOS SEGUROS, e não de inseguros: um verbo novo (o dia em que
+    // alguém montar um `PROPFIND`) cai no ramo restritivo por construção. É a mesma
+    // direção de falha das tabelas de escopo.
+    //
+    // 401 E NÃO 403, ao contrário da amarra da chave: aqui a credencial NÃO é aceitável
+    // para esta rota em forma nenhuma, e o cliente precisa apresentar o token no
+    // cabeçalho. O 403 diria "você não pode", quando o certo é "assim não".
+    const metodoSeguro = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    if (req.authVia === 'cookie' && !metodoSeguro) {
+      return next(new UnauthorizedError(
+        'Esta rota exige o token no cabeçalho Authorization; o cookie de sessão não autoriza escrita'
+      ));
+    }
+
     next();
   } catch (err) {
     next(err);

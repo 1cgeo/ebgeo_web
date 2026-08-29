@@ -42,6 +42,25 @@ class EnvironmentManager {
       maxAge: parseDuration(config.jwt.accessExpiry) || 15 * 60 * 1000,
     };
   }
+
+  /**
+   * As opções para APAGAR o cookie de sessão: as mesmas da emissão, MENOS `maxAge`.
+   *
+   * MENOS `maxAge` porque o Express o deprecia no `clearCookie`; e as MESMAS no resto
+   * porque o navegador casa o cookie a apagar por (nome, domínio, caminho, e as flags
+   * que os compõem). Limpar com atributos diferentes dos da emissão não apaga nada: o
+   * navegador guarda dois cookies e expira o que não estava em uso, e o sintoma é uma
+   * sessão que sobrevive ao logout sem que nada acuse.
+   *
+   * Ela existe como MÉTODO desde 2026-08-29, quando nasceu o segundo ponto de limpeza
+   * (o logout, ao lado do ramo de sessão morta de `flexibleAuth`). Enquanto era uma
+   * linha copiada, ela era a mesma regra em dois lugares, esperando divergir.
+   */
+  clearCookieOptions() {
+    const opcoes = this.cookieOptions();
+    delete opcoes.maxAge;
+    return opcoes;
+  }
 }
 
 export const env = new EnvironmentManager();

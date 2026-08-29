@@ -94,7 +94,18 @@ export async function flexibleAuth(req, res, next) {
       }
     }
 
-    const token = req.cookies?.token || extractBearerToken(req);
+    // A ORIGEM DO JWT É REGISTRADA, e não só o fato de haver um. Até 2026-08-29 os dois
+    // ramos carimbavam `'jwt'`, o que era suficiente enquanto o cookie existia por
+    // acidente (só a renovação deslizante o emitia, perto da expiração). Com o login
+    // passando a emiti-lo, a origem vira decisão de autorização: o `auth` estrito recusa
+    // o principal que chegou por cookie, porque um cookie é ambiente do navegador e
+    // portanto postável cross-site por formulário, enquanto um cabeçalho não é.
+    //
+    // O COOKIE VEM ANTES DO BEARER, e sem fallback: se ele existe e não verifica, o
+    // pedido segue ANÔNIMO em vez de tentar o cabeçalho. Isso é caracterizado em
+    // `tests/integration/flexible-auth-precedence.test.js` e não muda aqui.
+    const tokenDeCookie = req.cookies?.token;
+    const token = tokenDeCookie || extractBearerToken(req);
     if (!token) return next();
 
     let payload;
@@ -105,7 +116,7 @@ export async function flexibleAuth(req, res, next) {
     }
 
     req.user = mapPayload(payload);
-    req.authVia = 'jwt';
+    req.authVia = tokenDeCookie ? 'cookie' : 'bearer';
 
     // Sliding session: renew if close to expiry.
     //
@@ -137,9 +148,7 @@ export async function flexibleAuth(req, res, next) {
         // this request is treated as anonymous; strict routes 401 via `auth`.
         // clearCookie must receive the same attributes MINUS maxAge (Express
         // deprecates passing it — the clear always expires immediately).
-        const clearOptions = env.cookieOptions();
-        delete clearOptions.maxAge;
-        res.clearCookie('token', clearOptions);
+        res.clearCookie('token', env.clearCookieOptions());
         req.user = undefined;
         req.authVia = undefined;
         return next();

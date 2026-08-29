@@ -2,6 +2,29 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import { createAuditBestEffort } from '../../utils/audit.js';
 import * as authService from './auth.service.js';
+import { env } from '../../utils/environment.js';
+
+/**
+ * PÕE O TOKEN DE SESSÃO NO COOKIE, ao lado do corpo que já o devolve.
+ *
+ * POR QUE O COOKIE EXISTE, e é a decisão 3 da secção (f) de PENDENCIA-TILE-PRIVADO.md:
+ * há pedidos que o NAVEGADOR faz e que não aceitam cabeçalho nenhum — o tile do
+ * MapLibre, o `img.src` de uma cena 3D, o `<video src>` de uma prévia. Sem cookie, a
+ * única credencial que os alcança é a chave de API na URL, que é portadora, permanente
+ * até a rotação, e aparece no log de acesso do nginx e no `Referer`. O cookie carrega o
+ * MESMO JWT: não há credencial nova, e o que muda é a porta por onde ele entra.
+ *
+ * O TOKEN CONTINUA NO CORPO, e a duplicação é deliberada: o cliente guarda o par em
+ * `localStorage` e manda `Authorization` nas rotas de escrita, que é justamente o que o
+ * `auth` estrito passou a EXIGIR (ele recusa principal vindo de cookie). Tirar o token
+ * do corpo tornaria toda escrita impossível.
+ *
+ * @param {import('express').Response} res
+ * @param {string} accessToken
+ */
+function porCookieDeSessao(res, accessToken) {
+  res.cookie('token', accessToken, env.cookieOptions());
+}
 
 // LOGIN E LOGOUT SÃO AUDITADOS EM BEST-EFFORT, e essa é a única decisão desta fase
 // que troca garantia por disponibilidade. As três razões, em ordem de peso:
@@ -39,12 +62,17 @@ export const login = asyncHandler(async (req, res) => {
     targetName: result.user.nome,
     details: { username: result.user.username },
   });
+  porCookieDeSessao(res, result.accessToken);
   res.json({ data: result });
 });
 
 export const refresh = asyncHandler(async (req, res) => {
   const { refreshToken } = req.body;
   const result = await authService.refresh(refreshToken);
+  // O MESMO cookie do login: sem esta linha, a sessão renovada perderia o transporte
+  // de leitura e as camadas privadas sumiriam do mapa quinze minutos depois de entrar,
+  // que é a classe de defeito que só aparece em uso prolongado.
+  porCookieDeSessao(res, result.accessToken);
   res.json({ data: result });
 });
 
@@ -82,6 +110,17 @@ export const logout = asyncHandler(async (req, res) => {
     targetId: req.user.id,
     details: { revoked },
   });
+  // O COOKIE MORRE AQUI, e esta é a única saída que tem o cliente na mão. Os outros
+  // cinco encerramentos de sessão (reuso detectado, troca de senha, reset, reset por
+  // administrador, desativação) agem sobre o ESTADO e nem têm a resposta daquele
+  // cliente; para eles quem limpa é o ramo de sessão morta de `flexibleAuth`, na
+  // requisição seguinte. Sem esta linha o cookie sobreviveria ao logout até o `maxAge`,
+  // e o cliente se acharia anônimo (`isAuthenticated()` é in-memory) enquanto o
+  // servidor continuaria vendo um principal em toda superfície que lê cookie.
+  //
+  // As opções de limpeza vêm de `env.clearCookieOptions()`, e o porquê de elas serem as
+  // da emissão menos `maxAge` está escrito lá.
+  res.clearCookie('token', env.clearCookieOptions());
   res.status(204).send();
 });
 
