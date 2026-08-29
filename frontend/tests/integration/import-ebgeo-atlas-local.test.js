@@ -113,7 +113,7 @@ vi.mock('@utils/tab-lock.js', async (importOriginal) => ({
 
 // HOISTED, como todo dublê citado dentro de uma fábrica de `vi.mock`: as fábricas sobem para o
 // topo do arquivo e uma `const` comum ainda não existe quando elas rodam.
-const { wipeDoEscopoAtivo, addMapNoEscopoAtivo } = vi.hoisted(() => ({
+const { wipeDoEscopoAtivo, addMapNoEscopoAtivo, descarteDeMapasDoEscopoAtivo } = vi.hoisted(() => ({
     /**
      * Esvazia os bancos do escopo ATIVO: é a metade do wipe que decide onde ele cai.
      *
@@ -136,6 +136,19 @@ const { wipeDoEscopoAtivo, addMapNoEscopoAtivo } = vi.hoisted(() => ({
         const ns = await import('@store/atlas-namespace.js');
         await ns.getStore(ns.StoreName.MAPS).setItem(name, data);
     }),
+    /**
+     * O descarte que precede a primeira escrita do import não-aditivo. A real varre o repositório
+     * e chama `deleteMap` por chave; o dublê esvazia o object store de mapas do escopo ATIVO, que
+     * é a metade que este arquivo mede (EM QUAL BANCO a limpeza cai). Um no-op passaria verde e
+     * calaria justamente a pergunta.
+     */
+    descarteDeMapasDoEscopoAtivo: vi.fn(async () => {
+        const ns = await import('@store/atlas-namespace.js');
+        const mapas = ns.getStore(ns.StoreName.MAPS);
+        const chaves = await mapas.keys();
+        for (const chave of chaves) await mapas.removeItem(chave);
+        return chaves.length;
+    }),
 }));
 
 vi.mock('@store/store.js', async (importOriginal) => {
@@ -149,9 +162,9 @@ vi.mock('@store/store.js', async (importOriginal) => {
 });
 
 // O barril inteiro: `export-import.service.js` importa ~40 símbolos dele, e um import nomeado
-// ausente é erro de módulo, não de teste. Os três que carregam significado são
-// `isRemoteStoreSync` (o de VERDADE, senão o ramo sob teste nunca dispara), `clearAllDataStore`
-// e `addMap`; o resto é inerte de propósito.
+// ausente é erro de módulo, não de teste. Os QUATRO que carregam significado são
+// `isRemoteStoreSync` (o de VERDADE, senão o ramo sob teste nunca dispara), `clearAllDataStore`,
+// `discardMapsForReplacingImport` e `addMap`; o resto é inerte de propósito.
 vi.mock('@store', async () => {
     const origem = await import('@store/store-origin.js');
     const utils = await import('@store/repository.utils.js');
@@ -159,6 +172,7 @@ vi.mock('@store', async () => {
     return {
         isRemoteStoreSync: origem.isRemoteStoreSync,
         clearAllDataStore: wipeDoEscopoAtivo,
+        discardMapsForReplacingImport: descarteDeMapasDoEscopoAtivo,
         addMap: addMapNoEscopoAtivo,
         MIN_SCHEMA_VERSION: utils.MIN_SCHEMA_VERSION,
         compareVersions: utils.compareVersions,
@@ -525,6 +539,13 @@ describe('CONTROLE NEGATIVO: sem atlas de servidor o import não gasta um slot',
         // E o projeto entrou no banco do slot que já estava montado (o legado, sem sufixo).
         expect(temOMapa('ebgeo_maps')).toBe(true);
         expect(wipeDoEscopoAtivo).toHaveBeenCalledTimes(1);
+        // A ORDEM É O CONSERTO DE 2026-08-28, e ela não se lê no resultado: o descarte tem de
+        // acontecer ANTES da primeira escrita do arquivo. Rodando depois, ele apagaria o projeto
+        // que acabou de entrar; não rodando, o "Principal" em branco que o wipe semeia sobrevive
+        // com CHAVE igual ao NOME e sombreia o "Principal" do arquivo em toda leitura por nome.
+        expect(descarteDeMapasDoEscopoAtivo).toHaveBeenCalledTimes(1);
+        expect(descarteDeMapasDoEscopoAtivo.mock.invocationCallOrder[0])
+            .toBeLessThan(addMapNoEscopoAtivo.mock.invocationCallOrder[0]);
         expect(calls).toEqual([]);
         // A frase sobre "atlas local novo" não aparece quando não houve troca.
         expect((toasts.info ?? []).join(' ')).not.toContain('atlas local novo');

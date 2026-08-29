@@ -87,9 +87,20 @@ viram commit, teste e, se ensinaram algo, linha no [`docs/livro-razao.md`](../li
 | 2026-08-22 | O registro da fase multi-aba sai de `docs/decisions/`, porque o durável dele já vive na wiki | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-23 | `active_sessions` não é recriada: a presença fica em memória por decisão, e o guarda passa a medir escrita no pool | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-23 | `POST /sv360/photos/batch-calibration` fica, como API de roteiro, com prazo de cobrança em 2026-11-23 | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-23 | O NÍVEL de cada participante fica visível para todo membro do atlas | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-23 | Sair de um atlas e sair de um grupo, por conta própria | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-23 | O autor que VENCE a disputa repara o próprio valor no ack, porque nenhuma marca chega a tempo | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | Afordância negada SOME por posto e RECUSA por estado, e o relatório de UX do usuário comum é dissolvido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | As oito decisões do perfil PRODUTOR, e o relatório de UX dele é dissolvido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | As oito decisões do perfil ADMINISTRADOR, e o relatório de UX dele é dissolvido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | As quatro decisões do perfil CREDENCIADO, e o relatório de UX dele é dissolvido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | As quatro decisões do perfil DESLOGADO, e o último relatório de UX é dissolvido | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-24 | O backlog de testes vira 98 defeitos reais, e três formas atravessam o repositório | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-25 | O antimeridiano do snapping é NÃO-OBJETIVO, e as duas peças do mil-symbol saem para módulos folha | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-25 | O id do atlas local sobe preservado quando está livre, e recunhado quando está ocupado | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-27 | O link de compartilhamento ganha a quarta superfície, e a PENDENCIA da raiz é dissolvida | [decisions-2026.md](decisions-2026.md) |
 | 2026-08-28 | O cursor sai em lote por sala, e o limite de sala vai de cinquenta para duzentos | [decisions-2026.md](decisions-2026.md) |
+| 2026-08-28 | O import não-aditivo descarta os mapas do escopo antes da primeira escrita | [decisions-2026.md](decisions-2026.md) |
 
 As duas linhas de 2026-08-16 acima entraram em 2026-08-18: as entradas integrais existiam no arquivo
 do ano e ninguém acrescentara a linha aqui, que é a metade do procedimento que falha calada (o índice

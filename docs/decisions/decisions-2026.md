@@ -1227,3 +1227,17 @@ presença", continuava passando depois da mudança porque o eco passou a chegar 
 aprovava sem verificar. Foi substituída por uma que afirma o contrato NOVO: o remetente recebe o
 próprio cursor no lote, e filtra no cliente. `selection` continua excluindo o remetente, e essa
 metade ficou guardada à parte.
+
+---
+
+### 2026-08-28: o import não-aditivo descarta os mapas do escopo antes da primeira escrita
+
+- **Contexto:** abrir um `.ebgeo` pela tela de atlas cria um slot local novo, cujo boot semeia um mapa "Principal" em branco por `seedBlankDefaultMap`, chaveado pelo NOME. O import não-aditivo então grava os mapas do arquivo, e `addMap` os chaveia por UUID sempre que o log de operações está ligado, que é o padrão desde `initServices()`. Ficavam DOIS registros chamados "Principal". A lista de mapas de-duplica por nome e desenha um cartão só; `getMap('Principal')` acerta o em branco por lookup DIRETO, antes do resolver. Medido com `_ebgeo_dados_teste/01-completo.ebgeo`: as 18 feições do mapa "Principal" chegavam ao IndexedDB e ficavam fora do alcance da pessoa, nem pelo cartão nem pela busca (`linha de visada`, que só existe naquele mapa, devolvia "Nenhum resultado encontrado"). Sem erro em ponto nenhum. As outras 244 feições, em mapas de nome próprio, chegavam inteiras.
+- **Decisão:** `discardMapsForReplacingImport` (`store/map.operations.js`), chamada pelo ramo não-aditivo de `handleImport` ANTES da primeira escrita, apaga por CHAVE de armazenamento todo registro de mapa que sobrou no escopo e limpa o resolver. O chamador guarda o caso vazio: um arquivo sem mapa nenhum não passa por ela, senão o escopo fica sem mapa para abrir.
+- **Alternativas rejeitadas:**
+  - *Apagar só o homônimo*: fecharia o sombreamento e deixaria o mapa em branco ao lado do projeto sempre que o arquivo não trouxesse um mapa com o nome padrão, que é ruído sem dono na lista.
+  - *Fazer `addMap` remover o registro name-keyed de mesmo nome*: mais geral e mais arriscado. Aquele caminho é o mesmo que aplica op de par remoto, onde a colisão por nome tem outro dono (`activateAtlasInitialMap`) e outra regra.
+  - *Não semear o mapa em branco no wipe*: o wipe é chamado por caminhos que NÃO importam nada em seguida, e sem mapa o app não tem o que abrir.
+- **Consequências:** o slot importado passa a ter uma chave de armazenamento por mapa do arquivo (eram `maps + 1`), e a chave `Principal` não sobrevive ao import. Dois casos de `atlas-local-ebgeo-e-teardown.spec.js` afirmavam as doze chaves como se fossem desenho, com o comentário explicando a de-duplicação: os dois foram corrigidos no mesmo commit. A espera daquele arquivo passou a ancorar no toast de sucesso, que é a última linha do fluxo, porque ancorar no número de chaves de mapa media só a primeira etapa e deixava briefing, ícone e blob correndo contra escritas em voo (flake medido).
+- **Guardas:** `frontend/tests/e2e-ui/atlas-local-ebgeo-e-teardown.spec.js` ganhou o caso "cada mapa do arquivo tem UM registro, e a leitura por NOME alcança o do arquivo", que compara a leitura por nome de TODOS os onze mapas com o que o arquivo declara (controle negativo medido: sem o conserto ele reprova nomeando `"Principal": 2`). A ORDEM (descartar antes de escrever) é presa em `frontend/tests/integration/import-ebgeo-atlas-local.test.js`, por `invocationCallOrder`, porque ela não se lê no resultado: rodando depois, o descarte apagaria o projeto que acabou de entrar.
+- **Status:** aceita.

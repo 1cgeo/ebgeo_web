@@ -10,6 +10,7 @@ import {
     addMap,
     setCurrentMap,
     clearAllDataStore,
+    discardMapsForReplacingImport,
     isRemoteStoreSync,
     getImage,
     storeImage,
@@ -667,6 +668,16 @@ export class ExportImportService {
                 await this._importBriefings(data.briefings, false);
 
             } else {
+                // O ESCOPO PRECISA ESTAR VAZIO DE MAPAS ANTES DA PRIMEIRA ESCRITA. O wipe acima
+                // (ou o slot local recém-criado, no ramo do servidor) deixa um "Principal" em
+                // branco chaveado pelo NOME, e `addMap` grava os do arquivo chaveados por UUID:
+                // os dois coexistiriam sob o mesmo nome, a lista mostraria um cartão só e a
+                // leitura por nome acertaria o em branco, escondendo as feições do arquivo.
+                // Guardado pelo caso vazio: um arquivo sem mapa nenhum deixaria o app sem mapa.
+                if (Object.keys(data.maps).length > 0) {
+                    await discardMapsForReplacingImport();
+                }
+
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData, processCatalogLayersOnImport);

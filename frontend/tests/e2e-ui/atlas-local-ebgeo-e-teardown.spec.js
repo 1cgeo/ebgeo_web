@@ -122,18 +122,17 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // fonte que o controle realmente compara, e um repositório apontado para o slot errado
         // devolveria [] sem contradizer nenhuma delas.
         //
-        // DOZE CHAVES PARA ONZE NOMES, e a diferença é a de-duplicação que o poll de cima já
-        // explica: os onze mapas da fixture entram com CHAVE UUID (`addMap` keya por UUID sempre
-        // que o log de operações está ligado, o que `initServices` faz no boot), e ao lado deles
-        // fica o `Principal` em branco, keyado pelo NOME, que `initializeRepository` escreve no
-        // slot recém-esvaziado. O `Principal` da fixture e o em branco colidem por NOME e somem
-        // um no outro na lista da UI; por CHAVE são dois.
-        //
-        // (Esta linha dizia ONZE e estava vermelha ANTES desta mudança: medido em 2026-08-16
-        // rodando este mesmo caso contra o fluxo antigo, que devolveu as mesmas doze chaves.
-        // Não é regressão da criação do slot ter mudado de lado.)
-        expect(estado.idsDeMapa.length).toBe(12);
-        expect(estado.idsDeMapa).toContain('Principal');
+        // ONZE CHAVES PARA ONZE NOMES, e a igualdade é o conserto de 2026-08-28. Os onze mapas
+        // da fixture entram com CHAVE UUID (`addMap` keya por UUID sempre que o log de operações
+        // está ligado, o que `initServices` faz no boot). Até aquela data ficava ao lado deles o
+        // `Principal` em branco que `initializeRepository` escreve no slot recém-esvaziado,
+        // keyado pelo NOME: doze chaves para onze nomes, e o em branco SOMBREAVA o `Principal`
+        // da fixture em toda leitura por nome. Hoje o import não-aditivo descarta os mapas do
+        // escopo antes da primeira escrita (`discardMapsForReplacingImport`), então a chave
+        // `Principal` não sobrevive e nenhum nome carrega dois registros.
+        expect(estado.idsDeMapa.length).toBe(11);
+        expect(estado.idsDeMapa, 'nenhuma chave name-keyed sobrou para sombrear um mapa do arquivo')
+            .not.toContain('Principal');
         // O slot é NOVO: o atlas que o usuário tinha aberto não foi substituído. É a razão de o
         // boot criar um slot em vez de deixar o import não-aditivo cair no atlas corrente.
         expect(estado.nomes.length).toBe(slotsAntes + 1);
@@ -189,16 +188,23 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
         await esperarMapa(page);
 
-        // ESPERA PELO FIM DO IMPORT, e a condição é o número de CHAVES, não o de feições: esperar
-        // pela própria quantia que se vai asserir transforma a asserção num timeout mudo quando
-        // ela falha. São `maps + 1` porque o slot recém-criado traz um `Principal` em branco ao
-        // lado dos onze do arquivo (o caso acima explica a de-duplicação por nome).
-        await expect
-            .poll(async () => page.evaluate(async () => {
-                const { getRepository } = await import('/src/js/store/repositories/index.js');
-                return (await getRepository().getAllMapIds()).length;
-            }), { timeout: 60000, message: 'o importador terminou de escrever os mapas' })
-            .toBe(esperado.maps + 1);
+        // ESPERA PELO FIM DO IMPORT INTEIRO, e o âncora é o toast de sucesso porque ele é a
+        // ÚLTIMA linha do fluxo: mapas, grupos, camadas, 3D/360, temporal, comentários,
+        // briefings, ordem, imagens e ícones já foram escritos quando ele aparece. Ancorar no
+        // número de CHAVES de mapa media só a primeira etapa, e as asserções de briefing, ícone e
+        // blob corriam contra escritas ainda em voo (flake medido em 2026-08-28, na primeira
+        // tentativa, com `briefings: 0`). Esperar pela própria quantia que se vai asserir também
+        // não serve: transforma a asserção num timeout mudo quando ela falha.
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+            .toBeVisible({ timeout: 60000 });
+
+        // O número de CHAVES é ASSERÇÃO, não espera. São EXATAMENTE `maps` desde 2026-08-28: o
+        // import não-aditivo descarta os mapas do escopo antes de gravar os do arquivo, então o
+        // `Principal` em branco do slot recém-criado não fica ao lado deles (era `maps + 1`).
+        expect(await page.evaluate(async () => {
+            const { getRepository } = await import('/src/js/store/repositories/index.js');
+            return (await getRepository().getAllMapIds()).length;
+        }), 'uma chave de armazenamento por mapa do arquivo').toBe(esperado.maps);
 
         const chegou = await page.evaluate(async (ids) => {
             const { getRepository } = await import('/src/js/store/repositories/index.js');
@@ -249,6 +255,69 @@ describeOrSkip('atlas local: abrir .ebgeo pela tela', () => {
         // ícone de erro no mapa, e nenhuma contagem de feição acusa isso.
         expect(chegou.blobsPresentes, 'os blobs de imagem do zip chegaram ao repositório')
             .toBe(esperado.images);
+    });
+
+    test('cada mapa do arquivo tem UM registro, e a leitura por NOME alcança o do arquivo', async ({ page }) => {
+        test.setTimeout(180000);
+
+        const fixture = await loadEbgeoFixture('01-completo.ebgeo');
+        const esperado = countFixture(fixture);
+
+        await page.goto('/atlas.html');
+        await expect(page.locator('[data-testid="local-atlas-section"]')).toBeVisible({ timeout: 20000 });
+        await page.locator('[data-testid="local-atlas-file-input"]').setInputFiles(FIXTURE);
+        await page.waitForURL((url) => !url.pathname.endsWith('atlas.html'), { timeout: 30000 });
+        await esperarMapa(page);
+
+        // ESPERA PELO FIM DO IMPORT INTEIRO (o toast é a última linha do fluxo), e não pela
+        // própria quantia que se vai asserir: um poll sobre ela vira timeout mudo no dia em que o
+        // defeito voltar, em vez de nomear o que divergiu.
+        await expect(page.locator('.toast', { hasText: `${esperado.maps} mapas carregados!` }))
+            .toBeVisible({ timeout: 60000 });
+
+        const lido = await page.evaluate(async (nomes) => {
+            const { getRepository } = await import('/src/js/store/repositories/index.js');
+            const repo = getRepository();
+
+            const contar = (mapa) => {
+                let n = 0;
+                for (const lista of Object.values(mapa?.features ?? {})) if (Array.isArray(lista)) n += lista.length;
+                return n;
+            };
+
+            // Quantos REGISTROS carregam cada nome. Dois registros com o mesmo nome é o defeito:
+            // a lista de mapas de-duplica por nome e mostra um cartão só, então o segundo fica
+            // fora do alcance da pessoa.
+            const registrosPorNome = {};
+            for (const [, dados] of await repo.getAllMaps()) {
+                const nome = dados?.name;
+                if (!nome) continue;
+                registrosPorNome[nome] = (registrosPorNome[nome] ?? 0) + 1;
+            }
+
+            // A leitura POR NOME é a que a lista de mapas faz ao abrir um cartão.
+            const porNome = {};
+            for (const nome of nomes) porNome[nome] = contar(await repo.getMap(nome));
+
+            const corrente = await repo.getSetting('lastActiveMap');
+            return { registrosPorNome, porNome, corrente, feicoesDoCorrente: contar(await repo.getMap(corrente)) };
+        }, esperado.mapNames);
+
+        // UM registro por nome, contado por extenso: `toMatchObject` com 1 em cada nome falha
+        // nomeando qual mapa duplicou.
+        expect(lido.registrosPorNome, 'nenhum nome do arquivo aparece em dois registros')
+            .toMatchObject(Object.fromEntries(esperado.mapNames.map((nome) => [nome, 1])));
+
+        // O QUE A PESSOA ABRE. O slot local novo nasce com um "Principal" em branco chaveado pelo
+        // NOME, e o import grava os mapas do arquivo chaveados por UUID: enquanto os dois
+        // coexistem, `getMap('Principal')` acerta o em branco por lookup direto e as feições
+        // daquele mapa ficam inalcançáveis pela lista e pela busca.
+        expect(lido.porNome, 'abrir cada mapa pelo nome entrega as feições daquele mapa')
+            .toEqual(esperado.featuresByMap);
+
+        expect(lido.corrente, 'o mapa corrente é o que o arquivo declara').toBe(fixture.data.currentMap);
+        expect(lido.feicoesDoCorrente, 'e ele abre com as feições dele')
+            .toBe(esperado.featuresByMap[fixture.data.currentMap]);
     });
 });
 

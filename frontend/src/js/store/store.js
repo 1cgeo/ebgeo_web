@@ -696,6 +696,7 @@ export {
     renameMap,
     setCurrentMap,
     activateAtlasInitialMap,
+    discardMapsForReplacingImport,
     getCurrentMapName,
     getCurrentMapNameSync,
     getCurrentMapIdSync,

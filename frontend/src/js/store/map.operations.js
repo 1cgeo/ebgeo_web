@@ -463,6 +463,47 @@ async function resolveRequestedLocalMap(preferredMapId) {
 }
 
 /**
+ * Descarta os mapas que sobraram no escopo logo ANTES de um import NÃO-ADITIVO gravar os do
+ * arquivo. Devolve quantos removeu.
+ *
+ * O DEFEITO QUE ELA FECHA, medido em 2026-08-28 com `_ebgeo_dados_teste/01-completo.ebgeo`: abrir
+ * um `.ebgeo` pela tela cria um slot local novo, cujo boot semeia um "Principal" em branco
+ * chaveado pelo NOME (`seedBlankDefaultMap`). O import então grava os onze mapas do arquivo, e
+ * `addMap` os chaveia por UUID sempre que o log de operações está ligado, que é o padrão desde
+ * `initServices()`. Ficam DOIS registros chamados "Principal": o em branco e o do arquivo. A
+ * lista de mapas de-duplica por nome e mostra um cartão só, e toda leitura por nome
+ * (`repo.getMap('Principal')`) acerta o em branco por lookup DIRETO, antes do resolver. As 18
+ * feições daquele mapa ficavam no disco e fora do alcance da pessoa: nem pelo cartão, nem pela
+ * busca, sem erro em lugar nenhum.
+ *
+ * POR QUE APAGAR TUDO, e não só o homônimo. O import não-aditivo é "substitui o projeto atual", e
+ * quando esta função roda o wipe já passou: o que existe é o mapa em branco que o próprio wipe
+ * semeou. Apagar só o homônimo deixaria esse mapa em branco ao lado do projeto sempre que o
+ * arquivo não trouxesse um mapa com o nome padrão, que é ruído sem dono na lista.
+ *
+ * O CHAMADOR GUARDA O CASO VAZIO: um arquivo sem mapa nenhum não pode passar por aqui, senão o
+ * escopo fica sem mapa e o app não tem o que abrir.
+ *
+ * Apaga POR CHAVE de armazenamento, nunca por nome. `deleteMap` resolve o argumento, e resolver
+ * um nome enquanto dois registros o carregam é escolher entre os dois pelo caminho errado.
+ *
+ * @returns {Promise<number>} Quantos registros de mapa foram removidos.
+ */
+export async function discardMapsForReplacingImport() {
+    const repo = getRepository();
+    const chaves = await repo.getAllMapIds();
+    for (const chave of chaves) {
+        await repo.deleteMap(chave);
+    }
+    // O resolver guarda `nome -> chave` do que acabou de sair. Deixar o par morto faria a
+    // primeira leitura por nome do mapa recém-importado passar por uma chave que não existe mais
+    // (`getMap` cai no scan e se recupera, mas o registro do arquivo é gravado logo abaixo e
+    // registra o par certo: limpar aqui evita a janela inteira).
+    mapResolver.clear();
+    return chaves.length;
+}
+
+/**
  * Activates the atlas's map after connecting to a server atlas. Opening an atlas
  * pulls its maps into the store but leaves the app on the LOCAL default map
  * ("Principal"), so the user would not see (or sync onto) the shared content. Atlas
