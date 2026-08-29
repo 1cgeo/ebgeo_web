@@ -158,9 +158,18 @@ controla o 360 e o 3D pelos seus próprios serviços; o que fica fora de qualque
 hoje é justamente o que o Martin serve.
 
 **O que ela compra, e é o que as opções (a) e (c) não tinham:** o transporte da credencial
-está resolvido. O MapLibre não põe cabeçalho num pedido de tile, mas põe query string, e o
+está resolvido. A query string atravessa o MapLibre sem nada no cliente, e o
 backend já lê `?api_key=` (`flexibleAuth`). Nenhuma cunhagem de URL, nenhum segredo
 compartilhado com o nginx, nenhum relógio a sincronizar.
+
+**A JUSTIFICATIVA ORIGINAL DESTE PARÁGRAFO ERA FALSA, corrigida em 2026-08-29:** ela
+dizia que "o MapLibre não põe cabeçalho num pedido de tile". Põe:
+`VectorTileSource.loadTile` chama `transformRequest` e o valor transformado É o pedido de
+rede, medido no bundle vendorizado e já registrado em
+`frontend/src/js/street_view_tool/tile-scope.js`; o precedente vivo é
+`sv360TransformRequest`, que carimba um cabeçalho de autorização numa fonte vetorial e
+funciona. A decisão por (e) continua de pé pelas outras razões, mas ela nunca foi a única
+forma de fazer a credencial viajar, e a seção (f) usa a outra.
 
 **O que ela custa, dito antes de alguém descobrir em produção:**
 
@@ -264,6 +273,131 @@ quando a query não tem forma de UUID. A validação no nginx **não** tem teste
 repositório, pela mesma razão que a 10.1 já registra: ela vira sonda com data, rodada à mão
 no deploy e com o resultado anotado. Sem ela, "o tile privado está fechado" é afirmação sobre
 o repositório, não sobre o servidor.
+
+## (f) O GATE POR RECURSO no tile — DECIDIDO com o dono em 2026-08-29
+
+A seção (e) deixou o recorte por recurso como LIMITAÇÃO DECLARADA: o `auth_request`
+responde sobre a credencial e nunca sobre a camada, de modo que qualquer chave viva
+alcança o tile de qualquer camada privada. Isso foi MEDIDO em
+`dev/tile-privado/scripts/confere-martin-nginx.sh` (um usuário comum que não vê a camada
+em nenhuma das duas portas do catálogo baixa os tiles dela), e o dono decidiu fechar.
+
+**O que mudou o cálculo: a peça já existe e já lê as linhas certas.** O índice de
+`backend/src/modules/nomes/assets3d-regime.js` monta em memória o mapa caminho para linha
+de catálogo, e a consulta dele varre as QUATRO tabelas (`basemaps`, `data_layers`,
+`analysis_layers`, `tilesets`), lendo `access_level` e `config` de cada uma. A linha de
+uma camada de dados privada JÁ está no índice hoje; o que ele ignora é o
+`config.source.url` dela, porque a lista de campos de endereço só nomeia os do 3D. Ao
+lado dele, `backend/src/modules/nomes/assets3d-acesso.js` memoiza a decisão por
+(chamador, recurso) e a invalida na escrita de catálogo. Os dois juntos são o gate que
+falta, e estão medidos: 33 casos verdes, ZERO consulta no caminho público.
+
+**A opção que a busca acrescentou e que foi recusada:** as Function Sources do Martin
+recebem parâmetros de query como JSON, o que permitiria pôr o predicado dentro do SQL.
+Ela cai por uma razão operacional antes de qualquer razão técnica: hoje o Martin publica
+TABELAS por auto-descoberta e o administrador cadastra a camada digitando uma URL;
+exigir uma função SQL por camada privada transfere trabalho de cadastro para trabalho de
+DBA, a cada camada nova, e serão centenas. Além disso seria uma consulta de autenticação
+por TILE dentro do pool do Martin, uma segunda implementação do predicado de credencial
+ao lado de `FIND_USER_BY_API_KEY`, e não cobriria raster (análise e basemap não são MVT
+de função).
+
+### As cinco decisões do dono, e o porquê de cada uma
+
+1. **URL de terceiro só pode ser PÚBLICA.** Isso converte a isenção "não há como gatear
+   servidor alheio" em guarda mecânico: 422 ao marcar privada uma linha cujo endereço
+   não esteja sob o prefixo gateável. A regra vale em DUAS portas, não uma, e a segunda
+   é a que vaza se for esquecida: marcar a linha como privada, e EDITAR A URL de uma
+   linha que já é privada.
+
+2. **O visitante de link público é caso integral, e ele é resolvível.** Ele não é um
+   anônimo: carrega um JWT com `isPublic` e o atlas para o qual foi cunhado
+   (`backend/src/middleware/auth.js`). O problema nunca foi "não tem o que apresentar",
+   foi "o que ele tem não viaja no pedido do tile", e o transporte abaixo resolve isso
+   sem exceção para ele.
+
+3. **O transporte deixa de ser a chave de API e passa a ser o TOKEN.** A chave é
+   portadora, permanente até a rotação, e aparece no log de acesso do nginx, no
+   `Referer` e em todo cache que guarde a URL com query. O cookie carrega o MESMO JWT de
+   sessão, emitido no login pela `res.cookie` que já existe, com as `cookieOptions` que
+   já existem (`httpOnly`, `secure`, e `sameSite` estrito em produção). **Não há
+   credencial nova**, e essa foi a escolha explícita do dono contra um vocabulário
+   próprio de cookie.
+
+   **A ponta solta que isso abre, e ela é o coração do desenho:**
+   `backend/src/middleware/flexible-auth.js` lê o token do cookie OU do cabeçalho e
+   carimba `req.authVia` com o mesmo valor nos dois casos. Como o `auth` estrito reusa o
+   `req.user` que o `flexibleAuth` já populou, um cookie permanente passaria a autorizar
+   ESCRITA, e CSRF deixaria de ser hipótese. A correção não é um tipo novo de
+   credencial: é DISTINGUIR A ORIGEM e fazer o `auth` estrito recusar o principal que
+   chegou por cookie. O token é um só; o que muda é a porta por onde ele entra, e a
+   porta de escrita exige cabeçalho. É a mesma forma que `apiKeyReaches` já aplica à
+   chave de escopo de tile.
+
+   A chave de API fica reservada para integração FORA do navegador.
+
+4. **O caminho que nenhuma linha reivindica é RECUSADO, e isto inverte a regra do 3D.**
+   Lá, "caminho não reivindicado é público" é seguro, porque o Node serve o acervo
+   inteiro e existem arquivos legítimos que o catálogo não descreve. Aqui o endereço é
+   texto livre digitado à mão, e **serão centenas de camadas de dados e análise, várias
+   privadas**: um erro de digitação numa linha privada faz o caminho não casar com
+   entrada nenhuma, e a regra do 3D o publicaria em silêncio. O preço da inversão é que
+   uma fonte publicada no Martin sem cadastro no catálogo deixa de desenhar; esse
+   defeito é VISÍVEL ("cadastrei e não aparece") e o outro é mudo.
+
+5. **O `location` deixa de exigir chave de todo mundo.** Com o gate por recurso, o tile
+   público volta a sair para o visitante anônimo, que é o produto, e volta a ser
+   cacheável na borda. Isso também **tira o item 3 da lista da seção (e)**: republicar o
+   acervo privado sob prefixo próprio só era necessário porque o `location` decide por
+   prefixo, e um índice decide por caminho resolvido.
+
+### O que a ESCALA (centenas de camadas) acrescenta
+
+- **O cache da subrequisição deixa de ser opcional.** Uma tela com cinco camadas ligadas
+  pede da ordem de cem tiles por deslocamento do mapa, ou seja cem subrequisições. Com
+  `proxy_cache` no `location` interno, chaveado por (credencial, fonte), isso cai para
+  uma por camada por janela. O TTL vira o atraso de revogação, escrito numa diretiva
+  legível em vez de escondido num Map de processo.
+- **O memo precisa ser dimensionado, não herdado.** `MAX_ENTRADAS` vale 5000 no 3D, e a
+  cardinalidade aqui é usuários ativos vezes recursos privados tocados.
+- **O payload de `/resource-access/visible` cresce junto**, porque ele devolve as linhas
+  inteiras e um credenciado alcança todo o acervo privado. Ele é buscado a cada login e
+  a cada troca de atlas, e hoje ninguém mede o tamanho dele. O sintoma dessa classe é
+  lentidão de boot, que se diagnostica mal.
+
+### A ordem, e o que cada passo prova
+
+0. **Inventário em produção.** Quantas linhas apontam para o prefixo deste host e
+   quantas para terceiros, cruzado com o nível de acesso. Decide se o guarda do item 1
+   acusa zero linhas (entra direto) ou algumas (precisa de relatório e decisão caso a
+   caso antes). Nos bancos de desenvolvimento desta máquina a resposta é zero. Falta
+   também o endereço do servidor de tiles em produção: `tileServerUrl` está vazio no
+   `.env` de desenvolvimento, e o índice precisa dele para separar o gateável do
+   terceiro.
+1. **O índice aprende os campos de endereço do Martin:** `config.source` e
+   `config.labelSource` de `data_layers`, `config.source` de `analysis_layers`, e as
+   fontes DENTRO de `config.style` em `basemaps` (o campo mais trabalhoso, porque exige
+   descer no estilo em vez de ler um campo). Duas regras que não se adivinham: colisão
+   de prefixo resolve para PRIVADO, e endereço fora do prefixo deste host sai do índice.
+2. **O endpoint decide por recurso.** O nginx já manda o caminho pedido em cabeçalho na
+   subrequisição e o endpoint hoje não o lê. Ele passa a resolver o caminho pelo índice
+   e a devolver a decisão memoizada, reusando o gate do 3D.
+3. **O `location` para de exigir chave incondicionalmente.** É o passo que devolve o
+   anônimo e o cache de borda do público.
+4. **O cookie de leitura no login**, com a distinção de origem do item 3 acima.
+5. **O cache da subrequisição**, se a medição pedir.
+6. **A sonda com data no deploy.** Nada aqui prova o que o nginx do host faz.
+
+### O que continua fora, com a decisão tomada
+
+A chave de API continua portadora quando usada por integração; o que muda é que ela sai
+do caminho do navegador. E o cache do MapLibre é chaveado por z/x/y, não pela URL nem
+pelo cabeçalho (medido no bundle vendorizado, e registrado em
+`frontend/src/js/street_view_tool/tile-scope.js`), então trocar de ESCOPO de atlas não
+re-pede o tile. Isso não afeta credencial, que não muda dentro de uma sessão, mas afeta
+empréstimo por atlas e precisa ser tratado no mesmo lote.
+
+---
 
 ## Recomendação: (b) + (d) — SUPERADA pela decisão de 2026-08-23
 
