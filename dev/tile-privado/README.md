@@ -92,6 +92,37 @@ todos os 401 poderiam vir de "não achou a linha" e a sonda diria verde.
 noutro arquivo. Ela MUTA o banco (torna privados o tileset `PCL` e o projeto 360),
 mede, e devolve os dois a público.
 
+## O cenário do gate por recurso
+
+Além das duas linhas originais do `ebgeo_zero`, o ambiente monta um acervo com a FORMA
+do real, porque a escala decide desenho: o dono informou que serão centenas de camadas,
+várias privadas, e é isso que torna o cache da subrequisição parte do desenho e que
+inverte o default do caminho não reivindicado.
+
+```bash
+scripts/semear-cenario.sh            # idempotente, roda sobre o ambiente de pé
+scripts/confere-gate-por-recurso.sh  # o ALVO, escrito antes da implementação
+```
+
+São **53 camadas de dados** (26 privadas), 5 análises e 7 basemaps, cobrindo as sete
+situações que o gate precisa distinguir: pública sob o prefixo, privada, privada de OM
+produtora, com `labelSource` (a segunda fonte da mesma linha), apontando para terceiro,
+com erro de digitação no endereço, e duas linhas colidindo na mesma fonte. Mais 40
+geradas, que dão volume ao índice, ao memo e ao payload aditivo.
+
+O raster (análise e basemap) **não vem do Martin**, que serve vetor: vem de arquivos
+servidos pelo nginx sob o MESMO prefixo. Isso reproduz o que a produção faz — o prefixo
+é um só e atrás dele há mais de um servidor —, e um gate que só soubesse falar com o
+Martin deixaria a análise inteira de fora.
+
+**`confere-gate-por-recurso.sh` FALHA HOJE, e isso é o ponto.** Ele é o enunciado
+executável da seção (f) de `PENDENCIA-TILE-PRIVADO.md`, escrito antes de uma linha de
+código: 12 de 17 casos pendentes em 2026-08-29. Um teste escrito depois da implementação
+nasce verde e o controle negativo vira um passo que alguém lembra de fazer; escrito
+antes, ele é vermelho por construção, e o dia em que ficar verde é a medição de que o
+gate existe. Os cinco casos que já valem estão marcados como não-regressão e derrubam a
+rodada se pararem de valer.
+
 ## O que este ambiente provou, e o que ele não prova
 
 **Provou** (2026-08-29, as duas sondas verdes):

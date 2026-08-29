@@ -94,6 +94,9 @@ services:
       # O build do frontend, montado como está. Rode `npm run build --prefix frontend`
       # na raiz antes de subir; o compose NÃO constrói o cliente.
       - ../../frontend/dist:/usr/share/nginx/html:ro
+      # Os tiles raster do cenario de teste (analise e basemap), servidos pelo
+      # mesmo prefixo do Martin e cobertos pelo mesmo auth_request.
+      - ./raster:/srv/raster:ro
 
 volumes:
   pgdata:

@@ -57,6 +57,11 @@ URL_TILE="tiles/rodovias"
 # enunciado da pendencia previa: "o basemap privado tem o mesmo defeito, com agravante,
 # o estilo viaja inteiro no payload". Medido: nao viaja.
 URL_BASEMAP="tiles/basemap-secreto"
+# PELA MESMA RAZAO do basemap, a analise tem marcador CUNHADO e nao o id: desde que o
+# cenario de teste existe ha uma segunda linha de analise com a palavra "declividade" no
+# id, e ela e PUBLICA. Procurar o id acusava aquela, e o FALHOU resultante parecia
+# vazamento da linha privada. Marcador que casa mais de uma linha nao mede nenhuma.
+URL_ANALISE="tiles/analise-secreta"
 falhas=0
 defeitos=0
 
@@ -116,10 +121,10 @@ echo
 echo "=== CONTROLE NEGATIVO: camada PUBLICA, a URL sai no config para o anonimo ==="
 sql_catalogo "UPDATE data_layers SET access_level='public', owner_org_id=NULL WHERE id='$CAMADA';"
 sql_catalogo "UPDATE basemaps SET access_level='public' WHERE id='bdgex';"
-sql_catalogo "UPDATE analysis_layers SET access_level='public' WHERE id='declividade';"
+sql_catalogo "UPDATE analysis_layers SET access_level='public', config = jsonb_set(config,'{source,url}', to_jsonb('http://localhost/'||'$URL_ANALISE'||'/{z}/{x}/{y}.png')) WHERE id='declividade';"
 ve "URL do tile em /api/config"            "ve" "$URL_TILE" "$BASE/api/config"
 ve "estilo do basemap em /api/config"      "ve" "$URL_BASEMAP" "$BASE/api/config"
-ve "analise declividade em /api/config"    "ve" "declividade" "$BASE/api/config"
+ve "endereco da analise em /api/config"    "ve" "$URL_ANALISE" "$BASE/api/config"
 
 echo
 echo "=== METADE 1: as tres viram privadas e SOMEM do /api/config ==="
@@ -133,7 +138,8 @@ ve "URL do tile, anonimo"                  "nao-ve" "$URL_TILE" "$BASE/api/confi
 ve "URL do tile, ADMINISTRADOR"            "nao-ve" "$URL_TILE" -H "Authorization: Bearer $TA" "$BASE/api/config"
 ve "estilo do basemap privado, anonimo"    "nao-ve" "$URL_BASEMAP" "$BASE/api/config"
 ve "estilo do basemap, credenciado"        "ve"     "$URL_BASEMAP" -H "Authorization: Bearer $TD" "$BASE/api/v1/resource-access/visible"
-ve "analise privada, anonimo"              "nao-ve" "declividade" "$BASE/api/config"
+ve "endereco da analise privada, anonimo"  "nao-ve" "$URL_ANALISE" "$BASE/api/config"
+ve "endereco da analise, credenciado"      "ve"     "$URL_ANALISE" -H "Authorization: Bearer $TD" "$BASE/api/v1/resource-access/visible"
 
 echo
 echo "=== METADE 1, segunda porta: /resource-access/visible, ramo por ramo ==="
@@ -175,11 +181,11 @@ echo
 echo "--- devolvendo as tres linhas ao estado original ---"
 sql_catalogo "UPDATE data_layers SET access_level='public' WHERE id='$CAMADA';"
 sql_catalogo "UPDATE basemaps SET access_level='public' WHERE id='bdgex';"
-sql_catalogo "UPDATE analysis_layers SET access_level='public' WHERE id='declividade';"
+sql_catalogo "UPDATE analysis_layers SET access_level='public', config = jsonb_set(config,'{source,url}', to_jsonb('http://localhost/'||'$URL_ANALISE'||'/{z}/{x}/{y}.png')) WHERE id='declividade';"
 ve "URL do tile de volta no config"        "ve" "$URL_TILE" "$BASE/api/config"
 
 echo
-echo "Metade 1 (catalogo, por recurso): $(( 19 - falhas ))/19 corretas."
+echo "Metade 1 (catalogo, por recurso): $(( 20 - falhas ))/20 corretas."
 echo "Metade 2 (bytes, por credencial): $defeitos porta(s) alcancada(s) por quem nao ve a camada."
 if [ "$falhas" -eq 0 ]; then
     echo "CASO 4 (Martin via nginx) CONFERIDO -- $(date '+%Y-%m-%d %H:%M'). Ver as linhas DEFEITO."
