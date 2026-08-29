@@ -58,3 +58,8 @@ pids/
 # quem rodou, e reconstruível em ~30 s. O CONJUNTO DOURADO (dev/busca-golden.json)
 # é versionado de propósito: é ele o ativo, o cache é só velocidade.
 dev/.busca-atributos.json
+
+# Ambiente de testes da cláusula 10.7 (dev/tile-privado): a cópia do banco de
+# CONFIGURAÇÃO carrega conta, e-mail e hash de senha reais. Ela se regenera por
+# `dev/tile-privado/scripts/preparar.sh` e não entra no repositório.
+dev/tile-privado/seed/ebgeo_zero.sql

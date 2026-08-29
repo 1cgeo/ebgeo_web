@@ -1,0 +1,15 @@
+# FIM DE LINHA FIXADO EM LF, e isto não é preferência de estilo.
+#
+# `core.autocrlf` está em `true` nesta máquina, então sem este arquivo o git entrega
+# estes scripts com CRLF a quem clonar. Os três de `initdb/` rodam DENTRO do
+# container Linux do Postgres, chamados pelo `docker-entrypoint.sh`, e um `#!/bin/sh`
+# terminado em CR morre com `bad interpreter: /bin/sh^M` na primeira subida, quando o
+# banco está sendo criado e ninguém está olhando o log.
+#
+# O mesmo vale para o `.conf` do nginx, para o `.sql` que o `psql` lê e para o
+# compose: nenhum deles é lido por ferramenta do Windows.
+*.sh    text eol=lf
+*.sql   text eol=lf
+*.conf  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf

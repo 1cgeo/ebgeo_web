@@ -1,0 +1,99 @@
+# Ambiente de testes da cláusula 10.7: a chave de API validada no nginx antes do
+# servidor de tiles. O que ele existe para permitir medir está no README ao lado.
+#
+# AS PORTAS NÃO SÃO ARBITRÁRIAS. O nginx escuta em :80 porque o catálogo do
+# `ebgeo_zero` grava os endereços de tile como `http://localhost/tiles/...`, texto
+# livre digitado pelo administrador. Publicar em outra porta obrigaria a editar as
+# linhas do catálogo, e o ambiente deixaria de reproduzir o dado real. O Postgres
+# sai em :5442 para NÃO colidir com o cluster nativo desta máquina, que é de onde a
+# cópia veio.
+name: ebgeo-tile-privado
+
+services:
+  # A CÓPIA do banco de CONFIGURAÇÃO (catálogo, usuários, atlas) mais o banco de
+  # DADOS vetoriais que o Martin publica. São dois bancos no mesmo servidor, e a
+  # separação é a do produto: `ebgeo_zero` configura, `ebgeo_dados` desenha.
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ebgeo
+      POSTGRES_PASSWORD: ebgeo_secret
+      POSTGRES_DB: ebgeo_zero
+    ports:
+      - "5442:5432"
+    volumes:
+      - ./seed:/seed:ro
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ebgeo -d ebgeo_zero"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    # O Dockerfile DE PRODUÇÃO, e não uma cópia adaptada. Este ambiente teve um
+    # `backend.Dockerfile` próprio por algumas horas em 2026-08-29, enquanto o de
+    # produção não construía (better-sqlite3 sem prebuild para o Node 20). Aquele
+    # arquivo foi apagado assim que a causa foi tratada na raiz: um ambiente que
+    # constrói por um caminho que o deploy não usa mede outro artefato.
+    build:
+      context: ../../backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: postgresql://ebgeo:ebgeo_secret@db:5432/ebgeo_zero
+      # >= 32 caracteres: `validarConfig` reprova o boot em produção abaixo disso.
+      JWT_SECRET: ambiente-de-tile-privado-somente-local-0123456789
+      # Tem de ser IGUAL ao origin que o navegador usa, senão o boot reprova.
+      CORS_ORIGIN: http://localhost
+      IMAGES_DIR: /app/data/images
+      LOG_LEVEL: info
+    # O dump já vem migrado; `migrate.js` é no-op e serve de prova de que o schema
+    # da cópia é o que este código espera.
+    volumes:
+      # OS ACERVOS DE 360 E 3D, MONTADOS SOMENTE-LEITURA a partir do repositório.
+      # Eles NÃO entram na imagem: o `.dockerignore` do backend exclui `data/` inteiro
+      # de propósito (numa máquina com o acervo carregado são dezenas de GB, e o build
+      # viraria uma cópia de vários minutos antes da primeira instrução). Sem estas
+      # montagens o backend responde 404 a todo asset e a todo tile de foto, o que se
+      # lê como "o gate recusou" e não é: é ausência de bytes.
+      #
+      # `:ro` é a parte que importa: este ambiente lê o acervo real da máquina e não
+      # pode escrever nele.
+      - ../../backend/data/assets3d.sqlite:/app/data/assets3d.sqlite:ro
+      - ../../backend/data/assets3d:/app/data/assets3d:ro
+      - ../../backend/data/sv360:/app/data/sv360:ro
+    command: sh -c "node src/database/migrate.js && node src/index.js"
+
+  # O SERVIDOR DE TILES. A porta dele NÃO é publicada de propósito: um atalho até o
+  # Martin seria um contorno do gate dentro do próprio ambiente que existe para
+  # medir o gate. Para diagnosticar por dentro: docker compose exec nginx wget -qO- http://martin:3000/catalog
+  martin:
+    image: ghcr.io/maplibre/martin:v0.14.2
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - --listen-addresses
+      - 0.0.0.0:3000
+      - postgresql://ebgeo:ebgeo_secret@db:5432/ebgeo_dados
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+      - martin
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/ebgeo.conf:/etc/nginx/conf.d/default.conf:ro
+      # O build do frontend, montado como está. Rode `npm run build --prefix frontend`
+      # na raiz antes de subir; o compose NÃO constrói o cliente.
+      - ../../frontend/dist:/usr/share/nginx/html:ro
+
+volumes:
+  pgdata:

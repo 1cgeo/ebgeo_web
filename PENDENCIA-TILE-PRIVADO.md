@@ -18,6 +18,27 @@ outras integrações da mesma pessoa. A cláusula 10.7 está **[em obra]**, e n�
 segue aberto. **A lista ordenada do que falta para o `location` poder ser ligado está no fim
 da seção (e).** Nada em `deploy/` foi tocado.
 
+**ESTADO EM 2026-08-29: o `location` EXISTE, foi MEDIDO e funciona, mas num AMBIENTE DE
+TESTES, nunca no servidor.** O ambiente é `dev/tile-privado/` (compose com nginx, backend,
+Martin e uma cópia do banco de configuração `ebgeo_zero`), e o README dele diz o que ele
+prova e o que não prova. As duas sondas dele passaram em 2026-08-29: `sonda.sh`, com 18
+casos do gate de credencial e controle negativo na MESMA linha de chave, e
+`sonda-360-3d.sh`, com 12 casos do gate por recurso dentro do serviço. Isso NÃO fecha o
+item 5 da lista: nada aqui é o nginx do host, e a distinção continua sendo a mesma que
+`backend/src/modules/nomes/assets3d-regime.js` faz sobre o prefixo `/3d/`.
+
+**A ARMADILHA QUE VAI CUSTAR UMA TARDE A QUEM LIGAR O `location` SEM LER ISTO.** A
+subrequisição do `auth_request` chega ao backend com a QUERY VAZIA: o log do Express
+mostra `GET /tile-access?` mesmo quando o pedido original trazia `?api_key=<uuid>`.
+Dentro daquele `location`, `$arg_api_key` e `$args` são a string vazia, e escrever
+`?api_key=$arg_api_key` ou `?$args` no `proxy_pass` não muda nada (as duas formas foram
+testadas). O que o nginx COPIA da requisição principal é o `unparsed_uri`, ou seja
+`$request_uri`; a saída é extrair a chave dali por `map` e entregá-la em cabeçalho
+`x-api-key`, que `flexibleAuth` lê ANTES da query. **Sem isso o gate falha FECHADO e
+parece certo:** recusa todo tile, o de quem porta chave viva inclusive, com resposta byte
+a byte igual à de quem não porta nenhuma. Uma sonda que só medisse os casos negativos
+diria verde.
+
 ## O defeito, e o defeito gêmeo
 
 O endereço do tile de uma camada privada (`config.source` de `data_layers` e
@@ -28,13 +49,23 @@ censo de superfícies nomeia e recusa no caso do 3D.
 
 Marcar um recurso como privado **não move byte nenhum**, e o desalinhamento é silencioso.
 
-O gêmeo, de sinal oposto e igualmente aberto: **hoje o navegador pede o tile
-anonimamente**. Não existe um único `transformRequest` no frontend (são nove construções
-de `maplibregl.Map`), e o login não emite cookie de sessão (o único `res.cookie` do backend
-é a renovação deslizante de `flexible-auth.js`, que só dispara perto da expiração).
-Consequência: o MVT do 360 e os bytes de tileset privado, que **já** são gateados no
-servidor, não desenham para quem tem direito, exceto na janela intermitente em que o cookie
-acidental existe.
+O gêmeo, de sinal oposto: **o navegador pede o tile de DADOS anonimamente**. O login não
+emite cookie de sessão (o único `res.cookie` do backend é a renovação deslizante de
+`flexible-auth.js`, que só dispara perto da expiração), então uma camada de dados privada
+fechada no servidor não desenharia para quem tem direito.
+
+**A METADE DESTE PARÁGRAFO QUE FALAVA DE 360 E 3D ERA FALSA, e ficou falsa por tempo
+suficiente para virar premissa de planejamento** (ela dizia que não existe um único
+`transformRequest` no frontend, e que o MVT do 360 e o tileset privado não desenham para
+quem tem direito). Medido em 2026-08-29, em `dev/tile-privado/`: os dois desenham. O 360
+tem `sv360TransformRequest`
+(`frontend/src/js/street_view_tool/streetview-api.service.js`), ligado em duas das nove
+construções de mapa, carimbando `Authorization: Bearer` lido da memória; o 3D carimba o
+mesmo cabeçalho no `Resource` do Cesium por `cabecalhosDeAsset`
+(`frontend/src/js/store/sync/assets3d-request.js`). Com um tileset e um projeto 360
+marcados privados, o administrador lê os dois e o usuário comum não lê nenhum, sem cookie
+nenhum no caminho. O que continua sem credencial é a camada de DADOS e a de ANÁLISE, que é
+justamente o que o Martin serve, e é sobre elas que este arquivo trata.
 
 Ou seja, o acervo privado está simultaneamente **aberto para quem não deveria** e
 **quebrado para quem deveria**. Qualquer solução baseada em cabeçalho de requisição herda o
@@ -178,17 +209,37 @@ desejos. **As três primeiras foram feitas em 2026-08-24** (migração `010_chav
    divide prefixo com o público (item 3 abaixo), de modo que não haveria recorte a aplicar. Se o
    requisito virar "a chave alcança o que a pessoa pode ver", o endpoint precisa receber o caminho,
    resolver a camada e consultar `fn_can_see_resource`, e o item 3 precisa vir antes.
+
+   **MEDIDO EM 2026-08-29, e muda como a limitação deve ser descrita:** o recorte por
+   RECURSO que falta AQUI já existe no eixo do SERVIÇO, e a chave de API já é a credencial
+   que o alcança. `flexibleAuth` roda globalmente e lê `?api_key=`, então
+   `/api/v1/assets3d/<privado>/tileset.json?api_key=<chave de um credenciado>` devolve 200
+   sobre um tileset privado, e o MVT do 360 devolve o subconjunto daquela pessoa. Ou seja,
+   a chave não é uma credencial fraca por natureza: ela é cega apenas onde o nginx a
+   valida, porque ali não há nada perguntando qual recurso foi pedido.
 3. **Republicar o acervo privado sob prefixo próprio.** O `location` vale sobre um prefixo: se
    privado e público dividirem o mesmo, ou tudo passa a exigir chave (e o anônimo, que é o
    produto, quebra) ou nada passa. É a pergunta em aberto nº 2 deste documento.
-4. **Distribuir a chave ao cliente.** Não existe um `transformRequest` no frontend (são nove
-   construções de `maplibregl.Map`), e o visitante anônimo e o de link público NÃO TÊM chave
-   nenhuma. Sem isto, ligar o `location` fecha o vazamento e apaga a camada da tela de quem tem
+4. **Distribuir a chave ao cliente.** O visitante anônimo e o de link público NÃO TÊM chave
+   nenhuma, então ligar o `location` fecha o vazamento e apaga a camada da tela de quem tem
    direito, que é o defeito gêmeo descrito no topo deste arquivo.
+
+   **A FRASE "NÃO EXISTE UM `transformRequest` NO FRONTEND" ERA FALSA, e ela estava aqui e no
+   topo deste arquivo.** Existe um, `sv360TransformRequest`
+   (`frontend/src/js/street_view_tool/streetview-api.service.js`), ligado em DUAS das nove
+   construções de mapa, e ele carimba `Authorization: Bearer` em URL do 360 lendo o token da
+   memória, porque a API do MapLibre é síncrona. O 3D também não pede anônimo: `cabecalhosDeAsset`
+   (`frontend/src/js/store/sync/assets3d-request.js`) carimba o mesmo cabeçalho no `Resource` do
+   Cesium. O que falta, então, é mais estreito do que este item dizia: um carimbo para a camada de
+   DADOS e de ANÁLISE, que é o que o Martin serve, nas construções de mapa que hoje não têm
+   nenhum. O molde para escrevê-lo já está no repositório, nos dois arquivos acima.
 5. **O `location`**, com `nginx -V` conferido, e a SONDA COM DATA rodada à mão no deploy: nada
    neste repositório prova o que o servidor faz.
 6. **Cache.** A chave na URL torna cada pessoa uma chave de cache distinta. Se o volume apertar,
-   a saída registrada continua sendo (b).
+   a saída registrada continua sendo (b). **O custo da subrequisição em si foi medido em
+   2026-08-29 e é indistinguível do ruído** (20 pedidos em série, com e sem o gate, na mesma
+   máquina, com a diferença invertendo de sinal entre rodadas). Isso NÃO responde a pergunta do
+   cache, que é sobre banda de borda e não sobre latência de subrequisição.
 
 **O que (e) NÃO entrega, e (b) entregava:** o cache de borda continua possível, mas a chave
 na URL torna cada usuário uma chave de cache distinta — o compartilhamento de tile entre

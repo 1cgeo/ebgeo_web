@@ -1,0 +1,6 @@
+# O Dockerfile é lido pelo daemon do Docker, nunca por ferramenta do Windows, e
+# `core.autocrlf` está em `true` nesta máquina. Um `RUN` de várias linhas com CR no
+# fim de cada uma é a forma de quebra que aparece só no build de quem clonou.
+Dockerfile      text eol=lf
+Dockerfile.*    text eol=lf
+*.sh            text eol=lf

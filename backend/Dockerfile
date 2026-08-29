@@ -1,15 +1,31 @@
 # syntax=docker/dockerfile:1
-# EBGeo Backend — multi-stage build (Node 20 LTS, ES Modules)
+# EBGeo Backend — multi-stage build (Node 22 LTS, ES Modules)
 # Uses debian-slim (not alpine) to avoid musl issues with the native `bcrypt` module.
+#
+# NODE 22, NOT 20, AND THE REASON IS NOT "NEWER IS BETTER". On 2026-08-29 this file
+# stopped building at all: `npm ci` fell through to `node-gyp rebuild` for
+# better-sqlite3 and died with `gyp ERR! find Python`, because the slim image ships
+# no Python and no C++ toolchain. The root cause is upstream, not here:
+# better-sqlite3 12.10.0 DROPPED its prebuilt binaries for Node 20 (end of life),
+# and this package is on 12.11.1. On Node 20 there is nothing to download, so the
+# install compiles; on Node 22 the prebuild exists and `npm ci --omit=dev` finishes
+# in about 3 seconds with no toolchain at all (measured, both ways, on this file).
+#
+# The two alternatives were weighed and rejected: installing python3/make/g++ pays a
+# compile on every build for a binary that already exists upstream, and pinning
+# better-sqlite3 to 12.9.0 freezes a dependency to keep a runtime that is already
+# EOL. Both `package.json` files declare `node >=20.19.0`, which Node 22 satisfies.
+# The sibling `ebgeo_360`, which is deployed by Docker on the same server, is on
+# node:22 for the same dependency.
 
 # ---- deps: install production dependencies only ----
-FROM node:20-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ---- runtime ----
-FROM node:20-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
